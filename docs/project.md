@@ -1,0 +1,231 @@
+# Noema
+
+An open-source personal agent operating system.
+
+Noema is a local-first, self-hosted platform for multiple humans, agents, conversations, workspaces, projects, tools, tasks, and memory. It should feel polished and opinionated by default, while remaining inspectable and customizable as the human grows into the system.
+
+## Values
+
+- Opinionated in construction, impartial in use
+- Privacy and security thoughtfully integrated throughout
+- Simple initial setup; complexity grows with the human
+- Self-hosted and local-first by default
+- Transparent systems over mysterious AI state
+- Human-owned data, context, and memory
+- Deterministic controls wherever trust depends on them
+
+## Core product goals
+
+- Support multiple agents, defaulting to one primary agent
+- Support multiple humans, defaulting to one primary human
+- Treat conversations, workspaces, and projects as first-class coordination surfaces
+- Provide a full-featured task system with Kanban, dependencies, delegation, approvals, and multi-agent orchestration
+- Support tools and integrations through explicit permissions and audit trails
+- Make memory automatic enough to feel effortless and inspectable enough to feel trustworthy
+- Make proactivity customizable globally, by scope, by agent, and by project
+- Expose reliable export, deletion, rebuild, restore, and audit operations
+
+## Filesystem and storage architecture
+
+Noema should keep a clean split between canonical structured state and durable object-owned files.
+
+```
+~/.noema/
+  config.yaml
+
+  db/
+    noema.sqlite          # canonical structured state
+
+  humans/
+    [human_id]/
+      docs/
+      imports/
+      artifacts/
+
+  agents/
+    [agent_id]/
+      docs/
+      skills/
+      runs/
+        [run_id]/
+          artifacts/
+
+  conversations/
+    [conversation_id]/
+      attachments/
+      artifacts/
+
+  workspaces/
+    [workspace_id]/
+      docs/
+      projects/
+        [project_id]/
+          docs/
+          artifacts/
+
+  system/                 # derived and rebuildable
+    indexes/
+    cache/
+    tmp/
+```
+
+Source-of-truth rules:
+
+| Data | Source of truth |
+| --- | --- |
+| IDs, scopes, relationships, permissions, tasks, memory, provenance, audit events | `db/noema.sqlite` |
+| Human-authored docs, imported files, attachments, and durable artifacts | filesystem |
+| Indexes, caches, temporary files, and derived search/vector state | `system/` |
+| Introspection into database-backed state | dashboard and explicit export tools |
+
+## Primary objects
+
+| Object | Purpose |
+| --- | --- |
+| Humans | People who own, use, collaborate through, or are represented inside Noema |
+| Agents | Specialized assistants with skills, tools, policies, and operational memory |
+| Conversations | Interaction history, working context, decisions, tool calls, and candidate memories |
+| Workspaces | Shared environments for humans, agents, tools, policies, and projects |
+| Projects | Goal-oriented spaces with decisions, tasks, documents, open loops, and agent activity |
+| Tools | Capabilities agents can invoke under permission and audit rules |
+
+## Core architecture
+
+```
+Human Interfaces
+  dashboard, chat, command palette, filesystem view, desktop/mobile clients
+        │
+        ▼
+Agent Runtime
+  agents, planners, schedulers, tool use, task workers, automations
+        │
+        ▼
+Governance Runtime
+  permissions, scopes, policies, approvals, audit, proactivity limits
+        │
+        ▼
+Context Runtime
+  conversations, projects, workspaces, humans, tools, tasks, memory retrieval
+        │
+        ▼
+Canonical Store
+  db/noema.sqlite + durable object-owned files
+        │
+        └── System State
+              indexes, caches, vectors, temp files
+```
+
+## First-class scopes
+
+Scopes govern visibility, permissions, memory, proactivity, tool access, auditability, and default behavior.
+
+```
+System
+Human
+Agent
+Conversation
+Workspace
+Project
+Tool
+Relationship
+```
+
+## Tasks and orchestration
+
+Noema should include a first-party task system, not just chat reminders.
+
+Task system requirements:
+
+- Kanban views
+- Dependencies and blocking relationships
+- Human and agent assignees
+- Approval checkpoints
+- Recurring tasks
+- Project-linked and conversation-linked tasks
+- Tool-call audit trails
+- Agent handoffs
+- Task provenance
+
+## Memory as a subsystem
+
+Memory is critical, but it is one subsystem inside the broader agent OS.
+
+Default ownership rules:
+
+```
+Human facts live with the human.
+Project facts live with the project.
+Workspace facts live with the workspace.
+Conversation-local context lives with the conversation.
+Agent skills live with the agent.
+Interaction preferences live with the relationship.
+Provenance links everything.
+```
+
+## Proactivity
+
+Proactivity should be customizable and explainable.
+
+```
+0. Never use proactively
+1. Use only when human asks
+2. Use silently to personalize responses
+3. Surface suggestions inside chat
+4. Send proactive notifications
+5. Propose external actions
+6. Take approved automatic actions
+```
+
+## Dashboard surfaces
+
+- Humans
+- Agents
+- Conversations
+- Workspaces
+- Projects
+- Tasks
+- Tools
+- Permissions
+- Memory
+- Proactivity
+- Audit log
+- Exports and restore
+
+## Backup and portability
+
+Noema should assume humans can back up the entire `~/.noema/` directory with their preferred backup tool.
+
+A complete backup includes:
+
+```
+config.yaml
+db/
+humans/
+agents/
+conversations/
+workspaces/
+```
+
+`system/` is rebuildable. Exports are separate from backups and should support machine-readable and human-readable formats.
+
+## V1 recommendation
+
+Build Noema around the root objects first:
+
+```
+humans
+agents
+conversations
+workspaces/projects
+tools
+tasks
+memory
+```
+
+Use SQLite as the canonical structured store. Use the filesystem for durable object-owned documents and artifacts. Use the dashboard and export tools for introspection into database-backed state.
+
+[Memory System Plan](memory.md)
+
+[Runtime Harness Architecture](harness.md)
+
+[Canonical SQLite Schema](sqlite.md)
