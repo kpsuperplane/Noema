@@ -14,6 +14,34 @@ trigger -> run envelope -> context packet -> governed execution
 This keeps user conversations, task automation, scheduled work, proactive
 suggestions, imports, and agent handoffs compatible with one another.
 
+## Current Rust daemon slice
+
+The current Rust implementation is intentionally much smaller than the full
+runtime described below. It introduces the process boundary that later runtime
+features can grow into:
+
+- `noema start` runs a foreground, user-level daemon.
+- The daemon listens on `~/.noema/run/noema.sock` using newline-delimited JSON.
+- The daemon owns provider runtime state instead of recreating it for every CLI
+  message.
+- The daemon starts `codex app-server --listen stdio://` lazily on the first
+  chat conversation.
+- `noema chat` connects to the daemon, creates a fresh Noema conversation, and
+  the daemon maps that conversation to one Codex thread.
+- If `noema chat` cannot reach a daemon, it starts a temporary daemon for that
+  chat session and shuts it down when chat exits.
+
+This slice does not yet create durable conversation rows, run envelopes, event
+ledger entries, approvals, memory records, tools, or SQLite state. Conversation
+IDs and Codex thread mappings are in-memory daemon state only.
+
+The daemon intentionally uses the stable Codex app-server flow: initialize the
+connection, start a thread with the chat client's current working directory,
+send text-only `turn/start` requests, collect assistant output from streamed
+notifications, and wait for `turn/completed`. It does not send experimental
+Codex permission fields; Codex's own config continues to own sandbox and
+permission policy.
+
 ## Runtime components
 
 ### Trigger router
@@ -678,4 +706,3 @@ A practical first runtime slice:
 
 This slice should still use the same envelope, ledger, policy, and capability
 boundaries that future task, schedule, proactive, and multi-agent runs will use.
-
