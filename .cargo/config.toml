@@ -1,2 +1,13 @@
 [alias]
-dev-daemon = "watch --clear -w crates -w Cargo.toml -w Cargo.lock -x 'run -p noema-cli -- start'"
+dev-daemon = [
+  "watch",
+  "--clear",
+  "-w",
+  "crates",
+  "-w",
+  "Cargo.toml",
+  "-w",
+  "Cargo.lock",
+  "-x",
+  "run -p noema-cli -- start",
+]
