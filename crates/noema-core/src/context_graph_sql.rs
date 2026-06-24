@@ -149,6 +149,31 @@ ORDER BY grant.created_at DESC, grant.grant_id ASC
 LIMIT ?1
 ";
 
+pub(crate) const GRAPH_MEMORY_EVENTS_SQL: &str = r"
+WITH inspected_memories AS (
+  SELECT memory_id, home_scope_id
+  FROM memory_items
+  ORDER BY created_at DESC, rowid DESC
+  LIMIT ?1
+)
+SELECT
+  event.event_id,
+  event.event_type,
+  event.actor_principal_id,
+  event.memory_id,
+  memory.sensitivity,
+  event.scope_id,
+  event.reason,
+  event.created_at,
+  event.details
+FROM memory_events event
+LEFT JOIN memory_items memory ON memory.memory_id = event.memory_id
+WHERE event.memory_id IN (SELECT memory_id FROM inspected_memories)
+   OR event.scope_id IN (SELECT home_scope_id FROM inspected_memories)
+ORDER BY event.created_at DESC, event.event_id ASC
+LIMIT ?1
+";
+
 pub(crate) const GRAPH_RELATIONSHIP_EDGES_SQL: &str = r"
 SELECT
   r.relationship_id,

@@ -532,9 +532,9 @@ It renders the persisted context graph view from the canonical SQLite tables:
 memory nodes with stored and effective retrieval-policy status, entity nodes,
 subject edges, participant edges, provenance edges, trusted object-link policy
 edges, purpose rules, access grants that affect the inspected memories or their
-home scopes, and relationship claim edges. During active development, schema
-changes update the canonical schema directly; local development databases can
-be recreated rather than migrated.
+home scopes, memory lifecycle/use events, and relationship claim edges. During
+active development, schema changes update the canonical schema directly; local
+development databases can be recreated rather than migrated.
 
 This CLI graph is privileged local owner/admin debug output. Agent-visible
 context packets and omissions must continue to use redacted model-facing

@@ -2457,6 +2457,77 @@ mod tests {
                 [],
             )
             .expect("unrelated access grant");
+        repo.conn
+            .execute(
+                r#"
+                INSERT INTO memory_events (
+                  event_id,
+                  event_type,
+                  actor_principal_id,
+                  memory_id,
+                  scope_id,
+                  reason,
+                  details
+                )
+                VALUES (
+                  'event_inspect_shown',
+                  'shown_to_model',
+                  'agent:primary',
+                  ?1,
+                  'conversation:inspect_graph',
+                  'context_packet',
+                  '{"run_id":"run:inspect_graph","stage":"shown_to_model"}'
+                )
+                "#,
+                params![memory.id],
+            )
+            .expect("memory use event");
+        repo.conn
+            .execute(
+                r#"
+                INSERT INTO memory_events (
+                  event_id,
+                  event_type,
+                  actor_principal_id,
+                  scope_id,
+                  reason,
+                  details
+                )
+                VALUES (
+                  'event_inspect_scope_retrieval',
+                  'retrieved',
+                  'agent:primary',
+                  'conversation:inspect_graph',
+                  'scope_context',
+                  '{"run_id":"run:inspect_graph"}'
+                )
+                "#,
+                [],
+            )
+            .expect("scope event");
+        repo.conn
+            .execute(
+                r"
+                INSERT INTO memory_events (
+                  event_id,
+                  event_type,
+                  actor_principal_id,
+                  scope_id,
+                  reason,
+                  details
+                )
+                VALUES (
+                  'event_unrelated_scope',
+                  'retrieved',
+                  'agent:primary',
+                  'conversation:unrelated',
+                  'unrelated',
+                  '{}'
+                )
+                ",
+                [],
+            )
+            .expect("unrelated event");
 
         let graph = repo.inspect_context_graph(Some(20)).expect("graph");
 
@@ -2557,6 +2628,27 @@ mod tests {
                 .access_grants
                 .iter()
                 .any(|grant| grant.grant_id == "grant_unrelated_scope")
+        );
+        assert!(graph.memory_events.iter().any(|event| {
+            event.event_id == "event_inspect_shown"
+                && event.event_type == "shown_to_model"
+                && event.memory_id.as_deref() == Some(memory.id.as_str())
+                && event.memory_sensitivity == Some(Sensitivity::Normal)
+                && event.scope_id.as_deref() == Some("conversation:inspect_graph")
+                && event.reason.as_deref() == Some("context_packet")
+                && event.details.contains("run:inspect_graph")
+        }));
+        assert!(graph.memory_events.iter().any(|event| {
+            event.event_id == "event_inspect_scope_retrieval"
+                && event.event_type == "retrieved"
+                && event.memory_id.is_none()
+                && event.scope_id.as_deref() == Some("conversation:inspect_graph")
+        }));
+        assert!(
+            !graph
+                .memory_events
+                .iter()
+                .any(|event| event.event_id == "event_unrelated_scope")
         );
         assert!(graph.relationships.iter().any(|edge| {
             edge.subject_entity_id == "human:kevin"

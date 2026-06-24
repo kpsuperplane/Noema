@@ -96,7 +96,7 @@ fn write_context_graph(
     writeln!(stdout, "Context graph").map_err(CliError::WriteOutput)?;
     writeln!(
         stdout,
-        "memories={} entities={} subject_edges={} participant_edges={} provenance_edges={} object_link_edges={} purpose_rules={} access_grants={} relationships={}",
+        "memories={} entities={} subject_edges={} participant_edges={} provenance_edges={} object_link_edges={} purpose_rules={} access_grants={} memory_events={} relationships={}",
         graph.memories.len(),
         graph.entities.len(),
         graph.subject_edges.len(),
@@ -105,6 +105,7 @@ fn write_context_graph(
         graph.object_link_edges.len(),
         graph.purpose_rules.len(),
         graph.access_grants.len(),
+        graph.memory_events.len(),
         graph.relationships.len(),
     )
     .map_err(CliError::WriteOutput)?;
@@ -311,6 +312,35 @@ fn write_context_graph(
     }
 
     writeln!(stdout).map_err(CliError::WriteOutput)?;
+    writeln!(stdout, "Memory events").map_err(CliError::WriteOutput)?;
+    writeln!(
+        stdout,
+        "{:<38}  {:<16}  {:<28}  {:<38}  {:<24}  Reason",
+        "Event", "Type", "Actor", "Memory", "Scope"
+    )
+    .map_err(CliError::WriteOutput)?;
+    for event in &graph.memory_events {
+        writeln!(
+            stdout,
+            "{:<38}  {:<16}  {:<28}  {:<38}  {:<24}  {}",
+            event.event_id,
+            event.event_type,
+            event.actor_principal_id.as_deref().unwrap_or("-"),
+            event.memory_id.as_deref().unwrap_or("-"),
+            event.scope_id.as_deref().unwrap_or("-"),
+            event.reason.as_deref().unwrap_or("-"),
+        )
+        .map_err(CliError::WriteOutput)?;
+        writeln!(
+            stdout,
+            "{:<38}  details: {}",
+            "",
+            redacted_event_details(event.memory_sensitivity, &event.details, 96),
+        )
+        .map_err(CliError::WriteOutput)?;
+    }
+
+    writeln!(stdout).map_err(CliError::WriteOutput)?;
     writeln!(stdout, "Relationship claims").map_err(CliError::WriteOutput)?;
     writeln!(
         stdout,
@@ -422,6 +452,22 @@ fn redacted_json(sensitivity: Sensitivity, value: &str, max_chars: usize) -> Str
         | Sensitivity::Private
         | Sensitivity::Sensitive
         | Sensitivity::Secret => "[redacted; use memory show <id>]".to_string(),
+    }
+}
+
+fn redacted_event_details(
+    memory_sensitivity: Option<Sensitivity>,
+    details: &str,
+    max_chars: usize,
+) -> String {
+    match memory_sensitivity {
+        Some(Sensitivity::Public) | None => preview(details, max_chars),
+        Some(
+            Sensitivity::Normal
+            | Sensitivity::Private
+            | Sensitivity::Sensitive
+            | Sensitivity::Secret,
+        ) => "[redacted; use memory show <id>]".to_string(),
     }
 }
 
@@ -550,7 +596,7 @@ fn subject_role_label(role: SubjectRole) -> &'static str {
 mod tests {
     use super::*;
     use noema_core::{
-        GraphAccessGrant, GraphEntityNode, GraphMemoryNode, GraphObjectLinkEdge,
+        GraphAccessGrant, GraphEntityNode, GraphMemoryEvent, GraphMemoryNode, GraphObjectLinkEdge,
         GraphParticipantEdge, GraphProvenanceEdge, GraphPurposeRule, GraphSubjectEdge,
         memory_persistence::MemoryType,
     };
@@ -645,6 +691,17 @@ mod tests {
                 created_by_principal_id: Some("human:kevin".to_string()),
                 created_at: "2026-06-24 12:00:00".to_string(),
             }],
+            memory_events: vec![GraphMemoryEvent {
+                event_id: "event_memory_shown".to_string(),
+                event_type: "shown_to_model".to_string(),
+                actor_principal_id: Some("agent:primary".to_string()),
+                memory_id: Some("mem_sensitive".to_string()),
+                memory_sensitivity: Some(Sensitivity::Sensitive),
+                scope_id: Some("conversation:health".to_string()),
+                reason: Some("context_packet".to_string()),
+                created_at: "2026-06-24 12:00:00".to_string(),
+                details: r#"{"run_id":"run:health","quote":"doctor"}"#.to_string(),
+            }],
             relationships: Vec::new(),
         };
         let mut output = Vec::new();
@@ -655,10 +712,12 @@ mod tests {
         assert!(output.contains("object_link_edges=1"));
         assert!(output.contains("purpose_rules=2"));
         assert!(output.contains("access_grants=1"));
+        assert!(output.contains("memory_events=1"));
         assert!(output.contains("Retrieval policy"));
         assert!(output.contains("Trusted object links"));
         assert!(output.contains("Purpose rules"));
         assert!(output.contains("Access grants"));
+        assert!(output.contains("Memory events"));
         assert!(output.contains("owner_only"));
         assert!(output.contains("stale"));
         assert!(output.contains("agent:primary"));
@@ -669,11 +728,14 @@ mod tests {
         assert!(output.contains("deny"));
         assert!(output.contains("use_for_retrieval"));
         assert!(output.contains("2000-01-01 00:00:00"));
+        assert!(output.contains("shown_to_model"));
+        assert!(output.contains("context_packet"));
         assert!(output.contains("task:schedule_checkup"));
         assert!(output.contains("open_loop_for"));
         assert!(output.contains("conversation:health"));
         assert!(output.contains("[redacted; use memory show <id>]"));
         assert!(!output.contains("Doctor follow-up detail"));
         assert!(!output.contains(r#"{"topics":["doctor"]}"#));
+        assert!(!output.contains(r#"{"run_id":"run:health","quote":"doctor"}"#));
     }
 }
