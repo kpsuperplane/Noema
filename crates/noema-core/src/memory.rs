@@ -550,6 +550,14 @@ pub enum MemoryUseStage {
     Retrieved,
     /// Memory was included in the context packet.
     IncludedInPacket,
+    /// Memory was shown to an agent executor.
+    ShownToAgent,
+    /// Memory influenced a human-visible reply.
+    UsedInReply,
+    /// Memory influenced a tool call or external effect.
+    UsedForAction,
+    /// Memory influenced a proactive suggestion or action.
+    UsedForProactivity,
 }
 
 /// Audit record for memory use.
@@ -889,12 +897,8 @@ impl MemoryStore {
             Ok(retrieved) => {
                 included_ids.insert(memory_id.clone());
                 result.use_records.push(MemoryUseRecord {
-                    memory_id: memory_id.clone(),
-                    stage: MemoryUseStage::Retrieved,
-                });
-                result.use_records.push(MemoryUseRecord {
                     memory_id,
-                    stage: MemoryUseStage::IncludedInPacket,
+                    stage: MemoryUseStage::Retrieved,
                 });
                 result.included.push(retrieved);
             }

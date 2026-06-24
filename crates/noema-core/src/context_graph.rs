@@ -6,16 +6,20 @@
 
 use crate::{
     context_graph_rows::{
-        collect_sql_rows, row_to_graph_access_grant, row_to_graph_entity_node,
-        row_to_graph_memory_event, row_to_graph_memory_node, row_to_graph_object_link_edge,
+        collect_sql_rows, row_to_graph_access_grant, row_to_graph_context_packet,
+        row_to_graph_context_packet_memory_edge, row_to_graph_context_packet_omission,
+        row_to_graph_entity_node, row_to_graph_memory_event, row_to_graph_memory_node,
+        row_to_graph_memory_use_record, row_to_graph_object_link_edge,
         row_to_graph_participant_edge, row_to_graph_provenance_edge, row_to_graph_purpose_rule,
         row_to_graph_subject_edge, row_to_relationship_summary,
     },
     context_graph_sql::{
-        GRAPH_ACCESS_GRANTS_SQL, GRAPH_ENTITY_NODES_SQL, GRAPH_MEMORY_EVENTS_SQL,
-        GRAPH_MEMORY_NODES_SQL, GRAPH_OBJECT_LINK_EDGES_SQL, GRAPH_PARTICIPANT_EDGES_SQL,
-        GRAPH_PROVENANCE_EDGES_SQL, GRAPH_PURPOSE_RULES_SQL, GRAPH_RELATIONSHIP_EDGES_SQL,
-        GRAPH_SUBJECT_EDGES_SQL, RELATIONSHIP_BY_ID_SQL,
+        GRAPH_ACCESS_GRANTS_SQL, GRAPH_CONTEXT_PACKET_MEMORY_EDGES_SQL,
+        GRAPH_CONTEXT_PACKET_OMISSIONS_SQL, GRAPH_CONTEXT_PACKETS_SQL, GRAPH_ENTITY_NODES_SQL,
+        GRAPH_MEMORY_EVENTS_SQL, GRAPH_MEMORY_NODES_SQL, GRAPH_MEMORY_USE_RECORDS_SQL,
+        GRAPH_OBJECT_LINK_EDGES_SQL, GRAPH_PARTICIPANT_EDGES_SQL, GRAPH_PROVENANCE_EDGES_SQL,
+        GRAPH_PURPOSE_RULES_SQL, GRAPH_RELATIONSHIP_EDGES_SQL, GRAPH_SUBJECT_EDGES_SQL,
+        RELATIONSHIP_BY_ID_SQL,
     },
     memory::{
         Effect, ExternalEgressPolicy, MemoryId, MemoryStatus, ParticipantRole,
@@ -72,6 +76,14 @@ pub struct ContextGraphSummary {
     pub purpose_rules: Vec<GraphPurposeRule>,
     /// Memory or scope access grants.
     pub access_grants: Vec<GraphAccessGrant>,
+    /// Context packet manifests.
+    pub context_packets: Vec<GraphContextPacket>,
+    /// Context packet memory inclusion edges.
+    pub context_packet_memory_edges: Vec<GraphContextPacketMemoryEdge>,
+    /// Context packet omission audit edges.
+    pub context_packet_omissions: Vec<GraphContextPacketOmission>,
+    /// Typed memory-use records by run and packet.
+    pub memory_use_records: Vec<GraphMemoryUseRecord>,
     /// Memory lifecycle and use events.
     pub memory_events: Vec<GraphMemoryEvent>,
     /// Relationship claim edges.
@@ -230,6 +242,104 @@ pub struct GraphAccessGrant {
     pub created_at: String,
 }
 
+/// Context packet manifest in a graph inspection view.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GraphContextPacket {
+    /// Stable context packet id.
+    pub context_packet_id: String,
+    /// Run that produced the packet.
+    pub run_id: String,
+    /// Principal that requested the packet.
+    pub requesting_principal_id: PrincipalId,
+    /// Retrieval or execution purpose.
+    pub purpose: Purpose,
+    /// Active scopes as canonical JSON.
+    pub active_scopes: String,
+    /// Agent-visible redacted omissions as canonical JSON.
+    pub agent_visible_omissions: String,
+    /// SQLite-created timestamp.
+    pub created_at: String,
+}
+
+/// Context packet to memory edge in a graph inspection view.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GraphContextPacketMemoryEdge {
+    /// Stable packet-memory edge id.
+    pub packet_memory_id: String,
+    /// Context packet id.
+    pub context_packet_id: String,
+    /// Included memory id.
+    pub memory_id: MemoryId,
+    /// Sensitivity of the included memory.
+    pub memory_sensitivity: Sensitivity,
+    /// Packet stage represented by this edge.
+    pub stage: String,
+    /// Ranking score, if recorded.
+    pub rank_score: Option<i64>,
+    /// Eligibility reason, if recorded.
+    pub eligibility_reason: Option<String>,
+    /// Ranking reasons as canonical JSON.
+    pub rank_reasons: String,
+    /// SQLite-created timestamp.
+    pub created_at: String,
+}
+
+/// Context packet omission edge in a graph inspection view.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GraphContextPacketOmission {
+    /// Stable omission id.
+    pub omission_id: String,
+    /// Context packet id.
+    pub context_packet_id: String,
+    /// Omitted memory id, if known.
+    pub memory_id: Option<MemoryId>,
+    /// Omitted relationship id, if known.
+    pub relationship_id: Option<String>,
+    /// Record-level sensitivity for omission details.
+    pub omission_sensitivity: Sensitivity,
+    /// Redacted reason visible to an agent.
+    pub agent_visible_reason: String,
+    /// Audit-only precise denial reason.
+    pub audit_reason: String,
+    /// SQLite-created timestamp.
+    pub created_at: String,
+    /// Audit details as canonical JSON.
+    pub details: String,
+}
+
+/// Typed memory-use record in a graph inspection view.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GraphMemoryUseRecord {
+    /// Stable memory-use record id.
+    pub memory_use_id: String,
+    /// Context packet id, if associated.
+    pub context_packet_id: Option<String>,
+    /// Run id.
+    pub run_id: String,
+    /// Memory id.
+    pub memory_id: MemoryId,
+    /// Sensitivity of the memory.
+    pub memory_sensitivity: Sensitivity,
+    /// Use stage.
+    pub stage: String,
+    /// Agent principal, if recorded.
+    pub agent_principal_id: Option<PrincipalId>,
+    /// Scope id, if recorded.
+    pub scope_id: Option<ScopeId>,
+    /// Retrieval or execution purpose.
+    pub purpose: Purpose,
+    /// Object type affected by the use, if any.
+    pub used_for_object_type: Option<String>,
+    /// Object id affected by the use, if any.
+    pub used_for_object_id: Option<String>,
+    /// Policy decision id, if any.
+    pub policy_decision_id: Option<String>,
+    /// SQLite-created timestamp.
+    pub created_at: String,
+    /// Details as canonical JSON.
+    pub details: String,
+}
+
 /// Memory lifecycle or use event in a graph inspection view.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GraphMemoryEvent {
@@ -278,6 +388,10 @@ pub(crate) fn inspect(
     let object_link_edges = graph_object_link_edges(conn, limit)?;
     let purpose_rules = graph_purpose_rules(conn, limit)?;
     let access_grants = graph_access_grants(conn, limit)?;
+    let context_packets = graph_context_packets(conn, limit)?;
+    let context_packet_memory_edges = graph_context_packet_memory_edges(conn, limit)?;
+    let context_packet_omissions = graph_context_packet_omissions(conn, limit)?;
+    let memory_use_records = graph_memory_use_records(conn, limit)?;
     let memory_events = graph_memory_events(conn, limit)?;
     let relationships = graph_relationship_edges(conn, limit)?;
     Ok(ContextGraphSummary {
@@ -289,6 +403,10 @@ pub(crate) fn inspect(
         object_link_edges,
         purpose_rules,
         access_grants,
+        context_packets,
+        context_packet_memory_edges,
+        context_packet_omissions,
+        memory_use_records,
         memory_events,
         relationships,
     })
@@ -394,6 +512,58 @@ fn graph_access_grants(
         .map_err(MemoryPersistenceError::Sqlite)?;
     let rows = stmt
         .query_map(params![limit], row_to_graph_access_grant)
+        .map_err(MemoryPersistenceError::Sqlite)?;
+    collect_sql_rows(rows)
+}
+
+fn graph_context_packets(
+    conn: &Connection,
+    limit: u32,
+) -> Result<Vec<GraphContextPacket>, MemoryPersistenceError> {
+    let mut stmt = conn
+        .prepare(GRAPH_CONTEXT_PACKETS_SQL)
+        .map_err(MemoryPersistenceError::Sqlite)?;
+    let rows = stmt
+        .query_map(params![limit], row_to_graph_context_packet)
+        .map_err(MemoryPersistenceError::Sqlite)?;
+    collect_sql_rows(rows)
+}
+
+fn graph_context_packet_memory_edges(
+    conn: &Connection,
+    limit: u32,
+) -> Result<Vec<GraphContextPacketMemoryEdge>, MemoryPersistenceError> {
+    let mut stmt = conn
+        .prepare(GRAPH_CONTEXT_PACKET_MEMORY_EDGES_SQL)
+        .map_err(MemoryPersistenceError::Sqlite)?;
+    let rows = stmt
+        .query_map(params![limit], row_to_graph_context_packet_memory_edge)
+        .map_err(MemoryPersistenceError::Sqlite)?;
+    collect_sql_rows(rows)
+}
+
+fn graph_context_packet_omissions(
+    conn: &Connection,
+    limit: u32,
+) -> Result<Vec<GraphContextPacketOmission>, MemoryPersistenceError> {
+    let mut stmt = conn
+        .prepare(GRAPH_CONTEXT_PACKET_OMISSIONS_SQL)
+        .map_err(MemoryPersistenceError::Sqlite)?;
+    let rows = stmt
+        .query_map(params![limit], row_to_graph_context_packet_omission)
+        .map_err(MemoryPersistenceError::Sqlite)?;
+    collect_sql_rows(rows)
+}
+
+fn graph_memory_use_records(
+    conn: &Connection,
+    limit: u32,
+) -> Result<Vec<GraphMemoryUseRecord>, MemoryPersistenceError> {
+    let mut stmt = conn
+        .prepare(GRAPH_MEMORY_USE_RECORDS_SQL)
+        .map_err(MemoryPersistenceError::Sqlite)?;
+    let rows = stmt
+        .query_map(params![limit], row_to_graph_memory_use_record)
         .map_err(MemoryPersistenceError::Sqlite)?;
     collect_sql_rows(rows)
 }

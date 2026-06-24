@@ -2,9 +2,10 @@
 
 use crate::{
     context_graph::{
-        GraphAccessGrant, GraphEntityNode, GraphMemoryEvent, GraphMemoryNode, GraphObjectLinkEdge,
-        GraphParticipantEdge, GraphProvenanceEdge, GraphPurposeRule, GraphSubjectEdge,
-        RelationshipSummary,
+        GraphAccessGrant, GraphContextPacket, GraphContextPacketMemoryEdge,
+        GraphContextPacketOmission, GraphEntityNode, GraphMemoryEvent, GraphMemoryNode,
+        GraphMemoryUseRecord, GraphObjectLinkEdge, GraphParticipantEdge, GraphProvenanceEdge,
+        GraphPurposeRule, GraphSubjectEdge, RelationshipSummary,
     },
     memory::{
         Effect, ExternalEgressPolicy, MemoryId, MemoryStatus, ParticipantRole,
@@ -192,6 +193,78 @@ pub(crate) fn row_to_graph_memory_event(
         reason: row.get(6)?,
         created_at: row.get(7)?,
         details: row.get(8)?,
+    })
+}
+
+pub(crate) fn row_to_graph_context_packet(
+    row: &rusqlite::Row<'_>,
+) -> rusqlite::Result<GraphContextPacket> {
+    let purpose: String = row.get(3)?;
+    Ok(GraphContextPacket {
+        context_packet_id: row.get(0)?,
+        run_id: row.get(1)?,
+        requesting_principal_id: row.get(2)?,
+        purpose: parse_purpose(&purpose).map_err(enum_to_sql_error)?,
+        active_scopes: row.get(4)?,
+        agent_visible_omissions: row.get(5)?,
+        created_at: row.get(6)?,
+    })
+}
+
+pub(crate) fn row_to_graph_context_packet_memory_edge(
+    row: &rusqlite::Row<'_>,
+) -> rusqlite::Result<GraphContextPacketMemoryEdge> {
+    let sensitivity: String = row.get(3)?;
+    Ok(GraphContextPacketMemoryEdge {
+        packet_memory_id: row.get(0)?,
+        context_packet_id: row.get(1)?,
+        memory_id: row.get(2)?,
+        memory_sensitivity: parse_sensitivity(&sensitivity).map_err(enum_to_sql_error)?,
+        stage: row.get(4)?,
+        rank_score: row.get(5)?,
+        eligibility_reason: row.get(6)?,
+        rank_reasons: row.get(7)?,
+        created_at: row.get(8)?,
+    })
+}
+
+pub(crate) fn row_to_graph_context_packet_omission(
+    row: &rusqlite::Row<'_>,
+) -> rusqlite::Result<GraphContextPacketOmission> {
+    let sensitivity: String = row.get(4)?;
+    Ok(GraphContextPacketOmission {
+        omission_id: row.get(0)?,
+        context_packet_id: row.get(1)?,
+        memory_id: row.get(2)?,
+        relationship_id: row.get(3)?,
+        omission_sensitivity: parse_sensitivity(&sensitivity).map_err(enum_to_sql_error)?,
+        agent_visible_reason: row.get(5)?,
+        audit_reason: row.get(6)?,
+        created_at: row.get(7)?,
+        details: row.get(8)?,
+    })
+}
+
+pub(crate) fn row_to_graph_memory_use_record(
+    row: &rusqlite::Row<'_>,
+) -> rusqlite::Result<GraphMemoryUseRecord> {
+    let sensitivity: String = row.get(4)?;
+    let purpose: String = row.get(8)?;
+    Ok(GraphMemoryUseRecord {
+        memory_use_id: row.get(0)?,
+        context_packet_id: row.get(1)?,
+        run_id: row.get(2)?,
+        memory_id: row.get(3)?,
+        memory_sensitivity: parse_sensitivity(&sensitivity).map_err(enum_to_sql_error)?,
+        stage: row.get(5)?,
+        agent_principal_id: row.get(6)?,
+        scope_id: row.get(7)?,
+        purpose: parse_purpose(&purpose).map_err(enum_to_sql_error)?,
+        used_for_object_type: row.get(9)?,
+        used_for_object_id: row.get(10)?,
+        policy_decision_id: row.get(11)?,
+        created_at: row.get(12)?,
+        details: row.get(13)?,
     })
 }
 

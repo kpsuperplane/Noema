@@ -8,8 +8,9 @@
 use crate::{
     context_graph::{self, ContextGraphSummary, RelationshipSummary},
     memory::{
-        MemoryId, MemoryRetrievalRequest, MemoryRetrievalResult, MemoryStatus, MemoryStoreError,
-        ParticipantRole, PrincipalId, RelationshipStatus, ScopeId, Sensitivity, SubjectRole,
+        DenialReason, EligibilityReason, MemoryId, MemoryRetrievalRequest, MemoryRetrievalResult,
+        MemoryStatus, MemoryStoreError, MemoryUseStage, ParticipantRole, PrincipalId, Purpose,
+        RankReason, RelationshipStatus, ScopeId, Sensitivity, SubjectRole,
     },
     paths::NoemaPaths,
     retrieval_policy_fingerprint, sqlite_memory_retrieval,
@@ -574,6 +575,169 @@ impl SqliteMemoryRepository {
         request: &MemoryRetrievalRequest,
     ) -> Result<MemoryRetrievalResult, MemoryPersistenceError> {
         sqlite_memory_retrieval::retrieve(&self.conn, request)
+    }
+
+    /// Record a context packet manifest from a memory retrieval result.
+    ///
+    /// This stores the packet header, memory inclusion edges, audit-only
+    /// omissions, redacted agent-visible omission reasons, and memory-use
+    /// records. It is the durable audit bridge between deterministic memory
+    /// retrieval and later context-packet inspection.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MemoryPersistenceError`] if JSON serialization fails or
+    /// SQLite writes fail.
+    pub fn record_context_packet(
+        &mut self,
+        context_packet_id: &str,
+        run_id: &str,
+        request: &MemoryRetrievalRequest,
+        result: &MemoryRetrievalResult,
+    ) -> Result<(), MemoryPersistenceError> {
+        let tx = self
+            .conn
+            .transaction()
+            .map_err(MemoryPersistenceError::Sqlite)?;
+        ensure_principal(&tx, &request.requesting_principal_id)?;
+        for scope_id in &request.trusted.active_scopes {
+            ensure_scope(&tx, scope_id)?;
+        }
+
+        let active_scopes = json_to_string(&json!(&request.trusted.active_scopes))?;
+        let agent_visible_omissions = json_to_string(&json!(agent_visible_omissions_json(result)))?;
+        tx.execute(
+            r"
+            INSERT INTO context_packets (
+              context_packet_id,
+              run_id,
+              requesting_principal_id,
+              purpose,
+              active_scopes,
+              agent_visible_omissions
+            )
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+            ",
+            params![
+                context_packet_id,
+                run_id,
+                request.requesting_principal_id.as_str(),
+                purpose_to_db(request.trusted.purpose),
+                active_scopes,
+                agent_visible_omissions,
+            ],
+        )
+        .map_err(MemoryPersistenceError::Sqlite)?;
+
+        for included in &result.included {
+            let packet_memory_id = allocate_id(&tx, "ctxmem")?;
+            let rank_reasons = json_to_string(&json!(
+                included
+                    .rank_reasons
+                    .iter()
+                    .map(|reason| rank_reason_to_db(*reason))
+                    .collect::<Vec<_>>()
+            ))?;
+            tx.execute(
+                r"
+                INSERT INTO context_packet_memories (
+                  packet_memory_id,
+                  context_packet_id,
+                  memory_id,
+                  stage,
+                  rank_score,
+                  eligibility_reason,
+                  rank_reasons
+                )
+                VALUES (?1, ?2, ?3, 'included_in_packet', ?4, ?5, ?6)
+                ",
+                params![
+                    packet_memory_id,
+                    context_packet_id,
+                    included.memory_id.as_str(),
+                    i64::from(included.rank_score),
+                    eligibility_reason_to_db(included.eligibility_reason),
+                    rank_reasons,
+                ],
+            )
+            .map_err(MemoryPersistenceError::Sqlite)?;
+        }
+
+        let agent_visible_reason = result
+            .agent_visible_omissions
+            .first()
+            .map(|omission| omission.reason)
+            .unwrap_or("none");
+        for denial in &result.denied_for_audit {
+            let omission_id = allocate_id(&tx, "ctxomit")?;
+            let omission_sensitivity = denial
+                .memory_id
+                .as_deref()
+                .map(|memory_id| memory_sensitivity_for_tx(&tx, memory_id))
+                .transpose()?
+                .unwrap_or("normal".to_string());
+            tx.execute(
+                r"
+                INSERT INTO context_packet_omissions (
+                  omission_id,
+                  context_packet_id,
+                  memory_id,
+                  relationship_id,
+                  omission_sensitivity,
+                  agent_visible_reason,
+                  audit_reason,
+                  details
+                )
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+                ",
+                params![
+                    omission_id,
+                    context_packet_id,
+                    denial.memory_id.as_deref(),
+                    denial.relationship_id.as_deref(),
+                    omission_sensitivity,
+                    agent_visible_reason,
+                    denial_reason_to_db(denial.reason),
+                    json_to_string(&json!({
+                        "run_id": run_id,
+                        "purpose": purpose_to_db(request.trusted.purpose),
+                    }))?,
+                ],
+            )
+            .map_err(MemoryPersistenceError::Sqlite)?;
+        }
+
+        let event_scope_id = request.trusted.active_scopes.first().map(String::as_str);
+        for use_record in &result.use_records {
+            insert_memory_use_record(
+                &tx,
+                ContextMemoryUseInsert {
+                    context_packet_id,
+                    run_id,
+                    memory_id: &use_record.memory_id,
+                    stage: use_record.stage,
+                    agent_principal_id: &request.requesting_principal_id,
+                    scope_id: event_scope_id,
+                    purpose: request.trusted.purpose,
+                },
+            )?;
+        }
+        for included in &result.included {
+            insert_memory_use_record(
+                &tx,
+                ContextMemoryUseInsert {
+                    context_packet_id,
+                    run_id,
+                    memory_id: &included.memory_id,
+                    stage: MemoryUseStage::IncludedInPacket,
+                    agent_principal_id: &request.requesting_principal_id,
+                    scope_id: event_scope_id,
+                    purpose: request.trusted.purpose,
+                },
+            )?;
+        }
+
+        tx.commit().map_err(MemoryPersistenceError::Sqlite)
     }
 
     /// Mark a memory retrieval policy valid for its current canonical basis.
@@ -1230,6 +1394,76 @@ fn memory_has_provenance(
     Ok(count > 0)
 }
 
+struct ContextMemoryUseInsert<'a> {
+    context_packet_id: &'a str,
+    run_id: &'a str,
+    memory_id: &'a str,
+    stage: MemoryUseStage,
+    agent_principal_id: &'a str,
+    scope_id: Option<&'a str>,
+    purpose: Purpose,
+}
+
+fn insert_memory_use_record(
+    tx: &Transaction<'_>,
+    record: ContextMemoryUseInsert<'_>,
+) -> Result<(), MemoryPersistenceError> {
+    let memory_use_id = allocate_id(tx, "memuse")?;
+    tx.execute(
+        r"
+        INSERT INTO memory_use_records (
+          memory_use_id,
+          context_packet_id,
+          run_id,
+          memory_id,
+          stage,
+          agent_principal_id,
+          scope_id,
+          purpose,
+          details
+        )
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+        ",
+        params![
+            memory_use_id,
+            record.context_packet_id,
+            record.run_id,
+            record.memory_id,
+            memory_use_stage_to_db(record.stage),
+            record.agent_principal_id,
+            record.scope_id,
+            purpose_to_db(record.purpose),
+            json_to_string(&json!({
+                "context_packet_id": record.context_packet_id,
+                "run_id": record.run_id,
+                "stage": memory_use_stage_to_db(record.stage),
+            }))?,
+        ],
+    )
+    .map_err(MemoryPersistenceError::Sqlite)?;
+    Ok(())
+}
+
+fn memory_sensitivity_for_tx(
+    tx: &Transaction<'_>,
+    memory_id: &str,
+) -> Result<String, MemoryPersistenceError> {
+    tx.query_row(
+        "SELECT sensitivity FROM memory_items WHERE memory_id = ?1",
+        params![memory_id],
+        |row| row.get(0),
+    )
+    .map_err(MemoryPersistenceError::Sqlite)
+}
+
+fn agent_visible_omissions_json(result: &MemoryRetrievalResult) -> Vec<Value> {
+    result
+        .agent_visible_omissions
+        .iter()
+        .map(|omission| json!({ "reason": omission.reason }))
+        .collect()
+}
+
 fn ensure_principal(
     tx: &Transaction<'_>,
     principal_id: &str,
@@ -1598,6 +1832,73 @@ fn relationship_status_to_db(status: RelationshipStatus) -> &'static str {
     }
 }
 
+fn purpose_to_db(purpose: Purpose) -> &'static str {
+    match purpose {
+        Purpose::AnswerHumanQuestion => "answer_human_question",
+        Purpose::DraftInternalContent => "draft_internal_content",
+        Purpose::GeneralPersonalization => "general_personalization",
+        Purpose::ManageTask => "manage_task",
+        Purpose::ManageCalendar => "manage_calendar",
+        Purpose::DraftExternalContent => "draft_external_content",
+        Purpose::UseTool => "use_tool",
+        Purpose::ProactiveSuggestion => "proactive_suggestion",
+        Purpose::ExternalAction => "external_action",
+        Purpose::DebugAudit => "debug_audit",
+    }
+}
+
+fn memory_use_stage_to_db(stage: MemoryUseStage) -> &'static str {
+    match stage {
+        MemoryUseStage::Retrieved => "retrieved",
+        MemoryUseStage::IncludedInPacket => "included_in_packet",
+        MemoryUseStage::ShownToAgent => "shown_to_agent",
+        MemoryUseStage::UsedInReply => "used_in_reply",
+        MemoryUseStage::UsedForAction => "used_for_action",
+        MemoryUseStage::UsedForProactivity => "used_for_proactivity",
+    }
+}
+
+fn eligibility_reason_to_db(reason: EligibilityReason) -> &'static str {
+    match reason {
+        EligibilityReason::ActiveScope => "active_scope",
+        EligibilityReason::ParticipantOverlap => "participant_overlap",
+        EligibilityReason::ExplicitGrant => "explicit_grant",
+        EligibilityReason::TrustedObjectLink => "trusted_object_link",
+        EligibilityReason::PublicHint => "public_hint",
+        EligibilityReason::GraphExpansion => "graph_expansion",
+    }
+}
+
+fn rank_reason_to_db(reason: RankReason) -> &'static str {
+    match reason {
+        RankReason::ExplicitMemoryRequest => "explicit_memory_request",
+        RankReason::TrustedObjectLink => "trusted_object_link",
+        RankReason::FuzzyTopic => "fuzzy_topic",
+        RankReason::FuzzyKeyword => "fuzzy_keyword",
+        RankReason::SameHumanParticipant => "same_human_participant",
+        RankReason::GraphExpansion => "graph_expansion",
+    }
+}
+
+fn denial_reason_to_db(reason: DenialReason) -> &'static str {
+    match reason {
+        DenialReason::ArchivedOrDeleted => "archived_or_deleted",
+        DenialReason::CandidateExcluded => "candidate_excluded",
+        DenialReason::DisputedOrStale => "disputed_or_stale",
+        DenialReason::ExplicitDenyGrant => "explicit_deny_grant",
+        DenialReason::OutsideSearchAperture => "outside_search_aperture",
+        DenialReason::SensitivityCeiling => "sensitivity_ceiling",
+        DenialReason::RetrievalPolicyInvalid => "retrieval_policy_invalid",
+        DenialReason::PurposeDenied => "purpose_denied",
+        DenialReason::ParticipantVisibilityDenied => "participant_visibility_denied",
+        DenialReason::SensitiveUnlockMissing => "sensitive_unlock_missing",
+        DenialReason::SecretApprovalMissing => "secret_approval_missing",
+        DenialReason::RelationshipUnsupported => "relationship_unsupported",
+        DenialReason::ExternalEgressDenied => "external_egress_denied",
+        DenialReason::ExternalEgressApprovalRequired => "external_egress_approval_required",
+    }
+}
+
 fn parse_sensitivity(value: &str) -> Result<Sensitivity, MemoryPersistenceError> {
     match value {
         "public" => Ok(Sensitivity::Public),
@@ -1891,9 +2192,60 @@ CREATE TABLE IF NOT EXISTS memory_access_grants (
   CHECK (memory_id IS NOT NULL OR scope_id IS NOT NULL)
 ) STRICT;
 
+CREATE TABLE IF NOT EXISTS context_packets (
+  context_packet_id TEXT PRIMARY KEY,
+  run_id TEXT NOT NULL,
+  requesting_principal_id TEXT NOT NULL REFERENCES principals(principal_id) ON DELETE CASCADE,
+  purpose TEXT NOT NULL CHECK (purpose IN ('answer_human_question','draft_internal_content','general_personalization','manage_task','manage_calendar','draft_external_content','use_tool','proactive_suggestion','external_action','debug_audit')),
+  active_scopes TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(active_scopes)),
+  agent_visible_omissions TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(agent_visible_omissions)),
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  metadata TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(metadata))
+) STRICT;
+
+CREATE TABLE IF NOT EXISTS context_packet_memories (
+  packet_memory_id TEXT PRIMARY KEY,
+  context_packet_id TEXT NOT NULL REFERENCES context_packets(context_packet_id) ON DELETE CASCADE,
+  memory_id TEXT NOT NULL REFERENCES memory_items(memory_id) ON DELETE CASCADE,
+  stage TEXT NOT NULL CHECK (stage IN ('included_in_packet','shown_to_agent','used_in_reply','used_for_action','used_for_proactivity')),
+  rank_score INTEGER CHECK (rank_score IS NULL OR rank_score >= 0),
+  eligibility_reason TEXT,
+  rank_reasons TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(rank_reasons)),
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  details TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(details))
+) STRICT;
+
+CREATE TABLE IF NOT EXISTS context_packet_omissions (
+  omission_id TEXT PRIMARY KEY,
+  context_packet_id TEXT NOT NULL REFERENCES context_packets(context_packet_id) ON DELETE CASCADE,
+  memory_id TEXT REFERENCES memory_items(memory_id) ON DELETE SET NULL,
+  relationship_id TEXT REFERENCES relationships(relationship_id) ON DELETE SET NULL,
+  omission_sensitivity TEXT NOT NULL DEFAULT 'normal' CHECK (omission_sensitivity IN ('public','normal','private','sensitive','secret')),
+  agent_visible_reason TEXT NOT NULL,
+  audit_reason TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  details TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(details))
+) STRICT;
+
+CREATE TABLE IF NOT EXISTS memory_use_records (
+  memory_use_id TEXT PRIMARY KEY,
+  context_packet_id TEXT REFERENCES context_packets(context_packet_id) ON DELETE CASCADE,
+  run_id TEXT NOT NULL,
+  memory_id TEXT NOT NULL REFERENCES memory_items(memory_id) ON DELETE CASCADE,
+  stage TEXT NOT NULL CHECK (stage IN ('retrieved','included_in_packet','shown_to_agent','used_in_reply','used_for_action','used_for_proactivity')),
+  agent_principal_id TEXT REFERENCES principals(principal_id) ON DELETE SET NULL,
+  scope_id TEXT REFERENCES scopes(scope_id) ON DELETE SET NULL,
+  purpose TEXT NOT NULL CHECK (purpose IN ('answer_human_question','draft_internal_content','general_personalization','manage_task','manage_calendar','draft_external_content','use_tool','proactive_suggestion','external_action','debug_audit')),
+  used_for_object_type TEXT,
+  used_for_object_id TEXT,
+  policy_decision_id TEXT,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  details TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(details))
+) STRICT;
+
 CREATE TABLE IF NOT EXISTS memory_events (
   event_id TEXT PRIMARY KEY,
-  event_type TEXT NOT NULL CHECK (event_type IN ('created','promoted','edited','merged','archived','deleted','retrieved','shown_to_model','used_in_reply','used_for_action','exported','confirmed','disputed','superseded','restored')),
+  event_type TEXT NOT NULL CHECK (event_type IN ('created','promoted','edited','merged','archived','deleted','retrieved','included_in_packet','shown_to_agent','used_in_reply','used_for_action','used_for_proactivity','exported','confirmed','disputed','superseded','restored')),
   actor_principal_id TEXT REFERENCES principals(principal_id) ON DELETE SET NULL,
   memory_id TEXT REFERENCES memory_items(memory_id) ON DELETE SET NULL,
   scope_id TEXT REFERENCES scopes(scope_id) ON DELETE SET NULL,
@@ -1920,6 +2272,13 @@ CREATE INDEX IF NOT EXISTS idx_memory_retrieval_object_links ON memory_retrieval
 CREATE INDEX IF NOT EXISTS idx_memory_provenance_memory ON memory_provenance_edges(memory_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_memory_access_grants_principal ON memory_access_grants(principal_id, permission, effect);
 CREATE INDEX IF NOT EXISTS idx_memory_access_grants_memory_scope ON memory_access_grants(memory_id, scope_id);
+CREATE INDEX IF NOT EXISTS idx_context_packets_run ON context_packets(run_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_context_packet_memories_packet ON context_packet_memories(context_packet_id, stage);
+CREATE INDEX IF NOT EXISTS idx_context_packet_memories_memory ON context_packet_memories(memory_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_context_packet_omissions_packet ON context_packet_omissions(context_packet_id, audit_reason);
+CREATE INDEX IF NOT EXISTS idx_context_packet_omissions_memory ON context_packet_omissions(memory_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_memory_use_records_run ON memory_use_records(run_id, stage, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_memory_use_records_memory ON memory_use_records(memory_id, stage, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_memory_events_memory_time ON memory_events(memory_id, created_at DESC);
 ";
 
@@ -1928,7 +2287,7 @@ mod tests {
     use super::*;
     use crate::memory::{
         DenialReason, Effect, EligibilityReason, ExternalEgressPolicy, MemoryRetrievalRequest,
-        ObjectLink, ParticipantVisibilityPolicy, Purpose, RetrievalPolicyStatus,
+        MemoryUseStage, ObjectLink, ParticipantVisibilityPolicy, Purpose, RetrievalPolicyStatus,
         TrustedRetrievalContext, UntrustedHints,
     };
     use crate::paths::NoemaPaths;
@@ -2471,12 +2830,12 @@ mod tests {
                 )
                 VALUES (
                   'event_inspect_shown',
-                  'shown_to_model',
+                  'shown_to_agent',
                   'agent:primary',
                   ?1,
                   'conversation:inspect_graph',
                   'context_packet',
-                  '{"run_id":"run:inspect_graph","stage":"shown_to_model"}'
+                  '{"run_id":"run:inspect_graph","stage":"shown_to_agent"}'
                 )
                 "#,
                 params![memory.id],
@@ -2631,7 +2990,7 @@ mod tests {
         );
         assert!(graph.memory_events.iter().any(|event| {
             event.event_id == "event_inspect_shown"
-                && event.event_type == "shown_to_model"
+                && event.event_type == "shown_to_agent"
                 && event.memory_id.as_deref() == Some(memory.id.as_str())
                 && event.memory_sensitivity == Some(Sensitivity::Normal)
                 && event.scope_id.as_deref() == Some("conversation:inspect_graph")
@@ -3034,6 +3393,96 @@ mod tests {
         assert!(result.denied_for_audit.iter().any(|denial| {
             denial.memory_id.as_deref() == Some(unscoped_memory.id.as_str())
                 && denial.reason == DenialReason::OutsideSearchAperture
+        }));
+    }
+
+    #[test]
+    fn records_context_packet_with_omissions_and_memory_use_records() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let paths = NoemaPaths::from_noema_home(dir.path()).expect("paths");
+        let mut repo = SqliteMemoryRepository::open(&paths).expect("repo");
+        let mut included = NewChatMemoryCandidate::new(
+            "conversation:packet",
+            "Noema should record context packet manifests.",
+            "agent:primary",
+        );
+        included.status = MemoryStatus::Active;
+        included.participants = vec![NewMemoryParticipant::new(
+            "human:kevin",
+            ParticipantRole::HumanInScope,
+        )];
+        let included_memory = repo
+            .append_chat_memory_candidate(&included)
+            .expect("included memory");
+
+        let mut denied = NewChatMemoryCandidate::new(
+            "conversation:packet",
+            "Sensitive packet detail should stay audit-only.",
+            "agent:primary",
+        );
+        denied.status = MemoryStatus::Active;
+        denied.sensitivity = Sensitivity::Sensitive;
+        denied.participants = vec![NewMemoryParticipant::new(
+            "human:kevin",
+            ParticipantRole::HumanInScope,
+        )];
+        let denied_memory = repo
+            .append_chat_memory_candidate(&denied)
+            .expect("denied memory");
+
+        let mut request = request_for_kevin();
+        request
+            .trusted
+            .active_scopes
+            .push("conversation:packet".to_string());
+        let result = repo.retrieve_memories(&request).expect("retrieve");
+
+        assert_eq!(included_ids(&result), vec![included_memory.id.as_str()]);
+        assert!(
+            result
+                .use_records
+                .iter()
+                .all(|record| record.stage == MemoryUseStage::Retrieved)
+        );
+        assert!(result.denied_for_audit.iter().any(|denial| {
+            denial.memory_id.as_deref() == Some(denied_memory.id.as_str())
+                && denial.reason == DenialReason::SensitivityCeiling
+        }));
+
+        repo.record_context_packet("ctx_packet", "run:packet", &request, &result)
+            .expect("record packet");
+        let graph = repo.inspect_context_graph(Some(20)).expect("graph");
+
+        assert!(graph.context_packets.iter().any(|packet| {
+            packet.context_packet_id == "ctx_packet"
+                && packet.run_id == "run:packet"
+                && packet
+                    .agent_visible_omissions
+                    .contains("policy_restricted_context")
+        }));
+        assert!(graph.context_packet_memory_edges.iter().any(|edge| {
+            edge.context_packet_id == "ctx_packet"
+                && edge.memory_id == included_memory.id
+                && edge.stage == "included_in_packet"
+        }));
+        assert!(graph.context_packet_omissions.iter().any(|omission| {
+            omission.context_packet_id == "ctx_packet"
+                && omission.memory_id.as_deref() == Some(denied_memory.id.as_str())
+                && omission.omission_sensitivity == Sensitivity::Sensitive
+                && omission.agent_visible_reason == "policy_restricted_context"
+                && omission.audit_reason == "sensitivity_ceiling"
+        }));
+        assert!(graph.memory_use_records.iter().any(|record| {
+            record.context_packet_id.as_deref() == Some("ctx_packet")
+                && record.run_id == "run:packet"
+                && record.memory_id == included_memory.id
+                && record.stage == "retrieved"
+        }));
+        assert!(graph.memory_use_records.iter().any(|record| {
+            record.context_packet_id.as_deref() == Some("ctx_packet")
+                && record.run_id == "run:packet"
+                && record.memory_id == included_memory.id
+                && record.stage == "included_in_packet"
         }));
     }
 

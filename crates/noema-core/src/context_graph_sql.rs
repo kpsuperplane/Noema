@@ -149,6 +149,97 @@ ORDER BY grant.created_at DESC, grant.grant_id ASC
 LIMIT ?1
 ";
 
+pub(crate) const GRAPH_CONTEXT_PACKETS_SQL: &str = r"
+SELECT
+  context_packet_id,
+  run_id,
+  requesting_principal_id,
+  purpose,
+  active_scopes,
+  agent_visible_omissions,
+  created_at
+FROM context_packets
+ORDER BY created_at DESC, context_packet_id ASC
+LIMIT ?1
+";
+
+pub(crate) const GRAPH_CONTEXT_PACKET_MEMORY_EDGES_SQL: &str = r"
+WITH recent_packets AS (
+  SELECT context_packet_id
+  FROM context_packets
+  ORDER BY created_at DESC, context_packet_id ASC
+  LIMIT ?1
+)
+SELECT
+  edge.packet_memory_id,
+  edge.context_packet_id,
+  edge.memory_id,
+  memory.sensitivity,
+  edge.stage,
+  edge.rank_score,
+  edge.eligibility_reason,
+  edge.rank_reasons,
+  edge.created_at
+FROM context_packet_memories edge
+JOIN memory_items memory ON memory.memory_id = edge.memory_id
+WHERE edge.context_packet_id IN (SELECT context_packet_id FROM recent_packets)
+ORDER BY edge.created_at DESC, edge.packet_memory_id ASC
+LIMIT ?1
+";
+
+pub(crate) const GRAPH_CONTEXT_PACKET_OMISSIONS_SQL: &str = r"
+WITH recent_packets AS (
+  SELECT context_packet_id
+  FROM context_packets
+  ORDER BY created_at DESC, context_packet_id ASC
+  LIMIT ?1
+)
+SELECT
+  omission.omission_id,
+  omission.context_packet_id,
+  omission.memory_id,
+  omission.relationship_id,
+  omission.omission_sensitivity,
+  omission.agent_visible_reason,
+  omission.audit_reason,
+  omission.created_at,
+  omission.details
+FROM context_packet_omissions omission
+WHERE omission.context_packet_id IN (SELECT context_packet_id FROM recent_packets)
+ORDER BY omission.created_at DESC, omission.omission_id ASC
+LIMIT ?1
+";
+
+pub(crate) const GRAPH_MEMORY_USE_RECORDS_SQL: &str = r"
+WITH recent_packets AS (
+  SELECT context_packet_id
+  FROM context_packets
+  ORDER BY created_at DESC, context_packet_id ASC
+  LIMIT ?1
+)
+SELECT
+  use_record.memory_use_id,
+  use_record.context_packet_id,
+  use_record.run_id,
+  use_record.memory_id,
+  memory.sensitivity,
+  use_record.stage,
+  use_record.agent_principal_id,
+  use_record.scope_id,
+  use_record.purpose,
+  use_record.used_for_object_type,
+  use_record.used_for_object_id,
+  use_record.policy_decision_id,
+  use_record.created_at,
+  use_record.details
+FROM memory_use_records use_record
+JOIN memory_items memory ON memory.memory_id = use_record.memory_id
+WHERE use_record.context_packet_id IN (SELECT context_packet_id FROM recent_packets)
+   OR use_record.context_packet_id IS NULL
+ORDER BY use_record.created_at DESC, use_record.memory_use_id ASC
+LIMIT ?1
+";
+
 pub(crate) const GRAPH_MEMORY_EVENTS_SQL: &str = r"
 WITH inspected_memories AS (
   SELECT memory_id, home_scope_id

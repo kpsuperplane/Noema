@@ -227,6 +227,57 @@ CREATE TABLE memory_access_grants (
   CHECK (memory_id IS NOT NULL OR scope_id IS NOT NULL)
 ) STRICT;
 
+CREATE TABLE context_packets (
+  context_packet_id TEXT PRIMARY KEY,
+  run_id TEXT NOT NULL,
+  requesting_principal_id TEXT NOT NULL REFERENCES principals(principal_id) ON DELETE CASCADE,
+  purpose TEXT NOT NULL CHECK (purpose IN ('answer_human_question','draft_internal_content','general_personalization','manage_task','manage_calendar','draft_external_content','use_tool','proactive_suggestion','external_action','debug_audit')),
+  active_scopes TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(active_scopes)),
+  agent_visible_omissions TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(agent_visible_omissions)),
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  metadata TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(metadata))
+) STRICT;
+
+CREATE TABLE context_packet_memories (
+  packet_memory_id TEXT PRIMARY KEY,
+  context_packet_id TEXT NOT NULL REFERENCES context_packets(context_packet_id) ON DELETE CASCADE,
+  memory_id TEXT NOT NULL REFERENCES memory_items(memory_id) ON DELETE CASCADE,
+  stage TEXT NOT NULL CHECK (stage IN ('included_in_packet','shown_to_agent','used_in_reply','used_for_action','used_for_proactivity')),
+  rank_score INTEGER CHECK (rank_score IS NULL OR rank_score >= 0),
+  eligibility_reason TEXT,
+  rank_reasons TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(rank_reasons)),
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  details TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(details))
+) STRICT;
+
+CREATE TABLE context_packet_omissions (
+  omission_id TEXT PRIMARY KEY,
+  context_packet_id TEXT NOT NULL REFERENCES context_packets(context_packet_id) ON DELETE CASCADE,
+  memory_id TEXT REFERENCES memory_items(memory_id) ON DELETE SET NULL,
+  relationship_id TEXT REFERENCES relationships(relationship_id) ON DELETE SET NULL,
+  omission_sensitivity TEXT NOT NULL DEFAULT 'normal' CHECK (omission_sensitivity IN ('public','normal','private','sensitive','secret')),
+  agent_visible_reason TEXT NOT NULL,
+  audit_reason TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  details TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(details))
+) STRICT;
+
+CREATE TABLE memory_use_records (
+  memory_use_id TEXT PRIMARY KEY,
+  context_packet_id TEXT REFERENCES context_packets(context_packet_id) ON DELETE CASCADE,
+  run_id TEXT NOT NULL,
+  memory_id TEXT NOT NULL REFERENCES memory_items(memory_id) ON DELETE CASCADE,
+  stage TEXT NOT NULL CHECK (stage IN ('retrieved','included_in_packet','shown_to_agent','used_in_reply','used_for_action','used_for_proactivity')),
+  agent_principal_id TEXT REFERENCES principals(principal_id) ON DELETE SET NULL,
+  scope_id TEXT REFERENCES scopes(scope_id) ON DELETE SET NULL,
+  purpose TEXT NOT NULL CHECK (purpose IN ('answer_human_question','draft_internal_content','general_personalization','manage_task','manage_calendar','draft_external_content','use_tool','proactive_suggestion','external_action','debug_audit')),
+  used_for_object_type TEXT,
+  used_for_object_id TEXT,
+  policy_decision_id TEXT,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  details TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(details))
+) STRICT;
+
 CREATE TABLE memory_versions (
   version_id TEXT PRIMARY KEY,
   memory_id TEXT NOT NULL REFERENCES memory_items(memory_id) ON DELETE CASCADE,
@@ -242,7 +293,7 @@ CREATE TABLE memory_versions (
 
 CREATE TABLE memory_events (
   event_id TEXT PRIMARY KEY,
-  event_type TEXT NOT NULL CHECK (event_type IN ('created','promoted','edited','merged','archived','deleted','retrieved','shown_to_model','used_in_reply','used_for_action','exported','confirmed','disputed','superseded','restored')),
+  event_type TEXT NOT NULL CHECK (event_type IN ('created','promoted','edited','merged','archived','deleted','retrieved','included_in_packet','shown_to_agent','used_in_reply','used_for_action','used_for_proactivity','exported','confirmed','disputed','superseded','restored')),
   actor_principal_id TEXT REFERENCES principals(principal_id) ON DELETE SET NULL,
   memory_id TEXT REFERENCES memory_items(memory_id) ON DELETE SET NULL,
   scope_id TEXT REFERENCES scopes(scope_id) ON DELETE SET NULL,
@@ -298,6 +349,13 @@ CREATE INDEX idx_relationships_subject ON relationships(subject_entity_id, predi
 CREATE INDEX idx_relationships_object ON relationships(object_entity_id, predicate);
 CREATE INDEX idx_provenance_memory ON memory_provenance_edges(memory_id);
 CREATE INDEX idx_access_principal ON memory_access_grants(principal_id, permission, effect);
+CREATE INDEX idx_context_packets_run ON context_packets(run_id, created_at DESC);
+CREATE INDEX idx_context_packet_memories_packet ON context_packet_memories(context_packet_id, stage);
+CREATE INDEX idx_context_packet_memories_memory ON context_packet_memories(memory_id, created_at DESC);
+CREATE INDEX idx_context_packet_omissions_packet ON context_packet_omissions(context_packet_id, audit_reason);
+CREATE INDEX idx_context_packet_omissions_memory ON context_packet_omissions(memory_id, created_at DESC);
+CREATE INDEX idx_memory_use_records_run ON memory_use_records(run_id, stage, created_at DESC);
+CREATE INDEX idx_memory_use_records_memory ON memory_use_records(memory_id, stage, created_at DESC);
 CREATE INDEX idx_events_memory_time ON memory_events(memory_id, created_at DESC);
 
 -- Optional rebuildable search indexes, preferably stored under system/indexes/.
