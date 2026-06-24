@@ -6,8 +6,10 @@
 //! a recent-memory listing for CLI inspection.
 
 use crate::{
+    context_graph::{self, ContextGraphSummary, RelationshipSummary},
     memory::{
-        MemoryId, MemoryStatus, ParticipantRole, PrincipalId, ScopeId, Sensitivity, SubjectRole,
+        MemoryId, MemoryStatus, ParticipantRole, PrincipalId, RelationshipStatus, ScopeId,
+        Sensitivity, SubjectRole,
     },
     paths::NoemaPaths,
 };
@@ -439,6 +441,120 @@ impl SqliteMemoryRepository {
                 memory_id: memory_id.to_string(),
             })
     }
+
+    /// Append a graph relationship claim edge.
+    ///
+    /// Active and confirmed relationship claims must name a supporting memory,
+    /// and that memory must already have provenance. Candidate relationships
+    /// may be stored without supporting memory so review workflows can inspect
+    /// them before promotion.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MemoryPersistenceError`] when the relationship violates graph
+    /// invariants, metadata cannot be serialized, or SQLite writes fail.
+    pub fn append_relationship_claim(
+        &mut self,
+        relationship: &NewRelationshipClaim,
+    ) -> Result<RelationshipSummary, MemoryPersistenceError> {
+        let tx = self
+            .conn
+            .transaction()
+            .map_err(MemoryPersistenceError::Sqlite)?;
+        if relationship.status != RelationshipStatus::Candidate {
+            let memory_id = relationship.memory_id.as_deref().ok_or_else(|| {
+                MemoryPersistenceError::RelationshipRequiresSupportingMemory {
+                    relationship_id: relationship
+                        .relationship_id
+                        .clone()
+                        .unwrap_or_else(|| "<new relationship>".to_string()),
+                }
+            })?;
+            if !memory_has_provenance(&tx, memory_id)? {
+                return Err(
+                    MemoryPersistenceError::RelationshipSupportingMemoryMissingProvenance {
+                        relationship_id: relationship
+                            .relationship_id
+                            .clone()
+                            .unwrap_or_else(|| "<new relationship>".to_string()),
+                        memory_id: memory_id.to_string(),
+                    },
+                );
+            }
+        }
+
+        ensure_scope(&tx, &relationship.home_scope_id)?;
+        let relationship_id = match &relationship.relationship_id {
+            Some(relationship_id) => relationship_id.clone(),
+            None => allocate_id(&tx, "rel")?,
+        };
+        tx.execute(
+            r"
+            INSERT INTO relationships (
+              relationship_id,
+              home_scope_id,
+              subject_entity_id,
+              predicate,
+              object_entity_id,
+              memory_id,
+              status,
+              confidence,
+              valid_from,
+              valid_to,
+              metadata
+            )
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+            ",
+            params![
+                relationship_id,
+                relationship.home_scope_id,
+                relationship.subject_entity_id,
+                relationship.predicate,
+                relationship.object_entity_id,
+                relationship.memory_id,
+                relationship_status_to_db(relationship.status),
+                relationship.confidence,
+                relationship.valid_from,
+                relationship.valid_to,
+                json_to_string(&relationship.metadata)?,
+            ],
+        )
+        .map_err(MemoryPersistenceError::Sqlite)?;
+        tx.commit().map_err(MemoryPersistenceError::Sqlite)?;
+
+        self.get_relationship(&relationship_id)?
+            .ok_or_else(|| MemoryPersistenceError::RelationshipNotFound { relationship_id })
+    }
+
+    /// Fetch one relationship claim edge by id.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MemoryPersistenceError`] if SQLite reads fail or stored enum
+    /// values are outside Noema's closed vocabularies.
+    pub fn get_relationship(
+        &self,
+        relationship_id: &str,
+    ) -> Result<Option<RelationshipSummary>, MemoryPersistenceError> {
+        context_graph::relationship_by_id(&self.conn, relationship_id)
+    }
+
+    /// Inspect the recent persisted context graph.
+    ///
+    /// This returns recent memory nodes, related entity nodes, subject edges,
+    /// participant edges, provenance edges, and recent relationship claim edges.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MemoryPersistenceError`] if SQLite reads fail or stored enum
+    /// values are outside Noema's closed vocabularies.
+    pub fn inspect_context_graph(
+        &self,
+        limit: Option<u32>,
+    ) -> Result<ContextGraphSummary, MemoryPersistenceError> {
+        let limit = limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
+        context_graph::inspect(&self.conn, limit)
+    }
 }
 
 const MEMORY_SUMMARY_BY_ID_SQL: &str = r"
@@ -862,6 +978,58 @@ pub struct MemorySummary {
     pub conversation_id: Option<String>,
 }
 
+/// Relationship claim edge to insert into the persisted context graph.
+#[derive(Debug, Clone, PartialEq)]
+pub struct NewRelationshipClaim {
+    /// Optional stable relationship id. A `rel_` id is allocated when omitted.
+    pub relationship_id: Option<String>,
+    /// Scope that owns the relationship claim.
+    pub home_scope_id: ScopeId,
+    /// Subject entity id.
+    pub subject_entity_id: String,
+    /// Predicate label.
+    pub predicate: String,
+    /// Object entity id.
+    pub object_entity_id: String,
+    /// Supporting memory id, required for active or confirmed relationships.
+    pub memory_id: Option<MemoryId>,
+    /// Relationship lifecycle status.
+    pub status: RelationshipStatus,
+    /// Optional confidence score from extraction or curation.
+    pub confidence: Option<f64>,
+    /// Optional start of validity window.
+    pub valid_from: Option<String>,
+    /// Optional end of validity window.
+    pub valid_to: Option<String>,
+    /// Additional structured metadata.
+    pub metadata: Value,
+}
+
+impl NewRelationshipClaim {
+    /// Create a candidate relationship claim with no supporting memory yet.
+    #[must_use]
+    pub fn new(
+        home_scope_id: impl Into<ScopeId>,
+        subject_entity_id: impl Into<String>,
+        predicate: impl Into<String>,
+        object_entity_id: impl Into<String>,
+    ) -> Self {
+        Self {
+            relationship_id: None,
+            home_scope_id: home_scope_id.into(),
+            subject_entity_id: subject_entity_id.into(),
+            predicate: predicate.into(),
+            object_entity_id: object_entity_id.into(),
+            memory_id: None,
+            status: RelationshipStatus::Candidate,
+            confidence: None,
+            valid_from: None,
+            valid_to: None,
+            metadata: json!({}),
+        }
+    }
+}
+
 /// Errors produced by SQLite memory persistence.
 #[derive(Debug, Error)]
 pub enum MemoryPersistenceError {
@@ -910,6 +1078,29 @@ pub enum MemoryPersistenceError {
         memory_id: MemoryId,
     },
 
+    /// A relationship expected to exist was not found.
+    #[error("relationship not found: {relationship_id}")]
+    RelationshipNotFound {
+        /// Missing relationship id.
+        relationship_id: String,
+    },
+
+    /// A current relationship did not include supporting memory.
+    #[error("active or confirmed relationship {relationship_id} requires supporting memory")]
+    RelationshipRequiresSupportingMemory {
+        /// Relationship id or placeholder.
+        relationship_id: String,
+    },
+
+    /// A relationship's supporting memory lacks provenance.
+    #[error("relationship {relationship_id} requires provenance on supporting memory {memory_id}")]
+    RelationshipSupportingMemoryMissingProvenance {
+        /// Relationship id or placeholder.
+        relationship_id: String,
+        /// Supporting memory id.
+        memory_id: MemoryId,
+    },
+
     /// SQLite operation failed.
     #[error("SQLite memory persistence failed: {0}")]
     Sqlite(#[from] rusqlite::Error),
@@ -940,20 +1131,6 @@ fn configure_read_only_connection(conn: &Connection) -> Result<(), MemoryPersist
 
 fn migrate(conn: &Connection) -> Result<(), MemoryPersistenceError> {
     conn.execute_batch(MEMORY_SCHEMA_SQL)?;
-    ensure_memory_items_column(
-        conn,
-        "retrieval_hints",
-        "retrieval_hints TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(retrieval_hints))",
-    )?;
-    ensure_memory_items_column(
-        conn,
-        "confidence",
-        "confidence REAL CHECK (confidence IS NULL OR (confidence >= 0.0 AND confidence <= 1.0))",
-    )?;
-    conn.execute(
-        "DELETE FROM schema_migrations WHERE version = 1 AND name = 'memory_persistence_v1'",
-        [],
-    )?;
     conn.execute(
         "INSERT OR IGNORE INTO schema_migrations (version, name) VALUES (?1, ?2)",
         params![BOOTSTRAP_SCHEMA_VERSION, BOOTSTRAP_SCHEMA_NAME],
@@ -961,28 +1138,18 @@ fn migrate(conn: &Connection) -> Result<(), MemoryPersistenceError> {
     Ok(())
 }
 
-fn ensure_memory_items_column(
-    conn: &Connection,
-    column_name: &str,
-    column_definition: &str,
-) -> Result<(), MemoryPersistenceError> {
-    let mut stmt = conn
-        .prepare("PRAGMA table_info(memory_items)")
+fn memory_has_provenance(
+    tx: &Transaction<'_>,
+    memory_id: &str,
+) -> Result<bool, MemoryPersistenceError> {
+    let count: i64 = tx
+        .query_row(
+            "SELECT COUNT(*) FROM memory_provenance_edges WHERE memory_id = ?1",
+            params![memory_id],
+            |row| row.get(0),
+        )
         .map_err(MemoryPersistenceError::Sqlite)?;
-    let columns = stmt
-        .query_map([], |row| row.get::<_, String>(1))
-        .map_err(MemoryPersistenceError::Sqlite)?;
-
-    for column in columns {
-        if column.map_err(MemoryPersistenceError::Sqlite)? == column_name {
-            return Ok(());
-        }
-    }
-
-    conn.execute_batch(&format!(
-        "ALTER TABLE memory_items ADD COLUMN {column_definition};"
-    ))?;
-    Ok(())
+    Ok(count > 0)
 }
 
 fn ensure_principal(
@@ -1341,6 +1508,18 @@ fn memory_status_to_db(status: MemoryStatus) -> &'static str {
     }
 }
 
+fn relationship_status_to_db(status: RelationshipStatus) -> &'static str {
+    match status {
+        RelationshipStatus::Candidate => "candidate",
+        RelationshipStatus::Active => "active",
+        RelationshipStatus::Confirmed => "confirmed",
+        RelationshipStatus::Superseded => "superseded",
+        RelationshipStatus::Archived => "archived",
+        RelationshipStatus::Deleted => "deleted",
+        RelationshipStatus::Disputed => "disputed",
+    }
+}
+
 fn parse_sensitivity(value: &str) -> Result<Sensitivity, MemoryPersistenceError> {
     match value {
         "public" => Ok(Sensitivity::Public),
@@ -1557,6 +1736,23 @@ CREATE TABLE IF NOT EXISTS memory_subjects (
   PRIMARY KEY (memory_id, entity_id, role)
 ) STRICT;
 
+CREATE TABLE IF NOT EXISTS relationships (
+  relationship_id TEXT PRIMARY KEY,
+  home_scope_id TEXT NOT NULL REFERENCES scopes(scope_id) ON DELETE CASCADE,
+  subject_entity_id TEXT NOT NULL REFERENCES entities(entity_id) ON DELETE CASCADE,
+  predicate TEXT NOT NULL,
+  object_entity_id TEXT NOT NULL REFERENCES entities(entity_id) ON DELETE CASCADE,
+  memory_id TEXT REFERENCES memory_items(memory_id) ON DELETE RESTRICT,
+  status TEXT NOT NULL DEFAULT 'candidate' CHECK (status IN ('candidate','active','confirmed','superseded','archived','deleted','disputed')),
+  confidence REAL CHECK (confidence IS NULL OR (confidence >= 0.0 AND confidence <= 1.0)),
+  valid_from TEXT,
+  valid_to TEXT,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  metadata TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(metadata)),
+  CHECK (status = 'candidate' OR memory_id IS NOT NULL)
+) STRICT;
+
 CREATE TABLE IF NOT EXISTS memory_participants (
   memory_id TEXT NOT NULL REFERENCES memory_items(memory_id) ON DELETE CASCADE,
   principal_id TEXT NOT NULL REFERENCES principals(principal_id) ON DELETE CASCADE,
@@ -1597,6 +1793,9 @@ CREATE INDEX IF NOT EXISTS idx_entities_scope_type ON entities(home_scope_id, en
 CREATE INDEX IF NOT EXISTS idx_entities_canonical_name ON entities(entity_type, canonical_name);
 CREATE INDEX IF NOT EXISTS idx_memory_subjects_entity_role ON memory_subjects(entity_id, role, memory_id);
 CREATE INDEX IF NOT EXISTS idx_memory_subjects_memory_role ON memory_subjects(memory_id, role);
+CREATE INDEX IF NOT EXISTS idx_relationships_subject ON relationships(subject_entity_id, predicate);
+CREATE INDEX IF NOT EXISTS idx_relationships_object ON relationships(object_entity_id, predicate);
+CREATE INDEX IF NOT EXISTS idx_relationships_memory ON relationships(memory_id, status);
 CREATE INDEX IF NOT EXISTS idx_memory_participants_principal ON memory_participants(principal_id, role);
 CREATE INDEX IF NOT EXISTS idx_memory_provenance_memory ON memory_provenance_edges(memory_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_memory_events_memory_time ON memory_events(memory_id, created_at DESC);
@@ -1616,131 +1815,6 @@ mod tests {
 
         assert_eq!(repo.db_path(), &dir.path().join("db").join("noema.sqlite"));
         assert!(repo.db_path().is_file());
-    }
-
-    #[test]
-    fn open_removes_legacy_bootstrap_migration_row() {
-        let dir = tempfile::tempdir().expect("temp dir");
-        let db_path = dir.path().join("db").join("noema.sqlite");
-        std::fs::create_dir_all(db_path.parent().expect("parent")).expect("db dir");
-        {
-            let conn = Connection::open(&db_path).expect("raw conn");
-            conn.execute_batch(
-                r"
-                CREATE TABLE schema_migrations (
-                  version INTEGER PRIMARY KEY,
-                  name TEXT NOT NULL,
-                  applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-                ) STRICT;
-                INSERT INTO schema_migrations (version, name)
-                VALUES (1, 'memory_persistence_v1');
-                ",
-            )
-            .expect("legacy migration row");
-        }
-
-        let repo = SqliteMemoryRepository::open_at(&db_path).expect("repo");
-
-        let legacy_count: i64 = repo
-            .conn
-            .query_row(
-                "SELECT COUNT(*) FROM schema_migrations WHERE version = 1 AND name = 'memory_persistence_v1'",
-                [],
-                |row| row.get(0),
-            )
-            .expect("legacy count");
-        assert_eq!(legacy_count, 0);
-
-        let bootstrap_count: i64 = repo
-            .conn
-            .query_row(
-                "SELECT COUNT(*) FROM schema_migrations WHERE version = ?1 AND name = ?2",
-                params![BOOTSTRAP_SCHEMA_VERSION, BOOTSTRAP_SCHEMA_NAME],
-                |row| row.get(0),
-            )
-            .expect("bootstrap count");
-        assert_eq!(bootstrap_count, 1);
-    }
-
-    #[test]
-    fn open_migrates_old_memory_items_columns_for_extraction_metadata() {
-        let dir = tempfile::tempdir().expect("temp dir");
-        let db_path = dir.path().join("db").join("noema.sqlite");
-        std::fs::create_dir_all(db_path.parent().expect("parent")).expect("db dir");
-        {
-            let conn = Connection::open(&db_path).expect("raw conn");
-            conn.execute_batch(
-                r"
-                CREATE TABLE memory_items (
-                  memory_id TEXT PRIMARY KEY,
-                  home_scope_id TEXT NOT NULL REFERENCES scopes(scope_id) ON DELETE CASCADE,
-                  memory_type TEXT NOT NULL CHECK (memory_type IN ('fact','preference','person','organization','project','place','routine','goal','open_loop','procedure','constraint','trigger','decision','skill','policy','note','other')),
-                  title TEXT NOT NULL,
-                  content TEXT NOT NULL,
-                  structured_value TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(structured_value)),
-                  status TEXT NOT NULL DEFAULT 'candidate' CHECK (status IN ('candidate','active','confirmed','inferred','stale','superseded','archived','deleted','disputed')),
-                  sensitivity TEXT NOT NULL DEFAULT 'normal' CHECK (sensitivity IN ('public','normal','private','sensitive','secret')),
-                  proactivity_level INTEGER NOT NULL DEFAULT 2 CHECK (proactivity_level BETWEEN 0 AND 6),
-                  retrieval_policy_status TEXT NOT NULL DEFAULT 'needs_review' CHECK (retrieval_policy_status IN ('valid','stale','invalid','needs_review')),
-                  retrieval_policy_version INTEGER NOT NULL DEFAULT 1 CHECK (retrieval_policy_version >= 1),
-                  retrieval_policy_fingerprint TEXT,
-                  retrieval_policy_extractor_principal_id TEXT REFERENCES principals(principal_id) ON DELETE SET NULL,
-                  retrieval_policy_extractor_version TEXT,
-                  retrieval_policy_validated_at TEXT,
-                  participant_visibility_policy TEXT NOT NULL DEFAULT 'explicit_grant_only' CHECK (participant_visibility_policy IN ('any_active_human','all_original_humans','owner_only','explicit_grant_only')),
-                  external_egress_policy TEXT NOT NULL DEFAULT 'approval_required' CHECK (external_egress_policy IN ('allow','approval_required','deny')),
-                  created_by_principal_id TEXT NOT NULL REFERENCES principals(principal_id) ON DELETE RESTRICT,
-                  owner_principal_id TEXT REFERENCES principals(principal_id) ON DELETE SET NULL,
-                  authority_level TEXT NOT NULL DEFAULT 'agent_inference' CHECK (authority_level IN ('human_correction','explicit_human_statement','workspace_policy','project_decision','document_source','repeated_observation','agent_inference','weak_inference','system_rule')),
-                  extraction_method TEXT NOT NULL DEFAULT 'llm_extracted' CHECK (extraction_method IN ('explicit_human','llm_extracted','deterministic_rule','imported','human_edited','agent_summary','system_generated')),
-                  observed_at TEXT,
-                  valid_from TEXT,
-                  valid_to TEXT,
-                  expires_at TEXT,
-                  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                  metadata TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(metadata)),
-                  CHECK (
-                    retrieval_policy_status != 'valid'
-                    OR (
-                      retrieval_policy_fingerprint IS NOT NULL
-                      AND retrieval_policy_extractor_principal_id IS NOT NULL
-                      AND retrieval_policy_extractor_version IS NOT NULL
-                      AND retrieval_policy_validated_at IS NOT NULL
-                    )
-                  )
-                ) STRICT;
-                ",
-            )
-            .expect("old memory_items table");
-        }
-
-        let mut repo = SqliteMemoryRepository::open_at(&db_path).expect("repo");
-        let mut candidate = NewChatMemoryCandidate::new(
-            "conversation:old_schema",
-            "Kevin prefers old-schema migrations to be automatic.",
-            "agent:primary",
-        );
-        candidate.confidence = Some(0.88);
-        candidate.retrieval_hints = json!({"topics": ["migrations"]});
-
-        let summary = repo
-            .append_chat_memory_candidate(&candidate)
-            .expect("append after migration");
-
-        let (confidence, retrieval_hints): (Option<f64>, String) = repo
-            .conn
-            .query_row(
-                "SELECT confidence, retrieval_hints FROM memory_items WHERE memory_id = ?1",
-                params![summary.id],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .expect("memory row");
-        assert_eq!(confidence, Some(0.88));
-        assert_eq!(
-            serde_json::from_str::<Value>(&retrieval_hints).expect("retrieval hints"),
-            json!({"topics": ["migrations"]})
-        );
     }
 
     #[test]
@@ -1966,6 +2040,185 @@ mod tests {
             serde_json::from_str::<Value>(&metadata).expect("metadata"),
             json!({"source": "chat_extraction"})
         );
+    }
+
+    #[test]
+    fn appends_relationship_claim_with_supporting_memory_provenance() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let paths = NoemaPaths::from_noema_home(dir.path()).expect("paths");
+        let mut repo = SqliteMemoryRepository::open(&paths).expect("repo");
+        let mut candidate = NewChatMemoryCandidate::new(
+            "conversation:graph",
+            "Kevin uses Noema for memory orchestration.",
+            "agent:primary",
+        );
+        candidate.subjects = vec![
+            NewMemorySubject::new("human:kevin", "human", "Kevin", SubjectRole::Source),
+            NewMemorySubject::new("concept:noema", "concept", "Noema", SubjectRole::Target),
+        ];
+        candidate.source = Some(ChatMemorySource {
+            conversation_id: "conversation:graph".to_string(),
+            message_id: None,
+            evidence_excerpt: Some("Kevin uses Noema".to_string()),
+        });
+        let memory = repo
+            .append_chat_memory_candidate(&candidate)
+            .expect("memory");
+
+        let mut relationship =
+            NewRelationshipClaim::new("conversation:graph", "human:kevin", "uses", "concept:noema");
+        relationship.relationship_id = Some("rel_kevin_uses_noema".to_string());
+        relationship.status = RelationshipStatus::Active;
+        relationship.memory_id = Some(memory.id.clone());
+        relationship.confidence = Some(0.86);
+
+        let summary = repo
+            .append_relationship_claim(&relationship)
+            .expect("relationship");
+
+        assert_eq!(summary.relationship_id, "rel_kevin_uses_noema");
+        assert_eq!(summary.status, RelationshipStatus::Active);
+        assert_eq!(summary.memory_id.as_deref(), Some(memory.id.as_str()));
+        assert_eq!(summary.subject_name.as_deref(), Some("Kevin"));
+        assert_eq!(summary.object_name.as_deref(), Some("Noema"));
+    }
+
+    #[test]
+    fn active_relationship_claim_requires_supporting_provenanced_memory() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let paths = NoemaPaths::from_noema_home(dir.path()).expect("paths");
+        let mut repo = SqliteMemoryRepository::open(&paths).expect("repo");
+        let mut candidate = NewChatMemoryCandidate::new(
+            "conversation:graph_policy",
+            "Kevin likes policy-aware graph claims.",
+            "agent:primary",
+        );
+        candidate.subjects = vec![
+            NewMemorySubject::new("human:kevin", "human", "Kevin", SubjectRole::Source),
+            NewMemorySubject::new(
+                "concept:graph_claims",
+                "concept",
+                "Graph claims",
+                SubjectRole::Target,
+            ),
+        ];
+        let memory = repo
+            .append_chat_memory_candidate(&candidate)
+            .expect("memory");
+
+        let mut no_memory = NewRelationshipClaim::new(
+            "conversation:graph_policy",
+            "human:kevin",
+            "likes",
+            "concept:graph_claims",
+        );
+        no_memory.relationship_id = Some("rel_without_memory".to_string());
+        no_memory.status = RelationshipStatus::Active;
+        assert!(matches!(
+            repo.append_relationship_claim(&no_memory),
+            Err(MemoryPersistenceError::RelationshipRequiresSupportingMemory { .. })
+        ));
+
+        repo.conn
+            .execute(
+                "DELETE FROM memory_provenance_edges WHERE memory_id = ?1",
+                params![memory.id],
+            )
+            .expect("delete provenance");
+        let mut no_provenance = NewRelationshipClaim::new(
+            "conversation:graph_policy",
+            "human:kevin",
+            "likes",
+            "concept:graph_claims",
+        );
+        no_provenance.relationship_id = Some("rel_without_provenance".to_string());
+        no_provenance.status = RelationshipStatus::Confirmed;
+        no_provenance.memory_id = Some(memory.id);
+        assert!(matches!(
+            repo.append_relationship_claim(&no_provenance),
+            Err(MemoryPersistenceError::RelationshipSupportingMemoryMissingProvenance { .. })
+        ));
+    }
+
+    #[test]
+    fn inspects_context_graph_from_canonical_tables() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let paths = NoemaPaths::from_noema_home(dir.path()).expect("paths");
+        let mut repo = SqliteMemoryRepository::open(&paths).expect("repo");
+        let mut candidate = NewChatMemoryCandidate::new(
+            "conversation:inspect_graph",
+            "Kevin prefers inspectable context graphs.",
+            "agent:primary",
+        );
+        candidate.subjects = vec![
+            NewMemorySubject::new("human:kevin", "human", "Kevin", SubjectRole::Source),
+            NewMemorySubject::new(
+                "concept:context_graph",
+                "concept",
+                "Context graph",
+                SubjectRole::Target,
+            ),
+        ];
+        candidate.participants = vec![
+            NewMemoryParticipant::new("human:kevin", ParticipantRole::HumanInScope),
+            NewMemoryParticipant::new("agent:primary", ParticipantRole::AgentInScope),
+        ];
+        candidate.source = Some(ChatMemorySource {
+            conversation_id: "conversation:inspect_graph".to_string(),
+            message_id: None,
+            evidence_excerpt: Some("inspectable context graphs".to_string()),
+        });
+        let memory = repo
+            .append_chat_memory_candidate(&candidate)
+            .expect("memory");
+        let mut relationship = NewRelationshipClaim::new(
+            "conversation:inspect_graph",
+            "human:kevin",
+            "prefers",
+            "concept:context_graph",
+        );
+        relationship.status = RelationshipStatus::Active;
+        relationship.memory_id = Some(memory.id.clone());
+        repo.append_relationship_claim(&relationship)
+            .expect("relationship");
+
+        let graph = repo.inspect_context_graph(Some(20)).expect("graph");
+
+        assert!(
+            graph
+                .memories
+                .iter()
+                .any(|node| node.memory_id == memory.id)
+        );
+        assert!(
+            graph
+                .entities
+                .iter()
+                .any(|node| node.entity_id == "concept:context_graph")
+        );
+        assert!(
+            graph
+                .subject_edges
+                .iter()
+                .any(|edge| edge.memory_id == memory.id && edge.entity_id == "human:kevin")
+        );
+        assert!(
+            graph
+                .participant_edges
+                .iter()
+                .any(|edge| edge.memory_id == memory.id && edge.principal_id == "agent:primary")
+        );
+        assert!(
+            graph
+                .provenance_edges
+                .iter()
+                .any(|edge| edge.memory_id == memory.id && edge.source_type == "episode")
+        );
+        assert!(graph.relationships.iter().any(|edge| {
+            edge.subject_entity_id == "human:kevin"
+                && edge.predicate == "prefers"
+                && edge.object_entity_id == "concept:context_graph"
+        }));
     }
 
     #[test]

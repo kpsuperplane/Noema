@@ -6,6 +6,8 @@
 
 /// Configuration loading and provider selection.
 pub mod config;
+/// Persisted context graph inspection view.
+pub mod context_graph;
 /// Local daemon protocol and client/server runtime.
 pub mod daemon;
 /// Noema home-directory initialization.
@@ -24,6 +26,10 @@ pub mod provider;
 pub mod providers;
 
 pub use config::{CliOverrides, Config, ConfigError, ProviderConfig, ProviderKind, ResolvedConfig};
+pub use context_graph::{
+    ContextGraphSummary, GraphEntityNode, GraphMemoryNode, GraphParticipantEdge,
+    GraphProvenanceEdge, GraphSubjectEdge, RelationshipSummary,
+};
 pub use daemon::{
     DaemonClient, DaemonError, DaemonRequest, DaemonResponse, DaemonServerConfig,
     StartedConversation, TurnActivityStatus, TurnTranscriptItem, default_socket_path,
@@ -43,7 +49,7 @@ pub use memory_extraction::{
 pub use memory_persistence::{
     ChatMemorySource, MemoryAuthorityLevel, MemoryExtractionMethod, MemoryPersistenceError,
     MemorySummary, MemoryType, NewChatMemoryCandidate, NewChatTurn, NewMemoryParticipant,
-    NewMemorySubject, SqliteMemoryRepository,
+    NewMemorySubject, NewRelationshipClaim, SqliteMemoryRepository,
 };
 pub use paths::{NOEMA_HOME_ENV, NoemaPathError, NoemaPaths};
 pub use provider::{
