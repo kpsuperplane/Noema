@@ -8,10 +8,11 @@
 use crate::{
     context_graph::{self, ContextGraphSummary, RelationshipSummary},
     memory::{
-        MemoryId, MemoryStatus, ParticipantRole, PrincipalId, RelationshipStatus, ScopeId,
-        Sensitivity, SubjectRole,
+        MemoryId, MemoryRetrievalRequest, MemoryRetrievalResult, MemoryStatus, MemoryStoreError,
+        ParticipantRole, PrincipalId, RelationshipStatus, ScopeId, Sensitivity, SubjectRole,
     },
     paths::NoemaPaths,
+    sqlite_memory_retrieval,
 };
 use rusqlite::{Connection, OpenFlags, OptionalExtension, Transaction, named_params, params};
 use serde_json::{Value, json};
@@ -554,6 +555,25 @@ impl SqliteMemoryRepository {
     ) -> Result<ContextGraphSummary, MemoryPersistenceError> {
         let limit = limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
         context_graph::inspect(&self.conn, limit)
+    }
+
+    /// Retrieve memories from canonical SQLite state using deterministic gates.
+    ///
+    /// The durable repository loads memory items, subjects, participants,
+    /// purpose rules, trusted object links, access grants, provenance, and
+    /// relationship claim edges into the shared V1 policy engine before
+    /// evaluating the request.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MemoryPersistenceError`] if SQLite reads fail, stored enum
+    /// values are outside Noema's closed vocabularies, JSON retrieval hints
+    /// cannot be parsed, or graph invariants are violated by stored rows.
+    pub fn retrieve_memories(
+        &self,
+        request: &MemoryRetrievalRequest,
+    ) -> Result<MemoryRetrievalResult, MemoryPersistenceError> {
+        sqlite_memory_retrieval::retrieve(&self.conn, request)
     }
 }
 
@@ -1100,6 +1120,10 @@ pub enum MemoryPersistenceError {
         /// Supporting memory id.
         memory_id: MemoryId,
     },
+
+    /// Stored memory graph rows violated retrieval policy invariants.
+    #[error(transparent)]
+    MemoryStore(#[from] MemoryStoreError),
 
     /// SQLite operation failed.
     #[error("SQLite memory persistence failed: {0}")]
@@ -1762,6 +1786,31 @@ CREATE TABLE IF NOT EXISTS memory_participants (
   PRIMARY KEY (memory_id, principal_id, role)
 ) STRICT;
 
+CREATE TABLE IF NOT EXISTS memory_retrieval_purpose_rules (
+  memory_id TEXT NOT NULL REFERENCES memory_items(memory_id) ON DELETE CASCADE,
+  purpose TEXT NOT NULL CHECK (purpose IN ('answer_human_question','draft_internal_content','general_personalization','manage_task','manage_calendar','draft_external_content','use_tool','proactive_suggestion','external_action','debug_audit')),
+  effect TEXT NOT NULL CHECK (effect IN ('allow','deny')),
+  created_by_principal_id TEXT REFERENCES principals(principal_id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  metadata TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(metadata)),
+  PRIMARY KEY (memory_id, purpose)
+) STRICT;
+
+CREATE TABLE IF NOT EXISTS memory_retrieval_object_links (
+  memory_id TEXT NOT NULL REFERENCES memory_items(memory_id) ON DELETE CASCADE,
+  object_type TEXT NOT NULL CHECK (object_type IN ('task','project','workspace','conversation','calendar_event','document','artifact','tool','source','other')),
+  object_id TEXT NOT NULL,
+  relation TEXT NOT NULL CHECK (relation IN ('active_context','required_for','relevant_to','open_loop_for','created_from')),
+  resolver_principal_id TEXT REFERENCES principals(principal_id) ON DELETE SET NULL,
+  resolver_version TEXT,
+  source_run_id TEXT,
+  authorized_scope_id TEXT REFERENCES scopes(scope_id) ON DELETE SET NULL,
+  created_by_principal_id TEXT REFERENCES principals(principal_id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  metadata TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(metadata)),
+  PRIMARY KEY (memory_id, object_type, object_id, relation)
+) STRICT;
+
 CREATE TABLE IF NOT EXISTS memory_provenance_edges (
   edge_id TEXT PRIMARY KEY,
   memory_id TEXT NOT NULL REFERENCES memory_items(memory_id) ON DELETE CASCADE,
@@ -1772,6 +1821,20 @@ CREATE TABLE IF NOT EXISTS memory_provenance_edges (
   created_by_principal_id TEXT REFERENCES principals(principal_id) ON DELETE SET NULL,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   metadata TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(metadata))
+) STRICT;
+
+CREATE TABLE IF NOT EXISTS memory_access_grants (
+  grant_id TEXT PRIMARY KEY,
+  memory_id TEXT REFERENCES memory_items(memory_id) ON DELETE CASCADE,
+  scope_id TEXT REFERENCES scopes(scope_id) ON DELETE CASCADE,
+  principal_id TEXT NOT NULL REFERENCES principals(principal_id) ON DELETE CASCADE,
+  permission TEXT NOT NULL CHECK (permission IN ('read','write','propose','confirm','delete','use_for_retrieval','use_for_proactivity','use_for_external_action')),
+  effect TEXT NOT NULL CHECK (effect IN ('allow','deny')),
+  expires_at TEXT,
+  created_by_principal_id TEXT REFERENCES principals(principal_id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  metadata TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(metadata)),
+  CHECK (memory_id IS NOT NULL OR scope_id IS NOT NULL)
 ) STRICT;
 
 CREATE TABLE IF NOT EXISTS memory_events (
@@ -1789,6 +1852,7 @@ CREATE INDEX IF NOT EXISTS idx_messages_episode_time ON messages(episode_id, occ
 CREATE INDEX IF NOT EXISTS idx_memory_items_home_scope ON memory_items(home_scope_id, status, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_memory_items_created_at ON memory_items(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_memory_items_status ON memory_items(status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_memory_items_policy_status ON memory_items(retrieval_policy_status, sensitivity);
 CREATE INDEX IF NOT EXISTS idx_entities_scope_type ON entities(home_scope_id, entity_type);
 CREATE INDEX IF NOT EXISTS idx_entities_canonical_name ON entities(entity_type, canonical_name);
 CREATE INDEX IF NOT EXISTS idx_memory_subjects_entity_role ON memory_subjects(entity_id, role, memory_id);
@@ -1797,13 +1861,21 @@ CREATE INDEX IF NOT EXISTS idx_relationships_subject ON relationships(subject_en
 CREATE INDEX IF NOT EXISTS idx_relationships_object ON relationships(object_entity_id, predicate);
 CREATE INDEX IF NOT EXISTS idx_relationships_memory ON relationships(memory_id, status);
 CREATE INDEX IF NOT EXISTS idx_memory_participants_principal ON memory_participants(principal_id, role);
+CREATE INDEX IF NOT EXISTS idx_memory_retrieval_purpose_rules ON memory_retrieval_purpose_rules(purpose, effect, memory_id);
+CREATE INDEX IF NOT EXISTS idx_memory_retrieval_object_links ON memory_retrieval_object_links(object_type, object_id, relation);
 CREATE INDEX IF NOT EXISTS idx_memory_provenance_memory ON memory_provenance_edges(memory_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_memory_access_grants_principal ON memory_access_grants(principal_id, permission, effect);
+CREATE INDEX IF NOT EXISTS idx_memory_access_grants_memory_scope ON memory_access_grants(memory_id, scope_id);
 CREATE INDEX IF NOT EXISTS idx_memory_events_memory_time ON memory_events(memory_id, created_at DESC);
 ";
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::memory::{
+        DenialReason, EligibilityReason, MemoryRetrievalRequest, ObjectLink, Purpose,
+        TrustedRetrievalContext, UntrustedHints,
+    };
     use crate::paths::NoemaPaths;
 
     #[test]
@@ -2222,6 +2294,390 @@ mod tests {
     }
 
     #[test]
+    fn persisted_retrieval_uses_participant_overlap() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let paths = NoemaPaths::from_noema_home(dir.path()).expect("paths");
+        let mut repo = SqliteMemoryRepository::open(&paths).expect("repo");
+        let mut candidate = NewChatMemoryCandidate::new(
+            "conversation:old_memory",
+            "Kevin prefers durable retrieval tests.",
+            "agent:primary",
+        );
+        candidate.status = MemoryStatus::Active;
+        candidate.memory_type = MemoryType::Preference;
+        candidate.retrieval_hints = json!({"topics": ["memory"], "keywords": ["retrieval"]});
+        candidate.participants = vec![
+            NewMemoryParticipant::new("human:kevin", ParticipantRole::HumanInScope),
+            NewMemoryParticipant::new("agent:primary", ParticipantRole::AgentInScope),
+        ];
+        let memory = repo
+            .append_chat_memory_candidate(&candidate)
+            .expect("memory");
+
+        let mut request = request_for_kevin();
+        request.untrusted_hints.fuzzy_topics = vec!["memory".to_string()];
+        let result = repo.retrieve_memories(&request).expect("retrieve");
+
+        assert_eq!(included_ids(&result), vec![memory.id.as_str()]);
+        assert_eq!(
+            result.included[0].eligibility_reason,
+            EligibilityReason::ParticipantOverlap
+        );
+    }
+
+    #[test]
+    fn persisted_retrieval_requires_trusted_unlock_for_sensitive_memory() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let paths = NoemaPaths::from_noema_home(dir.path()).expect("paths");
+        let mut repo = SqliteMemoryRepository::open(&paths).expect("repo");
+        let mut candidate = NewChatMemoryCandidate::new(
+            "conversation:health",
+            "Kevin needs to follow up about a doctor appointment.",
+            "agent:primary",
+        );
+        candidate.status = MemoryStatus::Active;
+        candidate.memory_type = MemoryType::OpenLoop;
+        candidate.sensitivity = Sensitivity::Sensitive;
+        candidate.owner_principal_id = Some("human:kevin".to_string());
+        candidate.retrieval_hints =
+            json!({"topics": ["health", "doctor"], "keywords": ["appointment"]});
+        candidate.participants = vec![
+            NewMemoryParticipant::new("human:kevin", ParticipantRole::HumanInScope),
+            NewMemoryParticipant::new("agent:primary", ParticipantRole::AgentInScope),
+        ];
+        let memory = repo
+            .append_chat_memory_candidate(&candidate)
+            .expect("memory");
+        validate_sensitive_policy(&repo, &memory.id);
+        repo.conn
+            .execute(
+                r"
+                INSERT INTO memory_retrieval_purpose_rules (
+                  memory_id,
+                  purpose,
+                  effect,
+                  created_by_principal_id
+                )
+                VALUES (?1, 'answer_human_question', 'allow', 'agent:primary')
+                ",
+                params![memory.id],
+            )
+            .expect("purpose rule");
+
+        let mut request = request_for_kevin();
+        request.trusted.sensitivity_ceiling = Sensitivity::Sensitive;
+        request.untrusted_hints.fuzzy_topics = vec!["health".to_string(), "doctor".to_string()];
+        let denied = repo.retrieve_memories(&request).expect("retrieve denied");
+
+        assert!(denied.included.is_empty());
+        assert_eq!(
+            denied.denied_for_audit[0].reason,
+            DenialReason::SensitiveUnlockMissing
+        );
+        assert_eq!(
+            denied.agent_visible_omissions[0].reason,
+            "policy_restricted_context"
+        );
+
+        repo.conn
+            .execute(
+                r"
+                INSERT INTO memory_retrieval_object_links (
+                  memory_id,
+                  object_type,
+                  object_id,
+                  relation,
+                  created_by_principal_id
+                )
+                VALUES (?1, 'task', 'task:schedule_checkup', 'open_loop_for', 'agent:primary')
+                ",
+                params![memory.id],
+            )
+            .expect("object link");
+        request
+            .trusted
+            .active_object_links
+            .push(ObjectLink::new("task", "task:schedule_checkup"));
+
+        let allowed = repo.retrieve_memories(&request).expect("retrieve allowed");
+
+        assert_eq!(included_ids(&allowed), vec![memory.id.as_str()]);
+        assert_eq!(
+            allowed.included[0].eligibility_reason,
+            EligibilityReason::TrustedObjectLink
+        );
+    }
+
+    #[test]
+    fn persisted_retrieval_honors_explicit_grant_for_private_memory() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let paths = NoemaPaths::from_noema_home(dir.path()).expect("paths");
+        let mut repo = SqliteMemoryRepository::open(&paths).expect("repo");
+        let mut candidate = NewChatMemoryCandidate::new(
+            "conversation:private",
+            "Kevin keeps a private project preference.",
+            "agent:primary",
+        );
+        candidate.status = MemoryStatus::Active;
+        candidate.sensitivity = Sensitivity::Private;
+        candidate.owner_principal_id = Some("human:kevin".to_string());
+        candidate.participants = vec![
+            NewMemoryParticipant::new("human:kevin", ParticipantRole::HumanInScope),
+            NewMemoryParticipant::new("agent:primary", ParticipantRole::AgentInScope),
+        ];
+        let memory = repo
+            .append_chat_memory_candidate(&candidate)
+            .expect("memory");
+        validate_private_policy(&repo, &memory.id);
+        repo.conn
+            .execute(
+                r"
+                INSERT INTO memory_retrieval_purpose_rules (
+                  memory_id,
+                  purpose,
+                  effect,
+                  created_by_principal_id
+                )
+                VALUES (?1, 'answer_human_question', 'allow', 'agent:primary')
+                ",
+                params![memory.id],
+            )
+            .expect("purpose rule");
+
+        let mut request = request_for_kevin();
+        request.trusted.sensitivity_ceiling = Sensitivity::Private;
+        let denied = repo.retrieve_memories(&request).expect("retrieve denied");
+        assert!(denied.included.is_empty());
+
+        repo.conn
+            .execute(
+                r"
+                INSERT INTO memory_access_grants (
+                  grant_id,
+                  memory_id,
+                  principal_id,
+                  permission,
+                  effect,
+                  created_by_principal_id
+                )
+                VALUES ('grant_private_memory', ?1, 'agent:primary', 'use_for_retrieval', 'allow', 'human:kevin')
+                ",
+                params![memory.id],
+            )
+            .expect("grant");
+
+        let allowed = repo.retrieve_memories(&request).expect("retrieve allowed");
+        assert_eq!(included_ids(&allowed), vec![memory.id.as_str()]);
+        assert_eq!(
+            allowed.included[0].eligibility_reason,
+            EligibilityReason::ExplicitGrant
+        );
+    }
+
+    #[test]
+    fn persisted_retrieval_expands_one_hop_graph_after_policy() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let paths = NoemaPaths::from_noema_home(dir.path()).expect("paths");
+        let mut repo = SqliteMemoryRepository::open(&paths).expect("repo");
+        let mut anchor = NewChatMemoryCandidate::new(
+            "project:noema",
+            "Noema uses an inspectable memory system.",
+            "agent:primary",
+        );
+        anchor.status = MemoryStatus::Active;
+        anchor.subjects = vec![
+            NewMemorySubject::new("project:noema", "project", "Noema", SubjectRole::About),
+            NewMemorySubject::new(
+                "concept:scoped_graph_claims",
+                "concept",
+                "Scoped graph claims",
+                SubjectRole::About,
+            ),
+            NewMemorySubject::new(
+                "concept:unscoped_graph_claims",
+                "concept",
+                "Unscoped graph claims",
+                SubjectRole::About,
+            ),
+        ];
+        let anchor_memory = repo.append_chat_memory_candidate(&anchor).expect("anchor");
+
+        let mut backing = NewChatMemoryCandidate::new(
+            "conversation:graph_evidence",
+            "Noema graph claims are scoped and memory-backed.",
+            "agent:primary",
+        );
+        backing.status = MemoryStatus::Active;
+        backing.participants = vec![NewMemoryParticipant::new(
+            "human:kevin",
+            ParticipantRole::HumanInScope,
+        )];
+        let backing_memory = repo
+            .append_chat_memory_candidate(&backing)
+            .expect("backing");
+
+        let mut relationship = NewRelationshipClaim::new(
+            "project:noema",
+            "project:noema",
+            "uses",
+            "concept:scoped_graph_claims",
+        );
+        relationship.status = RelationshipStatus::Active;
+        relationship.memory_id = Some(backing_memory.id.clone());
+        repo.append_relationship_claim(&relationship)
+            .expect("relationship");
+        let mut unscoped_backing = NewChatMemoryCandidate::new(
+            "conversation:unscoped_graph_evidence",
+            "This graph claim has no participant aperture.",
+            "agent:primary",
+        );
+        unscoped_backing.status = MemoryStatus::Active;
+        let unscoped_memory = repo
+            .append_chat_memory_candidate(&unscoped_backing)
+            .expect("unscoped backing");
+        let mut unscoped_relationship = NewRelationshipClaim::new(
+            "project:noema",
+            "project:noema",
+            "mentions",
+            "concept:unscoped_graph_claims",
+        );
+        unscoped_relationship.status = RelationshipStatus::Active;
+        unscoped_relationship.memory_id = Some(unscoped_memory.id.clone());
+        repo.append_relationship_claim(&unscoped_relationship)
+            .expect("unscoped relationship");
+
+        let mut request = request_for_kevin();
+        request
+            .trusted
+            .active_scopes
+            .push("project:noema".to_string());
+        let result = repo.retrieve_memories(&request).expect("retrieve");
+
+        assert_eq!(
+            included_ids(&result),
+            vec![anchor_memory.id.as_str(), backing_memory.id.as_str()]
+        );
+        assert!(
+            result
+                .included
+                .iter()
+                .any(|memory| memory.memory_id == backing_memory.id
+                    && memory.eligibility_reason == EligibilityReason::ParticipantOverlap)
+        );
+        assert!(result.denied_for_audit.iter().any(|denial| {
+            denial.memory_id.as_deref() == Some(unscoped_memory.id.as_str())
+                && denial.reason == DenialReason::OutsideSearchAperture
+        }));
+    }
+
+    #[test]
+    fn persisted_retrieval_respects_validity_windows() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let paths = NoemaPaths::from_noema_home(dir.path()).expect("paths");
+        let mut repo = SqliteMemoryRepository::open(&paths).expect("repo");
+        let mut expired = NewChatMemoryCandidate::new(
+            "conversation:expired",
+            "Kevin once preferred an expired memory.",
+            "agent:primary",
+        );
+        expired.status = MemoryStatus::Active;
+        expired.participants = vec![NewMemoryParticipant::new(
+            "human:kevin",
+            ParticipantRole::HumanInScope,
+        )];
+        let expired_memory = repo
+            .append_chat_memory_candidate(&expired)
+            .expect("expired memory");
+        repo.conn
+            .execute(
+                "UPDATE memory_items SET expires_at = '2000-01-01T00:00:00Z' WHERE memory_id = ?1",
+                params![expired_memory.id],
+            )
+            .expect("expire memory");
+
+        let mut anchor = NewChatMemoryCandidate::new(
+            "project:validity",
+            "Noema has validity-windowed graph claims.",
+            "agent:primary",
+        );
+        anchor.status = MemoryStatus::Active;
+        anchor.subjects = vec![
+            NewMemorySubject::new(
+                "project:validity",
+                "project",
+                "Validity",
+                SubjectRole::About,
+            ),
+            NewMemorySubject::new(
+                "concept:expired_edge",
+                "concept",
+                "Expired edge",
+                SubjectRole::About,
+            ),
+        ];
+        let anchor_memory = repo.append_chat_memory_candidate(&anchor).expect("anchor");
+        let mut graph_backing = NewChatMemoryCandidate::new(
+            "conversation:validity_graph",
+            "A public graph backing memory should be excluded by an expired edge.",
+            "agent:primary",
+        );
+        graph_backing.status = MemoryStatus::Active;
+        graph_backing.sensitivity = Sensitivity::Public;
+        let graph_memory = repo
+            .append_chat_memory_candidate(&graph_backing)
+            .expect("graph backing");
+        let mut relationship = NewRelationshipClaim::new(
+            "project:validity",
+            "project:validity",
+            "mentions",
+            "concept:expired_edge",
+        );
+        relationship.relationship_id = Some("rel_expired_validity".to_string());
+        relationship.status = RelationshipStatus::Active;
+        relationship.memory_id = Some(graph_memory.id.clone());
+        repo.append_relationship_claim(&relationship)
+            .expect("relationship");
+        repo.conn
+            .execute(
+                "UPDATE relationships SET valid_to = '2000-01-01T00:00:00Z' WHERE relationship_id = 'rel_expired_validity'",
+                [],
+            )
+            .expect("expire relationship");
+
+        let mut request = request_for_kevin();
+        request
+            .trusted
+            .active_scopes
+            .push("project:validity".to_string());
+        let expired_result = repo.retrieve_memories(&request).expect("retrieve expired");
+
+        assert_eq!(
+            included_ids(&expired_result),
+            vec![anchor_memory.id.as_str()]
+        );
+
+        repo.conn
+            .execute(
+                "UPDATE relationships SET valid_to = NULL WHERE relationship_id = 'rel_expired_validity'",
+                [],
+            )
+            .expect("restore relationship");
+        let active_result = repo.retrieve_memories(&request).expect("retrieve active");
+
+        assert_eq!(
+            included_ids(&active_result),
+            vec![anchor_memory.id.as_str(), graph_memory.id.as_str()]
+        );
+        assert!(
+            active_result
+                .included
+                .iter()
+                .any(|memory| memory.memory_id == graph_memory.id
+                    && memory.eligibility_reason == EligibilityReason::GraphExpansion)
+        );
+    }
+
+    #[test]
     fn records_chat_turn_idempotently() {
         let dir = tempfile::tempdir().expect("temp dir");
         let paths = NoemaPaths::from_noema_home(dir.path()).expect("paths");
@@ -2413,5 +2869,62 @@ mod tests {
 
         let missing = repo.get_memory("mem_missing").expect("missing lookup");
         assert_eq!(missing, None);
+    }
+
+    fn request_for_kevin() -> MemoryRetrievalRequest {
+        MemoryRetrievalRequest {
+            requesting_principal_id: "agent:primary".to_string(),
+            trusted: TrustedRetrievalContext::for_human(
+                "human:kevin",
+                Purpose::AnswerHumanQuestion,
+            ),
+            untrusted_hints: UntrustedHints::default(),
+        }
+    }
+
+    fn validate_sensitive_policy(repo: &SqliteMemoryRepository, memory_id: &str) {
+        repo.conn
+            .execute(
+                r"
+                UPDATE memory_items
+                SET
+                  retrieval_policy_status = 'valid',
+                  retrieval_policy_fingerprint = 'sha256:test-sensitive',
+                  retrieval_policy_extractor_principal_id = 'agent:primary',
+                  retrieval_policy_extractor_version = 'test',
+                  retrieval_policy_validated_at = '2026-06-24T00:00:00Z',
+                  participant_visibility_policy = 'owner_only'
+                WHERE memory_id = ?1
+                ",
+                params![memory_id],
+            )
+            .expect("valid sensitive policy");
+    }
+
+    fn validate_private_policy(repo: &SqliteMemoryRepository, memory_id: &str) {
+        repo.conn
+            .execute(
+                r"
+                UPDATE memory_items
+                SET
+                  retrieval_policy_status = 'valid',
+                  retrieval_policy_fingerprint = 'sha256:test-private',
+                  retrieval_policy_extractor_principal_id = 'agent:primary',
+                  retrieval_policy_extractor_version = 'test',
+                  retrieval_policy_validated_at = '2026-06-24T00:00:00Z',
+                  participant_visibility_policy = 'explicit_grant_only'
+                WHERE memory_id = ?1
+                ",
+                params![memory_id],
+            )
+            .expect("valid private policy");
+    }
+
+    fn included_ids(result: &MemoryRetrievalResult) -> Vec<&str> {
+        result
+            .included
+            .iter()
+            .map(|memory| memory.memory_id.as_str())
+            .collect()
     }
 }

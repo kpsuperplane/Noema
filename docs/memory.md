@@ -472,6 +472,14 @@ V1 retrieval should stay deliberately small:
 Two-hop traversal and graph-derived action reasoning are V1.x features after
 adversarial retrieval tests pass.
 
+The current durable retrieval bridge is
+`SqliteMemoryRepository::retrieve_memories`. It loads canonical SQLite memory
+items, subjects, participants, purpose rules, trusted object links, access
+grants, provenance, and relationship claim edges into the shared deterministic
+policy engine before evaluating the request. This avoids policy drift between
+in-memory adversarial tests and durable state while the V1 FTS candidate
+generator is still being built.
+
 ### V1 extraction flow
 
 Extraction should produce proposals, not unchecked truth:

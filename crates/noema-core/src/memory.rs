@@ -919,9 +919,7 @@ impl MemoryStore {
         match memory.sensitivity {
             Sensitivity::Public => {}
             Sensitivity::Normal => {
-                if source != CandidateSource::GraphExpansion
-                    && !self.aperture_matches(memory, request)
-                {
+                if !self.aperture_matches(memory, request) {
                     return Err(DenialReason::OutsideSearchAperture);
                 }
             }
@@ -1609,6 +1607,13 @@ mod tests {
         );
         store.insert_memory(backing);
         store
+            .add_participant(
+                "memory_relationship",
+                "human_kevin",
+                ParticipantRole::HumanInScope,
+            )
+            .expect("relationship participant");
+        store
             .add_provenance("memory_relationship", "message_graph")
             .expect("provenance");
         store
@@ -1622,6 +1627,25 @@ mod tests {
                 status: RelationshipStatus::Active,
             })
             .expect("relationship");
+        store.insert_memory(normal_memory(
+            "memory_unscoped_relationship",
+            "relationship_scope",
+            "Unscoped graph claim",
+        ));
+        store
+            .add_provenance("memory_unscoped_relationship", "message_graph_unscoped")
+            .expect("unscoped provenance");
+        store
+            .add_relationship(Relationship {
+                relationship_id: "rel_unscoped_graph".to_string(),
+                home_scope_id: "project_noema".to_string(),
+                subject_entity_id: "project_noema".to_string(),
+                predicate: "mentions".to_string(),
+                object_entity_id: "concept_unscoped".to_string(),
+                memory_id: Some("memory_unscoped_relationship".to_string()),
+                status: RelationshipStatus::Active,
+            })
+            .expect("unscoped relationship");
 
         let mut request = request_for_kevin();
         request
@@ -1640,8 +1664,12 @@ mod tests {
                 .included
                 .iter()
                 .any(|memory| memory.memory_id == "memory_relationship"
-                    && memory.eligibility_reason == EligibilityReason::GraphExpansion)
+                    && memory.eligibility_reason == EligibilityReason::ParticipantOverlap)
         );
+        assert!(result.denied_for_audit.iter().any(|denial| {
+            denial.memory_id.as_deref() == Some("memory_unscoped_relationship")
+                && denial.reason == DenialReason::OutsideSearchAperture
+        }));
     }
 
     #[test]

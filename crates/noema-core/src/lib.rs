@@ -24,6 +24,7 @@ pub mod paths;
 pub mod provider;
 /// Concrete model provider adapters.
 pub mod providers;
+mod sqlite_memory_retrieval;
 
 pub use config::{CliOverrides, Config, ConfigError, ProviderConfig, ProviderKind, ResolvedConfig};
 pub use context_graph::{
