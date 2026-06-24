@@ -1,5 +1,7 @@
 //! SQLite loader for the deterministic memory retrieval policy engine.
 
+use std::collections::HashSet;
+
 use crate::{
     memory::{
         AccessGrant, Effect, ExternalEgressPolicy, MemoryItem, MemoryRetrievalRequest,
@@ -10,14 +12,18 @@ use crate::{
     memory_persistence::MemoryPersistenceError,
     retrieval_policy_fingerprint,
 };
-use rusqlite::Connection;
+use rusqlite::{Connection, params};
 use serde_json::Value;
+
+const MAX_PUBLIC_HINT_CANDIDATES: i64 = 128;
+const MAX_FTS_TERMS: usize = 24;
 
 pub(crate) fn retrieve(
     conn: &Connection,
     request: &MemoryRetrievalRequest,
 ) -> Result<MemoryRetrievalResult, MemoryPersistenceError> {
     let mut store = MemoryStore::default();
+    let public_hint_candidates = public_hint_candidate_ids(conn, request)?;
     load_memories(conn, &mut store)?;
     load_participants(conn, &mut store)?;
     load_subjects(conn, &mut store)?;
@@ -26,7 +32,79 @@ pub(crate) fn retrieve(
     load_access_grants(conn, &mut store)?;
     load_provenance(conn, &mut store)?;
     load_relationships(conn, &mut store)?;
-    Ok(store.retrieve(request))
+    Ok(store.retrieve_with_public_hint_candidates(request, &public_hint_candidates))
+}
+
+fn public_hint_candidate_ids(
+    conn: &Connection,
+    request: &MemoryRetrievalRequest,
+) -> Result<HashSet<String>, MemoryPersistenceError> {
+    let Some(query) = fts_query_for_request(request) else {
+        return Ok(HashSet::new());
+    };
+
+    let mut stmt = conn
+        .prepare(
+            r"
+            SELECT memory_id
+            FROM memory_fts
+            WHERE memory_fts MATCH ?1
+            ORDER BY rank
+            LIMIT ?2
+            ",
+        )
+        .map_err(MemoryPersistenceError::Sqlite)?;
+    let rows = stmt
+        .query_map(params![query, MAX_PUBLIC_HINT_CANDIDATES], |row| {
+            row.get::<_, String>(0)
+        })
+        .map_err(MemoryPersistenceError::Sqlite)?;
+    let mut candidates = HashSet::new();
+    for row in rows {
+        candidates.insert(row.map_err(MemoryPersistenceError::Sqlite)?);
+    }
+    Ok(candidates)
+}
+
+fn fts_query_for_request(request: &MemoryRetrievalRequest) -> Option<String> {
+    let mut terms = Vec::new();
+    add_fts_terms(&request.untrusted_hints.query_text, &mut terms);
+    for topic in &request.untrusted_hints.fuzzy_topics {
+        add_fts_terms(topic, &mut terms);
+    }
+    for entity in &request.untrusted_hints.fuzzy_entities {
+        add_fts_terms(entity, &mut terms);
+    }
+    if terms.is_empty() {
+        None
+    } else {
+        Some(
+            terms
+                .into_iter()
+                .map(|term| format!("\"{term}\""))
+                .collect::<Vec<_>>()
+                .join(" OR "),
+        )
+    }
+}
+
+fn add_fts_terms(input: &str, terms: &mut Vec<String>) {
+    for term in input
+        .split(|character: char| !character.is_alphanumeric())
+        .filter_map(normalized_fts_term)
+    {
+        if terms.len() >= MAX_FTS_TERMS {
+            return;
+        }
+        if !terms.contains(&term) {
+            terms.push(term);
+        }
+    }
+}
+
+fn normalized_fts_term(term: &str) -> Option<String> {
+    let term = term.trim().to_ascii_lowercase();
+    if term.len() < 2 { None } else { Some(term) }
 }
 
 fn load_memories(conn: &Connection, store: &mut MemoryStore) -> Result<(), MemoryPersistenceError> {

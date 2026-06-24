@@ -358,11 +358,13 @@ CREATE INDEX idx_memory_use_records_run ON memory_use_records(run_id, stage, cre
 CREATE INDEX idx_memory_use_records_memory ON memory_use_records(memory_id, stage, created_at DESC);
 CREATE INDEX idx_events_memory_time ON memory_events(memory_id, created_at DESC);
 
--- Optional rebuildable search indexes, preferably stored under system/indexes/.
+-- Rebuildable search indexes. These are candidate-generation aids, not
+-- authority-bearing memory truth.
 CREATE VIRTUAL TABLE memory_fts USING fts5(
   memory_id UNINDEXED,
   title,
   content,
+  retrieval_hints,
   tokenize = 'porter unicode61'
 );
 

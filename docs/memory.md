@@ -483,9 +483,11 @@ The current durable retrieval bridge is
 `SqliteMemoryRepository::retrieve_memories`. It loads canonical SQLite memory
 items, subjects, participants, purpose rules, trusted object links, access
 grants, provenance, and relationship claim edges into the shared deterministic
-policy engine before evaluating the request. This avoids policy drift between
-in-memory adversarial tests and durable state while the V1 FTS candidate
-generator is still being built. Retrieval recomputes `valid` policy
+policy engine before evaluating the request. SQLite FTS supplies rebuildable
+public-hint candidates; `rebuild_memory_search_index` can recreate it from
+canonical memory rows. Structured scope, participant, grant, trusted object
+link, and graph-expansion paths continue to come from canonical rows. Retrieval
+recomputes `valid` policy
 fingerprints from the canonical rows and treats mismatches as stale, so changed
 content, subjects, participants, object links, purpose rules, egress policy, or
 provenance cannot continue to unlock private or stronger memory until the

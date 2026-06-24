@@ -225,6 +225,13 @@ impl SqliteMemoryRepository {
             },
         )
         .map_err(MemoryPersistenceError::Sqlite)?;
+        upsert_memory_fts(
+            &tx,
+            &memory_id,
+            &title,
+            &candidate.content,
+            &retrieval_hints,
+        )?;
 
         for participant in &candidate.participants {
             let participant_metadata = json_to_string(&participant.metadata)?;
@@ -330,6 +337,50 @@ impl SqliteMemoryRepository {
 
         tx.commit().map_err(MemoryPersistenceError::Sqlite)?;
         self.memory_summary(&memory_id)
+    }
+
+    /// Rebuild the durable memory search index from canonical memory rows.
+    ///
+    /// The FTS table is derived state. This method makes index recovery
+    /// explicit for development, repair, import, and future export/restore
+    /// workflows.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MemoryPersistenceError`] when SQLite reads or writes fail.
+    pub fn rebuild_memory_search_index(&mut self) -> Result<usize, MemoryPersistenceError> {
+        let tx = self
+            .conn
+            .transaction()
+            .map_err(MemoryPersistenceError::Sqlite)?;
+        tx.execute("DELETE FROM memory_fts", [])?;
+        let memories = {
+            let mut stmt = tx.prepare(
+                r"
+                SELECT memory_id, title, content, retrieval_hints
+                FROM memory_items
+                ORDER BY created_at ASC, rowid ASC
+                ",
+            )?;
+            let rows = stmt.query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                ))
+            })?;
+            let mut memories = Vec::new();
+            for row in rows {
+                memories.push(row?);
+            }
+            memories
+        };
+        for (memory_id, title, content, retrieval_hints) in &memories {
+            upsert_memory_fts(&tx, memory_id, title, content, retrieval_hints)?;
+        }
+        tx.commit().map_err(MemoryPersistenceError::Sqlite)?;
+        Ok(memories.len())
     }
 
     /// Record a complete chat turn for memory provenance.
@@ -1616,6 +1667,27 @@ fn upsert_subject_entity(
     Ok(())
 }
 
+fn upsert_memory_fts(
+    tx: &Transaction<'_>,
+    memory_id: &str,
+    title: &str,
+    content: &str,
+    retrieval_hints: &str,
+) -> Result<(), MemoryPersistenceError> {
+    tx.execute(
+        "DELETE FROM memory_fts WHERE memory_id = ?1",
+        params![memory_id],
+    )?;
+    tx.execute(
+        r"
+        INSERT INTO memory_fts (memory_id, title, content, retrieval_hints)
+        VALUES (?1, ?2, ?3, ?4)
+        ",
+        params![memory_id, title, content, retrieval_hints],
+    )?;
+    Ok(())
+}
+
 struct ChatMessageRecord<'a> {
     message_id: &'a str,
     episode_id: &'a str,
@@ -1891,6 +1963,7 @@ fn rank_reason_to_db(reason: RankReason) -> &'static str {
     match reason {
         RankReason::ExplicitMemoryRequest => "explicit_memory_request",
         RankReason::TrustedObjectLink => "trusted_object_link",
+        RankReason::PublicHint => "public_hint",
         RankReason::FuzzyTopic => "fuzzy_topic",
         RankReason::FuzzyKeyword => "fuzzy_keyword",
         RankReason::SameHumanParticipant => "same_human_participant",
@@ -2298,6 +2371,14 @@ CREATE INDEX IF NOT EXISTS idx_context_packet_omissions_memory ON context_packet
 CREATE INDEX IF NOT EXISTS idx_memory_use_records_run ON memory_use_records(run_id, stage, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_memory_use_records_memory ON memory_use_records(memory_id, stage, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_memory_events_memory_time ON memory_events(memory_id, created_at DESC);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(
+  memory_id UNINDEXED,
+  title,
+  content,
+  retrieval_hints,
+  tokenize = 'porter unicode61'
+);
 ";
 
 #[cfg(test)]
@@ -3063,6 +3144,86 @@ mod tests {
         assert_eq!(
             result.included[0].eligibility_reason,
             EligibilityReason::ParticipantOverlap
+        );
+    }
+
+    #[test]
+    fn persisted_retrieval_uses_fts_public_hint_candidates() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let paths = NoemaPaths::from_noema_home(dir.path()).expect("paths");
+        let mut repo = SqliteMemoryRepository::open(&paths).expect("repo");
+
+        let mut indexed = NewChatMemoryCandidate::new(
+            "conversation:public_search",
+            "The context graph needs an alpine FTS candidate path.",
+            "agent:primary",
+        );
+        indexed.status = MemoryStatus::Active;
+        indexed.sensitivity = Sensitivity::Public;
+        let indexed_memory = repo
+            .append_chat_memory_candidate(&indexed)
+            .expect("indexed memory");
+
+        let mut unindexed = NewChatMemoryCandidate::new(
+            "conversation:public_search",
+            "This public memory has a matching hint but no search-index row.",
+            "agent:primary",
+        );
+        unindexed.status = MemoryStatus::Active;
+        unindexed.sensitivity = Sensitivity::Public;
+        unindexed.retrieval_hints = json!({"keywords": ["ghostneedle"]});
+        let unindexed_memory = repo
+            .append_chat_memory_candidate(&unindexed)
+            .expect("unindexed memory");
+        repo.conn
+            .execute(
+                "DELETE FROM memory_fts WHERE memory_id = ?1",
+                params![unindexed_memory.id],
+            )
+            .expect("remove fts row");
+
+        let mut indexed_request = request_for_kevin();
+        indexed_request.untrusted_hints.query_text = "alpine".to_string();
+        let indexed_result = repo
+            .retrieve_memories(&indexed_request)
+            .expect("retrieve indexed");
+        assert_eq!(
+            included_ids(&indexed_result),
+            vec![indexed_memory.id.as_str()]
+        );
+        assert_eq!(
+            indexed_result.included[0].eligibility_reason,
+            EligibilityReason::PublicHint
+        );
+
+        let mut hostile_query_request = request_for_kevin();
+        hostile_query_request.untrusted_hints.query_text =
+            r#"alpine" OR memory_fts : *"#.to_string();
+        let hostile_query_result = repo
+            .retrieve_memories(&hostile_query_request)
+            .expect("retrieve hostile query");
+        assert_eq!(
+            included_ids(&hostile_query_result),
+            vec![indexed_memory.id.as_str()]
+        );
+
+        let mut unindexed_request = request_for_kevin();
+        unindexed_request.untrusted_hints.query_text = "ghostneedle".to_string();
+        let unindexed_result = repo
+            .retrieve_memories(&unindexed_request)
+            .expect("retrieve unindexed");
+        assert!(unindexed_result.included.is_empty());
+
+        let rebuilt = repo
+            .rebuild_memory_search_index()
+            .expect("rebuild memory fts");
+        assert_eq!(rebuilt, 2);
+        let rebuilt_result = repo
+            .retrieve_memories(&unindexed_request)
+            .expect("retrieve rebuilt");
+        assert_eq!(
+            included_ids(&rebuilt_result),
+            vec![unindexed_memory.id.as_str()]
         );
     }
 

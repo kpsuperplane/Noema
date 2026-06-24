@@ -482,6 +482,8 @@ pub enum RankReason {
     ExplicitMemoryRequest,
     /// Trusted object link matched.
     TrustedObjectLink,
+    /// Public memory matched the durable hint/search index.
+    PublicHint,
     /// Fuzzy topic matched.
     FuzzyTopic,
     /// Fuzzy keyword matched.
@@ -785,11 +787,39 @@ impl MemoryStore {
     /// Retrieve memories using deterministic policy gates and ranking.
     #[must_use]
     pub fn retrieve(&self, request: &MemoryRetrievalRequest) -> MemoryRetrievalResult {
+        self.retrieve_inner(request, PublicHintCandidates::AllMatchingHints)
+    }
+
+    /// Retrieve memories using precomputed public-hint candidate IDs.
+    ///
+    /// This is used by durable retrieval, where SQLite FTS is the candidate
+    /// generator for untrusted hint matches. Structured paths such as active
+    /// scope, grants, participants, trusted object links, and graph expansion
+    /// are still evaluated from canonical rows.
+    #[must_use]
+    pub fn retrieve_with_public_hint_candidates(
+        &self,
+        request: &MemoryRetrievalRequest,
+        public_hint_candidates: &HashSet<MemoryId>,
+    ) -> MemoryRetrievalResult {
+        self.retrieve_inner(
+            request,
+            PublicHintCandidates::CandidateIds(public_hint_candidates),
+        )
+    }
+
+    fn retrieve_inner(
+        &self,
+        request: &MemoryRetrievalRequest,
+        public_hint_candidates: PublicHintCandidates<'_>,
+    ) -> MemoryRetrievalResult {
         let mut result = MemoryRetrievalResult::default();
         let mut candidates = HashMap::<MemoryId, CandidateSource>::new();
 
         for memory in self.memories.values() {
-            if let Some(source) = self.direct_candidate_source(memory, request) {
+            if let Some(source) =
+                self.direct_candidate_source(memory, request, public_hint_candidates)
+            {
                 candidates.insert(memory.memory_id.clone(), source);
             }
         }
@@ -855,6 +885,7 @@ impl MemoryStore {
         &self,
         memory: &MemoryItem,
         request: &MemoryRetrievalRequest,
+        public_hint_candidates: PublicHintCandidates<'_>,
     ) -> Option<CandidateSource> {
         if Self::home_scope_active(memory, request) {
             return Some(CandidateSource::ActiveScope);
@@ -873,7 +904,7 @@ impl MemoryStore {
         }
 
         if memory.sensitivity == Sensitivity::Public
-            && hint_score(memory, &request.untrusted_hints).score > 0
+            && public_hint_candidates.matches(memory, &request.untrusted_hints)
         {
             return Some(CandidateSource::PublicHint);
         }
@@ -1051,7 +1082,10 @@ impl MemoryStore {
             CandidateSource::ExplicitGrant => ranked.score += 60,
             CandidateSource::ParticipantOverlap => ranked.score += 20,
             CandidateSource::GraphExpansion => ranked.score += 10,
-            CandidateSource::PublicHint => {}
+            CandidateSource::PublicHint => {
+                ranked.score += 30;
+                ranked.reasons.push(RankReason::PublicHint);
+            }
         }
 
         if request.trusted.explicit_memory_request {
@@ -1238,6 +1272,21 @@ enum CandidateSource {
     TrustedObjectLink,
     PublicHint,
     GraphExpansion,
+}
+
+#[derive(Clone, Copy)]
+enum PublicHintCandidates<'a> {
+    AllMatchingHints,
+    CandidateIds(&'a HashSet<MemoryId>),
+}
+
+impl PublicHintCandidates<'_> {
+    fn matches(self, memory: &MemoryItem, hints: &UntrustedHints) -> bool {
+        match self {
+            Self::AllMatchingHints => hint_score(memory, hints).score > 0,
+            Self::CandidateIds(candidate_ids) => candidate_ids.contains(&memory.memory_id),
+        }
+    }
 }
 
 impl CandidateSource {
