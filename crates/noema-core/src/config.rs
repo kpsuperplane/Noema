@@ -5,18 +5,70 @@ use crate::providers::{
     },
     openai::{DEFAULT_OPENAI_TIMEOUT_SECONDS, OpenAiProviderConfig},
 };
-use serde::Deserialize;
-use std::{env, fs, path::PathBuf, str::FromStr};
+use crate::{NOEMA_HOME_ENV, NoemaPathError, NoemaPaths};
+use figment::{
+    Figment,
+    providers::{Env, Format, Serialized, Yaml},
+};
+use serde::{Deserialize, Serialize};
+use std::{env, path::PathBuf, str::FromStr};
 use thiserror::Error;
 
 pub const DEFAULT_PROVIDER: &str = "openai";
 pub const DEFAULT_OPENAI_MODEL: &str = "gpt-5.5";
 pub const DEFAULT_OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
+pub const OPENAI_API_KEY_ENV: &str = "NOEMA_OPENAI__API_KEY";
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+const CONFIG_ENV_KEYS: &[&str] = &[
+    "provider",
+    "model",
+    "openai.api_key",
+    "openai.base_url",
+    "openai.timeout_seconds",
+    "openai.organization_id",
+    "openai.project_id",
+    "codex.command",
+    "codex.model",
+    "codex.sandbox",
+    "codex.ephemeral",
+    "codex.ignore_rules",
+    "codex.ignore_user_config",
+    "codex.startup_timeout_seconds",
+    "codex.turn_timeout_seconds",
+    "codex.home",
+];
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct CliOverrides {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub provider: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "openai")]
+    pub openai_overrides: Option<CliOpenAiOverrides>,
+}
+
+impl CliOverrides {
+    pub fn new(provider: Option<String>, model: Option<String>, base_url: Option<String>) -> Self {
+        Self {
+            provider,
+            model,
+            openai_overrides: base_url.map(|base_url| CliOpenAiOverrides {
+                base_url: Some(base_url),
+            }),
+        }
+    }
+
+    pub fn base_url(&self) -> Option<&str> {
+        self.openai_overrides
+            .as_ref()
+            .and_then(|openai| openai.base_url.as_deref())
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct CliOpenAiOverrides {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub base_url: Option<String>,
 }
 
@@ -74,309 +126,205 @@ impl ProviderConfig {
     }
 }
 
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-pub struct Config {
-    pub provider: Option<String>,
-    pub model: Option<String>,
-    pub codex: CodexFileConfig,
-    pub openai: OpenAiFileConfig,
-}
+#[derive(Debug, Clone, Default)]
+pub struct Config;
 
 impl Config {
     pub fn load(
         path_override: Option<PathBuf>,
         cli: CliOverrides,
     ) -> Result<ResolvedConfig, ConfigError> {
-        Self::load_with_env(path_override, cli, EnvVars::from_process())
-    }
-
-    pub fn load_with_env(
-        path_override: Option<PathBuf>,
-        cli: CliOverrides,
-        env: EnvVars,
-    ) -> Result<ResolvedConfig, ConfigError> {
-        let file_config = Self::read_config_file(path_override)?;
-        file_config.resolve(cli, env)
+        let raw = load_raw_config(path_override, cli)?;
+        raw.resolve()
     }
 
     pub fn load_codex(
         path_override: Option<PathBuf>,
         cli: CliOverrides,
     ) -> Result<CodexProviderConfig, ConfigError> {
-        Self::load_codex_with_env(path_override, cli, EnvVars::from_process())
+        let raw = load_raw_config(path_override, cli)?;
+        raw.resolve_codex_config()
     }
+}
 
-    pub fn load_codex_with_env(
-        path_override: Option<PathBuf>,
-        cli: CliOverrides,
-        env: EnvVars,
-    ) -> Result<CodexProviderConfig, ConfigError> {
-        let file_config = Self::read_config_file(path_override)?;
-        file_config.resolve_codex_config(&cli, &env)
-    }
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
+struct RawConfig {
+    provider: String,
+    model: Option<String>,
+    openai: RawOpenAiConfig,
+    codex: RawCodexConfig,
+}
 
-    fn read_config_file(path_override: Option<PathBuf>) -> Result<Self, ConfigError> {
-        let Some(config_path) = path_override.or_else(default_config_path) else {
-            return Ok(Self::default());
-        };
-
-        if !config_path.exists() {
-            return if config_path == default_config_path().unwrap_or_default() {
-                Ok(Self::default())
-            } else {
-                Err(ConfigError::ConfigFileNotFound { path: config_path })
-            };
+impl Default for RawConfig {
+    fn default() -> Self {
+        Self {
+            provider: DEFAULT_PROVIDER.to_string(),
+            model: None,
+            openai: RawOpenAiConfig::default(),
+            codex: RawCodexConfig::default(),
         }
-
-        let contents =
-            fs::read_to_string(&config_path).map_err(|source| ConfigError::ReadFile {
-                path: config_path.clone(),
-                source,
-            })?;
-
-        serde_yaml::from_str(&contents).map_err(|source| ConfigError::ParseYaml {
-            path: config_path,
-            source,
-        })
     }
+}
 
-    fn resolve(self, cli: CliOverrides, env: EnvVars) -> Result<ResolvedConfig, ConfigError> {
-        let provider = first_non_empty([
-            cli.provider.as_deref(),
-            env.noema_provider.as_deref(),
-            self.provider.as_deref(),
-            Some(DEFAULT_PROVIDER),
-        ])
-        .unwrap_or(DEFAULT_PROVIDER);
-
-        let provider = ProviderKind::from_str(provider)
-            .map_err(|provider| ConfigError::UnsupportedProvider { provider })?;
+impl RawConfig {
+    fn resolve(self) -> Result<ResolvedConfig, ConfigError> {
+        let provider = ProviderKind::from_str(self.provider.trim()).map_err(|provider| {
+            ConfigError::UnsupportedProvider {
+                provider: provider.to_string(),
+            }
+        })?;
 
         let provider = match provider {
-            ProviderKind::OpenAi => ProviderConfig::OpenAi(self.resolve_openai_config(&cli, &env)?),
-            ProviderKind::Codex => ProviderConfig::Codex(self.resolve_codex_config(&cli, &env)?),
+            ProviderKind::OpenAi => ProviderConfig::OpenAi(self.resolve_openai_config()?),
+            ProviderKind::Codex => ProviderConfig::Codex(self.resolve_codex_config()?),
         };
 
         Ok(ResolvedConfig { provider })
     }
 
-    fn resolve_openai_config(
-        &self,
-        cli: &CliOverrides,
-        env: &EnvVars,
-    ) -> Result<OpenAiProviderConfig, ConfigError> {
-        let model = first_non_empty([
-            cli.model.as_deref(),
-            env.noema_model.as_deref(),
-            self.model.as_deref(),
-            Some(DEFAULT_OPENAI_MODEL),
-        ])
-        .unwrap_or(DEFAULT_OPENAI_MODEL)
-        .to_string();
-
-        let base_url = first_non_empty([
-            cli.base_url.as_deref(),
-            env.openai_base_url.as_deref(),
-            self.openai.base_url.as_deref(),
-            Some(DEFAULT_OPENAI_BASE_URL),
-        ])
-        .unwrap_or(DEFAULT_OPENAI_BASE_URL)
-        .trim_end_matches('/')
-        .to_string();
-
-        let api_key = first_non_empty([env.openai_api_key.as_deref()]).ok_or_else(|| {
+    fn resolve_openai_config(&self) -> Result<OpenAiProviderConfig, ConfigError> {
+        let model = non_empty_option(self.model.as_deref())
+            .unwrap_or(DEFAULT_OPENAI_MODEL)
+            .to_string();
+        let base_url = non_empty_option(Some(self.openai.base_url.as_str()))
+            .unwrap_or(DEFAULT_OPENAI_BASE_URL)
+            .trim_end_matches('/')
+            .to_string();
+        let api_key = non_empty_option(self.openai.api_key.as_deref()).ok_or_else(|| {
             ConfigError::MissingCredential {
                 provider: "openai".to_string(),
-                credential: "OPENAI_API_KEY".to_string(),
+                credential: OPENAI_API_KEY_ENV.to_string(),
             }
         })?;
-
-        let organization_id = first_non_empty([
-            env.openai_org_id.as_deref(),
-            self.openai.organization_id.as_deref(),
-        ])
-        .map(ToString::to_string);
-
-        let project_id = first_non_empty([
-            env.openai_project_id.as_deref(),
-            self.openai.project_id.as_deref(),
-        ])
-        .map(ToString::to_string);
-
-        let timeout_seconds = first_u64(
-            env.openai_timeout_seconds.as_deref(),
-            self.openai.timeout_seconds,
-            DEFAULT_OPENAI_TIMEOUT_SECONDS,
-            "OPENAI_TIMEOUT_SECONDS",
-        )?;
+        let timeout_seconds =
+            require_positive(self.openai.timeout_seconds, "NOEMA_OPENAI__TIMEOUT_SECONDS")?;
 
         Ok(OpenAiProviderConfig {
             api_key: api_key.to_string(),
             base_url,
-            organization_id,
-            project_id,
+            organization_id: non_empty_option(self.openai.organization_id.as_deref())
+                .map(ToString::to_string),
+            project_id: non_empty_option(self.openai.project_id.as_deref())
+                .map(ToString::to_string),
             default_model: model,
             timeout_seconds,
         })
     }
 
-    fn resolve_codex_config(
-        &self,
-        cli: &CliOverrides,
-        env: &EnvVars,
-    ) -> Result<CodexProviderConfig, ConfigError> {
-        let default_codex = CodexProviderConfig::default();
-        let model = first_non_empty([
-            cli.model.as_deref(),
-            env.noema_model.as_deref(),
-            self.codex.model.as_deref(),
-            self.model.as_deref(),
-        ])
-        .map(ToString::to_string);
-
-        let command = first_non_empty([
-            env.noema_codex_command.as_deref(),
-            self.codex.command.as_deref(),
-            Some(default_codex.command.as_str()),
-        ])
-        .unwrap_or(default_codex.command.as_str())
-        .to_string();
-
-        let sandbox = first_non_empty([
-            env.noema_codex_sandbox.as_deref(),
-            self.codex.sandbox.as_deref(),
-            Some(default_codex.sandbox.as_str()),
-        ])
-        .unwrap_or(default_codex.sandbox.as_str())
-        .to_string();
-
-        let ephemeral = first_bool(
-            env.noema_codex_ephemeral.as_deref(),
-            self.codex.ephemeral,
-            default_codex.ephemeral,
-            "NOEMA_CODEX_EPHEMERAL",
-        )?;
-
-        let ignore_rules = first_bool(
-            env.noema_codex_ignore_rules.as_deref(),
-            self.codex.ignore_rules,
-            default_codex.ignore_rules,
-            "NOEMA_CODEX_IGNORE_RULES",
-        )?;
-
-        let ignore_user_config = first_bool(
-            env.noema_codex_ignore_user_config.as_deref(),
-            self.codex.ignore_user_config,
-            default_codex.ignore_user_config,
-            "NOEMA_CODEX_IGNORE_USER_CONFIG",
-        )?;
-
-        let startup_timeout_seconds = first_u64(
-            env.noema_codex_startup_timeout_seconds.as_deref(),
+    fn resolve_codex_config(&self) -> Result<CodexProviderConfig, ConfigError> {
+        let startup_timeout_seconds = require_positive(
             self.codex.startup_timeout_seconds,
-            DEFAULT_CODEX_STARTUP_TIMEOUT_SECONDS,
-            "NOEMA_CODEX_STARTUP_TIMEOUT_SECONDS",
+            "NOEMA_CODEX__STARTUP_TIMEOUT_SECONDS",
         )?;
-
-        let turn_timeout_seconds = first_u64(
-            first_non_empty([
-                env.noema_codex_turn_timeout_seconds.as_deref(),
-                env.noema_codex_timeout_seconds.as_deref(),
-            ]),
-            self.codex
-                .turn_timeout_seconds
-                .or(self.codex.timeout_seconds),
-            DEFAULT_CODEX_TURN_TIMEOUT_SECONDS,
-            "NOEMA_CODEX_TURN_TIMEOUT_SECONDS",
+        let turn_timeout_seconds = require_positive(
+            self.codex.turn_timeout_seconds,
+            "NOEMA_CODEX__TURN_TIMEOUT_SECONDS",
         )?;
-
-        let codex_home = first_non_empty([
-            env.noema_codex_home.as_deref(),
-            self.codex.codex_home.as_deref(),
-        ])
-        .map(ToString::to_string);
 
         Ok(CodexProviderConfig {
-            command,
-            default_model: model,
-            sandbox,
-            ephemeral,
-            ignore_rules,
-            ignore_user_config,
+            command: non_empty_option(Some(self.codex.command.as_str()))
+                .unwrap_or("codex")
+                .to_string(),
+            default_model: non_empty_option(self.model.as_deref())
+                .or_else(|| non_empty_option(self.codex.model.as_deref()))
+                .map(ToString::to_string),
+            sandbox: non_empty_option(Some(self.codex.sandbox.as_str()))
+                .unwrap_or("read-only")
+                .to_string(),
+            ephemeral: self.codex.ephemeral,
+            ignore_rules: self.codex.ignore_rules,
+            ignore_user_config: self.codex.ignore_user_config,
             startup_timeout_seconds,
             turn_timeout_seconds,
-            codex_home,
+            codex_home: non_empty_option(self.codex.home.as_deref()).map(ToString::to_string),
         })
     }
 }
 
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
-pub struct OpenAiFileConfig {
-    pub base_url: Option<String>,
-    pub organization_id: Option<String>,
-    pub project_id: Option<String>,
-    pub timeout_seconds: Option<u64>,
+struct RawOpenAiConfig {
+    api_key: Option<String>,
+    base_url: String,
+    organization_id: Option<String>,
+    project_id: Option<String>,
+    timeout_seconds: u64,
 }
 
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-pub struct CodexFileConfig {
-    pub command: Option<String>,
-    pub model: Option<String>,
-    pub sandbox: Option<String>,
-    pub ephemeral: Option<bool>,
-    pub ignore_rules: Option<bool>,
-    pub ignore_user_config: Option<bool>,
-    pub startup_timeout_seconds: Option<u64>,
-    pub turn_timeout_seconds: Option<u64>,
-    pub timeout_seconds: Option<u64>,
-    pub codex_home: Option<String>,
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct EnvVars {
-    pub noema_provider: Option<String>,
-    pub noema_model: Option<String>,
-    pub noema_codex_command: Option<String>,
-    pub noema_codex_sandbox: Option<String>,
-    pub noema_codex_ephemeral: Option<String>,
-    pub noema_codex_ignore_rules: Option<String>,
-    pub noema_codex_ignore_user_config: Option<String>,
-    pub noema_codex_startup_timeout_seconds: Option<String>,
-    pub noema_codex_turn_timeout_seconds: Option<String>,
-    pub noema_codex_timeout_seconds: Option<String>,
-    pub noema_codex_home: Option<String>,
-    pub openai_api_key: Option<String>,
-    pub openai_base_url: Option<String>,
-    pub openai_timeout_seconds: Option<String>,
-    pub openai_org_id: Option<String>,
-    pub openai_project_id: Option<String>,
-}
-
-impl EnvVars {
-    pub fn from_process() -> Self {
+impl Default for RawOpenAiConfig {
+    fn default() -> Self {
         Self {
-            noema_provider: env::var("NOEMA_PROVIDER").ok(),
-            noema_model: env::var("NOEMA_MODEL").ok(),
-            noema_codex_command: env::var("NOEMA_CODEX_COMMAND").ok(),
-            noema_codex_sandbox: env::var("NOEMA_CODEX_SANDBOX").ok(),
-            noema_codex_ephemeral: env::var("NOEMA_CODEX_EPHEMERAL").ok(),
-            noema_codex_ignore_rules: env::var("NOEMA_CODEX_IGNORE_RULES").ok(),
-            noema_codex_ignore_user_config: env::var("NOEMA_CODEX_IGNORE_USER_CONFIG").ok(),
-            noema_codex_startup_timeout_seconds: env::var("NOEMA_CODEX_STARTUP_TIMEOUT_SECONDS")
-                .ok(),
-            noema_codex_turn_timeout_seconds: env::var("NOEMA_CODEX_TURN_TIMEOUT_SECONDS").ok(),
-            noema_codex_timeout_seconds: env::var("NOEMA_CODEX_TIMEOUT_SECONDS").ok(),
-            noema_codex_home: env::var("NOEMA_CODEX_HOME").ok(),
-            openai_api_key: env::var("OPENAI_API_KEY").ok(),
-            openai_base_url: env::var("OPENAI_BASE_URL").ok(),
-            openai_timeout_seconds: env::var("OPENAI_TIMEOUT_SECONDS").ok(),
-            openai_org_id: env::var("OPENAI_ORG_ID").ok(),
-            openai_project_id: env::var("OPENAI_PROJECT_ID").ok(),
+            api_key: None,
+            base_url: DEFAULT_OPENAI_BASE_URL.to_string(),
+            organization_id: None,
+            project_id: None,
+            timeout_seconds: DEFAULT_OPENAI_TIMEOUT_SECONDS,
         }
     }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
+struct RawCodexConfig {
+    command: String,
+    model: Option<String>,
+    sandbox: String,
+    ephemeral: bool,
+    ignore_rules: bool,
+    ignore_user_config: bool,
+    startup_timeout_seconds: u64,
+    turn_timeout_seconds: u64,
+    home: Option<String>,
+}
+
+impl Default for RawCodexConfig {
+    fn default() -> Self {
+        let default = CodexProviderConfig::default();
+        Self {
+            command: default.command,
+            model: default.default_model,
+            sandbox: default.sandbox,
+            ephemeral: default.ephemeral,
+            ignore_rules: default.ignore_rules,
+            ignore_user_config: default.ignore_user_config,
+            startup_timeout_seconds: DEFAULT_CODEX_STARTUP_TIMEOUT_SECONDS,
+            turn_timeout_seconds: DEFAULT_CODEX_TURN_TIMEOUT_SECONDS,
+            home: default.codex_home,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct FileConfig {
+    provider: Option<String>,
+    model: Option<String>,
+    openai: FileOpenAiConfig,
+    codex: FileCodexConfig,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct FileOpenAiConfig {
+    base_url: Option<String>,
+    organization_id: Option<String>,
+    project_id: Option<String>,
+    timeout_seconds: Option<u64>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct FileCodexConfig {
+    command: Option<String>,
+    model: Option<String>,
+    sandbox: Option<String>,
+    ephemeral: Option<bool>,
+    ignore_rules: Option<bool>,
+    ignore_user_config: Option<bool>,
+    startup_timeout_seconds: Option<u64>,
+    turn_timeout_seconds: Option<u64>,
+    home: Option<String>,
 }
 
 #[derive(Debug, Error)]
@@ -384,17 +332,14 @@ pub enum ConfigError {
     #[error("config file not found: {}", path.display())]
     ConfigFileNotFound { path: PathBuf },
 
-    #[error("failed to read config file {}: {source}", path.display())]
-    ReadFile {
+    #[error("failed to parse config file {}: {source}", path.display())]
+    ParseConfig {
         path: PathBuf,
-        source: std::io::Error,
+        source: figment::Error,
     },
 
-    #[error("failed to parse config file {}: {source}", path.display())]
-    ParseYaml {
-        path: PathBuf,
-        source: serde_yaml::Error,
-    },
+    #[error("failed to load configuration: {0}")]
+    Load(#[from] figment::Error),
 
     #[error("unsupported provider: {provider}")]
     UnsupportedProvider { provider: String },
@@ -405,70 +350,109 @@ pub enum ConfigError {
         credential: String,
     },
 
-    #[error("invalid boolean value for {name}: {value}")]
-    InvalidBool { name: String, value: String },
-
     #[error("invalid integer value for {name}: {value}")]
     InvalidInteger { name: String, value: String },
+
+    #[error(transparent)]
+    Path(#[from] NoemaPathError),
 }
 
-fn first_non_empty<'a>(values: impl IntoIterator<Item = Option<&'a str>>) -> Option<&'a str> {
-    values
-        .into_iter()
-        .flatten()
-        .map(str::trim)
-        .find(|value| !value.is_empty())
+fn load_raw_config(
+    path_override: Option<PathBuf>,
+    cli: CliOverrides,
+) -> Result<RawConfig, ConfigError> {
+    load_raw_config_from_sources(
+        path_override,
+        cli,
+        default_config_path()?,
+        Figment::from(config_env_provider()),
+    )
 }
 
-fn default_config_path() -> Option<PathBuf> {
-    env::var_os("HOME").map(|home| PathBuf::from(home).join(".noema/config.yaml"))
+fn load_raw_config_from_sources(
+    path_override: Option<PathBuf>,
+    cli: CliOverrides,
+    default_config_path: Option<PathBuf>,
+    env: Figment,
+) -> Result<RawConfig, ConfigError> {
+    let mut figment = Figment::from(Serialized::defaults(RawConfig::default()));
+
+    if let Some(config_path) = resolved_config_path(path_override, default_config_path)? {
+        validate_file_config(&config_path)?;
+        figment = figment.merge(Yaml::file(config_path));
+    }
+
+    figment = figment.merge(env);
+    figment = figment.merge(Serialized::defaults(cli));
+
+    Ok(figment.extract()?)
 }
 
-fn first_bool(
-    env_value: Option<&str>,
-    file_value: Option<bool>,
-    default_value: bool,
-    name: &str,
-) -> Result<bool, ConfigError> {
-    match env_value {
-        Some(value) => parse_bool(value).ok_or_else(|| ConfigError::InvalidBool {
+fn resolved_config_path(
+    path_override: Option<PathBuf>,
+    default_config_path: Option<PathBuf>,
+) -> Result<Option<PathBuf>, ConfigError> {
+    match path_override {
+        Some(path) => {
+            if path.exists() {
+                Ok(Some(path))
+            } else {
+                Err(ConfigError::ConfigFileNotFound { path })
+            }
+        }
+        None => Ok(default_config_path.filter(|path| path.exists())),
+    }
+}
+
+fn default_config_path() -> Result<Option<PathBuf>, ConfigError> {
+    let noema_home = env::var_os(NOEMA_HOME_ENV);
+    let home = env::var_os("HOME");
+
+    if noema_home.is_none() && home.is_none() {
+        return Ok(None);
+    }
+
+    Ok(Some(
+        NoemaPaths::from_env_values(noema_home, home)?.config_path(),
+    ))
+}
+
+fn validate_file_config(path: &PathBuf) -> Result<(), ConfigError> {
+    Figment::from(Yaml::file(path))
+        .extract::<FileConfig>()
+        .map(|_| ())
+        .map_err(|source| ConfigError::ParseConfig {
+            path: path.clone(),
+            source,
+        })
+}
+
+fn config_env_provider() -> Env {
+    Env::prefixed("NOEMA_")
+        .split("__")
+        .ignore(&["home"])
+        .only(CONFIG_ENV_KEYS)
+}
+
+fn non_empty_option(value: Option<&str>) -> Option<&str> {
+    value.map(str::trim).filter(|value| !value.is_empty())
+}
+
+fn require_positive(value: u64, name: &str) -> Result<u64, ConfigError> {
+    if value == 0 {
+        Err(ConfigError::InvalidInteger {
             name: name.to_string(),
             value: value.to_string(),
-        }),
-        None => Ok(file_value.unwrap_or(default_value)),
-    }
-}
-
-fn first_u64(
-    env_value: Option<&str>,
-    file_value: Option<u64>,
-    default_value: u64,
-    name: &str,
-) -> Result<u64, ConfigError> {
-    match env_value {
-        Some(value) => value
-            .parse::<u64>()
-            .ok()
-            .filter(|value| *value > 0)
-            .ok_or_else(|| ConfigError::InvalidInteger {
-                name: name.to_string(),
-                value: value.to_string(),
-            }),
-        None => Ok(file_value.unwrap_or(default_value)),
-    }
-}
-
-fn parse_bool(value: &str) -> Option<bool> {
-    match value.trim().to_ascii_lowercase().as_str() {
-        "1" | "true" | "yes" | "on" => Some(true),
-        "0" | "false" | "no" | "off" => Some(false),
-        _ => None,
+        })
+    } else {
+        Ok(value)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::{Number, Value};
     use tempfile::NamedTempFile;
 
     fn write_config(contents: &str) -> NamedTempFile {
@@ -477,54 +461,100 @@ mod tests {
         file
     }
 
-    fn empty_env() -> EnvVars {
-        EnvVars::default()
+    fn load_resolved(
+        path_override: Option<PathBuf>,
+        cli: CliOverrides,
+        default_config_path: Option<PathBuf>,
+        env: &[(&str, &str)],
+    ) -> Result<ResolvedConfig, ConfigError> {
+        load_raw_config_from_sources(path_override, cli, default_config_path, test_env(env))?
+            .resolve()
+    }
+
+    fn load_codex_config(
+        path_override: Option<PathBuf>,
+        cli: CliOverrides,
+        default_config_path: Option<PathBuf>,
+        env: &[(&str, &str)],
+    ) -> Result<CodexProviderConfig, ConfigError> {
+        load_raw_config_from_sources(path_override, cli, default_config_path, test_env(env))?
+            .resolve_codex_config()
+    }
+
+    fn test_env(env: &[(&str, &str)]) -> Figment {
+        env.iter().fold(Figment::new(), |figment, (key, value)| {
+            let Some(path) = normalize_env_key(key) else {
+                return figment;
+            };
+
+            if CONFIG_ENV_KEYS.contains(&path.as_str()) {
+                figment.merge(Serialized::default(&path, parse_env_value(value)))
+            } else {
+                figment
+            }
+        })
+    }
+
+    fn normalize_env_key(key: &str) -> Option<String> {
+        key.strip_prefix("NOEMA_")
+            .map(|key| key.to_ascii_lowercase().replace("__", "."))
+    }
+
+    fn parse_env_value(value: &str) -> Value {
+        match value {
+            "true" => Value::Bool(true),
+            "false" => Value::Bool(false),
+            _ => value
+                .parse::<u64>()
+                .ok()
+                .map(Number::from)
+                .map(Value::Number)
+                .unwrap_or_else(|| Value::String(value.to_string())),
+        }
     }
 
     #[test]
-    fn default_openai_config_requires_api_key() {
-        let error = Config::default()
-            .resolve(CliOverrides::default(), empty_env())
-            .unwrap_err();
+    fn default_openai_config_requires_normalized_api_key() {
+        let error = load_resolved(None, CliOverrides::default(), None, &[]).unwrap_err();
 
         assert!(matches!(
             error,
             ConfigError::MissingCredential { provider, credential }
-                if provider == "openai" && credential == "OPENAI_API_KEY"
+                if provider == "openai" && credential == OPENAI_API_KEY_ENV
         ));
     }
 
     #[test]
-    fn resolves_openai_from_env_and_cli_precedence() {
-        let config = Config {
-            provider: Some("openai".to_string()),
-            model: Some("yaml-model".to_string()),
-            openai: OpenAiFileConfig {
-                base_url: Some("https://yaml.example/v1".to_string()),
-                organization_id: Some("yaml-org".to_string()),
-                project_id: Some("yaml-project".to_string()),
-                timeout_seconds: Some(22),
-            },
-            ..Config::default()
-        };
+    fn resolves_openai_from_figment_layers_in_precedence_order() {
+        let file = write_config(
+            r#"
+provider: openai
+model: yaml-model
+openai:
+  base_url: https://yaml.example/v1
+  organization_id: yaml-org
+  project_id: yaml-project
+  timeout_seconds: 22
+"#,
+        );
 
-        let resolved = config
-            .resolve(
-                CliOverrides {
-                    provider: None,
-                    model: Some("cli-model".to_string()),
-                    base_url: Some("https://cli.example/v1".to_string()),
-                },
-                EnvVars {
-                    openai_api_key: Some("env-key".to_string()),
-                    openai_base_url: Some("https://env.example/v1".to_string()),
-                    openai_org_id: Some("env-org".to_string()),
-                    openai_project_id: Some("env-project".to_string()),
-                    openai_timeout_seconds: Some("33".to_string()),
-                    ..empty_env()
-                },
-            )
-            .expect("config should resolve");
+        let resolved = load_resolved(
+            Some(file.path().to_path_buf()),
+            CliOverrides::new(
+                None,
+                Some("cli-model".to_string()),
+                Some("https://cli.example/v1".to_string()),
+            ),
+            None,
+            &[
+                (OPENAI_API_KEY_ENV, "env-key"),
+                ("NOEMA_OPENAI__BASE_URL", "https://env.example/v1"),
+                ("NOEMA_OPENAI__ORGANIZATION_ID", "env-org"),
+                ("NOEMA_OPENAI__PROJECT_ID", "env-project"),
+                ("NOEMA_OPENAI__TIMEOUT_SECONDS", "33"),
+            ],
+        )
+        .expect("config should resolve");
 
         assert_eq!(resolved.provider.kind(), ProviderKind::OpenAi);
 
@@ -554,13 +584,11 @@ openai:
 "#,
         );
 
-        let resolved = Config::load_with_env(
+        let resolved = load_resolved(
             Some(file.path().to_path_buf()),
             CliOverrides::default(),
-            EnvVars {
-                openai_api_key: Some("env-key".to_string()),
-                ..empty_env()
-            },
+            None,
+            &[(OPENAI_API_KEY_ENV, "env-key")],
         )
         .expect("config should load");
 
@@ -576,17 +604,97 @@ openai:
     }
 
     #[test]
+    fn reads_default_config_from_noema_home_env() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let noema_home = dir.path().join("custom-noema");
+        std::fs::create_dir_all(&noema_home).expect("create noema home");
+        std::fs::write(
+            noema_home.join("config.yaml"),
+            r#"
+provider: openai
+model: noema-home-model
+"#,
+        )
+        .expect("write config");
+
+        let resolved = load_resolved(
+            None,
+            CliOverrides::default(),
+            Some(noema_home.join("config.yaml")),
+            &[(OPENAI_API_KEY_ENV, "env-key")],
+        )
+        .expect("config should load");
+
+        let ProviderConfig::OpenAi(openai) = resolved.provider else {
+            panic!("expected openai config");
+        };
+
+        assert_eq!(openai.default_model, "noema-home-model");
+    }
+
+    #[test]
+    fn reads_default_config_from_home_dot_noema_without_noema_home() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let home = dir.path().join("home");
+        let noema_home = home.join(".noema");
+        std::fs::create_dir_all(&noema_home).expect("create noema home");
+        std::fs::write(
+            noema_home.join("config.yaml"),
+            r#"
+provider: openai
+model: home-model
+"#,
+        )
+        .expect("write config");
+
+        let resolved = load_resolved(
+            None,
+            CliOverrides::default(),
+            Some(home.join(".noema/config.yaml")),
+            &[(OPENAI_API_KEY_ENV, "env-key")],
+        )
+        .expect("config should load");
+
+        let ProviderConfig::OpenAi(openai) = resolved.provider else {
+            panic!("expected openai config");
+        };
+
+        assert_eq!(openai.default_model, "home-model");
+    }
+
+    #[test]
+    fn noema_home_env_controls_path_but_is_not_config() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let noema_home = dir.path().join("noema");
+        std::fs::create_dir_all(&noema_home).expect("create noema home");
+        std::fs::write(
+            noema_home.join("config.yaml"),
+            r#"
+provider: codex
+"#,
+        )
+        .expect("write config");
+
+        let resolved = load_resolved(
+            None,
+            CliOverrides::default(),
+            Some(noema_home.join("config.yaml")),
+            &[(NOEMA_HOME_ENV, "/ignored/as/config")],
+        )
+        .expect("config should load");
+
+        assert_eq!(resolved.provider.kind(), ProviderKind::Codex);
+    }
+
+    #[test]
     fn codex_provider_does_not_require_openai_api_key() {
-        let resolved = Config::default()
-            .resolve(
-                CliOverrides {
-                    provider: Some("codex".to_string()),
-                    model: None,
-                    base_url: None,
-                },
-                empty_env(),
-            )
-            .expect("codex config should resolve without OpenAI API key");
+        let resolved = load_resolved(
+            None,
+            CliOverrides::new(Some("codex".to_string()), None, None),
+            None,
+            &[],
+        )
+        .expect("codex config should resolve without OpenAI API key");
 
         assert_eq!(resolved.provider.kind(), ProviderKind::Codex);
 
@@ -611,7 +719,7 @@ openai:
     }
 
     #[test]
-    fn codex_config_reads_yaml_and_env_overrides() {
+    fn codex_config_reads_yaml_and_normalized_env_overrides() {
         let file = write_config(
             r#"
 provider: codex
@@ -625,22 +733,22 @@ codex:
   ignore_user_config: true
   startup_timeout_seconds: 45
   turn_timeout_seconds: 120
-  codex_home: /tmp/yaml-codex-home
+  home: /tmp/yaml-codex-home
 "#,
         );
 
-        let resolved = Config::load_with_env(
+        let resolved = load_resolved(
             Some(file.path().to_path_buf()),
             CliOverrides::default(),
-            EnvVars {
-                noema_model: Some("env-model".to_string()),
-                noema_codex_command: Some("env-codex".to_string()),
-                noema_codex_ephemeral: Some("true".to_string()),
-                noema_codex_startup_timeout_seconds: Some("67".to_string()),
-                noema_codex_turn_timeout_seconds: Some("123".to_string()),
-                noema_codex_home: Some("/tmp/env-codex-home".to_string()),
-                ..empty_env()
-            },
+            None,
+            &[
+                ("NOEMA_MODEL", "env-model"),
+                ("NOEMA_CODEX__COMMAND", "env-codex"),
+                ("NOEMA_CODEX__EPHEMERAL", "true"),
+                ("NOEMA_CODEX__STARTUP_TIMEOUT_SECONDS", "67"),
+                ("NOEMA_CODEX__TURN_TIMEOUT_SECONDS", "123"),
+                ("NOEMA_CODEX__HOME", "/tmp/env-codex-home"),
+            ],
         )
         .expect("codex config should resolve");
 
@@ -663,63 +771,134 @@ codex:
 
     #[test]
     fn load_codex_ignores_default_openai_provider_credentials() {
-        let codex = Config::load_codex_with_env(None, CliOverrides::default(), empty_env())
+        let codex = load_codex_config(None, CliOverrides::default(), None, &[])
             .expect("codex config should resolve");
 
         assert_eq!(codex.command, "codex");
     }
 
     #[test]
-    fn invalid_codex_bool_env_is_an_error() {
-        let error = Config::default()
-            .resolve(
-                CliOverrides {
-                    provider: Some("codex".to_string()),
-                    model: None,
-                    base_url: None,
-                },
-                EnvVars {
-                    noema_codex_ephemeral: Some("sometimes".to_string()),
-                    ..empty_env()
-                },
-            )
-            .unwrap_err();
+    fn old_openai_api_key_env_is_ignored() {
+        let error = load_resolved(
+            None,
+            CliOverrides::default(),
+            None,
+            &[("OPENAI_API_KEY", "old-key")],
+        )
+        .unwrap_err();
 
-        assert!(matches!(error, ConfigError::InvalidBool { .. }));
+        assert!(matches!(
+            error,
+            ConfigError::MissingCredential { credential, .. } if credential == OPENAI_API_KEY_ENV
+        ));
+    }
+
+    #[test]
+    fn yaml_openai_api_key_is_rejected() {
+        let file = write_config(
+            r#"
+provider: openai
+openai:
+  api_key: not-allowed
+"#,
+        );
+
+        let error = load_resolved(
+            Some(file.path().to_path_buf()),
+            CliOverrides::default(),
+            None,
+            &[],
+        )
+        .unwrap_err();
+
+        assert!(matches!(error, ConfigError::ParseConfig { .. }));
+    }
+
+    #[test]
+    fn missing_explicit_config_file_is_an_error() {
+        let missing = PathBuf::from("/tmp/noema-missing-config.yaml");
+        let error = Config::load(Some(missing.clone()), CliOverrides::default()).unwrap_err();
+
+        assert!(matches!(
+            error,
+            ConfigError::ConfigFileNotFound { path } if path == missing
+        ));
+    }
+
+    #[test]
+    fn invalid_codex_bool_env_is_an_error() {
+        let error = load_resolved(
+            None,
+            CliOverrides::default(),
+            None,
+            &[
+                ("NOEMA_PROVIDER", "codex"),
+                ("NOEMA_CODEX__EPHEMERAL", "sometimes"),
+            ],
+        )
+        .unwrap_err();
+
+        assert!(matches!(error, ConfigError::Load(_)));
     }
 
     #[test]
     fn invalid_codex_timeout_env_is_an_error() {
-        let error = Config::default()
-            .resolve(
-                CliOverrides {
-                    provider: Some("codex".to_string()),
-                    model: None,
-                    base_url: None,
-                },
-                EnvVars {
-                    noema_codex_turn_timeout_seconds: Some("0".to_string()),
-                    ..empty_env()
-                },
-            )
-            .unwrap_err();
+        let error = load_resolved(
+            None,
+            CliOverrides::default(),
+            None,
+            &[
+                ("NOEMA_PROVIDER", "codex"),
+                ("NOEMA_CODEX__TURN_TIMEOUT_SECONDS", "abc"),
+            ],
+        )
+        .unwrap_err();
+
+        assert!(matches!(error, ConfigError::Load(_)));
+    }
+
+    #[test]
+    fn zero_codex_timeout_is_an_error() {
+        let error = load_resolved(
+            None,
+            CliOverrides::default(),
+            None,
+            &[
+                ("NOEMA_PROVIDER", "codex"),
+                ("NOEMA_CODEX__TURN_TIMEOUT_SECONDS", "0"),
+            ],
+        )
+        .unwrap_err();
 
         assert!(matches!(error, ConfigError::InvalidInteger { .. }));
     }
 
     #[test]
     fn unsupported_provider_is_an_error() {
-        let error = Config::default()
-            .resolve(
-                CliOverrides {
-                    provider: Some("unknown".to_string()),
-                    model: None,
-                    base_url: None,
-                },
-                empty_env(),
-            )
-            .unwrap_err();
+        let error = load_resolved(
+            None,
+            CliOverrides::default(),
+            None,
+            &[("NOEMA_PROVIDER", "unknown")],
+        )
+        .unwrap_err();
 
         assert!(matches!(error, ConfigError::UnsupportedProvider { .. }));
+    }
+
+    #[test]
+    fn generated_config_template_parses() {
+        let file = write_config(crate::DEFAULT_NOEMA_CONFIG_YAML);
+
+        let codex = load_codex_config(
+            Some(file.path().to_path_buf()),
+            CliOverrides::default(),
+            None,
+            &[],
+        )
+        .expect("generated config should parse");
+
+        assert_eq!(codex.command, "codex");
+        assert_eq!(codex.sandbox, "read-only");
     }
 }

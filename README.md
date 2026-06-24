@@ -18,13 +18,13 @@ Two providers are currently supported:
 ## Requirements
 
 - Rust and Cargo
-- `OPENAI_API_KEY` in the environment when using `provider: openai`
+- `NOEMA_OPENAI__API_KEY` in the environment when using `provider: openai`
 - Codex CLI installed and authenticated when using `provider: codex`
 
 ## Usage
 
 ```bash
-export OPENAI_API_KEY="..."
+export NOEMA_OPENAI__API_KEY="..."
 cargo run -p noema-cli -- "Say hello in one sentence"
 ```
 
@@ -41,6 +41,7 @@ runtime warm while the daemon is alive:
 
 ```bash
 codex login
+cargo run -p noema-cli -- config
 cargo run -p noema-cli -- start
 ```
 
@@ -57,7 +58,18 @@ exits.
 ## Configuration
 
 Secrets are read from environment variables only. Non-secret defaults may live
-in `~/.noema/config.yaml`.
+in the Noema directory's `config.yaml`. The default Noema directory is
+`~/.noema`; set `NOEMA_HOME` to use another directory.
+
+Initialize the directory with:
+
+```bash
+cargo run -p noema-cli -- config
+```
+
+`noema start` also creates the Noema directory and a default Codex-oriented
+config when the directory or default config file is missing. Use
+`noema config --force` to rewrite `config.yaml` with the default template.
 
 ```yaml
 provider: openai
@@ -72,27 +84,28 @@ openai:
 Configuration precedence is:
 
 ```text
-CLI flags > environment variables > ~/.noema/config.yaml > defaults
+CLI flags > environment variables > $NOEMA_HOME/config.yaml or ~/.noema/config.yaml > defaults
 ```
 
 Supported environment variables:
 
-- `OPENAI_API_KEY`
+- `NOEMA_HOME`
 - `NOEMA_PROVIDER`
 - `NOEMA_MODEL`
-- `NOEMA_CODEX_COMMAND`
-- `NOEMA_CODEX_SANDBOX`
-- `NOEMA_CODEX_EPHEMERAL`
-- `NOEMA_CODEX_IGNORE_RULES`
-- `NOEMA_CODEX_IGNORE_USER_CONFIG`
-- `NOEMA_CODEX_STARTUP_TIMEOUT_SECONDS`
-- `NOEMA_CODEX_TURN_TIMEOUT_SECONDS`
-- `NOEMA_CODEX_TIMEOUT_SECONDS`
-- `NOEMA_CODEX_HOME`
-- `OPENAI_BASE_URL`
-- `OPENAI_TIMEOUT_SECONDS`
-- `OPENAI_ORG_ID`
-- `OPENAI_PROJECT_ID`
+- `NOEMA_OPENAI__API_KEY`
+- `NOEMA_OPENAI__BASE_URL`
+- `NOEMA_OPENAI__TIMEOUT_SECONDS`
+- `NOEMA_OPENAI__ORGANIZATION_ID`
+- `NOEMA_OPENAI__PROJECT_ID`
+- `NOEMA_CODEX__COMMAND`
+- `NOEMA_CODEX__MODEL`
+- `NOEMA_CODEX__SANDBOX`
+- `NOEMA_CODEX__EPHEMERAL`
+- `NOEMA_CODEX__IGNORE_RULES`
+- `NOEMA_CODEX__IGNORE_USER_CONFIG`
+- `NOEMA_CODEX__STARTUP_TIMEOUT_SECONDS`
+- `NOEMA_CODEX__TURN_TIMEOUT_SECONDS`
+- `NOEMA_CODEX__HOME`
 
 Supported CLI flags:
 
@@ -120,7 +133,7 @@ codex:
   ignore_user_config: false
   startup_timeout_seconds: 60
   turn_timeout_seconds: 300
-  codex_home: /Users/you/.codex
+  home: /Users/you/.codex
 ```
 
 The one-shot Codex provider intentionally uses `codex exec` rather than
@@ -135,4 +148,18 @@ conversation database or memory is persisted yet.
 cargo fmt --check
 cargo check --workspace
 cargo test --workspace
+```
+
+For daemon development, install `cargo-watch` and use the repo alias to restart
+the foreground daemon whenever Rust sources or Cargo manifests change:
+
+```bash
+cargo install cargo-watch --locked
+NOEMA_HOME=.noema-dev cargo dev-daemon
+```
+
+Then connect from another terminal:
+
+```bash
+NOEMA_HOME=.noema-dev cargo run -p noema-cli -- chat
 ```

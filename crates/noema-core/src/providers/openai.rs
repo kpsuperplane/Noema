@@ -54,7 +54,7 @@ fn normalize_config(
     if config.api_key.trim().is_empty() {
         return Err(ProviderError::MissingCredentials {
             provider: "openai".to_string(),
-            credential: "OPENAI_API_KEY".to_string(),
+            credential: "api_key".to_string(),
         });
     }
 

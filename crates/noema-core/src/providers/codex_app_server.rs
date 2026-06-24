@@ -13,7 +13,7 @@ use tokio::{
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CodexAppServerConversation {
     pub thread_id: String,
-    pub model: String,
+    pub model: Option<String>,
 }
 
 #[derive(Debug)]
@@ -36,11 +36,9 @@ impl CodexAppServerRuntime {
         model: Option<String>,
         cwd: Option<String>,
     ) -> Result<CodexAppServerConversation, ProviderError> {
-        let model = model
-            .or_else(|| self.config.default_model.clone())
-            .unwrap_or_else(|| "codex-default".to_string());
+        let model = model.or_else(|| self.config.default_model.clone());
         let process = self.ensure_process().await?;
-        let thread_id = process.start_thread(Some(model.clone()), cwd).await?;
+        let thread_id = process.start_thread(model.clone(), cwd).await?;
 
         Ok(CodexAppServerConversation { thread_id, model })
     }
@@ -227,7 +225,7 @@ impl CodexAppServerProcess {
     async fn turn(
         &mut self,
         thread_id: &str,
-        model: &str,
+        model: &Option<String>,
         input: String,
     ) -> Result<GenerateResponse, ProviderError> {
         let request_id = self.next_request_id();
@@ -294,7 +292,7 @@ impl CodexAppServerProcess {
         Ok(GenerateResponse {
             text,
             provider: "codex".to_string(),
-            model: model.to_string(),
+            model: model.clone().unwrap_or_else(|| "codex-default".to_string()),
             response_id: None,
             usage: None,
         })
@@ -496,10 +494,35 @@ fn validate_turn_completion(message: &Value) -> Result<(), ProviderError> {
         return Ok(());
     }
 
+    let detail = message
+        .get("params")
+        .and_then(|params| params.get("turn"))
+        .and_then(|turn| turn.get("error"))
+        .map(format_json_value)
+        .filter(|detail| !detail.trim().is_empty());
+    let message = match detail {
+        Some(detail) => format!("codex turn completed with status {status}: {detail}"),
+        None => format!("codex turn completed with status {status}"),
+    };
+
     Err(ProviderError::ProtocolError {
         provider: "codex".to_string(),
-        message: format!("codex turn completed with status {status}"),
+        message,
     })
+}
+
+fn format_json_value(value: &Value) -> String {
+    if let Some(text) = value.as_str() {
+        return text.to_string();
+    }
+
+    for key in ["message", "error", "detail"] {
+        if let Some(text) = value.get(key).and_then(Value::as_str) {
+            return text.to_string();
+        }
+    }
+
+    value.to_string()
 }
 
 #[cfg(test)]

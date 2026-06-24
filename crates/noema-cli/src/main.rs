@@ -2,8 +2,9 @@ use clap::{Parser, Subcommand};
 use noema_cli::collect_prompt;
 use noema_core::{
     CliOverrides, CodexProvider, Config, DaemonClient, DaemonError, DaemonServerConfig,
-    GenerateInput, GenerateOptions, GenerateRequest, ModelProvider, OpenAiProvider, ProviderConfig,
-    ProviderError, default_socket_path, is_connection_refused, run_daemon,
+    GenerateInput, GenerateOptions, GenerateRequest, ModelProvider, NoemaHomeError,
+    NoemaHomeInitOptions, NoemaPathError, NoemaPaths, OpenAiProvider, ProviderConfig,
+    ProviderError, default_socket_path, init_noema_home, is_connection_refused, run_daemon,
 };
 use std::{
     env,
@@ -46,6 +47,11 @@ struct Args {
 enum CommandKind {
     #[command(about = "Run the Noema daemon in the foreground.")]
     Start,
+    #[command(about = "Initialize or update the Noema directory.")]
+    Config {
+        #[arg(long, help = "Rewrite config.yaml with the default template.")]
+        force: bool,
+    },
     #[command(about = "Start a chat session through the Noema daemon.")]
     Chat {
         #[arg(value_name = "PROMPT", trailing_var_arg = true)]
@@ -66,6 +72,12 @@ enum CliError {
 
     #[error(transparent)]
     Daemon(#[from] DaemonError),
+
+    #[error(transparent)]
+    NoemaHome(#[from] NoemaHomeError),
+
+    #[error(transparent)]
+    NoemaPath(#[from] NoemaPathError),
 
     #[error("failed to read stdin: {0}")]
     ReadStdin(io::Error),
@@ -96,17 +108,71 @@ async fn run() -> Result<(), CliError> {
 
     match &args.command {
         Some(CommandKind::Start) => run_start(&args).await,
+        Some(CommandKind::Config { force }) => run_config(&args, *force),
         Some(CommandKind::Chat { prompt }) => run_chat(&args, prompt).await,
         None => run_one_shot(args).await,
     }
 }
 
 async fn run_start(args: &Args) -> Result<(), CliError> {
+    let paths = ensure_noema_home_for_start(args)?;
     let codex = Config::load_codex(args.config.clone(), cli_overrides(args))?;
-    let socket_path = default_socket_path()?;
+    let socket_path = paths.socket_path();
     eprintln!("noema daemon listening at {}", socket_path.display());
     run_daemon(DaemonServerConfig::new(socket_path, codex)).await?;
     Ok(())
+}
+
+fn run_config(_args: &Args, force: bool) -> Result<(), CliError> {
+    let paths = NoemaPaths::from_process_env()?;
+    let result = init_noema_home(
+        &paths,
+        NoemaHomeInitOptions {
+            force,
+            write_config: true,
+        },
+    )?;
+
+    println!("Noema directory: {}", result.root.display());
+    println!("Run directory: {}", result.run_dir.display());
+    if result.wrote_config {
+        println!("Config file: {} (written)", result.config_path.display());
+    } else {
+        println!(
+            "Config file: {} (already exists; use --force to rewrite)",
+            result.config_path.display()
+        );
+    }
+
+    Ok(())
+}
+
+fn ensure_noema_home_for_start(args: &Args) -> Result<NoemaPaths, CliError> {
+    let paths = NoemaPaths::from_process_env()?;
+    let should_write_config = args.config.is_none() && !paths.config_exists();
+    let should_initialize = !paths.exists() || should_write_config;
+
+    if should_initialize {
+        eprintln!(
+            "noema directory is not initialized at {}; running `noema config` defaults.",
+            paths.root().display()
+        );
+        let result = init_noema_home(
+            &paths,
+            NoemaHomeInitOptions {
+                force: false,
+                write_config: should_write_config,
+            },
+        )?;
+
+        if result.wrote_config {
+            eprintln!("wrote default config at {}", result.config_path.display());
+        } else {
+            eprintln!("prepared noema directory at {}", result.root.display());
+        }
+    }
+
+    Ok(paths)
 }
 
 async fn run_chat(args: &Args, prompt_args: &[String]) -> Result<(), CliError> {
@@ -221,11 +287,11 @@ async fn run_one_shot(args: Args) -> Result<(), CliError> {
 }
 
 fn cli_overrides(args: &Args) -> CliOverrides {
-    CliOverrides {
-        provider: args.provider.clone(),
-        model: args.model.clone(),
-        base_url: args.base_url.clone(),
-    }
+    CliOverrides::new(
+        args.provider.clone(),
+        args.model.clone(),
+        args.base_url.clone(),
+    )
 }
 
 struct ConnectedDaemon {
@@ -373,6 +439,34 @@ mod tests {
     }
 
     #[test]
+    fn parses_config_subcommand() {
+        let args = Args::try_parse_from(["noema", "config"]).expect("args");
+
+        assert!(matches!(
+            args.command,
+            Some(CommandKind::Config { force: false })
+        ));
+    }
+
+    #[test]
+    fn parses_config_force_subcommand() {
+        let args = Args::try_parse_from(["noema", "config", "--force"]).expect("args");
+
+        assert!(matches!(
+            args.command,
+            Some(CommandKind::Config { force: true })
+        ));
+    }
+
+    #[test]
+    fn parses_provider_before_start_subcommand() {
+        let args = Args::try_parse_from(["noema", "--provider", "codex", "start"]).expect("args");
+
+        assert_eq!(args.provider.as_deref(), Some("codex"));
+        assert!(matches!(args.command, Some(CommandKind::Start)));
+    }
+
+    #[test]
     fn parses_chat_prompt_subcommand() {
         let args = Args::try_parse_from(["noema", "chat", "hello", "there"]).expect("args");
 
@@ -380,6 +474,14 @@ mod tests {
             panic!("expected chat command");
         };
         assert_eq!(prompt, ["hello", "there"]);
+    }
+
+    #[test]
+    fn parses_provider_before_chat_subcommand() {
+        let args = Args::try_parse_from(["noema", "--provider", "codex", "chat"]).expect("args");
+
+        assert_eq!(args.provider.as_deref(), Some("codex"));
+        assert!(matches!(args.command, Some(CommandKind::Chat { .. })));
     }
 
     #[test]

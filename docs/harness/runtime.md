@@ -21,7 +21,12 @@ runtime described below. It introduces the process boundary that later runtime
 features can grow into:
 
 - `noema start` runs a foreground, user-level daemon.
-- The daemon listens on `~/.noema/run/noema.sock` using newline-delimited JSON.
+- The daemon listens on `$NOEMA_HOME/run/noema.sock`, defaulting to
+  `~/.noema/run/noema.sock`, using newline-delimited JSON.
+- `noema config` initializes the Noema directory and writes a default
+  Codex-oriented `config.yaml` when one is not already present.
+- `noema start` runs the same initialization path when the Noema directory or
+  default config is missing.
 - The daemon owns provider runtime state instead of recreating it for every CLI
   message.
 - The daemon starts `codex app-server --listen stdio://` lazily on the first

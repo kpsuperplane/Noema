@@ -27,7 +27,9 @@ Noema is a local-first, self-hosted platform for multiple humans, agents, conver
 
 ## Filesystem and storage architecture
 
-Noema should keep a clean split between canonical structured state and durable object-owned files.
+Noema should keep a clean split between canonical structured state and durable
+object-owned files. The default Noema directory is `~/.noema`; users can point
+Noema at another directory with `NOEMA_HOME`.
 
 ```
 ~/.noema/
@@ -193,7 +195,8 @@ Proactivity should be customizable and explainable.
 
 ## Backup and portability
 
-Noema should assume humans can back up the entire `~/.noema/` directory with their preferred backup tool.
+Noema should assume humans can back up the entire Noema directory, defaulting
+to `~/.noema/`, with their preferred backup tool.
 
 A complete backup includes:
 

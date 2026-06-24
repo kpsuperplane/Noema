@@ -1,4 +1,5 @@
 use crate::{
+    NoemaPathError, NoemaPaths,
     provider::{GenerateResponse, ProviderError},
     providers::{
         codex::CodexProviderConfig,
@@ -8,7 +9,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
-    env, fs,
+    fs,
     io::ErrorKind,
     path::{Path, PathBuf},
     sync::Arc,
@@ -78,9 +79,6 @@ impl DaemonServerConfig {
 
 #[derive(Debug, Error)]
 pub enum DaemonError {
-    #[error("could not determine home directory for daemon socket")]
-    MissingHome,
-
     #[error("daemon is already running at {}", path.display())]
     AlreadyRunning { path: PathBuf },
 
@@ -101,11 +99,13 @@ pub enum DaemonError {
 
     #[error(transparent)]
     Provider(#[from] ProviderError),
+
+    #[error(transparent)]
+    Path(#[from] NoemaPathError),
 }
 
 pub fn default_socket_path() -> Result<PathBuf, DaemonError> {
-    let home = env::var_os("HOME").ok_or(DaemonError::MissingHome)?;
-    Ok(socket_path_for_home(home))
+    Ok(NoemaPaths::from_process_env()?.socket_path())
 }
 
 pub fn socket_path_for_home(home: impl AsRef<Path>) -> PathBuf {
@@ -684,6 +684,9 @@ for line in sys.stdin:
     elif method == "initialized":
         pass
     elif method == "thread/start":
+        if "model" in msg.get("params", {}):
+            print(json.dumps({"id": msg["id"], "error": {"code": -32602, "message": "model should be omitted by default"}}), flush=True)
+            continue
         thread = f"thread_{next_thread}"
         next_thread += 1
         print(json.dumps({"id": msg["id"], "result": {"thread": {"id": thread}}}), flush=True)
