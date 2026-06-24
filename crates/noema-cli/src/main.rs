@@ -6,8 +6,8 @@ use noema_core::{
     CliOverrides, CodexProvider, Config, DaemonClient, DaemonError, DaemonServerConfig,
     GenerateInput, GenerateOptions, GenerateRequest, ModelProvider, NoemaHomeError,
     NoemaHomeInitOptions, NoemaPathError, NoemaPaths, OpenAiProvider, ProviderConfig,
-    ProviderError, SqliteMemoryRepository, default_socket_path, init_noema_home,
-    is_connection_refused,
+    ProviderError, SqliteMemoryRepository, TurnActivityStatus, TurnTranscriptItem,
+    default_socket_path, init_noema_home, is_connection_refused,
     memory::{MemoryStatus, Sensitivity},
     memory_persistence::{MemoryPersistenceError, MemorySummary},
     run_daemon,
@@ -255,12 +255,12 @@ async fn run_chat(args: &Args, prompt_args: &[String]) -> Result<(), CliError> {
     } else {
         async {
             let prompt = collect_prompt(prompt_args, "")?;
-            let response = daemon
-                .client
-                .turn(conversation.conversation_id.clone(), prompt)
-                .await?;
-            print_response(&response)?;
-            Ok(())
+            print_chat_turn(
+                &mut daemon.client,
+                conversation.conversation_id.clone(),
+                prompt,
+            )
+            .await
         }
         .await
     };
@@ -303,10 +303,30 @@ async fn run_interactive_chat(
             continue;
         }
 
-        let response = client
-            .turn(conversation_id.to_string(), prompt.to_string())
-            .await?;
-        print_response(&response)?;
+        print_chat_turn(client, conversation_id.to_string(), prompt.to_string()).await?;
+    }
+
+    Ok(())
+}
+
+async fn print_chat_turn(
+    client: &mut DaemonClient,
+    conversation_id: String,
+    prompt: String,
+) -> Result<(), CliError> {
+    let mut print_error = None;
+    client
+        .turn_streaming(conversation_id, prompt, |item| {
+            if print_error.is_none()
+                && let Err(error) = print_transcript_item(&item)
+            {
+                print_error = Some(error);
+            }
+        })
+        .await?;
+
+    if let Some(error) = print_error {
+        return Err(error);
     }
 
     Ok(())
@@ -488,6 +508,49 @@ fn print_response(text: &str) -> Result<(), CliError> {
     }
 
     Ok(())
+}
+
+fn print_transcript_item(item: &TurnTranscriptItem) -> Result<(), CliError> {
+    match item {
+        TurnTranscriptItem::AssistantText { text } => print_response(text),
+        TurnTranscriptItem::Activity {
+            activity_kind,
+            status,
+            title,
+            summary,
+            ..
+        } => {
+            let label = activity_kind.replace('_', " ");
+            let status = activity_status_label(*status);
+            match summary {
+                Some(summary) if !summary.trim().is_empty() => {
+                    println!("[{label}] {status}: {title} - {}", summary.trim());
+                }
+                _ => println!("[{label}] {status}: {title}"),
+            }
+            Ok(())
+        }
+        TurnTranscriptItem::A2uiCard { id, schema, .. } => {
+            println!("[card] {schema} ({id})");
+            Ok(())
+        }
+        TurnTranscriptItem::ErrorNotice {
+            message,
+            recoverable,
+        } => {
+            let label = if *recoverable { "notice" } else { "error" };
+            println!("[{label}] {message}");
+            Ok(())
+        }
+    }
+}
+
+fn activity_status_label(status: TurnActivityStatus) -> &'static str {
+    match status {
+        TurnActivityStatus::Started => "started",
+        TurnActivityStatus::Completed => "completed",
+        TurnActivityStatus::Failed => "failed",
+    }
 }
 
 fn print_memory_list(memories: &[MemorySummary]) -> Result<(), CliError> {

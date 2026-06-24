@@ -6,7 +6,9 @@
 //! a recent-memory listing for CLI inspection.
 
 use crate::{
-    memory::{MemoryId, MemoryStatus, ParticipantRole, PrincipalId, ScopeId, Sensitivity},
+    memory::{
+        MemoryId, MemoryStatus, ParticipantRole, PrincipalId, ScopeId, Sensitivity, SubjectRole,
+    },
     paths::NoemaPaths,
 };
 use rusqlite::{Connection, OpenFlags, OptionalExtension, Transaction, named_params, params};
@@ -135,6 +137,7 @@ impl SqliteMemoryRepository {
         candidate: &NewChatMemoryCandidate,
     ) -> Result<MemorySummary, MemoryPersistenceError> {
         let metadata = json_to_string(&candidate.metadata)?;
+        let retrieval_hints = json_to_string(&candidate.retrieval_hints)?;
         let tx = self
             .conn
             .transaction()
@@ -151,6 +154,11 @@ impl SqliteMemoryRepository {
         for participant in &candidate.participants {
             ensure_principal(&tx, &participant.principal_id)?;
         }
+        for subject in &candidate.subjects {
+            if let Some(linked_principal_id) = &subject.linked_principal_id {
+                ensure_principal(&tx, linked_principal_id)?;
+            }
+        }
 
         let title = candidate
             .title
@@ -165,7 +173,9 @@ impl SqliteMemoryRepository {
               memory_type,
               title,
               content,
+              retrieval_hints,
               status,
+              confidence,
               sensitivity,
               created_by_principal_id,
               owner_principal_id,
@@ -180,7 +190,9 @@ impl SqliteMemoryRepository {
               :memory_type,
               :title,
               :content,
+              :retrieval_hints,
               :status,
+              :confidence,
               :sensitivity,
               :created_by_principal_id,
               :owner_principal_id,
@@ -196,7 +208,9 @@ impl SqliteMemoryRepository {
                 ":memory_type": candidate.memory_type.as_str(),
                 ":title": title,
                 ":content": candidate.content,
+                ":retrieval_hints": retrieval_hints,
                 ":status": memory_status_to_db(candidate.status),
+                ":confidence": candidate.confidence,
                 ":sensitivity": sensitivity_to_db(candidate.sensitivity),
                 ":created_by_principal_id": candidate.created_by_principal_id,
                 ":owner_principal_id": candidate.owner_principal_id,
@@ -230,7 +244,28 @@ impl SqliteMemoryRepository {
             .map_err(MemoryPersistenceError::Sqlite)?;
         }
 
+        for subject in &candidate.subjects {
+            upsert_subject_entity(&tx, &candidate.home_scope_id, subject)?;
+            tx.execute(
+                r"
+                INSERT OR IGNORE INTO memory_subjects (
+                  memory_id,
+                  entity_id,
+                  role
+                )
+                VALUES (?1, ?2, ?3)
+                ",
+                params![
+                    memory_id,
+                    subject.entity_id,
+                    subject_role_to_db(subject.role)
+                ],
+            )
+            .map_err(MemoryPersistenceError::Sqlite)?;
+        }
+
         if let Some(source) = &candidate.source {
+            ensure_scope(&tx, &source.conversation_id)?;
             ensure_conversation_episode(&tx, source)?;
             insert_provenance_edge(
                 &tx,
@@ -291,6 +326,65 @@ impl SqliteMemoryRepository {
 
         tx.commit().map_err(MemoryPersistenceError::Sqlite)?;
         self.memory_summary(&memory_id)
+    }
+
+    /// Record a complete chat turn for memory provenance.
+    ///
+    /// The repository upserts the chat source, conversation scope, principals,
+    /// and conversation episode, then inserts the user and assistant messages.
+    /// Message inserts are idempotent by `message_id` so repeated recording of
+    /// the same turn does not duplicate provenance rows.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MemoryPersistenceError`] when input metadata cannot be
+    /// serialized or SQLite writes fail.
+    pub fn record_chat_turn(&mut self, turn: &NewChatTurn) -> Result<(), MemoryPersistenceError> {
+        let tx = self
+            .conn
+            .transaction()
+            .map_err(MemoryPersistenceError::Sqlite)?;
+        let occurred_at = match &turn.occurred_at {
+            Some(occurred_at) => occurred_at.clone(),
+            None => tx
+                .query_row("SELECT CURRENT_TIMESTAMP", [], |row| {
+                    row.get::<_, String>(0)
+                })
+                .map_err(MemoryPersistenceError::Sqlite)?,
+        };
+
+        ensure_source(&tx)?;
+        ensure_scope(&tx, &turn.conversation_id)?;
+        ensure_principal(&tx, &turn.user_principal_id)?;
+        ensure_principal(&tx, &turn.assistant_principal_id)?;
+        ensure_conversation_episode_id(&tx, &turn.conversation_id)?;
+
+        insert_chat_message(
+            &tx,
+            ChatMessageRecord {
+                message_id: &turn.user_message_id,
+                episode_id: &turn.conversation_id,
+                author_principal_id: &turn.user_principal_id,
+                role: "human",
+                content: &turn.user_content,
+                occurred_at: &occurred_at,
+                metadata: chat_message_metadata(turn, "user"),
+            },
+        )?;
+        insert_chat_message(
+            &tx,
+            ChatMessageRecord {
+                message_id: &turn.assistant_message_id,
+                episode_id: &turn.conversation_id,
+                author_principal_id: &turn.assistant_principal_id,
+                role: "assistant",
+                content: &turn.assistant_content,
+                occurred_at: &occurred_at,
+                metadata: chat_message_metadata(turn, "assistant"),
+            },
+        )?;
+
+        tx.commit().map_err(MemoryPersistenceError::Sqlite)
     }
 
     /// List recent memories for CLI or dashboard inspection.
@@ -579,6 +673,98 @@ impl NewMemoryParticipant {
     }
 }
 
+/// Subject entity to bind to a new memory candidate.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NewMemorySubject {
+    /// Entity id.
+    pub entity_id: String,
+    /// Entity type string from the canonical SQLite vocabulary.
+    pub entity_type: String,
+    /// Canonical entity display name.
+    pub canonical_name: String,
+    /// Role the entity has in the memory.
+    pub role: SubjectRole,
+    /// Alternate names for the entity.
+    pub aliases: Vec<String>,
+    /// Principal linked to the entity, if this entity represents one.
+    pub linked_principal_id: Option<PrincipalId>,
+    /// Additional structured metadata.
+    pub metadata: Value,
+}
+
+impl NewMemorySubject {
+    /// Create a subject entity binding with empty aliases and metadata.
+    #[must_use]
+    pub fn new(
+        entity_id: impl Into<String>,
+        entity_type: impl Into<String>,
+        canonical_name: impl Into<String>,
+        role: SubjectRole,
+    ) -> Self {
+        Self {
+            entity_id: entity_id.into(),
+            entity_type: entity_type.into(),
+            canonical_name: canonical_name.into(),
+            role,
+            aliases: Vec::new(),
+            linked_principal_id: None,
+            metadata: json!({}),
+        }
+    }
+}
+
+/// New chat turn to persist as message provenance for extracted memories.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NewChatTurn {
+    /// Conversation episode id and scope id.
+    pub conversation_id: String,
+    /// Zero- or one-based turn index assigned by the chat runtime.
+    pub turn_index: u64,
+    /// Stable user message id.
+    pub user_message_id: String,
+    /// Stable assistant message id.
+    pub assistant_message_id: String,
+    /// Principal id for the human/user side of the turn.
+    pub user_principal_id: PrincipalId,
+    /// Principal id for the assistant side of the turn.
+    pub assistant_principal_id: PrincipalId,
+    /// User message content.
+    pub user_content: String,
+    /// Assistant message content.
+    pub assistant_content: String,
+    /// Optional occurred-at timestamp in canonical text form.
+    pub occurred_at: Option<String>,
+    /// Additional structured metadata for both message rows.
+    pub metadata: Value,
+}
+
+impl NewChatTurn {
+    /// Create a chat turn with deterministic message ids.
+    #[must_use]
+    pub fn new(
+        conversation_id: impl Into<String>,
+        turn_index: u64,
+        user_principal_id: impl Into<PrincipalId>,
+        assistant_principal_id: impl Into<PrincipalId>,
+        user_content: impl Into<String>,
+        assistant_content: impl Into<String>,
+    ) -> Self {
+        let conversation_id = conversation_id.into();
+        Self {
+            user_message_id: chat_message_id(&conversation_id, "user", turn_index),
+            assistant_message_id: chat_message_id(&conversation_id, "assistant", turn_index),
+            conversation_id,
+            turn_index,
+            user_principal_id: user_principal_id.into(),
+            assistant_principal_id: assistant_principal_id.into(),
+            user_content: user_content.into(),
+            assistant_content: assistant_content.into(),
+            occurred_at: None,
+            metadata: json!({}),
+        }
+    }
+}
+
 /// New memory candidate extracted from a chat turn.
 #[derive(Debug, Clone, PartialEq)]
 pub struct NewChatMemoryCandidate {
@@ -603,12 +789,18 @@ pub struct NewChatMemoryCandidate {
     pub authority_level: MemoryAuthorityLevel,
     /// Extraction method.
     pub extraction_method: MemoryExtractionMethod,
+    /// Optional confidence score from extraction.
+    pub confidence: Option<f64>,
+    /// Non-authoritative retrieval hints used for ranking.
+    pub retrieval_hints: Value,
     /// Optional observed-at timestamp in canonical text form.
     pub observed_at: Option<String>,
     /// Optional chat provenance.
     pub source: Option<ChatMemorySource>,
     /// Participants in scope when the candidate was formed.
     pub participants: Vec<NewMemoryParticipant>,
+    /// Subject entity bindings for the memory.
+    pub subjects: Vec<NewMemorySubject>,
     /// Additional structured metadata.
     pub metadata: Value,
 }
@@ -632,9 +824,12 @@ impl NewChatMemoryCandidate {
             owner_principal_id: None,
             authority_level: MemoryAuthorityLevel::AgentInference,
             extraction_method: MemoryExtractionMethod::LlmExtracted,
+            confidence: None,
+            retrieval_hints: json!({}),
             observed_at: None,
             source: None,
             participants: Vec::new(),
+            subjects: Vec::new(),
             metadata: json!({}),
         }
     }
@@ -745,6 +940,16 @@ fn configure_read_only_connection(conn: &Connection) -> Result<(), MemoryPersist
 
 fn migrate(conn: &Connection) -> Result<(), MemoryPersistenceError> {
     conn.execute_batch(MEMORY_SCHEMA_SQL)?;
+    ensure_memory_items_column(
+        conn,
+        "retrieval_hints",
+        "retrieval_hints TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(retrieval_hints))",
+    )?;
+    ensure_memory_items_column(
+        conn,
+        "confidence",
+        "confidence REAL CHECK (confidence IS NULL OR (confidence >= 0.0 AND confidence <= 1.0))",
+    )?;
     conn.execute(
         "DELETE FROM schema_migrations WHERE version = 1 AND name = 'memory_persistence_v1'",
         [],
@@ -753,6 +958,30 @@ fn migrate(conn: &Connection) -> Result<(), MemoryPersistenceError> {
         "INSERT OR IGNORE INTO schema_migrations (version, name) VALUES (?1, ?2)",
         params![BOOTSTRAP_SCHEMA_VERSION, BOOTSTRAP_SCHEMA_NAME],
     )?;
+    Ok(())
+}
+
+fn ensure_memory_items_column(
+    conn: &Connection,
+    column_name: &str,
+    column_definition: &str,
+) -> Result<(), MemoryPersistenceError> {
+    let mut stmt = conn
+        .prepare("PRAGMA table_info(memory_items)")
+        .map_err(MemoryPersistenceError::Sqlite)?;
+    let columns = stmt
+        .query_map([], |row| row.get::<_, String>(1))
+        .map_err(MemoryPersistenceError::Sqlite)?;
+
+    for column in columns {
+        if column.map_err(MemoryPersistenceError::Sqlite)? == column_name {
+            return Ok(());
+        }
+    }
+
+    conn.execute_batch(&format!(
+        "ALTER TABLE memory_items ADD COLUMN {column_definition};"
+    ))?;
     Ok(())
 }
 
@@ -811,10 +1040,18 @@ fn ensure_conversation_episode(
     tx: &Transaction<'_>,
     source: &ChatMemorySource,
 ) -> Result<(), MemoryPersistenceError> {
+    ensure_conversation_episode_id(tx, &source.conversation_id)
+}
+
+fn ensure_conversation_episode_id(
+    tx: &Transaction<'_>,
+    conversation_id: &str,
+) -> Result<(), MemoryPersistenceError> {
     tx.execute(
         r"
         INSERT INTO episodes (
           episode_id,
+          home_scope_id,
           source_id,
           episode_type,
           title,
@@ -822,15 +1059,101 @@ fn ensure_conversation_episode(
           occurred_at,
           metadata
         )
-        VALUES (?1, ?2, 'conversation', ?3, ?1, CURRENT_TIMESTAMP, ?4)
+        VALUES (?1, ?1, ?2, 'conversation', ?3, ?1, CURRENT_TIMESTAMP, ?4)
         ON CONFLICT(episode_id) DO UPDATE SET
+          home_scope_id = COALESCE(episodes.home_scope_id, excluded.home_scope_id),
           source_id = excluded.source_id
         ",
         params![
-            source.conversation_id,
+            conversation_id,
             CHAT_SOURCE_ID,
-            display_name(&source.conversation_id),
+            display_name(conversation_id),
             json_to_string(&json!({"source": "chat"}))?,
+        ],
+    )?;
+    Ok(())
+}
+
+fn upsert_subject_entity(
+    tx: &Transaction<'_>,
+    home_scope_id: &str,
+    subject: &NewMemorySubject,
+) -> Result<(), MemoryPersistenceError> {
+    tx.execute(
+        r"
+        INSERT INTO entities (
+          entity_id,
+          home_scope_id,
+          entity_type,
+          canonical_name,
+          aliases,
+          linked_principal_id,
+          metadata
+        )
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+        ON CONFLICT(entity_id) DO UPDATE SET
+          home_scope_id = COALESCE(entities.home_scope_id, excluded.home_scope_id),
+          entity_type = excluded.entity_type,
+          canonical_name = excluded.canonical_name,
+          aliases = CASE
+            WHEN excluded.aliases = '[]' THEN entities.aliases
+            ELSE excluded.aliases
+          END,
+          linked_principal_id = COALESCE(excluded.linked_principal_id, entities.linked_principal_id),
+          metadata = CASE
+            WHEN excluded.metadata = '{}' THEN entities.metadata
+            ELSE excluded.metadata
+          END,
+          updated_at = CURRENT_TIMESTAMP
+        ",
+        params![
+            subject.entity_id,
+            home_scope_id,
+            subject.entity_type,
+            subject.canonical_name,
+            json_to_string(&json!(subject.aliases))?,
+            subject.linked_principal_id,
+            json_to_string(&subject.metadata)?,
+        ],
+    )?;
+    Ok(())
+}
+
+struct ChatMessageRecord<'a> {
+    message_id: &'a str,
+    episode_id: &'a str,
+    author_principal_id: &'a str,
+    role: &'a str,
+    content: &'a str,
+    occurred_at: &'a str,
+    metadata: Value,
+}
+
+fn insert_chat_message(
+    tx: &Transaction<'_>,
+    message: ChatMessageRecord<'_>,
+) -> Result<(), MemoryPersistenceError> {
+    tx.execute(
+        r"
+        INSERT OR IGNORE INTO messages (
+          message_id,
+          episode_id,
+          author_principal_id,
+          role,
+          content,
+          occurred_at,
+          metadata
+        )
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+        ",
+        params![
+            message.message_id,
+            message.episode_id,
+            message.author_principal_id,
+            message.role,
+            message.content,
+            message.occurred_at,
+            json_to_string(&message.metadata)?,
         ],
     )?;
     Ok(())
@@ -916,6 +1239,19 @@ fn enum_to_sql_error(error: MemoryPersistenceError) -> rusqlite::Error {
 
 fn json_to_string(value: &Value) -> Result<String, MemoryPersistenceError> {
     Ok(serde_json::to_string(value)?)
+}
+
+fn chat_message_id(conversation_id: &str, role: &str, turn_index: u64) -> String {
+    format!("message:{conversation_id}:{role}:{turn_index}")
+}
+
+fn chat_message_metadata(turn: &NewChatTurn, message_role: &str) -> Value {
+    json!({
+        "source": "chat",
+        "turn_index": turn.turn_index,
+        "message_role": message_role,
+        "turn_metadata": turn.metadata,
+    })
 }
 
 fn title_from_content(content: &str) -> String {
@@ -1072,6 +1408,18 @@ fn participant_role_to_db(role: ParticipantRole) -> &'static str {
     }
 }
 
+fn subject_role_to_db(role: SubjectRole) -> &'static str {
+    match role {
+        SubjectRole::About => "about",
+        SubjectRole::Claimant => "claimant",
+        SubjectRole::Affected => "affected",
+        SubjectRole::Owner => "owner",
+        SubjectRole::Assignee => "assignee",
+        SubjectRole::Source => "source",
+        SubjectRole::Target => "target",
+    }
+}
+
 const MEMORY_SCHEMA_SQL: &str = r"
 CREATE TABLE IF NOT EXISTS schema_migrations (
   version INTEGER PRIMARY KEY,
@@ -1189,6 +1537,26 @@ CREATE TABLE IF NOT EXISTS memory_items (
   )
 ) STRICT;
 
+CREATE TABLE IF NOT EXISTS entities (
+  entity_id TEXT PRIMARY KEY,
+  home_scope_id TEXT REFERENCES scopes(scope_id) ON DELETE SET NULL,
+  entity_type TEXT NOT NULL CHECK (entity_type IN ('human','agent','person','organization','project','workspace','conversation','document','tool','place','task','goal','concept','other')),
+  canonical_name TEXT NOT NULL,
+  aliases TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(aliases)),
+  linked_principal_id TEXT REFERENCES principals(principal_id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  metadata TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(metadata))
+) STRICT;
+
+CREATE TABLE IF NOT EXISTS memory_subjects (
+  memory_id TEXT NOT NULL REFERENCES memory_items(memory_id) ON DELETE CASCADE,
+  entity_id TEXT NOT NULL REFERENCES entities(entity_id) ON DELETE CASCADE,
+  role TEXT NOT NULL CHECK (role IN ('about','claimant','affected','owner','assignee','source','target')),
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (memory_id, entity_id, role)
+) STRICT;
+
 CREATE TABLE IF NOT EXISTS memory_participants (
   memory_id TEXT NOT NULL REFERENCES memory_items(memory_id) ON DELETE CASCADE,
   principal_id TEXT NOT NULL REFERENCES principals(principal_id) ON DELETE CASCADE,
@@ -1221,8 +1589,14 @@ CREATE TABLE IF NOT EXISTS memory_events (
   details TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(details))
 ) STRICT;
 
+CREATE INDEX IF NOT EXISTS idx_messages_episode_time ON messages(episode_id, occurred_at ASC);
+CREATE INDEX IF NOT EXISTS idx_memory_items_home_scope ON memory_items(home_scope_id, status, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_memory_items_created_at ON memory_items(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_memory_items_status ON memory_items(status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_entities_scope_type ON entities(home_scope_id, entity_type);
+CREATE INDEX IF NOT EXISTS idx_entities_canonical_name ON entities(entity_type, canonical_name);
+CREATE INDEX IF NOT EXISTS idx_memory_subjects_entity_role ON memory_subjects(entity_id, role, memory_id);
+CREATE INDEX IF NOT EXISTS idx_memory_subjects_memory_role ON memory_subjects(memory_id, role);
 CREATE INDEX IF NOT EXISTS idx_memory_participants_principal ON memory_participants(principal_id, role);
 CREATE INDEX IF NOT EXISTS idx_memory_provenance_memory ON memory_provenance_edges(memory_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_memory_events_memory_time ON memory_events(memory_id, created_at DESC);
@@ -1286,6 +1660,87 @@ mod tests {
             )
             .expect("bootstrap count");
         assert_eq!(bootstrap_count, 1);
+    }
+
+    #[test]
+    fn open_migrates_old_memory_items_columns_for_extraction_metadata() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let db_path = dir.path().join("db").join("noema.sqlite");
+        std::fs::create_dir_all(db_path.parent().expect("parent")).expect("db dir");
+        {
+            let conn = Connection::open(&db_path).expect("raw conn");
+            conn.execute_batch(
+                r"
+                CREATE TABLE memory_items (
+                  memory_id TEXT PRIMARY KEY,
+                  home_scope_id TEXT NOT NULL REFERENCES scopes(scope_id) ON DELETE CASCADE,
+                  memory_type TEXT NOT NULL CHECK (memory_type IN ('fact','preference','person','organization','project','place','routine','goal','open_loop','procedure','constraint','trigger','decision','skill','policy','note','other')),
+                  title TEXT NOT NULL,
+                  content TEXT NOT NULL,
+                  structured_value TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(structured_value)),
+                  status TEXT NOT NULL DEFAULT 'candidate' CHECK (status IN ('candidate','active','confirmed','inferred','stale','superseded','archived','deleted','disputed')),
+                  sensitivity TEXT NOT NULL DEFAULT 'normal' CHECK (sensitivity IN ('public','normal','private','sensitive','secret')),
+                  proactivity_level INTEGER NOT NULL DEFAULT 2 CHECK (proactivity_level BETWEEN 0 AND 6),
+                  retrieval_policy_status TEXT NOT NULL DEFAULT 'needs_review' CHECK (retrieval_policy_status IN ('valid','stale','invalid','needs_review')),
+                  retrieval_policy_version INTEGER NOT NULL DEFAULT 1 CHECK (retrieval_policy_version >= 1),
+                  retrieval_policy_fingerprint TEXT,
+                  retrieval_policy_extractor_principal_id TEXT REFERENCES principals(principal_id) ON DELETE SET NULL,
+                  retrieval_policy_extractor_version TEXT,
+                  retrieval_policy_validated_at TEXT,
+                  participant_visibility_policy TEXT NOT NULL DEFAULT 'explicit_grant_only' CHECK (participant_visibility_policy IN ('any_active_human','all_original_humans','owner_only','explicit_grant_only')),
+                  external_egress_policy TEXT NOT NULL DEFAULT 'approval_required' CHECK (external_egress_policy IN ('allow','approval_required','deny')),
+                  created_by_principal_id TEXT NOT NULL REFERENCES principals(principal_id) ON DELETE RESTRICT,
+                  owner_principal_id TEXT REFERENCES principals(principal_id) ON DELETE SET NULL,
+                  authority_level TEXT NOT NULL DEFAULT 'agent_inference' CHECK (authority_level IN ('human_correction','explicit_human_statement','workspace_policy','project_decision','document_source','repeated_observation','agent_inference','weak_inference','system_rule')),
+                  extraction_method TEXT NOT NULL DEFAULT 'llm_extracted' CHECK (extraction_method IN ('explicit_human','llm_extracted','deterministic_rule','imported','human_edited','agent_summary','system_generated')),
+                  observed_at TEXT,
+                  valid_from TEXT,
+                  valid_to TEXT,
+                  expires_at TEXT,
+                  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                  metadata TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(metadata)),
+                  CHECK (
+                    retrieval_policy_status != 'valid'
+                    OR (
+                      retrieval_policy_fingerprint IS NOT NULL
+                      AND retrieval_policy_extractor_principal_id IS NOT NULL
+                      AND retrieval_policy_extractor_version IS NOT NULL
+                      AND retrieval_policy_validated_at IS NOT NULL
+                    )
+                  )
+                ) STRICT;
+                ",
+            )
+            .expect("old memory_items table");
+        }
+
+        let mut repo = SqliteMemoryRepository::open_at(&db_path).expect("repo");
+        let mut candidate = NewChatMemoryCandidate::new(
+            "conversation:old_schema",
+            "Kevin prefers old-schema migrations to be automatic.",
+            "agent:primary",
+        );
+        candidate.confidence = Some(0.88);
+        candidate.retrieval_hints = json!({"topics": ["migrations"]});
+
+        let summary = repo
+            .append_chat_memory_candidate(&candidate)
+            .expect("append after migration");
+
+        let (confidence, retrieval_hints): (Option<f64>, String) = repo
+            .conn
+            .query_row(
+                "SELECT confidence, retrieval_hints FROM memory_items WHERE memory_id = ?1",
+                params![summary.id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("memory row");
+        assert_eq!(confidence, Some(0.88));
+        assert_eq!(
+            serde_json::from_str::<Value>(&retrieval_hints).expect("retrieval hints"),
+            json!({"topics": ["migrations"]})
+        );
     }
 
     #[test]
@@ -1394,6 +1849,206 @@ mod tests {
             .expect("append");
 
         assert_eq!(summary.status, MemoryStatus::Confirmed);
+    }
+
+    #[test]
+    fn appends_chat_candidate_with_confidence_and_retrieval_hints() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let paths = NoemaPaths::from_noema_home(dir.path()).expect("paths");
+        let mut repo = SqliteMemoryRepository::open(&paths).expect("repo");
+        let mut candidate = NewChatMemoryCandidate::new(
+            "conversation:hints",
+            "Kevin prefers scoped retrieval hints to stay inspectable.",
+            "agent:primary",
+        );
+        candidate.confidence = Some(0.82);
+        candidate.retrieval_hints = json!({
+            "topics": ["memory", "retrieval"],
+            "keywords": ["inspectable"],
+            "summary": "Scoped memory retrieval preference"
+        });
+
+        let summary = repo
+            .append_chat_memory_candidate(&candidate)
+            .expect("append");
+
+        let (confidence, retrieval_hints): (Option<f64>, String) = repo
+            .conn
+            .query_row(
+                "SELECT confidence, retrieval_hints FROM memory_items WHERE memory_id = ?1",
+                params![summary.id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("memory row");
+        assert!((confidence.expect("confidence") - 0.82).abs() < f64::EPSILON);
+        assert_eq!(
+            serde_json::from_str::<Value>(&retrieval_hints).expect("retrieval hints"),
+            candidate.retrieval_hints
+        );
+    }
+
+    #[test]
+    fn appends_chat_candidate_with_subject_entities() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let paths = NoemaPaths::from_noema_home(dir.path()).expect("paths");
+        let mut repo = SqliteMemoryRepository::open(&paths).expect("repo");
+        let mut candidate = NewChatMemoryCandidate::new(
+            "conversation:subjects",
+            "Kevin is evaluating Noema memory subjects.",
+            "agent:primary",
+        );
+        let mut human_subject =
+            NewMemorySubject::new("human:kevin", "human", "Kevin", SubjectRole::About);
+        human_subject.aliases = vec!["KPSuperplane".to_string()];
+        human_subject.linked_principal_id = Some("human:kevin".to_string());
+        human_subject.metadata = json!({"source": "chat_extraction"});
+        candidate.subjects = vec![
+            human_subject,
+            NewMemorySubject::new(
+                "concept:memory_subjects",
+                "concept",
+                "Memory subjects",
+                SubjectRole::About,
+            ),
+        ];
+
+        let summary = repo
+            .append_chat_memory_candidate(&candidate)
+            .expect("append");
+
+        let subject_count: i64 = repo
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM memory_subjects WHERE memory_id = ?1",
+                params![summary.id],
+                |row| row.get(0),
+            )
+            .expect("subject count");
+        assert_eq!(subject_count, 2);
+
+        let (home_scope_id, entity_type, canonical_name, aliases, linked_principal_id, metadata): (
+            String,
+            String,
+            String,
+            String,
+            Option<String>,
+            String,
+        ) = repo
+            .conn
+            .query_row(
+                r"
+                SELECT home_scope_id, entity_type, canonical_name, aliases, linked_principal_id, metadata
+                FROM entities
+                WHERE entity_id = 'human:kevin'
+                ",
+                [],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                        row.get(5)?,
+                    ))
+                },
+            )
+            .expect("entity row");
+        assert_eq!(home_scope_id, "conversation:subjects");
+        assert_eq!(entity_type, "human");
+        assert_eq!(canonical_name, "Kevin");
+        assert_eq!(
+            serde_json::from_str::<Value>(&aliases).expect("aliases"),
+            json!(["KPSuperplane"])
+        );
+        assert_eq!(linked_principal_id.as_deref(), Some("human:kevin"));
+        assert_eq!(
+            serde_json::from_str::<Value>(&metadata).expect("metadata"),
+            json!({"source": "chat_extraction"})
+        );
+    }
+
+    #[test]
+    fn records_chat_turn_idempotently() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let paths = NoemaPaths::from_noema_home(dir.path()).expect("paths");
+        let mut repo = SqliteMemoryRepository::open(&paths).expect("repo");
+        let mut turn = NewChatTurn::new(
+            "conversation:turns",
+            7,
+            "human:kevin",
+            "agent:primary",
+            "Please remember that I care about provenance.",
+            "Noted.",
+        );
+        turn.occurred_at = Some("2026-06-24T12:00:00Z".to_string());
+        turn.metadata = json!({"request_id": "req_123"});
+
+        repo.record_chat_turn(&turn).expect("first record");
+        repo.record_chat_turn(&turn).expect("second record");
+
+        let message_count: i64 = repo
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM messages WHERE episode_id = ?1",
+                params![turn.conversation_id],
+                |row| row.get(0),
+            )
+            .expect("message count");
+        assert_eq!(message_count, 2);
+
+        let user_message: (String, String, String, String) = repo
+            .conn
+            .query_row(
+                r"
+                SELECT role, author_principal_id, content, occurred_at
+                FROM messages
+                WHERE message_id = ?1
+                ",
+                params![turn.user_message_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .expect("user message");
+        assert_eq!(
+            user_message,
+            (
+                "human".to_string(),
+                "human:kevin".to_string(),
+                "Please remember that I care about provenance.".to_string(),
+                "2026-06-24T12:00:00Z".to_string(),
+            )
+        );
+
+        let assistant_message_id_count: i64 = repo
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM messages WHERE message_id = ?1",
+                params![turn.assistant_message_id],
+                |row| row.get(0),
+            )
+            .expect("assistant count");
+        assert_eq!(assistant_message_id_count, 1);
+
+        let bootstrap_count: i64 = repo
+            .conn
+            .query_row(
+                r"
+                SELECT
+                  (SELECT COUNT(*) FROM sources WHERE source_id = ?1)
+                  + (SELECT COUNT(*) FROM scopes WHERE scope_id = ?2)
+                  + (SELECT COUNT(*) FROM episodes WHERE episode_id = ?2 AND home_scope_id = ?2)
+                  + (SELECT COUNT(*) FROM principals WHERE principal_id IN (?3, ?4))
+                ",
+                params![
+                    CHAT_SOURCE_ID,
+                    turn.conversation_id,
+                    turn.user_principal_id,
+                    turn.assistant_principal_id,
+                ],
+                |row| row.get(0),
+            )
+            .expect("bootstrap count");
+        assert_eq!(bootstrap_count, 5);
     }
 
     #[test]

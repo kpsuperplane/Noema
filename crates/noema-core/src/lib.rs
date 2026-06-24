@@ -12,6 +12,8 @@ pub mod daemon;
 pub mod home;
 /// V1 memory storage and retrieval policy model.
 pub mod memory;
+/// Pure ordinary-chat memory extraction proposal layer.
+pub mod memory_extraction;
 /// SQLite-backed durable memory repository.
 pub mod memory_persistence;
 /// Filesystem path resolution for Noema state.
@@ -24,17 +26,24 @@ pub mod providers;
 pub use config::{CliOverrides, Config, ConfigError, ProviderConfig, ProviderKind, ResolvedConfig};
 pub use daemon::{
     DaemonClient, DaemonError, DaemonRequest, DaemonResponse, DaemonServerConfig,
-    StartedConversation, default_socket_path, is_connection_refused, run_daemon,
-    socket_path_for_home,
+    StartedConversation, TurnActivityStatus, TurnTranscriptItem, default_socket_path,
+    is_connection_refused, run_daemon, socket_path_for_home,
 };
 pub use home::{
     DEFAULT_NOEMA_CONFIG_YAML, NoemaHomeError, NoemaHomeInitOptions, NoemaHomeInitResult,
     init_noema_home,
 };
+pub use memory_extraction::{
+    ExtractorMemoryProposal, ExtractorMemoryResponse, MIN_MEMORY_EXTRACTION_CONFIDENCE,
+    MemoryExtractionError, MemoryExtractionRetrievalHints, MemoryExtractionRiskFlag,
+    MemoryExtractionSubject, MemoryExtractionSubjectKind, MemoryExtractionSubjectRole,
+    ValidatedMemoryProposal, build_memory_extraction_prompt, decide_memory_proposal_status,
+    parse_memory_extraction_proposals,
+};
 pub use memory_persistence::{
     ChatMemorySource, MemoryAuthorityLevel, MemoryExtractionMethod, MemoryPersistenceError,
-    MemorySummary, MemoryType, NewChatMemoryCandidate, NewMemoryParticipant,
-    SqliteMemoryRepository,
+    MemorySummary, MemoryType, NewChatMemoryCandidate, NewChatTurn, NewMemoryParticipant,
+    NewMemorySubject, SqliteMemoryRepository,
 };
 pub use paths::{NOEMA_HOME_ENV, NoemaPathError, NoemaPaths};
 pub use provider::{
