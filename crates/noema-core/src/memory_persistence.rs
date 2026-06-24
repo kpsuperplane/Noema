@@ -6,7 +6,7 @@
 //! a recent-memory listing for CLI inspection.
 
 use crate::{
-    context_graph::{self, ContextGraphSummary, RelationshipSummary},
+    context_graph::{self, ContextGraphFilter, ContextGraphSummary, RelationshipSummary},
     memory::{
         DenialReason, EligibilityReason, MemoryId, MemoryRetrievalRequest, MemoryRetrievalResult,
         MemoryStatus, MemoryStoreError, MemoryUseStage, ParticipantRole, PrincipalId, Purpose,
@@ -554,8 +554,26 @@ impl SqliteMemoryRepository {
         &self,
         limit: Option<u32>,
     ) -> Result<ContextGraphSummary, MemoryPersistenceError> {
+        self.inspect_context_graph_with_filter(&ContextGraphFilter::default(), limit)
+    }
+
+    /// Inspect the persisted context graph for a run or context packet.
+    ///
+    /// When the filter is empty this behaves like recent graph inspection.
+    /// When `run_id` or `context_packet_id` is set, memory and policy sections
+    /// are scoped to memories referenced by the selected packet records.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MemoryPersistenceError`] if SQLite reads fail or stored enum
+    /// values are outside Noema's closed vocabularies.
+    pub fn inspect_context_graph_with_filter(
+        &self,
+        filter: &ContextGraphFilter,
+        limit: Option<u32>,
+    ) -> Result<ContextGraphSummary, MemoryPersistenceError> {
         let limit = limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
-        context_graph::inspect(&self.conn, limit)
+        context_graph::inspect(&self.conn, limit, filter)
     }
 
     /// Retrieve memories from canonical SQLite state using deterministic gates.
@@ -3451,6 +3469,124 @@ mod tests {
 
         repo.record_context_packet("ctx_packet", "run:packet", &request, &result)
             .expect("record packet");
+        repo.record_context_packet("ctx_other", "run:other", &request, &result)
+            .expect("record other packet");
+        let mut unrelated = NewChatMemoryCandidate::new(
+            "conversation:unrelated_packet",
+            "This memory is newer but not part of the packet.",
+            "agent:primary",
+        );
+        unrelated.status = MemoryStatus::Active;
+        unrelated.participants = vec![NewMemoryParticipant::new(
+            "human:someone_else",
+            ParticipantRole::HumanInScope,
+        )];
+        let unrelated_memory = repo
+            .append_chat_memory_candidate(&unrelated)
+            .expect("unrelated memory");
+
+        let mut relationship_backing = NewChatMemoryCandidate::new(
+            "conversation:packet",
+            "Relationship-only omissions still need supporting memory context.",
+            "agent:primary",
+        );
+        relationship_backing.status = MemoryStatus::Active;
+        relationship_backing.participants = vec![NewMemoryParticipant::new(
+            "human:kevin",
+            ParticipantRole::HumanInScope,
+        )];
+        relationship_backing.subjects = vec![
+            NewMemorySubject::new("human:kevin", "human", "Kevin", SubjectRole::Source),
+            NewMemorySubject::new(
+                "concept:packet_relationship",
+                "concept",
+                "Packet Relationship",
+                SubjectRole::Target,
+            ),
+        ];
+        let relationship_memory = repo
+            .append_chat_memory_candidate(&relationship_backing)
+            .expect("relationship memory");
+        let mut relationship = NewRelationshipClaim::new(
+            "conversation:packet",
+            "human:kevin",
+            "prefers",
+            "concept:packet_relationship",
+        );
+        relationship.status = RelationshipStatus::Active;
+        relationship.memory_id = Some(relationship_memory.id.clone());
+        let relationship = repo
+            .append_relationship_claim(&relationship)
+            .expect("relationship");
+        repo.conn
+            .execute(
+                r#"
+                INSERT INTO context_packet_omissions (
+                  omission_id,
+                  context_packet_id,
+                  relationship_id,
+                  omission_sensitivity,
+                  agent_visible_reason,
+                  audit_reason,
+                  details
+                )
+                VALUES (
+                  'ctxomit_relationship_only',
+                  'ctx_packet',
+                  ?1,
+                  'normal',
+                  'policy_restricted_context',
+                  'outside_search_aperture',
+                  '{"source":"test"}'
+                )
+                "#,
+                params![relationship.relationship_id],
+            )
+            .expect("relationship-only omission");
+        repo.conn
+            .execute(
+                r"
+                INSERT INTO memory_access_grants (
+                  grant_id,
+                  scope_id,
+                  principal_id,
+                  permission,
+                  effect
+                )
+                VALUES (
+                  'grant_same_scope_unrelated',
+                  'conversation:packet',
+                  'agent:primary',
+                  'use_for_retrieval',
+                  'allow'
+                )
+                ",
+                [],
+            )
+            .expect("same-scope grant");
+        repo.conn
+            .execute(
+                r#"
+                INSERT INTO memory_events (
+                  event_id,
+                  event_type,
+                  actor_principal_id,
+                  scope_id,
+                  reason,
+                  details
+                )
+                VALUES (
+                  'event_same_scope_unrelated',
+                  'retrieved',
+                  'agent:primary',
+                  'conversation:packet',
+                  'same_scope_unrelated',
+                  '{"run_id":"run:other"}'
+                )
+                "#,
+                [],
+            )
+            .expect("same-scope event");
         let graph = repo.inspect_context_graph(Some(20)).expect("graph");
 
         assert!(graph.context_packets.iter().any(|packet| {
@@ -3484,6 +3620,81 @@ mod tests {
                 && record.memory_id == included_memory.id
                 && record.stage == "included_in_packet"
         }));
+
+        let filtered = repo
+            .inspect_context_graph_with_filter(
+                &ContextGraphFilter {
+                    run_id: Some("run:packet".to_string()),
+                    context_packet_id: None,
+                },
+                Some(20),
+            )
+            .expect("filtered graph");
+        assert_eq!(filtered.context_packets.len(), 1);
+        assert_eq!(filtered.context_packets[0].context_packet_id, "ctx_packet");
+        assert!(
+            !filtered
+                .memories
+                .iter()
+                .any(|memory| memory.memory_id == unrelated_memory.id)
+        );
+        assert!(
+            filtered
+                .memories
+                .iter()
+                .any(|memory| memory.memory_id == relationship_memory.id)
+        );
+        assert!(
+            filtered
+                .relationships
+                .iter()
+                .any(|edge| edge.relationship_id == relationship.relationship_id)
+        );
+        assert!(
+            !filtered
+                .access_grants
+                .iter()
+                .any(|grant| grant.grant_id == "grant_same_scope_unrelated")
+        );
+        assert!(
+            !filtered
+                .memory_events
+                .iter()
+                .any(|event| event.event_id == "event_same_scope_unrelated")
+        );
+        assert!(
+            filtered
+                .memory_use_records
+                .iter()
+                .all(|record| record.run_id == "run:packet")
+        );
+        assert!(
+            filtered
+                .context_packet_omissions
+                .iter()
+                .all(|omission| omission.context_packet_id == "ctx_packet")
+        );
+
+        let packet_filtered = repo
+            .inspect_context_graph_with_filter(
+                &ContextGraphFilter {
+                    run_id: None,
+                    context_packet_id: Some("ctx_packet".to_string()),
+                },
+                Some(20),
+            )
+            .expect("packet-filtered graph");
+        assert_eq!(packet_filtered.context_packets.len(), 1);
+        assert_eq!(
+            packet_filtered.context_packets[0].context_packet_id,
+            "ctx_packet"
+        );
+        assert!(
+            !packet_filtered
+                .context_packets
+                .iter()
+                .any(|packet| packet.context_packet_id == "ctx_other")
+        );
     }
 
     #[test]

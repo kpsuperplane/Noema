@@ -526,6 +526,8 @@ The first CLI inspection surface is:
 
 ```bash
 noema context graph --limit 50
+noema context graph --run-id run_01...
+noema context graph --packet-id ctx_01...
 ```
 
 It renders the persisted context graph view from the canonical SQLite tables:
@@ -536,6 +538,11 @@ home scopes, context packet manifests, context-packet memory and omission
 edges, typed memory-use records, memory events, and relationship claim edges.
 During active development, schema changes update the canonical schema directly;
 local development databases can be recreated rather than migrated.
+
+Use `--run-id` or `--packet-id` when debugging a specific context packet. The
+targeted view scopes memory nodes, policy edges, packet omissions, memory-use
+records, and relationship edges to the selected packet records instead of
+showing only the most recent rows.
 
 This CLI graph is privileged local owner/admin debug output. Agent-visible
 context packets and omissions must continue to use redacted model-facing

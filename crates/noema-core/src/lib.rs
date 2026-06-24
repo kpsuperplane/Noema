@@ -31,10 +31,10 @@ mod sqlite_memory_retrieval;
 
 pub use config::{CliOverrides, Config, ConfigError, ProviderConfig, ProviderKind, ResolvedConfig};
 pub use context_graph::{
-    ContextGraphSummary, GraphAccessGrant, GraphContextPacket, GraphContextPacketMemoryEdge,
-    GraphContextPacketOmission, GraphEntityNode, GraphMemoryEvent, GraphMemoryNode,
-    GraphMemoryUseRecord, GraphObjectLinkEdge, GraphParticipantEdge, GraphProvenanceEdge,
-    GraphPurposeRule, GraphSubjectEdge, RelationshipSummary,
+    ContextGraphFilter, ContextGraphSummary, GraphAccessGrant, GraphContextPacket,
+    GraphContextPacketMemoryEdge, GraphContextPacketOmission, GraphEntityNode, GraphMemoryEvent,
+    GraphMemoryNode, GraphMemoryUseRecord, GraphObjectLinkEdge, GraphParticipantEdge,
+    GraphProvenanceEdge, GraphPurposeRule, GraphSubjectEdge, RelationshipSummary,
 };
 pub use daemon::{
     DaemonClient, DaemonError, DaemonRequest, DaemonResponse, DaemonServerConfig,

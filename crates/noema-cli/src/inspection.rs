@@ -2,7 +2,7 @@
 
 use clap::Subcommand;
 use noema_core::{
-    ContextGraphSummary, NoemaPaths, SqliteMemoryRepository,
+    ContextGraphFilter, ContextGraphSummary, NoemaPaths, SqliteMemoryRepository,
     memory::{
         Effect, ExternalEgressPolicy, MemoryStatus, ParticipantRole, ParticipantVisibilityPolicy,
         Purpose, RelationshipStatus, RetrievalPolicyStatus, Sensitivity, SubjectRole,
@@ -33,6 +33,10 @@ pub(crate) enum ContextCommand {
     Graph {
         #[arg(long, default_value_t = 50, help = "Maximum rows per graph section.")]
         limit: u32,
+        #[arg(long, help = "Only inspect context packets for this run id.")]
+        run_id: Option<String>,
+        #[arg(long = "packet-id", help = "Only inspect this context packet id.")]
+        context_packet_id: Option<String>,
     },
 }
 
@@ -75,8 +79,16 @@ pub(crate) fn run_context(command: &ContextCommand) -> Result<(), CliError> {
     };
 
     match command {
-        ContextCommand::Graph { limit } => {
-            let graph = repo.inspect_context_graph(Some(*limit))?;
+        ContextCommand::Graph {
+            limit,
+            run_id,
+            context_packet_id,
+        } => {
+            let filter = ContextGraphFilter {
+                run_id: run_id.clone(),
+                context_packet_id: context_packet_id.clone(),
+            };
+            let graph = repo.inspect_context_graph_with_filter(&filter, Some(*limit))?;
             print_context_graph(&graph)?;
         }
     }

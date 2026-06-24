@@ -608,8 +608,38 @@ mod tests {
         assert!(matches!(
             args.command,
             Some(CommandKind::Context {
-                command: ContextCommand::Graph { limit: 9 }
+                command: ContextCommand::Graph {
+                    limit: 9,
+                    run_id: None,
+                    context_packet_id: None,
+                }
             })
+        ));
+    }
+
+    #[test]
+    fn parses_context_graph_filters() {
+        let args = Args::try_parse_from([
+            "noema",
+            "context",
+            "graph",
+            "--run-id",
+            "run:packet",
+            "--packet-id",
+            "ctx_packet",
+        ])
+        .expect("args");
+
+        assert!(matches!(
+            args.command,
+            Some(CommandKind::Context {
+                command: ContextCommand::Graph {
+                    run_id,
+                    context_packet_id,
+                    ..
+                }
+            }) if run_id.as_deref() == Some("run:packet")
+                && context_packet_id.as_deref() == Some("ctx_packet")
         ));
     }
 
