@@ -530,9 +530,9 @@ noema context graph --limit 50
 
 It renders the persisted context graph view from the canonical SQLite tables:
 memory nodes, entity nodes, subject edges, participant edges, provenance edges,
-and relationship claim edges. During active development, schema changes update
-the canonical schema directly; local development databases can be recreated
-rather than migrated.
+trusted object-link policy edges, and relationship claim edges. During active
+development, schema changes update the canonical schema directly; local
+development databases can be recreated rather than migrated.
 
 This is enough to debug why a graph claim was retrieved without making graph
 state opaque or globally authoritative.

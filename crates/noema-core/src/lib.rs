@@ -29,8 +29,8 @@ mod sqlite_memory_retrieval;
 
 pub use config::{CliOverrides, Config, ConfigError, ProviderConfig, ProviderKind, ResolvedConfig};
 pub use context_graph::{
-    ContextGraphSummary, GraphEntityNode, GraphMemoryNode, GraphParticipantEdge,
-    GraphProvenanceEdge, GraphSubjectEdge, RelationshipSummary,
+    ContextGraphSummary, GraphEntityNode, GraphMemoryNode, GraphObjectLinkEdge,
+    GraphParticipantEdge, GraphProvenanceEdge, GraphSubjectEdge, RelationshipSummary,
 };
 pub use daemon::{
     DaemonClient, DaemonError, DaemonRequest, DaemonResponse, DaemonServerConfig,

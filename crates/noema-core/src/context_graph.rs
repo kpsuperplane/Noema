@@ -53,6 +53,8 @@ pub struct ContextGraphSummary {
     pub participant_edges: Vec<GraphParticipantEdge>,
     /// Memory-to-source provenance edges.
     pub provenance_edges: Vec<GraphProvenanceEdge>,
+    /// Memory-to-trusted-object retrieval policy edges.
+    pub object_link_edges: Vec<GraphObjectLinkEdge>,
     /// Relationship claim edges.
     pub relationships: Vec<RelationshipSummary>,
 }
@@ -128,6 +130,29 @@ pub struct GraphProvenanceEdge {
     pub evidence_excerpt: Option<String>,
 }
 
+/// Memory-to-trusted-object retrieval policy edge in a graph inspection view.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GraphObjectLinkEdge {
+    /// Memory id.
+    pub memory_id: MemoryId,
+    /// Trusted object type.
+    pub object_type: String,
+    /// Trusted object id.
+    pub object_id: String,
+    /// Relationship between the memory and the trusted object.
+    pub relation: String,
+    /// Scope that authorized this object link, when one is required.
+    pub authorized_scope_id: Option<ScopeId>,
+    /// Principal that resolved the object link, if recorded.
+    pub resolver_principal_id: Option<PrincipalId>,
+    /// Resolver implementation version, if recorded.
+    pub resolver_version: Option<String>,
+    /// Run that produced the object link, if recorded.
+    pub source_run_id: Option<String>,
+    /// SQLite-created timestamp.
+    pub created_at: String,
+}
+
 pub(crate) fn relationship_by_id(
     conn: &Connection,
     relationship_id: &str,
@@ -150,6 +175,7 @@ pub(crate) fn inspect(
     let subject_edges = graph_subject_edges(conn, limit)?;
     let participant_edges = graph_participant_edges(conn, limit)?;
     let provenance_edges = graph_provenance_edges(conn, limit)?;
+    let object_link_edges = graph_object_link_edges(conn, limit)?;
     let relationships = graph_relationship_edges(conn, limit)?;
     Ok(ContextGraphSummary {
         memories,
@@ -157,6 +183,7 @@ pub(crate) fn inspect(
         subject_edges,
         participant_edges,
         provenance_edges,
+        object_link_edges,
         relationships,
     })
 }
@@ -222,6 +249,19 @@ fn graph_provenance_edges(
         .map_err(MemoryPersistenceError::Sqlite)?;
     let rows = stmt
         .query_map(params![limit], row_to_graph_provenance_edge)
+        .map_err(MemoryPersistenceError::Sqlite)?;
+    collect_sql_rows(rows)
+}
+
+fn graph_object_link_edges(
+    conn: &Connection,
+    limit: u32,
+) -> Result<Vec<GraphObjectLinkEdge>, MemoryPersistenceError> {
+    let mut stmt = conn
+        .prepare(GRAPH_OBJECT_LINK_EDGES_SQL)
+        .map_err(MemoryPersistenceError::Sqlite)?;
+    let rows = stmt
+        .query_map(params![limit], row_to_graph_object_link_edge)
         .map_err(MemoryPersistenceError::Sqlite)?;
     collect_sql_rows(rows)
 }
@@ -308,6 +348,20 @@ fn row_to_graph_provenance_edge(row: &rusqlite::Row<'_>) -> rusqlite::Result<Gra
         source_id: row.get(2)?,
         relation: row.get(3)?,
         evidence_excerpt: row.get(4)?,
+    })
+}
+
+fn row_to_graph_object_link_edge(row: &rusqlite::Row<'_>) -> rusqlite::Result<GraphObjectLinkEdge> {
+    Ok(GraphObjectLinkEdge {
+        memory_id: row.get(0)?,
+        object_type: row.get(1)?,
+        object_id: row.get(2)?,
+        relation: row.get(3)?,
+        authorized_scope_id: row.get(4)?,
+        resolver_principal_id: row.get(5)?,
+        resolver_version: row.get(6)?,
+        source_run_id: row.get(7)?,
+        created_at: row.get(8)?,
     })
 }
 
@@ -514,6 +568,23 @@ SELECT
   evidence_excerpt
 FROM memory_provenance_edges
 ORDER BY created_at DESC, edge_id ASC
+LIMIT ?1
+";
+
+const GRAPH_OBJECT_LINK_EDGES_SQL: &str = r"
+SELECT
+  link.memory_id,
+  link.object_type,
+  link.object_id,
+  link.relation,
+  link.authorized_scope_id,
+  link.resolver_principal_id,
+  link.resolver_version,
+  link.source_run_id,
+  link.created_at
+FROM memory_retrieval_object_links link
+JOIN memory_items mi ON mi.memory_id = link.memory_id
+ORDER BY mi.created_at DESC, link.memory_id ASC, link.object_type ASC, link.object_id ASC, link.relation ASC
 LIMIT ?1
 ";
 

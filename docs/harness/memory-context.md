@@ -196,7 +196,12 @@ Conceptual shape:
     "explicit_memory_request": false,
     "canonical_entity_ids": ["project_noema", "concept_memory_system"],
     "active_object_links": [
-      { "object_type": "project", "object_id": "project_noema" }
+      {
+        "object_type": "project",
+        "object_id": "project_noema",
+        "relation": "active_context",
+        "authorized_scope_id": "project_harness"
+      }
     ],
     "allowed_proactivity_level": 2,
     "include_candidate_memories": false,

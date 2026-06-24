@@ -83,15 +83,23 @@ pub(crate) fn run_context(command: &ContextCommand) -> Result<(), CliError> {
 
 fn print_context_graph(graph: &ContextGraphSummary) -> Result<(), CliError> {
     let mut stdout = io::stdout();
+    write_context_graph(&mut stdout, graph)
+}
+
+fn write_context_graph(
+    stdout: &mut impl Write,
+    graph: &ContextGraphSummary,
+) -> Result<(), CliError> {
     writeln!(stdout, "Context graph").map_err(CliError::WriteOutput)?;
     writeln!(
         stdout,
-        "memories={} entities={} subject_edges={} participant_edges={} provenance_edges={} relationships={}",
+        "memories={} entities={} subject_edges={} participant_edges={} provenance_edges={} object_link_edges={} relationships={}",
         graph.memories.len(),
         graph.entities.len(),
         graph.subject_edges.len(),
         graph.participant_edges.len(),
         graph.provenance_edges.len(),
+        graph.object_link_edges.len(),
         graph.relationships.len(),
     )
     .map_err(CliError::WriteOutput)?;
@@ -113,7 +121,7 @@ fn print_context_graph(graph: &ContextGraphSummary) -> Result<(), CliError> {
             memory.memory_type.as_str(),
             sensitivity_label(memory.sensitivity),
             memory.home_scope_id,
-            preview(&memory.title, 80),
+            redacted_title(memory.sensitivity, &memory.title, 80),
         )
         .map_err(CliError::WriteOutput)?;
     }
@@ -181,6 +189,28 @@ fn print_context_graph(graph: &ContextGraphSummary) -> Result<(), CliError> {
             stdout,
             "{:<38}  {:<10}  {:<38}  {}",
             edge.memory_id, edge.source_type, edge.source_id, edge.relation,
+        )
+        .map_err(CliError::WriteOutput)?;
+    }
+
+    writeln!(stdout).map_err(CliError::WriteOutput)?;
+    writeln!(stdout, "Trusted object links").map_err(CliError::WriteOutput)?;
+    writeln!(
+        stdout,
+        "{:<38}  {:<18}  {:<16}  {:<38}  {:<24}  Resolver",
+        "Memory", "Relation", "Object type", "Object ID", "Authorized scope"
+    )
+    .map_err(CliError::WriteOutput)?;
+    for edge in &graph.object_link_edges {
+        writeln!(
+            stdout,
+            "{:<38}  {:<18}  {:<16}  {:<38}  {:<24}  {}",
+            edge.memory_id,
+            edge.relation,
+            edge.object_type,
+            edge.object_id,
+            edge.authorized_scope_id.as_deref().unwrap_or("-"),
+            edge.resolver_principal_id.as_deref().unwrap_or("-"),
         )
         .map_err(CliError::WriteOutput)?;
     }
@@ -277,8 +307,12 @@ fn print_memory_detail(memory: &MemorySummary) -> Result<(), CliError> {
 }
 
 fn redacted_list_title(memory: &MemorySummary) -> String {
-    match memory.sensitivity {
-        Sensitivity::Public => preview(&memory.title, 96),
+    redacted_title(memory.sensitivity, &memory.title, 96)
+}
+
+fn redacted_title(sensitivity: Sensitivity, title: &str, max_chars: usize) -> String {
+    match sensitivity {
+        Sensitivity::Public => preview(title, max_chars),
         Sensitivity::Normal
         | Sensitivity::Private
         | Sensitivity::Sensitive
@@ -355,7 +389,10 @@ fn subject_role_label(role: SubjectRole) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use noema_core::memory_persistence::MemoryType;
+    use noema_core::{
+        GraphEntityNode, GraphMemoryNode, GraphObjectLinkEdge, GraphParticipantEdge,
+        GraphProvenanceEdge, GraphSubjectEdge, memory_persistence::MemoryType,
+    };
 
     #[test]
     fn redacts_non_public_memory_list_titles() {
@@ -381,5 +418,48 @@ mod tests {
         memory.sensitivity = Sensitivity::Public;
         memory.title = "Public project note".to_string();
         assert_eq!(redacted_list_title(&memory), "Public project note");
+    }
+
+    #[test]
+    fn context_graph_output_includes_object_links_and_redacts_memory_titles() {
+        let graph = ContextGraphSummary {
+            memories: vec![GraphMemoryNode {
+                memory_id: "mem_sensitive".to_string(),
+                status: MemoryStatus::Confirmed,
+                memory_type: MemoryType::OpenLoop,
+                home_scope_id: "conversation:health".to_string(),
+                sensitivity: Sensitivity::Sensitive,
+                title: "Doctor follow-up detail".to_string(),
+                created_at: "2026-06-24 12:00:00".to_string(),
+            }],
+            entities: Vec::<GraphEntityNode>::new(),
+            subject_edges: Vec::<GraphSubjectEdge>::new(),
+            participant_edges: Vec::<GraphParticipantEdge>::new(),
+            provenance_edges: Vec::<GraphProvenanceEdge>::new(),
+            object_link_edges: vec![GraphObjectLinkEdge {
+                memory_id: "mem_sensitive".to_string(),
+                object_type: "task".to_string(),
+                object_id: "task:schedule_checkup".to_string(),
+                relation: "open_loop_for".to_string(),
+                authorized_scope_id: Some("conversation:health".to_string()),
+                resolver_principal_id: Some("agent:primary".to_string()),
+                resolver_version: Some("resolver-v1".to_string()),
+                source_run_id: Some("run:health".to_string()),
+                created_at: "2026-06-24 12:00:00".to_string(),
+            }],
+            relationships: Vec::new(),
+        };
+        let mut output = Vec::new();
+
+        write_context_graph(&mut output, &graph).expect("write graph");
+        let output = String::from_utf8(output).expect("utf8 output");
+
+        assert!(output.contains("object_link_edges=1"));
+        assert!(output.contains("Trusted object links"));
+        assert!(output.contains("task:schedule_checkup"));
+        assert!(output.contains("open_loop_for"));
+        assert!(output.contains("conversation:health"));
+        assert!(output.contains("[redacted; use memory show <id>]"));
+        assert!(!output.contains("Doctor follow-up detail"));
     }
 }

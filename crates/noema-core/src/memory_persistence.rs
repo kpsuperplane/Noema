@@ -2307,6 +2307,35 @@ mod tests {
         relationship.memory_id = Some(memory.id.clone());
         repo.append_relationship_claim(&relationship)
             .expect("relationship");
+        repo.conn
+            .execute(
+                r"
+                INSERT INTO memory_retrieval_object_links (
+                  memory_id,
+                  object_type,
+                  object_id,
+                  relation,
+                  resolver_principal_id,
+                  resolver_version,
+                  source_run_id,
+                  authorized_scope_id,
+                  created_by_principal_id
+                )
+                VALUES (
+                  ?1,
+                  'project',
+                  'project:noema',
+                  'active_context',
+                  'agent:primary',
+                  'resolver-v1',
+                  'run:inspect_graph',
+                  'conversation:inspect_graph',
+                  'agent:primary'
+                )
+                ",
+                params![memory.id],
+            )
+            .expect("object link");
 
         let graph = repo.inspect_context_graph(Some(20)).expect("graph");
 
@@ -2340,6 +2369,16 @@ mod tests {
                 .iter()
                 .any(|edge| edge.memory_id == memory.id && edge.source_type == "episode")
         );
+        assert!(graph.object_link_edges.iter().any(|edge| {
+            edge.memory_id == memory.id
+                && edge.object_type == "project"
+                && edge.object_id == "project:noema"
+                && edge.relation == "active_context"
+                && edge.authorized_scope_id.as_deref() == Some("conversation:inspect_graph")
+                && edge.resolver_principal_id.as_deref() == Some("agent:primary")
+                && edge.resolver_version.as_deref() == Some("resolver-v1")
+                && edge.source_run_id.as_deref() == Some("run:inspect_graph")
+        }));
         assert!(graph.relationships.iter().any(|edge| {
             edge.subject_entity_id == "human:kevin"
                 && edge.predicate == "prefers"
