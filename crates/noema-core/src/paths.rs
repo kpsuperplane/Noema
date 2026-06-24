@@ -91,6 +91,18 @@ impl NoemaPaths {
         self.root.join("run")
     }
 
+    /// Path to the canonical structured-state directory.
+    #[must_use]
+    pub fn db_dir(&self) -> PathBuf {
+        self.root.join("db")
+    }
+
+    /// Path to the canonical SQLite database.
+    #[must_use]
+    pub fn database_path(&self) -> PathBuf {
+        self.db_dir().join("noema.sqlite")
+    }
+
     /// Path to the daemon socket.
     #[must_use]
     pub fn socket_path(&self) -> PathBuf {
@@ -143,6 +155,10 @@ mod tests {
         assert_eq!(
             paths.socket_path(),
             PathBuf::from("/tmp/custom-noema/run/noema.sock")
+        );
+        assert_eq!(
+            paths.database_path(),
+            PathBuf::from("/tmp/custom-noema/db/noema.sqlite")
         );
     }
 

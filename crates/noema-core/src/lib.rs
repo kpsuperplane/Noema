@@ -12,6 +12,8 @@ pub mod daemon;
 pub mod home;
 /// V1 memory storage and retrieval policy model.
 pub mod memory;
+/// SQLite-backed durable memory repository.
+pub mod memory_persistence;
 /// Filesystem path resolution for Noema state.
 pub mod paths;
 /// Provider-neutral generation request and response types.
@@ -28,6 +30,11 @@ pub use daemon::{
 pub use home::{
     DEFAULT_NOEMA_CONFIG_YAML, NoemaHomeError, NoemaHomeInitOptions, NoemaHomeInitResult,
     init_noema_home,
+};
+pub use memory_persistence::{
+    ChatMemorySource, MemoryAuthorityLevel, MemoryExtractionMethod, MemoryPersistenceError,
+    MemorySummary, MemoryType, NewChatMemoryCandidate, NewMemoryParticipant,
+    SqliteMemoryRepository,
 };
 pub use paths::{NOEMA_HOME_ENV, NoemaPathError, NoemaPaths};
 pub use provider::{

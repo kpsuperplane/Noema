@@ -139,8 +139,10 @@ codex:
 The one-shot Codex provider intentionally uses `codex exec` rather than
 pretending that a ChatGPT/Codex subscription is an OpenAI API key. Daemon chat
 uses `codex app-server --listen stdio://`, creates one Noema conversation per
-`noema chat` session, and maps each conversation to one Codex thread. No
-conversation database or memory is persisted yet.
+`noema chat` session, and maps each conversation to one Codex thread. Explicit
+`remember this:` and `/remember` chat messages are persisted to
+`db/noema.sqlite` and can be inspected with `noema memory list` and
+`noema memory show <id>`.
 
 ## Development
 

@@ -6,7 +6,11 @@ use noema_core::{
     CliOverrides, CodexProvider, Config, DaemonClient, DaemonError, DaemonServerConfig,
     GenerateInput, GenerateOptions, GenerateRequest, ModelProvider, NoemaHomeError,
     NoemaHomeInitOptions, NoemaPathError, NoemaPaths, OpenAiProvider, ProviderConfig,
-    ProviderError, default_socket_path, init_noema_home, is_connection_refused, run_daemon,
+    ProviderError, SqliteMemoryRepository, default_socket_path, init_noema_home,
+    is_connection_refused,
+    memory::{MemoryStatus, Sensitivity},
+    memory_persistence::{MemoryPersistenceError, MemorySummary},
+    run_daemon,
 };
 use std::{
     env,
@@ -59,6 +63,25 @@ enum CommandKind {
         #[arg(value_name = "PROMPT", trailing_var_arg = true)]
         prompt: Vec<String>,
     },
+    #[command(about = "Inspect local owner/admin memory state.")]
+    Memory {
+        #[command(subcommand)]
+        command: MemoryCommand,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum MemoryCommand {
+    #[command(about = "List recent local memories.")]
+    List {
+        #[arg(long, default_value_t = 20, help = "Maximum memories to show.")]
+        limit: u32,
+    },
+    #[command(about = "Show one local memory.")]
+    Show {
+        #[arg(value_name = "MEMORY_ID")]
+        memory_id: String,
+    },
 }
 
 #[derive(Debug, Error)]
@@ -80,6 +103,12 @@ enum CliError {
 
     #[error(transparent)]
     NoemaPath(#[from] NoemaPathError),
+
+    #[error(transparent)]
+    Memory(#[from] MemoryPersistenceError),
+
+    #[error("memory not found: {0}")]
+    MemoryNotFound(String),
 
     #[error("failed to read stdin: {0}")]
     ReadStdin(io::Error),
@@ -112,6 +141,7 @@ async fn run() -> Result<(), CliError> {
         Some(CommandKind::Start) => run_start(&args).await,
         Some(CommandKind::Config { force }) => run_config(&args, *force),
         Some(CommandKind::Chat { prompt }) => run_chat(&args, prompt).await,
+        Some(CommandKind::Memory { command }) => run_memory(command),
         None => run_one_shot(args).await,
     }
 }
@@ -121,7 +151,12 @@ async fn run_start(args: &Args) -> Result<(), CliError> {
     let codex = Config::load_codex(args.config.clone(), cli_overrides(args))?;
     let socket_path = paths.socket_path();
     eprintln!("noema daemon listening at {}", socket_path.display());
-    run_daemon(DaemonServerConfig::new(socket_path, codex)).await?;
+    run_daemon(DaemonServerConfig::new(
+        socket_path,
+        codex,
+        paths.database_path(),
+    ))
+    .await?;
     Ok(())
 }
 
@@ -177,6 +212,33 @@ fn ensure_noema_home_for_start(args: &Args) -> Result<NoemaPaths, CliError> {
     Ok(paths)
 }
 
+fn run_memory(command: &MemoryCommand) -> Result<(), CliError> {
+    let paths = NoemaPaths::from_process_env()?;
+    let repo = match SqliteMemoryRepository::open_existing_readonly(&paths) {
+        Ok(repo) => repo,
+        Err(MemoryPersistenceError::MissingDatabase { path }) => {
+            println!("No memory database found at {}", path.display());
+            return Ok(());
+        }
+        Err(error) => return Err(error.into()),
+    };
+
+    match command {
+        MemoryCommand::List { limit } => {
+            let memories = repo.list_recent_memories(Some(*limit))?;
+            print_memory_list(&memories)?;
+        }
+        MemoryCommand::Show { memory_id } => {
+            let memory = repo
+                .get_memory(memory_id)?
+                .ok_or_else(|| CliError::MemoryNotFound(memory_id.clone()))?;
+            print_memory_detail(&memory)?;
+        }
+    }
+
+    Ok(())
+}
+
 async fn run_chat(args: &Args, prompt_args: &[String]) -> Result<(), CliError> {
     let mut daemon = ConnectedDaemon::connect_or_start(args).await?;
     let cwd = env::current_dir()
@@ -191,13 +253,16 @@ async fn run_chat(args: &Args, prompt_args: &[String]) -> Result<(), CliError> {
     let result = if prompt_args.is_empty() {
         run_interactive_chat(&mut daemon.client, &conversation.conversation_id).await
     } else {
-        let prompt = collect_prompt(prompt_args, "")?;
-        let response = daemon
-            .client
-            .turn(conversation.conversation_id.clone(), prompt)
-            .await?;
-        print_response(&response)?;
-        Ok(())
+        async {
+            let prompt = collect_prompt(prompt_args, "")?;
+            let response = daemon
+                .client
+                .turn(conversation.conversation_id.clone(), prompt)
+                .await?;
+            print_response(&response)?;
+            Ok(())
+        }
+        .await
     };
 
     let end_result = daemon
@@ -425,6 +490,109 @@ fn print_response(text: &str) -> Result<(), CliError> {
     Ok(())
 }
 
+fn print_memory_list(memories: &[MemorySummary]) -> Result<(), CliError> {
+    if memories.is_empty() {
+        println!("No memories found.");
+        return Ok(());
+    }
+
+    let mut stdout = io::stdout();
+    writeln!(
+        stdout,
+        "{:<38}  {:<10}  {:<10}  {:<10}  {:<24}  Title",
+        "ID", "Status", "Type", "Privacy", "Created"
+    )
+    .map_err(CliError::WriteOutput)?;
+
+    for memory in memories {
+        writeln!(
+            stdout,
+            "{:<38}  {:<10}  {:<10}  {:<10}  {:<24}  {}",
+            memory.id,
+            memory_status_label(memory.status),
+            memory.memory_type.as_str(),
+            sensitivity_label(memory.sensitivity),
+            memory.created_at,
+            redacted_list_title(memory),
+        )
+        .map_err(CliError::WriteOutput)?;
+    }
+
+    Ok(())
+}
+
+fn print_memory_detail(memory: &MemorySummary) -> Result<(), CliError> {
+    let mut stdout = io::stdout();
+    writeln!(stdout, "ID: {}", memory.id).map_err(CliError::WriteOutput)?;
+    writeln!(stdout, "Status: {}", memory_status_label(memory.status))
+        .map_err(CliError::WriteOutput)?;
+    writeln!(stdout, "Type: {}", memory.memory_type.as_str()).map_err(CliError::WriteOutput)?;
+    writeln!(
+        stdout,
+        "Sensitivity: {}",
+        sensitivity_label(memory.sensitivity)
+    )
+    .map_err(CliError::WriteOutput)?;
+    writeln!(stdout, "Home scope: {}", memory.home_scope_id).map_err(CliError::WriteOutput)?;
+    writeln!(stdout, "Created: {}", memory.created_at).map_err(CliError::WriteOutput)?;
+    if let Some(conversation_id) = &memory.conversation_id {
+        writeln!(stdout, "Conversation: {conversation_id}").map_err(CliError::WriteOutput)?;
+    }
+    if let Some(source_type) = &memory.source_type {
+        writeln!(stdout, "Source type: {source_type}").map_err(CliError::WriteOutput)?;
+    }
+    if let Some(source_id) = &memory.source_id {
+        writeln!(stdout, "Source id: {source_id}").map_err(CliError::WriteOutput)?;
+    }
+    writeln!(stdout, "Title: {}", memory.title).map_err(CliError::WriteOutput)?;
+    writeln!(stdout).map_err(CliError::WriteOutput)?;
+    writeln!(stdout, "{}", memory.content).map_err(CliError::WriteOutput)?;
+    Ok(())
+}
+
+fn redacted_list_title(memory: &MemorySummary) -> String {
+    match memory.sensitivity {
+        Sensitivity::Public => preview(&memory.title, 96),
+        Sensitivity::Normal
+        | Sensitivity::Private
+        | Sensitivity::Sensitive
+        | Sensitivity::Secret => "[redacted; use memory show <id>]".to_string(),
+    }
+}
+
+fn preview(value: &str, max_chars: usize) -> String {
+    let trimmed = value.trim();
+    let mut preview: String = trimmed.chars().take(max_chars).collect();
+    if trimmed.chars().count() > max_chars {
+        preview.push_str("...");
+    }
+    preview
+}
+
+fn memory_status_label(status: MemoryStatus) -> &'static str {
+    match status {
+        MemoryStatus::Candidate => "candidate",
+        MemoryStatus::Active => "active",
+        MemoryStatus::Confirmed => "confirmed",
+        MemoryStatus::Inferred => "inferred",
+        MemoryStatus::Stale => "stale",
+        MemoryStatus::Superseded => "superseded",
+        MemoryStatus::Archived => "archived",
+        MemoryStatus::Deleted => "deleted",
+        MemoryStatus::Disputed => "disputed",
+    }
+}
+
+fn sensitivity_label(sensitivity: Sensitivity) -> &'static str {
+    match sensitivity {
+        Sensitivity::Public => "public",
+        Sensitivity::Normal => "normal",
+        Sensitivity::Private => "private",
+        Sensitivity::Sensitive => "sensitive",
+        Sensitivity::Secret => "secret",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -481,6 +649,56 @@ mod tests {
 
         assert_eq!(args.provider.as_deref(), Some("codex"));
         assert!(matches!(args.command, Some(CommandKind::Chat { .. })));
+    }
+
+    #[test]
+    fn parses_memory_list_subcommand() {
+        let args = Args::try_parse_from(["noema", "memory", "list", "--limit", "7"]).expect("args");
+
+        assert!(matches!(
+            args.command,
+            Some(CommandKind::Memory {
+                command: MemoryCommand::List { limit: 7 }
+            })
+        ));
+    }
+
+    #[test]
+    fn parses_memory_show_subcommand() {
+        let args = Args::try_parse_from(["noema", "memory", "show", "mem_123"]).expect("args");
+
+        assert!(matches!(
+            args.command,
+            Some(CommandKind::Memory {
+                command: MemoryCommand::Show { memory_id }
+            }) if memory_id == "mem_123"
+        ));
+    }
+
+    #[test]
+    fn redacts_non_public_memory_list_titles() {
+        let mut memory = MemorySummary {
+            id: "mem_123".to_string(),
+            status: MemoryStatus::Confirmed,
+            memory_type: noema_core::memory_persistence::MemoryType::Note,
+            home_scope_id: "conversation:conversation_1".to_string(),
+            sensitivity: Sensitivity::Normal,
+            title: "my API key is sk-test1234567890".to_string(),
+            content: "my API key is sk-test1234567890".to_string(),
+            created_at: "2026-06-24 12:00:00".to_string(),
+            source_type: Some("episode".to_string()),
+            source_id: Some("conversation:conversation_1".to_string()),
+            conversation_id: Some("conversation:conversation_1".to_string()),
+        };
+
+        assert_eq!(
+            redacted_list_title(&memory),
+            "[redacted; use memory show <id>]"
+        );
+
+        memory.sensitivity = Sensitivity::Public;
+        memory.title = "Public project note".to_string();
+        assert_eq!(redacted_list_title(&memory), "Public project note");
     }
 
     #[test]
