@@ -12,7 +12,7 @@ use crate::{
         ParticipantRole, PrincipalId, RelationshipStatus, ScopeId, Sensitivity, SubjectRole,
     },
     paths::NoemaPaths,
-    sqlite_memory_retrieval,
+    retrieval_policy_fingerprint, sqlite_memory_retrieval,
 };
 use rusqlite::{Connection, OpenFlags, OptionalExtension, Transaction, named_params, params};
 use serde_json::{Value, json};
@@ -574,6 +574,60 @@ impl SqliteMemoryRepository {
         request: &MemoryRetrievalRequest,
     ) -> Result<MemoryRetrievalResult, MemoryPersistenceError> {
         sqlite_memory_retrieval::retrieve(&self.conn, request)
+    }
+
+    /// Mark a memory retrieval policy valid for its current canonical basis.
+    ///
+    /// The fingerprint covers the memory content and retrieval-authorizing
+    /// metadata stored in SQLite, including subjects, participants, purpose
+    /// rules, trusted object links, participant visibility, egress policy, and
+    /// provenance. Retrieval recomputes this fingerprint and treats mismatches
+    /// as stale, so later changes fail closed for private or stronger memory.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MemoryPersistenceError`] if the memory does not exist,
+    /// fingerprint basis rows cannot be read, metadata cannot be serialized, or
+    /// SQLite writes fail.
+    pub fn refresh_retrieval_policy_fingerprint(
+        &mut self,
+        memory_id: &str,
+        extractor_principal_id: &str,
+        extractor_version: &str,
+    ) -> Result<String, MemoryPersistenceError> {
+        let fingerprint = retrieval_policy_fingerprint::current_fingerprint(&self.conn, memory_id)?;
+        let tx = self
+            .conn
+            .transaction()
+            .map_err(MemoryPersistenceError::Sqlite)?;
+        ensure_principal(&tx, extractor_principal_id)?;
+        let changed = tx
+            .execute(
+                r"
+                UPDATE memory_items
+                SET
+                  retrieval_policy_status = 'valid',
+                  retrieval_policy_fingerprint = ?2,
+                  retrieval_policy_extractor_principal_id = ?3,
+                  retrieval_policy_extractor_version = ?4,
+                  retrieval_policy_validated_at = CURRENT_TIMESTAMP
+                WHERE memory_id = ?1
+                ",
+                params![
+                    memory_id,
+                    &fingerprint,
+                    extractor_principal_id,
+                    extractor_version,
+                ],
+            )
+            .map_err(MemoryPersistenceError::Sqlite)?;
+        if changed == 0 {
+            return Err(MemoryPersistenceError::MemoryNotFound {
+                memory_id: memory_id.to_string(),
+            });
+        }
+        tx.commit().map_err(MemoryPersistenceError::Sqlite)?;
+        Ok(fingerprint)
     }
 }
 
@@ -2348,7 +2402,6 @@ mod tests {
         let memory = repo
             .append_chat_memory_candidate(&candidate)
             .expect("memory");
-        validate_sensitive_policy(&repo, &memory.id);
         repo.conn
             .execute(
                 r"
@@ -2363,6 +2416,7 @@ mod tests {
                 params![memory.id],
             )
             .expect("purpose rule");
+        validate_sensitive_policy(&mut repo, &memory.id);
 
         let mut request = request_for_kevin();
         request.trusted.sensitivity_ceiling = Sensitivity::Sensitive;
@@ -2394,6 +2448,7 @@ mod tests {
                 params![memory.id],
             )
             .expect("object link");
+        validate_sensitive_policy(&mut repo, &memory.id);
         request
             .trusted
             .active_object_links
@@ -2405,6 +2460,19 @@ mod tests {
         assert_eq!(
             allowed.included[0].eligibility_reason,
             EligibilityReason::TrustedObjectLink
+        );
+
+        repo.conn
+            .execute(
+                "UPDATE memory_items SET content = 'Changed sensitive content' WHERE memory_id = ?1",
+                params![memory.id],
+            )
+            .expect("change sensitive content");
+        let stale = repo.retrieve_memories(&request).expect("retrieve stale");
+        assert!(stale.included.is_empty());
+        assert_eq!(
+            stale.denied_for_audit[0].reason,
+            DenialReason::RetrievalPolicyInvalid
         );
     }
 
@@ -2428,7 +2496,6 @@ mod tests {
         let memory = repo
             .append_chat_memory_candidate(&candidate)
             .expect("memory");
-        validate_private_policy(&repo, &memory.id);
         repo.conn
             .execute(
                 r"
@@ -2443,6 +2510,7 @@ mod tests {
                 params![memory.id],
             )
             .expect("purpose rule");
+        validate_private_policy(&mut repo, &memory.id);
 
         let mut request = request_for_kevin();
         request.trusted.sensitivity_ceiling = Sensitivity::Private;
@@ -2466,6 +2534,16 @@ mod tests {
             )
             .expect("grant");
 
+        let stale_after_grant = repo
+            .retrieve_memories(&request)
+            .expect("retrieve stale after grant");
+        assert!(stale_after_grant.included.is_empty());
+        assert_eq!(
+            stale_after_grant.denied_for_audit[0].reason,
+            DenialReason::RetrievalPolicyInvalid
+        );
+
+        validate_private_policy(&mut repo, &memory.id);
         let allowed = repo.retrieve_memories(&request).expect("retrieve allowed");
         assert_eq!(included_ids(&allowed), vec![memory.id.as_str()]);
         assert_eq!(
@@ -2882,42 +2960,40 @@ mod tests {
         }
     }
 
-    fn validate_sensitive_policy(repo: &SqliteMemoryRepository, memory_id: &str) {
+    fn validate_sensitive_policy(repo: &mut SqliteMemoryRepository, memory_id: &str) {
         repo.conn
             .execute(
                 r"
                 UPDATE memory_items
                 SET
-                  retrieval_policy_status = 'valid',
-                  retrieval_policy_fingerprint = 'sha256:test-sensitive',
-                  retrieval_policy_extractor_principal_id = 'agent:primary',
-                  retrieval_policy_extractor_version = 'test',
-                  retrieval_policy_validated_at = '2026-06-24T00:00:00Z',
                   participant_visibility_policy = 'owner_only'
                 WHERE memory_id = ?1
                 ",
                 params![memory_id],
             )
+            .expect("sensitive participant visibility");
+        let fingerprint = repo
+            .refresh_retrieval_policy_fingerprint(memory_id, "agent:primary", "test")
             .expect("valid sensitive policy");
+        assert!(fingerprint.starts_with("sha256:"));
     }
 
-    fn validate_private_policy(repo: &SqliteMemoryRepository, memory_id: &str) {
+    fn validate_private_policy(repo: &mut SqliteMemoryRepository, memory_id: &str) {
         repo.conn
             .execute(
                 r"
                 UPDATE memory_items
                 SET
-                  retrieval_policy_status = 'valid',
-                  retrieval_policy_fingerprint = 'sha256:test-private',
-                  retrieval_policy_extractor_principal_id = 'agent:primary',
-                  retrieval_policy_extractor_version = 'test',
-                  retrieval_policy_validated_at = '2026-06-24T00:00:00Z',
                   participant_visibility_policy = 'explicit_grant_only'
                 WHERE memory_id = ?1
                 ",
                 params![memory_id],
             )
+            .expect("private participant visibility");
+        let fingerprint = repo
+            .refresh_retrieval_policy_fingerprint(memory_id, "agent:primary", "test")
             .expect("valid private policy");
+        assert!(fingerprint.starts_with("sha256:"));
     }
 
     fn included_ids(result: &MemoryRetrievalResult) -> Vec<&str> {

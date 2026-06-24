@@ -8,6 +8,7 @@ use crate::{
         RetrievalHints, RetrievalPolicyStatus, Sensitivity, SubjectRole,
     },
     memory_persistence::MemoryPersistenceError,
+    retrieval_policy_fingerprint,
 };
 use rusqlite::Connection;
 use serde_json::Value;
@@ -41,6 +42,7 @@ fn load_memories(conn: &Connection, store: &mut MemoryStore) -> Result<(), Memor
               sensitivity,
               retrieval_hints,
               retrieval_policy_status,
+              retrieval_policy_fingerprint,
               participant_visibility_policy,
               external_egress_policy,
               owner_principal_id
@@ -62,9 +64,10 @@ fn load_memories(conn: &Connection, store: &mut MemoryStore) -> Result<(), Memor
                 row.get::<_, String>(5)?,
                 row.get::<_, String>(6)?,
                 row.get::<_, String>(7)?,
-                row.get::<_, String>(8)?,
+                row.get::<_, Option<String>>(8)?,
                 row.get::<_, String>(9)?,
-                row.get::<_, Option<String>>(10)?,
+                row.get::<_, String>(10)?,
+                row.get::<_, Option<String>>(11)?,
             ))
         })
         .map_err(MemoryPersistenceError::Sqlite)?;
@@ -79,6 +82,7 @@ fn load_memories(conn: &Connection, store: &mut MemoryStore) -> Result<(), Memor
             sensitivity,
             retrieval_hints,
             retrieval_policy_status,
+            retrieval_policy_fingerprint,
             participant_visibility_policy,
             external_egress_policy,
             owner_principal_id,
@@ -87,7 +91,12 @@ fn load_memories(conn: &Connection, store: &mut MemoryStore) -> Result<(), Memor
         memory.status = parse_memory_status(&status)?;
         memory.sensitivity = parse_sensitivity(&sensitivity)?;
         memory.retrieval_hints = parse_retrieval_hints(&retrieval_hints)?;
-        memory.retrieval_policy_status = parse_retrieval_policy_status(&retrieval_policy_status)?;
+        memory.retrieval_policy_status = effective_retrieval_policy_status(
+            conn,
+            &memory.memory_id,
+            &retrieval_policy_status,
+            retrieval_policy_fingerprint.as_deref(),
+        )?;
         memory.participant_visibility_policy =
             parse_participant_visibility_policy(&participant_visibility_policy)?;
         memory.external_egress_policy = parse_external_egress_policy(&external_egress_policy)?;
@@ -393,6 +402,28 @@ fn string_array(value: &Value, key: &str) -> Vec<String> {
         .filter_map(Value::as_str)
         .map(ToString::to_string)
         .collect()
+}
+
+fn effective_retrieval_policy_status(
+    conn: &Connection,
+    memory_id: &str,
+    status: &str,
+    stored_fingerprint: Option<&str>,
+) -> Result<RetrievalPolicyStatus, MemoryPersistenceError> {
+    let status = parse_retrieval_policy_status(status)?;
+    if status != RetrievalPolicyStatus::Valid {
+        return Ok(status);
+    }
+
+    let Some(stored_fingerprint) = stored_fingerprint else {
+        return Ok(RetrievalPolicyStatus::Stale);
+    };
+    let current_fingerprint = retrieval_policy_fingerprint::current_fingerprint(conn, memory_id)?;
+    if stored_fingerprint == current_fingerprint {
+        Ok(RetrievalPolicyStatus::Valid)
+    } else {
+        Ok(RetrievalPolicyStatus::Stale)
+    }
 }
 
 fn parse_memory_status(value: &str) -> Result<crate::memory::MemoryStatus, MemoryPersistenceError> {

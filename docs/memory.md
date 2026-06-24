@@ -478,7 +478,11 @@ items, subjects, participants, purpose rules, trusted object links, access
 grants, provenance, and relationship claim edges into the shared deterministic
 policy engine before evaluating the request. This avoids policy drift between
 in-memory adversarial tests and durable state while the V1 FTS candidate
-generator is still being built.
+generator is still being built. Retrieval recomputes `valid` policy
+fingerprints from the canonical rows and treats mismatches as stale, so changed
+content, subjects, participants, object links, purpose rules, egress policy, or
+provenance cannot continue to unlock private or stronger memory until the
+policy is refreshed.
 
 ### V1 extraction flow
 

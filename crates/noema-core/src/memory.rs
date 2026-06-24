@@ -501,6 +501,10 @@ pub enum DenialReason {
     SecretApprovalMissing,
     /// Relationship expansion lacked support or provenance.
     RelationshipUnsupported,
+    /// External egress policy denied this purpose.
+    ExternalEgressDenied,
+    /// External egress requires an approval Noema has not modeled yet.
+    ExternalEgressApprovalRequired,
 }
 
 /// Detailed denial record visible to audit, not directly to agents.
@@ -915,6 +919,7 @@ impl MemoryStore {
         if purpose == Some(Effect::Deny) {
             return Err(DenialReason::PurposeDenied);
         }
+        Self::require_egress_policy(memory, request.trusted.purpose)?;
 
         match memory.sensitivity {
             Sensitivity::Public => {}
@@ -931,6 +936,9 @@ impl MemoryStore {
                 }
                 Self::require_valid_policy(memory)?;
                 self.require_allowed_purpose(memory_id, request)?;
+                if !self.participant_visibility_allows(memory, request) {
+                    return Err(DenialReason::ParticipantVisibilityDenied);
+                }
             }
             Sensitivity::Sensitive => {
                 if !self.aperture_matches(memory, request) {
@@ -987,6 +995,23 @@ impl MemoryStore {
             Ok(())
         } else {
             Err(DenialReason::PurposeDenied)
+        }
+    }
+
+    fn require_egress_policy(memory: &MemoryItem, purpose: Purpose) -> Result<(), DenialReason> {
+        if !matches!(
+            purpose,
+            Purpose::DraftExternalContent | Purpose::ExternalAction | Purpose::UseTool
+        ) {
+            return Ok(());
+        }
+
+        match memory.external_egress_policy {
+            ExternalEgressPolicy::Allow => Ok(()),
+            ExternalEgressPolicy::ApprovalRequired => {
+                Err(DenialReason::ExternalEgressApprovalRequired)
+            }
+            ExternalEgressPolicy::Deny => Err(DenialReason::ExternalEgressDenied),
         }
     }
 
@@ -1532,6 +1557,91 @@ mod tests {
 
         let allowed = store.retrieve(&request);
         assert_eq!(included_ids(&allowed), vec!["memory_private"]);
+    }
+
+    #[test]
+    fn private_memory_applies_participant_visibility_policy() {
+        let mut store = MemoryStore::default();
+        let mut memory = normal_memory("memory_private", "conversation_private", "Private note");
+        memory.sensitivity = Sensitivity::Private;
+        memory.participant_visibility_policy = ParticipantVisibilityPolicy::OwnerOnly;
+        memory.owner_principal_id = Some("human_alex".to_string());
+        store.insert_memory(memory);
+        store
+            .add_participant(
+                "memory_private",
+                "human_kevin",
+                ParticipantRole::HumanInScope,
+            )
+            .expect("participant");
+        store
+            .add_purpose_rule(
+                "memory_private",
+                Purpose::AnswerHumanQuestion,
+                Effect::Allow,
+            )
+            .expect("purpose");
+
+        let mut request = request_for_kevin();
+        request.trusted.sensitivity_ceiling = Sensitivity::Private;
+        request
+            .trusted
+            .active_scopes
+            .push("conversation_private".to_string());
+        let denied = store.retrieve(&request);
+
+        assert!(denied.included.is_empty());
+        assert_eq!(
+            denied.denied_for_audit[0].reason,
+            DenialReason::ParticipantVisibilityDenied
+        );
+    }
+
+    #[test]
+    fn external_egress_policy_denies_external_purposes() {
+        let mut store = MemoryStore::default();
+        let mut memory = normal_memory("memory_external", "project_noema", "External draft note");
+        memory.external_egress_policy = ExternalEgressPolicy::ApprovalRequired;
+        store.insert_memory(memory);
+        let mut request = MemoryRetrievalRequest {
+            requesting_principal_id: "agent_primary".to_string(),
+            trusted: TrustedRetrievalContext::for_human(
+                "human_kevin",
+                Purpose::DraftExternalContent,
+            ),
+            untrusted_hints: UntrustedHints::default(),
+        };
+        request
+            .trusted
+            .active_scopes
+            .push("project_noema".to_string());
+
+        let approval_required = store.retrieve(&request);
+        assert!(approval_required.included.is_empty());
+        assert_eq!(
+            approval_required.denied_for_audit[0].reason,
+            DenialReason::ExternalEgressApprovalRequired
+        );
+
+        let mut allowed = normal_memory("memory_allowed_external", "project_noema", "Allowed");
+        allowed.external_egress_policy = ExternalEgressPolicy::Allow;
+        store.insert_memory(allowed);
+        let allowed = store.retrieve(&request);
+        assert!(
+            allowed
+                .included
+                .iter()
+                .any(|memory| memory.memory_id == "memory_allowed_external")
+        );
+
+        let mut denied = normal_memory("memory_denied_external", "project_noema", "Denied");
+        denied.external_egress_policy = ExternalEgressPolicy::Deny;
+        store.insert_memory(denied);
+        let denied = store.retrieve(&request);
+        assert!(denied.denied_for_audit.iter().any(|denial| {
+            denial.memory_id.as_deref() == Some("memory_denied_external")
+                && denial.reason == DenialReason::ExternalEgressDenied
+        }));
     }
 
     #[test]
