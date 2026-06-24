@@ -213,7 +213,12 @@ fn load_object_links(
     let mut stmt = conn
         .prepare(
             r"
-            SELECT link.memory_id, link.object_type, link.object_id, link.relation
+            SELECT
+              link.memory_id,
+              link.object_type,
+              link.object_id,
+              link.relation,
+              link.authorized_scope_id
             FROM memory_retrieval_object_links link
             JOIN memory_items mi ON mi.memory_id = link.memory_id
             WHERE (mi.expires_at IS NULL OR mi.expires_at > CURRENT_TIMESTAMP)
@@ -229,14 +234,20 @@ fn load_object_links(
                 row.get::<_, String>(1)?,
                 row.get::<_, String>(2)?,
                 row.get::<_, String>(3)?,
+                row.get::<_, Option<String>>(4)?,
             ))
         })
         .map_err(MemoryPersistenceError::Sqlite)?;
 
     for row in rows {
-        let (memory_id, object_type, object_id, relation) =
+        let (memory_id, object_type, object_id, relation, authorized_scope_id) =
             row.map_err(MemoryPersistenceError::Sqlite)?;
-        store.add_object_link(memory_id, ObjectLink::new(object_type, object_id), relation)?;
+        store.add_object_link(
+            memory_id,
+            ObjectLink::new(object_type, object_id),
+            relation,
+            authorized_scope_id,
+        )?;
     }
 
     Ok(())

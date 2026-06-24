@@ -229,7 +229,9 @@ Retrieval policy is typed, versioned, and auditable. It includes:
 - `external_egress_policy`: `allow`, `approval_required`, or `deny`.
 - Purpose allow/deny rules using the closed purpose vocabulary.
 - Trusted object links resolved by Noema, such as active tasks, projects,
-  conversations, calendar events, documents, artifacts, tools, or sources.
+  conversations, calendar events, documents, artifacts, tools, or sources. These
+  links include the trusted relation and, when relevant, the scope that
+  authorized the link.
 
 Invalid, missing, stale, or unreviewed retrieval policy must fail closed for
 private, sensitive, and secret memories. Hints may still help retrieve normal
@@ -295,7 +297,12 @@ Agents should request memory with context:
     "explicit_memory_request": false,
     "canonical_entity_ids": ["project:noema", "concept:memory_system"],
     "active_object_links": [
-      { "object_type": "project", "object_id": "project:noema" }
+      {
+        "object_type": "project",
+        "object_id": "project:noema",
+        "relation": "active_context",
+        "authorized_scope_id": "project:memory-system"
+      }
     ],
     "allowed_proactivity_level": 2,
     "include_candidate_memories": false,
@@ -617,7 +624,8 @@ Sensitive memory with deterministic retrieval policy:
       {
         "object_type": "task",
         "object_id": "task:schedule_checkup",
-        "relation": "open_loop_for"
+        "relation": "open_loop_for",
+        "authorized_scope_id": "conversation:health"
       }
     ]
   },
@@ -657,7 +665,8 @@ Adversarial retrieval scenarios:
 - Topic-only matches never include sensitive memory.
 - Same-human participant overlap alone never includes sensitive memory.
 - Mentioned or forged object IDs do not count unless the harness loaded them as
-  active authorized objects.
+  active authorized objects with the required trusted relation and authorized
+  scope.
 - Broad canonical entities such as the active human, workspace, project, or a
   general concept do not unlock sensitive memory.
 - Ambiguous entity resolution does not count as a trusted active object link.

@@ -2452,7 +2452,7 @@ mod tests {
         request
             .trusted
             .active_object_links
-            .push(ObjectLink::new("task", "task:schedule_checkup"));
+            .push(ObjectLink::new("task", "task:schedule_checkup").with_relation("open_loop_for"));
 
         let allowed = repo.retrieve_memories(&request).expect("retrieve allowed");
 
@@ -2474,6 +2474,85 @@ mod tests {
             stale.denied_for_audit[0].reason,
             DenialReason::RetrievalPolicyInvalid
         );
+    }
+
+    #[test]
+    fn persisted_object_link_requires_authorized_scope_when_policy_sets_one() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let paths = NoemaPaths::from_noema_home(dir.path()).expect("paths");
+        let mut repo = SqliteMemoryRepository::open(&paths).expect("repo");
+        let mut candidate = NewChatMemoryCandidate::new(
+            "conversation:health",
+            "Kevin needs to follow up about a doctor appointment.",
+            "agent:primary",
+        );
+        candidate.status = MemoryStatus::Active;
+        candidate.memory_type = MemoryType::OpenLoop;
+        candidate.sensitivity = Sensitivity::Sensitive;
+        candidate.owner_principal_id = Some("human:kevin".to_string());
+        candidate.participants = vec![
+            NewMemoryParticipant::new("human:kevin", ParticipantRole::HumanInScope),
+            NewMemoryParticipant::new("agent:primary", ParticipantRole::AgentInScope),
+        ];
+        let memory = repo
+            .append_chat_memory_candidate(&candidate)
+            .expect("memory");
+        repo.conn
+            .execute(
+                r"
+                INSERT INTO memory_retrieval_purpose_rules (
+                  memory_id,
+                  purpose,
+                  effect,
+                  created_by_principal_id
+                )
+                VALUES (?1, 'answer_human_question', 'allow', 'agent:primary')
+                ",
+                params![memory.id],
+            )
+            .expect("purpose rule");
+        repo.conn
+            .execute(
+                r"
+                INSERT INTO memory_retrieval_object_links (
+                  memory_id,
+                  object_type,
+                  object_id,
+                  relation,
+                  authorized_scope_id,
+                  created_by_principal_id
+                )
+                VALUES (
+                  ?1,
+                  'task',
+                  'task:schedule_checkup',
+                  'open_loop_for',
+                  'conversation:health',
+                  'agent:primary'
+                )
+                ",
+                params![memory.id],
+            )
+            .expect("object link");
+        validate_sensitive_policy(&mut repo, &memory.id);
+
+        let mut request = request_for_kevin();
+        request.trusted.sensitivity_ceiling = Sensitivity::Sensitive;
+        request.trusted.active_object_links =
+            vec![ObjectLink::new("task", "task:schedule_checkup").with_relation("open_loop_for")];
+        let denied = repo.retrieve_memories(&request).expect("retrieve denied");
+        assert!(denied.included.is_empty());
+        assert_eq!(
+            denied.denied_for_audit[0].reason,
+            DenialReason::SensitiveUnlockMissing
+        );
+
+        request
+            .trusted
+            .active_scopes
+            .push("conversation:health".to_string());
+        let allowed = repo.retrieve_memories(&request).expect("retrieve allowed");
+        assert_eq!(included_ids(&allowed), vec![memory.id.as_str()]);
     }
 
     #[test]

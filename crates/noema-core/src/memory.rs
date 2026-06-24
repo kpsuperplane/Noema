@@ -297,6 +297,10 @@ pub struct ObjectLink {
     pub object_type: String,
     /// Object id.
     pub object_id: String,
+    /// Trusted relation between the active object and the memory.
+    pub relation: Option<String>,
+    /// Scope that authorized this active object link.
+    pub authorized_scope_id: Option<ScopeId>,
 }
 
 impl ObjectLink {
@@ -306,7 +310,23 @@ impl ObjectLink {
         Self {
             object_type: object_type.into(),
             object_id: object_id.into(),
+            relation: None,
+            authorized_scope_id: None,
         }
+    }
+
+    /// Attach a trusted relation to the object link.
+    #[must_use]
+    pub fn with_relation(mut self, relation: impl Into<String>) -> Self {
+        self.relation = Some(relation.into());
+        self
+    }
+
+    /// Attach the scope that authorized this object link.
+    #[must_use]
+    pub fn with_authorized_scope(mut self, scope_id: impl Into<ScopeId>) -> Self {
+        self.authorized_scope_id = Some(scope_id.into());
+        self
     }
 }
 
@@ -317,8 +337,6 @@ pub struct MemoryObjectLink {
     pub memory_id: MemoryId,
     /// Linked object.
     pub object: ObjectLink,
-    /// Relationship label.
-    pub relation: String,
 }
 
 /// Principal or scope grant over memory access.
@@ -685,16 +703,16 @@ impl MemoryStore {
     pub fn add_object_link(
         &mut self,
         memory_id: impl Into<MemoryId>,
-        object: ObjectLink,
+        mut object: ObjectLink,
         relation: impl Into<String>,
+        authorized_scope_id: Option<ScopeId>,
     ) -> Result<(), MemoryStoreError> {
         let memory_id = memory_id.into();
         self.require_memory(&memory_id)?;
-        self.object_links.push(MemoryObjectLink {
-            memory_id,
-            object,
-            relation: relation.into(),
-        });
+        object.relation = Some(relation.into());
+        object.authorized_scope_id = authorized_scope_id;
+        self.object_links
+            .push(MemoryObjectLink { memory_id, object });
         Ok(())
     }
 
@@ -1153,7 +1171,7 @@ impl MemoryStore {
                     .trusted
                     .active_object_links
                     .iter()
-                    .any(|active| active == &link.object)
+                    .any(|active| object_link_matches(&link.object, active, request))
         })
     }
 
@@ -1286,6 +1304,39 @@ fn relationship_is_current(status: RelationshipStatus) -> bool {
         status,
         RelationshipStatus::Active | RelationshipStatus::Confirmed
     )
+}
+
+fn object_link_matches(
+    policy: &ObjectLink,
+    active: &ObjectLink,
+    request: &MemoryRetrievalRequest,
+) -> bool {
+    if policy.object_type != active.object_type || policy.object_id != active.object_id {
+        return false;
+    }
+
+    if policy
+        .relation
+        .as_ref()
+        .is_some_and(|relation| active.relation.as_deref() != Some(relation.as_str()))
+    {
+        return false;
+    }
+
+    match &policy.authorized_scope_id {
+        Some(scope_id) => {
+            active
+                .authorized_scope_id
+                .as_ref()
+                .is_some_and(|active_scope_id| active_scope_id == scope_id)
+                || request
+                    .trusted
+                    .active_scopes
+                    .iter()
+                    .any(|active_scope_id| active_scope_id == scope_id)
+        }
+        None => true,
+    }
 }
 
 fn grant_matches_memory(grant: &AccessGrant, memory: &MemoryItem) -> bool {
@@ -1455,6 +1506,52 @@ mod tests {
                 "memory_health",
                 ObjectLink::new("task", "task_schedule_checkup"),
                 "open_loop_for",
+                None,
+            )
+            .expect("object link");
+
+        let mut request = request_for_kevin();
+        request.trusted.sensitivity_ceiling = Sensitivity::Sensitive;
+        request
+            .trusted
+            .active_object_links
+            .push(ObjectLink::new("task", "task_schedule_checkup").with_relation("open_loop_for"));
+
+        let result = store.retrieve(&request);
+
+        assert_eq!(included_ids(&result), vec!["memory_health"]);
+        assert_eq!(
+            result.included[0].eligibility_reason,
+            EligibilityReason::TrustedObjectLink
+        );
+    }
+
+    #[test]
+    fn trusted_object_link_requires_matching_relation() {
+        let mut store = MemoryStore::default();
+        let memory = sensitive_memory(
+            "memory_health",
+            "conversation_health",
+            "Doctor appointment follow-up",
+            "human_kevin",
+        );
+        store.insert_memory(memory);
+        store
+            .add_participant(
+                "memory_health",
+                "human_kevin",
+                ParticipantRole::HumanInScope,
+            )
+            .expect("participant");
+        store
+            .add_purpose_rule("memory_health", Purpose::AnswerHumanQuestion, Effect::Allow)
+            .expect("purpose");
+        store
+            .add_object_link(
+                "memory_health",
+                ObjectLink::new("task", "task_schedule_checkup"),
+                "open_loop_for",
+                None,
             )
             .expect("object link");
 
@@ -1464,14 +1561,75 @@ mod tests {
             .trusted
             .active_object_links
             .push(ObjectLink::new("task", "task_schedule_checkup"));
-
-        let result = store.retrieve(&request);
-
-        assert_eq!(included_ids(&result), vec!["memory_health"]);
+        let missing_relation = store.retrieve(&request);
+        assert!(missing_relation.included.is_empty());
         assert_eq!(
-            result.included[0].eligibility_reason,
-            EligibilityReason::TrustedObjectLink
+            missing_relation.denied_for_audit[0].reason,
+            DenialReason::SensitiveUnlockMissing
         );
+
+        request.trusted.active_object_links =
+            vec![ObjectLink::new("task", "task_schedule_checkup").with_relation("relevant_to")];
+        let wrong_relation = store.retrieve(&request);
+        assert!(wrong_relation.included.is_empty());
+        assert_eq!(
+            wrong_relation.denied_for_audit[0].reason,
+            DenialReason::SensitiveUnlockMissing
+        );
+
+        request.trusted.active_object_links =
+            vec![ObjectLink::new("task", "task_schedule_checkup").with_relation("open_loop_for")];
+        let allowed = store.retrieve(&request);
+        assert_eq!(included_ids(&allowed), vec!["memory_health"]);
+    }
+
+    #[test]
+    fn trusted_object_link_requires_authorized_scope_when_policy_sets_one() {
+        let mut store = MemoryStore::default();
+        let memory = sensitive_memory(
+            "memory_health",
+            "conversation_health",
+            "Doctor appointment follow-up",
+            "human_kevin",
+        );
+        store.insert_memory(memory);
+        store
+            .add_participant(
+                "memory_health",
+                "human_kevin",
+                ParticipantRole::HumanInScope,
+            )
+            .expect("participant");
+        store
+            .add_purpose_rule("memory_health", Purpose::AnswerHumanQuestion, Effect::Allow)
+            .expect("purpose");
+        store
+            .add_object_link(
+                "memory_health",
+                ObjectLink::new("task", "task_schedule_checkup"),
+                "open_loop_for",
+                Some("project_noema".to_string()),
+            )
+            .expect("object link");
+
+        let mut request = request_for_kevin();
+        request.trusted.sensitivity_ceiling = Sensitivity::Sensitive;
+        request.trusted.active_object_links =
+            vec![ObjectLink::new("task", "task_schedule_checkup").with_relation("open_loop_for")];
+        let missing_scope = store.retrieve(&request);
+        assert!(missing_scope.included.is_empty());
+        assert_eq!(
+            missing_scope.denied_for_audit[0].reason,
+            DenialReason::SensitiveUnlockMissing
+        );
+
+        request.trusted.active_object_links = vec![
+            ObjectLink::new("task", "task_schedule_checkup")
+                .with_relation("open_loop_for")
+                .with_authorized_scope("project_noema"),
+        ];
+        let allowed = store.retrieve(&request);
+        assert_eq!(included_ids(&allowed), vec!["memory_health"]);
     }
 
     #[test]
@@ -1500,6 +1658,7 @@ mod tests {
                 "memory_health",
                 ObjectLink::new("task", "task_schedule_checkup"),
                 "open_loop_for",
+                None,
             )
             .expect("object link");
 
@@ -1508,7 +1667,7 @@ mod tests {
         request
             .trusted
             .active_object_links
-            .push(ObjectLink::new("task", "task_schedule_checkup"));
+            .push(ObjectLink::new("task", "task_schedule_checkup").with_relation("open_loop_for"));
 
         let result = store.retrieve(&request);
 
