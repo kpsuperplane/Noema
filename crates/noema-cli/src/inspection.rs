@@ -3,7 +3,10 @@
 use clap::Subcommand;
 use noema_core::{
     ContextGraphSummary, NoemaPaths, SqliteMemoryRepository,
-    memory::{MemoryStatus, ParticipantRole, RelationshipStatus, Sensitivity, SubjectRole},
+    memory::{
+        Effect, ExternalEgressPolicy, MemoryStatus, ParticipantRole, ParticipantVisibilityPolicy,
+        Purpose, RelationshipStatus, RetrievalPolicyStatus, Sensitivity, SubjectRole,
+    },
     memory_persistence::{MemoryPersistenceError, MemorySummary},
 };
 use std::io::{self, Write};
@@ -93,13 +96,15 @@ fn write_context_graph(
     writeln!(stdout, "Context graph").map_err(CliError::WriteOutput)?;
     writeln!(
         stdout,
-        "memories={} entities={} subject_edges={} participant_edges={} provenance_edges={} object_link_edges={} relationships={}",
+        "memories={} entities={} subject_edges={} participant_edges={} provenance_edges={} object_link_edges={} purpose_rules={} access_grants={} relationships={}",
         graph.memories.len(),
         graph.entities.len(),
         graph.subject_edges.len(),
         graph.participant_edges.len(),
         graph.provenance_edges.len(),
         graph.object_link_edges.len(),
+        graph.purpose_rules.len(),
+        graph.access_grants.len(),
         graph.relationships.len(),
     )
     .map_err(CliError::WriteOutput)?;
@@ -108,20 +113,68 @@ fn write_context_graph(
     writeln!(stdout, "Memories").map_err(CliError::WriteOutput)?;
     writeln!(
         stdout,
-        "{:<38}  {:<10}  {:<10}  {:<10}  {:<24}  Title",
-        "ID", "Status", "Type", "Privacy", "Scope"
+        "{:<38}  {:<10}  {:<10}  {:<10}  {:<12}  {:<12}  {:<24}  Title",
+        "ID", "Status", "Type", "Privacy", "Stored", "Effective", "Scope"
     )
     .map_err(CliError::WriteOutput)?;
     for memory in &graph.memories {
         writeln!(
             stdout,
-            "{:<38}  {:<10}  {:<10}  {:<10}  {:<24}  {}",
+            "{:<38}  {:<10}  {:<10}  {:<10}  {:<12}  {:<12}  {:<24}  {}",
             memory.memory_id,
             memory_status_label(memory.status),
             memory.memory_type.as_str(),
             sensitivity_label(memory.sensitivity),
+            retrieval_policy_status_label(memory.retrieval_policy_status),
+            retrieval_policy_status_label(memory.retrieval_policy_effective_status),
             memory.home_scope_id,
             redacted_title(memory.sensitivity, &memory.title, 80),
+        )
+        .map_err(CliError::WriteOutput)?;
+    }
+
+    writeln!(stdout).map_err(CliError::WriteOutput)?;
+    writeln!(stdout, "Retrieval policy").map_err(CliError::WriteOutput)?;
+    writeln!(
+        stdout,
+        "{:<38}  {:<4}  {:<20}  {:<17}  {:<24}  {:<12}  {:<14}  {:<24}  Hints",
+        "Memory",
+        "Ver",
+        "Participant visibility",
+        "Egress",
+        "Extractor",
+        "Extractor v",
+        "Fingerprint",
+        "Validated"
+    )
+    .map_err(CliError::WriteOutput)?;
+    for memory in &graph.memories {
+        let fingerprint = memory
+            .retrieval_policy_fingerprint
+            .as_deref()
+            .map(|value| preview(value, 14))
+            .unwrap_or_else(|| "-".to_string());
+        writeln!(
+            stdout,
+            "{:<38}  {:<4}  {:<20}  {:<17}  {:<24}  {:<12}  {:<14}  {:<24}  {}",
+            memory.memory_id,
+            memory.retrieval_policy_version,
+            participant_visibility_policy_label(memory.participant_visibility_policy),
+            external_egress_policy_label(memory.external_egress_policy),
+            memory
+                .retrieval_policy_extractor_principal_id
+                .as_deref()
+                .unwrap_or("-"),
+            memory
+                .retrieval_policy_extractor_version
+                .as_deref()
+                .unwrap_or("-"),
+            fingerprint,
+            memory
+                .retrieval_policy_validated_at
+                .as_deref()
+                .unwrap_or("-"),
+            redacted_json(memory.sensitivity, &memory.retrieval_hints, 64),
         )
         .map_err(CliError::WriteOutput)?;
     }
@@ -211,6 +264,48 @@ fn write_context_graph(
             edge.object_id,
             edge.authorized_scope_id.as_deref().unwrap_or("-"),
             edge.resolver_principal_id.as_deref().unwrap_or("-"),
+        )
+        .map_err(CliError::WriteOutput)?;
+    }
+
+    writeln!(stdout).map_err(CliError::WriteOutput)?;
+    writeln!(stdout, "Purpose rules").map_err(CliError::WriteOutput)?;
+    writeln!(
+        stdout,
+        "{:<38}  {:<24}  {:<6}  Created by",
+        "Memory", "Purpose", "Effect"
+    )
+    .map_err(CliError::WriteOutput)?;
+    for rule in &graph.purpose_rules {
+        writeln!(
+            stdout,
+            "{:<38}  {:<24}  {:<6}  {}",
+            rule.memory_id,
+            purpose_label(rule.purpose),
+            effect_label(rule.effect),
+            rule.created_by_principal_id.as_deref().unwrap_or("-"),
+        )
+        .map_err(CliError::WriteOutput)?;
+    }
+
+    writeln!(stdout).map_err(CliError::WriteOutput)?;
+    writeln!(stdout, "Access grants").map_err(CliError::WriteOutput)?;
+    writeln!(
+        stdout,
+        "{:<38}  {:<38}  {:<28}  {:<24}  {:<6}  Expires",
+        "Grant", "Target", "Principal", "Permission", "Effect"
+    )
+    .map_err(CliError::WriteOutput)?;
+    for grant in &graph.access_grants {
+        writeln!(
+            stdout,
+            "{:<38}  {:<38}  {:<28}  {:<24}  {:<6}  {}",
+            grant.grant_id,
+            grant_target(grant.memory_id.as_deref(), grant.scope_id.as_deref()),
+            grant.principal_id,
+            grant.permission,
+            effect_label(grant.effect),
+            grant.expires_at.as_deref().unwrap_or("-"),
         )
         .map_err(CliError::WriteOutput)?;
     }
@@ -320,6 +415,23 @@ fn redacted_title(sensitivity: Sensitivity, title: &str, max_chars: usize) -> St
     }
 }
 
+fn redacted_json(sensitivity: Sensitivity, value: &str, max_chars: usize) -> String {
+    match sensitivity {
+        Sensitivity::Public => preview(value, max_chars),
+        Sensitivity::Normal
+        | Sensitivity::Private
+        | Sensitivity::Sensitive
+        | Sensitivity::Secret => "[redacted; use memory show <id>]".to_string(),
+    }
+}
+
+fn grant_target(memory_id: Option<&str>, scope_id: Option<&str>) -> String {
+    memory_id
+        .map(|id| format!("memory:{id}"))
+        .or_else(|| scope_id.map(|id| format!("scope:{id}")))
+        .unwrap_or_else(|| "-".to_string())
+}
+
 fn preview(value: &str, max_chars: usize) -> String {
     let trimmed = value.trim();
     let mut preview: String = trimmed.chars().take(max_chars).collect();
@@ -327,6 +439,54 @@ fn preview(value: &str, max_chars: usize) -> String {
         preview.push_str("...");
     }
     preview
+}
+
+fn retrieval_policy_status_label(status: RetrievalPolicyStatus) -> &'static str {
+    match status {
+        RetrievalPolicyStatus::Valid => "valid",
+        RetrievalPolicyStatus::Stale => "stale",
+        RetrievalPolicyStatus::Invalid => "invalid",
+        RetrievalPolicyStatus::NeedsReview => "needs_review",
+    }
+}
+
+fn participant_visibility_policy_label(policy: ParticipantVisibilityPolicy) -> &'static str {
+    match policy {
+        ParticipantVisibilityPolicy::AnyActiveHuman => "any_active_human",
+        ParticipantVisibilityPolicy::AllOriginalHumans => "all_original_humans",
+        ParticipantVisibilityPolicy::OwnerOnly => "owner_only",
+        ParticipantVisibilityPolicy::ExplicitGrantOnly => "explicit_grant_only",
+    }
+}
+
+fn external_egress_policy_label(policy: ExternalEgressPolicy) -> &'static str {
+    match policy {
+        ExternalEgressPolicy::Allow => "allow",
+        ExternalEgressPolicy::ApprovalRequired => "approval_required",
+        ExternalEgressPolicy::Deny => "deny",
+    }
+}
+
+fn purpose_label(purpose: Purpose) -> &'static str {
+    match purpose {
+        Purpose::AnswerHumanQuestion => "answer_human_question",
+        Purpose::DraftInternalContent => "draft_internal_content",
+        Purpose::GeneralPersonalization => "general_personalization",
+        Purpose::ManageTask => "manage_task",
+        Purpose::ManageCalendar => "manage_calendar",
+        Purpose::DraftExternalContent => "draft_external_content",
+        Purpose::UseTool => "use_tool",
+        Purpose::ProactiveSuggestion => "proactive_suggestion",
+        Purpose::ExternalAction => "external_action",
+        Purpose::DebugAudit => "debug_audit",
+    }
+}
+
+fn effect_label(effect: Effect) -> &'static str {
+    match effect {
+        Effect::Allow => "allow",
+        Effect::Deny => "deny",
+    }
 }
 
 fn memory_status_label(status: MemoryStatus) -> &'static str {
@@ -390,8 +550,9 @@ fn subject_role_label(role: SubjectRole) -> &'static str {
 mod tests {
     use super::*;
     use noema_core::{
-        GraphEntityNode, GraphMemoryNode, GraphObjectLinkEdge, GraphParticipantEdge,
-        GraphProvenanceEdge, GraphSubjectEdge, memory_persistence::MemoryType,
+        GraphAccessGrant, GraphEntityNode, GraphMemoryNode, GraphObjectLinkEdge,
+        GraphParticipantEdge, GraphProvenanceEdge, GraphPurposeRule, GraphSubjectEdge,
+        memory_persistence::MemoryType,
     };
 
     #[test]
@@ -430,6 +591,16 @@ mod tests {
                 home_scope_id: "conversation:health".to_string(),
                 sensitivity: Sensitivity::Sensitive,
                 title: "Doctor follow-up detail".to_string(),
+                retrieval_hints: r#"{"topics":["doctor"]}"#.to_string(),
+                retrieval_policy_status: RetrievalPolicyStatus::Valid,
+                retrieval_policy_effective_status: RetrievalPolicyStatus::Stale,
+                retrieval_policy_version: 2,
+                retrieval_policy_fingerprint: Some("sha256:abcdef1234567890".to_string()),
+                retrieval_policy_extractor_principal_id: Some("agent:primary".to_string()),
+                retrieval_policy_extractor_version: Some("extractor-v1".to_string()),
+                retrieval_policy_validated_at: Some("2026-06-24 12:00:00".to_string()),
+                participant_visibility_policy: ParticipantVisibilityPolicy::OwnerOnly,
+                external_egress_policy: ExternalEgressPolicy::ApprovalRequired,
                 created_at: "2026-06-24 12:00:00".to_string(),
             }],
             entities: Vec::<GraphEntityNode>::new(),
@@ -447,6 +618,33 @@ mod tests {
                 source_run_id: Some("run:health".to_string()),
                 created_at: "2026-06-24 12:00:00".to_string(),
             }],
+            purpose_rules: vec![
+                GraphPurposeRule {
+                    memory_id: "mem_sensitive".to_string(),
+                    purpose: Purpose::AnswerHumanQuestion,
+                    effect: Effect::Allow,
+                    created_by_principal_id: Some("agent:primary".to_string()),
+                    created_at: "2026-06-24 12:00:00".to_string(),
+                },
+                GraphPurposeRule {
+                    memory_id: "mem_sensitive".to_string(),
+                    purpose: Purpose::ExternalAction,
+                    effect: Effect::Deny,
+                    created_by_principal_id: Some("agent:primary".to_string()),
+                    created_at: "2026-06-24 12:00:00".to_string(),
+                },
+            ],
+            access_grants: vec![GraphAccessGrant {
+                grant_id: "grant_1".to_string(),
+                memory_id: Some("mem_sensitive".to_string()),
+                scope_id: None,
+                principal_id: "agent:primary".to_string(),
+                permission: "use_for_retrieval".to_string(),
+                effect: Effect::Allow,
+                expires_at: Some("2000-01-01 00:00:00".to_string()),
+                created_by_principal_id: Some("human:kevin".to_string()),
+                created_at: "2026-06-24 12:00:00".to_string(),
+            }],
             relationships: Vec::new(),
         };
         let mut output = Vec::new();
@@ -455,11 +653,27 @@ mod tests {
         let output = String::from_utf8(output).expect("utf8 output");
 
         assert!(output.contains("object_link_edges=1"));
+        assert!(output.contains("purpose_rules=2"));
+        assert!(output.contains("access_grants=1"));
+        assert!(output.contains("Retrieval policy"));
         assert!(output.contains("Trusted object links"));
+        assert!(output.contains("Purpose rules"));
+        assert!(output.contains("Access grants"));
+        assert!(output.contains("owner_only"));
+        assert!(output.contains("stale"));
+        assert!(output.contains("agent:primary"));
+        assert!(output.contains("extractor-v1"));
+        assert!(output.contains("approval_required"));
+        assert!(output.contains("answer_human_question"));
+        assert!(output.contains("external_action"));
+        assert!(output.contains("deny"));
+        assert!(output.contains("use_for_retrieval"));
+        assert!(output.contains("2000-01-01 00:00:00"));
         assert!(output.contains("task:schedule_checkup"));
         assert!(output.contains("open_loop_for"));
         assert!(output.contains("conversation:health"));
         assert!(output.contains("[redacted; use memory show <id>]"));
         assert!(!output.contains("Doctor follow-up detail"));
+        assert!(!output.contains(r#"{"topics":["doctor"]}"#));
     }
 }

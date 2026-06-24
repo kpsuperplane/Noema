@@ -5,11 +5,19 @@
 //! relationship claim tables remain the source of truth.
 
 use crate::{
+    context_graph_sql::{
+        GRAPH_ACCESS_GRANTS_SQL, GRAPH_ENTITY_NODES_SQL, GRAPH_MEMORY_NODES_SQL,
+        GRAPH_OBJECT_LINK_EDGES_SQL, GRAPH_PARTICIPANT_EDGES_SQL, GRAPH_PROVENANCE_EDGES_SQL,
+        GRAPH_PURPOSE_RULES_SQL, GRAPH_RELATIONSHIP_EDGES_SQL, GRAPH_SUBJECT_EDGES_SQL,
+        RELATIONSHIP_BY_ID_SQL,
+    },
     memory::{
-        MemoryId, MemoryStatus, ParticipantRole, PrincipalId, RelationshipStatus, ScopeId,
-        Sensitivity, SubjectRole,
+        Effect, ExternalEgressPolicy, MemoryId, MemoryStatus, ParticipantRole,
+        ParticipantVisibilityPolicy, PrincipalId, Purpose, RelationshipStatus,
+        RetrievalPolicyStatus, ScopeId, Sensitivity, SubjectRole,
     },
     memory_persistence::{MemoryPersistenceError, MemoryType},
+    retrieval_policy_fingerprint,
 };
 use rusqlite::{Connection, OptionalExtension, params};
 
@@ -55,6 +63,10 @@ pub struct ContextGraphSummary {
     pub provenance_edges: Vec<GraphProvenanceEdge>,
     /// Memory-to-trusted-object retrieval policy edges.
     pub object_link_edges: Vec<GraphObjectLinkEdge>,
+    /// Memory retrieval purpose rules.
+    pub purpose_rules: Vec<GraphPurposeRule>,
+    /// Memory or scope access grants.
+    pub access_grants: Vec<GraphAccessGrant>,
     /// Relationship claim edges.
     pub relationships: Vec<RelationshipSummary>,
 }
@@ -74,6 +86,26 @@ pub struct GraphMemoryNode {
     pub sensitivity: Sensitivity,
     /// Display title.
     pub title: String,
+    /// Non-authoritative retrieval hints as canonical JSON.
+    pub retrieval_hints: String,
+    /// Typed retrieval policy validity.
+    pub retrieval_policy_status: RetrievalPolicyStatus,
+    /// Policy status retrieval would use after fingerprint validation.
+    pub retrieval_policy_effective_status: RetrievalPolicyStatus,
+    /// Retrieval policy version.
+    pub retrieval_policy_version: i64,
+    /// Retrieval policy fingerprint, if validated.
+    pub retrieval_policy_fingerprint: Option<String>,
+    /// Principal that extracted or validated retrieval policy.
+    pub retrieval_policy_extractor_principal_id: Option<PrincipalId>,
+    /// Extractor implementation version.
+    pub retrieval_policy_extractor_version: Option<String>,
+    /// Timestamp when retrieval policy was validated.
+    pub retrieval_policy_validated_at: Option<String>,
+    /// Participant visibility rule.
+    pub participant_visibility_policy: ParticipantVisibilityPolicy,
+    /// External egress policy.
+    pub external_egress_policy: ExternalEgressPolicy,
     /// SQLite-created timestamp.
     pub created_at: String,
 }
@@ -153,6 +185,44 @@ pub struct GraphObjectLinkEdge {
     pub created_at: String,
 }
 
+/// Memory retrieval purpose allow/deny rule in a graph inspection view.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GraphPurposeRule {
+    /// Memory id.
+    pub memory_id: MemoryId,
+    /// Retrieval purpose being governed.
+    pub purpose: Purpose,
+    /// Allow or deny effect.
+    pub effect: Effect,
+    /// Principal that created the rule, if recorded.
+    pub created_by_principal_id: Option<PrincipalId>,
+    /// SQLite-created timestamp.
+    pub created_at: String,
+}
+
+/// Memory or scope access grant in a graph inspection view.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GraphAccessGrant {
+    /// Stable grant id.
+    pub grant_id: String,
+    /// Optional memory-specific grant target.
+    pub memory_id: Option<MemoryId>,
+    /// Optional scope-wide grant target.
+    pub scope_id: Option<ScopeId>,
+    /// Principal receiving the grant.
+    pub principal_id: PrincipalId,
+    /// Permission string from the canonical grant table.
+    pub permission: String,
+    /// Allow or deny effect.
+    pub effect: Effect,
+    /// Expiration timestamp, if any.
+    pub expires_at: Option<String>,
+    /// Principal that created the grant, if recorded.
+    pub created_by_principal_id: Option<PrincipalId>,
+    /// SQLite-created timestamp.
+    pub created_at: String,
+}
+
 pub(crate) fn relationship_by_id(
     conn: &Connection,
     relationship_id: &str,
@@ -176,6 +246,8 @@ pub(crate) fn inspect(
     let participant_edges = graph_participant_edges(conn, limit)?;
     let provenance_edges = graph_provenance_edges(conn, limit)?;
     let object_link_edges = graph_object_link_edges(conn, limit)?;
+    let purpose_rules = graph_purpose_rules(conn, limit)?;
+    let access_grants = graph_access_grants(conn, limit)?;
     let relationships = graph_relationship_edges(conn, limit)?;
     Ok(ContextGraphSummary {
         memories,
@@ -184,6 +256,8 @@ pub(crate) fn inspect(
         participant_edges,
         provenance_edges,
         object_link_edges,
+        purpose_rules,
+        access_grants,
         relationships,
     })
 }
@@ -196,7 +270,7 @@ fn graph_memory_nodes(
         .prepare(GRAPH_MEMORY_NODES_SQL)
         .map_err(MemoryPersistenceError::Sqlite)?;
     let rows = stmt
-        .query_map(params![limit], row_to_graph_memory_node)
+        .query_map(params![limit], |row| row_to_graph_memory_node(conn, row))
         .map_err(MemoryPersistenceError::Sqlite)?;
     collect_sql_rows(rows)
 }
@@ -266,6 +340,32 @@ fn graph_object_link_edges(
     collect_sql_rows(rows)
 }
 
+fn graph_purpose_rules(
+    conn: &Connection,
+    limit: u32,
+) -> Result<Vec<GraphPurposeRule>, MemoryPersistenceError> {
+    let mut stmt = conn
+        .prepare(GRAPH_PURPOSE_RULES_SQL)
+        .map_err(MemoryPersistenceError::Sqlite)?;
+    let rows = stmt
+        .query_map(params![limit], row_to_graph_purpose_rule)
+        .map_err(MemoryPersistenceError::Sqlite)?;
+    collect_sql_rows(rows)
+}
+
+fn graph_access_grants(
+    conn: &Connection,
+    limit: u32,
+) -> Result<Vec<GraphAccessGrant>, MemoryPersistenceError> {
+    let mut stmt = conn
+        .prepare(GRAPH_ACCESS_GRANTS_SQL)
+        .map_err(MemoryPersistenceError::Sqlite)?;
+    let rows = stmt
+        .query_map(params![limit], row_to_graph_access_grant)
+        .map_err(MemoryPersistenceError::Sqlite)?;
+    collect_sql_rows(rows)
+}
+
 fn graph_relationship_edges(
     conn: &Connection,
     limit: u32,
@@ -296,18 +396,49 @@ fn row_to_relationship_summary(row: &rusqlite::Row<'_>) -> rusqlite::Result<Rela
     })
 }
 
-fn row_to_graph_memory_node(row: &rusqlite::Row<'_>) -> rusqlite::Result<GraphMemoryNode> {
+fn row_to_graph_memory_node(
+    conn: &Connection,
+    row: &rusqlite::Row<'_>,
+) -> rusqlite::Result<GraphMemoryNode> {
+    let memory_id: MemoryId = row.get(0)?;
     let status: String = row.get(1)?;
     let memory_type: String = row.get(2)?;
     let sensitivity: String = row.get(4)?;
+    let retrieval_policy_status: String = row.get(7)?;
+    let participant_visibility_policy: String = row.get(13)?;
+    let external_egress_policy: String = row.get(14)?;
+    let stored_policy_status =
+        parse_retrieval_policy_status(&retrieval_policy_status).map_err(enum_to_sql_error)?;
+    let retrieval_policy_fingerprint: Option<String> = row.get(9)?;
+    let effective_policy_status = effective_retrieval_policy_status(
+        conn,
+        &memory_id,
+        stored_policy_status,
+        retrieval_policy_fingerprint.as_deref(),
+    )
+    .map_err(enum_to_sql_error)?;
     Ok(GraphMemoryNode {
-        memory_id: row.get(0)?,
+        memory_id,
         status: parse_memory_status(&status).map_err(enum_to_sql_error)?,
         memory_type: parse_memory_type(&memory_type).map_err(enum_to_sql_error)?,
         home_scope_id: row.get(3)?,
         sensitivity: parse_sensitivity(&sensitivity).map_err(enum_to_sql_error)?,
         title: row.get(5)?,
-        created_at: row.get(6)?,
+        retrieval_hints: row.get(6)?,
+        retrieval_policy_status: stored_policy_status,
+        retrieval_policy_effective_status: effective_policy_status,
+        retrieval_policy_version: row.get(8)?,
+        retrieval_policy_fingerprint,
+        retrieval_policy_extractor_principal_id: row.get(10)?,
+        retrieval_policy_extractor_version: row.get(11)?,
+        retrieval_policy_validated_at: row.get(12)?,
+        participant_visibility_policy: parse_participant_visibility_policy(
+            &participant_visibility_policy,
+        )
+        .map_err(enum_to_sql_error)?,
+        external_egress_policy: parse_external_egress_policy(&external_egress_policy)
+            .map_err(enum_to_sql_error)?,
+        created_at: row.get(15)?,
     })
 }
 
@@ -365,6 +496,33 @@ fn row_to_graph_object_link_edge(row: &rusqlite::Row<'_>) -> rusqlite::Result<Gr
     })
 }
 
+fn row_to_graph_purpose_rule(row: &rusqlite::Row<'_>) -> rusqlite::Result<GraphPurposeRule> {
+    let purpose: String = row.get(1)?;
+    let effect: String = row.get(2)?;
+    Ok(GraphPurposeRule {
+        memory_id: row.get(0)?,
+        purpose: parse_purpose(&purpose).map_err(enum_to_sql_error)?,
+        effect: parse_effect(&effect).map_err(enum_to_sql_error)?,
+        created_by_principal_id: row.get(3)?,
+        created_at: row.get(4)?,
+    })
+}
+
+fn row_to_graph_access_grant(row: &rusqlite::Row<'_>) -> rusqlite::Result<GraphAccessGrant> {
+    let effect: String = row.get(5)?;
+    Ok(GraphAccessGrant {
+        grant_id: row.get(0)?,
+        memory_id: row.get(1)?,
+        scope_id: row.get(2)?,
+        principal_id: row.get(3)?,
+        permission: row.get(4)?,
+        effect: parse_effect(&effect).map_err(enum_to_sql_error)?,
+        expires_at: row.get(6)?,
+        created_by_principal_id: row.get(7)?,
+        created_at: row.get(8)?,
+    })
+}
+
 fn collect_sql_rows<T, F>(
     rows: rusqlite::MappedRows<'_, F>,
 ) -> Result<Vec<T>, MemoryPersistenceError>
@@ -376,6 +534,27 @@ where
         values.push(row.map_err(MemoryPersistenceError::Sqlite)?);
     }
     Ok(values)
+}
+
+fn effective_retrieval_policy_status(
+    conn: &Connection,
+    memory_id: &str,
+    stored_status: RetrievalPolicyStatus,
+    stored_fingerprint: Option<&str>,
+) -> Result<RetrievalPolicyStatus, MemoryPersistenceError> {
+    if stored_status != RetrievalPolicyStatus::Valid {
+        return Ok(stored_status);
+    }
+
+    let Some(stored_fingerprint) = stored_fingerprint else {
+        return Ok(RetrievalPolicyStatus::Stale);
+    };
+
+    if retrieval_policy_fingerprint::current_fingerprint(conn, memory_id)? == stored_fingerprint {
+        Ok(RetrievalPolicyStatus::Valid)
+    } else {
+        Ok(RetrievalPolicyStatus::Stale)
+    }
 }
 
 fn enum_to_sql_error(error: MemoryPersistenceError) -> rusqlite::Error {
@@ -391,6 +570,50 @@ fn parse_sensitivity(value: &str) -> Result<Sensitivity, MemoryPersistenceError>
         "secret" => Ok(Sensitivity::Secret),
         _ => Err(MemoryPersistenceError::InvalidEnum {
             kind: "sensitivity",
+            value: value.to_string(),
+        }),
+    }
+}
+
+fn parse_retrieval_policy_status(
+    value: &str,
+) -> Result<RetrievalPolicyStatus, MemoryPersistenceError> {
+    match value {
+        "valid" => Ok(RetrievalPolicyStatus::Valid),
+        "stale" => Ok(RetrievalPolicyStatus::Stale),
+        "invalid" => Ok(RetrievalPolicyStatus::Invalid),
+        "needs_review" => Ok(RetrievalPolicyStatus::NeedsReview),
+        _ => Err(MemoryPersistenceError::InvalidEnum {
+            kind: "retrieval policy status",
+            value: value.to_string(),
+        }),
+    }
+}
+
+fn parse_participant_visibility_policy(
+    value: &str,
+) -> Result<ParticipantVisibilityPolicy, MemoryPersistenceError> {
+    match value {
+        "any_active_human" => Ok(ParticipantVisibilityPolicy::AnyActiveHuman),
+        "all_original_humans" => Ok(ParticipantVisibilityPolicy::AllOriginalHumans),
+        "owner_only" => Ok(ParticipantVisibilityPolicy::OwnerOnly),
+        "explicit_grant_only" => Ok(ParticipantVisibilityPolicy::ExplicitGrantOnly),
+        _ => Err(MemoryPersistenceError::InvalidEnum {
+            kind: "participant visibility policy",
+            value: value.to_string(),
+        }),
+    }
+}
+
+fn parse_external_egress_policy(
+    value: &str,
+) -> Result<ExternalEgressPolicy, MemoryPersistenceError> {
+    match value {
+        "allow" => Ok(ExternalEgressPolicy::Allow),
+        "approval_required" => Ok(ExternalEgressPolicy::ApprovalRequired),
+        "deny" => Ok(ExternalEgressPolicy::Deny),
+        _ => Err(MemoryPersistenceError::InvalidEnum {
+            kind: "external egress policy",
             value: value.to_string(),
         }),
     }
@@ -440,6 +663,36 @@ fn parse_memory_type(value: &str) -> Result<MemoryType, MemoryPersistenceError> 
     }
 }
 
+fn parse_purpose(value: &str) -> Result<Purpose, MemoryPersistenceError> {
+    match value {
+        "answer_human_question" => Ok(Purpose::AnswerHumanQuestion),
+        "draft_internal_content" => Ok(Purpose::DraftInternalContent),
+        "general_personalization" => Ok(Purpose::GeneralPersonalization),
+        "manage_task" => Ok(Purpose::ManageTask),
+        "manage_calendar" => Ok(Purpose::ManageCalendar),
+        "draft_external_content" => Ok(Purpose::DraftExternalContent),
+        "use_tool" => Ok(Purpose::UseTool),
+        "proactive_suggestion" => Ok(Purpose::ProactiveSuggestion),
+        "external_action" => Ok(Purpose::ExternalAction),
+        "debug_audit" => Ok(Purpose::DebugAudit),
+        _ => Err(MemoryPersistenceError::InvalidEnum {
+            kind: "retrieval purpose",
+            value: value.to_string(),
+        }),
+    }
+}
+
+fn parse_effect(value: &str) -> Result<Effect, MemoryPersistenceError> {
+    match value {
+        "allow" => Ok(Effect::Allow),
+        "deny" => Ok(Effect::Deny),
+        _ => Err(MemoryPersistenceError::InvalidEnum {
+            kind: "policy effect",
+            value: value.to_string(),
+        }),
+    }
+}
+
 fn parse_relationship_status(value: &str) -> Result<RelationshipStatus, MemoryPersistenceError> {
     match value {
         "candidate" => Ok(RelationshipStatus::Candidate),
@@ -484,126 +737,3 @@ fn parse_subject_role(value: &str) -> Result<SubjectRole, MemoryPersistenceError
         }),
     }
 }
-
-const RELATIONSHIP_BY_ID_SQL: &str = r"
-SELECT
-  r.relationship_id,
-  r.home_scope_id,
-  r.subject_entity_id,
-  subject.canonical_name,
-  r.predicate,
-  r.object_entity_id,
-  object.canonical_name,
-  r.memory_id,
-  r.status,
-  r.confidence,
-  r.created_at
-FROM relationships r
-LEFT JOIN entities subject ON subject.entity_id = r.subject_entity_id
-LEFT JOIN entities object ON object.entity_id = r.object_entity_id
-WHERE r.relationship_id = ?1
-";
-
-const GRAPH_MEMORY_NODES_SQL: &str = r"
-SELECT
-  memory_id,
-  status,
-  memory_type,
-  home_scope_id,
-  sensitivity,
-  title,
-  created_at
-FROM memory_items
-ORDER BY created_at DESC, rowid DESC
-LIMIT ?1
-";
-
-const GRAPH_ENTITY_NODES_SQL: &str = r"
-SELECT DISTINCT
-  e.entity_id,
-  e.entity_type,
-  e.home_scope_id,
-  e.canonical_name,
-  e.linked_principal_id
-FROM entities e
-WHERE e.entity_id IN (
-  SELECT entity_id FROM memory_subjects
-  UNION
-  SELECT subject_entity_id FROM relationships
-  UNION
-  SELECT object_entity_id FROM relationships
-)
-ORDER BY e.created_at DESC, e.entity_id ASC
-LIMIT ?1
-";
-
-const GRAPH_SUBJECT_EDGES_SQL: &str = r"
-SELECT
-  ms.memory_id,
-  ms.entity_id,
-  ms.role
-FROM memory_subjects ms
-JOIN memory_items mi ON mi.memory_id = ms.memory_id
-ORDER BY mi.created_at DESC, ms.memory_id ASC, ms.entity_id ASC
-LIMIT ?1
-";
-
-const GRAPH_PARTICIPANT_EDGES_SQL: &str = r"
-SELECT
-  mp.memory_id,
-  mp.principal_id,
-  mp.role
-FROM memory_participants mp
-JOIN memory_items mi ON mi.memory_id = mp.memory_id
-ORDER BY mi.created_at DESC, mp.memory_id ASC, mp.principal_id ASC
-LIMIT ?1
-";
-
-const GRAPH_PROVENANCE_EDGES_SQL: &str = r"
-SELECT
-  memory_id,
-  source_type,
-  source_id,
-  relation,
-  evidence_excerpt
-FROM memory_provenance_edges
-ORDER BY created_at DESC, edge_id ASC
-LIMIT ?1
-";
-
-const GRAPH_OBJECT_LINK_EDGES_SQL: &str = r"
-SELECT
-  link.memory_id,
-  link.object_type,
-  link.object_id,
-  link.relation,
-  link.authorized_scope_id,
-  link.resolver_principal_id,
-  link.resolver_version,
-  link.source_run_id,
-  link.created_at
-FROM memory_retrieval_object_links link
-JOIN memory_items mi ON mi.memory_id = link.memory_id
-ORDER BY mi.created_at DESC, link.memory_id ASC, link.object_type ASC, link.object_id ASC, link.relation ASC
-LIMIT ?1
-";
-
-const GRAPH_RELATIONSHIP_EDGES_SQL: &str = r"
-SELECT
-  r.relationship_id,
-  r.home_scope_id,
-  r.subject_entity_id,
-  subject.canonical_name,
-  r.predicate,
-  r.object_entity_id,
-  object.canonical_name,
-  r.memory_id,
-  r.status,
-  r.confidence,
-  r.created_at
-FROM relationships r
-LEFT JOIN entities subject ON subject.entity_id = r.subject_entity_id
-LEFT JOIN entities object ON object.entity_id = r.object_entity_id
-ORDER BY r.created_at DESC, r.relationship_id ASC
-LIMIT ?1
-";

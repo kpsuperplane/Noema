@@ -8,6 +8,7 @@
 pub mod config;
 /// Persisted context graph inspection view.
 pub mod context_graph;
+mod context_graph_sql;
 /// Local daemon protocol and client/server runtime.
 pub mod daemon;
 /// Noema home-directory initialization.
@@ -29,8 +30,9 @@ mod sqlite_memory_retrieval;
 
 pub use config::{CliOverrides, Config, ConfigError, ProviderConfig, ProviderKind, ResolvedConfig};
 pub use context_graph::{
-    ContextGraphSummary, GraphEntityNode, GraphMemoryNode, GraphObjectLinkEdge,
-    GraphParticipantEdge, GraphProvenanceEdge, GraphSubjectEdge, RelationshipSummary,
+    ContextGraphSummary, GraphAccessGrant, GraphEntityNode, GraphMemoryNode, GraphObjectLinkEdge,
+    GraphParticipantEdge, GraphProvenanceEdge, GraphPurposeRule, GraphSubjectEdge,
+    RelationshipSummary,
 };
 pub use daemon::{
     DaemonClient, DaemonError, DaemonRequest, DaemonResponse, DaemonServerConfig,

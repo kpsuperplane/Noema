@@ -1927,7 +1927,8 @@ CREATE INDEX IF NOT EXISTS idx_memory_events_memory_time ON memory_events(memory
 mod tests {
     use super::*;
     use crate::memory::{
-        DenialReason, EligibilityReason, MemoryRetrievalRequest, ObjectLink, Purpose,
+        DenialReason, Effect, EligibilityReason, ExternalEgressPolicy, MemoryRetrievalRequest,
+        ObjectLink, ParticipantVisibilityPolicy, Purpose, RetrievalPolicyStatus,
         TrustedRetrievalContext, UntrustedHints,
     };
     use crate::paths::NoemaPaths;
@@ -2276,6 +2277,7 @@ mod tests {
             "Kevin prefers inspectable context graphs.",
             "agent:primary",
         );
+        candidate.retrieval_hints = json!({"topics": ["context graph"], "keywords": ["inspect"]});
         candidate.subjects = vec![
             NewMemorySubject::new("human:kevin", "human", "Kevin", SubjectRole::Source),
             NewMemorySubject::new(
@@ -2297,6 +2299,24 @@ mod tests {
         let memory = repo
             .append_chat_memory_candidate(&candidate)
             .expect("memory");
+        repo.conn
+            .execute(
+                r"
+                UPDATE memory_items
+                SET
+                  retrieval_policy_status = 'valid',
+                  retrieval_policy_version = 2,
+                  retrieval_policy_fingerprint = 'sha256:inspect_graph',
+                  retrieval_policy_extractor_principal_id = 'agent:primary',
+                  retrieval_policy_extractor_version = 'extractor-v1',
+                  retrieval_policy_validated_at = '2026-06-24 12:00:00',
+                  participant_visibility_policy = 'owner_only',
+                  external_egress_policy = 'approval_required'
+                WHERE memory_id = ?1
+                ",
+                params![memory.id],
+            )
+            .expect("policy metadata");
         let mut relationship = NewRelationshipClaim::new(
             "conversation:inspect_graph",
             "human:kevin",
@@ -2336,6 +2356,107 @@ mod tests {
                 params![memory.id],
             )
             .expect("object link");
+        repo.conn
+            .execute(
+                r"
+                INSERT INTO memory_retrieval_purpose_rules (
+                  memory_id,
+                  purpose,
+                  effect,
+                  created_by_principal_id
+                )
+                VALUES
+                  (?1, 'answer_human_question', 'allow', 'agent:primary'),
+                  (?1, 'external_action', 'deny', 'agent:primary')
+                ",
+                params![memory.id],
+            )
+            .expect("purpose rule");
+        repo.conn
+            .execute(
+                r"
+                INSERT INTO memory_access_grants (
+                  grant_id,
+                  memory_id,
+                  principal_id,
+                  permission,
+                  effect,
+                  expires_at,
+                  created_by_principal_id
+                )
+                VALUES (
+                  'grant_inspect_graph',
+                  ?1,
+                  'agent:primary',
+                  'use_for_retrieval',
+                  'allow',
+                  '2000-01-01 00:00:00',
+                  'human:kevin'
+                )
+                ",
+                params![memory.id],
+            )
+            .expect("access grant");
+        repo.conn
+            .execute(
+                r"
+                INSERT INTO memory_access_grants (
+                  grant_id,
+                  scope_id,
+                  principal_id,
+                  permission,
+                  effect,
+                  created_by_principal_id
+                )
+                VALUES (
+                  'grant_inspect_scope_write',
+                  'conversation:inspect_graph',
+                  'agent:primary',
+                  'write',
+                  'allow',
+                  'human:kevin'
+                )
+                ",
+                [],
+            )
+            .expect("scope access grant");
+        repo.conn
+            .execute(
+                r"
+                INSERT INTO scopes (scope_id, scope_type, name, slug)
+                VALUES (
+                  'conversation:unrelated',
+                  'conversation',
+                  'Unrelated conversation',
+                  'unrelated'
+                )
+                ",
+                [],
+            )
+            .expect("unrelated scope");
+        repo.conn
+            .execute(
+                r"
+                INSERT INTO memory_access_grants (
+                  grant_id,
+                  scope_id,
+                  principal_id,
+                  permission,
+                  effect,
+                  created_by_principal_id
+                )
+                VALUES (
+                  'grant_unrelated_scope',
+                  'conversation:unrelated',
+                  'agent:primary',
+                  'use_for_retrieval',
+                  'allow',
+                  'human:kevin'
+                )
+                ",
+                [],
+            )
+            .expect("unrelated access grant");
 
         let graph = repo.inspect_context_graph(Some(20)).expect("graph");
 
@@ -2345,6 +2466,33 @@ mod tests {
                 .iter()
                 .any(|node| node.memory_id == memory.id)
         );
+        let memory_node = graph
+            .memories
+            .iter()
+            .find(|node| node.memory_id == memory.id)
+            .expect("memory node");
+        assert_eq!(
+            memory_node.retrieval_policy_status,
+            RetrievalPolicyStatus::Valid
+        );
+        assert_eq!(
+            memory_node.retrieval_policy_effective_status,
+            RetrievalPolicyStatus::Stale
+        );
+        assert_eq!(memory_node.retrieval_policy_version, 2);
+        assert_eq!(
+            memory_node.retrieval_policy_fingerprint.as_deref(),
+            Some("sha256:inspect_graph")
+        );
+        assert_eq!(
+            memory_node.participant_visibility_policy,
+            ParticipantVisibilityPolicy::OwnerOnly
+        );
+        assert_eq!(
+            memory_node.external_egress_policy,
+            ExternalEgressPolicy::ApprovalRequired
+        );
+        assert!(memory_node.retrieval_hints.contains("context graph"));
         assert!(
             graph
                 .entities
@@ -2379,6 +2527,37 @@ mod tests {
                 && edge.resolver_version.as_deref() == Some("resolver-v1")
                 && edge.source_run_id.as_deref() == Some("run:inspect_graph")
         }));
+        assert!(graph.purpose_rules.iter().any(|rule| {
+            rule.memory_id == memory.id
+                && rule.purpose == Purpose::AnswerHumanQuestion
+                && rule.effect == Effect::Allow
+        }));
+        assert!(graph.purpose_rules.iter().any(|rule| {
+            rule.memory_id == memory.id
+                && rule.purpose == Purpose::ExternalAction
+                && rule.effect == Effect::Deny
+        }));
+        assert!(graph.access_grants.iter().any(|grant| {
+            grant.grant_id == "grant_inspect_graph"
+                && grant.memory_id.as_deref() == Some(memory.id.as_str())
+                && grant.principal_id == "agent:primary"
+                && grant.permission == "use_for_retrieval"
+                && grant.effect == Effect::Allow
+                && grant.expires_at.as_deref() == Some("2000-01-01 00:00:00")
+        }));
+        assert!(graph.access_grants.iter().any(|grant| {
+            grant.grant_id == "grant_inspect_scope_write"
+                && grant.scope_id.as_deref() == Some("conversation:inspect_graph")
+                && grant.principal_id == "agent:primary"
+                && grant.permission == "write"
+                && grant.effect == Effect::Allow
+        }));
+        assert!(
+            !graph
+                .access_grants
+                .iter()
+                .any(|grant| grant.grant_id == "grant_unrelated_scope")
+        );
         assert!(graph.relationships.iter().any(|edge| {
             edge.subject_entity_id == "human:kevin"
                 && edge.predicate == "prefers"
