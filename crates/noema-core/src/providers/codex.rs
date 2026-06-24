@@ -1,22 +1,37 @@
+//! Provider adapter that shells out to `codex exec`.
+
 use crate::provider::{
     GenerateInput, GenerateRequest, GenerateResponse, ModelProvider, ProviderError,
 };
+use std::process::Output;
 use std::{io::ErrorKind, process::Stdio, time::Duration};
 use tokio::{io::AsyncWriteExt, process::Command, time};
 
+/// Default time to wait for Codex process startup.
 pub const DEFAULT_CODEX_STARTUP_TIMEOUT_SECONDS: u64 = 60;
+/// Default time to wait for a Codex turn.
 pub const DEFAULT_CODEX_TURN_TIMEOUT_SECONDS: u64 = 300;
 
+/// Configuration for the Codex CLI provider.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CodexProviderConfig {
+    /// Command used to invoke Codex.
     pub command: String,
+    /// Optional default Codex model.
     pub default_model: Option<String>,
+    /// Sandbox mode passed to Codex.
     pub sandbox: String,
+    /// Whether Codex runs with an ephemeral session.
     pub ephemeral: bool,
+    /// Whether Codex ignores repository rule files.
     pub ignore_rules: bool,
+    /// Whether Codex ignores user-level config.
     pub ignore_user_config: bool,
+    /// Startup timeout in seconds for app-server mode.
     pub startup_timeout_seconds: u64,
+    /// Turn timeout in seconds.
     pub turn_timeout_seconds: u64,
+    /// Optional `CODEX_HOME` override.
     pub codex_home: Option<String>,
 }
 
@@ -36,12 +51,19 @@ impl Default for CodexProviderConfig {
     }
 }
 
+/// Provider implementation backed by `codex exec`.
 #[derive(Debug)]
 pub struct CodexProvider {
     config: CodexProviderConfig,
 }
 
 impl CodexProvider {
+    /// Build a Codex provider from validated configuration.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ProviderError::InvalidRequest`] when required configuration
+    /// values are empty or timeout values are zero.
     pub fn new(mut config: CodexProviderConfig) -> Result<Self, ProviderError> {
         if config.command.trim().is_empty() {
             return Err(ProviderError::InvalidRequest {
@@ -80,32 +102,8 @@ impl CodexProvider {
 
         Ok(Self { config })
     }
-}
 
-impl ModelProvider for CodexProvider {
-    async fn generate(&self, request: GenerateRequest) -> Result<GenerateResponse, ProviderError> {
-        let GenerateInput::Text(input) = request.input;
-        if input.trim().is_empty() {
-            return Err(ProviderError::InvalidRequest {
-                message: "input cannot be empty".to_string(),
-            });
-        }
-
-        if request.options.max_output_tokens.is_some() {
-            return Err(ProviderError::UnsupportedFeature {
-                feature: "max_output_tokens for codex provider".to_string(),
-            });
-        }
-
-        if request.options.temperature.is_some() {
-            return Err(ProviderError::UnsupportedFeature {
-                feature: "temperature for codex provider".to_string(),
-            });
-        }
-
-        let model = request.model.or_else(|| self.config.default_model.clone());
-        let prompt = compose_prompt(request.instructions.as_deref(), &input);
-
+    fn command(&self, model: Option<&str>) -> Command {
         let mut command = Command::new(&self.config.command);
         command
             .arg("exec")
@@ -126,7 +124,7 @@ impl ModelProvider for CodexProvider {
             command.arg("--ignore-user-config");
         }
 
-        if let Some(model) = model.as_deref().filter(|model| !model.trim().is_empty()) {
+        if let Some(model) = model.filter(|model| !model.trim().is_empty()) {
             command.arg("--model").arg(model);
         }
 
@@ -140,7 +138,14 @@ impl ModelProvider for CodexProvider {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         command.kill_on_drop(true);
+        command
+    }
 
+    async fn run_command(
+        &self,
+        mut command: Command,
+        prompt: &str,
+    ) -> Result<Output, ProviderError> {
         let mut child = command.spawn().map_err(|source| match source.kind() {
             ErrorKind::NotFound => ProviderError::ProviderUnavailable {
                 provider: "codex".to_string(),
@@ -168,7 +173,7 @@ impl ModelProvider for CodexProvider {
         })?;
         drop(stdin);
 
-        let output = time::timeout(
+        time::timeout(
             Duration::from_secs(self.config.turn_timeout_seconds),
             child.wait_with_output(),
         )
@@ -183,7 +188,36 @@ impl ModelProvider for CodexProvider {
         .map_err(|source| ProviderError::ProviderUnavailable {
             provider: "codex".to_string(),
             message: source.to_string(),
-        })?;
+        })
+    }
+}
+
+impl ModelProvider for CodexProvider {
+    async fn generate(&self, request: GenerateRequest) -> Result<GenerateResponse, ProviderError> {
+        let GenerateInput::Text(input) = request.input;
+        if input.trim().is_empty() {
+            return Err(ProviderError::InvalidRequest {
+                message: "input cannot be empty".to_string(),
+            });
+        }
+
+        if request.options.max_output_tokens.is_some() {
+            return Err(ProviderError::UnsupportedFeature {
+                feature: "max_output_tokens for codex provider".to_string(),
+            });
+        }
+
+        if request.options.temperature.is_some() {
+            return Err(ProviderError::UnsupportedFeature {
+                feature: "temperature for codex provider".to_string(),
+            });
+        }
+
+        let model = request.model.or_else(|| self.config.default_model.clone());
+        let prompt = compose_prompt(request.instructions.as_deref(), &input);
+        let output = self
+            .run_command(self.command(model.as_deref()), &prompt)
+            .await?;
 
         if !output.status.success() {
             let status = output
@@ -302,10 +336,10 @@ printf 'codex answer\n'
         let dir = tempfile::tempdir().expect("temp dir");
         let command_path = fake_codex_script(
             dir.path(),
-            r#"
+            r"
 printf 'not logged in\n' >&2
 exit 42
-"#,
+",
         );
 
         let provider = CodexProvider::new(CodexProviderConfig {

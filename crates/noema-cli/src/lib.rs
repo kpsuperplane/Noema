@@ -1,11 +1,20 @@
+//! Helpers shared by the Noema CLI binary.
+
 use thiserror::Error;
 
+/// Errors produced while collecting a prompt for the CLI.
 #[derive(Debug, Error)]
 pub enum PromptError {
+    /// No prompt text was provided by arguments or standard input.
     #[error("prompt cannot be empty")]
     Empty,
 }
 
+/// Collect a prompt from trailing arguments or stdin.
+///
+/// # Errors
+///
+/// Returns [`PromptError::Empty`] when both sources are empty after trimming.
 pub fn collect_prompt(args: &[String], stdin: &str) -> Result<String, PromptError> {
     let prompt = if args.is_empty() {
         stdin.trim().to_string()

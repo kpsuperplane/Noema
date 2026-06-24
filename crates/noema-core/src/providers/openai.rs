@@ -1,3 +1,5 @@
+//! Provider adapter for the OpenAI Responses API.
+
 use crate::provider::{
     GenerateInput, GenerateRequest, GenerateResponse, ModelProvider, ProviderError, TokenUsage,
 };
@@ -5,18 +7,27 @@ use reqwest::{StatusCode, header::HeaderMap};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
+/// Default request timeout for `OpenAI` calls.
 pub const DEFAULT_OPENAI_TIMEOUT_SECONDS: u64 = 120;
 
+/// Configuration for the `OpenAI` provider.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OpenAiProviderConfig {
+    /// API key sent as a bearer token.
     pub api_key: String,
+    /// Base URL for an OpenAI-compatible Responses API.
     pub base_url: String,
+    /// Optional `OpenAI` organization id.
     pub organization_id: Option<String>,
+    /// Optional `OpenAI` project id.
     pub project_id: Option<String>,
+    /// Default model used when a request does not override it.
     pub default_model: String,
+    /// Request timeout in seconds.
     pub timeout_seconds: u64,
 }
 
+/// Provider implementation backed by the `OpenAI` Responses API.
 #[derive(Debug)]
 pub struct OpenAiProvider {
     client: reqwest::Client,
@@ -24,6 +35,12 @@ pub struct OpenAiProvider {
 }
 
 impl OpenAiProvider {
+    /// Build an `OpenAI` provider with a default reqwest client.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ProviderError`] when configuration is invalid or the HTTP
+    /// client cannot be built.
     pub fn new(config: OpenAiProviderConfig) -> Result<Self, ProviderError> {
         let config = normalize_config(config)?;
         let client = reqwest::Client::builder()
@@ -34,6 +51,13 @@ impl OpenAiProvider {
         Ok(Self { client, config })
     }
 
+    /// Build an `OpenAI` provider with a caller-supplied reqwest client.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ProviderError::InvalidRequest`] or
+    /// [`ProviderError::MissingCredentials`] when configuration validation
+    /// fails.
     pub fn with_client(
         client: reqwest::Client,
         config: OpenAiProviderConfig,
@@ -61,26 +85,26 @@ fn normalize_config(
     let base_url = config.base_url.trim().trim_end_matches('/').to_string();
     if base_url.is_empty() {
         return Err(ProviderError::InvalidRequest {
-            message: "OpenAI base URL cannot be empty".to_string(),
+            message: "openai base URL cannot be empty".to_string(),
         });
     }
 
     if reqwest::Url::parse(&base_url).is_err() {
         return Err(ProviderError::InvalidRequest {
-            message: "OpenAI base URL must be an absolute URL".to_string(),
+            message: "openai base URL must be an absolute URL".to_string(),
         });
     }
 
     let default_model = config.default_model.trim().to_string();
     if default_model.is_empty() {
         return Err(ProviderError::InvalidRequest {
-            message: "OpenAI default model cannot be empty".to_string(),
+            message: "openai default model cannot be empty".to_string(),
         });
     }
 
     if config.timeout_seconds == 0 {
         return Err(ProviderError::InvalidRequest {
-            message: "OpenAI timeout must be greater than zero seconds".to_string(),
+            message: "openai timeout must be greater than zero seconds".to_string(),
         });
     }
 
@@ -222,20 +246,20 @@ enum OpenAiContent {
 
 #[derive(Debug, Deserialize)]
 struct OpenAiUsage {
-    #[serde(default)]
-    input_tokens: u64,
-    #[serde(default)]
-    output_tokens: u64,
-    #[serde(default)]
-    total_tokens: u64,
+    #[serde(default, rename = "input_tokens")]
+    input: u64,
+    #[serde(default, rename = "output_tokens")]
+    output: u64,
+    #[serde(default, rename = "total_tokens")]
+    total: u64,
 }
 
 impl From<OpenAiUsage> for TokenUsage {
     fn from(value: OpenAiUsage) -> Self {
         Self {
-            input_tokens: value.input_tokens,
-            output_tokens: value.output_tokens,
-            total_tokens: value.total_tokens,
+            input_tokens: value.input,
+            output_tokens: value.output,
+            total_tokens: value.total,
         }
     }
 }

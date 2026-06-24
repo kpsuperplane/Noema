@@ -460,12 +460,18 @@ Memory has special security implications because it shapes future runs.
 
 The harness should:
 
-- Retrieve memory only through grants.
+- Retrieve memory only through grants or explicit participant-overlap policy.
 - Preserve memory sensitivity labels.
 - Record memory shown to agents.
 - Record memory used in outputs or actions.
 - Treat candidate and inferred memories carefully.
 - Avoid using disputed memory for external action without confirmation.
+- Treat retrieval hints as non-authoritative for private, sensitive, and secret
+  memory.
+- Require valid typed retrieval policy before private, sensitive, or secret
+  memory can be included through cross-scope retrieval.
+- Redact denied-memory details from agent-visible context manifests unless the
+  receiving principal can inspect the memory.
 - Submit memory proposals with provenance.
 - Prevent external content from directly creating confirmed memory.
 
@@ -579,4 +585,3 @@ Minimum scenarios the harness should eventually pass:
 - A revoked approval prevents later execution even if the model already planned
   the action.
 - A failed external write with unknown outcome is not blindly retried.
-

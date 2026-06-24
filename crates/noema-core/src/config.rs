@@ -1,3 +1,5 @@
+//! Configuration loading and provider selection.
+
 use crate::providers::{
     codex::{
         CodexProviderConfig, DEFAULT_CODEX_STARTUP_TIMEOUT_SECONDS,
@@ -11,12 +13,20 @@ use figment::{
     providers::{Env, Format, Serialized, Yaml},
 };
 use serde::{Deserialize, Serialize};
-use std::{env, path::PathBuf, str::FromStr};
+use std::{
+    env,
+    path::{Path, PathBuf},
+    str::FromStr,
+};
 use thiserror::Error;
 
+/// Default provider used when config does not specify one.
 pub const DEFAULT_PROVIDER: &str = "openai";
+/// Default `OpenAI` model used when no model override is supplied.
 pub const DEFAULT_OPENAI_MODEL: &str = "gpt-5.5";
+/// Default `OpenAI` API base URL.
 pub const DEFAULT_OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
+/// Environment variable used for `OpenAI` API credentials.
 pub const OPENAI_API_KEY_ENV: &str = "NOEMA_OPENAI__API_KEY";
 
 const CONFIG_ENV_KEYS: &[&str] = &[
@@ -38,17 +48,23 @@ const CONFIG_ENV_KEYS: &[&str] = &[
     "codex.home",
 ];
 
+/// Configuration values supplied directly by the CLI.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct CliOverrides {
+    /// Provider override, such as `openai` or `codex`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provider: Option<String>,
+    /// Model override for the selected provider.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    /// OpenAI-specific overrides.
     #[serde(skip_serializing_if = "Option::is_none", rename = "openai")]
     pub openai_overrides: Option<CliOpenAiOverrides>,
 }
 
 impl CliOverrides {
+    /// Build CLI overrides from parsed command-line options.
+    #[must_use]
     pub fn new(provider: Option<String>, model: Option<String>, base_url: Option<String>) -> Self {
         Self {
             provider,
@@ -59,6 +75,8 @@ impl CliOverrides {
         }
     }
 
+    /// Return the `OpenAI` base URL override, if present.
+    #[must_use]
     pub fn base_url(&self) -> Option<&str> {
         self.openai_overrides
             .as_ref()
@@ -66,24 +84,33 @@ impl CliOverrides {
     }
 }
 
+/// OpenAI-specific CLI overrides.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct CliOpenAiOverrides {
+    /// OpenAI-compatible API base URL.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub base_url: Option<String>,
 }
 
+/// Fully resolved configuration used by the runtime.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedConfig {
+    /// Selected provider configuration.
     pub provider: ProviderConfig,
 }
 
+/// Supported provider identifiers.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProviderKind {
+    /// Codex CLI provider.
     Codex,
+    /// `OpenAI` Responses API provider.
     OpenAi,
 }
 
 impl ProviderKind {
+    /// Return the stable config string for this provider.
+    #[must_use]
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Codex => "codex",
@@ -104,13 +131,18 @@ impl FromStr for ProviderKind {
     }
 }
 
+/// Concrete configuration for the selected provider.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProviderConfig {
+    /// Codex provider configuration.
     Codex(CodexProviderConfig),
+    /// `OpenAI` provider configuration.
     OpenAi(OpenAiProviderConfig),
 }
 
 impl ProviderConfig {
+    /// Return the provider kind for this configuration.
+    #[must_use]
     pub fn kind(&self) -> ProviderKind {
         match self {
             Self::Codex(_) => ProviderKind::Codex,
@@ -118,6 +150,8 @@ impl ProviderConfig {
         }
     }
 
+    /// Return the default model configured for this provider.
+    #[must_use]
     pub fn model(&self) -> Option<&str> {
         match self {
             Self::Codex(config) => config.default_model.as_deref(),
@@ -126,10 +160,18 @@ impl ProviderConfig {
     }
 }
 
+/// Configuration loader.
 #[derive(Debug, Clone, Default)]
 pub struct Config;
 
 impl Config {
+    /// Load the configured provider from defaults, config file, environment, and CLI overrides.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ConfigError`] when path resolution fails, the config file is
+    /// missing or invalid, environment values are invalid, credentials are
+    /// missing for the selected provider, or the provider is unsupported.
     pub fn load(
         path_override: Option<PathBuf>,
         cli: CliOverrides,
@@ -138,6 +180,13 @@ impl Config {
         raw.resolve()
     }
 
+    /// Load the Codex provider configuration without requiring `OpenAI` credentials.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ConfigError`] when path resolution fails, the config file is
+    /// missing or invalid, environment values are invalid, or Codex-specific
+    /// values fail validation.
     pub fn load_codex(
         path_override: Option<PathBuf>,
         cli: CliOverrides,
@@ -171,7 +220,7 @@ impl RawConfig {
     fn resolve(self) -> Result<ResolvedConfig, ConfigError> {
         let provider = ProviderKind::from_str(self.provider.trim()).map_err(|provider| {
             ConfigError::UnsupportedProvider {
-                provider: provider.to_string(),
+                provider: provider.clone(),
             }
         })?;
 
@@ -327,34 +376,63 @@ struct FileCodexConfig {
     home: Option<String>,
 }
 
+/// Errors produced while resolving configuration.
 #[derive(Debug, Error)]
 pub enum ConfigError {
+    /// An explicitly requested config file does not exist.
     #[error("config file not found: {}", path.display())]
-    ConfigFileNotFound { path: PathBuf },
-
-    #[error("failed to parse config file {}: {source}", path.display())]
-    ParseConfig {
+    ConfigFileNotFound {
+        /// Requested config path.
         path: PathBuf,
-        source: figment::Error,
     },
 
+    /// A config file exists but does not match the supported schema.
+    #[error("failed to parse config file {}: {source}", path.display())]
+    ParseConfig {
+        /// Config path that failed to parse.
+        path: PathBuf,
+        /// Parser error.
+        source: Box<figment::Error>,
+    },
+
+    /// Layered configuration could not be extracted.
     #[error("failed to load configuration: {0}")]
-    Load(#[from] figment::Error),
+    Load(Box<figment::Error>),
 
+    /// The configured provider is not supported.
     #[error("unsupported provider: {provider}")]
-    UnsupportedProvider { provider: String },
+    UnsupportedProvider {
+        /// Unsupported provider value.
+        provider: String,
+    },
 
+    /// Required credentials were missing.
     #[error("missing credentials for {provider}: {credential}")]
     MissingCredential {
+        /// Provider that needs the credential.
         provider: String,
+        /// Missing credential name.
         credential: String,
     },
 
+    /// An integer setting failed validation.
     #[error("invalid integer value for {name}: {value}")]
-    InvalidInteger { name: String, value: String },
+    InvalidInteger {
+        /// Setting name.
+        name: String,
+        /// Invalid value.
+        value: String,
+    },
 
+    /// Path resolution failed.
     #[error(transparent)]
     Path(#[from] NoemaPathError),
+}
+
+impl From<figment::Error> for ConfigError {
+    fn from(source: figment::Error) -> Self {
+        Self::Load(Box::new(source))
+    }
 }
 
 fn load_raw_config(
@@ -417,13 +495,13 @@ fn default_config_path() -> Result<Option<PathBuf>, ConfigError> {
     ))
 }
 
-fn validate_file_config(path: &PathBuf) -> Result<(), ConfigError> {
+fn validate_file_config(path: &Path) -> Result<(), ConfigError> {
     Figment::from(Yaml::file(path))
         .extract::<FileConfig>()
         .map(|_| ())
         .map_err(|source| ConfigError::ParseConfig {
-            path: path.clone(),
-            source,
+            path: path.to_path_buf(),
+            source: Box::new(source),
         })
 }
 
@@ -508,8 +586,7 @@ mod tests {
                 .parse::<u64>()
                 .ok()
                 .map(Number::from)
-                .map(Value::Number)
-                .unwrap_or_else(|| Value::String(value.to_string())),
+                .map_or_else(|| Value::String(value.to_string()), Value::Number),
         }
     }
 
@@ -527,7 +604,7 @@ mod tests {
     #[test]
     fn resolves_openai_from_figment_layers_in_precedence_order() {
         let file = write_config(
-            r#"
+            r"
 provider: openai
 model: yaml-model
 openai:
@@ -535,7 +612,7 @@ openai:
   organization_id: yaml-org
   project_id: yaml-project
   timeout_seconds: 22
-"#,
+",
         );
 
         let resolved = load_resolved(
@@ -573,7 +650,7 @@ openai:
     #[test]
     fn reads_yaml_config() {
         let file = write_config(
-            r#"
+            r"
 provider: openai
 model: yaml-model
 openai:
@@ -581,7 +658,7 @@ openai:
   organization_id: yaml-org
   project_id: yaml-project
   timeout_seconds: 44
-"#,
+",
         );
 
         let resolved = load_resolved(
@@ -610,10 +687,10 @@ openai:
         std::fs::create_dir_all(&noema_home).expect("create noema home");
         std::fs::write(
             noema_home.join("config.yaml"),
-            r#"
+            r"
 provider: openai
 model: noema-home-model
-"#,
+",
         )
         .expect("write config");
 
@@ -640,10 +717,10 @@ model: noema-home-model
         std::fs::create_dir_all(&noema_home).expect("create noema home");
         std::fs::write(
             noema_home.join("config.yaml"),
-            r#"
+            r"
 provider: openai
 model: home-model
-"#,
+",
         )
         .expect("write config");
 
@@ -669,9 +746,9 @@ model: home-model
         std::fs::create_dir_all(&noema_home).expect("create noema home");
         std::fs::write(
             noema_home.join("config.yaml"),
-            r#"
+            r"
 provider: codex
-"#,
+",
         )
         .expect("write config");
 
@@ -721,7 +798,7 @@ provider: codex
     #[test]
     fn codex_config_reads_yaml_and_normalized_env_overrides() {
         let file = write_config(
-            r#"
+            r"
 provider: codex
 model: yaml-model
 codex:
@@ -734,7 +811,7 @@ codex:
   startup_timeout_seconds: 45
   turn_timeout_seconds: 120
   home: /tmp/yaml-codex-home
-"#,
+",
         );
 
         let resolved = load_resolved(
@@ -796,11 +873,11 @@ codex:
     #[test]
     fn yaml_openai_api_key_is_rejected() {
         let file = write_config(
-            r#"
+            r"
 provider: openai
 openai:
   api_key: not-allowed
-"#,
+",
         );
 
         let error = load_resolved(

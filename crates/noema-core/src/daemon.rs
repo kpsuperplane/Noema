@@ -1,3 +1,5 @@
+//! Local daemon protocol and Unix-socket runtime.
+
 use crate::{
     NoemaPathError, NoemaPaths,
     provider::{GenerateResponse, ProviderError},
@@ -24,90 +26,140 @@ use tokio::{
     sync::{mpsc, oneshot, watch},
 };
 
+/// Filename used for the daemon Unix socket.
 pub const DEFAULT_DAEMON_SOCKET_NAME: &str = "noema.sock";
 
+/// Requests accepted by the Noema daemon.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum DaemonRequest {
+    /// Health-check request.
     Hello,
+    /// Start a provider-backed conversation.
     ConversationStart {
+        /// Optional model override.
         model: Option<String>,
+        /// Optional working directory for the conversation.
         cwd: Option<String>,
+        /// Optional conversation instructions.
         instructions: Option<String>,
     },
+    /// Send one user turn to an existing conversation.
     ConversationTurn {
+        /// Daemon conversation id.
         conversation_id: String,
+        /// User input.
         input: String,
     },
+    /// End a conversation and release provider state.
     ConversationEnd {
+        /// Daemon conversation id.
         conversation_id: String,
     },
+    /// Ask the daemon to shut down.
     Shutdown,
 }
 
+/// Responses emitted by the Noema daemon.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum DaemonResponse {
+    /// Generic success response.
     Ok {
+        /// Optional success message.
         message: Option<String>,
     },
+    /// Conversation start response.
     ConversationStarted {
+        /// Daemon conversation id.
         conversation_id: String,
+        /// Provider used for the conversation.
         provider: String,
+        /// Provider-native thread id.
         provider_thread_id: String,
     },
+    /// Turn completion response.
     TurnCompleted {
+        /// Daemon conversation id.
         conversation_id: String,
+        /// Assistant text.
         text: String,
     },
+    /// Error response returned over the daemon protocol.
     Error {
+        /// Human-readable error message.
         message: String,
     },
 }
 
+/// Configuration required to start the daemon.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DaemonServerConfig {
+    /// Unix socket path to bind.
     pub socket_path: PathBuf,
+    /// Codex provider configuration used by daemon conversations.
     pub codex: CodexProviderConfig,
 }
 
 impl DaemonServerConfig {
+    /// Create daemon server configuration.
+    #[must_use]
     pub fn new(socket_path: PathBuf, codex: CodexProviderConfig) -> Self {
         Self { socket_path, codex }
     }
 }
 
+/// Errors produced by daemon client and server operations.
 #[derive(Debug, Error)]
 pub enum DaemonError {
+    /// Another daemon appears to be listening at the socket path.
     #[error("daemon is already running at {}", path.display())]
-    AlreadyRunning { path: PathBuf },
+    AlreadyRunning {
+        /// Existing daemon socket path.
+        path: PathBuf,
+    },
 
+    /// Unix-socket operation failed.
     #[error("daemon socket error at {}: {source}", path.display())]
     Socket {
+        /// Socket path involved in the operation.
         path: PathBuf,
+        /// Underlying I/O error.
         source: std::io::Error,
     },
 
+    /// Generic daemon I/O failure.
     #[error("daemon I/O error: {0}")]
     Io(#[from] std::io::Error),
 
+    /// Local protocol serialization or state error.
     #[error("daemon protocol error: {0}")]
     Protocol(String),
 
+    /// Remote daemon returned an error response.
     #[error("daemon returned error: {0}")]
     Remote(String),
 
+    /// Provider operation failed.
     #[error(transparent)]
     Provider(#[from] ProviderError),
 
+    /// Path resolution failed.
     #[error(transparent)]
     Path(#[from] NoemaPathError),
 }
 
+/// Return the default daemon socket path for the current process environment.
+///
+/// # Errors
+///
+/// Returns [`DaemonError`] when Noema path resolution fails.
 pub fn default_socket_path() -> Result<PathBuf, DaemonError> {
     Ok(NoemaPaths::from_process_env()?.socket_path())
 }
 
+/// Return the daemon socket path under a home directory.
+#[must_use]
 pub fn socket_path_for_home(home: impl AsRef<Path>) -> PathBuf {
     home.as_ref()
         .join(".noema")
@@ -115,6 +167,12 @@ pub fn socket_path_for_home(home: impl AsRef<Path>) -> PathBuf {
         .join(DEFAULT_DAEMON_SOCKET_NAME)
 }
 
+/// Run the daemon until it receives a shutdown request.
+///
+/// # Errors
+///
+/// Returns [`DaemonError`] when the socket cannot be bound, the runtime cannot
+/// start, or accepting a client connection fails.
 pub async fn run_daemon(config: DaemonServerConfig) -> Result<(), DaemonError> {
     let listener = bind_listener(&config.socket_path).await?;
     let runtime = CodexRuntimeHandle::spawn(config.codex)?;
@@ -266,6 +324,7 @@ async fn send_response(
     Ok(())
 }
 
+/// Client for the local Noema daemon protocol.
 #[derive(Debug)]
 pub struct DaemonClient {
     reader: Lines<BufReader<OwnedReadHalf>>,
@@ -273,6 +332,11 @@ pub struct DaemonClient {
 }
 
 impl DaemonClient {
+    /// Connect to a daemon Unix socket.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DaemonError`] when the socket cannot be opened.
     pub async fn connect(socket_path: &Path) -> Result<Self, DaemonError> {
         let stream =
             UnixStream::connect(socket_path)
@@ -289,6 +353,12 @@ impl DaemonClient {
         })
     }
 
+    /// Send a raw daemon request and wait for one response.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DaemonError`] when serialization, I/O, response parsing, or
+    /// remote daemon handling fails.
     pub async fn request(&mut self, request: DaemonRequest) -> Result<DaemonResponse, DaemonError> {
         let mut bytes = serde_json::to_vec(&request)
             .map_err(|source| DaemonError::Protocol(source.to_string()))?;
@@ -311,6 +381,12 @@ impl DaemonClient {
         Ok(response)
     }
 
+    /// Send a daemon health-check request.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DaemonError`] when the daemon is unavailable or replies with
+    /// an unexpected response.
     pub async fn hello(&mut self) -> Result<(), DaemonError> {
         let response = self.request(DaemonRequest::Hello).await?;
         match response {
@@ -321,6 +397,12 @@ impl DaemonClient {
         }
     }
 
+    /// Start a daemon conversation.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DaemonError`] when the daemon request fails or replies with an
+    /// unexpected response.
     pub async fn start_conversation(
         &mut self,
         model: Option<String>,
@@ -349,6 +431,12 @@ impl DaemonClient {
         }
     }
 
+    /// Send one turn to a daemon conversation.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DaemonError`] when the daemon request fails or replies with an
+    /// unexpected response.
     pub async fn turn(
         &mut self,
         conversation_id: String,
@@ -372,6 +460,12 @@ impl DaemonClient {
         }
     }
 
+    /// End a daemon conversation.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DaemonError`] when the daemon request fails or replies with an
+    /// unexpected response.
     pub async fn end_conversation(&mut self, conversation_id: String) -> Result<(), DaemonError> {
         let response = self
             .request(DaemonRequest::ConversationEnd { conversation_id })
@@ -384,6 +478,12 @@ impl DaemonClient {
         }
     }
 
+    /// Request daemon shutdown.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DaemonError`] when the daemon request fails or replies with an
+    /// unexpected response.
     pub async fn shutdown(&mut self) -> Result<(), DaemonError> {
         let response = self.request(DaemonRequest::Shutdown).await?;
         match response {
@@ -395,9 +495,12 @@ impl DaemonClient {
     }
 }
 
+/// Conversation ids allocated by the daemon and provider.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StartedConversation {
+    /// Daemon-local conversation id.
     pub conversation_id: String,
+    /// Provider-native thread id.
     pub provider_thread_id: String,
 }
 
@@ -579,6 +682,8 @@ impl CodexRuntimeActor {
     }
 }
 
+/// Return whether a daemon connection failure means no daemon is listening.
+#[must_use]
 pub fn is_connection_refused(error: &DaemonError) -> bool {
     matches!(
         error,

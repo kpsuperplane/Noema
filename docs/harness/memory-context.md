@@ -24,6 +24,7 @@ The harness-memory integration should:
 - Prevent agents from owning human truth.
 - Record which memories influenced which runs.
 - Preserve provenance and authority.
+- Preserve participant bindings for cross-conversation retrieval.
 - Support candidate review.
 - Support future multi-agent and multi-human collaboration.
 
@@ -61,7 +62,9 @@ Conceptual shape:
       "source_ref": "memory_01...",
       "trust": "explicit_human_statement",
       "sensitivity": "normal",
-      "allowed_uses": ["answer_human_question"]
+      "allowed_uses": ["answer_human_question"],
+      "eligibility_reason": "same_human_participant",
+      "rank_reason": "same_human_memory"
     },
     {
       "section_type": "capability_summary",
@@ -70,7 +73,25 @@ Conceptual shape:
       "sensitivity": "normal"
     }
   ],
-  "omissions": [
+  "agent_visible_omissions": [
+    {
+      "reason": "policy_restricted_context"
+    }
+  ],
+  "audit_omissions_ref": "audit_omissions:ctx_01..."
+}
+```
+
+The model-visible packet should use `agent_visible_omissions`. Full omission
+details, including memory IDs and precise denial reasons, belong in an audit
+record referenced by `audit_omissions_ref`.
+
+Audit omission shape:
+
+```json
+{
+  "audit_omissions_id": "audit_omissions:ctx_01...",
+  "items": [
     {
       "source_ref": "memory_02...",
       "reason": "scope_denied"
@@ -95,6 +116,7 @@ The context assembler may consider:
 - Agent instructions.
 - Agent skills.
 - Relationship memory.
+- Participant-linked memory.
 - Retrieved memories.
 - Entity relationships.
 - Recent run results.
@@ -126,6 +148,30 @@ Recommended high-level algorithm:
 The algorithm should preserve the difference between source selection,
 retrieval, inclusion, model visibility, and use.
 
+## Graph retrieval in V1
+
+Entity relationships are part of V1 context assembly, but only as scoped graph
+claims backed by memory.
+
+V1 graph retrieval rules:
+
+- FTS and structured filters are the primary candidate generators.
+- Graph expansion is optional and limited to one hop.
+- Expansion may start only from trusted active object links or already-allowed
+  memory subjects.
+- Traversal returns candidate memory IDs, not final context.
+- Every traversed relationship must have a supporting memory.
+- The supporting memory must pass the same scope, grant, sensitivity, status,
+  purpose, participant visibility, retrieval policy, validity, and egress gates
+  as ordinary memory before the edge, predicate, neighboring entity, alias, or
+  path can be model-visible.
+- Policy is reapplied after graph expansion and before inclusion.
+- Denied graph edges are redacted from agent-visible omissions.
+
+Two-hop traversal and graph-derived action reasoning should wait until V1.x,
+after adversarial tests show that one-hop traversal does not leak edge
+existence.
+
 ## Memory retrieval request
 
 The harness should request memory using the run envelope.
@@ -136,25 +182,30 @@ Conceptual shape:
 {
   "run_id": "run_01...",
   "requesting_principal_id": "agent_primary",
-  "active_human_id": "human_kevin",
-  "active_agent_id": "agent_primary",
-  "active_scopes": [
-    "human_kevin",
-    "conversation_01...",
-    "workspace_noema",
-    "project_harness"
-  ],
-  "purpose": "answer_human_question",
-  "trigger_type": "human_message",
-  "allowed_proactivity_level": 2,
-  "include_candidate_memories": false,
-  "sensitivity_ceiling": "normal",
-  "query": {
-    "text": "User is asking to design harness architecture docs",
-    "entities": ["Noema", "runtime harness", "capability registry"],
-    "object_links": {
-      "project_id": "project_noema"
-    }
+  "trusted": {
+    "active_human_ids": ["human_kevin"],
+    "active_agent_ids": ["agent_primary"],
+    "active_scopes": [
+      "human_kevin",
+      "conversation_01...",
+      "workspace_noema",
+      "project_harness"
+    ],
+    "purpose": "answer_human_question",
+    "trigger_type": "human_message",
+    "explicit_memory_request": false,
+    "canonical_entity_ids": ["project_noema", "concept_memory_system"],
+    "active_object_links": [
+      { "object_type": "project", "object_id": "project_noema" }
+    ],
+    "allowed_proactivity_level": 2,
+    "include_candidate_memories": false,
+    "sensitivity_ceiling": "normal"
+  },
+  "untrusted_hints": {
+    "query_text": "User is asking to design harness architecture docs",
+    "fuzzy_entities": ["Noema", "runtime harness", "capability registry"],
+    "fuzzy_topics": ["memory", "retrieval", "privacy"]
   }
 }
 ```
@@ -162,12 +213,67 @@ Conceptual shape:
 The memory runtime should decide:
 
 - Which scopes are in bounds.
+- Which memories are eligible through participant overlap.
 - Which grants allow retrieval.
+- Which privacy tier applies.
 - Which memories are stale or superseded.
 - Which candidate memories may be included.
 - Which sensitivity ceiling applies.
 - Which memories should be denied.
 - Which memories need confirmation before use.
+
+Participant overlap is a retrieval path, not ownership. Normal memories from
+another conversation involving the same human may be retrieved when the current
+purpose permits it. Current active-scope memories should rank above
+participant-overlap memories.
+
+Sensitive memories need deterministic high-relevance gates. The memory runtime
+should distinguish non-authoritative retrieval hints, such as topics and fuzzy
+entities, from typed retrieval policy, such as purpose rules, participant
+visibility policy, trusted object links, and egress policy. It should not
+require an LLM to review all sensitive memories at retrieval time.
+
+The request must separate trusted fields from untrusted hints. Trusted fields
+come from the run envelope, current-human UI actions, grants, canonical entity
+resolution, and active objects that the harness loaded through governed
+references. Untrusted hints come from raw user text, model extraction, external
+documents, tool results, fuzzy entities, topics, and query text. Untrusted hints
+may generate candidates or affect ranking after inclusion, but they must not
+unlock private, sensitive, or secret memory.
+
+Sensitive memory inclusion should require:
+
+```text
+participant, scope, or grant match
+AND retrieval policy status is valid
+AND purpose is allowed by closed-enum policy
+AND participant visibility policy is satisfied
+AND one primary trusted unlock signal exists:
+  - explicit memory request from the current human or UI
+  - trusted active object link match
+AND no deny rule applies
+```
+
+Topics, same-human overlap, fuzzy entities, query text, broad canonical
+entities, active human IDs, participant IDs, workspace/project IDs, and additive
+scores cannot unlock sensitive memory. Scoring is only for ranking
+already-allowed memories.
+
+Suggested deterministic ranking signals after inclusion:
+
+```text
++100 explicit memory request from current human or UI
++80 trusted active object link match
++60 trusted canonical entity match
++40 exact topic match
++30 active open-loop match
++20 same-human participant match
+
+Normal include threshold: 40
+Private include rule: active scope or explicit grant only
+Sensitive include rule: hard gates only, then rank
+Secret include rule: explicit request plus approval, then rank
+```
 
 ## Memory retrieval result
 
@@ -191,13 +297,26 @@ Conceptual shape:
       "sensitivity": "normal",
       "allowed_uses": ["answer_human_question", "draft_project_doc"],
       "provenance_refs": ["message_01..."],
+      "participant_refs": ["human_kevin", "agent_primary"],
+      "eligibility_reason": "active_scope",
+      "privacy_decision": "allowed",
+      "retrieval_policy_status": "valid",
       "rank_reason": "direct_project_decision"
     }
   ],
-  "denied": [
+  "denied_for_audit": [
     {
       "memory_id": "memory_02...",
-      "reason": "outside_active_scope"
+      "reason": "participant_mismatch"
+    },
+    {
+      "memory_id": "memory_03...",
+      "reason": "privacy_denied"
+    }
+  ],
+  "agent_visible_omissions": [
+    {
+      "reason": "policy_restricted_context"
     }
   ],
   "warnings": [
@@ -211,6 +330,11 @@ Conceptual shape:
 
 The harness should record the request and result without necessarily copying
 all memory content into the run ledger.
+
+The full audit record may include exact denied memory IDs and denial reasons.
+The agent-visible context packet should redact private, sensitive, and secret
+denials so it does not leak memory titles, topics, entity names, object links,
+or existence through omission details.
 
 ## Memory-use stages
 
@@ -275,9 +399,14 @@ The proposal should include:
 
 - Proposed home scope.
 - Subject entities.
+- Participant principals.
 - Memory type.
 - Proposed content.
 - Structured value.
+- Retrieval hints for search and ranking.
+- Retrieval policy proposal, including purpose rules, participant visibility
+  policy, trusted object links, egress policy, extractor identity, and policy
+  status.
 - Authority level.
 - Extraction method.
 - Confidence.
@@ -323,9 +452,12 @@ For each included item, Noema should know:
 - Source object.
 - Source type.
 - Home scope.
+- Participant bindings.
 - Trust label.
 - Sensitivity.
 - Authority.
+- Eligibility reason.
+- Retrieval policy status.
 - Retrieval reason.
 - Inclusion reason.
 - Policy decision.
@@ -350,18 +482,21 @@ Provenance links everything.
 ```
 
 The harness should request memory from the smallest relevant scope first, then
-expand only through explicit active scopes and grants.
+expand through active scopes, participant overlap, and explicit grants.
 
 For example:
 
 - A project run can use project decisions.
 - A conversation run can use conversation-local assumptions.
+- A conversation run can use normal same-human memories from earlier
+  conversations.
 - An agent can use its own skill memories.
 - A reply to a human can use relationship preferences.
 - A workspace policy can constrain all project runs in that workspace.
 
-But a run should not silently use private memory from another project merely
-because the same human owns both projects.
+But a run should not silently use private memory from another conversation or
+project merely because the same human participated. Same-human overlap grants
+normal memory eligibility, not unrestricted privacy bypass.
 
 ## Context compaction
 
@@ -409,6 +544,7 @@ check:
 - Does sensitivity require approval?
 - Is the memory candidate, inferred, stale, or disputed?
 - Does the output reveal cross-scope information?
+- Does the output reveal participant-overlap memory from another conversation?
 - Does the memory include third-party personal data?
 
 This is especially important for proactive runs.
@@ -469,8 +605,10 @@ Useful memory/context surfaces:
 - Memory used for action.
 - Memory proposal review.
 - Memory provenance graph.
+- Memory participant graph.
 - Agent access preview.
 - Scope access preview.
+- Participant-overlap preview.
 - Context compaction trace.
 
 These surfaces are core to making memory trustworthy.
@@ -480,8 +618,8 @@ These surfaces are core to making memory trustworthy.
 A practical first slice:
 
 - Context packet manifest for conversation-triggered runs.
-- Memory retrieval request using active human, agent, conversation, workspace,
-  and project scopes.
+- Memory retrieval request using active humans, agents, conversation,
+  workspace, project, and participant-overlap paths.
 - Memory-use records for retrieved and shown memories.
 - Simple memory proposals for explicit "remember this" and obvious project
   decisions.
@@ -489,4 +627,3 @@ A practical first slice:
 - Egress check before using memory in external tool calls.
 
 This gives Noema useful memory without creating opaque global state.
-

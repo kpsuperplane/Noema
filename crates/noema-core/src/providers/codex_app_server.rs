@@ -1,3 +1,5 @@
+//! Warm Codex app-server runtime.
+
 use crate::{
     provider::{GenerateResponse, ProviderError},
     providers::codex::CodexProviderConfig,
@@ -10,12 +12,16 @@ use tokio::{
     time,
 };
 
+/// Conversation state owned by the Codex app-server runtime.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CodexAppServerConversation {
+    /// Codex thread id.
     pub thread_id: String,
+    /// Model selected for this conversation.
     pub model: Option<String>,
 }
 
+/// Runtime that keeps a Codex `app-server` subprocess alive.
 #[derive(Debug)]
 pub struct CodexAppServerRuntime {
     config: CodexProviderConfig,
@@ -23,6 +29,12 @@ pub struct CodexAppServerRuntime {
 }
 
 impl CodexAppServerRuntime {
+    /// Create a runtime from validated Codex configuration.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ProviderError::InvalidRequest`] when required configuration
+    /// values are empty or timeout values are zero.
     pub fn new(config: CodexProviderConfig) -> Result<Self, ProviderError> {
         validate_config(&config)?;
         Ok(Self {
@@ -31,6 +43,12 @@ impl CodexAppServerRuntime {
         })
     }
 
+    /// Start a conversation in the Codex app server.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ProviderError`] when the app-server process cannot be started
+    /// or its `thread/start` response is invalid.
     pub async fn start_conversation(
         &mut self,
         model: Option<String>,
@@ -43,6 +61,12 @@ impl CodexAppServerRuntime {
         Ok(CodexAppServerConversation { thread_id, model })
     }
 
+    /// Send one turn to an existing Codex app-server conversation.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ProviderError`] when input is empty, the process is
+    /// unavailable, the protocol fails, or the turn response is malformed.
     pub async fn turn(
         &mut self,
         conversation: &CodexAppServerConversation,
@@ -56,7 +80,11 @@ impl CodexAppServerRuntime {
 
         let process = self.ensure_process().await?;
         match process
-            .turn(&conversation.thread_id, &conversation.model, input)
+            .turn(
+                &conversation.thread_id,
+                conversation.model.as_deref(),
+                input,
+            )
             .await
         {
             Ok(response) => Ok(response),
@@ -67,6 +95,7 @@ impl CodexAppServerRuntime {
         }
     }
 
+    /// Shut down the app-server subprocess if one is running.
     pub async fn shutdown(&mut self) {
         self.retire().await;
     }
@@ -225,7 +254,7 @@ impl CodexAppServerProcess {
     async fn turn(
         &mut self,
         thread_id: &str,
-        model: &Option<String>,
+        model: Option<&str>,
         input: String,
     ) -> Result<GenerateResponse, ProviderError> {
         let request_id = self.next_request_id();
@@ -292,7 +321,7 @@ impl CodexAppServerProcess {
         Ok(GenerateResponse {
             text,
             provider: "codex".to_string(),
-            model: model.clone().unwrap_or_else(|| "codex-default".to_string()),
+            model: model.unwrap_or("codex-default").to_string(),
             response_id: None,
             usage: None,
         })

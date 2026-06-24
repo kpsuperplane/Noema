@@ -1,8 +1,11 @@
+//! Noema home-directory initialization.
+
 use crate::paths::NoemaPaths;
 use std::{fs, path::PathBuf};
 use thiserror::Error;
 
-pub const DEFAULT_NOEMA_CONFIG_YAML: &str = r#"# Noema configuration
+/// Default config written by `noema config`.
+pub const DEFAULT_NOEMA_CONFIG_YAML: &str = r"# Noema configuration
 provider: codex
 
 codex:
@@ -13,11 +16,14 @@ codex:
   ignore_user_config: false
   startup_timeout_seconds: 60
   turn_timeout_seconds: 300
-"#;
+";
 
+/// Options for initializing or updating a Noema home directory.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct NoemaHomeInitOptions {
+    /// Rewrite `config.yaml` even when it already exists.
     pub force: bool,
+    /// Write `config.yaml` as part of initialization.
     pub write_config: bool,
 }
 
@@ -30,16 +36,29 @@ impl Default for NoemaHomeInitOptions {
     }
 }
 
+/// Result of preparing a Noema home directory.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NoemaHomeInitResult {
+    /// Noema root directory.
     pub root: PathBuf,
+    /// Runtime directory under the root.
     pub run_dir: PathBuf,
+    /// Config file path under the root.
     pub config_path: PathBuf,
+    /// Whether the root directory did not exist before this call.
     pub created_root: bool,
+    /// Whether the runtime directory did not exist before this call.
     pub created_run_dir: bool,
+    /// Whether this call wrote `config.yaml`.
     pub wrote_config: bool,
 }
 
+/// Create the Noema root, runtime directory, and optional default config.
+///
+/// # Errors
+///
+/// Returns [`NoemaHomeError`] when required directories cannot be created or
+/// the default config cannot be written.
 pub fn init_noema_home(
     paths: &NoemaPaths,
     options: NoemaHomeInitOptions,
@@ -82,17 +101,24 @@ pub fn init_noema_home(
     })
 }
 
+/// Errors produced while preparing the Noema home directory.
 #[derive(Debug, Error)]
 pub enum NoemaHomeError {
+    /// A required directory could not be created.
     #[error("failed to create directory {}: {source}", path.display())]
     CreateDirectory {
+        /// Directory that could not be created.
         path: PathBuf,
+        /// Underlying filesystem error.
         source: std::io::Error,
     },
 
+    /// The default config file could not be written.
     #[error("failed to write config file {}: {source}", path.display())]
     WriteConfig {
+        /// Config file path.
         path: PathBuf,
+        /// Underlying filesystem error.
         source: std::io::Error,
     },
 }

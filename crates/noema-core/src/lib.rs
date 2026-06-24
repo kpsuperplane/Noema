@@ -1,8 +1,22 @@
+//! Core Noema types and runtimes.
+//!
+//! This crate contains configuration loading, provider adapters, daemon
+//! protocol support, home-directory setup, path resolution, and the V1 memory
+//! retrieval model.
+
+/// Configuration loading and provider selection.
 pub mod config;
+/// Local daemon protocol and client/server runtime.
 pub mod daemon;
+/// Noema home-directory initialization.
 pub mod home;
+/// V1 memory storage and retrieval policy model.
+pub mod memory;
+/// Filesystem path resolution for Noema state.
 pub mod paths;
+/// Provider-neutral generation request and response types.
 pub mod provider;
+/// Concrete model provider adapters.
 pub mod providers;
 
 pub use config::{CliOverrides, Config, ConfigError, ProviderConfig, ProviderKind, ResolvedConfig};

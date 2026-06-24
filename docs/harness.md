@@ -444,7 +444,7 @@ During a run, the harness should:
 
 - Request memory through the memory runtime using the run envelope.
 - Include only allowed memories in the context packet.
-- Mark memory provenance, sensitivity, confidence, and authority.
+- Mark memory provenance, participants, sensitivity, confidence, and authority.
 - Record which memories were retrieved.
 - Record which memories were shown to the agent.
 - Record which memories were used in a reply or action.
@@ -600,4 +600,3 @@ The following invariants should hold across implementation phases:
 
 These invariants are more important than any particular class name, table name,
 or worker implementation.
-

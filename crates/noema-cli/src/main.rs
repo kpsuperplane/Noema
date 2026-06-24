@@ -1,3 +1,5 @@
+//! Noema command-line entrypoint.
+
 use clap::{Parser, Subcommand};
 use noema_cli::collect_prompt;
 use noema_core::{
@@ -9,7 +11,7 @@ use noema_core::{
 use std::{
     env,
     io::{self, IsTerminal, Read, Write},
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::Stdio,
     time::Duration,
 };
@@ -371,10 +373,7 @@ fn spawn_temporary_daemon(args: &Args) -> Result<Child, CliError> {
     command.spawn().map_err(CliError::SpawnDaemon)
 }
 
-async fn wait_for_daemon(
-    socket_path: &PathBuf,
-    child: &mut Child,
-) -> Result<DaemonClient, CliError> {
+async fn wait_for_daemon(socket_path: &Path, child: &mut Child) -> Result<DaemonClient, CliError> {
     let deadline = time::Instant::now() + Duration::from_secs(10);
 
     loop {

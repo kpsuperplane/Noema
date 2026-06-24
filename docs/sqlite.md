@@ -34,7 +34,7 @@ CREATE TABLE principals (
 
 CREATE TABLE scopes (
   scope_id TEXT PRIMARY KEY,
-  scope_type TEXT NOT NULL CHECK (scope_type IN ('system','human','workspace','project','conversation','agent','relationship','tool','custom')),
+  scope_type TEXT NOT NULL CHECK (scope_type IN ('system','human','workspace','project','task','cron','conversation','agent','relationship','tool','custom')),
   parent_scope_id TEXT REFERENCES scopes(scope_id) ON DELETE SET NULL,
   owner_principal_id TEXT REFERENCES principals(principal_id) ON DELETE SET NULL,
   name TEXT NOT NULL,
@@ -95,10 +95,19 @@ CREATE TABLE memory_items (
   title TEXT NOT NULL,
   content TEXT NOT NULL,
   structured_value TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(structured_value)),
+  retrieval_hints TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(retrieval_hints)),
   status TEXT NOT NULL DEFAULT 'candidate' CHECK (status IN ('candidate','active','confirmed','inferred','stale','superseded','archived','deleted','disputed')),
   confidence REAL CHECK (confidence IS NULL OR (confidence >= 0.0 AND confidence <= 1.0)),
   sensitivity TEXT NOT NULL DEFAULT 'normal' CHECK (sensitivity IN ('public','normal','private','sensitive','secret')),
   proactivity_level INTEGER NOT NULL DEFAULT 2 CHECK (proactivity_level BETWEEN 0 AND 6),
+  retrieval_policy_status TEXT NOT NULL DEFAULT 'needs_review' CHECK (retrieval_policy_status IN ('valid','stale','invalid','needs_review')),
+  retrieval_policy_version INTEGER NOT NULL DEFAULT 1 CHECK (retrieval_policy_version >= 1),
+  retrieval_policy_fingerprint TEXT,
+  retrieval_policy_extractor_principal_id TEXT REFERENCES principals(principal_id) ON DELETE SET NULL,
+  retrieval_policy_extractor_version TEXT,
+  retrieval_policy_validated_at TEXT,
+  participant_visibility_policy TEXT NOT NULL DEFAULT 'explicit_grant_only' CHECK (participant_visibility_policy IN ('any_active_human','all_original_humans','owner_only','explicit_grant_only')),
+  external_egress_policy TEXT NOT NULL DEFAULT 'approval_required' CHECK (external_egress_policy IN ('allow','approval_required','deny')),
   created_by_principal_id TEXT NOT NULL REFERENCES principals(principal_id) ON DELETE RESTRICT,
   owner_principal_id TEXT REFERENCES principals(principal_id) ON DELETE SET NULL,
   authority_level TEXT NOT NULL DEFAULT 'agent_inference' CHECK (authority_level IN ('human_correction','explicit_human_statement','workspace_policy','project_decision','document_source','repeated_observation','agent_inference','weak_inference','system_rule')),
@@ -109,7 +118,16 @@ CREATE TABLE memory_items (
   expires_at TEXT,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  metadata TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(metadata))
+  metadata TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(metadata)),
+  CHECK (
+    retrieval_policy_status != 'valid'
+    OR (
+      retrieval_policy_fingerprint IS NOT NULL
+      AND retrieval_policy_extractor_principal_id IS NOT NULL
+      AND retrieval_policy_extractor_version IS NOT NULL
+      AND retrieval_policy_validated_at IS NOT NULL
+    )
+  )
 ) STRICT;
 
 CREATE TABLE entities (
@@ -127,9 +145,43 @@ CREATE TABLE entities (
 CREATE TABLE memory_subjects (
   memory_id TEXT NOT NULL REFERENCES memory_items(memory_id) ON DELETE CASCADE,
   entity_id TEXT NOT NULL REFERENCES entities(entity_id) ON DELETE CASCADE,
-  role TEXT NOT NULL CHECK (role IN ('about','claimant','affected','participant','owner','assignee','source','target')),
+  role TEXT NOT NULL CHECK (role IN ('about','claimant','affected','owner','assignee','source','target')),
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (memory_id, entity_id, role)
+) STRICT;
+
+CREATE TABLE memory_participants (
+  memory_id TEXT NOT NULL REFERENCES memory_items(memory_id) ON DELETE CASCADE,
+  principal_id TEXT NOT NULL REFERENCES principals(principal_id) ON DELETE CASCADE,
+  role TEXT NOT NULL CHECK (role IN ('human_in_scope','agent_in_scope','originator','observer')),
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  metadata TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(metadata)),
+  PRIMARY KEY (memory_id, principal_id, role)
+) STRICT;
+
+CREATE TABLE memory_retrieval_purpose_rules (
+  memory_id TEXT NOT NULL REFERENCES memory_items(memory_id) ON DELETE CASCADE,
+  purpose TEXT NOT NULL CHECK (purpose IN ('answer_human_question','draft_internal_content','general_personalization','manage_task','manage_calendar','draft_external_content','use_tool','proactive_suggestion','external_action','debug_audit')),
+  effect TEXT NOT NULL CHECK (effect IN ('allow','deny')),
+  created_by_principal_id TEXT REFERENCES principals(principal_id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  metadata TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(metadata)),
+  PRIMARY KEY (memory_id, purpose)
+) STRICT;
+
+CREATE TABLE memory_retrieval_object_links (
+  memory_id TEXT NOT NULL REFERENCES memory_items(memory_id) ON DELETE CASCADE,
+  object_type TEXT NOT NULL CHECK (object_type IN ('task','project','workspace','conversation','calendar_event','document','artifact','tool','source','other')),
+  object_id TEXT NOT NULL,
+  relation TEXT NOT NULL CHECK (relation IN ('active_context','required_for','relevant_to','open_loop_for','created_from')),
+  resolver_principal_id TEXT REFERENCES principals(principal_id) ON DELETE SET NULL,
+  resolver_version TEXT,
+  source_run_id TEXT,
+  authorized_scope_id TEXT REFERENCES scopes(scope_id) ON DELETE SET NULL,
+  created_by_principal_id TEXT REFERENCES principals(principal_id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  metadata TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(metadata)),
+  PRIMARY KEY (memory_id, object_type, object_id, relation)
 ) STRICT;
 
 CREATE TABLE relationships (
@@ -138,14 +190,15 @@ CREATE TABLE relationships (
   subject_entity_id TEXT NOT NULL REFERENCES entities(entity_id) ON DELETE CASCADE,
   predicate TEXT NOT NULL,
   object_entity_id TEXT NOT NULL REFERENCES entities(entity_id) ON DELETE CASCADE,
-  memory_id TEXT REFERENCES memory_items(memory_id) ON DELETE SET NULL,
-  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('candidate','active','confirmed','superseded','archived','deleted','disputed')),
+  memory_id TEXT REFERENCES memory_items(memory_id) ON DELETE RESTRICT,
+  status TEXT NOT NULL DEFAULT 'candidate' CHECK (status IN ('candidate','active','confirmed','superseded','archived','deleted','disputed')),
   confidence REAL CHECK (confidence IS NULL OR (confidence >= 0.0 AND confidence <= 1.0)),
   valid_from TEXT,
   valid_to TEXT,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  metadata TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(metadata))
+  metadata TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(metadata)),
+  CHECK (status = 'candidate' OR memory_id IS NOT NULL)
 ) STRICT;
 
 CREATE TABLE memory_provenance_edges (
@@ -226,6 +279,9 @@ CREATE TABLE deletion_tombstones (
 
 CREATE INDEX idx_memory_home_scope ON memory_items(home_scope_id, status, updated_at DESC);
 CREATE INDEX idx_memory_type_status ON memory_items(memory_type, status);
+CREATE INDEX idx_memory_sensitivity_status ON memory_items(sensitivity, status);
+CREATE INDEX idx_memory_policy_status ON memory_items(retrieval_policy_status, sensitivity);
+CREATE INDEX idx_memory_participant_visibility ON memory_items(participant_visibility_policy, sensitivity);
 CREATE INDEX idx_memory_owner ON memory_items(owner_principal_id);
 CREATE INDEX idx_memory_created_by ON memory_items(created_by_principal_id);
 CREATE INDEX idx_memory_authority ON memory_items(authority_level);
@@ -234,6 +290,10 @@ CREATE INDEX idx_memory_proactivity ON memory_items(proactivity_level, status);
 CREATE INDEX idx_episodes_scope_time ON episodes(home_scope_id, occurred_at DESC);
 CREATE INDEX idx_messages_episode_time ON messages(episode_id, occurred_at ASC);
 CREATE INDEX idx_entities_scope_type ON entities(home_scope_id, entity_type);
+CREATE INDEX idx_memory_participants_principal ON memory_participants(principal_id, role, memory_id);
+CREATE INDEX idx_memory_participants_memory ON memory_participants(memory_id, role);
+CREATE INDEX idx_retrieval_purpose_rules ON memory_retrieval_purpose_rules(purpose, effect, memory_id);
+CREATE INDEX idx_retrieval_object_links ON memory_retrieval_object_links(object_type, object_id, relation);
 CREATE INDEX idx_relationships_subject ON relationships(subject_entity_id, predicate);
 CREATE INDEX idx_relationships_object ON relationships(object_entity_id, predicate);
 CREATE INDEX idx_provenance_memory ON memory_provenance_edges(memory_id);

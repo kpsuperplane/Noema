@@ -128,6 +128,8 @@ Agent
 Conversation
 Workspace
 Project
+Task
+Cron
 Tool
 Relationship
 ```
@@ -157,10 +159,13 @@ Default ownership rules:
 ```
 Human facts live with the human.
 Project facts live with the project.
+Task-local execution context and open loops live with the task.
+Scheduled trigger state lives with the cron.
 Workspace facts live with the workspace.
 Conversation-local context lives with the conversation.
 Agent skills live with the agent.
 Interaction preferences live with the relationship.
+Participants link memories across conversations without changing ownership.
 Provenance links everything.
 ```
 
