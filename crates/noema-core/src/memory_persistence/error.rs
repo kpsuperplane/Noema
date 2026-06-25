@@ -44,6 +44,38 @@ pub enum MemoryPersistenceError {
         value: String,
     },
 
+    /// Unknown typed object reference kind.
+    #[error("invalid object type: {value}")]
+    InvalidObjectType {
+        /// Rejected object type string.
+        value: String,
+    },
+
+    /// Typed object reference id was empty.
+    #[error("object id cannot be empty for type {object_type}")]
+    EmptyObjectId {
+        /// Object type string.
+        object_type: String,
+    },
+
+    /// Referenced concrete object row does not exist.
+    #[error("object reference not found: {object_type}:{object_id}")]
+    ObjectRefNotFound {
+        /// Object type string.
+        object_type: String,
+        /// Object id string.
+        object_id: String,
+    },
+
+    /// A turn belongs to a different conversation than the item being written.
+    #[error("turn {turn_id} does not belong to conversation {conversation_id}")]
+    TurnConversationMismatch {
+        /// Turn id.
+        turn_id: String,
+        /// Conversation id.
+        conversation_id: String,
+    },
+
     /// A memory expected to exist was not found.
     #[error("memory not found: {memory_id}")]
     MemoryNotFound {

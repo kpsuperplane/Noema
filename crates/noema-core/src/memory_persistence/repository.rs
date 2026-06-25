@@ -16,6 +16,7 @@ use super::{
     error::MemoryPersistenceError,
     helpers::*,
     models::*,
+    objects::{ObjectRef, validate_object_ref_for_conn},
     queries::{MEMORY_SUMMARY_BY_ID_SQL, RECENT_MEMORY_SQL},
 };
 
@@ -114,6 +115,51 @@ impl SqliteMemoryRepository {
     #[must_use]
     pub fn db_path(&self) -> &Path {
         &self.db_path
+    }
+
+    /// Validate that a typed object reference points at an existing row.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MemoryPersistenceError::ObjectRefNotFound`] when the
+    /// referenced row does not exist, or [`MemoryPersistenceError`] for SQLite
+    /// query failures.
+    pub fn validate_object_ref(
+        &self,
+        object_ref: &ObjectRef,
+    ) -> Result<(), MemoryPersistenceError> {
+        validate_object_ref_for_conn(&self.conn, object_ref)
+    }
+
+    /// Upsert the built-in local human and primary Noema agent actors.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MemoryPersistenceError`] if SQLite cannot write either actor.
+    pub fn ensure_default_actors(&mut self) -> Result<(), MemoryPersistenceError> {
+        let tx = self
+            .conn
+            .transaction()
+            .map_err(MemoryPersistenceError::Sqlite)?;
+        tx.execute(
+            r"
+            INSERT INTO humans (human_id, display_name, handle)
+            VALUES ('human:local', 'Local human', 'local')
+            ON CONFLICT(human_id) DO UPDATE SET updated_at = CURRENT_TIMESTAMP
+            ",
+            [],
+        )
+        .map_err(MemoryPersistenceError::Sqlite)?;
+        tx.execute(
+            r"
+            INSERT INTO agents (agent_id, display_name, handle)
+            VALUES ('agent:primary', 'Noema', 'primary')
+            ON CONFLICT(agent_id) DO UPDATE SET updated_at = CURRENT_TIMESTAMP
+            ",
+            [],
+        )
+        .map_err(MemoryPersistenceError::Sqlite)?;
+        tx.commit().map_err(MemoryPersistenceError::Sqlite)
     }
 
     /// Append a chat-created memory with provenance and participants.

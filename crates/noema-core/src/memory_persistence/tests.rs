@@ -15,6 +15,7 @@ mod chat_listing;
 mod context_packets;
 mod core_writes;
 mod graph_inspection;
+mod object_refs;
 mod retrieval;
 mod schema_contract;
 

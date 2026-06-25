@@ -9,6 +9,7 @@ mod context_packets;
 mod error;
 mod helpers;
 mod models;
+mod objects;
 mod queries;
 mod repository;
 mod schema;
@@ -21,4 +22,5 @@ pub use models::{
     NewChatMemoryCandidate, NewChatTurn, NewMemoryParticipant, NewMemorySubject,
     NewRelationshipClaim,
 };
+pub use objects::{ObjectRef, ObjectType};
 pub use repository::SqliteMemoryRepository;
