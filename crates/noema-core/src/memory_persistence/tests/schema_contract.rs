@@ -22,6 +22,27 @@ fn column_names(repo: &SqliteMemoryRepository, table_name: &str) -> Vec<String> 
     rows.map(|row| row.expect("column name")).collect()
 }
 
+fn foreign_keys(
+    repo: &SqliteMemoryRepository,
+    table_name: &str,
+) -> Vec<(String, String, String, String)> {
+    let mut stmt = repo
+        .conn
+        .prepare(&format!("PRAGMA foreign_key_list({table_name})"))
+        .expect("foreign key info");
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, String>(6)?,
+            ))
+        })
+        .expect("foreign key query");
+    rows.map(|row| row.expect("foreign key row")).collect()
+}
+
 #[test]
 fn bootstrap_schema_uses_concrete_object_tables() {
     let dir = tempfile::tempdir().expect("temp dir");
@@ -85,4 +106,47 @@ fn conversation_items_have_object_ref_and_redaction_columns() {
     ] {
         assert!(columns.contains(&column.to_string()), "missing {column}");
     }
+}
+
+#[test]
+fn conversation_turn_trigger_item_fk_targets_conversation_items() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let paths = NoemaPaths::from_noema_home(dir.path()).expect("paths");
+    let repo = SqliteMemoryRepository::open(&paths).expect("repo");
+
+    let foreign_keys = foreign_keys(&repo, "conversation_turns");
+    assert!(foreign_keys.iter().any(|(table, from, to, on_delete)| {
+        table == "conversation_items"
+            && from == "trigger_item_id"
+            && to == "item_id"
+            && on_delete == "SET NULL"
+    }));
+}
+
+#[test]
+fn schema_rejects_half_populated_optional_object_ref_pairs() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let paths = NoemaPaths::from_noema_home(dir.path()).expect("paths");
+    let repo = SqliteMemoryRepository::open(&paths).expect("repo");
+
+    let error = repo
+        .conn
+        .execute(
+            r"
+            INSERT INTO conversations (
+              conversation_id,
+              owner_object_type,
+              owner_object_id,
+              deleted_by_object_type
+            ) VALUES (?1, ?2, ?3, ?4)
+            ",
+            params!["conv_bad_pair", "human", "human:local", "agent"],
+        )
+        .expect_err("half-populated deleted_by pair should fail");
+
+    assert!(matches!(
+        error,
+        rusqlite::Error::SqliteFailure(_, Some(message))
+            if message.contains("CHECK constraint failed")
+    ));
 }

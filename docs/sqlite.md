@@ -76,13 +76,17 @@ CREATE TABLE IF NOT EXISTS conversations (
   deleted_at TEXT,
   deleted_by_object_type TEXT,
   deleted_by_object_id TEXT,
-  metadata TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(metadata))
+  metadata TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(metadata)),
+  CHECK (
+    (deleted_by_object_type IS NULL AND deleted_by_object_id IS NULL)
+    OR (deleted_by_object_type IS NOT NULL AND deleted_by_object_id IS NOT NULL)
+  )
 ) STRICT;
 
 CREATE TABLE IF NOT EXISTS conversation_turns (
   turn_id TEXT PRIMARY KEY,
   conversation_id TEXT NOT NULL REFERENCES conversations(conversation_id) ON DELETE CASCADE,
-  trigger_item_id TEXT,
+  trigger_item_id TEXT REFERENCES conversation_items(item_id) ON DELETE SET NULL,
   status TEXT NOT NULL DEFAULT 'input_received'
     CHECK (status IN ('input_received','running','waiting_for_tool','interrupted','completed','failed','cancelled')),
   started_at TEXT,
@@ -160,6 +164,13 @@ CREATE TABLE IF NOT EXISTS memory_items (
   deleted_at TEXT,
   redacted_at TEXT,
   metadata TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(metadata)),
+  CHECK (
+    (retrieval_policy_extractor_object_type IS NULL AND retrieval_policy_extractor_object_id IS NULL)
+    OR (
+      retrieval_policy_extractor_object_type IS NOT NULL
+      AND retrieval_policy_extractor_object_id IS NOT NULL
+    )
+  ),
   CHECK (
     retrieval_policy_status != 'valid'
     OR (
@@ -269,7 +280,11 @@ CREATE TABLE IF NOT EXISTS object_provenance_edges (
   created_by_object_id TEXT,
   deleted_at TEXT,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  metadata TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(metadata))
+  metadata TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(metadata)),
+  CHECK (
+    (created_by_object_type IS NULL AND created_by_object_id IS NULL)
+    OR (created_by_object_type IS NOT NULL AND created_by_object_id IS NOT NULL)
+  )
 ) STRICT;
 
 CREATE TABLE IF NOT EXISTS object_access_grants (
@@ -284,7 +299,11 @@ CREATE TABLE IF NOT EXISTS object_access_grants (
   created_by_object_type TEXT,
   created_by_object_id TEXT,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  metadata TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(metadata))
+  metadata TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(metadata)),
+  CHECK (
+    (created_by_object_type IS NULL AND created_by_object_id IS NULL)
+    OR (created_by_object_type IS NOT NULL AND created_by_object_id IS NOT NULL)
+  )
 ) STRICT;
 
 CREATE TABLE IF NOT EXISTS object_events (
@@ -296,7 +315,15 @@ CREATE TABLE IF NOT EXISTS object_events (
   target_object_id TEXT,
   reason TEXT,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  details TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(details))
+  details TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(details)),
+  CHECK (
+    (actor_object_type IS NULL AND actor_object_id IS NULL)
+    OR (actor_object_type IS NOT NULL AND actor_object_id IS NOT NULL)
+  ),
+  CHECK (
+    (target_object_type IS NULL AND target_object_id IS NULL)
+    OR (target_object_type IS NOT NULL AND target_object_id IS NOT NULL)
+  )
 ) STRICT;
 
 CREATE TABLE IF NOT EXISTS object_links (
@@ -310,6 +337,10 @@ CREATE TABLE IF NOT EXISTS object_links (
   created_by_object_id TEXT,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   metadata TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(metadata)),
+  CHECK (
+    (created_by_object_type IS NULL AND created_by_object_id IS NULL)
+    OR (created_by_object_type IS NOT NULL AND created_by_object_id IS NOT NULL)
+  ),
   UNIQUE(source_object_type, source_object_id, target_object_type, target_object_id, relation)
 ) STRICT;
 
