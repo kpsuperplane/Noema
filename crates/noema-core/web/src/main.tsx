@@ -1,49 +1,13 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
+import type {
+  TurnActivityStatus as ActivityStatus,
+  TurnTranscriptItem,
+  WebClientMessage,
+  WebServerMessage as ServerMessage,
+  WebStatus
+} from "./generated/noema";
 import "./styles.css";
-
-type WebStatus = {
-  local_service: "running" | string;
-  assistant_connection: "codex" | string;
-  memory_storage: "ready" | "initializing" | string;
-};
-
-type ActivityStatus = "started" | "completed" | "failed";
-
-type TurnTranscriptItem =
-  | { kind: "assistant_text"; text: string }
-  | {
-      kind: "activity";
-      id: string;
-      activity_kind: string;
-      status: ActivityStatus;
-      title: string;
-      summary?: string;
-      metadata: Record<string, unknown>;
-    }
-  | { kind: "a2ui_card"; id: string; schema: string; payload: unknown }
-  | { kind: "error_notice"; message: string; recoverable: boolean };
-
-type ServerMessage =
-  | {
-      type: "conversation_started";
-      conversation_id: string;
-      provider: string;
-      provider_thread_id: string;
-    }
-  | {
-      type: "turn_transcript_item";
-      conversation_id: string;
-      client_message_id?: string;
-      item: TurnTranscriptItem;
-    }
-  | {
-      type: "turn_completed";
-      conversation_id: string;
-      client_message_id?: string;
-    }
-  | { type: "ok"; message?: string }
-  | { type: "error"; message: string };
 
 type TranscriptEntry =
   | { id: string; type: "user"; text: string }
@@ -74,8 +38,10 @@ function App() {
     socketRef.current = socket;
 
     socket.addEventListener("open", () => {
+      const message: WebClientMessage = { type: "conversation_start" };
+
       setSocketState("ready");
-      socket.send(JSON.stringify({ type: "conversation_start" }));
+      socket.send(JSON.stringify(message));
     });
 
     socket.addEventListener("message", (event: MessageEvent<string>) => {
@@ -117,17 +83,17 @@ function App() {
     }
 
     const clientMessageId = crypto.randomUUID();
+    const message: WebClientMessage = {
+      type: "conversation_turn",
+      conversation_id: conversationId,
+      input,
+      client_message_id: clientMessageId
+    };
+
     setDraft("");
     setPending(true);
     pushTranscript(setTranscript, { id: clientMessageId, type: "user", text: input });
-    socket.send(
-      JSON.stringify({
-        type: "conversation_turn",
-        conversation_id: conversationId,
-        input,
-        client_message_id: clientMessageId
-      })
-    );
+    socket.send(JSON.stringify(message));
   }
 
   const ready = socketState === "ready" && conversationId !== null;

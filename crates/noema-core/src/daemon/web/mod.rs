@@ -4,19 +4,19 @@ use std::{collections::HashMap, path::PathBuf};
 
 use base64::{Engine as _, engine::general_purpose};
 use ring::digest::{SHA1_FOR_LEGACY_USE_ONLY, digest};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
     sync::mpsc,
 };
 
-use crate::WebConfig;
-
-use super::{
-    protocol::{DaemonError, StartedConversation, TurnTranscriptItem},
-    runtime::CodexRuntimeHandle,
+use crate::{
+    WebConfig,
+    frontend_protocol::{WebClientMessage, WebMemoryStorageStatus, WebServerMessage, WebStatus},
 };
+
+use super::{protocol::DaemonError, runtime::CodexRuntimeHandle};
 
 const MAX_HTTP_HEADER_BYTES: usize = 64 * 1024;
 const MAX_WS_FRAME_BYTES: usize = 1024 * 1024;
@@ -70,7 +70,7 @@ pub(super) async fn handle_connection(
     }
 
     if request.method == "GET" && request.path == "/api/status" {
-        let status = WebStatus::from_state(&state);
+        let status = web_status_from_state(&state);
         let body = serde_json::to_vec(&status)
             .map_err(|source| DaemonError::Protocol(source.to_string()))?;
         write_response(
@@ -485,79 +485,12 @@ async fn write_ws_frame(
     Ok(())
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-struct WebStatus {
-    local_service: &'static str,
-    assistant_connection: &'static str,
-    memory_storage: &'static str,
-}
-
-impl WebStatus {
-    fn from_state(state: &WebState) -> Self {
-        Self {
-            local_service: "running",
-            assistant_connection: "codex",
-            memory_storage: if state.database_path.is_file() {
-                "ready"
-            } else {
-                "initializing"
-            },
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-enum WebClientMessage {
-    #[serde(rename = "conversation_start")]
-    Start {
-        model: Option<String>,
-        cwd: Option<String>,
-    },
-    #[serde(rename = "conversation_turn")]
-    Turn {
-        conversation_id: String,
-        input: String,
-        client_message_id: Option<String>,
-    },
-    #[serde(rename = "conversation_end")]
-    End { conversation_id: String },
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-enum WebServerMessage {
-    Ok {
-        message: Option<String>,
-    },
-    ConversationStarted {
-        conversation_id: String,
-        provider: String,
-        provider_thread_id: String,
-    },
-    TurnTranscriptItem {
-        conversation_id: String,
-        client_message_id: Option<String>,
-        item: TurnTranscriptItem,
-    },
-    TurnCompleted {
-        conversation_id: String,
-        client_message_id: Option<String>,
-    },
-    Error {
-        message: String,
-    },
-}
-
-impl WebServerMessage {
-    fn conversation_started(started: StartedConversation) -> Self {
-        Self::ConversationStarted {
-            conversation_id: started.conversation_id,
-            provider: "codex".to_string(),
-            provider_thread_id: started.provider_thread_id,
-        }
-    }
+fn web_status_from_state(state: &WebState) -> WebStatus {
+    WebStatus::new(if state.database_path.is_file() {
+        WebMemoryStorageStatus::Ready
+    } else {
+        WebMemoryStorageStatus::Initializing
+    })
 }
 
 #[cfg(test)]

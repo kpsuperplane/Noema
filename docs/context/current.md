@@ -28,6 +28,7 @@ V1 should stay small and concrete:
 - V1 frontend should start with chat, memory, and inspection before exposing full workspaces, tasks, agents, tools, or governance.
 - The current frontend endpoint is a native Noema WebSocket served by the daemon, not an OpenAI-compatible API.
 - Frontend build and lint use Bun from `crates/noema-core/web`.
+- Web protocol TypeScript definitions are generated from Rust with `bun run gen:types`.
 
 ## Open Loops
 
@@ -70,7 +71,7 @@ cargo test --workspace --no-fail-fast
 
 For frontend or UI work:
 
-- Run `bun run lint` and `bun run build` in `crates/noema-core/web`.
+- Run `bun run gen:types`, `bun run lint`, and `bun run build` in `crates/noema-core/web`.
 - Run the local app/server.
 - Capture desktop and mobile screenshots.
 - Inspect overflow, spacing, safe areas, and visual regressions.

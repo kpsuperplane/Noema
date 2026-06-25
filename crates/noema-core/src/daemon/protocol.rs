@@ -9,6 +9,7 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use ts_rs::TS;
 
 /// Filename used for the daemon Unix socket.
 pub const DEFAULT_DAEMON_SOCKET_NAME: &str = "noema.sock";
@@ -82,8 +83,9 @@ pub enum DaemonResponse {
 }
 
 /// Transcript item emitted by a daemon turn.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(tag = "kind", rename_all = "snake_case")]
+#[ts(tag = "kind", rename_all = "snake_case")]
 pub enum TurnTranscriptItem {
     /// Assistant text.
     AssistantText {
@@ -101,8 +103,11 @@ pub enum TurnTranscriptItem {
         /// Short display title.
         title: String,
         /// Optional concise summary.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
         summary: Option<String>,
         /// Structured metadata for future clients.
+        #[ts(type = "Record<string, unknown>")]
         metadata: serde_json::Value,
     },
     /// Future structured UI card.
@@ -112,6 +117,7 @@ pub enum TurnTranscriptItem {
         /// Card schema name.
         schema: String,
         /// Card payload.
+        #[ts(type = "unknown")]
         payload: serde_json::Value,
     },
     /// Recoverable or terminal notice shown in the transcript.
@@ -124,8 +130,9 @@ pub enum TurnTranscriptItem {
 }
 
 /// Status for transcript activity notices.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
+#[ts(rename_all = "snake_case")]
 pub enum TurnActivityStatus {
     /// Activity started.
     Started,

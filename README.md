@@ -174,9 +174,13 @@ Frontend assets are built with Bun and embedded into `noema-core`:
 ```bash
 cd crates/noema-core/web
 bun install
+bun run gen:types
 bun run lint
 bun run build
 ```
+
+`bun run lint` and `bun run build` regenerate the Rust-owned web protocol
+types before running TypeScript or Vite.
 
 For daemon development, install `cargo-watch` and use the repo alias to restart
 the foreground daemon whenever Rust sources or Cargo manifests change:

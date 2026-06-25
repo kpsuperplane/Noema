@@ -12,6 +12,8 @@ mod context_graph_rows;
 mod context_graph_sql;
 /// Local daemon protocol and client/server runtime.
 pub mod daemon;
+/// Rust-owned protocol types exported to the web frontend.
+pub mod frontend_protocol;
 /// Noema home-directory initialization.
 pub mod home;
 /// V1 memory storage and retrieval policy model.

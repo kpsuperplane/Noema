@@ -3,8 +3,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "vite build",
-    "lint": "tsc --noEmit && eslint src --max-warnings=0"
+    "gen:types": "cargo run --manifest-path ../Cargo.toml --bin export_frontend_types",
+    "build": "bun run gen:types && vite build",
+    "lint": "bun run gen:types && tsc --noEmit && eslint src --max-warnings=0"
   },
   "dependencies": {
     "react": "^19.2.3",
