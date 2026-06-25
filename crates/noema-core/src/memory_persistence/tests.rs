@@ -17,6 +17,7 @@ mod conversations;
 mod core_writes;
 mod graph_inspection;
 mod object_refs;
+mod provenance_deletion;
 mod retrieval;
 mod schema_contract;
 

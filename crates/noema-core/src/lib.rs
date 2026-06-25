@@ -58,9 +58,10 @@ pub use memory_extraction::{
     parse_memory_extraction_proposals, validate_memory_extraction_response,
 };
 pub use memory_persistence::{
-    ChatMemorySource, MemoryAuthorityLevel, MemoryExtractionMethod, MemoryPersistenceError,
-    MemorySummary, MemoryType, NewChatMemoryCandidate, NewChatTurn, NewMemoryParticipant,
-    NewMemorySubject, NewRelationshipClaim, SqliteMemoryRepository,
+    DeleteConversationItem, MemoryAuthorityLevel, MemoryExtractionMethod, MemoryPersistenceError,
+    MemorySummary, MemoryType, NewMemoryCandidate, NewMemoryParticipant, NewMemorySubject,
+    NewObjectProvenanceEdge, NewRelationshipClaim, ObjectProvenanceSource, ObjectRef, ObjectType,
+    SqliteMemoryRepository,
 };
 pub use paths::{NOEMA_HOME_ENV, NoemaPathError, NoemaPaths};
 pub use provider::{

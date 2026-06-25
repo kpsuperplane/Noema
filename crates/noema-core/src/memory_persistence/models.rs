@@ -4,7 +4,7 @@ use crate::memory::{
 };
 use serde_json::{Value, json};
 
-use super::helpers::chat_message_id;
+use super::{helpers::chat_message_id, objects::ObjectRef};
 
 /// Memory type stored in `memory_items.memory_type`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -154,11 +154,58 @@ pub struct ChatMemorySource {
     pub evidence_excerpt: Option<String>,
 }
 
+/// Source information for a memory candidate backed by a concrete object.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ObjectProvenanceSource {
+    /// Concrete source object that supports the candidate.
+    pub source: ObjectRef,
+    /// Short supporting excerpt to show during inspection, if available.
+    pub evidence_excerpt: Option<String>,
+}
+
+/// Conversion helper accepted by [`NewMemoryParticipant::new`].
+pub trait IntoMemoryParticipantRef {
+    /// Convert to the typed object reference stored for memory participants.
+    fn into_memory_participant_ref(self) -> ObjectRef;
+}
+
+impl IntoMemoryParticipantRef for ObjectRef {
+    fn into_memory_participant_ref(self) -> ObjectRef {
+        self
+    }
+}
+
+impl IntoMemoryParticipantRef for &str {
+    fn into_memory_participant_ref(self) -> ObjectRef {
+        inferred_actor_ref(self)
+    }
+}
+
+impl IntoMemoryParticipantRef for String {
+    fn into_memory_participant_ref(self) -> ObjectRef {
+        inferred_actor_ref(&self)
+    }
+}
+
+impl IntoMemoryParticipantRef for &String {
+    fn into_memory_participant_ref(self) -> ObjectRef {
+        inferred_actor_ref(self)
+    }
+}
+
+fn inferred_actor_ref(object_id: &str) -> ObjectRef {
+    if object_id.starts_with("agent:") {
+        ObjectRef::agent(object_id)
+    } else {
+        ObjectRef::human(object_id)
+    }
+}
+
 /// Participant to attach to a new memory candidate.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NewMemoryParticipant {
-    /// Principal id.
-    pub principal_id: PrincipalId,
+    /// Concrete participant object.
+    pub participant: ObjectRef,
     /// Participant role.
     pub role: ParticipantRole,
     /// Additional structured metadata.
@@ -168,9 +215,9 @@ pub struct NewMemoryParticipant {
 impl NewMemoryParticipant {
     /// Create a participant with empty metadata.
     #[must_use]
-    pub fn new(principal_id: impl Into<PrincipalId>, role: ParticipantRole) -> Self {
+    pub fn new(participant: impl IntoMemoryParticipantRef, role: ParticipantRole) -> Self {
         Self {
-            principal_id: principal_id.into(),
+            participant: participant.into_memory_participant_ref(),
             role,
             metadata: json!({}),
         }
@@ -192,6 +239,8 @@ pub struct NewMemorySubject {
     pub aliases: Vec<String>,
     /// Principal linked to the entity, if this entity represents one.
     pub linked_principal_id: Option<PrincipalId>,
+    /// Concrete object linked to the entity, if this entity represents one.
+    pub linked_object: Option<ObjectRef>,
     /// Additional structured metadata.
     pub metadata: Value,
 }
@@ -212,6 +261,7 @@ impl NewMemorySubject {
             role,
             aliases: Vec::new(),
             linked_principal_id: None,
+            linked_object: None,
             metadata: json!({}),
         }
     }
@@ -339,6 +389,80 @@ impl NewChatMemoryCandidate {
     }
 }
 
+/// New memory candidate using concrete object ownership and provenance.
+#[derive(Debug, Clone, PartialEq)]
+pub struct NewMemoryCandidate {
+    /// Concrete object that owns the memory.
+    pub owner: ObjectRef,
+    /// Type of memory.
+    pub memory_type: MemoryType,
+    /// Optional display title. A short title is derived from content when this
+    /// is not supplied.
+    pub title: Option<String>,
+    /// Durable memory content.
+    pub content: String,
+    /// Sensitivity tier.
+    pub sensitivity: Sensitivity,
+    /// Initial lifecycle status.
+    pub status: MemoryStatus,
+    /// Concrete object that created the candidate.
+    pub created_by: ObjectRef,
+    /// Optional actor the memory is about or owned by in actor terms.
+    pub owner_actor: Option<ObjectRef>,
+    /// Authority level behind the candidate.
+    pub authority_level: MemoryAuthorityLevel,
+    /// Extraction method.
+    pub extraction_method: MemoryExtractionMethod,
+    /// Optional confidence score from extraction.
+    pub confidence: Option<f64>,
+    /// Non-authoritative retrieval hints used for ranking.
+    pub retrieval_hints: Value,
+    /// Optional observed-at timestamp in canonical text form.
+    pub observed_at: Option<String>,
+    /// Optional concrete source provenance.
+    pub source: Option<ObjectProvenanceSource>,
+    /// Participants in scope when the candidate was formed.
+    pub participants: Vec<NewMemoryParticipant>,
+    /// Subject entity bindings for the memory.
+    pub subjects: Vec<NewMemorySubject>,
+    /// Additional structured metadata.
+    pub metadata: Value,
+}
+
+impl NewMemoryCandidate {
+    /// Create a confirmed note with one concrete source object.
+    #[must_use]
+    pub fn confirmed_note(
+        owner: ObjectRef,
+        content: impl Into<String>,
+        created_by: ObjectRef,
+        source: ObjectRef,
+    ) -> Self {
+        Self {
+            owner,
+            memory_type: MemoryType::Note,
+            title: None,
+            content: content.into(),
+            sensitivity: Sensitivity::Normal,
+            status: MemoryStatus::Confirmed,
+            created_by,
+            owner_actor: None,
+            authority_level: MemoryAuthorityLevel::AgentInference,
+            extraction_method: MemoryExtractionMethod::LlmExtracted,
+            confidence: None,
+            retrieval_hints: json!({}),
+            observed_at: None,
+            source: Some(ObjectProvenanceSource {
+                source,
+                evidence_excerpt: None,
+            }),
+            participants: Vec::new(),
+            subjects: Vec::new(),
+            metadata: json!({}),
+        }
+    }
+}
+
 /// Recent memory row suitable for CLI inspection.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MemorySummary {
@@ -348,6 +472,10 @@ pub struct MemorySummary {
     pub status: MemoryStatus,
     /// Memory type.
     pub memory_type: MemoryType,
+    /// Concrete owner object type.
+    pub owner_object_type: String,
+    /// Concrete owner object id.
+    pub owner_object_id: String,
     /// Scope that owns the memory.
     pub home_scope_id: ScopeId,
     /// Sensitivity tier.
@@ -358,6 +486,10 @@ pub struct MemorySummary {
     pub content: String,
     /// SQLite-created timestamp.
     pub created_at: String,
+    /// Concrete source object type, if available.
+    pub source_object_type: Option<String>,
+    /// Concrete source object id, if available.
+    pub source_object_id: Option<String>,
     /// Provenance source type, if available.
     pub source_type: Option<String>,
     /// Provenance source id, if available.

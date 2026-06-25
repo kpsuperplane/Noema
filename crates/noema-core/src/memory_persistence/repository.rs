@@ -192,7 +192,7 @@ impl SqliteMemoryRepository {
             ensure_principal(&tx, owner_principal_id)?;
         }
         for participant in &candidate.participants {
-            ensure_principal(&tx, &participant.principal_id)?;
+            ensure_principal(&tx, &participant.participant.object_id)?;
         }
         for subject in &candidate.subjects {
             if let Some(linked_principal_id) = &subject.linked_principal_id {
@@ -283,7 +283,7 @@ impl SqliteMemoryRepository {
                 ",
                 params![
                     memory_id,
-                    participant.principal_id,
+                    participant.participant.object_id,
                     participant_role_to_db(participant.role),
                     participant_metadata,
                 ],

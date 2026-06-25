@@ -11,6 +11,7 @@ mod error;
 mod helpers;
 mod models;
 mod objects;
+mod provenance;
 mod queries;
 mod repository;
 mod schema;
@@ -24,9 +25,11 @@ pub use conversations::{
 };
 pub use error::MemoryPersistenceError;
 pub use models::{
-    ChatMemorySource, MemoryAuthorityLevel, MemoryExtractionMethod, MemorySummary, MemoryType,
-    NewChatMemoryCandidate, NewChatTurn, NewMemoryParticipant, NewMemorySubject,
-    NewRelationshipClaim,
+    MemoryAuthorityLevel, MemoryExtractionMethod, MemorySummary, MemoryType, NewMemoryCandidate,
+    NewMemoryParticipant, NewMemorySubject, NewRelationshipClaim, ObjectProvenanceSource,
 };
 pub use objects::{ObjectRef, ObjectType};
+pub use provenance::{DeleteConversationItem, NewObjectProvenanceEdge};
 pub use repository::SqliteMemoryRepository;
+
+pub(crate) use models::{ChatMemorySource, NewChatMemoryCandidate, NewChatTurn};

@@ -57,7 +57,13 @@ pub(super) fn memory_has_provenance(
 ) -> Result<bool, MemoryPersistenceError> {
     let count: i64 = tx
         .query_row(
-            "SELECT COUNT(*) FROM memory_provenance_edges WHERE memory_id = ?1",
+            r"
+            SELECT COUNT(*)
+            FROM object_provenance_edges
+            WHERE target_object_type = 'memory_item'
+              AND target_object_id = ?1
+              AND deleted_at IS NULL
+            ",
             params![memory_id],
             |row| row.get(0),
         )
@@ -383,20 +389,37 @@ pub(super) fn allocate_id(
 pub(super) fn row_to_memory_summary(row: &rusqlite::Row<'_>) -> rusqlite::Result<MemorySummary> {
     let status: String = row.get(1)?;
     let memory_type: String = row.get(2)?;
+    let home_scope_id: String = row.get(3)?;
     let sensitivity: String = row.get(4)?;
+    let (owner_object_type, owner_object_id) = owner_parts_from_legacy_scope(&home_scope_id);
+    let source_type: Option<String> = row.get(8)?;
+    let source_id: Option<String> = row.get(9)?;
     Ok(MemorySummary {
         id: row.get(0)?,
         status: parse_memory_status(&status).map_err(enum_to_sql_error)?,
         memory_type: parse_memory_type(&memory_type).map_err(enum_to_sql_error)?,
-        home_scope_id: row.get(3)?,
+        owner_object_type,
+        owner_object_id,
+        home_scope_id,
         sensitivity: parse_sensitivity(&sensitivity).map_err(enum_to_sql_error)?,
         title: row.get(5)?,
         content: row.get(6)?,
         created_at: row.get(7)?,
-        source_type: row.get(8)?,
-        source_id: row.get(9)?,
+        source_object_type: source_type.clone(),
+        source_object_id: source_id.clone(),
+        source_type,
+        source_id,
         conversation_id: row.get(10)?,
     })
+}
+
+pub(super) fn owner_parts_from_legacy_scope(scope_id: &str) -> (String, String) {
+    match scope_id.split_once(':') {
+        Some((object_type, _)) if !object_type.is_empty() => {
+            (object_type.to_string(), scope_id.to_string())
+        }
+        _ => ("conversation".to_string(), scope_id.to_string()),
+    }
 }
 
 pub(super) fn redact_for_list(mut memory: MemorySummary) -> MemorySummary {
