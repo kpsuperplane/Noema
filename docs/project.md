@@ -78,7 +78,7 @@ Source-of-truth rules:
 | IDs, scopes, relationships, permissions, tasks, memory, provenance, audit events | `db/noema.sqlite` |
 | Human-authored docs, imported files, attachments, and durable artifacts | filesystem |
 | Indexes, caches, temporary files, and derived search/vector state | `system/` |
-| Introspection into database-backed state | dashboard and explicit export tools |
+| Introspection into database-backed state | chat/work drill-ins, advanced inspection, and explicit export tools |
 
 ## Primary objects
 
@@ -95,7 +95,8 @@ Source-of-truth rules:
 
 ```
 Human Interfaces
-  dashboard, chat, command palette, filesystem view, desktop/mobile clients
+  chat, workspaces, command palette, filesystem view, desktop/mobile clients,
+  advanced inspection
         │
         ▼
 Agent Runtime
@@ -183,20 +184,27 @@ Proactivity should be customizable and explainable.
 6. Take approved automatic actions
 ```
 
-## Dashboard surfaces
+## Frontend surfaces
 
-- Humans
-- Agents
-- Conversations
+These are target product surfaces. The V1 frontend should start with chat as
+the primary experience. Memory, settings, inspection, workspaces, projects,
+tasks, tools, approvals, and audit should reveal incrementally from chat/work
+events and become full management surfaces only when backed state and user
+intent require them.
+
+- Chat and conversation threads
+- Inline memory, task, tool, approval, denial, and recovery events
+- Memory settings and review
 - Workspaces
 - Projects
 - Tasks
 - Tools
 - Permissions
-- Memory
+- Humans and agents
 - Proactivity
 - Audit log
 - Exports and restore
+- Advanced owner/admin inspection
 
 ## Backup and portability
 
@@ -230,7 +238,7 @@ tasks
 memory
 ```
 
-Use SQLite as the canonical structured store. Use the filesystem for durable object-owned documents and artifacts. Use the dashboard and export tools for introspection into database-backed state.
+Use SQLite as the canonical structured store. Use the filesystem for durable object-owned documents and artifacts. Use chat/work drill-ins, advanced inspection, and explicit export tools for introspection into database-backed state.
 
 [Memory System Plan](memory.md)
 

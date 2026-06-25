@@ -37,8 +37,10 @@ features can grow into:
   chat session and shuts it down when chat exits.
 
 This slice does not yet create durable conversation rows, run envelopes, event
-ledger entries, approvals, memory records, tools, or SQLite state. Conversation
-IDs and Codex thread mappings are in-memory daemon state only.
+ledger entries, approvals, tools, or durable capability state. Conversation IDs
+and Codex thread mappings are in-memory daemon state only. Memory records,
+chat-turn provenance, and SQLite-backed context graph inspection are covered by
+the memory runtime docs and the frontend V1 contract.
 
 The daemon intentionally uses the stable Codex app-server flow: initialize the
 connection, start a thread with the chat client's current working directory,
