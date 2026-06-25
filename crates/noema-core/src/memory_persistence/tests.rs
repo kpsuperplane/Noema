@@ -16,6 +16,7 @@ mod context_packets;
 mod core_writes;
 mod graph_inspection;
 mod retrieval;
+mod schema_contract;
 
 fn request_for_kevin() -> MemoryRetrievalRequest {
     MemoryRetrievalRequest {
