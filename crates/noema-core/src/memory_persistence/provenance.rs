@@ -369,7 +369,8 @@ impl SqliteMemoryRepository {
         tx.execute(
             r"
             UPDATE object_provenance_edges
-            SET deleted_at = CURRENT_TIMESTAMP
+            SET deleted_at = CURRENT_TIMESTAMP,
+                evidence_excerpt = '[redacted]'
             WHERE source_object_type = 'conversation_item'
               AND source_object_id = ?1
               AND deleted_at IS NULL
@@ -397,6 +398,7 @@ impl SqliteMemoryRepository {
                     r"
                     UPDATE memory_items
                     SET status = 'deleted',
+                        title = '[redacted]',
                         content = '[redacted]',
                         structured_value = '{}',
                         retrieval_hints = '{}',

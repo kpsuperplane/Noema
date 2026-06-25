@@ -86,15 +86,48 @@ fn deleting_item_redacts_sole_provenance_memory() {
         .expect("visible items");
     assert!(visible_items.is_empty());
 
-    let stored: (String, String) = repo
+    let stored: (String, String, String) = repo
         .conn
         .query_row(
-            "SELECT status, content FROM memory_items WHERE memory_id = ?1",
-            params![memory.id],
-            |row| Ok((row.get(0)?, row.get(1)?)),
+            "SELECT status, title, content FROM memory_items WHERE memory_id = ?1",
+            params![memory.id.as_str()],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
         .expect("stored memory");
-    assert_eq!(stored, ("deleted".to_string(), "[redacted]".to_string()));
+    assert_eq!(
+        stored,
+        (
+            "deleted".to_string(),
+            "[redacted]".to_string(),
+            "[redacted]".to_string()
+        )
+    );
+
+    let evidence_excerpt: String = repo
+        .conn
+        .query_row(
+            r"
+            SELECT evidence_excerpt
+            FROM object_provenance_edges
+            WHERE target_object_type = 'memory_item'
+              AND target_object_id = ?1
+            ",
+            params![memory.id.as_str()],
+            |row| row.get(0),
+        )
+        .expect("redacted evidence excerpt");
+    assert_eq!(evidence_excerpt, "[redacted]");
+
+    repo.rebuild_memory_search_index().expect("rebuild fts");
+    let fts_rows: i64 = repo
+        .conn
+        .query_row(
+            "SELECT COUNT(*) FROM memory_fts WHERE memory_id = ?1",
+            params![memory.id.as_str()],
+            |row| row.get(0),
+        )
+        .expect("fts rows");
+    assert_eq!(fts_rows, 0);
 }
 
 #[test]

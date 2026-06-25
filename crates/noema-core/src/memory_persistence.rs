@@ -9,7 +9,7 @@ mod context_packets;
 mod conversations;
 mod error;
 mod helpers;
-mod models;
+pub(crate) mod models;
 mod objects;
 mod provenance;
 mod queries;
@@ -31,5 +31,3 @@ pub use models::{
 pub use objects::{ObjectRef, ObjectType};
 pub use provenance::{DeleteConversationItem, NewObjectProvenanceEdge};
 pub use repository::SqliteMemoryRepository;
-
-pub(crate) use models::{ChatMemorySource, NewChatMemoryCandidate, NewChatTurn};

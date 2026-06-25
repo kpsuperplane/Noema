@@ -7,8 +7,9 @@ use crate::{
         ValidatedMemoryProposal,
     },
     memory_persistence::{
-        ChatMemorySource, MemoryAuthorityLevel, MemoryExtractionMethod, MemoryType,
-        NewChatMemoryCandidate, NewChatTurn, NewMemoryParticipant, NewMemorySubject,
+        MemoryAuthorityLevel, MemoryExtractionMethod, MemoryType, NewMemoryParticipant,
+        NewMemorySubject,
+        models::{ChatMemorySource, NewChatMemoryCandidate, NewChatTurn},
     },
 };
 use serde_json::json;

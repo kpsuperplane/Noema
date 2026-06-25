@@ -1,4 +1,5 @@
 use super::helpers::CHAT_SOURCE_ID;
+use super::models::{ChatMemorySource, NewChatMemoryCandidate, NewChatTurn};
 use super::*;
 use crate::context_graph::ContextGraphFilter;
 use crate::memory::{

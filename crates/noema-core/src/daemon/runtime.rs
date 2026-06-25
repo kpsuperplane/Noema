@@ -8,8 +8,8 @@ use crate::{
         validate_memory_extraction_response,
     },
     memory_persistence::{
-        ChatMemorySource, MemoryAuthorityLevel, MemoryExtractionMethod, NewChatMemoryCandidate,
-        NewChatTurn, NewMemoryParticipant, SqliteMemoryRepository,
+        MemoryAuthorityLevel, MemoryExtractionMethod, NewMemoryParticipant, SqliteMemoryRepository,
+        models::{ChatMemorySource, NewChatMemoryCandidate, NewChatTurn},
     },
     provider::GenerateOutputItem,
     providers::{

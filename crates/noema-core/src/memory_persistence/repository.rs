@@ -395,6 +395,7 @@ impl SqliteMemoryRepository {
                 r"
                 SELECT memory_id, title, content, retrieval_hints
                 FROM memory_items
+                WHERE status != 'deleted'
                 ORDER BY created_at ASC, rowid ASC
                 ",
             )?;
