@@ -6,6 +6,7 @@
 //! a recent-memory listing for CLI inspection.
 
 mod context_packets;
+mod conversations;
 mod error;
 mod helpers;
 mod models;
@@ -16,6 +17,11 @@ mod schema;
 #[cfg(test)]
 mod tests;
 
+pub use conversations::{
+    AgentStatus, ConversationItemKind, ConversationItemRecord, ConversationItemStatus,
+    ConversationRecord, ConversationTurnRecord, ConversationTurnStatus, NewConversation,
+    NewConversationItem, NewConversationTurn, ReplayMode,
+};
 pub use error::MemoryPersistenceError;
 pub use models::{
     ChatMemorySource, MemoryAuthorityLevel, MemoryExtractionMethod, MemorySummary, MemoryType,

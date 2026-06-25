@@ -13,6 +13,7 @@ use serde_json::{Value, json};
 
 mod chat_listing;
 mod context_packets;
+mod conversations;
 mod core_writes;
 mod graph_inspection;
 mod object_refs;

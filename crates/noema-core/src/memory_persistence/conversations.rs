@@ -1,0 +1,674 @@
+use rusqlite::{OptionalExtension, params};
+use serde_json::{Value, json};
+
+use super::{
+    ObjectRef, ObjectType,
+    error::MemoryPersistenceError,
+    helpers::{allocate_id, json_to_string},
+    objects::validate_object_ref_for_conn,
+    repository::SqliteMemoryRepository,
+};
+
+/// Live agent coordination state for a durable conversation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AgentStatus {
+    /// No agent work is currently active.
+    Idle,
+    /// Human or external input has been accepted.
+    InputReceived,
+    /// The agent is producing or planning a response.
+    Thinking,
+    /// The agent is waiting on a tool invocation.
+    ToolRunning,
+    /// A newer turn is waiting for a prior turn's side effects to settle.
+    WaitingForPreviousTurnCompletion,
+    /// The agent is interrupting a previous turn.
+    Interrupting,
+    /// The conversation is in an error state.
+    Error,
+}
+
+impl AgentStatus {
+    /// Return the stable SQLite string for this status.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Idle => "idle",
+            Self::InputReceived => "input_received",
+            Self::Thinking => "thinking",
+            Self::ToolRunning => "tool_running",
+            Self::WaitingForPreviousTurnCompletion => "waiting_for_previous_turn_completion",
+            Self::Interrupting => "interrupting",
+            Self::Error => "error",
+        }
+    }
+
+    /// Parse a stored status string.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MemoryPersistenceError::InvalidEnum`] for unknown values.
+    pub fn parse(value: &str) -> Result<Self, MemoryPersistenceError> {
+        match value {
+            "idle" => Ok(Self::Idle),
+            "input_received" => Ok(Self::InputReceived),
+            "thinking" => Ok(Self::Thinking),
+            "tool_running" => Ok(Self::ToolRunning),
+            "waiting_for_previous_turn_completion" => Ok(Self::WaitingForPreviousTurnCompletion),
+            "interrupting" => Ok(Self::Interrupting),
+            "error" => Ok(Self::Error),
+            _ => invalid_enum("agent_status", value),
+        }
+    }
+}
+
+/// Durable lifecycle state for one causal conversation turn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConversationTurnStatus {
+    /// Input has been recorded but work has not started.
+    InputReceived,
+    /// The turn is actively running.
+    Running,
+    /// The turn is waiting for a tool result.
+    WaitingForTool,
+    /// The turn was interrupted by newer input.
+    Interrupted,
+    /// The turn completed successfully.
+    Completed,
+    /// The turn failed.
+    Failed,
+    /// The turn was cancelled.
+    Cancelled,
+}
+
+impl ConversationTurnStatus {
+    /// Return the stable SQLite string for this status.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::InputReceived => "input_received",
+            Self::Running => "running",
+            Self::WaitingForTool => "waiting_for_tool",
+            Self::Interrupted => "interrupted",
+            Self::Completed => "completed",
+            Self::Failed => "failed",
+            Self::Cancelled => "cancelled",
+        }
+    }
+
+    /// Parse a stored turn status string.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MemoryPersistenceError::InvalidEnum`] for unknown values.
+    pub fn parse(value: &str) -> Result<Self, MemoryPersistenceError> {
+        match value {
+            "input_received" => Ok(Self::InputReceived),
+            "running" => Ok(Self::Running),
+            "waiting_for_tool" => Ok(Self::WaitingForTool),
+            "interrupted" => Ok(Self::Interrupted),
+            "completed" => Ok(Self::Completed),
+            "failed" => Ok(Self::Failed),
+            "cancelled" => Ok(Self::Cancelled),
+            _ => invalid_enum("conversation_turn_status", value),
+        }
+    }
+}
+
+/// Semantic kind for a durable conversation stream item.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConversationItemKind {
+    /// Text authored by a human.
+    UserText,
+    /// Text authored by an assistant.
+    AssistantText,
+    /// Non-text activity that should appear in the transcript.
+    Activity,
+    /// Structured A2UI card payload.
+    A2uiCard,
+    /// A tool invocation request.
+    ToolCall,
+    /// A tool invocation result.
+    ToolResult,
+    /// A request for human approval.
+    ApprovalRequest,
+    /// A recorded approval decision.
+    ApprovalResult,
+    /// An error visible in conversation history.
+    ErrorNotice,
+}
+
+impl ConversationItemKind {
+    /// Return the stable SQLite string for this item kind.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::UserText => "user_text",
+            Self::AssistantText => "assistant_text",
+            Self::Activity => "activity",
+            Self::A2uiCard => "a2ui_card",
+            Self::ToolCall => "tool_call",
+            Self::ToolResult => "tool_result",
+            Self::ApprovalRequest => "approval_request",
+            Self::ApprovalResult => "approval_result",
+            Self::ErrorNotice => "error_notice",
+        }
+    }
+
+    /// Parse a stored item kind string.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MemoryPersistenceError::InvalidEnum`] for unknown values.
+    pub fn parse(value: &str) -> Result<Self, MemoryPersistenceError> {
+        match value {
+            "user_text" => Ok(Self::UserText),
+            "assistant_text" => Ok(Self::AssistantText),
+            "activity" => Ok(Self::Activity),
+            "a2ui_card" => Ok(Self::A2uiCard),
+            "tool_call" => Ok(Self::ToolCall),
+            "tool_result" => Ok(Self::ToolResult),
+            "approval_request" => Ok(Self::ApprovalRequest),
+            "approval_result" => Ok(Self::ApprovalResult),
+            "error_notice" => Ok(Self::ErrorNotice),
+            _ => invalid_enum("conversation_item_kind", value),
+        }
+    }
+}
+
+/// Execution status for a durable conversation item.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConversationItemStatus {
+    /// The item has been created but work has not started.
+    Pending,
+    /// The item represents work in progress.
+    Running,
+    /// The item completed successfully.
+    Completed,
+    /// The item failed.
+    Failed,
+    /// The item was cancelled.
+    Cancelled,
+    /// The item was interrupted.
+    Interrupted,
+}
+
+impl ConversationItemStatus {
+    /// Return the stable SQLite string for this item status.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Pending => "pending",
+            Self::Running => "running",
+            Self::Completed => "completed",
+            Self::Failed => "failed",
+            Self::Cancelled => "cancelled",
+            Self::Interrupted => "interrupted",
+        }
+    }
+
+    /// Parse a stored item status string.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MemoryPersistenceError::InvalidEnum`] for unknown values.
+    pub fn parse(value: &str) -> Result<Self, MemoryPersistenceError> {
+        match value {
+            "pending" => Ok(Self::Pending),
+            "running" => Ok(Self::Running),
+            "completed" => Ok(Self::Completed),
+            "failed" => Ok(Self::Failed),
+            "cancelled" => Ok(Self::Cancelled),
+            "interrupted" => Ok(Self::Interrupted),
+            _ => invalid_enum("conversation_item_status", value),
+        }
+    }
+}
+
+/// Input for creating a durable conversation.
+#[derive(Debug, Clone, PartialEq)]
+pub struct NewConversation {
+    /// Human-visible conversation title, when known.
+    pub title: Option<String>,
+    /// Concrete object that owns the conversation.
+    pub owner: ObjectRef,
+    /// Primary human participant id.
+    pub primary_human_id: Option<String>,
+    /// Primary agent participant id.
+    pub primary_agent_id: Option<String>,
+    /// Provider name used for the conversation.
+    pub provider: String,
+    /// Provider model name, when known.
+    pub model: Option<String>,
+    /// Provider-native thread id, when known.
+    pub provider_thread_id: Option<String>,
+    /// Working directory associated with the conversation.
+    pub cwd: Option<String>,
+    /// Additional structured metadata.
+    pub metadata: Value,
+}
+
+impl NewConversation {
+    /// Build the default local Codex chat conversation shape.
+    #[must_use]
+    pub fn local_chat(model: Option<String>, cwd: Option<String>) -> Self {
+        Self {
+            title: None,
+            owner: ObjectRef::human("human:local"),
+            primary_human_id: Some("human:local".to_string()),
+            primary_agent_id: Some("agent:primary".to_string()),
+            provider: "codex".to_string(),
+            model,
+            provider_thread_id: None,
+            cwd,
+            metadata: json!({}),
+        }
+    }
+}
+
+/// Persisted conversation identity returned after creation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConversationRecord {
+    /// Durable Noema conversation id.
+    pub conversation_id: String,
+    /// Provider-native thread id preserved from the create request.
+    pub provider_thread_id: Option<String>,
+}
+
+/// Input for creating one causal conversation turn.
+#[derive(Debug, Clone, PartialEq)]
+pub struct NewConversationTurn {
+    /// Conversation that owns the turn.
+    pub conversation_id: String,
+    /// Optional item that triggered this turn.
+    pub trigger_item_id: Option<String>,
+    /// Additional structured metadata.
+    pub metadata: Value,
+}
+
+/// Persisted conversation turn identity returned after creation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConversationTurnRecord {
+    /// Durable Noema turn id.
+    pub turn_id: String,
+    /// Conversation that owns the turn.
+    pub conversation_id: String,
+}
+
+/// Input for appending a durable item to a conversation stream.
+#[derive(Debug, Clone, PartialEq)]
+pub struct NewConversationItem {
+    /// Conversation that owns the item.
+    pub conversation_id: String,
+    /// Optional turn that owns the item.
+    pub turn_id: Option<String>,
+    /// Optional parent conversation item.
+    pub parent_item_id: Option<String>,
+    /// Semantic item kind.
+    pub kind: ConversationItemKind,
+    /// Item execution status.
+    pub status: ConversationItemStatus,
+    /// Concrete object that authored the item.
+    pub author: ObjectRef,
+    /// Readable item text, when any.
+    pub content_text: Option<String>,
+    /// Structured item payload.
+    pub payload_json: Value,
+    /// Additional structured metadata.
+    pub metadata: Value,
+}
+
+/// Conversation item returned from append and replay operations.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ConversationItemRecord {
+    /// Durable Noema item id.
+    pub item_id: String,
+    /// Conversation that owns the item.
+    pub conversation_id: String,
+    /// Optional turn that owns the item.
+    pub turn_id: Option<String>,
+    /// Semantic item kind.
+    pub kind: ConversationItemKind,
+    /// Item execution status.
+    pub status: ConversationItemStatus,
+    /// Readable item text, when any.
+    pub content_text: Option<String>,
+    /// Structured item payload.
+    pub payload_json: Value,
+}
+
+/// Replay visibility mode for conversation items.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReplayMode {
+    /// Exclude soft-deleted items.
+    Visible,
+    /// Include soft-deleted items for audit views.
+    Audit,
+}
+
+impl SqliteMemoryRepository {
+    /// Create a durable conversation row.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MemoryPersistenceError`] when referenced owner/participant
+    /// rows are missing, metadata cannot serialize, or SQLite writes fail.
+    pub fn create_conversation(
+        &mut self,
+        conversation: NewConversation,
+    ) -> Result<ConversationRecord, MemoryPersistenceError> {
+        let NewConversation {
+            title,
+            owner,
+            primary_human_id,
+            primary_agent_id,
+            provider,
+            model,
+            provider_thread_id,
+            cwd,
+            metadata,
+        } = conversation;
+
+        validate_object_ref_for_conn(&self.conn, &owner)?;
+        validate_optional_object_ref(&self.conn, ObjectType::Human, primary_human_id.as_deref())?;
+        validate_optional_object_ref(&self.conn, ObjectType::Agent, primary_agent_id.as_deref())?;
+
+        let conversation_id = allocate_id(&self.conn, "conversation")?;
+        let metadata = json_to_string(&metadata)?;
+        self.conn
+            .execute(
+                r"
+                INSERT INTO conversations (
+                  conversation_id, title, owner_object_type, owner_object_id,
+                  primary_human_id, primary_agent_id, provider, model,
+                  provider_thread_id, cwd, metadata
+                )
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+                ",
+                params![
+                    conversation_id.as_str(),
+                    title.as_deref(),
+                    owner.object_type.as_str(),
+                    owner.object_id.as_str(),
+                    primary_human_id.as_deref(),
+                    primary_agent_id.as_deref(),
+                    provider.as_str(),
+                    model.as_deref(),
+                    provider_thread_id.as_deref(),
+                    cwd.as_deref(),
+                    metadata.as_str(),
+                ],
+            )
+            .map_err(MemoryPersistenceError::Sqlite)?;
+
+        Ok(ConversationRecord {
+            conversation_id,
+            provider_thread_id,
+        })
+    }
+
+    /// Create a durable turn row for an existing conversation.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MemoryPersistenceError`] when the conversation or trigger
+    /// item is missing, metadata cannot serialize, or SQLite writes fail.
+    pub fn create_conversation_turn(
+        &mut self,
+        turn: NewConversationTurn,
+    ) -> Result<ConversationTurnRecord, MemoryPersistenceError> {
+        let NewConversationTurn {
+            conversation_id,
+            trigger_item_id,
+            metadata,
+        } = turn;
+
+        self.validate_object_ref(&ObjectRef::new(
+            ObjectType::Conversation,
+            conversation_id.as_str(),
+        )?)?;
+        if let Some(trigger_item_id) = &trigger_item_id {
+            self.validate_conversation_item_in_conversation(trigger_item_id, &conversation_id)?;
+        }
+
+        let turn_id = allocate_id(&self.conn, "turn")?;
+        let metadata = json_to_string(&metadata)?;
+        self.conn
+            .execute(
+                r"
+                INSERT INTO conversation_turns (
+                  turn_id, conversation_id, trigger_item_id, status, started_at, metadata
+                )
+                VALUES (?1, ?2, ?3, 'input_received', CURRENT_TIMESTAMP, ?4)
+                ",
+                params![
+                    turn_id.as_str(),
+                    conversation_id.as_str(),
+                    trigger_item_id.as_deref(),
+                    metadata.as_str(),
+                ],
+            )
+            .map_err(MemoryPersistenceError::Sqlite)?;
+
+        Ok(ConversationTurnRecord {
+            turn_id,
+            conversation_id,
+        })
+    }
+
+    /// Append a durable item to a conversation stream.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MemoryPersistenceError`] when referenced conversation, author,
+    /// turn, or parent item rows are invalid, JSON cannot serialize, or SQLite
+    /// writes fail.
+    pub fn append_conversation_item(
+        &mut self,
+        item: NewConversationItem,
+    ) -> Result<ConversationItemRecord, MemoryPersistenceError> {
+        self.validate_conversation_item_refs(&item)?;
+
+        let item_id = allocate_id(&self.conn, "item")?;
+        let payload_json = json_to_string(&item.payload_json)?;
+        let metadata = json_to_string(&item.metadata)?;
+        self.conn
+            .execute(
+                r"
+                INSERT INTO conversation_items (
+                  item_id, conversation_id, turn_id, parent_item_id, kind, status,
+                  author_object_type, author_object_id, content_text, payload_json, metadata
+                )
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+                ",
+                params![
+                    item_id.as_str(),
+                    item.conversation_id.as_str(),
+                    item.turn_id.as_deref(),
+                    item.parent_item_id.as_deref(),
+                    item.kind.as_str(),
+                    item.status.as_str(),
+                    item.author.object_type.as_str(),
+                    item.author.object_id.as_str(),
+                    item.content_text.as_deref(),
+                    payload_json.as_str(),
+                    metadata.as_str(),
+                ],
+            )
+            .map_err(MemoryPersistenceError::Sqlite)?;
+
+        Ok(ConversationItemRecord {
+            item_id,
+            conversation_id: item.conversation_id,
+            turn_id: item.turn_id,
+            kind: item.kind,
+            status: item.status,
+            content_text: item.content_text,
+            payload_json: item.payload_json,
+        })
+    }
+
+    /// Mark a durable conversation turn completed.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MemoryPersistenceError`] when the turn is missing or SQLite
+    /// writes fail.
+    pub fn complete_conversation_turn(
+        &mut self,
+        turn_id: &str,
+    ) -> Result<(), MemoryPersistenceError> {
+        self.validate_object_ref(&ObjectRef::new(ObjectType::ConversationTurn, turn_id)?)?;
+        self.conn
+            .execute(
+                r"
+                UPDATE conversation_turns
+                SET status = 'completed',
+                    completed_at = CURRENT_TIMESTAMP,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE turn_id = ?1
+                ",
+                params![turn_id],
+            )
+            .map_err(MemoryPersistenceError::Sqlite)?;
+        Ok(())
+    }
+
+    /// List conversation items in replay order.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MemoryPersistenceError`] when the conversation is missing,
+    /// SQLite reads fail, stored enums are invalid, or JSON payloads cannot be
+    /// parsed.
+    pub fn list_conversation_items(
+        &self,
+        conversation_id: &str,
+        mode: ReplayMode,
+    ) -> Result<Vec<ConversationItemRecord>, MemoryPersistenceError> {
+        self.validate_object_ref(&ObjectRef::new(ObjectType::Conversation, conversation_id)?)?;
+        let sql = match mode {
+            ReplayMode::Visible => {
+                r"
+                SELECT item_id, conversation_id, turn_id, kind, status, content_text, payload_json
+                FROM conversation_items
+                WHERE conversation_id = ?1 AND deleted_at IS NULL
+                ORDER BY created_at ASC
+                "
+            }
+            ReplayMode::Audit => {
+                r"
+                SELECT item_id, conversation_id, turn_id, kind, status, content_text, payload_json
+                FROM conversation_items
+                WHERE conversation_id = ?1
+                ORDER BY created_at ASC
+                "
+            }
+        };
+        let mut stmt = self.conn.prepare(sql)?;
+        let mut rows = stmt.query(params![conversation_id])?;
+        let mut items = Vec::new();
+        while let Some(row) = rows.next()? {
+            let kind: String = row.get(3)?;
+            let status: String = row.get(4)?;
+            let payload_json: String = row.get(6)?;
+            items.push(ConversationItemRecord {
+                item_id: row.get(0)?,
+                conversation_id: row.get(1)?,
+                turn_id: row.get(2)?,
+                kind: ConversationItemKind::parse(&kind)?,
+                status: ConversationItemStatus::parse(&status)?,
+                content_text: row.get(5)?,
+                payload_json: serde_json::from_str(&payload_json)?,
+            });
+        }
+        Ok(items)
+    }
+
+    fn validate_conversation_item_refs(
+        &self,
+        item: &NewConversationItem,
+    ) -> Result<(), MemoryPersistenceError> {
+        self.validate_object_ref(&ObjectRef::new(
+            ObjectType::Conversation,
+            item.conversation_id.as_str(),
+        )?)?;
+        self.validate_object_ref(&item.author)?;
+
+        if let Some(turn_id) = &item.turn_id {
+            let turn_conversation_id = self
+                .conn
+                .query_row(
+                    "SELECT conversation_id FROM conversation_turns WHERE turn_id = ?1",
+                    params![turn_id],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()
+                .map_err(MemoryPersistenceError::Sqlite)?;
+            match turn_conversation_id {
+                Some(value) if value == item.conversation_id => {}
+                Some(_) | None => {
+                    return Err(MemoryPersistenceError::TurnConversationMismatch {
+                        turn_id: turn_id.clone(),
+                        conversation_id: item.conversation_id.clone(),
+                    });
+                }
+            }
+        }
+
+        if let Some(parent_item_id) = &item.parent_item_id {
+            self.validate_conversation_item_in_conversation(parent_item_id, &item.conversation_id)?;
+        }
+
+        Ok(())
+    }
+
+    fn validate_conversation_item_in_conversation(
+        &self,
+        item_id: &str,
+        conversation_id: &str,
+    ) -> Result<(), MemoryPersistenceError> {
+        let exists = self
+            .conn
+            .query_row(
+                r"
+                SELECT 1
+                FROM conversation_items
+                WHERE item_id = ?1 AND conversation_id = ?2
+                LIMIT 1
+                ",
+                params![item_id, conversation_id],
+                |_| Ok(()),
+            )
+            .optional()
+            .map_err(MemoryPersistenceError::Sqlite)?
+            .is_some();
+        if exists {
+            Ok(())
+        } else {
+            Err(MemoryPersistenceError::ObjectRefNotFound {
+                object_type: ObjectType::ConversationItem.as_str().to_string(),
+                object_id: item_id.to_string(),
+            })
+        }
+    }
+}
+
+fn validate_optional_object_ref(
+    conn: &rusqlite::Connection,
+    object_type: ObjectType,
+    object_id: Option<&str>,
+) -> Result<(), MemoryPersistenceError> {
+    if let Some(object_id) = object_id {
+        validate_object_ref_for_conn(conn, &ObjectRef::new(object_type, object_id)?)
+    } else {
+        Ok(())
+    }
+}
+
+fn invalid_enum<T>(kind: &'static str, value: &str) -> Result<T, MemoryPersistenceError> {
+    Err(MemoryPersistenceError::InvalidEnum {
+        kind,
+        value: value.to_string(),
+    })
+}
