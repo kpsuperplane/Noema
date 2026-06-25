@@ -329,9 +329,20 @@ pub(super) fn memory_activity(
     summary: Option<&str>,
     metadata: serde_json::Value,
 ) -> TurnTranscriptItem {
+    typed_memory_activity(id, "memory_extraction", status, title, summary, metadata)
+}
+
+pub(super) fn typed_memory_activity(
+    id: &str,
+    activity_kind: &str,
+    status: TurnActivityStatus,
+    title: &str,
+    summary: Option<&str>,
+    metadata: serde_json::Value,
+) -> TurnTranscriptItem {
     TurnTranscriptItem::Activity {
         id: id.to_string(),
-        activity_kind: "memory_extraction".to_string(),
+        activity_kind: activity_kind.to_string(),
         status,
         title: title.to_string(),
         summary: summary.map(ToOwned::to_owned),

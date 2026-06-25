@@ -4,7 +4,7 @@ use std::{
 };
 
 use crate::{
-    NoemaPathError, NoemaPaths, memory_persistence::MemoryPersistenceError,
+    NoemaPathError, NoemaPaths, WebConfig, memory_persistence::MemoryPersistenceError,
     provider::ProviderError, providers::codex::CodexProviderConfig,
 };
 use serde::{Deserialize, Serialize};
@@ -144,16 +144,24 @@ pub struct DaemonServerConfig {
     pub codex: CodexProviderConfig,
     /// Canonical SQLite database path.
     pub database_path: PathBuf,
+    /// Local web UI configuration.
+    pub web: WebConfig,
 }
 
 impl DaemonServerConfig {
     /// Create daemon server configuration.
     #[must_use]
-    pub fn new(socket_path: PathBuf, codex: CodexProviderConfig, database_path: PathBuf) -> Self {
+    pub fn new(
+        socket_path: PathBuf,
+        codex: CodexProviderConfig,
+        database_path: PathBuf,
+        web: WebConfig,
+    ) -> Self {
         Self {
             socket_path,
             codex,
             database_path,
+            web,
         }
     }
 }

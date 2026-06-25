@@ -1,0 +1,37 @@
+<!-- @dsCard group="Brand" viewport="700x230" name="Voice & tone" subtitle="Plain-spoken, warm, transparent — never hypey" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<link rel="stylesheet" href="../styles.css" />
+<style>
+  body { margin: 0; background: var(--surface-card); font-family: var(--font-sans); }
+  .wrap { padding: 22px 26px; display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .col { border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 14px 16px; }
+  .col.yes { background: var(--surface-brand-soft); border-color: var(--pine-100); }
+  .col.no { background: var(--surface-sunken); }
+  .tag { display: inline-flex; align-items: center; gap: 6px; font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 9px; }
+  .yes .tag { color: var(--pine-700); }
+  .no .tag { color: var(--text-muted); }
+  .q { font-size: 14.5px; line-height: 1.5; color: var(--text-primary); margin: 0 0 8px; }
+  .q:last-child { margin-bottom: 0; }
+  .no .q { color: var(--text-muted); text-decoration: line-through; text-decoration-color: var(--border-strong); }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="col yes">
+      <div class="tag">● We say</div>
+      <p class="q">"Noema runs on your machine. You decide what it can touch."</p>
+      <p class="q">"Here's exactly what the agent did."</p>
+      <p class="q">"Want a hand setting this up?"</p>
+    </div>
+    <div class="col no">
+      <div class="tag">✕ Not</div>
+      <p class="q">"Revolutionary AI that supercharges your workflow!"</p>
+      <p class="q">"Our proprietary engine handles everything."</p>
+      <p class="q">"Leverage synergistic agentic paradigms."</p>
+    </div>
+  </div>
+</body>
+</html>

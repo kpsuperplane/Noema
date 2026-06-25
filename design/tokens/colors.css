@@ -1,0 +1,106 @@
+/* ============================================================
+   NOEMA · COLORS
+   A warm "paper & ink" foundation. Pine green carries trust,
+   security and the open-source spirit; clay adds friendliness.
+   Base ramps first, then semantic aliases (use the aliases).
+   ============================================================ */
+
+:root {
+  /* ---- Warm neutral ramp · paper → ink ---- */
+  --paper-50:  #FCFAF5;
+  --paper-100: #F7F2E8;
+  --paper-200: #EFE7D7;
+  --paper-300: #E4D9C5;
+  --paper-400: #CFC2A8;
+  --ink-900:   #17160F;
+  --ink-800:   #2A2820;
+  --ink-700:   #423F33;
+  --ink-600:   #5E5A4B;
+  --ink-500:   #827D6B;
+  --ink-400:   #A8A38E;
+  --pure-white: #FFFFFF;
+
+  /* ---- Brand · Pine (evergreen) ---- */
+  --pine-50:  #E9F2EC;
+  --pine-100: #C9E4D6;
+  --pine-200: #97CDB1;
+  --pine-300: #5FA886;
+  --pine-400: #34906A;
+  --pine-500: #1F7A57;
+  --pine-600: #176046;
+  --pine-700: #114A37;
+  --pine-800: #0E3A2B;
+  --pine-900: #0B2A20;
+
+  /* ---- Accent · Clay (warm terracotta) ---- */
+  --clay-50:  #FBEDE3;
+  --clay-100: #F6DBC8;
+  --clay-300: #E9A87C;
+  --clay-400: #E08856;
+  --clay-500: #D9663F;
+  --clay-600: #BC4E2B;
+  --clay-700: #97401F;
+
+  /* ---- Signal hues (semantic only) ---- */
+  --amber-100: #FAEACB; --amber-500: #DB9426; --amber-700: #9A6411;
+  --red-100:   #F8DBD3; --red-500:   #C8412E; --red-700:   #8F2A1C;
+  --blue-100:  #D7E8EF; --blue-500:  #2E6F8E; --blue-700:  #1D4A60;
+
+  /* ============================================================
+     SEMANTIC ALIASES — reference these in components
+     ============================================================ */
+
+  /* Text */
+  --text-primary:   var(--ink-900);
+  --text-secondary: var(--ink-600);
+  --text-muted:     var(--ink-500);
+  --text-faint:     var(--ink-400);
+  --text-inverse:   var(--paper-50);
+  --text-brand:     var(--pine-600);
+  --text-accent:    var(--clay-600);
+  --text-link:      var(--pine-600);
+
+  /* Surfaces */
+  --surface-page:    var(--pure-white);
+  --surface-card:    var(--pure-white);
+  --surface-sunken:  var(--paper-200);
+  --surface-raised:  var(--pure-white);
+  --surface-inverse: var(--ink-900);
+  --surface-brand:   var(--pine-500);
+  --surface-brand-soft: var(--pine-50);
+  --surface-accent-soft: var(--clay-50);
+  --surface-hover:   rgba(23, 22, 15, 0.04);
+  --surface-active:  rgba(23, 22, 15, 0.07);
+
+  /* Borders / lines */
+  --border-subtle:  rgba(23, 22, 15, 0.08);
+  --border-default: rgba(23, 22, 15, 0.14);
+  --border-strong:  rgba(23, 22, 15, 0.26);
+  --border-brand:   var(--pine-500);
+  --border-focus:   var(--pine-500);
+
+  /* Interactive — primary (pine) */
+  --action-primary:        var(--pine-500);
+  --action-primary-hover:  var(--pine-600);
+  --action-primary-active: var(--pine-700);
+  --action-primary-text:   var(--paper-50);
+
+  /* Interactive — accent (clay) */
+  --action-accent:        var(--clay-500);
+  --action-accent-hover:  var(--clay-600);
+  --action-accent-active: var(--clay-700);
+  --action-accent-text:   var(--paper-50);
+
+  /* Status */
+  --status-success:      var(--pine-500);
+  --status-success-soft: var(--pine-50);
+  --status-warning:      var(--amber-500);
+  --status-warning-soft: var(--amber-100);
+  --status-danger:       var(--red-500);
+  --status-danger-soft:  var(--red-100);
+  --status-info:         var(--blue-500);
+  --status-info-soft:    var(--blue-100);
+
+  /* Focus ring */
+  --ring: 0 0 0 3px rgba(31, 122, 87, 0.30);
+}

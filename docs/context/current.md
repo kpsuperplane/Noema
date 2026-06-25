@@ -10,6 +10,7 @@ V1 should stay small and concrete:
 
 - Local Noema home and config.
 - Codex-backed chat through the daemon.
+- Core-hosted local React web chat as the first frontend shell.
 - Persisted conversations and memory records.
 - Memory review and context graph inspection.
 - Frontend IA that exposes memory and provenance progressively instead of starting with admin dashboards.
@@ -25,11 +26,13 @@ V1 should stay small and concrete:
 - Graph or fuzzy retrieval can suggest candidates, but policy gates inclusion.
 - Pre-V1 schema changes do not need migrations or backwards compatibility unless explicitly requested.
 - V1 frontend should start with chat, memory, and inspection before exposing full workspaces, tasks, agents, tools, or governance.
+- The current frontend endpoint is a native Noema WebSocket served by the daemon, not an OpenAI-compatible API.
+- Frontend build and lint use Bun from `crates/noema-core/web`.
 
 ## Open Loops
 
 - Persist context packets consistently for each governed run.
-- Keep memory extraction from ordinary chat visible in chat as activity, similar to a tool call.
+- Add richer web drill-ins for memory details, memory review, and context graph inspection.
 - Continue aligning docs, schema, CLI inspection commands, and frontend IA.
 - Decide which export formats ship first and how export preview/redaction should work.
 - Revisit migrations only when the project needs persisted user data compatibility.
@@ -67,6 +70,7 @@ cargo test --workspace --no-fail-fast
 
 For frontend or UI work:
 
+- Run `bun run lint` and `bun run build` in `crates/noema-core/web`.
 - Run the local app/server.
 - Capture desktop and mobile screenshots.
 - Inspect overflow, spacing, safe areas, and visual regressions.

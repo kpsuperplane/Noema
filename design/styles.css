@@ -1,0 +1,11 @@
+/* ============================================================
+   NOEMA DESIGN SYSTEM — global entry point.
+   Consumers link THIS file only. Keep it @import lines only.
+   ============================================================ */
+
+@import url('tokens/fonts.css');
+@import url('tokens/colors.css');
+@import url('tokens/typography.css');
+@import url('tokens/spacing.css');
+@import url('tokens/effects.css');
+@import url('tokens/base.css');

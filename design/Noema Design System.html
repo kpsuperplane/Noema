@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Noema — Design System Spec</title>
+<link rel="stylesheet" href="styles.css" />
+<style>
+  html { scroll-behavior: smooth; }
+  body { margin: 0; background: var(--surface-page); color: var(--text-primary); font-family: var(--font-sans); }
+
+  .spec { display: grid; grid-template-columns: 232px minmax(0, 1fr); max-width: 1180px; margin: 0 auto; }
+
+  /* ---- Sticky table of contents ---- */
+  .toc { position: sticky; top: 0; align-self: start; height: 100vh; padding: 30px 22px; box-sizing: border-box;
+         border-right: 1px solid var(--border-subtle); display: flex; flex-direction: column; }
+  .toc__brand { display: flex; align-items: center; gap: 9px; margin-bottom: 26px; }
+  .toc__word { font-family: var(--font-display); font-weight: 700; font-size: 19px; letter-spacing: -0.035em; }
+  .toc__group { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;
+                color: var(--text-faint); margin: 18px 0 8px; }
+  .toc a { display: block; padding: 5px 9px; margin: 1px 0; border-radius: var(--radius-sm); font-size: 13.5px;
+           color: var(--text-secondary); text-decoration: none; transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
+  .toc a:hover { background: var(--surface-hover); color: var(--text-primary); text-decoration: none; }
+  .toc__foot { margin-top: auto; padding-top: 18px; font-family: var(--font-mono); font-size: 10.5px; color: var(--text-faint); line-height: 1.6; }
+
+  /* ---- Main column ---- */
+  .main { padding: 0 48px 96px; min-width: 0; }
+  section { padding-top: 64px; scroll-margin-top: 20px; }
+  .eyebrow { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-accent); }
+  .h2 { font-family: var(--font-display); font-weight: 700; font-size: 30px; letter-spacing: -0.025em; margin: 8px 0 6px; }
+  .lede { font-size: 15.5px; line-height: 1.6; color: var(--text-secondary); max-width: 640px; margin: 0 0 24px; }
+  .h3 { font-size: 13px; font-weight: 700; color: var(--text-primary); margin: 28px 0 12px; }
+
+  /* ---- Cover ---- */
+  .cover { padding-top: 56px; }
+  .cover__mark { width: 56px; height: 56px; }
+  .cover__h1 { font-family: var(--font-display); font-weight: 800; font-size: clamp(40px, 6vw, 66px); line-height: 0.96;
+               letter-spacing: -0.04em; margin: 22px 0 0; }
+  .cover__sub { font-size: 18px; line-height: 1.55; color: var(--text-secondary); max-width: 600px; margin: 18px 0 0; }
+  .cover__chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 26px; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 12px; border-radius: var(--radius-pill);
+          font-family: var(--font-mono); font-size: 11.5px; color: var(--text-secondary); background: var(--surface-card);
+          border: 1px solid var(--border-subtle); box-shadow: var(--shadow-xs); }
+  .chip b { color: var(--pine-600); }
+  .essence { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-top: 34px; }
+  .essence__card { background: var(--surface-card); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg);
+                   padding: 16px; box-shadow: var(--shadow-xs); }
+  .essence__k { font-family: var(--font-display); font-weight: 700; font-size: 16px; letter-spacing: -0.02em; }
+  .essence__v { font-size: 12.5px; color: var(--text-muted); line-height: 1.45; margin-top: 4px; }
+
+  /* ---- Color ---- */
+  .ramp { display: flex; border-radius: var(--radius-md); overflow: hidden; box-shadow: var(--shadow-xs); border: 1px solid var(--border-subtle); }
+  .ramp__sw { flex: 1; height: 64px; display: flex; align-items: flex-end; padding: 6px 7px; }
+  .ramp__sw span { font-family: var(--font-mono); font-size: 9.5px; }
+  .ramp__meta { display: flex; justify-content: space-between; margin-top: 9px; margin-bottom: 4px; }
+  .ramp__meta b { font-size: 13px; } .ramp__meta code { font-family: var(--font-mono); font-size: 11.5px; color: var(--text-muted); }
+  .sem { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+  .sem__pair { display: flex; height: 48px; border-radius: var(--radius-sm); overflow: hidden; box-shadow: var(--shadow-xs); }
+  .sem__pair .soft { flex: 1; } .sem__pair .solid { width: 42%; }
+  .sem__lab { font-size: 12.5px; font-weight: 600; margin-top: 7px; }
+  .sem__hex { font-family: var(--font-mono); font-size: 10px; color: var(--text-muted); }
+
+  /* ---- Type ---- */
+  .type-line { display: flex; align-items: baseline; gap: 16px; padding: 7px 0; border-bottom: 1px solid var(--border-subtle); }
+  .type-line:last-child { border-bottom: none; }
+  .type-line .spec-glyph { color: var(--text-primary); line-height: 1.1; white-space: nowrap; }
+  .type-line .tok { margin-left: auto; font-family: var(--font-mono); font-size: 10.5px; color: var(--text-muted); }
+  .families { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 26px; }
+  .fam { background: var(--surface-card); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); padding: 18px; box-shadow: var(--shadow-xs); }
+  .fam__big { font-size: 34px; letter-spacing: -0.02em; color: var(--text-primary); }
+  .fam__name { font-size: 13px; font-weight: 600; margin-top: 10px; }
+  .fam__use { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+  .fam__tok { font-family: var(--font-mono); font-size: 10.5px; color: var(--text-faint); margin-top: 8px; }
+
+  /* ---- Spacing / radii / shadows ---- */
+  .specimens { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
+  .panel { background: var(--surface-card); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); padding: 20px; box-shadow: var(--shadow-xs); }
+  .panel__h { font-size: 12px; font-weight: 700; margin-bottom: 16px; }
+  .scale-row { display: flex; align-items: flex-end; gap: 12px; }
+  .scale-col { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  .scale-bar { background: var(--pine-300); border-radius: 3px; width: 18px; }
+  .scale-col .px { font-family: var(--font-mono); font-size: 10px; color: var(--text-primary); font-weight: 600; }
+  .radii-row, .shadow-row { display: flex; gap: 16px; align-items: flex-end; flex-wrap: wrap; }
+  .radii-box { width: 54px; height: 54px; background: var(--surface-brand-soft); border: 1.5px solid var(--pine-300); }
+  .shadow-box { width: 66px; height: 50px; background: var(--surface-card); border-radius: var(--radius-md); }
+  .mtok { font-family: var(--font-mono); font-size: 10px; color: var(--text-muted); text-align: center; margin-top: 8px; }
+
+  /* ---- Iconography ---- */
+  .icon-grid { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 6px; }
+  .icon-cell { width: 46px; height: 46px; display: flex; align-items: center; justify-content: center; color: var(--text-secondary);
+               background: var(--surface-card); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); box-shadow: var(--shadow-xs); }
+
+  /* ---- Voice ---- */
+  .voice { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .voice__col { border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); padding: 18px; }
+  .voice__col.yes { background: var(--surface-brand-soft); border-color: var(--pine-100); }
+  .voice__col.no { background: var(--surface-sunken); }
+  .voice__tag { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 10px; }
+  .yes .voice__tag { color: var(--pine-700); } .no .voice__tag { color: var(--text-muted); }
+  .voice__q { font-size: 14px; line-height: 1.5; margin: 0 0 9px; }
+  .voice__q:last-child { margin-bottom: 0; }
+  .no .voice__q { color: var(--text-muted); text-decoration: line-through; text-decoration-color: var(--border-strong); }
+
+  /* ---- Component gallery ---- */
+  .gx-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  .gx-block { background: var(--surface-card); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg);
+              padding: 16px 18px; box-shadow: var(--shadow-xs); }
+  .gx-block__label { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase;
+                     color: var(--text-faint); margin-bottom: 14px; }
+  .gx-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+  .gx-cards { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+  .gx-ct { font-family: var(--font-display); font-weight: 700; font-size: 14px; }
+  .gx-cb { font-size: 11.5px; color: var(--text-secondary); margin-top: 3px; line-height: 1.4; }
+
+  .footer { margin-top: 80px; padding-top: 24px; border-top: 1px solid var(--border-subtle); font-size: 12.5px; color: var(--text-muted); }
+  .footer code { font-family: var(--font-mono); color: var(--text-secondary); }
+
+  @media (max-width: 860px) {
+    .spec { grid-template-columns: 1fr; }
+    .toc { display: none; }
+    .main { padding: 0 24px 64px; }
+    .essence, .families, .specimens, .gx-grid, .voice, .sem { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="spec">
+  <!-- ============ TOC ============ -->
+  <aside class="toc">
+    <div class="toc__brand">
+      <img src="assets/noema-mark.svg" width="28" height="28" alt="" />
+      <span class="toc__word">noema</span>
+    </div>
+    <a href="#overview">Overview</a>
+    <div class="toc__group">Foundations</div>
+    <a href="#color">Color</a>
+    <a href="#type">Typography</a>
+    <a href="#space">Spacing &amp; radii</a>
+    <a href="#elevation">Elevation &amp; motion</a>
+    <a href="#icons">Iconography</a>
+    <div class="toc__group">Brand</div>
+    <a href="#voice">Voice &amp; tone</a>
+    <div class="toc__group">Library</div>
+    <a href="#components">Components</a>
+    <div class="toc__foot">Noema Design System<br />v0.4.2 · MIT-spirited<br />Built from brief — in review</div>
+  </aside>
+
+  <!-- ============ MAIN ============ -->
+  <main class="main">
+    <!-- Cover -->
+    <section id="overview" class="cover">
+      <img class="cover__mark" src="assets/noema-mark.svg" alt="Noema" />
+      <h1 class="cover__h1">Noema Design System</h1>
+      <p class="cover__sub">The visual language for a friendly, powerful, open-source personal agent platform — local-first, transparent, and thoughtfully built throughout.</p>
+      <div class="cover__chips">
+        <span class="chip"><b>17</b> components</span>
+        <span class="chip"><b>155</b> tokens</span>
+        <span class="chip">Pine &amp; clay palette</span>
+        <span class="chip">Bricolage · Hanken · JetBrains&nbsp;Mono</span>
+        <span class="chip">MIT-spirited</span>
+      </div>
+      <div class="essence">
+        <div class="essence__card"><div class="essence__k">Casual</div><div class="essence__v">Approachable, plain-spoken, never hypey.</div></div>
+        <div class="essence__card"><div class="essence__k">Helpful</div><div class="essence__v">Clear about what it can and can't do.</div></div>
+        <div class="essence__card"><div class="essence__k">Secure</div><div class="essence__v">Permission by default; user in control.</div></div>
+        <div class="essence__card"><div class="essence__k">Thoughtful</div><div class="essence__v">Built with evident craft, end to end.</div></div>
+      </div>
+    </section>
+
+    <!-- Color -->
+    <section id="color">
+      <span class="eyebrow">Foundations</span>
+      <h2 class="h2">Color</h2>
+      <p class="lede">A warm "paper &amp; ink" world. <b>Pine</b> carries trust, security and the open-source spirit; <b>clay</b> adds friendliness. We deliberately avoid cold blue-purple AI gradients. Always reference the semantic aliases in product code.</p>
+
+      <div class="ramp__meta"><b>Pine — brand primary</b><code>--action-primary = --pine-500 · #1F7A57</code></div>
+      <div class="ramp">
+        <div class="ramp__sw" style="background:var(--pine-50)"><span style="color:#114A37">50</span></div>
+        <div class="ramp__sw" style="background:var(--pine-100)"><span style="color:#114A37">100</span></div>
+        <div class="ramp__sw" style="background:var(--pine-200)"><span style="color:#0B2A20">200</span></div>
+        <div class="ramp__sw" style="background:var(--pine-300)"><span style="color:#0B2A20">300</span></div>
+        <div class="ramp__sw" style="background:var(--pine-400)"><span style="color:#F7F2E8">400</span></div>
+        <div class="ramp__sw" style="background:var(--pine-500)"><span style="color:#F7F2E8">500</span></div>
+        <div class="ramp__sw" style="background:var(--pine-600)"><span style="color:#F7F2E8">600</span></div>
+        <div class="ramp__sw" style="background:var(--pine-700)"><span style="color:#F7F2E8">700</span></div>
+        <div class="ramp__sw" style="background:var(--pine-800)"><span style="color:#F7F2E8">800</span></div>
+        <div class="ramp__sw" style="background:var(--pine-900)"><span style="color:#F7F2E8">900</span></div>
+      </div>
+
+      <div class="ramp__meta" style="margin-top:20px"><b>Clay — accent</b><code>--action-accent = --clay-500 · #D9663F</code></div>
+      <div class="ramp">
+        <div class="ramp__sw" style="background:var(--clay-50)"><span style="color:#97401F">50</span></div>
+        <div class="ramp__sw" style="background:var(--clay-100)"><span style="color:#97401F">100</span></div>
+        <div class="ramp__sw" style="background:var(--clay-300)"><span style="color:#97401F">300</span></div>
+        <div class="ramp__sw" style="background:var(--clay-400)"><span style="color:#FBEDE3">400</span></div>
+        <div class="ramp__sw" style="background:var(--clay-500)"><span style="color:#FBEDE3">500</span></div>
+        <div class="ramp__sw" style="background:var(--clay-600)"><span style="color:#FBEDE3">600</span></div>
+        <div class="ramp__sw" style="background:var(--clay-700)"><span style="color:#FBEDE3">700</span></div>
+      </div>
+
+      <div class="ramp__meta" style="margin-top:20px"><b>Paper → Ink — warm neutrals</b><code>page #FFFFFF · card #FFFFFF · text #17160F</code></div>
+      <div class="ramp">
+        <div class="ramp__sw" style="background:var(--paper-50)"><span style="color:#5E5A4B">p50</span></div>
+        <div class="ramp__sw" style="background:var(--paper-100)"><span style="color:#5E5A4B">100</span></div>
+        <div class="ramp__sw" style="background:var(--paper-200)"><span style="color:#5E5A4B">200</span></div>
+        <div class="ramp__sw" style="background:var(--paper-300)"><span style="color:#5E5A4B">300</span></div>
+        <div class="ramp__sw" style="background:var(--paper-400)"><span style="color:#2A2820">400</span></div>
+        <div class="ramp__sw" style="background:var(--ink-500)"><span style="color:#FCFAF5">i5</span></div>
+        <div class="ramp__sw" style="background:var(--ink-600)"><span style="color:#FCFAF5">i6</span></div>
+        <div class="ramp__sw" style="background:var(--ink-700)"><span style="color:#FCFAF5">i7</span></div>
+        <div class="ramp__sw" style="background:var(--ink-800)"><span style="color:#FCFAF5">i8</span></div>
+        <div class="ramp__sw" style="background:var(--ink-900)"><span style="color:#FCFAF5">i9</span></div>
+      </div>
+
+      <h3 class="h3">Semantic · soft + solid pairs</h3>
+      <div class="sem">
+        <div><div class="sem__pair"><div class="soft" style="background:var(--status-success-soft)"></div><div class="solid" style="background:var(--status-success)"></div></div><div class="sem__lab">Success</div><div class="sem__hex">#1F7A57</div></div>
+        <div><div class="sem__pair"><div class="soft" style="background:var(--status-warning-soft)"></div><div class="solid" style="background:var(--status-warning)"></div></div><div class="sem__lab">Warning</div><div class="sem__hex">#DB9426</div></div>
+        <div><div class="sem__pair"><div class="soft" style="background:var(--status-danger-soft)"></div><div class="solid" style="background:var(--status-danger)"></div></div><div class="sem__lab">Danger</div><div class="sem__hex">#C8412E</div></div>
+        <div><div class="sem__pair"><div class="soft" style="background:var(--status-info-soft)"></div><div class="solid" style="background:var(--status-info)"></div></div><div class="sem__lab">Info</div><div class="sem__hex">#2E6F8E</div></div>
+      </div>
+    </section>
+
+    <!-- Type -->
+    <section id="type">
+      <span class="eyebrow">Foundations</span>
+      <h2 class="h2">Typography</h2>
+      <p class="lede">A display grotesque with character, a warm humanist body face, and a developer-credible mono for the agent's voice — tool names, commands, timestamps.</p>
+      <div class="families">
+        <div class="fam"><div class="fam__big" style="font-family:var(--font-display); font-weight:700">Agents you own</div><div class="fam__name">Bricolage Grotesque</div><div class="fam__use">Display · headlines · 600–800</div><div class="fam__tok">--font-display</div></div>
+        <div class="fam"><div class="fam__big" style="font-family:var(--font-sans); font-weight:500">Local-first &amp; clear</div><div class="fam__name">Hanken Grotesk</div><div class="fam__use">Body · UI · 400–700</div><div class="fam__tok">--font-sans</div></div>
+        <div class="fam"><div class="fam__big" style="font-family:var(--font-mono); font-weight:500">web_search()</div><div class="fam__name">JetBrains Mono</div><div class="fam__use">Code · agent · meta · 400–600</div><div class="fam__tok">--font-mono</div></div>
+      </div>
+      <div class="panel">
+        <div class="type-line"><span class="spec-glyph" style="font-family:var(--font-display); font-weight:800; font-size:48px">Noema</span><span class="tok">--text-3xl · 48</span></div>
+        <div class="type-line"><span class="spec-glyph" style="font-family:var(--font-display); font-weight:700; font-size:36px">Noema</span><span class="tok">--text-2xl · 36</span></div>
+        <div class="type-line"><span class="spec-glyph" style="font-family:var(--font-display); font-weight:700; font-size:28px">Noema</span><span class="tok">--text-xl · 28</span></div>
+        <div class="type-line"><span class="spec-glyph" style="font-family:var(--font-display); font-weight:700; font-size:22px">Noema</span><span class="tok">--text-lg · 22</span></div>
+        <div class="type-line"><span class="spec-glyph" style="font-family:var(--font-sans); font-weight:500; font-size:18px">Noema body lead</span><span class="tok">--text-md · 18</span></div>
+        <div class="type-line"><span class="spec-glyph" style="font-family:var(--font-sans); font-weight:400; font-size:16px">Noema body default</span><span class="tok">--text-base · 16</span></div>
+        <div class="type-line"><span class="spec-glyph" style="font-family:var(--font-mono); font-weight:400; font-size:13px">tool · timestamp · meta</span><span class="tok">--text-sm / xs / 2xs</span></div>
+      </div>
+    </section>
+
+    <!-- Spacing & radii -->
+    <section id="space">
+      <span class="eyebrow">Foundations</span>
+      <h2 class="h2">Spacing &amp; radii</h2>
+      <p class="lede">A 4px base grid keeps rhythm consistent. Corner radii are generous but not bubbly — friendly, still serious.</p>
+      <div class="specimens">
+        <div class="panel">
+          <div class="panel__h">Spacing scale · 4px base</div>
+          <div class="scale-row">
+            <div class="scale-col"><span class="px">4</span><div class="scale-bar" style="height:4px"></div></div>
+            <div class="scale-col"><span class="px">8</span><div class="scale-bar" style="height:8px"></div></div>
+            <div class="scale-col"><span class="px">12</span><div class="scale-bar" style="height:12px"></div></div>
+            <div class="scale-col"><span class="px">16</span><div class="scale-bar" style="height:16px"></div></div>
+            <div class="scale-col"><span class="px">24</span><div class="scale-bar" style="height:24px"></div></div>
+            <div class="scale-col"><span class="px">32</span><div class="scale-bar" style="height:32px"></div></div>
+            <div class="scale-col"><span class="px">48</span><div class="scale-bar" style="height:48px"></div></div>
+            <div class="scale-col"><span class="px">64</span><div class="scale-bar" style="height:64px"></div></div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel__h">Corner radii</div>
+          <div class="radii-row">
+            <div><div class="radii-box" style="border-radius:var(--radius-xs)"></div><div class="mtok">xs · 4</div></div>
+            <div><div class="radii-box" style="border-radius:var(--radius-sm)"></div><div class="mtok">sm · 7</div></div>
+            <div><div class="radii-box" style="border-radius:var(--radius-md)"></div><div class="mtok">md · 11</div></div>
+            <div><div class="radii-box" style="border-radius:var(--radius-lg)"></div><div class="mtok">lg · 16</div></div>
+            <div><div class="radii-box" style="border-radius:var(--radius-xl)"></div><div class="mtok">xl · 22</div></div>
+            <div><div class="radii-box" style="border-radius:var(--radius-pill)"></div><div class="mtok">pill</div></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Elevation & motion -->
+    <section id="elevation">
+      <span class="eyebrow">Foundations</span>
+      <h2 class="h2">Elevation &amp; motion</h2>
+      <p class="lede">Shadows are warm ink-tinted (never neutral grey), layered and soft. Motion is calm — 120–200ms ease-out for UI, a slight spring on toggles and presses.</p>
+      <div class="specimens">
+        <div class="panel" style="background:var(--surface-page)">
+          <div class="panel__h">Shadow scale</div>
+          <div class="shadow-row">
+            <div><div class="shadow-box" style="box-shadow:var(--shadow-xs)"></div><div class="mtok">xs</div></div>
+            <div><div class="shadow-box" style="box-shadow:var(--shadow-sm)"></div><div class="mtok">sm</div></div>
+            <div><div class="shadow-box" style="box-shadow:var(--shadow-md)"></div><div class="mtok">md</div></div>
+            <div><div class="shadow-box" style="box-shadow:var(--shadow-lg)"></div><div class="mtok">lg</div></div>
+            <div><div class="shadow-box" style="box-shadow:var(--shadow-xl)"></div><div class="mtok">xl</div></div>
+            <div><div class="shadow-box" style="box-shadow:var(--shadow-brand)"></div><div class="mtok">brand</div></div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel__h">Easing &amp; duration</div>
+          <div style="display:flex; flex-direction:column; gap:12px; font-family:var(--font-mono); font-size:11.5px; color:var(--text-secondary)">
+            <div><b style="color:var(--text-primary)">--ease-out</b> · UI transitions · 120–200ms</div>
+            <div><b style="color:var(--text-primary)">--ease-spring</b> · toggles &amp; pop-ins · 200ms</div>
+            <div><b style="color:var(--text-primary)">--ease-in-out</b> · larger moves · 320ms</div>
+            <div style="color:var(--text-muted)">Press = scale 0.92–0.985 · Hover = step-darker or faint warm wash</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Iconography -->
+    <section id="icons">
+      <span class="eyebrow">Foundations</span>
+      <h2 class="h2">Iconography</h2>
+      <p class="lede"><b>Lucide</b> is the icon standard — a clean 24×24 grid with ~2px round-cap strokes, itself open source. No emoji or unicode glyphs as icons. <span style="color:var(--text-accent)">(Substitution — confirm or supply a bespoke set.)</span></p>
+      <div id="icon-grid" class="icon-grid"></div>
+    </section>
+
+    <!-- Voice -->
+    <section id="voice">
+      <span class="eyebrow">Brand</span>
+      <h2 class="h2">Voice &amp; tone</h2>
+      <p class="lede">Plain-spoken, warm, transparent. Address the user as "you"; the product is "Noema". Sentence case everywhere; wordmark lowercase. No emoji — warmth comes from tone and the clay accent.</p>
+      <div class="voice">
+        <div class="voice__col yes">
+          <div class="voice__tag">● We say</div>
+          <p class="voice__q">"Noema runs on your machine. You decide what it can touch."</p>
+          <p class="voice__q">"Here's exactly what the agent did."</p>
+          <p class="voice__q">"Want a hand setting this up?"</p>
+        </div>
+        <div class="voice__col no">
+          <div class="voice__tag">✕ Not</div>
+          <p class="voice__q">"Revolutionary AI that supercharges your workflow!"</p>
+          <p class="voice__q">"Our proprietary engine handles everything."</p>
+          <p class="voice__q">"Leverage synergistic agentic paradigms."</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Components -->
+    <section id="components">
+      <span class="eyebrow">Library</span>
+      <h2 class="h2">Components</h2>
+      <p class="lede">17 live primitives across core, forms, display, navigation, feedback, and agent groups — including Noema's signature <b>ChatMessage</b> and <b>ToolCall</b> "show your work" components. Every demo below is the real component from the bundle.</p>
+      <div id="gallery-root"></div>
+    </section>
+
+    <div class="footer">
+      Link <code>styles.css</code> · load <code>_ds_bundle.js</code> · read <code>window.NoemaDesignSystem_3d237e</code>. Foundation specimens and per-component demos also live in the <b>Design System</b> tab.
+    </div>
+  </main>
+</div>
+
+<script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.js"></script>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="_ds_bundle.js"></script>
+<script>
+  // Iconography specimen grid (vanilla — independent of React)
+  (function () {
+    var names = ['MessageSquare','Send','Plus','Settings','Wrench','ShieldCheck','Cpu','HardDrive','Eye','GitBranch','Boxes','Activity','Search','Paperclip','ArrowUp','Hash','Star','Github','BookOpen','SlidersHorizontal'];
+    function draw() {
+      if (!window.lucide || !window.lucide.icons) { return setTimeout(draw, 60); }
+      var grid = document.getElementById('icon-grid');
+      names.forEach(function (n) {
+        var node = window.lucide.icons[n]; if (!node) return;
+        var cell = document.createElement('div'); cell.className = 'icon-cell';
+        var attrs = node[1] || {}, kids = node[2] || [];
+        var svg = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">';
+        kids.forEach(function (c) {
+          svg += '<' + c[0] + ' ' + Object.keys(c[1]).map(function (k) { return k + '="' + c[1][k] + '"'; }).join(' ') + ' />';
+        });
+        svg += '</svg>'; cell.innerHTML = svg; grid.appendChild(cell);
+      });
+    }
+    draw();
+  })();
+</script>
+<script type="text/babel" src="spec/Gallery.jsx"></script>
+</body>
+</html>

@@ -264,6 +264,68 @@ fn codex_provider_does_not_require_openai_api_key() {
 }
 
 #[test]
+fn resolves_default_web_config() {
+    let resolved = load_resolved(
+        None,
+        CliOverrides::new(Some("codex".to_string()), None, None),
+        None,
+        &[],
+    )
+    .expect("config should load");
+
+    assert_eq!(
+        resolved.web,
+        WebConfig {
+            host: DEFAULT_WEB_HOST.to_string(),
+            port: DEFAULT_WEB_PORT,
+        }
+    );
+}
+
+#[test]
+fn resolves_web_config_from_yaml_and_env() {
+    let file = write_config(
+        r"
+provider: codex
+web:
+  host: 127.0.0.2
+  port: 4747
+",
+    );
+
+    let resolved = load_resolved(
+        Some(file.path().to_path_buf()),
+        CliOverrides::default(),
+        None,
+        &[
+            ("NOEMA_WEB__HOST", "127.0.0.3"),
+            ("NOEMA_WEB__PORT", "5757"),
+        ],
+    )
+    .expect("config should load");
+
+    assert_eq!(
+        resolved.web,
+        WebConfig {
+            host: "127.0.0.3".to_string(),
+            port: 5757,
+        }
+    );
+}
+
+#[test]
+fn daemon_config_resolves_codex_and_web_without_openai_credentials() {
+    let config = Config::load_daemon(
+        None,
+        CliOverrides::new(Some("codex".to_string()), None, None),
+    )
+    .expect("daemon config");
+
+    assert_eq!(config.codex.command, "codex");
+    assert_eq!(config.web.port, DEFAULT_WEB_PORT);
+}
+
+#[test]
 fn codex_config_reads_yaml_and_normalized_env_overrides() {
     let file = write_config(
         r"

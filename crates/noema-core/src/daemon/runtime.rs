@@ -19,7 +19,7 @@ use super::{
     memory_pipeline::{
         explicit_memory_content, extracted_proposal_to_candidate, infer_chat_memory_type,
         infer_chat_sensitivity, memory_activity, memory_activity_failed, project_scope_from_cwd,
-        title_from_memory_content,
+        title_from_memory_content, typed_memory_activity,
     },
     protocol::{DaemonError, StartedConversation, TurnActivityStatus, TurnTranscriptItem},
 };
@@ -214,9 +214,8 @@ impl CodexRuntimeActor {
                 DaemonError::Protocol(format!("unknown conversation id: {conversation_id}"))
             })?;
         let turn_index = conversation.next_turn_index;
-        let is_explicit_memory = explicit_memory_content(&input).is_some();
-
-        self.persist_chat_memory_candidate(&conversation_id, turn_index, &input)?;
+        let saved_memory_id =
+            self.persist_chat_memory_candidate(&conversation_id, turn_index, &input)?;
 
         match self
             .runtime
@@ -249,7 +248,20 @@ impl CodexRuntimeActor {
                     return Ok(());
                 }
 
-                if !is_explicit_memory {
+                if let Some(memory_id) = saved_memory_id {
+                    let _ = item_tx.send(typed_memory_activity(
+                        &format!("memory_save:{conversation_id}:{turn_index}"),
+                        "memory_save",
+                        TurnActivityStatus::Completed,
+                        "Memory saved",
+                        Some("saved one explicit memory"),
+                        json!({
+                            "turn_index": turn_index,
+                            "created_memory_ids": [memory_id],
+                            "trigger": "explicit_remember",
+                        }),
+                    ));
+                } else {
                     self.extract_ordinary_chat_memories(
                         &conversation_id,
                         conversation.cwd.as_deref(),
@@ -387,9 +399,9 @@ impl CodexRuntimeActor {
         conversation_id: &str,
         turn_index: u64,
         user_input: &str,
-    ) -> Result<(), DaemonError> {
+    ) -> Result<Option<String>, DaemonError> {
         let Some(memory_content) = explicit_memory_content(user_input) else {
-            return Ok(());
+            return Ok(None);
         };
 
         let conversation_scope_id = format!("conversation:{conversation_id}");
@@ -420,9 +432,10 @@ impl CodexRuntimeActor {
             "turn_index": turn_index,
         });
 
-        self.memory_repository
+        let memory = self
+            .memory_repository
             .append_chat_memory_candidate(&candidate)?;
-        Ok(())
+        Ok(Some(memory.id))
     }
 }
 

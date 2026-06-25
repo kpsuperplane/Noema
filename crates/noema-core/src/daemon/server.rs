@@ -9,6 +9,7 @@ use tokio::{
 use super::{
     protocol::{DaemonError, DaemonRequest, DaemonResponse, DaemonServerConfig},
     runtime::CodexRuntimeHandle,
+    web::{self, WebState},
 };
 
 /// Run the daemon until it receives a shutdown request.
@@ -19,12 +20,15 @@ use super::{
 /// start, or accepting a client connection fails.
 pub async fn run_daemon(config: DaemonServerConfig) -> Result<(), DaemonError> {
     let listener = bind_listener(&config.socket_path).await?;
-    let runtime = CodexRuntimeHandle::spawn(config.codex, config.database_path)?;
+    let web_listener = web::bind_listener(&config.web).await?;
+    let database_path = config.database_path.clone();
+    let runtime = CodexRuntimeHandle::spawn(config.codex, database_path.clone())?;
     let (shutdown_tx, mut shutdown_rx) = watch::channel(false);
     let state = Arc::new(DaemonState {
-        runtime,
+        runtime: runtime.clone(),
         shutdown_tx,
     });
+    let web_state = WebState::new(runtime, database_path);
 
     loop {
         tokio::select! {
@@ -41,6 +45,13 @@ pub async fn run_daemon(config: DaemonServerConfig) -> Result<(), DaemonError> {
                 let state = Arc::clone(&state);
                 tokio::spawn(async move {
                     let _ = handle_connection(stream, state).await;
+                });
+            }
+            accepted = web_listener.accept() => {
+                let (stream, _) = accepted?;
+                let web_state = web_state.clone();
+                tokio::spawn(async move {
+                    let _ = web::handle_connection(stream, web_state).await;
                 });
             }
         }

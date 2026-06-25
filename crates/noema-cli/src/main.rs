@@ -140,13 +140,15 @@ async fn run() -> Result<(), CliError> {
 
 async fn run_start(args: &Args) -> Result<(), CliError> {
     let paths = ensure_noema_home_for_start(args)?;
-    let codex = Config::load_codex(args.config.clone(), cli_overrides(args))?;
+    let daemon_config = Config::load_daemon(args.config.clone(), cli_overrides(args))?;
     let socket_path = paths.socket_path();
     eprintln!("noema daemon listening at {}", socket_path.display());
+    eprintln!("noema web chat available at {}", daemon_config.web.url());
     run_daemon(DaemonServerConfig::new(
         socket_path,
-        codex,
+        daemon_config.codex,
         paths.database_path(),
+        daemon_config.web,
     ))
     .await?;
     Ok(())

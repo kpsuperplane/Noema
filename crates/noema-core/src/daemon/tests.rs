@@ -172,10 +172,32 @@ async fn runtime_actor_persists_explicit_remember_confirmed() {
     .await
     .expect("turn");
     assert_eq!(assistant_text(&items), "fake answer");
+    assert!(items.iter().any(|item| {
+        matches!(
+            item,
+            TurnTranscriptItem::Activity {
+                activity_kind,
+                status: TurnActivityStatus::Completed,
+                title,
+                summary: Some(summary),
+                ..
+            } if activity_kind == "memory_save"
+                && title == "Memory saved"
+                && summary == "saved one explicit memory"
+        )
+    }));
     assert!(
-        !items
-            .iter()
-            .any(|item| matches!(item, TurnTranscriptItem::Activity { .. })),
+        !items.iter().any(|item| {
+            matches!(
+                item,
+                TurnTranscriptItem::Activity {
+                    activity_kind,
+                    title,
+                    ..
+                } if activity_kind == "memory_extraction"
+                    && title == "Extracting memory proposals"
+            )
+        }),
         "explicit memory should not trigger automatic extraction activity: {items:?}"
     );
     handle.shutdown().await;

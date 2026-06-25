@@ -7,6 +7,7 @@ mod runtime;
 mod server;
 #[cfg(test)]
 mod tests;
+mod web;
 
 pub use client::DaemonClient;
 pub use protocol::{

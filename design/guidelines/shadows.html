@@ -1,0 +1,25 @@
+<!-- @dsCard group="Spacing" viewport="700x200" name="Elevation / shadows" subtitle="Warm ink-tinted, layered & soft" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<link rel="stylesheet" href="../styles.css" />
+<style>
+  body { margin: 0; background: var(--surface-page); font-family: var(--font-sans); }
+  .wrap { padding: 26px; display: flex; gap: 22px; align-items: center; }
+  .col { display: flex; flex-direction: column; align-items: center; gap: 11px; }
+  .box { width: 78px; height: 60px; background: var(--surface-card); border-radius: var(--radius-md); }
+  .tok { font-family: var(--font-mono); font-size: 10.5px; color: var(--text-muted); }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="col"><div class="box" style="box-shadow:var(--shadow-xs)"></div><span class="tok">xs</span></div>
+    <div class="col"><div class="box" style="box-shadow:var(--shadow-sm)"></div><span class="tok">sm</span></div>
+    <div class="col"><div class="box" style="box-shadow:var(--shadow-md)"></div><span class="tok">md</span></div>
+    <div class="col"><div class="box" style="box-shadow:var(--shadow-lg)"></div><span class="tok">lg</span></div>
+    <div class="col"><div class="box" style="box-shadow:var(--shadow-xl)"></div><span class="tok">xl</span></div>
+    <div class="col"><div class="box" style="box-shadow:var(--shadow-brand)"></div><span class="tok">brand</span></div>
+  </div>
+</body>
+</html>

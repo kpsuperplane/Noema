@@ -174,7 +174,8 @@ tasks, approvals, runs, or reviews that a user needs an attention surface.
 The current repository implements only a narrow slice:
 
 - `noema config` initializes the Noema directory and config.
-- `noema start` runs a foreground local daemon.
+- `noema start` runs a foreground local daemon and serves the basic local web
+  chat.
 - `noema chat` starts daemon-backed Codex app-server chat.
 - One-shot prompts can use the configured provider.
 - Explicit `remember this:` and `/remember` messages are persisted.
@@ -183,6 +184,8 @@ The current repository implements only a narrow slice:
   `noema context graph --limit N` provide owner/admin inspection.
 - The daemon protocol already has transcript activity notices and an `A2uiCard`
   placeholder for future structured UI cards.
+- The first implemented frontend shell is the core-hosted React chat in
+  `crates/noema-core/web`, built and linted with Bun.
 
 The frontend plan intentionally includes target surfaces that are not fully
 backed by current Rust tables yet. Those surfaces should be staged and revealed
@@ -193,7 +196,7 @@ from chat/work context rather than pretending they already exist.
 | Area | Status | Notes |
 | --- | --- | --- |
 | Setup/config health | Current Rust-backed | `noema config`, `NoemaPaths`, config loading, daemon socket paths |
-| Live chat | Current Rust-backed | Daemon socket protocol and Codex app-server conversation runtime |
+| Live chat | Current Rust-backed | Daemon socket protocol, local web WebSocket, and Codex app-server conversation runtime |
 | Transcript activity | Current Rust-backed | Assistant text, activity notices, errors, turn completion, future `A2uiCard` payloads |
 | Persisted chat provenance | Current Rust-backed | Chat turns are recorded as `episodes` and `messages` after successful turns |
 | Explicit memory save | Current Rust-backed | `remember this:` and `/remember` persist memory with provenance |
@@ -205,7 +208,8 @@ from chat/work context rather than pretending they already exist.
 
 ## V1 Frontend Slice
 
-The first practical frontend slice should prove the chat-led mental model:
+The current first shell is a local web chat hosted by the core daemon. The
+first practical frontend slice should keep proving the chat-led mental model:
 
 1. Guided setup or pre-chat readiness state for local folder, Codex connection,
    local service, first chat, and first saved memory.
@@ -248,8 +252,8 @@ Later slices should add:
 
 ## Open Product Questions
 
-- What is the first shell: desktop app, local web chat, TUI, or launcher-backed
-  inspector?
+- Should a desktop app or launcher eventually own starting/stopping the
+  core-hosted local web chat?
 - What minimum local health UI is required before chat can be the default
   landing surface?
 - When should the thread rail appear: after the second chat, after pinned

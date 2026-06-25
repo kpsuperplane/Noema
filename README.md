@@ -8,6 +8,7 @@ This repository currently contains the first minimal Rust runtime slices:
   provider and prints the response
 - a foreground Noema daemon that owns a long-lived Codex app-server runtime
   for `noema chat`
+- a basic React web chat served by the core daemon
 
 Two providers are currently supported:
 
@@ -18,6 +19,7 @@ Two providers are currently supported:
 ## Requirements
 
 - Rust and Cargo
+- Bun for frontend development
 - `NOEMA_OPENAI__API_KEY` in the environment when using `provider: openai`
 - Codex CLI installed and authenticated when using `provider: codex`
 
@@ -43,6 +45,12 @@ runtime warm while the daemon is alive:
 codex login
 cargo run -p noema-cli -- config
 cargo run -p noema-cli -- start
+```
+
+`noema start` also hosts the local web chat. By default it is available at:
+
+```text
+http://127.0.0.1:3737
 ```
 
 In another terminal:
@@ -79,6 +87,9 @@ openai:
   organization_id: org_...
   project_id: proj_...
   timeout_seconds: 120
+web:
+  host: 127.0.0.1
+  port: 3737
 ```
 
 Configuration precedence is:
@@ -106,6 +117,8 @@ Supported environment variables:
 - `NOEMA_CODEX__STARTUP_TIMEOUT_SECONDS`
 - `NOEMA_CODEX__TURN_TIMEOUT_SECONDS`
 - `NOEMA_CODEX__HOME`
+- `NOEMA_WEB__HOST`
+- `NOEMA_WEB__PORT`
 
 Supported CLI flags:
 
@@ -144,12 +157,25 @@ uses `codex app-server --listen stdio://`, creates one Noema conversation per
 `db/noema.sqlite` and can be inspected with `noema memory list` and
 `noema memory show <id>`.
 
+The web chat uses Noema's native daemon WebSocket at `/api/chat/ws`, not an
+OpenAI-compatible API surface. An adapter can be added later if external client
+compatibility becomes a product requirement.
+
 ## Development
 
 ```bash
 cargo fmt --check
 cargo check --workspace
 cargo test --workspace
+```
+
+Frontend assets are built with Bun and embedded into `noema-core`:
+
+```bash
+cd crates/noema-core/web
+bun install
+bun run lint
+bun run build
 ```
 
 For daemon development, install `cargo-watch` and use the repo alias to restart

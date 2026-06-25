@@ -29,7 +29,10 @@ pub mod providers;
 mod retrieval_policy_fingerprint;
 mod sqlite_memory_retrieval;
 
-pub use config::{CliOverrides, Config, ConfigError, ProviderConfig, ProviderKind, ResolvedConfig};
+pub use config::{
+    CliOverrides, Config, ConfigError, DaemonResolvedConfig, ProviderConfig, ProviderKind,
+    ResolvedConfig, WebConfig,
+};
 pub use context_graph::{
     ContextGraphFilter, ContextGraphSummary, GraphAccessGrant, GraphContextPacket,
     GraphContextPacketMemoryEdge, GraphContextPacketOmission, GraphEntityNode, GraphMemoryEvent,

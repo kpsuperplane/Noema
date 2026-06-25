@@ -670,8 +670,10 @@ dependencies = [
 name = "noema-core"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "figment",
  "reqwest",
+ "ring",
  "rusqlite",
  "serde",
  "serde_json",

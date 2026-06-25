@@ -16,6 +16,10 @@ codex:
   ignore_user_config: false
   startup_timeout_seconds: 60
   turn_timeout_seconds: 300
+
+web:
+  host: 127.0.0.1
+  port: 3737
 ";
 
 /// Options for initializing or updating a Noema home directory.

@@ -1,0 +1,26 @@
+<!-- @dsCard group="Brand" viewport="700x160" name="Motion" subtitle="Calm easing, slight spring on press · 120–320ms" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<link rel="stylesheet" href="../styles.css" />
+<style>
+  body { margin: 0; background: var(--surface-card); font-family: var(--font-sans); }
+  .wrap { padding: 22px 26px; display: flex; gap: 30px; align-items: center; }
+  .demo { display: flex; flex-direction: column; gap: 10px; }
+  .track { width: 150px; height: 8px; background: var(--surface-sunken); border-radius: var(--radius-pill); position: relative; overflow: hidden; }
+  .dot { position: absolute; top: -4px; left: 0; width: 16px; height: 16px; border-radius: 50%; background: var(--pine-500); }
+  .e1 .dot { animation: slide 1.8s var(--ease-out) infinite alternate; }
+  .e2 .dot { animation: slide 1.8s var(--ease-spring) infinite alternate; }
+  @keyframes slide { to { left: 134px; } }
+  .tok { font-family: var(--font-mono); font-size: 10.5px; color: var(--text-muted); }
+  b { color: var(--text-primary); }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="demo e1"><div class="track"><div class="dot"></div></div><span class="tok"><b>ease-out</b> · UI transitions · 120–200ms</span></div>
+    <div class="demo e2"><div class="track"><div class="dot"></div></div><span class="tok"><b>ease-spring</b> · toggles, pop-ins · 200ms</span></div>
+  </div>
+</body>
+</html>

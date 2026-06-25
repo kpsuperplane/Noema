@@ -23,6 +23,7 @@ explicit owner/admin entry points.
 | Source | Current authority |
 | --- | --- |
 | Daemon socket protocol | Live chat, transcript items, memory extraction activity, daemon errors |
+| Daemon web server | Local React shell, `/api/status`, and native `/api/chat/ws` WebSocket |
 | `A2uiCard` payloads | Future structured cards inside the chat stream |
 | `config.yaml` and environment-derived config | Provider/model/default setup state; secrets remain environment-only |
 | `NoemaPaths` | Noema home, run directory, socket path, database path |
@@ -80,9 +81,11 @@ a feature is unavailable. Disabled rows must not present mutation controls.
 
 ## First Shell Assumption
 
-V1 must ship in a shell that can guide setup without requiring a beginner to
-open a terminal after launch. This may be a desktop app, local web chat, or
-launcher-backed inspector if the launcher can perform the beginner actions.
+The current V1 implementation starts with a core-hosted local web chat served by
+`noema start`. Longer term, V1 should ship in a shell that can guide setup
+without requiring a beginner to open a terminal after launch. That may remain
+local web chat, or become a desktop app or launcher-backed inspector if the
+launcher can perform the beginner actions.
 
 The frontend owns these beginner actions:
 
@@ -180,6 +183,8 @@ Events to render:
 
 Current behavior:
 
+- The current web frontend connects through the daemon's native `/api/chat/ws`
+  WebSocket. It is intentionally not OpenAI-compatible yet.
 - Daemon conversation IDs are runtime IDs such as `conversation_1`.
 - The daemon maps each runtime conversation to a provider thread in memory.
 - Ending or restarting the daemon removes active runtime conversation state.

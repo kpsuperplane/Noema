@@ -26,6 +26,10 @@ pub const DEFAULT_PROVIDER: &str = "openai";
 pub const DEFAULT_OPENAI_MODEL: &str = "gpt-5.5";
 /// Default `OpenAI` API base URL.
 pub const DEFAULT_OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
+/// Default host for the local web UI.
+pub const DEFAULT_WEB_HOST: &str = "127.0.0.1";
+/// Default port for the local web UI.
+pub const DEFAULT_WEB_PORT: u16 = 3737;
 /// Environment variable used for `OpenAI` API credentials.
 pub const OPENAI_API_KEY_ENV: &str = "NOEMA_OPENAI__API_KEY";
 
@@ -46,6 +50,8 @@ const CONFIG_ENV_KEYS: &[&str] = &[
     "codex.startup_timeout_seconds",
     "codex.turn_timeout_seconds",
     "codex.home",
+    "web.host",
+    "web.port",
 ];
 
 /// Configuration values supplied directly by the CLI.
@@ -97,6 +103,34 @@ pub struct CliOpenAiOverrides {
 pub struct ResolvedConfig {
     /// Selected provider configuration.
     pub provider: ProviderConfig,
+    /// Local web UI configuration.
+    pub web: WebConfig,
+}
+
+/// Configuration for the local web UI served by `noema start`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WebConfig {
+    /// Host/interface to bind.
+    pub host: String,
+    /// TCP port to bind.
+    pub port: u16,
+}
+
+impl Default for WebConfig {
+    fn default() -> Self {
+        Self {
+            host: DEFAULT_WEB_HOST.to_string(),
+            port: DEFAULT_WEB_PORT,
+        }
+    }
+}
+
+impl WebConfig {
+    /// Return the user-facing URL for this web UI configuration.
+    #[must_use]
+    pub fn url(&self) -> String {
+        format!("http://{}:{}", self.host, self.port)
+    }
 }
 
 /// Supported provider identifiers.
@@ -194,6 +228,33 @@ impl Config {
         let raw = load_raw_config(path_override, cli)?;
         raw.resolve_codex_config()
     }
+
+    /// Load daemon configuration without requiring non-daemon provider credentials.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ConfigError`] when path resolution fails, the config file is
+    /// missing or invalid, or Codex/web settings fail validation.
+    pub fn load_daemon(
+        path_override: Option<PathBuf>,
+        cli: CliOverrides,
+    ) -> Result<DaemonResolvedConfig, ConfigError> {
+        let raw = load_raw_config(path_override, cli)?;
+        let codex = raw.resolve_codex_config()?;
+        Ok(DaemonResolvedConfig {
+            codex,
+            web: raw.web,
+        })
+    }
+}
+
+/// Fully resolved configuration needed by the local daemon.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DaemonResolvedConfig {
+    /// Codex provider configuration used for daemon conversations.
+    pub codex: CodexProviderConfig,
+    /// Local web UI configuration.
+    pub web: WebConfig,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -203,6 +264,7 @@ struct RawConfig {
     model: Option<String>,
     openai: RawOpenAiConfig,
     codex: RawCodexConfig,
+    web: WebConfig,
 }
 
 impl Default for RawConfig {
@@ -212,6 +274,7 @@ impl Default for RawConfig {
             model: None,
             openai: RawOpenAiConfig::default(),
             codex: RawCodexConfig::default(),
+            web: WebConfig::default(),
         }
     }
 }
@@ -229,7 +292,10 @@ impl RawConfig {
             ProviderKind::Codex => ProviderConfig::Codex(self.resolve_codex_config()?),
         };
 
-        Ok(ResolvedConfig { provider })
+        Ok(ResolvedConfig {
+            provider,
+            web: self.web,
+        })
     }
 
     fn resolve_openai_config(&self) -> Result<OpenAiProviderConfig, ConfigError> {
@@ -351,6 +417,7 @@ struct FileConfig {
     model: Option<String>,
     openai: FileOpenAiConfig,
     codex: FileCodexConfig,
+    web: FileWebConfig,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -374,6 +441,13 @@ struct FileCodexConfig {
     startup_timeout_seconds: Option<u64>,
     turn_timeout_seconds: Option<u64>,
     home: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct FileWebConfig {
+    host: Option<String>,
+    port: Option<u16>,
 }
 
 /// Errors produced while resolving configuration.
