@@ -319,7 +319,7 @@ async fn run_one_shot(args: Args) -> Result<(), CliError> {
                 })
                 .await?;
 
-            print_response(&response.text)?;
+            print_response(&response.assistant_text())?;
         }
         ProviderConfig::Codex(codex_config) => {
             let model = codex_config.default_model.clone();
@@ -333,7 +333,7 @@ async fn run_one_shot(args: Args) -> Result<(), CliError> {
                 })
                 .await?;
 
-            print_response(&response.text)?;
+            print_response(&response.assistant_text())?;
         }
     }
 
@@ -614,6 +614,23 @@ mod tests {
                     limit: 9,
                     run_id: None,
                     context_packet_id: None,
+                    ..
+                }
+            })
+        ));
+    }
+
+    #[test]
+    fn parses_context_graph_mermaid_format() {
+        let args = Args::try_parse_from(["noema", "context", "graph", "--format", "mermaid"])
+            .expect("args");
+
+        assert!(matches!(
+            args.command,
+            Some(CommandKind::Context {
+                command: ContextCommand::Graph {
+                    format: inspection::ContextGraphFormat::Mermaid,
+                    ..
                 }
             })
         ));

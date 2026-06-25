@@ -296,6 +296,10 @@ fn inspects_context_graph_from_canonical_tables() {
         memory_node.external_egress_policy,
         ExternalEgressPolicy::ApprovalRequired
     );
+    assert_eq!(
+        memory_node.content,
+        "Kevin prefers inspectable context graphs."
+    );
     assert!(memory_node.retrieval_hints.contains("context graph"));
     assert!(
         graph

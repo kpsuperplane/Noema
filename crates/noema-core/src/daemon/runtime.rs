@@ -2,11 +2,16 @@ use std::{collections::HashMap, path::PathBuf};
 
 use crate::{
     memory::ParticipantRole,
-    memory_extraction::{build_memory_extraction_prompt, parse_memory_extraction_proposals},
+    memory_extraction::{
+        ExtractorMemoryProposal, ExtractorMemoryResponse, ValidatedMemoryProposal,
+        build_memory_extraction_prompt, parse_memory_extraction_proposals,
+        validate_memory_extraction_response,
+    },
     memory_persistence::{
         ChatMemorySource, MemoryAuthorityLevel, MemoryExtractionMethod, NewChatMemoryCandidate,
         NewChatTurn, NewMemoryParticipant, SqliteMemoryRepository,
     },
+    provider::GenerateOutputItem,
     providers::{
         codex::CodexProviderConfig,
         codex_app_server::{CodexAppServerConversation, CodexAppServerRuntime},
@@ -125,10 +130,132 @@ enum CodexRuntimeCommand {
     },
 }
 
+#[derive(Debug, Clone)]
+struct MemoryExtractionWorkerHandle {
+    sender: mpsc::Sender<MemoryExtractionWorkerCommand>,
+}
+
+impl MemoryExtractionWorkerHandle {
+    fn spawn(config: CodexProviderConfig, database_path: PathBuf) -> Result<Self, DaemonError> {
+        let (sender, receiver) = mpsc::channel(16);
+        let worker = MemoryExtractionWorker {
+            runtime: CodexAppServerRuntime::new(config)?,
+            memory_repository: SqliteMemoryRepository::open_at(database_path)?,
+        };
+        tokio::spawn(worker.run(receiver));
+        Ok(Self { sender })
+    }
+
+    async fn extract(&self, conversation_id: String, cwd: Option<String>, turn: NewChatTurn) {
+        let _ = self
+            .sender
+            .send(MemoryExtractionWorkerCommand::Extract {
+                conversation_id,
+                cwd,
+                turn: Box::new(turn),
+            })
+            .await;
+    }
+
+    async fn shutdown(&self) {
+        let (reply, reply_rx) = oneshot::channel();
+        let _ = self
+            .sender
+            .send(MemoryExtractionWorkerCommand::Shutdown { reply })
+            .await;
+        let _ = reply_rx.await;
+    }
+}
+
+#[derive(Debug)]
+enum MemoryExtractionWorkerCommand {
+    Extract {
+        conversation_id: String,
+        cwd: Option<String>,
+        turn: Box<NewChatTurn>,
+    },
+    Shutdown {
+        reply: oneshot::Sender<()>,
+    },
+}
+
+#[derive(Debug)]
+struct MemoryExtractionWorker {
+    runtime: CodexAppServerRuntime,
+    memory_repository: SqliteMemoryRepository,
+}
+
+impl MemoryExtractionWorker {
+    async fn run(mut self, mut receiver: mpsc::Receiver<MemoryExtractionWorkerCommand>) {
+        while let Some(command) = receiver.recv().await {
+            match command {
+                MemoryExtractionWorkerCommand::Extract {
+                    conversation_id,
+                    cwd,
+                    turn,
+                } => {
+                    let _ = self
+                        .extract_ordinary_chat_memories(&conversation_id, cwd.as_deref(), &turn)
+                        .await;
+                }
+                MemoryExtractionWorkerCommand::Shutdown { reply } => {
+                    self.runtime.shutdown().await;
+                    let _ = reply.send(());
+                    break;
+                }
+            }
+        }
+    }
+
+    async fn extract_ordinary_chat_memories(
+        &mut self,
+        conversation_id: &str,
+        cwd: Option<&str>,
+        turn: &NewChatTurn,
+    ) -> Result<Vec<String>, String> {
+        let project_hint = project_scope_from_cwd(cwd);
+        let prompt = build_memory_extraction_prompt(
+            &turn.user_content,
+            &turn.assistant_content,
+            conversation_id,
+            turn.turn_index,
+            project_hint.as_deref(),
+        );
+
+        let extraction_conversation = self
+            .runtime
+            .start_conversation(None, cwd.map(ToOwned::to_owned))
+            .await
+            .map_err(|error| format!("memory extraction model failed: {error}"))?;
+        let extraction_text = self
+            .runtime
+            .turn(&extraction_conversation, prompt)
+            .await
+            .map_err(|error| format!("memory extraction model failed: {error}"))?
+            .assistant_text();
+
+        let proposals = parse_memory_extraction_proposals(
+            &extraction_text,
+            &turn.user_content,
+            &turn.assistant_content,
+        )
+        .map_err(|error| format!("memory extraction output was rejected: {error}"))?;
+
+        persist_validated_memory_proposals(
+            &mut self.memory_repository,
+            conversation_id,
+            cwd,
+            turn,
+            proposals,
+            "ordinary_chat_extraction",
+        )
+    }
+}
+
 #[derive(Debug)]
 struct CodexRuntimeActor {
     runtime: CodexAppServerRuntime,
-    memory_extraction_runtime: CodexAppServerRuntime,
+    memory_extraction_worker: MemoryExtractionWorkerHandle,
     memory_repository: SqliteMemoryRepository,
     conversations: HashMap<String, ActiveConversation>,
     next_conversation_id: u64,
@@ -137,7 +264,10 @@ struct CodexRuntimeActor {
 impl CodexRuntimeActor {
     fn new(config: CodexProviderConfig, database_path: PathBuf) -> Result<Self, DaemonError> {
         Ok(Self {
-            memory_extraction_runtime: CodexAppServerRuntime::new(config.clone())?,
+            memory_extraction_worker: MemoryExtractionWorkerHandle::spawn(
+                config.clone(),
+                database_path.clone(),
+            )?,
             runtime: CodexAppServerRuntime::new(config)?,
             memory_repository: SqliteMemoryRepository::open_at(database_path)?,
             conversations: HashMap::new(),
@@ -168,7 +298,7 @@ impl CodexRuntimeActor {
                 }
                 CodexRuntimeCommand::Shutdown { reply } => {
                     self.runtime.shutdown().await;
-                    self.memory_extraction_runtime.shutdown().await;
+                    self.memory_extraction_worker.shutdown().await;
                     let _ = reply.send(());
                     break;
                 }
@@ -223,10 +353,25 @@ impl CodexRuntimeActor {
             .await
         {
             Ok(response) => {
-                let assistant_text = response.text;
-                let _ = item_tx.send(TurnTranscriptItem::AssistantText {
-                    text: assistant_text.clone(),
-                });
+                let assistant_text = response.assistant_text();
+                let provider_memory_proposals = response.memory_proposals();
+                for (index, output) in response.output.into_iter().enumerate() {
+                    match output {
+                        GenerateOutputItem::AssistantText { text } => {
+                            let _ = item_tx.send(TurnTranscriptItem::AssistantText { text });
+                        }
+                        GenerateOutputItem::MemoryProposals { .. } => {}
+                        GenerateOutputItem::Structured { schema, payload } => {
+                            let _ = item_tx.send(TurnTranscriptItem::A2uiCard {
+                                id: format!(
+                                    "provider_structured:{conversation_id}:{turn_index}:{index}"
+                                ),
+                                schema,
+                                payload,
+                            });
+                        }
+                    }
+                }
 
                 if let Some(conversation) = self.conversations.get_mut(&conversation_id) {
                     conversation.next_turn_index = conversation.next_turn_index.saturating_add(1);
@@ -261,14 +406,18 @@ impl CodexRuntimeActor {
                             "trigger": "explicit_remember",
                         }),
                     ));
-                } else {
-                    self.extract_ordinary_chat_memories(
+                } else if !provider_memory_proposals.is_empty() {
+                    self.persist_provider_memory_proposals(
                         &conversation_id,
                         conversation.cwd.as_deref(),
                         &turn,
+                        provider_memory_proposals,
                         &item_tx,
-                    )
-                    .await;
+                    );
+                } else {
+                    self.memory_extraction_worker
+                        .extract(conversation_id.clone(), conversation.cwd.clone(), turn)
+                        .await;
                 }
 
                 Ok(())
@@ -280,58 +429,18 @@ impl CodexRuntimeActor {
         }
     }
 
-    async fn extract_ordinary_chat_memories(
+    fn persist_provider_memory_proposals(
         &mut self,
         conversation_id: &str,
         cwd: Option<&str>,
         turn: &NewChatTurn,
+        proposals: Vec<ExtractorMemoryProposal>,
         item_tx: &mpsc::UnboundedSender<TurnTranscriptItem>,
     ) {
         let turn_index = turn.turn_index;
         let activity_id = format!("memory_extraction:{conversation_id}:{turn_index}");
-        let _ = item_tx.send(memory_activity(
-            &activity_id,
-            TurnActivityStatus::Started,
-            "Extracting memory proposals",
-            Some("ordinary chat memory extraction is running"),
-            json!({ "turn_index": turn_index }),
-        ));
-
-        let project_hint = project_scope_from_cwd(cwd);
-        let prompt = build_memory_extraction_prompt(
-            &turn.user_content,
-            &turn.assistant_content,
-            conversation_id,
-            turn_index,
-            project_hint.as_deref(),
-        );
-
-        let extraction = match self
-            .memory_extraction_runtime
-            .start_conversation(None, cwd.map(ToOwned::to_owned))
-            .await
-        {
-            Ok(extraction_conversation) => {
-                self.memory_extraction_runtime
-                    .turn(&extraction_conversation, prompt)
-                    .await
-            }
-            Err(error) => Err(error),
-        };
-
-        let extraction_text = match extraction {
-            Ok(response) => response.text,
-            Err(error) => {
-                let _ = item_tx.send(memory_activity_failed(
-                    &activity_id,
-                    format!("memory extraction model failed: {error}"),
-                ));
-                return;
-            }
-        };
-
-        let proposals = match parse_memory_extraction_proposals(
-            &extraction_text,
+        let proposals = match validate_memory_extraction_response(
+            ExtractorMemoryResponse { proposals },
             &turn.user_content,
             &turn.assistant_content,
         ) {
@@ -345,37 +454,20 @@ impl CodexRuntimeActor {
             }
         };
 
-        let conversation_scope_id = format!("conversation:{conversation_id}");
-        let mut created_memory_ids = Vec::new();
-        for proposal in proposals {
-            let candidate = match extracted_proposal_to_candidate(
-                &proposal,
-                &conversation_scope_id,
-                project_hint.as_deref(),
-                turn,
-                &turn.user_content,
-            ) {
-                Ok(candidate) => candidate,
-                Err(error) => {
-                    let _ = item_tx.send(memory_activity_failed(&activity_id, error));
-                    return;
-                }
-            };
-
-            match self
-                .memory_repository
-                .append_chat_memory_candidate(&candidate)
-            {
-                Ok(summary) => created_memory_ids.push(summary.id),
-                Err(error) => {
-                    let _ = item_tx.send(memory_activity_failed(
-                        &activity_id,
-                        format!("failed to persist extracted memory: {error}"),
-                    ));
-                    return;
-                }
+        let created_memory_ids = match persist_validated_memory_proposals(
+            &mut self.memory_repository,
+            conversation_id,
+            cwd,
+            turn,
+            proposals,
+            "provider_structured_output",
+        ) {
+            Ok(created_memory_ids) => created_memory_ids,
+            Err(error) => {
+                let _ = item_tx.send(memory_activity_failed(&activity_id, error));
+                return;
             }
-        }
+        };
 
         let summary = match created_memory_ids.len() {
             0 => "created no memory candidates".to_string(),
@@ -444,4 +536,35 @@ struct ActiveConversation {
     provider: CodexAppServerConversation,
     cwd: Option<String>,
     next_turn_index: u64,
+}
+
+fn persist_validated_memory_proposals(
+    memory_repository: &mut SqliteMemoryRepository,
+    conversation_id: &str,
+    cwd: Option<&str>,
+    turn: &NewChatTurn,
+    proposals: Vec<ValidatedMemoryProposal>,
+    trigger: &str,
+) -> Result<Vec<String>, String> {
+    let project_hint = project_scope_from_cwd(cwd);
+    let conversation_scope_id = format!("conversation:{conversation_id}");
+    let mut created_memory_ids = Vec::new();
+
+    for proposal in proposals {
+        let candidate = extracted_proposal_to_candidate(
+            &proposal,
+            &conversation_scope_id,
+            project_hint.as_deref(),
+            turn,
+            &turn.user_content,
+            trigger,
+        )?;
+
+        let summary = memory_repository
+            .append_chat_memory_candidate(&candidate)
+            .map_err(|error| format!("failed to persist extracted memory: {error}"))?;
+        created_memory_ids.push(summary.id);
+    }
+
+    Ok(created_memory_ids)
 }

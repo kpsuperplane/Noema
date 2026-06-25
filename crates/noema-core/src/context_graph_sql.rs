@@ -62,6 +62,7 @@ SELECT
   home_scope_id,
   sensitivity,
   title,
+  content,
   retrieval_hints,
   retrieval_policy_status,
   retrieval_policy_version,

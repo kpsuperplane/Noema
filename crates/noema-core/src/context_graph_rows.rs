@@ -44,12 +44,12 @@ pub(crate) fn row_to_graph_memory_node(
     let status: String = row.get(1)?;
     let memory_type: String = row.get(2)?;
     let sensitivity: String = row.get(4)?;
-    let retrieval_policy_status: String = row.get(7)?;
-    let participant_visibility_policy: String = row.get(13)?;
-    let external_egress_policy: String = row.get(14)?;
+    let retrieval_policy_status: String = row.get(8)?;
+    let participant_visibility_policy: String = row.get(14)?;
+    let external_egress_policy: String = row.get(15)?;
     let stored_policy_status =
         parse_retrieval_policy_status(&retrieval_policy_status).map_err(enum_to_sql_error)?;
-    let retrieval_policy_fingerprint: Option<String> = row.get(9)?;
+    let retrieval_policy_fingerprint: Option<String> = row.get(10)?;
     let effective_policy_status = effective_retrieval_policy_status(
         conn,
         &memory_id,
@@ -64,21 +64,22 @@ pub(crate) fn row_to_graph_memory_node(
         home_scope_id: row.get(3)?,
         sensitivity: parse_sensitivity(&sensitivity).map_err(enum_to_sql_error)?,
         title: row.get(5)?,
-        retrieval_hints: row.get(6)?,
+        content: row.get(6)?,
+        retrieval_hints: row.get(7)?,
         retrieval_policy_status: stored_policy_status,
         retrieval_policy_effective_status: effective_policy_status,
-        retrieval_policy_version: row.get(8)?,
+        retrieval_policy_version: row.get(9)?,
         retrieval_policy_fingerprint,
-        retrieval_policy_extractor_principal_id: row.get(10)?,
-        retrieval_policy_extractor_version: row.get(11)?,
-        retrieval_policy_validated_at: row.get(12)?,
+        retrieval_policy_extractor_principal_id: row.get(11)?,
+        retrieval_policy_extractor_version: row.get(12)?,
+        retrieval_policy_validated_at: row.get(13)?,
         participant_visibility_policy: parse_participant_visibility_policy(
             &participant_visibility_policy,
         )
         .map_err(enum_to_sql_error)?,
         external_egress_policy: parse_external_egress_policy(&external_egress_policy)
             .map_err(enum_to_sql_error)?,
-        created_at: row.get(15)?,
+        created_at: row.get(16)?,
     })
 }
 

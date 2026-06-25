@@ -2,6 +2,7 @@
 
 use crate::provider::{
     GenerateInput, GenerateRequest, GenerateResponse, ModelProvider, ProviderError, TokenUsage,
+    output_items_from_text,
 };
 use reqwest::{StatusCode, header::HeaderMap};
 use serde::{Deserialize, Serialize};
@@ -193,7 +194,7 @@ impl ModelProvider for OpenAiProvider {
         let text = collect_output_text(&response)?;
 
         Ok(GenerateResponse {
-            text,
+            output: output_items_from_text(text)?,
             provider: "openai".to_string(),
             model: response.model.unwrap_or(model),
             response_id: response.id,
@@ -440,7 +441,7 @@ mod tests {
         assert_eq!(body["max_output_tokens"], 32);
         assert_eq!(body["temperature"], 0.4);
 
-        assert_eq!(response.text, "Hello, world");
+        assert_eq!(response.assistant_text(), "Hello, world");
         assert_eq!(response.provider, "openai");
         assert_eq!(response.model, "gpt-test");
         assert_eq!(response.response_id.as_deref(), Some("resp_test"));

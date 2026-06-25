@@ -132,6 +132,7 @@ pub(super) fn extracted_proposal_to_candidate(
     project_scope_id: Option<&str>,
     turn: &NewChatTurn,
     user_input: &str,
+    trigger: &str,
 ) -> Result<NewChatMemoryCandidate, String> {
     let proposal = &validated.proposal;
     let home_scope_id =
@@ -170,7 +171,7 @@ pub(super) fn extracted_proposal_to_candidate(
         .map(memory_extraction_subject_to_persistence)
         .collect();
     candidate.metadata = json!({
-        "trigger": "ordinary_chat_extraction",
+        "trigger": trigger,
         "turn_index": turn.turn_index,
         "risk_flags": proposal.risk_flags,
     });

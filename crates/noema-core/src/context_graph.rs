@@ -124,6 +124,8 @@ pub struct GraphMemoryNode {
     pub sensitivity: Sensitivity,
     /// Display title.
     pub title: String,
+    /// Durable memory content.
+    pub content: String,
     /// Non-authoritative retrieval hints as canonical JSON.
     pub retrieval_hints: String,
     /// Typed retrieval policy validity.

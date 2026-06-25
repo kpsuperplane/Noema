@@ -1,11 +1,14 @@
 //! Provider-neutral generation contract.
 
+use crate::memory_extraction::ExtractorMemoryProposal;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use thiserror::Error;
 
 // V1 keeps the provider contract as a native async trait and does not expose
 // `dyn ModelProvider`, so the public future-bound tradeoff is intentional.
 #[allow(async_fn_in_trait)]
-/// A model backend that can produce text from a generation request.
+/// A model backend that can produce structured output from a generation request.
 pub trait ModelProvider: Send + Sync {
     /// Generate a response for the given request.
     ///
@@ -66,11 +69,11 @@ pub struct GenerateOptions {
     pub temperature: Option<f32>,
 }
 
-/// Text response returned by a model provider.
+/// Structured response returned by a model provider.
 #[derive(Debug, Clone, PartialEq)]
 pub struct GenerateResponse {
-    /// Assistant text returned by the provider.
-    pub text: String,
+    /// Ordered output items returned by the provider.
+    pub output: Vec<GenerateOutputItem>,
     /// Provider identifier that produced the response.
     pub provider: String,
     /// Model identifier used by the provider.
@@ -79,6 +82,106 @@ pub struct GenerateResponse {
     pub response_id: Option<String>,
     /// Token usage reported by the provider when available.
     pub usage: Option<TokenUsage>,
+}
+
+impl GenerateResponse {
+    /// Return all assistant text output concatenated in order.
+    #[must_use]
+    pub fn assistant_text(&self) -> String {
+        self.output
+            .iter()
+            .filter_map(|item| match item {
+                GenerateOutputItem::AssistantText { text } => Some(text.as_str()),
+                GenerateOutputItem::MemoryProposals { .. }
+                | GenerateOutputItem::Structured { .. } => None,
+            })
+            .collect()
+    }
+
+    /// Return all memory proposals emitted by the provider.
+    #[must_use]
+    pub fn memory_proposals(&self) -> Vec<ExtractorMemoryProposal> {
+        self.output
+            .iter()
+            .flat_map(|item| match item {
+                GenerateOutputItem::MemoryProposals { proposals } => proposals.as_slice(),
+                GenerateOutputItem::AssistantText { .. }
+                | GenerateOutputItem::Structured { .. } => &[],
+            })
+            .cloned()
+            .collect()
+    }
+}
+
+/// Provider output item for rich responses.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum GenerateOutputItem {
+    /// Human-visible assistant text.
+    AssistantText {
+        /// Text to show in the transcript.
+        text: String,
+    },
+    /// Memory proposals emitted in the same provider call.
+    MemoryProposals {
+        /// Proposed memories. The daemon still validates and policy-gates them.
+        proposals: Vec<ExtractorMemoryProposal>,
+    },
+    /// Future rich structured output payload.
+    Structured {
+        /// Stable schema identifier for the payload.
+        schema: String,
+        /// Provider-produced payload for that schema.
+        payload: Value,
+    },
+}
+
+/// Parse a provider text payload into structured Noema output items.
+///
+/// Providers that can only return text may emit a strict envelope:
+///
+/// ```json
+/// {"type":"noema_response","output":[{"kind":"assistant_text","text":"Hello"}]}
+/// ```
+///
+/// Text without this envelope is treated as one assistant text item.
+///
+/// # Errors
+///
+/// Returns [`ProviderError::MalformedResponse`] when a Noema envelope is
+/// present but does not match the structured output contract.
+pub fn output_items_from_text(text: String) -> Result<Vec<GenerateOutputItem>, ProviderError> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return Err(ProviderError::MalformedResponse {
+            message: "provider produced empty output".to_string(),
+        });
+    }
+
+    if let Ok(value) = serde_json::from_str::<Value>(trimmed)
+        && value.get("type").and_then(Value::as_str) == Some("noema_response")
+    {
+        let envelope: GenerateOutputEnvelope =
+            serde_json::from_value(value).map_err(|source| ProviderError::MalformedResponse {
+                message: format!("invalid Noema structured response: {source}"),
+            })?;
+        if envelope.output.is_empty() {
+            return Err(ProviderError::MalformedResponse {
+                message: "Noema structured response contained no output items".to_string(),
+            });
+        }
+        return Ok(envelope.output);
+    }
+
+    Ok(vec![GenerateOutputItem::AssistantText { text }])
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct GenerateOutputEnvelope {
+    #[serde(rename = "type")]
+    _envelope_type: String,
+    output: Vec<GenerateOutputItem>,
 }
 
 /// Provider-reported token counts.
@@ -206,7 +309,7 @@ mod tests {
             let GenerateInput::Text(text) = request.input;
 
             Ok(GenerateResponse {
-                text,
+                output: vec![GenerateOutputItem::AssistantText { text }],
                 provider: "mock".to_string(),
                 model: request.model.unwrap_or_else(|| "mock-model".to_string()),
                 response_id: Some("mock-response".to_string()),
@@ -227,8 +330,24 @@ mod tests {
             .await
             .expect("mock provider should return a response");
 
-        assert_eq!(response.text, "hello");
+        assert_eq!(response.assistant_text(), "hello");
         assert_eq!(response.provider, "mock");
         assert_eq!(response.model, "mock-1");
+    }
+
+    #[test]
+    fn parses_noema_structured_response_envelope() {
+        let output = output_items_from_text(
+            r#"{"type":"noema_response","output":[{"kind":"assistant_text","text":"Hello"}]}"#
+                .to_string(),
+        )
+        .expect("structured output");
+
+        assert_eq!(
+            output,
+            vec![GenerateOutputItem::AssistantText {
+                text: "Hello".to_string()
+            }]
+        );
     }
 }

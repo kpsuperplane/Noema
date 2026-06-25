@@ -1,7 +1,7 @@
 //! Warm Codex app-server runtime.
 
 use crate::{
-    provider::{GenerateResponse, ProviderError},
+    provider::{GenerateResponse, ProviderError, output_items_from_text},
     providers::codex::CodexProviderConfig,
 };
 use serde_json::{Value, json};
@@ -319,7 +319,7 @@ impl CodexAppServerProcess {
         }
 
         Ok(GenerateResponse {
-            text,
+            output: output_items_from_text(text)?,
             provider: "codex".to_string(),
             model: model.unwrap_or("codex-default").to_string(),
             response_id: None,

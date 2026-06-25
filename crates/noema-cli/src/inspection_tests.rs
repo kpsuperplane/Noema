@@ -1,9 +1,9 @@
 use super::*;
 use noema_core::{
-    GraphAccessGrant, GraphContextPacket, GraphContextPacketMemoryEdge, GraphContextPacketOmission,
-    GraphEntityNode, GraphMemoryEvent, GraphMemoryNode, GraphMemoryUseRecord, GraphObjectLinkEdge,
-    GraphParticipantEdge, GraphProvenanceEdge, GraphPurposeRule, GraphSubjectEdge,
-    memory_persistence::MemoryType,
+    ContextGraphSummary, GraphAccessGrant, GraphContextPacket, GraphContextPacketMemoryEdge,
+    GraphContextPacketOmission, GraphEntityNode, GraphMemoryEvent, GraphMemoryNode,
+    GraphMemoryUseRecord, GraphObjectLinkEdge, GraphParticipantEdge, GraphProvenanceEdge,
+    GraphPurposeRule, GraphSubjectEdge, memory_persistence::MemoryType,
 };
 
 #[test]
@@ -33,7 +33,7 @@ fn redacts_non_public_memory_list_titles() {
 }
 
 #[test]
-fn context_graph_output_includes_object_links_and_redacts_memory_titles() {
+fn context_graph_output_includes_unredacted_memory_nodes() {
     let graph = ContextGraphSummary {
         memories: vec![GraphMemoryNode {
             memory_id: "mem_sensitive".to_string(),
@@ -42,6 +42,7 @@ fn context_graph_output_includes_object_links_and_redacts_memory_titles() {
             home_scope_id: "conversation:health".to_string(),
             sensitivity: Sensitivity::Sensitive,
             title: "Doctor follow-up detail".to_string(),
+            content: "Kevin needs to follow up about a doctor appointment.".to_string(),
             retrieval_hints: r#"{"topics":["doctor"]}"#.to_string(),
             retrieval_policy_status: RetrievalPolicyStatus::Valid,
             retrieval_policy_effective_status: RetrievalPolicyStatus::Stale,
@@ -158,7 +159,7 @@ fn context_graph_output_includes_object_links_and_redacts_memory_titles() {
     };
     let mut output = Vec::new();
 
-    write_context_graph(&mut output, &graph).expect("write graph");
+    write_context_graph(&mut output, &graph, ContextGraphFormat::Text).expect("write graph");
     let output = String::from_utf8(output).expect("utf8 output");
 
     assert!(output.contains("object_link_edges=1"));
@@ -197,11 +198,24 @@ fn context_graph_output_includes_object_links_and_redacts_memory_titles() {
     assert!(output.contains("task:schedule_checkup"));
     assert!(output.contains("open_loop_for"));
     assert!(output.contains("conversation:health"));
-    assert!(output.contains("[redacted; use memory show <id>]"));
-    assert!(!output.contains("Doctor follow-up detail"));
-    assert!(!output.contains(r#"{"topics":["doctor"]}"#));
-    assert!(!output.contains(r#"["doctor"]"#));
+    assert!(output.contains("Doctor follow-up detail"));
+    assert!(output.contains("Kevin needs to follow up about a doctor appointment."));
+    assert!(output.contains(r#"{"topics":["doctor"]}"#));
     assert!(!output.contains(r#"{"denied_topic":"doctor"}"#));
     assert!(!output.contains(r#"{"context_packet_id":"ctx_health"}"#));
     assert!(!output.contains(r#"{"run_id":"run:health","quote":"doctor"}"#));
+
+    let mut mermaid = Vec::new();
+    write_context_graph(&mut mermaid, &graph, ContextGraphFormat::Mermaid).expect("write graph");
+    let mermaid = String::from_utf8(mermaid).expect("utf8 output");
+
+    assert!(mermaid.starts_with("flowchart TD\n"));
+    assert!(mermaid.contains("mem_mem_sensitive"));
+    assert!(mermaid.contains("task:schedule_checkup"));
+    assert!(mermaid.contains("-->|open_loop_for|"));
+    assert!(mermaid.contains("Doctor follow-up detail"));
+    assert!(mermaid.contains("Kevin needs to follow up about a doctor appointment."));
+    assert!(!mermaid.contains(r#"{"denied_topic":"doctor"}"#));
+    assert!(!mermaid.contains(r#"{"context_packet_id":"ctx_health"}"#));
+    assert!(!mermaid.contains(r#"{"run_id":"run:health","quote":"doctor"}"#));
 }

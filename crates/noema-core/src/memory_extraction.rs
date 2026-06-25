@@ -317,6 +317,20 @@ pub fn parse_memory_extraction_proposals(
     assistant_response: &str,
 ) -> Result<Vec<ValidatedMemoryProposal>, MemoryExtractionError> {
     let response: ExtractorMemoryResponse = serde_json::from_str(extractor_text.trim())?;
+    validate_memory_extraction_response(response, user_input, assistant_response)
+}
+
+/// Validate an already-structured extractor response.
+///
+/// # Errors
+///
+/// Returns [`MemoryExtractionError::InvalidProposal`] when any proposal violates
+/// the ordinary-chat validation policy.
+pub fn validate_memory_extraction_response(
+    response: ExtractorMemoryResponse,
+    user_input: &str,
+    assistant_response: &str,
+) -> Result<Vec<ValidatedMemoryProposal>, MemoryExtractionError> {
     if is_explicit_memory_command(user_input) && !response.proposals.is_empty() {
         return invalid_proposal(0, "explicit memory commands are out of scope");
     }

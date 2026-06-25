@@ -2,6 +2,7 @@
 
 use crate::provider::{
     GenerateInput, GenerateRequest, GenerateResponse, ModelProvider, ProviderError,
+    output_items_from_text,
 };
 use std::process::Output;
 use std::{io::ErrorKind, process::Stdio, time::Duration};
@@ -242,7 +243,7 @@ impl ModelProvider for CodexProvider {
             })?;
 
         Ok(GenerateResponse {
-            text,
+            output: output_items_from_text(text)?,
             provider: "codex".to_string(),
             model: model.unwrap_or_else(|| "codex-default".to_string()),
             response_id: None,
@@ -317,7 +318,7 @@ printf 'codex answer\n'
             .await
             .expect("response");
 
-        assert_eq!(response.text, "codex answer");
+        assert_eq!(response.assistant_text(), "codex answer");
         assert_eq!(response.provider, "codex");
         assert_eq!(response.model, "gpt-test");
 

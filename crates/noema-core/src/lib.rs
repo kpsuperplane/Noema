@@ -55,7 +55,7 @@ pub use memory_extraction::{
     MemoryExtractionError, MemoryExtractionRetrievalHints, MemoryExtractionRiskFlag,
     MemoryExtractionSubject, MemoryExtractionSubjectKind, MemoryExtractionSubjectRole,
     ValidatedMemoryProposal, build_memory_extraction_prompt, decide_memory_proposal_status,
-    parse_memory_extraction_proposals,
+    parse_memory_extraction_proposals, validate_memory_extraction_response,
 };
 pub use memory_persistence::{
     ChatMemorySource, MemoryAuthorityLevel, MemoryExtractionMethod, MemoryPersistenceError,
@@ -64,8 +64,8 @@ pub use memory_persistence::{
 };
 pub use paths::{NOEMA_HOME_ENV, NoemaPathError, NoemaPaths};
 pub use provider::{
-    GenerateInput, GenerateOptions, GenerateRequest, GenerateResponse, ModelProvider,
-    ProviderError, TokenUsage,
+    GenerateInput, GenerateOptions, GenerateOutputItem, GenerateRequest, GenerateResponse,
+    ModelProvider, ProviderError, TokenUsage,
 };
 pub use providers::{
     codex::{CodexProvider, CodexProviderConfig},

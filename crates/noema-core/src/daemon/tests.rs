@@ -230,7 +230,7 @@ async fn runtime_actor_persists_explicit_remember_confirmed() {
 }
 
 #[tokio::test]
-async fn runtime_actor_extracts_ordinary_chat_memory_as_activity() {
+async fn runtime_actor_extracts_ordinary_chat_memory_in_background() {
     let script = fake_codex_app_server_script_with_memory_extraction();
     let dir = tempfile::tempdir().expect("temp dir");
     let db_path = dir.path().join("db").join("noema.sqlite");
@@ -257,28 +257,16 @@ async fn runtime_actor_extracts_ordinary_chat_memory_as_activity() {
     .await
     .expect("turn");
     assert_eq!(assistant_text(&items), "fake answer");
-    assert!(items.iter().any(|item| {
-        matches!(
-            item,
-            TurnTranscriptItem::Activity {
-                activity_kind,
-                status: TurnActivityStatus::Started,
-                title,
-                ..
-            } if activity_kind == "memory_extraction" && title == "Extracting memory proposals"
-        )
-    }));
-    assert!(items.iter().any(|item| {
-        matches!(
-            item,
-            TurnTranscriptItem::Activity {
-                activity_kind,
-                status: TurnActivityStatus::Completed,
-                summary: Some(summary),
-                ..
-            } if activity_kind == "memory_extraction" && summary == "created 1 memory candidate"
-        )
-    }));
+    assert!(
+        !items.iter().any(|item| {
+            matches!(
+                item,
+                TurnTranscriptItem::Activity { activity_kind, .. }
+                    if activity_kind == "memory_extraction"
+            )
+        }),
+        "fallback extraction should not block the turn stream: {items:?}"
+    );
     handle.shutdown().await;
 
     let repo = SqliteMemoryRepository::open_at(&db_path).expect("repo");
@@ -294,6 +282,59 @@ async fn runtime_actor_extracts_ordinary_chat_memory_as_activity() {
         memories[0].conversation_id.as_deref(),
         Some("conversation:conversation_1")
     );
+}
+
+#[tokio::test]
+async fn runtime_actor_persists_provider_structured_memory_proposals_as_activity() {
+    let script = fake_codex_app_server_script_with_memory_extraction();
+    let dir = tempfile::tempdir().expect("temp dir");
+    let db_path = dir.path().join("db").join("noema.sqlite");
+    let handle = CodexRuntimeHandle::spawn(
+        CodexProviderConfig {
+            command: script.to_string_lossy().to_string(),
+            startup_timeout_seconds: 2,
+            turn_timeout_seconds: 2,
+            ..CodexProviderConfig::default()
+        },
+        db_path.clone(),
+    )
+    .expect("runtime");
+
+    let conversation = handle
+        .start_conversation(None, None)
+        .await
+        .expect("conversation");
+    let items = collect_turn(
+        &handle,
+        conversation.conversation_id,
+        "I prefer same-call memory proposals.".to_string(),
+    )
+    .await
+    .expect("turn");
+    assert_eq!(assistant_text(&items), "fake answer");
+    assert!(items.iter().any(|item| {
+        matches!(
+            item,
+            TurnTranscriptItem::Activity {
+                activity_kind,
+                status: TurnActivityStatus::Completed,
+                summary: Some(summary),
+                ..
+            } if activity_kind == "memory_extraction"
+                && summary == "created 1 memory candidate"
+        )
+    }));
+    handle.shutdown().await;
+
+    let repo = SqliteMemoryRepository::open_at(&db_path).expect("repo");
+    let memories = repo.list_recent_memories(Some(10)).expect("memories");
+    assert_eq!(memories.len(), 1);
+    assert_eq!(
+        memories[0].content,
+        "Kevin prefers same-call memory proposals."
+    );
+    assert_eq!(memories[0].status, crate::memory::MemoryStatus::Active);
+    assert_eq!(memories[0].memory_type, MemoryType::Preference);
 }
 
 #[tokio::test]
@@ -564,6 +605,36 @@ for line in sys.stdin:
                     "evidence_excerpt": "I prefer automatic memory extraction in chat."
                 }
             text = json.dumps({"proposals": [proposal]})
+        elif "I prefer same-call memory proposals." in input_text:
+            proposal = {
+                "content": "Kevin prefers same-call memory proposals.",
+                "memory_type": "preference",
+                "title": "Same-call memory proposal preference",
+                "confidence": 0.91,
+                "sensitivity": "normal",
+                "subjects": [
+                    {
+                        "id": "human:local",
+                        "kind": "human",
+                        "name": "Kevin",
+                        "role": "about"
+                    }
+                ],
+                "retrieval_hints": {
+                    "topics": ["memory"],
+                    "keywords": ["same-call memory proposals"],
+                    "summary": "Kevin prefers same-call memory proposals."
+                },
+                "risk_flags": [],
+                "evidence_excerpt": "I prefer same-call memory proposals."
+            }
+            text = json.dumps({
+                "type": "noema_response",
+                "output": [
+                    {"kind": "assistant_text", "text": "fake answer"},
+                    {"kind": "memory_proposals", "proposals": [proposal]}
+                ]
+            })
         else:
             text = "fake answer"
         print(json.dumps({"id": msg["id"], "result": {"turn": {"id": "turn_1"}}}), flush=True)
