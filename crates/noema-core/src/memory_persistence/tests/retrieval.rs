@@ -5,11 +5,8 @@ fn persisted_retrieval_uses_participant_overlap() {
     let dir = tempfile::tempdir().expect("temp dir");
     let paths = NoemaPaths::from_noema_home(dir.path()).expect("paths");
     let mut repo = SqliteMemoryRepository::open(&paths).expect("repo");
-    let mut candidate = NewChatMemoryCandidate::new(
-        "conversation:old_memory",
-        "Kevin prefers durable retrieval tests.",
-        "agent:primary",
-    );
+    let mut candidate =
+        new_conversation_memory_candidate(&mut repo, "Kevin prefers durable retrieval tests.");
     candidate.status = MemoryStatus::Active;
     candidate.memory_type = MemoryType::Preference;
     candidate.retrieval_hints = json!({"topics": ["memory"], "keywords": ["retrieval"]});
@@ -17,9 +14,12 @@ fn persisted_retrieval_uses_participant_overlap() {
         NewMemoryParticipant::new("human:kevin", ParticipantRole::HumanInScope),
         NewMemoryParticipant::new("agent:primary", ParticipantRole::AgentInScope),
     ];
-    let memory = repo
-        .append_chat_memory_candidate(&candidate)
-        .expect("memory");
+    let memory = repo.append_memory_candidate(&candidate).expect("memory");
+    assert_eq!(memory.owner_object_type, "conversation");
+    assert_eq!(
+        memory.source_object_type.as_deref(),
+        Some("conversation_item")
+    );
 
     let mut request = request_for_kevin();
     request.untrusted_hints.fuzzy_topics = vec!["memory".to_string()];
@@ -38,27 +38,25 @@ fn persisted_retrieval_uses_fts_public_hint_candidates() {
     let paths = NoemaPaths::from_noema_home(dir.path()).expect("paths");
     let mut repo = SqliteMemoryRepository::open(&paths).expect("repo");
 
-    let mut indexed = NewChatMemoryCandidate::new(
-        "conversation:public_search",
+    let mut indexed = new_conversation_memory_candidate(
+        &mut repo,
         "The context graph needs an alpine FTS candidate path.",
-        "agent:primary",
     );
     indexed.status = MemoryStatus::Active;
     indexed.sensitivity = Sensitivity::Public;
     let indexed_memory = repo
-        .append_chat_memory_candidate(&indexed)
+        .append_memory_candidate(&indexed)
         .expect("indexed memory");
 
-    let mut unindexed = NewChatMemoryCandidate::new(
-        "conversation:public_search",
+    let mut unindexed = new_conversation_memory_candidate(
+        &mut repo,
         "This public memory has a matching hint but no search-index row.",
-        "agent:primary",
     );
     unindexed.status = MemoryStatus::Active;
     unindexed.sensitivity = Sensitivity::Public;
     unindexed.retrieval_hints = json!({"keywords": ["ghostneedle"]});
     let unindexed_memory = repo
-        .append_chat_memory_candidate(&unindexed)
+        .append_memory_candidate(&unindexed)
         .expect("unindexed memory");
     repo.conn
         .execute(
@@ -116,24 +114,21 @@ fn persisted_retrieval_requires_trusted_unlock_for_sensitive_memory() {
     let dir = tempfile::tempdir().expect("temp dir");
     let paths = NoemaPaths::from_noema_home(dir.path()).expect("paths");
     let mut repo = SqliteMemoryRepository::open(&paths).expect("repo");
-    let mut candidate = NewChatMemoryCandidate::new(
-        "conversation:health",
+    let mut candidate = new_memory_candidate_for_owner(
+        &mut repo,
+        ObjectRef::human("human:kevin"),
         "Kevin needs to follow up about a doctor appointment.",
-        "agent:primary",
     );
     candidate.status = MemoryStatus::Active;
     candidate.memory_type = MemoryType::OpenLoop;
     candidate.sensitivity = Sensitivity::Sensitive;
-    candidate.owner_principal_id = Some("human:kevin".to_string());
     candidate.retrieval_hints =
         json!({"topics": ["health", "doctor"], "keywords": ["appointment"]});
     candidate.participants = vec![
         NewMemoryParticipant::new("human:kevin", ParticipantRole::HumanInScope),
         NewMemoryParticipant::new("agent:primary", ParticipantRole::AgentInScope),
     ];
-    let memory = repo
-        .append_chat_memory_candidate(&candidate)
-        .expect("memory");
+    let memory = repo.append_memory_candidate(&candidate).expect("memory");
     repo.conn
         .execute(
             r"
@@ -141,9 +136,10 @@ fn persisted_retrieval_requires_trusted_unlock_for_sensitive_memory() {
               memory_id,
               purpose,
               effect,
-              created_by_principal_id
+              created_by_object_type,
+              created_by_object_id
             )
-            VALUES (?1, 'answer_human_question', 'allow', 'agent:primary')
+            VALUES (?1, 'answer_human_question', 'allow', 'agent', 'agent:primary')
             ",
             params![memory.id],
         )
@@ -173,9 +169,10 @@ fn persisted_retrieval_requires_trusted_unlock_for_sensitive_memory() {
               object_type,
               object_id,
               relation,
-              created_by_principal_id
+              created_by_object_type,
+              created_by_object_id
             )
-            VALUES (?1, 'task', 'task:schedule_checkup', 'open_loop_for', 'agent:primary')
+            VALUES (?1, 'task', 'task:schedule_checkup', 'open_loop_for', 'agent', 'agent:primary')
             ",
             params![memory.id],
         )
@@ -213,22 +210,19 @@ fn persisted_object_link_requires_authorized_scope_when_policy_sets_one() {
     let dir = tempfile::tempdir().expect("temp dir");
     let paths = NoemaPaths::from_noema_home(dir.path()).expect("paths");
     let mut repo = SqliteMemoryRepository::open(&paths).expect("repo");
-    let mut candidate = NewChatMemoryCandidate::new(
-        "conversation:health",
+    let mut candidate = new_memory_candidate_for_owner(
+        &mut repo,
+        ObjectRef::human("human:kevin"),
         "Kevin needs to follow up about a doctor appointment.",
-        "agent:primary",
     );
     candidate.status = MemoryStatus::Active;
     candidate.memory_type = MemoryType::OpenLoop;
     candidate.sensitivity = Sensitivity::Sensitive;
-    candidate.owner_principal_id = Some("human:kevin".to_string());
     candidate.participants = vec![
         NewMemoryParticipant::new("human:kevin", ParticipantRole::HumanInScope),
         NewMemoryParticipant::new("agent:primary", ParticipantRole::AgentInScope),
     ];
-    let memory = repo
-        .append_chat_memory_candidate(&candidate)
-        .expect("memory");
+    let memory = repo.append_memory_candidate(&candidate).expect("memory");
     repo.conn
         .execute(
             r"
@@ -236,9 +230,10 @@ fn persisted_object_link_requires_authorized_scope_when_policy_sets_one() {
               memory_id,
               purpose,
               effect,
-              created_by_principal_id
+              created_by_object_type,
+              created_by_object_id
             )
-            VALUES (?1, 'answer_human_question', 'allow', 'agent:primary')
+            VALUES (?1, 'answer_human_question', 'allow', 'agent', 'agent:primary')
             ",
             params![memory.id],
         )
@@ -251,15 +246,19 @@ fn persisted_object_link_requires_authorized_scope_when_policy_sets_one() {
               object_type,
               object_id,
               relation,
-              authorized_scope_id,
-              created_by_principal_id
+              authorized_object_type,
+              authorized_object_id,
+              created_by_object_type,
+              created_by_object_id
             )
             VALUES (
               ?1,
               'task',
               'task:schedule_checkup',
               'open_loop_for',
+              'conversation',
               'conversation:health',
+              'agent',
               'agent:primary'
             )
             ",
@@ -292,21 +291,18 @@ fn persisted_retrieval_honors_explicit_grant_for_private_memory() {
     let dir = tempfile::tempdir().expect("temp dir");
     let paths = NoemaPaths::from_noema_home(dir.path()).expect("paths");
     let mut repo = SqliteMemoryRepository::open(&paths).expect("repo");
-    let mut candidate = NewChatMemoryCandidate::new(
-        "conversation:private",
+    let mut candidate = new_memory_candidate_for_owner(
+        &mut repo,
+        ObjectRef::human("human:kevin"),
         "Kevin keeps a private project preference.",
-        "agent:primary",
     );
     candidate.status = MemoryStatus::Active;
     candidate.sensitivity = Sensitivity::Private;
-    candidate.owner_principal_id = Some("human:kevin".to_string());
     candidate.participants = vec![
         NewMemoryParticipant::new("human:kevin", ParticipantRole::HumanInScope),
         NewMemoryParticipant::new("agent:primary", ParticipantRole::AgentInScope),
     ];
-    let memory = repo
-        .append_chat_memory_candidate(&candidate)
-        .expect("memory");
+    let memory = repo.append_memory_candidate(&candidate).expect("memory");
     repo.conn
         .execute(
             r"
@@ -314,9 +310,10 @@ fn persisted_retrieval_honors_explicit_grant_for_private_memory() {
               memory_id,
               purpose,
               effect,
-              created_by_principal_id
+              created_by_object_type,
+              created_by_object_id
             )
-            VALUES (?1, 'answer_human_question', 'allow', 'agent:primary')
+            VALUES (?1, 'answer_human_question', 'allow', 'agent', 'agent:primary')
             ",
             params![memory.id],
         )
@@ -331,15 +328,18 @@ fn persisted_retrieval_honors_explicit_grant_for_private_memory() {
     repo.conn
         .execute(
             r"
-            INSERT INTO memory_access_grants (
+            INSERT INTO object_access_grants (
               grant_id,
-              memory_id,
-              principal_id,
+              target_object_type,
+              target_object_id,
+              grantee_object_type,
+              grantee_object_id,
               permission,
               effect,
-              created_by_principal_id
+              created_by_object_type,
+              created_by_object_id
             )
-            VALUES ('grant_private_memory', ?1, 'agent:primary', 'use_for_retrieval', 'allow', 'human:kevin')
+            VALUES ('grant_private_memory', 'memory_item', ?1, 'agent', 'agent:primary', 'use_for_retrieval', 'allow', 'human', 'human:kevin')
             ",
             params![memory.id],
         )
@@ -368,10 +368,11 @@ fn persisted_retrieval_expands_one_hop_graph_after_policy() {
     let dir = tempfile::tempdir().expect("temp dir");
     let paths = NoemaPaths::from_noema_home(dir.path()).expect("paths");
     let mut repo = SqliteMemoryRepository::open(&paths).expect("repo");
-    let mut anchor = NewChatMemoryCandidate::new(
-        "project:noema",
+    let project_owner = ensure_entity_object(&mut repo, "project:noema", "project", "Noema");
+    let mut anchor = new_memory_candidate_for_owner(
+        &mut repo,
+        project_owner.clone(),
         "Noema uses an inspectable memory system.",
-        "agent:primary",
     );
     anchor.status = MemoryStatus::Active;
     anchor.subjects = vec![
@@ -389,24 +390,21 @@ fn persisted_retrieval_expands_one_hop_graph_after_policy() {
             SubjectRole::About,
         ),
     ];
-    let anchor_memory = repo.append_chat_memory_candidate(&anchor).expect("anchor");
+    let anchor_memory = repo.append_memory_candidate(&anchor).expect("anchor");
 
-    let mut backing = NewChatMemoryCandidate::new(
-        "conversation:graph_evidence",
+    let mut backing = new_conversation_memory_candidate(
+        &mut repo,
         "Noema graph claims are scoped and memory-backed.",
-        "agent:primary",
     );
     backing.status = MemoryStatus::Active;
     backing.participants = vec![NewMemoryParticipant::new(
         "human:kevin",
         ParticipantRole::HumanInScope,
     )];
-    let backing_memory = repo
-        .append_chat_memory_candidate(&backing)
-        .expect("backing");
+    let backing_memory = repo.append_memory_candidate(&backing).expect("backing");
 
     let mut relationship = NewRelationshipClaim::new(
-        "project:noema",
+        project_owner.clone(),
         "project:noema",
         "uses",
         "concept:scoped_graph_claims",
@@ -415,17 +413,16 @@ fn persisted_retrieval_expands_one_hop_graph_after_policy() {
     relationship.memory_id = Some(backing_memory.id.clone());
     repo.append_relationship_claim(&relationship)
         .expect("relationship");
-    let mut unscoped_backing = NewChatMemoryCandidate::new(
-        "conversation:unscoped_graph_evidence",
+    let mut unscoped_backing = new_conversation_memory_candidate(
+        &mut repo,
         "This graph claim has no participant aperture.",
-        "agent:primary",
     );
     unscoped_backing.status = MemoryStatus::Active;
     let unscoped_memory = repo
-        .append_chat_memory_candidate(&unscoped_backing)
+        .append_memory_candidate(&unscoped_backing)
         .expect("unscoped backing");
     let mut unscoped_relationship = NewRelationshipClaim::new(
-        "project:noema",
+        project_owner.clone(),
         "project:noema",
         "mentions",
         "concept:unscoped_graph_claims",
@@ -439,7 +436,7 @@ fn persisted_retrieval_expands_one_hop_graph_after_policy() {
     request
         .trusted
         .active_scopes
-        .push("project:noema".to_string());
+        .push(object_scope_key(&project_owner));
     let result = repo.retrieve_memories(&request).expect("retrieve");
 
     assert_eq!(
@@ -464,18 +461,15 @@ fn persisted_retrieval_respects_validity_windows() {
     let dir = tempfile::tempdir().expect("temp dir");
     let paths = NoemaPaths::from_noema_home(dir.path()).expect("paths");
     let mut repo = SqliteMemoryRepository::open(&paths).expect("repo");
-    let mut expired = NewChatMemoryCandidate::new(
-        "conversation:expired",
-        "Kevin once preferred an expired memory.",
-        "agent:primary",
-    );
+    let mut expired =
+        new_conversation_memory_candidate(&mut repo, "Kevin once preferred an expired memory.");
     expired.status = MemoryStatus::Active;
     expired.participants = vec![NewMemoryParticipant::new(
         "human:kevin",
         ParticipantRole::HumanInScope,
     )];
     let expired_memory = repo
-        .append_chat_memory_candidate(&expired)
+        .append_memory_candidate(&expired)
         .expect("expired memory");
     repo.conn
         .execute(
@@ -484,10 +478,11 @@ fn persisted_retrieval_respects_validity_windows() {
         )
         .expect("expire memory");
 
-    let mut anchor = NewChatMemoryCandidate::new(
-        "project:validity",
+    let project_owner = ensure_entity_object(&mut repo, "project:validity", "project", "Validity");
+    let mut anchor = new_memory_candidate_for_owner(
+        &mut repo,
+        project_owner.clone(),
         "Noema has validity-windowed graph claims.",
-        "agent:primary",
     );
     anchor.status = MemoryStatus::Active;
     anchor.subjects = vec![
@@ -504,19 +499,18 @@ fn persisted_retrieval_respects_validity_windows() {
             SubjectRole::About,
         ),
     ];
-    let anchor_memory = repo.append_chat_memory_candidate(&anchor).expect("anchor");
-    let mut graph_backing = NewChatMemoryCandidate::new(
-        "conversation:validity_graph",
+    let anchor_memory = repo.append_memory_candidate(&anchor).expect("anchor");
+    let mut graph_backing = new_conversation_memory_candidate(
+        &mut repo,
         "A public graph backing memory should be excluded by an expired edge.",
-        "agent:primary",
     );
     graph_backing.status = MemoryStatus::Active;
     graph_backing.sensitivity = Sensitivity::Public;
     let graph_memory = repo
-        .append_chat_memory_candidate(&graph_backing)
+        .append_memory_candidate(&graph_backing)
         .expect("graph backing");
     let mut relationship = NewRelationshipClaim::new(
-        "project:validity",
+        project_owner.clone(),
         "project:validity",
         "mentions",
         "concept:expired_edge",
@@ -537,7 +531,7 @@ fn persisted_retrieval_respects_validity_windows() {
     request
         .trusted
         .active_scopes
-        .push("project:validity".to_string());
+        .push(object_scope_key(&project_owner));
     let expired_result = repo.retrieve_memories(&request).expect("retrieve expired");
 
     assert_eq!(

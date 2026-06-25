@@ -12,13 +12,17 @@ fn redacts_non_public_memory_list_titles() {
         id: "mem_123".to_string(),
         status: MemoryStatus::Confirmed,
         memory_type: MemoryType::Note,
+        owner_object_type: "conversation".to_string(),
+        owner_object_id: "conversation_1".to_string(),
         home_scope_id: "conversation:conversation_1".to_string(),
         sensitivity: Sensitivity::Normal,
         title: "my API key is sk-test1234567890".to_string(),
         content: "my API key is sk-test1234567890".to_string(),
         created_at: "2026-06-24 12:00:00".to_string(),
-        source_type: Some("episode".to_string()),
-        source_id: Some("conversation:conversation_1".to_string()),
+        source_object_type: Some("conversation_item".to_string()),
+        source_object_id: Some("item_1".to_string()),
+        source_type: Some("conversation_item".to_string()),
+        source_id: Some("item_1".to_string()),
         conversation_id: Some("conversation:conversation_1".to_string()),
     };
 
@@ -39,7 +43,8 @@ fn context_graph_output_includes_unredacted_memory_nodes() {
             memory_id: "mem_sensitive".to_string(),
             status: MemoryStatus::Confirmed,
             memory_type: MemoryType::OpenLoop,
-            home_scope_id: "conversation:health".to_string(),
+            owner_object_type: "conversation".to_string(),
+            owner_object_id: "conversation:health".to_string(),
             sensitivity: Sensitivity::Sensitive,
             title: "Doctor follow-up detail".to_string(),
             content: "Kevin needs to follow up about a doctor appointment.".to_string(),
@@ -48,7 +53,8 @@ fn context_graph_output_includes_unredacted_memory_nodes() {
             retrieval_policy_effective_status: RetrievalPolicyStatus::Stale,
             retrieval_policy_version: 2,
             retrieval_policy_fingerprint: Some("sha256:abcdef1234567890".to_string()),
-            retrieval_policy_extractor_principal_id: Some("agent:primary".to_string()),
+            retrieval_policy_extractor_object_type: Some("agent".to_string()),
+            retrieval_policy_extractor_object_id: Some("agent:primary".to_string()),
             retrieval_policy_extractor_version: Some("extractor-v1".to_string()),
             retrieval_policy_validated_at: Some("2026-06-24 12:00:00".to_string()),
             participant_visibility_policy: ParticipantVisibilityPolicy::OwnerOnly,
@@ -64,8 +70,10 @@ fn context_graph_output_includes_unredacted_memory_nodes() {
             object_type: "task".to_string(),
             object_id: "task:schedule_checkup".to_string(),
             relation: "open_loop_for".to_string(),
-            authorized_scope_id: Some("conversation:health".to_string()),
-            resolver_principal_id: Some("agent:primary".to_string()),
+            authorized_object_type: Some("conversation".to_string()),
+            authorized_object_id: Some("conversation:health".to_string()),
+            resolver_object_type: Some("agent".to_string()),
+            resolver_object_id: Some("agent:primary".to_string()),
             resolver_version: Some("resolver-v1".to_string()),
             source_run_id: Some("run:health".to_string()),
             created_at: "2026-06-24 12:00:00".to_string(),
@@ -75,34 +83,40 @@ fn context_graph_output_includes_unredacted_memory_nodes() {
                 memory_id: "mem_sensitive".to_string(),
                 purpose: Purpose::AnswerHumanQuestion,
                 effect: Effect::Allow,
-                created_by_principal_id: Some("agent:primary".to_string()),
+                created_by_object_type: Some("agent".to_string()),
+                created_by_object_id: Some("agent:primary".to_string()),
                 created_at: "2026-06-24 12:00:00".to_string(),
             },
             GraphPurposeRule {
                 memory_id: "mem_sensitive".to_string(),
                 purpose: Purpose::ExternalAction,
                 effect: Effect::Deny,
-                created_by_principal_id: Some("agent:primary".to_string()),
+                created_by_object_type: Some("agent".to_string()),
+                created_by_object_id: Some("agent:primary".to_string()),
                 created_at: "2026-06-24 12:00:00".to_string(),
             },
         ],
         access_grants: vec![GraphAccessGrant {
             grant_id: "grant_1".to_string(),
-            memory_id: Some("mem_sensitive".to_string()),
-            scope_id: None,
-            principal_id: "agent:primary".to_string(),
+            target_object_type: "memory_item".to_string(),
+            target_object_id: "mem_sensitive".to_string(),
+            grantee_object_type: "agent".to_string(),
+            grantee_object_id: "agent:primary".to_string(),
             permission: "use_for_retrieval".to_string(),
             effect: Effect::Allow,
             expires_at: Some("2000-01-01 00:00:00".to_string()),
-            created_by_principal_id: Some("human:kevin".to_string()),
+            created_by_object_type: Some("human".to_string()),
+            created_by_object_id: Some("human:kevin".to_string()),
             created_at: "2026-06-24 12:00:00".to_string(),
         }],
         context_packets: vec![GraphContextPacket {
             context_packet_id: "ctx_health".to_string(),
             run_id: "run:health".to_string(),
-            requesting_principal_id: "agent:primary".to_string(),
+            requesting_object_type: "agent".to_string(),
+            requesting_object_id: "agent:primary".to_string(),
             purpose: Purpose::AnswerHumanQuestion,
-            active_scopes: r#"["conversation:health"]"#.to_string(),
+            active_objects: r#"[{"object_type":"conversation","object_id":"conversation:health"}]"#
+                .to_string(),
             agent_visible_omissions: r#"[{"reason":"policy_restricted_context"}]"#.to_string(),
             created_at: "2026-06-24 12:00:00".to_string(),
         }],
@@ -135,8 +149,10 @@ fn context_graph_output_includes_unredacted_memory_nodes() {
             memory_id: "mem_sensitive".to_string(),
             memory_sensitivity: Sensitivity::Sensitive,
             stage: "included_in_packet".to_string(),
-            agent_principal_id: Some("agent:primary".to_string()),
-            scope_id: Some("conversation:health".to_string()),
+            agent_object_type: Some("agent".to_string()),
+            agent_object_id: Some("agent:primary".to_string()),
+            context_object_type: Some("conversation".to_string()),
+            context_object_id: Some("conversation:health".to_string()),
             purpose: Purpose::AnswerHumanQuestion,
             used_for_object_type: None,
             used_for_object_id: None,
@@ -144,13 +160,14 @@ fn context_graph_output_includes_unredacted_memory_nodes() {
             created_at: "2026-06-24 12:00:00".to_string(),
             details: r#"{"context_packet_id":"ctx_health"}"#.to_string(),
         }],
-        memory_events: vec![GraphMemoryEvent {
+        object_events: vec![GraphMemoryEvent {
             event_id: "event_memory_shown".to_string(),
             event_type: "shown_to_agent".to_string(),
-            actor_principal_id: Some("agent:primary".to_string()),
-            memory_id: Some("mem_sensitive".to_string()),
-            memory_sensitivity: Some(Sensitivity::Sensitive),
-            scope_id: Some("conversation:health".to_string()),
+            actor_object_type: Some("agent".to_string()),
+            actor_object_id: Some("agent:primary".to_string()),
+            target_object_type: Some("memory_item".to_string()),
+            target_object_id: Some("mem_sensitive".to_string()),
+            target_memory_sensitivity: Some(Sensitivity::Sensitive),
             reason: Some("context_packet".to_string()),
             created_at: "2026-06-24 12:00:00".to_string(),
             details: r#"{"run_id":"run:health","quote":"doctor"}"#.to_string(),
@@ -169,7 +186,7 @@ fn context_graph_output_includes_unredacted_memory_nodes() {
     assert!(output.contains("packet_memory_edges=1"));
     assert!(output.contains("packet_omissions=1"));
     assert!(output.contains("memory_use_records=1"));
-    assert!(output.contains("memory_events=1"));
+    assert!(output.contains("object_events=1"));
     assert!(output.contains("Retrieval policy"));
     assert!(output.contains("Trusted object links"));
     assert!(output.contains("Purpose rules"));
@@ -178,7 +195,7 @@ fn context_graph_output_includes_unredacted_memory_nodes() {
     assert!(output.contains("Context packet memories"));
     assert!(output.contains("Context packet omissions"));
     assert!(output.contains("Memory use records"));
-    assert!(output.contains("Memory events"));
+    assert!(output.contains("Object events"));
     assert!(output.contains("owner_only"));
     assert!(output.contains("stale"));
     assert!(output.contains("agent:primary"));

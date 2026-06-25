@@ -468,18 +468,11 @@ fn upsert_object_subject_entity(
     let linked_object_type = subject
         .linked_object
         .as_ref()
-        .map(|object_ref| object_ref.object_type.as_str().to_string())
-        .or_else(|| {
-            subject
-                .linked_principal_id
-                .as_ref()
-                .map(|principal_id| inferred_actor_type(principal_id).to_string())
-        });
+        .map(|object_ref| object_ref.object_type.as_str().to_string());
     let linked_object_id = subject
         .linked_object
         .as_ref()
-        .map(|object_ref| object_ref.object_id.clone())
-        .or_else(|| subject.linked_principal_id.clone());
+        .map(|object_ref| object_ref.object_id.clone());
 
     tx.execute(
         r"
@@ -550,14 +543,4 @@ fn conversation_id_for_summary(
     )
     .optional()
     .map_err(MemoryPersistenceError::Sqlite)
-}
-
-fn inferred_actor_type(object_id: &str) -> &'static str {
-    if object_id.starts_with("agent:") {
-        "agent"
-    } else if object_id.starts_with("tool:") {
-        "tool"
-    } else {
-        "human"
-    }
 }

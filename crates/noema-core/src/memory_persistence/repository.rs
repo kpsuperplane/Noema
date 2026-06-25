@@ -9,8 +9,7 @@ use crate::{
     paths::NoemaPaths,
     retrieval_policy_fingerprint, sqlite_memory_retrieval,
 };
-use rusqlite::{Connection, OpenFlags, OptionalExtension, named_params, params};
-use serde_json::json;
+use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
 
 use super::{
     error::MemoryPersistenceError,
@@ -162,219 +161,6 @@ impl SqliteMemoryRepository {
         tx.commit().map_err(MemoryPersistenceError::Sqlite)
     }
 
-    /// Append a chat-created memory with provenance and participants.
-    ///
-    /// The repository upserts placeholder principals, scope, source, and
-    /// conversation episode rows so the canonical foreign keys remain intact
-    /// before the higher-level runtime has full object management.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`MemoryPersistenceError`] when input cannot be serialized,
-    /// generated IDs cannot be allocated, or SQLite writes fail.
-    pub fn append_chat_memory_candidate(
-        &mut self,
-        candidate: &NewChatMemoryCandidate,
-    ) -> Result<MemorySummary, MemoryPersistenceError> {
-        let metadata = json_to_string(&candidate.metadata)?;
-        let retrieval_hints = json_to_string(&candidate.retrieval_hints)?;
-        let tx = self
-            .conn
-            .transaction()
-            .map_err(MemoryPersistenceError::Sqlite)?;
-        let memory_id = allocate_id(&tx, "mem")?;
-        let event_id = allocate_id(&tx, "evt")?;
-
-        ensure_source(&tx)?;
-        ensure_scope(&tx, &candidate.home_scope_id)?;
-        ensure_principal(&tx, &candidate.created_by_principal_id)?;
-        if let Some(owner_principal_id) = &candidate.owner_principal_id {
-            ensure_principal(&tx, owner_principal_id)?;
-        }
-        for participant in &candidate.participants {
-            ensure_principal(&tx, &participant.participant.object_id)?;
-        }
-        for subject in &candidate.subjects {
-            if let Some(linked_principal_id) = &subject.linked_principal_id {
-                ensure_principal(&tx, linked_principal_id)?;
-            }
-        }
-
-        let title = candidate
-            .title
-            .clone()
-            .unwrap_or_else(|| title_from_content(&candidate.content));
-        let observed_at = candidate.observed_at.as_deref();
-        tx.execute(
-            r"
-            INSERT INTO memory_items (
-              memory_id,
-              home_scope_id,
-              memory_type,
-              title,
-              content,
-              retrieval_hints,
-              status,
-              confidence,
-              sensitivity,
-              created_by_principal_id,
-              owner_principal_id,
-              authority_level,
-              extraction_method,
-              observed_at,
-              metadata
-            )
-            VALUES (
-              :memory_id,
-              :home_scope_id,
-              :memory_type,
-              :title,
-              :content,
-              :retrieval_hints,
-              :status,
-              :confidence,
-              :sensitivity,
-              :created_by_principal_id,
-              :owner_principal_id,
-              :authority_level,
-              :extraction_method,
-              :observed_at,
-              :metadata
-            )
-            ",
-            named_params! {
-                ":memory_id": memory_id,
-                ":home_scope_id": candidate.home_scope_id,
-                ":memory_type": candidate.memory_type.as_str(),
-                ":title": title,
-                ":content": candidate.content,
-                ":retrieval_hints": retrieval_hints,
-                ":status": memory_status_to_db(candidate.status),
-                ":confidence": candidate.confidence,
-                ":sensitivity": sensitivity_to_db(candidate.sensitivity),
-                ":created_by_principal_id": candidate.created_by_principal_id,
-                ":owner_principal_id": candidate.owner_principal_id,
-                ":authority_level": candidate.authority_level.as_str(),
-                ":extraction_method": candidate.extraction_method.as_str(),
-                ":observed_at": observed_at,
-                ":metadata": metadata,
-            },
-        )
-        .map_err(MemoryPersistenceError::Sqlite)?;
-        upsert_memory_fts(
-            &tx,
-            &memory_id,
-            &title,
-            &candidate.content,
-            &retrieval_hints,
-        )?;
-
-        for participant in &candidate.participants {
-            let participant_metadata = json_to_string(&participant.metadata)?;
-            tx.execute(
-                r"
-                INSERT OR IGNORE INTO memory_participants (
-                  memory_id,
-                  principal_id,
-                  role,
-                  metadata
-                )
-                VALUES (?1, ?2, ?3, ?4)
-                ",
-                params![
-                    memory_id,
-                    participant.participant.object_id,
-                    participant_role_to_db(participant.role),
-                    participant_metadata,
-                ],
-            )
-            .map_err(MemoryPersistenceError::Sqlite)?;
-        }
-
-        for subject in &candidate.subjects {
-            upsert_subject_entity(&tx, &candidate.home_scope_id, subject)?;
-            tx.execute(
-                r"
-                INSERT OR IGNORE INTO memory_subjects (
-                  memory_id,
-                  entity_id,
-                  role
-                )
-                VALUES (?1, ?2, ?3)
-                ",
-                params![
-                    memory_id,
-                    subject.entity_id,
-                    subject_role_to_db(subject.role)
-                ],
-            )
-            .map_err(MemoryPersistenceError::Sqlite)?;
-        }
-
-        if let Some(source) = &candidate.source {
-            ensure_scope(&tx, &source.conversation_id)?;
-            ensure_conversation_episode(&tx, source)?;
-            insert_provenance_edge(
-                &tx,
-                &memory_id,
-                "episode",
-                &source.conversation_id,
-                source.evidence_excerpt.as_deref(),
-                &candidate.created_by_principal_id,
-                json!({"source": "chat", "conversation_id": source.conversation_id}),
-            )?;
-
-            if let Some(message_id) = &source.message_id {
-                insert_provenance_edge(
-                    &tx,
-                    &memory_id,
-                    "message",
-                    message_id,
-                    source.evidence_excerpt.as_deref(),
-                    &candidate.created_by_principal_id,
-                    json!({"source": "chat", "conversation_id": source.conversation_id}),
-                )?;
-            }
-        } else {
-            insert_provenance_edge(
-                &tx,
-                &memory_id,
-                "source",
-                CHAT_SOURCE_ID,
-                None,
-                &candidate.created_by_principal_id,
-                json!({"source": "chat"}),
-            )?;
-        }
-
-        tx.execute(
-            r"
-            INSERT INTO memory_events (
-              event_id,
-              event_type,
-              actor_principal_id,
-              memory_id,
-              scope_id,
-              reason,
-              details
-            )
-            VALUES (?1, 'created', ?2, ?3, ?4, ?5, ?6)
-            ",
-            params![
-                event_id,
-                candidate.created_by_principal_id,
-                memory_id,
-                candidate.home_scope_id,
-                "chat_memory_candidate",
-                json_to_string(&json!({"source": "chat"}))?,
-            ],
-        )
-        .map_err(MemoryPersistenceError::Sqlite)?;
-
-        tx.commit().map_err(MemoryPersistenceError::Sqlite)?;
-        self.memory_summary(&memory_id)
-    }
-
     /// Rebuild the durable memory search index from canonical memory rows.
     ///
     /// The FTS table is derived state. This method makes index recovery
@@ -418,65 +204,6 @@ impl SqliteMemoryRepository {
         }
         tx.commit().map_err(MemoryPersistenceError::Sqlite)?;
         Ok(memories.len())
-    }
-
-    /// Record a complete chat turn for memory provenance.
-    ///
-    /// The repository upserts the chat source, conversation scope, principals,
-    /// and conversation episode, then inserts the user and assistant messages.
-    /// Message inserts are idempotent by `message_id` so repeated recording of
-    /// the same turn does not duplicate provenance rows.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`MemoryPersistenceError`] when input metadata cannot be
-    /// serialized or SQLite writes fail.
-    pub fn record_chat_turn(&mut self, turn: &NewChatTurn) -> Result<(), MemoryPersistenceError> {
-        let tx = self
-            .conn
-            .transaction()
-            .map_err(MemoryPersistenceError::Sqlite)?;
-        let occurred_at = match &turn.occurred_at {
-            Some(occurred_at) => occurred_at.clone(),
-            None => tx
-                .query_row("SELECT CURRENT_TIMESTAMP", [], |row| {
-                    row.get::<_, String>(0)
-                })
-                .map_err(MemoryPersistenceError::Sqlite)?,
-        };
-
-        ensure_source(&tx)?;
-        ensure_scope(&tx, &turn.conversation_id)?;
-        ensure_principal(&tx, &turn.user_principal_id)?;
-        ensure_principal(&tx, &turn.assistant_principal_id)?;
-        ensure_conversation_episode_id(&tx, &turn.conversation_id)?;
-
-        insert_chat_message(
-            &tx,
-            ChatMessageRecord {
-                message_id: &turn.user_message_id,
-                episode_id: &turn.conversation_id,
-                author_principal_id: &turn.user_principal_id,
-                role: "human",
-                content: &turn.user_content,
-                occurred_at: &occurred_at,
-                metadata: chat_message_metadata(turn, "user"),
-            },
-        )?;
-        insert_chat_message(
-            &tx,
-            ChatMessageRecord {
-                message_id: &turn.assistant_message_id,
-                episode_id: &turn.conversation_id,
-                author_principal_id: &turn.assistant_principal_id,
-                role: "assistant",
-                content: &turn.assistant_content,
-                occurred_at: &occurred_at,
-                metadata: chat_message_metadata(turn, "assistant"),
-            },
-        )?;
-
-        tx.commit().map_err(MemoryPersistenceError::Sqlite)
     }
 
     /// List recent memories for CLI or dashboard inspection.
@@ -525,13 +252,6 @@ impl SqliteMemoryRepository {
             .map_err(MemoryPersistenceError::Sqlite)
     }
 
-    fn memory_summary(&self, memory_id: &str) -> Result<MemorySummary, MemoryPersistenceError> {
-        self.get_memory(memory_id)?
-            .ok_or_else(|| MemoryPersistenceError::MemoryNotFound {
-                memory_id: memory_id.to_string(),
-            })
-    }
-
     /// Append a graph relationship claim edge.
     ///
     /// Active and confirmed relationship claims must name a supporting memory,
@@ -573,7 +293,7 @@ impl SqliteMemoryRepository {
             }
         }
 
-        ensure_scope(&tx, &relationship.home_scope_id)?;
+        validate_object_ref_for_conn(&tx, &relationship.owner)?;
         let relationship_id = match &relationship.relationship_id {
             Some(relationship_id) => relationship_id.clone(),
             None => allocate_id(&tx, "rel")?,
@@ -582,7 +302,8 @@ impl SqliteMemoryRepository {
             r"
             INSERT INTO relationships (
               relationship_id,
-              home_scope_id,
+              owner_object_type,
+              owner_object_id,
               subject_entity_id,
               predicate,
               object_entity_id,
@@ -593,11 +314,12 @@ impl SqliteMemoryRepository {
               valid_to,
               metadata
             )
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
-            ",
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+        ",
             params![
                 relationship_id,
-                relationship.home_scope_id,
+                relationship.owner.object_type.as_str(),
+                relationship.owner.object_id.as_str(),
                 relationship.subject_entity_id,
                 relationship.predicate,
                 relationship.object_entity_id,
@@ -699,15 +421,15 @@ impl SqliteMemoryRepository {
     pub fn refresh_retrieval_policy_fingerprint(
         &mut self,
         memory_id: &str,
-        extractor_principal_id: &str,
+        extractor: ObjectRef,
         extractor_version: &str,
     ) -> Result<String, MemoryPersistenceError> {
+        validate_object_ref_for_conn(&self.conn, &extractor)?;
         let fingerprint = retrieval_policy_fingerprint::current_fingerprint(&self.conn, memory_id)?;
         let tx = self
             .conn
             .transaction()
             .map_err(MemoryPersistenceError::Sqlite)?;
-        ensure_principal(&tx, extractor_principal_id)?;
         let changed = tx
             .execute(
                 r"
@@ -715,15 +437,17 @@ impl SqliteMemoryRepository {
                 SET
                   retrieval_policy_status = 'valid',
                   retrieval_policy_fingerprint = ?2,
-                  retrieval_policy_extractor_principal_id = ?3,
-                  retrieval_policy_extractor_version = ?4,
+                  retrieval_policy_extractor_object_type = ?3,
+                  retrieval_policy_extractor_object_id = ?4,
+                  retrieval_policy_extractor_version = ?5,
                   retrieval_policy_validated_at = CURRENT_TIMESTAMP
                 WHERE memory_id = ?1
                 ",
                 params![
                     memory_id,
                     &fingerprint,
-                    extractor_principal_id,
+                    extractor.object_type.as_str(),
+                    extractor.object_id.as_str(),
                     extractor_version,
                 ],
             )

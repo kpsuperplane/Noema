@@ -5,10 +5,9 @@ fn records_context_packet_with_omissions_and_memory_use_records() {
     let dir = tempfile::tempdir().expect("temp dir");
     let paths = NoemaPaths::from_noema_home(dir.path()).expect("paths");
     let mut repo = SqliteMemoryRepository::open(&paths).expect("repo");
-    let mut included = NewChatMemoryCandidate::new(
-        "conversation:packet",
+    let mut included = new_conversation_memory_candidate(
+        &mut repo,
         "Noema should record context packet manifests.",
-        "agent:primary",
     );
     included.status = MemoryStatus::Active;
     included.participants = vec![NewMemoryParticipant::new(
@@ -16,13 +15,14 @@ fn records_context_packet_with_omissions_and_memory_use_records() {
         ParticipantRole::HumanInScope,
     )];
     let included_memory = repo
-        .append_chat_memory_candidate(&included)
+        .append_memory_candidate(&included)
         .expect("included memory");
+    let packet_scope = object_scope_key(&included.owner);
 
-    let mut denied = NewChatMemoryCandidate::new(
-        "conversation:packet",
+    let mut denied = new_memory_candidate_for_owner(
+        &mut repo,
+        included.owner.clone(),
         "Sensitive packet detail should stay audit-only.",
-        "agent:primary",
     );
     denied.status = MemoryStatus::Active;
     denied.sensitivity = Sensitivity::Sensitive;
@@ -31,14 +31,11 @@ fn records_context_packet_with_omissions_and_memory_use_records() {
         ParticipantRole::HumanInScope,
     )];
     let denied_memory = repo
-        .append_chat_memory_candidate(&denied)
+        .append_memory_candidate(&denied)
         .expect("denied memory");
 
     let mut request = request_for_kevin();
-    request
-        .trusted
-        .active_scopes
-        .push("conversation:packet".to_string());
+    request.trusted.active_scopes.push(packet_scope.clone());
     let result = repo.retrieve_memories(&request).expect("retrieve");
 
     assert_eq!(included_ids(&result), vec![included_memory.id.as_str()]);
@@ -57,10 +54,9 @@ fn records_context_packet_with_omissions_and_memory_use_records() {
         .expect("record packet");
     repo.record_context_packet("ctx_other", "run:other", &request, &result)
         .expect("record other packet");
-    let mut unrelated = NewChatMemoryCandidate::new(
-        "conversation:unrelated_packet",
+    let mut unrelated = new_conversation_memory_candidate(
+        &mut repo,
         "This memory is newer but not part of the packet.",
-        "agent:primary",
     );
     unrelated.status = MemoryStatus::Active;
     unrelated.participants = vec![NewMemoryParticipant::new(
@@ -68,13 +64,13 @@ fn records_context_packet_with_omissions_and_memory_use_records() {
         ParticipantRole::HumanInScope,
     )];
     let unrelated_memory = repo
-        .append_chat_memory_candidate(&unrelated)
+        .append_memory_candidate(&unrelated)
         .expect("unrelated memory");
 
-    let mut relationship_backing = NewChatMemoryCandidate::new(
-        "conversation:packet",
+    let mut relationship_backing = new_memory_candidate_for_owner(
+        &mut repo,
+        included.owner.clone(),
         "Relationship-only omissions still need supporting memory context.",
-        "agent:primary",
     );
     relationship_backing.status = MemoryStatus::Active;
     relationship_backing.participants = vec![NewMemoryParticipant::new(
@@ -91,10 +87,10 @@ fn records_context_packet_with_omissions_and_memory_use_records() {
         ),
     ];
     let relationship_memory = repo
-        .append_chat_memory_candidate(&relationship_backing)
+        .append_memory_candidate(&relationship_backing)
         .expect("relationship memory");
     let mut relationship = NewRelationshipClaim::new(
-        "conversation:packet",
+        included.owner.clone(),
         "human:kevin",
         "prefers",
         "concept:packet_relationship",
@@ -132,52 +128,71 @@ fn records_context_packet_with_omissions_and_memory_use_records() {
     repo.conn
         .execute(
             r"
-            INSERT INTO memory_access_grants (
+            INSERT INTO object_access_grants (
               grant_id,
-              scope_id,
-              principal_id,
+              target_object_type,
+              target_object_id,
+              grantee_object_type,
+              grantee_object_id,
               permission,
               effect
             )
             VALUES (
               'grant_same_scope_unrelated',
-              'conversation:packet',
+              'conversation',
+              ?1,
+              'agent',
               'agent:primary',
               'use_for_retrieval',
               'allow'
             )
             ",
-            [],
+            params![included.owner.object_id.as_str()],
         )
         .expect("same-scope grant");
     repo.conn
         .execute(
             r#"
-            INSERT INTO memory_events (
+            INSERT INTO object_events (
               event_id,
               event_type,
-              actor_principal_id,
-              scope_id,
+              actor_object_type,
+              actor_object_id,
+              target_object_type,
+              target_object_id,
               reason,
               details
             )
             VALUES (
               'event_same_scope_unrelated',
               'retrieved',
+              'agent',
               'agent:primary',
-              'conversation:packet',
+              'conversation',
+              ?1,
               'same_scope_unrelated',
               '{"run_id":"run:other"}'
             )
             "#,
-            [],
+            params![included.owner.object_id.as_str()],
         )
         .expect("same-scope event");
     let graph = repo.inspect_context_graph(Some(20)).expect("graph");
 
     assert!(graph.context_packets.iter().any(|packet| {
+        let active_objects =
+            serde_json::from_str::<Value>(&packet.active_objects).expect("active objects json");
+        let has_packet_object = active_objects.as_array().is_some_and(|objects| {
+            objects.iter().any(|object| {
+                object["object_type"] == "conversation"
+                    && object["object_id"] == included.owner.object_id
+            })
+        });
         packet.context_packet_id == "ctx_packet"
             && packet.run_id == "run:packet"
+            && packet.requesting_object_type == "agent"
+            && packet.requesting_object_id == "agent:primary"
+            && has_packet_object
             && packet
                 .agent_visible_omissions
                 .contains("policy_restricted_context")
@@ -244,7 +259,7 @@ fn records_context_packet_with_omissions_and_memory_use_records() {
     );
     assert!(
         !filtered
-            .memory_events
+            .object_events
             .iter()
             .any(|event| event.event_id == "event_same_scope_unrelated")
     );

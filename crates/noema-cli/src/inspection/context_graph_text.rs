@@ -6,9 +6,9 @@ use std::io::Write;
 use crate::CliError;
 
 use super::{
-    effect_label, external_egress_policy_label, grant_target, memory_status_label,
-    participant_role_label, participant_visibility_policy_label, preview, purpose_label,
-    redacted_event_details, redacted_json, relationship_status_label,
+    effect_label, external_egress_policy_label, memory_status_label, object_ref,
+    optional_object_ref, participant_role_label, participant_visibility_policy_label, preview,
+    purpose_label, redacted_event_details, redacted_json, relationship_status_label,
     retrieval_policy_status_label, sensitivity_label, subject_role_label, use_record_object,
 };
 
@@ -19,7 +19,7 @@ pub(super) fn write_context_graph_text(
     writeln!(stdout, "Context graph").map_err(CliError::WriteOutput)?;
     writeln!(
         stdout,
-        "memories={} entities={} subject_edges={} participant_edges={} provenance_edges={} object_link_edges={} purpose_rules={} access_grants={} context_packets={} packet_memory_edges={} packet_omissions={} memory_use_records={} memory_events={} relationships={}",
+        "memories={} entities={} subject_edges={} participant_edges={} provenance_edges={} object_link_edges={} purpose_rules={} access_grants={} context_packets={} packet_memory_edges={} packet_omissions={} memory_use_records={} object_events={} relationships={}",
         graph.memories.len(),
         graph.entities.len(),
         graph.subject_edges.len(),
@@ -32,7 +32,7 @@ pub(super) fn write_context_graph_text(
         graph.context_packet_memory_edges.len(),
         graph.context_packet_omissions.len(),
         graph.memory_use_records.len(),
-        graph.memory_events.len(),
+        graph.object_events.len(),
         graph.relationships.len(),
     )
     .map_err(CliError::WriteOutput)?;
@@ -41,21 +41,21 @@ pub(super) fn write_context_graph_text(
     writeln!(stdout, "Memories").map_err(CliError::WriteOutput)?;
     writeln!(
         stdout,
-        "{:<38}  {:<10}  {:<10}  {:<10}  {:<12}  {:<12}  {:<24}  Title",
-        "ID", "Status", "Type", "Privacy", "Stored", "Effective", "Scope"
+        "{:<38}  {:<10}  {:<10}  {:<10}  {:<12}  {:<12}  {:<28}  Title",
+        "ID", "Status", "Type", "Privacy", "Stored", "Effective", "Owner"
     )
     .map_err(CliError::WriteOutput)?;
     for memory in &graph.memories {
         writeln!(
             stdout,
-            "{:<38}  {:<10}  {:<10}  {:<10}  {:<12}  {:<12}  {:<24}  {}",
+            "{:<38}  {:<10}  {:<10}  {:<10}  {:<12}  {:<12}  {:<28}  {}",
             memory.memory_id,
             memory_status_label(memory.status),
             memory.memory_type.as_str(),
             sensitivity_label(memory.sensitivity),
             retrieval_policy_status_label(memory.retrieval_policy_status),
             retrieval_policy_status_label(memory.retrieval_policy_effective_status),
-            memory.home_scope_id,
+            object_ref(&memory.owner_object_type, &memory.owner_object_id),
             preview(&memory.title, 80),
         )
         .map_err(CliError::WriteOutput)?;
@@ -97,9 +97,11 @@ pub(super) fn write_context_graph_text(
             participant_visibility_policy_label(memory.participant_visibility_policy),
             external_egress_policy_label(memory.external_egress_policy),
             memory
-                .retrieval_policy_extractor_principal_id
+                .retrieval_policy_extractor_object_type
                 .as_deref()
-                .unwrap_or("-"),
+                .zip(memory.retrieval_policy_extractor_object_id.as_deref())
+                .map(|(object_type, object_id)| object_ref(object_type, object_id))
+                .unwrap_or_else(|| "-".to_string()),
             memory
                 .retrieval_policy_extractor_version
                 .as_deref()
@@ -118,18 +120,24 @@ pub(super) fn write_context_graph_text(
     writeln!(stdout, "Entities").map_err(CliError::WriteOutput)?;
     writeln!(
         stdout,
-        "{:<38}  {:<14}  {:<24}  {:<24}  Name",
-        "ID", "Type", "Scope", "Principal"
+        "{:<38}  {:<14}  {:<28}  {:<28}  Name",
+        "ID", "Type", "Owner", "Linked object"
     )
     .map_err(CliError::WriteOutput)?;
     for entity in &graph.entities {
         writeln!(
             stdout,
-            "{:<38}  {:<14}  {:<24}  {:<24}  {}",
+            "{:<38}  {:<14}  {:<28}  {:<28}  {}",
             entity.entity_id,
             entity.entity_type,
-            entity.home_scope_id.as_deref().unwrap_or("-"),
-            entity.linked_principal_id.as_deref().unwrap_or("-"),
+            optional_object_ref(
+                entity.owner_object_type.as_deref(),
+                entity.owner_object_id.as_deref()
+            ),
+            optional_object_ref(
+                entity.linked_object_type.as_deref(),
+                entity.linked_object_id.as_deref()
+            ),
             entity.canonical_name,
         )
         .map_err(CliError::WriteOutput)?;
@@ -151,14 +159,14 @@ pub(super) fn write_context_graph_text(
 
     writeln!(stdout).map_err(CliError::WriteOutput)?;
     writeln!(stdout, "Participant edges").map_err(CliError::WriteOutput)?;
-    writeln!(stdout, "{:<38}  {:<28}  Role", "Memory", "Principal")
+    writeln!(stdout, "{:<38}  {:<34}  Role", "Memory", "Participant")
         .map_err(CliError::WriteOutput)?;
     for edge in &graph.participant_edges {
         writeln!(
             stdout,
-            "{:<38}  {:<28}  {}",
+            "{:<38}  {:<34}  {}",
             edge.memory_id,
-            edge.principal_id,
+            object_ref(&edge.participant_object_type, &edge.participant_object_id),
             participant_role_label(edge.role),
         )
         .map_err(CliError::WriteOutput)?;
@@ -166,17 +174,15 @@ pub(super) fn write_context_graph_text(
 
     writeln!(stdout).map_err(CliError::WriteOutput)?;
     writeln!(stdout, "Provenance edges").map_err(CliError::WriteOutput)?;
-    writeln!(
-        stdout,
-        "{:<38}  {:<10}  {:<38}  Relation",
-        "Memory", "Source", "Source ID"
-    )
-    .map_err(CliError::WriteOutput)?;
+    writeln!(stdout, "{:<38}  {:<44}  Relation", "Memory", "Source")
+        .map_err(CliError::WriteOutput)?;
     for edge in &graph.provenance_edges {
         writeln!(
             stdout,
-            "{:<38}  {:<10}  {:<38}  {}",
-            edge.memory_id, edge.source_type, edge.source_id, edge.relation,
+            "{:<38}  {:<44}  {}",
+            edge.memory_id,
+            object_ref(&edge.source_object_type, &edge.source_object_id),
+            edge.relation,
         )
         .map_err(CliError::WriteOutput)?;
     }
@@ -185,20 +191,25 @@ pub(super) fn write_context_graph_text(
     writeln!(stdout, "Trusted object links").map_err(CliError::WriteOutput)?;
     writeln!(
         stdout,
-        "{:<38}  {:<18}  {:<16}  {:<38}  {:<24}  Resolver",
-        "Memory", "Relation", "Object type", "Object ID", "Authorized scope"
+        "{:<38}  {:<18}  {:<44}  {:<44}  Resolver",
+        "Memory", "Relation", "Object", "Authorized object"
     )
     .map_err(CliError::WriteOutput)?;
     for edge in &graph.object_link_edges {
         writeln!(
             stdout,
-            "{:<38}  {:<18}  {:<16}  {:<38}  {:<24}  {}",
+            "{:<38}  {:<18}  {:<44}  {:<44}  {}",
             edge.memory_id,
             edge.relation,
-            edge.object_type,
-            edge.object_id,
-            edge.authorized_scope_id.as_deref().unwrap_or("-"),
-            edge.resolver_principal_id.as_deref().unwrap_or("-"),
+            object_ref(&edge.object_type, &edge.object_id),
+            optional_object_ref(
+                edge.authorized_object_type.as_deref(),
+                edge.authorized_object_id.as_deref()
+            ),
+            optional_object_ref(
+                edge.resolver_object_type.as_deref(),
+                edge.resolver_object_id.as_deref()
+            ),
         )
         .map_err(CliError::WriteOutput)?;
     }
@@ -218,7 +229,10 @@ pub(super) fn write_context_graph_text(
             rule.memory_id,
             purpose_label(rule.purpose),
             effect_label(rule.effect),
-            rule.created_by_principal_id.as_deref().unwrap_or("-"),
+            optional_object_ref(
+                rule.created_by_object_type.as_deref(),
+                rule.created_by_object_id.as_deref()
+            ),
         )
         .map_err(CliError::WriteOutput)?;
     }
@@ -227,17 +241,17 @@ pub(super) fn write_context_graph_text(
     writeln!(stdout, "Access grants").map_err(CliError::WriteOutput)?;
     writeln!(
         stdout,
-        "{:<38}  {:<38}  {:<28}  {:<24}  {:<6}  Expires",
-        "Grant", "Target", "Principal", "Permission", "Effect"
+        "{:<38}  {:<44}  {:<34}  {:<24}  {:<6}  Expires",
+        "Grant", "Target", "Grantee", "Permission", "Effect"
     )
     .map_err(CliError::WriteOutput)?;
     for grant in &graph.access_grants {
         writeln!(
             stdout,
-            "{:<38}  {:<38}  {:<28}  {:<24}  {:<6}  {}",
+            "{:<38}  {:<44}  {:<34}  {:<24}  {:<6}  {}",
             grant.grant_id,
-            grant_target(grant.memory_id.as_deref(), grant.scope_id.as_deref()),
-            grant.principal_id,
+            object_ref(&grant.target_object_type, &grant.target_object_id),
+            object_ref(&grant.grantee_object_type, &grant.grantee_object_id),
             grant.permission,
             effect_label(grant.effect),
             grant.expires_at.as_deref().unwrap_or("-"),
@@ -249,19 +263,19 @@ pub(super) fn write_context_graph_text(
     writeln!(stdout, "Context packets").map_err(CliError::WriteOutput)?;
     writeln!(
         stdout,
-        "{:<38}  {:<24}  {:<28}  {:<24}  Active scopes",
-        "Packet", "Run", "Principal", "Purpose"
+        "{:<38}  {:<24}  {:<34}  {:<24}  Active objects",
+        "Packet", "Run", "Requester", "Purpose"
     )
     .map_err(CliError::WriteOutput)?;
     for packet in &graph.context_packets {
         writeln!(
             stdout,
-            "{:<38}  {:<24}  {:<28}  {:<24}  {}",
+            "{:<38}  {:<24}  {:<34}  {:<24}  {}",
             packet.context_packet_id,
             packet.run_id,
-            packet.requesting_principal_id,
+            object_ref(&packet.requesting_object_type, &packet.requesting_object_id),
             purpose_label(packet.purpose),
-            preview(&packet.active_scopes, 96),
+            preview(&packet.active_objects, 96),
         )
         .map_err(CliError::WriteOutput)?;
         writeln!(
@@ -355,10 +369,16 @@ pub(super) fn write_context_graph_text(
         .map_err(CliError::WriteOutput)?;
         writeln!(
             stdout,
-            "{:<38}  agent={} scope={} object={} details: {}",
+            "{:<38}  agent={} context={} object={} details: {}",
             "",
-            record.agent_principal_id.as_deref().unwrap_or("-"),
-            record.scope_id.as_deref().unwrap_or("-"),
+            optional_object_ref(
+                record.agent_object_type.as_deref(),
+                record.agent_object_id.as_deref()
+            ),
+            optional_object_ref(
+                record.context_object_type.as_deref(),
+                record.context_object_id.as_deref()
+            ),
             use_record_object(
                 record.used_for_object_type.as_deref(),
                 record.used_for_object_id.as_deref(),
@@ -369,22 +389,27 @@ pub(super) fn write_context_graph_text(
     }
 
     writeln!(stdout).map_err(CliError::WriteOutput)?;
-    writeln!(stdout, "Memory events").map_err(CliError::WriteOutput)?;
+    writeln!(stdout, "Object events").map_err(CliError::WriteOutput)?;
     writeln!(
         stdout,
-        "{:<38}  {:<16}  {:<28}  {:<38}  {:<24}  Reason",
-        "Event", "Type", "Actor", "Memory", "Scope"
+        "{:<38}  {:<16}  {:<34}  {:<44}  Reason",
+        "Event", "Type", "Actor", "Target"
     )
     .map_err(CliError::WriteOutput)?;
-    for event in &graph.memory_events {
+    for event in &graph.object_events {
         writeln!(
             stdout,
-            "{:<38}  {:<16}  {:<28}  {:<38}  {:<24}  {}",
+            "{:<38}  {:<16}  {:<34}  {:<44}  {}",
             event.event_id,
             event.event_type,
-            event.actor_principal_id.as_deref().unwrap_or("-"),
-            event.memory_id.as_deref().unwrap_or("-"),
-            event.scope_id.as_deref().unwrap_or("-"),
+            optional_object_ref(
+                event.actor_object_type.as_deref(),
+                event.actor_object_id.as_deref()
+            ),
+            optional_object_ref(
+                event.target_object_type.as_deref(),
+                event.target_object_id.as_deref()
+            ),
             event.reason.as_deref().unwrap_or("-"),
         )
         .map_err(CliError::WriteOutput)?;
@@ -392,7 +417,7 @@ pub(super) fn write_context_graph_text(
             stdout,
             "{:<38}  details: {}",
             "",
-            redacted_event_details(event.memory_sensitivity, &event.details, 96),
+            redacted_event_details(event.target_memory_sensitivity, &event.details, 96),
         )
         .map_err(CliError::WriteOutput)?;
     }

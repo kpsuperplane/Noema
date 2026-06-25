@@ -5,11 +5,8 @@ fn inspects_context_graph_from_canonical_tables() {
     let dir = tempfile::tempdir().expect("temp dir");
     let paths = NoemaPaths::from_noema_home(dir.path()).expect("paths");
     let mut repo = SqliteMemoryRepository::open(&paths).expect("repo");
-    let mut candidate = NewChatMemoryCandidate::new(
-        "conversation:inspect_graph",
-        "Kevin prefers inspectable context graphs.",
-        "agent:primary",
-    );
+    let mut candidate =
+        new_conversation_memory_candidate(&mut repo, "Kevin prefers inspectable context graphs.");
     candidate.retrieval_hints = json!({"topics": ["context graph"], "keywords": ["inspect"]});
     candidate.subjects = vec![
         NewMemorySubject::new("human:kevin", "human", "Kevin", SubjectRole::Source),
@@ -24,14 +21,11 @@ fn inspects_context_graph_from_canonical_tables() {
         NewMemoryParticipant::new("human:kevin", ParticipantRole::HumanInScope),
         NewMemoryParticipant::new("agent:primary", ParticipantRole::AgentInScope),
     ];
-    candidate.source = Some(ChatMemorySource {
-        conversation_id: "conversation:inspect_graph".to_string(),
-        message_id: None,
-        evidence_excerpt: Some("inspectable context graphs".to_string()),
-    });
-    let memory = repo
-        .append_chat_memory_candidate(&candidate)
-        .expect("memory");
+    if let Some(source) = &mut candidate.source {
+        source.evidence_excerpt = Some("inspectable context graphs".to_string());
+    }
+    let memory = repo.append_memory_candidate(&candidate).expect("memory");
+    let conversation_id = candidate.owner.object_id.clone();
     repo.conn
         .execute(
             r"
@@ -40,7 +34,8 @@ fn inspects_context_graph_from_canonical_tables() {
               retrieval_policy_status = 'valid',
               retrieval_policy_version = 2,
               retrieval_policy_fingerprint = 'sha256:inspect_graph',
-              retrieval_policy_extractor_principal_id = 'agent:primary',
+              retrieval_policy_extractor_object_type = 'agent',
+              retrieval_policy_extractor_object_id = 'agent:primary',
               retrieval_policy_extractor_version = 'extractor-v1',
               retrieval_policy_validated_at = '2026-06-24 12:00:00',
               participant_visibility_policy = 'owner_only',
@@ -51,7 +46,7 @@ fn inspects_context_graph_from_canonical_tables() {
         )
         .expect("policy metadata");
     let mut relationship = NewRelationshipClaim::new(
-        "conversation:inspect_graph",
+        candidate.owner.clone(),
         "human:kevin",
         "prefers",
         "concept:context_graph",
@@ -68,25 +63,31 @@ fn inspects_context_graph_from_canonical_tables() {
               object_type,
               object_id,
               relation,
-              resolver_principal_id,
+              resolver_object_type,
+              resolver_object_id,
               resolver_version,
               source_run_id,
-              authorized_scope_id,
-              created_by_principal_id
+              authorized_object_type,
+              authorized_object_id,
+              created_by_object_type,
+              created_by_object_id
             )
             VALUES (
               ?1,
               'project',
               'project:noema',
               'active_context',
+              'agent',
               'agent:primary',
               'resolver-v1',
               'run:inspect_graph',
-              'conversation:inspect_graph',
+              'conversation',
+              ?2,
+              'agent',
               'agent:primary'
             )
             ",
-            params![memory.id],
+            params![memory.id, conversation_id.as_str()],
         )
         .expect("object link");
     repo.conn
@@ -96,11 +97,12 @@ fn inspects_context_graph_from_canonical_tables() {
               memory_id,
               purpose,
               effect,
-              created_by_principal_id
+              created_by_object_type,
+              created_by_object_id
             )
             VALUES
-              (?1, 'answer_human_question', 'allow', 'agent:primary'),
-              (?1, 'external_action', 'deny', 'agent:primary')
+              (?1, 'answer_human_question', 'allow', 'agent', 'agent:primary'),
+              (?1, 'external_action', 'deny', 'agent', 'agent:primary')
             ",
             params![memory.id],
         )
@@ -108,22 +110,28 @@ fn inspects_context_graph_from_canonical_tables() {
     repo.conn
         .execute(
             r"
-            INSERT INTO memory_access_grants (
+            INSERT INTO object_access_grants (
               grant_id,
-              memory_id,
-              principal_id,
+              target_object_type,
+              target_object_id,
+              grantee_object_type,
+              grantee_object_id,
               permission,
               effect,
               expires_at,
-              created_by_principal_id
+              created_by_object_type,
+              created_by_object_id
             )
             VALUES (
               'grant_inspect_graph',
+              'memory_item',
               ?1,
+              'agent',
               'agent:primary',
               'use_for_retrieval',
               'allow',
               '2000-01-01 00:00:00',
+              'human',
               'human:kevin'
             )
             ",
@@ -133,57 +141,55 @@ fn inspects_context_graph_from_canonical_tables() {
     repo.conn
         .execute(
             r"
-            INSERT INTO memory_access_grants (
+            INSERT INTO object_access_grants (
               grant_id,
-              scope_id,
-              principal_id,
+              target_object_type,
+              target_object_id,
+              grantee_object_type,
+              grantee_object_id,
               permission,
               effect,
-              created_by_principal_id
+              created_by_object_type,
+              created_by_object_id
             )
             VALUES (
               'grant_inspect_scope_write',
-              'conversation:inspect_graph',
+              'conversation',
+              ?1,
+              'agent',
               'agent:primary',
               'write',
               'allow',
+              'human',
               'human:kevin'
             )
             ",
-            [],
+            params![conversation_id.as_str()],
         )
         .expect("scope access grant");
     repo.conn
         .execute(
             r"
-            INSERT INTO scopes (scope_id, scope_type, name, slug)
-            VALUES (
-              'conversation:unrelated',
-              'conversation',
-              'Unrelated conversation',
-              'unrelated'
-            )
-            ",
-            [],
-        )
-        .expect("unrelated scope");
-    repo.conn
-        .execute(
-            r"
-            INSERT INTO memory_access_grants (
+            INSERT INTO object_access_grants (
               grant_id,
-              scope_id,
-              principal_id,
+              target_object_type,
+              target_object_id,
+              grantee_object_type,
+              grantee_object_id,
               permission,
               effect,
-              created_by_principal_id
+              created_by_object_type,
+              created_by_object_id
             )
             VALUES (
               'grant_unrelated_scope',
+              'conversation',
               'conversation:unrelated',
+              'agent',
               'agent:primary',
               'use_for_retrieval',
               'allow',
+              'human',
               'human:kevin'
             )
             ",
@@ -193,21 +199,23 @@ fn inspects_context_graph_from_canonical_tables() {
     repo.conn
         .execute(
             r#"
-            INSERT INTO memory_events (
+            INSERT INTO object_events (
               event_id,
               event_type,
-              actor_principal_id,
-              memory_id,
-              scope_id,
+              actor_object_type,
+              actor_object_id,
+              target_object_type,
+              target_object_id,
               reason,
               details
             )
             VALUES (
               'event_inspect_shown',
               'shown_to_agent',
+              'agent',
               'agent:primary',
+              'memory_item',
               ?1,
-              'conversation:inspect_graph',
               'context_packet',
               '{"run_id":"run:inspect_graph","stage":"shown_to_agent"}'
             )
@@ -218,41 +226,49 @@ fn inspects_context_graph_from_canonical_tables() {
     repo.conn
         .execute(
             r#"
-            INSERT INTO memory_events (
+            INSERT INTO object_events (
               event_id,
               event_type,
-              actor_principal_id,
-              scope_id,
+              actor_object_type,
+              actor_object_id,
+              target_object_type,
+              target_object_id,
               reason,
               details
             )
             VALUES (
               'event_inspect_scope_retrieval',
               'retrieved',
+              'agent',
               'agent:primary',
-              'conversation:inspect_graph',
+              'conversation',
+              ?1,
               'scope_context',
               '{"run_id":"run:inspect_graph"}'
             )
             "#,
-            [],
+            params![conversation_id.as_str()],
         )
         .expect("scope event");
     repo.conn
         .execute(
             r"
-            INSERT INTO memory_events (
+            INSERT INTO object_events (
               event_id,
               event_type,
-              actor_principal_id,
-              scope_id,
+              actor_object_type,
+              actor_object_id,
+              target_object_type,
+              target_object_id,
               reason,
               details
             )
             VALUES (
               'event_unrelated_scope',
               'retrieved',
+              'agent',
               'agent:primary',
+              'conversation',
               'conversation:unrelated',
               'unrelated',
               '{}'
@@ -317,21 +333,26 @@ fn inspects_context_graph_from_canonical_tables() {
         graph
             .participant_edges
             .iter()
-            .any(|edge| edge.memory_id == memory.id && edge.principal_id == "agent:primary")
+            .any(|edge| edge.memory_id == memory.id
+                && edge.participant_object_type == "agent"
+                && edge.participant_object_id == "agent:primary")
     );
     assert!(
         graph
             .provenance_edges
             .iter()
-            .any(|edge| edge.memory_id == memory.id && edge.source_type == "episode")
+            .any(|edge| edge.memory_id == memory.id
+                && edge.source_object_type == "conversation_item")
     );
     assert!(graph.object_link_edges.iter().any(|edge| {
         edge.memory_id == memory.id
             && edge.object_type == "project"
             && edge.object_id == "project:noema"
             && edge.relation == "active_context"
-            && edge.authorized_scope_id.as_deref() == Some("conversation:inspect_graph")
-            && edge.resolver_principal_id.as_deref() == Some("agent:primary")
+            && edge.authorized_object_type.as_deref() == Some("conversation")
+            && edge.authorized_object_id.as_deref() == Some(conversation_id.as_str())
+            && edge.resolver_object_type.as_deref() == Some("agent")
+            && edge.resolver_object_id.as_deref() == Some("agent:primary")
             && edge.resolver_version.as_deref() == Some("resolver-v1")
             && edge.source_run_id.as_deref() == Some("run:inspect_graph")
     }));
@@ -347,16 +368,20 @@ fn inspects_context_graph_from_canonical_tables() {
     }));
     assert!(graph.access_grants.iter().any(|grant| {
         grant.grant_id == "grant_inspect_graph"
-            && grant.memory_id.as_deref() == Some(memory.id.as_str())
-            && grant.principal_id == "agent:primary"
+            && grant.target_object_type == "memory_item"
+            && grant.target_object_id == memory.id
+            && grant.grantee_object_type == "agent"
+            && grant.grantee_object_id == "agent:primary"
             && grant.permission == "use_for_retrieval"
             && grant.effect == Effect::Allow
             && grant.expires_at.as_deref() == Some("2000-01-01 00:00:00")
     }));
     assert!(graph.access_grants.iter().any(|grant| {
         grant.grant_id == "grant_inspect_scope_write"
-            && grant.scope_id.as_deref() == Some("conversation:inspect_graph")
-            && grant.principal_id == "agent:primary"
+            && grant.target_object_type == "conversation"
+            && grant.target_object_id == conversation_id
+            && grant.grantee_object_type == "agent"
+            && grant.grantee_object_id == "agent:primary"
             && grant.permission == "write"
             && grant.effect == Effect::Allow
     }));
@@ -366,24 +391,24 @@ fn inspects_context_graph_from_canonical_tables() {
             .iter()
             .any(|grant| grant.grant_id == "grant_unrelated_scope")
     );
-    assert!(graph.memory_events.iter().any(|event| {
+    assert!(graph.object_events.iter().any(|event| {
         event.event_id == "event_inspect_shown"
             && event.event_type == "shown_to_agent"
-            && event.memory_id.as_deref() == Some(memory.id.as_str())
-            && event.memory_sensitivity == Some(Sensitivity::Normal)
-            && event.scope_id.as_deref() == Some("conversation:inspect_graph")
+            && event.target_object_type.as_deref() == Some("memory_item")
+            && event.target_object_id.as_deref() == Some(memory.id.as_str())
+            && event.target_memory_sensitivity == Some(Sensitivity::Normal)
             && event.reason.as_deref() == Some("context_packet")
             && event.details.contains("run:inspect_graph")
     }));
-    assert!(graph.memory_events.iter().any(|event| {
+    assert!(graph.object_events.iter().any(|event| {
         event.event_id == "event_inspect_scope_retrieval"
             && event.event_type == "retrieved"
-            && event.memory_id.is_none()
-            && event.scope_id.as_deref() == Some("conversation:inspect_graph")
+            && event.target_object_type.as_deref() == Some("conversation")
+            && event.target_object_id.as_deref() == Some(conversation_id.as_str())
     }));
     assert!(
         !graph
-            .memory_events
+            .object_events
             .iter()
             .any(|event| event.event_id == "event_unrelated_scope")
     );

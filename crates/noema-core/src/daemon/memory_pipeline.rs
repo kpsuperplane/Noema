@@ -7,14 +7,25 @@ use crate::{
         ValidatedMemoryProposal,
     },
     memory_persistence::{
-        MemoryAuthorityLevel, MemoryExtractionMethod, MemoryType, NewMemoryParticipant,
-        NewMemorySubject,
-        models::{ChatMemorySource, NewChatMemoryCandidate, NewChatTurn},
+        MemoryAuthorityLevel, MemoryExtractionMethod, MemoryType, NewMemoryCandidate,
+        NewMemoryParticipant, NewMemorySubject, ObjectProvenanceSource, ObjectRef,
     },
 };
 use serde_json::json;
 
 use super::protocol::{TurnActivityStatus, TurnTranscriptItem};
+
+#[derive(Debug, Clone)]
+pub(super) struct ConversationMemoryContext {
+    pub conversation_id: String,
+    pub turn_id: String,
+    pub turn_index: u64,
+    pub user_item_id: String,
+    pub assistant_item_id: Option<String>,
+    pub user_content: String,
+    pub assistant_content: String,
+    pub cwd: Option<String>,
+}
 
 pub(super) fn explicit_memory_content(input: &str) -> Option<String> {
     let trimmed = input.trim();
@@ -129,19 +140,18 @@ pub(super) fn title_from_memory_content(content: &str) -> String {
 
 pub(super) fn extracted_proposal_to_candidate(
     validated: &ValidatedMemoryProposal,
-    conversation_scope_id: &str,
+    context: &ConversationMemoryContext,
     project_scope_id: Option<&str>,
-    turn: &NewChatTurn,
     user_input: &str,
     trigger: &str,
-) -> Result<NewChatMemoryCandidate, String> {
+) -> Result<NewMemoryCandidate, String> {
     let proposal = &validated.proposal;
-    let home_scope_id =
-        home_scope_for_extracted_proposal(proposal, conversation_scope_id, project_scope_id);
-    let mut candidate = NewChatMemoryCandidate::new(
-        home_scope_id,
+    let owner = owner_for_extracted_proposal(proposal, context, project_scope_id)?;
+    let mut candidate = NewMemoryCandidate::confirmed_note(
+        owner,
         proposal.content.clone(),
-        "agent:memory_extractor",
+        ObjectRef::agent("agent:primary"),
+        source_item_ref_for_evidence(&proposal.evidence_excerpt, user_input, context),
     );
     candidate.memory_type = proposal.memory_type;
     candidate.title = proposal.title.clone();
@@ -150,16 +160,11 @@ pub(super) fn extracted_proposal_to_candidate(
     candidate.confidence = Some(f64::from(proposal.confidence));
     candidate.retrieval_hints =
         serde_json::to_value(&proposal.retrieval_hints).map_err(|error| error.to_string())?;
-    candidate.owner_principal_id = Some("human:local".to_string());
+    candidate.owner_actor = Some(ObjectRef::human("human:local"));
     candidate.authority_level = MemoryAuthorityLevel::AgentInference;
     candidate.extraction_method = MemoryExtractionMethod::LlmExtracted;
-    candidate.source = Some(ChatMemorySource {
-        conversation_id: conversation_scope_id.to_string(),
-        message_id: Some(source_message_id_for_evidence(
-            &proposal.evidence_excerpt,
-            user_input,
-            turn,
-        )),
+    candidate.source = Some(ObjectProvenanceSource {
+        source: source_item_ref_for_evidence(&proposal.evidence_excerpt, user_input, context),
         evidence_excerpt: Some(proposal.evidence_excerpt.clone()),
     });
     candidate.participants = vec![
@@ -173,18 +178,19 @@ pub(super) fn extracted_proposal_to_candidate(
         .collect();
     candidate.metadata = json!({
         "trigger": trigger,
-        "turn_index": turn.turn_index,
+        "turn_id": context.turn_id,
+        "turn_index": context.turn_index,
         "risk_flags": proposal.risk_flags,
     });
 
     Ok(candidate)
 }
 
-pub(super) fn home_scope_for_extracted_proposal(
+pub(super) fn owner_for_extracted_proposal(
     proposal: &crate::memory_extraction::ExtractorMemoryProposal,
-    conversation_scope_id: &str,
-    project_scope_id: Option<&str>,
-) -> String {
+    context: &ConversationMemoryContext,
+    _project_scope_id: Option<&str>,
+) -> Result<ObjectRef, String> {
     if proposal
         .subjects
         .iter()
@@ -194,33 +200,29 @@ pub(super) fn home_scope_for_extracted_proposal(
             MemoryType::Fact | MemoryType::Preference
         )
     {
-        return "human:local".to_string();
+        return Ok(ObjectRef::human("human:local"));
     }
 
-    if matches!(
-        proposal.memory_type,
-        MemoryType::Decision
-            | MemoryType::Procedure
-            | MemoryType::Constraint
-            | MemoryType::Project
-            | MemoryType::Policy
-    ) && let Some(project_scope_id) = project_scope_id
-    {
-        return project_scope_id.to_string();
-    }
-
-    conversation_scope_id.to_string()
+    Ok(ObjectRef {
+        object_type: crate::memory_persistence::ObjectType::Conversation,
+        object_id: context.conversation_id.clone(),
+    })
 }
 
-pub(super) fn source_message_id_for_evidence(
+pub(super) fn source_item_ref_for_evidence(
     evidence_excerpt: &str,
     user_input: &str,
-    turn: &NewChatTurn,
-) -> String {
+    context: &ConversationMemoryContext,
+) -> ObjectRef {
     if user_input.contains(evidence_excerpt) {
-        turn.user_message_id.clone()
+        ObjectRef::conversation_item(context.user_item_id.clone())
     } else {
-        turn.assistant_message_id.clone()
+        ObjectRef::conversation_item(
+            context
+                .assistant_item_id
+                .clone()
+                .unwrap_or_else(|| context.user_item_id.clone()),
+        )
     }
 }
 
@@ -238,7 +240,7 @@ pub(super) fn memory_extraction_subject_to_persistence(
         subject_role_to_memory_role(subject.role),
     );
     if memory_extraction_subject_is_local_human(subject) {
-        stored.linked_principal_id = Some("human:local".to_string());
+        stored.linked_object = Some(ObjectRef::human("human:local"));
     }
     stored
 }

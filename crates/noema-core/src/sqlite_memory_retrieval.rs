@@ -113,7 +113,8 @@ fn load_memories(conn: &Connection, store: &mut MemoryStore) -> Result<(), Memor
             r"
             SELECT
               memory_id,
-              home_scope_id,
+              owner_object_type,
+              owner_object_id,
               title,
               content,
               status,
@@ -123,11 +124,22 @@ fn load_memories(conn: &Connection, store: &mut MemoryStore) -> Result<(), Memor
               retrieval_policy_fingerprint,
               participant_visibility_policy,
               external_egress_policy,
-              owner_principal_id
+              CASE
+                WHEN owner_object_type = 'human' THEN owner_object_id
+                ELSE (
+                  SELECT participant_object_id
+                  FROM memory_participants
+                  WHERE memory_participants.memory_id = memory_items.memory_id
+                    AND role = 'human_in_scope'
+                  ORDER BY participant_object_id ASC
+                  LIMIT 1
+                )
+              END AS owner_principal_id
             FROM memory_items
             WHERE (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
               AND (valid_from IS NULL OR valid_from <= CURRENT_TIMESTAMP)
               AND (valid_to IS NULL OR valid_to > CURRENT_TIMESTAMP)
+              AND status != 'deleted'
             ",
         )
         .map_err(MemoryPersistenceError::Sqlite)?;
@@ -142,10 +154,11 @@ fn load_memories(conn: &Connection, store: &mut MemoryStore) -> Result<(), Memor
                 row.get::<_, String>(5)?,
                 row.get::<_, String>(6)?,
                 row.get::<_, String>(7)?,
-                row.get::<_, Option<String>>(8)?,
-                row.get::<_, String>(9)?,
+                row.get::<_, String>(8)?,
+                row.get::<_, Option<String>>(9)?,
                 row.get::<_, String>(10)?,
-                row.get::<_, Option<String>>(11)?,
+                row.get::<_, String>(11)?,
+                row.get::<_, Option<String>>(12)?,
             ))
         })
         .map_err(MemoryPersistenceError::Sqlite)?;
@@ -153,7 +166,8 @@ fn load_memories(conn: &Connection, store: &mut MemoryStore) -> Result<(), Memor
     for row in rows {
         let (
             memory_id,
-            home_scope_id,
+            owner_object_type,
+            owner_object_id,
             title,
             content,
             status,
@@ -165,6 +179,7 @@ fn load_memories(conn: &Connection, store: &mut MemoryStore) -> Result<(), Memor
             external_egress_policy,
             owner_principal_id,
         ) = row.map_err(MemoryPersistenceError::Sqlite)?;
+        let home_scope_id = object_ref_key(&owner_object_type, &owner_object_id);
         let mut memory = MemoryItem::new(memory_id, home_scope_id, title, content);
         memory.status = parse_memory_status(&status)?;
         memory.sensitivity = parse_sensitivity(&sensitivity)?;
@@ -192,12 +207,13 @@ fn load_participants(
     let mut stmt = conn
         .prepare(
             r"
-            SELECT mp.memory_id, mp.principal_id, mp.role
+            SELECT mp.memory_id, mp.participant_object_type, mp.participant_object_id, mp.role
             FROM memory_participants mp
             JOIN memory_items mi ON mi.memory_id = mp.memory_id
             WHERE (mi.expires_at IS NULL OR mi.expires_at > CURRENT_TIMESTAMP)
               AND (mi.valid_from IS NULL OR mi.valid_from <= CURRENT_TIMESTAMP)
               AND (mi.valid_to IS NULL OR mi.valid_to > CURRENT_TIMESTAMP)
+              AND mi.status != 'deleted'
             ",
         )
         .map_err(MemoryPersistenceError::Sqlite)?;
@@ -207,13 +223,19 @@ fn load_participants(
                 row.get::<_, String>(0)?,
                 row.get::<_, String>(1)?,
                 row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
             ))
         })
         .map_err(MemoryPersistenceError::Sqlite)?;
 
     for row in rows {
-        let (memory_id, principal_id, role) = row.map_err(MemoryPersistenceError::Sqlite)?;
-        store.add_participant(memory_id, principal_id, parse_participant_role(&role)?)?;
+        let (memory_id, participant_object_type, participant_object_id, role) =
+            row.map_err(MemoryPersistenceError::Sqlite)?;
+        store.add_participant(
+            memory_id,
+            object_ref_key(&participant_object_type, &participant_object_id),
+            parse_participant_role(&role)?,
+        )?;
     }
 
     Ok(())
@@ -229,6 +251,7 @@ fn load_subjects(conn: &Connection, store: &mut MemoryStore) -> Result<(), Memor
             WHERE (mi.expires_at IS NULL OR mi.expires_at > CURRENT_TIMESTAMP)
               AND (mi.valid_from IS NULL OR mi.valid_from <= CURRENT_TIMESTAMP)
               AND (mi.valid_to IS NULL OR mi.valid_to > CURRENT_TIMESTAMP)
+              AND mi.status != 'deleted'
             ",
         )
         .map_err(MemoryPersistenceError::Sqlite)?;
@@ -263,6 +286,7 @@ fn load_purpose_rules(
             WHERE (mi.expires_at IS NULL OR mi.expires_at > CURRENT_TIMESTAMP)
               AND (mi.valid_from IS NULL OR mi.valid_from <= CURRENT_TIMESTAMP)
               AND (mi.valid_to IS NULL OR mi.valid_to > CURRENT_TIMESTAMP)
+              AND mi.status != 'deleted'
             ",
         )
         .map_err(MemoryPersistenceError::Sqlite)?;
@@ -296,12 +320,14 @@ fn load_object_links(
               link.object_type,
               link.object_id,
               link.relation,
-              link.authorized_scope_id
+              link.authorized_object_type,
+              link.authorized_object_id
             FROM memory_retrieval_object_links link
             JOIN memory_items mi ON mi.memory_id = link.memory_id
             WHERE (mi.expires_at IS NULL OR mi.expires_at > CURRENT_TIMESTAMP)
               AND (mi.valid_from IS NULL OR mi.valid_from <= CURRENT_TIMESTAMP)
               AND (mi.valid_to IS NULL OR mi.valid_to > CURRENT_TIMESTAMP)
+              AND mi.status != 'deleted'
             ",
         )
         .map_err(MemoryPersistenceError::Sqlite)?;
@@ -313,13 +339,23 @@ fn load_object_links(
                 row.get::<_, String>(2)?,
                 row.get::<_, String>(3)?,
                 row.get::<_, Option<String>>(4)?,
+                row.get::<_, Option<String>>(5)?,
             ))
         })
         .map_err(MemoryPersistenceError::Sqlite)?;
 
     for row in rows {
-        let (memory_id, object_type, object_id, relation, authorized_scope_id) =
-            row.map_err(MemoryPersistenceError::Sqlite)?;
+        let (
+            memory_id,
+            object_type,
+            object_id,
+            relation,
+            authorized_object_type,
+            authorized_object_id,
+        ) = row.map_err(MemoryPersistenceError::Sqlite)?;
+        let authorized_scope_id = authorized_object_type
+            .zip(authorized_object_id)
+            .map(|(object_type, object_id)| object_ref_key(&object_type, &object_id));
         store.add_object_link(
             memory_id,
             ObjectLink::new(object_type, object_id),
@@ -338,8 +374,15 @@ fn load_access_grants(
     let mut stmt = conn
         .prepare(
             r"
-            SELECT memory_id, scope_id, principal_id, permission, effect
-            FROM memory_access_grants
+            SELECT
+              CASE WHEN target_object_type = 'memory_item' THEN target_object_id END AS memory_id,
+              CASE WHEN target_object_type != 'memory_item' THEN target_object_type END AS scope_object_type,
+              CASE WHEN target_object_type != 'memory_item' THEN target_object_id END AS scope_object_id,
+              grantee_object_type,
+              grantee_object_id,
+              permission,
+              effect
+            FROM object_access_grants
             WHERE (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
               AND permission IN (
                 'read',
@@ -355,20 +398,32 @@ fn load_access_grants(
             Ok((
                 row.get::<_, Option<String>>(0)?,
                 row.get::<_, Option<String>>(1)?,
-                row.get::<_, String>(2)?,
+                row.get::<_, Option<String>>(2)?,
                 row.get::<_, String>(3)?,
                 row.get::<_, String>(4)?,
+                row.get::<_, String>(5)?,
+                row.get::<_, String>(6)?,
             ))
         })
         .map_err(MemoryPersistenceError::Sqlite)?;
 
     for row in rows {
-        let (memory_id, scope_id, principal_id, permission, effect) =
-            row.map_err(MemoryPersistenceError::Sqlite)?;
+        let (
+            memory_id,
+            scope_object_type,
+            scope_object_id,
+            grantee_object_type,
+            grantee_object_id,
+            permission,
+            effect,
+        ) = row.map_err(MemoryPersistenceError::Sqlite)?;
+        let scope_id = scope_object_type
+            .zip(scope_object_id)
+            .map(|(object_type, object_id)| object_ref_key(&object_type, &object_id));
         store.add_access_grant(AccessGrant {
             memory_id,
             scope_id,
-            principal_id,
+            principal_id: object_ref_key(&grantee_object_type, &grantee_object_id),
             permission: parse_permission(&permission)?,
             effect: parse_effect(&effect)?,
         });
@@ -384,24 +439,36 @@ fn load_provenance(
     let mut stmt = conn
         .prepare(
             r"
-            SELECT provenance.memory_id, provenance.source_id
-            FROM memory_provenance_edges provenance
-            JOIN memory_items mi ON mi.memory_id = provenance.memory_id
+            SELECT provenance.target_object_id, provenance.source_object_type, provenance.source_object_id
+            FROM object_provenance_edges provenance
+            JOIN memory_items mi
+              ON provenance.target_object_type = 'memory_item'
+             AND mi.memory_id = provenance.target_object_id
             WHERE (mi.expires_at IS NULL OR mi.expires_at > CURRENT_TIMESTAMP)
               AND (mi.valid_from IS NULL OR mi.valid_from <= CURRENT_TIMESTAMP)
               AND (mi.valid_to IS NULL OR mi.valid_to > CURRENT_TIMESTAMP)
+              AND mi.status != 'deleted'
+              AND provenance.deleted_at IS NULL
             ",
         )
         .map_err(MemoryPersistenceError::Sqlite)?;
     let rows = stmt
         .query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
         })
         .map_err(MemoryPersistenceError::Sqlite)?;
 
     for row in rows {
-        let (memory_id, source_id) = row.map_err(MemoryPersistenceError::Sqlite)?;
-        store.add_provenance(memory_id, source_id)?;
+        let (memory_id, source_object_type, source_object_id) =
+            row.map_err(MemoryPersistenceError::Sqlite)?;
+        store.add_provenance(
+            memory_id,
+            object_ref_key(&source_object_type, &source_object_id),
+        )?;
     }
 
     Ok(())
@@ -416,7 +483,8 @@ fn load_relationships(
             r"
             SELECT
               r.relationship_id,
-              r.home_scope_id,
+              r.owner_object_type,
+              r.owner_object_id,
               r.subject_entity_id,
               r.predicate,
               r.object_entity_id,
@@ -427,6 +495,7 @@ fn load_relationships(
             WHERE (mi.expires_at IS NULL OR mi.expires_at > CURRENT_TIMESTAMP)
               AND (mi.valid_from IS NULL OR mi.valid_from <= CURRENT_TIMESTAMP)
               AND (mi.valid_to IS NULL OR mi.valid_to > CURRENT_TIMESTAMP)
+              AND mi.status != 'deleted'
               AND (r.valid_from IS NULL OR r.valid_from <= CURRENT_TIMESTAMP)
               AND (r.valid_to IS NULL OR r.valid_to > CURRENT_TIMESTAMP)
             ",
@@ -440,8 +509,9 @@ fn load_relationships(
                 row.get::<_, String>(2)?,
                 row.get::<_, String>(3)?,
                 row.get::<_, String>(4)?,
-                row.get::<_, Option<String>>(5)?,
-                row.get::<_, String>(6)?,
+                row.get::<_, String>(5)?,
+                row.get::<_, Option<String>>(6)?,
+                row.get::<_, String>(7)?,
             ))
         })
         .map_err(MemoryPersistenceError::Sqlite)?;
@@ -449,7 +519,8 @@ fn load_relationships(
     for row in rows {
         let (
             relationship_id,
-            home_scope_id,
+            owner_object_type,
+            owner_object_id,
             subject_entity_id,
             predicate,
             object_entity_id,
@@ -458,7 +529,7 @@ fn load_relationships(
         ) = row.map_err(MemoryPersistenceError::Sqlite)?;
         store.add_relationship(Relationship {
             relationship_id,
-            home_scope_id,
+            home_scope_id: object_ref_key(&owner_object_type, &owner_object_id),
             subject_entity_id,
             predicate,
             object_entity_id,
@@ -491,6 +562,15 @@ fn string_array(value: &Value, key: &str) -> Vec<String> {
         .filter_map(Value::as_str)
         .map(ToString::to_string)
         .collect()
+}
+
+fn object_ref_key(object_type: &str, object_id: &str) -> String {
+    let prefix = format!("{object_type}:");
+    if object_id.starts_with(&prefix) {
+        object_id.to_string()
+    } else {
+        format!("{object_type}:{object_id}")
+    }
 }
 
 fn effective_retrieval_policy_status(

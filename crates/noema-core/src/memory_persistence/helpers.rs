@@ -7,11 +7,10 @@ use serde_json::{Value, json};
 
 use super::{
     error::MemoryPersistenceError,
-    models::{ChatMemorySource, MemorySummary, MemoryType, NewChatTurn, NewMemorySubject},
+    models::{MemorySummary, MemoryType},
     schema::MEMORY_SCHEMA_SQL,
 };
 
-pub(super) const CHAT_SOURCE_ID: &str = "source:chat";
 pub(super) const DEFAULT_LIMIT: u32 = 50;
 pub(super) const MAX_LIMIT: u32 = 500;
 const BOOTSTRAP_SCHEMA_VERSION: i64 = 0;
@@ -76,8 +75,10 @@ pub(super) struct ContextMemoryUseInsert<'a> {
     pub(super) run_id: &'a str,
     pub(super) memory_id: &'a str,
     pub(super) stage: MemoryUseStage,
-    pub(super) agent_principal_id: &'a str,
-    pub(super) scope_id: Option<&'a str>,
+    pub(super) agent_object_type: &'a str,
+    pub(super) agent_object_id: &'a str,
+    pub(super) context_object_type: Option<&'a str>,
+    pub(super) context_object_id: Option<&'a str>,
     pub(super) purpose: Purpose,
 }
 
@@ -94,12 +95,14 @@ pub(super) fn insert_memory_use_record(
           run_id,
           memory_id,
           stage,
-          agent_principal_id,
-          scope_id,
+          agent_object_type,
+          agent_object_id,
+          context_object_type,
+          context_object_id,
           purpose,
           details
         )
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
         ",
         params![
             memory_use_id,
@@ -107,8 +110,10 @@ pub(super) fn insert_memory_use_record(
             record.run_id,
             record.memory_id,
             memory_use_stage_to_db(record.stage),
-            record.agent_principal_id,
-            record.scope_id,
+            record.agent_object_type,
+            record.agent_object_id,
+            record.context_object_type,
+            record.context_object_id,
             purpose_to_db(record.purpose),
             json_to_string(&json!({
                 "context_packet_id": record.context_packet_id,
@@ -141,143 +146,6 @@ pub(super) fn agent_visible_omissions_json(result: &MemoryRetrievalResult) -> Ve
         .collect()
 }
 
-pub(super) fn ensure_principal(
-    tx: &Transaction<'_>,
-    principal_id: &str,
-) -> Result<(), MemoryPersistenceError> {
-    tx.execute(
-        r"
-        INSERT INTO principals (principal_id, principal_type, display_name, handle)
-        VALUES (?1, ?2, ?3, ?1)
-        ON CONFLICT(principal_id) DO UPDATE SET
-          updated_at = CURRENT_TIMESTAMP
-        ",
-        params![
-            principal_id,
-            infer_principal_type(principal_id),
-            display_name(principal_id),
-        ],
-    )?;
-    Ok(())
-}
-
-pub(super) fn ensure_scope(
-    tx: &Transaction<'_>,
-    scope_id: &str,
-) -> Result<(), MemoryPersistenceError> {
-    tx.execute(
-        r"
-        INSERT INTO scopes (scope_id, scope_type, name, slug)
-        VALUES (?1, ?2, ?3, ?4)
-        ON CONFLICT(scope_id) DO UPDATE SET
-          updated_at = CURRENT_TIMESTAMP
-        ",
-        params![
-            scope_id,
-            infer_scope_type(scope_id),
-            display_name(scope_id),
-            slug_for_id(scope_id),
-        ],
-    )?;
-    Ok(())
-}
-
-pub(super) fn ensure_source(tx: &Transaction<'_>) -> Result<(), MemoryPersistenceError> {
-    tx.execute(
-        r"
-        INSERT INTO sources (source_id, source_type, source_name)
-        VALUES (?1, 'chat', 'Noema chat')
-        ON CONFLICT(source_id) DO UPDATE SET
-          updated_at = CURRENT_TIMESTAMP
-        ",
-        params![CHAT_SOURCE_ID],
-    )?;
-    Ok(())
-}
-
-pub(super) fn ensure_conversation_episode(
-    tx: &Transaction<'_>,
-    source: &ChatMemorySource,
-) -> Result<(), MemoryPersistenceError> {
-    ensure_conversation_episode_id(tx, &source.conversation_id)
-}
-
-pub(super) fn ensure_conversation_episode_id(
-    tx: &Transaction<'_>,
-    conversation_id: &str,
-) -> Result<(), MemoryPersistenceError> {
-    tx.execute(
-        r"
-        INSERT INTO episodes (
-          episode_id,
-          home_scope_id,
-          source_id,
-          episode_type,
-          title,
-          raw_ref,
-          occurred_at,
-          metadata
-        )
-        VALUES (?1, ?1, ?2, 'conversation', ?3, ?1, CURRENT_TIMESTAMP, ?4)
-        ON CONFLICT(episode_id) DO UPDATE SET
-          home_scope_id = COALESCE(episodes.home_scope_id, excluded.home_scope_id),
-          source_id = excluded.source_id
-        ",
-        params![
-            conversation_id,
-            CHAT_SOURCE_ID,
-            display_name(conversation_id),
-            json_to_string(&json!({"source": "chat"}))?,
-        ],
-    )?;
-    Ok(())
-}
-
-pub(super) fn upsert_subject_entity(
-    tx: &Transaction<'_>,
-    home_scope_id: &str,
-    subject: &NewMemorySubject,
-) -> Result<(), MemoryPersistenceError> {
-    tx.execute(
-        r"
-        INSERT INTO entities (
-          entity_id,
-          home_scope_id,
-          entity_type,
-          canonical_name,
-          aliases,
-          linked_principal_id,
-          metadata
-        )
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
-        ON CONFLICT(entity_id) DO UPDATE SET
-          home_scope_id = COALESCE(entities.home_scope_id, excluded.home_scope_id),
-          entity_type = excluded.entity_type,
-          canonical_name = excluded.canonical_name,
-          aliases = CASE
-            WHEN excluded.aliases = '[]' THEN entities.aliases
-            ELSE excluded.aliases
-          END,
-          linked_principal_id = COALESCE(excluded.linked_principal_id, entities.linked_principal_id),
-          metadata = CASE
-            WHEN excluded.metadata = '{}' THEN entities.metadata
-            ELSE excluded.metadata
-          END,
-          updated_at = CURRENT_TIMESTAMP
-        ",
-        params![
-            subject.entity_id,
-            home_scope_id,
-            subject.entity_type,
-            subject.canonical_name,
-            json_to_string(&json!(subject.aliases))?,
-            subject.linked_principal_id,
-            json_to_string(&subject.metadata)?,
-        ],
-    )?;
-    Ok(())
-}
-
 pub(super) fn upsert_memory_fts(
     tx: &Transaction<'_>,
     memory_id: &str,
@@ -299,83 +167,6 @@ pub(super) fn upsert_memory_fts(
     Ok(())
 }
 
-pub(super) struct ChatMessageRecord<'a> {
-    pub(super) message_id: &'a str,
-    pub(super) episode_id: &'a str,
-    pub(super) author_principal_id: &'a str,
-    pub(super) role: &'a str,
-    pub(super) content: &'a str,
-    pub(super) occurred_at: &'a str,
-    pub(super) metadata: Value,
-}
-
-pub(super) fn insert_chat_message(
-    tx: &Transaction<'_>,
-    message: ChatMessageRecord<'_>,
-) -> Result<(), MemoryPersistenceError> {
-    tx.execute(
-        r"
-        INSERT OR IGNORE INTO messages (
-          message_id,
-          episode_id,
-          author_principal_id,
-          role,
-          content,
-          occurred_at,
-          metadata
-        )
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
-        ",
-        params![
-            message.message_id,
-            message.episode_id,
-            message.author_principal_id,
-            message.role,
-            message.content,
-            message.occurred_at,
-            json_to_string(&message.metadata)?,
-        ],
-    )?;
-    Ok(())
-}
-
-pub(super) fn insert_provenance_edge(
-    tx: &Transaction<'_>,
-    memory_id: &str,
-    source_type: &str,
-    source_id: &str,
-    evidence_excerpt: Option<&str>,
-    created_by_principal_id: &str,
-    metadata: Value,
-) -> Result<(), MemoryPersistenceError> {
-    let edge_id = allocate_id(tx, "edge")?;
-    tx.execute(
-        r"
-        INSERT INTO memory_provenance_edges (
-          edge_id,
-          memory_id,
-          source_type,
-          source_id,
-          relation,
-          evidence_excerpt,
-          created_by_principal_id,
-          metadata
-        )
-        VALUES (?1, ?2, ?3, ?4, 'derived_from', ?5, ?6, ?7)
-        ",
-        params![
-            edge_id,
-            memory_id,
-            source_type,
-            source_id,
-            evidence_excerpt,
-            created_by_principal_id,
-            json_to_string(&metadata)?,
-        ],
-    )?;
-    Ok(())
-}
-
 pub(super) fn allocate_id(
     conn: &Connection,
     prefix: &str,
@@ -389,36 +180,36 @@ pub(super) fn allocate_id(
 pub(super) fn row_to_memory_summary(row: &rusqlite::Row<'_>) -> rusqlite::Result<MemorySummary> {
     let status: String = row.get(1)?;
     let memory_type: String = row.get(2)?;
-    let home_scope_id: String = row.get(3)?;
-    let sensitivity: String = row.get(4)?;
-    let (owner_object_type, owner_object_id) = owner_parts_from_legacy_scope(&home_scope_id);
-    let source_type: Option<String> = row.get(8)?;
-    let source_id: Option<String> = row.get(9)?;
+    let owner_object_type: String = row.get(3)?;
+    let owner_object_id: String = row.get(4)?;
+    let sensitivity: String = row.get(5)?;
+    let source_object_type: Option<String> = row.get(9)?;
+    let source_object_id: Option<String> = row.get(10)?;
     Ok(MemorySummary {
         id: row.get(0)?,
         status: parse_memory_status(&status).map_err(enum_to_sql_error)?,
         memory_type: parse_memory_type(&memory_type).map_err(enum_to_sql_error)?,
+        home_scope_id: object_ref_key(&owner_object_type, &owner_object_id),
         owner_object_type,
         owner_object_id,
-        home_scope_id,
         sensitivity: parse_sensitivity(&sensitivity).map_err(enum_to_sql_error)?,
-        title: row.get(5)?,
-        content: row.get(6)?,
-        created_at: row.get(7)?,
-        source_object_type: source_type.clone(),
-        source_object_id: source_id.clone(),
-        source_type,
-        source_id,
-        conversation_id: row.get(10)?,
+        title: row.get(6)?,
+        content: row.get(7)?,
+        created_at: row.get(8)?,
+        source_object_type: source_object_type.clone(),
+        source_object_id: source_object_id.clone(),
+        source_type: source_object_type,
+        source_id: source_object_id,
+        conversation_id: row.get(11)?,
     })
 }
 
-pub(super) fn owner_parts_from_legacy_scope(scope_id: &str) -> (String, String) {
-    match scope_id.split_once(':') {
-        Some((object_type, _)) if !object_type.is_empty() => {
-            (object_type.to_string(), scope_id.to_string())
-        }
-        _ => ("conversation".to_string(), scope_id.to_string()),
+pub(super) fn object_ref_key(object_type: &str, object_id: &str) -> String {
+    let prefix = format!("{object_type}:");
+    if object_id.starts_with(&prefix) {
+        object_id.to_string()
+    } else {
+        format!("{object_type}:{object_id}")
     }
 }
 
@@ -441,80 +232,12 @@ pub(super) fn json_to_string(value: &Value) -> Result<String, MemoryPersistenceE
     Ok(serde_json::to_string(value)?)
 }
 
-pub(super) fn chat_message_id(conversation_id: &str, role: &str, turn_index: u64) -> String {
-    format!("message:{conversation_id}:{role}:{turn_index}")
-}
-
-pub(super) fn chat_message_metadata(turn: &NewChatTurn, message_role: &str) -> Value {
-    json!({
-        "source": "chat",
-        "turn_index": turn.turn_index,
-        "message_role": message_role,
-        "turn_metadata": turn.metadata,
-    })
-}
-
 pub(super) fn title_from_content(content: &str) -> String {
     let mut title: String = content.trim().chars().take(80).collect();
     if title.is_empty() {
         title.push_str("Untitled memory");
     }
     title
-}
-
-pub(super) fn display_name(id: &str) -> String {
-    id.rsplit(':')
-        .next()
-        .filter(|value| !value.is_empty())
-        .unwrap_or(id)
-        .replace('_', " ")
-}
-
-pub(super) fn slug_for_id(id: &str) -> String {
-    let slug = id.replace([':', '/', ' '], "_");
-    if slug.is_empty() {
-        "scope".to_string()
-    } else {
-        slug
-    }
-}
-
-pub(super) fn infer_principal_type(principal_id: &str) -> &'static str {
-    if principal_id.starts_with("human") {
-        "human"
-    } else if principal_id.starts_with("agent") {
-        "agent"
-    } else if principal_id.starts_with("tool") {
-        "tool"
-    } else {
-        "system"
-    }
-}
-
-pub(super) fn infer_scope_type(scope_id: &str) -> &'static str {
-    if scope_id.starts_with("system") {
-        "system"
-    } else if scope_id.starts_with("human") {
-        "human"
-    } else if scope_id.starts_with("workspace") {
-        "workspace"
-    } else if scope_id.starts_with("project") {
-        "project"
-    } else if scope_id.starts_with("task") {
-        "task"
-    } else if scope_id.starts_with("cron") {
-        "cron"
-    } else if scope_id.starts_with("conversation") {
-        "conversation"
-    } else if scope_id.starts_with("agent") {
-        "agent"
-    } else if scope_id.starts_with("relationship") {
-        "relationship"
-    } else if scope_id.starts_with("tool") {
-        "tool"
-    } else {
-        "custom"
-    }
 }
 
 pub(super) fn sensitivity_to_db(sensitivity: Sensitivity) -> &'static str {

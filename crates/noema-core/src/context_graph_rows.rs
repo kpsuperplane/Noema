@@ -20,19 +20,20 @@ use rusqlite::Connection;
 pub(crate) fn row_to_relationship_summary(
     row: &rusqlite::Row<'_>,
 ) -> rusqlite::Result<RelationshipSummary> {
-    let status: String = row.get(8)?;
+    let status: String = row.get(9)?;
     Ok(RelationshipSummary {
         relationship_id: row.get(0)?,
-        home_scope_id: row.get(1)?,
-        subject_entity_id: row.get(2)?,
-        subject_name: row.get(3)?,
-        predicate: row.get(4)?,
-        object_entity_id: row.get(5)?,
-        object_name: row.get(6)?,
-        memory_id: row.get(7)?,
+        owner_object_type: row.get(1)?,
+        owner_object_id: row.get(2)?,
+        subject_entity_id: row.get(3)?,
+        subject_name: row.get(4)?,
+        predicate: row.get(5)?,
+        object_entity_id: row.get(6)?,
+        object_name: row.get(7)?,
+        memory_id: row.get(8)?,
         status: parse_relationship_status(&status).map_err(enum_to_sql_error)?,
-        confidence: row.get(9)?,
-        created_at: row.get(10)?,
+        confidence: row.get(10)?,
+        created_at: row.get(11)?,
     })
 }
 
@@ -43,13 +44,13 @@ pub(crate) fn row_to_graph_memory_node(
     let memory_id: MemoryId = row.get(0)?;
     let status: String = row.get(1)?;
     let memory_type: String = row.get(2)?;
-    let sensitivity: String = row.get(4)?;
-    let retrieval_policy_status: String = row.get(8)?;
-    let participant_visibility_policy: String = row.get(14)?;
-    let external_egress_policy: String = row.get(15)?;
+    let sensitivity: String = row.get(5)?;
+    let retrieval_policy_status: String = row.get(9)?;
+    let participant_visibility_policy: String = row.get(16)?;
+    let external_egress_policy: String = row.get(17)?;
     let stored_policy_status =
         parse_retrieval_policy_status(&retrieval_policy_status).map_err(enum_to_sql_error)?;
-    let retrieval_policy_fingerprint: Option<String> = row.get(10)?;
+    let retrieval_policy_fingerprint: Option<String> = row.get(11)?;
     let effective_policy_status = effective_retrieval_policy_status(
         conn,
         &memory_id,
@@ -61,25 +62,27 @@ pub(crate) fn row_to_graph_memory_node(
         memory_id,
         status: parse_memory_status(&status).map_err(enum_to_sql_error)?,
         memory_type: parse_memory_type(&memory_type).map_err(enum_to_sql_error)?,
-        home_scope_id: row.get(3)?,
+        owner_object_type: row.get(3)?,
+        owner_object_id: row.get(4)?,
         sensitivity: parse_sensitivity(&sensitivity).map_err(enum_to_sql_error)?,
-        title: row.get(5)?,
-        content: row.get(6)?,
-        retrieval_hints: row.get(7)?,
+        title: row.get(6)?,
+        content: row.get(7)?,
+        retrieval_hints: row.get(8)?,
         retrieval_policy_status: stored_policy_status,
         retrieval_policy_effective_status: effective_policy_status,
-        retrieval_policy_version: row.get(9)?,
+        retrieval_policy_version: row.get(10)?,
         retrieval_policy_fingerprint,
-        retrieval_policy_extractor_principal_id: row.get(11)?,
-        retrieval_policy_extractor_version: row.get(12)?,
-        retrieval_policy_validated_at: row.get(13)?,
+        retrieval_policy_extractor_object_type: row.get(12)?,
+        retrieval_policy_extractor_object_id: row.get(13)?,
+        retrieval_policy_extractor_version: row.get(14)?,
+        retrieval_policy_validated_at: row.get(15)?,
         participant_visibility_policy: parse_participant_visibility_policy(
             &participant_visibility_policy,
         )
         .map_err(enum_to_sql_error)?,
         external_egress_policy: parse_external_egress_policy(&external_egress_policy)
             .map_err(enum_to_sql_error)?,
-        created_at: row.get(16)?,
+        created_at: row.get(18)?,
     })
 }
 
@@ -89,9 +92,11 @@ pub(crate) fn row_to_graph_entity_node(
     Ok(GraphEntityNode {
         entity_id: row.get(0)?,
         entity_type: row.get(1)?,
-        home_scope_id: row.get(2)?,
-        canonical_name: row.get(3)?,
-        linked_principal_id: row.get(4)?,
+        owner_object_type: row.get(2)?,
+        owner_object_id: row.get(3)?,
+        canonical_name: row.get(4)?,
+        linked_object_type: row.get(5)?,
+        linked_object_id: row.get(6)?,
     })
 }
 
@@ -109,10 +114,11 @@ pub(crate) fn row_to_graph_subject_edge(
 pub(crate) fn row_to_graph_participant_edge(
     row: &rusqlite::Row<'_>,
 ) -> rusqlite::Result<GraphParticipantEdge> {
-    let role: String = row.get(2)?;
+    let role: String = row.get(3)?;
     Ok(GraphParticipantEdge {
         memory_id: row.get(0)?,
-        principal_id: row.get(1)?,
+        participant_object_type: row.get(1)?,
+        participant_object_id: row.get(2)?,
         role: parse_participant_role(&role).map_err(enum_to_sql_error)?,
     })
 }
@@ -122,8 +128,8 @@ pub(crate) fn row_to_graph_provenance_edge(
 ) -> rusqlite::Result<GraphProvenanceEdge> {
     Ok(GraphProvenanceEdge {
         memory_id: row.get(0)?,
-        source_type: row.get(1)?,
-        source_id: row.get(2)?,
+        source_object_type: row.get(1)?,
+        source_object_id: row.get(2)?,
         relation: row.get(3)?,
         evidence_excerpt: row.get(4)?,
     })
@@ -137,11 +143,13 @@ pub(crate) fn row_to_graph_object_link_edge(
         object_type: row.get(1)?,
         object_id: row.get(2)?,
         relation: row.get(3)?,
-        authorized_scope_id: row.get(4)?,
-        resolver_principal_id: row.get(5)?,
-        resolver_version: row.get(6)?,
-        source_run_id: row.get(7)?,
-        created_at: row.get(8)?,
+        authorized_object_type: row.get(4)?,
+        authorized_object_id: row.get(5)?,
+        resolver_object_type: row.get(6)?,
+        resolver_object_id: row.get(7)?,
+        resolver_version: row.get(8)?,
+        source_run_id: row.get(9)?,
+        created_at: row.get(10)?,
     })
 }
 
@@ -154,61 +162,66 @@ pub(crate) fn row_to_graph_purpose_rule(
         memory_id: row.get(0)?,
         purpose: parse_purpose(&purpose).map_err(enum_to_sql_error)?,
         effect: parse_effect(&effect).map_err(enum_to_sql_error)?,
-        created_by_principal_id: row.get(3)?,
-        created_at: row.get(4)?,
+        created_by_object_type: row.get(3)?,
+        created_by_object_id: row.get(4)?,
+        created_at: row.get(5)?,
     })
 }
 
 pub(crate) fn row_to_graph_access_grant(
     row: &rusqlite::Row<'_>,
 ) -> rusqlite::Result<GraphAccessGrant> {
-    let effect: String = row.get(5)?;
+    let effect: String = row.get(6)?;
     Ok(GraphAccessGrant {
         grant_id: row.get(0)?,
-        memory_id: row.get(1)?,
-        scope_id: row.get(2)?,
-        principal_id: row.get(3)?,
-        permission: row.get(4)?,
+        target_object_type: row.get(1)?,
+        target_object_id: row.get(2)?,
+        grantee_object_type: row.get(3)?,
+        grantee_object_id: row.get(4)?,
+        permission: row.get(5)?,
         effect: parse_effect(&effect).map_err(enum_to_sql_error)?,
-        expires_at: row.get(6)?,
-        created_by_principal_id: row.get(7)?,
-        created_at: row.get(8)?,
+        expires_at: row.get(7)?,
+        created_by_object_type: row.get(8)?,
+        created_by_object_id: row.get(9)?,
+        created_at: row.get(10)?,
     })
 }
 
 pub(crate) fn row_to_graph_memory_event(
     row: &rusqlite::Row<'_>,
 ) -> rusqlite::Result<GraphMemoryEvent> {
-    let sensitivity: Option<String> = row.get(4)?;
+    let sensitivity: Option<String> = row.get(6)?;
     Ok(GraphMemoryEvent {
         event_id: row.get(0)?,
         event_type: row.get(1)?,
-        actor_principal_id: row.get(2)?,
-        memory_id: row.get(3)?,
-        memory_sensitivity: sensitivity
+        actor_object_type: row.get(2)?,
+        actor_object_id: row.get(3)?,
+        target_object_type: row.get(4)?,
+        target_object_id: row.get(5)?,
+        target_memory_sensitivity: sensitivity
             .as_deref()
             .map(parse_sensitivity)
             .transpose()
             .map_err(enum_to_sql_error)?,
-        scope_id: row.get(5)?,
-        reason: row.get(6)?,
-        created_at: row.get(7)?,
-        details: row.get(8)?,
+        reason: row.get(7)?,
+        created_at: row.get(8)?,
+        details: row.get(9)?,
     })
 }
 
 pub(crate) fn row_to_graph_context_packet(
     row: &rusqlite::Row<'_>,
 ) -> rusqlite::Result<GraphContextPacket> {
-    let purpose: String = row.get(3)?;
+    let purpose: String = row.get(4)?;
     Ok(GraphContextPacket {
         context_packet_id: row.get(0)?,
         run_id: row.get(1)?,
-        requesting_principal_id: row.get(2)?,
+        requesting_object_type: row.get(2)?,
+        requesting_object_id: row.get(3)?,
         purpose: parse_purpose(&purpose).map_err(enum_to_sql_error)?,
-        active_scopes: row.get(4)?,
-        agent_visible_omissions: row.get(5)?,
-        created_at: row.get(6)?,
+        active_objects: row.get(5)?,
+        agent_visible_omissions: row.get(6)?,
+        created_at: row.get(7)?,
     })
 }
 
@@ -250,7 +263,7 @@ pub(crate) fn row_to_graph_memory_use_record(
     row: &rusqlite::Row<'_>,
 ) -> rusqlite::Result<GraphMemoryUseRecord> {
     let sensitivity: String = row.get(4)?;
-    let purpose: String = row.get(8)?;
+    let purpose: String = row.get(10)?;
     Ok(GraphMemoryUseRecord {
         memory_use_id: row.get(0)?,
         context_packet_id: row.get(1)?,
@@ -258,14 +271,16 @@ pub(crate) fn row_to_graph_memory_use_record(
         memory_id: row.get(3)?,
         memory_sensitivity: parse_sensitivity(&sensitivity).map_err(enum_to_sql_error)?,
         stage: row.get(5)?,
-        agent_principal_id: row.get(6)?,
-        scope_id: row.get(7)?,
+        agent_object_type: row.get(6)?,
+        agent_object_id: row.get(7)?,
+        context_object_type: row.get(8)?,
+        context_object_id: row.get(9)?,
         purpose: parse_purpose(&purpose).map_err(enum_to_sql_error)?,
-        used_for_object_type: row.get(9)?,
-        used_for_object_id: row.get(10)?,
-        policy_decision_id: row.get(11)?,
-        created_at: row.get(12)?,
-        details: row.get(13)?,
+        used_for_object_type: row.get(11)?,
+        used_for_object_id: row.get(12)?,
+        policy_decision_id: row.get(13)?,
+        created_at: row.get(14)?,
+        details: row.get(15)?,
     })
 }
 

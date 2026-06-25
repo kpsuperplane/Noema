@@ -160,16 +160,23 @@ fn print_memory_detail(memory: &MemorySummary) -> Result<(), CliError> {
         sensitivity_label(memory.sensitivity)
     )
     .map_err(CliError::WriteOutput)?;
-    writeln!(stdout, "Home scope: {}", memory.home_scope_id).map_err(CliError::WriteOutput)?;
+    writeln!(
+        stdout,
+        "Owner: {}",
+        object_ref(&memory.owner_object_type, &memory.owner_object_id)
+    )
+    .map_err(CliError::WriteOutput)?;
     writeln!(stdout, "Created: {}", memory.created_at).map_err(CliError::WriteOutput)?;
     if let Some(conversation_id) = &memory.conversation_id {
         writeln!(stdout, "Conversation: {conversation_id}").map_err(CliError::WriteOutput)?;
     }
-    if let Some(source_type) = &memory.source_type {
-        writeln!(stdout, "Source type: {source_type}").map_err(CliError::WriteOutput)?;
-    }
-    if let Some(source_id) = &memory.source_id {
-        writeln!(stdout, "Source id: {source_id}").map_err(CliError::WriteOutput)?;
+    if let Some(source) = memory
+        .source_object_type
+        .as_deref()
+        .zip(memory.source_object_id.as_deref())
+    {
+        writeln!(stdout, "Source: {}", object_ref(source.0, source.1))
+            .map_err(CliError::WriteOutput)?;
     }
     writeln!(stdout, "Title: {}", memory.title).map_err(CliError::WriteOutput)?;
     writeln!(stdout).map_err(CliError::WriteOutput)?;
@@ -218,11 +225,15 @@ fn redacted_event_details(
     }
 }
 
-fn grant_target(memory_id: Option<&str>, scope_id: Option<&str>) -> String {
-    memory_id
-        .map(|id| format!("memory:{id}"))
-        .or_else(|| scope_id.map(|id| format!("scope:{id}")))
-        .unwrap_or_else(|| "-".to_string())
+fn object_ref(object_type: &str, object_id: &str) -> String {
+    format!("{object_type}:{object_id}")
+}
+
+fn optional_object_ref(object_type: Option<&str>, object_id: Option<&str>) -> String {
+    match (object_type, object_id) {
+        (Some(object_type), Some(object_id)) => object_ref(object_type, object_id),
+        _ => "-".to_string(),
+    }
 }
 
 fn use_record_object(object_type: Option<&str>, object_id: Option<&str>) -> String {

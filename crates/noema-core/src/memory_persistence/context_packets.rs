@@ -6,8 +6,8 @@ use super::{
     error::MemoryPersistenceError,
     helpers::{
         ContextMemoryUseInsert, agent_visible_omissions_json, allocate_id, denial_reason_to_db,
-        eligibility_reason_to_db, ensure_principal, ensure_scope, insert_memory_use_record,
-        json_to_string, memory_sensitivity_for_tx, purpose_to_db, rank_reason_to_db,
+        eligibility_reason_to_db, insert_memory_use_record, json_to_string,
+        memory_sensitivity_for_tx, purpose_to_db, rank_reason_to_db,
     },
     repository::SqliteMemoryRepository,
 };
@@ -35,31 +35,42 @@ impl SqliteMemoryRepository {
             .conn
             .transaction()
             .map_err(MemoryPersistenceError::Sqlite)?;
-        ensure_principal(&tx, &request.requesting_principal_id)?;
-        for scope_id in &request.trusted.active_scopes {
-            ensure_scope(&tx, scope_id)?;
-        }
-
-        let active_scopes = json_to_string(&json!(&request.trusted.active_scopes))?;
+        let (requesting_object_type, requesting_object_id) =
+            actor_object_parts(&request.requesting_principal_id);
+        let active_objects = request
+            .trusted
+            .active_scopes
+            .iter()
+            .map(|scope_id| {
+                let (object_type, object_id) = scope_object_parts(scope_id);
+                json!({
+                    "object_type": object_type,
+                    "object_id": object_id,
+                })
+            })
+            .collect::<Vec<_>>();
+        let active_objects = json_to_string(&json!(active_objects))?;
         let agent_visible_omissions = json_to_string(&json!(agent_visible_omissions_json(result)))?;
         tx.execute(
             r"
             INSERT INTO context_packets (
               context_packet_id,
               run_id,
-              requesting_principal_id,
+              requesting_object_type,
+              requesting_object_id,
               purpose,
-              active_scopes,
+              active_objects,
               agent_visible_omissions
             )
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
             ",
             params![
                 context_packet_id,
                 run_id,
-                request.requesting_principal_id.as_str(),
+                requesting_object_type,
+                requesting_object_id,
                 purpose_to_db(request.trusted.purpose),
-                active_scopes,
+                active_objects,
                 agent_visible_omissions,
             ],
         )
@@ -143,7 +154,11 @@ impl SqliteMemoryRepository {
             .map_err(MemoryPersistenceError::Sqlite)?;
         }
 
-        let event_scope_id = request.trusted.active_scopes.first().map(String::as_str);
+        let context_object = request
+            .trusted
+            .active_scopes
+            .first()
+            .map(|scope_id| scope_object_parts(scope_id));
         for use_record in &result.use_records {
             insert_memory_use_record(
                 &tx,
@@ -152,8 +167,12 @@ impl SqliteMemoryRepository {
                     run_id,
                     memory_id: &use_record.memory_id,
                     stage: use_record.stage,
-                    agent_principal_id: &request.requesting_principal_id,
-                    scope_id: event_scope_id,
+                    agent_object_type: requesting_object_type,
+                    agent_object_id: requesting_object_id,
+                    context_object_type: context_object
+                        .as_ref()
+                        .map(|(object_type, _)| *object_type),
+                    context_object_id: context_object.as_ref().map(|(_, object_id)| *object_id),
                     purpose: request.trusted.purpose,
                 },
             )?;
@@ -166,13 +185,35 @@ impl SqliteMemoryRepository {
                     run_id,
                     memory_id: &included.memory_id,
                     stage: MemoryUseStage::IncludedInPacket,
-                    agent_principal_id: &request.requesting_principal_id,
-                    scope_id: event_scope_id,
+                    agent_object_type: requesting_object_type,
+                    agent_object_id: requesting_object_id,
+                    context_object_type: context_object
+                        .as_ref()
+                        .map(|(object_type, _)| *object_type),
+                    context_object_id: context_object.as_ref().map(|(_, object_id)| *object_id),
                     purpose: request.trusted.purpose,
                 },
             )?;
         }
 
         tx.commit().map_err(MemoryPersistenceError::Sqlite)
+    }
+}
+
+fn actor_object_parts(actor_id: &str) -> (&'static str, &str) {
+    if actor_id.starts_with("agent:") {
+        ("agent", actor_id)
+    } else if actor_id.starts_with("tool:") {
+        ("tool", actor_id)
+    } else {
+        ("human", actor_id)
+    }
+}
+
+fn scope_object_parts(scope_id: &str) -> (&'static str, &str) {
+    if let Some(conversation_id) = scope_id.strip_prefix("conversation:") {
+        ("conversation", conversation_id)
+    } else {
+        ("entity", scope_id)
     }
 }

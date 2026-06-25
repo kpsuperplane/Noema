@@ -2,14 +2,17 @@ use std::{collections::HashMap, path::PathBuf};
 
 use crate::{
     memory::ParticipantRole,
+    memory::Sensitivity,
     memory_extraction::{
         ExtractorMemoryProposal, ExtractorMemoryResponse, ValidatedMemoryProposal,
         build_memory_extraction_prompt, parse_memory_extraction_proposals,
         validate_memory_extraction_response,
     },
     memory_persistence::{
-        MemoryAuthorityLevel, MemoryExtractionMethod, NewMemoryParticipant, SqliteMemoryRepository,
-        models::{ChatMemorySource, NewChatMemoryCandidate, NewChatTurn},
+        ConversationItemKind, ConversationItemStatus, MemoryAuthorityLevel, MemoryExtractionMethod,
+        NewConversation, NewConversationItem, NewConversationTurn, NewMemoryCandidate,
+        NewMemoryParticipant, ObjectProvenanceSource, ObjectRef, ObjectType,
+        SqliteMemoryRepository,
     },
     provider::GenerateOutputItem,
     providers::{
@@ -22,9 +25,9 @@ use tokio::sync::{mpsc, oneshot};
 
 use super::{
     memory_pipeline::{
-        explicit_memory_content, extracted_proposal_to_candidate, infer_chat_memory_type,
-        infer_chat_sensitivity, memory_activity, memory_activity_failed, project_scope_from_cwd,
-        title_from_memory_content, typed_memory_activity,
+        ConversationMemoryContext, explicit_memory_content, extracted_proposal_to_candidate,
+        infer_chat_memory_type, infer_chat_sensitivity, memory_activity, memory_activity_failed,
+        project_scope_from_cwd, title_from_memory_content, typed_memory_activity,
     },
     protocol::{DaemonError, StartedConversation, TurnActivityStatus, TurnTranscriptItem},
 };
@@ -146,14 +149,10 @@ impl MemoryExtractionWorkerHandle {
         Ok(Self { sender })
     }
 
-    async fn extract(&self, conversation_id: String, cwd: Option<String>, turn: NewChatTurn) {
+    async fn extract(&self, context: ConversationMemoryContext) {
         let _ = self
             .sender
-            .send(MemoryExtractionWorkerCommand::Extract {
-                conversation_id,
-                cwd,
-                turn: Box::new(turn),
-            })
+            .send(MemoryExtractionWorkerCommand::Extract(Box::new(context)))
             .await;
     }
 
@@ -169,14 +168,8 @@ impl MemoryExtractionWorkerHandle {
 
 #[derive(Debug)]
 enum MemoryExtractionWorkerCommand {
-    Extract {
-        conversation_id: String,
-        cwd: Option<String>,
-        turn: Box<NewChatTurn>,
-    },
-    Shutdown {
-        reply: oneshot::Sender<()>,
-    },
+    Extract(Box<ConversationMemoryContext>),
+    Shutdown { reply: oneshot::Sender<()> },
 }
 
 #[derive(Debug)]
@@ -189,14 +182,8 @@ impl MemoryExtractionWorker {
     async fn run(mut self, mut receiver: mpsc::Receiver<MemoryExtractionWorkerCommand>) {
         while let Some(command) = receiver.recv().await {
             match command {
-                MemoryExtractionWorkerCommand::Extract {
-                    conversation_id,
-                    cwd,
-                    turn,
-                } => {
-                    let _ = self
-                        .extract_ordinary_chat_memories(&conversation_id, cwd.as_deref(), &turn)
-                        .await;
+                MemoryExtractionWorkerCommand::Extract(context) => {
+                    let _ = self.extract_ordinary_chat_memories(&context).await;
                 }
                 MemoryExtractionWorkerCommand::Shutdown { reply } => {
                     self.runtime.shutdown().await;
@@ -209,22 +196,20 @@ impl MemoryExtractionWorker {
 
     async fn extract_ordinary_chat_memories(
         &mut self,
-        conversation_id: &str,
-        cwd: Option<&str>,
-        turn: &NewChatTurn,
+        context: &ConversationMemoryContext,
     ) -> Result<Vec<String>, String> {
-        let project_hint = project_scope_from_cwd(cwd);
+        let project_hint = project_scope_from_cwd(context.cwd.as_deref());
         let prompt = build_memory_extraction_prompt(
-            &turn.user_content,
-            &turn.assistant_content,
-            conversation_id,
-            turn.turn_index,
+            &context.user_content,
+            &context.assistant_content,
+            &context.conversation_id,
+            context.turn_index,
             project_hint.as_deref(),
         );
 
         let extraction_conversation = self
             .runtime
-            .start_conversation(None, cwd.map(ToOwned::to_owned))
+            .start_conversation(None, context.cwd.clone())
             .await
             .map_err(|error| format!("memory extraction model failed: {error}"))?;
         let extraction_text = self
@@ -236,16 +221,14 @@ impl MemoryExtractionWorker {
 
         let proposals = parse_memory_extraction_proposals(
             &extraction_text,
-            &turn.user_content,
-            &turn.assistant_content,
+            &context.user_content,
+            &context.assistant_content,
         )
         .map_err(|error| format!("memory extraction output was rejected: {error}"))?;
 
         persist_validated_memory_proposals(
             &mut self.memory_repository,
-            conversation_id,
-            cwd,
-            turn,
+            context,
             proposals,
             "ordinary_chat_extraction",
         )
@@ -258,7 +241,6 @@ struct CodexRuntimeActor {
     memory_extraction_worker: MemoryExtractionWorkerHandle,
     memory_repository: SqliteMemoryRepository,
     conversations: HashMap<String, ActiveConversation>,
-    next_conversation_id: u64,
 }
 
 impl CodexRuntimeActor {
@@ -271,7 +253,6 @@ impl CodexRuntimeActor {
             runtime: CodexAppServerRuntime::new(config)?,
             memory_repository: SqliteMemoryRepository::open_at(database_path)?,
             conversations: HashMap::new(),
-            next_conversation_id: 1,
         })
     }
 
@@ -311,10 +292,18 @@ impl CodexRuntimeActor {
         model: Option<String>,
         cwd: Option<String>,
     ) -> Result<StartedConversation, DaemonError> {
-        let conversation = self.runtime.start_conversation(model, cwd.clone()).await?;
-        let conversation_id = format!("conversation_{}", self.next_conversation_id);
-        self.next_conversation_id += 1;
+        self.memory_repository.ensure_default_actors()?;
+        let conversation = self
+            .runtime
+            .start_conversation(model.clone(), cwd.clone())
+            .await?;
         let provider_thread_id = conversation.thread_id.clone();
+        let mut new_conversation = NewConversation::local_chat(model, cwd.clone());
+        new_conversation.provider_thread_id = Some(provider_thread_id.clone());
+        let durable_conversation = self
+            .memory_repository
+            .create_conversation(new_conversation)?;
+        let conversation_id = durable_conversation.conversation_id;
         self.conversations.insert(
             conversation_id.clone(),
             ActiveConversation {
@@ -344,54 +333,124 @@ impl CodexRuntimeActor {
                 DaemonError::Protocol(format!("unknown conversation id: {conversation_id}"))
             })?;
         let turn_index = conversation.next_turn_index;
-        let saved_memory_id =
-            self.persist_chat_memory_candidate(&conversation_id, turn_index, &input)?;
+        let turn = self
+            .memory_repository
+            .create_conversation_turn(NewConversationTurn {
+                conversation_id: conversation_id.clone(),
+                trigger_item_id: None,
+                metadata: json!({ "turn_index": turn_index }),
+            })?;
+        let user_item = self
+            .memory_repository
+            .append_conversation_item(NewConversationItem {
+                conversation_id: conversation_id.clone(),
+                turn_id: Some(turn.turn_id.clone()),
+                parent_item_id: None,
+                kind: ConversationItemKind::UserText,
+                status: ConversationItemStatus::Completed,
+                author: ObjectRef::human("human:local"),
+                content_text: Some(input.clone()),
+                payload_json: json!({}),
+                metadata: json!({ "turn_index": turn_index }),
+            })?;
+        let saved_memory_id = self.persist_chat_memory_candidate(
+            &conversation_id,
+            turn_index,
+            &user_item.item_id,
+            &input,
+        )?;
+        let structured_instructions = build_structured_turn_system_prompt(
+            &conversation_id,
+            turn_index,
+            conversation.cwd.as_deref(),
+        );
 
         match self
             .runtime
-            .turn(&conversation.provider, input.clone())
+            .turn_structured(
+                &conversation.provider,
+                input.clone(),
+                structured_instructions,
+            )
             .await
         {
             Ok(response) => {
                 let assistant_text = response.assistant_text();
                 let provider_memory_proposals = response.memory_proposals();
+                let mut assistant_item_id = None;
                 for (index, output) in response.output.into_iter().enumerate() {
                     match output {
                         GenerateOutputItem::AssistantText { text } => {
+                            let assistant_item = self.memory_repository.append_conversation_item(
+                                NewConversationItem {
+                                    conversation_id: conversation_id.clone(),
+                                    turn_id: Some(turn.turn_id.clone()),
+                                    parent_item_id: Some(user_item.item_id.clone()),
+                                    kind: ConversationItemKind::AssistantText,
+                                    status: ConversationItemStatus::Completed,
+                                    author: ObjectRef::agent("agent:primary"),
+                                    content_text: Some(text.clone()),
+                                    payload_json: json!({}),
+                                    metadata: json!({
+                                        "turn_index": turn_index,
+                                        "output_index": index,
+                                    }),
+                                },
+                            )?;
+                            if assistant_item_id.is_none() {
+                                assistant_item_id = Some(assistant_item.item_id);
+                            }
                             let _ = item_tx.send(TurnTranscriptItem::AssistantText { text });
                         }
                         GenerateOutputItem::MemoryProposals { .. } => {}
                         GenerateOutputItem::Structured { schema, payload } => {
+                            let _ = self.memory_repository.append_conversation_item(
+                                NewConversationItem {
+                                    conversation_id: conversation_id.clone(),
+                                    turn_id: Some(turn.turn_id.clone()),
+                                    parent_item_id: Some(user_item.item_id.clone()),
+                                    kind: ConversationItemKind::A2uiCard,
+                                    status: ConversationItemStatus::Completed,
+                                    author: ObjectRef::agent("agent:primary"),
+                                    content_text: None,
+                                    payload_json: json!({
+                                        "schema": schema.clone(),
+                                        "payload": payload.clone(),
+                                    }),
+                                    metadata: json!({
+                                        "turn_index": turn_index,
+                                        "output_index": index,
+                                        "source": "provider_structured_output",
+                                    }),
+                                },
+                            )?;
                             let _ = item_tx.send(TurnTranscriptItem::A2uiCard {
                                 id: format!(
                                     "provider_structured:{conversation_id}:{turn_index}:{index}"
                                 ),
-                                schema,
-                                payload,
+                                schema: schema.clone(),
+                                payload: payload.clone(),
                             });
                         }
                     }
                 }
+                self.memory_repository
+                    .complete_conversation_turn(&turn.turn_id)?;
 
                 if let Some(conversation) = self.conversations.get_mut(&conversation_id) {
                     conversation.next_turn_index = conversation.next_turn_index.saturating_add(1);
                 }
 
-                let turn = NewChatTurn::new(
-                    format!("conversation:{conversation_id}"),
+                let memory_context = ConversationMemoryContext {
                     turn_index,
-                    "human:local",
-                    "agent:primary",
-                    input.clone(),
-                    assistant_text.clone(),
-                );
-                if let Err(error) = self.memory_repository.record_chat_turn(&turn) {
-                    let _ = item_tx.send(memory_activity_failed(
-                        "memory_extraction:failed",
-                        format!("failed to record chat turn provenance: {error}"),
-                    ));
-                    return Ok(());
-                }
+                    conversation_id: conversation_id.clone(),
+                    turn_id: turn.turn_id,
+                    user_item_id: user_item.item_id,
+                    assistant_item_id,
+                    user_content: input.clone(),
+                    assistant_content: assistant_text.clone(),
+                    cwd: conversation.cwd.clone(),
+                };
 
                 if let Some(memory_id) = saved_memory_id {
                     let _ = item_tx.send(typed_memory_activity(
@@ -406,18 +465,31 @@ impl CodexRuntimeActor {
                             "trigger": "explicit_remember",
                         }),
                     ));
+                    let memory_content = explicit_memory_content(&input).unwrap_or_default();
+                    let _ = item_tx.send(TurnTranscriptItem::A2uiCard {
+                        id: format!("memory_cards:{conversation_id}:{turn_index}"),
+                        schema: "memory_cards".to_string(),
+                        payload: json!({
+                            "turn_index": turn_index,
+                            "source": "explicit_remember",
+                            "created_memory_ids": [memory_id],
+                            "memories": [{
+                                "content": memory_content,
+                                "title": title_from_memory_content(&memory_content),
+                                "memory_type": infer_chat_memory_type(&memory_content).as_str(),
+                                "sensitivity": sensitivity_payload_label(infer_chat_sensitivity(&memory_content)),
+                                "status": "confirmed",
+                            }],
+                        }),
+                    });
                 } else if !provider_memory_proposals.is_empty() {
                     self.persist_provider_memory_proposals(
-                        &conversation_id,
-                        conversation.cwd.as_deref(),
-                        &turn,
+                        &memory_context,
                         provider_memory_proposals,
                         &item_tx,
                     );
                 } else {
-                    self.memory_extraction_worker
-                        .extract(conversation_id.clone(), conversation.cwd.clone(), turn)
-                        .await;
+                    self.memory_extraction_worker.extract(memory_context).await;
                 }
 
                 Ok(())
@@ -431,18 +503,16 @@ impl CodexRuntimeActor {
 
     fn persist_provider_memory_proposals(
         &mut self,
-        conversation_id: &str,
-        cwd: Option<&str>,
-        turn: &NewChatTurn,
+        context: &ConversationMemoryContext,
         proposals: Vec<ExtractorMemoryProposal>,
         item_tx: &mpsc::UnboundedSender<TurnTranscriptItem>,
     ) {
-        let turn_index = turn.turn_index;
-        let activity_id = format!("memory_extraction:{conversation_id}:{turn_index}");
+        let turn_index = context.turn_index;
+        let activity_id = format!("memory_extraction:{}:{turn_index}", context.conversation_id);
         let proposals = match validate_memory_extraction_response(
             ExtractorMemoryResponse { proposals },
-            &turn.user_content,
-            &turn.assistant_content,
+            &context.user_content,
+            &context.assistant_content,
         ) {
             Ok(proposals) => proposals,
             Err(error) => {
@@ -454,11 +524,10 @@ impl CodexRuntimeActor {
             }
         };
 
+        let card_proposals = proposals.clone();
         let created_memory_ids = match persist_validated_memory_proposals(
             &mut self.memory_repository,
-            conversation_id,
-            cwd,
-            turn,
+            context,
             proposals,
             "provider_structured_output",
         ) {
@@ -468,6 +537,17 @@ impl CodexRuntimeActor {
                 return;
             }
         };
+
+        let _ = item_tx.send(TurnTranscriptItem::A2uiCard {
+            id: format!("memory_proposals:{}:{turn_index}", context.conversation_id),
+            schema: "memory_proposals".to_string(),
+            payload: json!({
+                "turn_index": turn_index,
+                "source": "provider_structured_output",
+                "created_memory_ids": created_memory_ids.clone(),
+                "proposals": card_proposals,
+            }),
+        });
 
         let summary = match created_memory_ids.len() {
             0 => "created no memory candidates".to_string(),
@@ -490,29 +570,28 @@ impl CodexRuntimeActor {
         &mut self,
         conversation_id: &str,
         turn_index: u64,
+        user_item_id: &str,
         user_input: &str,
     ) -> Result<Option<String>, DaemonError> {
         let Some(memory_content) = explicit_memory_content(user_input) else {
             return Ok(None);
         };
 
-        let conversation_scope_id = format!("conversation:{conversation_id}");
-        let message_id = format!("message:{conversation_scope_id}:user:{turn_index}");
-        let mut candidate = NewChatMemoryCandidate::new(
-            conversation_scope_id.clone(),
+        let mut candidate = NewMemoryCandidate::confirmed_note(
+            ObjectRef::new(ObjectType::Conversation, conversation_id)?,
             memory_content,
-            "human:local",
+            ObjectRef::human("human:local"),
+            ObjectRef::conversation_item(user_item_id),
         );
         candidate.memory_type = infer_chat_memory_type(&candidate.content);
         candidate.title = Some(title_from_memory_content(&candidate.content));
         candidate.sensitivity = infer_chat_sensitivity(&candidate.content);
         candidate.status = crate::memory::MemoryStatus::Confirmed;
-        candidate.owner_principal_id = Some("human:local".to_string());
+        candidate.owner_actor = Some(ObjectRef::human("human:local"));
         candidate.authority_level = MemoryAuthorityLevel::ExplicitHumanStatement;
         candidate.extraction_method = MemoryExtractionMethod::ExplicitHuman;
-        candidate.source = Some(ChatMemorySource {
-            conversation_id: conversation_scope_id,
-            message_id: Some(message_id),
+        candidate.source = Some(ObjectProvenanceSource {
+            source: ObjectRef::conversation_item(user_item_id),
             evidence_excerpt: Some(user_input.trim().to_string()),
         });
         candidate.participants = vec![
@@ -524,11 +603,83 @@ impl CodexRuntimeActor {
             "turn_index": turn_index,
         });
 
-        let memory = self
-            .memory_repository
-            .append_chat_memory_candidate(&candidate)?;
+        let memory = self.memory_repository.append_memory_candidate(&candidate)?;
         Ok(Some(memory.id))
     }
+}
+
+const fn sensitivity_payload_label(sensitivity: Sensitivity) -> &'static str {
+    match sensitivity {
+        Sensitivity::Public => "public",
+        Sensitivity::Normal => "normal",
+        Sensitivity::Private => "private",
+        Sensitivity::Sensitive => "sensitive",
+        Sensitivity::Secret => "secret",
+    }
+}
+
+fn build_structured_turn_system_prompt(
+    conversation_id: &str,
+    turn_index: u64,
+    cwd: Option<&str>,
+) -> String {
+    let project_hint = project_scope_from_cwd(cwd).unwrap_or_else(|| "none".to_string());
+
+    format!(
+        r#"You are Noema, a local-first personal assistant. Reply to the user and emit any durable memory proposals in one structured response.
+
+Return strict JSON only. Do not include Markdown, code fences, comments, or prose outside the JSON.
+
+Return exactly this top-level shape:
+{{
+  "type": "noema_response",
+  "output": [
+    {{"kind": "assistant_text", "text": "assistant reply to show the user"}},
+    {{"kind": "memory_proposals", "proposals": []}}
+  ]
+}}
+
+Memory proposal shape:
+{{
+  "content": "durable memory content",
+  "memory_type": "fact|preference|person|organization|project|place|routine|goal|open_loop|procedure|constraint|trigger|decision|skill|policy|note|other",
+  "title": "short title or null",
+  "confidence": 0.0,
+  "sensitivity": "public|normal|private|sensitive|secret",
+  "subjects": [
+    {{
+      "id": "optional canonical id or null",
+      "kind": "human|agent|conversation|workspace|project|task|cron|relationship|tool|organization|place|concept|other",
+      "name": "subject name",
+      "role": "about|owner|affected|assignee|source|target|participant"
+    }}
+  ],
+  "retrieval_hints": {{
+    "topics": [],
+    "keywords": [],
+    "summary": null
+  }},
+  "risk_flags": [],
+  "evidence_excerpt": "exact contiguous quote from the user message"
+}}
+
+Rules:
+- Always include exactly one assistant_text item.
+- Include exactly one memory_proposals item. Use an empty proposals array when there are no durable memories.
+- Propose only durable facts, preferences, constraints, decisions, routines, goals, procedures, or notes that could matter later.
+- Do not propose jokes, speculation, transient task chatter, or generic world facts.
+- evidence_excerpt must be an exact contiguous quote from the user message and directly support the proposal.
+- subjects must be non-empty and must show a human subject or participant when the memory affects a person.
+- Use id "human:local" only for the current human/user/me. Do not use it for third-party people.
+- confidence must be between 0.0 and 1.0. Use at least 0.70 only when evidence directly supports the proposal.
+- Use an empty risk_flags array only for low-risk direct ordinary facts and preferences.
+- Add risk_flags for inferred, sensitive, secret, action-triggering, contradiction-prone, third-party, risk-bearing, temporary, or external-egress proposals.
+
+Conversation metadata:
+conversation_id: {conversation_id}
+turn_index: {turn_index}
+cwd_project_hint: {project_hint}"#
+    )
 }
 
 #[derive(Debug, Clone)]
@@ -540,28 +691,24 @@ struct ActiveConversation {
 
 fn persist_validated_memory_proposals(
     memory_repository: &mut SqliteMemoryRepository,
-    conversation_id: &str,
-    cwd: Option<&str>,
-    turn: &NewChatTurn,
+    context: &ConversationMemoryContext,
     proposals: Vec<ValidatedMemoryProposal>,
     trigger: &str,
 ) -> Result<Vec<String>, String> {
-    let project_hint = project_scope_from_cwd(cwd);
-    let conversation_scope_id = format!("conversation:{conversation_id}");
+    let project_hint = project_scope_from_cwd(context.cwd.as_deref());
     let mut created_memory_ids = Vec::new();
 
     for proposal in proposals {
         let candidate = extracted_proposal_to_candidate(
             &proposal,
-            &conversation_scope_id,
+            context,
             project_hint.as_deref(),
-            turn,
-            &turn.user_content,
+            &context.user_content,
             trigger,
         )?;
 
         let summary = memory_repository
-            .append_chat_memory_candidate(&candidate)
+            .append_memory_candidate(&candidate)
             .map_err(|error| format!("failed to persist extracted memory: {error}"))?;
         created_memory_ids.push(summary.id);
     }

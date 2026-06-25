@@ -23,8 +23,8 @@ use crate::{
     },
     memory::{
         Effect, ExternalEgressPolicy, MemoryId, MemoryStatus, ParticipantRole,
-        ParticipantVisibilityPolicy, PrincipalId, Purpose, RelationshipStatus,
-        RetrievalPolicyStatus, ScopeId, Sensitivity, SubjectRole,
+        ParticipantVisibilityPolicy, Purpose, RelationshipStatus, RetrievalPolicyStatus,
+        Sensitivity, SubjectRole,
     },
     memory_persistence::{MemoryPersistenceError, MemoryType},
 };
@@ -45,8 +45,10 @@ macro_rules! graph_params {
 pub struct RelationshipSummary {
     /// Stable relationship id.
     pub relationship_id: String,
-    /// Scope that owns the relationship claim.
-    pub home_scope_id: ScopeId,
+    /// Concrete owner object type.
+    pub owner_object_type: String,
+    /// Concrete owner object id.
+    pub owner_object_id: String,
     /// Subject entity id.
     pub subject_entity_id: String,
     /// Subject display name, if known.
@@ -85,7 +87,7 @@ pub struct ContextGraphSummary {
     pub entities: Vec<GraphEntityNode>,
     /// Memory-to-entity subject edges.
     pub subject_edges: Vec<GraphSubjectEdge>,
-    /// Memory-to-principal participant edges.
+    /// Memory-to-object participant edges.
     pub participant_edges: Vec<GraphParticipantEdge>,
     /// Memory-to-source provenance edges.
     pub provenance_edges: Vec<GraphProvenanceEdge>,
@@ -93,7 +95,7 @@ pub struct ContextGraphSummary {
     pub object_link_edges: Vec<GraphObjectLinkEdge>,
     /// Memory retrieval purpose rules.
     pub purpose_rules: Vec<GraphPurposeRule>,
-    /// Memory or scope access grants.
+    /// Object access grants.
     pub access_grants: Vec<GraphAccessGrant>,
     /// Context packet manifests.
     pub context_packets: Vec<GraphContextPacket>,
@@ -103,8 +105,8 @@ pub struct ContextGraphSummary {
     pub context_packet_omissions: Vec<GraphContextPacketOmission>,
     /// Typed memory-use records by run and packet.
     pub memory_use_records: Vec<GraphMemoryUseRecord>,
-    /// Memory lifecycle and use events.
-    pub memory_events: Vec<GraphMemoryEvent>,
+    /// Object lifecycle and use events.
+    pub object_events: Vec<GraphMemoryEvent>,
     /// Relationship claim edges.
     pub relationships: Vec<RelationshipSummary>,
 }
@@ -118,8 +120,10 @@ pub struct GraphMemoryNode {
     pub status: MemoryStatus,
     /// Memory type.
     pub memory_type: MemoryType,
-    /// Scope that owns the memory.
-    pub home_scope_id: ScopeId,
+    /// Concrete owner object type.
+    pub owner_object_type: String,
+    /// Concrete owner object id.
+    pub owner_object_id: String,
     /// Sensitivity tier.
     pub sensitivity: Sensitivity,
     /// Display title.
@@ -136,8 +140,10 @@ pub struct GraphMemoryNode {
     pub retrieval_policy_version: i64,
     /// Retrieval policy fingerprint, if validated.
     pub retrieval_policy_fingerprint: Option<String>,
-    /// Principal that extracted or validated retrieval policy.
-    pub retrieval_policy_extractor_principal_id: Option<PrincipalId>,
+    /// Object type that extracted or validated retrieval policy.
+    pub retrieval_policy_extractor_object_type: Option<String>,
+    /// Object id that extracted or validated retrieval policy.
+    pub retrieval_policy_extractor_object_id: Option<String>,
     /// Extractor implementation version.
     pub retrieval_policy_extractor_version: Option<String>,
     /// Timestamp when retrieval policy was validated.
@@ -157,12 +163,16 @@ pub struct GraphEntityNode {
     pub entity_id: String,
     /// Entity type.
     pub entity_type: String,
-    /// Scope that owns or discovered the entity.
-    pub home_scope_id: Option<ScopeId>,
+    /// Concrete owner object type.
+    pub owner_object_type: Option<String>,
+    /// Concrete owner object id.
+    pub owner_object_id: Option<String>,
     /// Canonical display name.
     pub canonical_name: String,
-    /// Linked principal id, when this entity represents a principal.
-    pub linked_principal_id: Option<PrincipalId>,
+    /// Linked object type, when this entity represents another object.
+    pub linked_object_type: Option<String>,
+    /// Linked object id, when this entity represents another object.
+    pub linked_object_id: Option<String>,
 }
 
 /// Memory-to-entity edge in a graph inspection view.
@@ -176,13 +186,15 @@ pub struct GraphSubjectEdge {
     pub role: SubjectRole,
 }
 
-/// Memory-to-principal participant edge in a graph inspection view.
+/// Memory-to-object participant edge in a graph inspection view.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GraphParticipantEdge {
     /// Memory id.
     pub memory_id: MemoryId,
-    /// Principal id.
-    pub principal_id: PrincipalId,
+    /// Participant object type.
+    pub participant_object_type: String,
+    /// Participant object id.
+    pub participant_object_id: String,
     /// Participant role.
     pub role: ParticipantRole,
 }
@@ -192,10 +204,10 @@ pub struct GraphParticipantEdge {
 pub struct GraphProvenanceEdge {
     /// Memory id.
     pub memory_id: MemoryId,
-    /// Source type.
-    pub source_type: String,
-    /// Source id.
-    pub source_id: String,
+    /// Source object type.
+    pub source_object_type: String,
+    /// Source object id.
+    pub source_object_id: String,
     /// Provenance relation.
     pub relation: String,
     /// Supporting excerpt.
@@ -213,10 +225,14 @@ pub struct GraphObjectLinkEdge {
     pub object_id: String,
     /// Relationship between the memory and the trusted object.
     pub relation: String,
-    /// Scope that authorized this object link, when one is required.
-    pub authorized_scope_id: Option<ScopeId>,
-    /// Principal that resolved the object link, if recorded.
-    pub resolver_principal_id: Option<PrincipalId>,
+    /// Object type that authorized this object link, when one is required.
+    pub authorized_object_type: Option<String>,
+    /// Object id that authorized this object link, when one is required.
+    pub authorized_object_id: Option<String>,
+    /// Object type that resolved the object link, if recorded.
+    pub resolver_object_type: Option<String>,
+    /// Object id that resolved the object link, if recorded.
+    pub resolver_object_id: Option<String>,
     /// Resolver implementation version, if recorded.
     pub resolver_version: Option<String>,
     /// Run that produced the object link, if recorded.
@@ -234,31 +250,37 @@ pub struct GraphPurposeRule {
     pub purpose: Purpose,
     /// Allow or deny effect.
     pub effect: Effect,
-    /// Principal that created the rule, if recorded.
-    pub created_by_principal_id: Option<PrincipalId>,
+    /// Object type that created the rule, if recorded.
+    pub created_by_object_type: Option<String>,
+    /// Object id that created the rule, if recorded.
+    pub created_by_object_id: Option<String>,
     /// SQLite-created timestamp.
     pub created_at: String,
 }
 
-/// Memory or scope access grant in a graph inspection view.
+/// Object access grant in a graph inspection view.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GraphAccessGrant {
     /// Stable grant id.
     pub grant_id: String,
-    /// Optional memory-specific grant target.
-    pub memory_id: Option<MemoryId>,
-    /// Optional scope-wide grant target.
-    pub scope_id: Option<ScopeId>,
-    /// Principal receiving the grant.
-    pub principal_id: PrincipalId,
+    /// Target object type.
+    pub target_object_type: String,
+    /// Target object id.
+    pub target_object_id: String,
+    /// Grantee object type.
+    pub grantee_object_type: String,
+    /// Grantee object id.
+    pub grantee_object_id: String,
     /// Permission string from the canonical grant table.
     pub permission: String,
     /// Allow or deny effect.
     pub effect: Effect,
     /// Expiration timestamp, if any.
     pub expires_at: Option<String>,
-    /// Principal that created the grant, if recorded.
-    pub created_by_principal_id: Option<PrincipalId>,
+    /// Object type that created the grant, if recorded.
+    pub created_by_object_type: Option<String>,
+    /// Object id that created the grant, if recorded.
+    pub created_by_object_id: Option<String>,
     /// SQLite-created timestamp.
     pub created_at: String,
 }
@@ -270,12 +292,14 @@ pub struct GraphContextPacket {
     pub context_packet_id: String,
     /// Run that produced the packet.
     pub run_id: String,
-    /// Principal that requested the packet.
-    pub requesting_principal_id: PrincipalId,
+    /// Object type that requested the packet.
+    pub requesting_object_type: String,
+    /// Object id that requested the packet.
+    pub requesting_object_id: String,
     /// Retrieval or execution purpose.
     pub purpose: Purpose,
-    /// Active scopes as canonical JSON.
-    pub active_scopes: String,
+    /// Active objects as canonical JSON.
+    pub active_objects: String,
     /// Agent-visible redacted omissions as canonical JSON.
     pub agent_visible_omissions: String,
     /// SQLite-created timestamp.
@@ -343,10 +367,14 @@ pub struct GraphMemoryUseRecord {
     pub memory_sensitivity: Sensitivity,
     /// Use stage.
     pub stage: String,
-    /// Agent principal, if recorded.
-    pub agent_principal_id: Option<PrincipalId>,
-    /// Scope id, if recorded.
-    pub scope_id: Option<ScopeId>,
+    /// Agent object type, if recorded.
+    pub agent_object_type: Option<String>,
+    /// Agent object id, if recorded.
+    pub agent_object_id: Option<String>,
+    /// Context object type, if recorded.
+    pub context_object_type: Option<String>,
+    /// Context object id, if recorded.
+    pub context_object_id: Option<String>,
     /// Retrieval or execution purpose.
     pub purpose: Purpose,
     /// Object type affected by the use, if any.
@@ -361,21 +389,23 @@ pub struct GraphMemoryUseRecord {
     pub details: String,
 }
 
-/// Memory lifecycle or use event in a graph inspection view.
+/// Object lifecycle or use event in a graph inspection view.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GraphMemoryEvent {
     /// Stable event id.
     pub event_id: String,
     /// Canonical memory event type.
     pub event_type: String,
-    /// Actor principal, if recorded.
-    pub actor_principal_id: Option<PrincipalId>,
-    /// Memory affected by the event, if any.
-    pub memory_id: Option<MemoryId>,
-    /// Sensitivity of the memory, if the event is memory-specific.
-    pub memory_sensitivity: Option<Sensitivity>,
-    /// Scope affected by the event, if any.
-    pub scope_id: Option<ScopeId>,
+    /// Actor object type, if recorded.
+    pub actor_object_type: Option<String>,
+    /// Actor object id, if recorded.
+    pub actor_object_id: Option<String>,
+    /// Target object type, if recorded.
+    pub target_object_type: Option<String>,
+    /// Target object id, if recorded.
+    pub target_object_id: Option<String>,
+    /// Sensitivity of the target memory, if the event is memory-specific.
+    pub target_memory_sensitivity: Option<Sensitivity>,
     /// Event reason, if recorded.
     pub reason: Option<String>,
     /// SQLite-created timestamp.
@@ -414,7 +444,7 @@ pub(crate) fn inspect(
     let context_packet_memory_edges = graph_context_packet_memory_edges(conn, limit, filter)?;
     let context_packet_omissions = graph_context_packet_omissions(conn, limit, filter)?;
     let memory_use_records = graph_memory_use_records(conn, limit, filter)?;
-    let memory_events = graph_memory_events(conn, limit, filter)?;
+    let object_events = graph_object_events(conn, limit, filter)?;
     let relationships = graph_relationship_edges(conn, limit, filter)?;
     Ok(ContextGraphSummary {
         memories,
@@ -429,7 +459,7 @@ pub(crate) fn inspect(
         context_packet_memory_edges,
         context_packet_omissions,
         memory_use_records,
-        memory_events,
+        object_events,
         relationships,
     })
 }
@@ -610,7 +640,7 @@ fn graph_memory_use_records(
     collect_sql_rows(rows)
 }
 
-fn graph_memory_events(
+fn graph_object_events(
     conn: &Connection,
     limit: u32,
     filter: &ContextGraphFilter,

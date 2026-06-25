@@ -49,7 +49,8 @@ fn memory_basis(conn: &Connection, memory_id: &str) -> Result<Value, MemoryPersi
         r"
         SELECT
           memory_id,
-          home_scope_id,
+          owner_object_type,
+          owner_object_id,
           memory_type,
           title,
           content,
@@ -60,7 +61,8 @@ fn memory_basis(conn: &Connection, memory_id: &str) -> Result<Value, MemoryPersi
           retrieval_policy_version,
           participant_visibility_policy,
           external_egress_policy,
-          owner_principal_id,
+          created_by_object_type,
+          created_by_object_id,
           authority_level,
           extraction_method,
           valid_from,
@@ -73,23 +75,25 @@ fn memory_basis(conn: &Connection, memory_id: &str) -> Result<Value, MemoryPersi
         |row| {
             Ok(json!({
                 "memory_id": row.get::<_, String>(0)?,
-                "home_scope_id": row.get::<_, String>(1)?,
-                "memory_type": row.get::<_, String>(2)?,
-                "title": row.get::<_, String>(3)?,
-                "content": row.get::<_, String>(4)?,
-                "structured_value": json_value(row.get::<_, String>(5)?),
-                "status": row.get::<_, String>(6)?,
-                "sensitivity": row.get::<_, String>(7)?,
-                "proactivity_level": row.get::<_, i64>(8)?,
-                "retrieval_policy_version": row.get::<_, i64>(9)?,
-                "participant_visibility_policy": row.get::<_, String>(10)?,
-                "external_egress_policy": row.get::<_, String>(11)?,
-                "owner_principal_id": row.get::<_, Option<String>>(12)?,
-                "authority_level": row.get::<_, String>(13)?,
-                "extraction_method": row.get::<_, String>(14)?,
-                "valid_from": row.get::<_, Option<String>>(15)?,
-                "valid_to": row.get::<_, Option<String>>(16)?,
-                "expires_at": row.get::<_, Option<String>>(17)?,
+                "owner_object_type": row.get::<_, String>(1)?,
+                "owner_object_id": row.get::<_, String>(2)?,
+                "memory_type": row.get::<_, String>(3)?,
+                "title": row.get::<_, String>(4)?,
+                "content": row.get::<_, String>(5)?,
+                "structured_value": json_value(row.get::<_, String>(6)?),
+                "status": row.get::<_, String>(7)?,
+                "sensitivity": row.get::<_, String>(8)?,
+                "proactivity_level": row.get::<_, i64>(9)?,
+                "retrieval_policy_version": row.get::<_, i64>(10)?,
+                "participant_visibility_policy": row.get::<_, String>(11)?,
+                "external_egress_policy": row.get::<_, String>(12)?,
+                "created_by_object_type": row.get::<_, String>(13)?,
+                "created_by_object_id": row.get::<_, String>(14)?,
+                "authority_level": row.get::<_, String>(15)?,
+                "extraction_method": row.get::<_, String>(16)?,
+                "valid_from": row.get::<_, Option<String>>(17)?,
+                "valid_to": row.get::<_, Option<String>>(18)?,
+                "expires_at": row.get::<_, Option<String>>(19)?,
             }))
         },
     )
@@ -129,16 +133,17 @@ fn participants_basis(
     rows_to_json(
         conn,
         r"
-        SELECT principal_id, role
+        SELECT participant_object_type, participant_object_id, role
         FROM memory_participants
         WHERE memory_id = ?1
-        ORDER BY principal_id ASC, role ASC
+        ORDER BY participant_object_type ASC, participant_object_id ASC, role ASC
         ",
         memory_id,
         |row| {
             Ok(json!({
-                "principal_id": row.get::<_, String>(0)?,
-                "role": row.get::<_, String>(1)?,
+                "participant_object_type": row.get::<_, String>(0)?,
+                "participant_object_id": row.get::<_, String>(1)?,
+                "role": row.get::<_, String>(2)?,
             }))
         },
     )
@@ -177,10 +182,14 @@ fn object_links_basis(
           object_type,
           object_id,
           relation,
-          resolver_principal_id,
+          resolver_object_type,
+          resolver_object_id,
           resolver_version,
           source_run_id,
-          authorized_scope_id
+          authorized_object_type,
+          authorized_object_id,
+          created_by_object_type,
+          created_by_object_id
         FROM memory_retrieval_object_links
         WHERE memory_id = ?1
         ORDER BY object_type ASC, object_id ASC, relation ASC
@@ -191,10 +200,14 @@ fn object_links_basis(
                 "object_type": row.get::<_, String>(0)?,
                 "object_id": row.get::<_, String>(1)?,
                 "relation": row.get::<_, String>(2)?,
-                "resolver_principal_id": row.get::<_, Option<String>>(3)?,
-                "resolver_version": row.get::<_, Option<String>>(4)?,
-                "source_run_id": row.get::<_, Option<String>>(5)?,
-                "authorized_scope_id": row.get::<_, Option<String>>(6)?,
+                "resolver_object_type": row.get::<_, Option<String>>(3)?,
+                "resolver_object_id": row.get::<_, Option<String>>(4)?,
+                "resolver_version": row.get::<_, Option<String>>(5)?,
+                "source_run_id": row.get::<_, Option<String>>(6)?,
+                "authorized_object_type": row.get::<_, Option<String>>(7)?,
+                "authorized_object_id": row.get::<_, Option<String>>(8)?,
+                "created_by_object_type": row.get::<_, Option<String>>(9)?,
+                "created_by_object_id": row.get::<_, Option<String>>(10)?,
             }))
         },
     )
@@ -209,31 +222,39 @@ fn access_grants_basis(
         r"
         SELECT
           grant_id,
-          memory_id,
-          scope_id,
-          principal_id,
+          target_object_type,
+          target_object_id,
+          grantee_object_type,
+          grantee_object_id,
           permission,
           effect,
           expires_at
-        FROM memory_access_grants
-        WHERE memory_id = ?1
-           OR scope_id = (
-             SELECT home_scope_id
-             FROM memory_items
-             WHERE memory_id = ?1
+        FROM object_access_grants
+        WHERE (
+            target_object_type = 'memory_item'
+            AND target_object_id = ?1
+          )
+           OR (
+             target_object_type = (
+               SELECT owner_object_type FROM memory_items WHERE memory_id = ?1
+             )
+             AND target_object_id = (
+               SELECT owner_object_id FROM memory_items WHERE memory_id = ?1
+             )
            )
-        ORDER BY principal_id ASC, permission ASC, effect ASC, grant_id ASC
+        ORDER BY grantee_object_type ASC, grantee_object_id ASC, permission ASC, effect ASC, grant_id ASC
         ",
         memory_id,
         |row| {
             Ok(json!({
                 "grant_id": row.get::<_, String>(0)?,
-                "memory_id": row.get::<_, Option<String>>(1)?,
-                "scope_id": row.get::<_, Option<String>>(2)?,
-                "principal_id": row.get::<_, String>(3)?,
-                "permission": row.get::<_, String>(4)?,
-                "effect": row.get::<_, String>(5)?,
-                "expires_at": row.get::<_, Option<String>>(6)?,
+                "target_object_type": row.get::<_, String>(1)?,
+                "target_object_id": row.get::<_, String>(2)?,
+                "grantee_object_type": row.get::<_, String>(3)?,
+                "grantee_object_id": row.get::<_, String>(4)?,
+                "permission": row.get::<_, String>(5)?,
+                "effect": row.get::<_, String>(6)?,
+                "expires_at": row.get::<_, Option<String>>(7)?,
             }))
         },
     )
@@ -248,7 +269,8 @@ fn relationships_basis(
         r"
         SELECT
           relationship_id,
-          home_scope_id,
+          owner_object_type,
+          owner_object_id,
           subject_entity_id,
           predicate,
           object_entity_id,
@@ -265,15 +287,16 @@ fn relationships_basis(
         |row| {
             Ok(json!({
                 "relationship_id": row.get::<_, String>(0)?,
-                "home_scope_id": row.get::<_, String>(1)?,
-                "subject_entity_id": row.get::<_, String>(2)?,
-                "predicate": row.get::<_, String>(3)?,
-                "object_entity_id": row.get::<_, String>(4)?,
-                "status": row.get::<_, String>(5)?,
-                "confidence": row.get::<_, Option<f64>>(6)?,
-                "valid_from": row.get::<_, Option<String>>(7)?,
-                "valid_to": row.get::<_, Option<String>>(8)?,
-                "metadata": json_value(row.get::<_, String>(9)?),
+                "owner_object_type": row.get::<_, String>(1)?,
+                "owner_object_id": row.get::<_, String>(2)?,
+                "subject_entity_id": row.get::<_, String>(3)?,
+                "predicate": row.get::<_, String>(4)?,
+                "object_entity_id": row.get::<_, String>(5)?,
+                "status": row.get::<_, String>(6)?,
+                "confidence": row.get::<_, Option<f64>>(7)?,
+                "valid_from": row.get::<_, Option<String>>(8)?,
+                "valid_to": row.get::<_, Option<String>>(9)?,
+                "metadata": json_value(row.get::<_, String>(10)?),
             }))
         },
     )
@@ -286,16 +309,18 @@ fn provenance_basis(
     rows_to_json(
         conn,
         r"
-        SELECT source_type, source_id, relation, evidence_excerpt
-        FROM memory_provenance_edges
-        WHERE memory_id = ?1
-        ORDER BY source_type ASC, source_id ASC, relation ASC, edge_id ASC
+        SELECT source_object_type, source_object_id, relation, evidence_excerpt
+        FROM object_provenance_edges
+        WHERE target_object_type = 'memory_item'
+          AND target_object_id = ?1
+          AND deleted_at IS NULL
+        ORDER BY source_object_type ASC, source_object_id ASC, relation ASC, edge_id ASC
         ",
         memory_id,
         |row| {
             Ok(json!({
-                "source_type": row.get::<_, String>(0)?,
-                "source_id": row.get::<_, String>(1)?,
+                "source_object_type": row.get::<_, String>(0)?,
+                "source_object_id": row.get::<_, String>(1)?,
                 "relation": row.get::<_, String>(2)?,
                 "evidence_excerpt": row.get::<_, Option<String>>(3)?,
             }))

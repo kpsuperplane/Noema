@@ -186,6 +186,26 @@ async fn runtime_actor_persists_explicit_remember_confirmed() {
                 && summary == "saved one explicit memory"
         )
     }));
+    let explicit_card = items
+        .iter()
+        .find_map(|item| match item {
+            TurnTranscriptItem::A2uiCard {
+                schema, payload, ..
+            } if schema == "memory_cards" => Some(payload),
+            _ => None,
+        })
+        .expect("explicit memory card");
+    assert_eq!(
+        explicit_card["created_memory_ids"]
+            .as_array()
+            .expect("created ids")
+            .len(),
+        1
+    );
+    assert_eq!(
+        explicit_card["memories"][0]["content"],
+        "Kevin prefers CLI memory inspection."
+    );
     assert!(
         !items.iter().any(|item| {
             matches!(
@@ -210,23 +230,36 @@ async fn runtime_actor_persists_explicit_remember_confirmed() {
     assert_eq!(memories[0].memory_type, MemoryType::Preference);
     assert_eq!(
         memories[0].conversation_id.as_deref(),
-        Some("conversation:conversation_1")
+        Some(conversation.conversation_id.as_str())
     );
 
     let conn = rusqlite::Connection::open(&db_path).expect("raw conn");
-    let message_provenance_count: i64 = conn
+    let conversation_item_provenance_count: i64 = conn
         .query_row(
             r"
             SELECT COUNT(*)
-            FROM memory_provenance_edges pe
-            JOIN messages m ON m.message_id = pe.source_id
-            WHERE pe.memory_id = ?1 AND pe.source_type = 'message'
+            FROM object_provenance_edges pe
+            JOIN conversation_items ci
+              ON pe.source_object_type = 'conversation_item'
+             AND ci.item_id = pe.source_object_id
+            WHERE pe.target_object_type = 'memory_item'
+              AND pe.target_object_id = ?1
+              AND ci.kind = 'user_text'
             ",
             rusqlite::params![memories[0].id],
             |row| row.get(0),
         )
-        .expect("message provenance count");
-    assert_eq!(message_provenance_count, 1);
+        .expect("conversation item provenance count");
+    assert_eq!(conversation_item_provenance_count, 1);
+
+    let conversation_item_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM conversation_items WHERE conversation_id = ?1",
+            rusqlite::params![conversation.conversation_id],
+            |row| row.get(0),
+        )
+        .expect("conversation item count");
+    assert_eq!(conversation_item_count, 2);
 }
 
 #[tokio::test]
@@ -249,9 +282,10 @@ async fn runtime_actor_extracts_ordinary_chat_memory_in_background() {
         .start_conversation(None, None)
         .await
         .expect("conversation");
+    let conversation_id = conversation.conversation_id.clone();
     let items = collect_turn(
         &handle,
-        conversation.conversation_id,
+        conversation_id.clone(),
         "I prefer automatic memory extraction in chat.".to_string(),
     )
     .await
@@ -280,7 +314,7 @@ async fn runtime_actor_extracts_ordinary_chat_memory_in_background() {
     assert_eq!(memories[0].memory_type, MemoryType::Preference);
     assert_eq!(
         memories[0].conversation_id.as_deref(),
-        Some("conversation:conversation_1")
+        Some(conversation_id.as_str())
     );
 }
 
@@ -324,6 +358,27 @@ async fn runtime_actor_persists_provider_structured_memory_proposals_as_activity
                 && summary == "created 1 memory candidate"
         )
     }));
+    let proposal_card = items
+        .iter()
+        .find_map(|item| match item {
+            TurnTranscriptItem::A2uiCard {
+                schema, payload, ..
+            } if schema == "memory_proposals" => Some(payload),
+            _ => None,
+        })
+        .expect("provider memory proposal card");
+    assert_eq!(
+        proposal_card["created_memory_ids"]
+            .as_array()
+            .expect("created ids")
+            .len(),
+        1
+    );
+    assert_eq!(
+        proposal_card["proposals"][0]["proposal"]["content"],
+        "Kevin prefers same-call memory proposals."
+    );
+    assert_eq!(proposal_card["proposals"][0]["status"], "active");
     handle.shutdown().await;
 
     let repo = SqliteMemoryRepository::open_at(&db_path).expect("repo");
@@ -333,6 +388,58 @@ async fn runtime_actor_persists_provider_structured_memory_proposals_as_activity
         memories[0].content,
         "Kevin prefers same-call memory proposals."
     );
+    assert_eq!(memories[0].status, crate::memory::MemoryStatus::Active);
+    assert_eq!(memories[0].memory_type, MemoryType::Preference);
+}
+
+#[tokio::test]
+async fn runtime_actor_extracts_natural_remember_through_structured_provider_output() {
+    let script = fake_codex_app_server_script_with_memory_extraction();
+    let dir = tempfile::tempdir().expect("temp dir");
+    let db_path = dir.path().join("db").join("noema.sqlite");
+    let handle = CodexRuntimeHandle::spawn(
+        CodexProviderConfig {
+            command: script.to_string_lossy().to_string(),
+            startup_timeout_seconds: 2,
+            turn_timeout_seconds: 2,
+            ..CodexProviderConfig::default()
+        },
+        db_path.clone(),
+    )
+    .expect("runtime");
+
+    let conversation = handle
+        .start_conversation(None, None)
+        .await
+        .expect("conversation");
+    let items = collect_turn(
+        &handle,
+        conversation.conversation_id,
+        "Please remember I'm a big fan of trains".to_string(),
+    )
+    .await
+    .expect("turn");
+    assert_eq!(assistant_text(&items), "fake answer");
+    let proposal_card = items
+        .iter()
+        .find_map(|item| match item {
+            TurnTranscriptItem::A2uiCard {
+                schema, payload, ..
+            } if schema == "memory_proposals" => Some(payload),
+            _ => None,
+        })
+        .expect("provider memory proposal card");
+    assert_eq!(
+        proposal_card["proposals"][0]["proposal"]["content"],
+        "Kevin is a big fan of trains."
+    );
+    assert_eq!(proposal_card["proposals"][0]["status"], "active");
+    handle.shutdown().await;
+
+    let repo = SqliteMemoryRepository::open_at(&db_path).expect("repo");
+    let memories = repo.list_recent_memories(Some(10)).expect("memories");
+    assert_eq!(memories.len(), 1);
+    assert_eq!(memories[0].content, "Kevin is a big fan of trains.");
     assert_eq!(memories[0].status, crate::memory::MemoryStatus::Active);
     assert_eq!(memories[0].memory_type, MemoryType::Preference);
 }
@@ -357,9 +464,10 @@ async fn runtime_actor_keeps_third_party_subject_conversation_scoped() {
         .start_conversation(None, None)
         .await
         .expect("conversation");
+    let conversation_id = conversation.conversation_id.clone();
     let items = collect_turn(
         &handle,
-        conversation.conversation_id,
+        conversation_id.clone(),
         "Alice prefers decaf.".to_string(),
     )
     .await
@@ -372,17 +480,21 @@ async fn runtime_actor_keeps_third_party_subject_conversation_scoped() {
     assert_eq!(memories.len(), 1);
     assert_eq!(memories[0].content, "Alice prefers decaf.");
     assert_eq!(memories[0].status, crate::memory::MemoryStatus::Candidate);
-    assert_eq!(memories[0].home_scope_id, "conversation:conversation_1");
+    assert_eq!(
+        memories[0].home_scope_id,
+        format!("conversation:{conversation_id}")
+    );
 
     let conn = rusqlite::Connection::open(&db_path).expect("raw conn");
-    let linked_principal_id: Option<String> = conn
+    let (linked_object_type, linked_object_id): (Option<String>, Option<String>) = conn
         .query_row(
-            "SELECT linked_principal_id FROM entities WHERE entity_id = 'human:alice'",
+            "SELECT linked_object_type, linked_object_id FROM entities WHERE entity_id = 'human:alice'",
             [],
-            |row| row.get(0),
+            |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .expect("Alice entity");
-    assert_eq!(linked_principal_id, None);
+    assert_eq!(linked_object_type, None);
+    assert_eq!(linked_object_id, None);
 }
 
 #[tokio::test]
@@ -511,8 +623,22 @@ for line in sys.stdin:
         next_thread += 1
         print(json.dumps({"id": msg["id"], "result": {"thread": {"id": thread}}}), flush=True)
     elif method == "turn/start":
+        input_text = "".join(
+            part.get("text", "")
+            for part in msg.get("params", {}).get("input", [])
+            if part.get("type") == "text"
+        )
+        text = "fake answer"
+        if "noema_response" in input_text:
+            text = json.dumps({
+                "type": "noema_response",
+                "output": [
+                    {"kind": "assistant_text", "text": "fake answer"},
+                    {"kind": "memory_proposals", "proposals": []}
+                ]
+            })
         print(json.dumps({"id": msg["id"], "result": {"turn": {"id": "turn_1"}}}), flush=True)
-        print(json.dumps({"method": "item/completed", "params": {"item": {"type": "agentMessage", "text": "fake answer"}}}), flush=True)
+        print(json.dumps({"method": "item/completed", "params": {"item": {"type": "agentMessage", "text": text}}}), flush=True)
         print(json.dumps({"method": "turn/completed", "params": {"turn": {"status": "completed"}}}), flush=True)
 "#,
     )
@@ -605,7 +731,7 @@ for line in sys.stdin:
                     "evidence_excerpt": "I prefer automatic memory extraction in chat."
                 }
             text = json.dumps({"proposals": [proposal]})
-        elif "I prefer same-call memory proposals." in input_text:
+        elif "I prefer same-call memory proposals." in input_text and "noema_response" in input_text:
             proposal = {
                 "content": "Kevin prefers same-call memory proposals.",
                 "memory_type": "preference",
@@ -633,6 +759,44 @@ for line in sys.stdin:
                 "output": [
                     {"kind": "assistant_text", "text": "fake answer"},
                     {"kind": "memory_proposals", "proposals": [proposal]}
+                ]
+            })
+        elif "Please remember I'm a big fan of trains" in input_text and "noema_response" in input_text:
+            proposal = {
+                "content": "Kevin is a big fan of trains.",
+                "memory_type": "preference",
+                "title": "Train enthusiasm",
+                "confidence": 0.92,
+                "sensitivity": "normal",
+                "subjects": [
+                    {
+                        "id": "human:local",
+                        "kind": "human",
+                        "name": "Kevin",
+                        "role": "about"
+                    }
+                ],
+                "retrieval_hints": {
+                    "topics": ["interests"],
+                    "keywords": ["trains"],
+                    "summary": "Kevin is a big fan of trains."
+                },
+                "risk_flags": [],
+                "evidence_excerpt": "I'm a big fan of trains"
+            }
+            text = json.dumps({
+                "type": "noema_response",
+                "output": [
+                    {"kind": "assistant_text", "text": "fake answer"},
+                    {"kind": "memory_proposals", "proposals": [proposal]}
+                ]
+            })
+        elif "noema_response" in input_text:
+            text = json.dumps({
+                "type": "noema_response",
+                "output": [
+                    {"kind": "assistant_text", "text": "fake answer"},
+                    {"kind": "memory_proposals", "proposals": []}
                 ]
             })
         else:

@@ -1,10 +1,9 @@
 use crate::memory::{
-    MemoryId, MemoryStatus, ParticipantRole, PrincipalId, RelationshipStatus, ScopeId, Sensitivity,
-    SubjectRole,
+    MemoryId, MemoryStatus, ParticipantRole, RelationshipStatus, ScopeId, Sensitivity, SubjectRole,
 };
 use serde_json::{Value, json};
 
-use super::{helpers::chat_message_id, objects::ObjectRef};
+use super::objects::ObjectRef;
 
 /// Memory type stored in `memory_items.memory_type`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -143,17 +142,6 @@ impl MemoryExtractionMethod {
     }
 }
 
-/// Source information for a memory candidate extracted from a chat turn.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ChatMemorySource {
-    /// Conversation id that produced the candidate.
-    pub conversation_id: String,
-    /// Message id that directly supports the candidate, if known.
-    pub message_id: Option<String>,
-    /// Short supporting excerpt to show during inspection, if available.
-    pub evidence_excerpt: Option<String>,
-}
-
 /// Source information for a memory candidate backed by a concrete object.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ObjectProvenanceSource {
@@ -237,8 +225,6 @@ pub struct NewMemorySubject {
     pub role: SubjectRole,
     /// Alternate names for the entity.
     pub aliases: Vec<String>,
-    /// Principal linked to the entity, if this entity represents one.
-    pub linked_principal_id: Option<PrincipalId>,
     /// Concrete object linked to the entity, if this entity represents one.
     pub linked_object: Option<ObjectRef>,
     /// Additional structured metadata.
@@ -260,130 +246,7 @@ impl NewMemorySubject {
             canonical_name: canonical_name.into(),
             role,
             aliases: Vec::new(),
-            linked_principal_id: None,
             linked_object: None,
-            metadata: json!({}),
-        }
-    }
-}
-
-/// New chat turn to persist as message provenance for extracted memories.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct NewChatTurn {
-    /// Conversation episode id and scope id.
-    pub conversation_id: String,
-    /// Zero- or one-based turn index assigned by the chat runtime.
-    pub turn_index: u64,
-    /// Stable user message id.
-    pub user_message_id: String,
-    /// Stable assistant message id.
-    pub assistant_message_id: String,
-    /// Principal id for the human/user side of the turn.
-    pub user_principal_id: PrincipalId,
-    /// Principal id for the assistant side of the turn.
-    pub assistant_principal_id: PrincipalId,
-    /// User message content.
-    pub user_content: String,
-    /// Assistant message content.
-    pub assistant_content: String,
-    /// Optional occurred-at timestamp in canonical text form.
-    pub occurred_at: Option<String>,
-    /// Additional structured metadata for both message rows.
-    pub metadata: Value,
-}
-
-impl NewChatTurn {
-    /// Create a chat turn with deterministic message ids.
-    #[must_use]
-    pub fn new(
-        conversation_id: impl Into<String>,
-        turn_index: u64,
-        user_principal_id: impl Into<PrincipalId>,
-        assistant_principal_id: impl Into<PrincipalId>,
-        user_content: impl Into<String>,
-        assistant_content: impl Into<String>,
-    ) -> Self {
-        let conversation_id = conversation_id.into();
-        Self {
-            user_message_id: chat_message_id(&conversation_id, "user", turn_index),
-            assistant_message_id: chat_message_id(&conversation_id, "assistant", turn_index),
-            conversation_id,
-            turn_index,
-            user_principal_id: user_principal_id.into(),
-            assistant_principal_id: assistant_principal_id.into(),
-            user_content: user_content.into(),
-            assistant_content: assistant_content.into(),
-            occurred_at: None,
-            metadata: json!({}),
-        }
-    }
-}
-
-/// New memory candidate extracted from a chat turn.
-#[derive(Debug, Clone, PartialEq)]
-pub struct NewChatMemoryCandidate {
-    /// Scope that owns the candidate.
-    pub home_scope_id: ScopeId,
-    /// Type of memory.
-    pub memory_type: MemoryType,
-    /// Optional display title. A short title is derived from content when this
-    /// is not supplied.
-    pub title: Option<String>,
-    /// Durable memory content.
-    pub content: String,
-    /// Sensitivity tier.
-    pub sensitivity: Sensitivity,
-    /// Initial lifecycle status.
-    pub status: MemoryStatus,
-    /// Principal that created the candidate.
-    pub created_by_principal_id: PrincipalId,
-    /// Optional owner principal.
-    pub owner_principal_id: Option<PrincipalId>,
-    /// Authority level behind the candidate.
-    pub authority_level: MemoryAuthorityLevel,
-    /// Extraction method.
-    pub extraction_method: MemoryExtractionMethod,
-    /// Optional confidence score from extraction.
-    pub confidence: Option<f64>,
-    /// Non-authoritative retrieval hints used for ranking.
-    pub retrieval_hints: Value,
-    /// Optional observed-at timestamp in canonical text form.
-    pub observed_at: Option<String>,
-    /// Optional chat provenance.
-    pub source: Option<ChatMemorySource>,
-    /// Participants in scope when the candidate was formed.
-    pub participants: Vec<NewMemoryParticipant>,
-    /// Subject entity bindings for the memory.
-    pub subjects: Vec<NewMemorySubject>,
-    /// Additional structured metadata.
-    pub metadata: Value,
-}
-
-impl NewChatMemoryCandidate {
-    /// Create a default chat memory candidate.
-    #[must_use]
-    pub fn new(
-        home_scope_id: impl Into<ScopeId>,
-        content: impl Into<String>,
-        created_by_principal_id: impl Into<PrincipalId>,
-    ) -> Self {
-        Self {
-            home_scope_id: home_scope_id.into(),
-            memory_type: MemoryType::Note,
-            title: None,
-            content: content.into(),
-            sensitivity: Sensitivity::Normal,
-            status: MemoryStatus::Candidate,
-            created_by_principal_id: created_by_principal_id.into(),
-            owner_principal_id: None,
-            authority_level: MemoryAuthorityLevel::AgentInference,
-            extraction_method: MemoryExtractionMethod::LlmExtracted,
-            confidence: None,
-            retrieval_hints: json!({}),
-            observed_at: None,
-            source: None,
-            participants: Vec::new(),
-            subjects: Vec::new(),
             metadata: json!({}),
         }
     }
@@ -503,8 +366,8 @@ pub struct MemorySummary {
 pub struct NewRelationshipClaim {
     /// Optional stable relationship id. A `rel_` id is allocated when omitted.
     pub relationship_id: Option<String>,
-    /// Scope that owns the relationship claim.
-    pub home_scope_id: ScopeId,
+    /// Concrete object that owns the relationship claim.
+    pub owner: ObjectRef,
     /// Subject entity id.
     pub subject_entity_id: String,
     /// Predicate label.
@@ -529,14 +392,14 @@ impl NewRelationshipClaim {
     /// Create a candidate relationship claim with no supporting memory yet.
     #[must_use]
     pub fn new(
-        home_scope_id: impl Into<ScopeId>,
+        owner: ObjectRef,
         subject_entity_id: impl Into<String>,
         predicate: impl Into<String>,
         object_entity_id: impl Into<String>,
     ) -> Self {
         Self {
             relationship_id: None,
-            home_scope_id: home_scope_id.into(),
+            owner,
             subject_entity_id: subject_entity_id.into(),
             predicate: predicate.into(),
             object_entity_id: object_entity_id.into(),

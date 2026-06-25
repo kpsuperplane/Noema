@@ -34,37 +34,32 @@ fn appends_chat_candidate_with_participants_provenance_and_event() {
     let dir = tempfile::tempdir().expect("temp dir");
     let paths = NoemaPaths::from_noema_home(dir.path()).expect("paths");
     let mut repo = SqliteMemoryRepository::open(&paths).expect("repo");
-    let mut candidate = NewChatMemoryCandidate::new(
-        "conversation:conv_memory",
+    let mut candidate = new_conversation_memory_candidate(
+        &mut repo,
         "Kevin prefers persistent chat memory to be inspectable.",
-        "agent:primary",
     );
     candidate.memory_type = MemoryType::Preference;
     candidate.title = Some("Inspectable chat memory".to_string());
-    candidate.owner_principal_id = Some("human:kevin".to_string());
+    candidate.owner_actor = Some(ObjectRef::human("human:kevin"));
     candidate.authority_level = MemoryAuthorityLevel::ExplicitHumanStatement;
-    candidate.source = Some(ChatMemorySource {
-        conversation_id: "conversation:conv_memory".to_string(),
-        message_id: Some("message:user_1".to_string()),
-        evidence_excerpt: Some("remember this preference".to_string()),
-    });
+    if let Some(source) = &mut candidate.source {
+        source.evidence_excerpt = Some("remember this preference".to_string());
+    }
     candidate.participants = vec![
         NewMemoryParticipant::new("human:kevin", ParticipantRole::HumanInScope),
         NewMemoryParticipant::new("agent:primary", ParticipantRole::AgentInScope),
     ];
 
-    let summary = repo
-        .append_chat_memory_candidate(&candidate)
-        .expect("append");
+    let summary = repo.append_memory_candidate(&candidate).expect("append");
 
     assert_eq!(summary.status, MemoryStatus::Candidate);
     assert_eq!(summary.memory_type, MemoryType::Preference);
-    assert_eq!(summary.home_scope_id, "conversation:conv_memory");
+    assert_eq!(summary.home_scope_id, object_scope_key(&candidate.owner));
     assert_eq!(summary.sensitivity, Sensitivity::Normal);
     assert_eq!(summary.title, "Inspectable chat memory");
     assert_eq!(
         summary.conversation_id.as_deref(),
-        Some("conversation:conv_memory")
+        Some(candidate.owner.object_id.as_str())
     );
 
     let participant_count: i64 = repo
@@ -80,17 +75,17 @@ fn appends_chat_candidate_with_participants_provenance_and_event() {
     let provenance_count: i64 = repo
         .conn
         .query_row(
-            "SELECT COUNT(*) FROM memory_provenance_edges WHERE memory_id = ?1",
+            "SELECT COUNT(*) FROM object_provenance_edges WHERE target_object_type = 'memory_item' AND target_object_id = ?1",
             params![summary.id],
             |row| row.get(0),
         )
         .expect("provenance count");
-    assert_eq!(provenance_count, 2);
+    assert_eq!(provenance_count, 1);
 
     let event_count: i64 = repo
         .conn
         .query_row(
-            "SELECT COUNT(*) FROM memory_events WHERE memory_id = ?1 AND event_type = 'created'",
+            "SELECT COUNT(*) FROM object_events WHERE target_object_type = 'memory_item' AND target_object_id = ?1 AND event_type = 'memory_created'",
             params![summary.id],
             |row| row.get(0),
         )
@@ -103,18 +98,16 @@ fn appends_confirmed_explicit_chat_memory() {
     let dir = tempfile::tempdir().expect("temp dir");
     let paths = NoemaPaths::from_noema_home(dir.path()).expect("paths");
     let mut repo = SqliteMemoryRepository::open(&paths).expect("repo");
-    let mut candidate = NewChatMemoryCandidate::new(
-        "conversation:confirmed",
+    let mut candidate = new_conversation_memory_candidate(
+        &mut repo,
         "Kevin prefers explicit remember commands to be confirmed.",
-        "human:local",
     );
     candidate.status = MemoryStatus::Confirmed;
+    candidate.created_by = ObjectRef::human("human:local");
     candidate.authority_level = MemoryAuthorityLevel::ExplicitHumanStatement;
     candidate.extraction_method = MemoryExtractionMethod::ExplicitHuman;
 
-    let summary = repo
-        .append_chat_memory_candidate(&candidate)
-        .expect("append");
+    let summary = repo.append_memory_candidate(&candidate).expect("append");
 
     assert_eq!(summary.status, MemoryStatus::Confirmed);
 }
@@ -124,10 +117,9 @@ fn appends_chat_candidate_with_confidence_and_retrieval_hints() {
     let dir = tempfile::tempdir().expect("temp dir");
     let paths = NoemaPaths::from_noema_home(dir.path()).expect("paths");
     let mut repo = SqliteMemoryRepository::open(&paths).expect("repo");
-    let mut candidate = NewChatMemoryCandidate::new(
-        "conversation:hints",
+    let mut candidate = new_conversation_memory_candidate(
+        &mut repo,
         "Kevin prefers scoped retrieval hints to stay inspectable.",
-        "agent:primary",
     );
     candidate.confidence = Some(0.82);
     candidate.retrieval_hints = json!({
@@ -136,9 +128,7 @@ fn appends_chat_candidate_with_confidence_and_retrieval_hints() {
         "summary": "Scoped memory retrieval preference"
     });
 
-    let summary = repo
-        .append_chat_memory_candidate(&candidate)
-        .expect("append");
+    let summary = repo.append_memory_candidate(&candidate).expect("append");
 
     let (confidence, retrieval_hints): (Option<f64>, String) = repo
         .conn
@@ -160,15 +150,12 @@ fn appends_chat_candidate_with_subject_entities() {
     let dir = tempfile::tempdir().expect("temp dir");
     let paths = NoemaPaths::from_noema_home(dir.path()).expect("paths");
     let mut repo = SqliteMemoryRepository::open(&paths).expect("repo");
-    let mut candidate = NewChatMemoryCandidate::new(
-        "conversation:subjects",
-        "Kevin is evaluating Noema memory subjects.",
-        "agent:primary",
-    );
+    let mut candidate =
+        new_conversation_memory_candidate(&mut repo, "Kevin is evaluating Noema memory subjects.");
     let mut human_subject =
         NewMemorySubject::new("human:kevin", "human", "Kevin", SubjectRole::About);
     human_subject.aliases = vec!["KPSuperplane".to_string()];
-    human_subject.linked_principal_id = Some("human:kevin".to_string());
+    human_subject.linked_object = Some(ObjectRef::human("human:kevin"));
     human_subject.metadata = json!({"source": "chat_extraction"});
     candidate.subjects = vec![
         human_subject,
@@ -180,9 +167,7 @@ fn appends_chat_candidate_with_subject_entities() {
         ),
     ];
 
-    let summary = repo
-        .append_chat_memory_candidate(&candidate)
-        .expect("append");
+    let summary = repo.append_memory_candidate(&candidate).expect("append");
 
     let subject_count: i64 = repo
         .conn
@@ -194,18 +179,37 @@ fn appends_chat_candidate_with_subject_entities() {
         .expect("subject count");
     assert_eq!(subject_count, 2);
 
-    let (home_scope_id, entity_type, canonical_name, aliases, linked_principal_id, metadata): (
+    let (
+        owner_object_type,
+        owner_object_id,
+        entity_type,
+        canonical_name,
+        aliases,
+        linked_object_type,
+        linked_object_id,
+        metadata,
+    ): (
         String,
         String,
         String,
         String,
+        String,
+        Option<String>,
         Option<String>,
         String,
     ) = repo
         .conn
         .query_row(
             r"
-            SELECT home_scope_id, entity_type, canonical_name, aliases, linked_principal_id, metadata
+            SELECT
+              owner_object_type,
+              owner_object_id,
+              entity_type,
+              canonical_name,
+              aliases,
+              linked_object_type,
+              linked_object_id,
+              metadata
             FROM entities
             WHERE entity_id = 'human:kevin'
             ",
@@ -218,18 +222,22 @@ fn appends_chat_candidate_with_subject_entities() {
                     row.get(3)?,
                     row.get(4)?,
                     row.get(5)?,
+                    row.get(6)?,
+                    row.get(7)?,
                 ))
             },
         )
         .expect("entity row");
-    assert_eq!(home_scope_id, "conversation:subjects");
+    assert_eq!(owner_object_type, "conversation");
+    assert_eq!(owner_object_id, candidate.owner.object_id);
     assert_eq!(entity_type, "human");
     assert_eq!(canonical_name, "Kevin");
     assert_eq!(
         serde_json::from_str::<Value>(&aliases).expect("aliases"),
         json!(["KPSuperplane"])
     );
-    assert_eq!(linked_principal_id.as_deref(), Some("human:kevin"));
+    assert_eq!(linked_object_type.as_deref(), Some("human"));
+    assert_eq!(linked_object_id.as_deref(), Some("human:kevin"));
     assert_eq!(
         serde_json::from_str::<Value>(&metadata).expect("metadata"),
         json!({"source": "chat_extraction"})
@@ -241,26 +249,23 @@ fn appends_relationship_claim_with_supporting_memory_provenance() {
     let dir = tempfile::tempdir().expect("temp dir");
     let paths = NoemaPaths::from_noema_home(dir.path()).expect("paths");
     let mut repo = SqliteMemoryRepository::open(&paths).expect("repo");
-    let mut candidate = NewChatMemoryCandidate::new(
-        "conversation:graph",
-        "Kevin uses Noema for memory orchestration.",
-        "agent:primary",
-    );
+    let mut candidate =
+        new_conversation_memory_candidate(&mut repo, "Kevin uses Noema for memory orchestration.");
     candidate.subjects = vec![
         NewMemorySubject::new("human:kevin", "human", "Kevin", SubjectRole::Source),
         NewMemorySubject::new("concept:noema", "concept", "Noema", SubjectRole::Target),
     ];
-    candidate.source = Some(ChatMemorySource {
-        conversation_id: "conversation:graph".to_string(),
-        message_id: None,
-        evidence_excerpt: Some("Kevin uses Noema".to_string()),
-    });
-    let memory = repo
-        .append_chat_memory_candidate(&candidate)
-        .expect("memory");
+    if let Some(source) = &mut candidate.source {
+        source.evidence_excerpt = Some("Kevin uses Noema".to_string());
+    }
+    let memory = repo.append_memory_candidate(&candidate).expect("memory");
 
-    let mut relationship =
-        NewRelationshipClaim::new("conversation:graph", "human:kevin", "uses", "concept:noema");
+    let mut relationship = NewRelationshipClaim::new(
+        candidate.owner.clone(),
+        "human:kevin",
+        "uses",
+        "concept:noema",
+    );
     relationship.relationship_id = Some("rel_kevin_uses_noema".to_string());
     relationship.status = RelationshipStatus::Active;
     relationship.memory_id = Some(memory.id.clone());
@@ -282,11 +287,8 @@ fn active_relationship_claim_requires_supporting_provenanced_memory() {
     let dir = tempfile::tempdir().expect("temp dir");
     let paths = NoemaPaths::from_noema_home(dir.path()).expect("paths");
     let mut repo = SqliteMemoryRepository::open(&paths).expect("repo");
-    let mut candidate = NewChatMemoryCandidate::new(
-        "conversation:graph_policy",
-        "Kevin likes policy-aware graph claims.",
-        "agent:primary",
-    );
+    let mut candidate =
+        new_conversation_memory_candidate(&mut repo, "Kevin likes policy-aware graph claims.");
     candidate.subjects = vec![
         NewMemorySubject::new("human:kevin", "human", "Kevin", SubjectRole::Source),
         NewMemorySubject::new(
@@ -296,12 +298,10 @@ fn active_relationship_claim_requires_supporting_provenanced_memory() {
             SubjectRole::Target,
         ),
     ];
-    let memory = repo
-        .append_chat_memory_candidate(&candidate)
-        .expect("memory");
+    let memory = repo.append_memory_candidate(&candidate).expect("memory");
 
     let mut no_memory = NewRelationshipClaim::new(
-        "conversation:graph_policy",
+        candidate.owner.clone(),
         "human:kevin",
         "likes",
         "concept:graph_claims",
@@ -315,12 +315,12 @@ fn active_relationship_claim_requires_supporting_provenanced_memory() {
 
     repo.conn
         .execute(
-            "DELETE FROM memory_provenance_edges WHERE memory_id = ?1",
+            "UPDATE object_provenance_edges SET deleted_at = CURRENT_TIMESTAMP WHERE target_object_type = 'memory_item' AND target_object_id = ?1",
             params![memory.id],
         )
         .expect("delete provenance");
     let mut no_provenance = NewRelationshipClaim::new(
-        "conversation:graph_policy",
+        candidate.owner,
         "human:kevin",
         "likes",
         "concept:graph_claims",

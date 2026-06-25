@@ -3,7 +3,8 @@
 pub(crate) const RELATIONSHIP_BY_ID_SQL: &str = r"
 SELECT
   r.relationship_id,
-  r.home_scope_id,
+  r.owner_object_type,
+  r.owner_object_id,
   r.subject_entity_id,
   subject.canonical_name,
   r.predicate,
@@ -59,7 +60,8 @@ SELECT
   memory_id,
   status,
   memory_type,
-  home_scope_id,
+  owner_object_type,
+  owner_object_id,
   sensitivity,
   title,
   content,
@@ -67,7 +69,8 @@ SELECT
   retrieval_policy_status,
   retrieval_policy_version,
   retrieval_policy_fingerprint,
-  retrieval_policy_extractor_principal_id,
+  retrieval_policy_extractor_object_type,
+  retrieval_policy_extractor_object_id,
   retrieval_policy_extractor_version,
   retrieval_policy_validated_at,
   participant_visibility_policy,
@@ -123,9 +126,11 @@ inspected_memories AS (
 SELECT DISTINCT
   e.entity_id,
   e.entity_type,
-  e.home_scope_id,
+  e.owner_object_type,
+  e.owner_object_id,
   e.canonical_name,
-  e.linked_principal_id
+  e.linked_object_type,
+  e.linked_object_id
 FROM entities e
 WHERE (
     ?2 IS NULL
@@ -240,13 +245,14 @@ inspected_memories AS (
 )
 SELECT
   mp.memory_id,
-  mp.principal_id,
+  mp.participant_object_type,
+  mp.participant_object_id,
   mp.role
 FROM memory_participants mp
 JOIN memory_items mi ON mi.memory_id = mp.memory_id
 WHERE (?2 IS NULL AND ?3 IS NULL)
    OR mp.memory_id IN (SELECT memory_id FROM inspected_memories)
-ORDER BY mi.created_at DESC, mp.memory_id ASC, mp.principal_id ASC
+ORDER BY mi.created_at DESC, mp.memory_id ASC, mp.participant_object_type ASC, mp.participant_object_id ASC
 LIMIT ?1
 ";
 
@@ -287,14 +293,18 @@ inspected_memories AS (
   LIMIT ?1
 )
 SELECT
-  memory_id,
-  source_type,
-  source_id,
+  target_object_id,
+  source_object_type,
+  source_object_id,
   relation,
   evidence_excerpt
-FROM memory_provenance_edges
-WHERE (?2 IS NULL AND ?3 IS NULL)
-   OR memory_id IN (SELECT memory_id FROM inspected_memories)
+FROM object_provenance_edges
+WHERE (
+    (?2 IS NULL AND ?3 IS NULL)
+    OR target_object_id IN (SELECT memory_id FROM inspected_memories)
+  )
+  AND target_object_type = 'memory_item'
+  AND deleted_at IS NULL
 ORDER BY created_at DESC, edge_id ASC
 LIMIT ?1
 ";
@@ -340,8 +350,10 @@ SELECT
   link.object_type,
   link.object_id,
   link.relation,
-  link.authorized_scope_id,
-  link.resolver_principal_id,
+  link.authorized_object_type,
+  link.authorized_object_id,
+  link.resolver_object_type,
+  link.resolver_object_id,
   link.resolver_version,
   link.source_run_id,
   link.created_at
@@ -393,7 +405,8 @@ SELECT
   rule.memory_id,
   rule.purpose,
   rule.effect,
-  rule.created_by_principal_id,
+  rule.created_by_object_type,
+  rule.created_by_object_id,
   rule.created_at
 FROM memory_retrieval_purpose_rules rule
 JOIN memory_items mi ON mi.memory_id = rule.memory_id
@@ -432,7 +445,7 @@ packet_memory_ids AS (
     AND memory_id IS NOT NULL
 ),
 inspected_memories AS (
-  SELECT memory_id, home_scope_id
+  SELECT memory_id, owner_object_type, owner_object_id
   FROM memory_items
   WHERE (?2 IS NULL AND ?3 IS NULL)
      OR memory_id IN (SELECT memory_id FROM packet_memory_ids)
@@ -441,20 +454,30 @@ inspected_memories AS (
 )
 SELECT
   grant.grant_id,
-  grant.memory_id,
-  grant.scope_id,
-  grant.principal_id,
+  grant.target_object_type,
+  grant.target_object_id,
+  grant.grantee_object_type,
+  grant.grantee_object_id,
   grant.permission,
   grant.effect,
   grant.expires_at,
-  grant.created_by_principal_id,
+  grant.created_by_object_type,
+  grant.created_by_object_id,
   grant.created_at
-FROM memory_access_grants grant
-WHERE grant.memory_id IN (SELECT memory_id FROM inspected_memories)
+FROM object_access_grants grant
+WHERE (
+    grant.target_object_type = 'memory_item'
+    AND grant.target_object_id IN (SELECT memory_id FROM inspected_memories)
+  )
    OR (
      ?2 IS NULL
      AND ?3 IS NULL
-     AND grant.scope_id IN (SELECT home_scope_id FROM inspected_memories)
+     AND EXISTS (
+       SELECT 1
+       FROM inspected_memories inspected
+       WHERE inspected.owner_object_type = grant.target_object_type
+         AND inspected.owner_object_id = grant.target_object_id
+     )
    )
 ORDER BY grant.created_at DESC, grant.grant_id ASC
 LIMIT ?1
@@ -472,9 +495,10 @@ WITH selected_packets AS (
 SELECT
   context_packet_id,
   run_id,
-  requesting_principal_id,
+  requesting_object_type,
+  requesting_object_id,
   purpose,
-  active_scopes,
+  active_objects,
   agent_visible_omissions,
   created_at
 FROM context_packets
@@ -550,8 +574,10 @@ SELECT
   use_record.memory_id,
   memory.sensitivity,
   use_record.stage,
-  use_record.agent_principal_id,
-  use_record.scope_id,
+  use_record.agent_object_type,
+  use_record.agent_object_id,
+  use_record.context_object_type,
+  use_record.context_object_id,
   use_record.purpose,
   use_record.used_for_object_type,
   use_record.used_for_object_id,
@@ -599,7 +625,7 @@ packet_memory_ids AS (
     AND memory_id IS NOT NULL
 ),
 inspected_memories AS (
-  SELECT memory_id, home_scope_id
+  SELECT memory_id, owner_object_type, owner_object_id
   FROM memory_items
   WHERE (?2 IS NULL AND ?3 IS NULL)
      OR memory_id IN (SELECT memory_id FROM packet_memory_ids)
@@ -609,20 +635,31 @@ inspected_memories AS (
 SELECT
   event.event_id,
   event.event_type,
-  event.actor_principal_id,
-  event.memory_id,
+  event.actor_object_type,
+  event.actor_object_id,
+  event.target_object_type,
+  event.target_object_id,
   memory.sensitivity,
-  event.scope_id,
   event.reason,
   event.created_at,
   event.details
-FROM memory_events event
-LEFT JOIN memory_items memory ON memory.memory_id = event.memory_id
-WHERE event.memory_id IN (SELECT memory_id FROM inspected_memories)
+FROM object_events event
+LEFT JOIN memory_items memory
+  ON event.target_object_type = 'memory_item'
+ AND memory.memory_id = event.target_object_id
+WHERE (
+    event.target_object_type = 'memory_item'
+    AND event.target_object_id IN (SELECT memory_id FROM inspected_memories)
+  )
    OR (
      ?2 IS NULL
      AND ?3 IS NULL
-     AND event.scope_id IN (SELECT home_scope_id FROM inspected_memories)
+     AND EXISTS (
+       SELECT 1
+       FROM inspected_memories inspected
+       WHERE inspected.owner_object_type = event.target_object_type
+         AND inspected.owner_object_id = event.target_object_id
+     )
    )
 ORDER BY event.created_at DESC, event.event_id ASC
 LIMIT ?1
@@ -671,7 +708,8 @@ inspected_memories AS (
 )
 SELECT
   r.relationship_id,
-  r.home_scope_id,
+  r.owner_object_type,
+  r.owner_object_id,
   r.subject_entity_id,
   subject.canonical_name,
   r.predicate,
