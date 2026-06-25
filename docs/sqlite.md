@@ -118,7 +118,11 @@ CREATE TABLE IF NOT EXISTS conversation_items (
   redacted_at TEXT,
   redaction_reason TEXT,
   metadata TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(metadata)),
-  CHECK (content_text IS NOT NULL OR payload_json != '{}')
+  CHECK (content_text IS NOT NULL OR payload_json != '{}'),
+  CHECK (
+    (deleted_by_object_type IS NULL AND deleted_by_object_id IS NULL)
+    OR (deleted_by_object_type IS NOT NULL AND deleted_by_object_id IS NOT NULL)
+  )
 ) STRICT;
 
 CREATE TABLE IF NOT EXISTS memory_items (
@@ -247,6 +251,10 @@ CREATE TABLE IF NOT EXISTS memory_retrieval_purpose_rules (
   created_by_object_id TEXT,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   metadata TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(metadata)),
+  CHECK (
+    (created_by_object_type IS NULL AND created_by_object_id IS NULL)
+    OR (created_by_object_type IS NOT NULL AND created_by_object_id IS NOT NULL)
+  ),
   PRIMARY KEY (memory_id, purpose)
 ) STRICT;
 
@@ -265,6 +273,18 @@ CREATE TABLE IF NOT EXISTS memory_retrieval_object_links (
   created_by_object_id TEXT,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   metadata TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(metadata)),
+  CHECK (
+    (resolver_object_type IS NULL AND resolver_object_id IS NULL)
+    OR (resolver_object_type IS NOT NULL AND resolver_object_id IS NOT NULL)
+  ),
+  CHECK (
+    (authorized_object_type IS NULL AND authorized_object_id IS NULL)
+    OR (authorized_object_type IS NOT NULL AND authorized_object_id IS NOT NULL)
+  ),
+  CHECK (
+    (created_by_object_type IS NULL AND created_by_object_id IS NULL)
+    OR (created_by_object_type IS NOT NULL AND created_by_object_id IS NOT NULL)
+  ),
   PRIMARY KEY (memory_id, object_type, object_id, relation)
 ) STRICT;
 
@@ -395,7 +415,19 @@ CREATE TABLE IF NOT EXISTS memory_use_records (
   used_for_object_id TEXT,
   policy_decision_id TEXT,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  details TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(details))
+  details TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(details)),
+  CHECK (
+    (agent_object_type IS NULL AND agent_object_id IS NULL)
+    OR (agent_object_type IS NOT NULL AND agent_object_id IS NOT NULL)
+  ),
+  CHECK (
+    (context_object_type IS NULL AND context_object_id IS NULL)
+    OR (context_object_type IS NOT NULL AND context_object_id IS NOT NULL)
+  ),
+  CHECK (
+    (used_for_object_type IS NULL AND used_for_object_id IS NULL)
+    OR (used_for_object_type IS NOT NULL AND used_for_object_id IS NOT NULL)
+  )
 ) STRICT;
 
 CREATE INDEX IF NOT EXISTS idx_humans_handle ON humans(handle);

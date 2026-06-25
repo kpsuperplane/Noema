@@ -1,4 +1,5 @@
 use super::*;
+use rusqlite::{ToSql, params_from_iter};
 
 fn table_exists(repo: &SqliteMemoryRepository, table_name: &str) -> bool {
     repo.conn
@@ -41,6 +42,22 @@ fn foreign_keys(
         })
         .expect("foreign key query");
     rows.map(|row| row.expect("foreign key row")).collect()
+}
+
+fn assert_check_constraint_failed(error: rusqlite::Error) {
+    assert!(matches!(
+        error,
+        rusqlite::Error::SqliteFailure(_, Some(message))
+            if message.contains("CHECK constraint failed")
+    ));
+}
+
+fn expect_pair_check_violation(repo: &SqliteMemoryRepository, sql: &str, params: &[&dyn ToSql]) {
+    let error = repo
+        .conn
+        .execute(sql, params_from_iter(params.iter().copied()))
+        .expect_err("half-populated object ref pair should fail");
+    assert_check_constraint_failed(error);
 }
 
 #[test]
@@ -144,9 +161,159 @@ fn schema_rejects_half_populated_optional_object_ref_pairs() {
         )
         .expect_err("half-populated deleted_by pair should fail");
 
-    assert!(matches!(
-        error,
-        rusqlite::Error::SqliteFailure(_, Some(message))
-            if message.contains("CHECK constraint failed")
-    ));
+    assert_check_constraint_failed(error);
+}
+
+#[test]
+fn conversation_items_reject_half_populated_deleted_by_pair() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let paths = NoemaPaths::from_noema_home(dir.path()).expect("paths");
+    let repo = SqliteMemoryRepository::open(&paths).expect("repo");
+
+    repo.conn
+        .execute(
+            r"
+            INSERT INTO conversations (
+              conversation_id,
+              owner_object_type,
+              owner_object_id
+            ) VALUES (?1, ?2, ?3)
+            ",
+            params!["conv_items_pair", "human", "human:local"],
+        )
+        .expect("conversation row");
+
+    expect_pair_check_violation(
+        &repo,
+        r"
+        INSERT INTO conversation_items (
+          item_id,
+          conversation_id,
+          kind,
+          author_object_type,
+          author_object_id,
+          content_text,
+          deleted_by_object_type
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+        ",
+        &[
+            &"item_bad_pair",
+            &"conv_items_pair",
+            &"user_text",
+            &"human",
+            &"human:local",
+            &"hello",
+            &"agent",
+        ],
+    );
+}
+
+#[test]
+fn retrieval_object_links_reject_half_populated_optional_pairs() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let paths = NoemaPaths::from_noema_home(dir.path()).expect("paths");
+    let repo = SqliteMemoryRepository::open(&paths).expect("repo");
+
+    repo.conn
+        .execute(
+            r"
+            INSERT INTO memory_items (
+              memory_id,
+              owner_object_type,
+              owner_object_id,
+              memory_type,
+              title,
+              content,
+              created_by_object_type,
+              created_by_object_id
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+            ",
+            params![
+                "mem_links_pair",
+                "conversation",
+                "conversation:local",
+                "fact",
+                "title",
+                "content",
+                "agent",
+                "agent:primary"
+            ],
+        )
+        .expect("memory row");
+
+    expect_pair_check_violation(
+        &repo,
+        r"
+        INSERT INTO memory_retrieval_object_links (
+          memory_id,
+          object_type,
+          object_id,
+          relation,
+          resolver_object_type
+        ) VALUES (?1, ?2, ?3, ?4, ?5)
+        ",
+        &[
+            &"mem_links_pair",
+            &"conversation",
+            &"conversation:local",
+            &"active_context",
+            &"agent",
+        ],
+    );
+}
+
+#[test]
+fn memory_use_records_reject_half_populated_optional_pairs() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let paths = NoemaPaths::from_noema_home(dir.path()).expect("paths");
+    let repo = SqliteMemoryRepository::open(&paths).expect("repo");
+
+    repo.conn
+        .execute(
+            r"
+            INSERT INTO memory_items (
+              memory_id,
+              owner_object_type,
+              owner_object_id,
+              memory_type,
+              title,
+              content,
+              created_by_object_type,
+              created_by_object_id
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+            ",
+            params![
+                "mem_use_pair",
+                "conversation",
+                "conversation:local",
+                "fact",
+                "title",
+                "content",
+                "agent",
+                "agent:primary"
+            ],
+        )
+        .expect("memory row");
+
+    expect_pair_check_violation(
+        &repo,
+        r"
+        INSERT INTO memory_use_records (
+          memory_use_id,
+          run_id,
+          memory_id,
+          stage,
+          purpose,
+          agent_object_type
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+        ",
+        &[
+            &"use_bad_pair",
+            &"run_1",
+            &"mem_use_pair",
+            &"retrieved",
+            &"answer_human_question",
+            &"agent",
+        ],
+    );
 }
