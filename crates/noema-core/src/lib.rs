@@ -12,6 +12,8 @@ mod context_graph_rows;
 mod context_graph_sql;
 /// Local daemon protocol and client/server runtime.
 pub mod daemon;
+/// Database configuration and Postgres connection helpers.
+pub mod database;
 /// Rust-owned protocol types exported to the web frontend.
 pub mod frontend_protocol;
 /// Noema home-directory initialization.
@@ -46,6 +48,7 @@ pub use daemon::{
     StartedConversation, TurnActivityStatus, TurnTranscriptItem, default_socket_path,
     is_connection_refused, run_daemon, socket_path_for_home,
 };
+pub use database::{DatabaseConfig, DatabaseConfigError, NOEMA_DATABASE_URL_ENV};
 pub use home::{
     DEFAULT_NOEMA_CONFIG_YAML, NoemaHomeError, NoemaHomeInitOptions, NoemaHomeInitResult,
     init_noema_home,

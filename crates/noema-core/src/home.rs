@@ -17,6 +17,8 @@ codex:
   startup_timeout_seconds: 60
   turn_timeout_seconds: 300
 
+# Set NOEMA_DATABASE_URL=postgres://noema:noema@localhost:5432/noema
+
 web:
   host: 127.0.0.1
   port: 3737

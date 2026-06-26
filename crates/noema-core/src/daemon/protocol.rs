@@ -203,8 +203,10 @@ pub struct DaemonServerConfig {
     pub socket_path: PathBuf,
     /// Codex provider configuration used by daemon conversations.
     pub codex: CodexProviderConfig,
-    /// Canonical SQLite database path.
-    pub database_path: PathBuf,
+    /// Canonical Postgres database URL.
+    pub database_url: String,
+    /// Temporary SQLite compatibility path until daemon runtime storage is ported.
+    pub(crate) database_path: PathBuf,
     /// Local web UI configuration.
     pub web: WebConfig,
 }
@@ -215,12 +217,14 @@ impl DaemonServerConfig {
     pub fn new(
         socket_path: PathBuf,
         codex: CodexProviderConfig,
-        database_path: PathBuf,
+        database_url: String,
         web: WebConfig,
     ) -> Self {
+        let database_path = PathBuf::from(&database_url);
         Self {
             socket_path,
             codex,
+            database_url,
             database_path,
             web,
         }
