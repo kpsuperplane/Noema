@@ -252,21 +252,27 @@ Conceptual shape:
   "run_id": "run_01...",
   "trigger": {
     "type": "human_message",
-    "source": "conversation",
-    "source_id": "message_01...",
-    "payload_ref": "episode_01...",
+    "source": { "object_type": "conversation", "object_id": "conversation_1" },
+    "source_item": {
+      "object_type": "conversation_item",
+      "object_id": "item_01..."
+    },
+    "payload_ref": {
+      "object_type": "conversation_turn",
+      "object_id": "turn_01..."
+    },
     "trust": "human_authored"
   },
-  "requested_by_principal_id": "human_kevin",
-  "executing_agent_id": "agent_primary",
-  "owner_principal_id": "human_kevin",
-  "home_scope_id": "conversation_01...",
-  "active_scopes": [
-    {"scope_type": "human", "scope_id": "human_kevin"},
-    {"scope_type": "agent", "scope_id": "agent_primary"},
-    {"scope_type": "conversation", "scope_id": "conversation_01..."},
-    {"scope_type": "workspace", "scope_id": "workspace_noema"},
-    {"scope_type": "project", "scope_id": "project_harness"}
+  "requested_by": { "object_type": "human", "object_id": "human:kevin" },
+  "executing_agent": { "object_type": "agent", "object_id": "agent:primary" },
+  "owner": { "object_type": "human", "object_id": "human:kevin" },
+  "home_object": { "object_type": "conversation", "object_id": "conversation_1" },
+  "active_object_refs": [
+    {"object_type": "human", "object_id": "human:kevin"},
+    {"object_type": "agent", "object_id": "agent:primary"},
+    {"object_type": "conversation", "object_id": "conversation_1"},
+    {"object_type": "workspace", "object_id": "workspace:noema"},
+    {"object_type": "project", "object_id": "project:harness"}
   ],
   "links": {
     "conversation_id": "conversation_01...",
@@ -357,7 +363,8 @@ It should:
 
 ### 2. Create run envelope
 
-The run coordinator resolves the agent, owner, home scope, and active scopes.
+The run coordinator resolves the agent, owner object, home governable context,
+and active governable contexts.
 
 It should:
 
@@ -533,8 +540,9 @@ effects that already happened. The ledger should make that clear.
 
 ## Agent execution model
 
-Agents in Noema should be principals with skills, preferences, policies, and
-operational memory. They are not unconstrained background processes.
+Agents in Noema should be actor-capable concrete objects with skills,
+preferences, policies, and operational memory. They are not unconstrained
+background processes.
 
 An agent execution step should receive:
 
@@ -569,7 +577,7 @@ It should include:
 - `included_sources`
 - `included_memories`
 - `included_artifacts`
-- `included_messages`
+- `included_conversation_items`
 - `included_tasks`
 - `included_capabilities`
 - `policy_summary`
@@ -591,7 +599,7 @@ A handoff proposal should state:
 
 - Target agent.
 - Reason for handoff.
-- Requested scope.
+- Requested governable context.
 - Context to transfer.
 - Capabilities needed.
 - Expected output.

@@ -18,6 +18,11 @@ V1 should stay small and concrete:
 ## Settled Decisions
 
 - SQLite is the canonical structured store.
+- Concrete object rows are the canonical structured state; actor/principal,
+  governable scope, provenance source, and transcript item are interfaces
+  implemented by concrete objects rather than universal parent tables.
+- Durable chat history is reconstructed from `conversation_items`; the daemon
+  WebSocket and `agent_status` are live coordination state for current turns.
 - Filesystem storage is for durable object-owned documents, attachments, and artifacts.
 - `system/` state is derived and rebuildable.
 - Memory is governed context, not hidden model state.
@@ -47,6 +52,7 @@ V1 should stay small and concrete:
 - Prefer adversarial review for memory, security, retrieval, governance, and large refactors.
 - For UI work, optimize for restrained, polished, information-dense interfaces rather than decorative complexity.
 - Treat raw `~/.codex/sessions` as private memory source material. Summarize, do not quote, unless asked.
+- The user is a big fan of trains; train or rail references are welcome when they fit the context.
 
 ## Task Modes
 

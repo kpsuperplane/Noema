@@ -73,9 +73,14 @@ Noema at another directory with `NOEMA_HOME`.
 
 Source-of-truth rules:
 
+Concrete object rows are the canonical structured state. Shared concepts such
+as actor/principal, governable scope, provenance source, and transcript item
+are interfaces implemented by concrete objects rather than universal parent
+tables.
+
 | Data | Source of truth |
 | --- | --- |
-| IDs, scopes, relationships, permissions, tasks, memory, provenance, audit events | `db/noema.sqlite` |
+| SQLite structured state: humans, agents, tools, conversations, conversation_turns, conversation_items, memory_items, entities, relationships, object provenance, grants, tasks, permissions, and audit events | `db/noema.sqlite` |
 | Human-authored docs, imported files, attachments, and durable artifacts | filesystem |
 | Indexes, caches, temporary files, and derived search/vector state | `system/` |
 | Introspection into database-backed state | chat/work drill-ins, advanced inspection, and explicit export tools |
@@ -118,9 +123,12 @@ Canonical Store
               indexes, caches, vectors, temp files
 ```
 
-## First-class scopes
+## First-class governable contexts
 
-Scopes govern visibility, permissions, memory, proactivity, tool access, auditability, and default behavior.
+Governable scope is a behavior contract implemented by concrete objects. These
+contexts govern visibility, permissions, memory, proactivity, tool access,
+auditability, and default behavior without requiring a universal `scopes` root
+table.
 
 ```
 System

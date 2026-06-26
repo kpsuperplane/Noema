@@ -198,7 +198,7 @@ from chat/work context rather than pretending they already exist.
 | Setup/config health | Current Rust-backed | `noema config`, `NoemaPaths`, config loading, daemon socket paths |
 | Live chat | Current Rust-backed | Daemon socket protocol, local web WebSocket, and Codex app-server conversation runtime |
 | Transcript activity | Current Rust-backed | Assistant text, activity notices, errors, turn completion, future `A2uiCard` payloads |
-| Persisted chat provenance | Current Rust-backed | Chat turns are recorded as `episodes` and `messages` after successful turns |
+| Persisted chat history | Current Rust-backed | Durable chat history is reconstructed from `conversation_items`; live turn coordination comes from the daemon WebSocket and `agent_status` |
 | Explicit memory save | Current Rust-backed | `remember this:` and `/remember` persist memory with provenance |
 | Memory list/detail | Current Rust-backed | SQLite repository and CLI inspection exist; UI should open from inline events first |
 | Context graph inspection | Current Rust-backed, owner/admin-only | Backed by persisted memory graph tables; redacted by default outside privileged inspection |

@@ -18,6 +18,10 @@ with which context, using which tools, sharing which information,
 and with what durable record?
 ```
 
+In current persistence, actor/principal and scope are behavior contracts on
+concrete objects. Harness records should store typed object refs rather than
+implying universal `principals` or `scopes` root tables.
+
 ## Reading map
 
 This file defines the top-level architecture and vocabulary.
@@ -170,7 +174,7 @@ The run envelope records:
 - The trigger that started the run.
 - The principal that requested or caused the run.
 - The agent selected to execute the run.
-- The owner or home scope for the run.
+- The owner object or governable home context for the run.
 - The active human, workspace, project, conversation, task, relationship, tool,
   and custom scopes that are allowed to shape context and policy.
 - Proactivity limits.
@@ -421,7 +425,7 @@ A capability record should define:
 - Egress class.
 - Resource selectors.
 - Required authentication.
-- Supported principals and scopes.
+- Supported actor objects and governable contexts.
 - Default grants.
 - Approval policy.
 - Audit requirements.

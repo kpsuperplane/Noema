@@ -78,13 +78,15 @@ Primary actions:
 
 V1 conversation contract:
 
-- The active daemon socket stream is the live source for chat UI.
-- Successful turns are persisted as `episodes` and `messages`.
-- Conversation IDs are daemon runtime IDs; there is not yet a durable
-  conversation row/list contract.
-- After daemon restart, the frontend can reconstruct persisted turn provenance
-  from `episodes/messages`, but cannot assume the provider thread remains
-  resumable unless the daemon/runtime persists that mapping.
+- The daemon WebSocket is the live source for current turn updates.
+- Durable chat history is reconstructed from `conversation_items`.
+- `agent_status` is live coordination state and is not replayed as transcript
+  history.
+- `conversation_items` include user text, assistant text, durable activity
+  rows, A2UI cards, tool calls/results, approvals, and meaningful errors.
+- After daemon restart, the frontend can reconstruct durable chat history from
+  `conversation_items`, but cannot assume the provider thread remains resumable
+  unless the daemon/runtime persists that mapping.
 - Context packet links appear only when packets exist; otherwise show an
   unavailable state and a backend requirement.
 
@@ -597,7 +599,7 @@ addressability and backing, not what the first shell emphasizes.
 | `/` | Chat | setup health and local service state | route to chat when ready; show setup readiness if blocked | V1 |
 | `/setup` | Setup | local folder, assistant connection, local service checks | create/update setup through guided setup flow | V1 |
 | `/chat` | Chat | local service stream | live chat, transcript activity, inline memory extraction rows | V1 |
-| `/chat/:id` | Chat detail | active daemon conversation; persisted episodes/messages where available | live while daemon conversation exists; persisted provenance after successful turns | V1 limited |
+| `/chat/:id` | Chat detail | active daemon conversation; persisted `conversation_items` where available | live while daemon conversation exists; durable chat history after acknowledged turns | V1 limited |
 | `/memory` | Memory settings | SQLite memory repository | secondary list and supported filters with redacted metadata; full FTS search waits for backend support | V1 |
 | `/memory/:id` | Memory detail | SQLite memory repository | opened from chat line or memory settings; inspect, reveal when authorized, limited lifecycle actions as backend supports | V1 |
 | `/memory/review` | Review memory | persisted candidates/active extracted memories | opened from review-required chat lines or settings; keep/edit/reject once mutation endpoints exist | V1 limited |

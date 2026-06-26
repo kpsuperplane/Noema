@@ -221,7 +221,8 @@ Retrieval policy is typed, versioned, and auditable. It includes:
 - `retrieval_policy_status`: `valid`, `stale`, `invalid`, or `needs_review`.
 - `retrieval_policy_version`.
 - `retrieval_policy_fingerprint`.
-- `retrieval_policy_extractor_principal_id`.
+- `retrieval_policy_extractor_object_type` and
+  `retrieval_policy_extractor_object_id`.
 - `retrieval_policy_extractor_version`.
 - `retrieval_policy_validated_at`.
 - `participant_visibility_policy`: `any_active_human`, `all_original_humans`,
@@ -239,10 +240,10 @@ memory candidates when grants and privacy permit.
 
 A `valid` retrieval policy requires:
 
-- Non-null policy fingerprint, extractor principal, extractor version, and
+- Non-null policy fingerprint, extractor object ref, extractor version, and
   validation timestamp.
 - A policy fingerprint over memory content, sensitivity, subject IDs and roles,
-  participant principal IDs and roles, purpose rules, trusted object links,
+  participant actor refs and roles, purpose rules, trusted object links,
   participant visibility policy, egress policy, and provenance basis.
 - A participant visibility policy intentionally selected by the validator.
 
@@ -282,15 +283,15 @@ Agents should request memory with context:
 
 ```json
 {
-  "requesting_principal": "agent:architect",
+  "requesting_object": { "object_type": "agent", "object_id": "agent:architect" },
   "trusted": {
     "active_humans": ["human:kevin"],
     "active_agents": ["agent:architect"],
-    "active_scopes": [
-      "human:kevin",
-      "workspace:noema",
-      "project:memory-system",
-      "conversation:123"
+    "active_object_refs": [
+      { "object_type": "human", "object_id": "human:kevin" },
+      { "object_type": "workspace", "object_id": "workspace:noema" },
+      { "object_type": "project", "object_id": "project:memory-system" },
+      { "object_type": "conversation", "object_id": "conversation:123" }
     ],
     "purpose": "answer_human_question",
     "trigger_type": "human_message",
@@ -301,7 +302,10 @@ Agents should request memory with context:
         "object_type": "project",
         "object_id": "project:noema",
         "relation": "active_context",
-        "authorized_scope_id": "project:memory-system"
+        "authorized_object_ref": {
+          "object_type": "project",
+          "object_id": "project:memory-system"
+        }
       }
     ],
     "allowed_proactivity_level": 2,
@@ -422,13 +426,13 @@ separate graph engine.
 The Noema context graph is a policy-aware view over canonical SQLite state:
 
 ```text
-episodes and messages -> provenance-bearing source stream
+conversation_items -> provenance-bearing source stream for chat and agent work
 entities -> graph nodes
 relationships -> graph claim edges
 memory_items -> durable claims, preferences, decisions, procedures, and notes
 memory_subjects -> what a memory is about
 memory_participants -> who was in scope when the memory formed
-memory_provenance_edges -> why Noema believes it
+object_provenance_edges -> why Noema believes or derived an object
 retrieval policy -> whether it may be used
 ```
 
@@ -644,12 +648,21 @@ Sensitive memory with deterministic retrieval policy:
         "object_type": "task",
         "object_id": "task:schedule_checkup",
         "relation": "open_loop_for",
-        "authorized_scope_id": "conversation:health"
+        "authorized_object_ref": {
+          "object_type": "conversation",
+          "object_id": "conversation:health"
+        }
       }
     ]
   },
   "provenance": [
-    { "source": "message:msg_200", "authority": "explicit_human_statement" }
+    {
+      "source": {
+        "object_type": "conversation_item",
+        "object_id": "item:msg_200"
+      },
+      "authority": "explicit_human_statement"
+    }
   ]
 }
 ```
@@ -715,8 +728,9 @@ Adversarial retrieval scenarios:
 
 ### Phase 1: Canonical memory core
 
-Schema, scopes, principals, memory items, entities, relationship claim edges,
-participants, provenance, access grants, versions, audit events.
+Schema, governable-object contracts, actor refs, memory items, entities,
+relationship claim edges, participants, provenance, access grants, versions,
+audit events.
 
 ### Phase 2: Extraction and consolidation
 

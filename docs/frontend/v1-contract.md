@@ -27,8 +27,8 @@ explicit owner/admin entry points.
 | `A2uiCard` payloads | Future structured cards inside the chat stream |
 | `config.yaml` and environment-derived config | Provider/model/default setup state; secrets remain environment-only |
 | `NoemaPaths` | Noema home, run directory, socket path, database path |
-| `db/noema.sqlite` memory tables | Principals, scopes, sources, episodes, messages, memory items, subjects, participants, provenance, grants, context graph inspection |
-| `SqliteMemoryRepository` | Memory list/detail, chat turn provenance, memory candidates, context graph read model, deterministic retrieval |
+| `db/noema.sqlite` memory tables | Concrete object rows, conversations, conversation_turns, conversation_items, memory items, entities, relationships, object provenance, grants, context graph inspection |
+| `SqliteMemoryRepository` | Memory list/detail, durable conversation item replay, memory candidates, context graph read model, deterministic retrieval |
 | CLI inspection commands | Reference behavior for memory and context graph display/redaction |
 
 ## Default V1 Identities
@@ -52,7 +52,7 @@ primary navigation priority.
 | `/` | Chat | setup health, local service state | route to chat when ready; show guided readiness state if blocked | V1 |
 | `/setup` | Setup | local folder, assistant connection, local service checks | initialize or update setup through explicit setup flow | V1 |
 | `/chat` | Chat | local service stream | start chat, render transcript items, show inline memory/activity rows | V1 |
-| `/chat/:id` | Chat detail | active daemon conversation; persisted episodes/messages after successful turns | live while active; persisted provenance after turn | V1 limited |
+| `/chat/:id` | Chat detail | active daemon conversation; persisted `conversation_items` after acknowledged turns | live while active; durable item replay after turn | V1 limited |
 | `/memory` | Memory settings | memory list read model | secondary memory management opened from chat or settings; redacted list, filters, review entry points | V1 |
 | `/memory/:id` | Memory detail | memory detail read model | opened from inline memory event or memory settings; inspect content/provenance/policy with reveal rules | V1 |
 | `/memory/review` | Review memory | memory candidates and active extracted memories | opened from review-required chat events or settings; inspect now; mutation only where repository/API supports it | V1 limited |
@@ -188,8 +188,12 @@ Current behavior:
 - Daemon conversation IDs are runtime IDs such as `conversation_1`.
 - The daemon maps each runtime conversation to a provider thread in memory.
 - Ending or restarting the daemon removes active runtime conversation state.
-- Successful turns are recorded in SQLite as conversation-scope episodes and
-  messages.
+- The daemon WebSocket is the live source for current turn updates.
+- Durable chat history is reconstructed from `conversation_items`.
+- `agent_status` is live coordination state and is not replayed as transcript
+  history.
+- `conversation_items` include user text, assistant text, durable activity
+  rows, A2UI cards, tool calls/results, approvals, and meaningful errors.
 
 Unavailable state:
 

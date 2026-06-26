@@ -46,9 +46,12 @@ Conceptual shape:
   "sequence": 42,
   "event_type": "tool.invocation_completed",
   "occurred_at": "2026-06-23T20:01:12Z",
-  "actor_principal_id": "agent_primary",
+  "actor": { "object_type": "agent", "object_id": "agent:primary" },
   "component": "capability_gateway",
-  "scope_id": "project_harness",
+  "governable_context": {
+    "object_type": "project",
+    "object_id": "project:harness"
+  },
   "causation_event_id": "evt_01...",
   "correlation_id": "toolcall_01...",
   "visibility": "private",
@@ -66,13 +69,13 @@ Required semantics:
 - `sequence`: monotonic per-run sequence.
 - `event_type`: typed name.
 - `occurred_at`: timestamp.
-- `actor_principal_id`: principal responsible where applicable.
+- `actor`: typed actor ref responsible where applicable.
 - `component`: harness component that emitted the event.
 - `payload`: event-specific structured data.
 
 Useful optional semantics:
 
-- `scope_id`: primary scope for the event.
+- `governable_context`: typed object ref for the primary context of the event.
 - `causation_event_id`: event that directly caused this event.
 - `correlation_id`: groups related events across runs or tools.
 - `visibility`: who can see this event.
@@ -419,4 +422,3 @@ Minimum useful v1 events:
 
 This is enough to make the first harness inspectable without overbuilding the
 entire north-star ledger.
-

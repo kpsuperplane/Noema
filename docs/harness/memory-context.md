@@ -43,12 +43,12 @@ Conceptual shape:
   "run_id": "run_01...",
   "created_at": "2026-06-23T20:00:03Z",
   "purpose": "answer_human_question",
-  "active_scopes": [
-    "human_kevin",
-    "agent_primary",
-    "conversation_01...",
-    "workspace_noema",
-    "project_harness"
+  "active_object_refs": [
+    { "object_type": "human", "object_id": "human:kevin" },
+    { "object_type": "agent", "object_id": "agent:primary" },
+    { "object_type": "conversation", "object_id": "conversation_1" },
+    { "object_type": "workspace", "object_id": "workspace:noema" },
+    { "object_type": "project", "object_id": "project:harness" }
   ],
   "sections": [
     {
@@ -181,15 +181,15 @@ Conceptual shape:
 ```json
 {
   "run_id": "run_01...",
-  "requesting_principal_id": "agent_primary",
+  "requesting_object": { "object_type": "agent", "object_id": "agent:primary" },
   "trusted": {
     "active_human_ids": ["human_kevin"],
     "active_agent_ids": ["agent_primary"],
-    "active_scopes": [
-      "human_kevin",
-      "conversation_01...",
-      "workspace_noema",
-      "project_harness"
+    "active_object_refs": [
+      { "object_type": "human", "object_id": "human:kevin" },
+      { "object_type": "conversation", "object_id": "conversation_1" },
+      { "object_type": "workspace", "object_id": "workspace:noema" },
+      { "object_type": "project", "object_id": "project:harness" }
     ],
     "purpose": "answer_human_question",
     "trigger_type": "human_message",
@@ -200,7 +200,10 @@ Conceptual shape:
         "object_type": "project",
         "object_id": "project_noema",
         "relation": "active_context",
-        "authorized_scope_id": "project_harness"
+        "authorized_object_ref": {
+          "object_type": "project",
+          "object_id": "project:harness"
+        }
       }
     ],
     "allowed_proactivity_level": 2,
@@ -292,7 +295,7 @@ Conceptual shape:
   "included": [
     {
       "memory_id": "memory_01...",
-      "home_scope_id": "project_harness",
+      "owner": { "object_type": "project", "object_id": "project:harness" },
       "memory_type": "decision",
       "title": "Harness uses ledger-first persistence",
       "content": "Harness runs should emit append-only events...",
@@ -368,7 +371,6 @@ Conceptual fields:
 - `memory_id`
 - `stage`
 - `agent_id`
-- `scope_id`
 - `purpose`
 - `used_for_object_type`
 - `used_for_object_id`
@@ -404,7 +406,7 @@ The proposal should include:
 
 - Proposed home scope.
 - Subject entities.
-- Participant principals.
+- Participant actor refs.
 - Memory type.
 - Proposed content.
 - Structured value.

@@ -242,14 +242,17 @@ Example:
 ```json
 {
   "grant_id": "grant_01...",
-  "principal_id": "agent_researcher",
+  "grantee": { "object_type": "agent", "object_id": "agent:researcher" },
   "capability_id": "cap_google_docs",
   "operation_id": "google_docs.read_document",
   "resource": {
     "type": "document_id",
     "id": "doc_strategy_notes"
   },
-  "scope_id": "project_noema_harness",
+  "governable_context": {
+    "object_type": "project",
+    "object_id": "project:noema_harness"
+  },
   "effect": "allow",
   "constraints": {
     "allowed_run_triggers": ["human_message", "task_event"],
@@ -266,14 +269,17 @@ A write grant for the same document might be narrower:
 ```json
 {
   "grant_id": "grant_02...",
-  "principal_id": "agent_researcher",
+  "grantee": { "object_type": "agent", "object_id": "agent:researcher" },
   "capability_id": "cap_google_docs",
   "operation_id": "google_docs.update_document",
   "resource": {
     "type": "document_id",
     "id": "doc_strategy_notes"
   },
-  "scope_id": "task_update_strategy_doc",
+  "governable_context": {
+    "object_type": "task",
+    "object_id": "task:update_strategy_doc"
+  },
   "effect": "allow",
   "constraints": {
     "allowed_patch_regions": ["section:open_questions"],
@@ -281,7 +287,7 @@ A write grant for the same document might be narrower:
   },
   "approval": {
     "required": true,
-    "approver_principal_id": "human_kevin"
+    "approver": { "object_type": "human", "object_id": "human:kevin" }
   }
 }
 ```
@@ -646,4 +652,3 @@ A practical first slice:
 
 Even if v1 has only a few tools, those tools should go through the same
 registry, policy, approval, and ledger path that future tools will use.
-

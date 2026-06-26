@@ -12,13 +12,13 @@ truth for memory, work, approvals, tools, runs, audit, and settings.
 | Group | Objects | Frontend role |
 | --- | --- | --- |
 | Identity | Humans, agents, groups, system, tools, services, importers | Who can own, act, delegate, approve, or be audited |
-| Scope | System, human, agent, conversation, workspace, project, task, cron, tool, relationship, custom | Visibility, memory, permissions, proactivity, audit, and retrieval boundary |
+| Governable context | System, human, agent, conversation, workspace, project, task, cron, tool, relationship, custom | Visibility, memory, permissions, proactivity, audit, and retrieval boundary implemented by concrete objects |
 | Work | Conversations, workspaces, projects, tasks, cron rules, artifacts | Coordination surfaces that grow out of chat |
 | Execution | Runs, run envelopes, context packets, handoffs, worker state, artifacts | What agents did, are doing, or may resume |
 | Memory | Memory items, entities, relationships, subjects, participants, provenance, versions, use records | Durable, scoped, inspectable context |
 | Governance | Policies, grants, approvals, proactivity rules, egress reviews, denials, revocations | Trust-critical controls and decisions |
 | Capabilities | Capabilities, adapters, operations, resource selectors, invocation records | Governed tool and integration access |
-| System | Sources, episodes, messages, events, exports, restore plans, tombstones, rebuild jobs | Provenance, portability, recovery, and maintenance |
+| System | Conversation items, object provenance, events, exports, restore plans, tombstones, rebuild jobs | Provenance, portability, recovery, and maintenance |
 
 ## Default Identity Model
 
@@ -38,7 +38,7 @@ multi-agent work.
 
 | Status | Meaning | Objects/surfaces |
 | --- | --- | --- |
-| Current Rust-backed | Current code can serve or inspect this with bounded frontend work | Setup/config, daemon health, live chat stream, chat transcript persistence through episodes/messages, memory list/detail, context graph inspection |
+| Current Rust-backed | Current code can serve or inspect this with bounded frontend work | Setup/config, daemon health, live chat stream, chat transcript persistence through `conversation_items`, memory list/detail, context graph inspection |
 | Table-backed, not flow-wired | Tables and repository methods exist, but normal chat/runtime flows do not populate them consistently yet | Context packets, packet omissions, memory-use records |
 | Schema-doc target | Defined in `docs/sqlite.md`, but not fully created or exercised by current Rust bootstrap/runtime | Memory versions, proactive rules, deletion tombstones, FTS search |
 | Harness-doc target | Designed in harness architecture docs, not available as active durable product controls yet | Runs, approvals, capability registry, policy decisions, event ledger, replay/recovery |
@@ -158,7 +158,7 @@ Noema.
 
 Show:
 
-- Profile, handle, active status, owned scopes, default visibility.
+- Profile, handle, active status, owned governable contexts, default visibility.
 - Conversations, workspaces, projects, tasks, approvals, and recent activity.
 - Memories about the human, memories owned by the human, and memories where the
   human was a participant.
@@ -179,12 +179,12 @@ Actions:
 Availability: partial current concept for the primary agent; full agent
 directory and handoff model are future product.
 
-Purpose: an executing principal with model/provider config, skills, policies,
-operational memory, and grants.
+Purpose: an actor-capable concrete object with model/provider config, skills,
+policies, operational memory, and grants.
 
 Show:
 
-- Instructions, skills, model/provider, runtime health, home scope.
+- Instructions, skills, model/provider, runtime health, owner object.
 - Allowed tools and resource selectors.
 - Recent runs, failed runs, handoffs, and activity.
 - Memory owned by the agent and memory granted to the agent.
@@ -215,8 +215,8 @@ Show:
   proposals, approvals, tool activity, denials, and recovery states as backing
   exists.
 - Inline object expansions for the rows above.
-- Participants, active scopes, provider thread, working directory or project
-  hint.
+- Participants, active governable contexts, provider thread, working directory
+  or project hint.
 - Memory extraction activity and proposed/created memories.
 - Linked tasks, projects, artifacts, and runs.
 - Context packets and "what did the agent see?" panel.
@@ -296,8 +296,9 @@ Purpose: one governed attempt by an agent to do work under a specific context.
 Show:
 
 - Originating chat/work event and current inline status row.
-- Status, trigger, requesting principal, executing agent, owner/home scope.
-- Active scopes, proactivity limit, memory constraints, egress constraints.
+- Status, trigger, requesting actor, executing agent, owner object.
+- Active governable contexts, proactivity limit, memory constraints, egress
+  constraints.
 - Timeline of run events.
 - Context packet manifest.
 - Memories retrieved, included, shown, used, and omitted.
