@@ -16,21 +16,6 @@ fn load_resolved(
     default_config_path: Option<PathBuf>,
     env: &[(&str, &str)],
 ) -> Result<ResolvedConfig, ConfigError> {
-    load_raw_config_from_sources(
-        path_override,
-        cli,
-        default_config_path,
-        test_env_with_database(env),
-    )?
-    .resolve()
-}
-
-fn load_resolved_without_default_database(
-    path_override: Option<PathBuf>,
-    cli: CliOverrides,
-    default_config_path: Option<PathBuf>,
-    env: &[(&str, &str)],
-) -> Result<ResolvedConfig, ConfigError> {
     load_raw_config_from_sources(path_override, cli, default_config_path, test_env(env))?.resolve()
 }
 
@@ -54,14 +39,6 @@ fn load_daemon_config(
         .resolve_daemon_config()
 }
 
-fn test_env_with_database(env: &[(&str, &str)]) -> Figment {
-    if env.iter().any(|(key, _)| *key == NOEMA_DATABASE_URL_ENV) {
-        return test_env(env);
-    }
-
-    test_env(env).merge(Serialized::default("database.url", TEST_DATABASE_URL))
-}
-
 fn test_env(env: &[(&str, &str)]) -> Figment {
     env.iter().fold(Figment::new(), |figment, (key, value)| {
         let Some(path) = normalize_env_key(key) else {
@@ -77,12 +54,9 @@ fn test_env(env: &[(&str, &str)]) -> Figment {
 }
 
 fn normalize_env_key(key: &str) -> Option<String> {
-    if key == NOEMA_DATABASE_URL_ENV {
-        return Some("database.url".to_string());
-    }
-
     key.strip_prefix("NOEMA_")
         .map(|key| key.to_ascii_lowercase().replace("__", "."))
+        .and_then(|key| normalize_config_env_key(&key))
 }
 
 fn parse_env_value(value: &str) -> Value {
@@ -152,7 +126,6 @@ openai:
     assert_eq!(openai.organization_id.as_deref(), Some("env-org"));
     assert_eq!(openai.project_id.as_deref(), Some("env-project"));
     assert_eq!(openai.timeout_seconds, 33);
-    assert_eq!(resolved.database.url, TEST_DATABASE_URL);
 }
 
 #[test]
@@ -304,6 +277,19 @@ fn codex_provider_does_not_require_openai_api_key() {
 }
 
 #[test]
+fn provider_config_does_not_require_database_url() {
+    let resolved = load_resolved(
+        None,
+        CliOverrides::new(Some("codex".to_string()), None, None),
+        None,
+        &[],
+    )
+    .expect("provider config should resolve without database storage");
+
+    assert_eq!(resolved.provider.kind(), ProviderKind::Codex);
+}
+
+#[test]
 fn resolves_default_web_config() {
     let resolved = load_resolved(
         None,
@@ -402,7 +388,7 @@ database:
 ",
     );
 
-    let resolved = load_resolved_without_default_database(
+    let resolved = load_daemon_config(
         Some(file.path().to_path_buf()),
         CliOverrides::default(),
         None,
@@ -418,7 +404,7 @@ database:
 
 #[test]
 fn resolves_database_url_from_env() {
-    let resolved = load_resolved(
+    let resolved = load_daemon_config(
         None,
         CliOverrides::new(Some("codex".to_string()), None, None),
         None,
@@ -432,6 +418,14 @@ fn resolves_database_url_from_env() {
     assert_eq!(
         resolved.database.url,
         "postgres://noema:env@localhost:5432/noema"
+    );
+}
+
+#[test]
+fn production_env_normalization_accepts_flat_database_url() {
+    assert_eq!(
+        normalize_env_key(NOEMA_DATABASE_URL_ENV).as_deref(),
+        Some("database.url")
     );
 }
 

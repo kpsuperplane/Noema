@@ -104,8 +104,6 @@ pub struct CliOpenAiOverrides {
 pub struct ResolvedConfig {
     /// Selected provider configuration.
     pub provider: ProviderConfig,
-    /// Canonical database configuration.
-    pub database: DatabaseConfig,
     /// Local web UI configuration.
     pub web: WebConfig,
 }
@@ -294,11 +292,9 @@ impl RawConfig {
             ProviderKind::OpenAi => ProviderConfig::OpenAi(self.resolve_openai_config()?),
             ProviderKind::Codex => ProviderConfig::Codex(self.resolve_codex_config()?),
         };
-        let database = self.resolve_database_config()?;
 
         Ok(ResolvedConfig {
             provider,
-            database,
             web: self.web,
         })
     }
@@ -536,7 +532,7 @@ pub enum ConfigError {
     },
 
     /// Required database URL was missing.
-    #[error("{NOEMA_DATABASE_URL_ENV} is required for daemon storage")]
+    #[error("{NOEMA_DATABASE_URL_ENV} is required for daemon database storage")]
     MissingDatabaseUrl,
 
     /// Database configuration failed validation.
@@ -628,14 +624,19 @@ fn config_env_provider() -> Env {
     Env::prefixed("NOEMA_")
         .split("__")
         .ignore(&["home"])
-        .map(|key| {
-            if key == "database_url" {
-                "database.url".into()
-            } else {
-                key.into()
-            }
-        })
-        .only(CONFIG_ENV_KEYS)
+        .filter_map(|key| normalize_config_env_key(key.as_str()).map(Into::into))
+}
+
+fn normalize_config_env_key(key: &str) -> Option<String> {
+    let normalized = if key == "database_url" {
+        "database.url"
+    } else {
+        key
+    };
+
+    CONFIG_ENV_KEYS
+        .contains(&normalized)
+        .then(|| normalized.to_string())
 }
 
 fn non_empty_option(value: Option<&str>) -> Option<&str> {

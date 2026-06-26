@@ -20,8 +20,8 @@ impl DatabaseConfig {
     ///
     /// Returns [`DatabaseConfigError::MissingUrl`] when the URL is empty.
     pub fn new(url: impl Into<String>) -> Result<Self, DatabaseConfigError> {
-        let url = url.into();
-        if url.trim().is_empty() {
+        let url = url.into().trim().to_string();
+        if url.is_empty() {
             return Err(DatabaseConfigError::MissingUrl);
         }
 
@@ -46,9 +46,22 @@ impl DatabaseConfig {
 #[derive(Debug, Error)]
 pub enum DatabaseConfigError {
     /// Database URL was not configured.
-    #[error("{NOEMA_DATABASE_URL_ENV} is required for the Noema server")]
+    #[error("database URL is required")]
     MissingUrl,
     /// Postgres connection failed.
     #[error("failed to connect to Postgres: {0}")]
     Connect(sqlx::Error),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stores_trimmed_url() {
+        let config = DatabaseConfig::new("  postgres://noema:noema@localhost:5432/noema  ")
+            .expect("database config");
+
+        assert_eq!(config.url, "postgres://noema:noema@localhost:5432/noema");
+    }
 }

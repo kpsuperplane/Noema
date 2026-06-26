@@ -218,9 +218,9 @@ impl DaemonServerConfig {
         socket_path: PathBuf,
         codex: CodexProviderConfig,
         database_url: String,
+        database_path: PathBuf,
         web: WebConfig,
     ) -> Self {
-        let database_path = PathBuf::from(&database_url);
         Self {
             socket_path,
             codex,
@@ -228,6 +228,29 @@ impl DaemonServerConfig {
             database_path,
             web,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn daemon_server_config_keeps_transitional_database_path_explicit() {
+        let database_path = PathBuf::from("/tmp/noema.sqlite");
+        let config = DaemonServerConfig::new(
+            PathBuf::from("/tmp/noema.sock"),
+            CodexProviderConfig::default(),
+            "postgres://noema:noema@localhost:5432/noema".to_string(),
+            database_path.clone(),
+            WebConfig::default(),
+        );
+
+        assert_eq!(
+            config.database_url,
+            "postgres://noema:noema@localhost:5432/noema"
+        );
+        assert_eq!(config.database_path, database_path);
     }
 }
 
