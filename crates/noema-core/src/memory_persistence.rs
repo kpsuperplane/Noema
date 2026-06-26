@@ -1,8 +1,7 @@
 //! Durable memory persistence repositories.
 //!
-//! This module is the small persistence slice used by chat integration. It
-//! currently keeps the SQLite runtime repository while introducing the
-//! Postgres schema bootstrap used by the server migration path.
+//! This module is the persistence slice used by chat integration and memory
+//! inspection. Postgres is the canonical structured store.
 
 mod context_packets;
 mod conversations;
@@ -18,9 +17,6 @@ mod postgres_tests;
 mod provenance;
 mod queries;
 mod repository;
-mod schema;
-#[cfg(test)]
-mod tests;
 
 pub use conversations::{
     AgentStatus, ConversationItemKind, ConversationItemRecord, ConversationItemStatus,
@@ -30,8 +26,8 @@ pub use conversations::{
 pub use error::MemoryPersistenceError;
 pub use models::{
     MemoryAuthorityLevel, MemoryExtractionMethod, MemorySummary, MemoryType, NewMemoryCandidate,
-    NewMemoryParticipant, NewMemorySubject, NewRelationshipClaim, ObjectProvenanceSource,
+    NewMemoryParticipant, NewMemorySubject, ObjectProvenanceSource,
 };
 pub use objects::{ObjectRef, ObjectType};
 pub use provenance::{DeleteConversationItem, NewObjectProvenanceEdge};
-pub use repository::{PostgresMemoryRepository, SqliteMemoryRepository};
+pub use repository::PostgresMemoryRepository;

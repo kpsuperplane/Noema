@@ -1,15 +1,13 @@
 //! Core Noema types and runtimes.
 //!
 //! This crate contains configuration loading, provider adapters, daemon
-//! protocol support, home-directory setup, path resolution, and the V1 memory
+//! protocol support, home-directory setup, path resolution, and the memory
 //! retrieval model.
 
 /// Configuration loading and provider selection.
 pub mod config;
 /// Persisted context graph inspection view.
 pub mod context_graph;
-mod context_graph_rows;
-mod context_graph_sql;
 /// Local daemon protocol and client/server runtime.
 pub mod daemon;
 /// Database configuration and Postgres connection helpers.
@@ -18,7 +16,7 @@ pub mod database;
 pub mod frontend_protocol;
 /// Noema home-directory initialization.
 pub mod home;
-/// V1 memory storage and retrieval policy model.
+/// Memory storage and retrieval policy model.
 pub mod memory;
 /// Pure ordinary-chat memory extraction proposal layer.
 pub mod memory_extraction;
@@ -33,7 +31,6 @@ pub mod provider;
 /// Concrete model provider adapters.
 pub mod providers;
 mod retrieval_policy_fingerprint;
-mod sqlite_memory_retrieval;
 
 pub use config::{
     CliOverrides, Config, ConfigError, DaemonResolvedConfig, ProviderConfig, ProviderKind,
@@ -65,8 +62,8 @@ pub use memory_extraction::{
 pub use memory_persistence::{
     DeleteConversationItem, MemoryAuthorityLevel, MemoryExtractionMethod, MemoryPersistenceError,
     MemorySummary, MemoryType, NewMemoryCandidate, NewMemoryParticipant, NewMemorySubject,
-    NewObjectProvenanceEdge, NewRelationshipClaim, ObjectProvenanceSource, ObjectRef, ObjectType,
-    PostgresMemoryRepository, SqliteMemoryRepository,
+    NewObjectProvenanceEdge, ObjectProvenanceSource, ObjectRef, ObjectType,
+    PostgresMemoryRepository,
 };
 pub use paths::{NOEMA_HOME_ENV, NoemaPathError, NoemaPaths};
 pub use provider::{

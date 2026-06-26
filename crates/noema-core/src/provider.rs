@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
 
-// V1 keeps the provider contract as a native async trait and does not expose
+// The provider contract stays a native async trait and does not expose
 // `dyn ModelProvider`, so the public future-bound tradeoff is intentional.
 #[allow(async_fn_in_trait)]
 /// A model backend that can produce structured output from a generation request.

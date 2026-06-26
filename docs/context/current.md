@@ -38,7 +38,7 @@ The current slice should stay small and concrete:
 
 ## Open Loops
 
-- Finish removing SQLite runtime/repository paths now that daemon, web replay, and CLI inspection are Postgres-backed.
+- Continue removing stale SQLite/product-version wording from docs and planning notes now that runtime persistence is Postgres-only.
 - Add richer web drill-ins for memory details, memory review, and context graph inspection.
 - Continue aligning docs, schema, CLI inspection commands, and frontend IA.
 - Decide which export formats ship first and how export preview/redaction should work.

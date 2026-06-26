@@ -1,74 +1,16 @@
 use crate::memory::{
     DenialReason, EligibilityReason, MemoryRetrievalResult, MemoryStatus, MemoryUseStage,
-    ParticipantRole, Purpose, RankReason, RelationshipStatus, Sensitivity, SubjectRole,
+    ParticipantRole, Purpose, RankReason, Sensitivity, SubjectRole,
 };
-use rusqlite::{Connection, Transaction, params};
 use serde_json::{Value, json};
 
 use super::{
     error::MemoryPersistenceError,
     models::{MemorySummary, MemoryType},
-    schema::MEMORY_SCHEMA_SQL,
 };
 
 pub(super) const DEFAULT_LIMIT: u32 = 50;
 pub(super) const MAX_LIMIT: u32 = 500;
-const BOOTSTRAP_SCHEMA_VERSION: i64 = 0;
-const BOOTSTRAP_SCHEMA_NAME: &str = "memory_persistence_bootstrap_v0";
-
-pub(super) fn configure_connection(conn: &Connection) -> Result<(), MemoryPersistenceError> {
-    conn.execute_batch(
-        r"
-        PRAGMA foreign_keys = ON;
-        PRAGMA journal_mode = WAL;
-        PRAGMA busy_timeout = 5000;
-        PRAGMA synchronous = NORMAL;
-        ",
-    )?;
-    Ok(())
-}
-
-pub(super) fn configure_read_only_connection(
-    conn: &Connection,
-) -> Result<(), MemoryPersistenceError> {
-    conn.execute_batch(
-        r"
-        PRAGMA foreign_keys = ON;
-        PRAGMA busy_timeout = 5000;
-        PRAGMA query_only = ON;
-        ",
-    )?;
-    Ok(())
-}
-
-pub(super) fn migrate(conn: &Connection) -> Result<(), MemoryPersistenceError> {
-    conn.execute_batch(MEMORY_SCHEMA_SQL)?;
-    conn.execute(
-        "INSERT OR IGNORE INTO schema_migrations (version, name) VALUES (?1, ?2)",
-        params![BOOTSTRAP_SCHEMA_VERSION, BOOTSTRAP_SCHEMA_NAME],
-    )?;
-    Ok(())
-}
-
-pub(super) fn memory_has_provenance(
-    tx: &Transaction<'_>,
-    memory_id: &str,
-) -> Result<bool, MemoryPersistenceError> {
-    let count: i64 = tx
-        .query_row(
-            r"
-            SELECT COUNT(*)
-            FROM object_provenance_edges
-            WHERE target_object_type = 'memory_item'
-              AND target_object_id = ?1
-              AND deleted_at IS NULL
-            ",
-            params![memory_id],
-            |row| row.get(0),
-        )
-        .map_err(MemoryPersistenceError::Sqlite)?;
-    Ok(count > 0)
-}
 
 pub(super) struct ContextMemoryUseInsert<'a> {
     pub(super) context_packet_id: &'a str,
@@ -82,126 +24,12 @@ pub(super) struct ContextMemoryUseInsert<'a> {
     pub(super) purpose: Purpose,
 }
 
-pub(super) fn insert_memory_use_record(
-    tx: &Transaction<'_>,
-    record: ContextMemoryUseInsert<'_>,
-) -> Result<(), MemoryPersistenceError> {
-    let memory_use_id = allocate_id(tx, "memuse")?;
-    tx.execute(
-        r"
-        INSERT INTO memory_use_records (
-          memory_use_id,
-          context_packet_id,
-          run_id,
-          memory_id,
-          stage,
-          agent_object_type,
-          agent_object_id,
-          context_object_type,
-          context_object_id,
-          purpose,
-          details
-        )
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
-        ",
-        params![
-            memory_use_id,
-            record.context_packet_id,
-            record.run_id,
-            record.memory_id,
-            memory_use_stage_to_db(record.stage),
-            record.agent_object_type,
-            record.agent_object_id,
-            record.context_object_type,
-            record.context_object_id,
-            purpose_to_db(record.purpose),
-            json_to_string(&json!({
-                "context_packet_id": record.context_packet_id,
-                "run_id": record.run_id,
-                "stage": memory_use_stage_to_db(record.stage),
-            }))?,
-        ],
-    )
-    .map_err(MemoryPersistenceError::Sqlite)?;
-    Ok(())
-}
-
-pub(super) fn memory_sensitivity_for_tx(
-    tx: &Transaction<'_>,
-    memory_id: &str,
-) -> Result<String, MemoryPersistenceError> {
-    tx.query_row(
-        "SELECT sensitivity FROM memory_items WHERE memory_id = ?1",
-        params![memory_id],
-        |row| row.get(0),
-    )
-    .map_err(MemoryPersistenceError::Sqlite)
-}
-
 pub(super) fn agent_visible_omissions_json(result: &MemoryRetrievalResult) -> Vec<Value> {
     result
         .agent_visible_omissions
         .iter()
         .map(|omission| json!({ "reason": omission.reason }))
         .collect()
-}
-
-pub(super) fn upsert_memory_fts(
-    tx: &Transaction<'_>,
-    memory_id: &str,
-    title: &str,
-    content: &str,
-    retrieval_hints: &str,
-) -> Result<(), MemoryPersistenceError> {
-    tx.execute(
-        "DELETE FROM memory_fts WHERE memory_id = ?1",
-        params![memory_id],
-    )?;
-    tx.execute(
-        r"
-        INSERT INTO memory_fts (memory_id, title, content, retrieval_hints)
-        VALUES (?1, ?2, ?3, ?4)
-        ",
-        params![memory_id, title, content, retrieval_hints],
-    )?;
-    Ok(())
-}
-
-pub(super) fn allocate_id(
-    conn: &Connection,
-    prefix: &str,
-) -> Result<String, MemoryPersistenceError> {
-    let hex = conn.query_row("SELECT lower(hex(randomblob(16)))", [], |row| {
-        row.get::<_, String>(0)
-    })?;
-    Ok(format!("{prefix}_{hex}"))
-}
-
-pub(super) fn row_to_memory_summary(row: &rusqlite::Row<'_>) -> rusqlite::Result<MemorySummary> {
-    let status: String = row.get(1)?;
-    let memory_type: String = row.get(2)?;
-    let owner_object_type: String = row.get(3)?;
-    let owner_object_id: String = row.get(4)?;
-    let sensitivity: String = row.get(5)?;
-    let source_object_type: Option<String> = row.get(9)?;
-    let source_object_id: Option<String> = row.get(10)?;
-    Ok(MemorySummary {
-        id: row.get(0)?,
-        status: parse_memory_status(&status).map_err(enum_to_sql_error)?,
-        memory_type: parse_memory_type(&memory_type).map_err(enum_to_sql_error)?,
-        home_scope_id: object_ref_key(&owner_object_type, &owner_object_id),
-        owner_object_type,
-        owner_object_id,
-        sensitivity: parse_sensitivity(&sensitivity).map_err(enum_to_sql_error)?,
-        title: row.get(6)?,
-        content: row.get(7)?,
-        created_at: row.get(8)?,
-        source_object_type: source_object_type.clone(),
-        source_object_id: source_object_id.clone(),
-        source_type: source_object_type,
-        source_id: source_object_id,
-        conversation_id: row.get(11)?,
-    })
 }
 
 pub(super) fn object_ref_key(object_type: &str, object_id: &str) -> String {
@@ -222,14 +50,6 @@ pub(super) fn redact_for_list(mut memory: MemorySummary) -> MemorySummary {
         memory.content = "[redacted]".to_string();
     }
     memory
-}
-
-pub(super) fn enum_to_sql_error(error: MemoryPersistenceError) -> rusqlite::Error {
-    rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(error))
-}
-
-pub(super) fn json_to_string(value: &Value) -> Result<String, MemoryPersistenceError> {
-    Ok(serde_json::to_string(value)?)
 }
 
 pub(super) fn title_from_content(content: &str) -> String {
@@ -261,18 +81,6 @@ pub(super) fn memory_status_to_db(status: MemoryStatus) -> &'static str {
         MemoryStatus::Archived => "archived",
         MemoryStatus::Deleted => "deleted",
         MemoryStatus::Disputed => "disputed",
-    }
-}
-
-pub(super) fn relationship_status_to_db(status: RelationshipStatus) -> &'static str {
-    match status {
-        RelationshipStatus::Candidate => "candidate",
-        RelationshipStatus::Active => "active",
-        RelationshipStatus::Confirmed => "confirmed",
-        RelationshipStatus::Superseded => "superseded",
-        RelationshipStatus::Archived => "archived",
-        RelationshipStatus::Deleted => "deleted",
-        RelationshipStatus::Disputed => "disputed",
     }
 }
 

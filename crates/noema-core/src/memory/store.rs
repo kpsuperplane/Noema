@@ -6,7 +6,7 @@ use std::{
 use super::model::*;
 use super::store_helpers::*;
 
-/// In-memory implementation of the V1 retrieval policy model.
+/// In-memory implementation of the retrieval policy model.
 #[derive(Debug, Clone, Default)]
 pub struct MemoryStore {
     memories: HashMap<MemoryId, MemoryItem>,
@@ -181,8 +181,8 @@ impl MemoryStore {
 
     /// Retrieve memories using precomputed public-hint candidate IDs.
     ///
-    /// This is used by durable retrieval, where SQLite FTS is the candidate
-    /// generator for untrusted hint matches. Structured paths such as active
+    /// This is used by durable retrieval, where the database text index is the
+    /// candidate generator for untrusted hint matches. Structured paths such as active
     /// scope, grants, participants, trusted object links, and graph expansion
     /// are still evaluated from canonical rows.
     #[must_use]

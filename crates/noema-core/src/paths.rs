@@ -97,10 +97,10 @@ impl NoemaPaths {
         self.root.join("db")
     }
 
-    /// Path to the canonical SQLite database.
+    /// Path to the local Postgres data directory.
     #[must_use]
-    pub fn database_path(&self) -> PathBuf {
-        self.db_dir().join("noema.sqlite")
+    pub fn postgres_data_dir(&self) -> PathBuf {
+        self.db_dir().join("postgres")
     }
 
     /// Path to the daemon socket.
@@ -157,8 +157,8 @@ mod tests {
             PathBuf::from("/tmp/custom-noema/run/noema.sock")
         );
         assert_eq!(
-            paths.database_path(),
-            PathBuf::from("/tmp/custom-noema/db/noema.sqlite")
+            paths.postgres_data_dir(),
+            PathBuf::from("/tmp/custom-noema/db/postgres")
         );
     }
 

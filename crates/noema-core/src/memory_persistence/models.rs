@@ -1,6 +1,4 @@
-use crate::memory::{
-    MemoryId, MemoryStatus, ParticipantRole, RelationshipStatus, ScopeId, Sensitivity, SubjectRole,
-};
+use crate::memory::{MemoryId, MemoryStatus, ParticipantRole, ScopeId, Sensitivity, SubjectRole};
 use serde_json::{Value, json};
 
 use super::objects::ObjectRef;
@@ -45,7 +43,7 @@ pub enum MemoryType {
 }
 
 impl MemoryType {
-    /// SQLite representation.
+    /// Storage representation.
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
@@ -217,7 +215,7 @@ impl NewMemoryParticipant {
 pub struct NewMemorySubject {
     /// Entity id.
     pub entity_id: String,
-    /// Entity type string from the canonical SQLite vocabulary.
+    /// Entity type string from the canonical storage vocabulary.
     pub entity_type: String,
     /// Canonical entity display name.
     pub canonical_name: String,
@@ -347,7 +345,7 @@ pub struct MemorySummary {
     pub title: String,
     /// Memory content.
     pub content: String,
-    /// SQLite-created timestamp.
+    /// Storage-created timestamp.
     pub created_at: String,
     /// Concrete source object type, if available.
     pub source_object_type: Option<String>,
@@ -359,56 +357,4 @@ pub struct MemorySummary {
     pub source_id: Option<String>,
     /// Source conversation id, if available.
     pub conversation_id: Option<String>,
-}
-
-/// Relationship claim edge to insert into the persisted context graph.
-#[derive(Debug, Clone, PartialEq)]
-pub struct NewRelationshipClaim {
-    /// Optional stable relationship id. A `rel_` id is allocated when omitted.
-    pub relationship_id: Option<String>,
-    /// Concrete object that owns the relationship claim.
-    pub owner: ObjectRef,
-    /// Subject entity id.
-    pub subject_entity_id: String,
-    /// Predicate label.
-    pub predicate: String,
-    /// Object entity id.
-    pub object_entity_id: String,
-    /// Supporting memory id, required for active or confirmed relationships.
-    pub memory_id: Option<MemoryId>,
-    /// Relationship lifecycle status.
-    pub status: RelationshipStatus,
-    /// Optional confidence score from extraction or curation.
-    pub confidence: Option<f64>,
-    /// Optional start of validity window.
-    pub valid_from: Option<String>,
-    /// Optional end of validity window.
-    pub valid_to: Option<String>,
-    /// Additional structured metadata.
-    pub metadata: Value,
-}
-
-impl NewRelationshipClaim {
-    /// Create a candidate relationship claim with no supporting memory yet.
-    #[must_use]
-    pub fn new(
-        owner: ObjectRef,
-        subject_entity_id: impl Into<String>,
-        predicate: impl Into<String>,
-        object_entity_id: impl Into<String>,
-    ) -> Self {
-        Self {
-            relationship_id: None,
-            owner,
-            subject_entity_id: subject_entity_id.into(),
-            predicate: predicate.into(),
-            object_entity_id: object_entity_id.into(),
-            memory_id: None,
-            status: RelationshipStatus::Candidate,
-            confidence: None,
-            valid_from: None,
-            valid_to: None,
-            metadata: json!({}),
-        }
-    }
 }

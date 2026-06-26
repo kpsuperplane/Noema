@@ -1,7 +1,5 @@
 use std::{fmt, str::FromStr};
 
-use rusqlite::{Connection, OptionalExtension, params};
-
 use super::MemoryPersistenceError;
 
 /// Closed set of concrete object types that can be referenced polymorphically.
@@ -182,30 +180,6 @@ impl fmt::Display for ObjectRef {
             self.object_type.as_str(),
             self.object_id
         )
-    }
-}
-
-pub(super) fn validate_object_ref_for_conn(
-    conn: &Connection,
-    object_ref: &ObjectRef,
-) -> Result<(), MemoryPersistenceError> {
-    let sql = format!(
-        "SELECT 1 FROM {} WHERE {} = ?1 LIMIT 1",
-        object_ref.object_type.table_name(),
-        object_ref.object_type.id_column()
-    );
-    let exists = conn
-        .query_row(&sql, params![object_ref.object_id.as_str()], |_| Ok(()))
-        .optional()
-        .map_err(MemoryPersistenceError::Sqlite)?
-        .is_some();
-    if exists {
-        Ok(())
-    } else {
-        Err(MemoryPersistenceError::ObjectRefNotFound {
-            object_type: object_ref.object_type.as_str().to_string(),
-            object_id: object_ref.object_id.clone(),
-        })
     }
 }
 

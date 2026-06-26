@@ -1,44 +1,17 @@
 //! Persisted context graph inspection view.
 //!
-//! This module is a read-side projection over canonical SQLite tables. It does
+//! This module defines the read-side context graph projection shape. It does
 //! not own graph truth; memory, entity, provenance, participant, and
 //! relationship claim tables remain the source of truth.
 
 use crate::{
-    context_graph_rows::{
-        collect_sql_rows, row_to_graph_access_grant, row_to_graph_context_packet,
-        row_to_graph_context_packet_memory_edge, row_to_graph_context_packet_omission,
-        row_to_graph_entity_node, row_to_graph_memory_event, row_to_graph_memory_node,
-        row_to_graph_memory_use_record, row_to_graph_object_link_edge,
-        row_to_graph_participant_edge, row_to_graph_provenance_edge, row_to_graph_purpose_rule,
-        row_to_graph_subject_edge, row_to_relationship_summary,
-    },
-    context_graph_sql::{
-        GRAPH_ACCESS_GRANTS_SQL, GRAPH_CONTEXT_PACKET_MEMORY_EDGES_SQL,
-        GRAPH_CONTEXT_PACKET_OMISSIONS_SQL, GRAPH_CONTEXT_PACKETS_SQL, GRAPH_ENTITY_NODES_SQL,
-        GRAPH_MEMORY_EVENTS_SQL, GRAPH_MEMORY_NODES_SQL, GRAPH_MEMORY_USE_RECORDS_SQL,
-        GRAPH_OBJECT_LINK_EDGES_SQL, GRAPH_PARTICIPANT_EDGES_SQL, GRAPH_PROVENANCE_EDGES_SQL,
-        GRAPH_PURPOSE_RULES_SQL, GRAPH_RELATIONSHIP_EDGES_SQL, GRAPH_SUBJECT_EDGES_SQL,
-        RELATIONSHIP_BY_ID_SQL,
-    },
     memory::{
         Effect, ExternalEgressPolicy, MemoryId, MemoryStatus, ParticipantRole,
         ParticipantVisibilityPolicy, Purpose, RelationshipStatus, RetrievalPolicyStatus,
         Sensitivity, SubjectRole,
     },
-    memory_persistence::{MemoryPersistenceError, MemoryType},
+    memory_persistence::MemoryType,
 };
-use rusqlite::{Connection, OptionalExtension, params};
-
-macro_rules! graph_params {
-    ($limit:expr, $filter:expr) => {
-        params![
-            $limit,
-            $filter.run_id.as_deref(),
-            $filter.context_packet_id.as_deref()
-        ]
-    };
-}
 
 /// Persisted relationship claim edge for graph inspection.
 #[derive(Debug, Clone, PartialEq)]
@@ -65,7 +38,7 @@ pub struct RelationshipSummary {
     pub status: RelationshipStatus,
     /// Optional confidence score.
     pub confidence: Option<f64>,
-    /// SQLite-created timestamp.
+    /// Storage-created timestamp.
     pub created_at: String,
 }
 
@@ -152,7 +125,7 @@ pub struct GraphMemoryNode {
     pub participant_visibility_policy: ParticipantVisibilityPolicy,
     /// External egress policy.
     pub external_egress_policy: ExternalEgressPolicy,
-    /// SQLite-created timestamp.
+    /// Storage-created timestamp.
     pub created_at: String,
 }
 
@@ -237,7 +210,7 @@ pub struct GraphObjectLinkEdge {
     pub resolver_version: Option<String>,
     /// Run that produced the object link, if recorded.
     pub source_run_id: Option<String>,
-    /// SQLite-created timestamp.
+    /// Storage-created timestamp.
     pub created_at: String,
 }
 
@@ -254,7 +227,7 @@ pub struct GraphPurposeRule {
     pub created_by_object_type: Option<String>,
     /// Object id that created the rule, if recorded.
     pub created_by_object_id: Option<String>,
-    /// SQLite-created timestamp.
+    /// Storage-created timestamp.
     pub created_at: String,
 }
 
@@ -281,7 +254,7 @@ pub struct GraphAccessGrant {
     pub created_by_object_type: Option<String>,
     /// Object id that created the grant, if recorded.
     pub created_by_object_id: Option<String>,
-    /// SQLite-created timestamp.
+    /// Storage-created timestamp.
     pub created_at: String,
 }
 
@@ -302,7 +275,7 @@ pub struct GraphContextPacket {
     pub active_objects: String,
     /// Agent-visible redacted omissions as canonical JSON.
     pub agent_visible_omissions: String,
-    /// SQLite-created timestamp.
+    /// Storage-created timestamp.
     pub created_at: String,
 }
 
@@ -325,7 +298,7 @@ pub struct GraphContextPacketMemoryEdge {
     pub eligibility_reason: Option<String>,
     /// Ranking reasons as canonical JSON.
     pub rank_reasons: String,
-    /// SQLite-created timestamp.
+    /// Storage-created timestamp.
     pub created_at: String,
 }
 
@@ -346,7 +319,7 @@ pub struct GraphContextPacketOmission {
     pub agent_visible_reason: String,
     /// Audit-only precise denial reason.
     pub audit_reason: String,
-    /// SQLite-created timestamp.
+    /// Storage-created timestamp.
     pub created_at: String,
     /// Audit details as canonical JSON.
     pub details: String,
@@ -383,7 +356,7 @@ pub struct GraphMemoryUseRecord {
     pub used_for_object_id: Option<String>,
     /// Policy decision id, if any.
     pub policy_decision_id: Option<String>,
-    /// SQLite-created timestamp.
+    /// Storage-created timestamp.
     pub created_at: String,
     /// Details as canonical JSON.
     pub details: String,
@@ -408,262 +381,8 @@ pub struct GraphMemoryEvent {
     pub target_memory_sensitivity: Option<Sensitivity>,
     /// Event reason, if recorded.
     pub reason: Option<String>,
-    /// SQLite-created timestamp.
+    /// Storage-created timestamp.
     pub created_at: String,
     /// Event details as canonical JSON.
     pub details: String,
-}
-
-pub(crate) fn relationship_by_id(
-    conn: &Connection,
-    relationship_id: &str,
-) -> Result<Option<RelationshipSummary>, MemoryPersistenceError> {
-    conn.query_row(
-        RELATIONSHIP_BY_ID_SQL,
-        params![relationship_id],
-        row_to_relationship_summary,
-    )
-    .optional()
-    .map_err(MemoryPersistenceError::Sqlite)
-}
-
-pub(crate) fn inspect(
-    conn: &Connection,
-    limit: u32,
-    filter: &ContextGraphFilter,
-) -> Result<ContextGraphSummary, MemoryPersistenceError> {
-    let memories = graph_memory_nodes(conn, limit, filter)?;
-    let entities = graph_entity_nodes(conn, limit, filter)?;
-    let subject_edges = graph_subject_edges(conn, limit, filter)?;
-    let participant_edges = graph_participant_edges(conn, limit, filter)?;
-    let provenance_edges = graph_provenance_edges(conn, limit, filter)?;
-    let object_link_edges = graph_object_link_edges(conn, limit, filter)?;
-    let purpose_rules = graph_purpose_rules(conn, limit, filter)?;
-    let access_grants = graph_access_grants(conn, limit, filter)?;
-    let context_packets = graph_context_packets(conn, limit, filter)?;
-    let context_packet_memory_edges = graph_context_packet_memory_edges(conn, limit, filter)?;
-    let context_packet_omissions = graph_context_packet_omissions(conn, limit, filter)?;
-    let memory_use_records = graph_memory_use_records(conn, limit, filter)?;
-    let object_events = graph_object_events(conn, limit, filter)?;
-    let relationships = graph_relationship_edges(conn, limit, filter)?;
-    Ok(ContextGraphSummary {
-        memories,
-        entities,
-        subject_edges,
-        participant_edges,
-        provenance_edges,
-        object_link_edges,
-        purpose_rules,
-        access_grants,
-        context_packets,
-        context_packet_memory_edges,
-        context_packet_omissions,
-        memory_use_records,
-        object_events,
-        relationships,
-    })
-}
-
-fn graph_memory_nodes(
-    conn: &Connection,
-    limit: u32,
-    filter: &ContextGraphFilter,
-) -> Result<Vec<GraphMemoryNode>, MemoryPersistenceError> {
-    let mut stmt = conn
-        .prepare(GRAPH_MEMORY_NODES_SQL)
-        .map_err(MemoryPersistenceError::Sqlite)?;
-    let rows = stmt
-        .query_map(graph_params!(limit, filter), |row| {
-            row_to_graph_memory_node(conn, row)
-        })
-        .map_err(MemoryPersistenceError::Sqlite)?;
-    collect_sql_rows(rows)
-}
-
-fn graph_entity_nodes(
-    conn: &Connection,
-    limit: u32,
-    filter: &ContextGraphFilter,
-) -> Result<Vec<GraphEntityNode>, MemoryPersistenceError> {
-    let mut stmt = conn
-        .prepare(GRAPH_ENTITY_NODES_SQL)
-        .map_err(MemoryPersistenceError::Sqlite)?;
-    let rows = stmt
-        .query_map(graph_params!(limit, filter), row_to_graph_entity_node)
-        .map_err(MemoryPersistenceError::Sqlite)?;
-    collect_sql_rows(rows)
-}
-
-fn graph_subject_edges(
-    conn: &Connection,
-    limit: u32,
-    filter: &ContextGraphFilter,
-) -> Result<Vec<GraphSubjectEdge>, MemoryPersistenceError> {
-    let mut stmt = conn
-        .prepare(GRAPH_SUBJECT_EDGES_SQL)
-        .map_err(MemoryPersistenceError::Sqlite)?;
-    let rows = stmt
-        .query_map(graph_params!(limit, filter), row_to_graph_subject_edge)
-        .map_err(MemoryPersistenceError::Sqlite)?;
-    collect_sql_rows(rows)
-}
-
-fn graph_participant_edges(
-    conn: &Connection,
-    limit: u32,
-    filter: &ContextGraphFilter,
-) -> Result<Vec<GraphParticipantEdge>, MemoryPersistenceError> {
-    let mut stmt = conn
-        .prepare(GRAPH_PARTICIPANT_EDGES_SQL)
-        .map_err(MemoryPersistenceError::Sqlite)?;
-    let rows = stmt
-        .query_map(graph_params!(limit, filter), row_to_graph_participant_edge)
-        .map_err(MemoryPersistenceError::Sqlite)?;
-    collect_sql_rows(rows)
-}
-
-fn graph_provenance_edges(
-    conn: &Connection,
-    limit: u32,
-    filter: &ContextGraphFilter,
-) -> Result<Vec<GraphProvenanceEdge>, MemoryPersistenceError> {
-    let mut stmt = conn
-        .prepare(GRAPH_PROVENANCE_EDGES_SQL)
-        .map_err(MemoryPersistenceError::Sqlite)?;
-    let rows = stmt
-        .query_map(graph_params!(limit, filter), row_to_graph_provenance_edge)
-        .map_err(MemoryPersistenceError::Sqlite)?;
-    collect_sql_rows(rows)
-}
-
-fn graph_object_link_edges(
-    conn: &Connection,
-    limit: u32,
-    filter: &ContextGraphFilter,
-) -> Result<Vec<GraphObjectLinkEdge>, MemoryPersistenceError> {
-    let mut stmt = conn
-        .prepare(GRAPH_OBJECT_LINK_EDGES_SQL)
-        .map_err(MemoryPersistenceError::Sqlite)?;
-    let rows = stmt
-        .query_map(graph_params!(limit, filter), row_to_graph_object_link_edge)
-        .map_err(MemoryPersistenceError::Sqlite)?;
-    collect_sql_rows(rows)
-}
-
-fn graph_purpose_rules(
-    conn: &Connection,
-    limit: u32,
-    filter: &ContextGraphFilter,
-) -> Result<Vec<GraphPurposeRule>, MemoryPersistenceError> {
-    let mut stmt = conn
-        .prepare(GRAPH_PURPOSE_RULES_SQL)
-        .map_err(MemoryPersistenceError::Sqlite)?;
-    let rows = stmt
-        .query_map(graph_params!(limit, filter), row_to_graph_purpose_rule)
-        .map_err(MemoryPersistenceError::Sqlite)?;
-    collect_sql_rows(rows)
-}
-
-fn graph_access_grants(
-    conn: &Connection,
-    limit: u32,
-    filter: &ContextGraphFilter,
-) -> Result<Vec<GraphAccessGrant>, MemoryPersistenceError> {
-    let mut stmt = conn
-        .prepare(GRAPH_ACCESS_GRANTS_SQL)
-        .map_err(MemoryPersistenceError::Sqlite)?;
-    let rows = stmt
-        .query_map(graph_params!(limit, filter), row_to_graph_access_grant)
-        .map_err(MemoryPersistenceError::Sqlite)?;
-    collect_sql_rows(rows)
-}
-
-fn graph_context_packets(
-    conn: &Connection,
-    limit: u32,
-    filter: &ContextGraphFilter,
-) -> Result<Vec<GraphContextPacket>, MemoryPersistenceError> {
-    let mut stmt = conn
-        .prepare(GRAPH_CONTEXT_PACKETS_SQL)
-        .map_err(MemoryPersistenceError::Sqlite)?;
-    let rows = stmt
-        .query_map(graph_params!(limit, filter), row_to_graph_context_packet)
-        .map_err(MemoryPersistenceError::Sqlite)?;
-    collect_sql_rows(rows)
-}
-
-fn graph_context_packet_memory_edges(
-    conn: &Connection,
-    limit: u32,
-    filter: &ContextGraphFilter,
-) -> Result<Vec<GraphContextPacketMemoryEdge>, MemoryPersistenceError> {
-    let mut stmt = conn
-        .prepare(GRAPH_CONTEXT_PACKET_MEMORY_EDGES_SQL)
-        .map_err(MemoryPersistenceError::Sqlite)?;
-    let rows = stmt
-        .query_map(
-            graph_params!(limit, filter),
-            row_to_graph_context_packet_memory_edge,
-        )
-        .map_err(MemoryPersistenceError::Sqlite)?;
-    collect_sql_rows(rows)
-}
-
-fn graph_context_packet_omissions(
-    conn: &Connection,
-    limit: u32,
-    filter: &ContextGraphFilter,
-) -> Result<Vec<GraphContextPacketOmission>, MemoryPersistenceError> {
-    let mut stmt = conn
-        .prepare(GRAPH_CONTEXT_PACKET_OMISSIONS_SQL)
-        .map_err(MemoryPersistenceError::Sqlite)?;
-    let rows = stmt
-        .query_map(
-            graph_params!(limit, filter),
-            row_to_graph_context_packet_omission,
-        )
-        .map_err(MemoryPersistenceError::Sqlite)?;
-    collect_sql_rows(rows)
-}
-
-fn graph_memory_use_records(
-    conn: &Connection,
-    limit: u32,
-    filter: &ContextGraphFilter,
-) -> Result<Vec<GraphMemoryUseRecord>, MemoryPersistenceError> {
-    let mut stmt = conn
-        .prepare(GRAPH_MEMORY_USE_RECORDS_SQL)
-        .map_err(MemoryPersistenceError::Sqlite)?;
-    let rows = stmt
-        .query_map(graph_params!(limit, filter), row_to_graph_memory_use_record)
-        .map_err(MemoryPersistenceError::Sqlite)?;
-    collect_sql_rows(rows)
-}
-
-fn graph_object_events(
-    conn: &Connection,
-    limit: u32,
-    filter: &ContextGraphFilter,
-) -> Result<Vec<GraphMemoryEvent>, MemoryPersistenceError> {
-    let mut stmt = conn
-        .prepare(GRAPH_MEMORY_EVENTS_SQL)
-        .map_err(MemoryPersistenceError::Sqlite)?;
-    let rows = stmt
-        .query_map(graph_params!(limit, filter), row_to_graph_memory_event)
-        .map_err(MemoryPersistenceError::Sqlite)?;
-    collect_sql_rows(rows)
-}
-
-fn graph_relationship_edges(
-    conn: &Connection,
-    limit: u32,
-    filter: &ContextGraphFilter,
-) -> Result<Vec<RelationshipSummary>, MemoryPersistenceError> {
-    let mut stmt = conn
-        .prepare(GRAPH_RELATIONSHIP_EDGES_SQL)
-        .map_err(MemoryPersistenceError::Sqlite)?;
-    let rows = stmt
-        .query_map(graph_params!(limit, filter), row_to_relationship_summary)
-        .map_err(MemoryPersistenceError::Sqlite)?;
-    collect_sql_rows(rows)
 }

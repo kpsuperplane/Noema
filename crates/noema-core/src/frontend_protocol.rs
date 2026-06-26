@@ -32,9 +32,9 @@ pub enum WebAssistantConnection {
 #[serde(rename_all = "snake_case")]
 #[ts(rename_all = "snake_case")]
 pub enum WebMemoryStorageStatus {
-    /// The canonical SQLite database is present.
+    /// The canonical memory store is ready.
     Ready,
-    /// The canonical SQLite database has not been created yet.
+    /// The canonical memory store is being initialized.
     Initializing,
 }
 
