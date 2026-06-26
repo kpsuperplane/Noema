@@ -103,6 +103,20 @@ impl NoemaPaths {
         self.db_dir().join("postgres")
     }
 
+    /// Path to the provider credential root.
+    #[must_use]
+    pub fn providers_dir(&self) -> PathBuf {
+        self.root.join("providers")
+    }
+
+    /// Path to one provider account's credential home.
+    #[must_use]
+    pub fn provider_account_home(&self, provider_kind: &str, account_key: &str) -> PathBuf {
+        self.providers_dir()
+            .join(sanitize_path_segment(provider_kind))
+            .join(sanitize_path_segment(account_key))
+    }
+
     /// Path to the daemon socket.
     #[must_use]
     pub fn socket_path(&self) -> PathBuf {
@@ -132,6 +146,19 @@ pub enum NoemaPathError {
     /// The `NOEMA_HOME` value was present but empty.
     #[error("{NOEMA_HOME_ENV} cannot be empty")]
     EmptyNoemaHome,
+}
+
+fn sanitize_path_segment(value: &str) -> String {
+    value
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || matches!(character, '-' | '_') {
+                character
+            } else {
+                '_'
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -179,5 +206,25 @@ mod tests {
         let error = NoemaPaths::from_env_values(None, None).unwrap_err();
 
         assert!(matches!(error, NoemaPathError::MissingHome));
+    }
+
+    #[test]
+    fn provider_account_home_is_under_noema_providers() {
+        let paths = NoemaPaths::from_noema_home("/tmp/noema").expect("paths");
+
+        assert_eq!(
+            paths.provider_account_home("codex", "default"),
+            PathBuf::from("/tmp/noema/providers/codex/default")
+        );
+    }
+
+    #[test]
+    fn provider_account_home_sanitizes_segments() {
+        let paths = NoemaPaths::from_noema_home("/tmp/noema").expect("paths");
+
+        assert_eq!(
+            paths.provider_account_home("co/dex", "../default"),
+            PathBuf::from("/tmp/noema/providers/co_dex/___default")
+        );
     }
 }

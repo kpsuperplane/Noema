@@ -28,6 +28,8 @@ mod postgres_memory_retrieval;
 mod postgres_retrieval_policy_fingerprint;
 /// Provider-neutral generation request and response types.
 pub mod provider;
+/// Provider authentication support.
+pub mod provider_auth;
 /// Concrete model provider adapters.
 pub mod providers;
 mod retrieval_policy_fingerprint;
