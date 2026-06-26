@@ -456,6 +456,32 @@ impl SqliteMemoryRepository {
         })
     }
 
+    /// Update the live agent status for a durable conversation.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MemoryPersistenceError`] when the conversation is missing or
+    /// SQLite writes fail.
+    pub fn update_conversation_agent_status(
+        &mut self,
+        conversation_id: &str,
+        status: AgentStatus,
+    ) -> Result<(), MemoryPersistenceError> {
+        self.validate_object_ref(&ObjectRef::new(ObjectType::Conversation, conversation_id)?)?;
+        self.conn
+            .execute(
+                r"
+                UPDATE conversations
+                SET agent_status = ?2,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE conversation_id = ?1
+                ",
+                params![conversation_id, status.as_str()],
+            )
+            .map_err(MemoryPersistenceError::Sqlite)?;
+        Ok(())
+    }
+
     /// Append a durable item to a conversation stream.
     ///
     /// # Errors

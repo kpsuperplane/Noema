@@ -279,6 +279,11 @@ async fn runtime_actor_persists_explicit_remember_confirmed() {
         )
         .expect("conversation item count");
     assert_eq!(conversation_item_count, 4);
+
+    let (agent_status, turn_status) =
+        conversation_and_turn_statuses(&conn, &conversation_id).expect("conversation statuses");
+    assert_eq!(agent_status, "idle");
+    assert_eq!(turn_status, "completed");
 }
 
 #[tokio::test]
@@ -424,6 +429,12 @@ async fn runtime_actor_persists_provider_structured_memory_proposals_as_activity
             && item.status == ConversationItemStatus::Completed
             && item.payload_json["schema"] == "memory_proposals"
     }));
+
+    let conn = rusqlite::Connection::open(&db_path).expect("raw conn");
+    let (agent_status, turn_status) =
+        conversation_and_turn_statuses(&conn, &conversation_id).expect("conversation statuses");
+    assert_eq!(agent_status, "idle");
+    assert_eq!(turn_status, "completed");
 }
 
 #[tokio::test]
@@ -575,6 +586,16 @@ async fn runtime_actor_persists_explicit_remember_before_provider_failure() {
         .list_conversation_items(&conversation_id, ReplayMode::Visible)
         .expect("conversation replay");
     assert!(replay.iter().any(|item| {
+        item.kind == ConversationItemKind::Activity
+            && item.status == ConversationItemStatus::Completed
+            && item.payload_json["activity_kind"] == "memory_save"
+    }));
+    assert!(replay.iter().any(|item| {
+        item.kind == ConversationItemKind::A2uiCard
+            && item.status == ConversationItemStatus::Completed
+            && item.payload_json["schema"] == "memory_cards"
+    }));
+    assert!(replay.iter().any(|item| {
         item.kind == ConversationItemKind::ErrorNotice
             && item.status == ConversationItemStatus::Failed
             && item
@@ -584,14 +605,26 @@ async fn runtime_actor_persists_explicit_remember_before_provider_failure() {
     }));
 
     let conn = rusqlite::Connection::open(&db_path).expect("raw conn");
-    let turn_status: String = conn
-        .query_row(
-            "SELECT status FROM conversation_turns WHERE conversation_id = ?1",
-            rusqlite::params![conversation_id],
-            |row| row.get(0),
-        )
-        .expect("turn status");
+    let (agent_status, turn_status) =
+        conversation_and_turn_statuses(&conn, &conversation_id).expect("conversation statuses");
+    assert_eq!(agent_status, "error");
     assert_eq!(turn_status, "failed");
+}
+
+fn conversation_and_turn_statuses(
+    conn: &rusqlite::Connection,
+    conversation_id: &str,
+) -> rusqlite::Result<(String, String)> {
+    conn.query_row(
+        r"
+        SELECT c.agent_status, t.status
+        FROM conversations c
+        JOIN conversation_turns t ON t.conversation_id = c.conversation_id
+        WHERE c.conversation_id = ?1
+        ",
+        rusqlite::params![conversation_id],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )
 }
 
 async fn collect_turn(
@@ -648,7 +681,12 @@ for line in sys.stdin:
 }
 
 fn assistant_text(items: &[TurnTranscriptItem]) -> &str {
-    let Some(TurnTranscriptItem::AssistantText { text }) = items.first() else {
+    let Some(text) = items.iter().find_map(|item| match item {
+        TurnTranscriptItem::AssistantText { text } => Some(text.as_str()),
+        TurnTranscriptItem::Activity { .. }
+        | TurnTranscriptItem::A2uiCard { .. }
+        | TurnTranscriptItem::ErrorNotice { .. } => None,
+    }) else {
         panic!("expected assistant text item, got {items:?}");
     };
     text

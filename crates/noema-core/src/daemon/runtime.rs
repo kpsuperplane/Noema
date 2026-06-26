@@ -9,12 +9,12 @@ use crate::{
         validate_memory_extraction_response,
     },
     memory_persistence::{
-        ConversationItemKind, ConversationItemStatus, MemoryAuthorityLevel, MemoryExtractionMethod,
-        NewConversation, NewConversationItem, NewConversationTurn, NewMemoryCandidate,
-        NewMemoryParticipant, ObjectProvenanceSource, ObjectRef, ObjectType,
+        AgentStatus, ConversationItemKind, ConversationItemStatus, MemoryAuthorityLevel,
+        MemoryExtractionMethod, NewConversation, NewConversationItem, NewConversationTurn,
+        NewMemoryCandidate, NewMemoryParticipant, ObjectProvenanceSource, ObjectRef, ObjectType,
         SqliteMemoryRepository,
     },
-    provider::GenerateOutputItem,
+    provider::{GenerateOutputItem, GenerateResponse},
     providers::{
         codex::CodexProviderConfig,
         codex_app_server::{CodexAppServerConversation, CodexAppServerRuntime},
@@ -340,6 +340,8 @@ impl CodexRuntimeActor {
                 trigger_item_id: None,
                 metadata: json!({ "turn_index": turn_index }),
             })?;
+        self.memory_repository
+            .update_conversation_agent_status(&conversation_id, AgentStatus::InputReceived)?;
         let user_item = self
             .memory_repository
             .append_conversation_item(NewConversationItem {
@@ -359,6 +361,30 @@ impl CodexRuntimeActor {
             &user_item.item_id,
             &input,
         )?;
+        if let Some(memory_id) = saved_memory_id.as_deref() {
+            let memory_context = ConversationMemoryContext {
+                turn_index,
+                conversation_id: conversation_id.clone(),
+                turn_id: turn.turn_id.clone(),
+                user_item_id: user_item.item_id.clone(),
+                assistant_item_id: None,
+                user_content: input.clone(),
+                assistant_content: String::new(),
+                cwd: conversation.cwd.clone(),
+            };
+            if let Err(error) = self.persist_explicit_memory_transcript_items(
+                &memory_context,
+                memory_id,
+                &input,
+                &item_tx,
+            ) {
+                self.record_turn_failure(&memory_context, error.to_string(), &item_tx)?;
+                self.conversations.remove(&conversation_id);
+                return Err(error);
+            }
+        }
+        self.memory_repository
+            .update_conversation_agent_status(&conversation_id, AgentStatus::Thinking)?;
         let structured_instructions = build_structured_turn_system_prompt(
             &conversation_id,
             turn_index,
@@ -375,131 +401,38 @@ impl CodexRuntimeActor {
             .await
         {
             Ok(response) => {
-                let assistant_text = response.assistant_text();
-                let provider_memory_proposals = response.memory_proposals();
-                let mut assistant_item_id = None;
-                for (index, output) in response.output.into_iter().enumerate() {
-                    match output {
-                        GenerateOutputItem::AssistantText { text } => {
-                            let assistant_item = self.memory_repository.append_conversation_item(
-                                NewConversationItem {
-                                    conversation_id: conversation_id.clone(),
-                                    turn_id: Some(turn.turn_id.clone()),
-                                    parent_item_id: Some(user_item.item_id.clone()),
-                                    kind: ConversationItemKind::AssistantText,
-                                    status: ConversationItemStatus::Completed,
-                                    author: ObjectRef::agent("agent:primary"),
-                                    content_text: Some(text.clone()),
-                                    payload_json: json!({}),
-                                    metadata: json!({
-                                        "turn_index": turn_index,
-                                        "output_index": index,
-                                    }),
-                                },
-                            )?;
-                            if assistant_item_id.is_none() {
-                                assistant_item_id = Some(assistant_item.item_id);
-                            }
-                            let _ = item_tx.send(TurnTranscriptItem::AssistantText { text });
-                        }
-                        GenerateOutputItem::MemoryProposals { .. } => {}
-                        GenerateOutputItem::Structured { schema, payload } => {
-                            let _ = self.memory_repository.append_conversation_item(
-                                NewConversationItem {
-                                    conversation_id: conversation_id.clone(),
-                                    turn_id: Some(turn.turn_id.clone()),
-                                    parent_item_id: Some(user_item.item_id.clone()),
-                                    kind: ConversationItemKind::A2uiCard,
-                                    status: ConversationItemStatus::Completed,
-                                    author: ObjectRef::agent("agent:primary"),
-                                    content_text: None,
-                                    payload_json: json!({
-                                        "schema": schema.clone(),
-                                        "payload": payload.clone(),
-                                    }),
-                                    metadata: json!({
-                                        "turn_index": turn_index,
-                                        "output_index": index,
-                                        "source": "provider_structured_output",
-                                    }),
-                                },
-                            )?;
-                            let _ = item_tx.send(TurnTranscriptItem::A2uiCard {
-                                id: format!(
-                                    "provider_structured:{conversation_id}:{turn_index}:{index}"
-                                ),
-                                schema: schema.clone(),
-                                payload: payload.clone(),
-                            });
-                        }
-                    }
-                }
-                self.memory_repository
-                    .complete_conversation_turn(&turn.turn_id)?;
-
-                if let Some(conversation) = self.conversations.get_mut(&conversation_id) {
-                    conversation.next_turn_index = conversation.next_turn_index.saturating_add(1);
-                }
-
-                let memory_context = ConversationMemoryContext {
-                    turn_index,
-                    conversation_id: conversation_id.clone(),
-                    turn_id: turn.turn_id,
-                    user_item_id: user_item.item_id,
-                    assistant_item_id,
-                    user_content: input.clone(),
-                    assistant_content: assistant_text.clone(),
-                    cwd: conversation.cwd.clone(),
-                };
-
-                if let Some(memory_id) = saved_memory_id {
-                    let activity = typed_memory_activity(
-                        &format!("memory_save:{conversation_id}:{turn_index}"),
-                        "memory_save",
-                        TurnActivityStatus::Completed,
-                        "Memory saved",
-                        Some("saved one explicit memory"),
-                        json!({
-                            "turn_index": turn_index,
-                            "created_memory_ids": [memory_id],
-                            "trigger": "explicit_remember",
-                        }),
-                    );
-                    self.persist_and_send_turn_item(&memory_context, activity, &item_tx)?;
-                    let memory_content = explicit_memory_content(&input).unwrap_or_default();
-                    let card = TurnTranscriptItem::A2uiCard {
-                        id: format!("memory_cards:{conversation_id}:{turn_index}"),
-                        schema: "memory_cards".to_string(),
-                        payload: json!({
-                            "turn_index": turn_index,
-                            "source": "explicit_remember",
-                            "created_memory_ids": [memory_id],
-                            "memories": [{
-                                "content": memory_content,
-                                "title": title_from_memory_content(&memory_content),
-                                "memory_type": infer_chat_memory_type(&memory_content).as_str(),
-                                "sensitivity": sensitivity_payload_label(infer_chat_sensitivity(&memory_content)),
-                                "status": "confirmed",
-                            }],
-                        }),
-                    };
-                    self.persist_and_send_turn_item(&memory_context, card, &item_tx)?;
-                } else if !provider_memory_proposals.is_empty() {
-                    self.persist_provider_memory_proposals(
-                        &memory_context,
-                        provider_memory_proposals,
+                let result = self
+                    .persist_successful_provider_turn(
+                        &conversation_id,
+                        &turn.turn_id,
+                        turn_index,
+                        &user_item.item_id,
+                        &input,
+                        conversation.cwd.clone(),
+                        response,
+                        saved_memory_id,
                         &item_tx,
-                    )?;
-                } else {
-                    self.memory_extraction_worker.extract(memory_context).await;
+                    )
+                    .await;
+                if let Err(error) = result {
+                    let failure_context = ConversationMemoryContext {
+                        turn_index,
+                        conversation_id: conversation_id.clone(),
+                        turn_id: turn.turn_id,
+                        user_item_id: user_item.item_id,
+                        assistant_item_id: None,
+                        user_content: input,
+                        assistant_content: String::new(),
+                        cwd: conversation.cwd.clone(),
+                    };
+                    self.record_turn_failure(&failure_context, error.to_string(), &item_tx)?;
+                    self.conversations.remove(&conversation_id);
+                    return Err(error);
                 }
 
                 Ok(())
             }
             Err(error) => {
-                let message = error.to_string();
-                self.memory_repository
-                    .fail_conversation_turn(&turn.turn_id)?;
                 let error_context = ConversationMemoryContext {
                     turn_index,
                     conversation_id: conversation_id.clone(),
@@ -510,15 +443,177 @@ impl CodexRuntimeActor {
                     assistant_content: String::new(),
                     cwd: conversation.cwd.clone(),
                 };
-                let notice = TurnTranscriptItem::ErrorNotice {
-                    message,
-                    recoverable: false,
-                };
-                self.persist_and_send_turn_item(&error_context, notice, &item_tx)?;
+                self.record_turn_failure(&error_context, error.to_string(), &item_tx)?;
                 self.conversations.remove(&conversation_id);
                 Err(error.into())
             }
         }
+    }
+
+    async fn persist_successful_provider_turn(
+        &mut self,
+        conversation_id: &str,
+        turn_id: &str,
+        turn_index: u64,
+        user_item_id: &str,
+        user_input: &str,
+        cwd: Option<String>,
+        response: GenerateResponse,
+        saved_memory_id: Option<String>,
+        item_tx: &mpsc::UnboundedSender<TurnTranscriptItem>,
+    ) -> Result<(), DaemonError> {
+        let assistant_text = response.assistant_text();
+        let provider_memory_proposals = response.memory_proposals();
+        let mut assistant_item_id = None;
+        for (index, output) in response.output.into_iter().enumerate() {
+            match output {
+                GenerateOutputItem::AssistantText { text } => {
+                    let assistant_item =
+                        self.memory_repository
+                            .append_conversation_item(NewConversationItem {
+                                conversation_id: conversation_id.to_string(),
+                                turn_id: Some(turn_id.to_string()),
+                                parent_item_id: Some(user_item_id.to_string()),
+                                kind: ConversationItemKind::AssistantText,
+                                status: ConversationItemStatus::Completed,
+                                author: ObjectRef::agent("agent:primary"),
+                                content_text: Some(text.clone()),
+                                payload_json: json!({}),
+                                metadata: json!({
+                                    "turn_index": turn_index,
+                                    "output_index": index,
+                                }),
+                            })?;
+                    if assistant_item_id.is_none() {
+                        assistant_item_id = Some(assistant_item.item_id);
+                    }
+                    let _ = item_tx.send(TurnTranscriptItem::AssistantText { text });
+                }
+                GenerateOutputItem::MemoryProposals { .. } => {}
+                GenerateOutputItem::Structured { schema, payload } => {
+                    let _ =
+                        self.memory_repository
+                            .append_conversation_item(NewConversationItem {
+                                conversation_id: conversation_id.to_string(),
+                                turn_id: Some(turn_id.to_string()),
+                                parent_item_id: Some(user_item_id.to_string()),
+                                kind: ConversationItemKind::A2uiCard,
+                                status: ConversationItemStatus::Completed,
+                                author: ObjectRef::agent("agent:primary"),
+                                content_text: None,
+                                payload_json: json!({
+                                    "schema": schema.clone(),
+                                    "payload": payload.clone(),
+                                }),
+                                metadata: json!({
+                                    "turn_index": turn_index,
+                                    "output_index": index,
+                                    "source": "provider_structured_output",
+                                }),
+                            })?;
+                    let _ = item_tx.send(TurnTranscriptItem::A2uiCard {
+                        id: format!("provider_structured:{conversation_id}:{turn_index}:{index}"),
+                        schema: schema.clone(),
+                        payload: payload.clone(),
+                    });
+                }
+            }
+        }
+
+        let memory_context = ConversationMemoryContext {
+            turn_index,
+            conversation_id: conversation_id.to_string(),
+            turn_id: turn_id.to_string(),
+            user_item_id: user_item_id.to_string(),
+            assistant_item_id,
+            user_content: user_input.to_string(),
+            assistant_content: assistant_text,
+            cwd,
+        };
+
+        if saved_memory_id.is_none() && !provider_memory_proposals.is_empty() {
+            self.persist_provider_memory_proposals(
+                &memory_context,
+                provider_memory_proposals,
+                item_tx,
+            )?;
+        } else if saved_memory_id.is_none() {
+            self.memory_extraction_worker.extract(memory_context).await;
+        }
+
+        self.memory_repository.complete_conversation_turn(turn_id)?;
+        self.memory_repository
+            .update_conversation_agent_status(conversation_id, AgentStatus::Idle)?;
+
+        if let Some(conversation) = self.conversations.get_mut(conversation_id) {
+            conversation.next_turn_index = conversation.next_turn_index.saturating_add(1);
+        }
+
+        Ok(())
+    }
+
+    fn persist_explicit_memory_transcript_items(
+        &mut self,
+        context: &ConversationMemoryContext,
+        memory_id: &str,
+        user_input: &str,
+        item_tx: &mpsc::UnboundedSender<TurnTranscriptItem>,
+    ) -> Result<(), DaemonError> {
+        let activity = typed_memory_activity(
+            &format!(
+                "memory_save:{}:{}",
+                context.conversation_id, context.turn_index
+            ),
+            "memory_save",
+            TurnActivityStatus::Completed,
+            "Memory saved",
+            Some("saved one explicit memory"),
+            json!({
+                "turn_index": context.turn_index,
+                "created_memory_ids": [memory_id],
+                "trigger": "explicit_remember",
+            }),
+        );
+        self.persist_and_send_turn_item(context, activity, item_tx)?;
+
+        let memory_content = explicit_memory_content(user_input).unwrap_or_default();
+        let card = TurnTranscriptItem::A2uiCard {
+            id: format!(
+                "memory_cards:{}:{}",
+                context.conversation_id, context.turn_index
+            ),
+            schema: "memory_cards".to_string(),
+            payload: json!({
+                "turn_index": context.turn_index,
+                "source": "explicit_remember",
+                "created_memory_ids": [memory_id],
+                "memories": [{
+                    "content": memory_content,
+                    "title": title_from_memory_content(&memory_content),
+                    "memory_type": infer_chat_memory_type(&memory_content).as_str(),
+                    "sensitivity": sensitivity_payload_label(infer_chat_sensitivity(&memory_content)),
+                    "status": "confirmed",
+                }],
+            }),
+        };
+        self.persist_and_send_turn_item(context, card, item_tx)
+    }
+
+    fn record_turn_failure(
+        &mut self,
+        context: &ConversationMemoryContext,
+        message: String,
+        item_tx: &mpsc::UnboundedSender<TurnTranscriptItem>,
+    ) -> Result<(), DaemonError> {
+        self.memory_repository
+            .fail_conversation_turn(&context.turn_id)?;
+        self.memory_repository
+            .update_conversation_agent_status(&context.conversation_id, AgentStatus::Error)?;
+        let notice = TurnTranscriptItem::ErrorNotice {
+            message,
+            recoverable: false,
+        };
+        self.persist_and_send_turn_item(context, notice, item_tx)
     }
 
     fn persist_provider_memory_proposals(
