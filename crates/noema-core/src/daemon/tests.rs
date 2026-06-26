@@ -6,7 +6,10 @@ use super::{
 };
 use crate::{
     memory::Sensitivity,
-    memory_persistence::{MemoryType, SqliteMemoryRepository},
+    memory_persistence::{
+        ConversationItemKind, ConversationItemStatus, MemoryType, ReplayMode,
+        SqliteMemoryRepository,
+    },
     providers::codex::CodexProviderConfig,
 };
 use serde_json::json;
@@ -164,9 +167,10 @@ async fn runtime_actor_persists_explicit_remember_confirmed() {
         .start_conversation(None, None)
         .await
         .expect("conversation");
+    let conversation_id = conversation.conversation_id.clone();
     let items = collect_turn(
         &handle,
-        conversation.conversation_id.clone(),
+        conversation_id.clone(),
         "remember this: Kevin prefers CLI memory inspection.".to_string(),
     )
     .await
@@ -230,8 +234,23 @@ async fn runtime_actor_persists_explicit_remember_confirmed() {
     assert_eq!(memories[0].memory_type, MemoryType::Preference);
     assert_eq!(
         memories[0].conversation_id.as_deref(),
-        Some(conversation.conversation_id.as_str())
+        Some(conversation_id.as_str())
     );
+
+    let replay = repo
+        .list_conversation_items(&conversation_id, ReplayMode::Visible)
+        .expect("conversation replay");
+    assert_eq!(replay.len(), 4);
+    assert!(replay.iter().any(|item| {
+        item.kind == ConversationItemKind::Activity
+            && item.status == ConversationItemStatus::Completed
+            && item.payload_json["activity_kind"] == "memory_save"
+    }));
+    assert!(replay.iter().any(|item| {
+        item.kind == ConversationItemKind::A2uiCard
+            && item.status == ConversationItemStatus::Completed
+            && item.payload_json["schema"] == "memory_cards"
+    }));
 
     let conn = rusqlite::Connection::open(&db_path).expect("raw conn");
     let conversation_item_provenance_count: i64 = conn
@@ -255,11 +274,11 @@ async fn runtime_actor_persists_explicit_remember_confirmed() {
     let conversation_item_count: i64 = conn
         .query_row(
             "SELECT COUNT(*) FROM conversation_items WHERE conversation_id = ?1",
-            rusqlite::params![conversation.conversation_id],
+            rusqlite::params![conversation_id],
             |row| row.get(0),
         )
         .expect("conversation item count");
-    assert_eq!(conversation_item_count, 2);
+    assert_eq!(conversation_item_count, 4);
 }
 
 #[tokio::test]
@@ -338,9 +357,10 @@ async fn runtime_actor_persists_provider_structured_memory_proposals_as_activity
         .start_conversation(None, None)
         .await
         .expect("conversation");
+    let conversation_id = conversation.conversation_id.clone();
     let items = collect_turn(
         &handle,
-        conversation.conversation_id,
+        conversation_id.clone(),
         "I prefer same-call memory proposals.".to_string(),
     )
     .await
@@ -390,6 +410,20 @@ async fn runtime_actor_persists_provider_structured_memory_proposals_as_activity
     );
     assert_eq!(memories[0].status, crate::memory::MemoryStatus::Active);
     assert_eq!(memories[0].memory_type, MemoryType::Preference);
+
+    let replay = repo
+        .list_conversation_items(&conversation_id, ReplayMode::Visible)
+        .expect("conversation replay");
+    assert!(replay.iter().any(|item| {
+        item.kind == ConversationItemKind::Activity
+            && item.status == ConversationItemStatus::Completed
+            && item.payload_json["activity_kind"] == "memory_extraction"
+    }));
+    assert!(replay.iter().any(|item| {
+        item.kind == ConversationItemKind::A2uiCard
+            && item.status == ConversationItemStatus::Completed
+            && item.payload_json["schema"] == "memory_proposals"
+    }));
 }
 
 #[tokio::test]
@@ -517,9 +551,10 @@ async fn runtime_actor_persists_explicit_remember_before_provider_failure() {
         .start_conversation(None, None)
         .await
         .expect("conversation");
+    let conversation_id = conversation.conversation_id.clone();
     let error = collect_turn(
         &handle,
-        conversation.conversation_id,
+        conversation_id.clone(),
         "/remember Kevin wants failed turns to keep explicit memory.".to_string(),
     )
     .await
@@ -527,7 +562,7 @@ async fn runtime_actor_persists_explicit_remember_before_provider_failure() {
     assert!(matches!(error, DaemonError::Provider(_)));
     handle.shutdown().await;
 
-    let repo = SqliteMemoryRepository::open_at(db_path).expect("repo");
+    let repo = SqliteMemoryRepository::open_at(&db_path).expect("repo");
     let memories = repo.list_recent_memories(Some(10)).expect("memories");
     assert_eq!(memories.len(), 1);
     assert_eq!(
@@ -535,6 +570,28 @@ async fn runtime_actor_persists_explicit_remember_before_provider_failure() {
         "Kevin wants failed turns to keep explicit memory."
     );
     assert_eq!(memories[0].status, crate::memory::MemoryStatus::Confirmed);
+
+    let replay = repo
+        .list_conversation_items(&conversation_id, ReplayMode::Visible)
+        .expect("conversation replay");
+    assert!(replay.iter().any(|item| {
+        item.kind == ConversationItemKind::ErrorNotice
+            && item.status == ConversationItemStatus::Failed
+            && item
+                .content_text
+                .as_deref()
+                .is_some_and(|text| text.contains("turn failed"))
+    }));
+
+    let conn = rusqlite::Connection::open(&db_path).expect("raw conn");
+    let turn_status: String = conn
+        .query_row(
+            "SELECT status FROM conversation_turns WHERE conversation_id = ?1",
+            rusqlite::params![conversation_id],
+            |row| row.get(0),
+        )
+        .expect("turn status");
+    assert_eq!(turn_status, "failed");
 }
 
 async fn collect_turn(

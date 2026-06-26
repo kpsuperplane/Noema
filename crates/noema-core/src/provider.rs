@@ -67,6 +67,8 @@ pub struct GenerateOptions {
     pub max_output_tokens: Option<u32>,
     /// Optional sampling temperature.
     pub temperature: Option<f32>,
+    /// Require a strict Noema response envelope with assistant text and memory proposals.
+    pub require_noema_response: bool,
 }
 
 /// Structured response returned by a model provider.
@@ -151,6 +153,26 @@ pub enum GenerateOutputItem {
 /// Returns [`ProviderError::MalformedResponse`] when a Noema envelope is
 /// present but does not match the structured output contract.
 pub fn output_items_from_text(text: String) -> Result<Vec<GenerateOutputItem>, ProviderError> {
+    output_items_from_text_with_mode(text, false)
+}
+
+/// Parse a provider text payload that must be a Noema structured response.
+///
+/// # Errors
+///
+/// Returns [`ProviderError::MalformedResponse`] when the payload is not a
+/// strict `noema_response` envelope containing assistant text and memory
+/// proposals.
+pub fn required_output_items_from_text(
+    text: String,
+) -> Result<Vec<GenerateOutputItem>, ProviderError> {
+    output_items_from_text_with_mode(text, true)
+}
+
+fn output_items_from_text_with_mode(
+    text: String,
+    require_noema_response: bool,
+) -> Result<Vec<GenerateOutputItem>, ProviderError> {
     let trimmed = text.trim();
     if trimmed.is_empty() {
         return Err(ProviderError::MalformedResponse {
@@ -170,7 +192,16 @@ pub fn output_items_from_text(text: String) -> Result<Vec<GenerateOutputItem>, P
                 message: "Noema structured response contained no output items".to_string(),
             });
         }
+        if require_noema_response {
+            validate_required_noema_response_output(&envelope.output)?;
+        }
         return Ok(envelope.output);
+    }
+
+    if require_noema_response {
+        return Err(ProviderError::MalformedResponse {
+            message: "provider did not return a Noema structured response envelope".to_string(),
+        });
     }
 
     Ok(vec![GenerateOutputItem::AssistantText { text }])
@@ -182,6 +213,31 @@ struct GenerateOutputEnvelope {
     #[serde(rename = "type")]
     _envelope_type: String,
     output: Vec<GenerateOutputItem>,
+}
+
+fn validate_required_noema_response_output(
+    output: &[GenerateOutputItem],
+) -> Result<(), ProviderError> {
+    let has_assistant_text = output.iter().any(|item| match item {
+        GenerateOutputItem::AssistantText { text } => !text.trim().is_empty(),
+        GenerateOutputItem::MemoryProposals { .. } | GenerateOutputItem::Structured { .. } => false,
+    });
+    if !has_assistant_text {
+        return Err(ProviderError::MalformedResponse {
+            message: "Noema structured response did not include assistant_text".to_string(),
+        });
+    }
+
+    let has_memory_proposals = output
+        .iter()
+        .any(|item| matches!(item, GenerateOutputItem::MemoryProposals { .. }));
+    if !has_memory_proposals {
+        return Err(ProviderError::MalformedResponse {
+            message: "Noema structured response did not include memory_proposals".to_string(),
+        });
+    }
+
+    Ok(())
 }
 
 /// Provider-reported token counts.
@@ -349,5 +405,52 @@ mod tests {
                 text: "Hello".to_string()
             }]
         );
+    }
+
+    #[test]
+    fn required_noema_response_accepts_assistant_text_and_memory_proposals() {
+        let output = required_output_items_from_text(
+            r#"{"type":"noema_response","output":[{"kind":"assistant_text","text":"Hello"},{"kind":"memory_proposals","proposals":[]}]}"#
+                .to_string(),
+        )
+        .expect("required structured output");
+
+        assert_eq!(output.len(), 2);
+        assert_eq!(
+            output[0],
+            GenerateOutputItem::AssistantText {
+                text: "Hello".to_string()
+            }
+        );
+        assert!(matches!(
+            output[1],
+            GenerateOutputItem::MemoryProposals { ref proposals } if proposals.is_empty()
+        ));
+    }
+
+    #[test]
+    fn required_noema_response_rejects_plain_text() {
+        let error = required_output_items_from_text("Hello".to_string()).unwrap_err();
+
+        assert!(matches!(
+            error,
+            ProviderError::MalformedResponse { message }
+                if message == "provider did not return a Noema structured response envelope"
+        ));
+    }
+
+    #[test]
+    fn required_noema_response_requires_memory_proposals_item() {
+        let error = required_output_items_from_text(
+            r#"{"type":"noema_response","output":[{"kind":"assistant_text","text":"Hello"}]}"#
+                .to_string(),
+        )
+        .unwrap_err();
+
+        assert!(matches!(
+            error,
+            ProviderError::MalformedResponse { message }
+                if message == "Noema structured response did not include memory_proposals"
+        ));
     }
 }

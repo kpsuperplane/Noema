@@ -2,7 +2,7 @@
 
 use crate::provider::{
     GenerateInput, GenerateRequest, GenerateResponse, ModelProvider, ProviderError, TokenUsage,
-    output_items_from_text,
+    output_items_from_text, required_output_items_from_text,
 };
 use reqwest::{StatusCode, header::HeaderMap};
 use serde::{Deserialize, Serialize};
@@ -193,8 +193,14 @@ impl ModelProvider for OpenAiProvider {
 
         let text = collect_output_text(&response)?;
 
+        let output = if request.options.require_noema_response {
+            required_output_items_from_text(text)?
+        } else {
+            output_items_from_text(text)?
+        };
+
         Ok(GenerateResponse {
-            output: output_items_from_text(text)?,
+            output,
             provider: "openai".to_string(),
             model: response.model.unwrap_or(model),
             response_id: response.id,
@@ -409,6 +415,7 @@ mod tests {
                 options: crate::provider::GenerateOptions {
                     max_output_tokens: Some(32),
                     temperature: Some(0.4),
+                    ..crate::provider::GenerateOptions::default()
                 },
             })
             .await

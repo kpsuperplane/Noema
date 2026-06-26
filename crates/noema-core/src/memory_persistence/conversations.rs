@@ -534,6 +534,29 @@ impl SqliteMemoryRepository {
         Ok(())
     }
 
+    /// Mark a durable conversation turn failed.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MemoryPersistenceError`] when the turn is missing or SQLite
+    /// writes fail.
+    pub fn fail_conversation_turn(&mut self, turn_id: &str) -> Result<(), MemoryPersistenceError> {
+        self.validate_object_ref(&ObjectRef::new(ObjectType::ConversationTurn, turn_id)?)?;
+        self.conn
+            .execute(
+                r"
+                UPDATE conversation_turns
+                SET status = 'failed',
+                    completed_at = CURRENT_TIMESTAMP,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE turn_id = ?1
+                ",
+                params![turn_id],
+            )
+            .map_err(MemoryPersistenceError::Sqlite)?;
+        Ok(())
+    }
+
     /// List conversation items in replay order.
     ///
     /// # Errors

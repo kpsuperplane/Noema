@@ -1,7 +1,9 @@
 //! Warm Codex app-server runtime.
 
 use crate::{
-    provider::{GenerateResponse, ProviderError, output_items_from_text},
+    provider::{
+        GenerateResponse, ProviderError, output_items_from_text, required_output_items_from_text,
+    },
     providers::codex::CodexProviderConfig,
 };
 use serde_json::{Value, json};
@@ -72,18 +74,47 @@ impl CodexAppServerRuntime {
         conversation: &CodexAppServerConversation,
         input: String,
     ) -> Result<GenerateResponse, ProviderError> {
+        self.turn_with_options(conversation, input, None, false)
+            .await
+    }
+
+    /// Send one turn that must return a Noema structured response envelope.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ProviderError`] when input is empty, the app-server protocol
+    /// fails, or the provider does not return the required structured output.
+    pub async fn turn_structured(
+        &mut self,
+        conversation: &CodexAppServerConversation,
+        input: String,
+        instructions: String,
+    ) -> Result<GenerateResponse, ProviderError> {
+        self.turn_with_options(conversation, input, Some(instructions), true)
+            .await
+    }
+
+    async fn turn_with_options(
+        &mut self,
+        conversation: &CodexAppServerConversation,
+        input: String,
+        instructions: Option<String>,
+        require_noema_response: bool,
+    ) -> Result<GenerateResponse, ProviderError> {
         if input.trim().is_empty() {
             return Err(ProviderError::InvalidRequest {
                 message: "input cannot be empty".to_string(),
             });
         }
 
+        let provider_input = compose_turn_input(instructions.as_deref(), &input);
         let process = self.ensure_process().await?;
         match process
             .turn(
                 &conversation.thread_id,
                 conversation.model.as_deref(),
-                input,
+                provider_input,
+                require_noema_response,
             )
             .await
         {
@@ -147,6 +178,17 @@ fn validate_config(config: &CodexProviderConfig) -> Result<(), ProviderError> {
     }
 
     Ok(())
+}
+
+fn compose_turn_input(instructions: Option<&str>, input: &str) -> String {
+    match instructions.filter(|instructions| !instructions.trim().is_empty()) {
+        Some(instructions) => format!(
+            "System instructions:\n{}\n\nUser message:\n{}",
+            instructions.trim(),
+            input
+        ),
+        None => input.to_string(),
+    }
 }
 
 #[derive(Debug)]
@@ -256,6 +298,7 @@ impl CodexAppServerProcess {
         thread_id: &str,
         model: Option<&str>,
         input: String,
+        require_noema_response: bool,
     ) -> Result<GenerateResponse, ProviderError> {
         let request_id = self.next_request_id();
         self.send(json!({
@@ -318,8 +361,14 @@ impl CodexAppServerProcess {
             });
         }
 
+        let output = if require_noema_response {
+            required_output_items_from_text(text)?
+        } else {
+            output_items_from_text(text)?
+        };
+
         Ok(GenerateResponse {
-            output: output_items_from_text(text)?,
+            output,
             provider: "codex".to_string(),
             model: model.unwrap_or("codex-default").to_string(),
             response_id: None,

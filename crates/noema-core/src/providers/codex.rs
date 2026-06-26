@@ -2,7 +2,7 @@
 
 use crate::provider::{
     GenerateInput, GenerateRequest, GenerateResponse, ModelProvider, ProviderError,
-    output_items_from_text,
+    output_items_from_text, required_output_items_from_text,
 };
 use std::process::Output;
 use std::{io::ErrorKind, process::Stdio, time::Duration};
@@ -242,8 +242,14 @@ impl ModelProvider for CodexProvider {
                 message: "codex exec produced empty stdout".to_string(),
             })?;
 
+        let output = if request.options.require_noema_response {
+            required_output_items_from_text(text)?
+        } else {
+            output_items_from_text(text)?
+        };
+
         Ok(GenerateResponse {
-            output: output_items_from_text(text)?,
+            output,
             provider: "codex".to_string(),
             model: model.unwrap_or_else(|| "codex-default".to_string()),
             response_id: None,
