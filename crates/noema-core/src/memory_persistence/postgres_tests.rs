@@ -8,6 +8,11 @@ use super::{
     provenance::DeleteConversationItem,
     repository::{POSTGRES_BOOTSTRAP_MIGRATION_NAME, POSTGRES_BOOTSTRAP_MIGRATION_VERSION},
 };
+use crate::memory::{
+    AgentVisibleOmission, AuditDenial, DenialReason, EligibilityReason, MemoryRetrievalRequest,
+    MemoryRetrievalResult, MemoryUseRecord, MemoryUseStage, Purpose, RankReason, RetrievedMemory,
+    TrustedRetrievalContext, UntrustedHints,
+};
 use crate::memory::{MemoryStatus, ParticipantRole, Sensitivity, SubjectRole};
 
 const TEST_DATABASE_URL_ENV: &str = "NOEMA_TEST_DATABASE_URL";
@@ -495,6 +500,221 @@ async fn list_redacts_sensitive_and_secret_postgres_memories() {
         .expect("memory exists");
     assert_eq!(shown.title, "Medical detail");
     assert_eq!(shown.content, "Sensitive medical detail");
+}
+
+#[tokio::test]
+async fn record_context_packet_writes_postgres_manifest_edges_omissions_and_use_records() {
+    let Some(repo) = test_repo().await else {
+        return;
+    };
+    repo.ensure_default_actors().await.expect("actors");
+
+    let conversation = repo
+        .create_conversation(NewConversation::local_chat(None, None))
+        .await
+        .expect("conversation");
+    let source_item = repo
+        .append_conversation_item(NewConversationItem {
+            conversation_id: conversation.conversation_id.clone(),
+            turn_id: None,
+            parent_item_id: None,
+            kind: ConversationItemKind::UserText,
+            status: ConversationItemStatus::Completed,
+            author: ObjectRef::human("human:local"),
+            content_text: Some("context packet postgres source".to_string()),
+            payload_json: serde_json::json!({}),
+            metadata: serde_json::json!({}),
+        })
+        .await
+        .expect("source item");
+
+    let mut included = NewMemoryCandidate::confirmed_note(
+        ObjectRef::new(
+            ObjectType::Conversation,
+            conversation.conversation_id.as_str(),
+        )
+        .expect("conversation object ref"),
+        "Noema should record Postgres context packet manifests.",
+        ObjectRef::agent("agent:primary"),
+        ObjectRef::conversation_item(source_item.item_id.as_str()),
+    );
+    included.status = MemoryStatus::Active;
+    included.participants = vec![NewMemoryParticipant::new(
+        ObjectRef::human("human:local"),
+        ParticipantRole::HumanInScope,
+    )];
+    let included_memory = repo
+        .append_memory_candidate(included)
+        .await
+        .expect("included memory");
+
+    let mut denied = NewMemoryCandidate::confirmed_note(
+        ObjectRef::new(
+            ObjectType::Conversation,
+            conversation.conversation_id.as_str(),
+        )
+        .expect("conversation object ref"),
+        "Sensitive context packet detail should remain audit-only.",
+        ObjectRef::agent("agent:primary"),
+        ObjectRef::conversation_item(source_item.item_id.as_str()),
+    );
+    denied.status = MemoryStatus::Active;
+    denied.sensitivity = Sensitivity::Sensitive;
+    let denied_memory = repo
+        .append_memory_candidate(denied)
+        .await
+        .expect("denied memory");
+
+    let mut trusted =
+        TrustedRetrievalContext::for_human("human:local", Purpose::AnswerHumanQuestion);
+    trusted.active_agent_ids = vec!["agent:primary".to_string()];
+    trusted.active_scopes = vec![format!("conversation:{}", conversation.conversation_id)];
+    trusted.explicit_memory_request = true;
+    trusted.sensitivity_ceiling = Sensitivity::Normal;
+    let request = MemoryRetrievalRequest {
+        requesting_principal_id: "agent:primary".to_string(),
+        trusted,
+        untrusted_hints: UntrustedHints::default(),
+    };
+    let result = MemoryRetrievalResult {
+        included: vec![RetrievedMemory {
+            memory_id: included_memory.id.clone(),
+            rank_score: 42,
+            eligibility_reason: EligibilityReason::ActiveScope,
+            rank_reasons: vec![
+                RankReason::ExplicitMemoryRequest,
+                RankReason::SameHumanParticipant,
+            ],
+        }],
+        denied_for_audit: vec![AuditDenial {
+            memory_id: Some(denied_memory.id.clone()),
+            relationship_id: None,
+            reason: DenialReason::SensitivityCeiling,
+        }],
+        agent_visible_omissions: vec![AgentVisibleOmission {
+            reason: "policy_restricted_context",
+        }],
+        use_records: vec![MemoryUseRecord {
+            memory_id: included_memory.id.clone(),
+            stage: MemoryUseStage::Retrieved,
+        }],
+    };
+
+    repo.record_context_packet("ctx_pg_packet", "run:pg-packet", &request, &result)
+        .await
+        .expect("record context packet");
+
+    let packet =
+        sqlx::query_as::<_, (String, String, String, serde_json::Value, serde_json::Value)>(
+            r"
+        SELECT
+          requesting_object_type,
+          requesting_object_id,
+          purpose,
+          active_objects,
+          agent_visible_omissions
+        FROM context_packets
+        WHERE context_packet_id = $1
+        ",
+        )
+        .bind("ctx_pg_packet")
+        .fetch_one(repo.pool())
+        .await
+        .expect("packet row");
+    assert_eq!(packet.0, "agent");
+    assert_eq!(packet.1, "agent:primary");
+    assert_eq!(packet.2, "answer_human_question");
+    assert_eq!(
+        packet.3,
+        serde_json::json!([
+            {
+                "object_type": "conversation",
+                "object_id": conversation.conversation_id,
+            }
+        ])
+    );
+    assert_eq!(
+        packet.4,
+        serde_json::json!([{ "reason": "policy_restricted_context" }])
+    );
+
+    let edge = sqlx::query_as::<_, (String, i32, String, serde_json::Value)>(
+        r"
+        SELECT stage, rank_score, eligibility_reason, rank_reasons
+        FROM context_packet_memory_edges
+        WHERE context_packet_id = $1
+          AND memory_id = $2
+        ",
+    )
+    .bind("ctx_pg_packet")
+    .bind(included_memory.id.as_str())
+    .fetch_one(repo.pool())
+    .await
+    .expect("packet memory edge");
+    assert_eq!(edge.0, "included_in_packet");
+    assert_eq!(edge.1, 42);
+    assert_eq!(edge.2, "active_scope");
+    assert_eq!(
+        edge.3,
+        serde_json::json!(["explicit_memory_request", "same_human_participant"])
+    );
+
+    let omission =
+        sqlx::query_as::<_, (Option<String>, String, String, String, serde_json::Value)>(
+            r"
+        SELECT memory_id, omission_sensitivity, agent_visible_reason, audit_reason, details
+        FROM context_packet_omissions
+        WHERE context_packet_id = $1
+        ",
+        )
+        .bind("ctx_pg_packet")
+        .fetch_one(repo.pool())
+        .await
+        .expect("packet omission");
+    assert_eq!(omission.0.as_deref(), Some(denied_memory.id.as_str()));
+    assert_eq!(omission.1, "sensitive");
+    assert_eq!(omission.2, "policy_restricted_context");
+    assert_eq!(omission.3, "sensitivity_ceiling");
+    assert_eq!(
+        omission.4,
+        serde_json::json!({
+            "run_id": "run:pg-packet",
+            "purpose": "answer_human_question",
+        })
+    );
+
+    let use_records = sqlx::query_as::<_, (String, String, String, String, String)>(
+        r"
+        SELECT
+          memory_id,
+          stage,
+          agent_object_type,
+          agent_object_id,
+          context_object_type
+        FROM memory_use_records
+        WHERE context_packet_id = $1
+        ORDER BY stage
+        ",
+    )
+    .bind("ctx_pg_packet")
+    .fetch_all(repo.pool())
+    .await
+    .expect("memory use rows");
+    assert_eq!(use_records.len(), 2);
+    assert!(use_records.iter().any(|record| {
+        record.0 == included_memory.id
+            && record.1 == "included_in_packet"
+            && record.2 == "agent"
+            && record.3 == "agent:primary"
+            && record.4 == "conversation"
+    }));
+    assert!(use_records.iter().any(|record| {
+        record.0 == included_memory.id
+            && record.1 == "retrieved"
+            && record.2 == "agent"
+            && record.3 == "agent:primary"
+            && record.4 == "conversation"
+    }));
 }
 
 async fn assert_index_exists(pool: &sqlx::PgPool, table_name: &str, index_name: &str) {
