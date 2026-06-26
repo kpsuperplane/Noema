@@ -420,14 +420,16 @@ impl CodexRuntimeActor {
             Ok(response) => {
                 let result = self
                     .persist_successful_provider_turn(
-                        &conversation_id,
-                        &turn.turn_id,
-                        turn_index,
-                        &user_item_id,
-                        &input,
-                        conversation.cwd.clone(),
-                        response,
-                        saved_memory_id,
+                        SuccessfulProviderTurn {
+                            conversation_id: conversation_id.clone(),
+                            turn_id: turn.turn_id.clone(),
+                            turn_index,
+                            user_item_id: user_item_id.clone(),
+                            user_input: input.clone(),
+                            cwd: conversation.cwd.clone(),
+                            response,
+                            saved_memory_id,
+                        },
                         &item_tx,
                     )
                     .await;
@@ -469,35 +471,28 @@ impl CodexRuntimeActor {
 
     async fn persist_successful_provider_turn(
         &mut self,
-        conversation_id: &str,
-        turn_id: &str,
-        turn_index: u64,
-        user_item_id: &str,
-        user_input: &str,
-        cwd: Option<String>,
-        response: GenerateResponse,
-        saved_memory_id: Option<String>,
+        turn: SuccessfulProviderTurn,
         item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
     ) -> Result<(), DaemonError> {
-        let assistant_text = response.assistant_text();
-        let provider_memory_proposals = response.memory_proposals();
+        let assistant_text = turn.response.assistant_text();
+        let provider_memory_proposals = turn.response.memory_proposals();
         let mut assistant_item_id = None;
-        for (index, output) in response.output.into_iter().enumerate() {
+        for (index, output) in turn.response.output.into_iter().enumerate() {
             match output {
                 GenerateOutputItem::AssistantText { text } => {
                     let assistant_item =
                         self.memory_repository
                             .append_conversation_item(NewConversationItem {
-                                conversation_id: conversation_id.to_string(),
-                                turn_id: Some(turn_id.to_string()),
-                                parent_item_id: Some(user_item_id.to_string()),
+                                conversation_id: turn.conversation_id.clone(),
+                                turn_id: Some(turn.turn_id.clone()),
+                                parent_item_id: Some(turn.user_item_id.clone()),
                                 kind: ConversationItemKind::AssistantText,
                                 status: ConversationItemStatus::Completed,
                                 author: ObjectRef::agent("agent:primary"),
                                 content_text: Some(text.clone()),
                                 payload_json: json!({}),
                                 metadata: json!({
-                                    "turn_index": turn_index,
+                                    "turn_index": turn.turn_index,
                                     "output_index": index,
                                 }),
                             })?;
@@ -512,22 +507,27 @@ impl CodexRuntimeActor {
                 }
                 GenerateOutputItem::MemoryProposals { .. } => {}
                 GenerateOutputItem::Structured { schema, payload } => {
+                    let card_id = format!(
+                        "provider_structured:{}:{}:{index}",
+                        turn.conversation_id, turn.turn_index
+                    );
                     let structured_item =
                         self.memory_repository
                             .append_conversation_item(NewConversationItem {
-                                conversation_id: conversation_id.to_string(),
-                                turn_id: Some(turn_id.to_string()),
-                                parent_item_id: Some(user_item_id.to_string()),
+                                conversation_id: turn.conversation_id.clone(),
+                                turn_id: Some(turn.turn_id.clone()),
+                                parent_item_id: Some(turn.user_item_id.clone()),
                                 kind: ConversationItemKind::A2uiCard,
                                 status: ConversationItemStatus::Completed,
                                 author: ObjectRef::agent("agent:primary"),
                                 content_text: None,
                                 payload_json: json!({
+                                    "id": card_id.clone(),
                                     "schema": schema.clone(),
                                     "payload": payload.clone(),
                                 }),
                                 metadata: json!({
-                                    "turn_index": turn_index,
+                                    "turn_index": turn.turn_index,
                                     "output_index": index,
                                     "source": "provider_structured_output",
                                 }),
@@ -536,9 +536,7 @@ impl CodexRuntimeActor {
                         item_tx,
                         structured_item,
                         TurnTranscriptItem::A2uiCard {
-                            id: format!(
-                                "provider_structured:{conversation_id}:{turn_index}:{index}"
-                            ),
+                            id: card_id,
                             schema: schema.clone(),
                             payload: payload.clone(),
                         },
@@ -548,34 +546,35 @@ impl CodexRuntimeActor {
         }
 
         let memory_context = ConversationMemoryContext {
-            turn_index,
-            conversation_id: conversation_id.to_string(),
-            turn_id: turn_id.to_string(),
-            user_item_id: user_item_id.to_string(),
+            turn_index: turn.turn_index,
+            conversation_id: turn.conversation_id.clone(),
+            turn_id: turn.turn_id.clone(),
+            user_item_id: turn.user_item_id.clone(),
             assistant_item_id,
-            user_content: user_input.to_string(),
+            user_content: turn.user_input,
             assistant_content: assistant_text,
-            cwd,
+            cwd: turn.cwd,
         };
 
-        if saved_memory_id.is_none() && !provider_memory_proposals.is_empty() {
+        if turn.saved_memory_id.is_none() && !provider_memory_proposals.is_empty() {
             self.persist_provider_memory_proposals(
                 &memory_context,
                 provider_memory_proposals,
                 item_tx,
             )?;
-        } else if saved_memory_id.is_none() {
+        } else if turn.saved_memory_id.is_none() {
             self.memory_extraction_worker.extract(memory_context).await;
         }
 
-        self.memory_repository.complete_conversation_turn(turn_id)?;
+        self.memory_repository
+            .complete_conversation_turn(&turn.turn_id)?;
         self.update_conversation_agent_status(
-            conversation_id,
+            &turn.conversation_id,
             PersistedAgentStatus::Idle,
             item_tx,
         )?;
 
-        if let Some(conversation) = self.conversations.get_mut(conversation_id) {
+        if let Some(conversation) = self.conversations.get_mut(&turn.conversation_id) {
             conversation.next_turn_index = conversation.next_turn_index.saturating_add(1);
         }
 
@@ -1005,6 +1004,18 @@ struct ActiveConversation {
     provider: CodexAppServerConversation,
     cwd: Option<String>,
     next_turn_index: u64,
+}
+
+#[derive(Debug)]
+struct SuccessfulProviderTurn {
+    conversation_id: String,
+    turn_id: String,
+    turn_index: u64,
+    user_item_id: String,
+    user_input: String,
+    cwd: Option<String>,
+    response: GenerateResponse,
+    saved_memory_id: Option<String>,
 }
 
 fn persist_validated_memory_proposals(

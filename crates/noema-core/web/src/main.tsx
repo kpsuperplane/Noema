@@ -1,6 +1,7 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import type {
+  AgentStatus,
   TurnActivityStatus as ActivityStatus,
   TurnTranscriptItem,
   WebClientMessage,
@@ -16,6 +17,8 @@ type TranscriptEntry =
   | { id: string; type: "card"; item: Extract<TurnTranscriptItem, { kind: "a2ui_card" }> }
   | { id: string; type: "error"; message: string; recoverable: boolean };
 
+type ConversationAgentStatus = AgentStatus | "connecting" | "closed";
+
 const STARTERS = [
   "Say hello and tell me Noema is working.",
   "remember this: I prefer concise setup instructions",
@@ -26,6 +29,7 @@ function App() {
   const [status, setStatus] = React.useState<WebStatus | null>(null);
   const [socketState, setSocketState] = React.useState<"connecting" | "ready" | "closed">("connecting");
   const [conversationId, setConversationId] = React.useState<string | null>(null);
+  const [agentStatus, setAgentStatus] = React.useState<ConversationAgentStatus>("connecting");
   const [transcript, setTranscript] = React.useState<TranscriptEntry[]>([]);
   const [draft, setDraft] = React.useState("");
   const [pending, setPending] = React.useState(false);
@@ -49,17 +53,20 @@ function App() {
       handleServerMessage(message, {
         setConversationId,
         setTranscript,
-        setPending
+        setPending,
+        setAgentStatus
       });
     });
 
     socket.addEventListener("close", () => {
       setSocketState("closed");
+      setAgentStatus("closed");
       setPending(false);
     });
 
     socket.addEventListener("error", () => {
       setSocketState("closed");
+      setAgentStatus("closed");
       setPending(false);
       pushTranscript(setTranscript, {
         id: crypto.randomUUID(),
@@ -108,7 +115,7 @@ function App() {
             <span>Local chat</span>
           </div>
         </div>
-        <StatusCluster status={status} socketState={socketState} />
+        <StatusCluster status={status} socketState={socketState} agentStatus={agentStatus} />
       </header>
 
       <section className="chat-shell" aria-label="Noema chat">
@@ -147,14 +154,17 @@ function App() {
 
 function StatusCluster({
   status,
-  socketState
+  socketState,
+  agentStatus
 }: {
   status: WebStatus | null;
   socketState: "connecting" | "ready" | "closed";
+  agentStatus: ConversationAgentStatus;
 }) {
   const localService = status?.local_service === "running" ? "Ready" : "Checking";
   const memory = status?.memory_storage === "ready" ? "Memory ready" : "Memory starting";
   const socket = socketState === "ready" ? "Chat live" : socketState === "connecting" ? "Connecting" : "Disconnected";
+  const agent = agentLabel[agentStatus];
 
   return (
     <div className="status-cluster" aria-label="Local status">
@@ -163,6 +173,7 @@ function StatusCluster({
       <StatusPill tone={socketState === "ready" ? "good" : socketState === "closed" ? "bad" : "neutral"}>
         {socket}
       </StatusPill>
+      <StatusPill tone={agentStatus === "error" || agentStatus === "closed" ? "bad" : "neutral"}>{agent}</StatusPill>
     </div>
   );
 }
@@ -170,6 +181,18 @@ function StatusCluster({
 function StatusPill({ tone, children }: { tone: "good" | "bad" | "neutral"; children: React.ReactNode }) {
   return <span className={`status-pill status-pill--${tone}`}>{children}</span>;
 }
+
+const agentLabel: Record<ConversationAgentStatus, string> = {
+  idle: "Idle",
+  input_received: "Input received",
+  thinking: "Thinking",
+  tool_running: "Tool running",
+  waiting_for_previous_turn_completion: "Waiting",
+  interrupting: "Interrupting",
+  error: "Error",
+  connecting: "Connecting",
+  closed: "Disconnected"
+};
 
 function EmptyState({ onPick }: { onPick: (starter: string) => void }) {
   return (
@@ -348,18 +371,34 @@ function handleServerMessage(
     setConversationId: React.Dispatch<React.SetStateAction<string | null>>;
     setTranscript: React.Dispatch<React.SetStateAction<TranscriptEntry[]>>;
     setPending: React.Dispatch<React.SetStateAction<boolean>>;
+    setAgentStatus: React.Dispatch<React.SetStateAction<ConversationAgentStatus>>;
   }
 ) {
   if (message.type === "conversation_started") {
     setters.setConversationId(message.conversation_id);
+    setters.setAgentStatus("idle");
     return;
   }
   if (message.type === "turn_completed") {
     setters.setPending(false);
     return;
   }
+  if (message.type === "agent_status_changed") {
+    setters.setAgentStatus(message.status);
+    return;
+  }
+  if (message.type === "conversation_replay") {
+    setters.setConversationId(message.conversation_id);
+    setters.setTranscript(
+      message.items
+        .map((item) => entryFromConversationItem(item.item_id, item.item))
+        .filter((entry) => entry !== null)
+    );
+    return;
+  }
   if (message.type === "error") {
     setters.setPending(false);
+    setters.setAgentStatus("closed");
     pushTranscript(setters.setTranscript, {
       id: crypto.randomUUID(),
       type: "error",
@@ -368,24 +407,18 @@ function handleServerMessage(
     });
     return;
   }
-  if (message.type !== "turn_transcript_item") {
+  if (message.type !== "conversation_item") {
     return;
   }
 
-  const item = message.item;
-  if (item.kind === "assistant_text") {
-    pushTranscript(setters.setTranscript, { id: crypto.randomUUID(), type: "assistant", text: item.text });
-  } else if (item.kind === "activity") {
-    pushTranscript(setters.setTranscript, { id: item.id, type: "activity", item });
-  } else if (item.kind === "a2ui_card") {
-    pushTranscript(setters.setTranscript, { id: item.id, type: "card", item });
+  const entry = entryFromConversationItem(message.item_id, message.item);
+  if (!entry) {
+    return;
+  }
+  if (message.client_message_id && entry.type === "user") {
+    replaceTranscriptEntry(setters.setTranscript, message.client_message_id, entry);
   } else {
-    pushTranscript(setters.setTranscript, {
-      id: crypto.randomUUID(),
-      type: "error",
-      message: item.message,
-      recoverable: item.recoverable
-    });
+    pushTranscript(setters.setTranscript, entry);
   }
 }
 
@@ -394,6 +427,39 @@ function pushTranscript(
   entry: TranscriptEntry
 ) {
   setTranscript((current) => [...current, entry]);
+}
+
+function replaceTranscriptEntry(
+  setTranscript: React.Dispatch<React.SetStateAction<TranscriptEntry[]>>,
+  id: string,
+  entry: TranscriptEntry
+) {
+  setTranscript((current) => {
+    const index = current.findIndex((candidate) => candidate.id === id);
+    if (index === -1) {
+      return [...current, entry];
+    }
+    return current.map((candidate, candidateIndex) => (candidateIndex === index ? entry : candidate));
+  });
+}
+
+function entryFromConversationItem(itemId: string, item: TurnTranscriptItem): TranscriptEntry | null {
+  if (item.kind === "user_text") {
+    return { id: itemId, type: "user", text: item.text };
+  }
+  if (item.kind === "assistant_text") {
+    return { id: itemId, type: "assistant", text: item.text };
+  }
+  if (item.kind === "activity") {
+    return { id: itemId, type: "activity", item };
+  }
+  if (item.kind === "a2ui_card") {
+    return { id: itemId, type: "card", item };
+  }
+  if (item.kind === "error_notice") {
+    return { id: itemId, type: "error", message: item.message, recoverable: item.recoverable };
+  }
+  return null;
 }
 
 async function refreshStatus(setStatus: React.Dispatch<React.SetStateAction<WebStatus | null>>) {

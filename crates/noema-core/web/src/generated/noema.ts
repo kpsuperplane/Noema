@@ -150,7 +150,15 @@ conversation_id: string,
 /**
  * Current agent coordination status.
  */
-status: AgentStatus, } | { "type": "turn_completed",
+status: AgentStatus, } | { "type": "conversation_replay",
+/**
+ * Daemon conversation id.
+ */
+conversation_id: string,
+/**
+ * Persisted conversation items in replay order.
+ */
+items: Array<WebConversationItem>, } | { "type": "turn_completed",
 /**
  * Daemon conversation id.
  */

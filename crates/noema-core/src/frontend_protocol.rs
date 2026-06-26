@@ -145,6 +145,13 @@ pub enum WebServerMessage {
         /// Current agent coordination status.
         status: AgentStatus,
     },
+    /// Durable replay for a conversation transcript.
+    ConversationReplay {
+        /// Daemon conversation id.
+        conversation_id: String,
+        /// Persisted conversation items in replay order.
+        items: Vec<WebConversationItem>,
+    },
     /// Turn completion response.
     TurnCompleted {
         /// Daemon conversation id.
@@ -266,6 +273,22 @@ mod tests {
         let encoded = serde_json::to_string(&message).expect("encode");
         assert!(encoded.contains(r#""type":"agent_status_changed""#));
         assert!(encoded.contains(r#""status":"idle""#));
+        let decoded: WebServerMessage = serde_json::from_str(&encoded).expect("decode");
+        assert_eq!(decoded, message);
+
+        let message = WebServerMessage::ConversationReplay {
+            conversation_id: "conversation_1".to_string(),
+            items: vec![WebConversationItem {
+                item_id: "item_1".to_string(),
+                turn_id: Some("turn_1".to_string()),
+                item: TurnTranscriptItem::UserText {
+                    text: "hello".to_string(),
+                },
+            }],
+        };
+        let encoded = serde_json::to_string(&message).expect("encode");
+        assert!(encoded.contains(r#""type":"conversation_replay""#));
+        assert!(encoded.contains(r#""items":[{"#));
         let decoded: WebServerMessage = serde_json::from_str(&encoded).expect("decode");
         assert_eq!(decoded, message);
     }
