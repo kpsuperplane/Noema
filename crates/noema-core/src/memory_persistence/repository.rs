@@ -22,6 +22,9 @@ use super::{
     queries::{MEMORY_SUMMARY_BY_ID_SQL, RECENT_MEMORY_SQL},
 };
 
+pub(super) const POSTGRES_BOOTSTRAP_MIGRATION_VERSION: i32 = 0;
+pub(super) const POSTGRES_BOOTSTRAP_MIGRATION_NAME: &str = "postgres_bootstrap_v0";
+
 /// Postgres-backed memory repository.
 #[derive(Debug, Clone)]
 pub struct PostgresMemoryRepository {
@@ -51,6 +54,18 @@ impl PostgresMemoryRepository {
             .execute(&pool)
             .await
             .map_err(MemoryPersistenceError::Database)?;
+        sqlx::query(
+            r"
+            INSERT INTO schema_migrations (version, name)
+            VALUES ($1, $2)
+            ON CONFLICT (version) DO NOTHING
+            ",
+        )
+        .bind(POSTGRES_BOOTSTRAP_MIGRATION_VERSION)
+        .bind(POSTGRES_BOOTSTRAP_MIGRATION_NAME)
+        .execute(&pool)
+        .await
+        .map_err(MemoryPersistenceError::Database)?;
         Ok(Self { pool })
     }
 
