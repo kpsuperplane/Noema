@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn appends_conversation_turn_items_for_replay() {
+fn replays_conversation_items_in_append_order() {
     let dir = tempfile::tempdir().expect("temp dir");
     let paths = NoemaPaths::from_noema_home(dir.path()).expect("paths");
     let mut repo = SqliteMemoryRepository::open(&paths).expect("repo");
@@ -17,11 +17,12 @@ fn appends_conversation_turn_items_for_replay() {
             metadata: json!({"request_id": "req_123"}),
         })
         .expect("turn");
+    let turn_id = turn.turn_id;
 
     let user_item = repo
         .append_conversation_item(NewConversationItem {
             conversation_id: conversation.conversation_id.clone(),
-            turn_id: Some(turn.turn_id.clone()),
+            turn_id: Some(turn_id.clone()),
             parent_item_id: None,
             kind: ConversationItemKind::UserText,
             status: ConversationItemStatus::Completed,
@@ -34,7 +35,7 @@ fn appends_conversation_turn_items_for_replay() {
     let assistant_item = repo
         .append_conversation_item(NewConversationItem {
             conversation_id: conversation.conversation_id.clone(),
-            turn_id: Some(turn.turn_id),
+            turn_id: Some(turn_id.clone()),
             parent_item_id: Some(user_item.item_id.clone()),
             kind: ConversationItemKind::AssistantText,
             status: ConversationItemStatus::Completed,
@@ -55,6 +56,59 @@ fn appends_conversation_turn_items_for_replay() {
             .collect::<Vec<_>>(),
         vec![user_item.item_id.as_str(), assistant_item.item_id.as_str()]
     );
+    assert_eq!(replay[0].kind, ConversationItemKind::UserText);
+    assert_eq!(replay[0].turn_id.as_deref(), Some(turn_id.as_str()));
+    assert_eq!(
+        replay[0].content_text.as_deref(),
+        Some("Please remember that I care about provenance.")
+    );
+    assert_eq!(replay[1].kind, ConversationItemKind::AssistantText);
+    assert_eq!(replay[1].content_text.as_deref(), Some("Noted."));
+}
+
+#[test]
+fn replay_excludes_deleted_items_but_audit_includes_redacted_item() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let paths = NoemaPaths::from_noema_home(dir.path()).expect("paths");
+    let mut repo = SqliteMemoryRepository::open(&paths).expect("repo");
+    repo.ensure_default_actors().expect("actors");
+
+    let conversation = repo
+        .create_conversation(NewConversation::local_chat(None, None))
+        .expect("conversation");
+    let item = repo
+        .append_conversation_item(NewConversationItem {
+            conversation_id: conversation.conversation_id.clone(),
+            turn_id: None,
+            parent_item_id: None,
+            kind: ConversationItemKind::UserText,
+            status: ConversationItemStatus::Completed,
+            author: ObjectRef::human("human:local"),
+            content_text: Some("delete me".to_string()),
+            payload_json: json!({}),
+            metadata: json!({}),
+        })
+        .expect("item");
+
+    repo.soft_delete_conversation_item(DeleteConversationItem {
+        item_id: item.item_id,
+        deleted_by: ObjectRef::human("human:local"),
+        reason: Some("test deletion".to_string()),
+    })
+    .expect("delete");
+
+    let visible = repo
+        .list_conversation_items(&conversation.conversation_id, ReplayMode::Visible)
+        .expect("visible replay");
+    assert!(visible.is_empty());
+
+    let audit = repo
+        .list_conversation_items(&conversation.conversation_id, ReplayMode::Audit)
+        .expect("audit replay");
+    assert_eq!(audit.len(), 1);
+    assert_eq!(audit[0].kind, ConversationItemKind::UserText);
+    assert_eq!(audit[0].content_text.as_deref(), Some("[redacted]"));
+    assert_eq!(audit[0].payload_json, json!({}));
 }
 
 #[test]
