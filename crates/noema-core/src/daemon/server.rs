@@ -149,26 +149,12 @@ async fn handle_turn_request(
 
     loop {
         tokio::select! {
-            Some(item) = item_rx.recv() => {
-                send_response(
-                    writer,
-                    &DaemonResponse::TurnTranscriptItem {
-                        conversation_id: conversation_id.clone(),
-                        item,
-                    },
-                )
-                .await?;
+            Some(event) = item_rx.recv() => {
+                send_response(writer, &event.into_daemon_response()).await?;
             }
             result = &mut completion => {
-                while let Ok(item) = item_rx.try_recv() {
-                    send_response(
-                        writer,
-                        &DaemonResponse::TurnTranscriptItem {
-                            conversation_id: conversation_id.clone(),
-                            item,
-                        },
-                    )
-                    .await?;
+                while let Ok(event) = item_rx.try_recv() {
+                    send_response(writer, &event.into_daemon_response()).await?;
                 }
 
                 match result {

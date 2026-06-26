@@ -42,7 +42,7 @@ pub use context_graph::{
     GraphProvenanceEdge, GraphPurposeRule, GraphSubjectEdge, RelationshipSummary,
 };
 pub use daemon::{
-    DaemonClient, DaemonError, DaemonRequest, DaemonResponse, DaemonServerConfig,
+    AgentStatus, DaemonClient, DaemonError, DaemonRequest, DaemonResponse, DaemonServerConfig,
     StartedConversation, TurnActivityStatus, TurnTranscriptItem, default_socket_path,
     is_connection_refused, run_daemon, socket_path_for_home,
 };

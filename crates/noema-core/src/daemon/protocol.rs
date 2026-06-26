@@ -63,12 +63,24 @@ pub enum DaemonResponse {
         /// Provider-native thread id.
         provider_thread_id: String,
     },
-    /// One transcript item emitted by an in-progress turn.
-    TurnTranscriptItem {
+    /// One persisted conversation item emitted by an in-progress turn.
+    ConversationItem {
         /// Daemon conversation id.
         conversation_id: String,
+        /// Durable conversation item id.
+        item_id: String,
+        /// Durable conversation turn id.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        turn_id: Option<String>,
         /// Transcript item to render in chat.
         item: TurnTranscriptItem,
+    },
+    /// Live agent status changed for a conversation.
+    AgentStatusChanged {
+        /// Daemon conversation id.
+        conversation_id: String,
+        /// Current agent coordination status.
+        status: AgentStatus,
     },
     /// Turn completion response.
     TurnCompleted {
@@ -82,11 +94,53 @@ pub enum DaemonResponse {
     },
 }
 
+/// Live agent coordination state exported by daemon and web protocols.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(rename_all = "snake_case")]
+pub enum AgentStatus {
+    /// No agent work is currently active.
+    Idle,
+    /// Human or external input has been accepted.
+    InputReceived,
+    /// The agent is producing or planning a response.
+    Thinking,
+    /// The agent is waiting on a tool invocation.
+    ToolRunning,
+    /// A newer turn is waiting for a prior turn's side effects to settle.
+    WaitingForPreviousTurnCompletion,
+    /// The agent is interrupting a previous turn.
+    Interrupting,
+    /// The conversation is in an error state.
+    Error,
+}
+
+impl From<crate::memory_persistence::AgentStatus> for AgentStatus {
+    fn from(status: crate::memory_persistence::AgentStatus) -> Self {
+        match status {
+            crate::memory_persistence::AgentStatus::Idle => Self::Idle,
+            crate::memory_persistence::AgentStatus::InputReceived => Self::InputReceived,
+            crate::memory_persistence::AgentStatus::Thinking => Self::Thinking,
+            crate::memory_persistence::AgentStatus::ToolRunning => Self::ToolRunning,
+            crate::memory_persistence::AgentStatus::WaitingForPreviousTurnCompletion => {
+                Self::WaitingForPreviousTurnCompletion
+            }
+            crate::memory_persistence::AgentStatus::Interrupting => Self::Interrupting,
+            crate::memory_persistence::AgentStatus::Error => Self::Error,
+        }
+    }
+}
+
 /// Transcript item emitted by a daemon turn.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 #[ts(tag = "kind", rename_all = "snake_case")]
 pub enum TurnTranscriptItem {
+    /// User text acknowledged by durable persistence.
+    UserText {
+        /// Text authored by the user.
+        text: String,
+    },
     /// Assistant text.
     AssistantText {
         /// Text to render as the assistant response.
@@ -242,6 +296,46 @@ pub struct StartedConversation {
     pub conversation_id: String,
     /// Provider-native thread id.
     pub provider_thread_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(super) enum TurnStreamEvent {
+    ConversationItem {
+        conversation_id: String,
+        item_id: String,
+        turn_id: Option<String>,
+        item: TurnTranscriptItem,
+    },
+    AgentStatusChanged {
+        conversation_id: String,
+        status: AgentStatus,
+    },
+}
+
+impl TurnStreamEvent {
+    #[must_use]
+    pub(super) fn into_daemon_response(self) -> DaemonResponse {
+        match self {
+            Self::ConversationItem {
+                conversation_id,
+                item_id,
+                turn_id,
+                item,
+            } => DaemonResponse::ConversationItem {
+                conversation_id,
+                item_id,
+                turn_id,
+                item,
+            },
+            Self::AgentStatusChanged {
+                conversation_id,
+                status,
+            } => DaemonResponse::AgentStatusChanged {
+                conversation_id,
+                status,
+            },
+        }
+    }
 }
 
 /// Return whether a daemon connection failure means no daemon is listening.

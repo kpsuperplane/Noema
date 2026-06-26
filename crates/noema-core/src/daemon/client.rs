@@ -171,10 +171,20 @@ impl DaemonClient {
                 .map_err(|source| DaemonError::Protocol(source.to_string()))?;
 
             match response {
-                DaemonResponse::TurnTranscriptItem {
+                DaemonResponse::ConversationItem {
                     conversation_id: item_conversation_id,
+                    item_id: _,
+                    turn_id: _,
                     item,
-                } if item_conversation_id == conversation_id => on_item(item),
+                } if item_conversation_id == conversation_id => {
+                    if !matches!(item, TurnTranscriptItem::UserText { .. }) {
+                        on_item(item);
+                    }
+                }
+                DaemonResponse::AgentStatusChanged {
+                    conversation_id: status_conversation_id,
+                    status: _,
+                } if status_conversation_id == conversation_id => {}
                 DaemonResponse::TurnCompleted {
                     conversation_id: completed_conversation_id,
                 } if completed_conversation_id == conversation_id => return Ok(()),

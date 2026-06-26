@@ -479,6 +479,7 @@ fn print_response(text: &str) -> Result<(), CliError> {
 
 fn print_transcript_item(item: &TurnTranscriptItem) -> Result<(), CliError> {
     match item {
+        TurnTranscriptItem::UserText { .. } => Ok(()),
         TurnTranscriptItem::AssistantText { text } => print_response(text),
         TurnTranscriptItem::Activity {
             activity_kind,

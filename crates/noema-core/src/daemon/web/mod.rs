@@ -16,7 +16,10 @@ use crate::{
     frontend_protocol::{WebClientMessage, WebMemoryStorageStatus, WebServerMessage, WebStatus},
 };
 
-use super::{protocol::DaemonError, runtime::CodexRuntimeHandle};
+use super::{
+    protocol::{DaemonError, TurnStreamEvent},
+    runtime::CodexRuntimeHandle,
+};
 
 const MAX_HTTP_HEADER_BYTES: usize = 64 * 1024;
 const MAX_WS_FRAME_BYTES: usize = 1024 * 1024;
@@ -297,22 +300,12 @@ async fn handle_websocket_message(
 
             loop {
                 tokio::select! {
-                    Some(item) = item_rx.recv() => {
-                        let message = WebServerMessage::TurnTranscriptItem {
-                            conversation_id: conversation_id.clone(),
-                            client_message_id: client_message_id.clone(),
-                            item,
-                        };
-                        send_ws_json(stream, &message).await?;
+                    Some(event) = item_rx.recv() => {
+                        send_web_turn_event(stream, event, client_message_id.clone()).await?;
                     }
                     result = &mut completion => {
-                        while let Ok(item) = item_rx.try_recv() {
-                            let message = WebServerMessage::TurnTranscriptItem {
-                                conversation_id: conversation_id.clone(),
-                                client_message_id: client_message_id.clone(),
-                                item,
-                            };
-                            send_ws_json(stream, &message).await?;
+                        while let Ok(event) = item_rx.try_recv() {
+                            send_web_turn_event(stream, event, client_message_id.clone()).await?;
                         }
 
                         match result {
@@ -349,6 +342,35 @@ async fn handle_websocket_message(
     }
 
     Ok(())
+}
+
+async fn send_web_turn_event(
+    stream: &mut TcpStream,
+    event: TurnStreamEvent,
+    client_message_id: Option<String>,
+) -> Result<(), DaemonError> {
+    let message = match event {
+        TurnStreamEvent::ConversationItem {
+            conversation_id,
+            item_id,
+            turn_id,
+            item,
+        } => WebServerMessage::ConversationItem {
+            conversation_id,
+            client_message_id,
+            item_id,
+            turn_id,
+            item,
+        },
+        TurnStreamEvent::AgentStatusChanged {
+            conversation_id,
+            status,
+        } => WebServerMessage::AgentStatusChanged {
+            conversation_id,
+            status,
+        },
+    };
+    send_ws_json(stream, &message).await
 }
 
 async fn send_ws_error(stream: &mut TcpStream, message: String) -> Result<(), DaemonError> {

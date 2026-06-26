@@ -1,6 +1,7 @@
 use super::*;
 use super::{
     memory_pipeline::{explicit_memory_content, infer_chat_sensitivity},
+    protocol::TurnStreamEvent,
     runtime::CodexRuntimeHandle,
     server::bind_listener,
 };
@@ -35,8 +36,10 @@ fn protocol_round_trips_requests_and_responses() {
     let decoded: DaemonResponse = serde_json::from_str(&encoded).expect("decode");
     assert_eq!(decoded, response);
 
-    let response = DaemonResponse::TurnTranscriptItem {
+    let response = DaemonResponse::ConversationItem {
         conversation_id: "conversation_1".to_string(),
+        item_id: "item_1".to_string(),
+        turn_id: Some("turn_1".to_string()),
         item: TurnTranscriptItem::Activity {
             id: "memory_extraction:conversation_1:1".to_string(),
             activity_kind: "memory_extraction".to_string(),
@@ -47,6 +50,19 @@ fn protocol_round_trips_requests_and_responses() {
         },
     };
     let encoded = serde_json::to_string(&response).expect("encode");
+    assert!(encoded.contains(r#""type":"conversation_item""#));
+    assert!(encoded.contains(r#""item_id":"item_1""#));
+    assert!(encoded.contains(r#""turn_id":"turn_1""#));
+    let decoded: DaemonResponse = serde_json::from_str(&encoded).expect("decode");
+    assert_eq!(decoded, response);
+
+    let response = DaemonResponse::AgentStatusChanged {
+        conversation_id: "conversation_1".to_string(),
+        status: AgentStatus::Thinking,
+    };
+    let encoded = serde_json::to_string(&response).expect("encode");
+    assert!(encoded.contains(r#""type":"agent_status_changed""#));
+    assert!(encoded.contains(r#""status":"thinking""#));
     let decoded: DaemonResponse = serde_json::from_str(&encoded).expect("decode");
     assert_eq!(decoded, response);
 }
@@ -105,6 +121,95 @@ async fn runtime_actor_allocates_distinct_conversation_ids() {
     assert_eq!(assistant_text(&items), "fake answer");
 
     handle.shutdown().await;
+}
+
+#[tokio::test]
+async fn runtime_turn_streams_durable_assistant_item_and_idle_status() {
+    let script = fake_codex_app_server_script();
+    let dir = tempfile::tempdir().expect("temp dir");
+    let db_path = dir.path().join("db").join("noema.sqlite");
+    let handle = CodexRuntimeHandle::spawn(
+        CodexProviderConfig {
+            command: script.to_string_lossy().to_string(),
+            startup_timeout_seconds: 2,
+            turn_timeout_seconds: 2,
+            ..CodexProviderConfig::default()
+        },
+        db_path.clone(),
+    )
+    .expect("runtime");
+
+    let conversation = handle
+        .start_conversation(None, None)
+        .await
+        .expect("conversation");
+    let conversation_id = conversation.conversation_id.clone();
+    let (result, events) =
+        collect_turn_events(&handle, conversation_id.clone(), "hello".to_string()).await;
+    result.expect("turn");
+    handle.shutdown().await;
+
+    assert!(events.iter().any(|event| {
+        matches!(
+            event,
+            TurnStreamEvent::AgentStatusChanged {
+                conversation_id: id,
+                status: AgentStatus::InputReceived,
+            } if id == &conversation_id
+        )
+    }));
+    assert!(events.iter().any(|event| {
+        matches!(
+            event,
+            TurnStreamEvent::AgentStatusChanged {
+                conversation_id: id,
+                status: AgentStatus::Thinking,
+            } if id == &conversation_id
+        )
+    }));
+    assert!(events.iter().any(|event| {
+        matches!(
+            event,
+            TurnStreamEvent::AgentStatusChanged {
+                conversation_id: id,
+                status: AgentStatus::Idle,
+            } if id == &conversation_id
+        )
+    }));
+
+    let Some((assistant_item_id, assistant_turn_id)) =
+        events.iter().find_map(|event| match event {
+            TurnStreamEvent::ConversationItem {
+                conversation_id: id,
+                item_id,
+                turn_id,
+                item: TurnTranscriptItem::AssistantText { text },
+            } if id == &conversation_id && text == "fake answer" => {
+                Some((item_id.clone(), turn_id.clone()))
+            }
+            _ => None,
+        })
+    else {
+        panic!("expected durable assistant conversation item, got {events:?}");
+    };
+    assert!(assistant_item_id.starts_with("item_"));
+    assert!(assistant_turn_id.is_some());
+
+    let repo = SqliteMemoryRepository::open_at(&db_path).expect("repo");
+    let replay = repo
+        .list_conversation_items(&conversation_id, ReplayMode::Visible)
+        .expect("conversation replay");
+    assert!(replay.iter().any(|item| {
+        item.item_id == assistant_item_id
+            && item.kind == ConversationItemKind::AssistantText
+            && item.status == ConversationItemStatus::Completed
+    }));
+
+    let conn = rusqlite::Connection::open(&db_path).expect("raw conn");
+    let (agent_status, turn_status) =
+        conversation_and_turn_statuses(&conn, &conversation_id).expect("conversation statuses");
+    assert_eq!(agent_status, "idle");
+    assert_eq!(turn_status, "completed");
 }
 
 #[test]
@@ -563,15 +668,60 @@ async fn runtime_actor_persists_explicit_remember_before_provider_failure() {
         .await
         .expect("conversation");
     let conversation_id = conversation.conversation_id.clone();
-    let error = collect_turn(
+    let (result, events) = collect_turn_events(
         &handle,
         conversation_id.clone(),
         "/remember Kevin wants failed turns to keep explicit memory.".to_string(),
     )
-    .await
-    .expect_err("provider error");
+    .await;
+    let error = result.expect_err("provider error");
     assert!(matches!(error, DaemonError::Provider(_)));
     handle.shutdown().await;
+
+    assert!(events.iter().any(|event| {
+        matches!(
+            event,
+            TurnStreamEvent::AgentStatusChanged {
+                conversation_id: id,
+                status: AgentStatus::Error,
+            } if id == &conversation_id
+        )
+    }));
+    for expected in ["activity", "a2ui_card", "error_notice"] {
+        let Some(item_id) = events.iter().find_map(|event| match (expected, event) {
+            (
+                "activity",
+                TurnStreamEvent::ConversationItem {
+                    conversation_id: id,
+                    item_id,
+                    turn_id: Some(_),
+                    item: TurnTranscriptItem::Activity { .. },
+                },
+            ) if id == &conversation_id => Some(item_id.clone()),
+            (
+                "a2ui_card",
+                TurnStreamEvent::ConversationItem {
+                    conversation_id: id,
+                    item_id,
+                    turn_id: Some(_),
+                    item: TurnTranscriptItem::A2uiCard { .. },
+                },
+            ) if id == &conversation_id => Some(item_id.clone()),
+            (
+                "error_notice",
+                TurnStreamEvent::ConversationItem {
+                    conversation_id: id,
+                    item_id,
+                    turn_id: Some(_),
+                    item: TurnTranscriptItem::ErrorNotice { .. },
+                },
+            ) if id == &conversation_id => Some(item_id.clone()),
+            _ => None,
+        }) else {
+            panic!("expected durable {expected} conversation item, got {events:?}");
+        };
+        assert!(item_id.starts_with("item_"));
+    }
 
     let repo = SqliteMemoryRepository::open_at(&db_path).expect("repo");
     let memories = repo.list_recent_memories(Some(10)).expect("memories");
@@ -632,13 +782,38 @@ async fn collect_turn(
     conversation_id: String,
     input: String,
 ) -> Result<Vec<TurnTranscriptItem>, DaemonError> {
+    let (result, events) = collect_turn_events(handle, conversation_id, input).await;
+    result?;
+    Ok(transcript_items_from_events(events))
+}
+
+async fn collect_turn_events(
+    handle: &CodexRuntimeHandle,
+    conversation_id: String,
+    input: String,
+) -> (Result<(), DaemonError>, Vec<TurnStreamEvent>) {
     let (item_tx, mut item_rx) = mpsc::unbounded_channel();
-    handle.turn(conversation_id, input, item_tx).await?;
-    let mut items = Vec::new();
-    while let Ok(item) = item_rx.try_recv() {
-        items.push(item);
+    let result = handle.turn(conversation_id, input, item_tx).await;
+    let mut events = Vec::new();
+    while let Ok(event) = item_rx.try_recv() {
+        events.push(event);
     }
-    Ok(items)
+    (result, events)
+}
+
+fn transcript_items_from_events(events: Vec<TurnStreamEvent>) -> Vec<TurnTranscriptItem> {
+    events
+        .into_iter()
+        .filter_map(|event| match event {
+            TurnStreamEvent::ConversationItem { item, .. }
+                if !matches!(item, TurnTranscriptItem::UserText { .. }) =>
+            {
+                Some(item)
+            }
+            TurnStreamEvent::ConversationItem { .. }
+            | TurnStreamEvent::AgentStatusChanged { .. } => None,
+        })
+        .collect()
 }
 
 fn fake_codex_app_server_script_with_turn_error() -> std::path::PathBuf {
@@ -683,7 +858,8 @@ for line in sys.stdin:
 fn assistant_text(items: &[TurnTranscriptItem]) -> &str {
     let Some(text) = items.iter().find_map(|item| match item {
         TurnTranscriptItem::AssistantText { text } => Some(text.as_str()),
-        TurnTranscriptItem::Activity { .. }
+        TurnTranscriptItem::UserText { .. }
+        | TurnTranscriptItem::Activity { .. }
         | TurnTranscriptItem::A2uiCard { .. }
         | TurnTranscriptItem::ErrorNotice { .. } => None,
     }) else {
