@@ -1,4 +1,7 @@
 .git
+.env
+.env.*
+!.env.example
 target
 crates/noema-core/web/node_modules
 crates/noema-core/web/dist

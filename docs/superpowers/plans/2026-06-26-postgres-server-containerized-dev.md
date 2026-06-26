@@ -128,7 +128,7 @@ services:
       POSTGRES_DB: noema
       PGDATA: /noema/db/postgres
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - ${NOEMA_HOME:-.noema-dev}:/noema
     healthcheck:
@@ -154,7 +154,7 @@ services:
       - target:/workspace/target
       - ${NOEMA_HOME:-.noema-dev}:/noema
     ports:
-      - "3737:3737"
+      - "127.0.0.1:3737:3737"
     depends_on:
       postgres:
         condition: service_healthy
@@ -164,11 +164,12 @@ services:
       context: .
       target: dev
     working_dir: /workspace/crates/noema-core/web
-    command: ["bun", "run", "dev"]
+    command: ["sh", "-lc", "bun install && bun run dev"]
     volumes:
       - .:/workspace
       - target:/workspace/target
       - bun-cache:/root/.bun/install/cache
+      - web-node-modules:/workspace/crates/noema-core/web/node_modules
     depends_on:
       - noema-server
 
@@ -177,6 +178,7 @@ volumes:
   cargo-git:
   target:
   bun-cache:
+  web-node-modules:
 ```
 
 - [ ] **Step 5: Add Docker ignore**
@@ -185,6 +187,9 @@ Create `.dockerignore`:
 
 ```text
 .git
+.env
+.env.*
+!.env.example
 target
 crates/noema-core/web/node_modules
 crates/noema-core/web/dist
