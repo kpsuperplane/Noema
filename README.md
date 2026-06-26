@@ -197,7 +197,7 @@ Then open <http://localhost:3737/> and click **Connect Codex**. If you need a
 terminal fallback, run:
 
 ```bash
-docker compose run --rm dev codex login --device-auth
+docker compose run --rm -e CODEX_HOME=/noema/providers/codex/default dev codex login --device-auth
 ```
 
 To run the one-shot server container without file watching:
