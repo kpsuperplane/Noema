@@ -95,6 +95,10 @@ impl GenerateResponse {
             .filter_map(|item| match item {
                 GenerateOutputItem::AssistantText { text } => Some(text.as_str()),
                 GenerateOutputItem::MemoryProposals { .. }
+                | GenerateOutputItem::ToolCall { .. }
+                | GenerateOutputItem::ToolResult { .. }
+                | GenerateOutputItem::ApprovalRequest { .. }
+                | GenerateOutputItem::ApprovalResult { .. }
                 | GenerateOutputItem::Structured { .. } => None,
             })
             .collect()
@@ -108,6 +112,10 @@ impl GenerateResponse {
             .flat_map(|item| match item {
                 GenerateOutputItem::MemoryProposals { proposals } => proposals.as_slice(),
                 GenerateOutputItem::AssistantText { .. }
+                | GenerateOutputItem::ToolCall { .. }
+                | GenerateOutputItem::ToolResult { .. }
+                | GenerateOutputItem::ApprovalRequest { .. }
+                | GenerateOutputItem::ApprovalResult { .. }
                 | GenerateOutputItem::Structured { .. } => &[],
             })
             .cloned()
@@ -128,6 +136,44 @@ pub enum GenerateOutputItem {
     MemoryProposals {
         /// Proposed memories. The daemon still validates and policy-gates them.
         proposals: Vec<ExtractorMemoryProposal>,
+    },
+    /// Provider-reported tool invocation.
+    ToolCall {
+        /// Provider item id or tool-call id, when available.
+        id: Option<String>,
+        /// Tool or operation name.
+        name: String,
+        /// Provider payload for audit and replay.
+        payload: Value,
+    },
+    /// Provider-reported tool result.
+    ToolResult {
+        /// Provider tool-call id, when available.
+        call_id: Option<String>,
+        /// Tool or operation name, when available.
+        name: Option<String>,
+        /// Whether the result succeeded, when known.
+        success: Option<bool>,
+        /// Provider payload for audit and replay.
+        payload: Value,
+    },
+    /// Provider request for approval or elicitation.
+    ApprovalRequest {
+        /// Provider request id, when available.
+        id: Option<String>,
+        /// Provider method that requested approval.
+        method: String,
+        /// Provider payload for audit and replay.
+        payload: Value,
+    },
+    /// Recorded approval or elicitation decision.
+    ApprovalResult {
+        /// Provider request id, when available.
+        request_id: Option<String>,
+        /// Decision returned to the provider.
+        decision: String,
+        /// Provider response payload for audit and replay.
+        payload: Value,
     },
     /// Future rich structured output payload.
     Structured {
@@ -220,7 +266,12 @@ fn validate_required_noema_response_output(
 ) -> Result<(), ProviderError> {
     let has_assistant_text = output.iter().any(|item| match item {
         GenerateOutputItem::AssistantText { text } => !text.trim().is_empty(),
-        GenerateOutputItem::MemoryProposals { .. } | GenerateOutputItem::Structured { .. } => false,
+        GenerateOutputItem::MemoryProposals { .. }
+        | GenerateOutputItem::ToolCall { .. }
+        | GenerateOutputItem::ToolResult { .. }
+        | GenerateOutputItem::ApprovalRequest { .. }
+        | GenerateOutputItem::ApprovalResult { .. }
+        | GenerateOutputItem::Structured { .. } => false,
     });
     if !has_assistant_text {
         return Err(ProviderError::MalformedResponse {
@@ -314,6 +365,19 @@ pub enum ProviderError {
         message: String,
     },
 
+    /// The provider failed after completing some durable output items.
+    #[error("{provider} provider returned partial output: {message}")]
+    PartialResponse {
+        /// Provider name.
+        provider: String,
+        /// Model identifier used by the provider.
+        model: String,
+        /// Failure message.
+        message: String,
+        /// Completed output items that should still be persisted for audit.
+        output: Vec<GenerateOutputItem>,
+    },
+
     /// A provider-specific protocol failed.
     #[error("{provider} provider protocol error: {message}")]
     ProtocolError {
@@ -405,6 +469,29 @@ mod tests {
                 text: "Hello".to_string()
             }]
         );
+    }
+
+    #[test]
+    fn parses_provider_action_output_items() {
+        let output = output_items_from_text(
+            r#"{"type":"noema_response","output":[{"kind":"assistant_text","text":"Done"},{"kind":"tool_call","id":"call_1","name":"search_memory","payload":{"query":"trains"}},{"kind":"approval_result","request_id":"approval_1","decision":"decline","payload":{"reason":"test"}}]}"#
+                .to_string(),
+        )
+        .expect("structured output");
+
+        assert!(matches!(
+            &output[1],
+            GenerateOutputItem::ToolCall { id: Some(id), name, .. }
+                if id == "call_1" && name == "search_memory"
+        ));
+        assert!(matches!(
+            &output[2],
+            GenerateOutputItem::ApprovalResult {
+                request_id: Some(id),
+                decision,
+                ..
+            } if id == "approval_1" && decision == "decline"
+        ));
     }
 
     #[test]

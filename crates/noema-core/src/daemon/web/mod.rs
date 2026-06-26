@@ -480,7 +480,17 @@ fn turn_transcript_item_from_record(
         ConversationItemKind::ToolCall
         | ConversationItemKind::ToolResult
         | ConversationItemKind::ApprovalRequest
-        | ConversationItemKind::ApprovalResult => Ok(None),
+        | ConversationItemKind::ApprovalResult => {
+            let payload: ReplayActivityPayload = replay_payload(record)?;
+            Ok(Some(TurnTranscriptItem::Activity {
+                id: payload.id,
+                activity_kind: payload.activity_kind,
+                status: payload.status,
+                title: payload.title,
+                summary: payload.summary,
+                metadata: payload.metadata,
+            }))
+        }
     }
 }
 
@@ -762,5 +772,41 @@ mod tests {
         assert_eq!(encoded["items"][0]["turn_id"], "turn_1");
         assert_eq!(encoded["items"][0]["item"]["kind"], "assistant_text");
         assert_eq!(encoded["items"][0]["item"]["text"], "hello from replay");
+    }
+
+    #[test]
+    fn conversation_replay_includes_persisted_action_rows() {
+        let messages = conversation_start_messages(
+            StartedConversation {
+                conversation_id: "conversation_1".to_string(),
+                provider_thread_id: "thread_1".to_string(),
+            },
+            vec![ConversationItemRecord {
+                item_id: "item_tool_1".to_string(),
+                conversation_id: "conversation_1".to_string(),
+                turn_id: Some("turn_1".to_string()),
+                kind: ConversationItemKind::ToolCall,
+                status: ConversationItemStatus::Completed,
+                content_text: Some("Tool call: search_memory".to_string()),
+                payload_json: json!({
+                    "id": "tool_call:conversation_1:0:1",
+                    "activity_kind": "tool_call",
+                    "status": "completed",
+                    "title": "Tool call: search_memory",
+                    "summary": "provider id call_1",
+                    "metadata": {"action": {"name": "search_memory"}},
+                }),
+            }],
+        )
+        .expect("start messages");
+
+        let encoded = serde_json::to_value(&messages[1]).expect("serialize replay");
+        assert_eq!(encoded["items"][0]["item_id"], "item_tool_1");
+        assert_eq!(encoded["items"][0]["item"]["kind"], "activity");
+        assert_eq!(encoded["items"][0]["item"]["activity_kind"], "tool_call");
+        assert_eq!(
+            encoded["items"][0]["item"]["title"],
+            "Tool call: search_memory"
+        );
     }
 }

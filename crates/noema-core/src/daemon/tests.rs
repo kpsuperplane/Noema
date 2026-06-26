@@ -91,6 +91,7 @@ async fn test_database() -> Option<RuntimeTestDatabase> {
         eprintln!("skipping daemon Postgres test; {TEST_DATABASE_URL_ENV} is unset");
         return None;
     };
+    assert_test_database_url(&url);
     let schema_guard = DAEMON_POSTGRES_TEST_SCHEMA_LOCK.lock().await;
     let database = DatabaseConfig::new(url.clone()).expect("database config");
     let pool = database.connect().await.expect("connect test database");
@@ -102,6 +103,37 @@ async fn test_database() -> Option<RuntimeTestDatabase> {
         url,
         _schema_guard: schema_guard,
     })
+}
+
+fn assert_test_database_url(database_url: &str) {
+    assert!(
+        is_test_database_url(database_url),
+        "{TEST_DATABASE_URL_ENV} must name an explicit test database"
+    );
+}
+
+fn is_test_database_url(database_url: &str) -> bool {
+    test_database_name(database_url).is_some_and(is_explicit_test_database_name)
+}
+
+fn is_explicit_test_database_name(database_name: &str) -> bool {
+    let database_name = database_name.to_ascii_lowercase();
+    database_name == "test"
+        || database_name.starts_with("test_")
+        || database_name.ends_with("_test")
+        || database_name.starts_with("noema_test")
+}
+
+fn test_database_name(database_url: &str) -> Option<&str> {
+    let after_scheme = database_url
+        .split_once("://")
+        .map_or(database_url, |(_, rest)| rest);
+    let path = after_scheme.split_once('/')?.1;
+    let name_with_query = path.rsplit('/').next()?.trim();
+    let database_name = name_with_query
+        .split_once('?')
+        .map_or(name_with_query, |(name, _)| name);
+    (!database_name.is_empty()).then_some(database_name)
 }
 
 async fn postgres_repo(database: &RuntimeTestDatabase) -> PostgresMemoryRepository {
@@ -120,6 +152,20 @@ async fn second_listener_on_same_socket_is_rejected() {
     let error = bind_listener(&socket_path).await.unwrap_err();
 
     assert!(matches!(error, DaemonError::AlreadyRunning { .. }));
+}
+
+#[test]
+fn daemon_test_database_guard_rejects_non_test_database_names() {
+    assert_test_database_url("postgres://noema:noema@localhost:5432/noema_test");
+    assert_test_database_url("postgres://noema:noema@localhost:5432/test");
+    assert_test_database_url("postgres://noema:noema@localhost:5432/noema_test?sslmode=disable");
+
+    assert!(!is_test_database_url(
+        "postgres://noema:noema@localhost:5432/noema"
+    ));
+    assert!(!is_test_database_url(
+        "postgres://noema:noema@localhost:5432/postgres"
+    ));
 }
 
 #[tokio::test]
@@ -808,6 +854,126 @@ async fn runtime_actor_persists_explicit_remember_before_provider_failure() {
     assert_eq!(turn_status, "failed");
 }
 
+#[tokio::test]
+async fn runtime_actor_persists_provider_tool_items_as_action_rows() {
+    let Some(database) = test_database().await else {
+        return;
+    };
+    let script = fake_codex_app_server_script_with_tool_item();
+    let handle = CodexRuntimeHandle::spawn(
+        CodexProviderConfig {
+            command: script.to_string_lossy().to_string(),
+            startup_timeout_seconds: 2,
+            turn_timeout_seconds: 2,
+            ..CodexProviderConfig::default()
+        },
+        database.url.clone(),
+    )
+    .await
+    .expect("runtime");
+
+    let conversation_id = handle
+        .start_conversation(None, None)
+        .await
+        .expect("conversation")
+        .conversation_id;
+    let items = collect_turn(
+        &handle,
+        conversation_id.clone(),
+        "Use your tool".to_string(),
+    )
+    .await
+    .expect("turn");
+
+    assert!(items.iter().any(|item| matches!(
+        item,
+        TurnTranscriptItem::Activity {
+            activity_kind,
+            title,
+            ..
+        } if activity_kind == "tool_call" && title == "Tool call: search_memory"
+    )));
+
+    let repo = postgres_repo(&database).await;
+    let replay = repo
+        .list_conversation_items(&conversation_id, ReplayMode::Visible)
+        .await
+        .expect("conversation replay");
+    assert!(replay.iter().any(|item| {
+        item.kind == ConversationItemKind::ToolCall
+            && item.status == ConversationItemStatus::Completed
+            && item.payload_json["activity_kind"] == "tool_call"
+            && item.payload_json["metadata"]["action"]["name"] == "search_memory"
+    }));
+    let tool_position = replay
+        .iter()
+        .position(|item| item.kind == ConversationItemKind::ToolCall)
+        .expect("tool call item");
+    let assistant_position = replay
+        .iter()
+        .position(|item| item.kind == ConversationItemKind::AssistantText)
+        .expect("assistant item");
+    assert!(
+        tool_position < assistant_position,
+        "tool call should replay before assistant text"
+    );
+}
+
+#[tokio::test]
+async fn runtime_actor_persists_provider_tool_items_before_turn_failure() {
+    let Some(database) = test_database().await else {
+        return;
+    };
+    let script = fake_codex_app_server_script_with_tool_item_then_failure();
+    let handle = CodexRuntimeHandle::spawn(
+        CodexProviderConfig {
+            command: script.to_string_lossy().to_string(),
+            startup_timeout_seconds: 2,
+            turn_timeout_seconds: 2,
+            ..CodexProviderConfig::default()
+        },
+        database.url.clone(),
+    )
+    .await
+    .expect("runtime");
+
+    let conversation_id = handle
+        .start_conversation(None, None)
+        .await
+        .expect("conversation")
+        .conversation_id;
+    let (result, events) = collect_turn_events(
+        &handle,
+        conversation_id.clone(),
+        "Use your tool".to_string(),
+    )
+    .await;
+    assert!(matches!(result, Err(DaemonError::Provider(_))));
+    let items = transcript_items_from_events(events);
+    assert!(items.iter().any(|item| matches!(
+        item,
+        TurnTranscriptItem::Activity {
+            activity_kind,
+            title,
+            ..
+        } if activity_kind == "tool_call" && title == "Tool call: search_memory"
+    )));
+
+    let repo = postgres_repo(&database).await;
+    let replay = repo
+        .list_conversation_items(&conversation_id, ReplayMode::Visible)
+        .await
+        .expect("conversation replay");
+    assert!(replay.iter().any(|item| {
+        item.kind == ConversationItemKind::ToolCall
+            && item.status == ConversationItemStatus::Completed
+            && item.payload_json["activity_kind"] == "tool_call"
+    }));
+    let (agent_status, turn_status) = conversation_and_turn_statuses(&repo, &conversation_id).await;
+    assert_eq!(agent_status, "error");
+    assert_eq!(turn_status, "failed");
+}
+
 async fn conversation_and_turn_statuses(
     repo: &PostgresMemoryRepository,
     conversation_id: &str,
@@ -960,6 +1126,89 @@ for line in sys.stdin:
         print(json.dumps({"id": msg["id"], "result": {"turn": {"id": "turn_1"}}}), flush=True)
         print(json.dumps({"method": "item/completed", "params": {"item": {"type": "agentMessage", "text": text}}}), flush=True)
         print(json.dumps({"method": "turn/completed", "params": {"turn": {"status": "completed"}}}), flush=True)
+"#,
+    )
+    .expect("write script");
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut permissions = std::fs::metadata(&path).expect("metadata").permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&path, permissions).expect("chmod");
+    }
+
+    path
+}
+
+fn fake_codex_app_server_script_with_tool_item() -> std::path::PathBuf {
+    let dir = tempfile::tempdir().expect("temp dir").keep();
+    let path = dir.join("fake-codex-tool-item");
+    std::fs::write(
+        &path,
+        r#"#!/usr/bin/env python3
+import json
+import sys
+
+next_thread = 1
+
+for line in sys.stdin:
+    msg = json.loads(line)
+    method = msg.get("method")
+    if method == "initialize":
+        print(json.dumps({"id": msg["id"], "result": {"userAgent": "fake"}}), flush=True)
+    elif method == "initialized":
+        pass
+    elif method == "thread/start":
+        thread = f"thread_{next_thread}"
+        next_thread += 1
+        print(json.dumps({"id": msg["id"], "result": {"thread": {"id": thread}}}), flush=True)
+    elif method == "turn/start":
+        print(json.dumps({"id": msg["id"], "result": {"turn": {"id": "turn_1"}}}), flush=True)
+        print(json.dumps({"method": "item/completed", "params": {"item": {"type": "toolCall", "id": "call_1", "name": "search_memory", "arguments": {"query": "trains"}}}}), flush=True)
+        print(json.dumps({"method": "item/completed", "params": {"item": {"type": "agentMessage", "text": "fake answer"}}}), flush=True)
+        print(json.dumps({"method": "turn/completed", "params": {"turn": {"status": "completed"}}}), flush=True)
+"#,
+    )
+    .expect("write script");
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut permissions = std::fs::metadata(&path).expect("metadata").permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&path, permissions).expect("chmod");
+    }
+
+    path
+}
+
+fn fake_codex_app_server_script_with_tool_item_then_failure() -> std::path::PathBuf {
+    let dir = tempfile::tempdir().expect("temp dir").keep();
+    let path = dir.join("fake-codex-tool-item-failure");
+    std::fs::write(
+        &path,
+        r#"#!/usr/bin/env python3
+import json
+import sys
+
+next_thread = 1
+
+for line in sys.stdin:
+    msg = json.loads(line)
+    method = msg.get("method")
+    if method == "initialize":
+        print(json.dumps({"id": msg["id"], "result": {"userAgent": "fake"}}), flush=True)
+    elif method == "initialized":
+        pass
+    elif method == "thread/start":
+        thread = f"thread_{next_thread}"
+        next_thread += 1
+        print(json.dumps({"id": msg["id"], "result": {"thread": {"id": thread}}}), flush=True)
+    elif method == "turn/start":
+        print(json.dumps({"id": msg["id"], "result": {"turn": {"id": "turn_1"}}}), flush=True)
+        print(json.dumps({"method": "item/completed", "params": {"item": {"type": "toolCall", "id": "call_1", "name": "search_memory", "arguments": {"query": "trains"}}}}), flush=True)
+        print(json.dumps({"method": "turn/completed", "params": {"turn": {"status": "failed", "error": {"message": "tool failed later"}}}}), flush=True)
 "#,
     )
     .expect("write script");

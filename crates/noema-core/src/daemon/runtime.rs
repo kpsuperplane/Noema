@@ -15,7 +15,7 @@ use crate::{
         NewConversationItem, NewConversationTurn, NewMemoryCandidate, NewMemoryParticipant,
         ObjectProvenanceSource, ObjectRef, ObjectType, PostgresMemoryRepository,
     },
-    provider::{GenerateOutputItem, GenerateResponse},
+    provider::{GenerateOutputItem, GenerateResponse, ProviderError},
     providers::{
         codex::CodexProviderConfig,
         codex_app_server::{CodexAppServerConversation, CodexAppServerRuntime},
@@ -464,17 +464,45 @@ impl CodexRuntimeActor {
                 Ok(())
             }
             Err(error) => {
+                let partial_output = match &error {
+                    ProviderError::PartialResponse {
+                        provider, output, ..
+                    } => Some((provider.clone(), output.clone())),
+                    ProviderError::MissingCredentials { .. }
+                    | ProviderError::InvalidRequest { .. }
+                    | ProviderError::HttpFailure { .. }
+                    | ProviderError::ApiError { .. }
+                    | ProviderError::RateLimit { .. }
+                    | ProviderError::AuthenticationFailure { .. }
+                    | ProviderError::MalformedResponse { .. }
+                    | ProviderError::ProtocolError { .. }
+                    | ProviderError::Timeout { .. }
+                    | ProviderError::UnsupportedFeature { .. }
+                    | ProviderError::ProviderUnavailable { .. } => None,
+                };
+                let error_message = error.to_string();
                 let error_context = ConversationMemoryContext {
                     turn_index,
                     conversation_id: conversation_id.clone(),
-                    turn_id: turn.turn_id,
-                    user_item_id,
+                    turn_id: turn.turn_id.clone(),
+                    user_item_id: user_item_id.clone(),
                     assistant_item_id: None,
-                    user_content: input,
+                    user_content: input.clone(),
                     assistant_content: String::new(),
                     cwd: conversation.cwd.clone(),
                 };
-                self.record_turn_failure(&error_context, error.to_string(), &item_tx)
+                if let Some((provider, output)) = partial_output {
+                    let action_turn = ProviderActionTurn {
+                        conversation_id: conversation_id.clone(),
+                        turn_id: turn.turn_id,
+                        turn_index,
+                        user_item_id,
+                        provider,
+                    };
+                    self.persist_partial_provider_action_outputs(&action_turn, output, &item_tx)
+                        .await?;
+                }
+                self.record_turn_failure(&error_context, error_message, &item_tx)
                     .await?;
                 self.conversations.remove(&conversation_id);
                 Err(error.into())
@@ -489,6 +517,13 @@ impl CodexRuntimeActor {
     ) -> Result<(), DaemonError> {
         let assistant_text = turn.response.assistant_text();
         let provider_memory_proposals = turn.response.memory_proposals();
+        let action_turn = ProviderActionTurn {
+            conversation_id: turn.conversation_id.clone(),
+            turn_id: turn.turn_id.clone(),
+            turn_index: turn.turn_index,
+            user_item_id: turn.user_item_id.clone(),
+            provider: turn.response.provider.clone(),
+        };
         let mut assistant_item_id = None;
         for (index, output) in turn.response.output.into_iter().enumerate() {
             match output {
@@ -520,6 +555,13 @@ impl CodexRuntimeActor {
                     );
                 }
                 GenerateOutputItem::MemoryProposals { .. } => {}
+                output @ (GenerateOutputItem::ToolCall { .. }
+                | GenerateOutputItem::ToolResult { .. }
+                | GenerateOutputItem::ApprovalRequest { .. }
+                | GenerateOutputItem::ApprovalResult { .. }) => {
+                    self.persist_provider_action_output_item(&action_turn, index, output, item_tx)
+                        .await?;
+                }
                 GenerateOutputItem::Structured { schema, payload } => {
                     let card_id = format!(
                         "provider_structured:{}:{}:{index}",
@@ -596,6 +638,198 @@ impl CodexRuntimeActor {
             conversation.next_turn_index = conversation.next_turn_index.saturating_add(1);
         }
 
+        Ok(())
+    }
+
+    async fn persist_partial_provider_action_outputs(
+        &mut self,
+        turn: &ProviderActionTurn,
+        output: Vec<GenerateOutputItem>,
+        item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
+    ) -> Result<(), DaemonError> {
+        for (index, output) in output.into_iter().enumerate() {
+            self.persist_provider_action_output_item(turn, index, output, item_tx)
+                .await?;
+        }
+        Ok(())
+    }
+
+    async fn persist_provider_action_output_item(
+        &mut self,
+        turn: &ProviderActionTurn,
+        index: usize,
+        output: GenerateOutputItem,
+        item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
+    ) -> Result<(), DaemonError> {
+        match output {
+            GenerateOutputItem::ToolCall { id, name, payload } => {
+                self.persist_provider_action_output(
+                    turn,
+                    ProviderActionOutput {
+                        index,
+                        kind: ConversationItemKind::ToolCall,
+                        status: ConversationItemStatus::Completed,
+                        action_kind: "tool_call",
+                        title: format!("Tool call: {name}"),
+                        summary: id.as_deref().map(|id| format!("provider id {id}")),
+                        payload: json!({
+                            "id": id,
+                            "name": name,
+                            "payload": payload,
+                        }),
+                    },
+                    item_tx,
+                )
+                .await?;
+            }
+            GenerateOutputItem::ToolResult {
+                call_id,
+                name,
+                success,
+                payload,
+            } => {
+                let status = if success == Some(false) {
+                    ConversationItemStatus::Failed
+                } else {
+                    ConversationItemStatus::Completed
+                };
+                self.persist_provider_action_output(
+                    turn,
+                    ProviderActionOutput {
+                        index,
+                        kind: ConversationItemKind::ToolResult,
+                        status,
+                        action_kind: "tool_result",
+                        title: name.as_ref().map_or_else(
+                            || "Tool result".to_string(),
+                            |name| format!("Tool result: {name}"),
+                        ),
+                        summary: call_id.as_deref().map(|id| format!("call id {id}")),
+                        payload: json!({
+                            "call_id": call_id,
+                            "name": name,
+                            "success": success,
+                            "payload": payload,
+                        }),
+                    },
+                    item_tx,
+                )
+                .await?;
+            }
+            GenerateOutputItem::ApprovalRequest {
+                id,
+                method,
+                payload,
+            } => {
+                self.persist_provider_action_output(
+                    turn,
+                    ProviderActionOutput {
+                        index,
+                        kind: ConversationItemKind::ApprovalRequest,
+                        status: ConversationItemStatus::Completed,
+                        action_kind: "approval_request",
+                        title: "Approval requested".to_string(),
+                        summary: Some(method.clone()),
+                        payload: json!({
+                            "id": id,
+                            "method": method,
+                            "payload": payload,
+                        }),
+                    },
+                    item_tx,
+                )
+                .await?;
+            }
+            GenerateOutputItem::ApprovalResult {
+                request_id,
+                decision,
+                payload,
+            } => {
+                self.persist_provider_action_output(
+                    turn,
+                    ProviderActionOutput {
+                        index,
+                        kind: ConversationItemKind::ApprovalResult,
+                        status: ConversationItemStatus::Completed,
+                        action_kind: "approval_result",
+                        title: format!("Approval {decision}"),
+                        summary: request_id.as_deref().map(|id| format!("request id {id}")),
+                        payload: json!({
+                            "request_id": request_id,
+                            "decision": decision,
+                            "payload": payload,
+                        }),
+                    },
+                    item_tx,
+                )
+                .await?;
+            }
+            GenerateOutputItem::AssistantText { .. }
+            | GenerateOutputItem::MemoryProposals { .. }
+            | GenerateOutputItem::Structured { .. } => {}
+        }
+        Ok(())
+    }
+
+    async fn persist_provider_action_output(
+        &mut self,
+        turn: &ProviderActionTurn,
+        action: ProviderActionOutput,
+        item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
+    ) -> Result<(), DaemonError> {
+        let activity_id = format!(
+            "{}:{}:{}:{}",
+            action.action_kind, turn.conversation_id, turn.turn_index, action.index
+        );
+        let activity_status = activity_status_for_conversation_item(action.status);
+        let title = action.title.clone();
+        let summary = action.summary.clone();
+        let payload_json = json!({
+            "id": activity_id,
+            "activity_kind": action.action_kind,
+            "status": activity_status_payload(activity_status),
+            "title": title.clone(),
+            "summary": summary.clone(),
+            "metadata": {
+                "turn_index": turn.turn_index,
+                "output_index": action.index,
+                "provider": turn.provider.clone(),
+                "action": action.payload,
+            },
+        });
+        let content_text = payload_json
+            .get("title")
+            .and_then(serde_json::Value::as_str)
+            .map(ToString::to_string);
+        let record = self
+            .memory_repository
+            .append_conversation_item(NewConversationItem {
+                conversation_id: turn.conversation_id.clone(),
+                turn_id: Some(turn.turn_id.clone()),
+                parent_item_id: Some(turn.user_item_id.clone()),
+                kind: action.kind,
+                status: action.status,
+                author: ObjectRef::agent("agent:primary"),
+                content_text,
+                payload_json: payload_json.clone(),
+                metadata: json!({
+                    "turn_index": turn.turn_index,
+                    "output_index": action.index,
+                    "source": "provider_action",
+                    "provider": turn.provider.clone(),
+                }),
+            })
+            .await?;
+
+        let transcript_item = TurnTranscriptItem::Activity {
+            id: activity_id,
+            activity_kind: action.action_kind.to_string(),
+            status: activity_status,
+            title,
+            summary,
+            metadata: payload_json["metadata"].clone(),
+        };
+        send_conversation_item(item_tx, record, transcript_item);
         Ok(())
     }
 
@@ -961,6 +1195,20 @@ const fn conversation_item_status_for_activity(
     }
 }
 
+const fn activity_status_for_conversation_item(
+    status: ConversationItemStatus,
+) -> TurnActivityStatus {
+    match status {
+        ConversationItemStatus::Pending | ConversationItemStatus::Running => {
+            TurnActivityStatus::Started
+        }
+        ConversationItemStatus::Completed => TurnActivityStatus::Completed,
+        ConversationItemStatus::Failed
+        | ConversationItemStatus::Cancelled
+        | ConversationItemStatus::Interrupted => TurnActivityStatus::Failed,
+    }
+}
+
 const fn activity_status_payload(status: TurnActivityStatus) -> &'static str {
     match status {
         TurnActivityStatus::Started => "started",
@@ -1050,6 +1298,24 @@ struct SuccessfulProviderTurn {
     cwd: Option<String>,
     response: GenerateResponse,
     saved_memory_id: Option<String>,
+}
+
+struct ProviderActionTurn {
+    conversation_id: String,
+    turn_id: String,
+    turn_index: u64,
+    user_item_id: String,
+    provider: String,
+}
+
+struct ProviderActionOutput {
+    index: usize,
+    kind: ConversationItemKind,
+    status: ConversationItemStatus,
+    action_kind: &'static str,
+    title: String,
+    summary: Option<String>,
+    payload: serde_json::Value,
 }
 
 async fn persist_validated_memory_proposals(

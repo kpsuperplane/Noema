@@ -2,7 +2,8 @@
 
 use crate::{
     provider::{
-        GenerateResponse, ProviderError, output_items_from_text, required_output_items_from_text,
+        GenerateOutputItem, GenerateResponse, ProviderError, output_items_from_text,
+        required_output_items_from_text,
     },
     providers::codex::CodexProviderConfig,
 };
@@ -314,7 +315,7 @@ impl CodexAppServerProcess {
         let mut saw_response = false;
         let mut saw_completion = false;
         let mut delta_text = String::new();
-        let mut final_text = None;
+        let mut completed_items = Vec::new();
 
         while !(saw_response && saw_completion) {
             let message = self
@@ -327,7 +328,8 @@ impl CodexAppServerProcess {
                 continue;
             }
 
-            if self.handle_server_request(&message).await? {
+            if let Some(items) = self.handle_server_request(&message).await? {
+                completed_items.extend(items.into_iter().map(CompletedTurnItem::Output));
                 continue;
             }
 
@@ -343,29 +345,39 @@ impl CodexAppServerProcess {
                 }
                 "item/completed" => {
                     if let Some(text) = extract_completed_agent_text(&message) {
-                        final_text = Some(text);
+                        completed_items.push(CompletedTurnItem::AssistantText(text));
+                    } else if let Some(item) = extract_completed_action_item(&message) {
+                        completed_items.push(CompletedTurnItem::Output(item));
                     }
                 }
                 "turn/completed" => {
-                    validate_turn_completion(&message)?;
+                    if let Err(error) = validate_turn_completion(&message) {
+                        let output = action_output_items(&completed_items);
+                        if output.is_empty() {
+                            return Err(error);
+                        }
+                        return Err(ProviderError::PartialResponse {
+                            provider: "codex".to_string(),
+                            model: model.unwrap_or("codex-default").to_string(),
+                            message: error.to_string(),
+                            output,
+                        });
+                    }
                     saw_completion = true;
                 }
                 _ => {}
             }
         }
 
-        let text = final_text.unwrap_or(delta_text);
-        if text.trim().is_empty() {
-            return Err(ProviderError::MalformedResponse {
-                message: "codex app-server turn completed without assistant text".to_string(),
-            });
+        if !delta_text.trim().is_empty()
+            && !completed_items
+                .iter()
+                .any(|item| matches!(item, CompletedTurnItem::AssistantText(_)))
+        {
+            completed_items.push(CompletedTurnItem::AssistantText(delta_text));
         }
-
-        let output = if require_noema_response {
-            required_output_items_from_text(text)?
-        } else {
-            output_items_from_text(text)?
-        };
+        let output =
+            output_items_from_completed_turn_items(completed_items, require_noema_response)?;
 
         Ok(GenerateResponse {
             output,
@@ -396,7 +408,7 @@ impl CodexAppServerProcess {
                 return response_result(&message);
             }
 
-            self.handle_server_request(&message).await?;
+            let _ = self.handle_server_request(&message).await?;
         }
     }
 
@@ -453,29 +465,61 @@ impl CodexAppServerProcess {
         })
     }
 
-    async fn handle_server_request(&mut self, message: &Value) -> Result<bool, ProviderError> {
+    async fn handle_server_request(
+        &mut self,
+        message: &Value,
+    ) -> Result<Option<Vec<GenerateOutputItem>>, ProviderError> {
         let Some(id) = message.get("id").cloned() else {
-            return Ok(false);
+            return Ok(None);
         };
         let Some(method) = message.get("method").and_then(Value::as_str) else {
-            return Ok(false);
+            return Ok(None);
         };
 
-        let response = if method.ends_with("/requestApproval") {
-            json!({"id": id, "result": {"decision": "decline"}})
+        let request_id = id.as_u64().map(|id| id.to_string()).or_else(|| {
+            id.as_str()
+                .filter(|value| !value.trim().is_empty())
+                .map(ToString::to_string)
+        });
+        let params = message.get("params").cloned().unwrap_or_else(|| json!({}));
+        let (response, decision) = if method.ends_with("/requestApproval") {
+            (
+                json!({"id": id, "result": {"decision": "decline"}}),
+                "decline",
+            )
         } else if method == "mcpServer/elicitation/request" {
-            json!({
-                "id": id,
-                "result": {"action": "decline", "content": null, "_meta": null}
-            })
+            (
+                json!({
+                    "id": id,
+                    "result": {"action": "decline", "content": null, "_meta": null}
+                }),
+                "decline",
+            )
         } else {
-            json!({
-                "id": id,
-                "error": {"code": -32601, "message": format!("unsupported method: {method}")}
-            })
+            (
+                json!({
+                    "id": id,
+                    "error": {"code": -32601, "message": format!("unsupported method: {method}")}
+                }),
+                "unsupported",
+            )
         };
         self.send(response).await?;
-        Ok(true)
+        Ok(Some(vec![
+            GenerateOutputItem::ApprovalRequest {
+                id: request_id.clone(),
+                method: method.to_string(),
+                payload: params,
+            },
+            GenerateOutputItem::ApprovalResult {
+                request_id,
+                decision: decision.to_string(),
+                payload: json!({
+                    "method": method,
+                    "decision": decision,
+                }),
+            },
+        ]))
     }
 
     fn next_request_id(&mut self) -> u64 {
@@ -493,6 +537,12 @@ impl CodexAppServerProcess {
         let _ = self.child.start_kill();
         let _ = time::timeout(Duration::from_secs(2), self.child.wait()).await;
     }
+}
+
+#[derive(Debug)]
+enum CompletedTurnItem {
+    AssistantText(String),
+    Output(GenerateOutputItem),
 }
 
 fn response_id(message: &Value) -> Option<u64> {
@@ -556,6 +606,120 @@ fn extract_completed_agent_text(message: &Value) -> Option<String> {
     item.get("text")
         .and_then(Value::as_str)
         .map(ToString::to_string)
+}
+
+fn extract_completed_action_item(message: &Value) -> Option<GenerateOutputItem> {
+    let item = message.get("params")?.get("item")?;
+    let item_type = item.get("type").and_then(Value::as_str)?;
+    if item_type == "agentMessage" {
+        return None;
+    }
+
+    let item_type_lower = item_type.to_ascii_lowercase();
+    let id = string_field(item, &["id", "callId", "toolCallId"]);
+    let name = string_field(item, &["name", "toolName", "command", "serverName"])
+        .unwrap_or_else(|| item_type.to_string());
+    let payload = item.clone();
+
+    if is_tool_result_item_type(&item_type_lower) {
+        Some(GenerateOutputItem::ToolResult {
+            call_id: id,
+            name: Some(name),
+            success: bool_field(item, &["success"]),
+            payload,
+        })
+    } else if is_tool_call_item_type(&item_type_lower) {
+        Some(GenerateOutputItem::ToolCall { id, name, payload })
+    } else {
+        None
+    }
+}
+
+fn is_tool_call_item_type(item_type_lower: &str) -> bool {
+    let normalized = normalized_item_type(item_type_lower);
+    normalized.contains("toolcall")
+        || normalized.contains("functioncall")
+        || normalized.contains("command")
+}
+
+fn is_tool_result_item_type(item_type_lower: &str) -> bool {
+    let normalized = normalized_item_type(item_type_lower);
+    normalized.contains("toolresult")
+        || normalized.contains("tooloutput")
+        || normalized.contains("functionresult")
+        || normalized.contains("functionoutput")
+        || normalized.contains("commandresult")
+        || normalized.contains("commandoutput")
+}
+
+fn normalized_item_type(item_type_lower: &str) -> String {
+    item_type_lower
+        .chars()
+        .filter(|character| character.is_ascii_alphanumeric())
+        .collect()
+}
+
+fn action_output_items(items: &[CompletedTurnItem]) -> Vec<GenerateOutputItem> {
+    items
+        .iter()
+        .filter_map(|item| match item {
+            CompletedTurnItem::Output(output) => Some(output.clone()),
+            CompletedTurnItem::AssistantText(_) => None,
+        })
+        .collect()
+}
+
+fn output_items_from_completed_turn_items(
+    items: Vec<CompletedTurnItem>,
+    require_noema_response: bool,
+) -> Result<Vec<GenerateOutputItem>, ProviderError> {
+    if items.is_empty() {
+        return Err(ProviderError::MalformedResponse {
+            message: "codex app-server turn completed without assistant text".to_string(),
+        });
+    }
+
+    let mut output = Vec::new();
+    let mut saw_assistant_text = false;
+    for item in items {
+        match item {
+            CompletedTurnItem::AssistantText(text) => {
+                if text.trim().is_empty() {
+                    continue;
+                }
+                saw_assistant_text = true;
+                let parsed = if require_noema_response {
+                    required_output_items_from_text(text)?
+                } else {
+                    output_items_from_text(text)?
+                };
+                output.extend(parsed);
+            }
+            CompletedTurnItem::Output(item) => output.push(item),
+        }
+    }
+
+    if !saw_assistant_text {
+        return Err(ProviderError::MalformedResponse {
+            message: "codex app-server turn completed without assistant text".to_string(),
+        });
+    }
+    Ok(output)
+}
+
+fn string_field(value: &Value, keys: &[&str]) -> Option<String> {
+    keys.iter().find_map(|key| {
+        value
+            .get(*key)
+            .and_then(Value::as_str)
+            .filter(|text| !text.trim().is_empty())
+            .map(ToString::to_string)
+    })
+}
+
+fn bool_field(value: &Value, keys: &[&str]) -> Option<bool> {
+    keys.iter()
+        .find_map(|key| value.get(*key).and_then(Value::as_bool))
 }
 
 fn validate_turn_completion(message: &Value) -> Result<(), ProviderError> {
@@ -636,6 +800,96 @@ mod tests {
             extract_completed_agent_text(&message).as_deref(),
             Some("hello")
         );
+    }
+
+    #[test]
+    fn extracts_completed_tool_items_as_action_output() {
+        let message = json!({
+            "method": "item/completed",
+            "params": {
+                "item": {
+                    "type": "toolCall",
+                    "id": "call_1",
+                    "name": "search_memory",
+                    "arguments": {"query": "trains"}
+                }
+            }
+        });
+
+        assert!(matches!(
+            extract_completed_action_item(&message),
+            Some(GenerateOutputItem::ToolCall {
+                id: Some(id),
+                name,
+                ..
+            }) if id == "call_1" && name == "search_memory"
+        ));
+    }
+
+    #[test]
+    fn extracts_completed_tool_results_as_action_output() {
+        let message = json!({
+            "method": "item/completed",
+            "params": {
+                "item": {
+                    "type": "toolResult",
+                    "callId": "call_1",
+                    "toolName": "search_memory",
+                    "success": false,
+                    "content": "denied"
+                }
+            }
+        });
+
+        assert!(matches!(
+            extract_completed_action_item(&message),
+            Some(GenerateOutputItem::ToolResult {
+                call_id: Some(id),
+                name: Some(name),
+                success: Some(false),
+                ..
+            }) if id == "call_1" && name == "search_memory"
+        ));
+    }
+
+    #[test]
+    fn ignores_completed_reasoning_items() {
+        let message = json!({
+            "method": "item/completed",
+            "params": {
+                "item": {
+                    "type": "reasoning",
+                    "text": "working through hidden state"
+                }
+            }
+        });
+
+        assert_eq!(extract_completed_action_item(&message), None);
+    }
+
+    #[test]
+    fn preserves_completed_item_order_when_parsing_output() {
+        let output = output_items_from_completed_turn_items(
+            vec![
+                CompletedTurnItem::Output(GenerateOutputItem::ToolCall {
+                    id: Some("call_1".to_string()),
+                    name: "search_memory".to_string(),
+                    payload: json!({"query": "trains"}),
+                }),
+                CompletedTurnItem::AssistantText("fake answer".to_string()),
+            ],
+            false,
+        )
+        .expect("ordered output");
+
+        assert!(matches!(
+            &output[0],
+            GenerateOutputItem::ToolCall { name, .. } if name == "search_memory"
+        ));
+        assert!(matches!(
+            &output[1],
+            GenerateOutputItem::AssistantText { text } if text == "fake answer"
+        ));
     }
 
     #[test]
