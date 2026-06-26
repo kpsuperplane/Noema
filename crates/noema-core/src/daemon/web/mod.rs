@@ -430,40 +430,31 @@ async fn start_provider_auth_attempt(
         return Ok(());
     }
 
-    let attempt = state
-        .provider_auth
-        .start_codex_device_code(CodexDeviceAuthRequest {
-            provider_account_id: account.provider_account_id,
-            account_home: state
-                .paths
-                .provider_account_home(&account.provider_kind, &account.account_key),
-            codex_command: state.codex_command.clone(),
-            attempt_timeout: None,
-        })
-        .await;
-
-    match attempt {
+    match start_codex_provider_auth_attempt(
+        &state.provider_auth,
+        &state.memory_repository,
+        &state.paths,
+        &state.codex_command,
+        &account,
+    )
+    .await
+    {
         Ok(attempt) => {
-            if should_persist_provider_auth_attempt_status(&attempt)
-                && persist_provider_account_status_from_attempt(&state.memory_repository, &attempt)
-                    .await
-                    .is_err()
-            {
-                write_json_error(
-                    stream,
-                    "500 Internal Server Error",
-                    "provider auth status unavailable",
-                )
-                .await?;
-                return Ok(());
-            }
             write_json(stream, "200 OK", &attempt).await?;
         }
-        Err(_) => {
+        Err(StartProviderAuthAttemptError::ProviderUnavailable) => {
             write_json_error(
                 stream,
                 "500 Internal Server Error",
                 "provider auth could not start",
+            )
+            .await?;
+        }
+        Err(StartProviderAuthAttemptError::StatusUnavailable) => {
+            write_json_error(
+                stream,
+                "500 Internal Server Error",
+                "provider auth status unavailable",
             )
             .await?;
         }
@@ -676,6 +667,58 @@ impl ProviderAccountStatusStore for PostgresMemoryRepository {
             Ok(())
         })
     }
+}
+
+trait CodexDeviceAuthStarter {
+    fn start_codex_device_code<'a>(
+        &'a self,
+        request: CodexDeviceAuthRequest,
+    ) -> Pin<
+        Box<dyn Future<Output = Result<ProviderAuthAttemptView, crate::ProviderError>> + Send + 'a>,
+    >;
+}
+
+impl CodexDeviceAuthStarter for ProviderAuthManager {
+    fn start_codex_device_code<'a>(
+        &'a self,
+        request: CodexDeviceAuthRequest,
+    ) -> Pin<
+        Box<dyn Future<Output = Result<ProviderAuthAttemptView, crate::ProviderError>> + Send + 'a>,
+    > {
+        Box::pin(async move { self.start_codex_device_code(request).await })
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StartProviderAuthAttemptError {
+    ProviderUnavailable,
+    StatusUnavailable,
+}
+
+async fn start_codex_provider_auth_attempt(
+    starter: &impl CodexDeviceAuthStarter,
+    status_store: &impl ProviderAccountStatusStore,
+    paths: &crate::NoemaPaths,
+    codex_command: &str,
+    account: &crate::ProviderAccountRecord,
+) -> Result<ProviderAuthAttemptView, StartProviderAuthAttemptError> {
+    let attempt = starter
+        .start_codex_device_code(CodexDeviceAuthRequest {
+            provider_account_id: account.provider_account_id.clone(),
+            account_home: paths.provider_account_home(&account.provider_kind, &account.account_key),
+            codex_command: codex_command.to_string(),
+            attempt_timeout: None,
+        })
+        .await
+        .map_err(|_| StartProviderAuthAttemptError::ProviderUnavailable)?;
+
+    if should_persist_provider_auth_attempt_status(&attempt) {
+        persist_provider_account_status_from_attempt(status_store, &attempt)
+            .await
+            .map_err(|_| StartProviderAuthAttemptError::StatusUnavailable)?;
+    }
+
+    Ok(attempt)
 }
 
 fn provider_account_status_update_from_attempt(
@@ -1439,14 +1482,24 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn returned_start_auth_terminal_attempt_persists_authenticated_status() {
+    async fn start_auth_returned_completed_attempt_persists_authenticated_status() {
         let store = RecordingProviderAccountStatusStore::default();
         let mut attempt = test_provider_auth_attempt();
         attempt.status = crate::provider_auth::ProviderAuthAttemptStatus::Completed;
+        let starter = RecordingCodexDeviceAuthStarter { attempt };
+        let paths =
+            crate::NoemaPaths::from_noema_home(tempfile::tempdir().expect("temp dir").path())
+                .expect("paths");
 
-        persist_provider_account_status_from_attempt(&store, &attempt)
-            .await
-            .expect("persist status");
+        start_codex_provider_auth_attempt(
+            &starter,
+            &store,
+            &paths,
+            "codex",
+            &test_provider_account(),
+        )
+        .await
+        .expect("start provider auth");
 
         let updates = store.updates.lock().expect("updates lock");
         assert_eq!(
@@ -1533,6 +1586,26 @@ mod tests {
     #[derive(Default)]
     struct RecordingProviderAccountStatusStore {
         updates: std::sync::Mutex<Vec<RecordedProviderAccountStatusUpdate>>,
+    }
+
+    struct RecordingCodexDeviceAuthStarter {
+        attempt: ProviderAuthAttemptView,
+    }
+
+    impl CodexDeviceAuthStarter for RecordingCodexDeviceAuthStarter {
+        fn start_codex_device_code<'a>(
+            &'a self,
+            _request: CodexDeviceAuthRequest,
+        ) -> Pin<
+            Box<
+                dyn Future<Output = Result<ProviderAuthAttemptView, crate::ProviderError>>
+                    + Send
+                    + 'a,
+            >,
+        > {
+            let attempt = self.attempt.clone();
+            Box::pin(async move { Ok(attempt) })
+        }
     }
 
     impl ProviderAccountStatusStore for RecordingProviderAccountStatusStore {
