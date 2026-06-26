@@ -1,4 +1,4 @@
-use std::env;
+use std::{env, ops::Deref};
 
 use super::{
     ConversationItemKind, ConversationItemStatus, NewConversation, NewConversationItem,
@@ -8,6 +8,20 @@ use super::{
 };
 
 const TEST_DATABASE_URL_ENV: &str = "NOEMA_TEST_DATABASE_URL";
+static POSTGRES_TEST_SCHEMA_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+struct TestRepo {
+    repo: PostgresMemoryRepository,
+    _schema_guard: tokio::sync::MutexGuard<'static, ()>,
+}
+
+impl Deref for TestRepo {
+    type Target = PostgresMemoryRepository;
+
+    fn deref(&self) -> &Self::Target {
+        &self.repo
+    }
+}
 
 #[tokio::test]
 async fn bootstrap_creates_core_tables() {
@@ -165,13 +179,14 @@ async fn assert_memory_search_vector_column_exists(pool: &sqlx::PgPool) {
     assert_eq!(column.1, "tsvector");
 }
 
-async fn test_repo() -> Option<PostgresMemoryRepository> {
+async fn test_repo() -> Option<TestRepo> {
     let Some(database_url) = test_database_url() else {
         println!("skipping Postgres test: {TEST_DATABASE_URL_ENV} is unset");
         return None;
     };
     assert_test_database_url(&database_url);
 
+    let schema_guard = POSTGRES_TEST_SCHEMA_LOCK.lock().await;
     let pool = sqlx::PgPool::connect(&database_url)
         .await
         .expect("connect to test Postgres database");
@@ -180,11 +195,13 @@ async fn test_repo() -> Option<PostgresMemoryRepository> {
         .await
         .expect("reset test schema");
 
-    Some(
-        PostgresMemoryRepository::from_pool(pool)
-            .await
-            .expect("bootstrap Postgres memory schema"),
-    )
+    let repo = PostgresMemoryRepository::from_pool(pool)
+        .await
+        .expect("bootstrap Postgres memory schema");
+    Some(TestRepo {
+        repo,
+        _schema_guard: schema_guard,
+    })
 }
 
 fn test_database_url() -> Option<String> {
