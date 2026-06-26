@@ -147,6 +147,7 @@ async fn run_start(args: &Args) -> Result<(), CliError> {
     run_daemon(DaemonServerConfig::new(
         socket_path,
         daemon_config.codex,
+        daemon_config.database.url,
         paths.database_path(),
         daemon_config.web,
     ))
