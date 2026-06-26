@@ -5,6 +5,7 @@ use super::{
     NewConversationTurn, NewMemoryCandidate, NewMemoryParticipant, NewMemorySubject,
     NewObjectProvenanceEdge, ObjectRef, ObjectType, PostgresMemoryRepository, ReplayMode,
     postgres_schema::POSTGRES_SCHEMA_SQL,
+    provenance::DeleteConversationItem,
     repository::{POSTGRES_BOOTSTRAP_MIGRATION_NAME, POSTGRES_BOOTSTRAP_MIGRATION_VERSION},
 };
 use crate::memory::{MemoryStatus, ParticipantRole, Sensitivity, SubjectRole};
@@ -294,6 +295,206 @@ async fn append_memory_candidate_records_source_conversation_and_edges() {
         .await
         .expect("extra provenance edge");
     assert!(extra_edge_id.starts_with("edge_"));
+}
+
+#[tokio::test]
+async fn deleting_source_item_deletes_sole_provenance_memory() {
+    let Some(repo) = test_repo().await else {
+        return;
+    };
+    repo.ensure_default_actors().await.expect("actors");
+
+    let conversation = repo
+        .create_conversation(NewConversation::local_chat(None, None))
+        .await
+        .expect("conversation");
+    let source_item = repo
+        .append_conversation_item(NewConversationItem {
+            conversation_id: conversation.conversation_id.clone(),
+            turn_id: None,
+            parent_item_id: None,
+            kind: ConversationItemKind::UserText,
+            status: ConversationItemStatus::Completed,
+            author: ObjectRef::human("human:local"),
+            content_text: Some("remember that I prefer early trains".to_string()),
+            payload_json: serde_json::json!({}),
+            metadata: serde_json::json!({}),
+        })
+        .await
+        .expect("source item");
+
+    let memory = repo
+        .append_memory_candidate(NewMemoryCandidate::confirmed_note(
+            ObjectRef::new(
+                ObjectType::Conversation,
+                conversation.conversation_id.as_str(),
+            )
+            .expect("conversation object ref"),
+            "The user prefers early trains.",
+            ObjectRef::agent("agent:primary"),
+            ObjectRef::conversation_item(source_item.item_id.as_str()),
+        ))
+        .await
+        .expect("memory");
+
+    let listed = repo
+        .list_recent_memories(Some(10))
+        .await
+        .expect("list memories");
+    let listed_memory = listed
+        .iter()
+        .find(|listed_memory| listed_memory.id == memory.id)
+        .expect("memory in list");
+    assert_eq!(listed_memory.content, "The user prefers early trains.");
+    assert_eq!(
+        listed_memory.source_object_type.as_deref(),
+        Some("conversation_item")
+    );
+    assert_eq!(
+        listed_memory.source_object_id.as_deref(),
+        Some(source_item.item_id.as_str())
+    );
+    assert_eq!(
+        listed_memory.conversation_id.as_deref(),
+        Some(conversation.conversation_id.as_str())
+    );
+
+    let shown = repo
+        .get_memory(&memory.id)
+        .await
+        .expect("show memory")
+        .expect("memory exists");
+    assert_eq!(shown.id, memory.id);
+    assert_eq!(shown.content, "The user prefers early trains.");
+    assert_eq!(
+        shown.conversation_id.as_deref(),
+        Some(conversation.conversation_id.as_str())
+    );
+
+    repo.soft_delete_conversation_item(DeleteConversationItem {
+        item_id: source_item.item_id.clone(),
+        deleted_by: ObjectRef::human("human:local"),
+        reason: Some("user deleted source message".to_string()),
+    })
+    .await
+    .expect("delete source item");
+
+    let deleted = repo
+        .get_memory(&memory.id)
+        .await
+        .expect("memory lookup")
+        .expect("memory exists");
+    assert_eq!(deleted.status, MemoryStatus::Deleted);
+    assert_eq!(deleted.title, "[redacted]");
+    assert_eq!(deleted.content, "[redacted]");
+
+    let stored_item = sqlx::query_as::<_, (Option<String>, serde_json::Value, Option<String>)>(
+        r"
+        SELECT content_text, payload_json, redaction_reason
+        FROM conversation_items
+        WHERE item_id = $1
+        ",
+    )
+    .bind(source_item.item_id.as_str())
+    .fetch_one(repo.pool())
+    .await
+    .expect("stored source item");
+    assert_eq!(stored_item.0.as_deref(), Some("[redacted]"));
+    assert_eq!(stored_item.1, serde_json::json!({}));
+    assert_eq!(
+        stored_item.2.as_deref(),
+        Some("user deleted source message")
+    );
+
+    let evidence_excerpt = sqlx::query_scalar::<_, Option<String>>(
+        r"
+        SELECT evidence_excerpt
+        FROM object_provenance_edges
+        WHERE target_object_type = 'memory_item'
+          AND target_object_id = $1
+        ",
+    )
+    .bind(memory.id.as_str())
+    .fetch_one(repo.pool())
+    .await
+    .expect("redacted edge excerpt");
+    assert_eq!(evidence_excerpt.as_deref(), Some("[redacted]"));
+}
+
+#[tokio::test]
+async fn list_redacts_sensitive_and_secret_postgres_memories() {
+    let Some(repo) = test_repo().await else {
+        return;
+    };
+    repo.ensure_default_actors().await.expect("actors");
+
+    let conversation = repo
+        .create_conversation(NewConversation::local_chat(None, None))
+        .await
+        .expect("conversation");
+    let source_item = repo
+        .append_conversation_item(NewConversationItem {
+            conversation_id: conversation.conversation_id.clone(),
+            turn_id: None,
+            parent_item_id: None,
+            kind: ConversationItemKind::UserText,
+            status: ConversationItemStatus::Completed,
+            author: ObjectRef::human("human:local"),
+            content_text: Some("sensitive memory source".to_string()),
+            payload_json: serde_json::json!({}),
+            metadata: serde_json::json!({}),
+        })
+        .await
+        .expect("source item");
+
+    let mut sensitive = NewMemoryCandidate::confirmed_note(
+        ObjectRef::new(
+            ObjectType::Conversation,
+            conversation.conversation_id.as_str(),
+        )
+        .expect("conversation object ref"),
+        "Sensitive medical detail",
+        ObjectRef::agent("agent:primary"),
+        ObjectRef::conversation_item(source_item.item_id.as_str()),
+    );
+    sensitive.title = Some("Medical detail".to_string());
+    sensitive.sensitivity = Sensitivity::Sensitive;
+    let sensitive_memory = repo
+        .append_memory_candidate(sensitive)
+        .await
+        .expect("sensitive memory");
+
+    let mut secret = NewMemoryCandidate::confirmed_note(
+        ObjectRef::new(
+            ObjectType::Conversation,
+            conversation.conversation_id.as_str(),
+        )
+        .expect("conversation object ref"),
+        "Secret credential-like detail",
+        ObjectRef::agent("agent:primary"),
+        ObjectRef::conversation_item(source_item.item_id.as_str()),
+    );
+    secret.title = Some("Credential detail".to_string());
+    secret.sensitivity = Sensitivity::Secret;
+    repo.append_memory_candidate(secret)
+        .await
+        .expect("secret memory");
+
+    let memories = repo
+        .list_recent_memories(Some(10))
+        .await
+        .expect("list memories");
+    assert_eq!(memories.len(), 2);
+    assert!(memories.iter().all(|memory| memory.title == "[redacted]"));
+    assert!(memories.iter().all(|memory| memory.content == "[redacted]"));
+
+    let shown = repo
+        .get_memory(&sensitive_memory.id)
+        .await
+        .expect("show memory")
+        .expect("memory exists");
+    assert_eq!(shown.title, "Medical detail");
+    assert_eq!(shown.content, "Sensitive medical detail");
 }
 
 async fn assert_index_exists(pool: &sqlx::PgPool, table_name: &str, index_name: &str) {

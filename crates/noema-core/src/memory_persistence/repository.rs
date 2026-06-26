@@ -19,11 +19,51 @@ use super::{
     models::*,
     objects::{ObjectRef, validate_object_ref_for_conn},
     postgres_schema::POSTGRES_SCHEMA_SQL,
-    queries::{MEMORY_SUMMARY_BY_ID_SQL, RECENT_MEMORY_SQL},
+    queries::{
+        MEMORY_SUMMARY_BY_ID_SQL, POSTGRES_MEMORY_SUMMARY_BY_ID_SQL, POSTGRES_RECENT_MEMORY_SQL,
+        RECENT_MEMORY_SQL,
+    },
 };
 
 pub(super) const POSTGRES_BOOTSTRAP_MIGRATION_VERSION: i32 = 0;
 pub(super) const POSTGRES_BOOTSTRAP_MIGRATION_NAME: &str = "postgres_bootstrap_v0";
+
+struct MemorySummaryRow {
+    memory_id: String,
+    status: String,
+    memory_type: String,
+    owner_object_type: String,
+    owner_object_id: String,
+    sensitivity: String,
+    title: String,
+    content: String,
+    created_at: String,
+    source_object_type: Option<String>,
+    source_object_id: Option<String>,
+    conversation_id: Option<String>,
+}
+
+fn postgres_row_to_memory_summary(
+    row: MemorySummaryRow,
+) -> Result<MemorySummary, MemoryPersistenceError> {
+    Ok(MemorySummary {
+        id: row.memory_id,
+        status: parse_memory_status(&row.status)?,
+        memory_type: parse_memory_type(&row.memory_type)?,
+        home_scope_id: object_ref_key(&row.owner_object_type, &row.owner_object_id),
+        owner_object_type: row.owner_object_type,
+        owner_object_id: row.owner_object_id,
+        sensitivity: parse_sensitivity(&row.sensitivity)?,
+        title: row.title,
+        content: row.content,
+        created_at: row.created_at,
+        source_object_type: row.source_object_type.clone(),
+        source_object_id: row.source_object_id.clone(),
+        source_type: row.source_object_type,
+        source_id: row.source_object_id,
+        conversation_id: row.conversation_id,
+    })
+}
 
 /// Postgres-backed memory repository.
 #[derive(Debug, Clone)]
@@ -72,6 +112,141 @@ impl PostgresMemoryRepository {
     #[must_use]
     pub fn pool(&self) -> &PgPool {
         &self.pool
+    }
+
+    /// List recent memories for CLI or dashboard inspection.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MemoryPersistenceError`] if Postgres reads fail or stored enum
+    /// values are outside Noema's closed vocabularies.
+    pub async fn list_recent_memories(
+        &self,
+        limit: Option<u32>,
+    ) -> Result<Vec<MemorySummary>, MemoryPersistenceError> {
+        let limit = limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
+        let rows = sqlx::query_as::<
+            _,
+            (
+                String,
+                String,
+                String,
+                String,
+                String,
+                String,
+                String,
+                String,
+                String,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+            ),
+        >(POSTGRES_RECENT_MEMORY_SQL)
+        .bind(i64::from(limit))
+        .fetch_all(&self.pool)
+        .await
+        .map_err(MemoryPersistenceError::Database)?;
+
+        rows.into_iter()
+            .map(
+                |(
+                    memory_id,
+                    status,
+                    memory_type,
+                    owner_object_type,
+                    owner_object_id,
+                    sensitivity,
+                    title,
+                    content,
+                    created_at,
+                    source_object_type,
+                    source_object_id,
+                    conversation_id,
+                )| {
+                    postgres_row_to_memory_summary(MemorySummaryRow {
+                        memory_id,
+                        status,
+                        memory_type,
+                        owner_object_type,
+                        owner_object_id,
+                        sensitivity,
+                        title,
+                        content,
+                        created_at,
+                        source_object_type,
+                        source_object_id,
+                        conversation_id,
+                    })
+                    .map(redact_for_list)
+                },
+            )
+            .collect()
+    }
+
+    /// Fetch one memory by id for inspection.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MemoryPersistenceError`] if Postgres reads fail or stored enum
+    /// values are outside Noema's closed vocabularies.
+    pub async fn get_memory(
+        &self,
+        memory_id: &str,
+    ) -> Result<Option<MemorySummary>, MemoryPersistenceError> {
+        let row = sqlx::query_as::<
+            _,
+            (
+                String,
+                String,
+                String,
+                String,
+                String,
+                String,
+                String,
+                String,
+                String,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+            ),
+        >(POSTGRES_MEMORY_SUMMARY_BY_ID_SQL)
+        .bind(memory_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(MemoryPersistenceError::Database)?;
+
+        row.map(
+            |(
+                memory_id,
+                status,
+                memory_type,
+                owner_object_type,
+                owner_object_id,
+                sensitivity,
+                title,
+                content,
+                created_at,
+                source_object_type,
+                source_object_id,
+                conversation_id,
+            )| {
+                postgres_row_to_memory_summary(MemorySummaryRow {
+                    memory_id,
+                    status,
+                    memory_type,
+                    owner_object_type,
+                    owner_object_id,
+                    sensitivity,
+                    title,
+                    content,
+                    created_at,
+                    source_object_type,
+                    source_object_id,
+                    conversation_id,
+                })
+            },
+        )
+        .transpose()
     }
 
     /// Upsert the built-in local human and primary Noema agent actors.

@@ -647,6 +647,121 @@ impl PostgresMemoryRepository {
             .map_err(MemoryPersistenceError::Database)?;
         Ok(edge_id)
     }
+
+    /// Soft-delete a conversation item and cascade redaction to sole-source memories.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MemoryPersistenceError`] when the item or deleting actor is
+    /// missing, or Postgres writes fail.
+    pub async fn soft_delete_conversation_item(
+        &self,
+        deletion: DeleteConversationItem,
+    ) -> Result<(), MemoryPersistenceError> {
+        validate_object_ref_for_pool(
+            self.pool(),
+            &ObjectRef::conversation_item(deletion.item_id.as_str()),
+        )
+        .await?;
+        validate_object_ref_for_pool(self.pool(), &deletion.deleted_by).await?;
+
+        let mut tx = self
+            .pool()
+            .begin()
+            .await
+            .map_err(MemoryPersistenceError::Database)?;
+
+        let affected_memory_ids = sqlx::query_scalar::<_, String>(
+            r"
+            SELECT DISTINCT target_object_id
+            FROM object_provenance_edges
+            WHERE target_object_type = 'memory_item'
+              AND source_object_type = 'conversation_item'
+              AND source_object_id = $1
+              AND deleted_at IS NULL
+            ",
+        )
+        .bind(deletion.item_id.as_str())
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(MemoryPersistenceError::Database)?;
+
+        sqlx::query(
+            r"
+            UPDATE conversation_items
+            SET deleted_at = now(),
+                deleted_by_object_type = $2,
+                deleted_by_object_id = $3,
+                redacted_at = now(),
+                redaction_reason = $4,
+                content_text = '[redacted]',
+                payload_json = '{}'::jsonb,
+                updated_at = now()
+            WHERE item_id = $1
+            ",
+        )
+        .bind(deletion.item_id.as_str())
+        .bind(deletion.deleted_by.object_type.as_str())
+        .bind(deletion.deleted_by.object_id.as_str())
+        .bind(deletion.reason.as_deref())
+        .execute(&mut *tx)
+        .await
+        .map_err(MemoryPersistenceError::Database)?;
+
+        sqlx::query(
+            r"
+            UPDATE object_provenance_edges
+            SET deleted_at = now(),
+                evidence_excerpt = '[redacted]'
+            WHERE source_object_type = 'conversation_item'
+              AND source_object_id = $1
+              AND deleted_at IS NULL
+            ",
+        )
+        .bind(deletion.item_id.as_str())
+        .execute(&mut *tx)
+        .await
+        .map_err(MemoryPersistenceError::Database)?;
+
+        for memory_id in affected_memory_ids {
+            let remaining_count = sqlx::query_scalar::<_, i64>(
+                r"
+                SELECT COUNT(*)
+                FROM object_provenance_edges
+                WHERE target_object_type = 'memory_item'
+                  AND target_object_id = $1
+                  AND deleted_at IS NULL
+                ",
+            )
+            .bind(memory_id.as_str())
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(MemoryPersistenceError::Database)?;
+
+            if remaining_count == 0 {
+                sqlx::query(
+                    r"
+                    UPDATE memory_items
+                    SET status = 'deleted',
+                        title = '[redacted]',
+                        content = '[redacted]',
+                        structured_value = '{}'::jsonb,
+                        retrieval_hints = '{}'::jsonb,
+                        updated_at = now(),
+                        deleted_at = now(),
+                        redacted_at = now()
+                    WHERE memory_id = $1
+                    ",
+                )
+                .bind(memory_id.as_str())
+                .execute(&mut *tx)
+                .await
+                .map_err(MemoryPersistenceError::Database)?;
+            }
+        }
+
+        tx.commit().await.map_err(MemoryPersistenceError::Database)
+    }
 }
 
 pub(super) fn insert_object_provenance_edge_tx(
