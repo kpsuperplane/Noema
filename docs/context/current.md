@@ -4,7 +4,7 @@ This file is the durable working brief for Codex sessions. Keep it concise and u
 
 ## Active Direction
 
-Noema is a local-first personal agent operating system. The current build path is chat-led and object-backed: the user starts in chat, Noema records durable state behind the interaction, and inspection/control surfaces appear when they are useful.
+Noema is an always-on, self-hosted personal agent operating system. The current build path is chat-led and object-backed: clients connect to the Noema server, the server records durable state in Postgres, and inspection/control surfaces appear when they are useful.
 
 The current slice should stay small and concrete:
 

@@ -2,7 +2,7 @@
 
 This directory defines the frontend information architecture for Noema. It is
 grounded in the current repository state and in the product architecture in
-`docs/project.md`, `docs/memory.md`, `docs/sqlite.md`, and `docs/harness/`.
+`docs/project.md`, `docs/memory.md`, `docs/postgres.md`, and `docs/harness/`.
 
 Noema should not open as an admin dashboard. The primary user-facing
 experience is a quiet chat workspace: one person talking to Noema, with memory,
@@ -25,7 +25,7 @@ a normal user has to understand.
   relationships, detail pages, metadata, and actions.
 - [Governance and inspection](governance-inspection.md): memory, permissions,
   capabilities, proactivity, audit, privacy, and export/restore surfaces.
-- [V1 contract](v1-contract.md): current frontend/backend contract, backed
+- [Current contract](current-contract.md): current frontend/backend contract, backed
   sources, read models, route support, and implementation boundaries.
 - [Review notes](review-notes.md): orchestration notes, adversarial review
   findings, and cleanup decisions.
@@ -54,7 +54,7 @@ The default first-run mental model is:
 You -> Noema -> first chat -> saved memory line -> expanded details -> settings only if needed
 ```
 
-V1 should create one visible local human named `You` and one visible primary
+The current slice should create one visible local human named `You` and one visible primary
 assistant named `Noema` in the UI. Multi-human, multi-agent, project, task,
 tool, approval, and audit concepts appear only when backed state and user
 intent make them useful.
@@ -101,7 +101,7 @@ single chat pane. As work accumulates, the interface grows in place:
 
 Canonical state remains outside the frontend:
 
-- Structured source of truth lives in `db/noema.sqlite`.
+- Structured source of truth lives in Postgres.
 - Durable object-owned files live under the owning object directory.
 - `system/` state is derived and rebuildable.
 - The frontend displays projections, explains decisions, and submits actions.
@@ -150,9 +150,9 @@ state accumulates.
 | History/audit | Object-linked timelines and system audit | Durable ledger/recovery exists | Recover, review, export |
 | Multi-agent | Agent/person/handoff surfaces | More than one active human/agent exists | Coordinate delegation |
 
-## V1 Visible IA
+## Current Visible IA
 
-V1 should default to chat, not Home.
+The current slice should default to chat, not Home.
 
 ```text
 Default: Chat
@@ -161,7 +161,7 @@ Contextual drill-ins: Memory detail/review, What did Noema use?, local health
 Owner/admin utility: Advanced inspection
 ```
 
-V1 can still implement routes for `/memory`, `/settings`, and `/inspect`, but
+The current slice can still implement routes for `/memory`, `/settings`, and `/inspect`, but
 normal users should reach them through chat events, object details, or utility
 controls. They should not read as the primary product shell.
 
@@ -200,13 +200,13 @@ from chat/work context rather than pretending they already exist.
 | Transcript activity | Current Rust-backed | Assistant text, activity notices, errors, turn completion, future `A2uiCard` payloads |
 | Persisted chat history | Current Rust-backed | Durable chat history is reconstructed from `conversation_items`; live turn coordination comes from the daemon WebSocket and `agent_status` |
 | Explicit memory save | Current Rust-backed | `remember this:` and `/remember` persist memory with provenance |
-| Memory list/detail | Current Rust-backed | SQLite repository and CLI inspection exist; UI should open from inline events first |
+| Memory list/detail | Current Rust-backed | Postgres repository and CLI inspection exist; UI should open from inline events first |
 | Context graph inspection | Current Rust-backed, owner/admin-only | Backed by persisted memory graph tables; redacted by default outside privileged inspection |
 | Context packets | Table-backed, not chat-wired | Tables and repository method exist, but chat turns do not yet persist packets in production flow |
 | Runs, approvals, capabilities, task system | Harness-doc target | Architecture exists in docs; durable runtime/schema paths are not implemented as active product controls |
-| Memory versions, proactive rules, tombstones, FTS | Schema-doc target | Defined in `docs/sqlite.md`; not all are created by the current Rust bootstrap schema |
+| Memory versions, proactive rules, tombstones, FTS | Schema-doc target | Defined in `docs/postgres.md`; not all are created by the current Rust bootstrap schema |
 
-## V1 Frontend Slice
+## Current Frontend Slice
 
 The current first shell is a local web chat hosted by the core daemon. The
 first practical frontend slice should keep proving the chat-led mental model:
@@ -232,7 +232,7 @@ first practical frontend slice should keep proving the chat-led mental model:
     and disabled export/restore entry points that explain the missing governed
     export pipeline.
 
-V1 route support is detailed in [V1 contract](v1-contract.md).
+Current route support is detailed in [Current contract](current-contract.md).
 
 ## Later Product Slices
 

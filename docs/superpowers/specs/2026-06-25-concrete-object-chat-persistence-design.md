@@ -2,7 +2,7 @@
 
 ## Status
 
-Approved design for a pre-V1 architecture cleanup. No backwards compatibility
+Approved design for a pre-stable architecture cleanup. No backwards compatibility
 is required for existing local development databases, schemas, or chat
 persistence paths.
 
@@ -396,7 +396,7 @@ bun run build
 6. Validation and cleanup of obsolete chat paths.
 
 Each phase should leave the repo in a coherent state, with tests adjusted to the
-new object model. Because this is pre-V1, remove old paths instead of preserving
+new object model. Because this is pre-stable, remove old paths instead of preserving
 compatibility unless the user explicitly asks otherwise.
 
 ## Out Of Scope

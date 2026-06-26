@@ -1,11 +1,11 @@
-# V1 Frontend Contract
+# Current Frontend Contract
 
 This contract keeps the first frontend aligned with the current Rust runtime.
-It should be updated whenever the daemon protocol, SQLite bootstrap schema, or
+It should be updated whenever the daemon protocol, Postgres bootstrap schema, or
 inspection commands change.
 
-V1 product rule: routes may exist for memory, settings, and inspection, but the
-default user-facing experience is chat. Management and admin routes are
+For the current slice, routes may exist for memory, settings, and inspection,
+but the default user-facing experience is chat. Management and admin routes are
 secondary drill-ins from chat activity, object details, utility controls, or
 explicit owner/admin entry points.
 
@@ -13,8 +13,8 @@ explicit owner/admin entry points.
 
 | Status | Meaning |
 | --- | --- |
-| V1 | Backed by current Rust code or a small bounded read model over current SQLite state |
-| V1 limited | Partly backed; must show unavailable/inspect-only states for missing behavior |
+| Current | Backed by current Rust code or a small bounded read model over current Postgres state |
+| Current limited | Partly backed; must show unavailable/inspect-only states for missing behavior |
 | Future | Do not expose as an active control until backend/runtime support exists |
 | Owner/admin-only | Local privileged inspection; redacted or hidden for normal views |
 
@@ -26,17 +26,17 @@ explicit owner/admin entry points.
 | Daemon web server | Local React shell, `/api/status`, and native `/api/chat/ws` WebSocket |
 | `A2uiCard` payloads | Future structured cards inside the chat stream |
 | `config.yaml` and environment-derived config | Provider/model/default setup state; secrets remain environment-only |
-| `NoemaPaths` | Noema home, run directory, socket path, database path |
-| `db/noema.sqlite` memory tables | Concrete object rows, conversations, conversation_turns, conversation_items, memory items, entities, relationships, object provenance, grants, context graph inspection |
-| `SqliteMemoryRepository` | Memory list/detail, durable conversation item replay, memory candidates, context graph read model, deterministic retrieval |
+| `NoemaPaths` and database config | Noema home, run directory, socket path, and Postgres connection/readiness state |
+| Postgres memory tables | Concrete object rows, conversations, conversation_turns, conversation_items, memory items, entities, relationships, object provenance, grants, context graph inspection |
+| `PostgresMemoryRepository` | Memory list/detail, durable conversation item replay, memory candidates, context graph read model, deterministic retrieval |
 | CLI inspection commands | Reference behavior for memory and context graph display/redaction |
 
-## Default V1 Identities
+## Default Current Identities
 
 | UI label | Internal identity | Notes |
 | --- | --- | --- |
-| You | `human:local` | The only visible human during V1 onboarding |
-| Noema | `agent:primary` | The only visible assistant during V1 onboarding |
+| You | `human:local` | The only visible human during current onboarding |
+| Noema | `agent:primary` | The only visible assistant during current onboarding |
 
 The frontend should not ask a beginner to create humans, agents, scopes, or
 workspaces before first chat. Those are later customization and inspection
@@ -49,17 +49,17 @@ primary navigation priority.
 
 | Route | Label | Backing | Capability | Status |
 | --- | --- | --- | --- | --- |
-| `/` | Chat | setup health, local service state | route to chat when ready; show guided readiness state if blocked | V1 |
-| `/setup` | Setup | local folder, assistant connection, local service checks | initialize or update setup through explicit setup flow | V1 |
-| `/chat` | Chat | local service stream | start chat, render transcript items, show inline memory/activity rows | V1 |
-| `/chat/:id` | Chat detail | active daemon conversation; persisted `conversation_items` after acknowledged turns | live while active; durable item replay after turn | V1 limited |
-| `/memory` | Memory settings | memory list read model | secondary memory management opened from chat or settings; redacted list, filters, review entry points | V1 |
-| `/memory/:id` | Memory detail | memory detail read model | opened from inline memory event or memory settings; inspect content/provenance/policy with reveal rules | V1 |
-| `/memory/review` | Review memory | memory candidates and active extracted memories | opened from review-required chat events or settings; inspect now; mutation only where repository/API supports it | V1 limited |
-| `/inspect` | Advanced inspection | read models over current SQLite state | owner/admin inspection hub; never required for ordinary chat success | V1 |
-| `/inspect/context-graph` | Context graph | context graph read model | owner/admin-only graph inspection, redacted by default | V1 |
-| `/inspect/context-packets` | Context packets | context packet tables if populated | inspect when rows exist; unavailable state otherwise | V1 limited |
-| `/settings` | Settings | paths/config/local service/assistant connection/database health | local maintenance, memory-management entry points, advanced drill-ins | V1 |
+| `/` | Chat | setup health, local service state | route to chat when ready; show guided readiness state if blocked | Current |
+| `/setup` | Setup | local folder, assistant connection, local service checks | initialize or update setup through explicit setup flow | Current |
+| `/chat` | Chat | local service stream | start chat, render transcript items, show inline memory/activity rows | Current |
+| `/chat/:id` | Chat detail | active daemon conversation; persisted `conversation_items` after acknowledged turns | live while active; durable item replay after turn | Current limited |
+| `/memory` | Memory settings | memory list read model | secondary memory management opened from chat or settings; redacted list, filters, review entry points | Current |
+| `/memory/:id` | Memory detail | memory detail read model | opened from inline memory event or memory settings; inspect content/provenance/policy with reveal rules | Current |
+| `/memory/review` | Review memory | memory candidates and active extracted memories | opened from review-required chat events or settings; inspect now; mutation only where repository/API supports it | Current limited |
+| `/inspect` | Advanced inspection | read models over current Postgres state | owner/admin inspection hub; never required for ordinary chat success | Current |
+| `/inspect/context-graph` | Context graph | context graph read model | owner/admin-only graph inspection, redacted by default | Current |
+| `/inspect/context-packets` | Context packets | context packet tables if populated | inspect when rows exist; unavailable state otherwise | Current limited |
+| `/settings` | Settings | paths/config/local service/assistant connection/database health | local maintenance, memory-management entry points, advanced drill-ins | Current |
 
 Future route groups:
 
@@ -81,8 +81,8 @@ a feature is unavailable. Disabled rows must not present mutation controls.
 
 ## First Shell Assumption
 
-The current V1 implementation starts with a core-hosted local web chat served by
-`noema start`. Longer term, V1 should ship in a shell that can guide setup
+The current implementation starts with a core-hosted local web chat served by
+`noema start`. Longer term, the initial product shell should guide setup
 without requiring a beginner to open a terminal after launch. That may remain
 local web chat, or become a desktop app or launcher-backed inspector if the
 launcher can perform the beginner actions.
@@ -135,7 +135,7 @@ Show:
   owner/admin reveal.
 - Config file existence and assistant connection status.
 - Whether config was initialized by defaults.
-- Database path existence.
+- Postgres connection/readiness state.
 - Local service reachable/unreachable.
 - Provider readiness in beginner language: connected, not connected, timed out,
   or error.
@@ -205,7 +205,7 @@ Unavailable state:
 
 Every meaningful system-side object created, proposed, used, denied, or
 blocked during chat should be representable as a compact row in the transcript.
-V1 must support memory rows; later slices add work, tool, approval, and run
+The current slice must support memory rows; later slices add work, tool, approval, and run
 rows.
 
 Minimum row fields:
@@ -226,7 +226,7 @@ Minimum row interactions:
 - Never expose private, sensitive, or secret object existence through row text
   unless the viewer is authorized.
 
-V1 memory row types:
+Current memory row types:
 
 | Row | Trigger | Expanded content |
 | --- | --- | --- |
@@ -361,7 +361,7 @@ Bulk rules:
 
 ## Context Graph Inspector
 
-Status: V1 owner/admin-only.
+Status: current owner/admin-only.
 
 Backed by:
 
@@ -397,11 +397,11 @@ Rules:
 
 ## Context Packet Inspector
 
-Status: V1 limited.
+Status: Current limited.
 
 Backed by:
 
-- `context_packets`, `context_packet_memories`,
+- `context_packets`, `context_packet_memory_edges`,
   `context_packet_omissions`, and `memory_use_records` when populated.
 
 Current limitation:
@@ -423,13 +423,13 @@ Backend deliverable:
 
 ## Memory Access Preview Contract
 
-Status: V1 limited.
+Status: Current limited.
 
 Backed by:
 
 - Existing deterministic memory retrieval engine.
 
-V1 preview answers memory retrieval and inclusion only. It must return
+The current slice preview answers memory retrieval and inclusion only. It must return
 `Missing backend` for writes, external sends, exports, capability operations,
 durable approvals, and grant-impact simulations beyond current memory grants.
 
@@ -479,7 +479,7 @@ capability registry" or "requires durable run ledger."
 
 ## Acceptance Criteria
 
-V1 IA implementation is acceptable when:
+Current IA implementation is acceptable when:
 
 - A low-technical-skill user can create the local folder, connect Codex, start
   Noema, send one message, save one explicit memory, and see the `Memory saved`

@@ -394,9 +394,9 @@ Possible retention policies:
 Retention should never silently destroy the only record of an external effect
 that still matters for audit.
 
-## V1 event slice
+## Initial event slice
 
-Minimum useful v1 events:
+Minimum useful initial-slice events:
 
 - `run.started`
 - `run.queued`

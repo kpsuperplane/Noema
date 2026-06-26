@@ -12,9 +12,10 @@ matched an early local daemon shape, but the product direction is now clearer:
 Noema should default to an always-on personal server that supports multiple
 devices from the start.
 
-The current docs also overuse "V1" as a boundary. That makes the architecture
-sound like a temporary small version rather than the real system being built
-incrementally. The project is pre-stable, not toy-shaped.
+The current docs also overuse product-version labels as architecture
+boundaries. That makes the architecture sound like a temporary small version
+rather than the real system being built incrementally. The project is
+pre-stable, not toy-shaped.
 
 Noema needs a storage and development posture that matches this direction:
 
@@ -37,10 +38,11 @@ Noema needs a storage and development posture that matches this direction:
 - SQLite is not a supported canonical backend in this architecture. It may
   remain only as temporary legacy code during migration, test-only scaffolding,
   or a future separately-designed embedded mode.
-- "V1" language should be replaced with "current slice", "initial slice",
-  "implemented now", "target architecture", or "future slice" as appropriate.
-- "Pre-V1" should become "pre-stable": schema and APIs may be rewritten until
-  durable user-data compatibility is explicitly introduced.
+- Product-version language should be replaced with "current slice", "initial
+  slice", "implemented now", "target architecture", or "future slice" as
+  appropriate.
+- Compatibility-posture language should use "pre-stable": schema and APIs may
+  be rewritten until durable user-data compatibility is explicitly introduced.
 
 ## Non-Goals
 
@@ -206,7 +208,8 @@ object storage paths.
 
 ## Documentation Language
 
-Docs should stop using "V1" as a product boundary. Replace it with:
+Docs should stop using product-version labels as product boundaries. Replace
+them with:
 
 - "current slice" for behavior implemented now.
 - "initial slice" for the next narrow vertical slice.
@@ -294,8 +297,8 @@ No data migration from SQLite is required unless explicitly requested later.
   online checking, offline metadata, or runtime-checked queries for early
   development.
 - The current repository tests are SQLite-oriented and will need restructuring.
-- Some docs refer heavily to V1 and SQLite; cleanup should be broad enough to
-  avoid contradictory guidance.
+- Some docs refer heavily to product-version labels and SQLite; cleanup should
+  be broad enough to avoid contradictory guidance.
 - Running the whole app in containers may expose filesystem path assumptions
   around `NOEMA_HOME`, bundled frontend assets, and provider credentials.
 
@@ -312,6 +315,6 @@ The implementation is acceptable when:
 - Runtime modules do not directly embed persistence SQL outside repository
   boundaries.
 - SQLite is not described as the target canonical architecture.
-- V1/pre-V1 language is replaced where it describes product or architecture
-  posture.
+- Product-version/pre-stable language is replaced where it describes product or
+  architecture posture.
 - Validation commands and relevant database-backed tests pass.

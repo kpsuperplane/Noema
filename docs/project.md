@@ -2,14 +2,14 @@
 
 An open-source personal agent operating system.
 
-Noema is a local-first, self-hosted platform for multiple humans, agents, conversations, workspaces, projects, tools, tasks, and memory. It should feel polished and opinionated by default, while remaining inspectable and customizable as the human grows into the system.
+Noema is an always-on, self-hosted platform for multiple humans, agents, conversations, workspaces, projects, tools, tasks, and memory. It should feel polished and opinionated by default, while remaining inspectable and customizable as the human grows into the system.
 
 ## Values
 
 - Opinionated in construction, impartial in use
 - Privacy and security thoughtfully integrated throughout
 - Simple initial setup; complexity grows with the human
-- Self-hosted and local-first by default
+- Self-hosted by default, with a personal server that can run continuously
 - Transparent systems over mysterious AI state
 - Human-owned data, context, and memory
 - Deterministic controls wherever trust depends on them
@@ -36,7 +36,7 @@ Noema at another directory with `NOEMA_HOME`.
   config.yaml
 
   db/
-    noema.sqlite          # canonical structured state
+    postgres/             # Postgres physical files in container/dev config
 
   humans/
     [human_id]/
@@ -80,7 +80,7 @@ tables.
 
 | Data | Source of truth |
 | --- | --- |
-| SQLite structured state: humans, agents, tools, conversations, conversation_turns, conversation_items, memory_items, entities, relationships, object provenance, grants, tasks, permissions, and audit events | `db/noema.sqlite` |
+| Postgres structured state: humans, agents, tools, conversations, conversation_turns, conversation_items, memory_items, entities, relationships, object provenance, grants, tasks, permissions, context packets, memory-use records, and audit events | Postgres |
 | Human-authored docs, imported files, attachments, and durable artifacts | filesystem |
 | Indexes, caches, temporary files, and derived search/vector state | `system/` |
 | Introspection into database-backed state | chat/work drill-ins, advanced inspection, and explicit export tools |
@@ -117,7 +117,7 @@ Context Runtime
         │
         ▼
 Canonical Store
-  db/noema.sqlite + durable object-owned files
+  Postgres + durable object-owned files
         │
         └── System State
               indexes, caches, vectors, temp files
@@ -194,7 +194,7 @@ Proactivity should be customizable and explainable.
 
 ## Frontend surfaces
 
-These are target product surfaces. The V1 frontend should start with chat as
+These are target product surfaces. The initial frontend should start with chat as
 the primary experience. Memory, settings, inspection, workspaces, projects,
 tasks, tools, approvals, and audit should reveal incrementally from chat/work
 events and become full management surfaces only when backed state and user
@@ -232,7 +232,7 @@ workspaces/
 
 `system/` is rebuildable. Exports are separate from backups and should support machine-readable and human-readable formats.
 
-## V1 recommendation
+## Current slice recommendation
 
 Build Noema around the root objects first:
 
@@ -246,10 +246,10 @@ tasks
 memory
 ```
 
-Use SQLite as the canonical structured store. Use the filesystem for durable object-owned documents and artifacts. Use chat/work drill-ins, advanced inspection, and explicit export tools for introspection into database-backed state.
+Use Postgres as the canonical structured store. Use the filesystem for durable object-owned documents and artifacts. Use chat/work drill-ins, advanced inspection, and explicit export tools for introspection into database-backed state.
 
 [Memory System Plan](memory.md)
 
 [Runtime Harness Architecture](harness.md)
 
-[Canonical SQLite Schema](sqlite.md)
+[Canonical Postgres Schema](postgres.md)

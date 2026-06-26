@@ -34,11 +34,11 @@ Three refinement subagents covered:
 
 ## Major Corrections From Review
 
-### V1 Navigation Was Overpromising
+### Current slice Navigation Was Overpromising
 
 Original issue:
 
-- V1 navigation listed runs, approvals, tools, and context graph as first-class
+- The current slice navigation listed runs, approvals, tools, and context graph as first-class
   active destinations.
 - Current Rust backs setup/config, daemon chat, memory persistence, and memory
   graph inspection, but not durable run envelopes, approvals, tool registry, or
@@ -46,13 +46,13 @@ Original issue:
 
 Resolution:
 
-- V1 no longer lists runs, approvals, tools, and context graph as first-class
+- The current slice no longer lists runs, approvals, tools, and context graph as first-class
   active destinations.
-- `docs/frontend/v1-contract.md` defines route status and disabled future
+- `docs/frontend/current-contract.md` defines route status and disabled future
   routes.
 - Runs, approvals, tools, projects, tasks, and audit remain target IA until
   their durable runtime paths exist.
-- This correction was later tightened: V1 defaults to chat, while memory,
+- This correction was later tightened: The current slice defaults to chat, while memory,
   settings, and owner/admin inspection are contextual or utility drill-ins
   rather than primary beginner navigation.
 
@@ -151,7 +151,7 @@ Resolution:
 
 Original issue:
 
-- The target SQLite doc includes surfaces that current Rust bootstrap/runtime
+- The target Postgres doc includes surfaces that current Rust bootstrap/runtime
   does not fully create or use.
 - Context packet tables exist, but chat turns do not yet persist context
   packets consistently.
@@ -159,7 +159,7 @@ Original issue:
 Resolution:
 
 - The hub doc and object model now include backing status tables.
-- V1 contract identifies table-backed-but-not-flow-wired surfaces.
+- current contract identifies table-backed-but-not-flow-wired surfaces.
 - Context packet views must show unavailable states when no packet exists.
 
 ### Onboarding Needed A Smaller Success State
@@ -172,7 +172,7 @@ Original issue:
 Resolution:
 
 - Added [experience-layers.md](experience-layers.md).
-- V1 now starts with `You -> Noema -> first chat -> saved memory -> details
+- The current slice now starts with `You -> Noema -> first chat -> saved memory -> details
   when wanted`.
 - `/setup` is a guided checklist: local folder, assistant connection, local
   service, first chat, first memory.
@@ -192,7 +192,7 @@ Resolution:
   Multi-Agent / Multi-Human.
 - Primary surfaces appear only when backed state, user intent, and a concrete
   job all exist.
-- V1 keeps `Inspect` as a secondary owner/admin utility rather than part of the
+- The current slice keeps `Inspect` as a secondary owner/admin utility rather than part of the
   first successful path.
 
 ### Transparency Needed Layers
@@ -223,26 +223,26 @@ Resolution:
 
 - Beginner-facing labels now use local folder, assistant connection, local
   service, what Noema used, and Show technical details.
-- `/inspect` remains a V1 owner/admin route but must not appear in primary
+- `/inspect` remains a current owner/admin route but must not appear in primary
   navigation during onboarding or normal beginner use.
-- Added the first-shell assumption: V1 must provide a guided shell that can
+- Added the first-shell assumption: The current slice must provide a guided shell that can
   perform beginner setup actions, or show one plain-language next step plus a
   copyable command under Show technical details.
 
-### Second Review: V1 Boundaries Needed Sharper Edges
+### Second Review: Current slice Boundaries Needed Sharper Edges
 
 Original issue:
 
-- Export was both described as a V1 settings capability and future-gated.
+- Export was both described as a current settings capability and future-gated.
 - Access preview sounded broader than current memory retrieval support.
-- Owner/admin reveal was not defined for the one-user V1 model.
+- Owner/admin reveal was not defined for the one-user current model.
 - Explicit memory lifecycle was contradictory.
 
 Resolution:
 
-- V1 export and restore are disabled entry points until a governed export
+- The current slice export and restore are disabled entry points until a governed export
   pipeline exists.
-- V1 access preview is now explicitly memory-only.
+- The current slice access preview is now explicitly memory-only.
 - Owner/admin reveal is explicit, session/object-scoped, and non-persistent.
 - Low-risk authenticated `remember this:` creates saved memory immediately;
   review queues are for inferred, risky, external, contradictory, or
@@ -264,7 +264,7 @@ Original issue:
 Resolution:
 
 - The hub doc now defines Noema as chat-led and object-backed.
-- V1 defaults to `Chat`; settings, memory, and owner/admin inspection are
+- The current slice defaults to `Chat`; settings, memory, and owner/admin inspection are
   secondary drill-ins.
 - Explicit `remember this:` creates a `Memory saved` activity line in chat.
   Clicking the line expands memory details inline before offering a memory

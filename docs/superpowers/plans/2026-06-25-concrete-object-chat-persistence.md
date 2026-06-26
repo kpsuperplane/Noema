@@ -512,7 +512,7 @@ CREATE TABLE IF NOT EXISTS object_links (
 ) STRICT;
 ```
 
-Update `context_packets`, `context_packet_memories`, `context_packet_omissions`,
+Update `context_packets`, `context_packet_memory_edges`, `context_packet_omissions`,
 `memory_use_records`, `memory_fts`, and indexes to reference object refs rather
 than `scope_id` or `principal_id`.
 
@@ -2022,7 +2022,7 @@ In `crates/noema-core/src/daemon/tests.rs`, add:
 async fn runtime_actor_persists_user_and_assistant_as_conversation_items() {
     let script = fake_codex_app_server_script();
     let dir = tempfile::tempdir().expect("temp dir");
-    let db_path = dir.path().join("db").join("noema.sqlite");
+    let db_path = dir.path().join("db").join("legacy.db");
     let handle = CodexRuntimeHandle::spawn(
         CodexProviderConfig {
             command: script.to_string_lossy().to_string(),
@@ -2481,7 +2481,7 @@ git commit -m "refactor: remove legacy chat persistence helpers"
 - Modify: `docs/frontend/README.md`
 - Modify: `docs/frontend/navigation-workflows.md`
 - Modify: `docs/frontend/object-model.md`
-- Modify: `docs/frontend/v1-contract.md`
+- Modify: `docs/frontend/current-contract.md`
 - Modify: `docs/frontend/governance-inspection.md`
 - Modify: `docs/harness.md`
 - Modify: `docs/harness/*.md`
@@ -2499,7 +2499,7 @@ tables.
 ```
 
 List `conversations`, `conversation_turns`, and `conversation_items` under the
-SQLite structured-state description.
+structured-state description.
 
 - [ ] **Step 2: Update memory docs**
 
@@ -2516,7 +2516,7 @@ Replace `home_scope_id` descriptions with `owner_object_type` and
 
 - [ ] **Step 3: Update frontend contract docs**
 
-In frontend docs, update the V1 conversation contract to:
+In frontend docs, update the current slice conversation contract to:
 
 ```markdown
 - The daemon WebSocket is the live source for current turn updates.
@@ -2545,7 +2545,7 @@ rg -n "principals|scopes|episodes|messages|home_scope_id|principal_id|scope_id|m
 ```
 
 Expected: remaining hits either describe removed legacy design in the design
-spec or refer to generic human-readable messages, not SQL tables used by V1.
+spec or refer to generic human-readable messages, not SQL tables used by current slice.
 
 - [ ] **Step 6: Commit docs**
 
@@ -2658,7 +2658,7 @@ If no fixes were needed, do not create an empty commit.
 - Keep source files under the project comfort threshold where practical. Split
   persistence code into focused modules rather than growing
   `repository.rs`, `helpers.rs`, or `runtime.rs`.
-- Prefer deleting old pre-V1 code paths over adding compatibility shims.
+- Prefer deleting old pre-stable code paths over adding compatibility shims.
 - Keep `created_at` as the only conversation ordering mechanism for now.
 - Do not add a sequence column in this implementation.
 

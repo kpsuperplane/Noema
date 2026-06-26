@@ -43,7 +43,7 @@ Related core docs:
 
 - [Project overview](project.md)
 - [Memory system plan](memory.md)
-- [Canonical SQLite schema](sqlite.md)
+- [Canonical Postgres schema](postgres.md)
 
 ## Architectural thesis
 
@@ -62,7 +62,7 @@ The harness should provide:
   enough to support multiple humans, agents, projects, and workspaces.
 - A memory boundary where the harness retrieves, uses, and proposes memory,
   while the memory subsystem owns durable memory truth.
-- A local-first worker kernel that can later grow into sandboxed, remote, or
+- A personal-server worker kernel that can later grow into sandboxed, remote, or
   distributed execution without changing the run model.
 
 The harness should be opinionated in construction and impartial in use. It
@@ -366,7 +366,7 @@ events.
 
 ### Persistence layer
 
-Canonical structured state lives in `db/noema.sqlite`. Durable files live under
+Canonical structured state lives in Postgres. Durable files live under
 the object-owned filesystem hierarchy. Derived state lives under `system/`.
 
 The harness should persist:
@@ -379,9 +379,10 @@ The harness should persist:
 - Memory-use records.
 - Policy decisions and explanations where needed for auditability.
 
-The current [Canonical SQLite schema](sqlite.md) establishes the base object
-model. Harness-specific tables should be designed as migrations that extend
-that schema without changing its source-of-truth split.
+The current [Canonical Postgres schema](postgres.md) establishes the base object
+model. Harness-specific tables should extend that schema without changing its
+source-of-truth split. During the pre-stable phase, the bootstrap schema may be
+rewritten directly; migrations should wait for a stable compatibility policy.
 
 ## Egress protection as the primary safety model
 
@@ -496,7 +497,7 @@ recovery, replay, audit, export, and user trust.
 
 ## Worker kernel summary
 
-V1 should use a local worker kernel.
+The initial slice should use a local worker kernel.
 
 The worker kernel should:
 
@@ -535,13 +536,13 @@ The harness should make these dashboard surfaces possible:
 The dashboard should not need to infer trust-critical state from prose logs.
 The harness should emit structured data that the dashboard can render.
 
-## V1 implementation posture
+## Initial implementation posture
 
 The first implementation can be modest:
 
 - One primary human.
 - One primary agent.
-- Local SQLite.
+- Postgres structured state.
 - Local filesystem.
 - Local worker loop.
 - A small capability registry.
@@ -551,7 +552,7 @@ The first implementation can be modest:
 - Append-only run events.
 - Basic dashboard or CLI inspection.
 
-But v1 should not bake in assumptions that block:
+But the initial slice should not bake in assumptions that block:
 
 - Multiple humans.
 - Multiple agents.
@@ -565,8 +566,8 @@ But v1 should not bake in assumptions that block:
 - Durable approval workflows.
 - Exportable audit trails.
 
-The right v1 is not a smaller architecture. It is a narrow vertical slice of
-the full architecture.
+The right initial slice is not a smaller architecture. It is a narrow vertical
+slice of the full architecture.
 
 ## Non-goals
 

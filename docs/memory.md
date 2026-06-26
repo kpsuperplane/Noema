@@ -412,18 +412,18 @@ The memory dashboard should support:
 
 ## Storage
 
-Canonical memory state lives in `db/noema.sqlite`.
+Canonical memory state lives in Postgres.
 
 Object-owned documents and artifacts live under the relevant object folder.
 
 Rebuildable retrieval state lives under `system/`.
 
-## V1 core plan
+## Initial core plan
 
-V1 should include graph-shaped memory primitives in the core, but not a
+The initial slice should include graph-shaped memory primitives in the core, but not a
 separate graph engine.
 
-The Noema context graph is a policy-aware view over canonical SQLite state:
+The Noema context graph is a policy-aware view over canonical Postgres state:
 
 ```text
 conversation_items -> provenance-bearing source stream for chat and agent work
@@ -436,9 +436,10 @@ object_provenance_edges -> why Noema believes or derived an object
 retrieval policy -> whether it may be used
 ```
 
-SQLite remains the source of truth. FTS is the only required retrieval index in
-V1. Embeddings, external graph databases, Graphiti adapters, learned ontology as
-authority, and autonomous multi-hop graph reasoning are out of V1.
+Postgres remains the source of truth. Postgres full-text search is the only
+required retrieval index in the initial slice. Embeddings, external graph
+databases, Graphiti adapters, learned ontology as authority, and autonomous
+multi-hop graph reasoning are future-slice work.
 
 ### Scoped graph claims
 
@@ -462,9 +463,9 @@ Relationship rules:
 This gives Noema a Graphiti-like temporal graph shape while keeping memory
 truth, privacy, and lifecycle in the canonical memory subsystem.
 
-### V1 retrieval flow
+### Initial retrieval flow
 
-V1 retrieval should stay deliberately small:
+Initial retrieval should stay deliberately small:
 
 1. Build the trusted run envelope and untrusted hint set.
 2. Compute the allowed search aperture from active scopes, participants, grants,
@@ -480,24 +481,23 @@ V1 retrieval should stay deliberately small:
 9. Record retrieval, inclusion, shown-to-agent, used-in-reply, and
    used-for-action events.
 
-Two-hop traversal and graph-derived action reasoning are V1.x features after
-adversarial retrieval tests pass.
+Two-hop traversal and graph-derived action reasoning are future-slice features
+after adversarial retrieval tests pass.
 
 The current durable retrieval bridge is
-`SqliteMemoryRepository::retrieve_memories`. It loads canonical SQLite memory
+`PostgresMemoryRepository::retrieve_memories`. It loads canonical Postgres memory
 items, subjects, participants, purpose rules, trusted object links, access
 grants, provenance, and relationship claim edges into the shared deterministic
-policy engine before evaluating the request. SQLite FTS supplies rebuildable
-public-hint candidates; `rebuild_memory_search_index` can recreate it from
-canonical memory rows. Structured scope, participant, grant, trusted object
-link, and graph-expansion paths continue to come from canonical rows. Retrieval
-recomputes `valid` policy
+policy engine before evaluating the request. Postgres full-text search supplies
+rebuildable public-hint candidates. Structured scope, participant, grant,
+trusted object link, and graph-expansion paths continue to come from canonical
+rows. Retrieval recomputes `valid` policy
 fingerprints from the canonical rows and treats mismatches as stale, so changed
 content, subjects, participants, object links, purpose rules, egress policy, or
 provenance cannot continue to unlock private or stronger memory until the
 policy is refreshed.
 
-### V1 extraction flow
+### Initial extraction flow
 
 Extraction should produce proposals, not unchecked truth:
 
@@ -514,9 +514,9 @@ confirmed memory. External content quoting "remember this" can only create
 candidates. Inferred, sensitive, action-triggering, or contradiction-prone
 memories require review or explicit policy before promotion.
 
-### V1 inspection
+### Initial inspection
 
-V1 inspection should expose:
+Initial inspection should expose:
 
 - Memory item detail.
 - Subject and participant bindings.
@@ -537,7 +537,7 @@ noema context graph --packet-id ctx_01...
 noema context graph --format mermaid
 ```
 
-It renders the persisted context graph view from the canonical SQLite tables:
+It renders the persisted context graph view from the canonical Postgres tables:
 memory nodes with unredacted title/content and stored/effective
 retrieval-policy status, entity nodes, subject edges, participant edges,
 provenance edges, trusted object-link policy edges, purpose rules, access grants
@@ -722,7 +722,7 @@ Adversarial retrieval scenarios:
   are not visible to the agent.
 - One-hop graph expansion returns candidate memory IDs only and cannot directly
   populate context.
-- Two-hop graph traversal is disabled in V1.
+- Two-hop graph traversal is disabled in the initial slice.
 
 ## Rollout phases
 
@@ -751,5 +751,5 @@ Workspaces, shared projects, relationship memory, contested memories, multi-agen
 
 ### Phase 6: Advanced adapters
 
-Vector indexes, derived graph indexes, Postgres mode, external memory provider
-adapters, encryption mode.
+Vector indexes, derived graph indexes, external memory provider adapters, and
+encryption mode.

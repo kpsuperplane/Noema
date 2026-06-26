@@ -56,7 +56,7 @@ Modify:
 - `crates/noema-core/src/memory_persistence/helpers.rs`: remove rusqlite row helpers; keep pure parsing helpers and Postgres helpers.
 - `crates/noema-core/src/sqlite_memory_retrieval.rs`: replace with Postgres retrieval or fold into `memory_persistence`.
 - `crates/noema-cli/src/inspection.rs`: open Postgres repository from config/env.
-- `docs/project.md`, `docs/context/current.md`, `docs/memory.md`, `docs/harness*.md`, `docs/frontend/*.md`: replace target-architecture SQLite/V1 framing.
+- `docs/project.md`, `docs/context/current.md`, `docs/memory.md`, `docs/harness*.md`, `docs/frontend/*.md`: replace target-architecture SQLite/product-version framing.
 
 Delete by final cleanup:
 
@@ -1228,7 +1228,7 @@ Delete SQLite-specific schema contract tests after Postgres equivalents exist. A
 Run:
 
 ```bash
-rg "rusqlite|SqliteMemoryRepository|sqlite_memory_retrieval|SQLite-backed|canonical SQLite|noema.sqlite" crates docs Cargo.toml
+rg "<stale sqlite/runtime persistence regex>" crates docs Cargo.toml
 cargo check --workspace
 ```
 
@@ -1308,20 +1308,20 @@ the server records durable state in Postgres, and inspection/control surfaces
 appear when they are useful.
 ```
 
-Replace V1 bullets with "current slice" bullets.
+Replace product-version bullets with current-slice bullets.
 
-- [ ] **Step 4: Replace V1/pre-V1 language**
+- [ ] **Step 4: Replace stale product-version and storage language**
 
 Run:
 
 ```bash
-rg -n "\\bV1\\b|v1|pre-V1|Pre-V1|SQLite|sqlite|noema.sqlite" docs README.md
+rg -n "<stale product-version/storage regex>" docs README.md
 ```
 
 For each product/architecture mention:
 
-- `V1` -> `current slice`, `initial slice`, or `future slice`.
-- `pre-V1` -> `pre-stable`.
+- Product-version labels -> `current slice`, `initial slice`, or `future slice`.
+- Old compatibility labels -> `pre-stable`.
 - `SQLite canonical` -> `Postgres canonical`.
 
 Do not change OpenAI API URLs containing `/v1`.
@@ -1331,10 +1331,10 @@ Do not change OpenAI API URLs containing `/v1`.
 Run:
 
 ```bash
-rg -n "\\bV1\\b|pre-V1|canonical SQLite|noema.sqlite" docs README.md
+rg -n "<stale product-version/storage regex>" docs README.md
 ```
 
-Expected: no product/architecture `V1` or canonical SQLite references remain. OpenAI `/v1` URLs are allowed.
+Expected: no stale product-version architecture labels or legacy-store references remain. OpenAI `/v1` URLs are allowed.
 
 - [ ] **Step 6: Commit**
 

@@ -43,7 +43,7 @@ Adapter types may include:
 
 - Internal Noema service.
 - Local filesystem adapter.
-- SQLite adapter.
+- Postgres adapter.
 - MCP adapter.
 - HTTP API adapter.
 - CLI adapter.
@@ -638,7 +638,7 @@ The dashboard should support:
 
 This should make capability access feel inspectable rather than mystical.
 
-## V1 capability slice
+## Initial capability slice
 
 A practical first slice:
 
@@ -650,5 +650,5 @@ A practical first slice:
 - Manual approval gate for writes and external effects.
 - Structured invocation events.
 
-Even if v1 has only a few tools, those tools should go through the same
+Even if the initial slice has only a few tools, those tools should go through the same
 registry, policy, approval, and ledger path that future tools will use.

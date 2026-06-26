@@ -22,7 +22,7 @@ truth for memory, work, approvals, tools, runs, audit, and settings.
 
 ## Default Identity Model
 
-V1 should present only one visible human and one visible agent:
+The current slice should present only one visible human and one visible agent:
 
 | UI label | Internal identity | User-facing role |
 | --- | --- | --- |
@@ -40,12 +40,12 @@ multi-agent work.
 | --- | --- | --- |
 | Current Rust-backed | Current code can serve or inspect this with bounded frontend work | Setup/config, daemon health, live chat stream, chat transcript persistence through `conversation_items`, memory list/detail, context graph inspection |
 | Table-backed, not flow-wired | Tables and repository methods exist, but normal chat/runtime flows do not populate them consistently yet | Context packets, packet omissions, memory-use records |
-| Schema-doc target | Defined in `docs/sqlite.md`, but not fully created or exercised by current Rust bootstrap/runtime | Memory versions, proactive rules, deletion tombstones, FTS search |
+| Schema-doc target | Defined in `docs/postgres.md`, but not fully created or exercised by current Rust bootstrap/runtime | Memory versions, proactive rules, deletion tombstones, FTS search |
 | Harness-doc target | Designed in harness architecture docs, not available as active durable product controls yet | Runs, approvals, capability registry, policy decisions, event ledger, replay/recovery |
 | Future product | Product goal with no current runtime contract | Full workspaces/projects/tasks, multi-human roles, agent handoff graph, connector marketplace |
 
 Each object page below describes the target IA. Implementation specs should
-split fields and actions into V1 and future groups before building screens.
+split fields and actions into current and future groups before building screens.
 
 ## Cross-Cutting Inspectors
 
@@ -151,7 +151,7 @@ behind advanced inspection affordances.
 
 ### Human
 
-Availability: future product, with a default local human implicit in V1.
+Availability: future product, with a default local human implicit in the current slice.
 
 Purpose: a person who owns, uses, collaborates through, or is represented in
 Noema.
@@ -202,7 +202,7 @@ Actions:
 ### Conversation
 
 Availability: current live chat stream and persisted turn provenance; durable
-conversation list/detail model is V1.x.
+conversation list/detail model is future-slice.
 
 Purpose: the primary entry surface for ordinary use and a first-class
 coordination surface containing transcript, context, decisions, activities, and
@@ -288,7 +288,7 @@ Actions:
 
 ### Run
 
-Availability: harness-doc target; V1 can show activity placeholders, but not a
+Availability: harness-doc target; the current slice can show activity placeholders, but not a
 full durable run page until run envelopes and events are persisted.
 
 Purpose: one governed attempt by an agent to do work under a specific context.

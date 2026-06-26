@@ -23,8 +23,8 @@ Default identities:
 
 | UI label | Internal identity | Notes |
 | --- | --- | --- |
-| You | `human:local` | The only visible human in V1 |
-| Noema | `agent:primary` | The only visible agent in V1 |
+| You | `human:local` | The only visible human in the current slice |
+| Noema | `agent:primary` | The only visible agent in the current slice |
 
 Beginner copy should not mention `principal`, `scope`, `daemon`, `socket`,
 `context packet`, `egress`, `grant`, `provider thread`, or `policy simulator`.
@@ -165,7 +165,7 @@ architecture noun at once.
 Staged surface growth:
 
 ```text
-V1:
+The current slice:
 Chat
 Small utility: Settings
 Contextual drill-ins: Memory, What did Noema use?, Advanced inspection
@@ -277,7 +277,7 @@ Chat turn or activity line
 - The saved memory line can expand in place to show what Noema remembers,
   where it lives, why it was saved, and safe next actions.
 - The expanded memory card can route to memory settings for deeper management.
-- V1 shows one visible user and one visible assistant by default.
+- The current slice shows one visible user and one visible assistant by default.
 - Onboarding does not expose projects, tasks, tools, approvals, agents, audit,
   graph, packets, raw IDs, YAML, socket paths, or command palette mutations.
 - Unsupported controls are hidden, absent, or disabled with exact missing

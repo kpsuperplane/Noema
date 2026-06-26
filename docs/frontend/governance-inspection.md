@@ -35,7 +35,7 @@ frontend should not reuse that exact level of detail as agent-visible context.
 Private, sensitive, or secret graph node existence, edge existence, aliases,
 source names, denial reasons, and exact counts require authorized reveal.
 
-V1 reveal rule: owner/admin inspection means a local interactive user
+Current reveal rule: owner/admin inspection means a local interactive user
 explicitly enters Inspect or clicks Reveal for a specific object/session.
 Reveal state is non-persistent, never included in normal exports, screenshots,
 or shared views, and must not be inferred from merely being on the local
@@ -275,7 +275,7 @@ Explain inclusion and omission separately. A denial explanation can itself leak
 private memory existence, so agent-visible omissions should remain vague for
 private and stronger data.
 
-V1 must show an unavailable state when a chat turn has no persisted context
+The current slice must show an unavailable state when a chat turn has no persisted context
 packet. The backend deliverable is to call deterministic retrieval and persist
 context packets for chat turns before this panel can be complete. The
 unavailable state should live behind the expanded `What did Noema use?` affordance,
@@ -359,7 +359,7 @@ Output:
 - Revocations.
 - Required next action.
 
-V1 access preview is memory-only. It answers retrieval and inclusion questions
+The current slice access preview is memory-only. It answers retrieval and inclusion questions
 using the deterministic memory retrieval engine. It must return `Missing
 backend` for writes, external sends, exports, capability operations, durable
 approvals, and grant-impact simulations beyond current memory grants.
@@ -610,7 +610,7 @@ Exports should support:
 - Full owner export.
 - Redacted collaborator export.
 - Audit-only export.
-- Integrity manifest with schema version, source database path, object file
+- Integrity manifest with schema version, source database identity, object file
   references, content hashes, and omitted derived state.
 
 Restore should support:
@@ -636,9 +636,9 @@ Additional invariants:
 - Restore must not resurrect tombstoned or deleted data without explicit
   conflict approval.
 
-## V1 Inspection Slice
+## Current Inspection Slice
 
-V1 should ship with narrow but honest inspection:
+The current slice should ship with narrow but honest inspection:
 
 - Inline memory rows for saved/proposed/used/omitted memories in chat.
 - Expanded memory details in chat before full memory settings.
@@ -650,7 +650,7 @@ V1 should ship with narrow but honest inspection:
 - Access preview backed by deterministic memory retrieval, entered first
   through `Why?` or `What did Noema use?`.
 - Setup and health views for local folder, config, local service, assistant
-  connection, and SQLite.
+  connection, and Postgres.
 
 Do not surface full harness, approval, task, or capability controls as active
 product features until the underlying durable schema and runtime paths exist.

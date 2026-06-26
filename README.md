@@ -1,6 +1,6 @@
 # Noema
 
-Noema is an open-source, local-first personal agent operating system.
+Noema is an open-source, always-on, self-hosted personal agent operating system.
 
 This repository currently contains the first minimal Rust runtime slices:
 
@@ -22,6 +22,7 @@ Two providers are currently supported:
 - Bun for frontend development
 - `NOEMA_OPENAI__API_KEY` in the environment when using `provider: openai`
 - Codex CLI installed and authenticated when using `provider: codex`
+- Postgres available through `NOEMA_DATABASE_URL` for durable structured state
 
 ## Usage
 
@@ -101,6 +102,7 @@ CLI flags > environment variables > $NOEMA_HOME/config.yaml or ~/.noema/config.y
 Supported environment variables:
 
 - `NOEMA_HOME`
+- `NOEMA_DATABASE_URL`
 - `NOEMA_PROVIDER`
 - `NOEMA_MODEL`
 - `NOEMA_OPENAI__API_KEY`
@@ -154,7 +156,7 @@ pretending that a ChatGPT/Codex subscription is an OpenAI API key. Daemon chat
 uses `codex app-server --listen stdio://`, creates one Noema conversation per
 `noema chat` session, and maps each conversation to one Codex thread. Explicit
 `remember this:` and `/remember` chat messages are persisted to
-`db/noema.sqlite` and can be inspected with `noema memory list` and
+Postgres and can be inspected with `noema memory list` and
 `noema memory show <id>`.
 
 The web chat uses Noema's native daemon WebSocket at `/api/chat/ws`, not an

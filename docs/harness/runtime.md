@@ -39,8 +39,8 @@ features can grow into:
 This slice does not yet create durable conversation rows, run envelopes, event
 ledger entries, approvals, tools, or durable capability state. Conversation IDs
 and Codex thread mappings are in-memory daemon state only. Memory records,
-chat-turn provenance, and SQLite-backed context graph inspection are covered by
-the memory runtime docs and the frontend V1 contract.
+chat-turn provenance, and Postgres-backed context graph inspection are covered by
+the memory runtime docs and the frontend current contract.
 
 The daemon intentionally uses the stable Codex app-server flow: initialize the
 connection, start a thread with the chat client's current working directory,
@@ -479,7 +479,7 @@ The ledger should make the outcome understandable.
 
 ## Worker kernel details
 
-V1 should use a local worker kernel, probably inside the same app or service
+The initial slice should use a local worker kernel, probably inside the same app or service
 process as the scheduler. The worker boundary should still be explicit.
 
 ### Worker responsibilities
@@ -705,13 +705,13 @@ Each error event should include:
 - Whether human action is needed.
 - Suggested recovery path.
 
-## V1 runtime slice
+## Initial runtime slice
 
 A practical first runtime slice:
 
 - Conversation-triggered runs.
 - One local worker.
-- SQLite-backed run records and events.
+- Postgres-backed run records and events.
 - Basic context packet assembly.
 - Memory retrieval request and memory-use recording.
 - Capability registry with a small local/internal set.

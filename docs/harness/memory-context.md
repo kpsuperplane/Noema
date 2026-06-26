@@ -148,12 +148,12 @@ Recommended high-level algorithm:
 The algorithm should preserve the difference between source selection,
 retrieval, inclusion, model visibility, and use.
 
-## Graph retrieval in V1
+## Graph retrieval in the initial slice
 
-Entity relationships are part of V1 context assembly, but only as scoped graph
+Entity relationships are part of the initial slice context assembly, but only as scoped graph
 claims backed by memory.
 
-V1 graph retrieval rules:
+The initial slice graph retrieval rules:
 
 - FTS and structured filters are the primary candidate generators.
 - Graph expansion is optional and limited to one hop.
@@ -168,7 +168,7 @@ V1 graph retrieval rules:
 - Policy is reapplied after graph expansion and before inclusion.
 - Denied graph edges are redacted from agent-visible omissions.
 
-Two-hop traversal and graph-derived action reasoning should wait until V1.x,
+Two-hop traversal and graph-derived action reasoning should wait until future-slice,
 after adversarial tests show that one-hop traversal does not leak edge
 existence.
 
@@ -620,7 +620,7 @@ Useful memory/context surfaces:
 
 These surfaces are core to making memory trustworthy.
 
-## V1 memory/context slice
+## Initial memory/context slice
 
 A practical first slice:
 

@@ -20,7 +20,7 @@ needs to complete in Noema.
 - Grant, preview, and revoke tool access.
 - Resolve approvals and policy denials.
 - Recover from failed, paused, or ambiguous runs.
-- Export, restore, delete, and rebuild local-first state.
+- Export, restore, delete, and rebuild self-hosted state.
 
 ## Navigation Model
 
@@ -28,7 +28,7 @@ The default navigation model is not a dashboard. It is a chat surface that can
 grow side rails and side panels.
 
 User-facing labels should favor clear product nouns over architecture nouns.
-In V1, the primary visible destination is `Chat`. `Settings`, `Memory`, and
+In the current slice, the primary visible destination is `Chat`. `Settings`, `Memory`, and
 `Inspect` exist, but they are reached through utility controls, inline memory
 events, `Why?` links, or direct owner/admin routes. Terms like `Governance`,
 `Audit`, `RunEnvelope`, and `ContextPacket` belong in advanced inspection
@@ -76,7 +76,7 @@ Primary actions:
 - Link or promote the chat to a workspace/project/task.
 - Ask why Noema used or omitted something.
 
-V1 conversation contract:
+Current conversation contract:
 
 - The daemon WebSocket is the live source for current turn updates.
 - Durable chat history is reconstructed from `conversation_items`.
@@ -225,7 +225,7 @@ invocations, denials, and revocations exist.
 
 ## Agents
 
-V1 presents one visible assistant: Noema. Agent directories, handoffs, and
+The current slice presents one visible assistant: Noema. Agent directories, handoffs, and
 multi-agent controls appear only after more than one active agent or delegation
 exists.
 
@@ -304,7 +304,7 @@ Special rules:
 - Disabled palette commands should explain the missing backend, permission, or
   object state.
 
-V1 enabled commands:
+Current enabled commands:
 
 - New chat.
 - Remember this.
@@ -316,7 +316,7 @@ V1 enabled commands:
 - Start Noema.
 - Open local folder.
 
-V1 inspect-only commands:
+Current inspect-only commands:
 
 - Preview agent memory access.
 - Preview what Noema used when a context packet or bounded explanation exists.
@@ -385,7 +385,7 @@ Primary CTAs:
 
 Required screens/states:
 
-- Pre-chat local-first storage explanation when setup is missing.
+- Pre-chat self-hosted storage explanation when setup is missing.
 - Guided setup checklist: local folder, assistant connection, local service,
   first chat, first memory.
 - Beginner path using Codex as the assistant connection.
@@ -580,7 +580,7 @@ tombstoned or deleted data without explicit conflict approval.
 | No saved memory | `Save one memory to see how Noema remembers things.` CTA: `Try remember this`. |
 | No durable threads | Stay in single-chat mode; do not render an empty thread rail. |
 | No workspace | Stay in chat; reveal work panel only when a chat creates or links durable work. |
-| No durable runs | Explain that V1 chat activity exists, but full run ledger is future-backed. |
+| No durable runs | Explain that current chat activity exists, but full run ledger is future-backed. |
 | No "what Noema used" record | Explain that detailed context records appear after governed runs are persisted. |
 | Waiting on approval | Make the pending approval the main inline call to action. |
 | Policy denied | Show deterministic reason, affected scope/resource, and safer path. |
@@ -589,24 +589,24 @@ tombstoned or deleted data without explicit conflict approval.
 | External effect unknown | Pause recovery and require inspection before retry. |
 | Secret detected | Deny egress by default, redact content, and link audit trail. |
 
-## V1 Route Support Matrix
+## Current Route Support Matrix
 
 Routes may exist before they are primary navigation. The route contract is about
 addressability and backing, not what the first shell emphasizes.
 
 | Route | Visible label | Backed by | Capability | Status |
 | --- | --- | --- | --- | --- |
-| `/` | Chat | setup health and local service state | route to chat when ready; show setup readiness if blocked | V1 |
-| `/setup` | Setup | local folder, assistant connection, local service checks | create/update setup through guided setup flow | V1 |
-| `/chat` | Chat | local service stream | live chat, transcript activity, inline memory extraction rows | V1 |
-| `/chat/:id` | Chat detail | active daemon conversation; persisted `conversation_items` where available | live while daemon conversation exists; durable chat history after acknowledged turns | V1 limited |
-| `/memory` | Memory settings | SQLite memory repository | secondary list and supported filters with redacted metadata; full FTS search waits for backend support | V1 |
-| `/memory/:id` | Memory detail | SQLite memory repository | opened from chat line or memory settings; inspect, reveal when authorized, limited lifecycle actions as backend supports | V1 |
-| `/memory/review` | Review memory | persisted candidates/active extracted memories | opened from review-required chat lines or settings; keep/edit/reject once mutation endpoints exist | V1 limited |
-| `/inspect` | Advanced inspection | CLI-equivalent read models | owner/admin inspection hub; not primary navigation during onboarding or normal beginner use | V1 |
-| `/inspect/context-graph` | Context graph | persisted graph tables and `noema context graph` semantics | owner/admin-only, redacted by default | V1 |
-| `/inspect/context-packets` | Context packets | context packet tables if populated | inspect when rows exist; unavailable state otherwise | V1 limited |
-| `/settings` | Settings | config, paths, local service health | local setup, maintenance, memory management entry points, advanced drill-ins | V1 |
+| `/` | Chat | setup health and local service state | route to chat when ready; show setup readiness if blocked | Current |
+| `/setup` | Setup | local folder, assistant connection, local service checks | create/update setup through guided setup flow | Current |
+| `/chat` | Chat | local service stream | live chat, transcript activity, inline memory extraction rows | Current |
+| `/chat/:id` | Chat detail | active daemon conversation; persisted `conversation_items` where available | live while daemon conversation exists; durable chat history after acknowledged turns | Current limited |
+| `/memory` | Memory settings | Postgres memory repository | secondary list and supported filters with redacted metadata; full FTS search waits for backend support | Current |
+| `/memory/:id` | Memory detail | Postgres memory repository | opened from chat line or memory settings; inspect, reveal when authorized, limited lifecycle actions as backend supports | Current |
+| `/memory/review` | Review memory | persisted candidates/active extracted memories | opened from review-required chat lines or settings; keep/edit/reject once mutation endpoints exist | Current limited |
+| `/inspect` | Advanced inspection | CLI-equivalent read models | owner/admin inspection hub; not primary navigation during onboarding or normal beginner use | Current |
+| `/inspect/context-graph` | Context graph | persisted graph tables and `noema context graph` semantics | owner/admin-only, redacted by default | Current |
+| `/inspect/context-packets` | Context packets | context packet tables if populated | inspect when rows exist; unavailable state otherwise | Current limited |
+| `/settings` | Settings | config, paths, local service health | local setup, maintenance, memory management entry points, advanced drill-ins | Current |
 
 Future route groups:
 
