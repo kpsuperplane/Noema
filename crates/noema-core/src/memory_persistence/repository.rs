@@ -36,11 +36,10 @@ impl PostgresMemoryRepository {
     ///
     /// # Errors
     ///
-    /// Returns [`MemoryPersistenceError`] when the database URL is invalid,
-    /// SQLx cannot connect, or schema bootstrap fails.
-    pub async fn connect(database_url: impl Into<String>) -> Result<Self, MemoryPersistenceError> {
-        let config = DatabaseConfig::new(database_url)?;
-        let pool = config.connect().await?;
+    /// Returns [`MemoryPersistenceError`] when SQLx cannot connect or schema
+    /// bootstrap fails.
+    pub async fn connect(database: &DatabaseConfig) -> Result<Self, MemoryPersistenceError> {
+        let pool = database.connect().await?;
         Self::from_pool(pool).await
     }
 
