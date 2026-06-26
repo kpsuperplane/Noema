@@ -26,6 +26,8 @@ pub mod memory_extraction;
 pub mod memory_persistence;
 /// Filesystem path resolution for Noema state.
 pub mod paths;
+mod postgres_memory_retrieval;
+mod postgres_retrieval_policy_fingerprint;
 /// Provider-neutral generation request and response types.
 pub mod provider;
 /// Concrete model provider adapters.

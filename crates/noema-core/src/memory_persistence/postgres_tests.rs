@@ -717,6 +717,193 @@ async fn record_context_packet_writes_postgres_manifest_edges_omissions_and_use_
     }));
 }
 
+#[tokio::test]
+async fn retrieve_memories_uses_postgres_search_and_policy_fingerprint() {
+    let Some(repo) = test_repo().await else {
+        return;
+    };
+    repo.ensure_default_actors().await.expect("actors");
+
+    let conversation = repo
+        .create_conversation(NewConversation::local_chat(None, None))
+        .await
+        .expect("conversation");
+    let source_item = repo
+        .append_conversation_item(NewConversationItem {
+            conversation_id: conversation.conversation_id.clone(),
+            turn_id: None,
+            parent_item_id: None,
+            kind: ConversationItemKind::UserText,
+            status: ConversationItemStatus::Completed,
+            author: ObjectRef::human("human:local"),
+            content_text: Some("remember the postgres retrieval caboose".to_string()),
+            payload_json: serde_json::json!({}),
+            metadata: serde_json::json!({}),
+        })
+        .await
+        .expect("source item");
+
+    let mut candidate = NewMemoryCandidate::confirmed_note(
+        ObjectRef::new(
+            ObjectType::Conversation,
+            conversation.conversation_id.as_str(),
+        )
+        .expect("conversation ref"),
+        "The Postgres retrieval caboose should be easy to find.",
+        ObjectRef::agent("agent:primary"),
+        ObjectRef::conversation_item(source_item.item_id.as_str()),
+    );
+    candidate.status = MemoryStatus::Active;
+    candidate.sensitivity = Sensitivity::Private;
+    candidate.retrieval_hints =
+        serde_json::json!({"topics": ["postgres"], "keywords": ["caboose"]});
+    candidate.participants = vec![NewMemoryParticipant::new(
+        ObjectRef::human("human:local"),
+        ParticipantRole::HumanInScope,
+    )];
+    let memory = repo
+        .append_memory_candidate(candidate)
+        .await
+        .expect("memory");
+    let mut public_hint_candidate = NewMemoryCandidate::confirmed_note(
+        ObjectRef::human("human:local"),
+        "The public Postgres retrieval signal mentions a switchstand.",
+        ObjectRef::agent("agent:primary"),
+        ObjectRef::conversation_item(source_item.item_id.as_str()),
+    );
+    public_hint_candidate.status = MemoryStatus::Active;
+    public_hint_candidate.sensitivity = Sensitivity::Public;
+    public_hint_candidate.retrieval_hints =
+        serde_json::json!({"topics": ["postgres"], "keywords": ["switchstand"]});
+    let public_memory = repo
+        .append_memory_candidate(public_hint_candidate)
+        .await
+        .expect("public memory");
+
+    sqlx::query(
+        r"
+        INSERT INTO memory_retrieval_purpose_rules (
+          memory_id,
+          purpose,
+          effect,
+          created_by_object_type,
+          created_by_object_id
+        )
+        VALUES ($1, 'answer_human_question', 'allow', 'agent', 'agent:primary')
+        ",
+    )
+    .bind(memory.id.as_str())
+    .execute(repo.pool())
+    .await
+    .expect("purpose rule");
+    sqlx::query(
+        r"
+        INSERT INTO object_access_grants (
+          grant_id,
+          target_object_type,
+          target_object_id,
+          grantee_object_type,
+          grantee_object_id,
+          permission,
+          effect,
+          created_by_object_type,
+          created_by_object_id
+        )
+        VALUES (
+          'grant_pg_retrieval_policy',
+          'memory_item',
+          $1,
+          'agent',
+          'agent:primary',
+          'use_for_retrieval',
+          'allow',
+          'human',
+          'human:local'
+        )
+        ",
+    )
+    .bind(memory.id.as_str())
+    .execute(repo.pool())
+    .await
+    .expect("grant");
+
+    let mut trusted =
+        TrustedRetrievalContext::for_human("human:local", Purpose::AnswerHumanQuestion);
+    trusted.active_agent_ids = vec!["agent:primary".to_string()];
+    trusted.active_scopes = vec![format!("conversation:{}", conversation.conversation_id)];
+    trusted.explicit_memory_request = true;
+    trusted.sensitivity_ceiling = Sensitivity::Private;
+    let request = MemoryRetrievalRequest {
+        requesting_principal_id: "agent:primary".to_string(),
+        trusted,
+        untrusted_hints: UntrustedHints {
+            query_text: "postgres caboose".to_string(),
+            fuzzy_topics: vec!["retrieval".to_string()],
+            fuzzy_entities: Vec::new(),
+        },
+    };
+
+    let stale = repo
+        .retrieve_memories(&request)
+        .await
+        .expect("stale retrieve");
+    assert_eq!(stale.included.len(), 1);
+    assert_eq!(stale.included[0].memory_id, public_memory.id);
+    assert_eq!(
+        stale.included[0].eligibility_reason,
+        EligibilityReason::PublicHint
+    );
+    assert_eq!(
+        stale
+            .denied_for_audit
+            .iter()
+            .find(|denial| denial.memory_id.as_deref() == Some(memory.id.as_str()))
+            .expect("private memory denied")
+            .reason,
+        DenialReason::RetrievalPolicyInvalid
+    );
+
+    let fingerprint = repo
+        .refresh_retrieval_policy_fingerprint(
+            memory.id.as_str(),
+            ObjectRef::agent("agent:primary"),
+            "postgres-test",
+        )
+        .await
+        .expect("refresh fingerprint");
+    assert!(fingerprint.starts_with("sha256:"));
+
+    let policy_row = sqlx::query_as::<_, (String, Option<String>, Option<String>)>(
+        r"
+        SELECT
+          retrieval_policy_status,
+          retrieval_policy_fingerprint,
+          retrieval_policy_extractor_version
+        FROM memory_items
+        WHERE memory_id = $1
+        ",
+    )
+    .bind(memory.id.as_str())
+    .fetch_one(repo.pool())
+    .await
+    .expect("policy row");
+    assert_eq!(policy_row.0, "valid");
+    assert_eq!(policy_row.1.as_deref(), Some(fingerprint.as_str()));
+    assert_eq!(policy_row.2.as_deref(), Some("postgres-test"));
+
+    let result = repo.retrieve_memories(&request).await.expect("retrieve");
+    assert_eq!(result.included.len(), 2);
+    assert!(result.included.iter().any(|retrieved| {
+        retrieved.memory_id == memory.id
+            && retrieved.eligibility_reason == EligibilityReason::ActiveScope
+    }));
+    assert!(result.included.iter().any(|retrieved| {
+        retrieved.memory_id == public_memory.id
+            && retrieved.eligibility_reason == EligibilityReason::PublicHint
+    }));
+    assert!(result.denied_for_audit.is_empty());
+}
+
 async fn assert_index_exists(pool: &sqlx::PgPool, table_name: &str, index_name: &str) {
     let has_index = sqlx::query_scalar::<_, bool>(
         r"

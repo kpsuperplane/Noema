@@ -8,7 +8,8 @@ use crate::{
     database::DatabaseConfig,
     memory::{MemoryRetrievalRequest, MemoryRetrievalResult, RelationshipStatus},
     paths::NoemaPaths,
-    retrieval_policy_fingerprint, sqlite_memory_retrieval,
+    postgres_memory_retrieval, postgres_retrieval_policy_fingerprint, retrieval_policy_fingerprint,
+    sqlite_memory_retrieval,
 };
 use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
 use sqlx::PgPool;
@@ -17,7 +18,7 @@ use super::{
     error::MemoryPersistenceError,
     helpers::*,
     models::*,
-    objects::{ObjectRef, validate_object_ref_for_conn},
+    objects::{ObjectRef, validate_object_ref_for_conn, validate_object_ref_for_pool},
     postgres_schema::POSTGRES_SCHEMA_SQL,
     queries::{
         MEMORY_SUMMARY_BY_ID_SQL, POSTGRES_MEMORY_SUMMARY_BY_ID_SQL, POSTGRES_RECENT_MEMORY_SQL,
@@ -288,6 +289,67 @@ impl PostgresMemoryRepository {
         .await
         .map_err(MemoryPersistenceError::Database)?;
         tx.commit().await.map_err(MemoryPersistenceError::Database)
+    }
+
+    /// Retrieve memories from canonical Postgres state using deterministic gates.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MemoryPersistenceError`] if Postgres reads fail, stored enum
+    /// values are outside Noema's closed vocabularies, or graph invariants are
+    /// violated by stored rows.
+    pub async fn retrieve_memories(
+        &self,
+        request: &MemoryRetrievalRequest,
+    ) -> Result<MemoryRetrievalResult, MemoryPersistenceError> {
+        postgres_memory_retrieval::retrieve(&self.pool, request).await
+    }
+
+    /// Mark a memory retrieval policy valid for its current canonical basis.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MemoryPersistenceError`] if the extractor or memory does not
+    /// exist, fingerprint basis rows cannot be read, metadata cannot be
+    /// serialized, or Postgres writes fail.
+    pub async fn refresh_retrieval_policy_fingerprint(
+        &self,
+        memory_id: &str,
+        extractor: ObjectRef,
+        extractor_version: &str,
+    ) -> Result<String, MemoryPersistenceError> {
+        validate_object_ref_for_pool(&self.pool, &extractor).await?;
+        let fingerprint =
+            postgres_retrieval_policy_fingerprint::current_fingerprint(&self.pool, memory_id)
+                .await?;
+        let changed = sqlx::query(
+            r"
+            UPDATE memory_items
+            SET
+              retrieval_policy_status = 'valid',
+              retrieval_policy_fingerprint = $2,
+              retrieval_policy_extractor_object_type = $3,
+              retrieval_policy_extractor_object_id = $4,
+              retrieval_policy_extractor_version = $5,
+              retrieval_policy_validated_at = now()
+            WHERE memory_id = $1
+            ",
+        )
+        .bind(memory_id)
+        .bind(fingerprint.as_str())
+        .bind(extractor.object_type.as_str())
+        .bind(extractor.object_id.as_str())
+        .bind(extractor_version)
+        .execute(&self.pool)
+        .await
+        .map_err(MemoryPersistenceError::Database)?
+        .rows_affected();
+        if changed == 0 {
+            return Err(MemoryPersistenceError::MemoryNotFound {
+                memory_id: memory_id.to_string(),
+            });
+        }
+        Ok(fingerprint)
     }
 }
 
