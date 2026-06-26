@@ -499,7 +499,7 @@ async fn cancel_provider_auth_attempt(
     request: &HttpRequest,
     attempt_id: &str,
 ) -> Result<(), DaemonError> {
-    if let Err(error) = validate_mutation_request(request) {
+    if let Err(error) = validate_cancel_provider_auth_request(request) {
         write_json_error(stream, error.status(), error.message()).await?;
         return Ok(());
     }
@@ -574,6 +574,10 @@ fn validate_json_post_request(request: &HttpRequest) -> Result<(), HttpRequestEr
         return Err(HttpRequestError::bad_request("expected JSON request"));
     }
     Ok(())
+}
+
+fn validate_cancel_provider_auth_request(request: &HttpRequest) -> Result<(), HttpRequestError> {
+    validate_json_post_request(request)
 }
 
 fn validate_mutation_request(request: &HttpRequest) -> Result<(), HttpRequestError> {
@@ -1268,6 +1272,39 @@ mod tests {
             validate_json_post_request(&request).unwrap_err().message(),
             "invalid request origin"
         );
+    }
+
+    #[test]
+    fn cancel_auth_requires_json_post_context() {
+        let mut request = test_request("POST", "/api/provider-auth/attempts/attempt_1/cancel");
+        request
+            .headers
+            .insert("host".to_string(), "localhost:8765".to_string());
+        request
+            .headers
+            .insert("origin".to_string(), "http://localhost:8765".to_string());
+
+        assert_eq!(
+            validate_cancel_provider_auth_request(&request)
+                .unwrap_err()
+                .message(),
+            "expected JSON request"
+        );
+
+        request
+            .headers
+            .insert("content-type".to_string(), "text/plain".to_string());
+        assert_eq!(
+            validate_cancel_provider_auth_request(&request)
+                .unwrap_err()
+                .message(),
+            "expected JSON request"
+        );
+
+        request
+            .headers
+            .insert("content-type".to_string(), "application/json".to_string());
+        assert!(validate_cancel_provider_auth_request(&request).is_ok());
     }
 
     #[test]
