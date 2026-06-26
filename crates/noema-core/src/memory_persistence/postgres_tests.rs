@@ -147,8 +147,7 @@ fn assert_test_database_url(database_url: &str) {
 }
 
 fn is_test_database_url(database_url: &str) -> bool {
-    test_database_name(database_url)
-        .is_some_and(|database_name| is_explicit_test_database_name(database_name))
+    test_database_name(database_url).is_some_and(is_explicit_test_database_name)
 }
 
 fn is_explicit_test_database_name(database_name: &str) -> bool {
