@@ -443,7 +443,22 @@ async fn start_provider_auth_attempt(
         .await;
 
     match attempt {
-        Ok(attempt) => write_json(stream, "200 OK", &attempt).await?,
+        Ok(attempt) => {
+            if should_persist_provider_auth_attempt_status(&attempt)
+                && persist_provider_account_status_from_attempt(&state.memory_repository, &attempt)
+                    .await
+                    .is_err()
+            {
+                write_json_error(
+                    stream,
+                    "500 Internal Server Error",
+                    "provider auth status unavailable",
+                )
+                .await?;
+                return Ok(());
+            }
+            write_json(stream, "200 OK", &attempt).await?;
+        }
         Err(_) => {
             write_json_error(
                 stream,
@@ -650,6 +665,10 @@ fn provider_account_status_update_from_attempt(
         }),
         ProviderAuthAttemptStatus::Starting | ProviderAuthAttemptStatus::WaitingForUser => None,
     }
+}
+
+fn should_persist_provider_auth_attempt_status(attempt: &ProviderAuthAttemptView) -> bool {
+    provider_account_status_update_from_attempt(attempt).is_some()
 }
 
 async fn persist_provider_account_status_from_attempt(
@@ -1385,6 +1404,16 @@ mod tests {
 
         attempt.status = crate::provider_auth::ProviderAuthAttemptStatus::WaitingForUser;
         assert_eq!(provider_account_status_update_from_attempt(&attempt), None);
+    }
+
+    #[test]
+    fn returned_start_auth_terminal_attempt_requires_status_persistence() {
+        let mut attempt = test_provider_auth_attempt();
+        attempt.status = crate::provider_auth::ProviderAuthAttemptStatus::Completed;
+        assert!(should_persist_provider_auth_attempt_status(&attempt));
+
+        attempt.status = crate::provider_auth::ProviderAuthAttemptStatus::WaitingForUser;
+        assert!(!should_persist_provider_auth_attempt_status(&attempt));
     }
 
     async fn read_test_request_error(bytes: &[u8]) -> HttpRequestError {
