@@ -2,6 +2,7 @@ use std::env;
 
 use super::{
     PostgresMemoryRepository,
+    postgres_schema::POSTGRES_SCHEMA_SQL,
     repository::{POSTGRES_BOOTSTRAP_MIGRATION_NAME, POSTGRES_BOOTSTRAP_MIGRATION_VERSION},
 };
 
@@ -59,6 +60,8 @@ async fn bootstrap_creates_core_tables() {
             "memory_subjects",
             "memory_use_records",
             "object_access_grants",
+            "object_events",
+            "object_links",
             "object_provenance_edges",
             "relationships",
             "schema_migrations",
@@ -66,21 +69,18 @@ async fn bootstrap_creates_core_tables() {
         ]
     );
 
-    let has_conversation_items_time_index = sqlx::query_scalar::<_, bool>(
-        r"
-        SELECT EXISTS (
-          SELECT 1
-          FROM pg_indexes
-          WHERE schemaname = 'public'
-            AND tablename = 'conversation_items'
-            AND indexname = 'idx_conversation_items_conversation_created_at'
-        )
-        ",
-    )
-    .fetch_one(repo.pool())
-    .await
-    .expect("check conversation items time index");
-    assert!(has_conversation_items_time_index);
+    for (table_name, index_name) in [
+        (
+            "conversation_items",
+            "idx_conversation_items_conversation_created_at",
+        ),
+        ("object_events", "idx_object_events_target_time"),
+        ("object_events", "idx_object_events_actor_time"),
+        ("object_links", "idx_object_links_source_relation"),
+        ("object_links", "idx_object_links_target_relation"),
+    ] {
+        assert_index_exists(repo.pool(), table_name, index_name).await;
+    }
 
     let migration_name = sqlx::query_scalar::<_, Option<String>>(
         "SELECT name FROM schema_migrations WHERE version = 0",
@@ -89,6 +89,26 @@ async fn bootstrap_creates_core_tables() {
     .await
     .expect("check bootstrap migration row");
     assert_eq!(migration_name.as_deref(), Some("postgres_bootstrap_v0"));
+}
+
+async fn assert_index_exists(pool: &sqlx::PgPool, table_name: &str, index_name: &str) {
+    let has_index = sqlx::query_scalar::<_, bool>(
+        r"
+        SELECT EXISTS (
+          SELECT 1
+          FROM pg_indexes
+          WHERE schemaname = 'public'
+            AND tablename = $1
+            AND indexname = $2
+        )
+        ",
+    )
+    .bind(table_name)
+    .bind(index_name)
+    .fetch_one(pool)
+    .await
+    .expect("check index exists");
+    assert!(has_index, "missing index {index_name} on {table_name}");
 }
 
 fn test_database_url() -> Option<String> {
@@ -106,7 +126,15 @@ fn assert_test_database_url(database_url: &str) {
 
 fn is_test_database_url(database_url: &str) -> bool {
     test_database_name(database_url)
-        .is_some_and(|database_name| database_name.to_ascii_lowercase().contains("test"))
+        .is_some_and(|database_name| is_explicit_test_database_name(database_name))
+}
+
+fn is_explicit_test_database_name(database_name: &str) -> bool {
+    let database_name = database_name.to_ascii_lowercase();
+    database_name == "test"
+        || database_name.starts_with("test_")
+        || database_name.ends_with("_test")
+        || database_name.starts_with("noema_test")
 }
 
 fn test_database_name(database_url: &str) -> Option<&str> {
@@ -123,14 +151,19 @@ fn test_database_name(database_url: &str) -> Option<&str> {
 
 #[test]
 fn test_database_url_guard_checks_database_name() {
+    assert_test_database_url("postgres://noema:noema@localhost:5432/test");
     assert_test_database_url("postgres://noema:noema@localhost:5432/noema_test");
     assert_test_database_url("postgres://noema:noema@localhost:5432/test_noema");
+    assert_test_database_url("postgres://noema:noema@localhost:5432/noema_test_local");
     assert_test_database_url("postgres://noema:noema@localhost:5432/noema_test?sslmode=disable");
 
     for database_url in [
         "postgres://test_user:noema@localhost:5432/noema",
         "postgres://noema:noema@test-host:5432/noema",
         "postgres://noema:noema@localhost:5432/noema?application_name=test",
+        "postgres://noema:noema@localhost:5432/contest",
+        "postgres://noema:noema@localhost:5432/latest",
+        "postgres://noema:noema@localhost:5432/integrationtest",
     ] {
         assert!(
             !is_test_database_url(database_url),
@@ -143,4 +176,26 @@ fn test_database_url_guard_checks_database_name() {
 fn bootstrap_migration_constants_are_stable() {
     assert_eq!(POSTGRES_BOOTSTRAP_MIGRATION_VERSION, 0);
     assert_eq!(POSTGRES_BOOTSTRAP_MIGRATION_NAME, "postgres_bootstrap_v0");
+}
+
+#[test]
+fn postgres_schema_includes_object_event_and_link_tables() {
+    for table_name in ["object_events", "object_links"] {
+        assert!(
+            POSTGRES_SCHEMA_SQL.contains(&format!("CREATE TABLE IF NOT EXISTS {table_name}")),
+            "missing table {table_name}"
+        );
+    }
+
+    for index_name in [
+        "idx_object_events_target_time",
+        "idx_object_events_actor_time",
+        "idx_object_links_source_relation",
+        "idx_object_links_target_relation",
+    ] {
+        assert!(
+            POSTGRES_SCHEMA_SQL.contains(&format!("CREATE INDEX IF NOT EXISTS {index_name}")),
+            "missing index {index_name}"
+        );
+    }
 }

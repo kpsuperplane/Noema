@@ -6,7 +6,7 @@ use crate::{
 };
 use thiserror::Error;
 
-/// Errors produced by SQLite memory persistence.
+/// Errors produced by durable memory persistence.
 #[derive(Debug, Error)]
 pub enum MemoryPersistenceError {
     /// The database directory could not be created.
@@ -39,7 +39,7 @@ pub enum MemoryPersistenceError {
     Json(#[from] serde_json::Error),
 
     /// A database value did not match a closed Noema vocabulary.
-    #[error("invalid {kind} value in SQLite: {value}")]
+    #[error("invalid {kind} value in memory database: {value}")]
     InvalidEnum {
         /// Vocabulary kind.
         kind: &'static str,

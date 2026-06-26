@@ -330,6 +330,44 @@ CREATE TABLE IF NOT EXISTS object_provenance_edges (
   )
 );
 
+CREATE TABLE IF NOT EXISTS object_events (
+  event_id TEXT PRIMARY KEY,
+  event_type TEXT NOT NULL,
+  actor_object_type TEXT,
+  actor_object_id TEXT,
+  target_object_type TEXT,
+  target_object_id TEXT,
+  reason TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  details JSONB NOT NULL DEFAULT '{}'::jsonb,
+  CHECK (
+    (actor_object_type IS NULL AND actor_object_id IS NULL)
+    OR (actor_object_type IS NOT NULL AND actor_object_id IS NOT NULL)
+  ),
+  CHECK (
+    (target_object_type IS NULL AND target_object_id IS NULL)
+    OR (target_object_type IS NOT NULL AND target_object_id IS NOT NULL)
+  )
+);
+
+CREATE TABLE IF NOT EXISTS object_links (
+  link_id TEXT PRIMARY KEY,
+  source_object_type TEXT NOT NULL,
+  source_object_id TEXT NOT NULL,
+  target_object_type TEXT NOT NULL,
+  target_object_id TEXT NOT NULL,
+  relation TEXT NOT NULL,
+  created_by_object_type TEXT,
+  created_by_object_id TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  CHECK (
+    (created_by_object_type IS NULL AND created_by_object_id IS NULL)
+    OR (created_by_object_type IS NOT NULL AND created_by_object_id IS NOT NULL)
+  ),
+  UNIQUE(source_object_type, source_object_id, target_object_type, target_object_id, relation)
+);
+
 CREATE TABLE IF NOT EXISTS context_packets (
   context_packet_id TEXT PRIMARY KEY,
   run_id TEXT NOT NULL,
@@ -426,6 +464,10 @@ CREATE INDEX IF NOT EXISTS idx_object_access_grants_grantee ON object_access_gra
 CREATE INDEX IF NOT EXISTS idx_object_access_grants_target ON object_access_grants(target_object_type, target_object_id);
 CREATE INDEX IF NOT EXISTS idx_object_provenance_target ON object_provenance_edges(target_object_type, target_object_id, deleted_at, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_object_provenance_source ON object_provenance_edges(source_object_type, source_object_id, deleted_at, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_object_events_target_time ON object_events(target_object_type, target_object_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_object_events_actor_time ON object_events(actor_object_type, actor_object_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_object_links_source_relation ON object_links(source_object_type, source_object_id, relation);
+CREATE INDEX IF NOT EXISTS idx_object_links_target_relation ON object_links(target_object_type, target_object_id, relation);
 CREATE INDEX IF NOT EXISTS idx_context_packets_run ON context_packets(run_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_context_packet_memory_edges_packet ON context_packet_memory_edges(context_packet_id, stage);
 CREATE INDEX IF NOT EXISTS idx_context_packet_memory_edges_memory ON context_packet_memory_edges(memory_id, created_at DESC);

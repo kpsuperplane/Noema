@@ -506,10 +506,11 @@ The schema file must define every table in this exact list: `schema_migrations`,
 `conversation_items`, `memory_items`, `entities`, `relationships`,
 `memory_subjects`, `memory_participants`, `memory_retrieval_purpose_rules`,
 `memory_retrieval_object_links`, `object_access_grants`,
-`object_provenance_edges`, `context_packets`, `context_packet_memory_edges`,
-`context_packet_omissions`, and `memory_use_records`. Convert each table from
-the current SQLite schema using the conversion rules above, preserve every
-current enum `CHECK` constraint, and add an index on
+`object_provenance_edges`, `object_events`, `object_links`, `context_packets`,
+`context_packet_memory_edges`, `context_packet_omissions`, and
+`memory_use_records`. Convert each table from the current SQLite schema using
+the conversion rules above, preserve every current enum `CHECK` constraint,
+preserve relevant indexes, and add an index on
 `conversation_items(conversation_id, created_at)`.
 
 - [ ] **Step 2: Add bootstrap function**

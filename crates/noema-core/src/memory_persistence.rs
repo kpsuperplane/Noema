@@ -1,9 +1,8 @@
-//! SQLite-backed durable memory repository.
+//! Durable memory persistence repositories.
 //!
 //! This module is the small persistence slice used by chat integration. It
-//! initializes `db/noema.sqlite`, creates the canonical memory tables needed
-//! for chat-created memories, writes provenance and participants, and exposes
-//! a recent-memory listing for CLI inspection.
+//! currently keeps the SQLite runtime repository while introducing the
+//! Postgres schema bootstrap used by the server migration path.
 
 mod context_packets;
 mod conversations;
