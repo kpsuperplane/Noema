@@ -194,7 +194,7 @@ provider_account_id: string,
 /**
  * Provider account auth method.
  */
-method: "oauth_device_code" | "secret_input" | "external_manual" | "none",
+method: ProviderAuthMethod,
 /**
  * Current attempt status.
  */
@@ -247,6 +247,10 @@ account_key?: string,
  * Human-readable provider account name connected by this step.
  */
 display_name?: string,
+/**
+ * Last known provider account readiness status.
+ */
+provider_account_status?: ProviderAccountStatus,
 /**
  * Authentication method expected for this provider account.
  */

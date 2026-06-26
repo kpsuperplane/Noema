@@ -45,6 +45,10 @@ pub struct OnboardingStep {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub display_name: Option<String>,
+    /// Last known provider account readiness status.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub provider_account_status: Option<ProviderAccountStatus>,
     /// Authentication method expected for this provider account.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
@@ -91,6 +95,8 @@ fn provider_account_step(
     account: ProviderAccountRecord,
     status: OnboardingStepStatus,
 ) -> OnboardingStep {
+    let provider_account_status = account.status;
+
     OnboardingStep {
         id: PROVIDER_LOGIN_STEP_ID.to_string(),
         status,
@@ -98,6 +104,7 @@ fn provider_account_step(
         provider_account_id: Some(account.provider_account_id),
         account_key: Some(account.account_key),
         display_name: Some(account.display_name),
+        provider_account_status: Some(provider_account_status),
         auth_method: Some(account.auth_method),
     }
 }
@@ -110,6 +117,7 @@ fn default_codex_provider_step() -> OnboardingStep {
         provider_account_id: Some(DEFAULT_CODEX_PROVIDER_ACCOUNT_ID.to_string()),
         account_key: Some(DEFAULT_CODEX_ACCOUNT_KEY.to_string()),
         display_name: Some(DEFAULT_CODEX_DISPLAY_NAME.to_string()),
+        provider_account_status: Some(ProviderAccountStatus::Unknown),
         auth_method: Some(ProviderAuthMethod::OauthDeviceCode),
     }
 }
@@ -154,16 +162,48 @@ mod tests {
         let status = onboarding_status_from_account(Some(codex_default_account(
             ProviderAccountStatus::Unauthenticated,
         )));
+        let step = serde_json::to_value(&status.steps[0]).expect("step json");
 
         assert!(!status.is_user_onboarded);
         assert_eq!(status.steps[0].id, "connect_provider_account");
         assert_eq!(status.steps[0].status, OnboardingStepStatus::Blocked);
         assert_eq!(status.steps[0].provider_kind.as_deref(), Some("codex"));
+        assert_eq!(
+            status.steps[0].provider_account_status,
+            Some(ProviderAccountStatus::Unauthenticated)
+        );
+        assert_eq!(step["provider_account_status"], "unauthenticated");
+    }
+
+    #[test]
+    fn onboarding_blocks_and_preserves_provider_readiness_status() {
+        for account_status in [
+            ProviderAccountStatus::Unknown,
+            ProviderAccountStatus::Checking,
+            ProviderAccountStatus::Unauthenticated,
+            ProviderAccountStatus::Unavailable,
+        ] {
+            let status =
+                onboarding_status_from_account(Some(codex_default_account(account_status)));
+            let step = serde_json::to_value(&status.steps[0]).expect("step json");
+
+            assert!(!status.is_user_onboarded);
+            assert_eq!(status.steps[0].status, OnboardingStepStatus::Blocked);
+            assert_eq!(
+                status.steps[0].provider_account_status,
+                Some(account_status)
+            );
+            assert_eq!(
+                step["provider_account_status"],
+                serde_json::to_value(account_status).expect("account status json")
+            );
+        }
     }
 
     #[test]
     fn onboarding_blocked_when_no_active_account() {
         let status = onboarding_status_from_account(None);
+        let step = serde_json::to_value(&status.steps[0]).expect("step json");
 
         assert!(!status.is_user_onboarded);
         assert_eq!(status.steps[0].id, "connect_provider_account");
@@ -178,5 +218,10 @@ mod tests {
             status.steps[0].auth_method,
             Some(ProviderAuthMethod::OauthDeviceCode)
         );
+        assert_eq!(
+            status.steps[0].provider_account_status,
+            Some(ProviderAccountStatus::Unknown)
+        );
+        assert_eq!(step["provider_account_status"], "unknown");
     }
 }

@@ -63,7 +63,6 @@ pub struct ProviderAuthAttemptView {
     /// Stable provider account id.
     pub provider_account_id: String,
     /// Provider account auth method.
-    #[ts(type = "\"oauth_device_code\" | \"secret_input\" | \"external_manual\" | \"none\"")]
     pub method: crate::ProviderAuthMethod,
     /// Current attempt status.
     pub status: ProviderAuthAttemptStatus,
