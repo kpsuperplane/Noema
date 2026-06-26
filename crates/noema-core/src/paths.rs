@@ -149,7 +149,7 @@ pub enum NoemaPathError {
 }
 
 fn sanitize_path_segment(value: &str) -> String {
-    value
+    let sanitized = value
         .chars()
         .map(|character| {
             if character.is_ascii_alphanumeric() || matches!(character, '-' | '_') {
@@ -158,7 +158,12 @@ fn sanitize_path_segment(value: &str) -> String {
                 '_'
             }
         })
-        .collect()
+        .collect::<String>();
+    if sanitized.is_empty() {
+        "_".to_string()
+    } else {
+        sanitized
+    }
 }
 
 #[cfg(test)]
@@ -225,6 +230,16 @@ mod tests {
         assert_eq!(
             paths.provider_account_home("co/dex", "../default"),
             PathBuf::from("/tmp/noema/providers/co_dex/___default")
+        );
+    }
+
+    #[test]
+    fn provider_account_home_does_not_drop_empty_segments() {
+        let paths = NoemaPaths::from_noema_home("/tmp/noema").expect("paths");
+
+        assert_eq!(
+            paths.provider_account_home("", ""),
+            PathBuf::from("/tmp/noema/providers/_/_")
         );
     }
 }
