@@ -5,19 +5,61 @@ use std::{
 
 use crate::{
     context_graph::{self, ContextGraphFilter, ContextGraphSummary, RelationshipSummary},
+    database::DatabaseConfig,
     memory::{MemoryRetrievalRequest, MemoryRetrievalResult, RelationshipStatus},
     paths::NoemaPaths,
     retrieval_policy_fingerprint, sqlite_memory_retrieval,
 };
 use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
+use sqlx::PgPool;
 
 use super::{
     error::MemoryPersistenceError,
     helpers::*,
     models::*,
     objects::{ObjectRef, validate_object_ref_for_conn},
+    postgres_schema::POSTGRES_SCHEMA_SQL,
     queries::{MEMORY_SUMMARY_BY_ID_SQL, RECENT_MEMORY_SQL},
 };
+
+/// Postgres-backed memory repository.
+#[derive(Debug, Clone)]
+pub struct PostgresMemoryRepository {
+    pool: PgPool,
+}
+
+impl PostgresMemoryRepository {
+    /// Connect to Postgres and bootstrap the memory schema.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MemoryPersistenceError`] when the database URL is invalid,
+    /// SQLx cannot connect, or schema bootstrap fails.
+    pub async fn connect(database_url: impl Into<String>) -> Result<Self, MemoryPersistenceError> {
+        let config = DatabaseConfig::new(database_url)?;
+        let pool = config.connect().await?;
+        Self::from_pool(pool).await
+    }
+
+    /// Bootstrap the memory schema on an existing Postgres pool.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MemoryPersistenceError`] when schema bootstrap fails.
+    pub async fn from_pool(pool: PgPool) -> Result<Self, MemoryPersistenceError> {
+        sqlx::raw_sql(POSTGRES_SCHEMA_SQL)
+            .execute(&pool)
+            .await
+            .map_err(MemoryPersistenceError::Database)?;
+        Ok(Self { pool })
+    }
+
+    /// Underlying Postgres pool.
+    #[must_use]
+    pub fn pool(&self) -> &PgPool {
+        &self.pool
+    }
+}
 
 /// SQLite-backed memory repository.
 #[derive(Debug)]

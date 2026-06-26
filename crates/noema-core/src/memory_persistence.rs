@@ -11,6 +11,9 @@ mod error;
 mod helpers;
 pub(crate) mod models;
 mod objects;
+mod postgres_schema;
+#[cfg(test)]
+mod postgres_tests;
 mod provenance;
 mod queries;
 mod repository;
@@ -30,4 +33,4 @@ pub use models::{
 };
 pub use objects::{ObjectRef, ObjectType};
 pub use provenance::{DeleteConversationItem, NewObjectProvenanceEdge};
-pub use repository::SqliteMemoryRepository;
+pub use repository::{PostgresMemoryRepository, SqliteMemoryRepository};

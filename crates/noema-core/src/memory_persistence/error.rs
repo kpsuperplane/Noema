@@ -1,6 +1,9 @@
 use std::path::PathBuf;
 
-use crate::memory::{MemoryId, MemoryStoreError};
+use crate::{
+    database::DatabaseConfigError,
+    memory::{MemoryId, MemoryStoreError},
+};
 use thiserror::Error;
 
 /// Errors produced by SQLite memory persistence.
@@ -113,4 +116,12 @@ pub enum MemoryPersistenceError {
     /// SQLite operation failed.
     #[error("SQLite memory persistence failed: {0}")]
     Sqlite(#[from] rusqlite::Error),
+
+    /// Database configuration failed.
+    #[error("memory database configuration failed: {0}")]
+    DatabaseConfig(#[from] DatabaseConfigError),
+
+    /// Database operation failed.
+    #[error("memory database operation failed: {0}")]
+    Database(#[from] sqlx::Error),
 }
