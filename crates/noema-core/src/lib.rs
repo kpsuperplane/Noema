@@ -63,7 +63,7 @@ pub use memory_persistence::{
     DeleteConversationItem, MemoryAuthorityLevel, MemoryExtractionMethod, MemoryPersistenceError,
     MemorySummary, MemoryType, NewMemoryCandidate, NewMemoryParticipant, NewMemorySubject,
     NewObjectProvenanceEdge, ObjectProvenanceSource, ObjectRef, ObjectType,
-    PostgresMemoryRepository,
+    PostgresMemoryRepository, ProviderAccountRecord, ProviderAccountStatus, ProviderAuthMethod,
 };
 pub use paths::{NOEMA_HOME_ENV, NoemaPathError, NoemaPaths};
 pub use provider::{

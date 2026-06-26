@@ -72,6 +72,7 @@ async fn bootstrap_creates_core_tables() {
             "object_events",
             "object_links",
             "object_provenance_edges",
+            "provider_accounts",
             "relationships",
             "schema_migrations",
             "tools",
@@ -101,6 +102,132 @@ async fn bootstrap_creates_core_tables() {
     .await
     .expect("check bootstrap migration row");
     assert_eq!(migration_name.as_deref(), Some("postgres_bootstrap_v0"));
+}
+
+#[tokio::test]
+async fn postgres_bootstrap_creates_provider_accounts_table() {
+    let Some(repo) = test_repo().await else {
+        return;
+    };
+
+    let columns = sqlx::query_scalar::<_, String>(
+        r#"
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'provider_accounts'
+        ORDER BY ordinal_position
+        "#,
+    )
+    .fetch_all(repo.pool())
+    .await
+    .expect("provider account columns");
+
+    assert_eq!(
+        columns,
+        [
+            "provider_account_id",
+            "provider_kind",
+            "account_key",
+            "display_name",
+            "auth_method",
+            "is_active",
+            "is_default",
+            "status",
+            "last_checked_at",
+            "last_authenticated_at",
+            "last_error_code",
+            "last_error_message",
+            "metadata",
+            "created_at",
+            "updated_at",
+            "deleted_at",
+        ]
+    );
+
+    assert_index_exists(
+        repo.pool(),
+        "provider_accounts",
+        "idx_provider_accounts_active_default",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn ensure_default_provider_account_creates_codex_default() {
+    let Some(repo) = test_repo().await else {
+        return;
+    };
+
+    let account = repo
+        .ensure_default_provider_account()
+        .await
+        .expect("default provider account");
+
+    assert_eq!(
+        account.provider_account_id,
+        "provider_account:codex:default"
+    );
+    assert_eq!(account.provider_kind, "codex");
+    assert_eq!(account.account_key, "default");
+    assert_eq!(account.display_name, "Codex");
+    assert_eq!(
+        account.auth_method,
+        crate::ProviderAuthMethod::OauthDeviceCode
+    );
+    assert!(account.is_active);
+    assert!(account.is_default);
+    assert_eq!(account.status, crate::ProviderAccountStatus::Unknown);
+}
+
+#[tokio::test]
+async fn active_provider_account_returns_default_account() {
+    let Some(repo) = test_repo().await else {
+        return;
+    };
+    repo.ensure_default_provider_account()
+        .await
+        .expect("default provider account");
+
+    let account = repo
+        .active_provider_account()
+        .await
+        .expect("active provider account")
+        .expect("account exists");
+
+    assert_eq!(account.provider_kind, "codex");
+    assert_eq!(account.account_key, "default");
+}
+
+#[tokio::test]
+async fn update_provider_account_status_records_auth_metadata() {
+    let Some(repo) = test_repo().await else {
+        return;
+    };
+    let account = repo
+        .ensure_default_provider_account()
+        .await
+        .expect("default provider account");
+
+    repo.update_provider_account_status(
+        account.provider_account_id.as_str(),
+        crate::ProviderAccountStatus::Authenticated,
+        None,
+        None,
+    )
+    .await
+    .expect("status update");
+
+    let stored = repo
+        .active_provider_account()
+        .await
+        .expect("active provider account")
+        .expect("account exists");
+    assert_eq!(stored.status, crate::ProviderAccountStatus::Authenticated);
+    assert!(stored.last_checked_at.is_some());
+    assert!(stored.last_authenticated_at.is_some());
+    assert_eq!(stored.last_error_code, None);
+    assert_eq!(stored.last_error_message, None);
 }
 
 #[tokio::test]

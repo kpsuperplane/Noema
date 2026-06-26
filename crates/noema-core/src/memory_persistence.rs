@@ -15,6 +15,7 @@ mod postgres_schema;
 #[cfg(test)]
 mod postgres_tests;
 mod provenance;
+mod provider_accounts;
 mod queries;
 mod repository;
 
@@ -30,4 +31,5 @@ pub use models::{
 };
 pub use objects::{ObjectRef, ObjectType};
 pub use provenance::{DeleteConversationItem, NewObjectProvenanceEdge};
+pub use provider_accounts::{ProviderAccountRecord, ProviderAccountStatus, ProviderAuthMethod};
 pub use repository::PostgresMemoryRepository;

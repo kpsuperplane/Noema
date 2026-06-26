@@ -41,6 +41,28 @@ CREATE TABLE IF NOT EXISTS tools (
   metadata JSONB NOT NULL DEFAULT '{}'::jsonb
 );
 
+CREATE TABLE IF NOT EXISTS provider_accounts (
+  provider_account_id TEXT PRIMARY KEY,
+  provider_kind TEXT NOT NULL,
+  account_key TEXT NOT NULL,
+  display_name TEXT NOT NULL,
+  auth_method TEXT NOT NULL
+    CHECK (auth_method IN ('oauth_device_code','secret_input','external_manual','none')),
+  is_active BOOLEAN NOT NULL DEFAULT true,
+  is_default BOOLEAN NOT NULL DEFAULT false,
+  status TEXT NOT NULL DEFAULT 'unknown'
+    CHECK (status IN ('unknown','checking','authenticated','unauthenticated','unavailable')),
+  last_checked_at TIMESTAMPTZ,
+  last_authenticated_at TIMESTAMPTZ,
+  last_error_code TEXT,
+  last_error_message TEXT,
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  deleted_at TIMESTAMPTZ,
+  UNIQUE (provider_kind, account_key)
+);
+
 CREATE TABLE IF NOT EXISTS conversations (
   conversation_id TEXT PRIMARY KEY,
   title TEXT,
@@ -443,6 +465,9 @@ CREATE TABLE IF NOT EXISTS memory_use_records (
 CREATE INDEX IF NOT EXISTS idx_humans_handle ON humans(handle);
 CREATE INDEX IF NOT EXISTS idx_agents_handle ON agents(handle);
 CREATE INDEX IF NOT EXISTS idx_tools_kind ON tools(tool_kind, is_enabled);
+CREATE INDEX IF NOT EXISTS idx_provider_accounts_active_default
+  ON provider_accounts(provider_kind, is_active, is_default)
+  WHERE deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_conversations_owner ON conversations(owner_object_type, owner_object_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_conversations_primary_human ON conversations(primary_human_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_conversations_primary_agent ON conversations(primary_agent_id, created_at DESC);

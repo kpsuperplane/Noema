@@ -59,6 +59,13 @@ pub enum MemoryPersistenceError {
         memory_id: MemoryId,
     },
 
+    /// A provider account expected to exist was not found.
+    #[error("provider account not found: {provider_account_id}")]
+    ProviderAccountNotFound {
+        /// Missing provider account id.
+        provider_account_id: String,
+    },
+
     /// Stored memory graph rows violated retrieval policy invariants.
     #[error(transparent)]
     MemoryStore(#[from] MemoryStoreError),
