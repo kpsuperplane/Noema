@@ -1,11 +1,13 @@
 use std::{env, ops::Deref};
 
 use super::{
-    ConversationItemKind, ConversationItemStatus, NewConversation, NewConversationItem,
-    NewConversationTurn, ObjectRef, PostgresMemoryRepository, ReplayMode,
+    ConversationItemKind, ConversationItemStatus, MemoryType, NewConversation, NewConversationItem,
+    NewConversationTurn, NewMemoryCandidate, NewMemoryParticipant, NewMemorySubject,
+    NewObjectProvenanceEdge, ObjectRef, ObjectType, PostgresMemoryRepository, ReplayMode,
     postgres_schema::POSTGRES_SCHEMA_SQL,
     repository::{POSTGRES_BOOTSTRAP_MIGRATION_NAME, POSTGRES_BOOTSTRAP_MIGRATION_VERSION},
 };
+use crate::memory::{MemoryStatus, ParticipantRole, Sensitivity, SubjectRole};
 
 const TEST_DATABASE_URL_ENV: &str = "NOEMA_TEST_DATABASE_URL";
 static POSTGRES_TEST_SCHEMA_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
@@ -138,6 +140,160 @@ async fn conversation_items_replay_in_created_order() {
         .expect("items");
     assert_eq!(items.len(), 1);
     assert_eq!(items[0].content_text.as_deref(), Some("hello"));
+}
+
+#[tokio::test]
+async fn append_memory_candidate_records_source_conversation_and_edges() {
+    let Some(repo) = test_repo().await else {
+        return;
+    };
+    repo.ensure_default_actors().await.expect("actors");
+
+    let conversation = repo
+        .create_conversation(NewConversation::local_chat(
+            Some("test-model".to_string()),
+            Some("/tmp/noema".to_string()),
+        ))
+        .await
+        .expect("conversation");
+    let turn = repo
+        .create_conversation_turn(NewConversationTurn {
+            conversation_id: conversation.conversation_id.clone(),
+            trigger_item_id: None,
+            metadata: serde_json::json!({}),
+        })
+        .await
+        .expect("turn");
+    let source_item = repo
+        .append_conversation_item(NewConversationItem {
+            conversation_id: conversation.conversation_id.clone(),
+            turn_id: Some(turn.turn_id.clone()),
+            parent_item_id: None,
+            kind: ConversationItemKind::UserText,
+            status: ConversationItemStatus::Completed,
+            author: ObjectRef::human("human:local"),
+            content_text: Some(
+                "Remember that Noema Postgres memory writes need provenance.".to_string(),
+            ),
+            payload_json: serde_json::json!({}),
+            metadata: serde_json::json!({}),
+        })
+        .await
+        .expect("source item");
+
+    let mut subject =
+        NewMemorySubject::new("human:local", "human", "Local Human", SubjectRole::About);
+    subject.linked_object = Some(ObjectRef::human("human:local"));
+    subject.aliases = vec!["Local".to_string()];
+    subject.metadata = serde_json::json!({"source": "postgres_test"});
+
+    let mut candidate = NewMemoryCandidate::confirmed_note(
+        ObjectRef::new(
+            ObjectType::Conversation,
+            conversation.conversation_id.as_str(),
+        )
+        .expect("conversation object ref"),
+        "Noema Postgres memory writes need provenance.",
+        ObjectRef::agent("agent:primary"),
+        ObjectRef::conversation_item(source_item.item_id.as_str()),
+    );
+    candidate.participants = vec![NewMemoryParticipant::new(
+        ObjectRef::human("human:local"),
+        ParticipantRole::Originator,
+    )];
+    candidate.subjects = vec![subject];
+
+    let summary = repo
+        .append_memory_candidate(candidate)
+        .await
+        .expect("memory candidate");
+
+    assert!(summary.id.starts_with("mem_"));
+    assert_eq!(summary.status, MemoryStatus::Confirmed);
+    assert_eq!(summary.memory_type, MemoryType::Note);
+    assert_eq!(summary.owner_object_type, "conversation");
+    assert_eq!(summary.owner_object_id, conversation.conversation_id);
+    assert_eq!(
+        summary.home_scope_id,
+        format!("conversation:{}", summary.owner_object_id)
+    );
+    assert_eq!(summary.sensitivity, Sensitivity::Normal);
+    assert_eq!(
+        summary.title,
+        "Noema Postgres memory writes need provenance."
+    );
+    assert_eq!(
+        summary.content,
+        "Noema Postgres memory writes need provenance."
+    );
+    assert_eq!(
+        summary.source_object_type.as_deref(),
+        Some("conversation_item")
+    );
+    assert_eq!(
+        summary.source_object_id.as_deref(),
+        Some(source_item.item_id.as_str())
+    );
+    assert_eq!(summary.source_type, summary.source_object_type);
+    assert_eq!(summary.source_id, summary.source_object_id);
+    assert_eq!(
+        summary.conversation_id.as_deref(),
+        Some(summary.owner_object_id.as_str())
+    );
+    assert!(!summary.created_at.is_empty());
+
+    let edge_count = sqlx::query_scalar::<_, i64>(
+        r"
+        SELECT COUNT(*)
+        FROM object_provenance_edges
+        WHERE target_object_type = 'memory_item'
+          AND target_object_id = $1
+          AND source_object_type = 'conversation_item'
+          AND source_object_id = $2
+          AND relation = 'derived_from'
+        ",
+    )
+    .bind(summary.id.as_str())
+    .bind(source_item.item_id.as_str())
+    .fetch_one(repo.pool())
+    .await
+    .expect("source edge count");
+    assert_eq!(edge_count, 1);
+
+    let participant_count = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM memory_participants WHERE memory_id = $1",
+    )
+    .bind(summary.id.as_str())
+    .fetch_one(repo.pool())
+    .await
+    .expect("participant count");
+    assert_eq!(participant_count, 1);
+
+    let subject_count =
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM memory_subjects WHERE memory_id = $1")
+            .bind(summary.id.as_str())
+            .fetch_one(repo.pool())
+            .await
+            .expect("subject count");
+    assert_eq!(subject_count, 1);
+
+    let extra_edge_id = repo
+        .add_object_provenance_edge(NewObjectProvenanceEdge {
+            target: ObjectRef::new(ObjectType::MemoryItem, summary.id.as_str())
+                .expect("memory object ref"),
+            source: ObjectRef::new(
+                ObjectType::Conversation,
+                source_item.conversation_id.as_str(),
+            )
+            .expect("conversation object ref"),
+            relation: "supports".to_string(),
+            evidence_excerpt: Some("The conversation contains the source item.".to_string()),
+            created_by: ObjectRef::agent("agent:primary"),
+            metadata: serde_json::json!({"kind": "test_support"}),
+        })
+        .await
+        .expect("extra provenance edge");
+    assert!(extra_edge_id.starts_with("edge_"));
 }
 
 async fn assert_index_exists(pool: &sqlx::PgPool, table_name: &str, index_name: &str) {
