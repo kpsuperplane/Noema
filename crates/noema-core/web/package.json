@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "gen:types": "cargo run --manifest-path ../Cargo.toml --bin export_frontend_types",
+    "dev": "bun run gen:types && vite build --watch",
     "build": "bun run gen:types && vite build",
     "lint": "bun run gen:types && tsc --noEmit && eslint src --max-warnings=0"
   },

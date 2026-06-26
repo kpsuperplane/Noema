@@ -165,8 +165,33 @@ compatibility becomes a product requirement.
 
 ## Development
 
+Copy the default environment file once:
+
 ```bash
-cargo fmt --check
+cp .env.example .env
+```
+
+Start the local development stack:
+
+```bash
+docker compose up
+```
+
+The web chat is available at <http://localhost:3737/>. Postgres is available at
+`postgres://noema:noema@localhost:5432/noema`, with physical database files
+stored under `${NOEMA_HOME:-$HOME/.noema}/db/postgres`.
+
+Create the test database before running database-backed repository tests:
+
+```bash
+docker compose exec postgres createdb -U noema noema_test
+NOEMA_TEST_DATABASE_URL=postgres://noema:noema@localhost:5432/noema_test cargo test -p noema-core memory_persistence::postgres_tests -- --nocapture
+```
+
+General Rust validation:
+
+```bash
+cargo fmt --all --check
 cargo check --workspace
 cargo test --workspace
 ```
@@ -176,16 +201,19 @@ Frontend assets are built with Bun and embedded into `noema-core`:
 ```bash
 cd crates/noema-core/web
 bun install
+bun run dev
 bun run gen:types
 bun run lint
 bun run build
 ```
 
-`bun run lint` and `bun run build` regenerate the Rust-owned web protocol
-types before running TypeScript or Vite.
+`bun run dev`, `bun run lint`, and `bun run build` regenerate the Rust-owned
+web protocol types before running TypeScript or Vite. `bun run dev` keeps Vite
+in build-watch mode and writes updated assets into `noema-core`.
 
 For daemon development, install `cargo-watch` and use the repo alias to restart
-the foreground daemon whenever Rust sources or Cargo manifests change:
+the foreground daemon whenever Rust sources, Cargo manifests, or generated web
+assets change. The alias also starts the core web `bun run dev` asset watcher:
 
 ```bash
 cargo install cargo-watch --locked

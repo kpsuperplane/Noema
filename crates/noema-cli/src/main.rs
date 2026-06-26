@@ -1,6 +1,7 @@
 //! Noema command-line entrypoint.
 
 use clap::{Parser, Subcommand};
+use dev::{DevDaemonOptions, run_dev_daemon};
 use inspection::{ContextCommand, MemoryCommand, run_context, run_memory};
 use noema_cli::collect_prompt;
 use noema_core::{
@@ -24,6 +25,7 @@ use tokio::{
     time,
 };
 
+mod dev;
 mod inspection;
 
 #[derive(Debug, Parser)]
@@ -63,6 +65,8 @@ enum CommandKind {
         #[arg(value_name = "PROMPT", trailing_var_arg = true)]
         prompt: Vec<String>,
     },
+    #[command(about = "Run Rust daemon and core web asset watchers together.")]
+    DevDaemon,
     #[command(about = "Inspect local owner/admin memory state.")]
     Memory {
         #[command(subcommand)]
@@ -115,6 +119,9 @@ enum CliError {
 
     #[error("failed to start temporary daemon: {0}")]
     SpawnDaemon(io::Error),
+
+    #[error(transparent)]
+    DevDaemon(#[from] dev::DevDaemonError),
 }
 
 #[tokio::main]
@@ -132,9 +139,21 @@ async fn run() -> Result<(), CliError> {
         Some(CommandKind::Start) => run_start(&args).await,
         Some(CommandKind::Config { force }) => run_config(&args, *force),
         Some(CommandKind::Chat { prompt }) => run_chat(&args, prompt).await,
+        Some(CommandKind::DevDaemon) => run_dev_daemon(dev_daemon_options(&args))
+            .await
+            .map_err(Into::into),
         Some(CommandKind::Memory { command }) => run_memory(command, args.config.clone()).await,
         Some(CommandKind::Context { command }) => run_context(command, args.config.clone()).await,
         None => run_one_shot(args).await,
+    }
+}
+
+fn dev_daemon_options(args: &Args) -> DevDaemonOptions {
+    DevDaemonOptions {
+        provider: args.provider.clone(),
+        model: args.model.clone(),
+        base_url: args.base_url.clone(),
+        config: args.config.clone(),
     }
 }
 
@@ -569,6 +588,13 @@ mod tests {
             panic!("expected chat command");
         };
         assert_eq!(prompt, ["hello", "there"]);
+    }
+
+    #[test]
+    fn parses_dev_daemon_subcommand() {
+        let args = Args::try_parse_from(["noema", "dev-daemon"]).expect("args");
+
+        assert!(matches!(args.command, Some(CommandKind::DevDaemon)));
     }
 
     #[test]
