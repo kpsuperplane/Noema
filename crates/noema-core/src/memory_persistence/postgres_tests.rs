@@ -152,6 +152,12 @@ async fn postgres_bootstrap_creates_provider_accounts_table() {
         "idx_provider_accounts_active_default",
     )
     .await;
+    assert_index_exists(
+        repo.pool(),
+        "provider_accounts",
+        "idx_provider_accounts_one_active_default_per_provider",
+    )
+    .await;
 }
 
 #[tokio::test]
@@ -174,7 +180,7 @@ async fn postgres_bootstrap_rejects_invalid_provider_account_enums() {
     )
     .execute(repo.pool())
     .await;
-    assert!(invalid_auth.is_err());
+    assert_sqlstate(invalid_auth, "23514");
 
     let invalid_status = sqlx::query(
         r#"
@@ -190,7 +196,47 @@ async fn postgres_bootstrap_rejects_invalid_provider_account_enums() {
     )
     .execute(repo.pool())
     .await;
-    assert!(invalid_status.is_err());
+    assert_sqlstate(invalid_status, "23514");
+}
+
+#[tokio::test]
+async fn provider_accounts_rejects_second_active_default_for_provider() {
+    let Some(repo) = test_repo().await else {
+        return;
+    };
+
+    sqlx::query(
+        r#"
+        INSERT INTO provider_accounts (
+          provider_account_id, provider_kind, account_key, display_name,
+          auth_method, is_active, is_default, status
+        )
+        VALUES (
+          'provider_account:codex:default', 'codex', 'default', 'Codex',
+          'oauth_device_code', true, true, 'unknown'
+        )
+        "#,
+    )
+    .execute(repo.pool())
+    .await
+    .expect("first active default");
+
+    let duplicate = sqlx::query(
+        r#"
+        INSERT INTO provider_accounts (
+          provider_account_id, provider_kind, account_key, display_name,
+          auth_method, is_active, is_default, status
+        )
+        VALUES (
+          'provider_account:codex:secondary', 'codex', 'secondary', 'Codex Secondary',
+          'oauth_device_code', true, true, 'unknown'
+        )
+        "#,
+    )
+    .execute(repo.pool())
+    .await;
+
+    assert_sqlstate(duplicate, "23505");
 }
 
 #[tokio::test]
@@ -1360,6 +1406,17 @@ async fn assert_index_exists(pool: &sqlx::PgPool, table_name: &str, index_name: 
     .await
     .expect("check index exists");
     assert!(has_index, "missing index {index_name} on {table_name}");
+}
+
+fn assert_sqlstate(
+    result: Result<sqlx::postgres::PgQueryResult, sqlx::Error>,
+    expected_sqlstate: &str,
+) {
+    let Err(error) = result else {
+        panic!("expected database error with SQLSTATE {expected_sqlstate}");
+    };
+    let database_error = error.as_database_error().expect("expected database error");
+    assert_eq!(database_error.code().as_deref(), Some(expected_sqlstate));
 }
 
 async fn assert_memory_search_vector_column_exists(pool: &sqlx::PgPool) {

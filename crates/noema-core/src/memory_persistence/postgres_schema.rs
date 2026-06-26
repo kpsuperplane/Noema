@@ -468,6 +468,9 @@ CREATE INDEX IF NOT EXISTS idx_tools_kind ON tools(tool_kind, is_enabled);
 CREATE INDEX IF NOT EXISTS idx_provider_accounts_active_default
   ON provider_accounts(provider_kind, is_active, is_default)
   WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_accounts_one_active_default_per_provider
+  ON provider_accounts(provider_kind)
+  WHERE is_active = true AND is_default = true AND deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_conversations_owner ON conversations(owner_object_type, owner_object_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_conversations_primary_human ON conversations(primary_human_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_conversations_primary_agent ON conversations(primary_agent_id, created_at DESC);
