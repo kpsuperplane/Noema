@@ -181,6 +181,16 @@ pub struct WebConversationItem {
     item: TurnTranscriptItem,
 }
 
+impl WebConversationItem {
+    pub(crate) fn new(item_id: String, turn_id: Option<String>, item: TurnTranscriptItem) -> Self {
+        Self {
+            item_id,
+            turn_id,
+            item,
+        }
+    }
+}
+
 impl WebServerMessage {
     pub(crate) fn conversation_started(started: StartedConversation) -> Self {
         Self::ConversationStarted {

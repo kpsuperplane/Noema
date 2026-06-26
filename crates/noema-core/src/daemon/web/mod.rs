@@ -1,10 +1,14 @@
 //! Local web UI server for the Noema daemon.
 
-use std::{collections::HashMap, path::PathBuf};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+};
 
 use base64::{Engine as _, engine::general_purpose};
 use ring::digest::{SHA1_FOR_LEGACY_USE_ONLY, digest};
-use serde::Serialize;
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use serde_json::Value;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
@@ -12,8 +16,13 @@ use tokio::{
 };
 
 use crate::{
-    WebConfig,
-    frontend_protocol::{WebClientMessage, WebMemoryStorageStatus, WebServerMessage, WebStatus},
+    StartedConversation, TurnActivityStatus, TurnTranscriptItem, WebConfig,
+    frontend_protocol::{
+        WebClientMessage, WebConversationItem, WebMemoryStorageStatus, WebServerMessage, WebStatus,
+    },
+    memory_persistence::{
+        ConversationItemKind, ConversationItemRecord, ReplayMode, SqliteMemoryRepository,
+    },
 };
 
 use super::{
@@ -284,7 +293,13 @@ async fn handle_websocket_message(
         WebClientMessage::Start { model, cwd } => {
             match state.runtime.start_conversation(model, cwd).await {
                 Ok(started) => {
-                    send_ws_json(stream, &WebServerMessage::conversation_started(started)).await?;
+                    let replay_records = visible_conversation_replay(
+                        &state.database_path,
+                        &started.conversation_id,
+                    )?;
+                    for message in conversation_start_messages(started, replay_records)? {
+                        send_ws_json(stream, &message).await?;
+                    }
                 }
                 Err(error) => send_ws_error(stream, error.to_string()).await?,
             }
@@ -371,6 +386,152 @@ async fn send_web_turn_event(
         },
     };
     send_ws_json(stream, &message).await
+}
+
+fn visible_conversation_replay(
+    database_path: &Path,
+    conversation_id: &str,
+) -> Result<Vec<ConversationItemRecord>, DaemonError> {
+    let repo = SqliteMemoryRepository::open_at(database_path.to_path_buf())?;
+    Ok(repo.list_conversation_items(conversation_id, ReplayMode::Visible)?)
+}
+
+fn conversation_start_messages(
+    started: StartedConversation,
+    replay_records: Vec<ConversationItemRecord>,
+) -> Result<Vec<WebServerMessage>, DaemonError> {
+    let conversation_id = started.conversation_id.clone();
+    Ok(vec![
+        WebServerMessage::conversation_started(started),
+        conversation_replay_message(conversation_id, replay_records)?,
+    ])
+}
+
+fn conversation_replay_message(
+    conversation_id: String,
+    replay_records: Vec<ConversationItemRecord>,
+) -> Result<WebServerMessage, DaemonError> {
+    let mut items = Vec::new();
+    for record in replay_records {
+        if let Some(item) = web_conversation_item_from_record(record)? {
+            items.push(item);
+        }
+    }
+    Ok(WebServerMessage::ConversationReplay {
+        conversation_id,
+        items,
+    })
+}
+
+fn web_conversation_item_from_record(
+    record: ConversationItemRecord,
+) -> Result<Option<WebConversationItem>, DaemonError> {
+    let Some(item) = turn_transcript_item_from_record(&record)? else {
+        return Ok(None);
+    };
+    Ok(Some(WebConversationItem::new(
+        record.item_id,
+        record.turn_id,
+        item,
+    )))
+}
+
+fn turn_transcript_item_from_record(
+    record: &ConversationItemRecord,
+) -> Result<Option<TurnTranscriptItem>, DaemonError> {
+    match record.kind {
+        ConversationItemKind::UserText => Ok(Some(TurnTranscriptItem::UserText {
+            text: required_content_text(record)?,
+        })),
+        ConversationItemKind::AssistantText => Ok(Some(TurnTranscriptItem::AssistantText {
+            text: required_content_text(record)?,
+        })),
+        ConversationItemKind::Activity => {
+            let payload: ReplayActivityPayload = replay_payload(record)?;
+            Ok(Some(TurnTranscriptItem::Activity {
+                id: payload.id,
+                activity_kind: payload.activity_kind,
+                status: payload.status,
+                title: payload.title,
+                summary: payload.summary,
+                metadata: payload.metadata,
+            }))
+        }
+        ConversationItemKind::A2uiCard => {
+            let payload: ReplayA2uiCardPayload = replay_payload(record)?;
+            Ok(Some(TurnTranscriptItem::A2uiCard {
+                id: payload.id,
+                schema: payload.schema,
+                payload: payload.payload,
+            }))
+        }
+        ConversationItemKind::ErrorNotice => {
+            let payload: ReplayErrorNoticePayload = replay_payload(record)?;
+            Ok(Some(TurnTranscriptItem::ErrorNotice {
+                message: payload
+                    .message
+                    .or_else(|| record.content_text.clone())
+                    .ok_or_else(|| missing_replay_field(record, "message"))?,
+                recoverable: payload.recoverable,
+            }))
+        }
+        ConversationItemKind::ToolCall
+        | ConversationItemKind::ToolResult
+        | ConversationItemKind::ApprovalRequest
+        | ConversationItemKind::ApprovalResult => Ok(None),
+    }
+}
+
+fn replay_payload<T: DeserializeOwned>(record: &ConversationItemRecord) -> Result<T, DaemonError> {
+    serde_json::from_value(record.payload_json.clone()).map_err(|source| {
+        DaemonError::Protocol(format!(
+            "invalid replay payload for {} {}: {source}",
+            record.kind.as_str(),
+            record.item_id
+        ))
+    })
+}
+
+fn required_content_text(record: &ConversationItemRecord) -> Result<String, DaemonError> {
+    record
+        .content_text
+        .clone()
+        .ok_or_else(|| missing_replay_field(record, "content_text"))
+}
+
+fn missing_replay_field(record: &ConversationItemRecord, field: &str) -> DaemonError {
+    DaemonError::Protocol(format!(
+        "missing replay field {field} for {} {}",
+        record.kind.as_str(),
+        record.item_id
+    ))
+}
+
+#[derive(Debug, Deserialize)]
+struct ReplayActivityPayload {
+    id: String,
+    activity_kind: String,
+    status: TurnActivityStatus,
+    title: String,
+    #[serde(default)]
+    summary: Option<String>,
+    #[serde(default)]
+    metadata: Value,
+}
+
+#[derive(Debug, Deserialize)]
+struct ReplayA2uiCardPayload {
+    id: String,
+    schema: String,
+    payload: Value,
+}
+
+#[derive(Debug, Deserialize)]
+struct ReplayErrorNoticePayload {
+    #[serde(default)]
+    message: Option<String>,
+    #[serde(default)]
+    recoverable: bool,
 }
 
 async fn send_ws_error(stream: &mut TcpStream, message: String) -> Result<(), DaemonError> {
@@ -518,6 +679,12 @@ fn web_status_from_state(state: &WebState) -> WebStatus {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{
+        StartedConversation,
+        memory_persistence::{
+            ConversationItemKind, ConversationItemRecord, ConversationItemStatus,
+        },
+    };
     use serde_json::json;
 
     #[test]
@@ -548,5 +715,50 @@ mod tests {
                 && input == "hello"
                 && client_message == "client_1"
         ));
+    }
+
+    #[test]
+    fn conversation_start_messages_include_replay_after_started() {
+        let messages = conversation_start_messages(
+            StartedConversation {
+                conversation_id: "conversation_1".to_string(),
+                provider_thread_id: "thread_1".to_string(),
+            },
+            vec![ConversationItemRecord {
+                item_id: "item_1".to_string(),
+                conversation_id: "conversation_1".to_string(),
+                turn_id: Some("turn_1".to_string()),
+                kind: ConversationItemKind::AssistantText,
+                status: ConversationItemStatus::Completed,
+                content_text: Some("hello from replay".to_string()),
+                payload_json: json!({}),
+            }],
+        )
+        .expect("start messages");
+
+        assert!(matches!(
+            messages.as_slice(),
+            [
+                WebServerMessage::ConversationStarted {
+                    conversation_id,
+                    provider,
+                    provider_thread_id,
+                },
+                WebServerMessage::ConversationReplay {
+                    conversation_id: replay_conversation_id,
+                    ..
+                },
+            ] if conversation_id == "conversation_1"
+                && provider == "codex"
+                && provider_thread_id == "thread_1"
+                && replay_conversation_id == "conversation_1"
+        ));
+
+        let encoded = serde_json::to_value(&messages[1]).expect("serialize replay");
+        assert_eq!(encoded["type"], "conversation_replay");
+        assert_eq!(encoded["items"][0]["item_id"], "item_1");
+        assert_eq!(encoded["items"][0]["turn_id"], "turn_1");
+        assert_eq!(encoded["items"][0]["item"]["kind"], "assistant_text");
+        assert_eq!(encoded["items"][0]["item"]["text"], "hello from replay");
     }
 }
