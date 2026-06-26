@@ -15,11 +15,13 @@ use tokio::{
 use crate::{
     StartedConversation, TurnActivityStatus, TurnTranscriptItem, WebConfig,
     frontend_protocol::{
-        WebClientMessage, WebConversationItem, WebMemoryStorageStatus, WebServerMessage, WebStatus,
+        StartProviderAuthAttemptRequest, WebClientMessage, WebConversationItem,
+        WebMemoryStorageStatus, WebServerMessage, WebStatus,
     },
     memory_persistence::{
         ConversationItemKind, ConversationItemRecord, PostgresMemoryRepository, ReplayMode,
     },
+    provider_auth::{CodexDeviceAuthRequest, ProviderAuthManager},
 };
 
 use super::{
@@ -37,10 +39,13 @@ const STYLES_CSS: &str = include_str!("assets/styles.css");
 const NOEMA_MARK_SVG: &str = include_str!("assets/noema-mark.svg");
 
 /// State shared by local web UI connections.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub(super) struct WebState {
     runtime: CodexRuntimeHandle,
     memory_repository: PostgresMemoryRepository,
+    provider_auth: ProviderAuthManager,
+    paths: crate::NoemaPaths,
+    codex_command: String,
 }
 
 impl WebState {
@@ -49,10 +54,16 @@ impl WebState {
     pub(super) fn new(
         runtime: CodexRuntimeHandle,
         memory_repository: PostgresMemoryRepository,
+        provider_auth: ProviderAuthManager,
+        paths: crate::NoemaPaths,
+        codex_command: String,
     ) -> Self {
         Self {
             runtime,
             memory_repository,
+            provider_auth,
+            paths,
+            codex_command,
         }
     }
 }
@@ -83,15 +94,47 @@ pub(super) async fn handle_connection(
 
     if request.method == "GET" && request.path == "/api/status" {
         let status = web_status_from_state(&state);
-        let body = serde_json::to_vec(&status)
-            .map_err(|source| DaemonError::Protocol(source.to_string()))?;
-        write_response(
-            &mut stream,
-            "200 OK",
-            "application/json; charset=utf-8",
-            &body,
-        )
-        .await?;
+        write_json(&mut stream, "200 OK", &status).await?;
+        return Ok(());
+    }
+
+    if request.method == "GET" && request.path == "/api/onboarding/status" {
+        let account = state
+            .memory_repository
+            .active_provider_account("codex")
+            .await?;
+        let status = crate::onboarding_status_from_account(account);
+        write_json(&mut stream, "200 OK", &status).await?;
+        return Ok(());
+    }
+
+    if request.method == "GET" && request.path == "/api/provider-accounts" {
+        let accounts = state
+            .memory_repository
+            .active_provider_account("codex")
+            .await?
+            .into_iter()
+            .collect::<Vec<_>>();
+        write_json(&mut stream, "200 OK", &accounts).await?;
+        return Ok(());
+    }
+
+    if request.method == "POST" && request.path == "/api/provider-auth/attempts" {
+        start_provider_auth_attempt(&mut stream, &state, &request).await?;
+        return Ok(());
+    }
+
+    if request.method == "GET"
+        && let Some(attempt_id) = provider_auth_attempt_id(&request.path)
+    {
+        poll_provider_auth_attempt(&mut stream, &state, attempt_id).await?;
+        return Ok(());
+    }
+
+    if request.method == "POST"
+        && let Some(attempt_id) = provider_auth_attempt_cancel_id(&request.path)
+    {
+        cancel_provider_auth_attempt(&mut stream, &state, attempt_id).await?;
         return Ok(());
     }
 
@@ -117,6 +160,7 @@ struct HttpRequest {
     method: String,
     path: String,
     headers: HashMap<String, String>,
+    body: Vec<u8>,
 }
 
 impl HttpRequest {
@@ -142,12 +186,14 @@ impl HttpRequest {
             }
         }
 
-        let text = std::str::from_utf8(&bytes)
+        let header_end = bytes
+            .windows(4)
+            .position(|window| window == b"\r\n\r\n")
+            .ok_or_else(|| DaemonError::Protocol("missing web request headers".to_string()))?;
+        let body_start = header_end + 4;
+        let text = std::str::from_utf8(&bytes[..header_end])
             .map_err(|source| DaemonError::Protocol(source.to_string()))?;
-        let header_text = text
-            .split_once("\r\n\r\n")
-            .map_or(text, |(headers, _body)| headers);
-        let mut lines = header_text.lines();
+        let mut lines = text.lines();
         let request_line = lines
             .next()
             .ok_or_else(|| DaemonError::Protocol("missing web request line".to_string()))?;
@@ -167,10 +213,24 @@ impl HttpRequest {
             headers.insert(name.trim().to_ascii_lowercase(), value.trim().to_string());
         }
 
+        let content_length = content_length(&headers)?;
+        let mut body = bytes[body_start..].to_vec();
+        while body.len() < content_length {
+            let read = stream.read(&mut buffer).await?;
+            if read == 0 {
+                return Err(DaemonError::Protocol(
+                    "web client closed before sending request body".to_string(),
+                ));
+            }
+            body.extend_from_slice(&buffer[..read]);
+        }
+        body.truncate(content_length);
+
         Ok(Self {
             method: method.to_string(),
             path: normalized_path(path),
             headers,
+            body,
         })
     }
 
@@ -179,6 +239,15 @@ impl HttpRequest {
             .get(&name.to_ascii_lowercase())
             .map(String::as_str)
     }
+}
+
+fn content_length(headers: &HashMap<String, String>) -> Result<usize, DaemonError> {
+    let Some(value) = headers.get("content-length") else {
+        return Ok(0);
+    };
+    value
+        .parse::<usize>()
+        .map_err(|_| DaemonError::Protocol("invalid content length".to_string()))
 }
 
 fn normalized_path(path: &str) -> String {
@@ -230,6 +299,154 @@ async fn write_response(
     stream.write_all(body).await?;
     stream.flush().await?;
     Ok(())
+}
+
+async fn write_json<T: Serialize>(
+    stream: &mut TcpStream,
+    status: &str,
+    value: &T,
+) -> Result<(), DaemonError> {
+    let body =
+        serde_json::to_vec(value).map_err(|source| DaemonError::Protocol(source.to_string()))?;
+    write_response(stream, status, "application/json; charset=utf-8", &body).await
+}
+
+fn parse_json_body<T: DeserializeOwned>(request: &HttpRequest) -> Result<T, DaemonError> {
+    serde_json::from_slice(&request.body)
+        .map_err(|_| DaemonError::Protocol("invalid JSON request".to_string()))
+}
+
+async fn write_json_error(
+    stream: &mut TcpStream,
+    status: &str,
+    message: &'static str,
+) -> Result<(), DaemonError> {
+    write_json(stream, status, &serde_json::json!({ "error": message })).await
+}
+
+async fn start_provider_auth_attempt(
+    stream: &mut TcpStream,
+    state: &WebState,
+    request: &HttpRequest,
+) -> Result<(), DaemonError> {
+    let body = match parse_json_body::<StartProviderAuthAttemptRequest>(request) {
+        Ok(body) => body,
+        Err(_) => {
+            write_json_error(stream, "400 Bad Request", "invalid JSON request").await?;
+            return Ok(());
+        }
+    };
+
+    if body.provider_kind != "codex" {
+        write_json_error(stream, "400 Bad Request", "unsupported provider").await?;
+        return Ok(());
+    }
+
+    if body.method != crate::ProviderAuthMethod::OauthDeviceCode {
+        write_json_error(
+            stream,
+            "400 Bad Request",
+            "unsupported provider auth method",
+        )
+        .await?;
+        return Ok(());
+    }
+
+    let Some(account) = state
+        .memory_repository
+        .get_provider_account(&body.provider_account_id)
+        .await?
+    else {
+        write_json_error(stream, "404 Not Found", "provider account not found").await?;
+        return Ok(());
+    };
+
+    if account.provider_kind != body.provider_kind {
+        write_json_error(stream, "400 Bad Request", "provider account mismatch").await?;
+        return Ok(());
+    }
+
+    let attempt = state
+        .provider_auth
+        .start_codex_device_code(CodexDeviceAuthRequest {
+            provider_account_id: account.provider_account_id,
+            account_home: state
+                .paths
+                .provider_account_home(&account.provider_kind, &account.account_key),
+            codex_command: state.codex_command.clone(),
+            attempt_timeout: None,
+        })
+        .await;
+
+    match attempt {
+        Ok(attempt) => write_json(stream, "200 OK", &attempt).await?,
+        Err(_) => {
+            write_json_error(
+                stream,
+                "500 Internal Server Error",
+                "provider auth could not start",
+            )
+            .await?;
+        }
+    }
+
+    Ok(())
+}
+
+async fn poll_provider_auth_attempt(
+    stream: &mut TcpStream,
+    state: &WebState,
+    attempt_id: &str,
+) -> Result<(), DaemonError> {
+    match state.provider_auth.poll_attempt(attempt_id).await {
+        Ok(Some(attempt)) => write_json(stream, "200 OK", &attempt).await?,
+        Ok(None) => {
+            write_json_error(stream, "404 Not Found", "provider auth attempt not found").await?;
+        }
+        Err(_) => {
+            write_json_error(
+                stream,
+                "500 Internal Server Error",
+                "provider auth attempt unavailable",
+            )
+            .await?;
+        }
+    }
+    Ok(())
+}
+
+async fn cancel_provider_auth_attempt(
+    stream: &mut TcpStream,
+    state: &WebState,
+    attempt_id: &str,
+) -> Result<(), DaemonError> {
+    match state.provider_auth.cancel_attempt(attempt_id).await {
+        Ok(Some(_)) => write_json(stream, "200 OK", &serde_json::json!({ "ok": true })).await?,
+        Ok(None) => {
+            write_json_error(stream, "404 Not Found", "provider auth attempt not found").await?;
+        }
+        Err(_) => {
+            write_json_error(
+                stream,
+                "500 Internal Server Error",
+                "provider auth attempt unavailable",
+            )
+            .await?;
+        }
+    }
+    Ok(())
+}
+
+fn provider_auth_attempt_id(path: &str) -> Option<&str> {
+    let attempt_id = path.strip_prefix("/api/provider-auth/attempts/")?;
+    (!attempt_id.is_empty() && !attempt_id.contains('/')).then_some(attempt_id)
+}
+
+fn provider_auth_attempt_cancel_id(path: &str) -> Option<&str> {
+    let attempt_id = path
+        .strip_prefix("/api/provider-auth/attempts/")?
+        .strip_suffix("/cancel")?;
+    (!attempt_id.is_empty() && !attempt_id.contains('/')).then_some(attempt_id)
 }
 
 async fn upgrade_websocket(
@@ -698,6 +915,33 @@ mod tests {
         },
     };
     use serde_json::json;
+
+    #[tokio::test]
+    async fn http_request_reads_json_body() {
+        let listener = TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .expect("bind listener");
+        let address = listener.local_addr().expect("listener address");
+
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.expect("accept");
+            HttpRequest::read_from(&mut stream).await.expect("request")
+        });
+
+        let mut client = TcpStream::connect(address).await.expect("connect client");
+        client
+            .write_all(
+                b"POST /api/provider-auth/attempts?ignore=true HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: 21\r\n\r\n{\"hello\":\"from-body\"}",
+            )
+            .await
+            .expect("write request");
+        client.flush().await.expect("flush request");
+
+        let request = server.await.expect("server task");
+        assert_eq!(request.method, "POST");
+        assert_eq!(request.path, "/api/provider-auth/attempts");
+        assert_eq!(request.body, br#"{"hello":"from-body"}"#);
+    }
 
     #[test]
     fn websocket_accept_key_matches_rfc_example() {

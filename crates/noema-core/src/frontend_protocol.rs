@@ -201,6 +201,17 @@ impl WebServerMessage {
     }
 }
 
+/// Request body for starting a provider authentication attempt.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct StartProviderAuthAttemptRequest {
+    /// Provider family, such as `codex`.
+    pub provider_kind: String,
+    /// Stable provider account id.
+    pub provider_account_id: String,
+    /// Requested authentication method.
+    pub method: crate::ProviderAuthMethod,
+}
+
 /// Return the generated TypeScript binding file content.
 #[must_use]
 pub fn generated_frontend_typescript() -> String {
@@ -216,6 +227,7 @@ pub fn generated_frontend_typescript() -> String {
         exported_decl::<WebConversationItem>(&config),
         exported_decl::<WebClientMessage>(&config),
         exported_decl::<WebServerMessage>(&config),
+        exported_decl::<StartProviderAuthAttemptRequest>(&config),
         exported_decl::<crate::ProviderAuthMethod>(&config),
         exported_decl::<crate::ProviderAccountStatus>(&config),
         exported_decl::<crate::provider_auth::ProviderAuthAttemptStatus>(&config),

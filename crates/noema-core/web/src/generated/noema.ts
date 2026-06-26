@@ -172,6 +172,20 @@ client_message_id?: string, } | { "type": "error",
  */
 message: string, };
 
+export type StartProviderAuthAttemptRequest = {
+/**
+ * Provider family, such as `codex`.
+ */
+provider_kind: string,
+/**
+ * Stable provider account id.
+ */
+provider_account_id: string,
+/**
+ * Requested authentication method.
+ */
+method: ProviderAuthMethod, };
+
 export type ProviderAuthMethod = "oauth_device_code" | "secret_input" | "external_manual" | "none";
 
 export type ProviderAccountStatus = "unknown" | "checking" | "authenticated" | "unauthenticated" | "unavailable";
