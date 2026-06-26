@@ -1,6 +1,6 @@
 //! Local web UI server for the Noema daemon.
 
-use std::{collections::HashMap, future::Future, pin::Pin, time::Duration};
+use std::{borrow::Cow, collections::HashMap, future::Future, pin::Pin, time::Duration};
 
 use base64::{Engine as _, engine::general_purpose};
 use ring::digest::{SHA1_FOR_LEGACY_USE_ONLY, digest};
@@ -37,11 +37,6 @@ const MAX_API_BODY_BYTES: usize = 64 * 1024;
 const MAX_WS_FRAME_BYTES: usize = 1024 * 1024;
 const HTTP_BODY_READ_TIMEOUT: Duration = Duration::from_millis(250);
 const WEBSOCKET_GUID: &str = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
-
-const INDEX_HTML: &str = include_str!("assets/index.html");
-const APP_JS: &str = include_str!("assets/app.js");
-const STYLES_CSS: &str = include_str!("assets/styles.css");
-const NOEMA_MARK_SVG: &str = include_str!("assets/noema-mark.svg");
 
 /// State shared by local web UI connections.
 #[derive(Clone)]
@@ -152,7 +147,7 @@ pub(super) async fn handle_connection(
     if request.method == "GET"
         && let Some(asset) = embedded_asset(&request.path)
     {
-        write_response(&mut stream, "200 OK", asset.content_type, asset.body).await?;
+        write_response(&mut stream, "200 OK", asset.content_type, asset.body.as_ref()).await?;
         return Ok(());
     }
 
@@ -317,31 +312,46 @@ fn normalized_path(path: &str) -> String {
 
 struct EmbeddedAsset {
     content_type: &'static str,
-    body: &'static [u8],
+    body: Cow<'static, [u8]>,
 }
 
 fn embedded_asset(path: &str) -> Option<EmbeddedAsset> {
-    let asset = match path {
-        "/" | "/index.html" | "/chat" => EmbeddedAsset {
-            content_type: "text/html; charset=utf-8",
-            body: INDEX_HTML.as_bytes(),
-        },
-        "/assets/app.js" => EmbeddedAsset {
-            content_type: "application/javascript; charset=utf-8",
-            body: APP_JS.as_bytes(),
-        },
-        "/assets/styles.css" => EmbeddedAsset {
-            content_type: "text/css; charset=utf-8",
-            body: STYLES_CSS.as_bytes(),
-        },
-        "/assets/noema-mark.svg" => EmbeddedAsset {
-            content_type: "image/svg+xml; charset=utf-8",
-            body: NOEMA_MARK_SVG.as_bytes(),
-        },
+    let (content_type, name) = match path {
+        "/" | "/index.html" | "/chat" => ("text/html; charset=utf-8", "index.html"),
+        "/assets/app.js" => ("application/javascript; charset=utf-8", "app.js"),
+        "/assets/styles.css" => ("text/css; charset=utf-8", "styles.css"),
+        "/assets/noema-mark.svg" => ("image/svg+xml; charset=utf-8", "noema-mark.svg"),
         _ => return None,
     };
 
-    Some(asset)
+    Some(EmbeddedAsset {
+        content_type,
+        body: asset_body(name)?,
+    })
+}
+
+/// Resolve a web asset's bytes for release builds: embed them into the binary.
+#[cfg(not(debug_assertions))]
+fn asset_body(name: &str) -> Option<Cow<'static, [u8]>> {
+    let body: &'static [u8] = match name {
+        "index.html" => include_bytes!("assets/index.html"),
+        "app.js" => include_bytes!("assets/app.js"),
+        "styles.css" => include_bytes!("assets/styles.css"),
+        "noema-mark.svg" => include_bytes!("assets/noema-mark.svg"),
+        _ => return None,
+    };
+    Some(Cow::Borrowed(body))
+}
+
+/// Resolve a web asset's bytes for debug builds: read them from disk at runtime.
+///
+/// Unlike `include_*!`, `env!` does not register the asset files as build
+/// inputs, so the dev daemon can serve freshly rebuilt web assets (e.g. from a
+/// running `vite build --watch`) without forcing a recompile of this crate.
+#[cfg(debug_assertions)]
+fn asset_body(name: &str) -> Option<Cow<'static, [u8]>> {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/daemon/web/assets");
+    std::fs::read(dir.join(name)).ok().map(Cow::Owned)
 }
 
 async fn write_response(

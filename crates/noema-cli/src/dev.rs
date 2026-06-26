@@ -38,11 +38,25 @@ pub(crate) enum DevDaemonError {
         label: &'static str,
         status: ExitStatus,
     },
+
+    #[error("failed to generate frontend types: {source}")]
+    GenerateTypes { source: io::Error },
 }
+
+/// `package.json` script that watches and rebuilds web assets without invoking
+/// cargo (type generation is handled separately to avoid a concurrent build).
+const WEB_ASSET_WATCH_SCRIPT: &str = "dev:assets";
 
 pub(crate) async fn run_dev_daemon(options: DevDaemonOptions) -> Result<(), DevDaemonError> {
     let repo_root = repo_root();
     let web_dir = repo_root.join("crates/noema-core/web");
+
+    // Generate frontend types in-process before starting the watchers. Doing it
+    // here (rather than via a separate `cargo run` of the noema-core export bin)
+    // keeps every cargo invocation in this flow on the same noema-cli package
+    // graph, so shared dependencies are compiled exactly once. A second package
+    // selection would force cargo to build its own copy of every shared crate.
+    generate_frontend_types(&repo_root)?;
 
     let mut web = spawn_web_watcher(&web_dir)?;
     let mut daemon = spawn_daemon_watcher(&repo_root, &options)?;
@@ -65,9 +79,21 @@ pub(crate) async fn run_dev_daemon(options: DevDaemonOptions) -> Result<(), DevD
 
 fn spawn_web_watcher(web_dir: &Path) -> Result<Child, DevDaemonError> {
     let mut command = Command::new("bun");
-    command.arg("run").arg("dev");
+    command.arg("run").arg(WEB_ASSET_WATCH_SCRIPT);
 
     spawn_dev_process("web asset watcher", &mut command, web_dir)
+}
+
+fn frontend_types_output_path(repo_root: &Path) -> PathBuf {
+    repo_root.join("crates/noema-core/web/src/generated/noema.ts")
+}
+
+fn generate_frontend_types(repo_root: &Path) -> Result<(), DevDaemonError> {
+    let output_path = frontend_types_output_path(repo_root);
+    noema_core::frontend_protocol::write_frontend_typescript(&output_path)
+        .map_err(|source| DevDaemonError::GenerateTypes { source })?;
+    eprintln!("wrote {}", output_path.display());
+    Ok(())
 }
 
 fn spawn_daemon_watcher(
@@ -82,11 +108,28 @@ fn spawn_daemon_watcher(
         .arg("-w")
         .arg("Cargo.toml")
         .arg("-w")
-        .arg("Cargo.lock")
-        .arg("-x")
-        .arg(daemon_start_command(options.clone()));
+        .arg("Cargo.lock");
+
+    // Ignore non-Rust paths that the type generator and vite rewrite constantly.
+    // Without this, those writes retrigger the watcher mid-build, interrupting
+    // compilation and thrashing cargo's fingerprints into redundant rebuilds.
+    for glob in daemon_watch_ignore_globs() {
+        command.arg("--ignore").arg(glob);
+    }
+
+    command.arg("-x").arg(daemon_start_command(options.clone()));
 
     spawn_dev_process("daemon watcher", &mut command, repo_root)
+}
+
+fn daemon_watch_ignore_globs() -> [&'static str; 2] {
+    [
+        // Frontend sources and generated TypeScript: never Rust build inputs.
+        "crates/noema-core/web/**",
+        // Vite asset output: served from disk in debug builds, so changes here
+        // must not retrigger a daemon rebuild.
+        "crates/noema-core/src/daemon/web/assets/**",
+    ]
 }
 
 fn spawn_dev_process(
@@ -97,6 +140,8 @@ fn spawn_dev_process(
     #[cfg(unix)]
     command.process_group(0);
 
+    strip_cargo_run_env(command);
+
     command
         .current_dir(current_dir)
         .stdin(Stdio::null())
@@ -105,6 +150,34 @@ fn spawn_dev_process(
         .kill_on_drop(true)
         .spawn()
         .map_err(|source| DevDaemonError::SpawnProcess { label, source })
+}
+
+/// Remove the `CARGO_*` variables that `cargo run` injects into this process's
+/// environment before spawning a child that itself runs cargo.
+///
+/// `cargo dev-daemon` runs us via `cargo run`, which exports `CARGO_MANIFEST_DIR`
+/// and friends. If those leak into the watched `cargo run -- start`, cargo sees a
+/// changed build-script environment and rebuilds every dependency with a
+/// `build.rs` (ring, rustls, sqlx, ...) on each invocation.
+fn strip_cargo_run_env(command: &mut Command) {
+    for (key, _) in env::vars_os() {
+        if let Some(key) = key.to_str()
+            && is_cargo_run_injected_env(key)
+        {
+            command.env_remove(key);
+        }
+    }
+}
+
+fn is_cargo_run_injected_env(key: &str) -> bool {
+    matches!(
+        key,
+        "CARGO_MANIFEST_DIR"
+            | "CARGO_MANIFEST_PATH"
+            | "CARGO_CRATE_NAME"
+            | "CARGO_BIN_NAME"
+            | "CARGO_PRIMARY_PACKAGE"
+    ) || key.starts_with("CARGO_PKG_")
 }
 
 async fn wait_for_child(label: &'static str, child: &mut Child) -> Result<(), DevDaemonError> {
@@ -225,6 +298,44 @@ fn shell_quote(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn web_asset_watcher_skips_type_generation() {
+        // The web watcher must run vite only; type generation happens once up
+        // front so it never races the daemon build on the shared target dir.
+        assert_eq!(WEB_ASSET_WATCH_SCRIPT, "dev:assets");
+    }
+
+    #[test]
+    fn strips_cargo_run_injected_env_only() {
+        assert!(is_cargo_run_injected_env("CARGO_MANIFEST_DIR"));
+        assert!(is_cargo_run_injected_env("CARGO_PKG_VERSION"));
+        assert!(is_cargo_run_injected_env("CARGO_BIN_NAME"));
+        // Must keep cargo's own location and the user's real environment.
+        assert!(!is_cargo_run_injected_env("CARGO"));
+        assert!(!is_cargo_run_injected_env("CARGO_HOME"));
+        assert!(!is_cargo_run_injected_env("NOEMA_DATABASE_URL"));
+        assert!(!is_cargo_run_injected_env("PATH"));
+    }
+
+    #[test]
+    fn daemon_watcher_ignores_generated_and_asset_paths() {
+        assert_eq!(
+            daemon_watch_ignore_globs(),
+            [
+                "crates/noema-core/web/**",
+                "crates/noema-core/src/daemon/web/assets/**",
+            ]
+        );
+    }
+
+    #[test]
+    fn frontend_types_output_path_targets_web_generated_dir() {
+        assert_eq!(
+            frontend_types_output_path(Path::new("/workspace")),
+            PathBuf::from("/workspace/crates/noema-core/web/src/generated/noema.ts")
+        );
+    }
 
     #[test]
     fn daemon_start_command_defaults_to_start() {
