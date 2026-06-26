@@ -78,9 +78,12 @@ async fn bootstrap_creates_core_tables() {
         ("object_events", "idx_object_events_actor_time"),
         ("object_links", "idx_object_links_source_relation"),
         ("object_links", "idx_object_links_target_relation"),
+        ("memory_items", "idx_memory_items_search_vector"),
     ] {
         assert_index_exists(repo.pool(), table_name, index_name).await;
     }
+
+    assert_memory_search_vector_column_exists(repo.pool()).await;
 
     let migration_name = sqlx::query_scalar::<_, Option<String>>(
         "SELECT name FROM schema_migrations WHERE version = 0",
@@ -109,6 +112,25 @@ async fn assert_index_exists(pool: &sqlx::PgPool, table_name: &str, index_name: 
     .await
     .expect("check index exists");
     assert!(has_index, "missing index {index_name} on {table_name}");
+}
+
+async fn assert_memory_search_vector_column_exists(pool: &sqlx::PgPool) {
+    let column = sqlx::query_as::<_, (String, String)>(
+        r"
+        SELECT is_generated, udt_name
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'memory_items'
+          AND column_name = 'search_vector'
+        ",
+    )
+    .fetch_optional(pool)
+    .await
+    .expect("check memory_items.search_vector column")
+    .expect("missing memory_items.search_vector column");
+
+    assert_eq!(column.0, "ALWAYS");
+    assert_eq!(column.1, "tsvector");
 }
 
 fn test_database_url() -> Option<String> {
@@ -198,4 +220,24 @@ fn postgres_schema_includes_object_event_and_link_tables() {
             "missing index {index_name}"
         );
     }
+}
+
+#[test]
+fn postgres_schema_includes_memory_fts_generated_column_and_index() {
+    assert!(
+        POSTGRES_SCHEMA_SQL.contains("search_vector TSVECTOR GENERATED ALWAYS AS"),
+        "missing generated memory search column"
+    );
+    assert!(
+        POSTGRES_SCHEMA_SQL.contains(
+            "to_tsvector(\n      'simple',\n      title || ' ' || content || ' ' || coalesce(retrieval_hints::text, '')\n    )"
+        ),
+        "memory search vector does not index title, content, and retrieval hints"
+    );
+    assert!(
+        POSTGRES_SCHEMA_SQL.contains(
+            "CREATE INDEX IF NOT EXISTS idx_memory_items_search_vector ON memory_items USING GIN (search_vector)"
+        ),
+        "missing memory search vector GIN index"
+    );
 }

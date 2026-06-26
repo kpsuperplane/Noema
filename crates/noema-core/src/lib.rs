@@ -22,7 +22,7 @@ pub mod home;
 pub mod memory;
 /// Pure ordinary-chat memory extraction proposal layer.
 pub mod memory_extraction;
-/// SQLite-backed durable memory repository.
+/// Durable memory repositories and Postgres migration bootstrap.
 pub mod memory_persistence;
 /// Filesystem path resolution for Noema state.
 pub mod paths;
@@ -64,7 +64,7 @@ pub use memory_persistence::{
     DeleteConversationItem, MemoryAuthorityLevel, MemoryExtractionMethod, MemoryPersistenceError,
     MemorySummary, MemoryType, NewMemoryCandidate, NewMemoryParticipant, NewMemorySubject,
     NewObjectProvenanceEdge, NewRelationshipClaim, ObjectProvenanceSource, ObjectRef, ObjectType,
-    SqliteMemoryRepository,
+    PostgresMemoryRepository, SqliteMemoryRepository,
 };
 pub use paths::{NOEMA_HOME_ENV, NoemaPathError, NoemaPaths};
 pub use provider::{

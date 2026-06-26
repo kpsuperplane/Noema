@@ -476,7 +476,7 @@ metadata TEXT CHECK json_valid(metadata) -> metadata JSONB NOT NULL DEFAULT '{}'
 payload_json TEXT -> payload_json JSONB NOT NULL DEFAULT '{}'::jsonb
 INTEGER booleans -> BOOLEAN
 STRICT tables -> omit; Postgres is typed
-SQLite FTS table -> generated tsvector column or separate search table
+SQLite FTS table -> `memory_items.search_vector TSVECTOR GENERATED ALWAYS AS (to_tsvector('simple', title || ' ' || content || ' ' || coalesce(retrieval_hints::text, ''))) STORED` plus `idx_memory_items_search_vector` GIN index
 CURRENT_TIMESTAMP -> now()
 ```
 
@@ -510,8 +510,9 @@ The schema file must define every table in this exact list: `schema_migrations`,
 `context_packet_memory_edges`, `context_packet_omissions`, and
 `memory_use_records`. Convert each table from the current SQLite schema using
 the conversion rules above, preserve every current enum `CHECK` constraint,
-preserve relevant indexes, and add an index on
-`conversation_items(conversation_id, created_at)`.
+preserve relevant indexes, add `memory_items.search_vector` as the generated
+stored `tsvector` column described above with the `idx_memory_items_search_vector`
+GIN index, and add an index on `conversation_items(conversation_id, created_at)`.
 
 - [ ] **Step 2: Add bootstrap function**
 
