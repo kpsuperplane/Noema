@@ -19,6 +19,11 @@ The current slice should stay small and concrete:
 
 - Postgres is the canonical structured store for the always-on personal server target.
 - Docker Compose mounts `NOEMA_HOME` into containers and stores Postgres physical files at `${NOEMA_HOME:-$HOME/.noema}/db/postgres`.
+- First-run web onboarding is derived from backend readiness checks and blocks
+  chat until an active provider account is authenticated.
+- Provider credential/session material lives under
+  `${NOEMA_HOME:-$HOME/.noema}/providers/<provider>/<account>/`; Postgres stores
+  only non-secret provider metadata.
 - Concrete object rows are the canonical structured state; actor/principal,
   governable scope, provenance source, and transcript item are interfaces
   implemented by concrete objects rather than universal parent tables.

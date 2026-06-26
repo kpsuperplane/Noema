@@ -43,11 +43,16 @@ pub(super) struct CodexRuntimeHandle {
 
 impl CodexRuntimeHandle {
     pub(super) async fn spawn(
-        config: CodexProviderConfig,
+        mut codex_config: CodexProviderConfig,
         database_url: String,
     ) -> Result<Self, DaemonError> {
+        let paths = crate::NoemaPaths::from_process_env()?;
+        let account_home = paths.provider_account_home("codex", "default");
+        crate::provider_auth::ensure_codex_account_home(&account_home)?;
+        apply_provider_account_home(&mut codex_config, &account_home);
+
         let (sender, receiver) = mpsc::channel(16);
-        let actor = CodexRuntimeActor::new(config, database_url).await?;
+        let actor = CodexRuntimeActor::new(codex_config, database_url).await?;
         tokio::spawn(actor.run(receiver));
         Ok(Self { sender })
     }
@@ -113,6 +118,13 @@ impl CodexRuntimeHandle {
             .await;
         let _ = reply_rx.await;
     }
+}
+
+fn apply_provider_account_home(
+    config: &mut crate::CodexProviderConfig,
+    account_home: &std::path::Path,
+) {
+    config.codex_home = Some(account_home.to_string_lossy().to_string());
 }
 
 #[derive(Debug)]
@@ -1344,4 +1356,22 @@ async fn persist_validated_memory_proposals(
     }
 
     Ok(created_memory_ids)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn codex_config_for_provider_account_uses_account_home() {
+        let account_home = std::path::PathBuf::from("/noema/providers/codex/default");
+        let mut config = CodexProviderConfig::default();
+
+        apply_provider_account_home(&mut config, &account_home);
+
+        assert_eq!(
+            config.codex_home.as_deref(),
+            Some("/noema/providers/codex/default")
+        );
+    }
 }

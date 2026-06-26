@@ -182,6 +182,24 @@ asset watcher. The web chat is available at <http://localhost:3737/>. Postgres
 is available on the host at `postgres://noema:noema@localhost:5432/noema`, with
 physical database files stored under `${NOEMA_HOME:-$HOME/.noema}/db/postgres`.
 
+On first launch, the web UI checks backend onboarding readiness before opening
+chat. Chat stays blocked until an active provider account is authenticated.
+For Codex, the default credential home is
+`${NOEMA_HOME:-$HOME/.noema}/providers/codex/default`.
+
+The preferred first-run flow is:
+
+```bash
+docker compose up dev
+```
+
+Then open <http://localhost:3737/> and click **Connect Codex**. If you need a
+terminal fallback, run:
+
+```bash
+docker compose run --rm dev codex login --device-auth
+```
+
 To run the one-shot server container without file watching:
 
 ```bash
