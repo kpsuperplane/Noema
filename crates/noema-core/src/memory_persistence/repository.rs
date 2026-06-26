@@ -73,6 +73,47 @@ impl PostgresMemoryRepository {
     pub fn pool(&self) -> &PgPool {
         &self.pool
     }
+
+    /// Upsert the built-in local human and primary Noema agent actors.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MemoryPersistenceError`] if Postgres cannot write either
+    /// actor.
+    pub async fn ensure_default_actors(&self) -> Result<(), MemoryPersistenceError> {
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(MemoryPersistenceError::Database)?;
+        sqlx::query(
+            r"
+            INSERT INTO humans (human_id, display_name, handle)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (human_id) DO UPDATE SET updated_at = now()
+            ",
+        )
+        .bind("human:local")
+        .bind("Local human")
+        .bind("local")
+        .execute(&mut *tx)
+        .await
+        .map_err(MemoryPersistenceError::Database)?;
+        sqlx::query(
+            r"
+            INSERT INTO agents (agent_id, display_name, handle)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (agent_id) DO UPDATE SET updated_at = now()
+            ",
+        )
+        .bind("agent:primary")
+        .bind("Noema")
+        .bind("primary")
+        .execute(&mut *tx)
+        .await
+        .map_err(MemoryPersistenceError::Database)?;
+        tx.commit().await.map_err(MemoryPersistenceError::Database)
+    }
 }
 
 /// SQLite-backed memory repository.

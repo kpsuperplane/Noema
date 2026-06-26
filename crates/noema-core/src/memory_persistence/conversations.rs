@@ -5,8 +5,9 @@ use super::{
     ObjectRef, ObjectType,
     error::MemoryPersistenceError,
     helpers::{allocate_id, json_to_string},
-    objects::validate_object_ref_for_conn,
-    repository::SqliteMemoryRepository,
+    objects::{validate_object_ref_for_conn, validate_object_ref_for_pool},
+    postgres_helpers::{allocate_id as allocate_postgres_id, json_value},
+    repository::{PostgresMemoryRepository, SqliteMemoryRepository},
 };
 
 /// Live agent coordination state for a durable conversation.
@@ -703,6 +704,416 @@ impl SqliteMemoryRepository {
     }
 }
 
+impl PostgresMemoryRepository {
+    /// Create a durable conversation row.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MemoryPersistenceError`] when referenced owner/participant
+    /// rows are missing or Postgres writes fail.
+    pub async fn create_conversation(
+        &self,
+        conversation: NewConversation,
+    ) -> Result<ConversationRecord, MemoryPersistenceError> {
+        let NewConversation {
+            title,
+            owner,
+            primary_human_id,
+            primary_agent_id,
+            provider,
+            model,
+            provider_thread_id,
+            cwd,
+            metadata,
+        } = conversation;
+
+        validate_object_ref_for_pool(self.pool(), &owner).await?;
+        validate_optional_object_ref_for_pool(
+            self.pool(),
+            ObjectType::Human,
+            primary_human_id.as_deref(),
+        )
+        .await?;
+        validate_optional_object_ref_for_pool(
+            self.pool(),
+            ObjectType::Agent,
+            primary_agent_id.as_deref(),
+        )
+        .await?;
+
+        let conversation_id = allocate_postgres_id(self.pool(), "conversation").await?;
+        let record = sqlx::query_as::<_, (String, Option<String>)>(
+            r"
+            INSERT INTO conversations (
+              conversation_id, title, owner_object_type, owner_object_id,
+              primary_human_id, primary_agent_id, provider, model,
+              provider_thread_id, cwd, metadata
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            RETURNING conversation_id, provider_thread_id
+            ",
+        )
+        .bind(conversation_id)
+        .bind(title.as_deref())
+        .bind(owner.object_type.as_str())
+        .bind(owner.object_id.as_str())
+        .bind(primary_human_id.as_deref())
+        .bind(primary_agent_id.as_deref())
+        .bind(provider.as_str())
+        .bind(model.as_deref())
+        .bind(provider_thread_id.as_deref())
+        .bind(cwd.as_deref())
+        .bind(json_value(metadata))
+        .fetch_one(self.pool())
+        .await
+        .map_err(MemoryPersistenceError::Database)?;
+
+        Ok(ConversationRecord {
+            conversation_id: record.0,
+            provider_thread_id: record.1,
+        })
+    }
+
+    /// Create a durable turn row for an existing conversation.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MemoryPersistenceError`] when the conversation or trigger
+    /// item is missing, or Postgres writes fail.
+    pub async fn create_conversation_turn(
+        &self,
+        turn: NewConversationTurn,
+    ) -> Result<ConversationTurnRecord, MemoryPersistenceError> {
+        let NewConversationTurn {
+            conversation_id,
+            trigger_item_id,
+            metadata,
+        } = turn;
+
+        validate_object_ref_for_pool(
+            self.pool(),
+            &ObjectRef::new(ObjectType::Conversation, conversation_id.as_str())?,
+        )
+        .await?;
+        if let Some(trigger_item_id) = &trigger_item_id {
+            self.validate_conversation_item_in_conversation(trigger_item_id, &conversation_id)
+                .await?;
+        }
+
+        let turn_id = allocate_postgres_id(self.pool(), "turn").await?;
+        let record = sqlx::query_as::<_, (String, String)>(
+            r"
+            INSERT INTO conversation_turns (
+              turn_id, conversation_id, trigger_item_id, status, started_at, metadata
+            )
+            VALUES ($1, $2, $3, 'input_received', now(), $4)
+            RETURNING turn_id, conversation_id
+            ",
+        )
+        .bind(turn_id)
+        .bind(conversation_id.as_str())
+        .bind(trigger_item_id.as_deref())
+        .bind(json_value(metadata))
+        .fetch_one(self.pool())
+        .await
+        .map_err(MemoryPersistenceError::Database)?;
+
+        Ok(ConversationTurnRecord {
+            turn_id: record.0,
+            conversation_id: record.1,
+        })
+    }
+
+    /// Update the live agent status for a durable conversation.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MemoryPersistenceError`] when the conversation is missing or
+    /// Postgres writes fail.
+    pub async fn update_conversation_agent_status(
+        &self,
+        conversation_id: &str,
+        status: AgentStatus,
+    ) -> Result<(), MemoryPersistenceError> {
+        validate_object_ref_for_pool(
+            self.pool(),
+            &ObjectRef::new(ObjectType::Conversation, conversation_id)?,
+        )
+        .await?;
+        sqlx::query(
+            r"
+            UPDATE conversations
+            SET agent_status = $2,
+                updated_at = now()
+            WHERE conversation_id = $1
+            ",
+        )
+        .bind(conversation_id)
+        .bind(status.as_str())
+        .execute(self.pool())
+        .await
+        .map_err(MemoryPersistenceError::Database)?;
+        Ok(())
+    }
+
+    /// Append a durable item to a conversation stream.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MemoryPersistenceError`] when referenced conversation, author,
+    /// turn, or parent item rows are invalid, or Postgres writes fail.
+    pub async fn append_conversation_item(
+        &self,
+        item: NewConversationItem,
+    ) -> Result<ConversationItemRecord, MemoryPersistenceError> {
+        self.validate_conversation_item_refs(&item).await?;
+
+        let item_id = allocate_postgres_id(self.pool(), "item").await?;
+        let record = sqlx::query_as::<
+            _,
+            (
+                String,
+                String,
+                Option<String>,
+                String,
+                String,
+                Option<String>,
+                Value,
+            ),
+        >(
+            r"
+            INSERT INTO conversation_items (
+              item_id, conversation_id, turn_id, parent_item_id, kind, status,
+              author_object_type, author_object_id, content_text, payload_json, metadata
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            RETURNING item_id, conversation_id, turn_id, kind, status, content_text, payload_json
+            ",
+        )
+        .bind(item_id)
+        .bind(item.conversation_id.as_str())
+        .bind(item.turn_id.as_deref())
+        .bind(item.parent_item_id.as_deref())
+        .bind(item.kind.as_str())
+        .bind(item.status.as_str())
+        .bind(item.author.object_type.as_str())
+        .bind(item.author.object_id.as_str())
+        .bind(item.content_text.as_deref())
+        .bind(json_value(item.payload_json))
+        .bind(json_value(item.metadata))
+        .fetch_one(self.pool())
+        .await
+        .map_err(MemoryPersistenceError::Database)?;
+
+        Ok(ConversationItemRecord {
+            item_id: record.0,
+            conversation_id: record.1,
+            turn_id: record.2,
+            kind: ConversationItemKind::parse(&record.3)?,
+            status: ConversationItemStatus::parse(&record.4)?,
+            content_text: record.5,
+            payload_json: record.6,
+        })
+    }
+
+    /// Mark a durable conversation turn completed.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MemoryPersistenceError`] when the turn is missing or Postgres
+    /// writes fail.
+    pub async fn complete_conversation_turn(
+        &self,
+        turn_id: &str,
+    ) -> Result<(), MemoryPersistenceError> {
+        validate_object_ref_for_pool(
+            self.pool(),
+            &ObjectRef::new(ObjectType::ConversationTurn, turn_id)?,
+        )
+        .await?;
+        sqlx::query(
+            r"
+            UPDATE conversation_turns
+            SET status = 'completed',
+                completed_at = now(),
+                updated_at = now()
+            WHERE turn_id = $1
+            ",
+        )
+        .bind(turn_id)
+        .execute(self.pool())
+        .await
+        .map_err(MemoryPersistenceError::Database)?;
+        Ok(())
+    }
+
+    /// Mark a durable conversation turn failed.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MemoryPersistenceError`] when the turn is missing or Postgres
+    /// writes fail.
+    pub async fn fail_conversation_turn(
+        &self,
+        turn_id: &str,
+    ) -> Result<(), MemoryPersistenceError> {
+        validate_object_ref_for_pool(
+            self.pool(),
+            &ObjectRef::new(ObjectType::ConversationTurn, turn_id)?,
+        )
+        .await?;
+        sqlx::query(
+            r"
+            UPDATE conversation_turns
+            SET status = 'failed',
+                completed_at = now(),
+                updated_at = now()
+            WHERE turn_id = $1
+            ",
+        )
+        .bind(turn_id)
+        .execute(self.pool())
+        .await
+        .map_err(MemoryPersistenceError::Database)?;
+        Ok(())
+    }
+
+    /// List conversation items in replay order.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MemoryPersistenceError`] when the conversation is missing,
+    /// Postgres reads fail, or stored enums are invalid.
+    pub async fn list_conversation_items(
+        &self,
+        conversation_id: &str,
+        mode: ReplayMode,
+    ) -> Result<Vec<ConversationItemRecord>, MemoryPersistenceError> {
+        validate_object_ref_for_pool(
+            self.pool(),
+            &ObjectRef::new(ObjectType::Conversation, conversation_id)?,
+        )
+        .await?;
+        let sql = match mode {
+            ReplayMode::Visible => {
+                r"
+                SELECT item_id, conversation_id, turn_id, kind, status, content_text, payload_json
+                FROM conversation_items
+                WHERE conversation_id = $1 AND deleted_at IS NULL
+                ORDER BY created_at ASC
+                "
+            }
+            ReplayMode::Audit => {
+                r"
+                SELECT item_id, conversation_id, turn_id, kind, status, content_text, payload_json
+                FROM conversation_items
+                WHERE conversation_id = $1
+                ORDER BY created_at ASC
+                "
+            }
+        };
+        let rows = sqlx::query_as::<
+            _,
+            (
+                String,
+                String,
+                Option<String>,
+                String,
+                String,
+                Option<String>,
+                Value,
+            ),
+        >(sql)
+        .bind(conversation_id)
+        .fetch_all(self.pool())
+        .await
+        .map_err(MemoryPersistenceError::Database)?;
+
+        rows.into_iter()
+            .map(
+                |(item_id, conversation_id, turn_id, kind, status, content_text, payload_json)| {
+                    Ok(ConversationItemRecord {
+                        item_id,
+                        conversation_id,
+                        turn_id,
+                        kind: ConversationItemKind::parse(&kind)?,
+                        status: ConversationItemStatus::parse(&status)?,
+                        content_text,
+                        payload_json,
+                    })
+                },
+            )
+            .collect()
+    }
+
+    async fn validate_conversation_item_refs(
+        &self,
+        item: &NewConversationItem,
+    ) -> Result<(), MemoryPersistenceError> {
+        validate_object_ref_for_pool(
+            self.pool(),
+            &ObjectRef::new(ObjectType::Conversation, item.conversation_id.as_str())?,
+        )
+        .await?;
+        validate_object_ref_for_pool(self.pool(), &item.author).await?;
+
+        if let Some(turn_id) = &item.turn_id {
+            let turn_conversation_id = sqlx::query_scalar::<_, String>(
+                "SELECT conversation_id FROM conversation_turns WHERE turn_id = $1",
+            )
+            .bind(turn_id)
+            .fetch_optional(self.pool())
+            .await
+            .map_err(MemoryPersistenceError::Database)?;
+            match turn_conversation_id {
+                Some(value) if value == item.conversation_id => {}
+                Some(_) | None => {
+                    return Err(MemoryPersistenceError::TurnConversationMismatch {
+                        turn_id: turn_id.clone(),
+                        conversation_id: item.conversation_id.clone(),
+                    });
+                }
+            }
+        }
+
+        if let Some(parent_item_id) = &item.parent_item_id {
+            self.validate_conversation_item_in_conversation(parent_item_id, &item.conversation_id)
+                .await?;
+        }
+
+        Ok(())
+    }
+
+    async fn validate_conversation_item_in_conversation(
+        &self,
+        item_id: &str,
+        conversation_id: &str,
+    ) -> Result<(), MemoryPersistenceError> {
+        let exists = sqlx::query_scalar::<_, i32>(
+            r"
+            SELECT 1
+            FROM conversation_items
+            WHERE item_id = $1 AND conversation_id = $2
+            LIMIT 1
+            ",
+        )
+        .bind(item_id)
+        .bind(conversation_id)
+        .fetch_optional(self.pool())
+        .await
+        .map_err(MemoryPersistenceError::Database)?
+        .is_some();
+        if exists {
+            Ok(())
+        } else {
+            Err(MemoryPersistenceError::ObjectRefNotFound {
+                object_type: ObjectType::ConversationItem.as_str().to_string(),
+                object_id: item_id.to_string(),
+            })
+        }
+    }
+}
+
 fn validate_optional_object_ref(
     conn: &rusqlite::Connection,
     object_type: ObjectType,
@@ -710,6 +1121,18 @@ fn validate_optional_object_ref(
 ) -> Result<(), MemoryPersistenceError> {
     if let Some(object_id) = object_id {
         validate_object_ref_for_conn(conn, &ObjectRef::new(object_type, object_id)?)
+    } else {
+        Ok(())
+    }
+}
+
+async fn validate_optional_object_ref_for_pool(
+    pool: &sqlx::PgPool,
+    object_type: ObjectType,
+    object_id: Option<&str>,
+) -> Result<(), MemoryPersistenceError> {
+    if let Some(object_id) = object_id {
+        validate_object_ref_for_pool(pool, &ObjectRef::new(object_type, object_id)?).await
     } else {
         Ok(())
     }

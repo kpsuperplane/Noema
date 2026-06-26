@@ -1,7 +1,8 @@
 use std::env;
 
 use super::{
-    PostgresMemoryRepository,
+    ConversationItemKind, ConversationItemStatus, NewConversation, NewConversationItem,
+    NewConversationTurn, ObjectRef, PostgresMemoryRepository, ReplayMode,
     postgres_schema::POSTGRES_SCHEMA_SQL,
     repository::{POSTGRES_BOOTSTRAP_MIGRATION_NAME, POSTGRES_BOOTSTRAP_MIGRATION_VERSION},
 };
@@ -10,23 +11,9 @@ const TEST_DATABASE_URL_ENV: &str = "NOEMA_TEST_DATABASE_URL";
 
 #[tokio::test]
 async fn bootstrap_creates_core_tables() {
-    let Some(database_url) = test_database_url() else {
-        println!("skipping Postgres bootstrap test: {TEST_DATABASE_URL_ENV} is unset");
+    let Some(repo) = test_repo().await else {
         return;
     };
-    assert_test_database_url(&database_url);
-
-    let pool = sqlx::PgPool::connect(&database_url)
-        .await
-        .expect("connect to test Postgres database");
-    sqlx::raw_sql("DROP SCHEMA public CASCADE; CREATE SCHEMA public;")
-        .execute(&pool)
-        .await
-        .expect("reset test schema");
-
-    let repo = PostgresMemoryRepository::from_pool(pool)
-        .await
-        .expect("bootstrap Postgres memory schema");
 
     let tables = sqlx::query_scalar::<_, String>(
         r"
@@ -94,6 +81,51 @@ async fn bootstrap_creates_core_tables() {
     assert_eq!(migration_name.as_deref(), Some("postgres_bootstrap_v0"));
 }
 
+#[tokio::test]
+async fn conversation_items_replay_in_created_order() {
+    let Some(repo) = test_repo().await else {
+        return;
+    };
+    repo.ensure_default_actors().await.expect("actors");
+
+    let conversation = repo
+        .create_conversation(NewConversation::local_chat(
+            Some("test-model".to_string()),
+            Some("/tmp/noema".to_string()),
+        ))
+        .await
+        .expect("conversation");
+    let turn = repo
+        .create_conversation_turn(NewConversationTurn {
+            conversation_id: conversation.conversation_id.clone(),
+            trigger_item_id: None,
+            metadata: serde_json::json!({}),
+        })
+        .await
+        .expect("turn");
+
+    repo.append_conversation_item(NewConversationItem {
+        conversation_id: conversation.conversation_id.clone(),
+        turn_id: Some(turn.turn_id.clone()),
+        parent_item_id: None,
+        kind: ConversationItemKind::UserText,
+        status: ConversationItemStatus::Completed,
+        author: ObjectRef::human("human:local"),
+        content_text: Some("hello".to_string()),
+        payload_json: serde_json::json!({}),
+        metadata: serde_json::json!({}),
+    })
+    .await
+    .expect("user item");
+
+    let items = repo
+        .list_conversation_items(&conversation.conversation_id, ReplayMode::Visible)
+        .await
+        .expect("items");
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].content_text.as_deref(), Some("hello"));
+}
+
 async fn assert_index_exists(pool: &sqlx::PgPool, table_name: &str, index_name: &str) {
     let has_index = sqlx::query_scalar::<_, bool>(
         r"
@@ -131,6 +163,28 @@ async fn assert_memory_search_vector_column_exists(pool: &sqlx::PgPool) {
 
     assert_eq!(column.0, "ALWAYS");
     assert_eq!(column.1, "tsvector");
+}
+
+async fn test_repo() -> Option<PostgresMemoryRepository> {
+    let Some(database_url) = test_database_url() else {
+        println!("skipping Postgres test: {TEST_DATABASE_URL_ENV} is unset");
+        return None;
+    };
+    assert_test_database_url(&database_url);
+
+    let pool = sqlx::PgPool::connect(&database_url)
+        .await
+        .expect("connect to test Postgres database");
+    sqlx::raw_sql("DROP SCHEMA public CASCADE; CREATE SCHEMA public;")
+        .execute(&pool)
+        .await
+        .expect("reset test schema");
+
+    Some(
+        PostgresMemoryRepository::from_pool(pool)
+            .await
+            .expect("bootstrap Postgres memory schema"),
+    )
 }
 
 fn test_database_url() -> Option<String> {

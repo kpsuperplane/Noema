@@ -208,3 +208,28 @@ pub(super) fn validate_object_ref_for_conn(
         })
     }
 }
+
+pub(super) async fn validate_object_ref_for_pool(
+    pool: &sqlx::PgPool,
+    object_ref: &ObjectRef,
+) -> Result<(), MemoryPersistenceError> {
+    let sql = format!(
+        "SELECT 1 FROM {} WHERE {} = $1 LIMIT 1",
+        object_ref.object_type.table_name(),
+        object_ref.object_type.id_column()
+    );
+    let exists = sqlx::query_scalar::<_, i32>(&sql)
+        .bind(object_ref.object_id.as_str())
+        .fetch_optional(pool)
+        .await
+        .map_err(MemoryPersistenceError::Database)?
+        .is_some();
+    if exists {
+        Ok(())
+    } else {
+        Err(MemoryPersistenceError::ObjectRefNotFound {
+            object_type: object_ref.object_type.as_str().to_string(),
+            object_id: object_ref.object_id.clone(),
+        })
+    }
+}
