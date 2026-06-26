@@ -1,6 +1,6 @@
 //! Local web UI server for the Noema daemon.
 
-use std::collections::HashMap;
+use std::{collections::HashMap, time::Duration};
 
 use base64::{Engine as _, engine::general_purpose};
 use ring::digest::{SHA1_FOR_LEGACY_USE_ONLY, digest};
@@ -21,7 +21,10 @@ use crate::{
     memory_persistence::{
         ConversationItemKind, ConversationItemRecord, PostgresMemoryRepository, ReplayMode,
     },
-    provider_auth::{CodexDeviceAuthRequest, ProviderAuthManager},
+    provider_auth::{
+        CodexDeviceAuthRequest, ProviderAuthAttemptStatus, ProviderAuthAttemptView,
+        ProviderAuthManager,
+    },
 };
 
 use super::{
@@ -30,7 +33,9 @@ use super::{
 };
 
 const MAX_HTTP_HEADER_BYTES: usize = 64 * 1024;
+const MAX_API_BODY_BYTES: usize = 64 * 1024;
 const MAX_WS_FRAME_BYTES: usize = 1024 * 1024;
+const HTTP_BODY_READ_TIMEOUT: Duration = Duration::from_millis(250);
 const WEBSOCKET_GUID: &str = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
 const INDEX_HTML: &str = include_str!("assets/index.html");
@@ -85,7 +90,13 @@ pub(super) async fn handle_connection(
     mut stream: TcpStream,
     state: WebState,
 ) -> Result<(), DaemonError> {
-    let request = HttpRequest::read_from(&mut stream).await?;
+    let request = match HttpRequest::read_from(&mut stream).await {
+        Ok(request) => request,
+        Err(error) => {
+            write_json_error(&mut stream, error.status(), error.message()).await?;
+            return Ok(());
+        }
+    };
 
     if request.method == "GET" && request.path == "/api/chat/ws" {
         upgrade_websocket(stream, &request, state).await?;
@@ -134,7 +145,7 @@ pub(super) async fn handle_connection(
     if request.method == "POST"
         && let Some(attempt_id) = provider_auth_attempt_cancel_id(&request.path)
     {
-        cancel_provider_auth_attempt(&mut stream, &state, attempt_id).await?;
+        cancel_provider_auth_attempt(&mut stream, &state, &request, attempt_id).await?;
         return Ok(());
     }
 
@@ -164,24 +175,22 @@ struct HttpRequest {
 }
 
 impl HttpRequest {
-    async fn read_from(stream: &mut TcpStream) -> Result<Self, DaemonError> {
+    async fn read_from(stream: &mut TcpStream) -> Result<Self, HttpRequestError> {
         let mut bytes = Vec::with_capacity(1024);
         let mut buffer = [0_u8; 1024];
 
         loop {
             let read = stream.read(&mut buffer).await?;
             if read == 0 {
-                return Err(DaemonError::Protocol(
-                    "web client closed before sending request".to_string(),
-                ));
+                return Err(HttpRequestError::bad_request("missing web request"));
             }
             bytes.extend_from_slice(&buffer[..read]);
             if bytes.windows(4).any(|window| window == b"\r\n\r\n") {
                 break;
             }
             if bytes.len() > MAX_HTTP_HEADER_BYTES {
-                return Err(DaemonError::Protocol(
-                    "web request headers too large".to_string(),
+                return Err(HttpRequestError::payload_too_large(
+                    "request headers too large",
                 ));
             }
         }
@@ -189,42 +198,56 @@ impl HttpRequest {
         let header_end = bytes
             .windows(4)
             .position(|window| window == b"\r\n\r\n")
-            .ok_or_else(|| DaemonError::Protocol("missing web request headers".to_string()))?;
+            .ok_or_else(|| HttpRequestError::bad_request("missing web request headers"))?;
         let body_start = header_end + 4;
         let text = std::str::from_utf8(&bytes[..header_end])
-            .map_err(|source| DaemonError::Protocol(source.to_string()))?;
+            .map_err(|_| HttpRequestError::bad_request("invalid request headers"))?;
         let mut lines = text.lines();
         let request_line = lines
             .next()
-            .ok_or_else(|| DaemonError::Protocol("missing web request line".to_string()))?;
+            .ok_or_else(|| HttpRequestError::bad_request("missing web request line"))?;
         let mut request_parts = request_line.split_whitespace();
         let method = request_parts
             .next()
-            .ok_or_else(|| DaemonError::Protocol("missing web request method".to_string()))?;
+            .ok_or_else(|| HttpRequestError::bad_request("missing web request method"))?;
         let path = request_parts
             .next()
-            .ok_or_else(|| DaemonError::Protocol("missing web request path".to_string()))?;
+            .ok_or_else(|| HttpRequestError::bad_request("missing web request path"))?;
 
         let mut headers = HashMap::new();
         for line in lines {
             let Some((name, value)) = line.split_once(':') else {
                 continue;
             };
-            headers.insert(name.trim().to_ascii_lowercase(), value.trim().to_string());
+            let name = name.trim().to_ascii_lowercase();
+            if name == "content-length" && headers.contains_key(&name) {
+                return Err(HttpRequestError::bad_request("duplicate content length"));
+            }
+            headers.insert(name, value.trim().to_string());
         }
 
         let content_length = content_length(&headers)?;
         let mut body = bytes[body_start..].to_vec();
+        if content_length > MAX_API_BODY_BYTES {
+            return Err(HttpRequestError::payload_too_large(
+                "request body too large",
+            ));
+        }
+        if body.len() > content_length {
+            return Err(HttpRequestError::bad_request("unexpected request bytes"));
+        }
         while body.len() < content_length {
-            let read = stream.read(&mut buffer).await?;
+            let read = tokio::time::timeout(HTTP_BODY_READ_TIMEOUT, stream.read(&mut buffer))
+                .await
+                .map_err(|_| HttpRequestError::bad_request("request body timed out"))??;
             if read == 0 {
-                return Err(DaemonError::Protocol(
-                    "web client closed before sending request body".to_string(),
-                ));
+                return Err(HttpRequestError::bad_request("incomplete request body"));
             }
             body.extend_from_slice(&buffer[..read]);
+            if body.len() > content_length {
+                return Err(HttpRequestError::bad_request("unexpected request bytes"));
+            }
         }
-        body.truncate(content_length);
 
         Ok(Self {
             method: method.to_string(),
@@ -241,13 +264,49 @@ impl HttpRequest {
     }
 }
 
-fn content_length(headers: &HashMap<String, String>) -> Result<usize, DaemonError> {
+#[derive(Debug)]
+struct HttpRequestError {
+    status: &'static str,
+    message: &'static str,
+}
+
+impl HttpRequestError {
+    const fn bad_request(message: &'static str) -> Self {
+        Self {
+            status: "400 Bad Request",
+            message,
+        }
+    }
+
+    const fn payload_too_large(message: &'static str) -> Self {
+        Self {
+            status: "413 Payload Too Large",
+            message,
+        }
+    }
+
+    const fn status(&self) -> &'static str {
+        self.status
+    }
+
+    const fn message(&self) -> &'static str {
+        self.message
+    }
+}
+
+impl From<std::io::Error> for HttpRequestError {
+    fn from(_source: std::io::Error) -> Self {
+        Self::bad_request("invalid request")
+    }
+}
+
+fn content_length(headers: &HashMap<String, String>) -> Result<usize, HttpRequestError> {
     let Some(value) = headers.get("content-length") else {
         return Ok(0);
     };
     value
         .parse::<usize>()
-        .map_err(|_| DaemonError::Protocol("invalid content length".to_string()))
+        .map_err(|_| HttpRequestError::bad_request("invalid content length"))
 }
 
 fn normalized_path(path: &str) -> String {
@@ -329,6 +388,11 @@ async fn start_provider_auth_attempt(
     state: &WebState,
     request: &HttpRequest,
 ) -> Result<(), DaemonError> {
+    if let Err(error) = validate_json_post_request(request) {
+        write_json_error(stream, error.status(), error.message()).await?;
+        return Ok(());
+    }
+
     let body = match parse_json_body::<StartProviderAuthAttemptRequest>(request) {
         Ok(body) => body,
         Err(_) => {
@@ -361,8 +425,8 @@ async fn start_provider_auth_attempt(
         return Ok(());
     };
 
-    if account.provider_kind != body.provider_kind {
-        write_json_error(stream, "400 Bad Request", "provider account mismatch").await?;
+    if let Err(error) = validate_provider_auth_account(&account, &body.provider_kind, body.method) {
+        write_json_error(stream, error.status(), error.message()).await?;
         return Ok(());
     }
 
@@ -399,7 +463,21 @@ async fn poll_provider_auth_attempt(
     attempt_id: &str,
 ) -> Result<(), DaemonError> {
     match state.provider_auth.poll_attempt(attempt_id).await {
-        Ok(Some(attempt)) => write_json(stream, "200 OK", &attempt).await?,
+        Ok(Some(attempt)) => {
+            if persist_provider_account_status_from_attempt(&state.memory_repository, &attempt)
+                .await
+                .is_err()
+            {
+                write_json_error(
+                    stream,
+                    "500 Internal Server Error",
+                    "provider auth status unavailable",
+                )
+                .await?;
+                return Ok(());
+            }
+            write_json(stream, "200 OK", &attempt).await?;
+        }
         Ok(None) => {
             write_json_error(stream, "404 Not Found", "provider auth attempt not found").await?;
         }
@@ -418,10 +496,30 @@ async fn poll_provider_auth_attempt(
 async fn cancel_provider_auth_attempt(
     stream: &mut TcpStream,
     state: &WebState,
+    request: &HttpRequest,
     attempt_id: &str,
 ) -> Result<(), DaemonError> {
+    if let Err(error) = validate_mutation_request(request) {
+        write_json_error(stream, error.status(), error.message()).await?;
+        return Ok(());
+    }
+
     match state.provider_auth.cancel_attempt(attempt_id).await {
-        Ok(Some(_)) => write_json(stream, "200 OK", &serde_json::json!({ "ok": true })).await?,
+        Ok(Some(attempt)) => {
+            if persist_provider_account_status_from_attempt(&state.memory_repository, &attempt)
+                .await
+                .is_err()
+            {
+                write_json_error(
+                    stream,
+                    "500 Internal Server Error",
+                    "provider auth status unavailable",
+                )
+                .await?;
+                return Ok(());
+            }
+            write_json(stream, "200 OK", &serde_json::json!({ "ok": true })).await?;
+        }
         Ok(None) => {
             write_json_error(stream, "404 Not Found", "provider auth attempt not found").await?;
         }
@@ -447,6 +545,124 @@ fn provider_auth_attempt_cancel_id(path: &str) -> Option<&str> {
         .strip_prefix("/api/provider-auth/attempts/")?
         .strip_suffix("/cancel")?;
     (!attempt_id.is_empty() && !attempt_id.contains('/')).then_some(attempt_id)
+}
+
+fn validate_provider_auth_account(
+    account: &crate::ProviderAccountRecord,
+    provider_kind: &str,
+    method: crate::ProviderAuthMethod,
+) -> Result<(), HttpRequestError> {
+    if account.provider_kind != provider_kind {
+        return Err(HttpRequestError::bad_request("provider account mismatch"));
+    }
+    if !account.is_active {
+        return Err(HttpRequestError::bad_request("provider account not found"));
+    }
+    if account.auth_method != method {
+        return Err(HttpRequestError::bad_request(
+            "provider account auth method mismatch",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_json_post_request(request: &HttpRequest) -> Result<(), HttpRequestError> {
+    validate_mutation_request(request)?;
+    let content_type = request.header("content-type").unwrap_or_default();
+    let content_type = content_type.split(';').next().unwrap_or_default().trim();
+    if !content_type.eq_ignore_ascii_case("application/json") {
+        return Err(HttpRequestError::bad_request("expected JSON request"));
+    }
+    Ok(())
+}
+
+fn validate_mutation_request(request: &HttpRequest) -> Result<(), HttpRequestError> {
+    let Some(origin) = request.header("origin") else {
+        return Ok(());
+    };
+    let host = request.header("host").unwrap_or_default();
+    if origin_matches_host(origin, host) {
+        Ok(())
+    } else {
+        Err(HttpRequestError::bad_request("invalid request origin"))
+    }
+}
+
+// Browser POSTs should be same-origin. Keep this intentionally small for the
+// local daemon: exact host matches are accepted, as are localhost aliases with
+// the same port.
+fn origin_matches_host(origin: &str, host: &str) -> bool {
+    let Some(origin_host) = origin_authority(origin) else {
+        return false;
+    };
+    origin_host.eq_ignore_ascii_case(host) || local_authorities_match(origin_host, host)
+}
+
+fn origin_authority(origin: &str) -> Option<&str> {
+    let authority = origin
+        .strip_prefix("http://")
+        .or_else(|| origin.strip_prefix("https://"))?;
+    Some(authority.split('/').next().unwrap_or_default())
+}
+
+fn local_authorities_match(left: &str, right: &str) -> bool {
+    let (left_host, left_port) = split_authority(left);
+    let (right_host, right_port) = split_authority(right);
+    left_port == right_port && is_local_host(left_host) && is_local_host(right_host)
+}
+
+fn split_authority(authority: &str) -> (&str, Option<&str>) {
+    authority
+        .rsplit_once(':')
+        .map_or((authority, None), |(host, port)| (host, Some(port)))
+}
+
+fn is_local_host(host: &str) -> bool {
+    matches!(host, "localhost" | "127.0.0.1" | "[::1]" | "::1")
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ProviderAccountStatusUpdate {
+    status: crate::ProviderAccountStatus,
+    error_code: Option<String>,
+    error_message: Option<String>,
+}
+
+fn provider_account_status_update_from_attempt(
+    attempt: &ProviderAuthAttemptView,
+) -> Option<ProviderAccountStatusUpdate> {
+    match attempt.status {
+        ProviderAuthAttemptStatus::Completed => Some(ProviderAccountStatusUpdate {
+            status: crate::ProviderAccountStatus::Authenticated,
+            error_code: None,
+            error_message: None,
+        }),
+        ProviderAuthAttemptStatus::Failed
+        | ProviderAuthAttemptStatus::Expired
+        | ProviderAuthAttemptStatus::Cancelled => Some(ProviderAccountStatusUpdate {
+            status: crate::ProviderAccountStatus::Unauthenticated,
+            error_code: attempt.error_code.clone(),
+            error_message: attempt.error_message.clone(),
+        }),
+        ProviderAuthAttemptStatus::Starting | ProviderAuthAttemptStatus::WaitingForUser => None,
+    }
+}
+
+async fn persist_provider_account_status_from_attempt(
+    repo: &PostgresMemoryRepository,
+    attempt: &ProviderAuthAttemptView,
+) -> Result<(), DaemonError> {
+    let Some(update) = provider_account_status_update_from_attempt(attempt) else {
+        return Ok(());
+    };
+    repo.update_provider_account_status(
+        &attempt.provider_account_id,
+        update.status,
+        update.error_code.as_deref(),
+        update.error_message.as_deref(),
+    )
+    .await?;
+    Ok(())
 }
 
 async fn upgrade_websocket(
@@ -913,6 +1129,7 @@ mod tests {
         memory_persistence::{
             ConversationItemKind, ConversationItemRecord, ConversationItemStatus,
         },
+        provider_auth::ProviderAuthAttemptView,
     };
     use serde_json::json;
 
@@ -941,6 +1158,258 @@ mod tests {
         assert_eq!(request.method, "POST");
         assert_eq!(request.path, "/api/provider-auth/attempts");
         assert_eq!(request.body, br#"{"hello":"from-body"}"#);
+    }
+
+    #[tokio::test]
+    async fn http_request_rejects_oversized_body() {
+        let error = read_test_request_error(format!(
+            "POST /api/provider-auth/attempts HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n",
+            MAX_API_BODY_BYTES + 1
+        )
+        .as_bytes())
+        .await;
+
+        assert_eq!(error.status(), "413 Payload Too Large");
+        assert_eq!(error.message(), "request body too large");
+    }
+
+    #[tokio::test]
+    async fn http_request_rejects_invalid_content_length() {
+        let error = read_test_request_error(
+            b"POST /api/provider-auth/attempts HTTP/1.1\r\nHost: localhost\r\nContent-Length: nope\r\n\r\n",
+        )
+        .await;
+
+        assert_eq!(error.status(), "400 Bad Request");
+        assert_eq!(error.message(), "invalid content length");
+    }
+
+    #[tokio::test]
+    async fn http_request_rejects_duplicate_content_length() {
+        let error = read_test_request_error(
+            b"POST /api/provider-auth/attempts HTTP/1.1\r\nHost: localhost\r\nContent-Length: 2\r\nContent-Length: 2\r\n\r\n{}",
+        )
+        .await;
+
+        assert_eq!(error.status(), "400 Bad Request");
+        assert_eq!(error.message(), "duplicate content length");
+    }
+
+    #[tokio::test]
+    async fn http_request_rejects_surplus_body_bytes() {
+        let error = read_test_request_error(
+            b"POST /api/provider-auth/attempts HTTP/1.1\r\nHost: localhost\r\nContent-Length: 2\r\n\r\n{}extra",
+        )
+        .await;
+
+        assert_eq!(error.status(), "400 Bad Request");
+        assert_eq!(error.message(), "unexpected request bytes");
+    }
+
+    #[tokio::test]
+    async fn http_request_times_out_waiting_for_body() {
+        let listener = TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .expect("bind listener");
+        let address = listener.local_addr().expect("listener address");
+
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.expect("accept");
+            HttpRequest::read_from(&mut stream)
+                .await
+                .expect_err("request should time out")
+        });
+
+        let mut client = TcpStream::connect(address).await.expect("connect client");
+        client
+            .write_all(
+                b"POST /api/provider-auth/attempts HTTP/1.1\r\nHost: localhost\r\nContent-Length: 4\r\n\r\n{}",
+            )
+            .await
+            .expect("write partial request");
+        client.flush().await.expect("flush request");
+
+        let error = server.await.expect("server task");
+        assert_eq!(error.status(), "400 Bad Request");
+        assert_eq!(error.message(), "request body timed out");
+    }
+
+    #[test]
+    fn start_auth_requires_local_json_post_context() {
+        let mut request = test_request("POST", "/api/provider-auth/attempts");
+        request
+            .headers
+            .insert("host".to_string(), "localhost:8765".to_string());
+        request.headers.insert(
+            "content-type".to_string(),
+            "application/json; charset=utf-8".to_string(),
+        );
+        request
+            .headers
+            .insert("origin".to_string(), "http://localhost:8765".to_string());
+
+        assert!(validate_json_post_request(&request).is_ok());
+
+        request
+            .headers
+            .insert("content-type".to_string(), "text/plain".to_string());
+        assert_eq!(
+            validate_json_post_request(&request).unwrap_err().message(),
+            "expected JSON request"
+        );
+
+        request
+            .headers
+            .insert("content-type".to_string(), "application/json".to_string());
+        request
+            .headers
+            .insert("origin".to_string(), "https://example.com".to_string());
+        assert_eq!(
+            validate_json_post_request(&request).unwrap_err().message(),
+            "invalid request origin"
+        );
+    }
+
+    #[test]
+    fn provider_auth_account_validation_checks_active_kind_and_method() {
+        let mut account = test_provider_account();
+        assert!(
+            validate_provider_auth_account(
+                &account,
+                "codex",
+                crate::ProviderAuthMethod::OauthDeviceCode
+            )
+            .is_ok()
+        );
+
+        account.provider_kind = "other".to_string();
+        assert_eq!(
+            validate_provider_auth_account(
+                &account,
+                "codex",
+                crate::ProviderAuthMethod::OauthDeviceCode
+            )
+            .unwrap_err()
+            .message(),
+            "provider account mismatch"
+        );
+
+        account = test_provider_account();
+        account.is_active = false;
+        assert_eq!(
+            validate_provider_auth_account(
+                &account,
+                "codex",
+                crate::ProviderAuthMethod::OauthDeviceCode
+            )
+            .unwrap_err()
+            .message(),
+            "provider account not found"
+        );
+
+        account = test_provider_account();
+        account.auth_method = crate::ProviderAuthMethod::ExternalManual;
+        assert_eq!(
+            validate_provider_auth_account(
+                &account,
+                "codex",
+                crate::ProviderAuthMethod::OauthDeviceCode
+            )
+            .unwrap_err()
+            .message(),
+            "provider account auth method mismatch"
+        );
+    }
+
+    #[test]
+    fn provider_auth_attempt_status_maps_to_safe_account_status() {
+        let mut attempt = test_provider_auth_attempt();
+        attempt.status = crate::provider_auth::ProviderAuthAttemptStatus::Completed;
+        assert_eq!(
+            provider_account_status_update_from_attempt(&attempt),
+            Some(ProviderAccountStatusUpdate {
+                status: crate::ProviderAccountStatus::Authenticated,
+                error_code: None,
+                error_message: None,
+            })
+        );
+
+        attempt.status = crate::provider_auth::ProviderAuthAttemptStatus::Failed;
+        attempt.error_code = Some("codex_login_failed".to_string());
+        attempt.error_message = Some("codex login failed".to_string());
+        assert_eq!(
+            provider_account_status_update_from_attempt(&attempt),
+            Some(ProviderAccountStatusUpdate {
+                status: crate::ProviderAccountStatus::Unauthenticated,
+                error_code: Some("codex_login_failed".to_string()),
+                error_message: Some("codex login failed".to_string()),
+            })
+        );
+
+        attempt.status = crate::provider_auth::ProviderAuthAttemptStatus::WaitingForUser;
+        assert_eq!(provider_account_status_update_from_attempt(&attempt), None);
+    }
+
+    async fn read_test_request_error(bytes: &[u8]) -> HttpRequestError {
+        let listener = TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .expect("bind listener");
+        let address = listener.local_addr().expect("listener address");
+
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.expect("accept");
+            HttpRequest::read_from(&mut stream)
+                .await
+                .expect_err("request should fail")
+        });
+
+        let mut client = TcpStream::connect(address).await.expect("connect client");
+        client.write_all(bytes).await.expect("write request");
+        client.flush().await.expect("flush request");
+
+        server.await.expect("server task")
+    }
+
+    fn test_request(method: &str, path: &str) -> HttpRequest {
+        HttpRequest {
+            method: method.to_string(),
+            path: path.to_string(),
+            headers: HashMap::new(),
+            body: Vec::new(),
+        }
+    }
+
+    fn test_provider_account() -> crate::ProviderAccountRecord {
+        crate::ProviderAccountRecord {
+            provider_account_id: "provider_account:codex:default".to_string(),
+            provider_kind: "codex".to_string(),
+            account_key: "default".to_string(),
+            display_name: "Codex".to_string(),
+            auth_method: crate::ProviderAuthMethod::OauthDeviceCode,
+            is_active: true,
+            is_default: true,
+            status: crate::ProviderAccountStatus::Unknown,
+            last_checked_at: None,
+            last_authenticated_at: None,
+            last_error_code: None,
+            last_error_message: None,
+            metadata: json!({}),
+        }
+    }
+
+    fn test_provider_auth_attempt() -> ProviderAuthAttemptView {
+        ProviderAuthAttemptView {
+            attempt_id: "provider_auth_attempt_test".to_string(),
+            provider_kind: "codex".to_string(),
+            provider_account_id: "provider_account:codex:default".to_string(),
+            method: crate::ProviderAuthMethod::OauthDeviceCode,
+            status: crate::provider_auth::ProviderAuthAttemptStatus::Starting,
+            verification_url: None,
+            user_code: None,
+            instructions: None,
+            error_code: None,
+            error_message: None,
+        }
     }
 
     #[test]

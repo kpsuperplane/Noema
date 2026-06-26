@@ -203,6 +203,7 @@ impl WebServerMessage {
 
 /// Request body for starting a provider authentication attempt.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
 pub struct StartProviderAuthAttemptRequest {
     /// Provider family, such as `codex`.
     pub provider_kind: String,
