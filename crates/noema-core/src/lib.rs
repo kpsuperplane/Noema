@@ -22,6 +22,8 @@ pub mod memory;
 pub mod memory_extraction;
 /// Durable memory repositories and Postgres migration bootstrap.
 pub mod memory_persistence;
+/// Onboarding status derived from provider account readiness.
+pub mod onboarding;
 /// Filesystem path resolution for Noema state.
 pub mod paths;
 mod postgres_memory_retrieval;
@@ -66,6 +68,9 @@ pub use memory_persistence::{
     MemorySummary, MemoryType, NewMemoryCandidate, NewMemoryParticipant, NewMemorySubject,
     NewObjectProvenanceEdge, ObjectProvenanceSource, ObjectRef, ObjectType,
     PostgresMemoryRepository, ProviderAccountRecord, ProviderAccountStatus, ProviderAuthMethod,
+};
+pub use onboarding::{
+    OnboardingStatus, OnboardingStep, OnboardingStepStatus, onboarding_status_from_account,
 };
 pub use paths::{NOEMA_HOME_ENV, NoemaPathError, NoemaPaths};
 pub use provider::{

@@ -216,6 +216,13 @@ pub fn generated_frontend_typescript() -> String {
         exported_decl::<WebConversationItem>(&config),
         exported_decl::<WebClientMessage>(&config),
         exported_decl::<WebServerMessage>(&config),
+        exported_decl::<crate::ProviderAuthMethod>(&config),
+        exported_decl::<crate::ProviderAccountStatus>(&config),
+        exported_decl::<crate::provider_auth::ProviderAuthAttemptStatus>(&config),
+        exported_decl::<crate::provider_auth::ProviderAuthAttemptView>(&config),
+        exported_decl::<crate::OnboardingStepStatus>(&config),
+        exported_decl::<crate::OnboardingStep>(&config),
+        exported_decl::<crate::OnboardingStatus>(&config),
     ];
 
     format!("{GENERATED_HEADER}{}\n", declarations.join("\n\n"))

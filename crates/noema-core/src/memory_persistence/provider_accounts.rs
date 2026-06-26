@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use ts_rs::TS;
 
 use super::{error::MemoryPersistenceError, repository::PostgresMemoryRepository};
 
@@ -20,8 +21,9 @@ type ProviderAccountRow = (
 );
 
 /// Supported provider account authentication methods.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
+#[ts(rename_all = "snake_case")]
 pub enum ProviderAuthMethod {
     /// OAuth device-code login.
     OauthDeviceCode,
@@ -45,8 +47,9 @@ impl ProviderAuthMethod {
 }
 
 /// Provider account readiness status.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
+#[ts(rename_all = "snake_case")]
 pub enum ProviderAccountStatus {
     /// Status has not been checked.
     Unknown,

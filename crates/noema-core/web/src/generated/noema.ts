@@ -171,3 +171,93 @@ client_message_id?: string, } | { "type": "error",
  * Human-readable error message.
  */
 message: string, };
+
+export type ProviderAuthMethod = "oauth_device_code" | "secret_input" | "external_manual" | "none";
+
+export type ProviderAccountStatus = "unknown" | "checking" | "authenticated" | "unauthenticated" | "unavailable";
+
+export type ProviderAuthAttemptStatus = "starting" | "waiting_for_user" | "completed" | "failed" | "expired" | "cancelled";
+
+export type ProviderAuthAttemptView = {
+/**
+ * Short-lived auth attempt id.
+ */
+attempt_id: string,
+/**
+ * Provider family, such as `codex`.
+ */
+provider_kind: string,
+/**
+ * Stable provider account id.
+ */
+provider_account_id: string,
+/**
+ * Provider account auth method.
+ */
+method: "oauth_device_code" | "secret_input" | "external_manual" | "none",
+/**
+ * Current attempt status.
+ */
+status: ProviderAuthAttemptStatus,
+/**
+ * Typed verification URL parsed from provider output.
+ */
+verification_url?: string,
+/**
+ * Typed user code parsed from provider output.
+ */
+user_code?: string,
+/**
+ * Static UI-safe instruction text.
+ */
+instructions?: string,
+/**
+ * Stable non-secret error code.
+ */
+error_code?: string,
+/**
+ * Fixed non-secret error message.
+ */
+error_message?: string, };
+
+export type OnboardingStepStatus = "complete" | "blocked";
+
+export type OnboardingStep = {
+/**
+ * Stable onboarding step id.
+ */
+id: string,
+/**
+ * Current step completion state.
+ */
+status: OnboardingStepStatus,
+/**
+ * Provider family connected by this step, such as `codex`.
+ */
+provider_kind?: string,
+/**
+ * Stable provider account id connected by this step.
+ */
+provider_account_id?: string,
+/**
+ * Provider-local account key connected by this step.
+ */
+account_key?: string,
+/**
+ * Human-readable provider account name connected by this step.
+ */
+display_name?: string,
+/**
+ * Authentication method expected for this provider account.
+ */
+auth_method?: ProviderAuthMethod, };
+
+export type OnboardingStatus = {
+/**
+ * Whether the user can proceed past onboarding.
+ */
+is_user_onboarded: boolean,
+/**
+ * Ordered onboarding steps for the frontend to render.
+ */
+steps: Array<OnboardingStep>, };
