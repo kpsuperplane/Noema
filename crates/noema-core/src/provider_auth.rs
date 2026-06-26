@@ -8,10 +8,14 @@ use std::{
 };
 
 use serde::{Deserialize, Serialize};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, oneshot};
 use ts_rs::TS;
 
 use crate::ProviderError;
+
+/// Default maximum lifetime for a provider auth attempt.
+pub const DEFAULT_PROVIDER_AUTH_ATTEMPT_TIMEOUT: std::time::Duration =
+    std::time::Duration::from_secs(5 * 60);
 
 /// Short-lived provider auth attempt status.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -41,6 +45,8 @@ pub struct CodexDeviceAuthRequest {
     pub account_home: PathBuf,
     /// Command used to invoke Codex.
     pub codex_command: String,
+    /// Optional attempt timeout override. Defaults to 5 minutes.
+    pub attempt_timeout: Option<std::time::Duration>,
 }
 
 /// Safe provider auth attempt state returned to the UI.
@@ -84,9 +90,24 @@ pub struct ProviderAuthAttemptView {
 }
 
 /// In-memory manager for short-lived provider authentication attempts.
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Default)]
 pub struct ProviderAuthManager {
     attempts: Arc<Mutex<HashMap<String, ProviderAuthAttemptView>>>,
+    runtimes: Arc<Mutex<HashMap<String, ProviderAuthAttemptRuntime>>>,
+}
+
+pub(crate) struct ProviderAuthAttemptRuntime {
+    cancel: oneshot::Sender<()>,
+}
+
+impl ProviderAuthAttemptRuntime {
+    pub(crate) fn new(cancel: oneshot::Sender<()>) -> Self {
+        Self { cancel }
+    }
+
+    fn cancel(self) {
+        let _ = self.cancel.send(());
+    }
 }
 
 impl ProviderAuthManager {
@@ -133,18 +154,45 @@ impl ProviderAuthManager {
         &self,
         attempt_id: &str,
     ) -> Result<Option<ProviderAuthAttemptView>, ProviderError> {
-        Ok(self
+        let status = self
             .update_attempt(attempt_id, |view| {
-                view.status = ProviderAuthAttemptStatus::Cancelled;
-                view.error_code = None;
-                view.error_message = None;
+                if !is_terminal_status(view.status) {
+                    view.status = ProviderAuthAttemptStatus::Cancelled;
+                    view.error_code = None;
+                    view.error_message = None;
+                }
             })
-            .await)
+            .await;
+
+        if status.is_some()
+            && let Some(runtime) = self.remove_attempt_runtime(attempt_id).await
+        {
+            runtime.cancel();
+        }
+
+        Ok(status)
     }
 
     pub(crate) async fn upsert_attempt(&self, attempt: ProviderAuthAttemptView) {
         let mut attempts = self.attempts.lock().await;
         attempts.insert(attempt.attempt_id.clone(), attempt);
+    }
+
+    pub(crate) async fn upsert_attempt_runtime(
+        &self,
+        attempt_id: String,
+        runtime: ProviderAuthAttemptRuntime,
+    ) {
+        let mut runtimes = self.runtimes.lock().await;
+        runtimes.insert(attempt_id, runtime);
+    }
+
+    pub(crate) async fn remove_attempt_runtime(
+        &self,
+        attempt_id: &str,
+    ) -> Option<ProviderAuthAttemptRuntime> {
+        let mut runtimes = self.runtimes.lock().await;
+        runtimes.remove(attempt_id)
     }
 
     pub(crate) async fn update_attempt(
@@ -157,6 +205,16 @@ impl ProviderAuthManager {
         update(attempt);
         Some(attempt.clone())
     }
+}
+
+pub(crate) fn is_terminal_status(status: ProviderAuthAttemptStatus) -> bool {
+    matches!(
+        status,
+        ProviderAuthAttemptStatus::Completed
+            | ProviderAuthAttemptStatus::Failed
+            | ProviderAuthAttemptStatus::Expired
+            | ProviderAuthAttemptStatus::Cancelled
+    )
 }
 
 /// Prepare a Codex account home for portable file-backed credentials.
@@ -201,7 +259,7 @@ fn create_private_account_dir_all(account_home: &Path) -> io::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
+    use std::{fs, time::Duration};
 
     use tempfile::TempDir;
 
@@ -264,19 +322,16 @@ mod tests {
 
         let manager = ProviderAuthManager::new();
         let attempt = manager
-            .start_codex_device_code(CodexDeviceAuthRequest {
-                provider_account_id: "provider_account:codex:default".to_string(),
-                account_home: dir.path().join("providers/codex/default"),
-                codex_command: fake.to_string_lossy().to_string(),
-            })
+            .start_codex_device_code(codex_request(&dir, &fake))
             .await
             .expect("start auth");
 
-        let status = manager
-            .poll_attempt(&attempt.attempt_id)
-            .await
-            .expect("poll attempt")
-            .expect("attempt exists");
+        let status = poll_until_status(
+            &manager,
+            &attempt.attempt_id,
+            ProviderAuthAttemptStatus::WaitingForUser,
+        )
+        .await;
 
         assert_eq!(status.status, ProviderAuthAttemptStatus::WaitingForUser);
         assert_eq!(
@@ -299,21 +354,16 @@ mod tests {
 
         let manager = ProviderAuthManager::new();
         let attempt = manager
-            .start_codex_device_code(CodexDeviceAuthRequest {
-                provider_account_id: "provider_account:codex:default".to_string(),
-                account_home: dir.path().join("providers/codex/default"),
-                codex_command: fake.to_string_lossy().to_string(),
-            })
+            .start_codex_device_code(codex_request(&dir, &fake))
             .await
             .expect("start auth");
 
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-
-        let status = manager
-            .poll_attempt(&attempt.attempt_id)
-            .await
-            .expect("poll attempt")
-            .expect("attempt exists");
+        let status = poll_until_status(
+            &manager,
+            &attempt.attempt_id,
+            ProviderAuthAttemptStatus::Completed,
+        )
+        .await;
         assert_eq!(status.status, ProviderAuthAttemptStatus::Completed);
     }
 
@@ -330,19 +380,16 @@ mod tests {
 
         let manager = ProviderAuthManager::new();
         let attempt = manager
-            .start_codex_device_code(CodexDeviceAuthRequest {
-                provider_account_id: "provider_account:codex:default".to_string(),
-                account_home: dir.path().join("providers/codex/default"),
-                codex_command: fake.to_string_lossy().to_string(),
-            })
+            .start_codex_device_code(codex_request(&dir, &fake))
             .await
             .expect("start auth");
 
-        let status = manager
-            .poll_attempt(&attempt.attempt_id)
-            .await
-            .expect("poll attempt")
-            .expect("attempt exists");
+        let status = poll_until_status(
+            &manager,
+            &attempt.attempt_id,
+            ProviderAuthAttemptStatus::WaitingForUser,
+        )
+        .await;
 
         assert_eq!(
             status.verification_url.as_deref(),
@@ -357,6 +404,36 @@ mod tests {
         assert!(!view.contains("sk-secret"));
         assert!(!view.contains("auth.json"));
         assert!(!view.contains("/providers/"));
+        assert!(!view.contains("OPENAI_API_KEY"));
+    }
+
+    #[tokio::test]
+    async fn auth_manager_does_not_treat_secret_token_as_user_code() {
+        let dir = TempDir::new().expect("temp dir");
+        let fake = dir.path().join("fake-codex");
+        fs::write(
+            &fake,
+            "#!/bin/sh\nprintf 'Open https://example.com/device and enter OPENAI_API_KEY=sk-secret\\n'\nexit 0\n",
+        )
+        .expect("fake codex");
+        make_executable(&fake);
+
+        let manager = ProviderAuthManager::new();
+        let attempt = manager
+            .start_codex_device_code(codex_request(&dir, &fake))
+            .await
+            .expect("start auth");
+
+        let status = poll_until_status(
+            &manager,
+            &attempt.attempt_id,
+            ProviderAuthAttemptStatus::Completed,
+        )
+        .await;
+
+        assert_eq!(status.user_code, None);
+        let view = serde_json::to_string(&status).expect("view json");
+        assert!(!view.contains("sk-secret"));
         assert!(!view.contains("OPENAI_API_KEY"));
     }
 
@@ -384,6 +461,194 @@ mod tests {
             .expect("attempt exists");
 
         assert_eq!(status.status, ProviderAuthAttemptStatus::Cancelled);
+    }
+
+    #[tokio::test]
+    async fn auth_manager_cancel_kills_running_codex_attempt() {
+        let dir = TempDir::new().expect("temp dir");
+        let fake = dir.path().join("fake-codex");
+        let pid_path = dir.path().join("fake-codex.pid");
+        fs::write(
+            &fake,
+            format!(
+                "#!/bin/sh\nprintf '%s\\n' \"$$\" > '{}'\nprintf 'Open https://example.com/device and enter ABCD-EFGH\\n'\nsleep 30\nexit 0\n",
+                pid_path.display()
+            ),
+        )
+        .expect("fake codex");
+        make_executable(&fake);
+
+        let manager = ProviderAuthManager::new();
+        let attempt = manager
+            .start_codex_device_code(codex_request(&dir, &fake))
+            .await
+            .expect("start auth");
+        poll_until_status(
+            &manager,
+            &attempt.attempt_id,
+            ProviderAuthAttemptStatus::WaitingForUser,
+        )
+        .await;
+
+        let status = manager
+            .cancel_attempt(&attempt.attempt_id)
+            .await
+            .expect("cancel")
+            .expect("attempt exists");
+
+        assert_eq!(status.status, ProviderAuthAttemptStatus::Cancelled);
+        let pid = wait_for_pid(&pid_path).await;
+        poll_until_process_exits(pid).await;
+        let status = poll_until_status(
+            &manager,
+            &attempt.attempt_id,
+            ProviderAuthAttemptStatus::Cancelled,
+        )
+        .await;
+        assert_eq!(status.status, ProviderAuthAttemptStatus::Cancelled);
+    }
+
+    #[tokio::test]
+    async fn auth_manager_expires_and_kills_timed_out_attempt() {
+        let dir = TempDir::new().expect("temp dir");
+        let fake = dir.path().join("fake-codex");
+        let pid_path = dir.path().join("fake-codex.pid");
+        fs::write(
+            &fake,
+            format!(
+                "#!/bin/sh\nprintf '%s\\n' \"$$\" > '{}'\nprintf 'Open https://example.com/device and enter ABCD-EFGH\\n'\nsleep 30\nexit 0\n",
+                pid_path.display()
+            ),
+        )
+        .expect("fake codex");
+        make_executable(&fake);
+
+        let manager = ProviderAuthManager::new();
+        let mut request = codex_request(&dir, &fake);
+        request.attempt_timeout = Some(Duration::from_secs(1));
+        let attempt = manager
+            .start_codex_device_code(request)
+            .await
+            .expect("start auth");
+        let pid = wait_for_pid(&pid_path).await;
+
+        let status = poll_until_status(
+            &manager,
+            &attempt.attempt_id,
+            ProviderAuthAttemptStatus::Expired,
+        )
+        .await;
+
+        assert_eq!(status.error_code.as_deref(), Some("provider_auth_expired"));
+        assert_eq!(
+            status.error_message.as_deref(),
+            Some("provider auth expired")
+        );
+        poll_until_process_exits(pid).await;
+    }
+
+    #[tokio::test]
+    async fn auth_manager_nonzero_exit_uses_fixed_safe_failure() {
+        let dir = TempDir::new().expect("temp dir");
+        let fake = dir.path().join("fake-codex");
+        fs::write(
+            &fake,
+            "#!/bin/sh\nprintf 'Open https://example.com/device and enter ABCD-EFGH\\n'\nprintf 'OPENAI_API_KEY=sk-secret failed at /tmp/noema/providers/codex/default/auth.json\\n' >&2\nexit 42\n",
+        )
+        .expect("fake codex");
+        make_executable(&fake);
+
+        let manager = ProviderAuthManager::new();
+        let attempt = manager
+            .start_codex_device_code(codex_request(&dir, &fake))
+            .await
+            .expect("start auth");
+
+        let status = poll_until_status(
+            &manager,
+            &attempt.attempt_id,
+            ProviderAuthAttemptStatus::Failed,
+        )
+        .await;
+
+        assert_eq!(status.error_code.as_deref(), Some("codex_login_failed"));
+        assert_eq!(status.error_message.as_deref(), Some("codex login failed"));
+        let view = serde_json::to_string(&status).expect("view json");
+        assert!(!view.contains("sk-secret"));
+        assert!(!view.contains("auth.json"));
+        assert!(!view.contains("/providers/"));
+        assert!(!view.contains("OPENAI_API_KEY"));
+        assert!(!view.contains("42"));
+    }
+
+    fn codex_request(dir: &TempDir, fake: &std::path::Path) -> CodexDeviceAuthRequest {
+        CodexDeviceAuthRequest {
+            provider_account_id: "provider_account:codex:default".to_string(),
+            account_home: dir.path().join("providers/codex/default"),
+            codex_command: fake.to_string_lossy().to_string(),
+            attempt_timeout: None,
+        }
+    }
+
+    async fn poll_until_status(
+        manager: &ProviderAuthManager,
+        attempt_id: &str,
+        expected: ProviderAuthAttemptStatus,
+    ) -> ProviderAuthAttemptView {
+        tokio::time::timeout(Duration::from_secs(3), async {
+            loop {
+                let status = manager
+                    .poll_attempt(attempt_id)
+                    .await
+                    .expect("poll attempt")
+                    .expect("attempt exists");
+                if status.status == expected {
+                    return status;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("status before timeout")
+    }
+
+    async fn wait_for_pid(path: &std::path::Path) -> u32 {
+        tokio::time::timeout(Duration::from_secs(3), async {
+            loop {
+                if let Ok(pid) = std::fs::read_to_string(path)
+                    && let Ok(pid) = pid.trim().parse::<u32>()
+                {
+                    return pid;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("pid before timeout")
+    }
+
+    async fn poll_until_process_exits(pid: u32) {
+        tokio::time::timeout(Duration::from_secs(3), async {
+            loop {
+                if !process_is_running(pid) {
+                    return;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("process exit before timeout");
+    }
+
+    #[cfg(unix)]
+    fn process_is_running(pid: u32) -> bool {
+        std::process::Command::new("kill")
+            .arg("-0")
+            .arg(pid.to_string())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_ok_and(|status| status.success())
     }
 
     #[cfg(unix)]

@@ -10,20 +10,24 @@ use std::{
 use tokio::{
     io::{AsyncBufReadExt, AsyncRead, BufReader},
     process::Command,
+    sync::oneshot,
     time,
 };
 
 use crate::{
     ProviderAuthMethod, ProviderError,
     provider_auth::{
-        CodexDeviceAuthRequest, ProviderAuthAttemptStatus, ProviderAuthAttemptView,
-        ProviderAuthManager, ensure_codex_account_home,
+        CodexDeviceAuthRequest, DEFAULT_PROVIDER_AUTH_ATTEMPT_TIMEOUT, ProviderAuthAttemptRuntime,
+        ProviderAuthAttemptStatus, ProviderAuthAttemptView, ProviderAuthManager,
+        ensure_codex_account_home, is_terminal_status,
     },
 };
 
 const CODEX_PROVIDER: &str = "codex";
 const LOGIN_FAILED_MESSAGE: &str = "codex login failed";
 const LOGIN_INSTRUCTIONS: &str = "Complete the login in your browser.";
+const AUTH_EXPIRED_CODE: &str = "provider_auth_expired";
+const AUTH_EXPIRED_MESSAGE: &str = "provider auth expired";
 const INITIAL_PROGRESS_TIMEOUT: Duration = Duration::from_secs(2);
 
 static NEXT_ATTEMPT_ID: AtomicU64 = AtomicU64::new(1);
@@ -32,6 +36,10 @@ pub(crate) async fn start_codex_device_auth(
     manager: ProviderAuthManager,
     request: CodexDeviceAuthRequest,
 ) -> Result<ProviderAuthAttemptView, ProviderError> {
+    let attempt_timeout = request
+        .attempt_timeout
+        .unwrap_or(DEFAULT_PROVIDER_AUTH_ATTEMPT_TIMEOUT);
+
     ensure_codex_account_home(&request.account_home).map_err(|_| {
         ProviderError::ProviderUnavailable {
             provider: CODEX_PROVIDER.to_string(),
@@ -78,49 +86,110 @@ pub(crate) async fn start_codex_device_auth(
     manager.upsert_attempt(attempt.clone()).await;
 
     let attempt_id = attempt.attempt_id.clone();
+    let (cancel_sender, cancel_receiver) = oneshot::channel();
+    manager
+        .upsert_attempt_runtime(
+            attempt_id.clone(),
+            ProviderAuthAttemptRuntime::new(cancel_sender),
+        )
+        .await;
+
     let task_manager = manager.clone();
     tokio::spawn(async move {
-        let stdout_lines = read_device_auth_lines(stdout, task_manager.clone(), attempt_id.clone());
-        let stderr_lines = read_device_auth_lines(stderr, task_manager.clone(), attempt_id.clone());
-        let (_, _, wait_result) = tokio::join!(stdout_lines, stderr_lines, child.wait());
+        let stdout_lines = tokio::spawn(read_device_auth_lines(
+            stdout,
+            task_manager.clone(),
+            attempt_id.clone(),
+        ));
+        let stderr_lines = tokio::spawn(read_device_auth_lines(
+            stderr,
+            task_manager.clone(),
+            attempt_id.clone(),
+        ));
 
-        match wait_result {
-            Ok(status) if status.success() => {
+        let outcome = tokio::select! {
+            wait_result = child.wait() => CodexAuthRuntimeOutcome::ChildExited(wait_result),
+            _ = cancel_receiver => CodexAuthRuntimeOutcome::Cancelled,
+            () = time::sleep(attempt_timeout) => CodexAuthRuntimeOutcome::Expired,
+        };
+
+        match outcome {
+            CodexAuthRuntimeOutcome::ChildExited(wait_result) => {
+                let _ = stdout_lines.await;
+                let _ = stderr_lines.await;
+                match wait_result {
+                    Ok(status) if status.success() => {
+                        mark_terminal(
+                            &task_manager,
+                            &attempt_id,
+                            ProviderAuthAttemptStatus::Completed,
+                            None,
+                            None,
+                        )
+                        .await;
+                    }
+                    Ok(_) => {
+                        mark_terminal(
+                            &task_manager,
+                            &attempt_id,
+                            ProviderAuthAttemptStatus::Failed,
+                            Some("codex_login_failed"),
+                            Some(LOGIN_FAILED_MESSAGE),
+                        )
+                        .await;
+                    }
+                    Err(_) => {
+                        mark_terminal(
+                            &task_manager,
+                            &attempt_id,
+                            ProviderAuthAttemptStatus::Failed,
+                            Some("codex_login_wait_failed"),
+                            Some(LOGIN_FAILED_MESSAGE),
+                        )
+                        .await;
+                    }
+                }
+            }
+            CodexAuthRuntimeOutcome::Cancelled => {
+                stdout_lines.abort();
+                stderr_lines.abort();
+                let _ = child.kill().await;
                 mark_terminal(
                     &task_manager,
                     &attempt_id,
-                    ProviderAuthAttemptStatus::Completed,
+                    ProviderAuthAttemptStatus::Cancelled,
                     None,
                     None,
                 )
                 .await;
             }
-            Ok(_) => {
+            CodexAuthRuntimeOutcome::Expired => {
+                stdout_lines.abort();
+                stderr_lines.abort();
+                let _ = child.kill().await;
                 mark_terminal(
                     &task_manager,
                     &attempt_id,
-                    ProviderAuthAttemptStatus::Failed,
-                    Some("codex_login_failed"),
-                    Some(LOGIN_FAILED_MESSAGE),
-                )
-                .await;
-            }
-            Err(_) => {
-                mark_terminal(
-                    &task_manager,
-                    &attempt_id,
-                    ProviderAuthAttemptStatus::Failed,
-                    Some("codex_login_wait_failed"),
-                    Some(LOGIN_FAILED_MESSAGE),
+                    ProviderAuthAttemptStatus::Expired,
+                    Some(AUTH_EXPIRED_CODE),
+                    Some(AUTH_EXPIRED_MESSAGE),
                 )
                 .await;
             }
         }
+
+        task_manager.remove_attempt_runtime(&attempt_id).await;
     });
 
     Ok(wait_for_initial_progress(&manager, &attempt.attempt_id)
         .await
         .unwrap_or(attempt))
+}
+
+enum CodexAuthRuntimeOutcome {
+    ChildExited(std::io::Result<std::process::ExitStatus>),
+    Cancelled,
+    Expired,
 }
 
 async fn read_device_auth_lines<R>(reader: R, manager: ProviderAuthManager, attempt_id: String)
@@ -132,7 +201,7 @@ where
         if let Some(info) = parse_device_auth_line(&line) {
             manager
                 .update_attempt(&attempt_id, |view| {
-                    if view.status != ProviderAuthAttemptStatus::Cancelled {
+                    if !is_terminal_status(view.status) {
                         view.status = ProviderAuthAttemptStatus::WaitingForUser;
                         view.verification_url = Some(info.verification_url);
                         view.user_code = Some(info.user_code);
@@ -155,10 +224,7 @@ async fn mark_terminal(
 ) {
     manager
         .update_attempt(attempt_id, |view| {
-            if !matches!(
-                view.status,
-                ProviderAuthAttemptStatus::Cancelled | ProviderAuthAttemptStatus::Expired
-            ) {
+            if !is_terminal_status(view.status) {
                 view.status = status;
                 view.error_code = error_code.map(str::to_string);
                 view.error_message = error_message.map(str::to_string);
@@ -202,7 +268,7 @@ struct CodexDeviceAuthInfo {
 fn parse_device_auth_line(line: &str) -> Option<CodexDeviceAuthInfo> {
     let verification_url = line.split_whitespace().find_map(|part| {
         let part = part.trim_matches(|ch: char| matches!(ch, '.' | ',' | ';' | ':' | ')'));
-        (part.starts_with("https://") || part.starts_with("http://")).then(|| part.to_string())
+        part.starts_with("https://").then(|| part.to_string())
     })?;
 
     let words = line.split_whitespace().collect::<Vec<_>>();
@@ -213,13 +279,27 @@ fn parse_device_auth_line(line: &str) -> Option<CodexDeviceAuthInfo> {
         .get(enter_index + 1)?
         .trim_matches(|ch: char| matches!(ch, '.' | ',' | ';' | ':' | ')' | '('));
 
-    if user_code.is_empty() {
+    if !is_safe_device_code(user_code) {
         return None;
     }
 
     Some(CodexDeviceAuthInfo {
         verification_url,
         user_code: user_code.to_string(),
+    })
+}
+
+fn is_safe_device_code(value: &str) -> bool {
+    let len = value.len();
+    if !(5..=64).contains(&len) || !value.contains('-') {
+        return false;
+    }
+
+    value.split('-').all(|group| {
+        !group.is_empty()
+            && group
+                .bytes()
+                .all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit())
     })
 }
 
