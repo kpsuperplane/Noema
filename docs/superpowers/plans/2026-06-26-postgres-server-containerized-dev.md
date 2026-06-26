@@ -130,7 +130,7 @@ services:
     ports:
       - "127.0.0.1:5432:5432"
     volumes:
-      - ${NOEMA_HOME:-.noema-dev}:/noema
+      - ${NOEMA_HOME:-${HOME}/.noema}:/noema
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U noema -d noema"]
       interval: 2s
@@ -152,7 +152,7 @@ services:
       - cargo-registry:/usr/local/cargo/registry
       - cargo-git:/usr/local/cargo/git
       - target:/workspace/target
-      - ${NOEMA_HOME:-.noema-dev}:/noema
+      - ${NOEMA_HOME:-${HOME}/.noema}:/noema
     ports:
       - "127.0.0.1:3737:3737"
     depends_on:
@@ -204,14 +204,16 @@ Create `.env.example`:
 ```dotenv
 NOEMA_DATABASE_URL=postgres://noema:noema@localhost:5432/noema
 NOEMA_TEST_DATABASE_URL=postgres://noema:noema@localhost:5432/noema_test
-NOEMA_HOME=.noema-dev
+NOEMA_HOME=${HOME}/.noema
 NOEMA_OPENAI__API_KEY=
 ```
 
 `NOEMA_HOME` is a host path for the complete local Noema home. Compose mounts
 it into containers at `/noema`; Postgres stores its physical database cluster at
 `/noema/db/postgres`, and the Noema server stores object-owned files under the
-same mounted home.
+same mounted home. The default host path is `${HOME}/.noema`, so the physical
+Postgres files live at `${HOME}/.noema/db/postgres` unless `NOEMA_HOME` is
+overridden.
 
 - [ ] **Step 7: Verify dependency resolution**
 
