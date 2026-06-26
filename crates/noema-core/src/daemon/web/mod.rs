@@ -1,6 +1,6 @@
 //! Local web UI server for the Noema daemon.
 
-use std::{collections::HashMap, time::Duration};
+use std::{collections::HashMap, future::Future, pin::Pin, time::Duration};
 
 use base64::{Engine as _, engine::general_purpose};
 use ring::digest::{SHA1_FOR_LEGACY_USE_ONLY, digest};
@@ -647,6 +647,37 @@ struct ProviderAccountStatusUpdate {
     error_message: Option<String>,
 }
 
+trait ProviderAccountStatusStore {
+    fn update_provider_account_status<'a>(
+        &'a self,
+        provider_account_id: &'a str,
+        status: crate::ProviderAccountStatus,
+        error_code: Option<&'a str>,
+        error_message: Option<&'a str>,
+    ) -> Pin<Box<dyn Future<Output = Result<(), DaemonError>> + Send + 'a>>;
+}
+
+impl ProviderAccountStatusStore for PostgresMemoryRepository {
+    fn update_provider_account_status<'a>(
+        &'a self,
+        provider_account_id: &'a str,
+        status: crate::ProviderAccountStatus,
+        error_code: Option<&'a str>,
+        error_message: Option<&'a str>,
+    ) -> Pin<Box<dyn Future<Output = Result<(), DaemonError>> + Send + 'a>> {
+        Box::pin(async move {
+            self.update_provider_account_status(
+                provider_account_id,
+                status,
+                error_code,
+                error_message,
+            )
+            .await?;
+            Ok(())
+        })
+    }
+}
+
 fn provider_account_status_update_from_attempt(
     attempt: &ProviderAuthAttemptView,
 ) -> Option<ProviderAccountStatusUpdate> {
@@ -672,19 +703,20 @@ fn should_persist_provider_auth_attempt_status(attempt: &ProviderAuthAttemptView
 }
 
 async fn persist_provider_account_status_from_attempt(
-    repo: &PostgresMemoryRepository,
+    store: &impl ProviderAccountStatusStore,
     attempt: &ProviderAuthAttemptView,
 ) -> Result<(), DaemonError> {
     let Some(update) = provider_account_status_update_from_attempt(attempt) else {
         return Ok(());
     };
-    repo.update_provider_account_status(
-        &attempt.provider_account_id,
-        update.status,
-        update.error_code.as_deref(),
-        update.error_message.as_deref(),
-    )
-    .await?;
+    store
+        .update_provider_account_status(
+            &attempt.provider_account_id,
+            update.status,
+            update.error_code.as_deref(),
+            update.error_message.as_deref(),
+        )
+        .await?;
     Ok(())
 }
 
@@ -1406,14 +1438,26 @@ mod tests {
         assert_eq!(provider_account_status_update_from_attempt(&attempt), None);
     }
 
-    #[test]
-    fn returned_start_auth_terminal_attempt_requires_status_persistence() {
+    #[tokio::test]
+    async fn returned_start_auth_terminal_attempt_persists_authenticated_status() {
+        let store = RecordingProviderAccountStatusStore::default();
         let mut attempt = test_provider_auth_attempt();
         attempt.status = crate::provider_auth::ProviderAuthAttemptStatus::Completed;
-        assert!(should_persist_provider_auth_attempt_status(&attempt));
 
-        attempt.status = crate::provider_auth::ProviderAuthAttemptStatus::WaitingForUser;
-        assert!(!should_persist_provider_auth_attempt_status(&attempt));
+        persist_provider_account_status_from_attempt(&store, &attempt)
+            .await
+            .expect("persist status");
+
+        let updates = store.updates.lock().expect("updates lock");
+        assert_eq!(
+            updates.as_slice(),
+            [RecordedProviderAccountStatusUpdate {
+                provider_account_id: "provider_account:codex:default".to_string(),
+                status: crate::ProviderAccountStatus::Authenticated,
+                error_code: None,
+                error_message: None,
+            }]
+        );
     }
 
     async fn read_test_request_error(bytes: &[u8]) -> HttpRequestError {
@@ -1475,6 +1519,41 @@ mod tests {
             instructions: None,
             error_code: None,
             error_message: None,
+        }
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct RecordedProviderAccountStatusUpdate {
+        provider_account_id: String,
+        status: crate::ProviderAccountStatus,
+        error_code: Option<String>,
+        error_message: Option<String>,
+    }
+
+    #[derive(Default)]
+    struct RecordingProviderAccountStatusStore {
+        updates: std::sync::Mutex<Vec<RecordedProviderAccountStatusUpdate>>,
+    }
+
+    impl ProviderAccountStatusStore for RecordingProviderAccountStatusStore {
+        fn update_provider_account_status<'a>(
+            &'a self,
+            provider_account_id: &'a str,
+            status: crate::ProviderAccountStatus,
+            error_code: Option<&'a str>,
+            error_message: Option<&'a str>,
+        ) -> Pin<Box<dyn Future<Output = Result<(), DaemonError>> + Send + 'a>> {
+            Box::pin(async move {
+                self.updates.lock().expect("updates lock").push(
+                    RecordedProviderAccountStatusUpdate {
+                        provider_account_id: provider_account_id.to_string(),
+                        status,
+                        error_code: error_code.map(str::to_string),
+                        error_message: error_message.map(str::to_string),
+                    },
+                );
+                Ok(())
+            })
         }
     }
 
