@@ -4,14 +4,17 @@ use clap::Subcommand;
 pub(crate) use context_graph_output::ContextGraphFormat;
 use context_graph_output::write_context_graph;
 use noema_core::{
-    ContextGraphFilter, NoemaPaths, SqliteMemoryRepository,
+    CliOverrides, Config, ContextGraphFilter, PostgresMemoryRepository,
     memory::{
         Effect, ExternalEgressPolicy, MemoryStatus, ParticipantRole, ParticipantVisibilityPolicy,
         Purpose, RelationshipStatus, RetrievalPolicyStatus, Sensitivity, SubjectRole,
     },
-    memory_persistence::{MemoryPersistenceError, MemorySummary},
+    memory_persistence::MemorySummary,
 };
-use std::io::{self, Write};
+use std::{
+    io::{self, Write},
+    path::PathBuf,
+};
 
 use crate::CliError;
 
@@ -52,25 +55,22 @@ pub(crate) enum ContextCommand {
     },
 }
 
-pub(crate) fn run_memory(command: &MemoryCommand) -> Result<(), CliError> {
-    let paths = NoemaPaths::from_process_env()?;
-    let repo = match SqliteMemoryRepository::open_existing_readonly(&paths) {
-        Ok(repo) => repo,
-        Err(MemoryPersistenceError::MissingDatabase { path }) => {
-            println!("No memory database found at {}", path.display());
-            return Ok(());
-        }
-        Err(error) => return Err(error.into()),
-    };
+pub(crate) async fn run_memory(
+    command: &MemoryCommand,
+    config_path: Option<PathBuf>,
+) -> Result<(), CliError> {
+    let config = Config::load_daemon(config_path, CliOverrides::default())?;
+    let repo = PostgresMemoryRepository::connect(&config.database).await?;
 
     match command {
         MemoryCommand::List { limit } => {
-            let memories = repo.list_recent_memories(Some(*limit))?;
+            let memories = repo.list_recent_memories(Some(*limit)).await?;
             print_memory_list(&memories)?;
         }
         MemoryCommand::Show { memory_id } => {
             let memory = repo
-                .get_memory(memory_id)?
+                .get_memory(memory_id)
+                .await?
                 .ok_or_else(|| CliError::MemoryNotFound(memory_id.clone()))?;
             print_memory_detail(&memory)?;
         }
@@ -79,16 +79,12 @@ pub(crate) fn run_memory(command: &MemoryCommand) -> Result<(), CliError> {
     Ok(())
 }
 
-pub(crate) fn run_context(command: &ContextCommand) -> Result<(), CliError> {
-    let paths = NoemaPaths::from_process_env()?;
-    let repo = match SqliteMemoryRepository::open_existing_readonly(&paths) {
-        Ok(repo) => repo,
-        Err(MemoryPersistenceError::MissingDatabase { path }) => {
-            println!("No memory database found at {}", path.display());
-            return Ok(());
-        }
-        Err(error) => return Err(error.into()),
-    };
+pub(crate) async fn run_context(
+    command: &ContextCommand,
+    config_path: Option<PathBuf>,
+) -> Result<(), CliError> {
+    let config = Config::load_daemon(config_path, CliOverrides::default())?;
+    let repo = PostgresMemoryRepository::connect(&config.database).await?;
 
     match command {
         ContextCommand::Graph {
@@ -101,7 +97,9 @@ pub(crate) fn run_context(command: &ContextCommand) -> Result<(), CliError> {
                 run_id: run_id.clone(),
                 context_packet_id: context_packet_id.clone(),
             };
-            let graph = repo.inspect_context_graph_with_filter(&filter, Some(*limit))?;
+            let graph = repo
+                .inspect_context_graph_with_filter(&filter, Some(*limit))
+                .await?;
             print_context_graph(&graph, *format)?;
         }
     }

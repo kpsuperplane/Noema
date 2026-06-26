@@ -6,18 +6,19 @@ This file is the durable working brief for Codex sessions. Keep it concise and u
 
 Noema is a local-first personal agent operating system. The current build path is chat-led and object-backed: the user starts in chat, Noema records durable state behind the interaction, and inspection/control surfaces appear when they are useful.
 
-V1 should stay small and concrete:
+The current slice should stay small and concrete:
 
 - Local Noema home and config.
 - Codex-backed chat through the daemon.
 - Core-hosted local React web chat as the first frontend shell.
-- Persisted conversations and memory records.
-- Memory review and context graph inspection.
+- Postgres-backed persisted conversations, transcript items, memory records, provenance, and context packets.
+- Memory review and context graph inspection from Postgres-backed repositories.
 - Frontend IA that exposes memory and provenance progressively instead of starting with admin dashboards.
 
 ## Settled Decisions
 
-- SQLite is the canonical structured store.
+- Postgres is the canonical structured store for the always-on personal server target.
+- Docker Compose mounts `NOEMA_HOME` into containers and stores Postgres physical files at `${NOEMA_HOME:-$HOME/.noema}/db/postgres`.
 - Concrete object rows are the canonical structured state; actor/principal,
   governable scope, provenance source, and transcript item are interfaces
   implemented by concrete objects rather than universal parent tables.
@@ -29,15 +30,15 @@ V1 should stay small and concrete:
 - Canonical memory rows own truth, policy, provenance, lifecycle, and audit.
 - Context graph and FTS/search indexes are derived projections and must remain rebuildable.
 - Graph or fuzzy retrieval can suggest candidates, but policy gates inclusion.
-- Pre-V1 schema changes do not need migrations or backwards compatibility unless explicitly requested.
-- V1 frontend should start with chat, memory, and inspection before exposing full workspaces, tasks, agents, tools, or governance.
+- Pre-stable schema changes do not need migrations or backwards compatibility unless explicitly requested.
+- The initial frontend should start with chat, memory, and inspection before exposing full workspaces, tasks, agents, tools, or governance.
 - The current frontend endpoint is a native Noema WebSocket served by the daemon, not an OpenAI-compatible API.
 - Frontend build and lint use Bun from `crates/noema-core/web`.
 - Web protocol TypeScript definitions are generated from Rust with `bun run gen:types`.
 
 ## Open Loops
 
-- Persist context packets consistently for each governed run.
+- Finish removing SQLite runtime/repository paths now that daemon, web replay, and CLI inspection are Postgres-backed.
 - Add richer web drill-ins for memory details, memory review, and context graph inspection.
 - Continue aligning docs, schema, CLI inspection commands, and frontend IA.
 - Decide which export formats ship first and how export preview/redaction should work.

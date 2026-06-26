@@ -1062,6 +1062,13 @@ git commit -m "feat: port memory provenance to postgres"
 
 ### Task 6: Update Daemon, Web Replay, And CLI Inspection
 
+**Status:** Complete as of the Task 6 implementation slice. Daemon runtime,
+memory extraction, web replay, CLI memory inspection, and CLI context graph
+inspection now use `PostgresMemoryRepository`. Daemon DB-backed tests skip
+cleanly when `NOEMA_TEST_DATABASE_URL` is unset, and a Postgres context graph
+regression covers relationship-only omissions resolving back to their backing
+memory rows.
+
 **Files:**
 - Modify: `crates/noema-core/src/daemon/server.rs`
 - Modify: `crates/noema-core/src/daemon/runtime.rs`

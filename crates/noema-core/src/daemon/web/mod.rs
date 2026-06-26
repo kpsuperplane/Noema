@@ -1,9 +1,6 @@
 //! Local web UI server for the Noema daemon.
 
-use std::{
-    collections::HashMap,
-    path::{Path, PathBuf},
-};
+use std::collections::HashMap;
 
 use base64::{Engine as _, engine::general_purpose};
 use ring::digest::{SHA1_FOR_LEGACY_USE_ONLY, digest};
@@ -21,7 +18,7 @@ use crate::{
         WebClientMessage, WebConversationItem, WebMemoryStorageStatus, WebServerMessage, WebStatus,
     },
     memory_persistence::{
-        ConversationItemKind, ConversationItemRecord, ReplayMode, SqliteMemoryRepository,
+        ConversationItemKind, ConversationItemRecord, PostgresMemoryRepository, ReplayMode,
     },
 };
 
@@ -43,16 +40,19 @@ const NOEMA_MARK_SVG: &str = include_str!("assets/noema-mark.svg");
 #[derive(Debug, Clone)]
 pub(super) struct WebState {
     runtime: CodexRuntimeHandle,
-    database_path: PathBuf,
+    memory_repository: PostgresMemoryRepository,
 }
 
 impl WebState {
     /// Build shared web UI state.
     #[must_use]
-    pub(super) fn new(runtime: CodexRuntimeHandle, database_path: PathBuf) -> Self {
+    pub(super) fn new(
+        runtime: CodexRuntimeHandle,
+        memory_repository: PostgresMemoryRepository,
+    ) -> Self {
         Self {
             runtime,
-            database_path,
+            memory_repository,
         }
     }
 }
@@ -294,9 +294,10 @@ async fn handle_websocket_message(
             match state.runtime.start_conversation(model, cwd).await {
                 Ok(started) => {
                     let replay_records = visible_conversation_replay(
-                        &state.database_path,
+                        &state.memory_repository,
                         &started.conversation_id,
-                    )?;
+                    )
+                    .await?;
                     for message in conversation_start_messages(started, replay_records)? {
                         send_ws_json(stream, &message).await?;
                     }
@@ -388,12 +389,13 @@ async fn send_web_turn_event(
     send_ws_json(stream, &message).await
 }
 
-fn visible_conversation_replay(
-    database_path: &Path,
+async fn visible_conversation_replay(
+    repo: &PostgresMemoryRepository,
     conversation_id: &str,
 ) -> Result<Vec<ConversationItemRecord>, DaemonError> {
-    let repo = SqliteMemoryRepository::open_at(database_path.to_path_buf())?;
-    Ok(repo.list_conversation_items(conversation_id, ReplayMode::Visible)?)
+    Ok(repo
+        .list_conversation_items(conversation_id, ReplayMode::Visible)
+        .await?)
 }
 
 fn conversation_start_messages(
@@ -669,7 +671,7 @@ async fn write_ws_frame(
 }
 
 fn web_status_from_state(state: &WebState) -> WebStatus {
-    WebStatus::new(if state.database_path.is_file() {
+    WebStatus::new(if !state.memory_repository.pool().is_closed() {
         WebMemoryStorageStatus::Ready
     } else {
         WebMemoryStorageStatus::Initializing

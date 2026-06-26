@@ -1,5 +1,7 @@
 use std::{fs, path::Path, sync::Arc};
 
+use crate::{DatabaseConfig, memory_persistence::PostgresMemoryRepository};
+
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     net::{UnixListener, UnixStream, unix::OwnedWriteHalf},
@@ -21,14 +23,16 @@ use super::{
 pub async fn run_daemon(config: DaemonServerConfig) -> Result<(), DaemonError> {
     let listener = bind_listener(&config.socket_path).await?;
     let web_listener = web::bind_listener(&config.web).await?;
-    let database_path = config.database_path.clone();
-    let runtime = CodexRuntimeHandle::spawn(config.codex, database_path.clone())?;
+    let database_url = config.database_url.clone();
+    let runtime = CodexRuntimeHandle::spawn(config.codex, database_url.clone()).await?;
+    let database = DatabaseConfig::new(database_url)?;
+    let web_repository = PostgresMemoryRepository::connect(&database).await?;
     let (shutdown_tx, mut shutdown_rx) = watch::channel(false);
     let state = Arc::new(DaemonState {
         runtime: runtime.clone(),
         shutdown_tx,
     });
-    let web_state = WebState::new(runtime, database_path);
+    let web_state = WebState::new(runtime, web_repository);
 
     loop {
         tokio::select! {

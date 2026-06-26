@@ -6,16 +6,20 @@ use super::{
     server::bind_listener,
 };
 use crate::{
+    DatabaseConfig,
     memory::Sensitivity,
     memory_persistence::{
-        ConversationItemKind, ConversationItemStatus, MemoryType, ReplayMode,
-        SqliteMemoryRepository,
+        ConversationItemKind, ConversationItemStatus, MemoryType, PostgresMemoryRepository,
+        ReplayMode,
     },
     providers::codex::CodexProviderConfig,
 };
 use serde_json::json;
 use std::path::PathBuf;
 use tokio::sync::mpsc;
+
+const TEST_DATABASE_URL_ENV: &str = "NOEMA_TEST_DATABASE_URL";
+static DAEMON_POSTGRES_TEST_SCHEMA_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 #[test]
 fn protocol_round_trips_requests_and_responses() {
@@ -77,6 +81,36 @@ fn socket_path_is_under_noema_run_directory() {
     );
 }
 
+struct RuntimeTestDatabase {
+    url: String,
+    _schema_guard: tokio::sync::MutexGuard<'static, ()>,
+}
+
+async fn test_database() -> Option<RuntimeTestDatabase> {
+    let Ok(url) = std::env::var(TEST_DATABASE_URL_ENV) else {
+        eprintln!("skipping daemon Postgres test; {TEST_DATABASE_URL_ENV} is unset");
+        return None;
+    };
+    let schema_guard = DAEMON_POSTGRES_TEST_SCHEMA_LOCK.lock().await;
+    let database = DatabaseConfig::new(url.clone()).expect("database config");
+    let pool = database.connect().await.expect("connect test database");
+    sqlx::raw_sql("DROP SCHEMA public CASCADE; CREATE SCHEMA public;")
+        .execute(&pool)
+        .await
+        .expect("reset test schema");
+    Some(RuntimeTestDatabase {
+        url,
+        _schema_guard: schema_guard,
+    })
+}
+
+async fn postgres_repo(database: &RuntimeTestDatabase) -> PostgresMemoryRepository {
+    let config = DatabaseConfig::new(database.url.clone()).expect("database config");
+    PostgresMemoryRepository::connect(&config)
+        .await
+        .expect("repo")
+}
+
 #[tokio::test]
 async fn second_listener_on_same_socket_is_rejected() {
     let dir = tempfile::tempdir().expect("temp dir");
@@ -90,8 +124,10 @@ async fn second_listener_on_same_socket_is_rejected() {
 
 #[tokio::test]
 async fn runtime_actor_allocates_distinct_conversation_ids() {
+    let Some(database) = test_database().await else {
+        return;
+    };
     let script = fake_codex_app_server_script();
-    let dir = tempfile::tempdir().expect("temp dir");
     let handle = CodexRuntimeHandle::spawn(
         CodexProviderConfig {
             command: script.to_string_lossy().to_string(),
@@ -99,8 +135,9 @@ async fn runtime_actor_allocates_distinct_conversation_ids() {
             turn_timeout_seconds: 2,
             ..CodexProviderConfig::default()
         },
-        dir.path().join("db").join("noema.sqlite"),
+        database.url.clone(),
     )
+    .await
     .expect("runtime");
 
     let first = handle
@@ -125,9 +162,10 @@ async fn runtime_actor_allocates_distinct_conversation_ids() {
 
 #[tokio::test]
 async fn runtime_turn_streams_durable_assistant_item_and_idle_status() {
+    let Some(database) = test_database().await else {
+        return;
+    };
     let script = fake_codex_app_server_script();
-    let dir = tempfile::tempdir().expect("temp dir");
-    let db_path = dir.path().join("db").join("noema.sqlite");
     let handle = CodexRuntimeHandle::spawn(
         CodexProviderConfig {
             command: script.to_string_lossy().to_string(),
@@ -135,8 +173,9 @@ async fn runtime_turn_streams_durable_assistant_item_and_idle_status() {
             turn_timeout_seconds: 2,
             ..CodexProviderConfig::default()
         },
-        db_path.clone(),
+        database.url.clone(),
     )
+    .await
     .expect("runtime");
 
     let conversation = handle
@@ -195,9 +234,10 @@ async fn runtime_turn_streams_durable_assistant_item_and_idle_status() {
     assert!(assistant_item_id.starts_with("item_"));
     assert!(assistant_turn_id.is_some());
 
-    let repo = SqliteMemoryRepository::open_at(&db_path).expect("repo");
+    let repo = postgres_repo(&database).await;
     let replay = repo
         .list_conversation_items(&conversation_id, ReplayMode::Visible)
+        .await
         .expect("conversation replay");
     assert!(replay.iter().any(|item| {
         item.item_id == assistant_item_id
@@ -205,9 +245,7 @@ async fn runtime_turn_streams_durable_assistant_item_and_idle_status() {
             && item.status == ConversationItemStatus::Completed
     }));
 
-    let conn = rusqlite::Connection::open(&db_path).expect("raw conn");
-    let (agent_status, turn_status) =
-        conversation_and_turn_statuses(&conn, &conversation_id).expect("conversation statuses");
+    let (agent_status, turn_status) = conversation_and_turn_statuses(&repo, &conversation_id).await;
     assert_eq!(agent_status, "idle");
     assert_eq!(turn_status, "completed");
 }
@@ -254,9 +292,10 @@ fn deterministic_sensitivity_classifier_fails_closed_for_common_secrets() {
 
 #[tokio::test]
 async fn runtime_actor_persists_explicit_remember_confirmed() {
+    let Some(database) = test_database().await else {
+        return;
+    };
     let script = fake_codex_app_server_script_with_memory_extraction();
-    let dir = tempfile::tempdir().expect("temp dir");
-    let db_path = dir.path().join("db").join("noema.sqlite");
     let handle = CodexRuntimeHandle::spawn(
         CodexProviderConfig {
             command: script.to_string_lossy().to_string(),
@@ -264,8 +303,9 @@ async fn runtime_actor_persists_explicit_remember_confirmed() {
             turn_timeout_seconds: 2,
             ..CodexProviderConfig::default()
         },
-        db_path.clone(),
+        database.url.clone(),
     )
+    .await
     .expect("runtime");
 
     let conversation = handle
@@ -331,8 +371,8 @@ async fn runtime_actor_persists_explicit_remember_confirmed() {
     );
     handle.shutdown().await;
 
-    let repo = SqliteMemoryRepository::open_at(&db_path).expect("repo");
-    let memories = repo.list_recent_memories(Some(10)).expect("memories");
+    let repo = postgres_repo(&database).await;
+    let memories = repo.list_recent_memories(Some(10)).await.expect("memories");
     assert_eq!(memories.len(), 1);
     assert_eq!(memories[0].content, "Kevin prefers CLI memory inspection.");
     assert_eq!(memories[0].status, crate::memory::MemoryStatus::Confirmed);
@@ -344,6 +384,7 @@ async fn runtime_actor_persists_explicit_remember_confirmed() {
 
     let replay = repo
         .list_conversation_items(&conversation_id, ReplayMode::Visible)
+        .await
         .expect("conversation replay");
     assert_eq!(replay.len(), 4);
     assert!(replay.iter().any(|item| {
@@ -357,45 +398,43 @@ async fn runtime_actor_persists_explicit_remember_confirmed() {
             && item.payload_json["schema"] == "memory_cards"
     }));
 
-    let conn = rusqlite::Connection::open(&db_path).expect("raw conn");
-    let conversation_item_provenance_count: i64 = conn
-        .query_row(
-            r"
+    let conversation_item_provenance_count: i64 = sqlx::query_scalar(
+        r"
             SELECT COUNT(*)
             FROM object_provenance_edges pe
             JOIN conversation_items ci
               ON pe.source_object_type = 'conversation_item'
              AND ci.item_id = pe.source_object_id
             WHERE pe.target_object_type = 'memory_item'
-              AND pe.target_object_id = ?1
+              AND pe.target_object_id = $1
               AND ci.kind = 'user_text'
             ",
-            rusqlite::params![memories[0].id],
-            |row| row.get(0),
-        )
-        .expect("conversation item provenance count");
+    )
+    .bind(&memories[0].id)
+    .fetch_one(repo.pool())
+    .await
+    .expect("conversation item provenance count");
     assert_eq!(conversation_item_provenance_count, 1);
 
-    let conversation_item_count: i64 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM conversation_items WHERE conversation_id = ?1",
-            rusqlite::params![conversation_id],
-            |row| row.get(0),
-        )
-        .expect("conversation item count");
+    let conversation_item_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM conversation_items WHERE conversation_id = $1")
+            .bind(&conversation_id)
+            .fetch_one(repo.pool())
+            .await
+            .expect("conversation item count");
     assert_eq!(conversation_item_count, 4);
 
-    let (agent_status, turn_status) =
-        conversation_and_turn_statuses(&conn, &conversation_id).expect("conversation statuses");
+    let (agent_status, turn_status) = conversation_and_turn_statuses(&repo, &conversation_id).await;
     assert_eq!(agent_status, "idle");
     assert_eq!(turn_status, "completed");
 }
 
 #[tokio::test]
 async fn runtime_actor_extracts_ordinary_chat_memory_in_background() {
+    let Some(database) = test_database().await else {
+        return;
+    };
     let script = fake_codex_app_server_script_with_memory_extraction();
-    let dir = tempfile::tempdir().expect("temp dir");
-    let db_path = dir.path().join("db").join("noema.sqlite");
     let handle = CodexRuntimeHandle::spawn(
         CodexProviderConfig {
             command: script.to_string_lossy().to_string(),
@@ -403,8 +442,9 @@ async fn runtime_actor_extracts_ordinary_chat_memory_in_background() {
             turn_timeout_seconds: 2,
             ..CodexProviderConfig::default()
         },
-        db_path.clone(),
+        database.url.clone(),
     )
+    .await
     .expect("runtime");
 
     let conversation = handle
@@ -432,8 +472,8 @@ async fn runtime_actor_extracts_ordinary_chat_memory_in_background() {
     );
     handle.shutdown().await;
 
-    let repo = SqliteMemoryRepository::open_at(&db_path).expect("repo");
-    let memories = repo.list_recent_memories(Some(10)).expect("memories");
+    let repo = postgres_repo(&database).await;
+    let memories = repo.list_recent_memories(Some(10)).await.expect("memories");
     assert_eq!(memories.len(), 1);
     assert_eq!(
         memories[0].content,
@@ -449,9 +489,10 @@ async fn runtime_actor_extracts_ordinary_chat_memory_in_background() {
 
 #[tokio::test]
 async fn runtime_actor_persists_provider_structured_memory_proposals_as_activity() {
+    let Some(database) = test_database().await else {
+        return;
+    };
     let script = fake_codex_app_server_script_with_memory_extraction();
-    let dir = tempfile::tempdir().expect("temp dir");
-    let db_path = dir.path().join("db").join("noema.sqlite");
     let handle = CodexRuntimeHandle::spawn(
         CodexProviderConfig {
             command: script.to_string_lossy().to_string(),
@@ -459,8 +500,9 @@ async fn runtime_actor_persists_provider_structured_memory_proposals_as_activity
             turn_timeout_seconds: 2,
             ..CodexProviderConfig::default()
         },
-        db_path.clone(),
+        database.url.clone(),
     )
+    .await
     .expect("runtime");
 
     let conversation = handle
@@ -511,8 +553,8 @@ async fn runtime_actor_persists_provider_structured_memory_proposals_as_activity
     assert_eq!(proposal_card["proposals"][0]["status"], "active");
     handle.shutdown().await;
 
-    let repo = SqliteMemoryRepository::open_at(&db_path).expect("repo");
-    let memories = repo.list_recent_memories(Some(10)).expect("memories");
+    let repo = postgres_repo(&database).await;
+    let memories = repo.list_recent_memories(Some(10)).await.expect("memories");
     assert_eq!(memories.len(), 1);
     assert_eq!(
         memories[0].content,
@@ -523,6 +565,7 @@ async fn runtime_actor_persists_provider_structured_memory_proposals_as_activity
 
     let replay = repo
         .list_conversation_items(&conversation_id, ReplayMode::Visible)
+        .await
         .expect("conversation replay");
     assert!(replay.iter().any(|item| {
         item.kind == ConversationItemKind::Activity
@@ -535,18 +578,17 @@ async fn runtime_actor_persists_provider_structured_memory_proposals_as_activity
             && item.payload_json["schema"] == "memory_proposals"
     }));
 
-    let conn = rusqlite::Connection::open(&db_path).expect("raw conn");
-    let (agent_status, turn_status) =
-        conversation_and_turn_statuses(&conn, &conversation_id).expect("conversation statuses");
+    let (agent_status, turn_status) = conversation_and_turn_statuses(&repo, &conversation_id).await;
     assert_eq!(agent_status, "idle");
     assert_eq!(turn_status, "completed");
 }
 
 #[tokio::test]
 async fn runtime_actor_extracts_natural_remember_through_structured_provider_output() {
+    let Some(database) = test_database().await else {
+        return;
+    };
     let script = fake_codex_app_server_script_with_memory_extraction();
-    let dir = tempfile::tempdir().expect("temp dir");
-    let db_path = dir.path().join("db").join("noema.sqlite");
     let handle = CodexRuntimeHandle::spawn(
         CodexProviderConfig {
             command: script.to_string_lossy().to_string(),
@@ -554,8 +596,9 @@ async fn runtime_actor_extracts_natural_remember_through_structured_provider_out
             turn_timeout_seconds: 2,
             ..CodexProviderConfig::default()
         },
-        db_path.clone(),
+        database.url.clone(),
     )
+    .await
     .expect("runtime");
 
     let conversation = handle
@@ -586,8 +629,8 @@ async fn runtime_actor_extracts_natural_remember_through_structured_provider_out
     assert_eq!(proposal_card["proposals"][0]["status"], "active");
     handle.shutdown().await;
 
-    let repo = SqliteMemoryRepository::open_at(&db_path).expect("repo");
-    let memories = repo.list_recent_memories(Some(10)).expect("memories");
+    let repo = postgres_repo(&database).await;
+    let memories = repo.list_recent_memories(Some(10)).await.expect("memories");
     assert_eq!(memories.len(), 1);
     assert_eq!(memories[0].content, "Kevin is a big fan of trains.");
     assert_eq!(memories[0].status, crate::memory::MemoryStatus::Active);
@@ -596,9 +639,10 @@ async fn runtime_actor_extracts_natural_remember_through_structured_provider_out
 
 #[tokio::test]
 async fn runtime_actor_keeps_third_party_subject_conversation_scoped() {
+    let Some(database) = test_database().await else {
+        return;
+    };
     let script = fake_codex_app_server_script_with_memory_extraction();
-    let dir = tempfile::tempdir().expect("temp dir");
-    let db_path = dir.path().join("db").join("noema.sqlite");
     let handle = CodexRuntimeHandle::spawn(
         CodexProviderConfig {
             command: script.to_string_lossy().to_string(),
@@ -606,8 +650,9 @@ async fn runtime_actor_keeps_third_party_subject_conversation_scoped() {
             turn_timeout_seconds: 2,
             ..CodexProviderConfig::default()
         },
-        db_path.clone(),
+        database.url.clone(),
     )
+    .await
     .expect("runtime");
 
     let conversation = handle
@@ -625,8 +670,8 @@ async fn runtime_actor_keeps_third_party_subject_conversation_scoped() {
     assert_eq!(assistant_text(&items), "fake answer");
     handle.shutdown().await;
 
-    let repo = SqliteMemoryRepository::open_at(&db_path).expect("repo");
-    let memories = repo.list_recent_memories(Some(10)).expect("memories");
+    let repo = postgres_repo(&database).await;
+    let memories = repo.list_recent_memories(Some(10)).await.expect("memories");
     assert_eq!(memories.len(), 1);
     assert_eq!(memories[0].content, "Alice prefers decaf.");
     assert_eq!(memories[0].status, crate::memory::MemoryStatus::Candidate);
@@ -635,23 +680,25 @@ async fn runtime_actor_keeps_third_party_subject_conversation_scoped() {
         format!("conversation:{conversation_id}")
     );
 
-    let conn = rusqlite::Connection::open(&db_path).expect("raw conn");
-    let (linked_object_type, linked_object_id): (Option<String>, Option<String>) = conn
-        .query_row(
-            "SELECT linked_object_type, linked_object_id FROM entities WHERE entity_id = 'human:alice'",
-            [],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )
-        .expect("Alice entity");
+    let (linked_object_type, linked_object_id) = sqlx::query_as::<
+        _,
+        (Option<String>, Option<String>),
+    >(
+        "SELECT linked_object_type, linked_object_id FROM entities WHERE entity_id = 'human:alice'",
+    )
+    .fetch_one(repo.pool())
+    .await
+    .expect("Alice entity");
     assert_eq!(linked_object_type, None);
     assert_eq!(linked_object_id, None);
 }
 
 #[tokio::test]
 async fn runtime_actor_persists_explicit_remember_before_provider_failure() {
+    let Some(database) = test_database().await else {
+        return;
+    };
     let script = fake_codex_app_server_script_with_turn_error();
-    let dir = tempfile::tempdir().expect("temp dir");
-    let db_path = dir.path().join("db").join("noema.sqlite");
     let handle = CodexRuntimeHandle::spawn(
         CodexProviderConfig {
             command: script.to_string_lossy().to_string(),
@@ -659,8 +706,9 @@ async fn runtime_actor_persists_explicit_remember_before_provider_failure() {
             turn_timeout_seconds: 2,
             ..CodexProviderConfig::default()
         },
-        db_path.clone(),
+        database.url.clone(),
     )
+    .await
     .expect("runtime");
 
     let conversation = handle
@@ -723,8 +771,8 @@ async fn runtime_actor_persists_explicit_remember_before_provider_failure() {
         assert!(item_id.starts_with("item_"));
     }
 
-    let repo = SqliteMemoryRepository::open_at(&db_path).expect("repo");
-    let memories = repo.list_recent_memories(Some(10)).expect("memories");
+    let repo = postgres_repo(&database).await;
+    let memories = repo.list_recent_memories(Some(10)).await.expect("memories");
     assert_eq!(memories.len(), 1);
     assert_eq!(
         memories[0].content,
@@ -734,6 +782,7 @@ async fn runtime_actor_persists_explicit_remember_before_provider_failure() {
 
     let replay = repo
         .list_conversation_items(&conversation_id, ReplayMode::Visible)
+        .await
         .expect("conversation replay");
     assert!(replay.iter().any(|item| {
         item.kind == ConversationItemKind::Activity
@@ -754,27 +803,27 @@ async fn runtime_actor_persists_explicit_remember_before_provider_failure() {
                 .is_some_and(|text| text.contains("turn failed"))
     }));
 
-    let conn = rusqlite::Connection::open(&db_path).expect("raw conn");
-    let (agent_status, turn_status) =
-        conversation_and_turn_statuses(&conn, &conversation_id).expect("conversation statuses");
+    let (agent_status, turn_status) = conversation_and_turn_statuses(&repo, &conversation_id).await;
     assert_eq!(agent_status, "error");
     assert_eq!(turn_status, "failed");
 }
 
-fn conversation_and_turn_statuses(
-    conn: &rusqlite::Connection,
+async fn conversation_and_turn_statuses(
+    repo: &PostgresMemoryRepository,
     conversation_id: &str,
-) -> rusqlite::Result<(String, String)> {
-    conn.query_row(
+) -> (String, String) {
+    sqlx::query_as::<_, (String, String)>(
         r"
         SELECT c.agent_status, t.status
         FROM conversations c
         JOIN conversation_turns t ON t.conversation_id = c.conversation_id
-        WHERE c.conversation_id = ?1
+        WHERE c.conversation_id = $1
         ",
-        rusqlite::params![conversation_id],
-        |row| Ok((row.get(0)?, row.get(1)?)),
     )
+    .bind(conversation_id)
+    .fetch_one(repo.pool())
+    .await
+    .expect("conversation statuses")
 }
 
 async fn collect_turn(

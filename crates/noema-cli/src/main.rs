@@ -132,8 +132,8 @@ async fn run() -> Result<(), CliError> {
         Some(CommandKind::Start) => run_start(&args).await,
         Some(CommandKind::Config { force }) => run_config(&args, *force),
         Some(CommandKind::Chat { prompt }) => run_chat(&args, prompt).await,
-        Some(CommandKind::Memory { command }) => run_memory(command),
-        Some(CommandKind::Context { command }) => run_context(command),
+        Some(CommandKind::Memory { command }) => run_memory(command, args.config.clone()).await,
+        Some(CommandKind::Context { command }) => run_context(command, args.config.clone()).await,
         None => run_one_shot(args).await,
     }
 }
@@ -148,7 +148,6 @@ async fn run_start(args: &Args) -> Result<(), CliError> {
         socket_path,
         daemon_config.codex,
         daemon_config.database.url,
-        paths.database_path(),
         daemon_config.web,
     ))
     .await?;
@@ -593,6 +592,20 @@ mod tests {
     }
 
     #[test]
+    fn parses_config_before_memory_subcommand() {
+        let args = Args::try_parse_from(["noema", "--config", "custom.yaml", "memory", "list"])
+            .expect("args");
+
+        assert_eq!(args.config.as_deref(), Some(Path::new("custom.yaml")));
+        assert!(matches!(
+            args.command,
+            Some(CommandKind::Memory {
+                command: MemoryCommand::List { .. }
+            })
+        ));
+    }
+
+    #[test]
     fn parses_memory_show_subcommand() {
         let args = Args::try_parse_from(["noema", "memory", "show", "mem_123"]).expect("args");
 
@@ -618,6 +631,20 @@ mod tests {
                     context_packet_id: None,
                     ..
                 }
+            })
+        ));
+    }
+
+    #[test]
+    fn parses_config_before_context_subcommand() {
+        let args = Args::try_parse_from(["noema", "--config", "custom.yaml", "context", "graph"])
+            .expect("args");
+
+        assert_eq!(args.config.as_deref(), Some(Path::new("custom.yaml")));
+        assert!(matches!(
+            args.command,
+            Some(CommandKind::Context {
+                command: ContextCommand::Graph { .. }
             })
         ));
     }

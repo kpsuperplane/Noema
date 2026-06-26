@@ -718,6 +718,145 @@ async fn record_context_packet_writes_postgres_manifest_edges_omissions_and_use_
 }
 
 #[tokio::test]
+async fn postgres_context_graph_filter_includes_relationship_omission_backing_memory() {
+    let Some(repo) = test_repo().await else {
+        return;
+    };
+    repo.ensure_default_actors().await.expect("actors");
+
+    let conversation = repo
+        .create_conversation(NewConversation::local_chat(None, None))
+        .await
+        .expect("conversation");
+    let source_item = repo
+        .append_conversation_item(NewConversationItem {
+            conversation_id: conversation.conversation_id.clone(),
+            turn_id: None,
+            parent_item_id: None,
+            kind: ConversationItemKind::UserText,
+            status: ConversationItemStatus::Completed,
+            author: ObjectRef::human("human:local"),
+            content_text: Some("Alice prefers quiet train cars.".to_string()),
+            payload_json: serde_json::json!({}),
+            metadata: serde_json::json!({}),
+        })
+        .await
+        .expect("source item");
+
+    let mut backing = NewMemoryCandidate::confirmed_note(
+        ObjectRef::new(
+            ObjectType::Conversation,
+            conversation.conversation_id.as_str(),
+        )
+        .expect("conversation object ref"),
+        "Alice prefers quiet train cars.",
+        ObjectRef::agent("agent:primary"),
+        ObjectRef::conversation_item(source_item.item_id.as_str()),
+    );
+    backing.status = MemoryStatus::Active;
+    backing.subjects = vec![
+        NewMemorySubject::new("human:alice", "human", "Alice", SubjectRole::About),
+        NewMemorySubject::new(
+            "concept:quiet_train_cars",
+            "concept",
+            "Quiet train cars",
+            SubjectRole::Affected,
+        ),
+    ];
+    let backing_memory = repo
+        .append_memory_candidate(backing)
+        .await
+        .expect("backing memory");
+
+    sqlx::query(
+        r"
+        INSERT INTO relationships (
+          relationship_id,
+          owner_object_type,
+          owner_object_id,
+          subject_entity_id,
+          predicate,
+          object_entity_id,
+          memory_id,
+          status
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        ",
+    )
+    .bind("rel_pg_omitted")
+    .bind("conversation")
+    .bind(conversation.conversation_id.as_str())
+    .bind("human:alice")
+    .bind("prefers")
+    .bind("concept:quiet_train_cars")
+    .bind(backing_memory.id.as_str())
+    .bind("active")
+    .execute(repo.pool())
+    .await
+    .expect("relationship");
+
+    let mut trusted =
+        TrustedRetrievalContext::for_human("human:local", Purpose::AnswerHumanQuestion);
+    trusted.active_agent_ids = vec!["agent:primary".to_string()];
+    trusted.active_scopes = vec![format!("conversation:{}", conversation.conversation_id)];
+    let request = MemoryRetrievalRequest {
+        requesting_principal_id: "agent:primary".to_string(),
+        trusted,
+        untrusted_hints: UntrustedHints::default(),
+    };
+    let result = MemoryRetrievalResult {
+        included: vec![],
+        denied_for_audit: vec![AuditDenial {
+            memory_id: None,
+            relationship_id: Some("rel_pg_omitted".to_string()),
+            reason: DenialReason::PurposeDenied,
+        }],
+        agent_visible_omissions: vec![AgentVisibleOmission {
+            reason: "relationship_restricted_context",
+        }],
+        use_records: vec![],
+    };
+
+    repo.record_context_packet(
+        "ctx_pg_relationship_omission",
+        "run:pg-relationship-omission",
+        &request,
+        &result,
+    )
+    .await
+    .expect("record context packet");
+
+    let filter = crate::ContextGraphFilter {
+        run_id: Some("run:pg-relationship-omission".to_string()),
+        context_packet_id: Some("ctx_pg_relationship_omission".to_string()),
+    };
+    let graph = repo
+        .inspect_context_graph_with_filter(&filter, Some(20))
+        .await
+        .expect("context graph");
+
+    assert!(
+        graph
+            .memories
+            .iter()
+            .any(|memory| memory.memory_id == backing_memory.id)
+    );
+    assert!(
+        graph
+            .subject_edges
+            .iter()
+            .any(|edge| { edge.memory_id == backing_memory.id && edge.entity_id == "human:alice" })
+    );
+    assert!(graph.provenance_edges.iter().any(|edge| {
+        edge.memory_id == backing_memory.id && edge.source_object_id == source_item.item_id
+    }));
+    assert!(graph.relationships.iter().any(|relationship| {
+        relationship.relationship_id == "rel_pg_omitted"
+            && relationship.memory_id.as_deref() == Some(backing_memory.id.as_str())
+    }));
+}
+
+#[tokio::test]
 async fn retrieve_memories_uses_postgres_search_and_policy_fingerprint() {
     let Some(repo) = test_repo().await else {
         return;

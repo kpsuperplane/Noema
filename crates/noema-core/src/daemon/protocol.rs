@@ -4,8 +4,9 @@ use std::{
 };
 
 use crate::{
-    NoemaPathError, NoemaPaths, WebConfig, memory_persistence::MemoryPersistenceError,
-    provider::ProviderError, providers::codex::CodexProviderConfig,
+    DatabaseConfigError, NoemaPathError, NoemaPaths, WebConfig,
+    memory_persistence::MemoryPersistenceError, provider::ProviderError,
+    providers::codex::CodexProviderConfig,
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -205,8 +206,6 @@ pub struct DaemonServerConfig {
     pub codex: CodexProviderConfig,
     /// Canonical Postgres database URL.
     pub database_url: String,
-    /// Temporary SQLite compatibility path until daemon runtime storage is ported.
-    pub(crate) database_path: PathBuf,
     /// Local web UI configuration.
     pub web: WebConfig,
 }
@@ -218,14 +217,12 @@ impl DaemonServerConfig {
         socket_path: PathBuf,
         codex: CodexProviderConfig,
         database_url: String,
-        database_path: PathBuf,
         web: WebConfig,
     ) -> Self {
         Self {
             socket_path,
             codex,
             database_url,
-            database_path,
             web,
         }
     }
@@ -236,13 +233,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn daemon_server_config_keeps_transitional_database_path_explicit() {
-        let database_path = PathBuf::from("/tmp/noema.sqlite");
+    fn daemon_server_config_keeps_database_url_explicit() {
         let config = DaemonServerConfig::new(
             PathBuf::from("/tmp/noema.sock"),
             CodexProviderConfig::default(),
             "postgres://noema:noema@localhost:5432/noema".to_string(),
-            database_path.clone(),
             WebConfig::default(),
         );
 
@@ -250,7 +245,6 @@ mod tests {
             config.database_url,
             "postgres://noema:noema@localhost:5432/noema"
         );
-        assert_eq!(config.database_path, database_path);
     }
 }
 
@@ -292,6 +286,10 @@ pub enum DaemonError {
     /// Memory persistence failed.
     #[error(transparent)]
     Memory(#[from] MemoryPersistenceError),
+
+    /// Database configuration failed.
+    #[error(transparent)]
+    Database(#[from] DatabaseConfigError),
 
     /// Path resolution failed.
     #[error(transparent)]

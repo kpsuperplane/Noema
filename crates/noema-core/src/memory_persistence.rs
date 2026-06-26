@@ -10,6 +10,7 @@ mod error;
 mod helpers;
 pub(crate) mod models;
 mod objects;
+mod postgres_context_graph;
 mod postgres_helpers;
 mod postgres_schema;
 #[cfg(test)]

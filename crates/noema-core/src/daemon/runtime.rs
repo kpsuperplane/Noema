@@ -1,6 +1,7 @@
-use std::{collections::HashMap, path::PathBuf};
+use std::collections::HashMap;
 
 use crate::{
+    DatabaseConfig,
     memory::ParticipantRole,
     memory::Sensitivity,
     memory_extraction::{
@@ -12,7 +13,7 @@ use crate::{
         AgentStatus as PersistedAgentStatus, ConversationItemKind, ConversationItemRecord,
         ConversationItemStatus, MemoryAuthorityLevel, MemoryExtractionMethod, NewConversation,
         NewConversationItem, NewConversationTurn, NewMemoryCandidate, NewMemoryParticipant,
-        ObjectProvenanceSource, ObjectRef, ObjectType, SqliteMemoryRepository,
+        ObjectProvenanceSource, ObjectRef, ObjectType, PostgresMemoryRepository,
     },
     provider::{GenerateOutputItem, GenerateResponse},
     providers::{
@@ -41,12 +42,12 @@ pub(super) struct CodexRuntimeHandle {
 }
 
 impl CodexRuntimeHandle {
-    pub(super) fn spawn(
+    pub(super) async fn spawn(
         config: CodexProviderConfig,
-        database_path: PathBuf,
+        database_url: String,
     ) -> Result<Self, DaemonError> {
         let (sender, receiver) = mpsc::channel(16);
-        let actor = CodexRuntimeActor::new(config, database_path)?;
+        let actor = CodexRuntimeActor::new(config, database_url).await?;
         tokio::spawn(actor.run(receiver));
         Ok(Self { sender })
     }
@@ -142,11 +143,12 @@ struct MemoryExtractionWorkerHandle {
 }
 
 impl MemoryExtractionWorkerHandle {
-    fn spawn(config: CodexProviderConfig, database_path: PathBuf) -> Result<Self, DaemonError> {
+    async fn spawn(config: CodexProviderConfig, database_url: String) -> Result<Self, DaemonError> {
         let (sender, receiver) = mpsc::channel(16);
+        let database = DatabaseConfig::new(database_url)?;
         let worker = MemoryExtractionWorker {
             runtime: CodexAppServerRuntime::new(config)?,
-            memory_repository: SqliteMemoryRepository::open_at(database_path)?,
+            memory_repository: PostgresMemoryRepository::connect(&database).await?,
         };
         tokio::spawn(worker.run(receiver));
         Ok(Self { sender })
@@ -178,7 +180,7 @@ enum MemoryExtractionWorkerCommand {
 #[derive(Debug)]
 struct MemoryExtractionWorker {
     runtime: CodexAppServerRuntime,
-    memory_repository: SqliteMemoryRepository,
+    memory_repository: PostgresMemoryRepository,
 }
 
 impl MemoryExtractionWorker {
@@ -230,11 +232,12 @@ impl MemoryExtractionWorker {
         .map_err(|error| format!("memory extraction output was rejected: {error}"))?;
 
         persist_validated_memory_proposals(
-            &mut self.memory_repository,
+            &self.memory_repository,
             context,
             proposals,
             "ordinary_chat_extraction",
         )
+        .await
     }
 }
 
@@ -242,19 +245,21 @@ impl MemoryExtractionWorker {
 struct CodexRuntimeActor {
     runtime: CodexAppServerRuntime,
     memory_extraction_worker: MemoryExtractionWorkerHandle,
-    memory_repository: SqliteMemoryRepository,
+    memory_repository: PostgresMemoryRepository,
     conversations: HashMap<String, ActiveConversation>,
 }
 
 impl CodexRuntimeActor {
-    fn new(config: CodexProviderConfig, database_path: PathBuf) -> Result<Self, DaemonError> {
+    async fn new(config: CodexProviderConfig, database_url: String) -> Result<Self, DaemonError> {
+        let database = DatabaseConfig::new(database_url.clone())?;
         Ok(Self {
             memory_extraction_worker: MemoryExtractionWorkerHandle::spawn(
                 config.clone(),
-                database_path.clone(),
-            )?,
+                database_url,
+            )
+            .await?,
             runtime: CodexAppServerRuntime::new(config)?,
-            memory_repository: SqliteMemoryRepository::open_at(database_path)?,
+            memory_repository: PostgresMemoryRepository::connect(&database).await?,
             conversations: HashMap::new(),
         })
     }
@@ -295,7 +300,7 @@ impl CodexRuntimeActor {
         model: Option<String>,
         cwd: Option<String>,
     ) -> Result<StartedConversation, DaemonError> {
-        self.memory_repository.ensure_default_actors()?;
+        self.memory_repository.ensure_default_actors().await?;
         let conversation = self
             .runtime
             .start_conversation(model.clone(), cwd.clone())
@@ -305,7 +310,8 @@ impl CodexRuntimeActor {
         new_conversation.provider_thread_id = Some(provider_thread_id.clone());
         let durable_conversation = self
             .memory_repository
-            .create_conversation(new_conversation)?;
+            .create_conversation(new_conversation)
+            .await?;
         let conversation_id = durable_conversation.conversation_id;
         self.conversations.insert(
             conversation_id.clone(),
@@ -342,12 +348,14 @@ impl CodexRuntimeActor {
                 conversation_id: conversation_id.clone(),
                 trigger_item_id: None,
                 metadata: json!({ "turn_index": turn_index }),
-            })?;
+            })
+            .await?;
         self.update_conversation_agent_status(
             &conversation_id,
             PersistedAgentStatus::InputReceived,
             &item_tx,
-        )?;
+        )
+        .await?;
         let user_item = self
             .memory_repository
             .append_conversation_item(NewConversationItem {
@@ -360,7 +368,8 @@ impl CodexRuntimeActor {
                 content_text: Some(input.clone()),
                 payload_json: json!({}),
                 metadata: json!({ "turn_index": turn_index }),
-            })?;
+            })
+            .await?;
         let user_item_id = user_item.item_id.clone();
         send_conversation_item(
             &item_tx,
@@ -369,12 +378,9 @@ impl CodexRuntimeActor {
                 text: input.clone(),
             },
         );
-        let saved_memory_id = self.persist_chat_memory_candidate(
-            &conversation_id,
-            turn_index,
-            &user_item_id,
-            &input,
-        )?;
+        let saved_memory_id = self
+            .persist_chat_memory_candidate(&conversation_id, turn_index, &user_item_id, &input)
+            .await?;
         if let Some(memory_id) = saved_memory_id.as_deref() {
             let memory_context = ConversationMemoryContext {
                 turn_index,
@@ -386,13 +392,17 @@ impl CodexRuntimeActor {
                 assistant_content: String::new(),
                 cwd: conversation.cwd.clone(),
             };
-            if let Err(error) = self.persist_explicit_memory_transcript_items(
-                &memory_context,
-                memory_id,
-                &input,
-                &item_tx,
-            ) {
-                self.record_turn_failure(&memory_context, error.to_string(), &item_tx)?;
+            if let Err(error) = self
+                .persist_explicit_memory_transcript_items(
+                    &memory_context,
+                    memory_id,
+                    &input,
+                    &item_tx,
+                )
+                .await
+            {
+                self.record_turn_failure(&memory_context, error.to_string(), &item_tx)
+                    .await?;
                 self.conversations.remove(&conversation_id);
                 return Err(error);
             }
@@ -401,7 +411,8 @@ impl CodexRuntimeActor {
             &conversation_id,
             PersistedAgentStatus::Thinking,
             &item_tx,
-        )?;
+        )
+        .await?;
         let structured_instructions = build_structured_turn_system_prompt(
             &conversation_id,
             turn_index,
@@ -444,7 +455,8 @@ impl CodexRuntimeActor {
                         assistant_content: String::new(),
                         cwd: conversation.cwd.clone(),
                     };
-                    self.record_turn_failure(&failure_context, error.to_string(), &item_tx)?;
+                    self.record_turn_failure(&failure_context, error.to_string(), &item_tx)
+                        .await?;
                     self.conversations.remove(&conversation_id);
                     return Err(error);
                 }
@@ -462,7 +474,8 @@ impl CodexRuntimeActor {
                     assistant_content: String::new(),
                     cwd: conversation.cwd.clone(),
                 };
-                self.record_turn_failure(&error_context, error.to_string(), &item_tx)?;
+                self.record_turn_failure(&error_context, error.to_string(), &item_tx)
+                    .await?;
                 self.conversations.remove(&conversation_id);
                 Err(error.into())
             }
@@ -480,22 +493,23 @@ impl CodexRuntimeActor {
         for (index, output) in turn.response.output.into_iter().enumerate() {
             match output {
                 GenerateOutputItem::AssistantText { text } => {
-                    let assistant_item =
-                        self.memory_repository
-                            .append_conversation_item(NewConversationItem {
-                                conversation_id: turn.conversation_id.clone(),
-                                turn_id: Some(turn.turn_id.clone()),
-                                parent_item_id: Some(turn.user_item_id.clone()),
-                                kind: ConversationItemKind::AssistantText,
-                                status: ConversationItemStatus::Completed,
-                                author: ObjectRef::agent("agent:primary"),
-                                content_text: Some(text.clone()),
-                                payload_json: json!({}),
-                                metadata: json!({
-                                    "turn_index": turn.turn_index,
-                                    "output_index": index,
-                                }),
-                            })?;
+                    let assistant_item = self
+                        .memory_repository
+                        .append_conversation_item(NewConversationItem {
+                            conversation_id: turn.conversation_id.clone(),
+                            turn_id: Some(turn.turn_id.clone()),
+                            parent_item_id: Some(turn.user_item_id.clone()),
+                            kind: ConversationItemKind::AssistantText,
+                            status: ConversationItemStatus::Completed,
+                            author: ObjectRef::agent("agent:primary"),
+                            content_text: Some(text.clone()),
+                            payload_json: json!({}),
+                            metadata: json!({
+                                "turn_index": turn.turn_index,
+                                "output_index": index,
+                            }),
+                        })
+                        .await?;
                     if assistant_item_id.is_none() {
                         assistant_item_id = Some(assistant_item.item_id.clone());
                     }
@@ -511,27 +525,28 @@ impl CodexRuntimeActor {
                         "provider_structured:{}:{}:{index}",
                         turn.conversation_id, turn.turn_index
                     );
-                    let structured_item =
-                        self.memory_repository
-                            .append_conversation_item(NewConversationItem {
-                                conversation_id: turn.conversation_id.clone(),
-                                turn_id: Some(turn.turn_id.clone()),
-                                parent_item_id: Some(turn.user_item_id.clone()),
-                                kind: ConversationItemKind::A2uiCard,
-                                status: ConversationItemStatus::Completed,
-                                author: ObjectRef::agent("agent:primary"),
-                                content_text: None,
-                                payload_json: json!({
-                                    "id": card_id.clone(),
-                                    "schema": schema.clone(),
-                                    "payload": payload.clone(),
-                                }),
-                                metadata: json!({
-                                    "turn_index": turn.turn_index,
-                                    "output_index": index,
-                                    "source": "provider_structured_output",
-                                }),
-                            })?;
+                    let structured_item = self
+                        .memory_repository
+                        .append_conversation_item(NewConversationItem {
+                            conversation_id: turn.conversation_id.clone(),
+                            turn_id: Some(turn.turn_id.clone()),
+                            parent_item_id: Some(turn.user_item_id.clone()),
+                            kind: ConversationItemKind::A2uiCard,
+                            status: ConversationItemStatus::Completed,
+                            author: ObjectRef::agent("agent:primary"),
+                            content_text: None,
+                            payload_json: json!({
+                                "id": card_id.clone(),
+                                "schema": schema.clone(),
+                                "payload": payload.clone(),
+                            }),
+                            metadata: json!({
+                                "turn_index": turn.turn_index,
+                                "output_index": index,
+                                "source": "provider_structured_output",
+                            }),
+                        })
+                        .await?;
                     send_conversation_item(
                         item_tx,
                         structured_item,
@@ -561,18 +576,21 @@ impl CodexRuntimeActor {
                 &memory_context,
                 provider_memory_proposals,
                 item_tx,
-            )?;
+            )
+            .await?;
         } else if turn.saved_memory_id.is_none() {
             self.memory_extraction_worker.extract(memory_context).await;
         }
 
         self.memory_repository
-            .complete_conversation_turn(&turn.turn_id)?;
+            .complete_conversation_turn(&turn.turn_id)
+            .await?;
         self.update_conversation_agent_status(
             &turn.conversation_id,
             PersistedAgentStatus::Idle,
             item_tx,
-        )?;
+        )
+        .await?;
 
         if let Some(conversation) = self.conversations.get_mut(&turn.conversation_id) {
             conversation.next_turn_index = conversation.next_turn_index.saturating_add(1);
@@ -581,7 +599,7 @@ impl CodexRuntimeActor {
         Ok(())
     }
 
-    fn persist_explicit_memory_transcript_items(
+    async fn persist_explicit_memory_transcript_items(
         &mut self,
         context: &ConversationMemoryContext,
         memory_id: &str,
@@ -603,7 +621,8 @@ impl CodexRuntimeActor {
                 "trigger": "explicit_remember",
             }),
         );
-        self.persist_and_send_turn_item(context, activity, item_tx)?;
+        self.persist_and_send_turn_item(context, activity, item_tx)
+            .await?;
 
         let memory_content = explicit_memory_content(user_input).unwrap_or_default();
         let card = TurnTranscriptItem::A2uiCard {
@@ -626,29 +645,33 @@ impl CodexRuntimeActor {
             }),
         };
         self.persist_and_send_turn_item(context, card, item_tx)
+            .await
     }
 
-    fn record_turn_failure(
+    async fn record_turn_failure(
         &mut self,
         context: &ConversationMemoryContext,
         message: String,
         item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
     ) -> Result<(), DaemonError> {
         self.memory_repository
-            .fail_conversation_turn(&context.turn_id)?;
+            .fail_conversation_turn(&context.turn_id)
+            .await?;
         self.update_conversation_agent_status(
             &context.conversation_id,
             PersistedAgentStatus::Error,
             item_tx,
-        )?;
+        )
+        .await?;
         let notice = TurnTranscriptItem::ErrorNotice {
             message,
             recoverable: false,
         };
         self.persist_and_send_turn_item(context, notice, item_tx)
+            .await
     }
 
-    fn persist_provider_memory_proposals(
+    async fn persist_provider_memory_proposals(
         &mut self,
         context: &ConversationMemoryContext,
         proposals: Vec<ExtractorMemoryProposal>,
@@ -667,22 +690,26 @@ impl CodexRuntimeActor {
                     &activity_id,
                     format!("memory extraction output was rejected: {error}"),
                 );
-                self.persist_and_send_turn_item(context, activity, item_tx)?;
+                self.persist_and_send_turn_item(context, activity, item_tx)
+                    .await?;
                 return Ok(());
             }
         };
 
         let card_proposals = proposals.clone();
         let created_memory_ids = match persist_validated_memory_proposals(
-            &mut self.memory_repository,
+            &self.memory_repository,
             context,
             proposals,
             "provider_structured_output",
-        ) {
+        )
+        .await
+        {
             Ok(created_memory_ids) => created_memory_ids,
             Err(error) => {
                 let activity = memory_activity_failed(&activity_id, error);
-                self.persist_and_send_turn_item(context, activity, item_tx)?;
+                self.persist_and_send_turn_item(context, activity, item_tx)
+                    .await?;
                 return Ok(());
             }
         };
@@ -697,7 +724,8 @@ impl CodexRuntimeActor {
                 "proposals": card_proposals,
             }),
         };
-        self.persist_and_send_turn_item(context, card, item_tx)?;
+        self.persist_and_send_turn_item(context, card, item_tx)
+            .await?;
 
         let summary = match created_memory_ids.len() {
             0 => "created no memory candidates".to_string(),
@@ -715,20 +743,21 @@ impl CodexRuntimeActor {
             }),
         );
         self.persist_and_send_turn_item(context, activity, item_tx)
+            .await
     }
 
-    fn persist_and_send_turn_item(
+    async fn persist_and_send_turn_item(
         &mut self,
         context: &ConversationMemoryContext,
         item: TurnTranscriptItem,
         item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
     ) -> Result<(), DaemonError> {
-        let record = self.persist_turn_item(context, &item)?;
+        let record = self.persist_turn_item(context, &item).await?;
         send_conversation_item(item_tx, record, item);
         Ok(())
     }
 
-    fn persist_turn_item(
+    async fn persist_turn_item(
         &mut self,
         context: &ConversationMemoryContext,
         item: &TurnTranscriptItem,
@@ -833,11 +862,12 @@ impl CodexRuntimeActor {
                 content_text,
                 payload_json,
                 metadata,
-            })?;
+            })
+            .await?;
         Ok(record)
     }
 
-    fn persist_chat_memory_candidate(
+    async fn persist_chat_memory_candidate(
         &mut self,
         conversation_id: &str,
         turn_index: u64,
@@ -874,18 +904,22 @@ impl CodexRuntimeActor {
             "turn_index": turn_index,
         });
 
-        let memory = self.memory_repository.append_memory_candidate(&candidate)?;
+        let memory = self
+            .memory_repository
+            .append_memory_candidate(candidate)
+            .await?;
         Ok(Some(memory.id))
     }
 
-    fn update_conversation_agent_status(
+    async fn update_conversation_agent_status(
         &mut self,
         conversation_id: &str,
         status: PersistedAgentStatus,
         item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
     ) -> Result<(), DaemonError> {
         self.memory_repository
-            .update_conversation_agent_status(conversation_id, status)?;
+            .update_conversation_agent_status(conversation_id, status)
+            .await?;
         let _ = item_tx.send(TurnStreamEvent::AgentStatusChanged {
             conversation_id: conversation_id.to_string(),
             status: AgentStatus::from(status),
@@ -1018,8 +1052,8 @@ struct SuccessfulProviderTurn {
     saved_memory_id: Option<String>,
 }
 
-fn persist_validated_memory_proposals(
-    memory_repository: &mut SqliteMemoryRepository,
+async fn persist_validated_memory_proposals(
+    memory_repository: &PostgresMemoryRepository,
     context: &ConversationMemoryContext,
     proposals: Vec<ValidatedMemoryProposal>,
     trigger: &str,
@@ -1037,7 +1071,8 @@ fn persist_validated_memory_proposals(
         )?;
 
         let summary = memory_repository
-            .append_memory_candidate(&candidate)
+            .append_memory_candidate(candidate)
+            .await
             .map_err(|error| format!("failed to persist extracted memory: {error}"))?;
         created_memory_ids.push(summary.id);
     }
