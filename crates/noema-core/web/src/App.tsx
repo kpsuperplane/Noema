@@ -55,7 +55,7 @@ export function App() {
     setAgentStatus("connecting");
 
     socket.addEventListener("open", () => {
-      const message: WebClientMessage = { type: "primary_conversation_start" };
+      const message: WebClientMessage = { type: "conversation_start" };
 
       setSocketState("ready");
       socket.send(JSON.stringify(message));
@@ -134,6 +134,9 @@ export function App() {
         method: step.auth_method
       });
       setAuthAttempt(attempt);
+      if (attempt.status === "completed") {
+        setOnboarding(await fetchOnboardingStatus());
+      }
     } catch (error: unknown) {
       setOnboardingError(error instanceof Error ? error.message : "Failed to start provider login");
     }
