@@ -129,6 +129,7 @@ impl PostgresMemoryRepository {
                   auth_method = EXCLUDED.auth_method,
                   is_active = true,
                   is_default = true,
+                  deleted_at = NULL,
                   updated_at = now()
             "#,
         )
@@ -144,7 +145,7 @@ impl PostgresMemoryRepository {
             })
     }
 
-    /// Return the active default provider account.
+    /// Return the active default account for one provider.
     ///
     /// # Errors
     ///
@@ -152,6 +153,7 @@ impl PostgresMemoryRepository {
     /// values are invalid.
     pub async fn active_provider_account(
         &self,
+        provider_kind: &str,
     ) -> Result<Option<ProviderAccountRecord>, MemoryPersistenceError> {
         let row = sqlx::query_as::<_, ProviderAccountRow>(
             r#"
@@ -163,11 +165,13 @@ impl PostgresMemoryRepository {
             FROM provider_accounts
             WHERE is_active = true
               AND is_default = true
+              AND provider_kind = $1
               AND deleted_at IS NULL
             ORDER BY created_at
             LIMIT 1
             "#,
         )
+        .bind(provider_kind)
         .fetch_optional(self.pool())
         .await
         .map_err(MemoryPersistenceError::Database)?;
@@ -209,7 +213,8 @@ impl PostgresMemoryRepository {
     ///
     /// # Errors
     ///
-    /// Returns [`MemoryPersistenceError`] if Postgres cannot update the row.
+    /// Returns [`MemoryPersistenceError`] if Postgres cannot update the row or
+    /// the provider account does not exist.
     pub async fn update_provider_account_status(
         &self,
         provider_account_id: &str,
@@ -217,7 +222,7 @@ impl PostgresMemoryRepository {
         error_code: Option<&str>,
         error_message: Option<&str>,
     ) -> Result<(), MemoryPersistenceError> {
-        sqlx::query(
+        let result = sqlx::query(
             r#"
             UPDATE provider_accounts
             SET status = $2,
@@ -227,6 +232,7 @@ impl PostgresMemoryRepository {
                 last_error_message = $4,
                 updated_at = now()
             WHERE provider_account_id = $1
+              AND deleted_at IS NULL
             "#,
         )
         .bind(provider_account_id)
@@ -236,6 +242,11 @@ impl PostgresMemoryRepository {
         .execute(self.pool())
         .await
         .map_err(MemoryPersistenceError::Database)?;
+        if result.rows_affected() == 0 {
+            return Err(MemoryPersistenceError::ProviderAccountNotFound {
+                provider_account_id: provider_account_id.to_string(),
+            });
+        }
         Ok(())
     }
 }

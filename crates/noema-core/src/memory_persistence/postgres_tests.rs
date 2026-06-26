@@ -1,9 +1,10 @@
 use std::{env, ops::Deref};
 
 use super::{
-    ConversationItemKind, ConversationItemStatus, MemoryType, NewConversation, NewConversationItem,
-    NewConversationTurn, NewMemoryCandidate, NewMemoryParticipant, NewMemorySubject,
-    NewObjectProvenanceEdge, ObjectRef, ObjectType, PostgresMemoryRepository, ReplayMode,
+    ConversationItemKind, ConversationItemStatus, MemoryPersistenceError, MemoryType,
+    NewConversation, NewConversationItem, NewConversationTurn, NewMemoryCandidate,
+    NewMemoryParticipant, NewMemorySubject, NewObjectProvenanceEdge, ObjectRef, ObjectType,
+    PostgresMemoryRepository, ReplayMode,
     postgres_schema::POSTGRES_SCHEMA_SQL,
     provenance::DeleteConversationItem,
     repository::{POSTGRES_BOOTSTRAP_MIGRATION_NAME, POSTGRES_BOOTSTRAP_MIGRATION_VERSION},
@@ -154,6 +155,45 @@ async fn postgres_bootstrap_creates_provider_accounts_table() {
 }
 
 #[tokio::test]
+async fn postgres_bootstrap_rejects_invalid_provider_account_enums() {
+    let Some(repo) = test_repo().await else {
+        return;
+    };
+
+    let invalid_auth = sqlx::query(
+        r#"
+        INSERT INTO provider_accounts (
+          provider_account_id, provider_kind, account_key, display_name,
+          auth_method, status
+        )
+        VALUES (
+          'provider_account:bad:auth', 'bad', 'auth', 'Bad Auth',
+          'browser_cookie', 'unknown'
+        )
+        "#,
+    )
+    .execute(repo.pool())
+    .await;
+    assert!(invalid_auth.is_err());
+
+    let invalid_status = sqlx::query(
+        r#"
+        INSERT INTO provider_accounts (
+          provider_account_id, provider_kind, account_key, display_name,
+          auth_method, status
+        )
+        VALUES (
+          'provider_account:bad:status', 'bad', 'status', 'Bad Status',
+          'none', 'logged_in'
+        )
+        "#,
+    )
+    .execute(repo.pool())
+    .await;
+    assert!(invalid_status.is_err());
+}
+
+#[tokio::test]
 async fn ensure_default_provider_account_creates_codex_default() {
     let Some(repo) = test_repo().await else {
         return;
@@ -181,6 +221,50 @@ async fn ensure_default_provider_account_creates_codex_default() {
 }
 
 #[tokio::test]
+async fn ensure_default_provider_account_restores_soft_deleted_default() {
+    let Some(repo) = test_repo().await else {
+        return;
+    };
+
+    sqlx::query(
+        r#"
+        INSERT INTO provider_accounts (
+          provider_account_id, provider_kind, account_key, display_name,
+          auth_method, is_active, is_default, status, deleted_at
+        )
+        VALUES (
+          'provider_account:codex:default', 'codex', 'default', 'Old Codex',
+          'oauth_device_code', false, false, 'unauthenticated', now()
+        )
+        "#,
+    )
+    .execute(repo.pool())
+    .await
+    .expect("soft deleted default provider account");
+
+    let account = repo
+        .ensure_default_provider_account()
+        .await
+        .expect("restored default provider account");
+
+    assert_eq!(
+        account.provider_account_id,
+        "provider_account:codex:default"
+    );
+    assert!(account.is_active);
+    assert!(account.is_default);
+    assert_eq!(account.display_name, "Codex");
+    let deleted_at: Option<String> = sqlx::query_scalar(
+        "SELECT deleted_at::text FROM provider_accounts WHERE provider_account_id = $1",
+    )
+    .bind(account.provider_account_id.as_str())
+    .fetch_one(repo.pool())
+    .await
+    .expect("deleted_at");
+    assert_eq!(deleted_at, None);
+}
+
+#[tokio::test]
 async fn active_provider_account_returns_default_account() {
     let Some(repo) = test_repo().await else {
         return;
@@ -190,13 +274,52 @@ async fn active_provider_account_returns_default_account() {
         .expect("default provider account");
 
     let account = repo
-        .active_provider_account()
+        .active_provider_account("codex")
         .await
         .expect("active provider account")
         .expect("account exists");
 
     assert_eq!(account.provider_kind, "codex");
     assert_eq!(account.account_key, "default");
+}
+
+#[tokio::test]
+async fn active_provider_account_filters_by_provider_kind() {
+    let Some(repo) = test_repo().await else {
+        return;
+    };
+    sqlx::query(
+        r#"
+        INSERT INTO provider_accounts (
+          provider_account_id, provider_kind, account_key, display_name,
+          auth_method, is_active, is_default, status
+        )
+        VALUES (
+          'provider_account:other:default', 'other', 'default', 'Other',
+          'none', true, true, 'authenticated'
+        )
+        "#,
+    )
+    .execute(repo.pool())
+    .await
+    .expect("other default provider account");
+    repo.ensure_default_provider_account()
+        .await
+        .expect("default provider account");
+
+    let account = repo
+        .active_provider_account("codex")
+        .await
+        .expect("active provider account")
+        .expect("account exists");
+    let missing = repo
+        .active_provider_account("missing")
+        .await
+        .expect("missing provider account");
+
+    assert_eq!(account.provider_kind, "codex");
+    assert_eq!(account.account_key, "default");
+    assert_eq!(missing, None);
 }
 
 #[tokio::test]
@@ -219,7 +342,7 @@ async fn update_provider_account_status_records_auth_metadata() {
     .expect("status update");
 
     let stored = repo
-        .active_provider_account()
+        .active_provider_account("codex")
         .await
         .expect("active provider account")
         .expect("account exists");
@@ -228,6 +351,55 @@ async fn update_provider_account_status_records_auth_metadata() {
     assert!(stored.last_authenticated_at.is_some());
     assert_eq!(stored.last_error_code, None);
     assert_eq!(stored.last_error_message, None);
+}
+
+#[tokio::test]
+async fn update_provider_account_status_rejects_missing_or_deleted_account() {
+    let Some(repo) = test_repo().await else {
+        return;
+    };
+
+    let missing = repo
+        .update_provider_account_status(
+            "provider_account:codex:missing",
+            crate::ProviderAccountStatus::Authenticated,
+            None,
+            None,
+        )
+        .await
+        .expect_err("missing account should fail");
+    assert!(matches!(
+        missing,
+        MemoryPersistenceError::ProviderAccountNotFound {
+            provider_account_id
+        } if provider_account_id == "provider_account:codex:missing"
+    ));
+
+    let account = repo
+        .ensure_default_provider_account()
+        .await
+        .expect("default provider account");
+    sqlx::query("UPDATE provider_accounts SET deleted_at = now() WHERE provider_account_id = $1")
+        .bind(account.provider_account_id.as_str())
+        .execute(repo.pool())
+        .await
+        .expect("soft delete provider account");
+
+    let deleted = repo
+        .update_provider_account_status(
+            account.provider_account_id.as_str(),
+            crate::ProviderAccountStatus::Authenticated,
+            None,
+            None,
+        )
+        .await
+        .expect_err("deleted account should fail");
+    assert!(matches!(
+        deleted,
+        MemoryPersistenceError::ProviderAccountNotFound {
+            provider_account_id
+        } if provider_account_id == "provider_account:codex:default"
+    ));
 }
 
 #[tokio::test]
