@@ -501,6 +501,109 @@ textarea:disabled {
   background: var(--pine-600);
 }
 
+.onboarding-shell {
+  display: grid;
+  align-content: center;
+  width: min(760px, 100%);
+  min-height: calc(100vh - 68px);
+  margin: 0 auto;
+  padding: 34px 24px;
+}
+
+.onboarding-panel {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+  padding: 18px 0;
+}
+
+.onboarding-panel h1 {
+  margin: 0;
+  color: var(--text-primary);
+  font-family: var(--font-display);
+  font-size: 34px;
+  line-height: 1.1;
+  letter-spacing: 0;
+  overflow-wrap: anywhere;
+}
+
+.onboarding-panel p {
+  max-width: 560px;
+  margin: 0;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.onboarding-panel button,
+.auth-attempt a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  max-width: 100%;
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1px solid var(--pine-600);
+  border-radius: var(--radius-sm);
+  background: var(--pine-500);
+  color: var(--paper-50);
+  font-weight: 700;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.onboarding-panel button:hover,
+.auth-attempt a:hover {
+  background: var(--pine-600);
+}
+
+.onboarding-status {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.auth-attempt {
+  display: grid;
+  gap: 10px;
+  max-width: 560px;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--surface-card);
+}
+
+.auth-attempt strong {
+  overflow-wrap: anywhere;
+}
+
+.auth-attempt code {
+  width: fit-content;
+  max-width: 100%;
+  padding: 6px 8px;
+  border-radius: var(--radius-xs);
+  background: var(--surface-sunken);
+  font-family: var(--font-mono);
+  font-size: 18px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.onboarding-retry {
+  display: grid;
+  gap: 10px;
+}
+
+.onboarding-error {
+  color: var(--red-700);
+}
+
+.onboarding-success {
+  color: var(--pine-700);
+}
+
 @media (max-width: 760px) {
   .topbar {
     align-items: flex-start;
@@ -515,6 +618,16 @@ textarea:disabled {
   .chat-shell {
     min-height: calc(100vh - 118px);
     padding: 28px 20px 18px;
+  }
+
+  .onboarding-shell {
+    align-content: start;
+    min-height: calc(100vh - 118px);
+    padding: 28px 20px;
+  }
+
+  .onboarding-panel h1 {
+    font-size: 30px;
   }
 
   .starter-grid {

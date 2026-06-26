@@ -1,18 +1,34 @@
 import React from "react";
-import { refreshStatus, webSocketUrl } from "./api";
+import {
+  fetchOnboardingStatus,
+  fetchProviderAuthAttempt,
+  refreshStatus,
+  startProviderAuthAttempt,
+  webSocketUrl
+} from "./api";
 import { Composer } from "./components/Composer";
 import { EmptyState } from "./components/EmptyState";
+import { Onboarding } from "./components/Onboarding";
 import { StatusCluster } from "./components/StatusCluster";
 import { Transcript } from "./components/Transcript";
-import type { WebClientMessage, WebServerMessage as ServerMessage, WebStatus } from "./generated/noema";
+import type {
+  OnboardingStatus,
+  ProviderAuthAttemptView,
+  WebClientMessage,
+  WebServerMessage as ServerMessage,
+  WebStatus
+} from "./generated/noema";
 import { handleServerMessage, pushTranscript } from "./transcript";
 import type { ConversationAgentStatus, SocketState, TranscriptEntry } from "./types";
 
 export function App() {
   const [status, setStatus] = React.useState<WebStatus | null>(null);
-  const [socketState, setSocketState] = React.useState<SocketState>("connecting");
+  const [socketState, setSocketState] = React.useState<SocketState>("closed");
   const [conversationId, setConversationId] = React.useState<string | null>(null);
-  const [agentStatus, setAgentStatus] = React.useState<ConversationAgentStatus>("connecting");
+  const [agentStatus, setAgentStatus] = React.useState<ConversationAgentStatus>("closed");
+  const [onboarding, setOnboarding] = React.useState<OnboardingStatus | null>(null);
+  const [authAttempt, setAuthAttempt] = React.useState<ProviderAuthAttemptView | null>(null);
+  const [onboardingError, setOnboardingError] = React.useState<string | null>(null);
   const [transcript, setTranscript] = React.useState<TranscriptEntry[]>([]);
   const [draft, setDraft] = React.useState("");
   const [pending, setPending] = React.useState(false);
@@ -21,11 +37,25 @@ export function App() {
 
   React.useEffect(() => {
     void refreshStatus(setStatus);
+    void fetchOnboardingStatus()
+      .then(setOnboarding)
+      .catch((error: unknown) => {
+        setOnboardingError(error instanceof Error ? error.message : "Failed to load onboarding");
+      });
+  }, []);
+
+  React.useEffect(() => {
+    if (!onboarding?.is_user_onboarded || socketRef.current) {
+      return;
+    }
+
     const socket = new WebSocket(webSocketUrl());
     socketRef.current = socket;
+    setSocketState("connecting");
+    setAgentStatus("connecting");
 
     socket.addEventListener("open", () => {
-      const message: WebClientMessage = { type: "conversation_start" };
+      const message: WebClientMessage = { type: "primary_conversation_start" };
 
       setSocketState("ready");
       socket.send(JSON.stringify(message));
@@ -63,7 +93,51 @@ export function App() {
       socket.close();
       socketRef.current = null;
     };
-  }, []);
+  }, [onboarding?.is_user_onboarded]);
+
+  React.useEffect(() => {
+    if (
+      !authAttempt ||
+      (authAttempt.status !== "starting" && authAttempt.status !== "waiting_for_user")
+    ) {
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      void fetchProviderAuthAttempt(authAttempt.attempt_id)
+        .then(async (next) => {
+          setAuthAttempt(next);
+          if (next.status === "completed") {
+            setOnboarding(await fetchOnboardingStatus());
+          }
+        })
+        .catch((error: unknown) => {
+          setOnboardingError(error instanceof Error ? error.message : "Failed to poll auth");
+        });
+    }, 1000);
+
+    return () => window.clearInterval(timer);
+  }, [authAttempt]);
+
+  async function connectProvider() {
+    const step = onboarding?.steps.find((candidate) => candidate.id === "connect_provider_account");
+    if (!step?.provider_kind || !step.provider_account_id || !step.auth_method) {
+      setOnboardingError("No provider account is available to connect.");
+      return;
+    }
+
+    setOnboardingError(null);
+    try {
+      const attempt = await startProviderAuthAttempt({
+        provider_kind: step.provider_kind,
+        provider_account_id: step.provider_account_id,
+        method: step.auth_method
+      });
+      setAuthAttempt(attempt);
+    } catch (error: unknown) {
+      setOnboardingError(error instanceof Error ? error.message : "Failed to start provider login");
+    }
+  }
 
   function sendMessage(text: string) {
     const input = text.trim();
@@ -88,18 +162,43 @@ export function App() {
 
   const ready = socketState === "ready" && conversationId !== null;
 
+  if (!onboarding) {
+    return (
+      <main className="noema-app">
+        <Header status={status} socketState={socketState} agentStatus={agentStatus} />
+        <section className="onboarding-shell" aria-label="Noema onboarding">
+          <div className="onboarding-panel">
+            <p className="eyebrow">First run</p>
+            <h1>Checking setup</h1>
+            <p>Noema is checking whether chat can start.</p>
+            {onboardingError ? <p className="onboarding-error">{onboardingError}</p> : null}
+          </div>
+        </section>
+      </main>
+    );
+  }
+
+  if (!onboarding.is_user_onboarded) {
+    return (
+      <main className="noema-app">
+        <Header status={status} socketState={socketState} agentStatus={agentStatus} />
+        <Onboarding
+          onboarding={onboarding}
+          attempt={authAttempt}
+          error={onboardingError}
+          onConnect={() => void connectProvider()}
+          onRetry={() => {
+            setAuthAttempt(null);
+            setOnboardingError(null);
+          }}
+        />
+      </main>
+    );
+  }
+
   return (
     <main className="noema-app">
-      <header className="topbar">
-        <div className="brand">
-          <img src="/assets/noema-mark.svg" width="34" height="34" alt="" />
-          <div>
-            <strong>Noema</strong>
-            <span>Local chat</span>
-          </div>
-        </div>
-        <StatusCluster status={status} socketState={socketState} agentStatus={agentStatus} />
-      </header>
+      <Header status={status} socketState={socketState} agentStatus={agentStatus} />
 
       <section className="chat-shell" aria-label="Noema chat">
         {transcript.length === 0 ? (
@@ -132,5 +231,28 @@ export function App() {
         />
       </section>
     </main>
+  );
+}
+
+function Header({
+  status,
+  socketState,
+  agentStatus
+}: {
+  status: WebStatus | null;
+  socketState: SocketState;
+  agentStatus: ConversationAgentStatus;
+}) {
+  return (
+    <header className="topbar">
+      <div className="brand">
+        <img src="/assets/noema-mark.svg" width="34" height="34" alt="" />
+        <div>
+          <strong>Noema</strong>
+          <span>Local chat</span>
+        </div>
+      </div>
+      <StatusCluster status={status} socketState={socketState} agentStatus={agentStatus} />
+    </header>
   );
 }
