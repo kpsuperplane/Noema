@@ -171,15 +171,22 @@ Copy the default environment file once:
 cp .env.example .env
 ```
 
-Start the local development stack:
+Start the auto-reloading local development stack:
 
 ```bash
-docker compose up
+docker compose up dev
 ```
 
-The web chat is available at <http://localhost:3737/>. Postgres is available at
-`postgres://noema:noema@localhost:5432/noema`, with physical database files
-stored under `${NOEMA_HOME:-$HOME/.noema}/db/postgres`.
+The `dev` service starts Postgres, the Rust daemon watcher, and the core web
+asset watcher. The web chat is available at <http://localhost:3737/>. Postgres
+is available on the host at `postgres://noema:noema@localhost:5432/noema`, with
+physical database files stored under `${NOEMA_HOME:-$HOME/.noema}/db/postgres`.
+
+To run the one-shot server container without file watching:
+
+```bash
+docker compose --profile server up noema-server
+```
 
 Create the test database before running database-backed repository tests:
 
@@ -211,17 +218,23 @@ bun run build
 web protocol types before running TypeScript or Vite. `bun run dev` keeps Vite
 in build-watch mode and writes updated assets into `noema-core`.
 
-For daemon development, install `cargo-watch` and use the repo alias to restart
-the foreground daemon whenever Rust sources, Cargo manifests, or generated web
-assets change. The alias also starts the core web `bun run dev` asset watcher:
+For host-side daemon development, install `cargo-watch` and use the repo alias
+to restart the foreground daemon whenever Rust sources, Cargo manifests, or
+generated web assets change. The alias also starts the core web `bun run dev`
+asset watcher:
 
 ```bash
 cargo install cargo-watch --locked
-NOEMA_HOME=.noema-dev cargo dev-daemon
+docker compose up -d postgres
+NOEMA_HOME=.noema-dev \
+NOEMA_DATABASE_URL=postgres://noema:noema@localhost:5432/noema \
+cargo dev-daemon
 ```
 
 Then connect from another terminal:
 
 ```bash
-NOEMA_HOME=.noema-dev cargo run -p noema-cli -- chat
+NOEMA_HOME=.noema-dev \
+NOEMA_DATABASE_URL=postgres://noema:noema@localhost:5432/noema \
+cargo run -p noema-cli -- chat
 ```

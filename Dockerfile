@@ -7,6 +7,8 @@ RUN apt-get update \
 RUN curl -fsSL https://bun.sh/install | bash
 ENV PATH="/root/.bun/bin:${PATH}"
 
+RUN cargo install cargo-watch --locked
+
 WORKDIR /workspace
 
 CMD ["bash"]
