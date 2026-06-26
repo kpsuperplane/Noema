@@ -5,10 +5,11 @@ services:
       POSTGRES_USER: noema
       POSTGRES_PASSWORD: noema
       POSTGRES_DB: noema
+      PGDATA: /noema/db/postgres
     ports:
       - "5432:5432"
     volumes:
-      - noema-postgres:/var/lib/postgresql/data
+      - ${NOEMA_HOME:-.noema-dev}:/noema
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U noema -d noema"]
       interval: 2s
@@ -23,14 +24,14 @@ services:
     command: ["cargo", "run", "-p", "noema-cli", "--", "start"]
     environment:
       NOEMA_DATABASE_URL: postgres://noema:noema@postgres:5432/noema
-      NOEMA_HOME: /workspace/.noema-dev
+      NOEMA_HOME: /noema
       NOEMA_OPENAI__API_KEY: ${NOEMA_OPENAI__API_KEY:-}
     volumes:
       - .:/workspace
       - cargo-registry:/usr/local/cargo/registry
       - cargo-git:/usr/local/cargo/git
       - target:/workspace/target
-      - noema-home:/workspace/.noema-dev
+      - ${NOEMA_HOME:-.noema-dev}:/noema
     ports:
       - "3737:3737"
     depends_on:
@@ -51,8 +52,6 @@ services:
       - noema-server
 
 volumes:
-  noema-postgres:
-  noema-home:
   cargo-registry:
   cargo-git:
   target:

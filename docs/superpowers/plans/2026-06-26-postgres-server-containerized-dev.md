@@ -126,10 +126,11 @@ services:
       POSTGRES_USER: noema
       POSTGRES_PASSWORD: noema
       POSTGRES_DB: noema
+      PGDATA: /noema/db/postgres
     ports:
       - "5432:5432"
     volumes:
-      - noema-postgres:/var/lib/postgresql/data
+      - ${NOEMA_HOME:-.noema-dev}:/noema
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U noema -d noema"]
       interval: 2s
@@ -144,14 +145,14 @@ services:
     command: ["cargo", "run", "-p", "noema-cli", "--", "start"]
     environment:
       NOEMA_DATABASE_URL: postgres://noema:noema@postgres:5432/noema
-      NOEMA_HOME: /workspace/.noema-dev
+      NOEMA_HOME: /noema
       NOEMA_OPENAI__API_KEY: ${NOEMA_OPENAI__API_KEY:-}
     volumes:
       - .:/workspace
       - cargo-registry:/usr/local/cargo/registry
       - cargo-git:/usr/local/cargo/git
       - target:/workspace/target
-      - noema-home:/workspace/.noema-dev
+      - ${NOEMA_HOME:-.noema-dev}:/noema
     ports:
       - "3737:3737"
     depends_on:
@@ -172,8 +173,6 @@ services:
       - noema-server
 
 volumes:
-  noema-postgres:
-  noema-home:
   cargo-registry:
   cargo-git:
   target:
@@ -203,6 +202,11 @@ NOEMA_TEST_DATABASE_URL=postgres://noema:noema@localhost:5432/noema_test
 NOEMA_HOME=.noema-dev
 NOEMA_OPENAI__API_KEY=
 ```
+
+`NOEMA_HOME` is a host path for the complete local Noema home. Compose mounts
+it into containers at `/noema`; Postgres stores its physical database cluster at
+`/noema/db/postgres`, and the Noema server stores object-owned files under the
+same mounted home.
 
 - [ ] **Step 7: Verify dependency resolution**
 
