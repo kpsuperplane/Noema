@@ -7,9 +7,10 @@ use super::{
 };
 use crate::{
     DatabaseConfig,
-    memory::Sensitivity,
+    memory::{ParticipantRole, Sensitivity},
     memory_persistence::{
-        ConversationItemKind, ConversationItemStatus, MemoryType, PostgresMemoryRepository,
+        ActorRef, ConversationItemKind, ConversationItemStatus, MemoryType, NewConversationItem,
+        NewMemoryCandidate, NewMemoryParticipant, ObjectRef, ObjectType, PostgresMemoryRepository,
         ReplayMode,
     },
     providers::codex::CodexProviderConfig,
@@ -1180,6 +1181,134 @@ async fn runtime_actor_executes_search_memory_as_local_tool_result() {
     );
 }
 
+#[tokio::test]
+async fn search_memory_tool_redacts_policy_omissions() {
+    let Some(database) = test_database().await else {
+        return;
+    };
+    let script = fake_codex_app_server_script_with_search_memory_continuation();
+    let handle = CodexRuntimeHandle::spawn(
+        CodexProviderConfig {
+            command: script.to_string_lossy().to_string(),
+            startup_timeout_seconds: 2,
+            turn_timeout_seconds: 2,
+            ..CodexProviderConfig::default()
+        },
+        database.url.clone(),
+    )
+    .await
+    .expect("runtime");
+
+    let conversation_id = handle
+        .start_conversation(None, None)
+        .await
+        .expect("conversation")
+        .conversation_id;
+    let repo = postgres_repo(&database).await;
+    let source_item = repo
+        .append_conversation_item(NewConversationItem {
+            conversation_id: conversation_id.clone(),
+            turn_id: None,
+            parent_item_id: None,
+            kind: ConversationItemKind::UserText,
+            status: ConversationItemStatus::Completed,
+            author: ActorRef::human("human:local"),
+            content_text: Some("medical train memory source".to_string()),
+            payload_json: json!({}),
+            metadata: json!({}),
+        })
+        .await
+        .expect("source");
+    let mut memory = NewMemoryCandidate::confirmed_note(
+        ObjectRef::new(ObjectType::Conversation, conversation_id.as_str())
+            .expect("conversation object"),
+        "Kevin has a sensitive train-related medical appointment.",
+        ActorRef::human("human:local"),
+        ObjectRef::conversation_item(source_item.item_id.as_str()),
+    );
+    memory.status = crate::memory::MemoryStatus::Active;
+    memory.sensitivity = Sensitivity::Sensitive;
+    memory.participants = vec![NewMemoryParticipant::new(
+        ActorRef::human("human:local"),
+        ParticipantRole::HumanInScope,
+    )];
+    let denied = repo.append_memory_candidate(memory).await.expect("memory");
+
+    collect_turn(
+        &handle,
+        conversation_id.clone(),
+        "What do you remember about trains?".to_string(),
+    )
+    .await
+    .expect("turn");
+    handle.shutdown().await;
+
+    let replay = repo
+        .list_conversation_items(&conversation_id, ReplayMode::Visible)
+        .await
+        .expect("replay");
+    let tool_result = replay
+        .iter()
+        .find(|item| item.kind == ConversationItemKind::ToolResult)
+        .expect("tool result");
+    let payload = &tool_result.payload_json["metadata"]["action"]["payload"];
+    assert_eq!(
+        payload["omissions"],
+        json!([{ "reason": "policy_restricted_context" }])
+    );
+    let payload_string = payload.to_string();
+    assert!(!payload_string.contains(denied.id.as_str()));
+    assert!(!payload_string.contains("medical appointment"));
+}
+
+#[tokio::test]
+async fn search_memory_tool_invalid_arguments_are_failed_tool_result() {
+    let Some(database) = test_database().await else {
+        return;
+    };
+    let script = fake_codex_app_server_script_with_invalid_search_memory_tool_item();
+    let handle = CodexRuntimeHandle::spawn(
+        CodexProviderConfig {
+            command: script.to_string_lossy().to_string(),
+            startup_timeout_seconds: 2,
+            turn_timeout_seconds: 2,
+            ..CodexProviderConfig::default()
+        },
+        database.url.clone(),
+    )
+    .await
+    .expect("runtime");
+
+    let conversation_id = handle
+        .start_conversation(None, None)
+        .await
+        .expect("conversation")
+        .conversation_id;
+    collect_turn(
+        &handle,
+        conversation_id.clone(),
+        "Use your tool".to_string(),
+    )
+    .await
+    .expect("turn");
+    handle.shutdown().await;
+
+    let repo = postgres_repo(&database).await;
+    let replay = repo
+        .list_conversation_items(&conversation_id, ReplayMode::Visible)
+        .await
+        .expect("replay");
+    let tool_result = replay
+        .iter()
+        .find(|item| item.kind == ConversationItemKind::ToolResult)
+        .expect("tool result");
+    assert_eq!(tool_result.status, ConversationItemStatus::Failed);
+    assert_eq!(
+        tool_result.payload_json["metadata"]["action"]["payload"]["error"],
+        "unsupported purpose: dump_everything"
+    );
+}
+
 async fn conversation_and_turn_statuses(
     repo: &PostgresMemoryRepository,
     conversation_id: &str,
@@ -1476,6 +1605,78 @@ for line in sys.stdin:
         print(json.dumps({"id": msg["id"], "result": {"turn": {"id": "turn_1"}}}), flush=True)
         print(json.dumps({"method": "item/completed", "params": {"item": {"type": "toolCall", "id": "call_1", "name": "search_memory", "arguments": {"query": "trains"}}}}), flush=True)
         print(json.dumps({"method": "turn/completed", "params": {"turn": {"status": "failed", "error": {"message": "tool failed later"}}}}), flush=True)
+"#,
+    )
+    .expect("write script");
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut permissions = std::fs::metadata(&path).expect("metadata").permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&path, permissions).expect("chmod");
+    }
+
+    path
+}
+
+fn fake_codex_app_server_script_with_invalid_search_memory_tool_item() -> std::path::PathBuf {
+    let dir = tempfile::tempdir().expect("temp dir").keep();
+    let path = dir.join("fake-codex-invalid-search-memory");
+    std::fs::write(
+        &path,
+        r#"#!/usr/bin/env python3
+import json
+import sys
+
+next_thread = 1
+
+for line in sys.stdin:
+    msg = json.loads(line)
+    method = msg.get("method")
+    if method == "initialize":
+        print(json.dumps({"id": msg["id"], "result": {"userAgent": "fake"}}), flush=True)
+    elif method == "initialized":
+        pass
+    elif method == "thread/start":
+        thread = f"thread_{next_thread}"
+        next_thread += 1
+        print(json.dumps({"id": msg["id"], "result": {"thread": {"id": thread}}}), flush=True)
+    elif method == "turn/start":
+        input_text = "".join(
+            part.get("text", "")
+            for part in msg.get("params", {}).get("input", [])
+            if part.get("type") == "text"
+        )
+        if "NOEMA_LOCAL_TOOL_RESULT" in input_text:
+            text = json.dumps({
+                "type": "noema_response",
+                "output": [
+                    {"kind": "assistant_text", "text": "invalid tool result received"},
+                    {"kind": "memory_proposals", "proposals": []}
+                ]
+            })
+        else:
+            text = json.dumps({
+                "type": "noema_response",
+                "output": [
+                    {
+                        "kind": "tool_call",
+                        "id": "call_bad",
+                        "name": "search_memory",
+                        "payload": {
+                            "arguments": {
+                                "query": "trains",
+                                "purpose": "dump_everything"
+                            }
+                        }
+                    },
+                    {"kind": "memory_proposals", "proposals": []}
+                ]
+            })
+        print(json.dumps({"id": msg["id"], "result": {"turn": {"id": "turn_1"}}}), flush=True)
+        print(json.dumps({"method": "item/completed", "params": {"item": {"type": "agentMessage", "text": text}}}), flush=True)
+        print(json.dumps({"method": "turn/completed", "params": {"turn": {"status": "completed"}}}), flush=True)
 "#,
     )
     .expect("write script");
