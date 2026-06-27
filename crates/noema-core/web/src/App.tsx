@@ -55,7 +55,7 @@ export function App() {
     setAgentStatus("connecting");
 
     socket.addEventListener("open", () => {
-      const message: WebClientMessage = { type: "conversation_start" };
+      const message: WebClientMessage = { type: "primary_conversation_start" };
 
       setSocketState("ready");
       socket.send(JSON.stringify(message));
