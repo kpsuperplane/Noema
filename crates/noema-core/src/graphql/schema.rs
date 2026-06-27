@@ -145,7 +145,7 @@ impl MutationRoot {
     ) -> Result<GraphqlProviderAuthAttempt> {
         let state = ctx.data_unchecked::<GraphqlState>();
         let web = state.web_state()?;
-        let request = crate::frontend_protocol::StartProviderAuthAttemptRequest {
+        let request = crate::daemon::web::ProviderAuthStartRequest {
             provider_kind: input.provider_kind,
             provider_account_id: input.provider_account_id,
             method: input.method.into(),

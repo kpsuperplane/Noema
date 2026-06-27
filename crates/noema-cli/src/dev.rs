@@ -39,8 +39,8 @@ pub(crate) enum DevDaemonError {
         status: ExitStatus,
     },
 
-    #[error("failed to generate frontend types: {source}")]
-    GenerateTypes { source: io::Error },
+    #[error("failed to generate GraphQL schema: {source}")]
+    GenerateSchema { source: io::Error },
 }
 
 /// `package.json` script that watches and rebuilds web assets without invoking
@@ -51,12 +51,11 @@ pub(crate) async fn run_dev_daemon(options: DevDaemonOptions) -> Result<(), DevD
     let repo_root = repo_root();
     let web_dir = repo_root.join("crates/noema-core/web");
 
-    // Generate frontend types in-process before starting the watchers. Doing it
-    // here (rather than via a separate `cargo run` of the noema-core export bin)
-    // keeps every cargo invocation in this flow on the same noema-cli package
-    // graph, so shared dependencies are compiled exactly once. A second package
-    // selection would force cargo to build its own copy of every shared crate.
-    generate_frontend_types(&repo_root)?;
+    // Generate the GraphQL schema in-process before starting the watchers.
+    // Doing it here (rather than via a separate `cargo run` of the noema-core
+    // export bin) keeps every cargo invocation in this flow on the same
+    // noema-cli package graph, so shared dependencies are compiled once.
+    generate_graphql_schema(&repo_root)?;
 
     let mut web = spawn_web_watcher(&web_dir)?;
     let mut daemon = spawn_daemon_watcher(&repo_root, &options)?;
@@ -84,14 +83,19 @@ fn spawn_web_watcher(web_dir: &Path) -> Result<Child, DevDaemonError> {
     spawn_dev_process("web asset watcher", &mut command, web_dir)
 }
 
-fn frontend_types_output_path(repo_root: &Path) -> PathBuf {
-    repo_root.join("crates/noema-core/web/src/generated/noema.ts")
+fn graphql_schema_output_path(repo_root: &Path) -> PathBuf {
+    repo_root.join("crates/noema-core/web/src/generated/schema.graphql")
 }
 
-fn generate_frontend_types(repo_root: &Path) -> Result<(), DevDaemonError> {
-    let output_path = frontend_types_output_path(repo_root);
-    noema_core::frontend_protocol::write_frontend_typescript(&output_path)
-        .map_err(|source| DevDaemonError::GenerateTypes { source })?;
+fn generate_graphql_schema(repo_root: &Path) -> Result<(), DevDaemonError> {
+    let output_path = graphql_schema_output_path(repo_root);
+    if let Some(parent) = output_path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|source| DevDaemonError::GenerateSchema { source })?;
+    }
+    let schema = noema_core::graphql::build_schema(noema_core::graphql::GraphqlState::for_tests());
+    std::fs::write(&output_path, schema.sdl())
+        .map_err(|source| DevDaemonError::GenerateSchema { source })?;
     eprintln!("wrote {}", output_path.display());
     Ok(())
 }
@@ -330,10 +334,10 @@ mod tests {
     }
 
     #[test]
-    fn frontend_types_output_path_targets_web_generated_dir() {
+    fn graphql_schema_output_path_targets_web_generated_dir() {
         assert_eq!(
-            frontend_types_output_path(Path::new("/workspace")),
-            PathBuf::from("/workspace/crates/noema-core/web/src/generated/noema.ts")
+            graphql_schema_output_path(Path::new("/workspace")),
+            PathBuf::from("/workspace/crates/noema-core/web/src/generated/schema.graphql")
         );
     }
 

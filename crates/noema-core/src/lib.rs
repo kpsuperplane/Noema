@@ -12,8 +12,6 @@ pub mod context_graph;
 pub mod daemon;
 /// Database configuration and Postgres connection helpers.
 pub mod database;
-/// Rust-owned protocol types exported to the web frontend.
-pub mod frontend_protocol;
 /// GraphQL client API facade.
 pub mod graphql;
 /// Noema home-directory initialization.

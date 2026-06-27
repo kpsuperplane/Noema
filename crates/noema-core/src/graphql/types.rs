@@ -438,8 +438,8 @@ pub struct GraphqlConversationItem {
     pub item: GraphqlTranscriptItem,
 }
 
-impl From<crate::frontend_protocol::WebConversationItem> for GraphqlConversationItem {
-    fn from(item: crate::frontend_protocol::WebConversationItem) -> Self {
+impl From<crate::daemon::web::ConversationReplayItem> for GraphqlConversationItem {
+    fn from(item: crate::daemon::web::ConversationReplayItem) -> Self {
         Self {
             item_id: item.item_id,
             turn_id: item.turn_id,

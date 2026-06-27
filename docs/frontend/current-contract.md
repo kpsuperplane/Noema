@@ -23,7 +23,7 @@ explicit owner/admin entry points.
 | Source | Current authority |
 | --- | --- |
 | Daemon socket protocol | Live chat, transcript items, memory extraction activity, daemon errors |
-| Daemon web server | Local React shell, `/api/status`, and native `/api/chat/ws` WebSocket |
+| Daemon web server | Local React shell, GraphQL HTTP, and GraphQL WebSocket subscription endpoints |
 | `A2uiCard` payloads | Future structured cards inside the chat stream |
 | `config.yaml` and environment-derived config | Provider/model/default setup state; secrets remain environment-only |
 | `NoemaPaths` and database config | Noema home, run directory, socket path, and Postgres connection/readiness state |
@@ -183,10 +183,11 @@ Events to render:
 
 Current behavior:
 
-- The current web frontend connects through the daemon's native `/api/chat/ws`
-  WebSocket. It is intentionally not OpenAI-compatible yet.
+- The current web frontend uses the daemon GraphQL API for local status,
+  onboarding, provider auth, chat startup, chat turns, and live subscriptions.
 - The web home chat loads `human:local.primary_conversation_id`.
-- The daemon WebSocket is the live source for current turn updates.
+- The daemon GraphQL subscription endpoint is the live source for current turn
+  updates.
 - Durable chat history is reconstructed from `conversation_items`.
 - Daemon runtime state is live coordination state only. After restart, Noema
   reactivates the durable conversation and assembles context from Postgres.
