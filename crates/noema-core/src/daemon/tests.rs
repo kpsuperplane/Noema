@@ -1067,6 +1067,119 @@ async fn runtime_actor_persists_provider_tool_items_before_turn_failure() {
     assert_eq!(turn_status, "failed");
 }
 
+#[tokio::test]
+async fn runtime_actor_executes_search_memory_as_local_tool_result() {
+    let Some(database) = test_database().await else {
+        return;
+    };
+    let script = fake_codex_app_server_script_with_search_memory_continuation();
+    let handle = CodexRuntimeHandle::spawn(
+        CodexProviderConfig {
+            command: script.to_string_lossy().to_string(),
+            startup_timeout_seconds: 2,
+            turn_timeout_seconds: 2,
+            ..CodexProviderConfig::default()
+        },
+        database.url.clone(),
+    )
+    .await
+    .expect("runtime");
+
+    let conversation = handle
+        .start_conversation(None, None)
+        .await
+        .expect("conversation");
+    let conversation_id = conversation.conversation_id.clone();
+    collect_turn(
+        &handle,
+        conversation_id.clone(),
+        "Please remember I'm a big fan of trains".to_string(),
+    )
+    .await
+    .expect("seed turn");
+
+    let items = collect_turn(
+        &handle,
+        conversation_id.clone(),
+        "What do you remember about trains?".to_string(),
+    )
+    .await
+    .expect("search turn");
+    assert!(items.iter().any(|item| matches!(
+        item,
+        TurnTranscriptItem::Activity {
+            activity_kind,
+            title,
+            ..
+        } if activity_kind == "tool_call" && title == "Tool call: search_memory"
+    )));
+    assert!(items.iter().any(|item| matches!(
+        item,
+        TurnTranscriptItem::Activity {
+            activity_kind,
+            status: TurnActivityStatus::Completed,
+            title,
+            ..
+        } if activity_kind == "tool_result" && title == "Tool result: search_memory"
+    )));
+    assert!(items.iter().any(|item| matches!(
+        item,
+        TurnTranscriptItem::AssistantText { text } if text == "I found your train memory."
+    )));
+    handle.shutdown().await;
+
+    let repo = postgres_repo(&database).await;
+    let replay = repo
+        .list_conversation_items(&conversation_id, ReplayMode::Visible)
+        .await
+        .expect("conversation replay");
+    assert!(replay.iter().any(|item| {
+        item.kind == ConversationItemKind::ToolCall
+            && item.status == ConversationItemStatus::Completed
+            && item.payload_json["activity_kind"] == "tool_call"
+            && item.payload_json["metadata"]["action"]["name"] == "search_memory"
+    }));
+    assert!(replay.iter().any(|item| {
+        item.kind == ConversationItemKind::ToolResult
+            && item.status == ConversationItemStatus::Completed
+            && item.payload_json["activity_kind"] == "tool_result"
+            && item.payload_json["metadata"]["action"]["name"] == "search_memory"
+            && item.payload_json["metadata"]["action"]["success"] == true
+            && item.payload_json["metadata"]["action"]["payload"]["memories"][0]["content"]
+                == "Kevin is a big fan of trains."
+    }));
+    let assistant_texts = replay
+        .iter()
+        .filter_map(|item| {
+            (item.kind == ConversationItemKind::AssistantText)
+                .then_some(item.content_text.as_deref())
+                .flatten()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        assistant_texts.last().copied(),
+        Some("I found your train memory.")
+    );
+    assert!(replay.iter().any(|item| {
+        item.kind == ConversationItemKind::A2uiCard
+            && item.status == ConversationItemStatus::Completed
+            && item.payload_json["schema"] == "memory_proposals"
+            && item.payload_json["payload"]["proposals"]
+                .as_array()
+                .is_some_and(|proposals| {
+                    proposals.iter().any(|proposal| {
+                        proposal["proposal"]["content"] == "Noema found Kevin's train memory."
+                    })
+                })
+    }));
+    let memories = repo.list_recent_memories(Some(10)).await.expect("memories");
+    assert!(
+        memories
+            .iter()
+            .any(|memory| memory.content == "Noema found Kevin's train memory.")
+    );
+}
+
 async fn conversation_and_turn_statuses(
     repo: &PostgresMemoryRepository,
     conversation_id: &str,
@@ -1363,6 +1476,134 @@ for line in sys.stdin:
         print(json.dumps({"id": msg["id"], "result": {"turn": {"id": "turn_1"}}}), flush=True)
         print(json.dumps({"method": "item/completed", "params": {"item": {"type": "toolCall", "id": "call_1", "name": "search_memory", "arguments": {"query": "trains"}}}}), flush=True)
         print(json.dumps({"method": "turn/completed", "params": {"turn": {"status": "failed", "error": {"message": "tool failed later"}}}}), flush=True)
+"#,
+    )
+    .expect("write script");
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut permissions = std::fs::metadata(&path).expect("metadata").permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&path, permissions).expect("chmod");
+    }
+
+    path
+}
+
+fn fake_codex_app_server_script_with_search_memory_continuation() -> std::path::PathBuf {
+    let dir = tempfile::tempdir().expect("temp dir").keep();
+    let path = dir.join("fake-codex-search-memory-continuation");
+    std::fs::write(
+        &path,
+        r#"#!/usr/bin/env python3
+import json
+import sys
+
+next_thread = 1
+
+for line in sys.stdin:
+    msg = json.loads(line)
+    method = msg.get("method")
+    if method == "initialize":
+        print(json.dumps({"id": msg["id"], "result": {"userAgent": "fake"}}), flush=True)
+    elif method == "initialized":
+        pass
+    elif method == "thread/start":
+        thread = f"thread_{next_thread}"
+        next_thread += 1
+        print(json.dumps({"id": msg["id"], "result": {"thread": {"id": thread}}}), flush=True)
+    elif method == "turn/start":
+        input_text = "".join(
+            part.get("text", "")
+            for part in msg.get("params", {}).get("input", [])
+            if part.get("type") == "text"
+        )
+        if "NOEMA_LOCAL_TOOL_RESULT" in input_text:
+            proposal = {
+                "content": "Noema found Kevin's train memory.",
+                "memory_type": "note",
+                "title": "Train memory recall",
+                "confidence": 0.72,
+                "sensitivity": "normal",
+                "subjects": [
+                    {
+                        "id": "human:local",
+                        "kind": "human",
+                        "name": "Kevin",
+                        "role": "about"
+                    }
+                ],
+                "retrieval_hints": {
+                    "topics": ["trains"],
+                    "keywords": ["train memory"],
+                    "summary": "Noema found Kevin's train memory."
+                },
+                "risk_flags": [],
+                "evidence_excerpt": "I found your train memory."
+            }
+            text = json.dumps({
+                "type": "noema_response",
+                "output": [
+                    {"kind": "assistant_text", "text": "I found your train memory."},
+                    {"kind": "memory_proposals", "proposals": [proposal]}
+                ]
+            })
+        elif "Please remember I'm a big fan of trains" in input_text and "noema_response" in input_text:
+            proposal = {
+                "content": "Kevin is a big fan of trains.",
+                "memory_type": "preference",
+                "title": "Train enthusiasm",
+                "confidence": 0.92,
+                "sensitivity": "normal",
+                "subjects": [
+                    {
+                        "id": "human:local",
+                        "kind": "human",
+                        "name": "Kevin",
+                        "role": "about"
+                    }
+                ],
+                "retrieval_hints": {
+                    "topics": ["interests"],
+                    "keywords": ["trains"],
+                    "summary": "Kevin is a big fan of trains."
+                },
+                "risk_flags": [],
+                "evidence_excerpt": "I'm a big fan of trains"
+            }
+            text = json.dumps({
+                "type": "noema_response",
+                "output": [
+                    {"kind": "assistant_text", "text": "fake answer"},
+                    {"kind": "memory_proposals", "proposals": [proposal]}
+                ]
+            })
+        elif "What do you remember about trains?" in input_text and "noema_response" in input_text:
+            text = json.dumps({
+                "type": "noema_response",
+                "output": [
+                    {"kind": "assistant_text", "text": "Searching memory."},
+                    {
+                        "kind": "tool_call",
+                        "id": "call_1",
+                        "name": "search_memory",
+                        "payload": {"arguments": {"query": "trains"}}
+                    },
+                    {"kind": "memory_proposals", "proposals": []}
+                ]
+            })
+        else:
+            text = json.dumps({
+                "type": "noema_response",
+                "output": [
+                    {"kind": "assistant_text", "text": "fake answer"},
+                    {"kind": "memory_proposals", "proposals": []}
+                ]
+            })
+        print(json.dumps({"id": msg["id"], "result": {"turn": {"id": "turn_1"}}}), flush=True)
+        print(json.dumps({"method": "item/completed", "params": {"item": {"type": "agentMessage", "text": text}}}), flush=True)
+        print(json.dumps({"method": "turn/completed", "params": {"turn": {"status": "completed"}}}), flush=True)
 "#,
     )
     .expect("write script");

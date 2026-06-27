@@ -22,7 +22,7 @@ use crate::{
         codex_app_server::{CodexAppServerConversation, CodexAppServerRuntime},
     },
 };
-use serde_json::json;
+use serde_json::{Value, json};
 use tokio::sync::{mpsc, oneshot};
 
 use super::{
@@ -30,6 +30,9 @@ use super::{
         ConversationMemoryContext, explicit_memory_content, extracted_proposal_to_candidate,
         infer_chat_memory_type, infer_chat_sensitivity, memory_activity, memory_activity_failed,
         project_scope_from_cwd, title_from_memory_content, typed_memory_activity,
+    },
+    memory_tool::{
+        MemoryToolResult, MemoryToolRuntimeContext, execute_search_memory, is_search_memory_tool,
     },
     protocol::{
         AgentStatus, DaemonError, StartedConversation, TurnActivityStatus, TurnStreamEvent,
@@ -506,6 +509,7 @@ impl CodexRuntimeActor {
                             user_item_id: user_item_id.clone(),
                             user_input: input.clone(),
                             cwd: conversation.cwd.clone(),
+                            provider_conversation: conversation.provider.clone(),
                             response,
                             saved_memory_id,
                         },
@@ -583,8 +587,8 @@ impl CodexRuntimeActor {
         turn: SuccessfulProviderTurn,
         item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
     ) -> Result<(), DaemonError> {
-        let assistant_text = turn.response.assistant_text();
-        let provider_memory_proposals = turn.response.memory_proposals();
+        let mut provider_memory_proposals = turn.response.memory_proposals();
+        let initial_output_count = turn.response.output.len();
         let action_turn = ProviderActionTurn {
             conversation_id: turn.conversation_id.clone(),
             turn_id: turn.turn_id.clone(),
@@ -592,83 +596,88 @@ impl CodexRuntimeActor {
             user_item_id: turn.user_item_id.clone(),
             provider: turn.response.provider.clone(),
         };
-        let mut assistant_item_id = None;
-        for (index, output) in turn.response.output.into_iter().enumerate() {
-            match output {
-                GenerateOutputItem::AssistantText { text } => {
-                    let assistant_item = self
-                        .memory_repository
-                        .append_conversation_item(NewConversationItem {
-                            conversation_id: turn.conversation_id.clone(),
-                            turn_id: Some(turn.turn_id.clone()),
-                            parent_item_id: Some(turn.user_item_id.clone()),
-                            kind: ConversationItemKind::AssistantText,
-                            status: ConversationItemStatus::Completed,
-                            author: ActorRef::agent("agent:primary"),
-                            content_text: Some(text.clone()),
-                            payload_json: json!({}),
-                            metadata: json!({
-                                "turn_index": turn.turn_index,
-                                "output_index": index,
-                            }),
-                        })
-                        .await?;
-                    if assistant_item_id.is_none() {
-                        assistant_item_id = Some(assistant_item.item_id.clone());
-                    }
-                    send_conversation_item(
-                        item_tx,
-                        assistant_item,
-                        TurnTranscriptItem::AssistantText { text },
-                    );
-                }
-                GenerateOutputItem::MemoryProposals { .. } => {}
-                output @ (GenerateOutputItem::ToolCall { .. }
-                | GenerateOutputItem::ToolResult { .. }
-                | GenerateOutputItem::ApprovalRequest { .. }
-                | GenerateOutputItem::ApprovalResult { .. }) => {
-                    self.persist_provider_action_output_item(&action_turn, index, output, item_tx)
-                        .await?;
-                }
-                GenerateOutputItem::Structured { schema, payload } => {
-                    let card_id = format!(
-                        "provider_structured:{}:{}:{index}",
-                        turn.conversation_id, turn.turn_index
-                    );
-                    let structured_item = self
-                        .memory_repository
-                        .append_conversation_item(NewConversationItem {
-                            conversation_id: turn.conversation_id.clone(),
-                            turn_id: Some(turn.turn_id.clone()),
-                            parent_item_id: Some(turn.user_item_id.clone()),
-                            kind: ConversationItemKind::A2uiCard,
-                            status: ConversationItemStatus::Completed,
-                            author: ActorRef::agent("agent:primary"),
-                            content_text: None,
-                            payload_json: json!({
-                                "id": card_id.clone(),
-                                "schema": schema.clone(),
-                                "payload": payload.clone(),
-                            }),
-                            metadata: json!({
-                                "turn_index": turn.turn_index,
-                                "output_index": index,
-                                "source": "provider_structured_output",
-                            }),
-                        })
-                        .await?;
-                    send_conversation_item(
-                        item_tx,
-                        structured_item,
-                        TurnTranscriptItem::A2uiCard {
-                            id: card_id,
-                            schema: schema.clone(),
-                            payload: payload.clone(),
-                        },
-                    );
-                }
+        let mut initial_assistant_item_id = None;
+        let mut initial_assistant_text = String::new();
+        for (index, output) in turn.response.output.iter().cloned().enumerate() {
+            self.persist_provider_response_output_item(
+                &action_turn,
+                index,
+                output,
+                &mut initial_assistant_item_id,
+                &mut initial_assistant_text,
+                item_tx,
+            )
+            .await?;
+        }
+
+        let local_tool_results = self.execute_local_search_memory_tools(&turn).await;
+        let has_local_tool_results = !local_tool_results.is_empty();
+        let mut continuation_assistant_item_id = None;
+        let mut continuation_assistant_text = String::new();
+        if has_local_tool_results {
+            let local_action_turn = ProviderActionTurn {
+                conversation_id: turn.conversation_id.clone(),
+                turn_id: turn.turn_id.clone(),
+                turn_index: turn.turn_index,
+                user_item_id: turn.user_item_id.clone(),
+                provider: "noema_local".to_string(),
+            };
+            for (offset, result) in local_tool_results.iter().enumerate() {
+                self.persist_provider_action_output_item(
+                    &local_action_turn,
+                    initial_output_count + offset,
+                    local_tool_result_output_item(result),
+                    item_tx,
+                )
+                .await?;
+            }
+
+            let continuation_input = local_tool_result_continuation_input(&local_tool_results);
+            let continuation_instructions = build_local_tool_result_continuation_system_prompt(
+                &turn.conversation_id,
+                turn.turn_index,
+                turn.cwd.as_deref(),
+                &turn.user_input,
+            );
+            let continuation_response = self
+                .runtime
+                .turn_structured(
+                    &turn.provider_conversation,
+                    continuation_input.to_string(),
+                    continuation_instructions,
+                )
+                .await?;
+            provider_memory_proposals.extend(continuation_response.memory_proposals());
+            let continuation_action_turn = ProviderActionTurn {
+                conversation_id: turn.conversation_id.clone(),
+                turn_id: turn.turn_id.clone(),
+                turn_index: turn.turn_index,
+                user_item_id: turn.user_item_id.clone(),
+                provider: continuation_response.provider.clone(),
+            };
+            let continuation_output_base = initial_output_count + local_tool_results.len();
+            for (offset, output) in continuation_response.output.into_iter().enumerate() {
+                self.persist_provider_response_output_item(
+                    &continuation_action_turn,
+                    continuation_output_base + offset,
+                    output,
+                    &mut continuation_assistant_item_id,
+                    &mut continuation_assistant_text,
+                    item_tx,
+                )
+                .await?;
             }
         }
+        let assistant_item_id = final_assistant_item_id(
+            has_local_tool_results,
+            initial_assistant_item_id,
+            continuation_assistant_item_id,
+        );
+        let assistant_text = final_assistant_text_for_memory_context(
+            has_local_tool_results,
+            &initial_assistant_text,
+            &continuation_assistant_text,
+        );
 
         let memory_context = ConversationMemoryContext {
             turn_index: turn.turn_index,
@@ -707,6 +716,121 @@ impl CodexRuntimeActor {
         }
 
         Ok(())
+    }
+
+    async fn persist_provider_response_output_item(
+        &mut self,
+        turn: &ProviderActionTurn,
+        index: usize,
+        output: GenerateOutputItem,
+        assistant_item_id: &mut Option<String>,
+        assistant_text: &mut String,
+        item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
+    ) -> Result<(), DaemonError> {
+        match output {
+            GenerateOutputItem::AssistantText { text } => {
+                assistant_text.push_str(&text);
+                let assistant_item = self
+                    .memory_repository
+                    .append_conversation_item(NewConversationItem {
+                        conversation_id: turn.conversation_id.clone(),
+                        turn_id: Some(turn.turn_id.clone()),
+                        parent_item_id: Some(turn.user_item_id.clone()),
+                        kind: ConversationItemKind::AssistantText,
+                        status: ConversationItemStatus::Completed,
+                        author: ActorRef::agent("agent:primary"),
+                        content_text: Some(text.clone()),
+                        payload_json: json!({}),
+                        metadata: json!({
+                            "turn_index": turn.turn_index,
+                            "output_index": index,
+                        }),
+                    })
+                    .await?;
+                if assistant_item_id.is_none() {
+                    *assistant_item_id = Some(assistant_item.item_id.clone());
+                }
+                send_conversation_item(
+                    item_tx,
+                    assistant_item,
+                    TurnTranscriptItem::AssistantText { text },
+                );
+            }
+            GenerateOutputItem::MemoryProposals { .. } => {}
+            output @ (GenerateOutputItem::ToolCall { .. }
+            | GenerateOutputItem::ToolResult { .. }
+            | GenerateOutputItem::ApprovalRequest { .. }
+            | GenerateOutputItem::ApprovalResult { .. }) => {
+                self.persist_provider_action_output_item(turn, index, output, item_tx)
+                    .await?;
+            }
+            GenerateOutputItem::Structured { schema, payload } => {
+                let card_id = format!(
+                    "provider_structured:{}:{}:{index}",
+                    turn.conversation_id, turn.turn_index
+                );
+                let structured_item = self
+                    .memory_repository
+                    .append_conversation_item(NewConversationItem {
+                        conversation_id: turn.conversation_id.clone(),
+                        turn_id: Some(turn.turn_id.clone()),
+                        parent_item_id: Some(turn.user_item_id.clone()),
+                        kind: ConversationItemKind::A2uiCard,
+                        status: ConversationItemStatus::Completed,
+                        author: ActorRef::agent("agent:primary"),
+                        content_text: None,
+                        payload_json: json!({
+                            "id": card_id.clone(),
+                            "schema": schema.clone(),
+                            "payload": payload.clone(),
+                        }),
+                        metadata: json!({
+                            "turn_index": turn.turn_index,
+                            "output_index": index,
+                            "source": "provider_structured_output",
+                        }),
+                    })
+                    .await?;
+                send_conversation_item(
+                    item_tx,
+                    structured_item,
+                    TurnTranscriptItem::A2uiCard {
+                        id: card_id,
+                        schema: schema.clone(),
+                        payload: payload.clone(),
+                    },
+                );
+            }
+        }
+        Ok(())
+    }
+
+    async fn execute_local_search_memory_tools(
+        &self,
+        turn: &SuccessfulProviderTurn,
+    ) -> Vec<MemoryToolResult> {
+        let mut results = Vec::new();
+        for (index, output) in turn.response.output.iter().enumerate() {
+            let GenerateOutputItem::ToolCall { id, name, payload } = output else {
+                continue;
+            };
+            if !is_search_memory_tool(name) {
+                continue;
+            }
+
+            let context = MemoryToolRuntimeContext {
+                conversation_id: turn.conversation_id.clone(),
+                turn_id: turn.turn_id.clone(),
+                turn_index: turn.turn_index,
+                call_site_id: format!("output_{index}"),
+                cwd: turn.cwd.clone(),
+                user_input: turn.user_input.clone(),
+            };
+            results.push(
+                execute_search_memory(&self.memory_repository, &context, id.clone(), payload).await,
+            );
+        }
+        results
     }
 
     async fn persist_partial_provider_action_outputs(
@@ -1356,6 +1480,72 @@ Recent durable transcript from Noema Postgres:
     )
 }
 
+fn build_local_tool_result_continuation_system_prompt(
+    conversation_id: &str,
+    turn_index: u64,
+    cwd: Option<&str>,
+    user_input: &str,
+) -> String {
+    let mut prompt = build_structured_turn_system_prompt(conversation_id, turn_index, cwd, "");
+    prompt.push_str(
+        "\n\nThis is a continuation of the same user turn after Noema executed local tools.",
+    );
+    prompt.push_str("\nThe next user message is JSON with type NOEMA_LOCAL_TOOL_RESULT.");
+    prompt.push_str("\nUse those results to answer the original user message.");
+    prompt.push_str("\n\nOriginal user message:\n");
+    prompt.push_str(user_input);
+    prompt
+}
+
+fn local_tool_result_continuation_input(results: &[MemoryToolResult]) -> Value {
+    json!({
+        "type": "NOEMA_LOCAL_TOOL_RESULT",
+        "results": results.iter().map(local_tool_result_payload).collect::<Vec<_>>(),
+    })
+}
+
+fn local_tool_result_payload(result: &MemoryToolResult) -> Value {
+    json!({
+        "call_id": result.call_id,
+        "name": result.name,
+        "success": result.success,
+        "payload": result.payload,
+    })
+}
+
+fn local_tool_result_output_item(result: &MemoryToolResult) -> GenerateOutputItem {
+    GenerateOutputItem::ToolResult {
+        call_id: result.call_id.clone(),
+        name: Some(result.name.clone()),
+        success: Some(result.success),
+        payload: result.payload.clone(),
+    }
+}
+
+fn final_assistant_text_for_memory_context(
+    has_local_tool_results: bool,
+    initial_assistant_text: &str,
+    continuation_assistant_text: &str,
+) -> String {
+    if has_local_tool_results && !continuation_assistant_text.trim().is_empty() {
+        continuation_assistant_text.to_string()
+    } else {
+        initial_assistant_text.to_string()
+    }
+}
+
+fn final_assistant_item_id(
+    has_local_tool_results: bool,
+    initial_assistant_item_id: Option<String>,
+    continuation_assistant_item_id: Option<String>,
+) -> Option<String> {
+    if has_local_tool_results && continuation_assistant_item_id.is_some() {
+        continuation_assistant_item_id
+    } else {
+        initial_assistant_item_id
+    }
+}
+
 fn render_recent_transcript_for_prompt(items: &[ConversationItemRecord]) -> String {
     let mut rendered = String::new();
     for item in items {
@@ -1430,6 +1620,7 @@ struct SuccessfulProviderTurn {
     user_item_id: String,
     user_input: String,
     cwd: Option<String>,
+    provider_conversation: CodexAppServerConversation,
     response: GenerateResponse,
     saved_memory_id: Option<String>,
 }
@@ -1483,6 +1674,21 @@ async fn persist_validated_memory_proposals(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn final_assistant_text_for_memory_context_uses_continuation_text_after_local_tools() {
+        let text =
+            final_assistant_text_for_memory_context(true, "Searching memory.", "I found it.");
+
+        assert_eq!(text, "I found it.");
+    }
+
+    #[test]
+    fn final_assistant_text_for_memory_context_uses_initial_text_without_local_tools() {
+        let text = final_assistant_text_for_memory_context(false, "Direct answer.", "");
+
+        assert_eq!(text, "Direct answer.");
+    }
 
     #[test]
     fn codex_config_for_provider_account_uses_account_home() {

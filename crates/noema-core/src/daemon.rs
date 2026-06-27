@@ -2,7 +2,6 @@
 
 mod client;
 mod memory_pipeline;
-#[allow(dead_code)]
 mod memory_tool;
 mod protocol;
 mod runtime;
