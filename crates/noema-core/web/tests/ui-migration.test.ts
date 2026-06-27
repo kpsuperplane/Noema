@@ -47,3 +47,19 @@ test("Noema shell uses shadcn primitives without moving domain state into ui com
   expect(app).toContain("sendConversationTurn");
   expect(app).not.toContain("@ai-sdk/react");
 });
+
+test("Transcript uses MessageScroller while preserving Noema transcript entry ownership", async () => {
+  const transcript = await read("src/components/Transcript.tsx");
+
+  expect(transcript).toContain('from "@/components/ui/message-scroller"');
+  expect(transcript).toContain("MessageScrollerProvider");
+  expect(transcript).toContain('defaultScrollPosition="last-anchor"');
+  expect(transcript).toContain("MessageScrollerItem");
+  expect(transcript).toContain("messageId={entry.id}");
+  expect(transcript).toContain('scrollAnchor={entry.type === "user"}');
+  expect(transcript).toContain('entry.type === "activity"');
+  expect(transcript).toContain('entry.type === "card"');
+  expect(transcript).toContain("memoryCardsFromStructuredItem");
+  expect(transcript).not.toContain("@ai-sdk/react");
+  expect(transcript).not.toContain("useChat(");
+});

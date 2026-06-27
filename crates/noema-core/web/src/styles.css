@@ -271,12 +271,15 @@ textarea:disabled {
   background: var(--surface-hover);
 }
 
+.transcript-scroller {
+  min-height: 0;
+}
+
 .transcript {
   display: flex;
   flex-direction: column;
   gap: 12px;
   min-height: 0;
-  overflow-y: auto;
   padding: 0 2px 24px;
 }
 

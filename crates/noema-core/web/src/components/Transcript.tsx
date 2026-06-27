@@ -1,3 +1,11 @@
+import {
+  MessageScroller,
+  MessageScrollerButton,
+  MessageScrollerContent,
+  MessageScrollerItem,
+  MessageScrollerProvider,
+  MessageScrollerViewport
+} from "@/components/ui/message-scroller";
 import { formatPercent, readableKind, statusLabel } from "../format";
 import { memoryCardsFromStructuredItem, type MemoryCardData } from "../memoryCards";
 import type { TranscriptEntry, TurnTranscriptItem } from "../types";
@@ -12,32 +20,45 @@ export function Transcript({
   onToggleActivity: (id: string) => void;
 }) {
   return (
-    <div className="transcript" aria-live="polite">
-      {entries.map((entry) => {
-        if (entry.type === "user") {
-          return <Message key={entry.id} role="user" name="You" text={entry.text} />;
-        }
-        if (entry.type === "assistant") {
-          return <Message key={entry.id} role="assistant" name="Noema" text={entry.text} />;
-        }
-        if (entry.type === "activity") {
-          return (
-            <ActivityRow
-              key={entry.id}
-              item={entry.item}
-              open={expandedActivities.has(entry.id)}
-              onToggle={() => onToggleActivity(entry.id)}
-            />
-          );
-        }
-        if (entry.type === "card") {
-          return <StructuredCard key={entry.id} item={entry.item} />;
-        }
-        return <ErrorNotice key={entry.id} message={entry.message} recoverable={entry.recoverable} />;
-      })}
-    </div>
+    <MessageScrollerProvider autoScroll defaultScrollPosition="last-anchor" scrollPreviousItemPeek={56}>
+      <MessageScroller className="transcript-scroller" aria-label="Conversation transcript">
+        <MessageScrollerViewport>
+          <MessageScrollerContent className="transcript">
+            {entries.map((entry) => (
+              <MessageScrollerItem key={entry.id} messageId={entry.id} scrollAnchor={entry.type === "user"}>
+                {renderTranscriptEntry(entry, expandedActivities, onToggleActivity)}
+              </MessageScrollerItem>
+            ))}
+          </MessageScrollerContent>
+        </MessageScrollerViewport>
+        <MessageScrollerButton />
+      </MessageScroller>
+    </MessageScrollerProvider>
   );
 }
+
+function renderTranscriptEntry(
+  entry: TranscriptEntry,
+  expandedActivities: Set<string>,
+  onToggleActivity: (id: string) => void
+) {
+  if (entry.type === "user") {
+    return <Message role="user" name="You" text={entry.text} />;
+  }
+  if (entry.type === "assistant") {
+    return <Message role="assistant" name="Noema" text={entry.text} />;
+  }
+  if (entry.type === "activity") {
+    return (
+      <ActivityRow item={entry.item} open={expandedActivities.has(entry.id)} onToggle={() => onToggleActivity(entry.id)} />
+    );
+  }
+  if (entry.type === "card") {
+    return <StructuredCard item={entry.item} />;
+  }
+  return <ErrorNotice message={entry.message} recoverable={entry.recoverable} />;
+}
+
 function Message({ role, name, text }: { role: "user" | "assistant"; name: string; text: string }) {
   return (
     <article className={`message message--${role}`}>
