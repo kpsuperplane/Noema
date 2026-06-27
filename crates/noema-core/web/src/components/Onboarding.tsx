@@ -1,3 +1,6 @@
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
 import type {
   GraphqlProviderAuthAttemptStatus,
   OnboardingStatusQuery,
@@ -36,37 +39,39 @@ export function Onboarding({
 
   return (
     <section className="onboarding-shell" aria-label="Noema onboarding">
-      <div className="onboarding-panel">
-        <p className="eyebrow">First run</p>
-        <h1>Connect {providerName}</h1>
-        <p>
-          Noema needs an authenticated provider account before it can open your
-          local chat.
-        </p>
+      <Card className="onboarding-panel">
+        <CardContent>
+          <p className="eyebrow">First run</p>
+          <h1>Connect {providerName}</h1>
+          <p>
+            Noema needs an authenticated provider account before it can open your
+            local chat.
+          </p>
 
-        {providerStatus ? <ProviderStatus status={providerStatus} /> : null}
+          {providerStatus ? <ProviderStatus status={providerStatus} /> : null}
 
-        {canStart ? (
-          <button type="button" onClick={onConnect}>
-            Connect {providerName}
-          </button>
-        ) : null}
+          {canStart ? (
+            <Button type="button" onClick={onConnect}>
+              Connect {providerName}
+            </Button>
+          ) : null}
 
-        {waiting ? <AuthAttempt attempt={attempt} onCheck={onCheck} /> : null}
+          {waiting ? <AuthAttempt attempt={attempt} onCheck={onCheck} /> : null}
 
-        {complete ? <p className="onboarding-success">Provider connected. Starting chat.</p> : null}
+          {complete ? <p className="onboarding-success">Provider connected. Starting chat.</p> : null}
 
-        {failed ? (
-          <div className="onboarding-retry">
-            <p>{attempt?.errorMessage ?? statusCopy[attempt?.status ?? "FAILED"]}</p>
-            <button type="button" onClick={onRetry}>
-              Try again
-            </button>
-          </div>
-        ) : null}
+          {failed ? (
+            <div className="onboarding-retry">
+              <p>{attempt?.errorMessage ?? statusCopy[attempt?.status ?? "FAILED"]}</p>
+              <Button type="button" onClick={onRetry}>
+                Try again
+              </Button>
+            </div>
+          ) : null}
 
-        {error ? <p className="onboarding-error">{error}</p> : null}
-      </div>
+          {error ? <p className="onboarding-error">{error}</p> : null}
+        </CardContent>
+      </Card>
     </section>
   );
 }
@@ -79,24 +84,32 @@ function AuthAttempt({
   onCheck: () => void;
 }) {
   return (
-    <div className="auth-attempt" aria-live="polite">
-      <strong>{attempt.status === "STARTING" ? "Starting login" : "Waiting for login"}</strong>
-      {attempt.verificationUrl ? (
-        <a href={attempt.verificationUrl} target="_blank" rel="noreferrer">
-          Open login page
-        </a>
-      ) : null}
-      {attempt.userCode ? <code>{attempt.userCode}</code> : null}
-      {attempt.instructions ? <p>{attempt.instructions}</p> : null}
-      <button type="button" onClick={onCheck}>
-        {attempt.status === "WAITING_FOR_USER" ? "Continue" : "Check status"}
-      </button>
-    </div>
+    <Card className="auth-attempt" aria-live="polite">
+      <CardContent>
+        <strong>{attempt.status === "STARTING" ? "Starting login" : "Waiting for login"}</strong>
+        {attempt.verificationUrl ? (
+          <Button asChild>
+            <a href={attempt.verificationUrl} target="_blank" rel="noreferrer">
+              Open login page
+            </a>
+          </Button>
+        ) : null}
+        {attempt.userCode ? <code>{attempt.userCode}</code> : null}
+        {attempt.instructions ? <p>{attempt.instructions}</p> : null}
+        <Button type="button" onClick={onCheck}>
+          {attempt.status === "WAITING_FOR_USER" ? "Continue" : "Check status"}
+        </Button>
+      </CardContent>
+    </Card>
   );
 }
 
 function ProviderStatus({ status }: { status: ProviderAccountStatus }) {
-  return <p className="onboarding-status">Provider status: {statusCopy[status]}</p>;
+  return (
+    <Badge variant="outline" className="onboarding-status">
+      Provider status: {statusCopy[status]}
+    </Badge>
+  );
 }
 
 function isRetryableTerminalStatus(status: ProviderAuthAttemptView["status"]) {

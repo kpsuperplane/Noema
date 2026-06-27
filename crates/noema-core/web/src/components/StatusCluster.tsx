@@ -1,5 +1,7 @@
-import type { LocalStatusQuery } from "../generated/graphql";
-import type { ConversationAgentStatus, SocketState } from "../types";
+import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
+import type { LocalStatusQuery } from "@/generated/graphql";
+import type { ConversationAgentStatus, SocketState } from "@/types";
 
 export function StatusCluster({
   status,
@@ -30,7 +32,18 @@ export function StatusCluster({
 }
 
 function StatusPill({ tone, children }: { tone: "good" | "bad" | "neutral"; children: React.ReactNode }) {
-  return <span className={`status-pill status-pill--${tone}`}>{children}</span>;
+  return (
+    <Badge
+      variant="outline"
+      className={cn(
+        "status-pill",
+        tone === "good" && "status-pill--good",
+        tone === "bad" && "status-pill--bad"
+      )}
+    >
+      {children}
+    </Badge>
+  );
 }
 
 const agentLabel: Record<ConversationAgentStatus, string> = {

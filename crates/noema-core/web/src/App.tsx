@@ -8,14 +8,13 @@ import {
   SendConversationTurnDocument,
   StartPrimaryConversationDocument,
   StartProviderAuthAttemptDocument,
-  type LocalStatusQuery,
   type ProviderAuthAttemptQuery,
   type StartProviderAuthAttemptMutation
 } from "./generated/graphql";
+import { AppHeader } from "@/components/shell/AppHeader";
 import { Composer } from "./components/Composer";
 import { EmptyState } from "./components/EmptyState";
 import { Onboarding } from "./components/Onboarding";
-import { StatusCluster } from "./components/StatusCluster";
 import { Transcript } from "./components/Transcript";
 import { entriesFromReplay, handleConversationEvent, pushTranscript } from "./transcript";
 import type { ConversationAgentStatus, SocketState, TranscriptEntry } from "./types";
@@ -208,7 +207,7 @@ export function App() {
   if (!onboarding) {
     return (
       <main className="noema-app">
-        <Header status={status} socketState={socketState} agentStatus={agentStatus} />
+        <AppHeader status={status} socketState={socketState} agentStatus={agentStatus} />
         <section className="onboarding-shell" aria-label="Noema onboarding">
           <div className="onboarding-panel">
             <p className="eyebrow">First run</p>
@@ -224,7 +223,7 @@ export function App() {
   if (!onboarding.isUserOnboarded) {
     return (
       <main className="noema-app">
-        <Header status={status} socketState={socketState} agentStatus={agentStatus} />
+        <AppHeader status={status} socketState={socketState} agentStatus={agentStatus} />
         <Onboarding
           onboarding={onboarding}
           attempt={authAttempt}
@@ -242,7 +241,7 @@ export function App() {
 
   return (
     <main className="noema-app">
-      <Header status={status} socketState={socketState} agentStatus={agentStatus} />
+      <AppHeader status={status} socketState={socketState} agentStatus={agentStatus} />
 
       <section className="chat-shell" aria-label="Noema chat">
         {transcript.length === 0 ? (
@@ -275,28 +274,5 @@ export function App() {
         />
       </section>
     </main>
-  );
-}
-
-function Header({
-  status,
-  socketState,
-  agentStatus
-}: {
-  status: LocalStatusQuery["localStatus"] | null;
-  socketState: SocketState;
-  agentStatus: ConversationAgentStatus;
-}) {
-  return (
-    <header className="topbar">
-      <div className="brand">
-        <img src="/assets/noema-mark.svg" width="34" height="34" alt="" />
-        <div>
-          <strong>Noema</strong>
-          <span>Local chat</span>
-        </div>
-      </div>
-      <StatusCluster status={status} socketState={socketState} agentStatus={agentStatus} />
-    </header>
   );
 }

@@ -1,3 +1,6 @@
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+
 export function Composer({
   value,
   disabled,
@@ -21,7 +24,7 @@ export function Composer({
         onSubmit();
       }}
     >
-      <textarea
+      <Textarea
         value={value}
         disabled={disabled}
         placeholder={placeholder}
@@ -34,9 +37,9 @@ export function Composer({
           }
         }}
       />
-      <button type="submit" disabled={disabled || !value.trim()}>
+      <Button type="submit" disabled={disabled || !value.trim()}>
         {pending ? "Sending" : "Send"}
-      </button>
+      </Button>
     </form>
   );
 }
