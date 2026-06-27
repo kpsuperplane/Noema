@@ -7,12 +7,19 @@ async function read(path: string) {
   return readFile(new URL(path, root), "utf8");
 }
 
+function rootBlock(styles: string) {
+  const match = styles.match(/:root\s*{([\s\S]*?)\n}/);
+  expect(match).not.toBeNull();
+  return match?.[1] ?? "";
+}
+
 test("shadcn/ui is configured as the local Vite UI foundation", async () => {
   const components = JSON.parse(await read("components.json"));
   const packageJson = JSON.parse(await read("package.json"));
   const tsconfig = JSON.parse(await read("tsconfig.json"));
   const viteConfig = await read("vite.config.ts");
   const styles = await read("src/styles.css");
+  const rootStyles = rootBlock(styles);
   const utils = await read("src/lib/utils.ts");
 
   expect(components.tsx).toBe(true);
@@ -71,7 +78,7 @@ test("shadcn/ui is configured as the local Vite UI foundation", async () => {
     "--radius-md: calc(var(--radius) - 1px);",
     "--radius-lg: var(--radius);",
     "--radius-xl: calc(var(--radius) + 4px);",
-    "--radius: var(--radius-md);",
+    "--radius: 0.6875rem;",
     "--background: var(--surface-page);",
     "--foreground: var(--text-primary);",
     "--card: var(--surface-card);",
@@ -90,8 +97,28 @@ test("shadcn/ui is configured as the local Vite UI foundation", async () => {
     "--border: var(--border-default);",
     "--input: var(--border-default);",
     "--ring: var(--pine-500);",
+    "--noema-radius-xs: 4px;",
+    "--noema-radius-sm: 7px;",
+    "--noema-radius-md: 11px;",
+    "--noema-radius-lg: 16px;",
+    "--noema-radius-pill: 999px;",
+    "border-radius: var(--noema-radius-xs);",
+    "border-radius: var(--noema-radius-sm);",
+    "border-radius: var(--noema-radius-md);",
+    "border-radius: var(--noema-radius-lg)",
+    "border-radius: var(--noema-radius-pill);",
   ]) {
     expect(styles).toContain(token);
+  }
+
+  for (const legacyRadius of [
+    "--radius-xs:",
+    "--radius-sm:",
+    "--radius-md:",
+    "--radius-lg:",
+    "--radius-pill:",
+  ]) {
+    expect(rootStyles).not.toContain(legacyRadius);
   }
 
   expect(utils).toContain('import { clsx, type ClassValue } from "clsx"');

@@ -59,7 +59,7 @@
   --text-muted: var(--ink-500);
   --text-faint: var(--ink-400);
   --text-accent: var(--clay-600);
-  --radius: var(--radius-md);
+  --radius: 0.6875rem;
   --background: var(--surface-page);
   --foreground: var(--text-primary);
   --card: var(--surface-card);
@@ -81,11 +81,11 @@
   --font-display: "Bricolage Grotesque", "Hanken Grotesk", system-ui, sans-serif;
   --font-sans: "Hanken Grotesk", system-ui, -apple-system, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
-  --radius-xs: 4px;
-  --radius-sm: 7px;
-  --radius-md: 11px;
-  --radius-lg: 16px;
-  --radius-pill: 999px;
+  --noema-radius-xs: 4px;
+  --noema-radius-sm: 7px;
+  --noema-radius-md: 11px;
+  --noema-radius-lg: 16px;
+  --noema-radius-pill: 999px;
   --shadow-xs: 0 1px 2px rgba(28, 24, 12, 0.06);
   --shadow-sm: 0 1px 2px rgba(28, 24, 12, 0.06), 0 2px 6px rgba(28, 24, 12, 0.05);
   color: var(--text-primary);
@@ -171,7 +171,7 @@ textarea:disabled {
   min-height: 26px;
   padding: 0 10px;
   border: 1px solid var(--border-default);
-  border-radius: var(--radius-pill);
+  border-radius: var(--noema-radius-pill);
   color: var(--text-secondary);
   font-family: var(--font-mono);
   font-size: 11px;
@@ -248,7 +248,7 @@ textarea:disabled {
   min-height: 54px;
   padding: 10px 14px;
   border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
+  border-radius: var(--noema-radius-md);
   background: var(--surface-card);
   box-shadow: var(--shadow-xs);
   color: var(--text-primary);
@@ -296,7 +296,7 @@ textarea:disabled {
 .message--user .message__body {
   padding: 11px 15px;
   border: 1px solid var(--pine-100);
-  border-radius: var(--radius-lg) var(--radius-lg) var(--radius-xs) var(--radius-lg);
+  border-radius: var(--noema-radius-lg) var(--noema-radius-lg) var(--noema-radius-xs) var(--noema-radius-lg);
   background: var(--pine-50);
   box-shadow: var(--shadow-xs);
   font-size: 14px;
@@ -307,7 +307,7 @@ textarea:disabled {
 .error-notice {
   max-width: 760px;
   border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
+  border-radius: var(--noema-radius-md);
   background: var(--surface-card);
   box-shadow: var(--shadow-xs);
   overflow: hidden;
@@ -331,7 +331,7 @@ textarea:disabled {
   width: 28px;
   height: 28px;
   place-items: center;
-  border-radius: var(--radius-sm);
+  border-radius: var(--noema-radius-sm);
   background: var(--surface-sunken);
   color: var(--pine-700);
   font-family: var(--font-mono);
@@ -423,7 +423,7 @@ textarea:disabled {
   width: 28px;
   height: 28px;
   place-items: center;
-  border-radius: var(--radius-sm);
+  border-radius: var(--noema-radius-sm);
   background: var(--pine-50);
   color: var(--pine-700);
   font-family: var(--font-mono);
@@ -464,7 +464,7 @@ textarea:disabled {
   flex: 0 0 auto;
   padding: 2px 7px;
   border: 1px solid var(--pine-100);
-  border-radius: var(--radius-pill);
+  border-radius: var(--noema-radius-pill);
   background: var(--pine-50);
   color: var(--pine-700);
   font-family: var(--font-mono);
@@ -494,7 +494,7 @@ textarea:disabled {
 
 .memory-card-row__meta span {
   padding: 2px 6px;
-  border-radius: var(--radius-xs);
+  border-radius: var(--noema-radius-xs);
   background: var(--surface-sunken);
 }
 
@@ -522,7 +522,7 @@ textarea:disabled {
   resize: vertical;
   padding: 12px 13px;
   border: 1px solid var(--border-default);
-  border-radius: var(--radius-md);
+  border-radius: var(--noema-radius-md);
   outline: none;
   background: var(--surface-card);
   box-shadow: var(--shadow-xs);
@@ -539,7 +539,7 @@ textarea:disabled {
   min-height: 44px;
   padding: 0 18px;
   border: 1px solid var(--pine-600);
-  border-radius: var(--radius-md);
+  border-radius: var(--noema-radius-md);
   background: var(--pine-500);
   color: var(--paper-50);
   font-weight: 700;
@@ -593,7 +593,7 @@ textarea:disabled {
   min-height: 40px;
   padding: 0 14px;
   border: 1px solid var(--pine-600);
-  border-radius: var(--radius-sm);
+  border-radius: var(--noema-radius-sm);
   background: var(--pine-500);
   color: var(--paper-50);
   font-weight: 700;
@@ -619,7 +619,7 @@ textarea:disabled {
   min-width: 0;
   padding: 14px;
   border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
+  border-radius: var(--noema-radius-md);
   background: var(--surface-card);
 }
 
@@ -631,7 +631,7 @@ textarea:disabled {
   width: fit-content;
   max-width: 100%;
   padding: 6px 8px;
-  border-radius: var(--radius-xs);
+  border-radius: var(--noema-radius-xs);
   background: var(--surface-sunken);
   font-family: var(--font-mono);
   font-size: 18px;
