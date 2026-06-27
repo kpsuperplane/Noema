@@ -45,9 +45,9 @@ The current slice should stay small and concrete:
   `sendConversationTurn` streaming. It still uses the daemon Unix-socket
   protocol only for local lifecycle cleanup such as connection setup,
   `end_conversation`, and temporary daemon shutdown.
-- The remaining GraphQL client API slice is to retire transitional product web
-  endpoints and old frontend protocol/type export surfaces so GraphQL is the
-  only client-facing product API.
+- The transitional product web endpoints and old frontend protocol/type export
+  surfaces have been retired; GraphQL is now the only client-facing product
+  API.
 - The web home chat should load `human:local.primary_conversation_id`; Noema
   conversation continuity is owned by Postgres, not provider runtime state.
 - Frontend build and lint use Bun from `crates/noema-core/web`.

@@ -159,8 +159,8 @@ uses `codex app-server --listen stdio://`, creates one Noema conversation per
 Postgres and can be inspected with `noema memory list` and
 `noema memory show <id>`.
 
-The web chat uses Noema's native daemon WebSocket at `/api/chat/ws`, not an
-OpenAI-compatible API surface. An adapter can be added later if external client
+The web chat uses Noema's first-party GraphQL API at `/graphql` with live
+updates over `/graphql/ws`. An adapter can be added later if external client
 compatibility becomes a product requirement.
 
 ## Development
