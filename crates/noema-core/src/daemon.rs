@@ -7,9 +7,10 @@ mod runtime;
 mod server;
 #[cfg(test)]
 mod tests;
-mod web;
+pub(crate) mod web;
 
 pub use client::DaemonClient;
+pub(crate) use protocol::TurnStreamEvent;
 pub use protocol::{
     AgentStatus, DEFAULT_DAEMON_SOCKET_NAME, DaemonError, DaemonRequest, DaemonResponse,
     DaemonServerConfig, StartedConversation, TurnActivityStatus, TurnTranscriptItem,

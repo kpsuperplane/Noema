@@ -1,0 +1,581 @@
+"""
+Structured card transcript item.
+"""
+type GraphqlA2UiCard {
+	"""
+	Stable card id.
+	"""
+	id: String!
+	"""
+	Card schema.
+	"""
+	schema: String!
+	"""
+	Card payload as JSON.
+	"""
+	payload: JSON!
+}
+
+"""
+Activity transcript item.
+"""
+type GraphqlActivity {
+	"""
+	Stable activity id.
+	"""
+	id: String!
+	"""
+	Activity kind.
+	"""
+	activityKind: String!
+	"""
+	Activity status.
+	"""
+	status: GraphqlTurnActivityStatus!
+	"""
+	Short display title.
+	"""
+	title: String!
+	"""
+	Optional summary.
+	"""
+	summary: String
+	"""
+	Structured metadata as JSON.
+	"""
+	metadata: JSON!
+}
+
+"""
+Agent status exposed through GraphQL.
+"""
+enum GraphqlAgentStatus {
+	"""
+	No agent work is active.
+	"""
+	IDLE
+	"""
+	Input has been accepted.
+	"""
+	INPUT_RECEIVED
+	"""
+	Agent is producing or planning.
+	"""
+	THINKING
+	"""
+	Agent is waiting on a tool invocation.
+	"""
+	TOOL_RUNNING
+	"""
+	A newer turn is waiting for a previous turn.
+	"""
+	WAITING_FOR_PREVIOUS_TURN_COMPLETION
+	"""
+	Agent is interrupting a previous turn.
+	"""
+	INTERRUPTING
+	"""
+	Conversation is in an error state.
+	"""
+	ERROR
+}
+
+"""
+Agent status event delivered by subscription.
+"""
+type GraphqlAgentStatusEvent {
+	"""
+	Durable Noema conversation id.
+	"""
+	conversationId: String!
+	"""
+	Current agent status.
+	"""
+	status: GraphqlAgentStatus!
+}
+
+"""
+Assistant connection exposed to clients.
+"""
+enum GraphqlAssistantConnection {
+	"""
+	The daemon is using Codex for chat.
+	"""
+	CODEX
+}
+
+"""
+Assistant text transcript item.
+"""
+type GraphqlAssistantText {
+	"""
+	Text to render as the assistant response.
+	"""
+	text: String!
+}
+
+"""
+Conversation subscription event union.
+"""
+union GraphqlConversationEvent = GraphqlConversationItemEvent | GraphqlAgentStatusEvent | GraphqlTurnCompletedEvent
+
+"""
+One visible conversation item.
+"""
+type GraphqlConversationItem {
+	"""
+	Durable conversation item id.
+	"""
+	itemId: String!
+	"""
+	Durable conversation turn id.
+	"""
+	turnId: String
+	"""
+	Transcript item to render.
+	"""
+	item: GraphqlTranscriptItem!
+}
+
+"""
+Conversation item event delivered by subscription.
+"""
+type GraphqlConversationItemEvent {
+	"""
+	Durable Noema conversation id.
+	"""
+	conversationId: String!
+	"""
+	Frontend-generated id for optimistic UI correlation.
+	"""
+	clientMessageId: String
+	"""
+	Durable conversation item id.
+	"""
+	itemId: String!
+	"""
+	Durable conversation turn id.
+	"""
+	turnId: String
+	"""
+	Transcript item to render.
+	"""
+	item: GraphqlTranscriptItem!
+}
+
+"""
+Started conversation with replay payload.
+"""
+type GraphqlConversationStarted {
+	"""
+	Durable Noema conversation id.
+	"""
+	conversationId: String!
+	"""
+	Provider used for the conversation.
+	"""
+	provider: String!
+	"""
+	Visible replay items.
+	"""
+	replay: [GraphqlConversationItem!]!
+}
+
+"""
+Error notice transcript item.
+"""
+type GraphqlErrorNotice {
+	"""
+	Human-readable error message.
+	"""
+	message: String!
+	"""
+	Whether the chat turn can continue.
+	"""
+	recoverable: Boolean!
+}
+
+"""
+Local service status shown by clients.
+"""
+enum GraphqlLocalServiceStatus {
+	"""
+	The local Noema service is running.
+	"""
+	RUNNING
+}
+
+"""
+Local status returned by `Query.localStatus`.
+"""
+type GraphqlLocalStatus {
+	"""
+	Local service status.
+	"""
+	localService: GraphqlLocalServiceStatus!
+	"""
+	Assistant connection status.
+	"""
+	assistantConnection: GraphqlAssistantConnection!
+	"""
+	Memory storage status.
+	"""
+	memoryStorage: GraphqlMemoryStorageStatus!
+}
+
+"""
+Memory storage readiness shown by clients.
+"""
+enum GraphqlMemoryStorageStatus {
+	"""
+	The canonical memory store is ready.
+	"""
+	READY
+	"""
+	The canonical memory store is initializing.
+	"""
+	INITIALIZING
+}
+
+"""
+Onboarding status.
+"""
+type GraphqlOnboardingStatus {
+	"""
+	Whether chat can start.
+	"""
+	isUserOnboarded: Boolean!
+	"""
+	Ordered onboarding steps.
+	"""
+	steps: [GraphqlOnboardingStep!]!
+}
+
+"""
+One onboarding step.
+"""
+type GraphqlOnboardingStep {
+	"""
+	Stable step id.
+	"""
+	id: String!
+	"""
+	Step status.
+	"""
+	status: GraphqlOnboardingStepStatus!
+	"""
+	Provider family when the step is provider-backed.
+	"""
+	providerKind: String
+	"""
+	Provider account id when the step is provider-backed.
+	"""
+	providerAccountId: String
+	"""
+	Provider-local account key when the step is provider-backed.
+	"""
+	accountKey: String
+	"""
+	Human-readable account name when the step is provider-backed.
+	"""
+	displayName: String
+	"""
+	Last known provider account status.
+	"""
+	providerAccountStatus: GraphqlProviderAccountStatus
+	"""
+	Auth method when the step can start auth.
+	"""
+	authMethod: GraphqlProviderAuthMethod
+}
+
+"""
+Onboarding step status exposed through GraphQL.
+"""
+enum GraphqlOnboardingStepStatus {
+	"""
+	Step is complete.
+	"""
+	COMPLETE
+	"""
+	Step blocks the user from continuing.
+	"""
+	BLOCKED
+}
+
+"""
+Provider account status exposed through GraphQL.
+"""
+enum GraphqlProviderAccountStatus {
+	"""
+	Status has not been checked.
+	"""
+	UNKNOWN
+	"""
+	Status is being checked.
+	"""
+	CHECKING
+	"""
+	Account is authenticated.
+	"""
+	AUTHENTICATED
+	"""
+	Account is unauthenticated.
+	"""
+	UNAUTHENTICATED
+	"""
+	Provider is unavailable.
+	"""
+	UNAVAILABLE
+}
+
+"""
+Provider auth attempt view.
+"""
+type GraphqlProviderAuthAttempt {
+	"""
+	Short-lived auth attempt id.
+	"""
+	attemptId: String!
+	"""
+	Provider family.
+	"""
+	providerKind: String!
+	"""
+	Provider account id.
+	"""
+	providerAccountId: String!
+	"""
+	Provider account auth method.
+	"""
+	method: GraphqlProviderAuthMethod!
+	"""
+	Attempt status.
+	"""
+	status: GraphqlProviderAuthAttemptStatus!
+	"""
+	Verification URL when available.
+	"""
+	verificationUrl: String
+	"""
+	User code when available.
+	"""
+	userCode: String
+	"""
+	Static UI-safe instruction text.
+	"""
+	instructions: String
+	"""
+	Stable non-secret error code.
+	"""
+	errorCode: String
+	"""
+	Failure message when available.
+	"""
+	errorMessage: String
+}
+
+"""
+Provider auth attempt status.
+"""
+enum GraphqlProviderAuthAttemptStatus {
+	"""
+	Attempt is starting.
+	"""
+	STARTING
+	"""
+	Waiting for the user.
+	"""
+	WAITING_FOR_USER
+	"""
+	Attempt completed.
+	"""
+	COMPLETED
+	"""
+	Attempt failed.
+	"""
+	FAILED
+	"""
+	Attempt expired.
+	"""
+	EXPIRED
+	"""
+	Attempt was cancelled.
+	"""
+	CANCELLED
+}
+
+"""
+Provider auth method exposed through GraphQL.
+"""
+enum GraphqlProviderAuthMethod {
+	"""
+	OAuth device-code flow.
+	"""
+	OAUTH_DEVICE_CODE
+	"""
+	Secret input flow.
+	"""
+	SECRET_INPUT
+	"""
+	External manual flow.
+	"""
+	EXTERNAL_MANUAL
+	"""
+	No auth required.
+	"""
+	NONE
+}
+
+"""
+Input for sending a conversation turn.
+"""
+input GraphqlSendConversationTurnInput {
+	"""
+	Durable Noema conversation id.
+	"""
+	conversationId: String!
+	"""
+	User input.
+	"""
+	input: String!
+	"""
+	Frontend-generated id for optimistic UI correlation.
+	"""
+	clientMessageId: String
+}
+
+"""
+Input for starting a provider auth attempt.
+"""
+input GraphqlStartProviderAuthAttemptInput {
+	"""
+	Provider family, such as `codex`.
+	"""
+	providerKind: String!
+	"""
+	Stable provider account id.
+	"""
+	providerAccountId: String!
+	"""
+	Requested authentication method.
+	"""
+	method: GraphqlProviderAuthMethod!
+}
+
+"""
+Transcript item union.
+"""
+union GraphqlTranscriptItem = GraphqlUserText | GraphqlAssistantText | GraphqlActivity | GraphqlA2UiCard | GraphqlErrorNotice
+
+"""
+Acceptance response for a queued conversation turn.
+"""
+type GraphqlTurnAccepted {
+	"""
+	Durable Noema conversation id.
+	"""
+	conversationId: String!
+	"""
+	Frontend-generated id for optimistic UI correlation.
+	"""
+	clientMessageId: String
+}
+
+"""
+Turn activity status exposed through GraphQL.
+"""
+enum GraphqlTurnActivityStatus {
+	"""
+	Activity started.
+	"""
+	STARTED
+	"""
+	Activity completed.
+	"""
+	COMPLETED
+	"""
+	Activity failed.
+	"""
+	FAILED
+}
+
+"""
+Turn completion event delivered by subscription.
+"""
+type GraphqlTurnCompletedEvent {
+	"""
+	Durable Noema conversation id.
+	"""
+	conversationId: String!
+	"""
+	Frontend-generated id for optimistic UI correlation.
+	"""
+	clientMessageId: String
+}
+
+"""
+User text transcript item.
+"""
+type GraphqlUserText {
+	"""
+	Text authored by the user.
+	"""
+	text: String!
+}
+
+"""
+A scalar that can represent any JSON value.
+"""
+scalar JSON
+
+type MutationRoot {
+	"""
+	Start a provider auth attempt.
+	"""
+	startProviderAuthAttempt(input: GraphqlStartProviderAuthAttemptInput!): GraphqlProviderAuthAttempt!
+	"""
+	Start or resume the primary conversation.
+	"""
+	startPrimaryConversation(model: String, cwd: String): GraphqlConversationStarted!
+	"""
+	Send a conversation turn.
+	"""
+	sendConversationTurn(input: GraphqlSendConversationTurnInput!): GraphqlTurnAccepted!
+}
+
+type QueryRoot {
+	"""
+	Return local Noema status.
+	"""
+	localStatus: GraphqlLocalStatus!
+	"""
+	Return onboarding status.
+	"""
+	onboardingStatus: GraphqlOnboardingStatus!
+	"""
+	Return a short-lived provider auth attempt.
+	"""
+	providerAuthAttempt(attemptId: String!): GraphqlProviderAuthAttempt
+}
+
+type SubscriptionRoot {
+	"""
+	Stream conversation events.
+	"""
+	conversationEvents(conversationId: String!): GraphqlConversationEvent!
+}
+
+"""
+Directs the executor to include this field or fragment only when the `if` argument is true.
+"""
+directive @include(if: Boolean!) on FIELD | FRAGMENT_SPREAD | INLINE_FRAGMENT
+"""
+Directs the executor to skip this field or fragment when the `if` argument is true.
+"""
+directive @skip(if: Boolean!) on FIELD | FRAGMENT_SPREAD | INLINE_FRAGMENT
+schema {
+	query: QueryRoot
+	mutation: MutationRoot
+	subscription: SubscriptionRoot
+}

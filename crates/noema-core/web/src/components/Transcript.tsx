@@ -1,7 +1,6 @@
-import type { TurnTranscriptItem } from "../generated/noema";
 import { formatPercent, readableKind, statusLabel } from "../format";
 import { memoryCardsFromStructuredItem, type MemoryCardData } from "../memoryCards";
-import type { TranscriptEntry } from "../types";
+import type { TranscriptEntry, TurnTranscriptItem } from "../types";
 
 export function Transcript({
   entries,
@@ -62,7 +61,7 @@ function ActivityRow({
   const status = statusLabel(item.status);
 
   return (
-    <article className={`activity activity--${item.status}`}>
+    <article className={`activity activity--${item.status.toLowerCase()}`}>
       <button type="button" className="activity__summary" onClick={onToggle} aria-expanded={open}>
         <span className="activity__glyph">{isMemorySave ? "M" : "A"}</span>
         <span>

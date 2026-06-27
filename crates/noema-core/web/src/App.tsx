@@ -1,117 +1,144 @@
 import React from "react";
+import { useApolloClient, useMutation, useQuery, useSubscription } from "@apollo/client/react";
 import {
-  fetchOnboardingStatus,
-  fetchProviderAuthAttempt,
-  refreshStatus,
-  startProviderAuthAttempt,
-  webSocketUrl
-} from "./api";
+  ConversationEventsDocument,
+  LocalStatusDocument,
+  OnboardingStatusDocument,
+  ProviderAuthAttemptDocument,
+  SendConversationTurnDocument,
+  StartPrimaryConversationDocument,
+  StartProviderAuthAttemptDocument,
+  type LocalStatusQuery,
+  type ProviderAuthAttemptQuery,
+  type StartProviderAuthAttemptMutation
+} from "./generated/graphql";
 import { Composer } from "./components/Composer";
 import { EmptyState } from "./components/EmptyState";
 import { Onboarding } from "./components/Onboarding";
 import { StatusCluster } from "./components/StatusCluster";
 import { Transcript } from "./components/Transcript";
-import type {
-  OnboardingStatus,
-  ProviderAuthAttemptView,
-  WebClientMessage,
-  WebServerMessage as ServerMessage,
-  WebStatus
-} from "./generated/noema";
-import { handleServerMessage, pushTranscript } from "./transcript";
+import { entriesFromReplay, handleConversationEvent, pushTranscript } from "./transcript";
 import type { ConversationAgentStatus, SocketState, TranscriptEntry } from "./types";
 
+type ProviderAuthAttemptView =
+  | StartProviderAuthAttemptMutation["startProviderAuthAttempt"]
+  | NonNullable<ProviderAuthAttemptQuery["providerAuthAttempt"]>;
+
 export function App() {
-  const [status, setStatus] = React.useState<WebStatus | null>(null);
+  const apolloClient = useApolloClient();
+  const localStatus = useQuery(LocalStatusDocument);
+  const onboardingStatus = useQuery(OnboardingStatusDocument);
+  const [startProviderAuthAttempt] = useMutation(StartProviderAuthAttemptDocument);
+  const [startPrimaryConversation] = useMutation(StartPrimaryConversationDocument);
+  const [sendConversationTurn] = useMutation(SendConversationTurnDocument);
+
   const [socketState, setSocketState] = React.useState<SocketState>("closed");
   const [conversationId, setConversationId] = React.useState<string | null>(null);
   const [agentStatus, setAgentStatus] = React.useState<ConversationAgentStatus>("closed");
-  const [onboarding, setOnboarding] = React.useState<OnboardingStatus | null>(null);
   const [authAttempt, setAuthAttempt] = React.useState<ProviderAuthAttemptView | null>(null);
   const [onboardingError, setOnboardingError] = React.useState<string | null>(null);
   const [transcript, setTranscript] = React.useState<TranscriptEntry[]>([]);
   const [draft, setDraft] = React.useState("");
   const [pending, setPending] = React.useState(false);
   const [expandedActivities, setExpandedActivities] = React.useState<Set<string>>(new Set());
-  const socketRef = React.useRef<WebSocket | null>(null);
+  const startingConversationRef = React.useRef(false);
 
-  React.useEffect(() => {
-    void refreshStatus(setStatus);
-    void fetchOnboardingStatus()
-      .then(setOnboarding)
-      .catch((error: unknown) => {
-        setOnboardingError(error instanceof Error ? error.message : "Failed to load onboarding");
-      });
+  const onboarding = onboardingStatus.data?.onboardingStatus ?? null;
+  const status = localStatus.data?.localStatus ?? null;
+  const onboarded = onboarding?.isUserOnboarded ?? false;
+  const displayedOnboardingError = onboardingError ?? onboardingStatus.error?.message ?? null;
+
+  const reportConversationError = React.useCallback((error: Error) => {
+    setSocketState("closed");
+    setAgentStatus("closed");
+    setPending(false);
+    pushTranscript(setTranscript, {
+      id: crypto.randomUUID(),
+      type: "error",
+      message: error.message,
+      recoverable: true
+    });
   }, []);
 
+  const conversationEvents = useSubscription(ConversationEventsDocument, {
+    variables: { conversationId: conversationId ?? "" },
+    skip: !conversationId,
+    onError: reportConversationError
+  });
+
   React.useEffect(() => {
-    if (!onboarding?.is_user_onboarded || socketRef.current) {
+    if (!onboarded || conversationId || startingConversationRef.current) {
       return;
     }
 
-    const socket = new WebSocket(webSocketUrl());
-    socketRef.current = socket;
+    startingConversationRef.current = true;
     setSocketState("connecting");
     setAgentStatus("connecting");
-
-    socket.addEventListener("open", () => {
-      const message: WebClientMessage = { type: "primary_conversation_start" };
-
-      setSocketState("ready");
-      socket.send(JSON.stringify(message));
-    });
-
-    socket.addEventListener("message", (event: MessageEvent<string>) => {
-      const message = JSON.parse(event.data) as ServerMessage;
-      handleServerMessage(message, {
-        setConversationId,
-        setTranscript,
-        setPending,
-        setAgentStatus
+    void startPrimaryConversation()
+      .then((result) => {
+        const started = result.data?.startPrimaryConversation;
+        if (!started) {
+          throw new Error("Noema did not return a conversation.");
+        }
+        setConversationId(started.conversationId);
+        setTranscript(entriesFromReplay(started.replay));
+        setPending(false);
+        setSocketState("ready");
+        setAgentStatus("IDLE");
+      })
+      .catch((error: unknown) => {
+        setSocketState("closed");
+        setAgentStatus("closed");
+        setPending(false);
+        pushTranscript(setTranscript, {
+          id: crypto.randomUUID(),
+          type: "error",
+          message: error instanceof Error ? error.message : "Noema could not start chat.",
+          recoverable: true
+        });
+      })
+      .finally(() => {
+        startingConversationRef.current = false;
       });
-    });
+  }, [conversationId, onboarded, startPrimaryConversation]);
 
-    socket.addEventListener("close", () => {
-      setSocketState("closed");
-      setAgentStatus("closed");
-      setPending(false);
+  React.useEffect(() => {
+    const event = conversationEvents.data?.conversationEvents;
+    if (!event) {
+      return;
+    }
+    handleConversationEvent(event, {
+      setTranscript,
+      setPending,
+      setAgentStatus
     });
-
-    socket.addEventListener("error", () => {
-      setSocketState("closed");
-      setAgentStatus("closed");
-      setPending(false);
-      pushTranscript(setTranscript, {
-        id: crypto.randomUUID(),
-        type: "error",
-        message: "Noema's local web connection closed. Refresh the page or restart Noema.",
-        recoverable: true
-      });
-    });
-
-    return () => {
-      socket.close();
-      socketRef.current = null;
-    };
-  }, [onboarding?.is_user_onboarded]);
+  }, [conversationEvents.data]);
 
   async function connectProvider() {
     const step = onboarding?.steps.find((candidate) => candidate.id === "connect_provider_account");
-    if (!step?.provider_kind || !step.provider_account_id || !step.auth_method) {
+    if (!step?.providerKind || !step.providerAccountId || !step.authMethod) {
       setOnboardingError("No provider account is available to connect.");
       return;
     }
 
     setOnboardingError(null);
     try {
-      const attempt = await startProviderAuthAttempt({
-        provider_kind: step.provider_kind,
-        provider_account_id: step.provider_account_id,
-        method: step.auth_method
+      const result = await startProviderAuthAttempt({
+        variables: {
+          input: {
+            providerKind: step.providerKind,
+            providerAccountId: step.providerAccountId,
+            method: step.authMethod
+          }
+        }
       });
+      const attempt = result.data?.startProviderAuthAttempt;
+      if (!attempt) {
+        throw new Error("Noema did not return a provider login attempt.");
+      }
       setAuthAttempt(attempt);
-      if (attempt.status === "completed") {
-        setOnboarding(await fetchOnboardingStatus());
+      if (attempt.status === "COMPLETED") {
+        await onboardingStatus.refetch();
       }
     } catch (error: unknown) {
       setOnboardingError(error instanceof Error ? error.message : "Failed to start provider login");
@@ -125,35 +152,55 @@ export function App() {
 
     setOnboardingError(null);
     try {
-      const next = await fetchProviderAuthAttempt(authAttempt.attempt_id);
+      const result = await apolloClient.query({
+        query: ProviderAuthAttemptDocument,
+        variables: { attemptId: authAttempt.attemptId },
+        fetchPolicy: "network-only"
+      });
+      const next = result.data?.providerAuthAttempt;
+      if (!next) {
+        throw new Error("Provider login attempt was not found.");
+      }
       setAuthAttempt(next);
-      if (next.status === "completed") {
-        setOnboarding(await fetchOnboardingStatus());
+      if (next.status === "COMPLETED") {
+        await onboardingStatus.refetch();
       }
     } catch (error: unknown) {
       setOnboardingError(error instanceof Error ? error.message : "Failed to check provider login");
     }
   }
 
-  function sendMessage(text: string) {
+  async function sendMessage(text: string) {
     const input = text.trim();
-    const socket = socketRef.current;
-    if (!input || !socket || socket.readyState !== WebSocket.OPEN || !conversationId || pending) {
+    if (!input || !conversationId || socketState !== "ready" || pending) {
       return;
     }
 
     const clientMessageId = crypto.randomUUID();
-    const message: WebClientMessage = {
-      type: "conversation_turn",
-      conversation_id: conversationId,
-      input,
-      client_message_id: clientMessageId
-    };
-
     setDraft("");
     setPending(true);
+    setAgentStatus("INPUT_RECEIVED");
     pushTranscript(setTranscript, { id: clientMessageId, type: "user", text: input });
-    socket.send(JSON.stringify(message));
+
+    try {
+      await sendConversationTurn({
+        variables: {
+          input: {
+            conversationId,
+            input,
+            clientMessageId
+          }
+        }
+      });
+    } catch (error: unknown) {
+      setPending(false);
+      pushTranscript(setTranscript, {
+        id: crypto.randomUUID(),
+        type: "error",
+        message: error instanceof Error ? error.message : "Noema could not send that message.",
+        recoverable: true
+      });
+    }
   }
 
   const ready = socketState === "ready" && conversationId !== null;
@@ -167,21 +214,21 @@ export function App() {
             <p className="eyebrow">First run</p>
             <h1>Checking setup</h1>
             <p>Noema is checking whether chat can start.</p>
-            {onboardingError ? <p className="onboarding-error">{onboardingError}</p> : null}
+            {displayedOnboardingError ? <p className="onboarding-error">{displayedOnboardingError}</p> : null}
           </div>
         </section>
       </main>
     );
   }
 
-  if (!onboarding.is_user_onboarded) {
+  if (!onboarding.isUserOnboarded) {
     return (
       <main className="noema-app">
         <Header status={status} socketState={socketState} agentStatus={agentStatus} />
         <Onboarding
           onboarding={onboarding}
           attempt={authAttempt}
-          error={onboardingError}
+          error={displayedOnboardingError}
           onConnect={() => void connectProvider()}
           onCheck={() => void checkProviderAuthAttempt()}
           onRetry={() => {
@@ -224,7 +271,7 @@ export function App() {
           pending={pending}
           placeholder={ready ? "Message Noema" : "Starting Noema chat..."}
           onChange={setDraft}
-          onSubmit={() => sendMessage(draft)}
+          onSubmit={() => void sendMessage(draft)}
         />
       </section>
     </main>
@@ -236,7 +283,7 @@ function Header({
   socketState,
   agentStatus
 }: {
-  status: WebStatus | null;
+  status: LocalStatusQuery["localStatus"] | null;
   socketState: SocketState;
   agentStatus: ConversationAgentStatus;
 }) {

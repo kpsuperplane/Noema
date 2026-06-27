@@ -1,4 +1,4 @@
-import type { TurnTranscriptItem } from "./generated/noema";
+import type { TurnTranscriptItem } from "./types";
 
 type JsonRecord = Record<string, unknown>;
 

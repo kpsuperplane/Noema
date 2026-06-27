@@ -1,56 +1,45 @@
 import type { Dispatch, SetStateAction } from "react";
-import type { TurnTranscriptItem, WebConversationItem, WebServerMessage as ServerMessage } from "./generated/noema";
-import type { ConversationAgentStatus, TranscriptEntry } from "./types";
+import type {
+  ConversationEventsSubscription,
+  StartPrimaryConversationMutation
+} from "./generated/graphql";
+import type { ConversationAgentStatus, TranscriptEntry, TurnTranscriptItem } from "./types";
 
-export function handleServerMessage(
-  message: ServerMessage,
+type ReplayItem = StartPrimaryConversationMutation["startPrimaryConversation"]["replay"][number];
+type ConversationEvent = ConversationEventsSubscription["conversationEvents"];
+type GraphqlTranscriptItem = ReplayItem["item"];
+
+export function entriesFromReplay(items: ReplayItem[]): TranscriptEntry[] {
+  return items.map(entryFromReplayItem).filter((entry) => entry !== null);
+}
+
+export function handleConversationEvent(
+  event: ConversationEvent,
   setters: {
-    setConversationId: Dispatch<SetStateAction<string | null>>;
     setTranscript: Dispatch<SetStateAction<TranscriptEntry[]>>;
     setPending: Dispatch<SetStateAction<boolean>>;
     setAgentStatus: Dispatch<SetStateAction<ConversationAgentStatus>>;
   }
 ) {
-  if (message.type === "conversation_started") {
-    setters.setConversationId(message.conversation_id);
-    setters.setAgentStatus("idle");
-    return;
-  }
-  if (message.type === "turn_completed") {
+  if (event.__typename === "GraphqlTurnCompletedEvent") {
     setters.setPending(false);
+    setters.setAgentStatus("IDLE");
     return;
   }
-  if (message.type === "agent_status_changed") {
-    setters.setAgentStatus(message.status);
+  if (event.__typename === "GraphqlAgentStatusEvent") {
+    setters.setAgentStatus(event.status);
     return;
   }
-  if (message.type === "conversation_replay") {
-    setters.setConversationId(message.conversation_id);
-    setters.setTranscript(message.items.map(entryFromReplayItem).filter((entry) => entry !== null));
-    setters.setPending(false);
-    return;
-  }
-  if (message.type === "error") {
-    setters.setPending(false);
-    setters.setAgentStatus("closed");
-    pushTranscript(setters.setTranscript, {
-      id: crypto.randomUUID(),
-      type: "error",
-      message: message.message,
-      recoverable: true
-    });
-    return;
-  }
-  if (message.type !== "conversation_item") {
+  if (event.__typename !== "GraphqlConversationItemEvent") {
     return;
   }
 
-  const entry = entryFromConversationItem(message.item_id, message.turn_id, message.item);
+  const entry = entryFromConversationItem(event.itemId, event.turnId ?? undefined, event.item);
   if (!entry) {
     return;
   }
-  if (message.client_message_id && entry.type === "user") {
-    replaceOptimisticTranscriptEntry(setters.setTranscript, message.client_message_id, entry);
+  if (event.clientMessageId && entry.type === "user") {
+    replaceOptimisticTranscriptEntry(setters.setTranscript, event.clientMessageId, entry);
   } else {
     upsertTranscriptEntry(setters.setTranscript, entry);
   }
@@ -90,29 +79,67 @@ function upsertTranscriptEntry(
   });
 }
 
-function entryFromReplayItem(item: WebConversationItem): TranscriptEntry | null {
-  return entryFromConversationItem(item.item_id, item.turn_id, item.item);
+function entryFromReplayItem(item: ReplayItem): TranscriptEntry | null {
+  return entryFromConversationItem(item.itemId, item.turnId ?? undefined, item.item);
 }
 
 function entryFromConversationItem(
   itemId: string,
   turnId: string | undefined,
-  item: TurnTranscriptItem
+  item: GraphqlTranscriptItem
 ): TranscriptEntry | null {
-  if (item.kind === "user_text") {
-    return { id: itemId, itemId, turnId, type: "user", text: item.text };
+  const transcriptItem = transcriptItemFromGraphql(item);
+  if (!transcriptItem) {
+    return null;
   }
-  if (item.kind === "assistant_text") {
-    return { id: itemId, itemId, turnId, type: "assistant", text: item.text };
+  if (transcriptItem.kind === "user_text") {
+    return { id: itemId, itemId, turnId, type: "user", text: transcriptItem.text };
   }
-  if (item.kind === "activity") {
-    return { id: itemId, itemId, turnId, type: "activity", item };
+  if (transcriptItem.kind === "assistant_text") {
+    return { id: itemId, itemId, turnId, type: "assistant", text: transcriptItem.text };
   }
-  if (item.kind === "a2ui_card") {
-    return { id: itemId, itemId, turnId, type: "card", item };
+  if (transcriptItem.kind === "activity") {
+    return { id: itemId, itemId, turnId, type: "activity", item: transcriptItem };
   }
-  if (item.kind === "error_notice") {
-    return { id: itemId, itemId, turnId, type: "error", message: item.message, recoverable: item.recoverable };
+  if (transcriptItem.kind === "a2ui_card") {
+    return { id: itemId, itemId, turnId, type: "card", item: transcriptItem };
+  }
+  if (transcriptItem.kind === "error_notice") {
+    return {
+      id: itemId,
+      itemId,
+      turnId,
+      type: "error",
+      message: transcriptItem.message,
+      recoverable: transcriptItem.recoverable
+    };
+  }
+  return null;
+}
+
+function transcriptItemFromGraphql(item: GraphqlTranscriptItem): TurnTranscriptItem | null {
+  if (item.__typename === "GraphqlUserText") {
+    return { kind: "user_text", text: item.text };
+  }
+  if (item.__typename === "GraphqlAssistantText") {
+    return { kind: "assistant_text", text: item.text };
+  }
+  if (item.__typename === "GraphqlActivity") {
+    return {
+      kind: "activity",
+      id: item.id,
+      activity_kind: item.activityKind,
+      status: item.status,
+      title: item.title,
+      summary: item.summary,
+      metadata: item.metadata
+    };
+  }
+  if (item.__typename === "GraphqlA2UiCard") {
+    return { kind: "a2ui_card", id: item.id, schema: item.schema, payload: item.payload };
+  }
+  if (item.__typename === "GraphqlErrorNotice") {
+    return { kind: "error_notice", message: item.message, recoverable: item.recoverable };
   }
   return null;
 }

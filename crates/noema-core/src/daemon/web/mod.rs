@@ -3,9 +3,10 @@
 use std::{borrow::Cow, collections::HashMap, future::Future, pin::Pin, time::Duration};
 
 use base64::{Engine as _, engine::general_purpose};
+use futures_util::StreamExt;
 use ring::digest::{SHA1_FOR_LEGACY_USE_ONLY, digest};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
-use serde_json::Value;
+use serde_json::{Value, json};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
@@ -43,12 +44,13 @@ const PROVIDER_AUTH_TERMINAL_PERSIST_INTERVAL: Duration = Duration::from_millis(
 
 /// State shared by local web UI connections.
 #[derive(Clone)]
-pub(super) struct WebState {
+pub(crate) struct WebState {
     runtime: CodexRuntimeHandle,
     memory_repository: PostgresMemoryRepository,
     provider_auth: ProviderAuthManager,
     paths: crate::NoemaPaths,
     codex_command: String,
+    subscriptions: crate::graphql::ConversationSubscriptionRegistry,
 }
 
 impl WebState {
@@ -67,7 +69,28 @@ impl WebState {
             provider_auth,
             paths,
             codex_command,
+            subscriptions: crate::graphql::ConversationSubscriptionRegistry::default(),
         }
+    }
+
+    pub(crate) fn runtime(&self) -> &CodexRuntimeHandle {
+        &self.runtime
+    }
+
+    pub(crate) fn memory_repository(&self) -> &PostgresMemoryRepository {
+        &self.memory_repository
+    }
+
+    pub(crate) fn provider_auth(&self) -> &ProviderAuthManager {
+        &self.provider_auth
+    }
+
+    pub(crate) fn paths(&self) -> &crate::NoemaPaths {
+        &self.paths
+    }
+
+    pub(crate) fn subscriptions(&self) -> &crate::graphql::ConversationSubscriptionRegistry {
+        &self.subscriptions
     }
 }
 
@@ -96,8 +119,31 @@ pub(super) async fn handle_connection(
         }
     };
 
+    if is_graphql_ws_route(&request.method, &request.path) {
+        upgrade_graphql_websocket(stream, &request, state).await?;
+        return Ok(());
+    }
+
     if request.method == "GET" && request.path == "/api/chat/ws" {
         upgrade_websocket(stream, &request, state).await?;
+        return Ok(());
+    }
+
+    if is_graphql_schema_route(&request.method, &request.path) {
+        let schema =
+            crate::graphql::build_schema(crate::graphql::GraphqlState::from_web_state(state));
+        write_response(
+            &mut stream,
+            "200 OK",
+            "text/plain; charset=utf-8",
+            schema.sdl().as_bytes(),
+        )
+        .await?;
+        return Ok(());
+    }
+
+    if is_graphql_http_route(&request.method, &request.path) {
+        handle_graphql_http(&mut stream, state, &request).await?;
         return Ok(());
     }
 
@@ -171,6 +217,40 @@ pub(super) async fn handle_connection(
     )
     .await?;
     Ok(())
+}
+
+fn is_graphql_http_route(method: &str, path: &str) -> bool {
+    method == "POST" && path == "/graphql"
+}
+
+fn is_graphql_schema_route(method: &str, path: &str) -> bool {
+    method == "GET" && path == "/graphql/schema.graphql"
+}
+
+fn is_graphql_ws_route(method: &str, path: &str) -> bool {
+    method == "GET" && path == "/graphql/ws"
+}
+
+async fn handle_graphql_http(
+    stream: &mut TcpStream,
+    state: WebState,
+    request: &HttpRequest,
+) -> Result<(), DaemonError> {
+    if let Err(error) = validate_json_post_request(request) {
+        write_json_error(stream, error.status(), error.message()).await?;
+        return Ok(());
+    }
+
+    let graphql_request = match serde_json::from_slice::<async_graphql::Request>(&request.body) {
+        Ok(request) => request,
+        Err(_) => {
+            write_json_error(stream, "400 Bad Request", "invalid GraphQL request").await?;
+            return Ok(());
+        }
+    };
+    let schema = crate::graphql::build_schema(crate::graphql::GraphqlState::from_web_state(state));
+    let response = schema.execute(graphql_request).await;
+    write_json(stream, "200 OK", &response).await
 }
 
 #[derive(Debug)]
@@ -307,6 +387,52 @@ impl From<std::io::Error> for HttpRequestError {
     }
 }
 
+#[derive(Debug)]
+pub(crate) struct WebApiError {
+    status: &'static str,
+    message: &'static str,
+}
+
+impl WebApiError {
+    const fn bad_request(message: &'static str) -> Self {
+        Self {
+            status: "400 Bad Request",
+            message,
+        }
+    }
+
+    const fn not_found(message: &'static str) -> Self {
+        Self {
+            status: "404 Not Found",
+            message,
+        }
+    }
+
+    const fn internal(message: &'static str) -> Self {
+        Self {
+            status: "500 Internal Server Error",
+            message,
+        }
+    }
+
+    pub(crate) const fn status(&self) -> &'static str {
+        self.status
+    }
+
+    pub(crate) const fn message(&self) -> &'static str {
+        self.message
+    }
+}
+
+impl From<HttpRequestError> for WebApiError {
+    fn from(error: HttpRequestError) -> Self {
+        Self {
+            status: error.status,
+            message: error.message,
+        }
+    }
+}
+
 fn content_length(headers: &HashMap<String, String>) -> Result<usize, HttpRequestError> {
     let Some(value) = headers.get("content-length") else {
         return Ok(0);
@@ -423,33 +549,37 @@ async fn start_provider_auth_attempt(
         }
     };
 
+    match start_provider_auth_attempt_view(state, body).await {
+        Ok(attempt) => write_json(stream, "200 OK", &attempt).await?,
+        Err(error) => write_json_error(stream, error.status(), error.message()).await?,
+    }
+
+    Ok(())
+}
+
+pub(crate) async fn start_provider_auth_attempt_view(
+    state: &WebState,
+    body: StartProviderAuthAttemptRequest,
+) -> Result<ProviderAuthAttemptView, WebApiError> {
     if body.provider_kind != "codex" {
-        write_json_error(stream, "400 Bad Request", "unsupported provider").await?;
-        return Ok(());
+        return Err(WebApiError::bad_request("unsupported provider"));
     }
 
     if body.method != crate::ProviderAuthMethod::OauthDeviceCode {
-        write_json_error(
-            stream,
-            "400 Bad Request",
-            "unsupported provider auth method",
-        )
-        .await?;
-        return Ok(());
+        return Err(WebApiError::bad_request("unsupported provider auth method"));
     }
 
     let Some(account) = state
         .memory_repository
         .get_provider_account(&body.provider_account_id)
-        .await?
+        .await
+        .map_err(|_| WebApiError::internal("provider auth status unavailable"))?
     else {
-        write_json_error(stream, "404 Not Found", "provider account not found").await?;
-        return Ok(());
+        return Err(WebApiError::not_found("provider account not found"));
     };
 
     if let Err(error) = validate_provider_auth_account(&account, &body.provider_kind, body.method) {
-        write_json_error(stream, error.status(), error.message()).await?;
-        return Ok(());
+        return Err(error.into());
     }
 
     match start_codex_provider_auth_attempt(
@@ -469,27 +599,15 @@ async fn start_provider_auth_attempt(
                     attempt.attempt_id.clone(),
                 );
             }
-            write_json(stream, "200 OK", &attempt).await?;
+            Ok(attempt)
         }
         Err(StartProviderAuthAttemptError::ProviderUnavailable) => {
-            write_json_error(
-                stream,
-                "500 Internal Server Error",
-                "provider auth could not start",
-            )
-            .await?;
+            Err(WebApiError::internal("provider auth could not start"))
         }
         Err(StartProviderAuthAttemptError::StatusUnavailable) => {
-            write_json_error(
-                stream,
-                "500 Internal Server Error",
-                "provider auth status unavailable",
-            )
-            .await?;
+            Err(WebApiError::internal("provider auth status unavailable"))
         }
     }
-
-    Ok(())
 }
 
 async fn poll_provider_auth_attempt(
@@ -667,7 +785,7 @@ struct ProviderAccountStatusUpdate {
     error_message: Option<String>,
 }
 
-trait ProviderAccountStatusStore {
+pub(crate) trait ProviderAccountStatusStore {
     fn update_provider_account_status<'a>(
         &'a self,
         provider_account_id: &'a str,
@@ -798,7 +916,7 @@ fn should_persist_provider_auth_attempt_status(attempt: &ProviderAuthAttemptView
     provider_account_status_update_from_attempt(attempt).is_some()
 }
 
-async fn persist_provider_account_status_from_attempt(
+pub(crate) async fn persist_provider_account_status_from_attempt(
     store: &impl ProviderAccountStatusStore,
     attempt: &ProviderAuthAttemptView,
 ) -> Result<(), DaemonError> {
@@ -850,7 +968,7 @@ async fn persist_provider_auth_attempt_terminal_status(
     }
 }
 
-async fn reconcile_onboarding_provider_account(
+pub(crate) async fn reconcile_onboarding_provider_account(
     status_store: &impl ProviderAccountStatusStore,
     paths: &crate::NoemaPaths,
     account: Option<crate::ProviderAccountRecord>,
@@ -889,6 +1007,116 @@ fn codex_account_home_has_file_credentials(
         .provider_account_home(&account.provider_kind, &account.account_key)
         .join("auth.json")
         .is_file()
+}
+
+async fn upgrade_graphql_websocket(
+    mut stream: TcpStream,
+    request: &HttpRequest,
+    state: WebState,
+) -> Result<(), DaemonError> {
+    let key = request
+        .header("sec-websocket-key")
+        .ok_or_else(|| DaemonError::Protocol("missing websocket key".to_string()))?;
+    let upgrade = request.header("upgrade").unwrap_or_default();
+    if !upgrade.eq_ignore_ascii_case("websocket") {
+        write_response(
+            &mut stream,
+            "400 Bad Request",
+            "text/plain; charset=utf-8",
+            b"expected websocket upgrade",
+        )
+        .await?;
+        return Ok(());
+    }
+
+    let accept = websocket_accept_key(key);
+    let response = format!(
+        "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {accept}\r\n\r\n"
+    );
+    stream.write_all(response.as_bytes()).await?;
+    stream.flush().await?;
+
+    handle_graphql_websocket(stream, state).await
+}
+
+async fn handle_graphql_websocket(
+    mut stream: TcpStream,
+    state: WebState,
+) -> Result<(), DaemonError> {
+    let schema = crate::graphql::build_schema(crate::graphql::GraphqlState::from_web_state(state));
+    loop {
+        let Some(frame) = WebSocketFrame::read_from(&mut stream).await? else {
+            return Ok(());
+        };
+
+        match frame.opcode {
+            WebSocketOpcode::Text => {
+                let text = String::from_utf8(frame.payload)
+                    .map_err(|source| DaemonError::Protocol(source.to_string()))?;
+                let message = serde_json::from_str::<Value>(&text)
+                    .map_err(|source| DaemonError::Protocol(source.to_string()))?;
+                let message_type =
+                    message.get("type").and_then(Value::as_str).ok_or_else(|| {
+                        DaemonError::Protocol("missing GraphQL websocket message type".to_string())
+                    })?;
+
+                match message_type {
+                    "connection_init" => {
+                        send_ws_json(&mut stream, &json!({ "type": "connection_ack" })).await?;
+                    }
+                    "subscribe" => {
+                        let id = message
+                            .get("id")
+                            .and_then(Value::as_str)
+                            .unwrap_or("1")
+                            .to_string();
+                        let payload = message.get("payload").cloned().ok_or_else(|| {
+                            DaemonError::Protocol("missing GraphQL websocket payload".to_string())
+                        })?;
+                        let request = serde_json::from_value::<async_graphql::Request>(payload)
+                            .map_err(|source| DaemonError::Protocol(source.to_string()))?;
+                        let mut responses = schema.execute_stream(request);
+                        while let Some(response) = responses.next().await {
+                            send_ws_json(
+                                &mut stream,
+                                &json!({
+                                    "id": id,
+                                    "type": "next",
+                                    "payload": response,
+                                }),
+                            )
+                            .await?;
+                        }
+                        send_ws_json(
+                            &mut stream,
+                            &json!({
+                                "id": id,
+                                "type": "complete",
+                            }),
+                        )
+                        .await?;
+                    }
+                    "complete" => return Ok(()),
+                    _ => {
+                        send_ws_json(
+                            &mut stream,
+                            &json!({
+                                "type": "error",
+                                "payload": [
+                                    { "message": "unsupported GraphQL websocket message type" }
+                                ],
+                            }),
+                        )
+                        .await?;
+                    }
+                }
+            }
+            WebSocketOpcode::Ping => {
+                write_ws_frame(&mut stream, WebSocketOpcode::Pong, &frame.payload).await?;
+            }
+            WebSocketOpcode::Pong => {}
+        }
+    }
 }
 
 async fn upgrade_websocket(
@@ -1054,7 +1282,7 @@ async fn ensure_onboarded(state: &WebState) -> Result<bool, DaemonError> {
     Ok(is_user_onboarded_for_chat(account))
 }
 
-fn is_user_onboarded_for_chat(account: Option<crate::ProviderAccountRecord>) -> bool {
+pub(crate) fn is_user_onboarded_for_chat(account: Option<crate::ProviderAccountRecord>) -> bool {
     crate::onboarding_status_from_account(account).is_user_onboarded
 }
 
@@ -1096,7 +1324,7 @@ async fn send_web_turn_event(
     send_ws_json(stream, &message).await
 }
 
-async fn visible_conversation_replay(
+pub(crate) async fn visible_conversation_replay(
     repo: &PostgresMemoryRepository,
     conversation_id: &str,
 ) -> Result<Vec<ConversationItemRecord>, DaemonError> {
@@ -1141,7 +1369,7 @@ fn conversation_replay_message(
     })
 }
 
-fn web_conversation_item_from_record(
+pub(crate) fn web_conversation_item_from_record(
     record: ConversationItemRecord,
 ) -> Result<Option<WebConversationItem>, DaemonError> {
     let Some(item) = turn_transcript_item_from_record(&record)? else {
@@ -1430,6 +1658,21 @@ mod tests {
         provider_auth::ProviderAuthAttemptView,
     };
     use serde_json::json;
+
+    #[test]
+    fn graphql_endpoint_accepts_post_path() {
+        assert!(is_graphql_http_route("POST", "/graphql"));
+    }
+
+    #[test]
+    fn graphql_schema_endpoint_accepts_get_path() {
+        assert!(is_graphql_schema_route("GET", "/graphql/schema.graphql"));
+    }
+
+    #[test]
+    fn graphql_ws_endpoint_accepts_get_path() {
+        assert!(is_graphql_ws_route("GET", "/graphql/ws"));
+    }
 
     #[tokio::test]
     async fn http_request_reads_json_body() {

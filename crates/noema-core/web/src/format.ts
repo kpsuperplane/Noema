@@ -1,10 +1,10 @@
-import type { TurnActivityStatus as ActivityStatus } from "./generated/noema";
+import type { GraphqlTurnActivityStatus } from "./generated/graphql";
 
-export function statusLabel(status: ActivityStatus) {
-  if (status === "started") {
+export function statusLabel(status: GraphqlTurnActivityStatus) {
+  if (status === "STARTED") {
     return "Running";
   }
-  if (status === "failed") {
+  if (status === "FAILED") {
     return "Failed";
   }
   return "Done";

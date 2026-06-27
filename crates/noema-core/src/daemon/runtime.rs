@@ -37,12 +37,12 @@ use super::{
 };
 
 #[derive(Debug, Clone)]
-pub(super) struct CodexRuntimeHandle {
+pub(crate) struct CodexRuntimeHandle {
     sender: mpsc::Sender<CodexRuntimeCommand>,
 }
 
 impl CodexRuntimeHandle {
-    pub(super) async fn spawn(
+    pub(crate) async fn spawn(
         mut codex_config: CodexProviderConfig,
         database_url: String,
     ) -> Result<Self, DaemonError> {
@@ -57,7 +57,7 @@ impl CodexRuntimeHandle {
         Ok(Self { sender })
     }
 
-    pub(super) async fn start_conversation(
+    pub(crate) async fn start_conversation(
         &self,
         model: Option<String>,
         cwd: Option<String>,
@@ -72,7 +72,7 @@ impl CodexRuntimeHandle {
             .map_err(|_| DaemonError::Protocol("daemon runtime stopped".to_string()))?
     }
 
-    pub(super) async fn start_primary_conversation(
+    pub(crate) async fn start_primary_conversation(
         &self,
         model: Option<String>,
         cwd: Option<String>,
@@ -87,7 +87,7 @@ impl CodexRuntimeHandle {
             .map_err(|_| DaemonError::Protocol("daemon runtime stopped".to_string()))?
     }
 
-    pub(super) async fn turn(
+    pub(crate) async fn turn(
         &self,
         conversation_id: String,
         input: String,
@@ -108,7 +108,7 @@ impl CodexRuntimeHandle {
             .map_err(|_| DaemonError::Protocol("daemon runtime stopped".to_string()))?
     }
 
-    pub(super) async fn end_conversation(
+    pub(crate) async fn end_conversation(
         &self,
         conversation_id: String,
     ) -> Result<(), DaemonError> {
@@ -125,7 +125,7 @@ impl CodexRuntimeHandle {
             .map_err(|_| DaemonError::Protocol("daemon runtime stopped".to_string()))?
     }
 
-    pub(super) async fn shutdown(&self) {
+    pub(crate) async fn shutdown(&self) {
         let (reply, reply_rx) = oneshot::channel();
         let _ = self
             .sender
@@ -1238,7 +1238,7 @@ fn send_conversation_item(
         conversation_id: record.conversation_id,
         item_id: record.item_id,
         turn_id: record.turn_id,
-        item,
+        item: Box::new(item),
     });
 }
 

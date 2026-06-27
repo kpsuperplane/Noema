@@ -37,11 +37,18 @@ The current slice should stay small and concrete:
 - Graph or fuzzy retrieval can suggest candidates, but policy gates inclusion.
 - Pre-stable schema changes do not need migrations or backwards compatibility unless explicitly requested.
 - The initial frontend should start with chat, memory, and inspection before exposing full workspaces, tasks, agents, tools, or governance.
-- The current frontend endpoint is a native Noema WebSocket served by the daemon, not an OpenAI-compatible API.
+- The first-party product API direction is GraphQL, with Apollo Client on the
+  React web frontend and backend-exported schema/types feeding frontend codegen.
+- The current web UI consumes GraphQL over `/graphql` plus
+  `graphql-transport-ws` subscriptions over `/graphql/ws`; the older native web
+  WebSocket remains transitional while non-web clients are migrated.
+- The CLI still uses the local daemon Unix-socket protocol through
+  `DaemonClient`; migrate it to GraphQL before treating GraphQL as the only
+  client-facing API in the strict sense.
 - The web home chat should load `human:local.primary_conversation_id`; Noema
   conversation continuity is owned by Postgres, not provider runtime state.
 - Frontend build and lint use Bun from `crates/noema-core/web`.
-- Web protocol TypeScript definitions are generated from Rust with `bun run gen:types`.
+- Web GraphQL schema and operation types are generated with `bun run gen:types`.
 
 ## Open Loops
 

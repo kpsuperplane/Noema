@@ -14,6 +14,8 @@ pub mod daemon;
 pub mod database;
 /// Rust-owned protocol types exported to the web frontend.
 pub mod frontend_protocol;
+/// GraphQL client API facade.
+pub mod graphql;
 /// Noema home-directory initialization.
 pub mod home;
 /// Memory storage and retrieval policy model.

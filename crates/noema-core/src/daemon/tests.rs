@@ -266,10 +266,13 @@ async fn runtime_turn_streams_durable_assistant_item_and_idle_status() {
                 conversation_id: id,
                 item_id,
                 turn_id,
-                item: TurnTranscriptItem::AssistantText { text },
-            } if id == &conversation_id && text == "fake answer" => {
-                Some((item_id.clone(), turn_id.clone()))
-            }
+                item,
+            } if id == &conversation_id => match item.as_ref() {
+                TurnTranscriptItem::AssistantText { text } if text == "fake answer" => {
+                    Some((item_id.clone(), turn_id.clone()))
+                }
+                _ => None,
+            },
             _ => None,
         })
     else {
@@ -867,27 +870,39 @@ async fn runtime_actor_persists_explicit_remember_before_provider_failure() {
                     conversation_id: id,
                     item_id,
                     turn_id: Some(_),
-                    item: TurnTranscriptItem::Activity { .. },
+                    item,
                 },
-            ) if id == &conversation_id => Some(item_id.clone()),
+            ) if id == &conversation_id
+                && matches!(item.as_ref(), TurnTranscriptItem::Activity { .. }) =>
+            {
+                Some(item_id.clone())
+            }
             (
                 "a2ui_card",
                 TurnStreamEvent::ConversationItem {
                     conversation_id: id,
                     item_id,
                     turn_id: Some(_),
-                    item: TurnTranscriptItem::A2uiCard { .. },
+                    item,
                 },
-            ) if id == &conversation_id => Some(item_id.clone()),
+            ) if id == &conversation_id
+                && matches!(item.as_ref(), TurnTranscriptItem::A2uiCard { .. }) =>
+            {
+                Some(item_id.clone())
+            }
             (
                 "error_notice",
                 TurnStreamEvent::ConversationItem {
                     conversation_id: id,
                     item_id,
                     turn_id: Some(_),
-                    item: TurnTranscriptItem::ErrorNotice { .. },
+                    item,
                 },
-            ) if id == &conversation_id => Some(item_id.clone()),
+            ) if id == &conversation_id
+                && matches!(item.as_ref(), TurnTranscriptItem::ErrorNotice { .. }) =>
+            {
+                Some(item_id.clone())
+            }
             _ => None,
         }) else {
             panic!("expected durable {expected} conversation item, got {events:?}");
@@ -1099,9 +1114,9 @@ fn transcript_items_from_events(events: Vec<TurnStreamEvent>) -> Vec<TurnTranscr
         .into_iter()
         .filter_map(|event| match event {
             TurnStreamEvent::ConversationItem { item, .. }
-                if !matches!(item, TurnTranscriptItem::UserText { .. }) =>
+                if !matches!(item.as_ref(), TurnTranscriptItem::UserText { .. }) =>
             {
-                Some(item)
+                Some(*item)
             }
             TurnStreamEvent::ConversationItem { .. }
             | TurnStreamEvent::AgentStatusChanged { .. } => None,

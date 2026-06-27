@@ -147,7 +147,7 @@ pub enum WebServerMessage {
         #[ts(optional)]
         turn_id: Option<String>,
         /// Transcript item to render in chat.
-        item: TurnTranscriptItem,
+        item: Box<TurnTranscriptItem>,
     },
     /// Live agent status changed for a conversation.
     AgentStatusChanged {
@@ -196,13 +196,13 @@ pub enum WebErrorCode {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 pub struct WebConversationItem {
     /// Durable conversation item id.
-    item_id: String,
+    pub(crate) item_id: String,
     /// Durable conversation turn id.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
-    turn_id: Option<String>,
+    pub(crate) turn_id: Option<String>,
     /// Transcript item to render in chat.
-    item: TurnTranscriptItem,
+    pub(crate) item: TurnTranscriptItem,
 }
 
 impl WebConversationItem {
@@ -324,9 +324,9 @@ mod tests {
             client_message_id: Some("client_1".to_string()),
             item_id: "item_1".to_string(),
             turn_id: Some("turn_1".to_string()),
-            item: TurnTranscriptItem::AssistantText {
+            item: Box::new(TurnTranscriptItem::AssistantText {
                 text: "hello".to_string(),
-            },
+            }),
         };
         let encoded = serde_json::to_string(&message).expect("encode");
         assert!(encoded.contains(r#""type":"conversation_item""#));

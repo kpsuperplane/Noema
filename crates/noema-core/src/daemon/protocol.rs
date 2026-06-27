@@ -320,12 +320,12 @@ pub struct StartedConversation {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub(super) enum TurnStreamEvent {
+pub(crate) enum TurnStreamEvent {
     ConversationItem {
         conversation_id: String,
         item_id: String,
         turn_id: Option<String>,
-        item: TurnTranscriptItem,
+        item: Box<TurnTranscriptItem>,
     },
     AgentStatusChanged {
         conversation_id: String,
@@ -334,6 +334,18 @@ pub(super) enum TurnStreamEvent {
 }
 
 impl TurnStreamEvent {
+    #[must_use]
+    pub(crate) fn conversation_id(&self) -> &str {
+        match self {
+            Self::ConversationItem {
+                conversation_id, ..
+            }
+            | Self::AgentStatusChanged {
+                conversation_id, ..
+            } => conversation_id,
+        }
+    }
+
     #[must_use]
     pub(super) fn into_daemon_response(self) -> DaemonResponse {
         match self {
@@ -346,7 +358,7 @@ impl TurnStreamEvent {
                 conversation_id,
                 item_id,
                 turn_id,
-                item,
+                item: *item,
             },
             Self::AgentStatusChanged {
                 conversation_id,
