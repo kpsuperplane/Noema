@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS humans (
   human_id TEXT PRIMARY KEY,
   display_name TEXT NOT NULL,
   handle TEXT,
+  primary_conversation_id TEXT,
   is_active BOOLEAN NOT NULL DEFAULT true,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -72,7 +73,6 @@ CREATE TABLE IF NOT EXISTS conversations (
   primary_agent_id TEXT REFERENCES agents(agent_id) ON DELETE SET NULL,
   provider TEXT NOT NULL DEFAULT 'codex',
   model TEXT,
-  provider_thread_id TEXT,
   cwd TEXT,
   lifecycle_status TEXT NOT NULL DEFAULT 'active'
     CHECK (lifecycle_status IN ('active','archived','deleted')),
@@ -91,6 +91,23 @@ CREATE TABLE IF NOT EXISTS conversations (
     OR (deleted_by_object_type IS NOT NULL AND deleted_by_object_id IS NOT NULL)
   )
 );
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'fk_humans_primary_conversation'
+      AND conrelid = 'humans'::regclass
+  ) THEN
+    ALTER TABLE humans
+      ADD CONSTRAINT fk_humans_primary_conversation
+      FOREIGN KEY (primary_conversation_id)
+      REFERENCES conversations(conversation_id)
+      ON DELETE SET NULL;
+  END IF;
+END
+$$;
 
 CREATE TABLE IF NOT EXISTS conversation_turns (
   turn_id TEXT PRIMARY KEY,

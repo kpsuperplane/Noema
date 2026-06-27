@@ -157,7 +157,7 @@ Never show:
 - API keys.
 - Environment variable secret values.
 - Full account identifiers in normal shared views.
-- Socket paths, provider thread IDs, YAML, or raw environment variables in the
+- Socket paths, runtime internals, YAML, or raw environment variables in the
   beginner path.
 
 ## Chat Stream Contract
@@ -185,11 +185,12 @@ Current behavior:
 
 - The current web frontend connects through the daemon's native `/api/chat/ws`
   WebSocket. It is intentionally not OpenAI-compatible yet.
-- Daemon conversation IDs are runtime IDs such as `conversation_1`.
-- The daemon maps each runtime conversation to a provider thread in memory.
-- Ending or restarting the daemon removes active runtime conversation state.
+- The web home chat loads `human:local.primary_conversation_id`.
 - The daemon WebSocket is the live source for current turn updates.
 - Durable chat history is reconstructed from `conversation_items`.
+- Daemon runtime state is live coordination state only. After restart, Noema
+  reactivates the durable conversation and assembles context from Postgres.
+- Provider runtime ids are not part of the current product contract.
 - `agent_status` is live coordination state and is not replayed as transcript
   history.
 - `conversation_items` include user text, assistant text, durable activity
@@ -197,9 +198,9 @@ Current behavior:
 
 Unavailable state:
 
-- If a user opens a persisted conversation after daemon restart, the frontend
-  can show persisted provenance where available, but must not imply provider
-  thread resume unless a durable mapping exists.
+- If a user opens a persisted conversation while Postgres replay is
+  unavailable, show an unavailable state for durable history and avoid falling
+  back to provider runtime resume assumptions.
 
 ## Inline Activity Row Contract
 

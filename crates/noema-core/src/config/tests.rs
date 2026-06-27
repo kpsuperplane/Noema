@@ -427,6 +427,10 @@ fn production_env_normalization_accepts_flat_database_url() {
         normalize_env_key(NOEMA_DATABASE_URL_ENV).as_deref(),
         Some("database.url")
     );
+    assert_eq!(
+        normalize_config_env_key("DATABASE_URL").as_deref(),
+        Some("database.url")
+    );
 }
 
 #[test]

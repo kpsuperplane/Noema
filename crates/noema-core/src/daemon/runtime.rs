@@ -72,6 +72,21 @@ impl CodexRuntimeHandle {
             .map_err(|_| DaemonError::Protocol("daemon runtime stopped".to_string()))?
     }
 
+    pub(super) async fn start_primary_conversation(
+        &self,
+        model: Option<String>,
+        cwd: Option<String>,
+    ) -> Result<StartedConversation, DaemonError> {
+        let (reply, reply_rx) = oneshot::channel();
+        self.sender
+            .send(CodexRuntimeCommand::StartPrimaryConversation { model, cwd, reply })
+            .await
+            .map_err(|_| DaemonError::Protocol("daemon runtime stopped".to_string()))?;
+        reply_rx
+            .await
+            .map_err(|_| DaemonError::Protocol("daemon runtime stopped".to_string()))?
+    }
+
     pub(super) async fn turn(
         &self,
         conversation_id: String,
@@ -130,6 +145,11 @@ fn apply_provider_account_home(
 #[derive(Debug)]
 enum CodexRuntimeCommand {
     StartConversation {
+        model: Option<String>,
+        cwd: Option<String>,
+        reply: oneshot::Sender<Result<StartedConversation, DaemonError>>,
+    },
+    StartPrimaryConversation {
         model: Option<String>,
         cwd: Option<String>,
         reply: oneshot::Sender<Result<StartedConversation, DaemonError>>,
@@ -282,6 +302,9 @@ impl CodexRuntimeActor {
                 CodexRuntimeCommand::StartConversation { model, cwd, reply } => {
                     let _ = reply.send(self.start_conversation(model, cwd).await);
                 }
+                CodexRuntimeCommand::StartPrimaryConversation { model, cwd, reply } => {
+                    let _ = reply.send(self.start_primary_conversation(model, cwd).await);
+                }
                 CodexRuntimeCommand::Turn {
                     conversation_id,
                     input,
@@ -317,9 +340,7 @@ impl CodexRuntimeActor {
             .runtime
             .start_conversation(model.clone(), cwd.clone())
             .await?;
-        let provider_thread_id = conversation.thread_id.clone();
-        let mut new_conversation = NewConversation::local_chat(model, cwd.clone());
-        new_conversation.provider_thread_id = Some(provider_thread_id.clone());
+        let new_conversation = NewConversation::local_chat(model, cwd.clone());
         let durable_conversation = self
             .memory_repository
             .create_conversation(new_conversation)
@@ -334,10 +355,38 @@ impl CodexRuntimeActor {
             },
         );
 
-        Ok(StartedConversation {
-            conversation_id,
-            provider_thread_id,
-        })
+        Ok(StartedConversation { conversation_id })
+    }
+
+    pub(super) async fn start_primary_conversation(
+        &mut self,
+        model: Option<String>,
+        cwd: Option<String>,
+    ) -> Result<StartedConversation, DaemonError> {
+        self.memory_repository.ensure_default_actors().await?;
+        let durable_conversation = self
+            .memory_repository
+            .get_or_create_primary_conversation("human:local", model.clone(), cwd.clone())
+            .await?;
+        let conversation_id = durable_conversation.conversation_id;
+
+        if !self.conversations.contains_key(&conversation_id) {
+            let conversation = self.runtime.start_conversation(model, cwd.clone()).await?;
+            let next_turn_index = self
+                .memory_repository
+                .next_conversation_turn_index(&conversation_id)
+                .await?;
+            self.conversations.insert(
+                conversation_id.clone(),
+                ActiveConversation {
+                    provider: conversation,
+                    cwd,
+                    next_turn_index,
+                },
+            );
+        }
+
+        Ok(StartedConversation { conversation_id })
     }
 
     pub(super) async fn turn(
@@ -362,6 +411,11 @@ impl CodexRuntimeActor {
                 metadata: json!({ "turn_index": turn_index }),
             })
             .await?;
+        let recent_context_items = self
+            .memory_repository
+            .list_recent_conversation_items_for_context(&conversation_id, 24)
+            .await?;
+        let recent_transcript = render_recent_transcript_for_prompt(&recent_context_items);
         self.update_conversation_agent_status(
             &conversation_id,
             PersistedAgentStatus::InputReceived,
@@ -429,6 +483,7 @@ impl CodexRuntimeActor {
             &conversation_id,
             turn_index,
             conversation.cwd.as_deref(),
+            &recent_transcript,
         );
 
         match self
@@ -1229,10 +1284,14 @@ const fn activity_status_payload(status: TurnActivityStatus) -> &'static str {
     }
 }
 
+const RECENT_TRANSCRIPT_ITEM_CHAR_LIMIT: usize = 2_000;
+const RECENT_TRANSCRIPT_TOTAL_CHAR_LIMIT: usize = 12_000;
+
 fn build_structured_turn_system_prompt(
     conversation_id: &str,
     turn_index: u64,
     cwd: Option<&str>,
+    recent_transcript: &str,
 ) -> String {
     let project_hint = project_scope_from_cwd(cwd).unwrap_or_else(|| "none".to_string());
 
@@ -1289,8 +1348,70 @@ Rules:
 Conversation metadata:
 conversation_id: {conversation_id}
 turn_index: {turn_index}
-cwd_project_hint: {project_hint}"#
+cwd_project_hint: {project_hint}
+
+Recent durable transcript from Noema Postgres:
+{recent_transcript}"#
     )
+}
+
+fn render_recent_transcript_for_prompt(items: &[ConversationItemRecord]) -> String {
+    let mut rendered = String::new();
+    for item in items {
+        let Some(role) = transcript_role(item.kind) else {
+            continue;
+        };
+        let Some(content) = item.content_text.as_deref() else {
+            continue;
+        };
+        let content = content.trim();
+        if content.is_empty() {
+            continue;
+        }
+
+        let line = format!(
+            "{role}: {}",
+            truncate_chars(content, RECENT_TRANSCRIPT_ITEM_CHAR_LIMIT)
+        );
+        let separator_len = usize::from(!rendered.is_empty());
+        if rendered.chars().count() + separator_len + line.chars().count()
+            > RECENT_TRANSCRIPT_TOTAL_CHAR_LIMIT
+        {
+            break;
+        }
+        if !rendered.is_empty() {
+            rendered.push('\n');
+        }
+        rendered.push_str(&line);
+    }
+
+    if rendered.is_empty() {
+        "none".to_string()
+    } else {
+        rendered
+    }
+}
+
+fn transcript_role(kind: ConversationItemKind) -> Option<&'static str> {
+    match kind {
+        ConversationItemKind::UserText => Some("User"),
+        ConversationItemKind::AssistantText => Some("Noema"),
+        ConversationItemKind::Activity
+        | ConversationItemKind::A2uiCard
+        | ConversationItemKind::ToolCall
+        | ConversationItemKind::ToolResult
+        | ConversationItemKind::ApprovalRequest
+        | ConversationItemKind::ApprovalResult
+        | ConversationItemKind::ErrorNotice => None,
+    }
+}
+
+fn truncate_chars(value: &str, limit: usize) -> String {
+    let mut truncated: String = value.chars().take(limit).collect();
+    if value.chars().count() > limit {
+        truncated.push_str("...");
+    }
+    truncated
 }
 
 #[derive(Debug, Clone)]

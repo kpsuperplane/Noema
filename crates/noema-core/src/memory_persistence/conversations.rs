@@ -239,8 +239,6 @@ pub struct NewConversation {
     pub provider: String,
     /// Provider model name, when known.
     pub model: Option<String>,
-    /// Provider-native thread id, when known.
-    pub provider_thread_id: Option<String>,
     /// Working directory associated with the conversation.
     pub cwd: Option<String>,
     /// Additional structured metadata.
@@ -258,7 +256,6 @@ impl NewConversation {
             primary_agent_id: Some("agent:primary".to_string()),
             provider: "codex".to_string(),
             model,
-            provider_thread_id: None,
             cwd,
             metadata: json!({}),
         }
@@ -270,8 +267,6 @@ impl NewConversation {
 pub struct ConversationRecord {
     /// Durable Noema conversation id.
     pub conversation_id: String,
-    /// Provider-native thread id preserved from the create request.
-    pub provider_thread_id: Option<String>,
 }
 
 /// Input for creating one causal conversation turn.
@@ -363,7 +358,6 @@ impl PostgresMemoryRepository {
             primary_agent_id,
             provider,
             model,
-            provider_thread_id,
             cwd,
             metadata,
         } = conversation;
@@ -383,15 +377,14 @@ impl PostgresMemoryRepository {
         .await?;
 
         let conversation_id = allocate_postgres_id(self.pool(), "conversation").await?;
-        let record = sqlx::query_as::<_, (String, Option<String>)>(
+        let record = sqlx::query_as::<_, (String,)>(
             r"
             INSERT INTO conversations (
               conversation_id, title, owner_object_type, owner_object_id,
-              primary_human_id, primary_agent_id, provider, model,
-              provider_thread_id, cwd, metadata
+              primary_human_id, primary_agent_id, provider, model, cwd, metadata
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-            RETURNING conversation_id, provider_thread_id
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            RETURNING conversation_id
             ",
         )
         .bind(conversation_id)
@@ -402,7 +395,6 @@ impl PostgresMemoryRepository {
         .bind(primary_agent_id.as_deref())
         .bind(provider.as_str())
         .bind(model.as_deref())
-        .bind(provider_thread_id.as_deref())
         .bind(cwd.as_deref())
         .bind(json_value(metadata))
         .fetch_one(self.pool())
@@ -411,8 +403,207 @@ impl PostgresMemoryRepository {
 
         Ok(ConversationRecord {
             conversation_id: record.0,
-            provider_thread_id: record.1,
         })
+    }
+
+    /// Return a human's active primary conversation, creating one when needed.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MemoryPersistenceError`] when the human row is missing or
+    /// Postgres reads/writes fail.
+    pub async fn get_or_create_primary_conversation(
+        &self,
+        human_id: &str,
+        model: Option<String>,
+        cwd: Option<String>,
+    ) -> Result<ConversationRecord, MemoryPersistenceError> {
+        validate_object_ref_for_pool(self.pool(), &ObjectRef::human(human_id)).await?;
+
+        let mut tx = self
+            .pool()
+            .begin()
+            .await
+            .map_err(MemoryPersistenceError::Database)?;
+
+        let primary_conversation_id = sqlx::query_scalar::<_, Option<String>>(
+            r#"
+            SELECT primary_conversation_id
+            FROM humans
+            WHERE human_id = $1
+            FOR UPDATE
+            "#,
+        )
+        .bind(human_id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(MemoryPersistenceError::Database)?;
+
+        if let Some(conversation_id) = primary_conversation_id {
+            let active = sqlx::query_scalar::<_, i32>(
+                r#"
+                SELECT 1
+                FROM conversations
+                WHERE conversation_id = $1
+                  AND owner_object_type = 'human'
+                  AND owner_object_id = $2
+                  AND primary_human_id = $2
+                  AND lifecycle_status = 'active'
+                  AND deleted_at IS NULL
+                LIMIT 1
+                "#,
+            )
+            .bind(conversation_id.as_str())
+            .bind(human_id)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(MemoryPersistenceError::Database)?
+            .is_some();
+
+            if active {
+                tx.commit()
+                    .await
+                    .map_err(MemoryPersistenceError::Database)?;
+                return Ok(ConversationRecord { conversation_id });
+            }
+        }
+
+        let conversation_id = allocate_postgres_id(&mut *tx, "conversation").await?;
+        sqlx::query(
+            r#"
+            INSERT INTO conversations (
+              conversation_id, title, owner_object_type, owner_object_id,
+              primary_human_id, primary_agent_id, provider, model, cwd, metadata
+            )
+            VALUES ($1, $2, 'human', $3, $3, 'agent:primary', 'codex', $4, $5, '{}'::jsonb)
+            "#,
+        )
+        .bind(conversation_id.as_str())
+        .bind("Home")
+        .bind(human_id)
+        .bind(model.as_deref())
+        .bind(cwd.as_deref())
+        .execute(&mut *tx)
+        .await
+        .map_err(MemoryPersistenceError::Database)?;
+
+        sqlx::query(
+            r#"
+            UPDATE humans
+            SET primary_conversation_id = $2,
+                updated_at = now()
+            WHERE human_id = $1
+            "#,
+        )
+        .bind(human_id)
+        .bind(conversation_id.as_str())
+        .execute(&mut *tx)
+        .await
+        .map_err(MemoryPersistenceError::Database)?;
+
+        tx.commit()
+            .await
+            .map_err(MemoryPersistenceError::Database)?;
+        Ok(ConversationRecord { conversation_id })
+    }
+
+    /// Return the next durable turn index for a conversation.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MemoryPersistenceError`] when the conversation is missing or
+    /// Postgres reads fail.
+    pub async fn next_conversation_turn_index(
+        &self,
+        conversation_id: &str,
+    ) -> Result<u64, MemoryPersistenceError> {
+        validate_object_ref_for_pool(
+            self.pool(),
+            &ObjectRef::new(ObjectType::Conversation, conversation_id)?,
+        )
+        .await?;
+
+        let next = sqlx::query_scalar::<_, Option<i64>>(
+            r#"
+            SELECT COALESCE(MAX((metadata->>'turn_index')::bigint), 0) + 1
+            FROM conversation_turns
+            WHERE conversation_id = $1
+              AND metadata ? 'turn_index'
+            "#,
+        )
+        .bind(conversation_id)
+        .fetch_one(self.pool())
+        .await
+        .map_err(MemoryPersistenceError::Database)?
+        .unwrap_or(1);
+
+        Ok(u64::try_from(next).unwrap_or(1))
+    }
+
+    /// Return recent user and assistant text items for provider context.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MemoryPersistenceError`] when the conversation is missing or
+    /// Postgres reads fail.
+    pub async fn list_recent_conversation_items_for_context(
+        &self,
+        conversation_id: &str,
+        limit: i64,
+    ) -> Result<Vec<ConversationItemRecord>, MemoryPersistenceError> {
+        validate_object_ref_for_pool(
+            self.pool(),
+            &ObjectRef::new(ObjectType::Conversation, conversation_id)?,
+        )
+        .await?;
+        let limit = limit.clamp(1, 40);
+        let rows = sqlx::query_as::<
+            _,
+            (
+                String,
+                String,
+                Option<String>,
+                String,
+                String,
+                Option<String>,
+                Value,
+            ),
+        >(
+            r#"
+            SELECT item_id, conversation_id, turn_id, kind, status, content_text, payload_json
+            FROM (
+              SELECT item_id, conversation_id, turn_id, kind, status, content_text, payload_json, created_at
+              FROM conversation_items
+              WHERE conversation_id = $1
+                AND deleted_at IS NULL
+                AND kind IN ('user_text', 'assistant_text')
+              ORDER BY created_at DESC
+              LIMIT $2
+            ) recent
+            ORDER BY created_at ASC
+            "#,
+        )
+        .bind(conversation_id)
+        .bind(limit)
+        .fetch_all(self.pool())
+        .await
+        .map_err(MemoryPersistenceError::Database)?;
+
+        rows.into_iter()
+            .map(
+                |(item_id, conversation_id, turn_id, kind, status, content_text, payload_json)| {
+                    Ok(ConversationItemRecord {
+                        item_id,
+                        conversation_id,
+                        turn_id,
+                        kind: ConversationItemKind::parse(&kind)?,
+                        status: ConversationItemStatus::parse(&status)?,
+                        content_text,
+                        payload_json,
+                    })
+                },
+            )
+            .collect()
     }
 
     /// Create a durable turn row for an existing conversation.

@@ -95,30 +95,6 @@ export function App() {
     };
   }, [onboarding?.is_user_onboarded]);
 
-  React.useEffect(() => {
-    if (
-      !authAttempt ||
-      (authAttempt.status !== "starting" && authAttempt.status !== "waiting_for_user")
-    ) {
-      return;
-    }
-
-    const timer = window.setInterval(() => {
-      void fetchProviderAuthAttempt(authAttempt.attempt_id)
-        .then(async (next) => {
-          setAuthAttempt(next);
-          if (next.status === "completed") {
-            setOnboarding(await fetchOnboardingStatus());
-          }
-        })
-        .catch((error: unknown) => {
-          setOnboardingError(error instanceof Error ? error.message : "Failed to poll auth");
-        });
-    }, 1000);
-
-    return () => window.clearInterval(timer);
-  }, [authAttempt]);
-
   async function connectProvider() {
     const step = onboarding?.steps.find((candidate) => candidate.id === "connect_provider_account");
     if (!step?.provider_kind || !step.provider_account_id || !step.auth_method) {
@@ -139,6 +115,23 @@ export function App() {
       }
     } catch (error: unknown) {
       setOnboardingError(error instanceof Error ? error.message : "Failed to start provider login");
+    }
+  }
+
+  async function checkProviderAuthAttempt() {
+    if (!authAttempt) {
+      return;
+    }
+
+    setOnboardingError(null);
+    try {
+      const next = await fetchProviderAuthAttempt(authAttempt.attempt_id);
+      setAuthAttempt(next);
+      if (next.status === "completed") {
+        setOnboarding(await fetchOnboardingStatus());
+      }
+    } catch (error: unknown) {
+      setOnboardingError(error instanceof Error ? error.message : "Failed to check provider login");
     }
   }
 
@@ -190,6 +183,7 @@ export function App() {
           attempt={authAttempt}
           error={onboardingError}
           onConnect={() => void connectProvider()}
+          onCheck={() => void checkProviderAuthAttempt()}
           onRetry={() => {
             setAuthAttempt(null);
             setOnboardingError(null);

@@ -61,8 +61,6 @@ pub enum DaemonResponse {
         conversation_id: String,
         /// Provider used for the conversation.
         provider: String,
-        /// Provider-native thread id.
-        provider_thread_id: String,
     },
     /// One persisted conversation item emitted by an in-progress turn.
     ConversationItem {
@@ -314,13 +312,11 @@ pub fn socket_path_for_home(home: impl AsRef<Path>) -> PathBuf {
         .join(DEFAULT_DAEMON_SOCKET_NAME)
 }
 
-/// Conversation ids allocated by the daemon and provider.
+/// Durable conversation id allocated by Noema.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StartedConversation {
-    /// Daemon-local conversation id.
+    /// Durable Noema conversation id.
     pub conversation_id: String,
-    /// Provider-native thread id.
-    pub provider_thread_id: String,
 }
 
 #[derive(Debug, Clone, PartialEq)]

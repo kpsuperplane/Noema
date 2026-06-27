@@ -9,12 +9,14 @@ export function Onboarding({
   attempt,
   error,
   onConnect,
+  onCheck,
   onRetry
 }: {
   onboarding: OnboardingStatus;
   attempt: ProviderAuthAttemptView | null;
   error: string | null;
   onConnect: () => void;
+  onCheck: () => void;
   onRetry: () => void;
 }) {
   const step = onboarding.steps.find((candidate) => candidate.id === "connect_provider_account");
@@ -43,7 +45,7 @@ export function Onboarding({
           </button>
         ) : null}
 
-        {waiting ? <AuthAttempt attempt={attempt} /> : null}
+        {waiting ? <AuthAttempt attempt={attempt} onCheck={onCheck} /> : null}
 
         {complete ? <p className="onboarding-success">Provider connected. Starting chat.</p> : null}
 
@@ -62,7 +64,13 @@ export function Onboarding({
   );
 }
 
-function AuthAttempt({ attempt }: { attempt: ProviderAuthAttemptView }) {
+function AuthAttempt({
+  attempt,
+  onCheck
+}: {
+  attempt: ProviderAuthAttemptView;
+  onCheck: () => void;
+}) {
   return (
     <div className="auth-attempt" aria-live="polite">
       <strong>{attempt.status === "starting" ? "Starting login" : "Waiting for login"}</strong>
@@ -73,6 +81,9 @@ function AuthAttempt({ attempt }: { attempt: ProviderAuthAttemptView }) {
       ) : null}
       {attempt.user_code ? <code>{attempt.user_code}</code> : null}
       {attempt.instructions ? <p>{attempt.instructions}</p> : null}
+      <button type="button" onClick={onCheck}>
+        {attempt.status === "waiting_for_user" ? "Continue" : "Check status"}
+      </button>
     </div>
   );
 }

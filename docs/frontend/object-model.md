@@ -215,8 +215,10 @@ Show:
   proposals, approvals, tool activity, denials, and recovery states as backing
   exists.
 - Inline object expansions for the rows above.
-- Participants, active governable contexts, provider thread, working directory
-  or project hint.
+- `human:local.primary_conversation_id` as the current home conversation in
+  the initial slice.
+- Participants, active governable contexts, working directory or project hint.
+- Provider changes should preserve the Noema conversation id.
 - Memory extraction activity and proposed/created memories.
 - Linked tasks, projects, artifacts, and runs.
 - Context packets and "what did the agent see?" panel.

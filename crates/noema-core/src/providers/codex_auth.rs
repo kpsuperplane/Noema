@@ -197,8 +197,9 @@ where
     R: AsyncRead + Unpin,
 {
     let mut lines = BufReader::new(reader).lines();
+    let mut parser = DeviceAuthLineParser::default();
     while let Ok(Some(line)) = lines.next_line().await {
-        if let Some(info) = parse_device_auth_line(&line) {
+        if let Some(info) = parser.parse_line(&line) {
             manager
                 .update_attempt(&attempt_id, |view| {
                     if !is_terminal_status(view.status) {
@@ -265,28 +266,75 @@ struct CodexDeviceAuthInfo {
     user_code: String,
 }
 
-fn parse_device_auth_line(line: &str) -> Option<CodexDeviceAuthInfo> {
-    let verification_url = line.split_whitespace().find_map(|part| {
+#[derive(Debug, Default)]
+struct DeviceAuthLineParser {
+    verification_url: Option<String>,
+}
+
+impl DeviceAuthLineParser {
+    fn parse_line(&mut self, line: &str) -> Option<CodexDeviceAuthInfo> {
+        let line = strip_ansi_escape_sequences(line);
+
+        if let Some(verification_url) = extract_verification_url(&line) {
+            self.verification_url = Some(verification_url.clone());
+            if let Some(user_code) = extract_device_code(&line) {
+                return Some(CodexDeviceAuthInfo {
+                    verification_url,
+                    user_code,
+                });
+            }
+        }
+
+        let verification_url = self.verification_url.clone()?;
+        let user_code = extract_device_code(&line)?;
+        Some(CodexDeviceAuthInfo {
+            verification_url,
+            user_code,
+        })
+    }
+}
+
+fn extract_verification_url(line: &str) -> Option<String> {
+    line.split_whitespace().find_map(|part| {
         let part = part.trim_matches(|ch: char| matches!(ch, '.' | ',' | ';' | ':' | ')'));
         part.starts_with("https://").then(|| part.to_string())
-    })?;
+    })
+}
 
+fn extract_device_code(line: &str) -> Option<String> {
     let words = line.split_whitespace().collect::<Vec<_>>();
-    let enter_index = words
+    if let Some(enter_index) = words
         .iter()
-        .position(|word| word.eq_ignore_ascii_case("enter"))?;
-    let user_code = words
-        .get(enter_index + 1)?
-        .trim_matches(|ch: char| matches!(ch, '.' | ',' | ';' | ':' | ')' | '('));
-
-    if !is_safe_device_code(user_code) {
-        return None;
+        .position(|word| word.eq_ignore_ascii_case("enter"))
+        && let Some(user_code) = words.get(enter_index + 1).and_then(|word| safe_code(word))
+    {
+        return Some(user_code);
     }
 
-    Some(CodexDeviceAuthInfo {
-        verification_url,
-        user_code: user_code.to_string(),
-    })
+    words.iter().find_map(|word| safe_code(word))
+}
+
+fn safe_code(word: &str) -> Option<String> {
+    let user_code = word.trim_matches(|ch: char| matches!(ch, '.' | ',' | ';' | ':' | ')' | '('));
+    is_safe_device_code(user_code).then(|| user_code.to_string())
+}
+
+fn strip_ansi_escape_sequences(value: &str) -> String {
+    let mut stripped = String::with_capacity(value.len());
+    let mut chars = value.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '\u{1b}' && matches!(chars.peek(), Some('[')) {
+            chars.next();
+            for next in chars.by_ref() {
+                if ('@'..='~').contains(&next) {
+                    break;
+                }
+            }
+        } else {
+            stripped.push(ch);
+        }
+    }
+    stripped
 }
 
 fn is_safe_device_code(value: &str) -> bool {

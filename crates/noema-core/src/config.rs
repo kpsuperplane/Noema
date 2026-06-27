@@ -628,10 +628,11 @@ fn config_env_provider() -> Env {
 }
 
 fn normalize_config_env_key(key: &str) -> Option<String> {
+    let key = key.to_ascii_lowercase();
     let normalized = if key == "database_url" {
         "database.url"
     } else {
-        key
+        key.as_str()
     };
 
     CONFIG_ENV_KEYS

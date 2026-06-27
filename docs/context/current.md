@@ -38,6 +38,8 @@ The current slice should stay small and concrete:
 - Pre-stable schema changes do not need migrations or backwards compatibility unless explicitly requested.
 - The initial frontend should start with chat, memory, and inspection before exposing full workspaces, tasks, agents, tools, or governance.
 - The current frontend endpoint is a native Noema WebSocket served by the daemon, not an OpenAI-compatible API.
+- The web home chat should load `human:local.primary_conversation_id`; Noema
+  conversation continuity is owned by Postgres, not provider runtime state.
 - Frontend build and lint use Bun from `crates/noema-core/web`.
 - Web protocol TypeScript definitions are generated from Rust with `bun run gen:types`.
 

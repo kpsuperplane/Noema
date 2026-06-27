@@ -88,6 +88,14 @@ model?: string,
 /**
  * Optional working directory for the conversation.
  */
+cwd?: string, } | { "type": "primary_conversation_start",
+/**
+ * Optional model override.
+ */
+model?: string,
+/**
+ * Optional working directory for the conversation.
+ */
 cwd?: string, } | { "type": "conversation_turn",
 /**
  * Daemon conversation id.
@@ -106,6 +114,8 @@ client_message_id?: string, } | { "type": "conversation_end",
  */
 conversation_id: string, };
 
+export type WebErrorCode = "not_onboarded";
+
 export type WebServerMessage = { "type": "ok",
 /**
  * Optional success message.
@@ -118,11 +128,7 @@ conversation_id: string,
 /**
  * Provider used for the conversation.
  */
-provider: string,
-/**
- * Provider-native thread id.
- */
-provider_thread_id: string, } | { "type": "conversation_item",
+provider: string, } | { "type": "conversation_item",
 /**
  * Daemon conversation id.
  */
@@ -167,6 +173,10 @@ conversation_id: string,
  * Frontend-generated id originally sent with the user message.
  */
 client_message_id?: string, } | { "type": "error",
+/**
+ * Stable machine-readable error code.
+ */
+code?: WebErrorCode,
 /**
  * Human-readable error message.
  */

@@ -198,7 +198,6 @@ async fn handle_request(request: DaemonRequest, state: &DaemonState) -> DaemonRe
             Ok(started) => DaemonResponse::ConversationStarted {
                 conversation_id: started.conversation_id,
                 provider: "codex".to_string(),
-                provider_thread_id: started.provider_thread_id,
             },
             Err(error) => DaemonResponse::Error {
                 message: error.to_string(),

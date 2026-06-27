@@ -108,11 +108,7 @@ impl DaemonClient {
             DaemonResponse::ConversationStarted {
                 conversation_id,
                 provider: _,
-                provider_thread_id,
-            } => Ok(StartedConversation {
-                conversation_id,
-                provider_thread_id,
-            }),
+            } => Ok(StartedConversation { conversation_id }),
             other => Err(DaemonError::Protocol(format!(
                 "unexpected conversation_start response: {other:?}"
             ))),

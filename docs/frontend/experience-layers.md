@@ -27,8 +27,8 @@ Default identities:
 | Noema | `agent:primary` | The only visible agent in the current slice |
 
 Beginner copy should not mention `principal`, `scope`, `daemon`, `socket`,
-`context packet`, `egress`, `grant`, `provider thread`, or `policy simulator`.
-Those are technical details inside inspection.
+`context packet`, `egress`, `grant`, provider runtime internals, or
+`policy simulator`. Those are technical details inside inspection.
 
 ## Onboarding Ramp
 
@@ -112,7 +112,7 @@ Hide these behind `Show technical details` during onboarding and settings:
 - Base URL, organization ID, project ID.
 - Sandbox and ephemeral settings.
 - Socket path.
-- Provider thread ID.
+- Provider runtime internals.
 
 Do not present a provider picker on the onboarding happy path until all options
 support the same first-chat behavior. OpenAI can remain an advanced setup path.
@@ -144,7 +144,7 @@ Avoid in beginner flows:
 - Context packet.
 - Egress.
 - Grant.
-- Provider thread.
+- Provider runtime internals.
 - Policy simulator.
 
 ## Progressive Disclosure Levels

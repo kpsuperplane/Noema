@@ -78,15 +78,16 @@ Primary actions:
 
 Current conversation contract:
 
+- The home chat is a single durable primary conversation for `human:local`.
+- Future thread switching changes the human's primary conversation pointer.
 - The daemon WebSocket is the live source for current turn updates.
 - Durable chat history is reconstructed from `conversation_items`.
 - `agent_status` is live coordination state and is not replayed as transcript
   history.
 - `conversation_items` include user text, assistant text, durable activity
   rows, A2UI cards, tool calls/results, approvals, and meaningful errors.
-- After daemon restart, the frontend can reconstruct durable chat history from
-  `conversation_items`, but cannot assume the provider thread remains resumable
-  unless the daemon/runtime persists that mapping.
+- After daemon restart, the frontend reconstructs durable chat history from
+  `conversation_items` for the primary Noema conversation.
 - Context packet links appear only when packets exist; otherwise show an
   unavailable state and a backend requirement.
 
@@ -403,7 +404,7 @@ Hide during onboarding:
 
 - Top-level agents, workspaces, projects, tasks, tools, governance, audit,
   runs, approvals, exports, restore, context graph, context packets, capability
-  grants, proactivity rules, raw IDs, provider thread IDs, socket paths, YAML,
+  grants, proactivity rules, raw IDs, runtime internals, socket paths, YAML,
   API key fields, and command palette mutations.
 
 Beginner labels:

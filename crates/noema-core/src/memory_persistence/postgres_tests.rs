@@ -449,6 +449,227 @@ async fn update_provider_account_status_rejects_missing_or_deleted_account() {
 }
 
 #[tokio::test]
+async fn postgres_bootstrap_adds_primary_conversation_to_humans() {
+    let Some(repo) = test_repo().await else {
+        return;
+    };
+
+    let exists: bool = sqlx::query_scalar(
+        r#"
+        SELECT EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema = 'public'
+            AND table_name = 'humans'
+            AND column_name = 'primary_conversation_id'
+        )
+        "#,
+    )
+    .fetch_one(repo.pool())
+    .await
+    .expect("primary conversation column exists query");
+
+    assert!(exists);
+}
+
+#[tokio::test]
+async fn postgres_bootstrap_removes_provider_thread_id_from_conversations() {
+    let Some(repo) = test_repo().await else {
+        return;
+    };
+
+    let exists: bool = sqlx::query_scalar(
+        r#"
+        SELECT EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema = 'public'
+            AND table_name = 'conversations'
+            AND column_name = 'provider_thread_id'
+        )
+        "#,
+    )
+    .fetch_one(repo.pool())
+    .await
+    .expect("provider thread column exists query");
+
+    assert!(!exists);
+}
+
+#[tokio::test]
+async fn postgres_bootstrap_primary_conversation_fk_sets_null_on_delete() {
+    let Some(repo) = test_repo().await else {
+        return;
+    };
+
+    let action: String = sqlx::query_scalar(
+        r#"
+        SELECT rc.delete_rule
+        FROM information_schema.referential_constraints rc
+        JOIN information_schema.table_constraints tc
+          ON rc.constraint_catalog = tc.constraint_catalog
+         AND rc.constraint_schema = tc.constraint_schema
+         AND rc.constraint_name = tc.constraint_name
+        WHERE tc.table_schema = 'public'
+          AND tc.table_name = 'humans'
+          AND tc.constraint_name = 'fk_humans_primary_conversation'
+        "#,
+    )
+    .fetch_one(repo.pool())
+    .await
+    .expect("primary conversation fk delete rule");
+
+    assert_eq!(action, "SET NULL");
+}
+
+#[tokio::test]
+async fn primary_conversation_is_created_and_reused_for_local_human() {
+    let Some(repo) = test_repo().await else {
+        return;
+    };
+    repo.ensure_default_actors().await.expect("actors");
+
+    let first = repo
+        .get_or_create_primary_conversation("human:local", None, None)
+        .await
+        .expect("first primary conversation");
+    let second = repo
+        .get_or_create_primary_conversation("human:local", None, None)
+        .await
+        .expect("second primary conversation");
+
+    assert_eq!(first.conversation_id, second.conversation_id);
+
+    let stored: Option<String> =
+        sqlx::query_scalar("SELECT primary_conversation_id FROM humans WHERE human_id = $1")
+            .bind("human:local")
+            .fetch_one(repo.pool())
+            .await
+            .expect("stored primary conversation");
+    assert_eq!(stored.as_deref(), Some(first.conversation_id.as_str()));
+}
+
+#[tokio::test]
+async fn primary_conversation_replaces_deleted_assignment() {
+    let Some(repo) = test_repo().await else {
+        return;
+    };
+    repo.ensure_default_actors().await.expect("actors");
+
+    let first = repo
+        .get_or_create_primary_conversation("human:local", None, None)
+        .await
+        .expect("first primary conversation");
+
+    sqlx::query("UPDATE conversations SET lifecycle_status = 'deleted' WHERE conversation_id = $1")
+        .bind(first.conversation_id.as_str())
+        .execute(repo.pool())
+        .await
+        .expect("mark conversation deleted");
+
+    let replacement = repo
+        .get_or_create_primary_conversation("human:local", None, None)
+        .await
+        .expect("replacement primary conversation");
+
+    assert_ne!(first.conversation_id, replacement.conversation_id);
+}
+
+#[tokio::test]
+async fn primary_conversation_replaces_inaccessible_assignment() {
+    let Some(repo) = test_repo().await else {
+        return;
+    };
+    repo.ensure_default_actors().await.expect("actors");
+
+    sqlx::query(
+        r#"
+        INSERT INTO humans (human_id, display_name, handle)
+        VALUES ('human:other', 'Other human', 'other')
+        "#,
+    )
+    .execute(repo.pool())
+    .await
+    .expect("insert other human");
+    sqlx::query(
+        r#"
+        INSERT INTO conversations (
+          conversation_id, title, owner_object_type, owner_object_id,
+          primary_human_id, primary_agent_id, provider, model, cwd, metadata
+        )
+        VALUES (
+          'conversation_other', 'Other home', 'human', 'human:other',
+          'human:other', 'agent:primary', 'codex', NULL, NULL, '{}'::jsonb
+        )
+        "#,
+    )
+    .execute(repo.pool())
+    .await
+    .expect("insert other conversation");
+    sqlx::query(
+        "UPDATE humans SET primary_conversation_id = 'conversation_other' WHERE human_id = $1",
+    )
+    .bind("human:local")
+    .execute(repo.pool())
+    .await
+    .expect("point local human at inaccessible conversation");
+
+    let replacement = repo
+        .get_or_create_primary_conversation("human:local", None, None)
+        .await
+        .expect("replacement primary conversation");
+
+    assert_ne!(replacement.conversation_id, "conversation_other");
+    let stored: Option<String> =
+        sqlx::query_scalar("SELECT primary_conversation_id FROM humans WHERE human_id = $1")
+            .bind("human:local")
+            .fetch_one(repo.pool())
+            .await
+            .expect("stored primary conversation");
+    assert_eq!(
+        stored.as_deref(),
+        Some(replacement.conversation_id.as_str())
+    );
+}
+
+#[tokio::test]
+async fn primary_conversation_concurrent_startup_creates_one_home_thread() {
+    let Some(repo_guard) = test_repo().await else {
+        return;
+    };
+    repo_guard.ensure_default_actors().await.expect("actors");
+    let repo = repo_guard.repo.clone();
+
+    let mut tasks = Vec::new();
+    for _ in 0..8 {
+        let repo = repo.clone();
+        tasks.push(tokio::spawn(async move {
+            repo.get_or_create_primary_conversation("human:local", None, None)
+                .await
+                .expect("primary conversation")
+                .conversation_id
+        }));
+    }
+
+    let mut ids = Vec::new();
+    for task in tasks {
+        ids.push(task.await.expect("join primary conversation task"));
+    }
+    ids.sort();
+    ids.dedup();
+    assert_eq!(ids.len(), 1);
+
+    let home_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM conversations WHERE title = 'Home' AND primary_human_id = $1",
+    )
+    .bind("human:local")
+    .fetch_one(repo_guard.pool())
+    .await
+    .expect("home conversation count");
+    assert_eq!(home_count, 1);
+}
+
+#[tokio::test]
 async fn conversation_items_replay_in_created_order() {
     let Some(repo) = test_repo().await else {
         return;

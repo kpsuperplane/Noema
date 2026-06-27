@@ -27,27 +27,32 @@ features can grow into:
   Codex-oriented `config.yaml` when one is not already present.
 - `noema start` runs the same initialization path when the Noema directory or
   default config is missing.
-- The daemon owns provider runtime state instead of recreating it for every CLI
-  message.
+- The daemon owns live coordination state for active turns. Durable
+  conversation identity and transcript history live in Postgres.
 - The daemon starts `codex app-server --listen stdio://` lazily on the first
-  chat conversation.
-- `noema chat` connects to the daemon, creates a fresh Noema conversation, and
-  the daemon maps that conversation to one Codex thread.
+  chat conversation or memory extraction job.
+- The local web chat connects to the daemon, loads
+  `human:local.primary_conversation_id`, and appends turns to that durable
+  Noema conversation.
+- `noema chat` can still create explicit daemon conversations for CLI use, but
+  conversation continuity is a Noema/Postgres concept rather than a provider
+  runtime mapping.
 - If `noema chat` cannot reach a daemon, it starts a temporary daemon for that
   chat session and shuts it down when chat exits.
 
-This slice does not yet create durable conversation rows, run envelopes, event
-ledger entries, approvals, tools, or durable capability state. Conversation IDs
-and Codex thread mappings are in-memory daemon state only. Memory records,
-chat-turn provenance, and Postgres-backed context graph inspection are covered by
-the memory runtime docs and the frontend current contract.
+This slice creates durable conversation rows, turns, transcript items, memory
+records, chat-turn provenance, and Postgres-backed context graph inspection. It
+does not yet create durable run envelopes, event ledger entries, approvals,
+tools, or durable capability state. Provider runtime ids are adapter internals,
+not product continuity state.
 
-The daemon intentionally uses the stable Codex app-server flow: initialize the
-connection, start a thread with the chat client's current working directory,
-send text-only `turn/start` requests, collect assistant output from streamed
-notifications, and wait for `turn/completed`. It does not send experimental
-Codex permission fields; Codex's own config continues to own sandbox and
-permission policy.
+The daemon intentionally uses the stable Codex app-server flow as the current
+answer-generation adapter: initialize the connection, start an adapter-local
+session with the chat client's current working directory when needed, send
+text-only `turn/start` requests with Noema-assembled context, collect assistant
+output from streamed notifications, and wait for `turn/completed`. It does not
+send experimental Codex permission fields; Codex's own config continues to own
+sandbox and permission policy.
 
 ## Runtime components
 

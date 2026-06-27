@@ -341,6 +341,38 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn auth_manager_reports_multiline_ansi_codex_device_code_progress() {
+        let dir = TempDir::new().expect("temp dir");
+        let fake = dir.path().join("fake-codex");
+        fs::write(
+            &fake,
+            "#!/bin/sh\nprintf 'Follow these steps to sign in with ChatGPT using device code authorization:\\n'\nprintf '1. Open this link in your browser and sign in to your account\\n'\nprintf '   \\033[94mhttps://auth.openai.com/codex/device\\033[0m\\n'\nprintf '2. Enter this one-time code \\033[90m(expires in 15 minutes)\\033[0m\\n'\nprintf '   \\033[94m9JZS-15VQF\\033[0m\\n'\nsleep 30\nexit 0\n",
+        )
+        .expect("fake codex");
+        make_executable(&fake);
+
+        let manager = ProviderAuthManager::new();
+        let attempt = manager
+            .start_codex_device_code(codex_request(&dir, &fake))
+            .await
+            .expect("start auth");
+
+        let status = poll_until_status(
+            &manager,
+            &attempt.attempt_id,
+            ProviderAuthAttemptStatus::WaitingForUser,
+        )
+        .await;
+
+        assert_eq!(status.status, ProviderAuthAttemptStatus::WaitingForUser);
+        assert_eq!(
+            status.verification_url.as_deref(),
+            Some("https://auth.openai.com/codex/device")
+        );
+        assert_eq!(status.user_code.as_deref(), Some("9JZS-15VQF"));
+    }
+
+    #[tokio::test]
     async fn auth_manager_marks_successful_attempt_completed() {
         let dir = TempDir::new().expect("temp dir");
         let fake = dir.path().join("fake-codex");

@@ -15,7 +15,7 @@ use tokio::{
 use crate::{
     StartedConversation, TurnActivityStatus, TurnTranscriptItem, WebConfig,
     frontend_protocol::{
-        StartProviderAuthAttemptRequest, WebClientMessage, WebConversationItem,
+        StartProviderAuthAttemptRequest, WebClientMessage, WebConversationItem, WebErrorCode,
         WebMemoryStorageStatus, WebServerMessage, WebStatus,
     },
     memory_persistence::{
@@ -37,6 +37,9 @@ const MAX_API_BODY_BYTES: usize = 64 * 1024;
 const MAX_WS_FRAME_BYTES: usize = 1024 * 1024;
 const HTTP_BODY_READ_TIMEOUT: Duration = Duration::from_millis(250);
 const WEBSOCKET_GUID: &str = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+const NOT_ONBOARDED_ERROR_MESSAGE: &str =
+    "Noema onboarding is incomplete. Connect a provider account before starting chat.";
+const PROVIDER_AUTH_TERMINAL_PERSIST_INTERVAL: Duration = Duration::from_millis(250);
 
 /// State shared by local web UI connections.
 #[derive(Clone)]
@@ -109,6 +112,9 @@ pub(super) async fn handle_connection(
             .memory_repository
             .active_provider_account("codex")
             .await?;
+        let account =
+            reconcile_onboarding_provider_account(&state.memory_repository, &state.paths, account)
+                .await?;
         let status = crate::onboarding_status_from_account(account);
         write_json(&mut stream, "200 OK", &status).await?;
         return Ok(());
@@ -147,7 +153,13 @@ pub(super) async fn handle_connection(
     if request.method == "GET"
         && let Some(asset) = embedded_asset(&request.path)
     {
-        write_response(&mut stream, "200 OK", asset.content_type, asset.body.as_ref()).await?;
+        write_response(
+            &mut stream,
+            "200 OK",
+            asset.content_type,
+            asset.body.as_ref(),
+        )
+        .await?;
         return Ok(());
     }
 
@@ -450,6 +462,13 @@ async fn start_provider_auth_attempt(
     .await
     {
         Ok(attempt) => {
+            if !should_persist_provider_auth_attempt_status(&attempt) {
+                spawn_provider_auth_terminal_persistence(
+                    state.provider_auth.clone(),
+                    state.memory_repository.clone(),
+                    attempt.attempt_id.clone(),
+                );
+            }
             write_json(stream, "200 OK", &attempt).await?;
         }
         Err(StartProviderAuthAttemptError::ProviderUnavailable) => {
@@ -679,6 +698,30 @@ impl ProviderAccountStatusStore for PostgresMemoryRepository {
     }
 }
 
+trait ProviderAuthAttemptPoller {
+    fn poll_provider_auth_attempt<'a>(
+        &'a self,
+        attempt_id: &'a str,
+    ) -> Pin<
+        Box<dyn Future<Output = Result<Option<ProviderAuthAttemptView>, DaemonError>> + Send + 'a>,
+    >;
+}
+
+impl ProviderAuthAttemptPoller for ProviderAuthManager {
+    fn poll_provider_auth_attempt<'a>(
+        &'a self,
+        attempt_id: &'a str,
+    ) -> Pin<
+        Box<dyn Future<Output = Result<Option<ProviderAuthAttemptView>, DaemonError>> + Send + 'a>,
+    > {
+        Box::pin(async move {
+            self.poll_attempt(attempt_id)
+                .await
+                .map_err(|source| DaemonError::Protocol(source.to_string()))
+        })
+    }
+}
+
 trait CodexDeviceAuthStarter {
     fn start_codex_device_code<'a>(
         &'a self,
@@ -773,6 +816,81 @@ async fn persist_provider_account_status_from_attempt(
     Ok(())
 }
 
+fn spawn_provider_auth_terminal_persistence(
+    poller: ProviderAuthManager,
+    status_store: PostgresMemoryRepository,
+    attempt_id: String,
+) {
+    tokio::spawn(async move {
+        let _ = persist_provider_auth_attempt_terminal_status(
+            &poller,
+            &status_store,
+            &attempt_id,
+            PROVIDER_AUTH_TERMINAL_PERSIST_INTERVAL,
+        )
+        .await;
+    });
+}
+
+async fn persist_provider_auth_attempt_terminal_status(
+    poller: &impl ProviderAuthAttemptPoller,
+    status_store: &impl ProviderAccountStatusStore,
+    attempt_id: &str,
+    poll_interval: Duration,
+) -> Result<(), DaemonError> {
+    loop {
+        let Some(attempt) = poller.poll_provider_auth_attempt(attempt_id).await? else {
+            return Ok(());
+        };
+        if should_persist_provider_auth_attempt_status(&attempt) {
+            persist_provider_account_status_from_attempt(status_store, &attempt).await?;
+            return Ok(());
+        }
+        tokio::time::sleep(poll_interval).await;
+    }
+}
+
+async fn reconcile_onboarding_provider_account(
+    status_store: &impl ProviderAccountStatusStore,
+    paths: &crate::NoemaPaths,
+    account: Option<crate::ProviderAccountRecord>,
+) -> Result<Option<crate::ProviderAccountRecord>, DaemonError> {
+    let Some(mut account) = account else {
+        return Ok(None);
+    };
+    if account.status == crate::ProviderAccountStatus::Authenticated
+        || !codex_account_home_has_file_credentials(paths, &account)
+    {
+        return Ok(Some(account));
+    }
+
+    status_store
+        .update_provider_account_status(
+            &account.provider_account_id,
+            crate::ProviderAccountStatus::Authenticated,
+            None,
+            None,
+        )
+        .await?;
+    account.status = crate::ProviderAccountStatus::Authenticated;
+    account.last_error_code = None;
+    account.last_error_message = None;
+    Ok(Some(account))
+}
+
+fn codex_account_home_has_file_credentials(
+    paths: &crate::NoemaPaths,
+    account: &crate::ProviderAccountRecord,
+) -> bool {
+    if account.provider_kind != "codex" {
+        return false;
+    }
+    paths
+        .provider_account_home(&account.provider_kind, &account.account_key)
+        .join("auth.json")
+        .is_file()
+}
+
 async fn upgrade_websocket(
     mut stream: TcpStream,
     request: &HttpRequest,
@@ -832,7 +950,30 @@ async fn handle_websocket_message(
 ) -> Result<(), DaemonError> {
     match request {
         WebClientMessage::Start { model, cwd } => {
+            if !ensure_onboarded(state).await? {
+                send_not_onboarded_error(stream).await?;
+                return Ok(());
+            }
             match state.runtime.start_conversation(model, cwd).await {
+                Ok(started) => {
+                    let replay_records = visible_conversation_replay(
+                        &state.memory_repository,
+                        &started.conversation_id,
+                    )
+                    .await?;
+                    for message in conversation_start_messages(started, replay_records)? {
+                        send_ws_json(stream, &message).await?;
+                    }
+                }
+                Err(error) => send_ws_error(stream, error.to_string()).await?,
+            }
+        }
+        WebClientMessage::StartPrimary { model, cwd } => {
+            if !ensure_onboarded(state).await? {
+                send_not_onboarded_error(stream).await?;
+                return Ok(());
+            }
+            match state.runtime.start_primary_conversation(model, cwd).await {
                 Ok(started) => {
                     let replay_records = visible_conversation_replay(
                         &state.memory_repository,
@@ -851,6 +992,10 @@ async fn handle_websocket_message(
             input,
             client_message_id,
         } => {
+            if !ensure_onboarded(state).await? {
+                send_not_onboarded_error(stream).await?;
+                return Ok(());
+            }
             let (item_tx, mut item_rx) = mpsc::unbounded_channel();
             let completion = state.runtime.turn(conversation_id.clone(), input, item_tx);
             tokio::pin!(completion);
@@ -899,6 +1044,27 @@ async fn handle_websocket_message(
     }
 
     Ok(())
+}
+
+async fn ensure_onboarded(state: &WebState) -> Result<bool, DaemonError> {
+    let account = state
+        .memory_repository
+        .active_provider_account("codex")
+        .await?;
+    Ok(is_user_onboarded_for_chat(account))
+}
+
+fn is_user_onboarded_for_chat(account: Option<crate::ProviderAccountRecord>) -> bool {
+    crate::onboarding_status_from_account(account).is_user_onboarded
+}
+
+async fn send_not_onboarded_error(stream: &mut TcpStream) -> Result<(), DaemonError> {
+    send_ws_error_with_code(
+        stream,
+        Some(WebErrorCode::NotOnboarded),
+        NOT_ONBOARDED_ERROR_MESSAGE,
+    )
+    .await
 }
 
 async fn send_web_turn_event(
@@ -956,8 +1122,17 @@ fn conversation_replay_message(
 ) -> Result<WebServerMessage, DaemonError> {
     let mut items = Vec::new();
     for record in replay_records {
-        if let Some(item) = web_conversation_item_from_record(record)? {
-            items.push(item);
+        match web_conversation_item_from_record(record) {
+            Ok(Some(item)) => items.push(item),
+            Ok(None) => {}
+            Err(error) => items.push(WebConversationItem::new(
+                format!("replay_warning_{}", items.len() + 1),
+                None,
+                TurnTranscriptItem::ErrorNotice {
+                    message: format!("Noema could not replay one saved item: {error}"),
+                    recoverable: true,
+                },
+            )),
         }
     }
     Ok(WebServerMessage::ConversationReplay {
@@ -1088,7 +1263,22 @@ struct ReplayErrorNoticePayload {
 }
 
 async fn send_ws_error(stream: &mut TcpStream, message: String) -> Result<(), DaemonError> {
-    send_ws_json(stream, &WebServerMessage::Error { message }).await
+    send_ws_error_with_code(stream, None, message).await
+}
+
+async fn send_ws_error_with_code(
+    stream: &mut TcpStream,
+    code: Option<WebErrorCode>,
+    message: impl Into<String>,
+) -> Result<(), DaemonError> {
+    send_ws_json(
+        stream,
+        &WebServerMessage::Error {
+            code,
+            message: message.into(),
+        },
+    )
+    .await
 }
 
 async fn send_ws_json<T: Serialize>(stream: &mut TcpStream, value: &T) -> Result<(), DaemonError> {
@@ -1523,6 +1713,69 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn auth_terminal_watcher_persists_completed_attempt_without_http_poll() {
+        let store = RecordingProviderAccountStatusStore::default();
+        let mut waiting = test_provider_auth_attempt();
+        waiting.status = crate::provider_auth::ProviderAuthAttemptStatus::WaitingForUser;
+        let mut completed = waiting.clone();
+        completed.status = crate::provider_auth::ProviderAuthAttemptStatus::Completed;
+        let poller = RecordingProviderAuthAttemptPoller::new(vec![waiting, completed]);
+
+        persist_provider_auth_attempt_terminal_status(
+            &poller,
+            &store,
+            "provider_auth_attempt_test",
+            Duration::from_millis(1),
+        )
+        .await
+        .expect("persist terminal status");
+
+        let updates = store.updates.lock().expect("updates lock");
+        assert_eq!(
+            updates.as_slice(),
+            [RecordedProviderAccountStatusUpdate {
+                provider_account_id: "provider_account:codex:default".to_string(),
+                status: crate::ProviderAccountStatus::Authenticated,
+                error_code: None,
+                error_message: None,
+            }]
+        );
+    }
+
+    #[tokio::test]
+    async fn onboarding_reconciles_existing_codex_file_credentials() {
+        let store = RecordingProviderAccountStatusStore::default();
+        let temp_dir = tempfile::tempdir().expect("temp dir");
+        let paths = crate::NoemaPaths::from_noema_home(temp_dir.path()).expect("paths");
+        let mut account = test_provider_account();
+        account.status = crate::ProviderAccountStatus::Unauthenticated;
+        let account_home =
+            paths.provider_account_home(&account.provider_kind, &account.account_key);
+        std::fs::create_dir_all(&account_home).expect("account home");
+        std::fs::write(account_home.join("auth.json"), "{}").expect("credential marker");
+
+        let reconciled = reconcile_onboarding_provider_account(&store, &paths, Some(account))
+            .await
+            .expect("reconcile account")
+            .expect("account");
+
+        assert_eq!(
+            reconciled.status,
+            crate::ProviderAccountStatus::Authenticated
+        );
+        let updates = store.updates.lock().expect("updates lock");
+        assert_eq!(
+            updates.as_slice(),
+            [RecordedProviderAccountStatusUpdate {
+                provider_account_id: "provider_account:codex:default".to_string(),
+                status: crate::ProviderAccountStatus::Authenticated,
+                error_code: None,
+                error_message: None,
+            }]
+        );
+    }
+
     async fn read_test_request_error(bytes: &[u8]) -> HttpRequestError {
         let listener = TcpListener::bind(("127.0.0.1", 0))
             .await
@@ -1602,6 +1855,18 @@ mod tests {
         attempt: ProviderAuthAttemptView,
     }
 
+    struct RecordingProviderAuthAttemptPoller {
+        attempts: std::sync::Mutex<Vec<ProviderAuthAttemptView>>,
+    }
+
+    impl RecordingProviderAuthAttemptPoller {
+        fn new(attempts: Vec<ProviderAuthAttemptView>) -> Self {
+            Self {
+                attempts: std::sync::Mutex::new(attempts),
+            }
+        }
+    }
+
     impl CodexDeviceAuthStarter for RecordingCodexDeviceAuthStarter {
         fn start_codex_device_code<'a>(
             &'a self,
@@ -1614,6 +1879,29 @@ mod tests {
             >,
         > {
             let attempt = self.attempt.clone();
+            Box::pin(async move { Ok(attempt) })
+        }
+    }
+
+    impl ProviderAuthAttemptPoller for RecordingProviderAuthAttemptPoller {
+        fn poll_provider_auth_attempt<'a>(
+            &'a self,
+            _attempt_id: &'a str,
+        ) -> Pin<
+            Box<
+                dyn Future<Output = Result<Option<ProviderAuthAttemptView>, DaemonError>>
+                    + Send
+                    + 'a,
+            >,
+        > {
+            let attempt = {
+                let mut attempts = self.attempts.lock().expect("attempts lock");
+                if attempts.len() > 1 {
+                    Some(attempts.remove(0))
+                } else {
+                    attempts.first().cloned()
+                }
+            };
             Box::pin(async move { Ok(attempt) })
         }
     }
@@ -1671,11 +1959,27 @@ mod tests {
     }
 
     #[test]
+    fn chat_onboarding_gate_requires_authenticated_provider_account() {
+        assert!(!is_user_onboarded_for_chat(None));
+
+        let mut account = test_provider_account();
+        account.status = crate::ProviderAccountStatus::Unknown;
+        assert!(!is_user_onboarded_for_chat(Some(account)));
+
+        let mut account = test_provider_account();
+        account.status = crate::ProviderAccountStatus::Unauthenticated;
+        assert!(!is_user_onboarded_for_chat(Some(account)));
+
+        let mut account = test_provider_account();
+        account.status = crate::ProviderAccountStatus::Authenticated;
+        assert!(is_user_onboarded_for_chat(Some(account)));
+    }
+
+    #[test]
     fn conversation_start_messages_include_replay_after_started() {
         let messages = conversation_start_messages(
             StartedConversation {
                 conversation_id: "conversation_1".to_string(),
-                provider_thread_id: "thread_1".to_string(),
             },
             vec![ConversationItemRecord {
                 item_id: "item_1".to_string(),
@@ -1695,7 +1999,6 @@ mod tests {
                 WebServerMessage::ConversationStarted {
                     conversation_id,
                     provider,
-                    provider_thread_id,
                 },
                 WebServerMessage::ConversationReplay {
                     conversation_id: replay_conversation_id,
@@ -1703,7 +2006,6 @@ mod tests {
                 },
             ] if conversation_id == "conversation_1"
                 && provider == "codex"
-                && provider_thread_id == "thread_1"
                 && replay_conversation_id == "conversation_1"
         ));
 
@@ -1720,7 +2022,6 @@ mod tests {
         let messages = conversation_start_messages(
             StartedConversation {
                 conversation_id: "conversation_1".to_string(),
-                provider_thread_id: "thread_1".to_string(),
             },
             vec![ConversationItemRecord {
                 item_id: "item_tool_1".to_string(),
@@ -1749,5 +2050,51 @@ mod tests {
             encoded["items"][0]["item"]["title"],
             "Tool call: search_memory"
         );
+    }
+
+    #[test]
+    fn conversation_replay_skips_malformed_item_and_adds_warning() {
+        let message = conversation_replay_message(
+            "conversation_1".to_string(),
+            vec![
+                ConversationItemRecord {
+                    item_id: "item_bad".to_string(),
+                    conversation_id: "conversation_1".to_string(),
+                    turn_id: Some("turn_1".to_string()),
+                    kind: ConversationItemKind::Activity,
+                    status: ConversationItemStatus::Completed,
+                    content_text: None,
+                    payload_json: json!({ "not": "an activity payload" }),
+                },
+                ConversationItemRecord {
+                    item_id: "item_good".to_string(),
+                    conversation_id: "conversation_1".to_string(),
+                    turn_id: Some("turn_1".to_string()),
+                    kind: ConversationItemKind::AssistantText,
+                    status: ConversationItemStatus::Completed,
+                    content_text: Some("still visible".to_string()),
+                    payload_json: json!({}),
+                },
+            ],
+        )
+        .expect("replay message");
+
+        let WebServerMessage::ConversationReplay { ref items, .. } = message else {
+            panic!("expected replay message");
+        };
+
+        assert_eq!(items.len(), 2);
+
+        let encoded = serde_json::to_value(&message).expect("serialize replay");
+        assert_eq!(encoded["items"][0]["item"]["kind"], "error_notice");
+        assert_eq!(encoded["items"][0]["item"]["recoverable"], true);
+        assert!(
+            encoded["items"][0]["item"]["message"]
+                .as_str()
+                .expect("warning message")
+                .contains("could not replay one saved item")
+        );
+        assert_eq!(encoded["items"][1]["item"]["kind"], "assistant_text");
+        assert_eq!(encoded["items"][1]["item"]["text"], "still visible");
     }
 }

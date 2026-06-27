@@ -30,9 +30,13 @@ Current bootstrap tables:
 
 - `schema_migrations`: bootstrap/version marker for the pre-stable schema.
 - `humans`, `agents`, `tools`: concrete actor and capability objects.
+  `humans.primary_conversation_id` references
+  `conversations.conversation_id` and stores the default home chat for each
+  human.
 - `conversations`, `conversation_turns`, `conversation_items`: durable chat
-  and transcript state. `conversation_items` is the canonical transcript item
-  table for current chat history.
+  and transcript state. `conversations.conversation_id` is the stable Noema
+  conversation identifier; `conversation_items` is the canonical transcript
+  item table for current chat history.
 - `memory_items`: durable memory records with lifecycle, sensitivity,
   authority, retrieval policy, and generated Postgres full-text search vector.
 - `entities`, `relationships`, `memory_subjects`, `memory_participants`:

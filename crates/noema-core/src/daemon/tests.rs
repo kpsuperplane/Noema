@@ -34,7 +34,6 @@ fn protocol_round_trips_requests_and_responses() {
     let response = DaemonResponse::ConversationStarted {
         conversation_id: "conversation_1".to_string(),
         provider: "codex".to_string(),
-        provider_thread_id: "thread_1".to_string(),
     };
     let encoded = serde_json::to_string(&response).expect("encode");
     let decoded: DaemonResponse = serde_json::from_str(&encoded).expect("decode");
@@ -196,7 +195,6 @@ async fn runtime_actor_allocates_distinct_conversation_ids() {
         .expect("second conversation");
 
     assert_ne!(first.conversation_id, second.conversation_id);
-    assert_ne!(first.provider_thread_id, second.provider_thread_id);
 
     let items = collect_turn(&handle, first.conversation_id.clone(), "hello".to_string())
         .await
@@ -294,6 +292,86 @@ async fn runtime_turn_streams_durable_assistant_item_and_idle_status() {
     let (agent_status, turn_status) = conversation_and_turn_statuses(&repo, &conversation_id).await;
     assert_eq!(agent_status, "idle");
     assert_eq!(turn_status, "completed");
+}
+
+#[tokio::test]
+async fn runtime_primary_conversation_sends_recent_durable_context_after_restart() {
+    let Some(database) = test_database().await else {
+        return;
+    };
+    let script = fake_codex_app_server_script_with_restart_context_check();
+
+    let first_handle = CodexRuntimeHandle::spawn(
+        CodexProviderConfig {
+            command: script.to_string_lossy().to_string(),
+            startup_timeout_seconds: 2,
+            turn_timeout_seconds: 2,
+            ..CodexProviderConfig::default()
+        },
+        database.url.clone(),
+    )
+    .await
+    .expect("first runtime");
+    let first_conversation_id = first_handle
+        .start_primary_conversation(None, None)
+        .await
+        .expect("first primary conversation")
+        .conversation_id;
+    let first_items = collect_turn(
+        &first_handle,
+        first_conversation_id.clone(),
+        "first durable question".to_string(),
+    )
+    .await
+    .expect("first turn");
+    assert_eq!(assistant_text(&first_items), "fake answer");
+    first_handle.shutdown().await;
+
+    let second_handle = CodexRuntimeHandle::spawn(
+        CodexProviderConfig {
+            command: script.to_string_lossy().to_string(),
+            startup_timeout_seconds: 2,
+            turn_timeout_seconds: 2,
+            ..CodexProviderConfig::default()
+        },
+        database.url.clone(),
+    )
+    .await
+    .expect("second runtime");
+    let restarted_conversation_id = second_handle
+        .start_primary_conversation(None, None)
+        .await
+        .expect("restarted primary conversation")
+        .conversation_id;
+    assert_eq!(first_conversation_id, restarted_conversation_id);
+
+    let second_items = collect_turn(
+        &second_handle,
+        restarted_conversation_id,
+        "second durable question".to_string(),
+    )
+    .await
+    .expect("second turn");
+    assert_eq!(assistant_text(&second_items), "saw durable context");
+    second_handle.shutdown().await;
+
+    let repo = postgres_repo(&database).await;
+    let replay = repo
+        .list_conversation_items(&first_conversation_id, ReplayMode::Visible)
+        .await
+        .expect("conversation replay");
+    let user_texts = replay
+        .iter()
+        .filter(|item| item.kind == ConversationItemKind::UserText)
+        .map(|item| item.content_text.as_deref())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        user_texts,
+        vec![
+            Some("first durable question"),
+            Some("second durable question")
+        ]
+    );
 }
 
 #[test]
@@ -1123,6 +1201,67 @@ for line in sys.stdin:
                     {"kind": "memory_proposals", "proposals": []}
                 ]
             })
+        print(json.dumps({"id": msg["id"], "result": {"turn": {"id": "turn_1"}}}), flush=True)
+        print(json.dumps({"method": "item/completed", "params": {"item": {"type": "agentMessage", "text": text}}}), flush=True)
+        print(json.dumps({"method": "turn/completed", "params": {"turn": {"status": "completed"}}}), flush=True)
+"#,
+    )
+    .expect("write script");
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut permissions = std::fs::metadata(&path).expect("metadata").permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&path, permissions).expect("chmod");
+    }
+
+    path
+}
+
+fn fake_codex_app_server_script_with_restart_context_check() -> std::path::PathBuf {
+    let dir = tempfile::tempdir().expect("temp dir").keep();
+    let path = dir.join("fake-codex-restart-context");
+    std::fs::write(
+        &path,
+        r#"#!/usr/bin/env python3
+import json
+import sys
+
+next_thread = 1
+
+for line in sys.stdin:
+    msg = json.loads(line)
+    method = msg.get("method")
+    if method == "initialize":
+        print(json.dumps({"id": msg["id"], "result": {"userAgent": "fake"}}), flush=True)
+    elif method == "initialized":
+        pass
+    elif method == "thread/start":
+        thread = f"thread_{next_thread}"
+        next_thread += 1
+        print(json.dumps({"id": msg["id"], "result": {"thread": {"id": thread}}}), flush=True)
+    elif method == "turn/start":
+        input_text = "".join(
+            part.get("text", "")
+            for part in msg.get("params", {}).get("input", [])
+            if part.get("type") == "text"
+        )
+        answer = "fake answer"
+        if (
+            "Recent durable transcript from Noema Postgres:" in input_text
+            and "User: first durable question" in input_text
+            and "Noema: fake answer" in input_text
+            and "User message:\nsecond durable question" in input_text
+        ):
+            answer = "saw durable context"
+        text = json.dumps({
+            "type": "noema_response",
+            "output": [
+                {"kind": "assistant_text", "text": answer},
+                {"kind": "memory_proposals", "proposals": []}
+            ]
+        })
         print(json.dumps({"id": msg["id"], "result": {"turn": {"id": "turn_1"}}}), flush=True)
         print(json.dumps({"method": "item/completed", "params": {"item": {"type": "agentMessage", "text": text}}}), flush=True)
         print(json.dumps({"method": "turn/completed", "params": {"turn": {"status": "completed"}}}), flush=True)

@@ -78,6 +78,19 @@ pub enum WebClientMessage {
         #[ts(optional)]
         cwd: Option<String>,
     },
+    /// Start or resume the durable primary conversation.
+    #[serde(rename = "primary_conversation_start")]
+    #[ts(rename = "primary_conversation_start")]
+    StartPrimary {
+        /// Optional model override.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        model: Option<String>,
+        /// Optional working directory for the conversation.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        cwd: Option<String>,
+    },
     /// Send one user turn to an existing conversation.
     #[serde(rename = "conversation_turn")]
     #[ts(rename = "conversation_turn")]
@@ -118,8 +131,6 @@ pub enum WebServerMessage {
         conversation_id: String,
         /// Provider used for the conversation.
         provider: String,
-        /// Provider-native thread id.
-        provider_thread_id: String,
     },
     /// One persisted conversation item emitted by an in-progress turn.
     ConversationItem {
@@ -163,9 +174,22 @@ pub enum WebServerMessage {
     },
     /// Error response returned over the web protocol.
     Error {
+        /// Stable machine-readable error code.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        code: Option<WebErrorCode>,
         /// Human-readable error message.
         message: String,
     },
+}
+
+/// Stable machine-readable web protocol error code.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(rename_all = "snake_case")]
+pub enum WebErrorCode {
+    /// Chat cannot start until onboarding is complete.
+    NotOnboarded,
 }
 
 /// One persisted conversation item in web replay.
@@ -196,7 +220,6 @@ impl WebServerMessage {
         Self::ConversationStarted {
             conversation_id: started.conversation_id,
             provider: "codex".to_string(),
-            provider_thread_id: started.provider_thread_id,
         }
     }
 }
@@ -227,6 +250,7 @@ pub fn generated_frontend_typescript() -> String {
         exported_decl::<WebStatus>(&config),
         exported_decl::<WebConversationItem>(&config),
         exported_decl::<WebClientMessage>(&config),
+        exported_decl::<WebErrorCode>(&config),
         exported_decl::<WebServerMessage>(&config),
         exported_decl::<StartProviderAuthAttemptRequest>(&config),
         exported_decl::<crate::ProviderAuthMethod>(&config),
@@ -278,6 +302,22 @@ mod tests {
     }
 
     #[test]
+    fn web_client_message_supports_primary_conversation_start() {
+        let message = serde_json::from_value::<WebClientMessage>(serde_json::json!({
+            "type": "primary_conversation_start",
+        }))
+        .expect("message");
+
+        assert_eq!(
+            message,
+            WebClientMessage::StartPrimary {
+                model: None,
+                cwd: None,
+            }
+        );
+    }
+
+    #[test]
     fn web_conversation_item_and_status_messages_serialize() {
         let message = WebServerMessage::ConversationItem {
             conversation_id: "conversation_1".to_string(),
@@ -319,6 +359,16 @@ mod tests {
         let encoded = serde_json::to_string(&message).expect("encode");
         assert!(encoded.contains(r#""type":"conversation_replay""#));
         assert!(encoded.contains(r#""items":[{"#));
+        let decoded: WebServerMessage = serde_json::from_str(&encoded).expect("decode");
+        assert_eq!(decoded, message);
+
+        let message = WebServerMessage::Error {
+            code: Some(WebErrorCode::NotOnboarded),
+            message: "Noema onboarding is incomplete.".to_string(),
+        };
+        let encoded = serde_json::to_string(&message).expect("encode");
+        assert!(encoded.contains(r#""type":"error""#));
+        assert!(encoded.contains(r#""code":"not_onboarded""#));
         let decoded: WebServerMessage = serde_json::from_str(&encoded).expect("decode");
         assert_eq!(decoded, message);
     }
