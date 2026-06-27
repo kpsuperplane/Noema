@@ -495,7 +495,7 @@ fn graphql_turn_event(
     let transcript_item = transcript_item_from_graphql_event(event)?;
 
     Ok(GraphqlTurnEvent {
-        terminal_error: nonrecoverable_error_message(&transcript_item),
+        terminal_error: nonrecoverable_error_message(transcript_item.as_ref()),
         transcript_item,
         completed: is_graphql_turn_completed_event(event, conversation_id, client_message_id),
     })
@@ -576,7 +576,7 @@ fn transcript_item_from_graphql_event(event: &Value) -> Result<Option<TurnTransc
     }
 }
 
-fn nonrecoverable_error_message(item: &Option<TurnTranscriptItem>) -> Option<String> {
+fn nonrecoverable_error_message(item: Option<&TurnTranscriptItem>) -> Option<String> {
     match item {
         Some(TurnTranscriptItem::ErrorNotice {
             message,
