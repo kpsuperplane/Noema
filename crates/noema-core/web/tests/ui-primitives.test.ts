@@ -43,6 +43,8 @@ test("initial shadcn primitives are source-owned in components/ui", async () => 
 test("radix-backed primitives use radix data attributes", async () => {
   const tabs = await read("src/components/ui/tabs.tsx");
   const separator = await read("src/components/ui/separator.tsx");
+  const sheet = await read("src/components/ui/sheet.tsx");
+  const dropdownMenu = await read("src/components/ui/dropdown-menu.tsx");
 
   expect(tabs).toContain("orientation={orientation}");
   expect(tabs).toContain("data-[orientation=horizontal]");
@@ -56,4 +58,14 @@ test("radix-backed primitives use radix data attributes", async () => {
   expect(separator).toContain("data-[orientation=vertical]");
   expect(separator).not.toContain("data-horizontal:");
   expect(separator).not.toContain("data-vertical:");
+
+  expect(sheet).toContain("data-[state=open]");
+  expect(sheet).toContain("data-[state=closed]");
+  expect(sheet).not.toContain("data-open:");
+  expect(sheet).not.toContain("data-closed:");
+
+  expect(dropdownMenu).toContain("data-[state=open]");
+  expect(dropdownMenu).toContain("data-[state=closed]");
+  expect(dropdownMenu).not.toContain("data-open:");
+  expect(dropdownMenu).not.toContain("data-closed:");
 });
