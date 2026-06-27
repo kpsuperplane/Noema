@@ -8,8 +8,9 @@ test("home chat opens the durable primary conversation", async () => {
   const appSource = await readFile(appSourcePath, "utf8");
   const embeddedAsset = await readFile(embeddedAssetPath, "utf8");
 
-  expect(appSource).toContain('type: "primary_conversation_start"');
+  expect(appSource).toContain("StartPrimaryConversationDocument");
+  expect(appSource).toContain("startPrimaryConversation");
   expect(appSource).not.toContain('type: "conversation_start"');
-  expect(embeddedAsset).toContain('"primary_conversation_start"');
+  expect(embeddedAsset).toContain("startPrimaryConversation");
   expect(embeddedAsset).not.toContain('type:"conversation_start"');
 });
