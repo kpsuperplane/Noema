@@ -55,6 +55,9 @@ The current slice should stay small and concrete:
   conversation continuity is owned by Postgres, not provider runtime state.
 - Frontend build and lint use Bun from `crates/noema-core/web`.
 - Web GraphQL schema and operation types are generated with `bun run gen:types`.
+- The web UI uses shadcn/ui as a local, source-owned primitive foundation.
+  Noema-owned shell and domain components remain responsible for chat,
+  memory, provenance, approvals, tools, runs, and object detail semantics.
 
 ## Open Loops
 
