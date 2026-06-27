@@ -22,7 +22,7 @@ explicit owner/admin entry points.
 
 | Source | Current authority |
 | --- | --- |
-| Daemon socket protocol | Live chat, transcript items, memory extraction activity, daemon errors |
+| GraphQL client API | Local status, onboarding, provider auth, chat startup, chat turns, transcript items, memory extraction activity, daemon errors |
 | Daemon web server | Local React shell, GraphQL HTTP, and GraphQL WebSocket subscription endpoints |
 | `A2uiCard` payloads | Future structured cards inside the chat stream |
 | `config.yaml` and environment-derived config | Provider/model/default setup state; secrets remain environment-only |
@@ -183,8 +183,11 @@ Events to render:
 
 Current behavior:
 
-- The current web frontend uses the daemon GraphQL API for local status,
-  onboarding, provider auth, chat startup, chat turns, and live subscriptions.
+- The current web frontend uses Noema's GraphQL client API. Queries provide
+  scoped read models, mutations execute explicit Noema commands, and
+  subscriptions stream conversation and activity events.
+- Static assets are served over ordinary HTTP; product state and product
+  actions go through GraphQL.
 - The web home chat loads `human:local.primary_conversation_id`.
 - The daemon GraphQL subscription endpoint is the live source for current turn
   updates.

@@ -80,7 +80,7 @@ Current conversation contract:
 
 - The home chat is a single durable primary conversation for `human:local`.
 - Future thread switching changes the human's primary conversation pointer.
-- The daemon WebSocket is the live source for current turn updates.
+- GraphQL subscriptions are the live source for current turn updates.
 - Durable chat history is reconstructed from `conversation_items`.
 - `agent_status` is live coordination state and is not replayed as transcript
   history.

@@ -39,6 +39,9 @@ The current slice should stay small and concrete:
 - The initial frontend should start with chat, memory, and inspection before exposing full workspaces, tasks, agents, tools, or governance.
 - The first-party product API direction is GraphQL, with Apollo Client on the
   React web frontend and backend-exported schema/types feeding frontend codegen.
+- GraphQL is the first-party client API for Noema web, CLI, future desktop,
+  and future mobile clients. Internal Rust modules continue to use command,
+  runtime, repository, policy, provenance, audit, and event interfaces directly.
 - The current web UI consumes GraphQL over `/graphql` plus
   `graphql-transport-ws` subscriptions over `/graphql/ws`.
 - The CLI chat path now uses GraphQL for `startPrimaryConversation` and
