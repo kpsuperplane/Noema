@@ -246,6 +246,7 @@ textarea:disabled {
 
 .starter-card {
   min-height: 54px;
+  padding: 0;
   border-color: var(--border-subtle);
   box-shadow: var(--shadow-xs);
 }
@@ -601,6 +602,7 @@ textarea:disabled {
 
 .onboarding-panel [data-slot="button"],
 .auth-attempt [data-slot="button"] {
+  min-height: 40px;
   width: fit-content;
   max-width: 100%;
   overflow-wrap: anywhere;

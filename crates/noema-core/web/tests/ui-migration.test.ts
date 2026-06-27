@@ -14,6 +14,7 @@ test("Noema shell uses shadcn primitives without moving domain state into ui com
   const emptyState = await read("src/components/EmptyState.tsx");
   const onboarding = await read("src/components/Onboarding.tsx");
   const statusCluster = await read("src/components/StatusCluster.tsx");
+  const styles = await read("src/styles.css");
 
   expect(app).toContain('import { AppHeader } from "@/components/shell/AppHeader"');
   expect(app).not.toContain("function Header(");
@@ -34,6 +35,12 @@ test("Noema shell uses shadcn primitives without moving domain state into ui com
 
   expect(statusCluster).toContain('import { Badge } from "@/components/ui/badge"');
   expect(statusCluster).toContain('import { cn } from "@/lib/utils"');
+
+  expect(styles).toContain('.onboarding-panel [data-slot="button"]');
+  expect(styles).toContain('.auth-attempt [data-slot="button"]');
+  expect(styles).toContain("min-height: 40px");
+  expect(styles).toMatch(/\.starter-card\s*\{[^}]*padding: 0;/s);
+  expect(styles).toMatch(/\.starter-button\s*\{[^}]*width: 100%;[^}]*height: 100%;/s);
 
   expect(app).toContain("StartPrimaryConversationDocument");
   expect(app).toContain("ConversationEventsDocument");
