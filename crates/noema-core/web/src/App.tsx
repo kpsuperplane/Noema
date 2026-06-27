@@ -203,6 +203,12 @@ export function App() {
   }
 
   const ready = socketState === "ready" && conversationId !== null;
+  const waitingForOnboardingDecision = !onboarding && !displayedOnboardingError;
+  const waitingForConversationDecision = onboarding?.isUserOnboarded === true && !conversationId && transcript.length === 0;
+
+  if (waitingForOnboardingDecision || waitingForConversationDecision) {
+    return null;
+  }
 
   if (!onboarding) {
     return (
