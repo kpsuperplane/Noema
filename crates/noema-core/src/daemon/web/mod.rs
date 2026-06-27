@@ -30,6 +30,7 @@ const MAX_API_BODY_BYTES: usize = 64 * 1024;
 const MAX_WS_FRAME_BYTES: usize = 1024 * 1024;
 const HTTP_BODY_READ_TIMEOUT: Duration = Duration::from_millis(250);
 const WEBSOCKET_GUID: &str = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+const GRAPHQL_WS_PROTOCOL: &str = "graphql-transport-ws";
 const PROVIDER_AUTH_TERMINAL_PERSIST_INTERVAL: Duration = Duration::from_millis(250);
 
 /// State shared by local web UI connections.
@@ -839,9 +840,9 @@ async fn upgrade_graphql_websocket(
         return Ok(());
     }
 
-    let accept = websocket_accept_key(key);
-    let response = format!(
-        "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {accept}\r\n\r\n"
+    let response = graphql_websocket_upgrade_response(
+        key,
+        request.header("sec-websocket-protocol").unwrap_or_default(),
     );
     stream.write_all(response.as_bytes()).await?;
     stream.flush().await?;
@@ -1092,6 +1093,26 @@ fn websocket_accept_key(key: &str) -> String {
     value.push_str(WEBSOCKET_GUID);
     let digest = digest(&SHA1_FOR_LEGACY_USE_ONLY, value.as_bytes());
     general_purpose::STANDARD.encode(digest.as_ref())
+}
+
+fn graphql_websocket_upgrade_response(key: &str, requested_protocols: &str) -> String {
+    let accept = websocket_accept_key(key);
+    let protocol_header = websocket_protocol_header(requested_protocols);
+    format!(
+        "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {accept}\r\n{protocol_header}\r\n"
+    )
+}
+
+fn websocket_protocol_header(requested_protocols: &str) -> &'static str {
+    if requested_protocols
+        .split(',')
+        .map(str::trim)
+        .any(|protocol| protocol == GRAPHQL_WS_PROTOCOL)
+    {
+        "Sec-WebSocket-Protocol: graphql-transport-ws\r\n"
+    } else {
+        ""
+    }
 }
 
 #[derive(Debug)]
@@ -1739,6 +1760,23 @@ mod tests {
             websocket_accept_key("dGhlIHNhbXBsZSBub25jZQ=="),
             "s3pPLMBiTxaQ9kYGzzhZRbK+xOo="
         );
+    }
+
+    #[test]
+    fn graphql_websocket_upgrade_echoes_requested_subprotocol() {
+        let response =
+            graphql_websocket_upgrade_response("dGhlIHNhbXBsZSBub25jZQ==", "graphql-transport-ws");
+
+        assert!(response.starts_with("HTTP/1.1 101 Switching Protocols\r\n"));
+        assert!(response.contains("Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n"));
+        assert!(response.contains("Sec-WebSocket-Protocol: graphql-transport-ws\r\n"));
+    }
+
+    #[test]
+    fn graphql_websocket_upgrade_omits_unrequested_subprotocol() {
+        let response = graphql_websocket_upgrade_response("dGhlIHNhbXBsZSBub25jZQ==", "");
+
+        assert!(!response.contains("Sec-WebSocket-Protocol:"));
     }
 
     #[test]
