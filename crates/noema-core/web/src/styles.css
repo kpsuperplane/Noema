@@ -122,9 +122,11 @@ textarea:disabled {
 
 .noema-app {
   display: grid;
-  grid-template-rows: auto 1fr;
+  grid-template-rows: auto minmax(0, 1fr);
+  height: 100dvh;
   min-height: 100vh;
   background: var(--surface-page);
+  overflow: hidden;
 }
 
 .topbar {
@@ -192,12 +194,15 @@ textarea:disabled {
 }
 
 .chat-shell {
+  --chat-column-width: min(860px, calc(100% - 48px));
   display: grid;
   grid-template-rows: minmax(0, 1fr) auto;
-  width: min(860px, 100%);
-  min-height: calc(100vh - 68px);
+  width: 100%;
+  min-height: 0;
+  height: 100%;
   margin: 0 auto;
-  padding: 34px 24px 22px;
+  padding: 34px 0 22px;
+  overflow: hidden;
 }
 
 .empty-state {
@@ -273,13 +278,20 @@ textarea:disabled {
 
 .transcript-scroller {
   min-height: 0;
+  overflow: hidden;
+}
+
+.transcript,
+.composer {
+  width: var(--chat-column-width);
+  margin-inline: auto;
 }
 
 .transcript {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  min-height: 0;
+  min-height: 100%;
   padding: 0 2px 24px;
 }
 
@@ -679,8 +691,8 @@ textarea:disabled {
   }
 
   .chat-shell {
-    min-height: calc(100vh - 118px);
-    padding: 28px 20px 18px;
+    --chat-column-width: calc(100% - 40px);
+    padding: 28px 0 18px;
   }
 
   .onboarding-shell {

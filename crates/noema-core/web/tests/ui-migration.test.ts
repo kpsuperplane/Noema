@@ -69,3 +69,15 @@ test("Transcript uses MessageScroller while preserving Noema transcript entry ow
   expect(styles).toContain(".transcript-item--user");
   expect(styles).toContain("justify-content: flex-end");
 });
+
+test("Chat shell bounds transcript overflow to the message scroller", async () => {
+  const styles = await read("src/styles.css");
+
+  expect(styles).toMatch(/\.noema-app\s*\{[^}]*height: 100dvh;[^}]*overflow: hidden;/s);
+  expect(styles).toMatch(
+    /\.chat-shell\s*\{[^}]*--chat-column-width: min\(860px, calc\(100% - 48px\)\);[^}]*width: 100%;[^}]*min-height: 0;[^}]*height: 100%;[^}]*overflow: hidden;/s
+  );
+  expect(styles).toMatch(/\.transcript-scroller\s*\{[^}]*overflow: hidden;/s);
+  expect(styles).toMatch(/\.transcript,\s*\.composer\s*\{[^}]*width: var\(--chat-column-width\);[^}]*margin-inline: auto;/s);
+  expect(styles).toMatch(/\.transcript\s*\{[^}]*min-height: 100%;/s);
+});
