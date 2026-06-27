@@ -39,3 +39,21 @@ test("initial shadcn primitives are source-owned in components/ui", async () => 
   );
   expect(await read("src/components/ui/sonner.tsx")).toContain("Toaster");
 });
+
+test("radix-backed primitives use radix data attributes", async () => {
+  const tabs = await read("src/components/ui/tabs.tsx");
+  const separator = await read("src/components/ui/separator.tsx");
+
+  expect(tabs).toContain("orientation={orientation}");
+  expect(tabs).toContain("data-[orientation=horizontal]");
+  expect(tabs).toContain("data-[orientation=vertical]");
+  expect(tabs).toContain("data-[state=active]");
+  expect(tabs).not.toContain("data-horizontal:");
+  expect(tabs).not.toContain("data-vertical:");
+  expect(tabs).not.toContain("data-active:");
+
+  expect(separator).toContain("data-[orientation=horizontal]");
+  expect(separator).toContain("data-[orientation=vertical]");
+  expect(separator).not.toContain("data-horizontal:");
+  expect(separator).not.toContain("data-vertical:");
+});
