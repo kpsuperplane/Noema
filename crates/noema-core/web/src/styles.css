@@ -283,6 +283,15 @@ textarea:disabled {
   padding: 0 2px 24px;
 }
 
+.transcript-item {
+  display: flex;
+  width: 100%;
+}
+
+.transcript-item--user {
+  justify-content: flex-end;
+}
+
 .message {
   display: flex;
   flex-direction: column;

@@ -21,11 +21,16 @@ export function Transcript({
 }) {
   return (
     <MessageScrollerProvider autoScroll defaultScrollPosition="last-anchor" scrollPreviousItemPeek={56}>
-      <MessageScroller className="transcript-scroller" aria-label="Conversation transcript">
-        <MessageScrollerViewport>
+      <MessageScroller className="transcript-scroller">
+        <MessageScrollerViewport aria-label="Conversation transcript">
           <MessageScrollerContent className="transcript">
             {entries.map((entry) => (
-              <MessageScrollerItem key={entry.id} messageId={entry.id} scrollAnchor={entry.type === "user"}>
+              <MessageScrollerItem
+                key={entry.id}
+                className={entry.type === "user" ? "transcript-item transcript-item--user" : "transcript-item"}
+                messageId={entry.id}
+                scrollAnchor={entry.type === "user"}
+              >
                 {renderTranscriptEntry(entry, expandedActivities, onToggleActivity)}
               </MessageScrollerItem>
             ))}
