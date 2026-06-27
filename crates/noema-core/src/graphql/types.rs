@@ -501,9 +501,18 @@ pub struct GraphqlTurnCompletedEvent {
     pub client_message_id: Option<String>,
 }
 
+/// Subscription readiness event delivered before live turn events.
+#[derive(Clone, Debug, SimpleObject)]
+pub struct GraphqlSubscriptionReadyEvent {
+    /// Durable Noema conversation id.
+    pub conversation_id: String,
+}
+
 /// Conversation subscription event union.
 #[derive(Clone, Debug, Union)]
 pub enum GraphqlConversationEvent {
+    /// Subscription readiness event.
+    SubscriptionReady(GraphqlSubscriptionReadyEvent),
     /// Conversation item event.
     ConversationItem(Box<GraphqlConversationItemEvent>),
     /// Agent status changed event.

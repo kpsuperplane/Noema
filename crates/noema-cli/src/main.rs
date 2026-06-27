@@ -2,6 +2,9 @@
 
 use clap::{Parser, Subcommand};
 use dev::{DevDaemonOptions, run_dev_daemon};
+use graphql_client::{
+    start_primary_conversation, stream_conversation_turn, validate_graphql_base_url,
+};
 use inspection::{ContextCommand, MemoryCommand, run_context, run_memory};
 use noema_cli::collect_prompt;
 use noema_core::{
@@ -26,6 +29,7 @@ use tokio::{
 };
 
 mod dev;
+mod graphql_client;
 mod inspection;
 
 #[derive(Debug, Parser)]
@@ -119,6 +123,9 @@ enum CliError {
 
     #[error("failed to start temporary daemon: {0}")]
     SpawnDaemon(io::Error),
+
+    #[error("GraphQL request failed: {0}")]
+    Graphql(String),
 
     #[error(transparent)]
     DevDaemon(#[from] dev::DevDaemonError),
@@ -227,33 +234,33 @@ fn ensure_noema_home_for_start(args: &Args) -> Result<NoemaPaths, CliError> {
 
 async fn run_chat(args: &Args, prompt_args: &[String]) -> Result<(), CliError> {
     let mut daemon = ConnectedDaemon::connect_or_start(args).await?;
+    let daemon_config = Config::load_daemon(args.config.clone(), cli_overrides(args))?;
+    let graphql_base_url = daemon_config.web.url();
+    validate_graphql_base_url(&graphql_base_url)
+        .await
+        .map_err(CliError::Graphql)?;
     let cwd = env::current_dir()
         .map_err(CliError::CurrentDir)?
         .to_string_lossy()
         .to_string();
-    let conversation = daemon
-        .client
-        .start_conversation(args.model.clone(), Some(cwd))
-        .await?;
+    let conversation_id =
+        start_primary_conversation(&graphql_base_url, args.model.clone(), Some(cwd))
+            .await
+            .map_err(CliError::Graphql)?;
 
     let result = if prompt_args.is_empty() {
-        run_interactive_chat(&mut daemon.client, &conversation.conversation_id).await
+        run_interactive_chat(&graphql_base_url, &conversation_id).await
     } else {
         async {
             let prompt = collect_prompt(prompt_args, "")?;
-            print_chat_turn(
-                &mut daemon.client,
-                conversation.conversation_id.clone(),
-                prompt,
-            )
-            .await
+            print_chat_turn_graphql(&graphql_base_url, &conversation_id, prompt).await
         }
         .await
     };
 
     let end_result = daemon
         .client
-        .end_conversation(conversation.conversation_id)
+        .end_conversation(conversation_id)
         .await
         .map_err(CliError::Daemon);
     let shutdown_result = daemon.shutdown_if_temporary().await;
@@ -264,10 +271,7 @@ async fn run_chat(args: &Args, prompt_args: &[String]) -> Result<(), CliError> {
     Ok(())
 }
 
-async fn run_interactive_chat(
-    client: &mut DaemonClient,
-    conversation_id: &str,
-) -> Result<(), CliError> {
+async fn run_interactive_chat(base_url: &str, conversation_id: &str) -> Result<(), CliError> {
     let is_terminal = io::stdin().is_terminal();
     let stdin = tokio::io::stdin();
     let mut lines = BufReader::new(stdin).lines();
@@ -289,33 +293,42 @@ async fn run_interactive_chat(
             continue;
         }
 
-        print_chat_turn(client, conversation_id.to_string(), prompt.to_string()).await?;
+        print_chat_turn_graphql(base_url, conversation_id, prompt.to_string()).await?;
     }
 
     Ok(())
 }
 
-async fn print_chat_turn(
-    client: &mut DaemonClient,
-    conversation_id: String,
+async fn print_chat_turn_graphql(
+    base_url: &str,
+    conversation_id: &str,
     prompt: String,
 ) -> Result<(), CliError> {
-    let mut print_error = None;
-    client
-        .turn_streaming(conversation_id, prompt, |item| {
-            if print_error.is_none()
-                && let Err(error) = print_transcript_item(&item)
-            {
-                print_error = Some(error);
-            }
-        })
-        .await?;
+    let mut events = stream_conversation_turn(base_url, conversation_id, prompt)
+        .await
+        .map_err(CliError::Graphql)?;
+    let mut terminal_error = None;
 
-    if let Some(error) = print_error {
-        return Err(error);
+    while let Some(event) = events.recv().await {
+        let event = event.map_err(CliError::Graphql)?;
+        if terminal_error.is_none() {
+            terminal_error.clone_from(&event.terminal_error);
+        }
+        if let Some(item) = event.transcript_item {
+            print_transcript_item(&item)?;
+        }
+
+        if event.completed {
+            if let Some(error) = terminal_error {
+                return Err(CliError::Graphql(error));
+            }
+            return Ok(());
+        }
     }
 
-    Ok(())
+    Err(CliError::Graphql(
+        "GraphQL subscription ended before the conversation turn completed".to_string(),
+    ))
 }
 
 async fn run_one_shot(args: Args) -> Result<(), CliError> {

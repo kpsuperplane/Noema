@@ -40,11 +40,14 @@ The current slice should stay small and concrete:
 - The first-party product API direction is GraphQL, with Apollo Client on the
   React web frontend and backend-exported schema/types feeding frontend codegen.
 - The current web UI consumes GraphQL over `/graphql` plus
-  `graphql-transport-ws` subscriptions over `/graphql/ws`; the older native web
-  WebSocket remains transitional while non-web clients are migrated.
-- The CLI still uses the local daemon Unix-socket protocol through
-  `DaemonClient`; migrate it to GraphQL before treating GraphQL as the only
-  client-facing API in the strict sense.
+  `graphql-transport-ws` subscriptions over `/graphql/ws`.
+- The CLI chat path now uses GraphQL for `startPrimaryConversation` and
+  `sendConversationTurn` streaming. It still uses the daemon Unix-socket
+  protocol only for local lifecycle cleanup such as connection setup,
+  `end_conversation`, and temporary daemon shutdown.
+- The remaining GraphQL client API slice is to retire transitional product web
+  endpoints and old frontend protocol/type export surfaces so GraphQL is the
+  only client-facing product API.
 - The web home chat should load `human:local.primary_conversation_id`; Noema
   conversation continuity is owned by Postgres, not provider runtime state.
 - Frontend build and lint use Bun from `crates/noema-core/web`.

@@ -1,6 +1,8 @@
 use async_graphql::{Context, Object, Result, Schema, Subscription};
 use futures_util::Stream;
 
+use crate::daemon::TurnStreamEvent;
+
 use super::{
     ConversationLiveEvent, ConversationSubscriptionRegistry,
     types::{
@@ -8,7 +10,8 @@ use super::{
         GraphqlConversationItem, GraphqlConversationItemEvent, GraphqlConversationStarted,
         GraphqlLocalServiceStatus, GraphqlLocalStatus, GraphqlMemoryStorageStatus,
         GraphqlOnboardingStatus, GraphqlProviderAuthAttempt, GraphqlSendConversationTurnInput,
-        GraphqlStartProviderAuthAttemptInput, GraphqlTurnAccepted, GraphqlTurnCompletedEvent,
+        GraphqlStartProviderAuthAttemptInput, GraphqlSubscriptionReadyEvent, GraphqlTurnAccepted,
+        GraphqlTurnCompletedEvent,
     },
 };
 
@@ -235,12 +238,12 @@ impl MutationRoot {
                                 event: Box::new(event),
                             });
                         }
-                        if result.is_ok() {
-                            subscriptions.publish(ConversationLiveEvent::Completed {
-                                conversation_id,
-                                client_message_id: published_client_message_id,
-                            });
-                        }
+                        publish_turn_terminal_events(
+                            &subscriptions,
+                            conversation_id,
+                            published_client_message_id,
+                            result,
+                        );
                         break;
                     }
                 }
@@ -269,6 +272,12 @@ impl SubscriptionRoot {
         let mut rx = state.subscriptions().subscribe(&conversation_id);
 
         async_stream::stream! {
+            yield GraphqlConversationEvent::SubscriptionReady(
+                GraphqlSubscriptionReadyEvent {
+                    conversation_id: conversation_id.clone(),
+                },
+            );
+
             while let Ok(event) = rx.recv().await {
                 match event {
                     ConversationLiveEvent::Turn {
@@ -324,9 +333,43 @@ fn graphql_error(error: impl std::fmt::Display) -> async_graphql::Error {
     async_graphql::Error::new(error.to_string())
 }
 
+fn publish_turn_terminal_events(
+    subscriptions: &ConversationSubscriptionRegistry,
+    conversation_id: String,
+    client_message_id: Option<String>,
+    result: std::result::Result<(), crate::DaemonError>,
+) {
+    if let Err(error) = result {
+        let error_item_id = client_message_id.as_ref().map_or_else(
+            || format!("graphql_runtime_error:{conversation_id}:uncorrelated"),
+            |client_message_id| {
+                format!("graphql_runtime_error:{conversation_id}:{client_message_id}")
+            },
+        );
+        subscriptions.publish(ConversationLiveEvent::Turn {
+            client_message_id: client_message_id.clone(),
+            event: Box::new(TurnStreamEvent::ConversationItem {
+                conversation_id: conversation_id.clone(),
+                item_id: error_item_id,
+                turn_id: None,
+                item: Box::new(crate::TurnTranscriptItem::ErrorNotice {
+                    message: error.to_string(),
+                    recoverable: false,
+                }),
+            }),
+        });
+    }
+
+    subscriptions.publish(ConversationLiveEvent::Completed {
+        conversation_id,
+        client_message_id,
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use futures_util::StreamExt;
 
     #[test]
     fn schema_sdl_exposes_initial_noema_fields() {
@@ -342,5 +385,112 @@ mod tests {
         assert!(sdl.contains("sendConversationTurn"));
         assert!(sdl.contains("type Subscription"));
         assert!(sdl.contains("conversationEvents"));
+    }
+
+    #[tokio::test]
+    async fn runtime_turn_error_publishes_error_notice_and_completion() {
+        let subscriptions = ConversationSubscriptionRegistry::default();
+        let mut rx = subscriptions.subscribe("conversation_1");
+
+        publish_turn_terminal_events(
+            &subscriptions,
+            "conversation_1".to_string(),
+            Some("client_1".to_string()),
+            Err(crate::DaemonError::Remote("provider failed".to_string())),
+        );
+
+        let event = rx.recv().await.expect("error notice event");
+        let ConversationLiveEvent::Turn {
+            client_message_id,
+            event,
+        } = event
+        else {
+            panic!("expected turn event");
+        };
+        assert_eq!(client_message_id.as_deref(), Some("client_1"));
+        let crate::daemon::TurnStreamEvent::ConversationItem {
+            conversation_id,
+            item_id,
+            item,
+            ..
+        } = *event
+        else {
+            panic!("expected conversation item");
+        };
+        assert_eq!(conversation_id, "conversation_1");
+        assert_eq!(item_id, "graphql_runtime_error:conversation_1:client_1");
+        let crate::TurnTranscriptItem::ErrorNotice {
+            message,
+            recoverable,
+        } = *item
+        else {
+            panic!("expected error notice");
+        };
+        assert!(message.contains("provider failed"));
+        assert!(!recoverable);
+
+        let event = rx.recv().await.expect("completion event");
+        let ConversationLiveEvent::Completed {
+            conversation_id,
+            client_message_id,
+        } = event
+        else {
+            panic!("expected completion event");
+        };
+        assert_eq!(conversation_id, "conversation_1");
+        assert_eq!(client_message_id.as_deref(), Some("client_1"));
+    }
+
+    #[tokio::test]
+    async fn conversation_events_emits_ready_before_live_events() {
+        let state = GraphqlState::for_tests();
+        let subscriptions = state.subscriptions().clone();
+        let schema = build_schema(state);
+        let mut stream = schema.execute_stream(async_graphql::Request::new(
+            r#"
+            subscription {
+              conversationEvents(conversationId: "conversation_1") {
+                __typename
+                ... on GraphqlSubscriptionReadyEvent {
+                  conversationId
+                }
+                ... on GraphqlTurnCompletedEvent {
+                  conversationId
+                  clientMessageId
+                }
+              }
+            }
+            "#,
+        ));
+
+        let response = stream.next().await.expect("ready response");
+        let data = response.data.into_json().expect("ready json");
+        assert_eq!(
+            data.pointer("/conversationEvents/__typename")
+                .and_then(serde_json::Value::as_str),
+            Some("GraphqlSubscriptionReadyEvent")
+        );
+        assert_eq!(
+            data.pointer("/conversationEvents/conversationId")
+                .and_then(serde_json::Value::as_str),
+            Some("conversation_1")
+        );
+
+        subscriptions.publish(ConversationLiveEvent::Completed {
+            conversation_id: "conversation_1".to_string(),
+            client_message_id: Some("client_1".to_string()),
+        });
+        let response = stream.next().await.expect("completion response");
+        let data = response.data.into_json().expect("completion json");
+        assert_eq!(
+            data.pointer("/conversationEvents/__typename")
+                .and_then(serde_json::Value::as_str),
+            Some("GraphqlTurnCompletedEvent")
+        );
+        assert_eq!(
+            data.pointer("/conversationEvents/clientMessageId")
+                .and_then(serde_json::Value::as_str),
+            Some("client_1")
+        );
     }
 }

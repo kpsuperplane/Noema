@@ -168,6 +168,7 @@ export type ConversationEventsSubscription = { conversationEvents:
         | { __typename: 'GraphqlErrorNotice', message: string, recoverable: boolean }
         | { __typename: 'GraphqlUserText', text: string }
        }
+    | { __typename: 'GraphqlSubscriptionReadyEvent' }
     | { __typename: 'GraphqlTurnCompletedEvent', conversationId: string, clientMessageId: string | null }
    };
 

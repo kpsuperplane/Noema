@@ -117,7 +117,7 @@ type GraphqlAssistantText {
 """
 Conversation subscription event union.
 """
-union GraphqlConversationEvent = GraphqlConversationItemEvent | GraphqlAgentStatusEvent | GraphqlTurnCompletedEvent
+union GraphqlConversationEvent = GraphqlSubscriptionReadyEvent | GraphqlConversationItemEvent | GraphqlAgentStatusEvent | GraphqlTurnCompletedEvent
 
 """
 One visible conversation item.
@@ -461,6 +461,16 @@ input GraphqlStartProviderAuthAttemptInput {
 	Requested authentication method.
 	"""
 	method: GraphqlProviderAuthMethod!
+}
+
+"""
+Subscription readiness event delivered before live turn events.
+"""
+type GraphqlSubscriptionReadyEvent {
+	"""
+	Durable Noema conversation id.
+	"""
+	conversationId: String!
 }
 
 """
