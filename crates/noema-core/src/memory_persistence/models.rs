@@ -1,7 +1,7 @@
 use crate::memory::{MemoryId, MemoryStatus, ParticipantRole, ScopeId, Sensitivity, SubjectRole};
 use serde_json::{Value, json};
 
-use super::objects::ObjectRef;
+use super::objects::{ActorRef, ObjectRef};
 
 /// Memory type stored in `memory_items.memory_type`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -151,47 +151,47 @@ pub struct ObjectProvenanceSource {
 
 /// Conversion helper accepted by [`NewMemoryParticipant::new`].
 pub trait IntoMemoryParticipantRef {
-    /// Convert to the typed object reference stored for memory participants.
-    fn into_memory_participant_ref(self) -> ObjectRef;
+    /// Convert to the typed actor reference stored for memory participants.
+    fn into_memory_participant_ref(self) -> ActorRef;
 }
 
-impl IntoMemoryParticipantRef for ObjectRef {
-    fn into_memory_participant_ref(self) -> ObjectRef {
+impl IntoMemoryParticipantRef for ActorRef {
+    fn into_memory_participant_ref(self) -> ActorRef {
         self
     }
 }
 
 impl IntoMemoryParticipantRef for &str {
-    fn into_memory_participant_ref(self) -> ObjectRef {
+    fn into_memory_participant_ref(self) -> ActorRef {
         inferred_actor_ref(self)
     }
 }
 
 impl IntoMemoryParticipantRef for String {
-    fn into_memory_participant_ref(self) -> ObjectRef {
+    fn into_memory_participant_ref(self) -> ActorRef {
         inferred_actor_ref(&self)
     }
 }
 
 impl IntoMemoryParticipantRef for &String {
-    fn into_memory_participant_ref(self) -> ObjectRef {
+    fn into_memory_participant_ref(self) -> ActorRef {
         inferred_actor_ref(self)
     }
 }
 
-fn inferred_actor_ref(object_id: &str) -> ObjectRef {
+fn inferred_actor_ref(object_id: &str) -> ActorRef {
     if object_id.starts_with("agent:") {
-        ObjectRef::agent(object_id)
+        ActorRef::agent(object_id)
     } else {
-        ObjectRef::human(object_id)
+        ActorRef::human(object_id)
     }
 }
 
 /// Participant to attach to a new memory candidate.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NewMemoryParticipant {
-    /// Concrete participant object.
-    pub participant: ObjectRef,
+    /// Participant actor.
+    pub participant: ActorRef,
     /// Participant role.
     pub role: ParticipantRole,
     /// Additional structured metadata.
@@ -266,10 +266,10 @@ pub struct NewMemoryCandidate {
     pub sensitivity: Sensitivity,
     /// Initial lifecycle status.
     pub status: MemoryStatus,
-    /// Concrete object that created the candidate.
-    pub created_by: ObjectRef,
+    /// Actor that created the candidate.
+    pub created_by: ActorRef,
     /// Optional actor the memory is about or owned by in actor terms.
-    pub owner_actor: Option<ObjectRef>,
+    pub owner_actor: Option<ActorRef>,
     /// Authority level behind the candidate.
     pub authority_level: MemoryAuthorityLevel,
     /// Extraction method.
@@ -296,7 +296,7 @@ impl NewMemoryCandidate {
     pub fn confirmed_note(
         owner: ObjectRef,
         content: impl Into<String>,
-        created_by: ObjectRef,
+        created_by: ActorRef,
         source: ObjectRef,
     ) -> Self {
         Self {

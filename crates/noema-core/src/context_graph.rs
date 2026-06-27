@@ -113,10 +113,8 @@ pub struct GraphMemoryNode {
     pub retrieval_policy_version: i64,
     /// Retrieval policy fingerprint, if validated.
     pub retrieval_policy_fingerprint: Option<String>,
-    /// Object type that extracted or validated retrieval policy.
-    pub retrieval_policy_extractor_object_type: Option<String>,
-    /// Object id that extracted or validated retrieval policy.
-    pub retrieval_policy_extractor_object_id: Option<String>,
+    /// Actor id that extracted or validated retrieval policy.
+    pub retrieval_policy_extractor_actor_id: Option<String>,
     /// Extractor implementation version.
     pub retrieval_policy_extractor_version: Option<String>,
     /// Timestamp when retrieval policy was validated.
@@ -164,10 +162,8 @@ pub struct GraphSubjectEdge {
 pub struct GraphParticipantEdge {
     /// Memory id.
     pub memory_id: MemoryId,
-    /// Participant object type.
-    pub participant_object_type: String,
-    /// Participant object id.
-    pub participant_object_id: String,
+    /// Participant actor id.
+    pub participant_actor_id: String,
     /// Participant role.
     pub role: ParticipantRole,
 }
@@ -198,14 +194,10 @@ pub struct GraphObjectLinkEdge {
     pub object_id: String,
     /// Relationship between the memory and the trusted object.
     pub relation: String,
-    /// Object type that authorized this object link, when one is required.
-    pub authorized_object_type: Option<String>,
-    /// Object id that authorized this object link, when one is required.
-    pub authorized_object_id: Option<String>,
-    /// Object type that resolved the object link, if recorded.
-    pub resolver_object_type: Option<String>,
-    /// Object id that resolved the object link, if recorded.
-    pub resolver_object_id: Option<String>,
+    /// Actor id that authorized this object link, when one is required.
+    pub authorized_actor_id: Option<String>,
+    /// Actor id that resolved the object link, if recorded.
+    pub resolver_actor_id: Option<String>,
     /// Resolver implementation version, if recorded.
     pub resolver_version: Option<String>,
     /// Run that produced the object link, if recorded.
@@ -223,10 +215,8 @@ pub struct GraphPurposeRule {
     pub purpose: Purpose,
     /// Allow or deny effect.
     pub effect: Effect,
-    /// Object type that created the rule, if recorded.
-    pub created_by_object_type: Option<String>,
-    /// Object id that created the rule, if recorded.
-    pub created_by_object_id: Option<String>,
+    /// Actor id that created the rule, if recorded.
+    pub created_by_actor_id: Option<String>,
     /// Storage-created timestamp.
     pub created_at: String,
 }
@@ -250,10 +240,8 @@ pub struct GraphAccessGrant {
     pub effect: Effect,
     /// Expiration timestamp, if any.
     pub expires_at: Option<String>,
-    /// Object type that created the grant, if recorded.
-    pub created_by_object_type: Option<String>,
-    /// Object id that created the grant, if recorded.
-    pub created_by_object_id: Option<String>,
+    /// Actor id that created the grant, if recorded.
+    pub created_by_actor_id: Option<String>,
     /// Storage-created timestamp.
     pub created_at: String,
 }
@@ -265,10 +253,8 @@ pub struct GraphContextPacket {
     pub context_packet_id: String,
     /// Run that produced the packet.
     pub run_id: String,
-    /// Object type that requested the packet.
-    pub requesting_object_type: String,
-    /// Object id that requested the packet.
-    pub requesting_object_id: String,
+    /// Actor id that requested the packet.
+    pub requesting_actor_id: String,
     /// Retrieval or execution purpose.
     pub purpose: Purpose,
     /// Active objects as canonical JSON.
@@ -340,10 +326,8 @@ pub struct GraphMemoryUseRecord {
     pub memory_sensitivity: Sensitivity,
     /// Use stage.
     pub stage: String,
-    /// Agent object type, if recorded.
-    pub agent_object_type: Option<String>,
-    /// Agent object id, if recorded.
-    pub agent_object_id: Option<String>,
+    /// Agent actor id, if recorded.
+    pub agent_actor_id: Option<String>,
     /// Context object type, if recorded.
     pub context_object_type: Option<String>,
     /// Context object id, if recorded.
@@ -369,10 +353,8 @@ pub struct GraphMemoryEvent {
     pub event_id: String,
     /// Canonical memory event type.
     pub event_type: String,
-    /// Actor object type, if recorded.
-    pub actor_object_type: Option<String>,
-    /// Actor object id, if recorded.
-    pub actor_object_id: Option<String>,
+    /// Actor id, if recorded.
+    pub actor_id: Option<String>,
     /// Target object type, if recorded.
     pub target_object_type: Option<String>,
     /// Target object id, if recorded.

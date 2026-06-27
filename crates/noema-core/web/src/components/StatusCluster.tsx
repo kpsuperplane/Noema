@@ -18,7 +18,7 @@ export function StatusCluster({
   const agent = agentLabel[agentStatus];
 
   return (
-    <div className="status-cluster" aria-label="Local status">
+    <div className="flex flex-wrap justify-end gap-2 max-[760px]:justify-start" aria-label="Local status">
       <StatusPill tone={status?.localService === "RUNNING" ? "good" : "neutral"}>{localService}</StatusPill>
       <StatusPill tone={status?.memoryStorage === "READY" ? "good" : "neutral"}>{memory}</StatusPill>
       <StatusPill tone={socketState === "ready" ? "good" : socketState === "closed" ? "bad" : "neutral"}>
@@ -36,9 +36,9 @@ function StatusPill({ tone, children }: { tone: "good" | "bad" | "neutral"; chil
     <Badge
       variant="outline"
       className={cn(
-        "status-pill",
-        tone === "good" && "status-pill--good",
-        tone === "bad" && "status-pill--bad"
+        "min-h-[26px] font-mono text-[11px] whitespace-nowrap text-muted-foreground",
+        tone === "good" && "bg-[var(--pine-50)] text-[var(--pine-700)]",
+        tone === "bad" && "bg-[var(--red-100)] text-[var(--red-700)]"
       )}
     >
       {children}

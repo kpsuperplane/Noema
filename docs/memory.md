@@ -221,8 +221,7 @@ Retrieval policy is typed, versioned, and auditable. It includes:
 - `retrieval_policy_status`: `valid`, `stale`, `invalid`, or `needs_review`.
 - `retrieval_policy_version`.
 - `retrieval_policy_fingerprint`.
-- `retrieval_policy_extractor_object_type` and
-  `retrieval_policy_extractor_object_id`.
+- `retrieval_policy_extractor_actor_id`.
 - `retrieval_policy_extractor_version`.
 - `retrieval_policy_validated_at`.
 - `participant_visibility_policy`: `any_active_human`, `all_original_humans`,
@@ -231,7 +230,7 @@ Retrieval policy is typed, versioned, and auditable. It includes:
 - Purpose allow/deny rules using the closed purpose vocabulary.
 - Trusted object links resolved by Noema, such as active tasks, projects,
   conversations, calendar events, documents, artifacts, tools, or sources. These
-  links include the trusted relation and, when relevant, the scope that
+  links include the trusted relation and, when relevant, the actor that
   authorized the link.
 
 Invalid, missing, stale, or unreviewed retrieval policy must fail closed for
@@ -283,7 +282,7 @@ Agents should request memory with context:
 
 ```json
 {
-  "requesting_object": { "object_type": "agent", "object_id": "agent:architect" },
+  "requesting_principal_id": "agent:architect",
   "trusted": {
     "active_humans": ["human:kevin"],
     "active_agents": ["agent:architect"],
@@ -302,10 +301,7 @@ Agents should request memory with context:
         "object_type": "project",
         "object_id": "project:noema",
         "relation": "active_context",
-        "authorized_object_ref": {
-          "object_type": "project",
-          "object_id": "project:memory-system"
-        }
+        "authorized_actor_id": "agent:primary"
       }
     ],
     "allowed_proactivity_level": 2,
@@ -648,10 +644,7 @@ Sensitive memory with deterministic retrieval policy:
         "object_type": "task",
         "object_id": "task:schedule_checkup",
         "relation": "open_loop_for",
-        "authorized_object_ref": {
-          "object_type": "conversation",
-          "object_id": "conversation:health"
-        }
+        "authorized_actor_id": "agent:primary"
       }
     ]
   },
@@ -698,7 +691,7 @@ Adversarial retrieval scenarios:
 - Same-human participant overlap alone never includes sensitive memory.
 - Mentioned or forged object IDs do not count unless the harness loaded them as
   active authorized objects with the required trusted relation and authorized
-  scope.
+  actor.
 - Broad canonical entities such as the active human, workspace, project, or a
   general concept do not unlock sensitive memory.
 - Ambiguous entity resolution does not count as a trusted active object link.

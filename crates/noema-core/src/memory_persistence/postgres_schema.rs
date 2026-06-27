@@ -7,8 +7,23 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
   applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS actors (
+  actor_id TEXT PRIMARY KEY,
+  actor_kind TEXT NOT NULL CHECK (actor_kind IN ('human','agent','system')),
+  display_name TEXT NOT NULL,
+  handle TEXT,
+  is_active BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  deleted_at TIMESTAMPTZ,
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  UNIQUE (actor_id, actor_kind)
+);
+
 CREATE TABLE IF NOT EXISTS humans (
   human_id TEXT PRIMARY KEY,
+  actor_id TEXT NOT NULL UNIQUE,
+  actor_kind TEXT GENERATED ALWAYS AS ('human'::text) STORED,
   display_name TEXT NOT NULL,
   handle TEXT,
   primary_conversation_id TEXT,
@@ -16,11 +31,16 @@ CREATE TABLE IF NOT EXISTS humans (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   deleted_at TIMESTAMPTZ,
-  metadata JSONB NOT NULL DEFAULT '{}'::jsonb
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  FOREIGN KEY (actor_id, actor_kind)
+    REFERENCES actors(actor_id, actor_kind)
+    ON DELETE RESTRICT
 );
 
 CREATE TABLE IF NOT EXISTS agents (
   agent_id TEXT PRIMARY KEY,
+  actor_id TEXT NOT NULL UNIQUE,
+  actor_kind TEXT GENERATED ALWAYS AS ('agent'::text) STORED,
   display_name TEXT NOT NULL,
   handle TEXT,
   model_default TEXT,
@@ -28,7 +48,10 @@ CREATE TABLE IF NOT EXISTS agents (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   deleted_at TIMESTAMPTZ,
-  metadata JSONB NOT NULL DEFAULT '{}'::jsonb
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  FOREIGN KEY (actor_id, actor_kind)
+    REFERENCES actors(actor_id, actor_kind)
+    ON DELETE RESTRICT
 );
 
 CREATE TABLE IF NOT EXISTS tools (
@@ -83,13 +106,8 @@ CREATE TABLE IF NOT EXISTS conversations (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   deleted_at TIMESTAMPTZ,
-  deleted_by_object_type TEXT,
-  deleted_by_object_id TEXT,
-  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
-  CHECK (
-    (deleted_by_object_type IS NULL AND deleted_by_object_id IS NULL)
-    OR (deleted_by_object_type IS NOT NULL AND deleted_by_object_id IS NOT NULL)
-  )
+  deleted_by_actor_id TEXT REFERENCES actors(actor_id) ON DELETE RESTRICT,
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb
 );
 
 DO $$
@@ -132,23 +150,17 @@ CREATE TABLE IF NOT EXISTS conversation_items (
     CHECK (kind IN ('user_text','assistant_text','activity','a2ui_card','tool_call','tool_result','approval_request','approval_result','error_notice')),
   status TEXT NOT NULL DEFAULT 'completed'
     CHECK (status IN ('pending','running','completed','failed','cancelled','interrupted')),
-  author_object_type TEXT NOT NULL,
-  author_object_id TEXT NOT NULL,
+  author_actor_id TEXT NOT NULL REFERENCES actors(actor_id) ON DELETE RESTRICT,
   content_text TEXT,
   payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   deleted_at TIMESTAMPTZ,
-  deleted_by_object_type TEXT,
-  deleted_by_object_id TEXT,
+  deleted_by_actor_id TEXT REFERENCES actors(actor_id) ON DELETE RESTRICT,
   redacted_at TIMESTAMPTZ,
   redaction_reason TEXT,
   metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
-  CHECK (content_text IS NOT NULL OR payload_json != '{}'::jsonb),
-  CHECK (
-    (deleted_by_object_type IS NULL AND deleted_by_object_id IS NULL)
-    OR (deleted_by_object_type IS NOT NULL AND deleted_by_object_id IS NOT NULL)
-  )
+  CHECK (content_text IS NOT NULL OR payload_json != '{}'::jsonb)
 );
 
 DO $$
@@ -188,16 +200,14 @@ CREATE TABLE IF NOT EXISTS memory_items (
     CHECK (retrieval_policy_status IN ('valid','stale','invalid','needs_review')),
   retrieval_policy_version INTEGER NOT NULL DEFAULT 1 CHECK (retrieval_policy_version >= 1),
   retrieval_policy_fingerprint TEXT,
-  retrieval_policy_extractor_object_type TEXT,
-  retrieval_policy_extractor_object_id TEXT,
+  retrieval_policy_extractor_actor_id TEXT REFERENCES actors(actor_id) ON DELETE RESTRICT,
   retrieval_policy_extractor_version TEXT,
   retrieval_policy_validated_at TIMESTAMPTZ,
   participant_visibility_policy TEXT NOT NULL DEFAULT 'explicit_grant_only'
     CHECK (participant_visibility_policy IN ('any_active_human','all_original_humans','owner_only','explicit_grant_only')),
   external_egress_policy TEXT NOT NULL DEFAULT 'approval_required'
     CHECK (external_egress_policy IN ('allow','approval_required','deny')),
-  created_by_object_type TEXT NOT NULL,
-  created_by_object_id TEXT NOT NULL,
+  created_by_actor_id TEXT NOT NULL REFERENCES actors(actor_id) ON DELETE RESTRICT,
   authority_level TEXT NOT NULL DEFAULT 'agent_inference'
     CHECK (authority_level IN ('human_correction','explicit_human_statement','workspace_policy','project_decision','document_source','repeated_observation','agent_inference','weak_inference','system_rule')),
   extraction_method TEXT NOT NULL DEFAULT 'llm_extracted'
@@ -218,18 +228,10 @@ CREATE TABLE IF NOT EXISTS memory_items (
     )
   ) STORED,
   CHECK (
-    (retrieval_policy_extractor_object_type IS NULL AND retrieval_policy_extractor_object_id IS NULL)
-    OR (
-      retrieval_policy_extractor_object_type IS NOT NULL
-      AND retrieval_policy_extractor_object_id IS NOT NULL
-    )
-  ),
-  CHECK (
     retrieval_policy_status != 'valid'
     OR (
       retrieval_policy_fingerprint IS NOT NULL
-      AND retrieval_policy_extractor_object_type IS NOT NULL
-      AND retrieval_policy_extractor_object_id IS NOT NULL
+      AND retrieval_policy_extractor_actor_id IS NOT NULL
       AND retrieval_policy_extractor_version IS NOT NULL
       AND retrieval_policy_validated_at IS NOT NULL
     )
@@ -284,26 +286,20 @@ CREATE TABLE IF NOT EXISTS memory_subjects (
 
 CREATE TABLE IF NOT EXISTS memory_participants (
   memory_id TEXT NOT NULL REFERENCES memory_items(memory_id) ON DELETE CASCADE,
-  participant_object_type TEXT NOT NULL,
-  participant_object_id TEXT NOT NULL,
+  participant_actor_id TEXT NOT NULL REFERENCES actors(actor_id) ON DELETE RESTRICT,
   role TEXT NOT NULL CHECK (role IN ('human_in_scope','agent_in_scope','originator','observer')),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
-  PRIMARY KEY (memory_id, participant_object_type, participant_object_id, role)
+  PRIMARY KEY (memory_id, participant_actor_id, role)
 );
 
 CREATE TABLE IF NOT EXISTS memory_retrieval_purpose_rules (
   memory_id TEXT NOT NULL REFERENCES memory_items(memory_id) ON DELETE CASCADE,
   purpose TEXT NOT NULL CHECK (purpose IN ('answer_human_question','draft_internal_content','general_personalization','manage_task','manage_calendar','draft_external_content','use_tool','proactive_suggestion','external_action','debug_audit')),
   effect TEXT NOT NULL CHECK (effect IN ('allow','deny')),
-  created_by_object_type TEXT,
-  created_by_object_id TEXT,
+  created_by_actor_id TEXT REFERENCES actors(actor_id) ON DELETE SET NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
-  CHECK (
-    (created_by_object_type IS NULL AND created_by_object_id IS NULL)
-    OR (created_by_object_type IS NOT NULL AND created_by_object_id IS NOT NULL)
-  ),
   PRIMARY KEY (memory_id, purpose)
 );
 
@@ -312,28 +308,13 @@ CREATE TABLE IF NOT EXISTS memory_retrieval_object_links (
   object_type TEXT NOT NULL,
   object_id TEXT NOT NULL,
   relation TEXT NOT NULL CHECK (relation IN ('active_context','required_for','relevant_to','open_loop_for','created_from')),
-  resolver_object_type TEXT,
-  resolver_object_id TEXT,
+  resolver_actor_id TEXT REFERENCES actors(actor_id) ON DELETE SET NULL,
   resolver_version TEXT,
   source_run_id TEXT,
-  authorized_object_type TEXT,
-  authorized_object_id TEXT,
-  created_by_object_type TEXT,
-  created_by_object_id TEXT,
+  authorized_actor_id TEXT REFERENCES actors(actor_id) ON DELETE SET NULL,
+  created_by_actor_id TEXT REFERENCES actors(actor_id) ON DELETE SET NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
-  CHECK (
-    (resolver_object_type IS NULL AND resolver_object_id IS NULL)
-    OR (resolver_object_type IS NOT NULL AND resolver_object_id IS NOT NULL)
-  ),
-  CHECK (
-    (authorized_object_type IS NULL AND authorized_object_id IS NULL)
-    OR (authorized_object_type IS NOT NULL AND authorized_object_id IS NOT NULL)
-  ),
-  CHECK (
-    (created_by_object_type IS NULL AND created_by_object_id IS NULL)
-    OR (created_by_object_type IS NOT NULL AND created_by_object_id IS NOT NULL)
-  ),
   PRIMARY KEY (memory_id, object_type, object_id, relation)
 );
 
@@ -346,14 +327,9 @@ CREATE TABLE IF NOT EXISTS object_access_grants (
   permission TEXT NOT NULL CHECK (permission IN ('read','write','propose','confirm','delete','use_for_retrieval','use_for_proactivity','use_for_external_action')),
   effect TEXT NOT NULL CHECK (effect IN ('allow','deny')),
   expires_at TIMESTAMPTZ,
-  created_by_object_type TEXT,
-  created_by_object_id TEXT,
+  created_by_actor_id TEXT REFERENCES actors(actor_id) ON DELETE SET NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
-  CHECK (
-    (created_by_object_type IS NULL AND created_by_object_id IS NULL)
-    OR (created_by_object_type IS NOT NULL AND created_by_object_id IS NOT NULL)
-  )
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb
 );
 
 CREATE TABLE IF NOT EXISTS object_provenance_edges (
@@ -364,31 +340,21 @@ CREATE TABLE IF NOT EXISTS object_provenance_edges (
   source_object_id TEXT NOT NULL,
   relation TEXT NOT NULL CHECK (relation IN ('derived_from','quoted_from','summarized_from','contradicted_by','supersedes','supports','weakly_supports')),
   evidence_excerpt TEXT,
-  created_by_object_type TEXT,
-  created_by_object_id TEXT,
+  created_by_actor_id TEXT REFERENCES actors(actor_id) ON DELETE SET NULL,
   deleted_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
-  CHECK (
-    (created_by_object_type IS NULL AND created_by_object_id IS NULL)
-    OR (created_by_object_type IS NOT NULL AND created_by_object_id IS NOT NULL)
-  )
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb
 );
 
 CREATE TABLE IF NOT EXISTS object_events (
   event_id TEXT PRIMARY KEY,
   event_type TEXT NOT NULL,
-  actor_object_type TEXT,
-  actor_object_id TEXT,
+  actor_id TEXT REFERENCES actors(actor_id) ON DELETE SET NULL,
   target_object_type TEXT,
   target_object_id TEXT,
   reason TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   details JSONB NOT NULL DEFAULT '{}'::jsonb,
-  CHECK (
-    (actor_object_type IS NULL AND actor_object_id IS NULL)
-    OR (actor_object_type IS NOT NULL AND actor_object_id IS NOT NULL)
-  ),
   CHECK (
     (target_object_type IS NULL AND target_object_id IS NULL)
     OR (target_object_type IS NOT NULL AND target_object_id IS NOT NULL)
@@ -402,22 +368,16 @@ CREATE TABLE IF NOT EXISTS object_links (
   target_object_type TEXT NOT NULL,
   target_object_id TEXT NOT NULL,
   relation TEXT NOT NULL,
-  created_by_object_type TEXT,
-  created_by_object_id TEXT,
+  created_by_actor_id TEXT REFERENCES actors(actor_id) ON DELETE SET NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
-  CHECK (
-    (created_by_object_type IS NULL AND created_by_object_id IS NULL)
-    OR (created_by_object_type IS NOT NULL AND created_by_object_id IS NOT NULL)
-  ),
   UNIQUE(source_object_type, source_object_id, target_object_type, target_object_id, relation)
 );
 
 CREATE TABLE IF NOT EXISTS context_packets (
   context_packet_id TEXT PRIMARY KEY,
   run_id TEXT NOT NULL,
-  requesting_object_type TEXT NOT NULL,
-  requesting_object_id TEXT NOT NULL,
+  requesting_actor_id TEXT NOT NULL REFERENCES actors(actor_id) ON DELETE RESTRICT,
   purpose TEXT NOT NULL CHECK (purpose IN ('answer_human_question','draft_internal_content','general_personalization','manage_task','manage_calendar','draft_external_content','use_tool','proactive_suggestion','external_action','debug_audit')),
   active_objects JSONB NOT NULL DEFAULT '[]'::jsonb,
   agent_visible_omissions JSONB NOT NULL DEFAULT '[]'::jsonb,
@@ -455,8 +415,7 @@ CREATE TABLE IF NOT EXISTS memory_use_records (
   run_id TEXT NOT NULL,
   memory_id TEXT NOT NULL REFERENCES memory_items(memory_id) ON DELETE CASCADE,
   stage TEXT NOT NULL CHECK (stage IN ('retrieved','included_in_packet','shown_to_agent','used_in_reply','used_for_action','used_for_proactivity')),
-  agent_object_type TEXT,
-  agent_object_id TEXT,
+  agent_actor_id TEXT REFERENCES actors(actor_id) ON DELETE SET NULL,
   context_object_type TEXT,
   context_object_id TEXT,
   purpose TEXT NOT NULL CHECK (purpose IN ('answer_human_question','draft_internal_content','general_personalization','manage_task','manage_calendar','draft_external_content','use_tool','proactive_suggestion','external_action','debug_audit')),
@@ -465,10 +424,6 @@ CREATE TABLE IF NOT EXISTS memory_use_records (
   policy_decision_id TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   details JSONB NOT NULL DEFAULT '{}'::jsonb,
-  CHECK (
-    (agent_object_type IS NULL AND agent_object_id IS NULL)
-    OR (agent_object_type IS NOT NULL AND agent_object_id IS NOT NULL)
-  ),
   CHECK (
     (context_object_type IS NULL AND context_object_id IS NULL)
     OR (context_object_type IS NOT NULL AND context_object_id IS NOT NULL)
@@ -479,6 +434,8 @@ CREATE TABLE IF NOT EXISTS memory_use_records (
   )
 );
 
+CREATE INDEX IF NOT EXISTS idx_actors_kind_active ON actors(actor_kind, is_active);
+CREATE INDEX IF NOT EXISTS idx_actors_handle ON actors(handle);
 CREATE INDEX IF NOT EXISTS idx_humans_handle ON humans(handle);
 CREATE INDEX IF NOT EXISTS idx_agents_handle ON agents(handle);
 CREATE INDEX IF NOT EXISTS idx_tools_kind ON tools(tool_kind, is_enabled);
@@ -496,7 +453,7 @@ CREATE INDEX IF NOT EXISTS idx_conversation_turns_status ON conversation_turns(s
 CREATE INDEX IF NOT EXISTS idx_conversation_items_conversation_created_at ON conversation_items(conversation_id, created_at ASC);
 CREATE INDEX IF NOT EXISTS idx_conversation_items_turn ON conversation_items(turn_id, created_at ASC);
 CREATE INDEX IF NOT EXISTS idx_conversation_items_parent ON conversation_items(parent_item_id, created_at ASC);
-CREATE INDEX IF NOT EXISTS idx_conversation_items_author ON conversation_items(author_object_type, author_object_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_conversation_items_author_actor ON conversation_items(author_actor_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_memory_items_owner ON memory_items(owner_object_type, owner_object_id, status, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_memory_items_created_at ON memory_items(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_memory_items_status ON memory_items(status, created_at DESC);
@@ -509,7 +466,7 @@ CREATE INDEX IF NOT EXISTS idx_memory_subjects_memory_role ON memory_subjects(me
 CREATE INDEX IF NOT EXISTS idx_relationships_subject ON relationships(subject_entity_id, predicate);
 CREATE INDEX IF NOT EXISTS idx_relationships_object ON relationships(object_entity_id, predicate);
 CREATE INDEX IF NOT EXISTS idx_relationships_memory ON relationships(memory_id, status);
-CREATE INDEX IF NOT EXISTS idx_memory_participants_object ON memory_participants(participant_object_type, participant_object_id, role);
+CREATE INDEX IF NOT EXISTS idx_memory_participants_actor ON memory_participants(participant_actor_id, role);
 CREATE INDEX IF NOT EXISTS idx_memory_retrieval_purpose_rules ON memory_retrieval_purpose_rules(purpose, effect, memory_id);
 CREATE INDEX IF NOT EXISTS idx_memory_retrieval_object_links ON memory_retrieval_object_links(object_type, object_id, relation);
 CREATE INDEX IF NOT EXISTS idx_object_access_grants_grantee ON object_access_grants(grantee_object_type, grantee_object_id, permission, effect);
@@ -517,7 +474,7 @@ CREATE INDEX IF NOT EXISTS idx_object_access_grants_target ON object_access_gran
 CREATE INDEX IF NOT EXISTS idx_object_provenance_target ON object_provenance_edges(target_object_type, target_object_id, deleted_at, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_object_provenance_source ON object_provenance_edges(source_object_type, source_object_id, deleted_at, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_object_events_target_time ON object_events(target_object_type, target_object_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_object_events_actor_time ON object_events(actor_object_type, actor_object_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_object_events_actor_time ON object_events(actor_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_object_links_source_relation ON object_links(source_object_type, source_object_id, relation);
 CREATE INDEX IF NOT EXISTS idx_object_links_target_relation ON object_links(target_object_type, target_object_id, relation);
 CREATE INDEX IF NOT EXISTS idx_context_packets_run ON context_packets(run_id, created_at DESC);

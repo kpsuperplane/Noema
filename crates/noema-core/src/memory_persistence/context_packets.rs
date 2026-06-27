@@ -1,4 +1,7 @@
-use crate::memory::{MemoryRetrievalRequest, MemoryRetrievalResult, MemoryUseStage};
+use crate::{
+    memory::{MemoryRetrievalRequest, MemoryRetrievalResult, MemoryUseStage},
+    memory_persistence::ActorRef,
+};
 use serde_json::json;
 
 use super::{
@@ -34,8 +37,8 @@ impl PostgresMemoryRepository {
             .begin()
             .await
             .map_err(MemoryPersistenceError::Database)?;
-        let (requesting_object_type, requesting_object_id) =
-            actor_object_parts(&request.requesting_principal_id);
+        let requesting_actor = requesting_actor_ref(&request.requesting_principal_id)?;
+        let requesting_actor_id = requesting_actor.actor_id.as_str();
         let active_objects = request
             .trusted
             .active_scopes
@@ -53,19 +56,17 @@ impl PostgresMemoryRepository {
             INSERT INTO context_packets (
               context_packet_id,
               run_id,
-              requesting_object_type,
-              requesting_object_id,
+              requesting_actor_id,
               purpose,
               active_objects,
               agent_visible_omissions
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            VALUES ($1, $2, $3, $4, $5, $6)
             ",
         )
         .bind(context_packet_id)
         .bind(run_id)
-        .bind(requesting_object_type)
-        .bind(requesting_object_id)
+        .bind(requesting_actor_id)
         .bind(purpose_to_db(request.trusted.purpose))
         .bind(json!(active_objects))
         .bind(json!(agent_visible_omissions_json(result)))
@@ -166,8 +167,7 @@ impl PostgresMemoryRepository {
                     run_id,
                     memory_id: &use_record.memory_id,
                     stage: use_record.stage,
-                    agent_object_type: requesting_object_type,
-                    agent_object_id: requesting_object_id,
+                    agent_actor_id: requesting_actor_id,
                     context_object_type: context_object
                         .as_ref()
                         .map(|(object_type, _)| *object_type),
@@ -185,8 +185,7 @@ impl PostgresMemoryRepository {
                     run_id,
                     memory_id: &included.memory_id,
                     stage: MemoryUseStage::IncludedInPacket,
-                    agent_object_type: requesting_object_type,
-                    agent_object_id: requesting_object_id,
+                    agent_actor_id: requesting_actor_id,
                     context_object_type: context_object
                         .as_ref()
                         .map(|(object_type, _)| *object_type),
@@ -225,14 +224,13 @@ async fn insert_postgres_memory_use_record(
           run_id,
           memory_id,
           stage,
-          agent_object_type,
-          agent_object_id,
+          agent_actor_id,
           context_object_type,
           context_object_id,
           purpose,
           details
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
         ",
     )
     .bind(memory_use_id)
@@ -240,8 +238,7 @@ async fn insert_postgres_memory_use_record(
     .bind(record.run_id)
     .bind(record.memory_id)
     .bind(memory_use_stage_to_db(record.stage))
-    .bind(record.agent_object_type)
-    .bind(record.agent_object_id)
+    .bind(record.agent_actor_id)
     .bind(record.context_object_type)
     .bind(record.context_object_id)
     .bind(purpose_to_db(record.purpose))
@@ -256,13 +253,18 @@ async fn insert_postgres_memory_use_record(
     Ok(())
 }
 
-fn actor_object_parts(actor_id: &str) -> (&'static str, &str) {
+fn requesting_actor_ref(actor_id: &str) -> Result<ActorRef, MemoryPersistenceError> {
     if actor_id.starts_with("agent:") {
-        ("agent", actor_id)
-    } else if actor_id.starts_with("tool:") {
-        ("tool", actor_id)
+        Ok(ActorRef::agent(actor_id))
+    } else if actor_id.starts_with("human:") {
+        Ok(ActorRef::human(actor_id))
+    } else if actor_id.starts_with("system:") {
+        Ok(ActorRef::system(actor_id))
     } else {
-        ("human", actor_id)
+        Err(MemoryPersistenceError::InvalidEnum {
+            kind: "requesting actor principal",
+            value: actor_id.to_string(),
+        })
     }
 }
 

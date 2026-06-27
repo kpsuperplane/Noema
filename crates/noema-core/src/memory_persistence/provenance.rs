@@ -1,13 +1,13 @@
 use serde_json::{Value, json};
 
 use super::{
-    MemoryPersistenceError, MemorySummary, NewMemoryCandidate, NewMemorySubject, ObjectRef,
-    ObjectType, PostgresMemoryRepository,
+    ActorRef, MemoryPersistenceError, MemorySummary, NewMemoryCandidate, NewMemorySubject,
+    ObjectRef, ObjectType, PostgresMemoryRepository,
     helpers::{
         memory_status_to_db, participant_role_to_db, sensitivity_to_db, subject_role_to_db,
         title_from_content,
     },
-    objects::validate_object_ref_for_pool,
+    objects::{validate_actor_ref_for_pool, validate_object_ref_for_pool},
     postgres_helpers::{allocate_id as allocate_postgres_id, json_value},
 };
 
@@ -22,8 +22,8 @@ pub struct NewObjectProvenanceEdge {
     pub relation: String,
     /// Short supporting excerpt to show during inspection, if available.
     pub evidence_excerpt: Option<String>,
-    /// Object that created the edge.
-    pub created_by: ObjectRef,
+    /// Actor that created the edge.
+    pub created_by: ActorRef,
     /// Additional structured metadata.
     pub metadata: Value,
 }
@@ -33,8 +33,8 @@ pub struct NewObjectProvenanceEdge {
 pub struct DeleteConversationItem {
     /// Conversation item to delete.
     pub item_id: String,
-    /// Object requesting the deletion.
-    pub deleted_by: ObjectRef,
+    /// Actor requesting the deletion.
+    pub deleted_by: ActorRef,
     /// Optional human-readable deletion/redaction reason.
     pub reason: Option<String>,
 }
@@ -77,8 +77,7 @@ impl PostgresMemoryRepository {
               status,
               confidence,
               sensitivity,
-              created_by_object_type,
-              created_by_object_id,
+              created_by_actor_id,
               authority_level,
               extraction_method,
               observed_at,
@@ -86,7 +85,7 @@ impl PostgresMemoryRepository {
             )
             VALUES (
               $1, $2, $3, $4, $5, $6, $7, $8,
-              $9, $10, $11, $12, $13, $14, $15::timestamptz, $16
+              $9, $10, $11, $12, $13, $14::timestamptz, $15
             )
             RETURNING created_at::text
             ",
@@ -101,8 +100,7 @@ impl PostgresMemoryRepository {
         .bind(memory_status_to_db(candidate.status))
         .bind(candidate.confidence)
         .bind(sensitivity_to_db(candidate.sensitivity))
-        .bind(candidate.created_by.object_type.as_str())
-        .bind(candidate.created_by.object_id.as_str())
+        .bind(candidate.created_by.actor_id.as_str())
         .bind(candidate.authority_level.as_str())
         .bind(candidate.extraction_method.as_str())
         .bind(candidate.observed_at.as_deref())
@@ -116,19 +114,17 @@ impl PostgresMemoryRepository {
                 r"
                 INSERT INTO memory_participants (
                   memory_id,
-                  participant_object_type,
-                  participant_object_id,
+                  participant_actor_id,
                   role,
                   metadata
                 )
-                VALUES ($1, $2, $3, $4, $5)
-                ON CONFLICT (memory_id, participant_object_type, participant_object_id, role)
+                VALUES ($1, $2, $3, $4)
+                ON CONFLICT (memory_id, participant_actor_id, role)
                 DO NOTHING
                 ",
             )
             .bind(memory_id.as_str())
-            .bind(participant.participant.object_type.as_str())
-            .bind(participant.participant.object_id.as_str())
+            .bind(participant.participant.actor_id.as_str())
             .bind(participant_role_to_db(participant.role))
             .bind(json_value(participant.metadata.clone()))
             .execute(&mut *tx)
@@ -169,7 +165,7 @@ impl PostgresMemoryRepository {
             .await?;
             (
                 Some(source.source.object_type.as_str().to_string()),
-                Some(source.source.object_id.clone()),
+                Some(source.source.object_id.to_string()),
             )
         } else {
             (None, None)
@@ -180,29 +176,27 @@ impl PostgresMemoryRepository {
             INSERT INTO object_events (
               event_id,
               event_type,
-              actor_object_type,
-              actor_object_id,
+              actor_id,
               target_object_type,
               target_object_id,
               reason,
               details
             )
-            VALUES ($1, 'memory_created', $2, $3, 'memory_item', $4, $5, $6)
+            VALUES ($1, 'memory_created', $2, 'memory_item', $3, $4, $5)
             ",
         )
         .bind(event_id.as_str())
-        .bind(candidate.created_by.object_type.as_str())
-        .bind(candidate.created_by.object_id.as_str())
+        .bind(candidate.created_by.actor_id.as_str())
         .bind(memory_id.as_str())
         .bind("memory_candidate")
         .bind(json_value(json!({
             "owner": {
                 "object_type": candidate.owner.object_type.as_str(),
-                "object_id": candidate.owner.object_id,
+                "object_id": candidate.owner.object_id.as_str(),
             },
             "source": candidate.source.as_ref().map(|source| json!({
                 "object_type": source.source.object_type.as_str(),
-                "object_id": source.source.object_id,
+                "object_id": source.source.object_id.as_str(),
             })),
         })))
         .execute(&mut *tx)
@@ -215,11 +209,11 @@ impl PostgresMemoryRepository {
             status: candidate.status,
             memory_type: candidate.memory_type,
             owner_object_type: candidate.owner.object_type.as_str().to_string(),
-            owner_object_id: candidate.owner.object_id.clone(),
+            owner_object_id: candidate.owner.object_id.to_string(),
             home_scope_id: format!(
                 "{}:{}",
                 candidate.owner.object_type.as_str(),
-                candidate.owner.object_id
+                candidate.owner.object_id.as_str()
             ),
             sensitivity: candidate.sensitivity,
             title,
@@ -250,7 +244,7 @@ impl PostgresMemoryRepository {
     ) -> Result<String, MemoryPersistenceError> {
         validate_object_ref_for_pool(self.pool(), &edge.target).await?;
         validate_object_ref_for_pool(self.pool(), &edge.source).await?;
-        validate_object_ref_for_pool(self.pool(), &edge.created_by).await?;
+        validate_actor_ref_for_pool(self.pool(), &edge.created_by).await?;
 
         let mut tx = self
             .pool()
@@ -279,7 +273,7 @@ impl PostgresMemoryRepository {
             &ObjectRef::conversation_item(deletion.item_id.as_str()),
         )
         .await?;
-        validate_object_ref_for_pool(self.pool(), &deletion.deleted_by).await?;
+        validate_actor_ref_for_pool(self.pool(), &deletion.deleted_by).await?;
 
         let mut tx = self
             .pool()
@@ -306,10 +300,9 @@ impl PostgresMemoryRepository {
             r"
             UPDATE conversation_items
             SET deleted_at = now(),
-                deleted_by_object_type = $2,
-                deleted_by_object_id = $3,
+                deleted_by_actor_id = $2,
                 redacted_at = now(),
-                redaction_reason = $4,
+                redaction_reason = $3,
                 content_text = '[redacted]',
                 payload_json = '{}'::jsonb,
                 updated_at = now()
@@ -317,8 +310,7 @@ impl PostgresMemoryRepository {
             ",
         )
         .bind(deletion.item_id.as_str())
-        .bind(deletion.deleted_by.object_type.as_str())
-        .bind(deletion.deleted_by.object_id.as_str())
+        .bind(deletion.deleted_by.actor_id.as_str())
         .bind(deletion.reason.as_deref())
         .execute(&mut *tx)
         .await
@@ -385,15 +377,15 @@ async fn validate_postgres_memory_candidate_refs(
     candidate: &NewMemoryCandidate,
 ) -> Result<(), MemoryPersistenceError> {
     validate_object_ref_for_pool(pool, &candidate.owner).await?;
-    validate_object_ref_for_pool(pool, &candidate.created_by).await?;
+    validate_actor_ref_for_pool(pool, &candidate.created_by).await?;
     if let Some(owner_actor) = &candidate.owner_actor {
-        validate_object_ref_for_pool(pool, owner_actor).await?;
+        validate_actor_ref_for_pool(pool, owner_actor).await?;
     }
     if let Some(source) = &candidate.source {
         validate_object_ref_for_pool(pool, &source.source).await?;
     }
     for participant in &candidate.participants {
-        validate_object_ref_for_pool(pool, &participant.participant).await?;
+        validate_actor_ref_for_pool(pool, &participant.participant).await?;
     }
     for subject in &candidate.subjects {
         if let Some(linked_object) = &subject.linked_object {
@@ -418,11 +410,10 @@ async fn insert_postgres_object_provenance_edge_tx(
           source_object_id,
           relation,
           evidence_excerpt,
-          created_by_object_type,
-          created_by_object_id,
+          created_by_actor_id,
           metadata
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         ",
     )
     .bind(edge_id.as_str())
@@ -432,8 +423,7 @@ async fn insert_postgres_object_provenance_edge_tx(
     .bind(edge.source.object_id.as_str())
     .bind(edge.relation.as_str())
     .bind(edge.evidence_excerpt.as_deref())
-    .bind(edge.created_by.object_type.as_str())
-    .bind(edge.created_by.object_id.as_str())
+    .bind(edge.created_by.actor_id.as_str())
     .bind(json_value(edge.metadata.clone()))
     .execute(&mut **tx)
     .await
@@ -453,7 +443,7 @@ async fn upsert_postgres_object_subject_entity(
     let linked_object_id = subject
         .linked_object
         .as_ref()
-        .map(|object_ref| object_ref.object_id.clone());
+        .map(|object_ref| object_ref.object_id.to_string());
 
     sqlx::query(
         r"
@@ -507,7 +497,7 @@ async fn postgres_conversation_id_for_summary(
     candidate: &NewMemoryCandidate,
 ) -> Result<Option<String>, MemoryPersistenceError> {
     if candidate.owner.object_type == ObjectType::Conversation {
-        return Ok(Some(candidate.owner.object_id.clone()));
+        return Ok(Some(candidate.owner.object_id.to_string()));
     }
 
     let Some(source) = &candidate.source else {

@@ -38,12 +38,17 @@ export function Onboarding({
   const canStart = !attempt && !complete;
 
   return (
-    <section className="onboarding-shell" aria-label="Noema onboarding">
-      <Card className="onboarding-panel">
-        <CardContent>
-          <p className="eyebrow">First run</p>
-          <h1>Connect {providerName}</h1>
-          <p>
+    <section
+      className="mx-auto grid min-h-[calc(100vh-68px)] w-[min(760px,100%)] content-center px-6 py-[34px] max-[760px]:min-h-[calc(100vh-118px)] max-[760px]:content-start max-[760px]:px-5 max-[760px]:py-7"
+      aria-label="Noema onboarding"
+    >
+      <Card className="grid min-w-0 gap-3.5 py-[18px]">
+        <CardContent className="grid gap-3.5">
+          <p className="m-0 font-mono text-[11px] tracking-[0.12em] text-[var(--text-accent)] uppercase">First run</p>
+          <h1 className="m-0 font-heading text-[34px] leading-[1.1] tracking-normal text-foreground [overflow-wrap:anywhere] max-[760px]:text-3xl">
+            Connect {providerName}
+          </h1>
+          <p className="m-0 max-w-[560px] text-muted-foreground [overflow-wrap:anywhere]">
             Noema needs an authenticated provider account before it can open your
             local chat.
           </p>
@@ -58,10 +63,10 @@ export function Onboarding({
 
           {waiting ? <AuthAttempt attempt={attempt} onCheck={onCheck} /> : null}
 
-          {complete ? <p className="onboarding-success">Provider connected. Starting chat.</p> : null}
+          {complete ? <p className="m-0 text-[var(--pine-700)]">Provider connected. Starting chat.</p> : null}
 
           {failed ? (
-            <div className="onboarding-retry">
+            <div className="grid gap-2.5">
               <p>{attempt?.errorMessage ?? statusCopy[attempt?.status ?? "FAILED"]}</p>
               <Button type="button" onClick={onRetry}>
                 Try again
@@ -69,7 +74,7 @@ export function Onboarding({
             </div>
           ) : null}
 
-          {error ? <p className="onboarding-error">{error}</p> : null}
+          {error ? <p className="m-0 text-[var(--red-700)]">{error}</p> : null}
         </CardContent>
       </Card>
     </section>
@@ -84,17 +89,19 @@ function AuthAttempt({
   onCheck: () => void;
 }) {
   return (
-    <Card className="auth-attempt" aria-live="polite">
-      <CardContent>
+    <Card className="grid min-w-0 max-w-[560px] gap-2.5" aria-live="polite">
+      <CardContent className="grid gap-3.5">
         <strong>{attempt.status === "STARTING" ? "Starting login" : "Waiting for login"}</strong>
         {attempt.verificationUrl ? (
-          <Button asChild>
-            <a href={attempt.verificationUrl} target="_blank" rel="noreferrer">
-              Open login page
-            </a>
+          <Button render={<a href={attempt.verificationUrl} target="_blank" rel="noreferrer" />}>
+            Open login page
           </Button>
         ) : null}
-        {attempt.userCode ? <code>{attempt.userCode}</code> : null}
+        {attempt.userCode ? (
+          <code className="w-fit max-w-full rounded-md bg-[var(--surface-sunken)] px-2 py-1.5 font-mono text-lg leading-[1.35] whitespace-normal [overflow-wrap:anywhere]">
+            {attempt.userCode}
+          </code>
+        ) : null}
         {attempt.instructions ? <p>{attempt.instructions}</p> : null}
         <Button type="button" onClick={onCheck}>
           {attempt.status === "WAITING_FOR_USER" ? "Continue" : "Check status"}
@@ -106,7 +113,7 @@ function AuthAttempt({
 
 function ProviderStatus({ status }: { status: ProviderAccountStatus }) {
   return (
-    <Badge variant="outline" className="onboarding-status">
+    <Badge variant="outline" className="font-mono text-xs text-muted-foreground">
       Provider status: {statusCopy[status]}
     </Badge>
   );

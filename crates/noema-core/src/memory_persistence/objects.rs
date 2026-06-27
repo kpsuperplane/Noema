@@ -1,6 +1,6 @@
 use std::{fmt, str::FromStr};
 
-use super::MemoryPersistenceError;
+use super::{ActorId, MemoryPersistenceError, ObjectId};
 
 /// Closed set of concrete object types that can be referenced polymorphically.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -112,13 +112,113 @@ impl FromStr for ObjectType {
     }
 }
 
+/// Closed set of actor interface kinds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ActorKind {
+    /// Actor backed by a human profile.
+    Human,
+    /// Actor backed by an agent profile.
+    Agent,
+    /// System actor without a concrete human or agent profile.
+    System,
+}
+
+impl ActorKind {
+    /// Return the stable storage string for this actor kind.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Human => "human",
+            Self::Agent => "agent",
+            Self::System => "system",
+        }
+    }
+
+    /// Parse a storage string into a known actor kind.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MemoryPersistenceError::InvalidEnum`] when `value` is not in
+    /// the closed actor kind vocabulary.
+    pub fn parse(value: &str) -> Result<Self, MemoryPersistenceError> {
+        match value {
+            "human" => Ok(Self::Human),
+            "agent" => Ok(Self::Agent),
+            "system" => Ok(Self::System),
+            _ => Err(MemoryPersistenceError::InvalidEnum {
+                kind: "actor_kind",
+                value: value.to_string(),
+            }),
+        }
+    }
+}
+
+impl FromStr for ActorKind {
+    type Err = MemoryPersistenceError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        Self::parse(value)
+    }
+}
+
+/// A typed reference to an actor interface row.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ActorRef {
+    /// Actor kind discriminator.
+    pub actor_kind: ActorKind,
+    /// Actor interface id.
+    pub actor_id: ActorId,
+}
+
+impl ActorRef {
+    /// Construct a typed actor reference.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MemoryPersistenceError::EmptyObjectId`] when the id is empty
+    /// or only whitespace.
+    pub fn new(
+        actor_kind: ActorKind,
+        actor_id: impl Into<String>,
+    ) -> Result<Self, MemoryPersistenceError> {
+        Ok(Self {
+            actor_kind,
+            actor_id: ActorId::new(actor_id)?,
+        })
+    }
+
+    /// Reference a human actor row.
+    #[must_use]
+    pub fn human(actor_id: impl Into<String>) -> Self {
+        Self::new(ActorKind::Human, actor_id).expect("human actor id must not be empty")
+    }
+
+    /// Reference an agent actor row.
+    #[must_use]
+    pub fn agent(actor_id: impl Into<String>) -> Self {
+        Self::new(ActorKind::Agent, actor_id).expect("agent actor id must not be empty")
+    }
+
+    /// Reference a system actor row.
+    #[must_use]
+    pub fn system(actor_id: impl Into<String>) -> Self {
+        Self::new(ActorKind::System, actor_id).expect("system actor id must not be empty")
+    }
+}
+
+impl fmt::Display for ActorRef {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.actor_id.as_str())
+    }
+}
+
 /// A typed reference to a concrete object row.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ObjectRef {
     /// Concrete object type.
     pub object_type: ObjectType,
     /// Concrete object id.
-    pub object_id: String,
+    pub object_id: ObjectId,
 }
 
 impl ObjectRef {
@@ -140,35 +240,27 @@ impl ObjectRef {
         }
         Ok(Self {
             object_type,
-            object_id,
+            object_id: ObjectId::new(object_id)?,
         })
     }
 
     /// Reference a human row.
     #[must_use]
     pub fn human(object_id: impl Into<String>) -> Self {
-        Self {
-            object_type: ObjectType::Human,
-            object_id: object_id.into(),
-        }
+        Self::new(ObjectType::Human, object_id).expect("human object id must not be empty")
     }
 
     /// Reference an agent row.
     #[must_use]
     pub fn agent(object_id: impl Into<String>) -> Self {
-        Self {
-            object_type: ObjectType::Agent,
-            object_id: object_id.into(),
-        }
+        Self::new(ObjectType::Agent, object_id).expect("agent object id must not be empty")
     }
 
     /// Reference a conversation item row.
     #[must_use]
     pub fn conversation_item(object_id: impl Into<String>) -> Self {
-        Self {
-            object_type: ObjectType::ConversationItem,
-            object_id: object_id.into(),
-        }
+        Self::new(ObjectType::ConversationItem, object_id)
+            .expect("conversation item object id must not be empty")
     }
 }
 
@@ -203,7 +295,31 @@ pub(super) async fn validate_object_ref_for_pool(
     } else {
         Err(MemoryPersistenceError::ObjectRefNotFound {
             object_type: object_ref.object_type.as_str().to_string(),
-            object_id: object_ref.object_id.clone(),
+            object_id: object_ref.object_id.to_string(),
+        })
+    }
+}
+
+#[allow(dead_code)]
+pub(crate) async fn validate_actor_ref_for_pool(
+    pool: &sqlx::PgPool,
+    actor_ref: &ActorRef,
+) -> Result<(), MemoryPersistenceError> {
+    let exists = sqlx::query_scalar::<_, i32>(
+        "SELECT 1 FROM actors WHERE actor_id = $1 AND actor_kind = $2 LIMIT 1",
+    )
+    .bind(actor_ref.actor_id.as_str())
+    .bind(actor_ref.actor_kind.as_str())
+    .fetch_optional(pool)
+    .await
+    .map_err(MemoryPersistenceError::Database)?
+    .is_some();
+    if exists {
+        Ok(())
+    } else {
+        Err(MemoryPersistenceError::ObjectRefNotFound {
+            object_type: actor_ref.actor_kind.as_str().to_string(),
+            object_id: actor_ref.actor_id.to_string(),
         })
     }
 }

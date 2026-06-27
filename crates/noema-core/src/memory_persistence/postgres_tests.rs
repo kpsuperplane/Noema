@@ -1,10 +1,10 @@
 use std::{env, ops::Deref};
 
 use super::{
-    ConversationItemKind, ConversationItemStatus, MemoryPersistenceError, MemoryType,
-    NewConversation, NewConversationItem, NewConversationTurn, NewMemoryCandidate,
-    NewMemoryParticipant, NewMemorySubject, NewObjectProvenanceEdge, ObjectRef, ObjectType,
-    PostgresMemoryRepository, ReplayMode,
+    ActorId, ActorRef, ConversationId, ConversationItemKind, ConversationItemStatus, MemoryItemId,
+    MemoryPersistenceError, MemoryType, NewConversation, NewConversationItem, NewConversationTurn,
+    NewMemoryCandidate, NewMemoryParticipant, NewMemorySubject, NewObjectProvenanceEdge, ObjectId,
+    ObjectRef, ObjectType, PostgresMemoryRepository, ReplayMode,
     postgres_schema::POSTGRES_SCHEMA_SQL,
     provenance::DeleteConversationItem,
     repository::{POSTGRES_BOOTSTRAP_MIGRATION_NAME, POSTGRES_BOOTSTRAP_MIGRATION_VERSION},
@@ -18,6 +18,23 @@ use crate::memory::{MemoryStatus, ParticipantRole, Sensitivity, SubjectRole};
 
 const TEST_DATABASE_URL_ENV: &str = "NOEMA_TEST_DATABASE_URL";
 static POSTGRES_TEST_SCHEMA_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+#[test]
+fn persistence_ids_reject_empty_values() {
+    assert!(ActorId::try_from("").is_err());
+    assert!(ObjectId::try_from("   ").is_err());
+    assert!(MemoryItemId::try_from("").is_err());
+    assert!(ConversationId::try_from("").is_err());
+}
+
+#[test]
+fn persistence_ids_display_inner_value() {
+    let actor_id = ActorId::try_from("agent:primary").expect("valid actor id");
+    let object_id = ObjectId::try_from("conversation:abc").expect("valid object id");
+
+    assert_eq!(actor_id.as_str(), "agent:primary");
+    assert_eq!(object_id.to_string(), "conversation:abc");
+}
 
 struct TestRepo {
     repo: PostgresMemoryRepository,
@@ -54,6 +71,7 @@ async fn bootstrap_creates_core_tables() {
     assert_eq!(
         tables,
         [
+            "actors",
             "agents",
             "context_packet_memory_edges",
             "context_packet_omissions",
@@ -81,6 +99,8 @@ async fn bootstrap_creates_core_tables() {
     );
 
     for (table_name, index_name) in [
+        ("actors", "idx_actors_kind_active"),
+        ("actors", "idx_actors_handle"),
         (
             "conversation_items",
             "idx_conversation_items_conversation_created_at",
@@ -103,6 +123,82 @@ async fn bootstrap_creates_core_tables() {
     .await
     .expect("check bootstrap migration row");
     assert_eq!(migration_name.as_deref(), Some("postgres_bootstrap_v0"));
+}
+
+#[tokio::test]
+async fn actors_enforce_concrete_profile_kind() {
+    let Some(repo) = test_repo().await else {
+        return;
+    };
+
+    sqlx::query(
+        r"
+        INSERT INTO actors (actor_id, actor_kind, display_name)
+        VALUES ('actor:test-human', 'human', 'Test Human')
+        ",
+    )
+    .execute(repo.pool())
+    .await
+    .expect("insert human actor");
+
+    sqlx::query(
+        r"
+        INSERT INTO humans (human_id, actor_id, display_name)
+        VALUES ('human:test', 'actor:test-human', 'Test Human')
+        ",
+    )
+    .execute(repo.pool())
+    .await
+    .expect("human profile may point at human actor");
+
+    let invalid_agent_profile = sqlx::query(
+        r"
+        INSERT INTO agents (agent_id, actor_id, display_name)
+        VALUES ('agent:wrong-kind', 'actor:test-human', 'Wrong Kind')
+        ",
+    )
+    .execute(repo.pool())
+    .await;
+
+    assert_sqlstate(invalid_agent_profile, "23503");
+}
+
+#[tokio::test]
+async fn actors_cannot_be_reused_by_two_human_profiles() {
+    let Some(repo) = test_repo().await else {
+        return;
+    };
+
+    sqlx::query(
+        r"
+        INSERT INTO actors (actor_id, actor_kind, display_name)
+        VALUES ('actor:shared-human', 'human', 'Shared Human')
+        ",
+    )
+    .execute(repo.pool())
+    .await
+    .expect("insert actor");
+
+    sqlx::query(
+        r"
+        INSERT INTO humans (human_id, actor_id, display_name)
+        VALUES ('human:first', 'actor:shared-human', 'First Human')
+        ",
+    )
+    .execute(repo.pool())
+    .await
+    .expect("first profile may use actor");
+
+    let duplicate_actor = sqlx::query(
+        r"
+        INSERT INTO humans (human_id, actor_id, display_name)
+        VALUES ('human:second', 'actor:shared-human', 'Second Human')
+        ",
+    )
+    .execute(repo.pool())
+    .await;
+
+    assert_sqlstate(duplicate_actor, "23505");
 }
 
 #[tokio::test]
@@ -584,8 +680,17 @@ async fn primary_conversation_replaces_inaccessible_assignment() {
 
     sqlx::query(
         r#"
-        INSERT INTO humans (human_id, display_name, handle)
-        VALUES ('human:other', 'Other human', 'other')
+        INSERT INTO actors (actor_id, actor_kind, display_name, handle)
+        VALUES ('human:other', 'human', 'Other human', 'other')
+        "#,
+    )
+    .execute(repo.pool())
+    .await
+    .expect("insert other human actor");
+    sqlx::query(
+        r#"
+        INSERT INTO humans (human_id, actor_id, display_name, handle)
+        VALUES ('human:other', 'human:other', 'Other human', 'other')
         "#,
     )
     .execute(repo.pool())
@@ -698,7 +803,7 @@ async fn conversation_items_replay_in_created_order() {
         parent_item_id: None,
         kind: ConversationItemKind::UserText,
         status: ConversationItemStatus::Completed,
-        author: ObjectRef::human("human:local"),
+        author: ActorRef::human("human:local"),
         content_text: Some("hello".to_string()),
         payload_json: serde_json::json!({}),
         metadata: serde_json::json!({}),
@@ -743,7 +848,7 @@ async fn append_memory_candidate_records_source_conversation_and_edges() {
             parent_item_id: None,
             kind: ConversationItemKind::UserText,
             status: ConversationItemStatus::Completed,
-            author: ObjectRef::human("human:local"),
+            author: ActorRef::human("human:local"),
             content_text: Some(
                 "Remember that Noema Postgres memory writes need provenance.".to_string(),
             ),
@@ -766,11 +871,11 @@ async fn append_memory_candidate_records_source_conversation_and_edges() {
         )
         .expect("conversation object ref"),
         "Noema Postgres memory writes need provenance.",
-        ObjectRef::agent("agent:primary"),
+        ActorRef::agent("agent:primary"),
         ObjectRef::conversation_item(source_item.item_id.as_str()),
     );
     candidate.participants = vec![NewMemoryParticipant::new(
-        ObjectRef::human("human:local"),
+        ActorRef::human("human:local"),
         ParticipantRole::Originator,
     )];
     candidate.subjects = vec![subject];
@@ -860,7 +965,7 @@ async fn append_memory_candidate_records_source_conversation_and_edges() {
             .expect("conversation object ref"),
             relation: "supports".to_string(),
             evidence_excerpt: Some("The conversation contains the source item.".to_string()),
-            created_by: ObjectRef::agent("agent:primary"),
+            created_by: ActorRef::agent("agent:primary"),
             metadata: serde_json::json!({"kind": "test_support"}),
         })
         .await
@@ -886,7 +991,7 @@ async fn deleting_source_item_deletes_sole_provenance_memory() {
             parent_item_id: None,
             kind: ConversationItemKind::UserText,
             status: ConversationItemStatus::Completed,
-            author: ObjectRef::human("human:local"),
+            author: ActorRef::human("human:local"),
             content_text: Some("remember that I prefer early trains".to_string()),
             payload_json: serde_json::json!({}),
             metadata: serde_json::json!({}),
@@ -902,7 +1007,7 @@ async fn deleting_source_item_deletes_sole_provenance_memory() {
             )
             .expect("conversation object ref"),
             "The user prefers early trains.",
-            ObjectRef::agent("agent:primary"),
+            ActorRef::agent("agent:primary"),
             ObjectRef::conversation_item(source_item.item_id.as_str()),
         ))
         .await
@@ -944,7 +1049,7 @@ async fn deleting_source_item_deletes_sole_provenance_memory() {
 
     repo.soft_delete_conversation_item(DeleteConversationItem {
         item_id: source_item.item_id.clone(),
-        deleted_by: ObjectRef::human("human:local"),
+        deleted_by: ActorRef::human("human:local"),
         reason: Some("user deleted source message".to_string()),
     })
     .await
@@ -1010,7 +1115,7 @@ async fn list_redacts_sensitive_and_secret_postgres_memories() {
             parent_item_id: None,
             kind: ConversationItemKind::UserText,
             status: ConversationItemStatus::Completed,
-            author: ObjectRef::human("human:local"),
+            author: ActorRef::human("human:local"),
             content_text: Some("sensitive memory source".to_string()),
             payload_json: serde_json::json!({}),
             metadata: serde_json::json!({}),
@@ -1025,7 +1130,7 @@ async fn list_redacts_sensitive_and_secret_postgres_memories() {
         )
         .expect("conversation object ref"),
         "Sensitive medical detail",
-        ObjectRef::agent("agent:primary"),
+        ActorRef::agent("agent:primary"),
         ObjectRef::conversation_item(source_item.item_id.as_str()),
     );
     sensitive.title = Some("Medical detail".to_string());
@@ -1042,7 +1147,7 @@ async fn list_redacts_sensitive_and_secret_postgres_memories() {
         )
         .expect("conversation object ref"),
         "Secret credential-like detail",
-        ObjectRef::agent("agent:primary"),
+        ActorRef::agent("agent:primary"),
         ObjectRef::conversation_item(source_item.item_id.as_str()),
     );
     secret.title = Some("Credential detail".to_string());
@@ -1086,7 +1191,7 @@ async fn record_context_packet_writes_postgres_manifest_edges_omissions_and_use_
             parent_item_id: None,
             kind: ConversationItemKind::UserText,
             status: ConversationItemStatus::Completed,
-            author: ObjectRef::human("human:local"),
+            author: ActorRef::human("human:local"),
             content_text: Some("context packet postgres source".to_string()),
             payload_json: serde_json::json!({}),
             metadata: serde_json::json!({}),
@@ -1101,12 +1206,12 @@ async fn record_context_packet_writes_postgres_manifest_edges_omissions_and_use_
         )
         .expect("conversation object ref"),
         "Noema should record Postgres context packet manifests.",
-        ObjectRef::agent("agent:primary"),
+        ActorRef::agent("agent:primary"),
         ObjectRef::conversation_item(source_item.item_id.as_str()),
     );
     included.status = MemoryStatus::Active;
     included.participants = vec![NewMemoryParticipant::new(
-        ObjectRef::human("human:local"),
+        ActorRef::human("human:local"),
         ParticipantRole::HumanInScope,
     )];
     let included_memory = repo
@@ -1121,7 +1226,7 @@ async fn record_context_packet_writes_postgres_manifest_edges_omissions_and_use_
         )
         .expect("conversation object ref"),
         "Sensitive context packet detail should remain audit-only.",
-        ObjectRef::agent("agent:primary"),
+        ActorRef::agent("agent:primary"),
         ObjectRef::conversation_item(source_item.item_id.as_str()),
     );
     denied.status = MemoryStatus::Active;
@@ -1170,28 +1275,25 @@ async fn record_context_packet_writes_postgres_manifest_edges_omissions_and_use_
         .await
         .expect("record context packet");
 
-    let packet =
-        sqlx::query_as::<_, (String, String, String, serde_json::Value, serde_json::Value)>(
-            r"
+    let packet = sqlx::query_as::<_, (String, String, serde_json::Value, serde_json::Value)>(
+        r"
         SELECT
-          requesting_object_type,
-          requesting_object_id,
+          requesting_actor_id,
           purpose,
           active_objects,
           agent_visible_omissions
         FROM context_packets
         WHERE context_packet_id = $1
         ",
-        )
-        .bind("ctx_pg_packet")
-        .fetch_one(repo.pool())
-        .await
-        .expect("packet row");
-    assert_eq!(packet.0, "agent");
-    assert_eq!(packet.1, "agent:primary");
-    assert_eq!(packet.2, "answer_human_question");
+    )
+    .bind("ctx_pg_packet")
+    .fetch_one(repo.pool())
+    .await
+    .expect("packet row");
+    assert_eq!(packet.0, "agent:primary");
+    assert_eq!(packet.1, "answer_human_question");
     assert_eq!(
-        packet.3,
+        packet.2,
         serde_json::json!([
             {
                 "object_type": "conversation",
@@ -1200,7 +1302,7 @@ async fn record_context_packet_writes_postgres_manifest_edges_omissions_and_use_
         ])
     );
     assert_eq!(
-        packet.4,
+        packet.3,
         serde_json::json!([{ "reason": "policy_restricted_context" }])
     );
 
@@ -1249,13 +1351,12 @@ async fn record_context_packet_writes_postgres_manifest_edges_omissions_and_use_
         })
     );
 
-    let use_records = sqlx::query_as::<_, (String, String, String, String, String)>(
+    let use_records = sqlx::query_as::<_, (String, String, String, String)>(
         r"
         SELECT
           memory_id,
           stage,
-          agent_object_type,
-          agent_object_id,
+          agent_actor_id,
           context_object_type
         FROM memory_use_records
         WHERE context_packet_id = $1
@@ -1270,16 +1371,14 @@ async fn record_context_packet_writes_postgres_manifest_edges_omissions_and_use_
     assert!(use_records.iter().any(|record| {
         record.0 == included_memory.id
             && record.1 == "included_in_packet"
-            && record.2 == "agent"
-            && record.3 == "agent:primary"
-            && record.4 == "conversation"
+            && record.2 == "agent:primary"
+            && record.3 == "conversation"
     }));
     assert!(use_records.iter().any(|record| {
         record.0 == included_memory.id
             && record.1 == "retrieved"
-            && record.2 == "agent"
-            && record.3 == "agent:primary"
-            && record.4 == "conversation"
+            && record.2 == "agent:primary"
+            && record.3 == "conversation"
     }));
 }
 
@@ -1301,7 +1400,7 @@ async fn postgres_context_graph_filter_includes_relationship_omission_backing_me
             parent_item_id: None,
             kind: ConversationItemKind::UserText,
             status: ConversationItemStatus::Completed,
-            author: ObjectRef::human("human:local"),
+            author: ActorRef::human("human:local"),
             content_text: Some("Alice prefers quiet train cars.".to_string()),
             payload_json: serde_json::json!({}),
             metadata: serde_json::json!({}),
@@ -1316,7 +1415,7 @@ async fn postgres_context_graph_filter_includes_relationship_omission_backing_me
         )
         .expect("conversation object ref"),
         "Alice prefers quiet train cars.",
-        ObjectRef::agent("agent:primary"),
+        ActorRef::agent("agent:primary"),
         ObjectRef::conversation_item(source_item.item_id.as_str()),
     );
     backing.status = MemoryStatus::Active;
@@ -1440,7 +1539,7 @@ async fn retrieve_memories_uses_postgres_search_and_policy_fingerprint() {
             parent_item_id: None,
             kind: ConversationItemKind::UserText,
             status: ConversationItemStatus::Completed,
-            author: ObjectRef::human("human:local"),
+            author: ActorRef::human("human:local"),
             content_text: Some("remember the postgres retrieval caboose".to_string()),
             payload_json: serde_json::json!({}),
             metadata: serde_json::json!({}),
@@ -1455,7 +1554,7 @@ async fn retrieve_memories_uses_postgres_search_and_policy_fingerprint() {
         )
         .expect("conversation ref"),
         "The Postgres retrieval caboose should be easy to find.",
-        ObjectRef::agent("agent:primary"),
+        ActorRef::agent("agent:primary"),
         ObjectRef::conversation_item(source_item.item_id.as_str()),
     );
     candidate.status = MemoryStatus::Active;
@@ -1463,7 +1562,7 @@ async fn retrieve_memories_uses_postgres_search_and_policy_fingerprint() {
     candidate.retrieval_hints =
         serde_json::json!({"topics": ["postgres"], "keywords": ["caboose"]});
     candidate.participants = vec![NewMemoryParticipant::new(
-        ObjectRef::human("human:local"),
+        ActorRef::human("human:local"),
         ParticipantRole::HumanInScope,
     )];
     let memory = repo
@@ -1473,7 +1572,7 @@ async fn retrieve_memories_uses_postgres_search_and_policy_fingerprint() {
     let mut public_hint_candidate = NewMemoryCandidate::confirmed_note(
         ObjectRef::human("human:local"),
         "The public Postgres retrieval signal mentions a switchstand.",
-        ObjectRef::agent("agent:primary"),
+        ActorRef::agent("agent:primary"),
         ObjectRef::conversation_item(source_item.item_id.as_str()),
     );
     public_hint_candidate.status = MemoryStatus::Active;
@@ -1491,10 +1590,9 @@ async fn retrieve_memories_uses_postgres_search_and_policy_fingerprint() {
           memory_id,
           purpose,
           effect,
-          created_by_object_type,
-          created_by_object_id
+          created_by_actor_id
         )
-        VALUES ($1, 'answer_human_question', 'allow', 'agent', 'agent:primary')
+        VALUES ($1, 'answer_human_question', 'allow', 'agent:primary')
         ",
     )
     .bind(memory.id.as_str())
@@ -1511,8 +1609,7 @@ async fn retrieve_memories_uses_postgres_search_and_policy_fingerprint() {
           grantee_object_id,
           permission,
           effect,
-          created_by_object_type,
-          created_by_object_id
+          created_by_actor_id
         )
         VALUES (
           'grant_pg_retrieval_policy',
@@ -1522,7 +1619,6 @@ async fn retrieve_memories_uses_postgres_search_and_policy_fingerprint() {
           'agent:primary',
           'use_for_retrieval',
           'allow',
-          'human',
           'human:local'
         )
         ",
@@ -1571,18 +1667,19 @@ async fn retrieve_memories_uses_postgres_search_and_policy_fingerprint() {
     let fingerprint = repo
         .refresh_retrieval_policy_fingerprint(
             memory.id.as_str(),
-            ObjectRef::agent("agent:primary"),
+            ActorRef::agent("agent:primary"),
             "postgres-test",
         )
         .await
         .expect("refresh fingerprint");
     assert!(fingerprint.starts_with("sha256:"));
 
-    let policy_row = sqlx::query_as::<_, (String, Option<String>, Option<String>)>(
+    let policy_row = sqlx::query_as::<_, (String, Option<String>, Option<String>, Option<String>)>(
         r"
         SELECT
           retrieval_policy_status,
           retrieval_policy_fingerprint,
+          retrieval_policy_extractor_actor_id,
           retrieval_policy_extractor_version
         FROM memory_items
         WHERE memory_id = $1
@@ -1594,7 +1691,8 @@ async fn retrieve_memories_uses_postgres_search_and_policy_fingerprint() {
     .expect("policy row");
     assert_eq!(policy_row.0, "valid");
     assert_eq!(policy_row.1.as_deref(), Some(fingerprint.as_str()));
-    assert_eq!(policy_row.2.as_deref(), Some("postgres-test"));
+    assert_eq!(policy_row.2.as_deref(), Some("agent:primary"));
+    assert_eq!(policy_row.3.as_deref(), Some("postgres-test"));
 
     let result = repo.retrieve_memories(&request).await.expect("retrieve");
     assert_eq!(result.included.len(), 2);

@@ -7,6 +7,7 @@ mod context_packets;
 mod conversations;
 mod error;
 mod helpers;
+mod ids;
 pub(crate) mod models;
 mod objects;
 mod postgres_context_graph;
@@ -25,11 +26,14 @@ pub use conversations::{
     NewConversationItem, NewConversationTurn, ReplayMode,
 };
 pub use error::MemoryPersistenceError;
+pub use ids::{
+    ActorId, ContextPacketId, ConversationId, ConversationItemId, MemoryItemId, ObjectId,
+};
 pub use models::{
     MemoryAuthorityLevel, MemoryExtractionMethod, MemorySummary, MemoryType, NewMemoryCandidate,
     NewMemoryParticipant, NewMemorySubject, ObjectProvenanceSource,
 };
-pub use objects::{ObjectRef, ObjectType};
+pub use objects::{ActorKind, ActorRef, ObjectRef, ObjectType};
 pub use provenance::{DeleteConversationItem, NewObjectProvenanceEdge};
 pub use provider_accounts::{ProviderAccountRecord, ProviderAccountStatus, ProviderAuthMethod};
 pub use repository::PostgresMemoryRepository;

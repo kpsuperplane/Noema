@@ -206,14 +206,21 @@ export function App() {
 
   if (!onboarding) {
     return (
-      <main className="noema-app">
+      <main className="grid h-dvh min-h-screen grid-rows-[auto_minmax(0,1fr)] overflow-hidden bg-background">
         <AppHeader status={status} socketState={socketState} agentStatus={agentStatus} />
-        <section className="onboarding-shell" aria-label="Noema onboarding">
-          <div className="onboarding-panel">
-            <p className="eyebrow">First run</p>
-            <h1>Checking setup</h1>
-            <p>Noema is checking whether chat can start.</p>
-            {displayedOnboardingError ? <p className="onboarding-error">{displayedOnboardingError}</p> : null}
+        <section
+          className="mx-auto grid min-h-[calc(100vh-68px)] w-[min(760px,100%)] content-center px-6 max-[760px]:min-h-[calc(100vh-118px)] max-[760px]:content-start max-[760px]:px-5"
+          aria-label="Noema onboarding"
+        >
+          <div className="grid min-w-0 gap-3.5 py-[18px]">
+            <p className="m-0 font-mono text-[11px] tracking-[0.12em] text-[var(--text-accent)] uppercase">First run</p>
+            <h1 className="m-0 font-heading text-[34px] leading-[1.1] tracking-normal text-foreground [overflow-wrap:anywhere] max-[760px]:text-3xl">
+              Checking setup
+            </h1>
+            <p className="m-0 max-w-[560px] text-muted-foreground [overflow-wrap:anywhere]">
+              Noema is checking whether chat can start.
+            </p>
+            {displayedOnboardingError ? <p className="m-0 text-[var(--red-700)]">{displayedOnboardingError}</p> : null}
           </div>
         </section>
       </main>
@@ -222,7 +229,7 @@ export function App() {
 
   if (!onboarding.isUserOnboarded) {
     return (
-      <main className="noema-app">
+      <main className="grid h-dvh min-h-screen grid-rows-[auto_minmax(0,1fr)] overflow-hidden bg-background">
         <AppHeader status={status} socketState={socketState} agentStatus={agentStatus} />
         <Onboarding
           onboarding={onboarding}
@@ -240,10 +247,13 @@ export function App() {
   }
 
   return (
-    <main className="noema-app">
+    <main className="grid h-dvh min-h-screen grid-rows-[auto_minmax(0,1fr)] overflow-hidden bg-background">
       <AppHeader status={status} socketState={socketState} agentStatus={agentStatus} />
 
-      <section className="chat-shell" aria-label="Noema chat">
+      <section
+        className="grid h-full min-h-0 w-full grid-rows-[minmax(0,1fr)_auto] overflow-hidden pb-[22px] [--chat-column-width:min(860px,calc(100%_-_48px))] max-[760px]:pb-[18px] max-[760px]:[--chat-column-width:calc(100%_-_40px)]"
+        aria-label="Noema chat"
+      >
         {transcript.length === 0 ? (
           <EmptyState onPick={(starter) => setDraft(starter)} />
         ) : (

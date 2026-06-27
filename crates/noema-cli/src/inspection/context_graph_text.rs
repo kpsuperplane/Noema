@@ -97,11 +97,9 @@ pub(super) fn write_context_graph_text(
             participant_visibility_policy_label(memory.participant_visibility_policy),
             external_egress_policy_label(memory.external_egress_policy),
             memory
-                .retrieval_policy_extractor_object_type
+                .retrieval_policy_extractor_actor_id
                 .as_deref()
-                .zip(memory.retrieval_policy_extractor_object_id.as_deref())
-                .map(|(object_type, object_id)| object_ref(object_type, object_id))
-                .unwrap_or_else(|| "-".to_string()),
+                .unwrap_or("-"),
             memory
                 .retrieval_policy_extractor_version
                 .as_deref()
@@ -166,7 +164,7 @@ pub(super) fn write_context_graph_text(
             stdout,
             "{:<38}  {:<34}  {}",
             edge.memory_id,
-            object_ref(&edge.participant_object_type, &edge.participant_object_id),
+            edge.participant_actor_id,
             participant_role_label(edge.role),
         )
         .map_err(CliError::WriteOutput)?;
@@ -202,14 +200,8 @@ pub(super) fn write_context_graph_text(
             edge.memory_id,
             edge.relation,
             object_ref(&edge.object_type, &edge.object_id),
-            optional_object_ref(
-                edge.authorized_object_type.as_deref(),
-                edge.authorized_object_id.as_deref()
-            ),
-            optional_object_ref(
-                edge.resolver_object_type.as_deref(),
-                edge.resolver_object_id.as_deref()
-            ),
+            edge.authorized_actor_id.as_deref().unwrap_or("-"),
+            edge.resolver_actor_id.as_deref().unwrap_or("-"),
         )
         .map_err(CliError::WriteOutput)?;
     }
@@ -229,10 +221,7 @@ pub(super) fn write_context_graph_text(
             rule.memory_id,
             purpose_label(rule.purpose),
             effect_label(rule.effect),
-            optional_object_ref(
-                rule.created_by_object_type.as_deref(),
-                rule.created_by_object_id.as_deref()
-            ),
+            rule.created_by_actor_id.as_deref().unwrap_or("-"),
         )
         .map_err(CliError::WriteOutput)?;
     }
@@ -273,7 +262,7 @@ pub(super) fn write_context_graph_text(
             "{:<38}  {:<24}  {:<34}  {:<24}  {}",
             packet.context_packet_id,
             packet.run_id,
-            object_ref(&packet.requesting_object_type, &packet.requesting_object_id),
+            packet.requesting_actor_id,
             purpose_label(packet.purpose),
             preview(&packet.active_objects, 96),
         )
@@ -371,10 +360,7 @@ pub(super) fn write_context_graph_text(
             stdout,
             "{:<38}  agent={} context={} object={} details: {}",
             "",
-            optional_object_ref(
-                record.agent_object_type.as_deref(),
-                record.agent_object_id.as_deref()
-            ),
+            record.agent_actor_id.as_deref().unwrap_or("-"),
             optional_object_ref(
                 record.context_object_type.as_deref(),
                 record.context_object_id.as_deref()
@@ -402,10 +388,7 @@ pub(super) fn write_context_graph_text(
             "{:<38}  {:<16}  {:<34}  {:<44}  {}",
             event.event_id,
             event.event_type,
-            optional_object_ref(
-                event.actor_object_type.as_deref(),
-                event.actor_object_id.as_deref()
-            ),
+            event.actor_id.as_deref().unwrap_or("-"),
             optional_object_ref(
                 event.target_object_type.as_deref(),
                 event.target_object_id.as_deref()

@@ -9,7 +9,7 @@ use super::{
     error::MemoryPersistenceError,
     helpers::*,
     models::*,
-    objects::{ObjectRef, validate_object_ref_for_pool},
+    objects::{ActorRef, validate_actor_ref_for_pool},
     postgres_schema::POSTGRES_SCHEMA_SQL,
     queries::{POSTGRES_MEMORY_SUMMARY_BY_ID_SQL, POSTGRES_RECENT_MEMORY_SQL},
 };
@@ -252,9 +252,12 @@ impl PostgresMemoryRepository {
             .map_err(MemoryPersistenceError::Database)?;
         sqlx::query(
             r"
-            INSERT INTO humans (human_id, display_name, handle)
-            VALUES ($1, $2, $3)
-            ON CONFLICT (human_id) DO UPDATE SET updated_at = now()
+            INSERT INTO actors (actor_id, actor_kind, display_name, handle)
+            VALUES ($1, 'human', $2, $3)
+            ON CONFLICT (actor_id) DO UPDATE SET
+              display_name = EXCLUDED.display_name,
+              handle = EXCLUDED.handle,
+              updated_at = now()
             ",
         )
         .bind("human:local")
@@ -265,9 +268,42 @@ impl PostgresMemoryRepository {
         .map_err(MemoryPersistenceError::Database)?;
         sqlx::query(
             r"
-            INSERT INTO agents (agent_id, display_name, handle)
-            VALUES ($1, $2, $3)
-            ON CONFLICT (agent_id) DO UPDATE SET updated_at = now()
+            INSERT INTO actors (actor_id, actor_kind, display_name, handle)
+            VALUES ($1, 'agent', $2, $3)
+            ON CONFLICT (actor_id) DO UPDATE SET
+              display_name = EXCLUDED.display_name,
+              handle = EXCLUDED.handle,
+              updated_at = now()
+            ",
+        )
+        .bind("agent:primary")
+        .bind("Noema")
+        .bind("primary")
+        .execute(&mut *tx)
+        .await
+        .map_err(MemoryPersistenceError::Database)?;
+        sqlx::query(
+            r"
+            INSERT INTO humans (human_id, actor_id, display_name, handle)
+            VALUES ($1, $1, $2, $3)
+            ON CONFLICT (human_id) DO UPDATE SET
+              actor_id = EXCLUDED.actor_id,
+              updated_at = now()
+            ",
+        )
+        .bind("human:local")
+        .bind("Local human")
+        .bind("local")
+        .execute(&mut *tx)
+        .await
+        .map_err(MemoryPersistenceError::Database)?;
+        sqlx::query(
+            r"
+            INSERT INTO agents (agent_id, actor_id, display_name, handle)
+            VALUES ($1, $1, $2, $3)
+            ON CONFLICT (agent_id) DO UPDATE SET
+              actor_id = EXCLUDED.actor_id,
+              updated_at = now()
             ",
         )
         .bind("agent:primary")
@@ -303,10 +339,10 @@ impl PostgresMemoryRepository {
     pub async fn refresh_retrieval_policy_fingerprint(
         &self,
         memory_id: &str,
-        extractor: ObjectRef,
+        extractor: ActorRef,
         extractor_version: &str,
     ) -> Result<String, MemoryPersistenceError> {
-        validate_object_ref_for_pool(&self.pool, &extractor).await?;
+        validate_actor_ref_for_pool(&self.pool, &extractor).await?;
         let fingerprint =
             postgres_retrieval_policy_fingerprint::current_fingerprint(&self.pool, memory_id)
                 .await?;
@@ -316,17 +352,15 @@ impl PostgresMemoryRepository {
             SET
               retrieval_policy_status = 'valid',
               retrieval_policy_fingerprint = $2,
-              retrieval_policy_extractor_object_type = $3,
-              retrieval_policy_extractor_object_id = $4,
-              retrieval_policy_extractor_version = $5,
+              retrieval_policy_extractor_actor_id = $3,
+              retrieval_policy_extractor_version = $4,
               retrieval_policy_validated_at = now()
             WHERE memory_id = $1
             ",
         )
         .bind(memory_id)
         .bind(fingerprint.as_str())
-        .bind(extractor.object_type.as_str())
-        .bind(extractor.object_id.as_str())
+        .bind(extractor.actor_id.as_str())
         .bind(extractor_version)
         .execute(&self.pool)
         .await

@@ -50,8 +50,7 @@ async fn memory_basis(pool: &PgPool, memory_id: &str) -> Result<Value, MemoryPer
           retrieval_policy_version,
           participant_visibility_policy,
           external_egress_policy,
-          created_by_object_type,
-          created_by_object_id,
+          created_by_actor_id,
           authority_level,
           extraction_method,
           valid_from::text AS valid_from,
@@ -83,8 +82,7 @@ async fn memory_basis(pool: &PgPool, memory_id: &str) -> Result<Value, MemoryPer
         "retrieval_policy_version": row.try_get::<i32, _>("retrieval_policy_version")?,
         "participant_visibility_policy": row.try_get::<String, _>("participant_visibility_policy")?,
         "external_egress_policy": row.try_get::<String, _>("external_egress_policy")?,
-        "created_by_object_type": row.try_get::<String, _>("created_by_object_type")?,
-        "created_by_object_id": row.try_get::<String, _>("created_by_object_id")?,
+        "created_by_actor_id": row.try_get::<String, _>("created_by_actor_id")?,
         "authority_level": row.try_get::<String, _>("authority_level")?,
         "extraction_method": row.try_get::<String, _>("extraction_method")?,
         "valid_from": row.try_get::<Option<String>, _>("valid_from")?,
@@ -120,12 +118,12 @@ async fn participants_basis(
     pool: &PgPool,
     memory_id: &str,
 ) -> Result<Vec<Value>, MemoryPersistenceError> {
-    let rows = sqlx::query_as::<_, (String, String, String)>(
+    let rows = sqlx::query_as::<_, (String, String)>(
         r"
-        SELECT participant_object_type, participant_object_id, role
+        SELECT participant_actor_id, role
         FROM memory_participants
         WHERE memory_id = $1
-        ORDER BY participant_object_type ASC, participant_object_id ASC, role ASC
+        ORDER BY participant_actor_id ASC, role ASC
         ",
     )
     .bind(memory_id)
@@ -135,10 +133,9 @@ async fn participants_basis(
 
     Ok(rows
         .into_iter()
-        .map(|(participant_object_type, participant_object_id, role)| {
+        .map(|(participant_actor_id, role)| {
             json!({
-                "participant_object_type": participant_object_type,
-                "participant_object_id": participant_object_id,
+                "participant_actor_id": participant_actor_id,
                 "role": role,
             })
         })
@@ -149,12 +146,12 @@ async fn purpose_rules_basis(
     pool: &PgPool,
     memory_id: &str,
 ) -> Result<Vec<Value>, MemoryPersistenceError> {
-    let rows = sqlx::query_as::<_, (String, String)>(
+    let rows = sqlx::query_as::<_, (String, String, Option<String>)>(
         r"
-        SELECT purpose, effect
+        SELECT purpose, effect, created_by_actor_id
         FROM memory_retrieval_purpose_rules
         WHERE memory_id = $1
-        ORDER BY purpose ASC, effect ASC
+        ORDER BY purpose ASC, effect ASC, created_by_actor_id ASC
         ",
     )
     .bind(memory_id)
@@ -164,7 +161,13 @@ async fn purpose_rules_basis(
 
     Ok(rows
         .into_iter()
-        .map(|(purpose, effect)| json!({ "purpose": purpose, "effect": effect }))
+        .map(|(purpose, effect, created_by_actor_id)| {
+            json!({
+                "purpose": purpose,
+                "effect": effect,
+                "created_by_actor_id": created_by_actor_id,
+            })
+        })
         .collect())
 }
 
@@ -178,14 +181,11 @@ async fn object_links_basis(
           object_type,
           object_id,
           relation,
-          resolver_object_type,
-          resolver_object_id,
+          resolver_actor_id,
           resolver_version,
           source_run_id,
-          authorized_object_type,
-          authorized_object_id,
-          created_by_object_type,
-          created_by_object_id
+          authorized_actor_id,
+          created_by_actor_id
         FROM memory_retrieval_object_links
         WHERE memory_id = $1
         ORDER BY object_type ASC, object_id ASC, relation ASC
@@ -202,14 +202,11 @@ async fn object_links_basis(
                 "object_type": row.try_get::<String, _>("object_type")?,
                 "object_id": row.try_get::<String, _>("object_id")?,
                 "relation": row.try_get::<String, _>("relation")?,
-                "resolver_object_type": row.try_get::<Option<String>, _>("resolver_object_type")?,
-                "resolver_object_id": row.try_get::<Option<String>, _>("resolver_object_id")?,
+                "resolver_actor_id": row.try_get::<Option<String>, _>("resolver_actor_id")?,
                 "resolver_version": row.try_get::<Option<String>, _>("resolver_version")?,
                 "source_run_id": row.try_get::<Option<String>, _>("source_run_id")?,
-                "authorized_object_type": row.try_get::<Option<String>, _>("authorized_object_type")?,
-                "authorized_object_id": row.try_get::<Option<String>, _>("authorized_object_id")?,
-                "created_by_object_type": row.try_get::<Option<String>, _>("created_by_object_type")?,
-                "created_by_object_id": row.try_get::<Option<String>, _>("created_by_object_id")?,
+                "authorized_actor_id": row.try_get::<Option<String>, _>("authorized_actor_id")?,
+                "created_by_actor_id": row.try_get::<Option<String>, _>("created_by_actor_id")?,
             }))
         })
         .collect()

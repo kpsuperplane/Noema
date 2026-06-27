@@ -1,9 +1,9 @@
 use serde_json::{Value, json};
 
 use super::{
-    ObjectRef, ObjectType,
+    ActorRef, ObjectRef, ObjectType,
     error::MemoryPersistenceError,
-    objects::validate_object_ref_for_pool,
+    objects::{validate_actor_ref_for_pool, validate_object_ref_for_pool},
     postgres_helpers::{allocate_id as allocate_postgres_id, json_value},
     repository::PostgresMemoryRepository,
 };
@@ -302,8 +302,8 @@ pub struct NewConversationItem {
     pub kind: ConversationItemKind,
     /// Item execution status.
     pub status: ConversationItemStatus,
-    /// Concrete object that authored the item.
-    pub author: ObjectRef,
+    /// Actor that authored the item.
+    pub author: ActorRef,
     /// Readable item text, when any.
     pub content_text: Option<String>,
     /// Structured item payload.
@@ -716,9 +716,9 @@ impl PostgresMemoryRepository {
             r"
             INSERT INTO conversation_items (
               item_id, conversation_id, turn_id, parent_item_id, kind, status,
-              author_object_type, author_object_id, content_text, payload_json, metadata
+              author_actor_id, content_text, payload_json, metadata
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             RETURNING item_id, conversation_id, turn_id, kind, status, content_text, payload_json
             ",
         )
@@ -728,8 +728,7 @@ impl PostgresMemoryRepository {
         .bind(item.parent_item_id.as_deref())
         .bind(item.kind.as_str())
         .bind(item.status.as_str())
-        .bind(item.author.object_type.as_str())
-        .bind(item.author.object_id.as_str())
+        .bind(item.author.actor_id.as_str())
         .bind(item.content_text.as_deref())
         .bind(json_value(item.payload_json))
         .bind(json_value(item.metadata))
@@ -887,7 +886,7 @@ impl PostgresMemoryRepository {
             &ObjectRef::new(ObjectType::Conversation, item.conversation_id.as_str())?,
         )
         .await?;
-        validate_object_ref_for_pool(self.pool(), &item.author).await?;
+        validate_actor_ref_for_pool(self.pool(), &item.author).await?;
 
         if let Some(turn_id) = &item.turn_id {
             let turn_conversation_id = sqlx::query_scalar::<_, String>(

@@ -102,11 +102,7 @@ fn write_context_graph_mermaid(
             ),
         );
         let run_node = add_run_node(&mut mermaid, &packet.run_id);
-        let requester_node = add_object_node(
-            &mut mermaid,
-            &packet.requesting_object_type,
-            &packet.requesting_object_id,
-        );
+        let requester_node = add_actor_node(&mut mermaid, &packet.requesting_actor_id);
         mermaid.edge(packet_node.clone(), run_node, "run");
         mermaid.edge(packet_node, requester_node, "requester");
     }
@@ -155,11 +151,7 @@ fn write_context_graph_mermaid(
 
     for edge in &graph.participant_edges {
         let memory_node = add_memory_reference(&mut mermaid, &edge.memory_id);
-        let participant_node = add_object_node(
-            &mut mermaid,
-            &edge.participant_object_type,
-            &edge.participant_object_id,
-        );
+        let participant_node = add_actor_node(&mut mermaid, &edge.participant_actor_id);
         mermaid.edge(
             memory_node,
             participant_node,
@@ -185,20 +177,12 @@ fn write_context_graph_mermaid(
         let memory_node = add_memory_reference(&mut mermaid, &edge.memory_id);
         let object_node = add_object_node(&mut mermaid, &edge.object_type, &edge.object_id);
         mermaid.edge(memory_node, object_node.clone(), edge.relation.clone());
-        if let Some(authorized) = edge
-            .authorized_object_type
-            .as_deref()
-            .zip(edge.authorized_object_id.as_deref())
-        {
-            let authorized_node = add_object_node(&mut mermaid, authorized.0, authorized.1);
+        if let Some(authorized_actor_id) = edge.authorized_actor_id.as_deref() {
+            let authorized_node = add_actor_node(&mut mermaid, authorized_actor_id);
             mermaid.edge(object_node.clone(), authorized_node, "authorized_by");
         }
-        if let Some(resolver) = edge
-            .resolver_object_type
-            .as_deref()
-            .zip(edge.resolver_object_id.as_deref())
-        {
-            let resolver_node = add_object_node(&mut mermaid, resolver.0, resolver.1);
+        if let Some(resolver_actor_id) = edge.resolver_actor_id.as_deref() {
+            let resolver_node = add_actor_node(&mut mermaid, resolver_actor_id);
             mermaid.edge(object_node, resolver_node, "resolver");
         }
     }
@@ -219,12 +203,8 @@ fn write_context_graph_mermaid(
             ),
         );
         mermaid.edge(memory_node, rule_node.clone(), "purpose_rule");
-        if let Some(created_by) = rule
-            .created_by_object_type
-            .as_deref()
-            .zip(rule.created_by_object_id.as_deref())
-        {
-            let created_by_node = add_object_node(&mut mermaid, created_by.0, created_by.1);
+        if let Some(created_by_actor_id) = rule.created_by_actor_id.as_deref() {
+            let created_by_node = add_actor_node(&mut mermaid, created_by_actor_id);
             mermaid.edge(rule_node, created_by_node, "created_by");
         }
     }
@@ -252,12 +232,8 @@ fn write_context_graph_mermaid(
             &grant.grantee_object_id,
         );
         mermaid.edge(grant_node.clone(), grantee_node, "grantee");
-        if let Some(created_by) = grant
-            .created_by_object_type
-            .as_deref()
-            .zip(grant.created_by_object_id.as_deref())
-        {
-            let created_by_node = add_object_node(&mut mermaid, created_by.0, created_by.1);
+        if let Some(created_by_actor_id) = grant.created_by_actor_id.as_deref() {
+            let created_by_node = add_actor_node(&mut mermaid, created_by_actor_id);
             mermaid.edge(grant_node, created_by_node, "created_by");
         }
     }
@@ -312,12 +288,8 @@ fn write_context_graph_mermaid(
             let packet_node = add_context_packet_reference(&mut mermaid, packet_id);
             mermaid.edge(use_node.clone(), packet_node, "packet");
         }
-        if let Some(agent) = record
-            .agent_object_type
-            .as_deref()
-            .zip(record.agent_object_id.as_deref())
-        {
-            let agent_node = add_object_node(&mut mermaid, agent.0, agent.1);
+        if let Some(agent_actor_id) = record.agent_actor_id.as_deref() {
+            let agent_node = add_actor_node(&mut mermaid, agent_actor_id);
             mermaid.edge(use_node.clone(), agent_node, "agent");
         }
         if let Some(context) = record
@@ -362,12 +334,8 @@ fn write_context_graph_mermaid(
             let target_node = add_object_node(&mut mermaid, target.0, target.1);
             mermaid.edge(event_node.clone(), target_node, "target");
         }
-        if let Some(actor) = event
-            .actor_object_type
-            .as_deref()
-            .zip(event.actor_object_id.as_deref())
-        {
-            let actor_node = add_object_node(&mut mermaid, actor.0, actor.1);
+        if let Some(actor_id) = event.actor_id.as_deref() {
+            let actor_node = add_actor_node(&mut mermaid, actor_id);
             mermaid.edge(event_node, actor_node, "actor");
         }
     }
@@ -497,6 +465,10 @@ fn add_object_node(mermaid: &mut MermaidGraph, object_type: &str, object_id: &st
     )
 }
 
+fn add_actor_node(mermaid: &mut MermaidGraph, actor_id: &str) -> String {
+    mermaid.node(actor_node_id(actor_id), format!("actor: {actor_id}"))
+}
+
 fn add_run_node(mermaid: &mut MermaidGraph, run_id: &str) -> String {
     mermaid.node(run_node_id(run_id), format!("run: {run_id}"))
 }
@@ -525,6 +497,10 @@ fn entity_node_id(entity_id: &str) -> String {
 
 fn object_node_id(object_type: &str, object_id: &str) -> String {
     mermaid_node_id("object_", &format!("{object_type}:{object_id}"))
+}
+
+fn actor_node_id(actor_id: &str) -> String {
+    mermaid_node_id("actor_", actor_id)
 }
 
 fn run_node_id(run_id: &str) -> String {

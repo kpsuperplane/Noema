@@ -64,9 +64,9 @@ pub use memory_extraction::{
     parse_memory_extraction_proposals, validate_memory_extraction_response,
 };
 pub use memory_persistence::{
-    DeleteConversationItem, MemoryAuthorityLevel, MemoryExtractionMethod, MemoryPersistenceError,
-    MemorySummary, MemoryType, NewMemoryCandidate, NewMemoryParticipant, NewMemorySubject,
-    NewObjectProvenanceEdge, ObjectProvenanceSource, ObjectRef, ObjectType,
+    ActorRef, DeleteConversationItem, MemoryAuthorityLevel, MemoryExtractionMethod,
+    MemoryPersistenceError, MemorySummary, MemoryType, NewMemoryCandidate, NewMemoryParticipant,
+    NewMemorySubject, NewObjectProvenanceEdge, ObjectProvenanceSource, ObjectRef, ObjectType,
     PostgresMemoryRepository, ProviderAccountRecord, ProviderAccountStatus, ProviderAuthMethod,
 };
 pub use onboarding::{

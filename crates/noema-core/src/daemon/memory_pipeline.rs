@@ -7,7 +7,7 @@ use crate::{
         ValidatedMemoryProposal,
     },
     memory_persistence::{
-        MemoryAuthorityLevel, MemoryExtractionMethod, MemoryType, NewMemoryCandidate,
+        ActorRef, MemoryAuthorityLevel, MemoryExtractionMethod, MemoryType, NewMemoryCandidate,
         NewMemoryParticipant, NewMemorySubject, ObjectProvenanceSource, ObjectRef,
     },
 };
@@ -150,7 +150,7 @@ pub(super) fn extracted_proposal_to_candidate(
     let mut candidate = NewMemoryCandidate::confirmed_note(
         owner,
         proposal.content.clone(),
-        ObjectRef::agent("agent:primary"),
+        ActorRef::agent("agent:primary"),
         source_item_ref_for_evidence(&proposal.evidence_excerpt, user_input, context),
     );
     candidate.memory_type = proposal.memory_type;
@@ -160,7 +160,7 @@ pub(super) fn extracted_proposal_to_candidate(
     candidate.confidence = Some(f64::from(proposal.confidence));
     candidate.retrieval_hints =
         serde_json::to_value(&proposal.retrieval_hints).map_err(|error| error.to_string())?;
-    candidate.owner_actor = Some(ObjectRef::human("human:local"));
+    candidate.owner_actor = Some(ActorRef::human("human:local"));
     candidate.authority_level = MemoryAuthorityLevel::AgentInference;
     candidate.extraction_method = MemoryExtractionMethod::LlmExtracted;
     candidate.source = Some(ObjectProvenanceSource {
@@ -203,10 +203,11 @@ pub(super) fn owner_for_extracted_proposal(
         return Ok(ObjectRef::human("human:local"));
     }
 
-    Ok(ObjectRef {
-        object_type: crate::memory_persistence::ObjectType::Conversation,
-        object_id: context.conversation_id.clone(),
-    })
+    ObjectRef::new(
+        crate::memory_persistence::ObjectType::Conversation,
+        context.conversation_id.clone(),
+    )
+    .map_err(|error| error.to_string())
 }
 
 pub(super) fn source_item_ref_for_evidence(

@@ -10,10 +10,11 @@ use crate::{
         validate_memory_extraction_response,
     },
     memory_persistence::{
-        AgentStatus as PersistedAgentStatus, ConversationItemKind, ConversationItemRecord,
-        ConversationItemStatus, MemoryAuthorityLevel, MemoryExtractionMethod, NewConversation,
-        NewConversationItem, NewConversationTurn, NewMemoryCandidate, NewMemoryParticipant,
-        ObjectProvenanceSource, ObjectRef, ObjectType, PostgresMemoryRepository,
+        ActorRef, AgentStatus as PersistedAgentStatus, ConversationItemKind,
+        ConversationItemRecord, ConversationItemStatus, MemoryAuthorityLevel,
+        MemoryExtractionMethod, NewConversation, NewConversationItem, NewConversationTurn,
+        NewMemoryCandidate, NewMemoryParticipant, ObjectProvenanceSource, ObjectRef, ObjectType,
+        PostgresMemoryRepository,
     },
     provider::{GenerateOutputItem, GenerateResponse, ProviderError},
     providers::{
@@ -430,7 +431,7 @@ impl CodexRuntimeActor {
                 parent_item_id: None,
                 kind: ConversationItemKind::UserText,
                 status: ConversationItemStatus::Completed,
-                author: ObjectRef::human("human:local"),
+                author: ActorRef::human("human:local"),
                 content_text: Some(input.clone()),
                 payload_json: json!({}),
                 metadata: json!({ "turn_index": turn_index }),
@@ -603,7 +604,7 @@ impl CodexRuntimeActor {
                             parent_item_id: Some(turn.user_item_id.clone()),
                             kind: ConversationItemKind::AssistantText,
                             status: ConversationItemStatus::Completed,
-                            author: ObjectRef::agent("agent:primary"),
+                            author: ActorRef::agent("agent:primary"),
                             content_text: Some(text.clone()),
                             payload_json: json!({}),
                             metadata: json!({
@@ -642,7 +643,7 @@ impl CodexRuntimeActor {
                             parent_item_id: Some(turn.user_item_id.clone()),
                             kind: ConversationItemKind::A2uiCard,
                             status: ConversationItemStatus::Completed,
-                            author: ObjectRef::agent("agent:primary"),
+                            author: ActorRef::agent("agent:primary"),
                             content_text: None,
                             payload_json: json!({
                                 "id": card_id.clone(),
@@ -876,7 +877,7 @@ impl CodexRuntimeActor {
                 parent_item_id: Some(turn.user_item_id.clone()),
                 kind: action.kind,
                 status: action.status,
-                author: ObjectRef::agent("agent:primary"),
+                author: ActorRef::agent("agent:primary"),
                 content_text,
                 payload_json: payload_json.clone(),
                 metadata: json!({
@@ -1072,7 +1073,7 @@ impl CodexRuntimeActor {
                 TurnTranscriptItem::UserText { text } => (
                     ConversationItemKind::UserText,
                     ConversationItemStatus::Completed,
-                    ObjectRef::human("human:local"),
+                    ActorRef::human("human:local"),
                     None,
                     Some(text.clone()),
                     json!({}),
@@ -1081,7 +1082,7 @@ impl CodexRuntimeActor {
                 TurnTranscriptItem::AssistantText { text } => (
                     ConversationItemKind::AssistantText,
                     ConversationItemStatus::Completed,
-                    ObjectRef::agent("agent:primary"),
+                    ActorRef::agent("agent:primary"),
                     default_parent_item_id.clone(),
                     Some(text.clone()),
                     json!({}),
@@ -1097,7 +1098,7 @@ impl CodexRuntimeActor {
                 } => (
                     ConversationItemKind::Activity,
                     conversation_item_status_for_activity(*status),
-                    ObjectRef::agent("agent:primary"),
+                    ActorRef::agent("agent:primary"),
                     default_parent_item_id.clone(),
                     Some(title.clone()),
                     json!({
@@ -1120,7 +1121,7 @@ impl CodexRuntimeActor {
                 } => (
                     ConversationItemKind::A2uiCard,
                     ConversationItemStatus::Completed,
-                    ObjectRef::agent("agent:primary"),
+                    ActorRef::agent("agent:primary"),
                     default_parent_item_id.clone(),
                     None,
                     json!({
@@ -1140,7 +1141,7 @@ impl CodexRuntimeActor {
                 } => (
                     ConversationItemKind::ErrorNotice,
                     ConversationItemStatus::Failed,
-                    ObjectRef::agent("agent:primary"),
+                    ActorRef::agent("agent:primary"),
                     default_parent_item_id,
                     Some(message.clone()),
                     json!({
@@ -1182,14 +1183,14 @@ impl CodexRuntimeActor {
         let mut candidate = NewMemoryCandidate::confirmed_note(
             ObjectRef::new(ObjectType::Conversation, conversation_id)?,
             memory_content,
-            ObjectRef::human("human:local"),
+            ActorRef::human("human:local"),
             ObjectRef::conversation_item(user_item_id),
         );
         candidate.memory_type = infer_chat_memory_type(&candidate.content);
         candidate.title = Some(title_from_memory_content(&candidate.content));
         candidate.sensitivity = infer_chat_sensitivity(&candidate.content);
         candidate.status = crate::memory::MemoryStatus::Confirmed;
-        candidate.owner_actor = Some(ObjectRef::human("human:local"));
+        candidate.owner_actor = Some(ActorRef::human("human:local"));
         candidate.authority_level = MemoryAuthorityLevel::ExplicitHumanStatement;
         candidate.extraction_method = MemoryExtractionMethod::ExplicitHuman;
         candidate.source = Some(ObjectProvenanceSource {

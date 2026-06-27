@@ -27,6 +27,9 @@ The current slice should stay small and concrete:
 - Concrete object rows are the canonical structured state; actor/principal,
   governable scope, provenance source, and transcript item are interfaces
   implemented by concrete objects rather than universal parent tables.
+- Postgres audit/provenance actor roles use `*_actor_id` references to
+  `actors`; source, target, grantee, context, and used-for object references
+  remain typed object pairs.
 - Durable chat history is reconstructed from `conversation_items`; the daemon
   WebSocket and `agent_status` are live coordination state for current turns.
 - Filesystem storage is for durable object-owned documents, attachments, and artifacts.
@@ -55,9 +58,12 @@ The current slice should stay small and concrete:
   conversation continuity is owned by Postgres, not provider runtime state.
 - Frontend build and lint use Bun from `crates/noema-core/web`.
 - Web GraphQL schema and operation types are generated with `bun run gen:types`.
-- The web UI uses shadcn/ui as a local, source-owned primitive foundation.
-  Noema-owned shell and domain components remain responsible for chat,
-  memory, provenance, approvals, tools, runs, and object detail semantics.
+- The web UI uses shadcn/ui `base-rhea` components backed by Base UI, with
+  Noema colors applied through local CSS tokens. Noema-owned shell and domain
+  components remain responsible for chat, memory, provenance, approvals, tools,
+  runs, and object detail semantics.
+- `crates/noema-core/web/tests` has been removed; web validation should use
+  `bun run lint`, `bun run build`, and local browser smoke checks.
 
 ## Open Loops
 

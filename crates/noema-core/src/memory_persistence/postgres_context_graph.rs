@@ -126,8 +126,7 @@ impl PostgresMemoryRepository {
               retrieval_policy_status,
               retrieval_policy_version::bigint AS retrieval_policy_version,
               retrieval_policy_fingerprint,
-              retrieval_policy_extractor_object_type,
-              retrieval_policy_extractor_object_id,
+              retrieval_policy_extractor_actor_id,
               retrieval_policy_extractor_version,
               retrieval_policy_validated_at::text AS retrieval_policy_validated_at,
               participant_visibility_policy,
@@ -175,10 +174,8 @@ impl PostgresMemoryRepository {
                 retrieval_policy_effective_status: effective_policy_status,
                 retrieval_policy_version: row.try_get("retrieval_policy_version")?,
                 retrieval_policy_fingerprint: stored_fingerprint,
-                retrieval_policy_extractor_object_type: row
-                    .try_get("retrieval_policy_extractor_object_type")?,
-                retrieval_policy_extractor_object_id: row
-                    .try_get("retrieval_policy_extractor_object_id")?,
+                retrieval_policy_extractor_actor_id: row
+                    .try_get("retrieval_policy_extractor_actor_id")?,
                 retrieval_policy_extractor_version: row
                     .try_get("retrieval_policy_extractor_version")?,
                 retrieval_policy_validated_at: row.try_get("retrieval_policy_validated_at")?,
@@ -387,12 +384,12 @@ impl PostgresMemoryRepository {
               ORDER BY created_at DESC, memory_id DESC
               LIMIT $1
             )
-            SELECT mp.memory_id, mp.participant_object_type, mp.participant_object_id, mp.role
+            SELECT mp.memory_id, mp.participant_actor_id, mp.role
             FROM memory_participants mp
             JOIN memory_items mi ON mi.memory_id = mp.memory_id
             WHERE ($2 IS NULL AND $3 IS NULL)
                OR mp.memory_id IN (SELECT memory_id FROM inspected_memories)
-            ORDER BY mi.created_at DESC, mp.memory_id ASC, mp.participant_object_type ASC, mp.participant_object_id ASC
+            ORDER BY mi.created_at DESC, mp.memory_id ASC, mp.participant_actor_id ASC
             LIMIT $1
             ",
         )
@@ -407,8 +404,7 @@ impl PostgresMemoryRepository {
             .map(|row| {
                 Ok(GraphParticipantEdge {
                     memory_id: row.try_get("memory_id")?,
-                    participant_object_type: row.try_get("participant_object_type")?,
-                    participant_object_id: row.try_get("participant_object_id")?,
+                    participant_actor_id: row.try_get("participant_actor_id")?,
                     role: parse_participant_role(row.try_get::<String, _>("role")?.as_str())?,
                 })
             })
@@ -513,10 +509,8 @@ impl PostgresMemoryRepository {
               link.object_type,
               link.object_id,
               link.relation,
-              link.authorized_object_type,
-              link.authorized_object_id,
-              link.resolver_object_type,
-              link.resolver_object_id,
+              link.authorized_actor_id,
+              link.resolver_actor_id,
               link.resolver_version,
               link.source_run_id,
               link.created_at::text AS created_at
@@ -542,10 +536,8 @@ impl PostgresMemoryRepository {
                     object_type: row.try_get("object_type")?,
                     object_id: row.try_get("object_id")?,
                     relation: row.try_get("relation")?,
-                    authorized_object_type: row.try_get("authorized_object_type")?,
-                    authorized_object_id: row.try_get("authorized_object_id")?,
-                    resolver_object_type: row.try_get("resolver_object_type")?,
-                    resolver_object_id: row.try_get("resolver_object_id")?,
+                    authorized_actor_id: row.try_get("authorized_actor_id")?,
+                    resolver_actor_id: row.try_get("resolver_actor_id")?,
                     resolver_version: row.try_get("resolver_version")?,
                     source_run_id: row.try_get("source_run_id")?,
                     created_at: row.try_get("created_at")?,
@@ -586,7 +578,7 @@ impl PostgresMemoryRepository {
               ORDER BY created_at DESC, memory_id DESC
               LIMIT $1
             )
-            SELECT rule.memory_id, rule.purpose, rule.effect, rule.created_by_object_type, rule.created_by_object_id, rule.created_at::text AS created_at
+            SELECT rule.memory_id, rule.purpose, rule.effect, rule.created_by_actor_id, rule.created_at::text AS created_at
             FROM memory_retrieval_purpose_rules rule
             JOIN memory_items mi ON mi.memory_id = rule.memory_id
             WHERE ($2 IS NULL AND $3 IS NULL)
@@ -608,8 +600,7 @@ impl PostgresMemoryRepository {
                     memory_id: row.try_get("memory_id")?,
                     purpose: parse_purpose(row.try_get::<String, _>("purpose")?.as_str())?,
                     effect: parse_effect(row.try_get::<String, _>("effect")?.as_str())?,
-                    created_by_object_type: row.try_get("created_by_object_type")?,
-                    created_by_object_id: row.try_get("created_by_object_id")?,
+                    created_by_actor_id: row.try_get("created_by_actor_id")?,
                     created_at: row.try_get("created_at")?,
                 })
             })
@@ -657,8 +648,7 @@ impl PostgresMemoryRepository {
               grant.permission,
               grant.effect,
               grant.expires_at::text AS expires_at,
-              grant.created_by_object_type,
-              grant.created_by_object_id,
+              grant.created_by_actor_id,
               grant.created_at::text AS created_at
             FROM object_access_grants grant
             WHERE (
@@ -696,8 +686,7 @@ impl PostgresMemoryRepository {
                     permission: row.try_get("permission")?,
                     effect: parse_effect(row.try_get::<String, _>("effect")?.as_str())?,
                     expires_at: row.try_get("expires_at")?,
-                    created_by_object_type: row.try_get("created_by_object_type")?,
-                    created_by_object_id: row.try_get("created_by_object_id")?,
+                    created_by_actor_id: row.try_get("created_by_actor_id")?,
                     created_at: row.try_get("created_at")?,
                 })
             })
@@ -722,8 +711,7 @@ impl PostgresMemoryRepository {
             SELECT
               context_packet_id,
               run_id,
-              requesting_object_type,
-              requesting_object_id,
+              requesting_actor_id,
               purpose,
               active_objects,
               agent_visible_omissions,
@@ -746,8 +734,7 @@ impl PostgresMemoryRepository {
                 Ok(GraphContextPacket {
                     context_packet_id: row.try_get("context_packet_id")?,
                     run_id: row.try_get("run_id")?,
-                    requesting_object_type: row.try_get("requesting_object_type")?,
-                    requesting_object_id: row.try_get("requesting_object_id")?,
+                    requesting_actor_id: row.try_get("requesting_actor_id")?,
                     purpose: parse_purpose(row.try_get::<String, _>("purpose")?.as_str())?,
                     active_objects: json_value_to_string(row.try_get("active_objects")?)?,
                     agent_visible_omissions: json_value_to_string(
@@ -881,8 +868,8 @@ impl PostgresMemoryRepository {
             )
             SELECT use_record.memory_use_id, use_record.context_packet_id,
                    use_record.run_id, use_record.memory_id, memory.sensitivity,
-                   use_record.stage, use_record.agent_object_type,
-                   use_record.agent_object_id, use_record.context_object_type,
+                   use_record.stage, use_record.agent_actor_id,
+                   use_record.context_object_type,
                    use_record.context_object_id, use_record.purpose,
                    use_record.used_for_object_type, use_record.used_for_object_id,
                    use_record.policy_decision_id, use_record.created_at::text AS created_at,
@@ -913,8 +900,7 @@ impl PostgresMemoryRepository {
                         row.try_get::<String, _>("sensitivity")?.as_str(),
                     )?,
                     stage: row.try_get("stage")?,
-                    agent_object_type: row.try_get("agent_object_type")?,
-                    agent_object_id: row.try_get("agent_object_id")?,
+                    agent_actor_id: row.try_get("agent_actor_id")?,
                     context_object_type: row.try_get("context_object_type")?,
                     context_object_id: row.try_get("context_object_id")?,
                     purpose: parse_purpose(row.try_get::<String, _>("purpose")?.as_str())?,
@@ -960,8 +946,8 @@ impl PostgresMemoryRepository {
               ORDER BY created_at DESC, memory_id DESC
               LIMIT $1
             )
-            SELECT event.event_id, event.event_type, event.actor_object_type,
-                   event.actor_object_id, event.target_object_type, event.target_object_id,
+            SELECT event.event_id, event.event_type, event.actor_id,
+                   event.target_object_type, event.target_object_id,
                    memory.sensitivity AS target_memory_sensitivity, event.reason,
                    event.created_at::text AS created_at, event.details
             FROM object_events event
@@ -997,8 +983,7 @@ impl PostgresMemoryRepository {
                 Ok(GraphMemoryEvent {
                     event_id: row.try_get("event_id")?,
                     event_type: row.try_get("event_type")?,
-                    actor_object_type: row.try_get("actor_object_type")?,
-                    actor_object_id: row.try_get("actor_object_id")?,
+                    actor_id: row.try_get("actor_id")?,
                     target_object_type: row.try_get("target_object_type")?,
                     target_object_id: row.try_get("target_object_id")?,
                     target_memory_sensitivity: sensitivity

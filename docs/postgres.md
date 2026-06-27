@@ -23,6 +23,12 @@ governable scope, provenance source, and transcript item are interfaces
 implemented by concrete objects rather than universal parent tables. Postgres
 therefore stores typed object references such as `owner_object_type` and
 `owner_object_id` where polymorphic behavior crosses concrete objects.
+Actor identity is stored through the `actors` table and `*_actor_id` columns.
+Required actor references use restrictive delete semantics so durable ownership
+and authorship evidence cannot disappear accidentally. Optional audit actors,
+such as grant/provenance/link creators and event actors, use nullable actor IDs
+with `ON DELETE SET NULL`; genuine source, target, grantee, context, and
+used-for references remain typed object pairs.
 
 ## Implemented Tables
 

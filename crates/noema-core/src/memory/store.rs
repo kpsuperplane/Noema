@@ -104,12 +104,12 @@ impl MemoryStore {
         memory_id: impl Into<MemoryId>,
         mut object: ObjectLink,
         relation: impl Into<String>,
-        authorized_scope_id: Option<ScopeId>,
+        authorized_actor_id: Option<PrincipalId>,
     ) -> Result<(), MemoryStoreError> {
         let memory_id = memory_id.into();
         self.require_memory(&memory_id)?;
         object.relation = Some(relation.into());
-        object.authorized_scope_id = authorized_scope_id;
+        object.authorized_actor_id = authorized_actor_id;
         self.object_links
             .push(MemoryObjectLink { memory_id, object });
         Ok(())

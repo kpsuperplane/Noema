@@ -289,8 +289,8 @@ pub struct ObjectLink {
     pub object_id: String,
     /// Trusted relation between the active object and the memory.
     pub relation: Option<String>,
-    /// Scope that authorized this active object link.
-    pub authorized_scope_id: Option<ScopeId>,
+    /// Actor that authorized this active object link.
+    pub authorized_actor_id: Option<PrincipalId>,
 }
 
 impl ObjectLink {
@@ -301,7 +301,7 @@ impl ObjectLink {
             object_type: object_type.into(),
             object_id: object_id.into(),
             relation: None,
-            authorized_scope_id: None,
+            authorized_actor_id: None,
         }
     }
 
@@ -312,10 +312,10 @@ impl ObjectLink {
         self
     }
 
-    /// Attach the scope that authorized this object link.
+    /// Attach the actor that authorized this object link.
     #[must_use]
-    pub fn with_authorized_scope(mut self, scope_id: impl Into<ScopeId>) -> Self {
-        self.authorized_scope_id = Some(scope_id.into());
+    pub fn with_authorized_actor(mut self, actor_id: impl Into<PrincipalId>) -> Self {
+        self.authorized_actor_id = Some(actor_id.into());
         self
     }
 }

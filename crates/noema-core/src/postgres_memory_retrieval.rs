@@ -13,7 +13,7 @@ use crate::{
     postgres_retrieval_policy_fingerprint,
 };
 use serde_json::Value;
-use sqlx::PgPool;
+use sqlx::{FromRow, PgPool};
 
 const MAX_PUBLIC_HINT_CANDIDATES: i64 = 128;
 const MAX_FTS_TERMS: usize = 24;
@@ -95,28 +95,28 @@ fn normalized_fts_term(term: &str) -> Option<String> {
     if term.len() < 2 { None } else { Some(term) }
 }
 
+#[derive(Debug, FromRow)]
+struct MemoryRow {
+    memory_id: String,
+    owner_object_type: String,
+    owner_object_id: String,
+    title: String,
+    content: String,
+    status: String,
+    sensitivity: String,
+    retrieval_hints: Value,
+    retrieval_policy_status: String,
+    retrieval_policy_fingerprint: Option<String>,
+    participant_visibility_policy: String,
+    external_egress_policy: String,
+    owner_principal_id: Option<String>,
+}
+
 async fn load_memories(
     pool: &PgPool,
     store: &mut MemoryStore,
 ) -> Result<(), MemoryPersistenceError> {
-    let rows = sqlx::query_as::<
-        _,
-        (
-            String,
-            String,
-            String,
-            String,
-            String,
-            String,
-            String,
-            Value,
-            String,
-            Option<String>,
-            String,
-            String,
-            Option<String>,
-        ),
-    >(
+    let rows = sqlx::query_as::<_, MemoryRow>(
         r"
         SELECT
           memory_id,
@@ -134,11 +134,11 @@ async fn load_memories(
           CASE
             WHEN owner_object_type = 'human' THEN owner_object_id
             ELSE (
-              SELECT participant_object_id
+              SELECT participant_actor_id
               FROM memory_participants
               WHERE memory_participants.memory_id = memory_items.memory_id
                 AND role = 'human_in_scope'
-              ORDER BY participant_object_id ASC
+              ORDER BY participant_actor_id ASC
               LIMIT 1
             )
           END AS owner_principal_id
@@ -153,38 +153,23 @@ async fn load_memories(
     .await
     .map_err(MemoryPersistenceError::Database)?;
 
-    for (
-        memory_id,
-        owner_object_type,
-        owner_object_id,
-        title,
-        content,
-        status,
-        sensitivity,
-        retrieval_hints,
-        retrieval_policy_status,
-        retrieval_policy_fingerprint,
-        participant_visibility_policy,
-        external_egress_policy,
-        owner_principal_id,
-    ) in rows
-    {
-        let home_scope_id = object_ref_key(&owner_object_type, &owner_object_id);
-        let mut memory = MemoryItem::new(memory_id, home_scope_id, title, content);
-        memory.status = parse_memory_status(&status)?;
-        memory.sensitivity = parse_sensitivity(&sensitivity)?;
-        memory.retrieval_hints = parse_retrieval_hints(&retrieval_hints);
+    for row in rows {
+        let home_scope_id = object_ref_key(&row.owner_object_type, &row.owner_object_id);
+        let mut memory = MemoryItem::new(row.memory_id, home_scope_id, row.title, row.content);
+        memory.status = parse_memory_status(&row.status)?;
+        memory.sensitivity = parse_sensitivity(&row.sensitivity)?;
+        memory.retrieval_hints = parse_retrieval_hints(&row.retrieval_hints);
         memory.retrieval_policy_status = effective_retrieval_policy_status(
             pool,
             &memory.memory_id,
-            &retrieval_policy_status,
-            retrieval_policy_fingerprint.as_deref(),
+            &row.retrieval_policy_status,
+            row.retrieval_policy_fingerprint.as_deref(),
         )
         .await?;
         memory.participant_visibility_policy =
-            parse_participant_visibility_policy(&participant_visibility_policy)?;
-        memory.external_egress_policy = parse_external_egress_policy(&external_egress_policy)?;
-        memory.owner_principal_id = owner_principal_id;
+            parse_participant_visibility_policy(&row.participant_visibility_policy)?;
+        memory.external_egress_policy = parse_external_egress_policy(&row.external_egress_policy)?;
+        memory.owner_principal_id = row.owner_principal_id;
         store.insert_memory(memory);
     }
 
@@ -195,9 +180,16 @@ async fn load_participants(
     pool: &PgPool,
     store: &mut MemoryStore,
 ) -> Result<(), MemoryPersistenceError> {
-    let rows = sqlx::query_as::<_, (String, String, String, String)>(
+    #[derive(Debug, FromRow)]
+    struct ParticipantRow {
+        memory_id: String,
+        participant_actor_id: String,
+        role: String,
+    }
+
+    let rows = sqlx::query_as::<_, ParticipantRow>(
         r"
-        SELECT mp.memory_id, mp.participant_object_type, mp.participant_object_id, mp.role
+        SELECT mp.memory_id, mp.participant_actor_id, mp.role
         FROM memory_participants mp
         JOIN memory_items mi ON mi.memory_id = mp.memory_id
         WHERE (mi.expires_at IS NULL OR mi.expires_at > now())
@@ -210,11 +202,11 @@ async fn load_participants(
     .await
     .map_err(MemoryPersistenceError::Database)?;
 
-    for (memory_id, participant_object_type, participant_object_id, role) in rows {
+    for row in rows {
         store.add_participant(
-            memory_id,
-            object_ref_key(&participant_object_type, &participant_object_id),
-            parse_participant_role(&role)?,
+            row.memory_id,
+            row.participant_actor_id,
+            parse_participant_role(&row.role)?,
         )?;
     }
 
@@ -277,25 +269,23 @@ async fn load_object_links(
     pool: &PgPool,
     store: &mut MemoryStore,
 ) -> Result<(), MemoryPersistenceError> {
-    let rows = sqlx::query_as::<
-        _,
-        (
-            String,
-            String,
-            String,
-            String,
-            Option<String>,
-            Option<String>,
-        ),
-    >(
+    #[derive(Debug, FromRow)]
+    struct ObjectLinkRow {
+        memory_id: String,
+        object_type: String,
+        object_id: String,
+        relation: String,
+        authorized_actor_id: Option<String>,
+    }
+
+    let rows = sqlx::query_as::<_, ObjectLinkRow>(
         r"
         SELECT
           link.memory_id,
           link.object_type,
           link.object_id,
           link.relation,
-          link.authorized_object_type,
-          link.authorized_object_id
+          link.authorized_actor_id
         FROM memory_retrieval_object_links link
         JOIN memory_items mi ON mi.memory_id = link.memory_id
         WHERE (mi.expires_at IS NULL OR mi.expires_at > now())
@@ -308,23 +298,12 @@ async fn load_object_links(
     .await
     .map_err(MemoryPersistenceError::Database)?;
 
-    for (
-        memory_id,
-        object_type,
-        object_id,
-        relation,
-        authorized_object_type,
-        authorized_object_id,
-    ) in rows
-    {
-        let authorized_scope_id = authorized_object_type
-            .zip(authorized_object_id)
-            .map(|(object_type, object_id)| object_ref_key(&object_type, &object_id));
+    for row in rows {
         store.add_object_link(
-            memory_id,
-            ObjectLink::new(object_type, object_id),
-            relation,
-            authorized_scope_id,
+            row.memory_id,
+            ObjectLink::new(row.object_type, row.object_id),
+            row.relation,
+            row.authorized_actor_id,
         )?;
     }
 

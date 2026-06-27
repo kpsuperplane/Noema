@@ -227,7 +227,7 @@ fn trusted_object_link_requires_matching_relation() {
 }
 
 #[test]
-fn trusted_object_link_requires_authorized_scope_when_policy_sets_one() {
+fn trusted_object_link_requires_authorized_actor_when_policy_sets_one() {
     let mut store = MemoryStore::default();
     let memory = sensitive_memory(
         "memory_health",
@@ -251,7 +251,7 @@ fn trusted_object_link_requires_authorized_scope_when_policy_sets_one() {
             "memory_health",
             ObjectLink::new("task", "task_schedule_checkup"),
             "open_loop_for",
-            Some("project_noema".to_string()),
+            Some("agent_authorizer".to_string()),
         )
         .expect("object link");
 
@@ -259,20 +259,38 @@ fn trusted_object_link_requires_authorized_scope_when_policy_sets_one() {
     request.trusted.sensitivity_ceiling = Sensitivity::Sensitive;
     request.trusted.active_object_links =
         vec![ObjectLink::new("task", "task_schedule_checkup").with_relation("open_loop_for")];
-    let missing_scope = store.retrieve(&request);
-    assert!(missing_scope.included.is_empty());
+    let missing_actor = store.retrieve(&request);
+    assert!(missing_actor.included.is_empty());
     assert_eq!(
-        missing_scope.denied_for_audit[0].reason,
+        missing_actor.denied_for_audit[0].reason,
         DenialReason::SensitiveUnlockMissing
     );
 
     request.trusted.active_object_links = vec![
         ObjectLink::new("task", "task_schedule_checkup")
             .with_relation("open_loop_for")
-            .with_authorized_scope("project_noema"),
+            .with_authorized_actor("other_agent"),
     ];
-    let allowed = store.retrieve(&request);
-    assert_eq!(included_ids(&allowed), vec!["memory_health"]);
+    let wrong_actor = store.retrieve(&request);
+    assert!(wrong_actor.included.is_empty());
+    assert_eq!(
+        wrong_actor.denied_for_audit[0].reason,
+        DenialReason::SensitiveUnlockMissing
+    );
+
+    request.trusted.active_object_links =
+        vec![ObjectLink::new("task", "task_schedule_checkup").with_relation("open_loop_for")];
+    request.trusted.active_agent_ids = vec!["agent_authorizer".to_string()];
+    let active_agent_allowed = store.retrieve(&request);
+    assert_eq!(included_ids(&active_agent_allowed), vec!["memory_health"]);
+
+    request.trusted.active_agent_ids.clear();
+    request.requesting_principal_id = "agent_authorizer".to_string();
+    let requesting_principal_allowed = store.retrieve(&request);
+    assert_eq!(
+        included_ids(&requesting_principal_allowed),
+        vec!["memory_health"]
+    );
 }
 
 #[test]

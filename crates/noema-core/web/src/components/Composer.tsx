@@ -18,7 +18,7 @@ export function Composer({
 }) {
   return (
     <form
-      className="composer"
+      className="mx-auto grid w-[var(--chat-column-width)] grid-cols-[minmax(0,1fr)_auto] items-end gap-2.5 border-t border-[var(--border-subtle)] bg-background pt-3.5 max-[760px]:grid-cols-1"
       onSubmit={(event) => {
         event.preventDefault();
         onSubmit();

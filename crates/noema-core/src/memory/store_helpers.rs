@@ -114,17 +114,23 @@ pub(super) fn object_link_matches(
         return false;
     }
 
-    match &policy.authorized_scope_id {
-        Some(scope_id) => {
+    match &policy.authorized_actor_id {
+        Some(actor_id) => {
             active
-                .authorized_scope_id
+                .authorized_actor_id
                 .as_ref()
-                .is_some_and(|active_scope_id| active_scope_id == scope_id)
+                .is_some_and(|active_actor_id| active_actor_id == actor_id)
+                || &request.requesting_principal_id == actor_id
                 || request
                     .trusted
-                    .active_scopes
+                    .active_human_ids
                     .iter()
-                    .any(|active_scope_id| active_scope_id == scope_id)
+                    .any(|active_actor_id| active_actor_id == actor_id)
+                || request
+                    .trusted
+                    .active_agent_ids
+                    .iter()
+                    .any(|active_actor_id| active_actor_id == actor_id)
         }
         None => true,
     }
