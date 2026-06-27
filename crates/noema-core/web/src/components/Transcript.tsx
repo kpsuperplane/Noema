@@ -6,10 +6,9 @@ import {
   AttachmentTitle
 } from "@/components/ui/attachment";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Badge } from "@/components/ui/badge";
 import { Bubble, BubbleContent } from "@/components/ui/bubble";
 import { Button } from "@/components/ui/button";
-import { Marker, MarkerContent } from "@/components/ui/marker";
+import { Marker, MarkerContent, MarkerIcon } from "@/components/ui/marker";
 import {
   Message as MessagePrimitive,
   MessageAvatar,
@@ -24,9 +23,19 @@ import {
   MessageScrollerViewport
 } from "@/components/ui/message-scroller";
 import { cn } from "@/lib/utils";
-import { formatPercent, readableKind, statusLabel } from "../format";
+import { BrainIcon } from "lucide-react";
+import { readableKind, statusLabel } from "../format";
 import { memoryCardsFromStructuredItem, type MemoryCardData } from "../memoryCards";
 import type { TranscriptEntry, TurnTranscriptItem } from "../types";
+
+type RenderTranscriptEntry =
+  | { kind: "entry"; id: string; entry: TranscriptEntry }
+  | {
+      kind: "memory_marker";
+      id: string;
+      extraction?: Extract<TurnTranscriptItem, { kind: "activity" }>;
+      proposal?: Extract<TurnTranscriptItem, { kind: "a2ui_card" }>;
+    };
 
 export function Transcript({
   entries,
@@ -42,14 +51,14 @@ export function Transcript({
       <MessageScroller className="min-h-0 overflow-hidden">
         <MessageScrollerViewport aria-label="Conversation transcript">
           <MessageScrollerContent className="mx-auto flex min-h-full w-[var(--chat-column-width)] flex-col gap-3 px-0.5 py-6">
-            {entries.map((entry) => (
+            {groupMemoryMarkers(entries).map((entry) => (
               <MessageScrollerItem
                 key={entry.id}
-                className={cn("flex w-full", entry.type === "user" && "justify-end")}
+                className={cn("flex w-full", entry.kind === "entry" && entry.entry.type === "user" && "justify-end")}
                 messageId={entry.id}
-                scrollAnchor={entry.type === "user"}
+                scrollAnchor={entry.kind === "entry" && entry.entry.type === "user"}
               >
-                {renderTranscriptEntry(entry, expandedActivities, onToggleActivity)}
+                {renderTranscriptRenderEntry(entry, expandedActivities, onToggleActivity)}
               </MessageScrollerItem>
             ))}
           </MessageScrollerContent>
@@ -58,6 +67,92 @@ export function Transcript({
       </MessageScroller>
     </MessageScrollerProvider>
   );
+}
+
+function groupMemoryMarkers(entries: TranscriptEntry[]): RenderTranscriptEntry[] {
+  const rendered: RenderTranscriptEntry[] = [];
+
+  for (let index = 0; index < entries.length; index += 1) {
+    const entry = entries[index];
+    const nextEntry = entries[index + 1];
+
+    if (isMemoryExtractionEntry(entry) && nextEntry && isMemoryProposalEntry(nextEntry) && sameTurn(entry, nextEntry)) {
+      rendered.push({
+        kind: "memory_marker",
+        id: `${entry.id}:${nextEntry.id}`,
+        extraction: entry.item,
+        proposal: nextEntry.item
+      });
+      index += 1;
+      continue;
+    }
+
+    if (isMemoryProposalEntry(entry) && nextEntry && isMemoryExtractionEntry(nextEntry) && sameTurn(entry, nextEntry)) {
+      rendered.push({
+        kind: "memory_marker",
+        id: `${entry.id}:${nextEntry.id}`,
+        extraction: nextEntry.item,
+        proposal: entry.item
+      });
+      index += 1;
+      continue;
+    }
+
+    if (isMemoryExtractionEntry(entry)) {
+      rendered.push({
+        kind: "memory_marker",
+        id: entry.id,
+        extraction: entry.item
+      });
+      continue;
+    }
+
+    if (isMemoryProposalEntry(entry)) {
+      rendered.push({
+        kind: "memory_marker",
+        id: entry.id,
+        proposal: entry.item
+      });
+      continue;
+    }
+
+    rendered.push({ kind: "entry", id: entry.id, entry });
+  }
+
+  return rendered;
+}
+
+function isMemoryExtractionEntry(
+  entry: TranscriptEntry
+): entry is Extract<TranscriptEntry, { type: "activity" }> {
+  return entry.type === "activity" && entry.item.activity_kind === "memory_extraction";
+}
+
+function isMemoryProposalEntry(entry: TranscriptEntry): entry is Extract<TranscriptEntry, { type: "card" }> {
+  return entry.type === "card" && entry.item.schema === "memory_proposals";
+}
+
+function sameTurn(left: TranscriptEntry, right: TranscriptEntry) {
+  return !left.turnId || !right.turnId || left.turnId === right.turnId;
+}
+
+function renderTranscriptRenderEntry(
+  entry: RenderTranscriptEntry,
+  expandedActivities: Set<string>,
+  onToggleActivity: (id: string) => void
+) {
+  if (entry.kind === "memory_marker") {
+    return (
+      <MemoryMarker
+        id={entry.id}
+        extraction={entry.extraction}
+        proposal={entry.proposal}
+        open={expandedActivities.has(entry.id)}
+        onToggle={() => onToggleActivity(entry.id)}
+      />
+    );
+  }
+  return renderTranscriptEntry(entry.entry, expandedActivities, onToggleActivity);
 }
 
 function renderTranscriptEntry(
@@ -77,7 +172,9 @@ function renderTranscriptEntry(
     );
   }
   if (entry.type === "card") {
-    return <StructuredCard item={entry.item} />;
+    return (
+      <StructuredCard item={entry.item} open={expandedActivities.has(entry.id)} onToggle={() => onToggleActivity(entry.id)} />
+    );
   }
   return <ErrorNotice message={entry.message} recoverable={entry.recoverable} />;
 }
@@ -162,7 +259,19 @@ function ActivityRow({
   );
 }
 
-function StructuredCard({ item }: { item: Extract<TurnTranscriptItem, { kind: "a2ui_card" }> }) {
+function StructuredCard({
+  item,
+  open,
+  onToggle
+}: {
+  item: Extract<TurnTranscriptItem, { kind: "a2ui_card" }>;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  if (item.schema === "memory_proposals") {
+    return <MemoryMarker id={item.id} proposal={item} open={open} onToggle={onToggle} />;
+  }
+
   const memories = memoryCardsFromStructuredItem(item);
   if (memories) {
     return <MemoryStructuredCard schema={item.schema} memories={memories} />;
@@ -178,42 +287,87 @@ function StructuredCard({ item }: { item: Extract<TurnTranscriptItem, { kind: "a
   );
 }
 
+function MemoryMarker({
+  id,
+  extraction,
+  proposal,
+  open,
+  onToggle
+}: {
+  id: string;
+  extraction?: Extract<TurnTranscriptItem, { kind: "activity" }>;
+  proposal?: Extract<TurnTranscriptItem, { kind: "a2ui_card" }>;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  const memories = proposal ? memoryCardsFromStructuredItem(proposal) ?? [] : [];
+  const failed = extraction?.status === "FAILED";
+
+  return (
+    <div className="ml-10 grid w-[calc(100%-2.5rem)] max-w-[720px] gap-2">
+      <Marker
+        render={<button type="button" />}
+        aria-expanded={open}
+        aria-controls={`${id}-details`}
+        onClick={onToggle}
+        className={cn(
+          "w-fit rounded-lg px-2 py-1 transition-colors hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:outline-none",
+          failed && "text-[var(--red-700)]"
+        )}
+      >
+        <MarkerIcon>
+          <BrainIcon />
+        </MarkerIcon>
+        <MarkerContent>{failed ? "Memory update failed" : "Memory updated"}</MarkerContent>
+      </Marker>
+      {open ? (
+        <MemoryDetailAttachment id={`${id}-details`} extraction={extraction} memoryCount={memories.length} failed={failed} />
+      ) : null}
+    </div>
+  );
+}
+
 function MemoryStructuredCard({ schema, memories }: { schema: string; memories: MemoryCardData[] }) {
   const count = memories.length;
   const title = count === 1 ? "Memory saved" : `${count} memories saved`;
   const source = schema === "memory_proposals" ? "Same-call proposal" : "Explicit request";
 
   return (
-    <Attachment className="grid max-w-[760px] gap-3">
-      <div className="grid grid-cols-[28px_minmax(0,1fr)] items-center gap-2.5">
-        <AttachmentMedia className="size-7 font-mono text-xs font-bold text-[var(--pine-700)]">M</AttachmentMedia>
-        <span>
-          <AttachmentTitle>{title}</AttachmentTitle>
-          <AttachmentDescription>{source}</AttachmentDescription>
-        </span>
-      </div>
-      <AttachmentContent className="grid border-t border-[var(--border-subtle)]">
-        {memories.map((memory, index) => (
-          <section
-            key={memory.id ?? `${memory.title}:${index}`}
-            className={cn("grid gap-[7px] pt-3", index > 0 && "mt-3 border-t border-[var(--border-subtle)]")}
-          >
-            <div className="flex min-w-0 items-start justify-between gap-2.5 max-[760px]:flex-wrap max-[760px]:justify-start">
-              <AttachmentTitle className="min-w-0 [overflow-wrap:anywhere]">{memory.title}</AttachmentTitle>
-              <Badge variant="outline">{memory.status ? readableKind(memory.status) : "Saved"}</Badge>
-            </div>
-            <p className="m-0 text-[13px] leading-[1.55] text-muted-foreground [overflow-wrap:anywhere]">{memory.content}</p>
-            <div className="flex flex-wrap gap-1.5">
-              {memory.memoryType ? <Badge variant="secondary">{readableKind(memory.memoryType)}</Badge> : null}
-              {memory.sensitivity ? <Badge variant="secondary">{readableKind(memory.sensitivity)}</Badge> : null}
-              {typeof memory.confidence === "number" ? <Badge variant="secondary">{formatPercent(memory.confidence)}</Badge> : null}
-              {memory.id ? <Badge variant="secondary">{memory.id}</Badge> : null}
-            </div>
-            {memory.evidenceExcerpt ? (
-              <small className="font-mono text-[10px] text-muted-foreground">{memory.evidenceExcerpt}</small>
-            ) : null}
-          </section>
-        ))}
+    <Attachment className="max-w-[760px]">
+      <AttachmentMedia className="text-[var(--pine-700)]">
+        <BrainIcon />
+      </AttachmentMedia>
+      <AttachmentContent>
+        <AttachmentTitle>{title}</AttachmentTitle>
+        <AttachmentDescription>{source}</AttachmentDescription>
+      </AttachmentContent>
+    </Attachment>
+  );
+}
+
+function MemoryDetailAttachment({
+  id,
+  extraction,
+  memoryCount,
+  failed
+}: {
+  id: string;
+  extraction?: Extract<TurnTranscriptItem, { kind: "activity" }>;
+  memoryCount: number;
+  failed: boolean;
+}) {
+  const title = failed ? "Memory update failed" : memoryCount === 1 ? "Memory saved" : `${memoryCount} memories saved`;
+  const status = extraction ? statusLabel(extraction.status) : null;
+  const description = extraction?.summary ?? (status ? `Memory extraction ${status.toLowerCase()}` : "Memory proposal");
+
+  return (
+    <Attachment id={id} state={failed ? "error" : "done"} className="max-w-[760px]">
+      <AttachmentMedia className="text-[var(--pine-700)]">
+        <BrainIcon />
+      </AttachmentMedia>
+      <AttachmentContent>
+        <AttachmentTitle>{title}</AttachmentTitle>
+        <AttachmentDescription>{description}</AttachmentDescription>
       </AttachmentContent>
     </Attachment>
   );
