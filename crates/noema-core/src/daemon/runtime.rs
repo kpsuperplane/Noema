@@ -221,20 +221,13 @@ struct MemoryExtractionWorkerHandle {
 
 impl MemoryExtractionWorkerHandle {
     async fn spawn(
-        provider: Arc<dyn RuntimeModelProvider>,
+        _provider: Arc<dyn RuntimeModelProvider>,
         _store: NoemaStore,
     ) -> Result<Self, DaemonError> {
         let (sender, receiver) = mpsc::channel(16);
-        let worker = MemoryExtractionWorker { provider };
+        let worker = MemoryExtractionWorker;
         tokio::spawn(worker.run(receiver));
         Ok(Self { sender })
-    }
-
-    async fn extract(&self, context: ConversationMemoryContext) {
-        let _ = self
-            .sender
-            .send(MemoryExtractionWorkerCommand::Extract(Box::new(context)))
-            .await;
     }
 
     async fn shutdown(&self) {
@@ -249,39 +242,17 @@ impl MemoryExtractionWorkerHandle {
 
 #[derive(Debug)]
 enum MemoryExtractionWorkerCommand {
-    Extract(Box<ConversationMemoryContext>),
     Shutdown { reply: oneshot::Sender<()> },
 }
 
 #[derive(Debug)]
-struct MemoryExtractionWorker {
-    provider: Arc<dyn RuntimeModelProvider>,
-}
+struct MemoryExtractionWorker;
 
 impl MemoryExtractionWorker {
-    async fn run(mut self, mut receiver: mpsc::Receiver<MemoryExtractionWorkerCommand>) {
-        while let Some(command) = receiver.recv().await {
-            match command {
-                MemoryExtractionWorkerCommand::Extract(context) => {
-                    let _ = self.extract_ordinary_chat_memories(&context).await;
-                }
-                MemoryExtractionWorkerCommand::Shutdown { reply } => {
-                    let _ = reply.send(());
-                    break;
-                }
-            }
+    async fn run(self, mut receiver: mpsc::Receiver<MemoryExtractionWorkerCommand>) {
+        if let Some(MemoryExtractionWorkerCommand::Shutdown { reply }) = receiver.recv().await {
+            let _ = reply.send(());
         }
-    }
-
-    async fn extract_ordinary_chat_memories(
-        &mut self,
-        context: &ConversationMemoryContext,
-    ) -> Result<(), String> {
-        // TODO(graph-claim store): ordinary chat memory proposal persistence
-        // moves to the embedded graph-claim store in a later task. Transcript
-        // persistence remains active through NoemaStore in this migration.
-        let _ = (&self.provider, context);
-        Ok(())
     }
 }
 
@@ -753,7 +724,14 @@ impl CodexRuntimeActor {
             )
             .await?;
         } else if turn.saved_memory_id.is_none() {
-            self.memory_extraction_worker.extract(memory_context).await;
+            self.persist_memory_unavailable_activity(
+                &memory_context,
+                "ordinary_chat",
+                "Memory extraction unavailable",
+                "graph-claim memory writes are pending",
+                item_tx,
+            )
+            .await?;
         }
 
         self.store.complete_conversation_turn(&turn.turn_id).await?;

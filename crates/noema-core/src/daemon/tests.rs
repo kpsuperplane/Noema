@@ -544,7 +544,7 @@ async fn runtime_actor_reports_repeated_explicit_memory_unavailable() {
 }
 
 #[tokio::test]
-async fn runtime_actor_skips_ordinary_chat_memory_until_graph_claims_land() {
+async fn runtime_actor_reports_ordinary_chat_memory_unavailable_until_graph_claims_land() {
     let Some(database) = test_database().await else {
         return;
     };
@@ -566,16 +566,23 @@ async fn runtime_actor_skips_ordinary_chat_memory_until_graph_claims_land() {
     .await
     .expect("turn");
     assert_eq!(assistant_text(&items), "fake answer");
-    assert!(
-        !items.iter().any(|item| {
-            matches!(
-                item,
-                TurnTranscriptItem::Activity { activity_kind, .. }
-                    if activity_kind == "memory_extraction"
-            )
-        }),
-        "fallback extraction should not block the turn stream: {items:?}"
-    );
+    assert!(items.iter().any(|item| {
+        matches!(
+            item,
+            TurnTranscriptItem::Activity {
+                activity_kind,
+                status: TurnActivityStatus::Failed,
+                title,
+                summary: Some(summary),
+                metadata,
+                ..
+            } if activity_kind == "memory_extraction"
+                && title == "Memory extraction unavailable"
+                && summary == "graph-claim memory writes are pending"
+                && metadata["trigger"] == "ordinary_chat"
+                && metadata["unavailable"]["reason"] == "graph_claim_writes_pending"
+        )
+    }));
     handle.shutdown().await;
 }
 
