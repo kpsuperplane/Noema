@@ -1,11 +1,14 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import {
+  memoryDetailItems,
   renderedTranscriptLane,
   shouldAnchorTranscriptEntry,
+  shouldAnimateMessageText,
   shouldShowTypingIndicator,
   transcriptEntryLane
 } from "./Transcript";
+import { messageTextAnimationTokens, visibleMessageTextAnimationTokens } from "./MessageTextAnimation";
 import type { TranscriptEntry } from "../types";
 
 describe("transcriptEntryLane", () => {
@@ -99,5 +102,72 @@ describe("shouldAnchorTranscriptEntry", () => {
 
   test("does not use live message anchors for assistant responses", () => {
     assert.equal(shouldAnchorTranscriptEntry({ kind: "entry", entryType: "assistant" }), false);
+  });
+});
+
+describe("messageTextAnimationTokens", () => {
+  test("splits message text into word tokens with preserved whitespace", () => {
+    assert.deepEqual(messageTextAnimationTokens("Hello  Noema\nagain"), [
+      { kind: "word", value: "Hello", wordIndex: 0 },
+      { kind: "space", value: "  ", previousWordIndex: 0, nextWordIndex: 1 },
+      { kind: "word", value: "Noema", wordIndex: 1 },
+      { kind: "space", value: "\n", previousWordIndex: 1, nextWordIndex: 2 },
+      { kind: "word", value: "again", wordIndex: 2 }
+    ]);
+  });
+
+  test("omits words and spacing that have not reached their reveal time", () => {
+    assert.deepEqual(visibleMessageTextAnimationTokens(messageTextAnimationTokens("Hello  Noema\nagain"), 1), [
+      { kind: "word", value: "Hello", wordIndex: 0 }
+    ]);
+
+    assert.deepEqual(visibleMessageTextAnimationTokens(messageTextAnimationTokens("Hello  Noema\nagain"), 2), [
+      { kind: "word", value: "Hello", wordIndex: 0 },
+      { kind: "space", value: "  ", previousWordIndex: 0, nextWordIndex: 1 },
+      { kind: "word", value: "Noema", wordIndex: 1 }
+    ]);
+  });
+});
+
+describe("shouldAnimateMessageText", () => {
+  test("does not animate replayed messages", () => {
+    assert.equal(shouldAnimateMessageText({ id: "existing", source: "replay", type: "assistant", text: "Loaded" }), false);
+  });
+
+  test("animates live assistant messages", () => {
+    assert.equal(shouldAnimateMessageText({ id: "live", type: "assistant_stream", streamId: "stream", text: "New" }), true);
+  });
+
+  test("does not animate optimistic user messages", () => {
+    assert.equal(shouldAnimateMessageText({ id: "optimistic", type: "user", text: "Hello" }), false);
+  });
+});
+
+describe("memoryDetailItems", () => {
+  test("includes created memory content and id in expanded memory marker details", () => {
+    assert.deepEqual(
+      memoryDetailItems([
+        {
+          id: "memory_123",
+          title: "Kevin prefers CLI memory inspection",
+          content: "Kevin prefers CLI memory inspection.",
+          memoryType: "preference",
+          sensitivity: "low",
+          status: "confirmed"
+        }
+      ]),
+      [
+        {
+          title: "Kevin prefers CLI memory inspection",
+          rows: [
+            { label: "Memory", value: "Kevin prefers CLI memory inspection." },
+            { label: "Type", value: "preference" },
+            { label: "Sensitivity", value: "low" },
+            { label: "Status", value: "confirmed" },
+            { label: "Memory ID", value: "memory_123" }
+          ]
+        }
+      ]
+    );
   });
 });

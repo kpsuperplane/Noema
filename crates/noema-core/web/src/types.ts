@@ -3,6 +3,8 @@ import type { GraphqlAgentStatus, GraphqlTurnActivityStatus } from "./generated/
 export type SocketState = "connecting" | "ready" | "closed";
 export type ConversationAgentStatus = GraphqlAgentStatus | "connecting" | "closed";
 
+export type TranscriptEntrySource = "replay";
+
 export type TurnTranscriptItem =
   | { kind: "user_text"; text: string }
   | { kind: "assistant_text"; text: string }
@@ -19,10 +21,19 @@ export type TurnTranscriptItem =
   | { kind: "error_notice"; message: string; recoverable: boolean };
 
 export type TranscriptEntry =
-  | { id: string; itemId?: string; turnId?: string; type: "user"; text: string }
-  | { id: string; itemId?: string; turnId?: string; type: "assistant"; streamId?: string; text: string }
+  | { id: string; itemId?: string; source?: TranscriptEntrySource; turnId?: string; type: "user"; text: string }
   | {
       id: string;
+      itemId?: string;
+      source?: TranscriptEntrySource;
+      turnId?: string;
+      type: "assistant";
+      streamId?: string;
+      text: string;
+    }
+  | {
+      id: string;
+      source?: TranscriptEntrySource;
       turnId?: string;
       type: "assistant_stream";
       streamId: string;
@@ -31,6 +42,7 @@ export type TranscriptEntry =
   | {
       id: string;
       itemId?: string;
+      source?: TranscriptEntrySource;
       turnId?: string;
       type: "activity";
       item: Extract<TurnTranscriptItem, { kind: "activity" }>;
@@ -38,8 +50,17 @@ export type TranscriptEntry =
   | {
       id: string;
       itemId?: string;
+      source?: TranscriptEntrySource;
       turnId?: string;
       type: "card";
       item: Extract<TurnTranscriptItem, { kind: "a2ui_card" }>;
     }
-  | { id: string; itemId?: string; turnId?: string; type: "error"; message: string; recoverable: boolean };
+  | {
+      id: string;
+      itemId?: string;
+      source?: TranscriptEntrySource;
+      turnId?: string;
+      type: "error";
+      message: string;
+      recoverable: boolean;
+    };

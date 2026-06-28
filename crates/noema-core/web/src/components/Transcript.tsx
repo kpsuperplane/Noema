@@ -10,6 +10,7 @@ import { Bubble, BubbleContent } from "@/components/ui/bubble";
 import { Button } from "@/components/ui/button";
 import { Marker, MarkerContent, MarkerIcon } from "@/components/ui/marker";
 import { ErrorMarker } from "./ErrorMarker";
+import { AnimatedMessageText } from "./MessageTextAnimation";
 import {
   Message as MessagePrimitive,
   MessageAvatar,
@@ -53,6 +54,13 @@ type RenderTranscriptEntry =
 
 type TranscriptLane = "human" | "assistant";
 
+type MemoryDetailRowData = { label: string; value: string };
+
+export type MemoryDetailItem = {
+  title: string;
+  rows: MemoryDetailRowData[];
+};
+
 type RenderTranscriptLaneCandidate =
   | { kind: "entry"; entryType: TranscriptEntry["type"] }
   | { kind: "typing" }
@@ -95,12 +103,13 @@ export function Transcript({
                     ? renderedTranscriptLane({ kind: previousEntry.kind })
                     : null;
               const showAvatar = previousLane !== lane;
+              const messageId = renderedEntryMessageId(entry);
 
               return (
                 <MessageScrollerItem
-                  key={entry.id}
+                  key={messageId}
                   className={cn("flex w-full", lane === "human" && "justify-end")}
-                  messageId={entry.id}
+                  messageId={messageId}
                   scrollAnchor={shouldAnchorRenderedEntry(entry)}
                 >
                   {renderTranscriptRenderEntry(entry, expandedActivities, onToggleActivity, showAvatar)}
@@ -363,17 +372,33 @@ function renderedEntryScrollFingerprint(entry: RenderTranscriptEntry): string {
   ].join(":");
 }
 
+function renderedEntryMessageId(entry: RenderTranscriptEntry): string {
+  if (entry.kind === "entry") {
+    return transcriptEntryRenderId(entry.entry);
+  }
+  return entry.id;
+}
+
+function transcriptEntryRenderId(entry: TranscriptEntry): string {
+  if ((entry.type === "assistant" || entry.type === "assistant_stream") && entry.streamId) {
+    return entry.streamId;
+  }
+  return entry.id;
+}
+
 function transcriptEntryScrollFingerprint(entry: TranscriptEntry): string {
+  const renderId = transcriptEntryRenderId(entry);
+
   if (entry.type === "user" || entry.type === "assistant" || entry.type === "assistant_stream") {
-    return `${entry.id}:${entry.text.length}`;
+    return `${renderId}:${entry.text.length}`;
   }
   if (entry.type === "activity") {
-    return `${entry.id}:${entry.item.status}:${entry.item.summary ?? ""}`;
+    return `${renderId}:${entry.item.status}:${entry.item.summary ?? ""}`;
   }
   if (entry.type === "card") {
-    return `${entry.id}:${entry.item.schema}`;
+    return `${renderId}:${entry.item.schema}`;
   }
-  return `${entry.id}:${entry.message.length}`;
+  return `${renderId}:${entry.message.length}`;
 }
 
 function isScrolledToBottom(element: HTMLElement) {
@@ -441,13 +466,13 @@ function renderTranscriptEntry(
   showAvatar: boolean
 ) {
   if (entry.type === "user") {
-    return <Message role="user" text={entry.text} showAvatar={showAvatar} />;
+    return <Message animate={shouldAnimateMessageText(entry)} role="user" text={entry.text} showAvatar={showAvatar} />;
   }
   if (entry.type === "assistant") {
-    return <Message role="assistant" text={entry.text} showAvatar={showAvatar} />;
+    return <Message animate={shouldAnimateMessageText(entry)} role="assistant" text={entry.text} showAvatar={showAvatar} />;
   }
   if (entry.type === "assistant_stream") {
-    return <Message role="assistant" text={entry.text} showAvatar={showAvatar} />;
+    return <Message animate={shouldAnimateMessageText(entry)} role="assistant" text={entry.text} showAvatar={showAvatar} />;
   }
   if (entry.type === "activity") {
     return (
@@ -468,6 +493,10 @@ function renderTranscriptEntry(
       <ErrorNotice message={entry.message} recoverable={entry.recoverable} />
     </TranscriptRow>
   );
+}
+
+export function shouldAnimateMessageText(entry: Extract<TranscriptEntry, { text: string }>): boolean {
+  return entry.type !== "user" && entry.source !== "replay";
 }
 
 function TranscriptRow({
@@ -494,10 +523,12 @@ function TranscriptRow({
 }
 
 function Message({
+  animate,
   role,
   text,
   showAvatar
 }: {
+  animate: boolean;
   role: "user" | "assistant";
   text: string;
   showAvatar: boolean;
@@ -505,7 +536,9 @@ function Message({
   return (
     <TranscriptRow lane={role === "user" ? "human" : "assistant"} showAvatar={showAvatar}>
       <Bubble variant={role === "user" ? "default" : "muted"}>
-        <BubbleContent className="leading-[1.7] whitespace-pre-wrap">{text}</BubbleContent>
+        <BubbleContent className="leading-[1.7] whitespace-pre-wrap">
+          <AnimatedMessageText animate={animate} text={text} />
+        </BubbleContent>
       </Bubble>
     </TranscriptRow>
   );
@@ -652,7 +685,7 @@ function MemoryMarker({
         <MarkerContent>{failed ? "Memory update failed" : "Memory updated"}</MarkerContent>
       </Marker>
       {open ? (
-        <MemoryDetailAttachment id={`${id}-details`} extraction={extraction} memoryCount={memories.length} failed={failed} />
+        <MemoryDetailAttachment id={`${id}-details`} extraction={extraction} memories={memories} failed={failed} />
       ) : null}
     </div>
   );
@@ -740,22 +773,49 @@ function MemoryStructuredCard({ schema, memories }: { schema: string; memories: 
       <AttachmentContent>
         <AttachmentTitle>{title}</AttachmentTitle>
         <AttachmentDescription>{source}</AttachmentDescription>
+        <MemoryDetailList memories={memories} />
       </AttachmentContent>
     </Attachment>
   );
 }
 
+export function memoryDetailItems(memories: MemoryCardData[]): MemoryDetailItem[] {
+  return memories.map((memory) => {
+    const rows: MemoryDetailRowData[] = [{ label: "Memory", value: memory.content }];
+    if (memory.memoryType) {
+      rows.push({ label: "Type", value: memory.memoryType });
+    }
+    if (memory.sensitivity) {
+      rows.push({ label: "Sensitivity", value: memory.sensitivity });
+    }
+    if (memory.status) {
+      rows.push({ label: "Status", value: memory.status });
+    }
+    if (typeof memory.confidence === "number") {
+      rows.push({ label: "Confidence", value: `${Math.round(memory.confidence * 100)}%` });
+    }
+    if (memory.evidenceExcerpt) {
+      rows.push({ label: "Evidence", value: memory.evidenceExcerpt });
+    }
+    if (memory.id) {
+      rows.push({ label: "Memory ID", value: memory.id });
+    }
+    return { title: memory.title, rows };
+  });
+}
+
 function MemoryDetailAttachment({
   id,
   extraction,
-  memoryCount,
+  memories,
   failed
 }: {
   id: string;
   extraction?: Extract<TurnTranscriptItem, { kind: "activity" }>;
-  memoryCount: number;
+  memories: MemoryCardData[];
   failed: boolean;
 }) {
+  const memoryCount = memories.length;
   const title = failed ? "Memory update failed" : memoryCount === 1 ? "Memory saved" : `${memoryCount} memories saved`;
   const status = extraction ? statusLabel(extraction.status) : null;
   const description = extraction?.summary ?? (status ? `Memory extraction ${status.toLowerCase()}` : "Memory proposal");
@@ -768,8 +828,44 @@ function MemoryDetailAttachment({
       <AttachmentContent>
         <AttachmentTitle>{title}</AttachmentTitle>
         <AttachmentDescription>{description}</AttachmentDescription>
+        <MemoryDetailList memories={memories} />
       </AttachmentContent>
     </Attachment>
+  );
+}
+
+function MemoryDetailList({ memories }: { memories: MemoryCardData[] }) {
+  const items = memoryDetailItems(memories);
+  if (items.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="mt-3 grid gap-3 border-t border-[var(--border-subtle)] pt-2.5">
+      {items.map((item, index) => (
+        <section className="grid gap-2" key={`${item.title}:${index}`}>
+          {items.length > 1 ? (
+            <p className="m-0 text-[13px] font-medium text-foreground [overflow-wrap:anywhere]">{item.title}</p>
+          ) : null}
+          <dl className="grid gap-2">
+            {item.rows.map((row) => (
+              <MemoryDetailRow key={row.label} label={row.label} value={row.value} />
+            ))}
+          </dl>
+        </section>
+      ))}
+    </div>
+  );
+}
+
+function MemoryDetailRow({ label, value }: MemoryDetailRowData) {
+  return (
+    <div className="grid gap-0.5">
+      <dt className="font-mono text-[10px] tracking-[0.08em] text-[var(--text-faint)] uppercase">{label}</dt>
+      <dd className="m-0 max-h-40 overflow-auto whitespace-pre-wrap break-words text-[13px] text-muted-foreground">
+        {value}
+      </dd>
+    </div>
   );
 }
 

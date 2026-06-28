@@ -145,7 +145,8 @@ function appendAssistantTextDelta(
 }
 
 function entryFromReplayItem(item: ReplayItem): TranscriptEntry | null {
-  return entryFromConversationItem(item.itemId, item.turnId ?? undefined, item.item);
+  const entry = entryFromConversationItem(item.itemId, item.turnId ?? undefined, item.item);
+  return entry ? { ...entry, source: "replay" } : null;
 }
 
 function entryFromConversationItem(
