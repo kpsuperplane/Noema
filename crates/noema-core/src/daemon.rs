@@ -1,6 +1,7 @@
 //! Local daemon protocol and Unix-socket runtime.
 
 mod client;
+mod memory_consolidation;
 mod memory_pipeline;
 mod memory_tool;
 mod protocol;

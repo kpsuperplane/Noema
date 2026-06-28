@@ -246,6 +246,153 @@ impl PostgresMemoryRepository {
         .transpose()
     }
 
+    /// Find bounded plausible matches for daemon memory consolidation.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MemoryPersistenceError`] if Postgres reads fail or stored enum
+    /// values are outside Noema's closed vocabularies.
+    pub async fn find_memory_consolidation_matches(
+        &self,
+        candidate: &NewMemoryCandidate,
+        limit: u32,
+    ) -> Result<Vec<MemorySummary>, MemoryPersistenceError> {
+        let limit = limit.clamp(1, 12);
+        let rows = sqlx::query_as::<
+            _,
+            (
+                String,
+                String,
+                String,
+                String,
+                String,
+                String,
+                String,
+                String,
+                String,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+            ),
+        >(
+            r"
+            SELECT
+              memory_id,
+              status,
+              memory_type,
+              owner_object_type,
+              owner_object_id,
+              sensitivity,
+              title,
+              content,
+              created_at,
+              memory_dedupe_fingerprint,
+              source_object_type,
+              source_object_id,
+              conversation_id
+            FROM (
+              SELECT DISTINCT
+                m.memory_id,
+                m.status,
+                m.memory_type,
+                m.owner_object_type,
+                m.owner_object_id,
+                m.sensitivity,
+                m.title,
+                m.content,
+                m.created_at::text AS created_at,
+                m.memory_dedupe_fingerprint,
+                source.source_object_type,
+                source.source_object_id,
+                source_conversation.conversation_id,
+                CASE
+                  WHEN m.search_vector @@ plainto_tsquery('simple', $5) THEN 0
+                  WHEN lower(m.content) LIKE '%' || lower($5) || '%' THEN 1
+                  ELSE 2
+                END AS match_rank,
+                m.created_at AS created_at_sort
+              FROM memory_items m
+              LEFT JOIN LATERAL (
+                SELECT source_object_type, source_object_id
+                FROM object_provenance_edges
+                WHERE target_object_type = 'memory_item'
+                  AND target_object_id = m.memory_id
+                  AND deleted_at IS NULL
+                ORDER BY created_at ASC
+                LIMIT 1
+              ) source ON true
+              LEFT JOIN conversation_items source_conversation
+                ON source.source_object_type = 'conversation_item'
+               AND source.source_object_id = source_conversation.item_id
+              LEFT JOIN memory_participants mp ON mp.memory_id = m.memory_id
+              WHERE m.deleted_at IS NULL
+                AND m.status IN ('candidate', 'active', 'confirmed')
+                AND m.memory_type = $1
+                AND (
+                  (m.owner_object_type = $2 AND m.owner_object_id = $3)
+                  OR mp.participant_actor_id = ANY($4)
+                )
+            ) matches
+            ORDER BY
+              match_rank,
+              created_at_sort DESC
+            LIMIT $6
+            ",
+        )
+        .bind(candidate.memory_type.as_str())
+        .bind(candidate.owner.object_type.as_str())
+        .bind(candidate.owner.object_id.as_str())
+        .bind(
+            candidate
+                .participants
+                .iter()
+                .map(|participant| participant.participant.actor_id.clone())
+                .collect::<Vec<_>>(),
+        )
+        .bind(candidate.content.as_str())
+        .bind(i64::from(limit))
+        .fetch_all(&self.pool)
+        .await
+        .map_err(MemoryPersistenceError::Database)?;
+
+        rows.into_iter()
+            .map(
+                |(
+                    memory_id,
+                    status,
+                    memory_type,
+                    owner_object_type,
+                    owner_object_id,
+                    sensitivity,
+                    title,
+                    content,
+                    created_at,
+                    dedupe_fingerprint,
+                    source_object_type,
+                    source_object_id,
+                    conversation_id,
+                )| {
+                    postgres_row_to_memory_summary(MemorySummaryRow {
+                        memory_id,
+                        status,
+                        memory_type,
+                        owner_object_type,
+                        owner_object_id,
+                        sensitivity,
+                        title,
+                        content,
+                        dedupe_fingerprint,
+                        created_at,
+                        source_object_type,
+                        source_object_id,
+                        conversation_id,
+                    })
+                },
+            )
+            .collect()
+    }
+
     /// Upsert the built-in local human and primary Noema agent actors.
     ///
     /// # Errors
