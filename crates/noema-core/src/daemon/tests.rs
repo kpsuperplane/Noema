@@ -540,18 +540,7 @@ async fn explicit_remember_creates_claim_with_source_evidence() {
         })
         .expect("completed explicit memory activity with claim id");
     assert!(claim_id.starts_with("claim:"));
-    assert!(items.iter().all(|item| {
-        !matches!(
-            item,
-            TurnTranscriptItem::Activity {
-                activity_kind,
-                status: TurnActivityStatus::Failed,
-                title,
-                ..
-            } if activity_kind == "memory_extraction"
-                && title == "Explicit memory unavailable"
-        )
-    }));
+    assert_no_failed_memory_extraction(&items);
     let claims = store
         .retrieve_claims(&answer_claim_request(), "CLI memory inspection", 8)
         .await
@@ -617,6 +606,7 @@ async fn repeated_explicit_memory_reinforces_one_claim() {
         })
         .expect("second explicit memory activity");
     assert_eq!(claim_activity["evidence_count"], 2);
+    assert_no_failed_memory_extraction(&second_items);
 
     let claims = store
         .retrieve_claims(&answer_claim_request(), "ice cream", 8)
@@ -626,6 +616,22 @@ async fn repeated_explicit_memory_reinforces_one_claim() {
     assert_eq!(claims.included[0].fact, "Kevin likes ice cream.");
     assert_eq!(claims.included[0].predicate_id, "likes");
     handle.shutdown().await;
+}
+
+fn assert_no_failed_memory_extraction(items: &[TurnTranscriptItem]) {
+    assert!(
+        !items.iter().any(|item| {
+            matches!(
+                item,
+                TurnTranscriptItem::Activity {
+                    activity_kind,
+                    status: TurnActivityStatus::Failed,
+                    ..
+                } if activity_kind == "memory_extraction"
+            )
+        }),
+        "explicit memory turn should not emit any failed memory_extraction activity: {items:?}"
+    );
 }
 
 #[tokio::test]

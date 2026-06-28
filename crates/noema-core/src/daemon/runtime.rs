@@ -423,7 +423,7 @@ impl CodexRuntimeActor {
                 text: input.clone(),
             },
         );
-        if let Some(explicit_content) = explicit_memory_content(&input) {
+        let saved_memory_id = if let Some(explicit_content) = explicit_memory_content(&input) {
             let memory_context = ConversationMemoryContext {
                 turn_index,
                 conversation_id: conversation_id.clone(),
@@ -435,8 +435,10 @@ impl CodexRuntimeActor {
                 cwd: conversation.cwd.clone(),
             };
             self.persist_explicit_memory_claim(&memory_context, &explicit_content, &item_tx)
-                .await?;
-        }
+                .await?
+        } else {
+            None
+        };
         self.update_conversation_agent_status(
             &conversation_id,
             PersistedAgentStatus::Thinking,
@@ -500,7 +502,7 @@ impl CodexRuntimeActor {
                             model: conversation.model.clone(),
                             initial_stream_id: initial_stream_id.clone(),
                             response,
-                            saved_memory_id: None,
+                            saved_memory_id: saved_memory_id.clone(),
                         },
                         &item_tx,
                     )
@@ -1145,10 +1147,11 @@ impl CodexRuntimeActor {
         context: &ConversationMemoryContext,
         content: &str,
         item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
-    ) -> Result<(), DaemonError> {
+    ) -> Result<Option<String>, DaemonError> {
         let candidate = explicit_memory_claim_candidate(content, context.user_item_id.clone());
         match self.store.create_or_reinforce_claim(candidate).await {
             Ok(summary) => {
+                let claim_id = summary.claim_id.clone();
                 let activity = memory_activity(
                     &format!(
                         "explicit_memory_saved:{}:{}",
@@ -1160,7 +1163,7 @@ impl CodexRuntimeActor {
                     json!({
                         "turn_index": context.turn_index,
                         "trigger": "explicit_remember",
-                        "claim_id": summary.claim_id,
+                        "claim_id": claim_id,
                         "predicate_id": summary.predicate_id,
                         "source_item_id": context.user_item_id,
                         "evidence_count": summary.evidence_count,
@@ -1168,7 +1171,8 @@ impl CodexRuntimeActor {
                     }),
                 );
                 self.persist_and_send_turn_item(context, activity, item_tx)
-                    .await
+                    .await?;
+                Ok(Some(summary.claim_id))
             }
             Err(error) => {
                 let activity = memory_activity(
@@ -1187,7 +1191,8 @@ impl CodexRuntimeActor {
                     }),
                 );
                 self.persist_and_send_turn_item(context, activity, item_tx)
-                    .await
+                    .await?;
+                Ok(None)
             }
         }
     }
