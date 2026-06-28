@@ -7,6 +7,7 @@ mod ids;
 pub mod objects;
 mod ontology;
 mod provider_accounts;
+mod retrieval;
 mod runtime;
 mod schema;
 
@@ -18,4 +19,5 @@ pub use claims::{
 };
 pub use error::StoreError;
 pub use ontology::{EntityCandidate, EntityType, PredicateRecord};
+pub use retrieval::{ClaimRetrievalResult, RetrievedClaim};
 pub use runtime::{NoemaStore, StoreConfig};

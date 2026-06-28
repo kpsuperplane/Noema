@@ -4,7 +4,8 @@ use super::test_store;
 use crate::{
     ActorRef, ClaimStatus, ConversationItemKind, ConversationItemStatus, EntityCandidate,
     EntityType, EvidenceAuthority, EvidenceCandidate, NewClaimCandidate, NewConversationItem,
-    NewConversationTurn, NoemaStore, StoreError, memory::Sensitivity,
+    NewConversationTurn, NoemaStore, StoreError,
+    memory::{ClaimRetrievalRequest, Sensitivity, UseMode},
     memory_persistence::NewConversation,
 };
 
@@ -300,6 +301,90 @@ async fn entity_upsert_preserves_existing_aliases_and_metadata() {
     assert_eq!(rows[0].metadata, json!({ "source": "manual" }));
 }
 
+#[tokio::test]
+async fn retrieval_includes_normal_active_claim_for_allowed_use_mode() {
+    let store = test_store().await;
+    let source_item = create_source_item(&store, "Kevin likes trains.").await;
+    let summary = store
+        .create_or_reinforce_claim(train_claim(source_item.item_id))
+        .await
+        .expect("create claim");
+
+    let result = store
+        .retrieve_claims(&personalize_request(), "trains", 8)
+        .await
+        .expect("retrieve claims");
+
+    assert_eq!(result.redacted_omission_count, 0);
+    assert_eq!(result.included.len(), 1);
+    assert_eq!(result.included[0].claim_id, summary.claim_id);
+    assert_eq!(result.included[0].fact, "Kevin likes trains.");
+    assert_eq!(result.included[0].predicate_id, "likes");
+    assert_eq!(result.included[0].rank_score, 100);
+}
+
+#[tokio::test]
+async fn retrieval_redacts_policy_denied_sensitive_claim() {
+    let store = test_store().await;
+    let source_item = create_source_item(&store, "Kevin likes night trains.").await;
+    let mut candidate = train_claim(source_item.item_id);
+    candidate.fact = "Kevin likes night trains.".to_string();
+    candidate.sensitivity = Sensitivity::Sensitive;
+    candidate.retrieval_hints = json!({ "keywords": ["night trains"] });
+    store
+        .create_or_reinforce_claim(candidate)
+        .await
+        .expect("create sensitive claim");
+
+    let mut request = personalize_request();
+    request.sensitivity_ceiling = Sensitivity::Sensitive;
+    let result = store
+        .retrieve_claims(&request, "night trains", 8)
+        .await
+        .expect("retrieve claims");
+
+    assert!(result.included.is_empty());
+    assert_eq!(result.redacted_omission_count, 1);
+}
+
+#[tokio::test]
+async fn retrieval_respects_use_mode_predicate_policy() {
+    let store = test_store().await;
+    let source_item = create_source_item(&store, "Kevin likes trains.").await;
+    store
+        .create_or_reinforce_claim(train_claim(source_item.item_id))
+        .await
+        .expect("create claim");
+
+    let mut request = personalize_request();
+    request.use_mode = UseMode::Act;
+    let result = store
+        .retrieve_claims(&request, "trains", 8)
+        .await
+        .expect("retrieve claims");
+
+    assert!(result.included.is_empty());
+    assert_eq!(result.redacted_omission_count, 1);
+}
+
+#[tokio::test]
+async fn retrieval_limit_zero_returns_empty_result() {
+    let store = test_store().await;
+    let source_item = create_source_item(&store, "Kevin likes trains.").await;
+    store
+        .create_or_reinforce_claim(train_claim(source_item.item_id))
+        .await
+        .expect("create claim");
+
+    let result = store
+        .retrieve_claims(&personalize_request(), "trains", 0)
+        .await
+        .expect("retrieve claims");
+
+    assert!(result.included.is_empty());
+    assert_eq!(result.redacted_omission_count, 0);
+}
+
 async fn create_source_item(store: &NoemaStore, text: &str) -> crate::ConversationItemRecord {
     store.ensure_default_actors().await.expect("actors");
     let conversation = store
@@ -346,6 +431,18 @@ fn train_claim(source_item_id: String) -> NewClaimCandidate {
         },
         retrieval_hints: json!({}),
         metadata: json!({}),
+    }
+}
+
+fn personalize_request() -> ClaimRetrievalRequest {
+    ClaimRetrievalRequest {
+        requesting_agent_id: "agent:primary".to_string(),
+        active_human_ids: vec!["human:local".to_string()],
+        active_object_ids: Vec::new(),
+        use_mode: UseMode::Personalize,
+        explicit_memory_request: false,
+        sensitivity_ceiling: Sensitivity::Normal,
+        approved_secret_access: false,
     }
 }
 

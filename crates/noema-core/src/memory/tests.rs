@@ -26,6 +26,75 @@ fn request_for_kevin() -> MemoryRetrievalRequest {
     }
 }
 
+fn graph_claim_request() -> ClaimRetrievalRequest {
+    ClaimRetrievalRequest {
+        requesting_agent_id: "agent:primary".to_string(),
+        active_human_ids: Vec::new(),
+        active_object_ids: Vec::new(),
+        use_mode: UseMode::Personalize,
+        explicit_memory_request: false,
+        sensitivity_ceiling: Sensitivity::Normal,
+        approved_secret_access: false,
+    }
+}
+
+fn normal_policy_claim() -> PolicyClaim {
+    PolicyClaim {
+        claim_id: "claim:trains".to_string(),
+        subject_entity_id: "human:local".to_string(),
+        object_entity_id: "concept:trains".to_string(),
+        predicate_allowed_use_modes: vec![UseMode::Answer, UseMode::Personalize],
+        status: ClaimStatusForPolicy::Active,
+        sensitivity: Sensitivity::Normal,
+    }
+}
+
+#[test]
+fn normal_claim_requires_active_human() {
+    let claim = normal_policy_claim();
+    let mut request = graph_claim_request();
+
+    assert_eq!(
+        claim_policy_allows(&claim, &request),
+        Err(ClaimDenialReason::OutsideActiveHumanContext)
+    );
+
+    request.active_human_ids = vec!["human:local".to_string()];
+
+    assert_eq!(claim_policy_allows(&claim, &request), Ok(()));
+}
+
+#[test]
+fn sensitive_claim_requires_unlock() {
+    let mut claim = normal_policy_claim();
+    claim.sensitivity = Sensitivity::Sensitive;
+    let mut request = graph_claim_request();
+    request.active_human_ids = vec!["human:local".to_string()];
+    request.sensitivity_ceiling = Sensitivity::Sensitive;
+
+    assert_eq!(
+        claim_policy_allows(&claim, &request),
+        Err(ClaimDenialReason::SensitiveUnlockMissing)
+    );
+
+    request.active_object_ids = vec!["concept:trains".to_string()];
+
+    assert_eq!(claim_policy_allows(&claim, &request), Ok(()));
+}
+
+#[test]
+fn claim_use_mode_must_be_allowed_by_predicate() {
+    let claim = normal_policy_claim();
+    let mut request = graph_claim_request();
+    request.active_human_ids = vec!["human:local".to_string()];
+    request.use_mode = UseMode::Act;
+
+    assert_eq!(
+        claim_policy_allows(&claim, &request),
+        Err(ClaimDenialReason::UseModeDenied)
+    );
+}
+
 #[test]
 fn retrieves_normal_memory_across_same_human_participant() {
     let mut store = MemoryStore::default();

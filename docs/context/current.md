@@ -88,6 +88,10 @@ The next storage slice should stay small and concrete:
   bootstrap defines strict graph-memory tables for entities, predicates,
   predicate proposals, claims, evidence edge records, and retrieval packets,
   and seeds the built-in personal-agent predicates.
+- Graph-claim retrieval now has a first deterministic store API that filters
+  active/confirmed claims by simple fact/hint text matching, applies predicate
+  `use_mode` plus sensitivity/context policy gates, and reports redacted
+  omission counts without writing retrieval packets yet.
 
 ## Open Loops
 
