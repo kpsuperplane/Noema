@@ -2299,12 +2299,22 @@ fn postgres_schema_includes_memory_fts_generated_column_and_index() {
     );
     assert!(
         POSTGRES_SCHEMA_SQL
-            .contains("CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_items_live_dedupe_fingerprint"),
+            .contains("CREATE UNIQUE INDEX idx_memory_items_live_dedupe_fingerprint"),
         "missing live memory dedupe fingerprint unique index"
     );
     assert!(
+        !POSTGRES_SCHEMA_SQL.contains(
+            "\nDROP INDEX IF EXISTS idx_memory_items_live_dedupe_fingerprint;\nCREATE UNIQUE INDEX"
+        ),
+        "memory dedupe fingerprint index should not be unconditionally rebuilt"
+    );
+    assert!(
+        POSTGRES_SCHEMA_SQL.contains("pg_get_expr(index_info.indpred, index_info.indrelid)"),
+        "memory dedupe fingerprint index bootstrap should inspect the existing predicate"
+    );
+    assert!(
         POSTGRES_SCHEMA_SQL
-            .contains("AND status IN ('candidate', 'active', 'confirmed', 'inferred')"),
+            .contains("AND status IN (''candidate'', ''active'', ''confirmed'', ''inferred'')"),
         "memory dedupe fingerprint index should cover only usable live statuses"
     );
     assert!(

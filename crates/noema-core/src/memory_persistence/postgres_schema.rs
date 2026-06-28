@@ -475,12 +475,43 @@ CREATE INDEX IF NOT EXISTS idx_memory_items_created_at ON memory_items(created_a
 CREATE INDEX IF NOT EXISTS idx_memory_items_status ON memory_items(status, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_memory_items_policy_status ON memory_items(retrieval_policy_status, sensitivity);
 CREATE INDEX IF NOT EXISTS idx_memory_items_search_vector ON memory_items USING GIN (search_vector);
-DROP INDEX IF EXISTS idx_memory_items_live_dedupe_fingerprint;
-CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_items_live_dedupe_fingerprint
-  ON memory_items(memory_dedupe_fingerprint)
-  WHERE memory_dedupe_fingerprint IS NOT NULL
-    AND deleted_at IS NULL
-    AND status IN ('candidate', 'active', 'confirmed', 'inferred');
+DO $$
+DECLARE
+  current_predicate TEXT;
+  normalized_predicate TEXT;
+BEGIN
+  SELECT pg_get_expr(index_info.indpred, index_info.indrelid)
+  INTO current_predicate
+  FROM pg_class index_class
+  JOIN pg_index index_info ON index_info.indexrelid = index_class.oid
+  JOIN pg_class table_class ON table_class.oid = index_info.indrelid
+  JOIN pg_namespace namespace ON namespace.oid = table_class.relnamespace
+  WHERE namespace.nspname = 'public'
+    AND table_class.relname = 'memory_items'
+    AND index_class.relname = 'idx_memory_items_live_dedupe_fingerprint';
+
+  normalized_predicate := lower(coalesce(current_predicate, ''));
+  normalized_predicate := replace(normalized_predicate, ' ', '');
+  normalized_predicate := replace(normalized_predicate, E'\n', '');
+  normalized_predicate := replace(normalized_predicate, E'\t', '');
+  normalized_predicate := replace(normalized_predicate, '(', '');
+  normalized_predicate := replace(normalized_predicate, ')', '');
+  normalized_predicate := replace(normalized_predicate, '::text[]', '');
+  normalized_predicate := replace(normalized_predicate, '::text', '');
+
+  IF current_predicate IS NULL OR normalized_predicate NOT IN (
+    'memory_dedupe_fingerprintisnotnullanddeleted_atisnullandstatus=anyarray[''candidate'',''active'',''confirmed'',''inferred'']',
+    'memory_dedupe_fingerprintisnotnullanddeleted_atisnullandstatusin''candidate'',''active'',''confirmed'',''inferred'''
+  ) THEN
+    EXECUTE 'DROP INDEX IF EXISTS idx_memory_items_live_dedupe_fingerprint';
+    EXECUTE 'CREATE UNIQUE INDEX idx_memory_items_live_dedupe_fingerprint
+      ON memory_items(memory_dedupe_fingerprint)
+      WHERE memory_dedupe_fingerprint IS NOT NULL
+        AND deleted_at IS NULL
+        AND status IN (''candidate'', ''active'', ''confirmed'', ''inferred'')';
+  END IF;
+END
+$$;
 CREATE INDEX IF NOT EXISTS idx_entities_owner_type ON entities(owner_object_type, owner_object_id, entity_type);
 CREATE INDEX IF NOT EXISTS idx_entities_canonical_name ON entities(entity_type, canonical_name);
 CREATE INDEX IF NOT EXISTS idx_memory_subjects_entity_role ON memory_subjects(entity_id, role, memory_id);
