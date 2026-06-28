@@ -276,11 +276,7 @@ impl ResponsesTransport {
         let mut stream = response.bytes_stream();
         while let Some(chunk) = stream.next().await {
             let chunk = chunk.map_err(|source| ProviderError::HttpFailure { source })?;
-            let chunk =
-                std::str::from_utf8(&chunk).map_err(|source| ProviderError::MalformedResponse {
-                    message: format!("failed to decode SSE chunk as UTF-8: {source}"),
-                })?;
-            accumulator.push_chunk(chunk, on_event)?;
+            accumulator.push_bytes(&chunk, on_event)?;
         }
 
         accumulator.finish(on_event)
@@ -296,7 +292,7 @@ fn response_from_sse(text: &str) -> Result<ResponsesResponse, ProviderError> {
 
 #[derive(Default)]
 struct SseAccumulator {
-    pending: String,
+    pending: Vec<u8>,
     output_values: Vec<Value>,
     output_text: String,
     response_id: Option<String>,
@@ -311,12 +307,21 @@ impl SseAccumulator {
         chunk: &str,
         on_event: &mut (dyn FnMut(GenerateStreamEvent) + Send),
     ) -> Result<(), ProviderError> {
-        self.pending.push_str(chunk);
+        self.push_bytes(chunk.as_bytes(), on_event)
+    }
+
+    fn push_bytes(
+        &mut self,
+        chunk: &[u8],
+        on_event: &mut (dyn FnMut(GenerateStreamEvent) + Send),
+    ) -> Result<(), ProviderError> {
+        self.pending.extend_from_slice(chunk);
 
         while let Some((index, delimiter_len)) = next_sse_event_boundary(&self.pending) {
-            let raw = self.pending[..index].to_string();
+            let raw = self.pending[..index].to_vec();
             self.pending.drain(..index + delimiter_len);
-            self.handle_event(parse_sse_event(&raw), on_event)?;
+            let event = parse_sse_event_bytes(&raw)?;
+            self.handle_event(event, on_event)?;
         }
 
         Ok(())
@@ -326,8 +331,8 @@ impl SseAccumulator {
         mut self,
         on_event: &mut (dyn FnMut(GenerateStreamEvent) + Send),
     ) -> Result<ResponsesResponse, ProviderError> {
-        if !self.pending.trim().is_empty() {
-            let event = parse_sse_event(&self.pending);
+        if !self.pending.is_empty() {
+            let event = parse_sse_event_bytes(&self.pending)?;
             self.pending.clear();
             self.handle_event(event, on_event)?;
         }
@@ -500,6 +505,13 @@ fn parse_sse_event(raw: &str) -> SseEvent {
     }
 }
 
+fn parse_sse_event_bytes(raw: &[u8]) -> Result<SseEvent, ProviderError> {
+    let raw = std::str::from_utf8(raw).map_err(|source| ProviderError::MalformedResponse {
+        message: format!("failed to decode SSE event as UTF-8: {source}"),
+    })?;
+    Ok(parse_sse_event(raw))
+}
+
 #[allow(dead_code)]
 fn sse_events(text: &str) -> impl Iterator<Item = SseEvent> + '_ {
     text.split("\n\n").filter_map(|chunk| {
@@ -508,10 +520,15 @@ fn sse_events(text: &str) -> impl Iterator<Item = SseEvent> + '_ {
     })
 }
 
-fn next_sse_event_boundary(text: &str) -> Option<(usize, usize)> {
-    [("\n\n", 2), ("\r\n\r\n", 4)]
+fn next_sse_event_boundary(bytes: &[u8]) -> Option<(usize, usize)> {
+    [(b"\n\n".as_slice(), 2), (b"\r\n\r\n".as_slice(), 4)]
         .into_iter()
-        .filter_map(|(delimiter, len)| text.find(delimiter).map(|index| (index, len)))
+        .filter_map(|(delimiter, len)| {
+            bytes
+                .windows(delimiter.len())
+                .position(|window| window == delimiter)
+                .map(|index| (index, len))
+        })
         .min_by_key(|(index, _)| *index)
 }
 
@@ -571,6 +588,74 @@ mod tests {
 
         assert_eq!(response.id.as_deref(), Some("resp_test"));
         assert_eq!(response.output_text().expect("output text"), "from item");
+    }
+
+    #[test]
+    fn incremental_sse_parser_buffers_utf8_split_across_byte_chunks() {
+        let accent = "\u{00e9}";
+        let payload = format!(
+            "event: response.output_text.delta\n\
+             data: {{\"type\":\"response.output_text.delta\",\"delta\":\"caf{accent}\"}}\n\n\
+             event: response.completed\n\
+             data: {{\"type\":\"response.completed\",\"response\":{{\"id\":\"resp_test\",\"status\":\"completed\"}}}}\n\n"
+        );
+        let split_at = payload.find(accent).expect("accent byte offset") + 1;
+        let bytes = payload.as_bytes();
+        let mut events = Vec::new();
+        let mut accumulator = SseAccumulator::default();
+
+        accumulator
+            .push_bytes(&bytes[..split_at], &mut |event| events.push(event))
+            .expect("first partial byte chunk");
+        accumulator
+            .push_bytes(&bytes[split_at..], &mut |event| events.push(event))
+            .expect("second partial byte chunk");
+
+        assert_eq!(
+            events,
+            vec![GenerateStreamEvent::AssistantTextDelta {
+                delta: format!("caf{accent}")
+            }]
+        );
+        let response = accumulator.finish(&mut |_| {}).expect("response");
+        assert_eq!(
+            response.output_text().expect("output text"),
+            format!("caf{accent}")
+        );
+    }
+
+    #[test]
+    fn incremental_sse_parser_buffers_delimiter_split_across_byte_chunks() {
+        let payload = b"event: response.output_text.delta\r\n\
+                        data: {\"type\":\"response.output_text.delta\",\"delta\":\"Hi\"}\r\n\
+                        \r\n\
+                        event: response.completed\r\n\
+                        data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_test\",\"status\":\"completed\"}}\r\n\
+                        \r\n";
+        let first_delimiter = payload
+            .windows(4)
+            .position(|window| window == b"\r\n\r\n")
+            .expect("delimiter");
+        let split_at = first_delimiter + 2;
+        let mut events = Vec::new();
+        let mut accumulator = SseAccumulator::default();
+
+        accumulator
+            .push_bytes(&payload[..split_at], &mut |event| events.push(event))
+            .expect("first delimiter chunk");
+        accumulator
+            .push_bytes(&payload[split_at..], &mut |event| events.push(event))
+            .expect("second delimiter chunk");
+
+        assert_eq!(
+            events,
+            vec![GenerateStreamEvent::AssistantTextDelta {
+                delta: "Hi".to_string()
+            }]
+        );
+        let response = accumulator.finish(&mut |_| {}).expect("response");
+        assert_eq!(response.id.as_deref(), Some("resp_test"));
+        assert_eq!(response.output_text().expect("output text"), "Hi");
     }
 }
 
