@@ -48,6 +48,23 @@ pub(super) enum SemanticConsolidationDecision {
     },
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum SemanticConsolidationError {
+    ModelFailed,
+    InvalidDecision,
+    ValidationFailed,
+}
+
+impl SemanticConsolidationError {
+    fn metadata_label(self) -> &'static str {
+        match self {
+            Self::ModelFailed => "model_failed",
+            Self::InvalidDecision => "invalid_decision",
+            Self::ValidationFailed => "validation_failed",
+        }
+    }
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SemanticDecisionJson {
@@ -155,6 +172,11 @@ pub(super) fn build_semantic_consolidation_prompt(
                             "object_id": memory.owner_object_id,
                         },
                         "sensitivity": sensitivity_label(memory.sensitivity),
+                        "subjects": memory
+                            .subject_entity_ids
+                            .iter()
+                            .map(|entity_id| json!({ "entity_id": entity_id }))
+                            .collect::<Vec<_>>(),
                         "content": memory.content,
                     })
                 })
@@ -216,6 +238,25 @@ pub(super) fn validate_semantic_consolidation_decision(
     Ok(decision)
 }
 
+fn annotate_semantic_consolidation_failure(
+    candidate: &mut NewMemoryCandidate,
+    error: SemanticConsolidationError,
+) {
+    if let Some(metadata) = candidate.metadata.as_object_mut() {
+        metadata.insert("semantic_consolidation_failed".to_string(), json!(true));
+        metadata.insert(
+            "semantic_consolidation_error".to_string(),
+            json!(error.metadata_label()),
+        );
+    } else {
+        candidate.metadata = json!({
+            "semantic_consolidation_failed": true,
+            "semantic_consolidation_error": error.metadata_label(),
+            "previous_metadata": candidate.metadata,
+        });
+    }
+}
+
 #[allow(dead_code)]
 pub(super) fn trusted_semantic_matches(
     candidate: &NewMemoryCandidate,
@@ -238,7 +279,7 @@ pub(super) async fn semantic_consolidation_decision(
     provider: &dyn RuntimeModelProvider,
     candidate: &NewMemoryCandidate,
     matches: &[MemorySummary],
-) -> Result<SemanticConsolidationDecision, String> {
+) -> Result<SemanticConsolidationDecision, SemanticConsolidationError> {
     if !semantic_consolidation_allowed(candidate) {
         return Ok(SemanticConsolidationDecision::Create);
     }
@@ -252,9 +293,11 @@ pub(super) async fn semantic_consolidation_decision(
     let response = provider
         .generate(GenerateRequest::text(prompt))
         .await
-        .map_err(|error: ProviderError| format!("semantic consolidation model failed: {error}"))?;
-    let decision = parse_semantic_decision(&response.assistant_text())?;
+        .map_err(|_error: ProviderError| SemanticConsolidationError::ModelFailed)?;
+    let decision = parse_semantic_decision(&response.assistant_text())
+        .map_err(|_error| SemanticConsolidationError::InvalidDecision)?;
     validate_semantic_consolidation_decision(candidate, &trusted_matches, decision)
+        .map_err(|_error| SemanticConsolidationError::ValidationFailed)
 }
 
 pub(super) async fn consolidate_memory_candidate(
@@ -284,10 +327,26 @@ pub(super) async fn consolidate_memory_candidate(
         });
     }
 
-    match semantic_consolidation_decision(provider, &candidate, &matches)
+    let semantic_decision = match semantic_consolidation_decision(provider, &candidate, &matches)
         .await
-        .unwrap_or(SemanticConsolidationDecision::Create)
     {
+        Ok(decision) => decision,
+        Err(error) => {
+            let mut failed_candidate = candidate;
+            annotate_semantic_consolidation_failure(&mut failed_candidate, error);
+            let created = repository
+                .append_memory_candidate(failed_candidate)
+                .await
+                .map_err(|error| {
+                    format!("failed to persist extracted memory after semantic failure: {error}")
+                })?;
+            return Ok(MemoryConsolidationOutcome::Created {
+                memory_id: created.id,
+            });
+        }
+    };
+
+    match semantic_decision {
         SemanticConsolidationDecision::Create => {
             let created = repository
                 .append_memory_candidate(candidate)
@@ -374,6 +433,20 @@ fn memory_is_semantically_compatible(
     memory.owner_object_type == candidate.owner.object_type.as_str()
         && memory.owner_object_id == candidate.owner.object_id.as_str()
         && memory.memory_type == candidate.memory_type
+        && candidate_subjects_overlap_memory(candidate, memory)
+}
+
+fn candidate_subjects_overlap_memory(
+    candidate: &NewMemoryCandidate,
+    memory: &MemorySummary,
+) -> bool {
+    candidate.subjects.is_empty()
+        || candidate.subjects.iter().any(|subject| {
+            memory
+                .subject_entity_ids
+                .iter()
+                .any(|entity_id| entity_id == &subject.entity_id)
+        })
 }
 
 #[cfg(test)]
@@ -460,7 +533,8 @@ mod prompt_tests {
     };
 
     use super::{
-        SemanticConsolidationDecision, build_semantic_consolidation_prompt,
+        SemanticConsolidationDecision, SemanticConsolidationError,
+        annotate_semantic_consolidation_failure, build_semantic_consolidation_prompt,
         trusted_semantic_matches, validate_semantic_consolidation_decision,
     };
 
@@ -475,6 +549,7 @@ mod prompt_tests {
             sensitivity: Sensitivity::Normal,
             title: content.to_string(),
             content: content.to_string(),
+            subject_entity_ids: vec!["entity:kevin".to_string()],
             created_at: "2026-06-28 00:00:00+00".to_string(),
             dedupe_fingerprint: Some("sha256:abc".to_string()),
             source_object_type: None,
@@ -524,6 +599,7 @@ mod prompt_tests {
         assert!(prompt.contains("\"decision\":\"create|reuse|reinforce|conflict\""));
         assert!(prompt.contains("mem_1"));
         assert!(prompt.contains("Kevin likes ice cream."));
+        assert!(prompt.contains("entity:kevin"));
     }
 
     #[test]
@@ -610,5 +686,78 @@ mod prompt_tests {
             .collect::<Vec<_>>();
 
         assert_eq!(trusted_ids, ["mem_public", "mem_normal"]);
+    }
+
+    #[test]
+    fn trusted_semantic_matches_excludes_different_subject_when_candidate_has_subjects() {
+        let same_subject = summary("mem_kevin", "Kevin likes tea.");
+        let mut different_subject = summary("mem_alex", "Alex likes tea.");
+        different_subject.subject_entity_ids = vec!["entity:alex".to_string()];
+
+        let trusted = trusted_semantic_matches(
+            &candidate("Kevin likes tea."),
+            &[same_subject, different_subject],
+        );
+        let trusted_ids = trusted
+            .iter()
+            .map(|memory| memory.id.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(trusted_ids, ["mem_kevin"]);
+    }
+
+    #[test]
+    fn trusted_semantic_matches_preserves_owner_type_behavior_without_candidate_subjects() {
+        let mut subjectless_candidate = candidate("Someone likes tea.");
+        subjectless_candidate.subjects.clear();
+        let mut existing = summary("mem_alex", "Alex likes tea.");
+        existing.subject_entity_ids = vec!["entity:alex".to_string()];
+
+        let trusted = trusted_semantic_matches(&subjectless_candidate, &[existing]);
+        let trusted_ids = trusted
+            .iter()
+            .map(|memory| memory.id.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(trusted_ids, ["mem_alex"]);
+    }
+
+    #[test]
+    fn semantic_decision_rejects_different_subject_when_candidate_has_subjects() {
+        let mut different_subject = summary("mem_alex", "Alex likes tea.");
+        different_subject.subject_entity_ids = vec!["entity:alex".to_string()];
+        let decision = SemanticConsolidationDecision::Reuse {
+            existing_memory_id: "mem_alex".to_string(),
+        };
+
+        let error = validate_semantic_consolidation_decision(
+            &candidate("Kevin likes tea."),
+            &[different_subject],
+            decision,
+        )
+        .expect_err("different subject");
+
+        assert_eq!(
+            error,
+            "semantic consolidation referenced incompatible memory"
+        );
+    }
+
+    #[test]
+    fn semantic_failure_metadata_annotation_is_safe_and_broad() {
+        let mut candidate = candidate("Kevin likes tea.");
+
+        annotate_semantic_consolidation_failure(
+            &mut candidate,
+            SemanticConsolidationError::InvalidDecision,
+        );
+
+        assert_eq!(
+            candidate.metadata,
+            serde_json::json!({
+                "semantic_consolidation_failed": true,
+                "semantic_consolidation_error": "invalid_decision",
+            })
+        );
     }
 }

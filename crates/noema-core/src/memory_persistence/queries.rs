@@ -8,6 +8,7 @@ SELECT
   mi.sensitivity,
   mi.title,
   mi.content,
+  COALESCE(subjects.subject_entity_ids, ARRAY[]::text[]) AS subject_entity_ids,
   mi.memory_dedupe_fingerprint,
   mi.created_at::text,
   pe.source_object_type,
@@ -31,6 +32,11 @@ LEFT JOIN conversation_items ci
  AND ci.item_id = pe.source_object_id
 LEFT JOIN conversations c
   ON ci.conversation_id = c.conversation_id
+LEFT JOIN LATERAL (
+  SELECT array_agg(DISTINCT ms.entity_id ORDER BY ms.entity_id) AS subject_entity_ids
+  FROM memory_subjects ms
+  WHERE ms.memory_id = mi.memory_id
+) subjects ON TRUE
 WHERE mi.memory_id = $1
 ";
 
@@ -44,6 +50,7 @@ SELECT
   mi.sensitivity,
   mi.title,
   mi.content,
+  COALESCE(subjects.subject_entity_ids, ARRAY[]::text[]) AS subject_entity_ids,
   mi.memory_dedupe_fingerprint,
   mi.created_at::text,
   pe.source_object_type,
@@ -67,6 +74,11 @@ LEFT JOIN conversation_items ci
  AND ci.item_id = pe.source_object_id
 LEFT JOIN conversations c
   ON ci.conversation_id = c.conversation_id
+LEFT JOIN LATERAL (
+  SELECT array_agg(DISTINCT ms.entity_id ORDER BY ms.entity_id) AS subject_entity_ids
+  FROM memory_subjects ms
+  WHERE ms.memory_id = mi.memory_id
+) subjects ON TRUE
 WHERE mi.memory_dedupe_fingerprint = $1
   AND mi.deleted_at IS NULL
   AND mi.status IN ('candidate', 'active', 'confirmed', 'inferred')
@@ -84,6 +96,7 @@ SELECT
   mi.sensitivity,
   mi.title,
   mi.content,
+  COALESCE(subjects.subject_entity_ids, ARRAY[]::text[]) AS subject_entity_ids,
   mi.memory_dedupe_fingerprint,
   mi.created_at::text,
   pe.source_object_type,
@@ -107,6 +120,11 @@ LEFT JOIN conversation_items ci
  AND ci.item_id = pe.source_object_id
 LEFT JOIN conversations c
   ON ci.conversation_id = c.conversation_id
+LEFT JOIN LATERAL (
+  SELECT array_agg(DISTINCT ms.entity_id ORDER BY ms.entity_id) AS subject_entity_ids
+  FROM memory_subjects ms
+  WHERE ms.memory_id = mi.memory_id
+) subjects ON TRUE
 ORDER BY mi.created_at DESC, mi.memory_id DESC
 LIMIT $1
 ";

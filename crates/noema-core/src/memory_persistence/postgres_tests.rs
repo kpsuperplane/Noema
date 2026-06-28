@@ -1526,6 +1526,87 @@ async fn find_memory_consolidation_matches_does_not_match_agent_overlap_across_o
 }
 
 #[tokio::test]
+async fn find_memory_consolidation_matches_populates_subject_entity_ids() {
+    let Some(repo) = test_repo().await else {
+        return;
+    };
+    repo.ensure_default_actors().await.expect("actors");
+
+    let conversation = repo
+        .create_conversation(NewConversation::local_chat(
+            Some("test-model".to_string()),
+            Some("/tmp/noema".to_string()),
+        ))
+        .await
+        .expect("conversation");
+    let source_item = repo
+        .append_conversation_item(NewConversationItem {
+            conversation_id: conversation.conversation_id.clone(),
+            turn_id: None,
+            parent_item_id: None,
+            kind: ConversationItemKind::UserText,
+            status: ConversationItemStatus::Completed,
+            author: ActorRef::human("human:local"),
+            content_text: Some("subject consolidation source".to_string()),
+            payload_json: serde_json::json!({}),
+            metadata: serde_json::json!({}),
+        })
+        .await
+        .expect("source item");
+
+    let owner = ObjectRef::new(
+        ObjectType::Conversation,
+        conversation.conversation_id.as_str(),
+    )
+    .expect("owner");
+    let source = ObjectRef::conversation_item(source_item.item_id.as_str());
+    let mut existing = NewMemoryCandidate::confirmed_note(
+        owner.clone(),
+        "Subject-aware consolidation match.",
+        ActorRef::agent("agent:primary"),
+        source.clone(),
+    );
+    existing.memory_type = MemoryType::Preference;
+    existing.participants = vec![NewMemoryParticipant::new(
+        ActorRef::human("human:local"),
+        ParticipantRole::HumanInScope,
+    )];
+    existing.subjects = vec![NewMemorySubject::new(
+        "entity:alice",
+        "person",
+        "Alice",
+        SubjectRole::About,
+    )];
+    let existing_summary = repo
+        .append_memory_candidate(existing)
+        .await
+        .expect("existing memory");
+
+    let mut query_candidate = NewMemoryCandidate::confirmed_note(
+        owner,
+        "Subject-aware consolidation",
+        ActorRef::agent("agent:primary"),
+        source,
+    );
+    query_candidate.memory_type = MemoryType::Preference;
+    query_candidate.participants = vec![NewMemoryParticipant::new(
+        ActorRef::human("human:local"),
+        ParticipantRole::HumanInScope,
+    )];
+
+    let matches = repo
+        .find_memory_consolidation_matches(&query_candidate, 12)
+        .await
+        .expect("matches");
+    let matched = matches
+        .iter()
+        .find(|memory| memory.id == existing_summary.id)
+        .expect("existing memory in matches");
+
+    assert_eq!(matched.subject_entity_ids, ["entity:alice"]);
+}
+
+#[tokio::test]
 async fn append_memory_candidate_reuses_inferred_dedupe_fingerprint() {
     let Some(repo) = test_repo().await else {
         return;

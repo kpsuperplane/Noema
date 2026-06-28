@@ -345,6 +345,8 @@ pub struct MemorySummary {
     pub title: String,
     /// Memory content.
     pub content: String,
+    /// Subject entity ids bound to the memory.
+    pub subject_entity_ids: Vec<String>,
     /// Canonical exact-dedupe fingerprint, if this row was created after the
     /// fingerprinting integration.
     pub dedupe_fingerprint: Option<String>,

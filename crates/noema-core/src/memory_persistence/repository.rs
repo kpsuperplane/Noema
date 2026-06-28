@@ -27,6 +27,7 @@ pub(super) struct MemorySummaryRow {
     pub(super) sensitivity: String,
     pub(super) title: String,
     pub(super) content: String,
+    pub(super) subject_entity_ids: Vec<String>,
     pub(super) dedupe_fingerprint: Option<String>,
     pub(super) created_at: String,
     pub(super) source_object_type: Option<String>,
@@ -88,6 +89,7 @@ pub(super) fn postgres_row_to_memory_summary(
         sensitivity: parse_sensitivity(&row.sensitivity)?,
         title: row.title,
         content: row.content,
+        subject_entity_ids: row.subject_entity_ids,
         dedupe_fingerprint: row.dedupe_fingerprint,
         created_at: row.created_at,
         source_object_type: row.source_object_type.clone(),
@@ -181,6 +183,7 @@ impl PostgresMemoryRepository {
                 String,
                 String,
                 String,
+                Vec<String>,
                 Option<String>,
                 String,
                 Option<String>,
@@ -204,6 +207,7 @@ impl PostgresMemoryRepository {
                     sensitivity,
                     title,
                     content,
+                    subject_entity_ids,
                     dedupe_fingerprint,
                     created_at,
                     source_object_type,
@@ -219,6 +223,7 @@ impl PostgresMemoryRepository {
                         sensitivity,
                         title,
                         content,
+                        subject_entity_ids,
                         dedupe_fingerprint,
                         created_at,
                         source_object_type,
@@ -252,6 +257,7 @@ impl PostgresMemoryRepository {
                 String,
                 String,
                 String,
+                Vec<String>,
                 Option<String>,
                 String,
                 Option<String>,
@@ -274,6 +280,7 @@ impl PostgresMemoryRepository {
                 sensitivity,
                 title,
                 content,
+                subject_entity_ids,
                 dedupe_fingerprint,
                 created_at,
                 source_object_type,
@@ -289,6 +296,7 @@ impl PostgresMemoryRepository {
                     sensitivity,
                     title,
                     content,
+                    subject_entity_ids,
                     dedupe_fingerprint,
                     created_at,
                     source_object_type,
@@ -323,6 +331,7 @@ impl PostgresMemoryRepository {
                 String,
                 String,
                 String,
+                Vec<String>,
                 String,
                 Option<String>,
                 Option<String>,
@@ -340,6 +349,7 @@ impl PostgresMemoryRepository {
               sensitivity,
               title,
               content,
+              subject_entity_ids,
               created_at,
               memory_dedupe_fingerprint,
               source_object_type,
@@ -355,6 +365,7 @@ impl PostgresMemoryRepository {
                 m.sensitivity,
                 m.title,
                 m.content,
+                COALESCE(subjects.subject_entity_ids, ARRAY[]::text[]) AS subject_entity_ids,
                 m.created_at::text AS created_at,
                 m.memory_dedupe_fingerprint,
                 source.source_object_type,
@@ -379,6 +390,11 @@ impl PostgresMemoryRepository {
               LEFT JOIN conversation_items source_conversation
                 ON source.source_object_type = 'conversation_item'
                AND source.source_object_id = source_conversation.item_id
+              LEFT JOIN LATERAL (
+                SELECT array_agg(DISTINCT ms.entity_id ORDER BY ms.entity_id) AS subject_entity_ids
+                FROM memory_subjects ms
+                WHERE ms.memory_id = m.memory_id
+              ) subjects ON true
               LEFT JOIN memory_participants mp ON mp.memory_id = m.memory_id
               LEFT JOIN actors participant_actor
                 ON participant_actor.actor_id = mp.participant_actor_id
@@ -422,6 +438,7 @@ impl PostgresMemoryRepository {
                     sensitivity,
                     title,
                     content,
+                    subject_entity_ids,
                     created_at,
                     dedupe_fingerprint,
                     source_object_type,
@@ -437,6 +454,7 @@ impl PostgresMemoryRepository {
                         sensitivity,
                         title,
                         content,
+                        subject_entity_ids,
                         dedupe_fingerprint,
                         created_at,
                         source_object_type,
