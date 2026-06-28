@@ -21,6 +21,18 @@ pub trait ModelProvider: Send + Sync {
         &self,
         request: GenerateRequest,
     ) -> impl Future<Output = Result<GenerateResponse, ProviderError>> + Send;
+
+    /// Generate a response while optionally emitting ephemeral stream events.
+    fn generate_streaming<'a>(
+        &'a self,
+        request: GenerateRequest,
+        on_event: &'a mut (dyn FnMut(GenerateStreamEvent) + Send),
+    ) -> impl Future<Output = Result<GenerateResponse, ProviderError>> + Send + 'a {
+        async move {
+            let _ = on_event;
+            self.generate(request).await
+        }
+    }
 }
 
 /// Input and options for a provider generation call.
@@ -87,6 +99,16 @@ pub struct GenerateResponse {
     pub response_id: Option<String>,
     /// Token usage reported by the provider when available.
     pub usage: Option<TokenUsage>,
+}
+
+/// Ephemeral events emitted while a provider response is still generating.
+#[derive(Debug, Clone, PartialEq)]
+pub enum GenerateStreamEvent {
+    /// Incremental human-visible assistant text.
+    AssistantTextDelta {
+        /// Text delta received from the provider.
+        delta: String,
+    },
 }
 
 impl GenerateResponse {
@@ -456,6 +478,22 @@ mod tests {
         assert_eq!(response.assistant_text(), "hello");
         assert_eq!(response.provider, "mock");
         assert_eq!(response.model, "mock-1");
+    }
+
+    #[tokio::test]
+    async fn model_provider_default_streaming_delegates_to_generate_without_events() {
+        let provider = EchoProvider;
+        let mut events = Vec::new();
+        let response = {
+            let mut on_event = |event| events.push(event);
+            provider
+                .generate_streaming(GenerateRequest::text("hello stream"), &mut on_event)
+                .await
+                .expect("mock provider should return a streaming response")
+        };
+
+        assert_eq!(response.assistant_text(), "hello stream");
+        assert_eq!(events, Vec::<GenerateStreamEvent>::new());
     }
 
     #[test]
