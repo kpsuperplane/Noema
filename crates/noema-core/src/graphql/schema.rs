@@ -289,6 +289,7 @@ impl SubscriptionRoot {
                                 item_id,
                                 turn_id,
                                 item,
+                                ..
                             } => {
                         yield GraphqlConversationEvent::ConversationItem(
                             Box::new(GraphqlConversationItemEvent {
@@ -311,6 +312,7 @@ impl SubscriptionRoot {
                             },
                         );
                     }
+                        crate::daemon::TurnStreamEvent::AssistantTextDelta { .. } => {}
                     },
                     ConversationLiveEvent::Completed {
                         conversation_id,
@@ -352,6 +354,7 @@ fn publish_turn_terminal_events(
                 conversation_id: conversation_id.clone(),
                 item_id: error_item_id,
                 turn_id: None,
+                metadata: serde_json::json!({}),
                 item: Box::new(crate::TurnTranscriptItem::ErrorNotice {
                     message: error.to_string(),
                     recoverable: false,

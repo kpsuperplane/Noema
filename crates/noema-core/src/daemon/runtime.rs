@@ -18,7 +18,7 @@ use crate::{
     },
     provider::{
         GenerateInput, GenerateOptions, GenerateOutputItem, GenerateRequest, GenerateResponse,
-        ModelProvider, ProviderError,
+        GenerateStreamEvent, ModelProvider, ProviderError,
     },
     providers::codex_responses::{CodexProviderConfig, CodexResponsesProvider},
 };
@@ -45,6 +45,12 @@ pub(crate) trait RuntimeModelProvider: std::fmt::Debug + Send + Sync {
         &'a self,
         request: GenerateRequest,
     ) -> Pin<Box<dyn Future<Output = Result<GenerateResponse, ProviderError>> + Send + 'a>>;
+
+    fn generate_streaming<'a>(
+        &'a self,
+        request: GenerateRequest,
+        on_event: &'a mut (dyn FnMut(GenerateStreamEvent) + Send),
+    ) -> Pin<Box<dyn Future<Output = Result<GenerateResponse, ProviderError>> + Send + 'a>>;
 }
 
 impl<T> RuntimeModelProvider for T
@@ -56,6 +62,14 @@ where
         request: GenerateRequest,
     ) -> Pin<Box<dyn Future<Output = Result<GenerateResponse, ProviderError>> + Send + 'a>> {
         Box::pin(async move { ModelProvider::generate(self, request).await })
+    }
+
+    fn generate_streaming<'a>(
+        &'a self,
+        request: GenerateRequest,
+        on_event: &'a mut (dyn FnMut(GenerateStreamEvent) + Send),
+    ) -> Pin<Box<dyn Future<Output = Result<GenerateResponse, ProviderError>> + Send + 'a>> {
+        Box::pin(async move { ModelProvider::generate_streaming(self, request, on_event).await })
     }
 }
 
@@ -447,6 +461,7 @@ impl CodexRuntimeActor {
             &item_tx,
         )
         .await?;
+        let user_metadata = json!({ "turn_index": turn_index });
         let user_item = self
             .memory_repository
             .append_conversation_item(NewConversationItem {
@@ -458,13 +473,14 @@ impl CodexRuntimeActor {
                 author: ActorRef::human("human:local"),
                 content_text: Some(input.clone()),
                 payload_json: json!({}),
-                metadata: json!({ "turn_index": turn_index }),
+                metadata: user_metadata.clone(),
             })
             .await?;
         let user_item_id = user_item.item_id.clone();
         send_conversation_item(
             &item_tx,
             user_item,
+            user_metadata,
             TurnTranscriptItem::UserText {
                 text: input.clone(),
             },
@@ -511,17 +527,32 @@ impl CodexRuntimeActor {
             &recent_transcript,
         );
 
+        let initial_stream_id = assistant_stream_id(&turn.turn_id, "initial");
+        let mut on_initial_event = |event| {
+            let GenerateStreamEvent::AssistantTextDelta { delta } = event;
+            send_assistant_text_delta(
+                &item_tx,
+                &conversation_id,
+                &turn.turn_id,
+                &initial_stream_id,
+                delta,
+            );
+        };
+
         match self
             .provider
-            .generate(GenerateRequest {
-                model: conversation.model.clone(),
-                input: GenerateInput::Text(input.clone()),
-                instructions: Some(structured_instructions),
-                options: GenerateOptions {
-                    require_noema_response: true,
-                    ..GenerateOptions::default()
+            .generate_streaming(
+                GenerateRequest {
+                    model: conversation.model.clone(),
+                    input: GenerateInput::Text(input.clone()),
+                    instructions: Some(structured_instructions),
+                    options: GenerateOptions {
+                        require_noema_response: true,
+                        ..GenerateOptions::default()
+                    },
                 },
-            })
+                &mut on_initial_event,
+            )
             .await
         {
             Ok(response) => {
@@ -535,6 +566,7 @@ impl CodexRuntimeActor {
                             user_input: input.clone(),
                             cwd: conversation.cwd.clone(),
                             model: conversation.model.clone(),
+                            initial_stream_id: initial_stream_id.clone(),
                             response,
                             saved_memory_id,
                         },
@@ -595,6 +627,7 @@ impl CodexRuntimeActor {
                         turn_index,
                         user_item_id,
                         provider,
+                        stream_id: None,
                     };
                     self.persist_partial_provider_action_outputs(&action_turn, output, &item_tx)
                         .await?;
@@ -620,6 +653,7 @@ impl CodexRuntimeActor {
             turn_index: turn.turn_index,
             user_item_id: turn.user_item_id.clone(),
             provider: turn.response.provider.clone(),
+            stream_id: Some(turn.initial_stream_id.clone()),
         };
         let mut initial_assistant_item_id = None;
         let mut initial_assistant_text = String::new();
@@ -646,6 +680,7 @@ impl CodexRuntimeActor {
                 turn_index: turn.turn_index,
                 user_item_id: turn.user_item_id.clone(),
                 provider: "noema_local".to_string(),
+                stream_id: None,
             };
             for (offset, result) in local_tool_results.iter().enumerate() {
                 self.persist_provider_action_output_item(
@@ -664,17 +699,31 @@ impl CodexRuntimeActor {
                 turn.cwd.as_deref(),
                 &turn.user_input,
             );
+            let continuation_stream_id = assistant_stream_id(&turn.turn_id, "continuation");
+            let mut on_continuation_event = |event| {
+                let GenerateStreamEvent::AssistantTextDelta { delta } = event;
+                send_assistant_text_delta(
+                    item_tx,
+                    &turn.conversation_id,
+                    &turn.turn_id,
+                    &continuation_stream_id,
+                    delta,
+                );
+            };
             let continuation_response = self
                 .provider
-                .generate(GenerateRequest {
-                    model: turn.model.clone(),
-                    input: GenerateInput::Text(continuation_input.to_string()),
-                    instructions: Some(continuation_instructions),
-                    options: GenerateOptions {
-                        require_noema_response: true,
-                        ..GenerateOptions::default()
+                .generate_streaming(
+                    GenerateRequest {
+                        model: turn.model.clone(),
+                        input: GenerateInput::Text(continuation_input.to_string()),
+                        instructions: Some(continuation_instructions),
+                        options: GenerateOptions {
+                            require_noema_response: true,
+                            ..GenerateOptions::default()
+                        },
                     },
-                })
+                    &mut on_continuation_event,
+                )
                 .await?;
             provider_memory_proposals.extend(continuation_response.memory_proposals());
             let continuation_action_turn = ProviderActionTurn {
@@ -683,6 +732,7 @@ impl CodexRuntimeActor {
                 turn_index: turn.turn_index,
                 user_item_id: turn.user_item_id.clone(),
                 provider: continuation_response.provider.clone(),
+                stream_id: Some(continuation_stream_id.clone()),
             };
             let continuation_output_base = initial_output_count + local_tool_results.len();
             for (offset, output) in continuation_response.output.into_iter().enumerate() {
@@ -759,6 +809,11 @@ impl CodexRuntimeActor {
         match output {
             GenerateOutputItem::AssistantText { text } => {
                 assistant_text.push_str(&text);
+                let metadata = json!({
+                    "turn_index": turn.turn_index,
+                    "output_index": index,
+                    "stream_id": turn.stream_id,
+                });
                 let assistant_item = self
                     .memory_repository
                     .append_conversation_item(NewConversationItem {
@@ -770,10 +825,7 @@ impl CodexRuntimeActor {
                         author: ActorRef::agent("agent:primary"),
                         content_text: Some(text.clone()),
                         payload_json: json!({}),
-                        metadata: json!({
-                            "turn_index": turn.turn_index,
-                            "output_index": index,
-                        }),
+                        metadata: metadata.clone(),
                     })
                     .await?;
                 if assistant_item_id.is_none() {
@@ -782,6 +834,7 @@ impl CodexRuntimeActor {
                 send_conversation_item(
                     item_tx,
                     assistant_item,
+                    metadata,
                     TurnTranscriptItem::AssistantText { text },
                 );
             }
@@ -798,6 +851,11 @@ impl CodexRuntimeActor {
                     "provider_structured:{}:{}:{index}",
                     turn.conversation_id, turn.turn_index
                 );
+                let metadata = json!({
+                    "turn_index": turn.turn_index,
+                    "output_index": index,
+                    "source": "provider_structured_output",
+                });
                 let structured_item = self
                     .memory_repository
                     .append_conversation_item(NewConversationItem {
@@ -813,16 +871,13 @@ impl CodexRuntimeActor {
                             "schema": schema.clone(),
                             "payload": payload.clone(),
                         }),
-                        metadata: json!({
-                            "turn_index": turn.turn_index,
-                            "output_index": index,
-                            "source": "provider_structured_output",
-                        }),
+                        metadata: metadata.clone(),
                     })
                     .await?;
                 send_conversation_item(
                     item_tx,
                     structured_item,
+                    metadata,
                     TurnTranscriptItem::A2uiCard {
                         id: card_id,
                         schema: schema.clone(),
@@ -1022,6 +1077,12 @@ impl CodexRuntimeActor {
             .get("title")
             .and_then(serde_json::Value::as_str)
             .map(ToString::to_string);
+        let metadata = json!({
+            "turn_index": turn.turn_index,
+            "output_index": action.index,
+            "source": "provider_action",
+            "provider": turn.provider.clone(),
+        });
         let record = self
             .memory_repository
             .append_conversation_item(NewConversationItem {
@@ -1033,12 +1094,7 @@ impl CodexRuntimeActor {
                 author: ActorRef::agent("agent:primary"),
                 content_text,
                 payload_json: payload_json.clone(),
-                metadata: json!({
-                    "turn_index": turn.turn_index,
-                    "output_index": action.index,
-                    "source": "provider_action",
-                    "provider": turn.provider.clone(),
-                }),
+                metadata: metadata.clone(),
             })
             .await?;
 
@@ -1050,7 +1106,7 @@ impl CodexRuntimeActor {
             summary,
             metadata: payload_json["metadata"].clone(),
         };
-        send_conversation_item(item_tx, record, transcript_item);
+        send_conversation_item(item_tx, record, metadata, transcript_item);
         Ok(())
     }
 
@@ -1207,8 +1263,8 @@ impl CodexRuntimeActor {
         item: TurnTranscriptItem,
         item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
     ) -> Result<(), DaemonError> {
-        let record = self.persist_turn_item(context, &item).await?;
-        send_conversation_item(item_tx, record, item);
+        let (record, metadata) = self.persist_turn_item(context, &item).await?;
+        send_conversation_item(item_tx, record, metadata, item);
         Ok(())
     }
 
@@ -1216,7 +1272,7 @@ impl CodexRuntimeActor {
         &mut self,
         context: &ConversationMemoryContext,
         item: &TurnTranscriptItem,
-    ) -> Result<ConversationItemRecord, DaemonError> {
+    ) -> Result<(ConversationItemRecord, Value), DaemonError> {
         let default_parent_item_id = context
             .assistant_item_id
             .clone()
@@ -1316,10 +1372,10 @@ impl CodexRuntimeActor {
                 author,
                 content_text,
                 payload_json,
-                metadata,
+                metadata: metadata.clone(),
             })
             .await?;
-        Ok(record)
+        Ok((record, metadata))
     }
 
     async fn persist_chat_memory_candidate(
@@ -1386,13 +1442,30 @@ impl CodexRuntimeActor {
 fn send_conversation_item(
     item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
     record: ConversationItemRecord,
+    metadata: Value,
     item: TurnTranscriptItem,
 ) {
     let _ = item_tx.send(TurnStreamEvent::ConversationItem {
         conversation_id: record.conversation_id,
         item_id: record.item_id,
         turn_id: record.turn_id,
+        metadata,
         item: Box::new(item),
+    });
+}
+
+fn send_assistant_text_delta(
+    item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
+    conversation_id: &str,
+    turn_id: &str,
+    stream_id: &str,
+    delta: String,
+) {
+    let _ = item_tx.send(TurnStreamEvent::AssistantTextDelta {
+        conversation_id: conversation_id.to_string(),
+        turn_id: turn_id.to_string(),
+        stream_id: stream_id.to_string(),
+        delta,
     });
 }
 
@@ -1581,6 +1654,10 @@ fn final_assistant_item_id(
     }
 }
 
+fn assistant_stream_id(turn_id: &str, segment: &str) -> String {
+    format!("assistant_stream:{turn_id}:{segment}")
+}
+
 fn render_recent_transcript_for_prompt(items: &[ConversationItemRecord]) -> String {
     let mut rendered = String::new();
     for item in items {
@@ -1656,6 +1733,7 @@ struct SuccessfulProviderTurn {
     user_input: String,
     cwd: Option<String>,
     model: Option<String>,
+    initial_stream_id: String,
     response: GenerateResponse,
     saved_memory_id: Option<String>,
 }
@@ -1666,6 +1744,7 @@ struct ProviderActionTurn {
     turn_index: u64,
     user_item_id: String,
     provider: String,
+    stream_id: Option<String>,
 }
 
 struct ProviderActionOutput {

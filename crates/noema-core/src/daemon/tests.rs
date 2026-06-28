@@ -14,7 +14,8 @@ use crate::{
         ReplayMode,
     },
     provider::{
-        GenerateInput, GenerateOutputItem, GenerateRequest, GenerateResponse, ProviderError,
+        GenerateInput, GenerateOutputItem, GenerateRequest, GenerateResponse, GenerateStreamEvent,
+        ProviderError,
     },
 };
 use serde_json::json;
@@ -46,6 +47,7 @@ fn protocol_round_trips_requests_and_responses() {
         conversation_id: "conversation_1".to_string(),
         item_id: "item_1".to_string(),
         turn_id: Some("turn_1".to_string()),
+        metadata: json!({ "stream_id": "assistant_stream:turn_1:initial" }),
         item: TurnTranscriptItem::Activity {
             id: "memory_extraction:conversation_1:1".to_string(),
             activity_kind: "memory_extraction".to_string(),
@@ -59,6 +61,19 @@ fn protocol_round_trips_requests_and_responses() {
     assert!(encoded.contains(r#""type":"conversation_item""#));
     assert!(encoded.contains(r#""item_id":"item_1""#));
     assert!(encoded.contains(r#""turn_id":"turn_1""#));
+    assert!(encoded.contains(r#""stream_id":"assistant_stream:turn_1:initial""#));
+    let decoded: DaemonResponse = serde_json::from_str(&encoded).expect("decode");
+    assert_eq!(decoded, response);
+
+    let response = DaemonResponse::AssistantTextDelta {
+        conversation_id: "conversation_1".to_string(),
+        turn_id: "turn_1".to_string(),
+        stream_id: "assistant_stream:turn_1:initial".to_string(),
+        delta: "fake".to_string(),
+    };
+    let encoded = serde_json::to_string(&response).expect("encode");
+    assert!(encoded.contains(r#""type":"assistant_text_delta""#));
+    assert!(encoded.contains(r#""delta":"fake""#));
     let decoded: DaemonResponse = serde_json::from_str(&encoded).expect("decode");
     assert_eq!(decoded, response);
 
@@ -248,6 +263,7 @@ async fn runtime_turn_streams_durable_assistant_item_and_idle_status() {
                 item_id,
                 turn_id,
                 item,
+                ..
             } if id == &conversation_id => match item.as_ref() {
                 TurnTranscriptItem::AssistantText { text } if text == "fake answer" => {
                     Some((item_id.clone(), turn_id.clone()))
@@ -276,6 +292,62 @@ async fn runtime_turn_streams_durable_assistant_item_and_idle_status() {
     let (agent_status, turn_status) = conversation_and_turn_statuses(&repo, &conversation_id).await;
     assert_eq!(agent_status, "idle");
     assert_eq!(turn_status, "completed");
+}
+
+#[tokio::test]
+async fn runtime_turn_streams_assistant_text_deltas_before_durable_item() {
+    let Some(database) = test_database().await else {
+        return;
+    };
+    let handle = test_runtime_handle(fake_codex_provider(), database.url.clone()).await;
+    let conversation = handle
+        .start_conversation(None, None)
+        .await
+        .expect("conversation");
+    let conversation_id = conversation.conversation_id.clone();
+    let (result, events) =
+        collect_turn_events(&handle, conversation_id.clone(), "hello".to_string()).await;
+    result.expect("turn");
+    handle.shutdown().await;
+
+    let first_delta = events
+        .iter()
+        .position(|event| matches!(event, TurnStreamEvent::AssistantTextDelta { .. }))
+        .expect("assistant delta");
+    let durable_assistant = events
+        .iter()
+        .position(|event| {
+            matches!(
+                event,
+                TurnStreamEvent::ConversationItem { item, .. }
+                    if matches!(item.as_ref(), TurnTranscriptItem::AssistantText { .. })
+            )
+        })
+        .expect("durable assistant");
+    assert!(first_delta < durable_assistant);
+
+    let repo = postgres_repo(&database).await;
+    let replay = repo
+        .list_conversation_items(&conversation_id, ReplayMode::Visible)
+        .await
+        .expect("replay");
+    let assistant_items = replay
+        .iter()
+        .filter(|item| item.kind == ConversationItemKind::AssistantText)
+        .collect::<Vec<_>>();
+    assert_eq!(assistant_items.len(), 1);
+    let stream_id = sqlx::query_scalar::<_, Option<String>>(
+        r"
+        SELECT metadata->>'stream_id'
+        FROM conversation_items
+        WHERE item_id = $1
+        ",
+    )
+    .bind(assistant_items[0].item_id.as_str())
+    .fetch_one(repo.pool())
+    .await
+    .expect("assistant metadata stream id");
+    assert!(stream_id.is_some());
 }
 
 #[tokio::test]
@@ -793,6 +865,7 @@ async fn runtime_actor_persists_explicit_remember_before_provider_failure() {
                     item_id,
                     turn_id: Some(_),
                     item,
+                    ..
                 },
             ) if id == &conversation_id
                 && matches!(item.as_ref(), TurnTranscriptItem::Activity { .. }) =>
@@ -806,6 +879,7 @@ async fn runtime_actor_persists_explicit_remember_before_provider_failure() {
                     item_id,
                     turn_id: Some(_),
                     item,
+                    ..
                 },
             ) if id == &conversation_id
                 && matches!(item.as_ref(), TurnTranscriptItem::A2uiCard { .. }) =>
@@ -819,6 +893,7 @@ async fn runtime_actor_persists_explicit_remember_before_provider_failure() {
                     item_id,
                     turn_id: Some(_),
                     item,
+                    ..
                 },
             ) if id == &conversation_id
                 && matches!(item.as_ref(), TurnTranscriptItem::ErrorNotice { .. }) =>
@@ -1244,6 +1319,7 @@ fn transcript_items_from_events(events: Vec<TurnStreamEvent>) -> Vec<TurnTranscr
                 Some(*item)
             }
             TurnStreamEvent::ConversationItem { .. }
+            | TurnStreamEvent::AssistantTextDelta { .. }
             | TurnStreamEvent::AgentStatusChanged { .. } => None,
         })
         .collect()
@@ -1418,6 +1494,33 @@ impl super::runtime::RuntimeModelProvider for FakeCodexProvider {
         request: GenerateRequest,
     ) -> Pin<Box<dyn Future<Output = Result<GenerateResponse, ProviderError>> + Send + 'a>> {
         Box::pin(async move { self.generate_response(request) })
+    }
+
+    fn generate_streaming<'a>(
+        &'a self,
+        request: GenerateRequest,
+        on_event: &'a mut (dyn FnMut(GenerateStreamEvent) + Send),
+    ) -> Pin<Box<dyn Future<Output = Result<GenerateResponse, ProviderError>> + Send + 'a>> {
+        Box::pin(async move {
+            let response = self.generate_response(request)?;
+            for output in &response.output {
+                let GenerateOutputItem::AssistantText { text } = output else {
+                    continue;
+                };
+                let mut chunk = String::new();
+                for character in text.chars() {
+                    chunk.push(character);
+                    if chunk.chars().count() == 4 {
+                        on_event(GenerateStreamEvent::AssistantTextDelta { delta: chunk });
+                        chunk = String::new();
+                    }
+                }
+                if !chunk.is_empty() {
+                    on_event(GenerateStreamEvent::AssistantTextDelta { delta: chunk });
+                }
+            }
+            Ok(response)
+        })
     }
 }
 

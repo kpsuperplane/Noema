@@ -171,12 +171,19 @@ impl DaemonClient {
                     conversation_id: item_conversation_id,
                     item_id: _,
                     turn_id: _,
+                    metadata: _,
                     item,
                 } if item_conversation_id == conversation_id => {
                     if !matches!(item, TurnTranscriptItem::UserText { .. }) {
                         on_item(item);
                     }
                 }
+                DaemonResponse::AssistantTextDelta {
+                    conversation_id: delta_conversation_id,
+                    turn_id: _,
+                    stream_id: _,
+                    delta: _,
+                } if delta_conversation_id == conversation_id => {}
                 DaemonResponse::AgentStatusChanged {
                     conversation_id: status_conversation_id,
                     status: _,

@@ -71,8 +71,22 @@ pub enum DaemonResponse {
         /// Durable conversation turn id.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         turn_id: Option<String>,
+        /// Structured durable item metadata.
+        #[serde(default)]
+        metadata: serde_json::Value,
         /// Transcript item to render in chat.
         item: TurnTranscriptItem,
+    },
+    /// Ephemeral assistant text delta from an in-progress turn.
+    AssistantTextDelta {
+        /// Daemon conversation id.
+        conversation_id: String,
+        /// Durable conversation turn id.
+        turn_id: String,
+        /// Runtime stream id for reconciling final text.
+        stream_id: String,
+        /// Assistant text delta.
+        delta: String,
     },
     /// Live agent status changed for a conversation.
     AgentStatusChanged {
@@ -325,7 +339,14 @@ pub(crate) enum TurnStreamEvent {
         conversation_id: String,
         item_id: String,
         turn_id: Option<String>,
+        metadata: serde_json::Value,
         item: Box<TurnTranscriptItem>,
+    },
+    AssistantTextDelta {
+        conversation_id: String,
+        turn_id: String,
+        stream_id: String,
+        delta: String,
     },
     AgentStatusChanged {
         conversation_id: String,
@@ -338,6 +359,9 @@ impl TurnStreamEvent {
     pub(crate) fn conversation_id(&self) -> &str {
         match self {
             Self::ConversationItem {
+                conversation_id, ..
+            }
+            | Self::AssistantTextDelta {
                 conversation_id, ..
             }
             | Self::AgentStatusChanged {
@@ -353,12 +377,25 @@ impl TurnStreamEvent {
                 conversation_id,
                 item_id,
                 turn_id,
+                metadata,
                 item,
             } => DaemonResponse::ConversationItem {
                 conversation_id,
                 item_id,
                 turn_id,
+                metadata,
                 item: *item,
+            },
+            Self::AssistantTextDelta {
+                conversation_id,
+                turn_id,
+                stream_id,
+                delta,
+            } => DaemonResponse::AssistantTextDelta {
+                conversation_id,
+                turn_id,
+                stream_id,
+                delta,
             },
             Self::AgentStatusChanged {
                 conversation_id,
