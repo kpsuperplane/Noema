@@ -1,6 +1,7 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { ErrorMarker } from "./ErrorMarker";
 import type {
   GraphqlProviderAuthAttemptStatus,
   OnboardingStatusQuery,
@@ -74,7 +75,7 @@ export function Onboarding({
             </div>
           ) : null}
 
-          {error ? <p className="m-0 text-[var(--red-700)]">{error}</p> : null}
+          {error ? <ErrorMarker message={error} /> : null}
         </CardContent>
       </Card>
     </section>

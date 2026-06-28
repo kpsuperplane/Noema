@@ -9,6 +9,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Bubble, BubbleContent } from "@/components/ui/bubble";
 import { Button } from "@/components/ui/button";
 import { Marker, MarkerContent, MarkerIcon } from "@/components/ui/marker";
+import { ErrorMarker } from "./ErrorMarker";
 import {
   Message as MessagePrimitive,
   MessageAvatar,
@@ -374,16 +375,5 @@ function MemoryDetailAttachment({
 }
 
 function ErrorNotice({ message, recoverable }: { message: string; recoverable: boolean }) {
-  return (
-    <Marker
-      role={recoverable ? "status" : "alert"}
-      variant="border"
-      className="grid max-w-[760px] gap-1 bg-[var(--red-100)] text-[var(--red-700)]"
-    >
-      <MarkerContent>
-        <strong>{recoverable ? "Notice" : "Error"}</strong>
-        <span>{message}</span>
-      </MarkerContent>
-    </Marker>
-  );
+  return <ErrorMarker message={message} label={recoverable ? "Notice" : "Error"} recoverable={recoverable} />;
 }

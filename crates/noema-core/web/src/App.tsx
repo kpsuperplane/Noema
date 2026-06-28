@@ -14,6 +14,7 @@ import {
 import { AppHeader } from "@/components/shell/AppHeader";
 import { Composer } from "./components/Composer";
 import { EmptyState } from "./components/EmptyState";
+import { ErrorMarker } from "./components/ErrorMarker";
 import { Onboarding } from "./components/Onboarding";
 import { Transcript } from "./components/Transcript";
 import { entriesFromReplay, handleConversationEvent, pushTranscript } from "./transcript";
@@ -226,7 +227,7 @@ export function App() {
             <p className="m-0 max-w-[560px] text-muted-foreground [overflow-wrap:anywhere]">
               Noema is checking whether chat can start.
             </p>
-            {displayedOnboardingError ? <p className="m-0 text-[var(--red-700)]">{displayedOnboardingError}</p> : null}
+            {displayedOnboardingError ? <ErrorMarker message={displayedOnboardingError} /> : null}
           </div>
         </section>
       </main>
