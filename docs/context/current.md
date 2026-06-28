@@ -92,6 +92,12 @@ The next storage slice should stay small and concrete:
   active/confirmed claims by simple fact/hint text matching, applies predicate
   `use_mode` plus sensitivity/context policy gates, and reports redacted
   omission counts without writing retrieval packets yet.
+- Explicit `/remember` and `remember:` chat commands now create or reinforce
+  SurrealDB graph claims before provider generation, using the user
+  conversation item as explicit-human evidence. The local `search_memory` tool
+  reads graph claims and returns claim-shaped tool results. Provider-structured
+  ordinary memory proposals are still intentionally unavailable until the next
+  extraction slice.
 
 ## Open Loops
 

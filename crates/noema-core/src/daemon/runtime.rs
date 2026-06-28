@@ -2,6 +2,7 @@ use std::{collections::HashMap, future::Future, pin::Pin, sync::Arc};
 
 use crate::{
     NoemaStore,
+    memory::Sensitivity,
     memory_extraction::{
         ExtractorMemoryProposal, ExtractorMemoryResponse, validate_memory_extraction_response,
     },
@@ -21,8 +22,8 @@ use tokio::sync::{mpsc, oneshot};
 
 use super::{
     memory_pipeline::{
-        ConversationMemoryContext, explicit_memory_content, memory_activity,
-        memory_activity_failed, project_scope_from_cwd, typed_memory_activity,
+        ConversationMemoryContext, explicit_memory_claim_candidate, explicit_memory_content,
+        memory_activity, memory_activity_failed, project_scope_from_cwd, typed_memory_activity,
     },
     memory_tool::{
         MemoryToolResult, MemoryToolRuntimeContext, execute_search_memory, is_search_memory_tool,
@@ -422,8 +423,7 @@ impl CodexRuntimeActor {
                 text: input.clone(),
             },
         );
-        let explicit_memory_requested = explicit_memory_content(&input).is_some();
-        if explicit_memory_requested {
+        if let Some(explicit_content) = explicit_memory_content(&input) {
             let memory_context = ConversationMemoryContext {
                 turn_index,
                 conversation_id: conversation_id.clone(),
@@ -434,14 +434,8 @@ impl CodexRuntimeActor {
                 assistant_content: String::new(),
                 cwd: conversation.cwd.clone(),
             };
-            self.persist_memory_unavailable_activity(
-                &memory_context,
-                "explicit_remember",
-                "Explicit memory unavailable",
-                "graph-claim memory writes are pending",
-                &item_tx,
-            )
-            .await?;
+            self.persist_explicit_memory_claim(&memory_context, &explicit_content, &item_tx)
+                .await?;
         }
         self.update_conversation_agent_status(
             &conversation_id,
@@ -1146,6 +1140,58 @@ impl CodexRuntimeActor {
             .await
     }
 
+    async fn persist_explicit_memory_claim(
+        &mut self,
+        context: &ConversationMemoryContext,
+        content: &str,
+        item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
+    ) -> Result<(), DaemonError> {
+        let candidate = explicit_memory_claim_candidate(content, context.user_item_id.clone());
+        match self.store.create_or_reinforce_claim(candidate).await {
+            Ok(summary) => {
+                let activity = memory_activity(
+                    &format!(
+                        "explicit_memory_saved:{}:{}",
+                        context.conversation_id, context.turn_index
+                    ),
+                    TurnActivityStatus::Completed,
+                    "Explicit memory saved",
+                    Some("saved graph claim"),
+                    json!({
+                        "turn_index": context.turn_index,
+                        "trigger": "explicit_remember",
+                        "claim_id": summary.claim_id,
+                        "predicate_id": summary.predicate_id,
+                        "source_item_id": context.user_item_id,
+                        "evidence_count": summary.evidence_count,
+                        "sensitivity": sensitivity_label(summary.sensitivity),
+                    }),
+                );
+                self.persist_and_send_turn_item(context, activity, item_tx)
+                    .await
+            }
+            Err(error) => {
+                let activity = memory_activity(
+                    &format!(
+                        "explicit_memory_failed:{}:{}",
+                        context.conversation_id, context.turn_index
+                    ),
+                    TurnActivityStatus::Failed,
+                    "Explicit memory save failed",
+                    Some("graph claim write failed"),
+                    json!({
+                        "turn_index": context.turn_index,
+                        "trigger": "explicit_remember",
+                        "source_item_id": context.user_item_id,
+                        "error": error.to_string(),
+                    }),
+                );
+                self.persist_and_send_turn_item(context, activity, item_tx)
+                    .await
+            }
+        }
+    }
+
     async fn persist_memory_unavailable_activity(
         &mut self,
         context: &ConversationMemoryContext,
@@ -1626,6 +1672,16 @@ fn final_assistant_item_id(
 
 fn assistant_stream_id(turn_id: &str, segment: &str) -> String {
     format!("assistant_stream:{turn_id}:{segment}")
+}
+
+fn sensitivity_label(sensitivity: Sensitivity) -> &'static str {
+    match sensitivity {
+        Sensitivity::Public => "public",
+        Sensitivity::Normal => "normal",
+        Sensitivity::Private => "private",
+        Sensitivity::Sensitive => "sensitive",
+        Sensitivity::Secret => "secret",
+    }
 }
 
 fn render_recent_transcript_for_prompt(items: &[ConversationItemRecord]) -> String {

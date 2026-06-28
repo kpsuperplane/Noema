@@ -402,6 +402,7 @@ async fn built_in_predicate_seed_is_idempotent_when_bootstrap_replays() {
         first,
         vec![
             "dislikes",
+            "has_note",
             "likes",
             "prefers",
             "prefers_interaction_style",
@@ -418,7 +419,7 @@ async fn built_in_predicate_seed_is_idempotent_when_bootstrap_replays() {
                 r#"
                 SELECT predicate_id
                 FROM predicates
-                WHERE predicate_id IN ['likes', 'dislikes', 'prefers', 'uses', 'works_on', 'prefers_interaction_style']
+                WHERE predicate_id IN ['likes', 'dislikes', 'prefers', 'uses', 'works_on', 'prefers_interaction_style', 'has_note']
                 ORDER BY predicate_id ASC;
                 "#,
             )

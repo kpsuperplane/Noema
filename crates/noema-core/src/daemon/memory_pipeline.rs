@@ -1,6 +1,12 @@
 use std::path::Path;
 
-use crate::{memory::Sensitivity, memory_persistence::MemoryType};
+use crate::{
+    memory::Sensitivity,
+    memory_persistence::MemoryType,
+    store::{
+        ClaimStatus, EntityCandidate, EvidenceAuthority, EvidenceCandidate, NewClaimCandidate,
+    },
+};
 #[cfg(test)]
 use crate::{
     memory::{ParticipantRole, SubjectRole},
@@ -55,6 +61,117 @@ pub(super) fn explicit_memory_content(input: &str) -> Option<String> {
     None
 }
 
+pub(super) fn explicit_memory_claim_candidate(
+    content: &str,
+    source_item_id: String,
+) -> NewClaimCandidate {
+    let parsed = parse_explicit_claim(content);
+    let fact = parsed.fact;
+    let object_phrase = parsed.object_phrase;
+    NewClaimCandidate {
+        subject: EntityCandidate::local_human(),
+        object: EntityCandidate::concept(
+            &format!("explicit:{}:{}", parsed.predicate_id, object_phrase),
+            &object_phrase,
+        ),
+        predicate_id: parsed.predicate_id.to_string(),
+        fact: fact.clone(),
+        sensitivity: infer_chat_sensitivity(content),
+        status: ClaimStatus::Confirmed,
+        confidence: Some(1.0),
+        evidence: EvidenceCandidate {
+            source_item_id,
+            authority: EvidenceAuthority::ExplicitHumanStatement,
+            excerpt: Some(content.to_string()),
+        },
+        retrieval_hints: json!({
+            "keywords": [object_phrase],
+            "summary": fact,
+            "source": "explicit_remember",
+        }),
+        metadata: json!({
+            "trigger": "explicit_remember",
+        }),
+    }
+}
+
+struct ParsedExplicitClaim {
+    predicate_id: &'static str,
+    object_phrase: String,
+    fact: String,
+}
+
+fn parse_explicit_claim(content: &str) -> ParsedExplicitClaim {
+    let normalized = collapse_whitespace(content);
+    let lowered = normalized.to_ascii_lowercase();
+
+    for prefix in [
+        "i'm a big fan of ",
+        "i am a big fan of ",
+        "i like ",
+        "i love ",
+        "kevin likes ",
+        "kevin loves ",
+    ] {
+        if lowered.starts_with(prefix) {
+            let object_phrase = normalize_object_phrase(&normalized[prefix.len()..]);
+            return ParsedExplicitClaim {
+                predicate_id: "likes",
+                fact: format!("Kevin likes {}.", object_phrase),
+                object_phrase,
+            };
+        }
+    }
+
+    for prefix in ["i prefer ", "kevin prefers ", "i want ", "kevin wants "] {
+        if lowered.starts_with(prefix) {
+            let object_phrase = normalize_object_phrase(&normalized[prefix.len()..]);
+            return ParsedExplicitClaim {
+                predicate_id: "prefers",
+                fact: format!("Kevin prefers {}.", object_phrase),
+                object_phrase,
+            };
+        }
+    }
+
+    let fact = ensure_final_punctuation(&normalized);
+    ParsedExplicitClaim {
+        predicate_id: "has_note",
+        object_phrase: normalize_object_phrase(&normalized),
+        fact,
+    }
+}
+
+fn collapse_whitespace(content: &str) -> String {
+    content.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn normalize_object_phrase(value: &str) -> String {
+    let phrase = value
+        .trim()
+        .trim_matches(|ch: char| matches!(ch, '.' | ',' | ';' | ':' | '!' | '?'))
+        .trim();
+    if phrase.chars().any(|ch| ch.is_ascii_alphabetic())
+        && phrase
+            .chars()
+            .filter(|ch| ch.is_ascii_alphabetic())
+            .all(|ch| ch.is_ascii_uppercase())
+    {
+        phrase.to_ascii_lowercase()
+    } else {
+        phrase.to_string()
+    }
+}
+
+fn ensure_final_punctuation(value: &str) -> String {
+    let value = value.trim();
+    if value.ends_with(['.', '!', '?']) {
+        value.to_string()
+    } else {
+        format!("{value}.")
+    }
+}
+
 #[expect(
     dead_code,
     reason = "graph-claim memory write bridge keeps classification helpers staged for the next slice"
@@ -70,13 +187,6 @@ pub(super) fn infer_chat_memory_type(content: &str) -> MemoryType {
     }
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "graph-claim memory writes are temporarily unavailable outside tests"
-    )
-)]
 pub(super) fn infer_chat_sensitivity(content: &str) -> Sensitivity {
     let lowered = content.to_ascii_lowercase();
     if contains_any(

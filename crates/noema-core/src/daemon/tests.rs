@@ -7,7 +7,7 @@ use super::{
 };
 use crate::{
     DatabaseConfig,
-    memory::{MemoryStatus, Sensitivity},
+    memory::{ClaimRetrievalRequest, MemoryStatus, Sensitivity, UseMode},
     memory_persistence::{
         ConversationItemKind, ConversationItemStatus, PostgresMemoryRepository, ReplayMode,
     },
@@ -152,6 +152,18 @@ fn test_database_name(database_url: &str) -> Option<&str> {
         .split_once('?')
         .map_or(name_with_query, |(name, _)| name);
     (!database_name.is_empty()).then_some(database_name)
+}
+
+fn answer_claim_request() -> ClaimRetrievalRequest {
+    ClaimRetrievalRequest {
+        requesting_agent_id: "agent:primary".to_string(),
+        active_human_ids: vec!["human:local".to_string()],
+        active_object_ids: Vec::new(),
+        use_mode: UseMode::Answer,
+        explicit_memory_request: true,
+        sensitivity_ceiling: Sensitivity::Normal,
+        approved_secret_access: false,
+    }
 }
 
 async fn postgres_repo(database: &RuntimeTestDatabase) -> PostgresMemoryRepository {
@@ -489,8 +501,9 @@ fn deterministic_sensitivity_classifier_fails_closed_for_common_secrets() {
 }
 
 #[tokio::test]
-async fn runtime_actor_reports_explicit_remember_unavailable() {
-    let handle = test_runtime_handle(fake_codex_provider_with_memory_extraction()).await;
+async fn explicit_remember_creates_claim_with_source_evidence() {
+    let (handle, store) =
+        test_runtime_handle_with_store(fake_codex_provider_with_memory_extraction()).await;
 
     let conversation = handle
         .start_conversation(None, None)
@@ -505,23 +518,52 @@ async fn runtime_actor_reports_explicit_remember_unavailable() {
     .await
     .expect("turn");
     assert_eq!(assistant_text(&items), "fake answer");
-    assert!(items.iter().any(|item| {
-        matches!(
-            item,
+    let claim_id = items
+        .iter()
+        .find_map(|item| match item {
             TurnTranscriptItem::Activity {
                 activity_kind,
-                status: TurnActivityStatus::Failed,
+                status: TurnActivityStatus::Completed,
                 title,
                 summary: Some(summary),
                 metadata,
                 ..
             } if activity_kind == "memory_extraction"
-                && title == "Explicit memory unavailable"
-                && summary == "graph-claim memory writes are pending"
+                && title == "Explicit memory saved"
+                && summary == "saved graph claim"
                 && metadata["trigger"] == "explicit_remember"
-                && metadata["unavailable"]["reason"] == "graph_claim_writes_pending"
+                && metadata["predicate_id"] == "prefers" =>
+            {
+                metadata["claim_id"].as_str().map(str::to_string)
+            }
+            _ => None,
+        })
+        .expect("completed explicit memory activity with claim id");
+    assert!(claim_id.starts_with("claim:"));
+    assert!(items.iter().all(|item| {
+        !matches!(
+            item,
+            TurnTranscriptItem::Activity {
+                activity_kind,
+                status: TurnActivityStatus::Failed,
+                title,
+                ..
+            } if activity_kind == "memory_extraction"
+                && title == "Explicit memory unavailable"
         )
     }));
+    let claims = store
+        .retrieve_claims(&answer_claim_request(), "CLI memory inspection", 8)
+        .await
+        .expect("retrieve explicit claim");
+    assert!(
+        claims.included.iter().any(|claim| {
+            claim.claim_id == claim_id
+                && claim.fact == "Kevin prefers CLI memory inspection."
+                && claim.predicate_id == "prefers"
+        }),
+        "expected explicit claim in retrieval, got {claims:?}"
+    );
     assert!(
         !items.iter().any(|item| {
             matches!(
@@ -535,8 +577,9 @@ async fn runtime_actor_reports_explicit_remember_unavailable() {
 }
 
 #[tokio::test]
-async fn runtime_actor_reports_repeated_explicit_memory_unavailable() {
-    let handle = test_runtime_handle(fake_codex_provider_with_memory_extraction()).await;
+async fn repeated_explicit_memory_reinforces_one_claim() {
+    let (handle, store) =
+        test_runtime_handle_with_store(fake_codex_provider_with_memory_extraction()).await;
 
     let conversation = handle
         .start_conversation(None, None)
@@ -544,7 +587,7 @@ async fn runtime_actor_reports_repeated_explicit_memory_unavailable() {
         .expect("conversation");
     let conversation_id = conversation.conversation_id.clone();
 
-    let first_items = collect_turn(
+    let _first_items = collect_turn(
         &handle,
         conversation_id.clone(),
         "remember: I like ice cream.".to_string(),
@@ -558,22 +601,31 @@ async fn runtime_actor_reports_repeated_explicit_memory_unavailable() {
     )
     .await
     .expect("second turn");
-    handle.shutdown().await;
+    let claim_activity = second_items
+        .iter()
+        .find_map(|item| match item {
+            TurnTranscriptItem::Activity {
+                activity_kind,
+                status: TurnActivityStatus::Completed,
+                title,
+                metadata,
+                ..
+            } if activity_kind == "memory_extraction" && title == "Explicit memory saved" => {
+                Some(metadata)
+            }
+            _ => None,
+        })
+        .expect("second explicit memory activity");
+    assert_eq!(claim_activity["evidence_count"], 2);
 
-    for items in [first_items, second_items] {
-        assert!(items.iter().any(|item| {
-            matches!(
-                item,
-                TurnTranscriptItem::Activity {
-                    activity_kind,
-                    status: TurnActivityStatus::Failed,
-                    title,
-                    ..
-                } if activity_kind == "memory_extraction"
-                    && title == "Explicit memory unavailable"
-            )
-        }));
-    }
+    let claims = store
+        .retrieve_claims(&answer_claim_request(), "ice cream", 8)
+        .await
+        .expect("retrieve reinforced claim");
+    assert_eq!(claims.included.len(), 1, "expected one claim: {claims:?}");
+    assert_eq!(claims.included[0].fact, "Kevin likes ice cream.");
+    assert_eq!(claims.included[0].predicate_id, "likes");
+    handle.shutdown().await;
 }
 
 #[tokio::test]
@@ -843,8 +895,9 @@ async fn legacy_runtime_actor_keeps_third_party_subject_conversation_scoped_in_p
 }
 
 #[tokio::test]
-async fn runtime_actor_reports_explicit_remember_unavailable_before_provider_failure() {
-    let handle = test_runtime_handle(fake_codex_provider_with_turn_error()).await;
+async fn explicit_remember_is_saved_before_provider_failure() {
+    let (handle, store) =
+        test_runtime_handle_with_store(fake_codex_provider_with_turn_error()).await;
 
     let conversation = handle
         .start_conversation(None, None)
@@ -886,11 +939,11 @@ async fn runtime_actor_reports_explicit_remember_unavailable_before_provider_fai
                     item.as_ref(),
                     TurnTranscriptItem::Activity {
                         activity_kind,
-                        status: TurnActivityStatus::Failed,
+                        status: TurnActivityStatus::Completed,
                         title,
                         ..
                     } if activity_kind == "memory_extraction"
-                        && title == "Explicit memory unavailable"
+                        && title == "Explicit memory saved"
                 ) =>
             {
                 Some(item_id.clone())
@@ -929,6 +982,17 @@ async fn runtime_actor_reports_explicit_remember_unavailable_before_provider_fai
             )
         }),
         "explicit memory should not emit a success-looking memory card: {events:?}"
+    );
+    let claims = store
+        .retrieve_claims(&answer_claim_request(), "failed turns", 8)
+        .await
+        .expect("retrieve pre-failure explicit claim");
+    assert!(
+        claims
+            .included
+            .iter()
+            .any(|claim| claim.fact == "Kevin prefers failed turns to keep explicit memory."),
+        "expected explicit memory saved before provider failure, got {claims:?}"
     );
 }
 
@@ -1094,7 +1158,7 @@ async fn runtime_actor_executes_search_memory_as_local_tool_result() {
     collect_turn(
         &handle,
         conversation_id.clone(),
-        "Please remember I'm a big fan of trains".to_string(),
+        "remember: I'm a big fan of trains".to_string(),
     )
     .await
     .expect("seed turn");
@@ -1127,9 +1191,12 @@ async fn runtime_actor_executes_search_memory_as_local_tool_result() {
             && metadata["action"]["success"] == true
             && metadata["action"]["payload"]["memories"]
                 .as_array()
-                .is_some_and(|memories| memories.is_empty())
-            && metadata["action"]["payload"]["unavailable"]["reason"]
-                == "graph_retrieval_pending"
+                .is_some_and(|memories| memories.iter().any(|memory| {
+                    memory["kind"] == "claim"
+                        && memory["fact"] == "Kevin likes trains."
+                        && memory["predicate_id"] == "likes"
+                }))
+            && metadata["action"]["payload"].get("unavailable").is_none()
     )));
     assert!(items.iter().any(|item| matches!(
         item,
@@ -1139,7 +1206,7 @@ async fn runtime_actor_executes_search_memory_as_local_tool_result() {
 }
 
 #[tokio::test]
-async fn search_memory_tool_returns_structured_unavailable_result() {
+async fn search_memory_tool_returns_empty_graph_result_without_unavailable() {
     let handle = test_runtime_handle(fake_codex_provider_with_search_memory_continuation()).await;
 
     let conversation_id = handle
@@ -1168,11 +1235,9 @@ async fn search_memory_tool_returns_structured_unavailable_result() {
             _ => None,
         })
         .expect("tool result payload");
-    assert_eq!(
-        payload["omissions"],
-        json!([{ "reason": "graph_retrieval_unavailable" }])
-    );
-    assert_eq!(payload["unavailable"]["reason"], "graph_retrieval_pending");
+    assert_eq!(payload["omissions"], json!([]));
+    assert!(payload.get("unavailable").is_none());
+    assert!(payload["context_packet_id"].as_str().is_some());
     assert!(
         payload["memories"]
             .as_array()

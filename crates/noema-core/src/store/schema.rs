@@ -338,6 +338,23 @@ UPSERT type::thing('predicates', 'works_on') SET
   synonym_hints = ['is working on', 'focuses on'],
   extraction_hints = {},
   updated_at = time::now();
+UPSERT type::thing('predicates', 'has_note') SET
+  predicate_id = 'has_note',
+  label = 'has note',
+  description = 'The subject has a durable remembered note about the object.',
+  allowed_subject_types = ['human', 'agent', 'person'],
+  allowed_object_types = ['concept', 'other'],
+  allowed_use_modes = ['answer', 'personalize', 'plan', 'inspect'],
+  default_sensitivity = 'normal',
+  conflict_policy = 'allow_many',
+  review_policy = 'auto_candidate',
+  inverse_behavior = 'none',
+  inverse_predicate_id = NONE,
+  proactivity_default = 1,
+  merge_hints = { strategy: 'note_identity' },
+  synonym_hints = ['remembered', 'noted', 'said'],
+  extraction_hints = {},
+  updated_at = time::now();
 UPSERT type::thing('predicates', 'prefers_interaction_style') SET
   predicate_id = 'prefers_interaction_style',
   label = 'prefers interaction style',

@@ -1,10 +1,8 @@
 use crate::{
     NoemaStore,
     daemon::memory_pipeline::project_scope_from_cwd,
-    memory::{
-        MemoryRetrievalRequest, Purpose, Sensitivity, TrustedRetrievalContext, UntrustedHints,
-    },
-    memory_persistence::MemoryPersistenceError,
+    memory::{ClaimRetrievalRequest, Purpose, Sensitivity, UseMode},
+    store::StoreError,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -36,7 +34,7 @@ pub(super) enum MemoryToolError {
     #[error("{0}")]
     InvalidArguments(String),
     #[error(transparent)]
-    Persistence(#[from] MemoryPersistenceError),
+    Store(#[from] StoreError),
 }
 
 #[derive(Debug, Deserialize)]
@@ -78,7 +76,7 @@ pub(super) async fn execute_search_memory(
 }
 
 async fn execute_search_memory_inner(
-    _store: &NoemaStore,
+    store: &NoemaStore,
     context: &MemoryToolRuntimeContext,
     call_id: Option<&str>,
     payload: &Value,
@@ -86,19 +84,35 @@ async fn execute_search_memory_inner(
     let arguments = parse_arguments(payload)?;
     let request = build_request(context, &arguments)?;
     let context_packet_id = context_packet_id(context, call_id);
-    let _ = (arguments.limit(), request);
+    let retrieval = store
+        .retrieve_claims(&request, arguments.query.trim(), arguments.limit())
+        .await?;
+    let memories = retrieval
+        .included
+        .into_iter()
+        .map(|claim| {
+            json!({
+                "id": claim.claim_id,
+                "kind": "claim",
+                "fact": claim.fact,
+                "predicate_id": claim.predicate_id,
+                "rank_score": claim.rank_score,
+            })
+        })
+        .collect::<Vec<_>>();
+    let omissions = if retrieval.redacted_omission_count == 0 {
+        Vec::new()
+    } else {
+        vec![json!({
+            "reason": "policy_restricted_context",
+            "count": retrieval.redacted_omission_count,
+        })]
+    };
 
-    // TODO(graph-retrieval): search_memory will read graph claims and record a
-    // SurrealDB context packet when the graph retrieval slice lands. Until
-    // then, return a structured unavailable result instead of retaining a
-    // hidden Postgres retrieval dependency.
     Ok(json!({
-        "memories": [],
-        "omissions": [{"reason": "graph_retrieval_unavailable"}],
-        "unavailable": {
-            "reason": "graph_retrieval_pending",
-            "context_packet_id": context_packet_id,
-        },
+        "memories": memories,
+        "omissions": omissions,
+        "context_packet_id": context_packet_id,
     }))
 }
 
@@ -126,28 +140,21 @@ impl SearchMemoryArguments {
 fn build_request(
     context: &MemoryToolRuntimeContext,
     arguments: &SearchMemoryArguments,
-) -> Result<MemoryRetrievalRequest, MemoryToolError> {
-    let mut trusted = TrustedRetrievalContext::for_human(
-        "human:local",
-        runtime_purpose(arguments.purpose.as_deref())?,
-    );
-    trusted.active_agent_ids = vec!["agent:primary".to_string()];
-    trusted.active_scopes = vec![format!("conversation:{}", context.conversation_id)];
+) -> Result<ClaimRetrievalRequest, MemoryToolError> {
+    runtime_purpose(arguments.purpose.as_deref())?;
+    let mut active_object_ids = vec![format!("conversation:{}", context.conversation_id)];
     if let Some(project_scope) = project_scope_from_cwd(context.cwd.as_deref()) {
-        trusted.active_scopes.push(project_scope);
+        active_object_ids.push(project_scope);
     }
-    trusted.explicit_memory_request = explicit_memory_request(&context.user_input);
-    trusted.sensitivity_ceiling = Sensitivity::Normal;
-    trusted.include_candidate_memories = false;
 
-    Ok(MemoryRetrievalRequest {
-        requesting_principal_id: "agent:primary".to_string(),
-        trusted,
-        untrusted_hints: UntrustedHints {
-            query_text: arguments.query.trim().to_string(),
-            fuzzy_topics: Vec::new(),
-            fuzzy_entities: Vec::new(),
-        },
+    Ok(ClaimRetrievalRequest {
+        requesting_agent_id: "agent:primary".to_string(),
+        active_human_ids: vec!["human:local".to_string()],
+        active_object_ids,
+        use_mode: UseMode::Answer,
+        explicit_memory_request: explicit_memory_request(&context.user_input),
+        sensitivity_ceiling: Sensitivity::Normal,
+        approved_secret_access: false,
     })
 }
 
@@ -199,36 +206,6 @@ fn sanitize_context_packet_fragment(value: &str) -> String {
     }
 }
 
-#[cfg(test)]
-fn limit_retrieval_result(
-    retrieval: crate::memory::MemoryRetrievalResult,
-    limit: usize,
-) -> crate::memory::MemoryRetrievalResult {
-    use std::collections::HashSet;
-
-    let included = retrieval
-        .included
-        .into_iter()
-        .take(limit)
-        .collect::<Vec<_>>();
-    let included_ids = included
-        .iter()
-        .map(|included| included.memory_id.as_str())
-        .collect::<HashSet<_>>();
-    let use_records = retrieval
-        .use_records
-        .into_iter()
-        .filter(|record| included_ids.contains(record.memory_id.as_str()))
-        .collect::<Vec<_>>();
-
-    crate::memory::MemoryRetrievalResult {
-        included,
-        denied_for_audit: retrieval.denied_for_audit,
-        agent_visible_omissions: retrieval.agent_visible_omissions,
-        use_records,
-    }
-}
-
 fn explicit_memory_request(input: &str) -> bool {
     let lowered = input.to_ascii_lowercase();
     lowered.contains("search memory")
@@ -238,62 +215,16 @@ fn explicit_memory_request(input: &str) -> bool {
         || lowered.contains("what do you know about")
 }
 
-#[cfg(test)]
-#[expect(
-    dead_code,
-    reason = "search-memory formatting is staged until graph retrieval lands"
-)]
-fn format_memory(memory: &crate::MemorySummary, why: &'static str) -> Value {
-    json!({
-        "id": memory.id,
-        "title": memory.title,
-        "content": memory.content,
-        "scope": memory.home_scope_id,
-        "sensitivity": sensitivity_label(memory.sensitivity),
-        "why": why,
-    })
-}
-
-#[cfg(test)]
-fn sensitivity_label(sensitivity: Sensitivity) -> &'static str {
-    match sensitivity {
-        Sensitivity::Public => "public",
-        Sensitivity::Normal => "normal",
-        Sensitivity::Private => "private",
-        Sensitivity::Sensitive => "sensitive",
-        Sensitivity::Secret => "secret",
-    }
-}
-
-#[cfg(test)]
-#[expect(
-    dead_code,
-    reason = "search-memory formatting is staged until graph retrieval lands"
-)]
-fn eligibility_label(reason: crate::memory::EligibilityReason) -> &'static str {
-    match reason {
-        crate::memory::EligibilityReason::ActiveScope => "active_scope",
-        crate::memory::EligibilityReason::ParticipantOverlap => "participant_overlap",
-        crate::memory::EligibilityReason::ExplicitGrant => "explicit_grant",
-        crate::memory::EligibilityReason::TrustedObjectLink => "trusted_object_link",
-        crate::memory::EligibilityReason::PublicHint => "public_hint",
-        crate::memory::EligibilityReason::GraphExpansion => "graph_expansion",
-    }
-}
-
 fn safe_error_message(error: &MemoryToolError) -> String {
     match error {
         MemoryToolError::InvalidArguments(message) => message.clone(),
-        MemoryToolError::Persistence(_) => "memory retrieval failed".to_string(),
+        MemoryToolError::Store(_) => "memory retrieval failed".to_string(),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::memory::{
-        EligibilityReason, MemoryRetrievalResult, MemoryUseRecord, RetrievedMemory,
-    };
 
     #[test]
     fn parses_nested_payload_clamps_limit_and_accepts_default_purpose() {
@@ -356,17 +287,13 @@ mod tests {
 
         let request = build_request(&context, &arguments).expect("build request");
 
-        assert_eq!(request.requesting_principal_id, "agent:primary");
-        assert_eq!(request.trusted.active_human_ids, vec!["human:local"]);
-        assert_eq!(request.trusted.active_agent_ids, vec!["agent:primary"]);
-        assert_eq!(request.trusted.active_scopes, vec!["conversation:conv_123"]);
-        assert_eq!(request.trusted.purpose, Purpose::AnswerHumanQuestion);
-        assert!(request.trusted.explicit_memory_request);
-        assert_eq!(request.trusted.sensitivity_ceiling, Sensitivity::Normal);
-        assert!(!request.trusted.include_candidate_memories);
-        assert_eq!(request.untrusted_hints.query_text, "launch criteria");
-        assert!(request.untrusted_hints.fuzzy_topics.is_empty());
-        assert!(request.untrusted_hints.fuzzy_entities.is_empty());
+        assert_eq!(request.requesting_agent_id, "agent:primary");
+        assert_eq!(request.active_human_ids, vec!["human:local"]);
+        assert_eq!(request.active_object_ids, vec!["conversation:conv_123"]);
+        assert_eq!(request.use_mode, UseMode::Answer);
+        assert!(request.explicit_memory_request);
+        assert_eq!(request.sensitivity_ceiling, Sensitivity::Normal);
+        assert!(!request.approved_secret_access);
     }
 
     #[test]
@@ -387,7 +314,7 @@ mod tests {
 
         let request = build_request(&context, &arguments).expect("build request");
 
-        assert_eq!(request.trusted.purpose, Purpose::AnswerHumanQuestion);
+        assert_eq!(request.use_mode, UseMode::Answer);
     }
 
     #[test]
@@ -409,58 +336,5 @@ mod tests {
             context_packet_id(&context, None),
             "ctx_search_memory:conv_123:7:output_0"
         );
-    }
-
-    #[test]
-    fn limit_truncates_included_and_corresponding_use_records() {
-        let retrieval = MemoryRetrievalResult {
-            included: vec![
-                retrieved_memory("mem_1"),
-                retrieved_memory("mem_2"),
-                retrieved_memory("mem_3"),
-            ],
-            denied_for_audit: Vec::new(),
-            agent_visible_omissions: Vec::new(),
-            use_records: vec![
-                memory_use_record("mem_1"),
-                memory_use_record("mem_2"),
-                memory_use_record("mem_3"),
-            ],
-        };
-
-        let limited = limit_retrieval_result(retrieval, 2);
-
-        assert_eq!(
-            limited
-                .included
-                .iter()
-                .map(|memory| memory.memory_id.as_str())
-                .collect::<Vec<_>>(),
-            vec!["mem_1", "mem_2"]
-        );
-        assert_eq!(
-            limited
-                .use_records
-                .iter()
-                .map(|record| record.memory_id.as_str())
-                .collect::<Vec<_>>(),
-            vec!["mem_1", "mem_2"]
-        );
-    }
-
-    fn retrieved_memory(memory_id: &str) -> RetrievedMemory {
-        RetrievedMemory {
-            memory_id: memory_id.to_string(),
-            rank_score: 1,
-            eligibility_reason: EligibilityReason::ActiveScope,
-            rank_reasons: Vec::new(),
-        }
-    }
-
-    fn memory_use_record(memory_id: &str) -> MemoryUseRecord {
-        MemoryUseRecord {
-            memory_id: memory_id.to_string(),
-            stage: crate::memory::MemoryUseStage::IncludedInPacket,
-        }
     }
 }
