@@ -1,7 +1,49 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { shouldAnchorTranscriptEntry, shouldShowTypingIndicator } from "./Transcript";
+import {
+  renderedTranscriptLane,
+  shouldAnchorTranscriptEntry,
+  shouldShowTypingIndicator,
+  transcriptEntryLane
+} from "./Transcript";
 import type { TranscriptEntry } from "../types";
+
+describe("transcriptEntryLane", () => {
+  test("places user entries in the human lane", () => {
+    assert.equal(transcriptEntryLane("user"), "human");
+  });
+
+  test("places assistant entries in the assistant lane", () => {
+    assert.equal(transcriptEntryLane("assistant"), "assistant");
+  });
+
+  test("places activity entries in the assistant lane", () => {
+    assert.equal(transcriptEntryLane("activity"), "assistant");
+  });
+
+  test("places structured card entries in the assistant lane", () => {
+    assert.equal(transcriptEntryLane("card"), "assistant");
+  });
+
+  test("places error entries in the assistant lane", () => {
+    assert.equal(transcriptEntryLane("error"), "assistant");
+  });
+});
+
+describe("renderedTranscriptLane", () => {
+  test("places typing indicators in the assistant lane", () => {
+    assert.equal(renderedTranscriptLane({ kind: "typing" }), "assistant");
+  });
+
+  test("places grouped memory markers in the assistant lane", () => {
+    assert.equal(renderedTranscriptLane({ kind: "memory_marker" }), "assistant");
+  });
+
+  test("delegates normal entries to transcriptEntryLane", () => {
+    assert.equal(renderedTranscriptLane({ kind: "entry", entryType: "user" }), "human");
+    assert.equal(renderedTranscriptLane({ kind: "entry", entryType: "error" }), "assistant");
+  });
+});
 
 describe("shouldShowTypingIndicator", () => {
   test("shows while a user turn is pending and no assistant answer has arrived", () => {
