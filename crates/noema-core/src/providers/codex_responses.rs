@@ -188,6 +188,7 @@ impl CodexResponsesProvider {
         request: GenerateRequest,
         on_event: &mut (dyn FnMut(GenerateStreamEvent) + Send),
     ) -> Result<GenerateResponse, ProviderError> {
+        let require_noema_response = request.options.require_noema_response;
         let GenerateInput::Text(input) = request.input;
         if input.trim().is_empty() {
             return Err(ProviderError::InvalidRequest {
@@ -214,9 +215,18 @@ impl CodexResponsesProvider {
             .token_store
             .access_token(&self.oauth_client, CODEX_ACCESS_TOKEN_REFRESH_SKEW_SECONDS)
             .await?;
+        let mut noema_delta_extractor = NoemaAssistantTextDeltaExtractor::default();
+        let mut forward_event = |event| {
+            if require_noema_response {
+                let GenerateStreamEvent::AssistantTextDelta { delta } = event;
+                noema_delta_extractor.push_delta(&delta, on_event);
+            } else {
+                on_event(event);
+            }
+        };
         let response = match self
             .transport
-            .send_streaming(&access_token, body, HeaderMap::new(), on_event)
+            .send_streaming(&access_token, body, HeaderMap::new(), &mut forward_event)
             .await
         {
             Ok(response) => response,
@@ -233,14 +243,14 @@ impl CodexResponsesProvider {
                     temperature,
                 );
                 self.transport
-                    .send_streaming(&refreshed, retry_body, HeaderMap::new(), on_event)
+                    .send_streaming(&refreshed, retry_body, HeaderMap::new(), &mut forward_event)
                     .await?
             }
             Err(error) => return Err(error),
         };
         let text = response.output_text()?;
 
-        let output = if request.options.require_noema_response {
+        let output = if require_noema_response {
             required_output_items_from_text(text)?
         } else {
             output_items_from_text(text)?
@@ -254,6 +264,137 @@ impl CodexResponsesProvider {
             usage: response.usage.map(Into::into),
         })
     }
+}
+
+#[derive(Debug, Default)]
+struct NoemaAssistantTextDeltaExtractor {
+    buffer: String,
+    scan_index: Option<usize>,
+    escape: Option<JsonStringEscape>,
+    pending_high_surrogate: Option<u16>,
+    done: bool,
+}
+
+impl NoemaAssistantTextDeltaExtractor {
+    fn push_delta(&mut self, delta: &str, on_event: &mut (dyn FnMut(GenerateStreamEvent) + Send)) {
+        if self.done {
+            return;
+        }
+
+        self.buffer.push_str(delta);
+        if self.scan_index.is_none() {
+            self.scan_index = find_assistant_text_string_start(&self.buffer);
+        }
+
+        let mut visible_delta = String::new();
+
+        while let Some(index) = self.scan_index {
+            let Some(ch) = self.buffer[index..].chars().next() else {
+                break;
+            };
+            self.scan_index = Some(index + ch.len_utf8());
+            self.push_text_char(ch, &mut visible_delta);
+            if self.done {
+                break;
+            }
+        }
+
+        if !visible_delta.is_empty() {
+            on_event(GenerateStreamEvent::AssistantTextDelta {
+                delta: visible_delta,
+            });
+        }
+    }
+
+    fn push_text_char(&mut self, ch: char, visible_delta: &mut String) {
+        match self.escape.take() {
+            Some(JsonStringEscape::Simple) => self.push_escaped_char(ch, visible_delta),
+            Some(JsonStringEscape::Unicode(mut escape)) => {
+                if ch.is_ascii_hexdigit() {
+                    escape.push(ch);
+                    if escape.len() == 4 {
+                        if let Ok(unit) = u16::from_str_radix(&escape, 16) {
+                            self.push_unicode_escape(unit, visible_delta);
+                        }
+                    } else {
+                        self.escape = Some(JsonStringEscape::Unicode(escape));
+                    }
+                }
+            }
+            None => match ch {
+                '\\' => {
+                    self.escape = Some(JsonStringEscape::Simple);
+                }
+                '"' => {
+                    self.done = true;
+                }
+                _ => visible_delta.push(ch),
+            },
+        }
+    }
+
+    fn push_escaped_char(&mut self, ch: char, visible_delta: &mut String) {
+        match ch {
+            '"' => visible_delta.push('"'),
+            '\\' => visible_delta.push('\\'),
+            '/' => visible_delta.push('/'),
+            'b' => visible_delta.push('\u{0008}'),
+            'f' => visible_delta.push('\u{000c}'),
+            'n' => visible_delta.push('\n'),
+            'r' => visible_delta.push('\r'),
+            't' => visible_delta.push('\t'),
+            'u' => {
+                self.escape = Some(JsonStringEscape::Unicode(String::new()));
+            }
+            _ => {}
+        }
+    }
+
+    fn push_unicode_escape(&mut self, unit: u16, visible_delta: &mut String) {
+        if let Some(high) = self.pending_high_surrogate.take() {
+            if (0xdc00..=0xdfff).contains(&unit) {
+                let scalar = 0x10000 + (((high - 0xd800) as u32) << 10) + ((unit - 0xdc00) as u32);
+                if let Some(ch) = char::from_u32(scalar) {
+                    visible_delta.push(ch);
+                }
+                return;
+            }
+            visible_delta.push(char::REPLACEMENT_CHARACTER);
+        }
+
+        if (0xd800..=0xdbff).contains(&unit) {
+            self.pending_high_surrogate = Some(unit);
+        } else if (0xdc00..=0xdfff).contains(&unit) {
+            visible_delta.push(char::REPLACEMENT_CHARACTER);
+        } else if let Some(ch) = char::from_u32(unit as u32) {
+            visible_delta.push(ch);
+        }
+    }
+}
+
+fn find_assistant_text_string_start(buffer: &str) -> Option<usize> {
+    const KIND_MARKER: &str = "\"kind\"";
+    const ASSISTANT_TEXT_MARKER: &str = "\"assistant_text\"";
+    const TEXT_MARKER: &str = "\"text\"";
+
+    let kind_end = buffer.find(KIND_MARKER)? + KIND_MARKER.len();
+    let assistant_end =
+        kind_end + buffer[kind_end..].find(ASSISTANT_TEXT_MARKER)? + ASSISTANT_TEXT_MARKER.len();
+    let text_end = assistant_end + buffer[assistant_end..].find(TEXT_MARKER)? + TEXT_MARKER.len();
+    let after_text = &buffer[text_end..];
+    let colon_offset = after_text.find(':')?;
+    let value_start = text_end + colon_offset + 1;
+    let quote_offset = buffer[value_start..]
+        .char_indices()
+        .find_map(|(index, ch)| (!ch.is_whitespace()).then_some((index, ch)))?;
+
+    (quote_offset.1 == '"').then_some(value_start + quote_offset.0 + 1)
+}
+
+#[derive(Debug)]
+enum JsonStringEscape {
+    Simple,
+    Unicode(String),
 }
 
 impl ModelProvider for CodexResponsesProvider {
@@ -273,7 +414,7 @@ impl ModelProvider for CodexResponsesProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::providers::codex_oauth::CodexOAuthTokens;
+    use crate::{provider::GenerateOptions, providers::codex_oauth::CodexOAuthTokens};
     use serde_json::Value;
     use std::collections::HashMap;
     use tempfile::TempDir;
@@ -331,23 +472,7 @@ mod tests {
              \n",
         )
         .await;
-        let dir = TempDir::new().expect("temp dir");
-        let account_home = dir.path().join("providers/codex/default");
-        let provider = CodexResponsesProvider::new(CodexProviderConfig {
-            base_url,
-            default_model: Some("gpt-test".to_string()),
-            account_home: Some(account_home.clone()),
-            ..CodexProviderConfig::default()
-        })
-        .expect("provider");
-        provider
-            .token_store()
-            .write(&CodexOAuthTokens {
-                access_token: "access".to_string(),
-                refresh_token: "refresh".to_string(),
-                last_refresh: 123,
-            })
-            .expect("write token");
+        let (provider, _dir) = provider_with_tokens(base_url);
 
         let response = provider
             .generate(GenerateRequest::text("Hello?"))
@@ -386,23 +511,7 @@ mod tests {
              \n",
         )
         .await;
-        let dir = TempDir::new().expect("temp dir");
-        let account_home = dir.path().join("providers/codex/default");
-        let provider = CodexResponsesProvider::new(CodexProviderConfig {
-            base_url,
-            default_model: Some("gpt-test".to_string()),
-            account_home: Some(account_home.clone()),
-            ..CodexProviderConfig::default()
-        })
-        .expect("provider");
-        provider
-            .token_store()
-            .write(&CodexOAuthTokens {
-                access_token: "access".to_string(),
-                refresh_token: "refresh".to_string(),
-                last_refresh: 123,
-            })
-            .expect("write token");
+        let (provider, _dir) = provider_with_tokens(base_url);
 
         let mut events = Vec::new();
         let response = provider
@@ -427,6 +536,91 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn generate_streaming_required_noema_response_emits_only_assistant_text_deltas() {
+        let response_body = format!(
+            "{}{}{}",
+            sse_delta(r#"{"type":"noema_response","output":[{"kind":"assistant_text","text":"Hel"#),
+            sse_delta(r#"lo"},{"kind":"memory_proposals","proposals":[]}]}"#),
+            sse_completed(),
+        );
+        let (base_url, request_rx) = spawn_server(200, response_body).await;
+        let (provider, _dir) = provider_with_tokens(base_url);
+
+        let request = GenerateRequest {
+            options: GenerateOptions {
+                require_noema_response: true,
+                ..GenerateOptions::default()
+            },
+            ..GenerateRequest::text("Hello?")
+        };
+        let mut events = Vec::new();
+        let response = provider
+            .generate_streaming(request, &mut |event| {
+                events.push(event);
+            })
+            .await
+            .expect("response");
+
+        let _captured = request_rx.await.expect("captured request");
+        assert_eq!(response.assistant_text(), "Hello");
+        assert_eq!(
+            events,
+            vec![
+                GenerateStreamEvent::AssistantTextDelta {
+                    delta: "Hel".to_string()
+                },
+                GenerateStreamEvent::AssistantTextDelta {
+                    delta: "lo".to_string()
+                }
+            ]
+        );
+    }
+
+    #[test]
+    fn noema_assistant_text_delta_extractor_decodes_escaped_visible_text() {
+        let mut extractor = NoemaAssistantTextDeltaExtractor::default();
+        let mut events = Vec::new();
+        extractor.push_delta(
+            r#"{"type":"noema_response","output":[{"kind":"assistant_text","text":"Hi"#,
+            &mut |event| events.push(event),
+        );
+        extractor.push_delta("\\nthere\\u00", &mut |event| events.push(event));
+        extractor.push_delta(
+            "21\"},{\"kind\":\"memory_proposals\",\"proposals\":[]}]}",
+            &mut |event| events.push(event),
+        );
+
+        let streamed_text = events
+            .iter()
+            .map(|event| match event {
+                GenerateStreamEvent::AssistantTextDelta { delta } => delta.as_str(),
+            })
+            .collect::<String>();
+        assert_eq!(streamed_text, "Hi\nthere!");
+    }
+
+    fn provider_with_tokens(base_url: String) -> (CodexResponsesProvider, TempDir) {
+        let dir = TempDir::new().expect("temp dir");
+        let account_home = dir.path().join("providers/codex/default");
+        let provider = CodexResponsesProvider::new(CodexProviderConfig {
+            base_url,
+            default_model: Some("gpt-test".to_string()),
+            account_home: Some(account_home.clone()),
+            ..CodexProviderConfig::default()
+        })
+        .expect("provider");
+        provider
+            .token_store()
+            .write(&CodexOAuthTokens {
+                access_token: "access".to_string(),
+                refresh_token: "refresh".to_string(),
+                last_refresh: 123,
+            })
+            .expect("write token");
+        (provider, dir)
+    }
+
     #[derive(Debug)]
     struct CapturedRequest {
         method: String,
@@ -437,8 +631,9 @@ mod tests {
 
     async fn spawn_server(
         status: u16,
-        response_body: &'static str,
+        response_body: impl Into<String>,
     ) -> (String, oneshot::Receiver<CapturedRequest>) {
+        let response_body = response_body.into();
         let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
         let addr = listener.local_addr().expect("local addr");
         let (request_tx, request_rx) = oneshot::channel();
@@ -466,6 +661,25 @@ mod tests {
         });
 
         (format!("http://{addr}"), request_rx)
+    }
+
+    fn sse_delta(delta: &str) -> String {
+        format!(
+            "event: response.output_text.delta\n\
+             data: {}\n\
+             \n",
+            serde_json::json!({
+                "type": "response.output_text.delta",
+                "delta": delta,
+            })
+        )
+    }
+
+    fn sse_completed() -> String {
+        "event: response.completed\n\
+         data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_test\",\"model\":\"gpt-test\",\"status\":\"completed\"}}\n\
+         \n"
+        .to_string()
     }
 
     async fn read_request(socket: &mut tokio::net::TcpStream) -> CapturedRequest {
