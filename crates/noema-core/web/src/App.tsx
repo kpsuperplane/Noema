@@ -304,6 +304,7 @@ export function App() {
         ) : (
           <Transcript
             entries={transcript}
+            pending={pending}
             expandedActivities={expandedActivities}
             onToggleActivity={(id) =>
               setExpandedActivities((current) => {

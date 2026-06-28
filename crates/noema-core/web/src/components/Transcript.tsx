@@ -31,6 +31,7 @@ import type { TranscriptEntry, TurnTranscriptItem } from "../types";
 
 type RenderTranscriptEntry =
   | { kind: "entry"; id: string; entry: TranscriptEntry }
+  | { kind: "typing"; id: string }
   | {
       kind: "memory_marker";
       id: string;
@@ -40,24 +41,28 @@ type RenderTranscriptEntry =
 
 export function Transcript({
   entries,
+  pending,
   expandedActivities,
   onToggleActivity
 }: {
   entries: TranscriptEntry[];
+  pending: boolean;
   expandedActivities: Set<string>;
   onToggleActivity: (id: string) => void;
 }) {
+  const renderedEntries = renderableTranscriptEntries(entries, pending);
+
   return (
-    <MessageScrollerProvider autoScroll defaultScrollPosition="last-anchor" scrollPreviousItemPeek={56}>
+    <MessageScrollerProvider autoScroll defaultScrollPosition="end" scrollPreviousItemPeek={56}>
       <MessageScroller className="min-h-0 overflow-hidden">
         <MessageScrollerViewport aria-label="Conversation transcript">
           <MessageScrollerContent className="mx-auto flex min-h-full w-[var(--chat-column-width)] flex-col gap-3 px-0.5 py-6">
-            {groupMemoryMarkers(entries).map((entry) => (
+            {renderedEntries.map((entry) => (
               <MessageScrollerItem
                 key={entry.id}
                 className={cn("flex w-full", entry.kind === "entry" && entry.entry.type === "user" && "justify-end")}
                 messageId={entry.id}
-                scrollAnchor={entry.kind === "entry" && entry.entry.type === "user"}
+                scrollAnchor={shouldAnchorRenderedEntry(entry)}
               >
                 {renderTranscriptRenderEntry(entry, expandedActivities, onToggleActivity)}
               </MessageScrollerItem>
@@ -68,6 +73,50 @@ export function Transcript({
       </MessageScroller>
     </MessageScrollerProvider>
   );
+}
+
+function renderableTranscriptEntries(entries: TranscriptEntry[], pending: boolean): RenderTranscriptEntry[] {
+  const renderedEntries = groupMemoryMarkers(entries);
+  if (shouldShowTypingIndicator(entries, pending)) {
+    renderedEntries.push({ kind: "typing", id: "typing-indicator" });
+  }
+  return renderedEntries;
+}
+
+type TranscriptEntryAnchorCandidate =
+  | { kind: "entry"; entryType: TranscriptEntry["type"] }
+  | { kind: "typing" }
+  | { kind: "memory_marker" };
+
+export function shouldAnchorTranscriptEntry(entry: TranscriptEntryAnchorCandidate): boolean {
+  void entry;
+  return false;
+}
+
+function shouldAnchorRenderedEntry(entry: RenderTranscriptEntry): boolean {
+  if (entry.kind === "entry") {
+    return shouldAnchorTranscriptEntry({ kind: "entry", entryType: entry.entry.type });
+  }
+  return shouldAnchorTranscriptEntry({ kind: entry.kind });
+}
+
+export function shouldShowTypingIndicator(entries: TranscriptEntry[], pending: boolean): boolean {
+  if (!pending) {
+    return false;
+  }
+
+  let lastUserIndex = -1;
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    if (entries[index]?.type === "user") {
+      lastUserIndex = index;
+      break;
+    }
+  }
+  if (lastUserIndex === -1) {
+    return false;
+  }
+
+  return !entries.slice(lastUserIndex + 1).some((entry) => entry.type === "assistant");
 }
 
 function groupMemoryMarkers(entries: TranscriptEntry[]): RenderTranscriptEntry[] {
@@ -153,6 +202,9 @@ function renderTranscriptRenderEntry(
       />
     );
   }
+  if (entry.kind === "typing") {
+    return <TypingMessage />;
+  }
   return renderTranscriptEntry(entry.entry, expandedActivities, onToggleActivity);
 }
 
@@ -191,6 +243,31 @@ function Message({ role, text }: { role: "user" | "assistant"; text: string }) {
       <MessageContent>
         <Bubble variant={role === "user" ? "default" : "muted"}>
           <BubbleContent className="leading-[1.7] whitespace-pre-wrap">{text}</BubbleContent>
+        </Bubble>
+      </MessageContent>
+    </MessagePrimitive>
+  );
+}
+
+function TypingMessage() {
+  return (
+    <MessagePrimitive align="start" className="max-w-[760px]">
+      <MessageAvatar>
+        <Avatar size="sm">
+          <AvatarFallback>N</AvatarFallback>
+        </Avatar>
+      </MessageAvatar>
+      <MessageContent>
+        <Bubble variant="muted">
+          <BubbleContent
+            className="flex min-h-9 w-[58px] items-center justify-center gap-1.5 px-3 py-2"
+            aria-label="Noema is typing"
+            role="status"
+          >
+            <span className="size-1.5 animate-bounce rounded-full bg-muted-foreground/70 [animation-delay:-0.24s]" />
+            <span className="size-1.5 animate-bounce rounded-full bg-muted-foreground/70 [animation-delay:-0.12s]" />
+            <span className="size-1.5 animate-bounce rounded-full bg-muted-foreground/70" />
+          </BubbleContent>
         </Bubble>
       </MessageContent>
     </MessagePrimitive>
