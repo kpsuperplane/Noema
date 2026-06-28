@@ -1,7 +1,7 @@
 use serde_json::json;
 use tempfile::TempDir;
 
-use super::{NoemaStore, StoreConfig};
+use super::{NoemaStore, StoreConfig, schema::STORE_SCHEMA_SQL};
 use crate::{
     ActorRef, ConversationItemKind, ConversationItemStatus, NewConversationItem,
     NewConversationTurn, ObjectRef, ProviderAccountStatus, ReplayMode, StoreError,
@@ -63,6 +63,129 @@ async fn strict_schema_rejects_invalid_sensitivity() {
 }
 
 #[tokio::test]
+async fn strict_schema_accepts_minimal_claim_with_datetime_fields() {
+    let store = test_store().await;
+
+    store
+        .db()
+        .query(
+            r#"
+            CREATE type::thing('claims', 'valid_datetime_claim') SET
+              claim_id = 'claim:valid-datetime',
+              subject_entity_id = 'entity:human-local',
+              object_entity_id = 'entity:ice-cream',
+              predicate_id = 'likes',
+              fact = 'Kevin likes ice cream.',
+              status = 'candidate',
+              sensitivity = 'normal',
+              valid_from = time::now(),
+              valid_to = time::now(),
+              observed_at = time::now(),
+              dedupe_fingerprint = 'claim-fingerprint:valid-datetime',
+              retrieval_hints = {},
+              policy_overrides = {},
+              metadata = {},
+              updated_at = time::now();
+            "#,
+        )
+        .await
+        .expect("valid datetime claim query")
+        .check()
+        .expect("valid datetime claim should insert");
+}
+
+#[tokio::test]
+async fn strict_schema_rejects_invalid_claim_timestamp() {
+    let store = test_store().await;
+
+    let error = store
+        .db()
+        .query(
+            r#"
+            CREATE type::thing('claims', 'invalid_timestamp_claim') SET
+              claim_id = 'claim:invalid-timestamp',
+              subject_entity_id = 'entity:human-local',
+              predicate_id = 'likes',
+              fact = 'invalid timestamp test claim',
+              status = 'candidate',
+              sensitivity = 'normal',
+              observed_at = 'not-a-timestamp',
+              dedupe_fingerprint = 'claim-fingerprint:invalid-timestamp',
+              retrieval_hints = {},
+              policy_overrides = {},
+              metadata = {},
+              updated_at = time::now();
+            "#,
+        )
+        .await
+        .expect("invalid timestamp query")
+        .check()
+        .expect_err("invalid timestamp should be rejected");
+
+    assert!(
+        error.to_string().contains("observed_at") || error.to_string().contains("datetime"),
+        "unexpected error: {error}"
+    );
+}
+
+#[tokio::test]
+async fn strict_schema_rejects_duplicate_claim_dedupe_fingerprint() {
+    let store = test_store().await;
+
+    store
+        .db()
+        .query(
+            r#"
+            CREATE type::thing('claims', 'first_dedupe_claim') SET
+              claim_id = 'claim:first-dedupe',
+              subject_entity_id = 'entity:human-local',
+              predicate_id = 'likes',
+              fact = 'first dedupe test claim',
+              status = 'candidate',
+              sensitivity = 'normal',
+              dedupe_fingerprint = 'claim-fingerprint:duplicate-test',
+              retrieval_hints = {},
+              policy_overrides = {},
+              metadata = {},
+              updated_at = time::now();
+            "#,
+        )
+        .await
+        .expect("first dedupe query")
+        .check()
+        .expect("first dedupe claim should insert");
+
+    let error = store
+        .db()
+        .query(
+            r#"
+            CREATE type::thing('claims', 'second_dedupe_claim') SET
+              claim_id = 'claim:second-dedupe',
+              subject_entity_id = 'entity:human-local',
+              predicate_id = 'likes',
+              fact = 'second dedupe test claim',
+              status = 'candidate',
+              sensitivity = 'normal',
+              dedupe_fingerprint = 'claim-fingerprint:duplicate-test',
+              retrieval_hints = {},
+              policy_overrides = {},
+              metadata = {},
+              updated_at = time::now();
+            "#,
+        )
+        .await
+        .expect("second dedupe query")
+        .check()
+        .expect_err("duplicate dedupe fingerprint should be rejected");
+
+    assert!(
+        error.to_string().contains("dedupe_fingerprint")
+            || error.to_string().contains("claims_dedupe_fingerprint"),
+        "unexpected error: {error}"
+    );
+}
+
+#[tokio::test]
 async fn strict_schema_rejects_invalid_evidence_authority() {
     let store = test_store().await;
 
@@ -73,6 +196,7 @@ async fn strict_schema_rejects_invalid_evidence_authority() {
             CREATE type::thing('supported_by', 'invalid_authority') SET
               relation_id = 'evidence:invalid-authority',
               claim_id = 'claim:test',
+              source_kind = 'item',
               source_item_id = 'item:test',
               source_object_type = NONE,
               source_object_id = NONE,
@@ -92,6 +216,98 @@ async fn strict_schema_rejects_invalid_evidence_authority() {
         error.to_string().contains("authority") || error.to_string().contains("rumor"),
         "unexpected error: {error}"
     );
+}
+
+#[tokio::test]
+async fn strict_schema_rejects_evidence_without_source() {
+    let store = test_store().await;
+
+    let error = store
+        .db()
+        .query(
+            r#"
+            CREATE type::thing('supported_by', 'missing_source') SET
+              relation_id = 'evidence:missing-source',
+              claim_id = 'claim:test',
+              authority = 'explicit_human_statement',
+              excerpt = 'missing source test evidence',
+              observed_at = '123',
+              created_by = 'agent:primary',
+              metadata = {};
+            "#,
+        )
+        .await
+        .expect("missing source evidence query")
+        .check()
+        .expect_err("missing evidence source should be rejected");
+
+    assert!(
+        error.to_string().contains("source_item_id")
+            || error.to_string().contains("source_object")
+            || error.to_string().contains("source_kind"),
+        "unexpected error: {error}"
+    );
+}
+
+#[tokio::test]
+async fn strict_schema_rejects_evidence_with_both_source_shapes() {
+    let store = test_store().await;
+
+    let error = store
+        .db()
+        .query(
+            r#"
+            CREATE type::thing('supported_by', 'both_sources') SET
+              relation_id = 'evidence:both-sources',
+              claim_id = 'claim:test',
+              source_kind = 'item',
+              source_item_id = 'item:test',
+              source_object_type = 'conversation',
+              source_object_id = 'conversation:test',
+              authority = 'explicit_human_statement',
+              excerpt = 'both source shapes test evidence',
+              observed_at = '123',
+              created_by = 'agent:primary',
+              metadata = {};
+            "#,
+        )
+        .await
+        .expect("both sources evidence query")
+        .check()
+        .expect_err("evidence with both source shapes should be rejected");
+
+    assert!(
+        error.to_string().contains("source_item_id") || error.to_string().contains("source_object"),
+        "unexpected error: {error}"
+    );
+}
+
+#[tokio::test]
+async fn strict_schema_accepts_valid_evidence_source_shape() {
+    let store = test_store().await;
+
+    store
+        .db()
+        .query(
+            r#"
+            CREATE type::thing('supported_by', 'valid_source') SET
+              relation_id = 'evidence:valid-source',
+              claim_id = 'claim:test',
+              source_kind = 'object',
+              source_item_id = NONE,
+              source_object_type = 'conversation',
+              source_object_id = 'conversation:test',
+              authority = 'explicit_human_statement',
+              excerpt = 'valid source shape test evidence',
+              observed_at = '123',
+              created_by = 'agent:primary',
+              metadata = {};
+            "#,
+        )
+        .await
+        .expect("valid evidence source query")
+        .check()
+        .expect("valid evidence source should insert");
 }
 
 #[tokio::test]
@@ -126,6 +342,56 @@ async fn built_in_personal_predicates_are_seeded() {
     assert_eq!(likes.inverse_behavior, "none");
     assert_eq!(likes.proactivity_default, 2);
     assert!(likes.synonym_hints.contains(&"enjoys".to_string()));
+}
+
+#[tokio::test]
+async fn built_in_predicate_seed_is_idempotent_when_bootstrap_replays() {
+    #[derive(Debug, serde::Deserialize)]
+    struct PredicateIdRow {
+        predicate_id: String,
+    }
+
+    let store = test_store().await;
+    let first = seeded_predicate_ids(&store).await;
+
+    store
+        .db()
+        .query(STORE_SCHEMA_SQL)
+        .await
+        .expect("replay schema bootstrap")
+        .check()
+        .expect("schema bootstrap should replay");
+    let second = seeded_predicate_ids(&store).await;
+
+    assert_eq!(
+        first,
+        vec![
+            "dislikes",
+            "likes",
+            "prefers",
+            "prefers_interaction_style",
+            "uses",
+            "works_on",
+        ]
+    );
+    assert_eq!(first, second);
+
+    async fn seeded_predicate_ids(store: &NoemaStore) -> Vec<String> {
+        let mut response = store
+            .db()
+            .query(
+                r#"
+                SELECT predicate_id
+                FROM predicates
+                WHERE predicate_id IN ['likes', 'dislikes', 'prefers', 'uses', 'works_on', 'prefers_interaction_style']
+                ORDER BY predicate_id ASC;
+                "#,
+            )
+            .await
+            .expect("select seeded predicates");
+        let rows: Vec<PredicateIdRow> = response.take(0).expect("seeded predicate rows");
+        rows.into_iter().map(|row| row.predicate_id).collect()
+    }
 }
 
 #[tokio::test]

@@ -149,9 +149,9 @@ DEFINE FIELD IF NOT EXISTS predicate_id ON TABLE claims TYPE string;
 DEFINE FIELD IF NOT EXISTS fact ON TABLE claims TYPE string;
 DEFINE FIELD IF NOT EXISTS status ON TABLE claims TYPE string ASSERT $value INSIDE ['candidate', 'active', 'confirmed', 'disputed', 'superseded', 'archived', 'deleted'];
 DEFINE FIELD IF NOT EXISTS sensitivity ON TABLE claims TYPE string ASSERT $value INSIDE ['public', 'normal', 'private', 'sensitive', 'secret'];
-DEFINE FIELD IF NOT EXISTS valid_from ON TABLE claims TYPE option<string>;
-DEFINE FIELD IF NOT EXISTS valid_to ON TABLE claims TYPE option<string>;
-DEFINE FIELD IF NOT EXISTS observed_at ON TABLE claims TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS valid_from ON TABLE claims TYPE option<datetime>;
+DEFINE FIELD IF NOT EXISTS valid_to ON TABLE claims TYPE option<datetime>;
+DEFINE FIELD IF NOT EXISTS observed_at ON TABLE claims TYPE option<datetime>;
 DEFINE FIELD IF NOT EXISTS confidence ON TABLE claims TYPE option<float> ASSERT $value = NONE OR ($value >= 0 AND $value <= 1);
 DEFINE FIELD IF NOT EXISTS dedupe_fingerprint ON TABLE claims TYPE option<string>;
 DEFINE FIELD IF NOT EXISTS retrieval_hints ON TABLE claims FLEXIBLE TYPE object DEFAULT {};
@@ -161,13 +161,17 @@ DEFINE FIELD IF NOT EXISTS created_at ON TABLE claims TYPE datetime DEFAULT time
 DEFINE FIELD IF NOT EXISTS updated_at ON TABLE claims TYPE datetime DEFAULT time::now();
 DEFINE INDEX IF NOT EXISTS claims_claim_id ON TABLE claims COLUMNS claim_id UNIQUE;
 DEFINE INDEX IF NOT EXISTS claims_predicate_subject ON TABLE claims COLUMNS predicate_id, subject_entity_id;
-DEFINE INDEX IF NOT EXISTS claims_dedupe_fingerprint ON TABLE claims COLUMNS dedupe_fingerprint;
+DEFINE INDEX IF NOT EXISTS claims_subject ON TABLE claims COLUMNS subject_entity_id;
+DEFINE INDEX IF NOT EXISTS claims_object ON TABLE claims COLUMNS object_entity_id;
+DEFINE INDEX IF NOT EXISTS claims_predicate_object ON TABLE claims COLUMNS predicate_id, object_entity_id;
+DEFINE INDEX IF NOT EXISTS claims_dedupe_fingerprint ON TABLE claims COLUMNS dedupe_fingerprint UNIQUE;
 
 DEFINE TABLE IF NOT EXISTS supported_by SCHEMAFULL;
 DEFINE FIELD IF NOT EXISTS relation_id ON TABLE supported_by TYPE string;
 DEFINE FIELD IF NOT EXISTS claim_id ON TABLE supported_by TYPE string;
+DEFINE FIELD IF NOT EXISTS source_kind ON TABLE supported_by TYPE string ASSERT (($value = 'item' AND source_item_id != NONE AND source_object_type = NONE AND source_object_id = NONE) OR ($value = 'object' AND source_item_id = NONE AND source_object_type != NONE AND source_object_id != NONE));
 DEFINE FIELD IF NOT EXISTS source_item_id ON TABLE supported_by TYPE option<string>;
-DEFINE FIELD IF NOT EXISTS source_object_type ON TABLE supported_by TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS source_object_type ON TABLE supported_by TYPE option<string> ASSERT $value = NONE OR $value INSIDE ['human', 'agent', 'tool', 'conversation', 'conversation_turn', 'conversation_item', 'memory_item', 'entity', 'relationship', 'context_packet'];
 DEFINE FIELD IF NOT EXISTS source_object_id ON TABLE supported_by TYPE option<string>;
 DEFINE FIELD IF NOT EXISTS authority ON TABLE supported_by TYPE string ASSERT $value INSIDE ['human_correction', 'explicit_human_statement', 'document_source', 'repeated_observation', 'agent_inference', 'weak_inference', 'system_rule'];
 DEFINE FIELD IF NOT EXISTS excerpt ON TABLE supported_by TYPE option<string>;
@@ -178,12 +182,15 @@ DEFINE FIELD IF NOT EXISTS created_at ON TABLE supported_by TYPE datetime DEFAUL
 DEFINE INDEX IF NOT EXISTS supported_by_relation_id ON TABLE supported_by COLUMNS relation_id UNIQUE;
 DEFINE INDEX IF NOT EXISTS supported_by_claim_source_item ON TABLE supported_by COLUMNS claim_id, source_item_id;
 DEFINE INDEX IF NOT EXISTS supported_by_claim_source_object ON TABLE supported_by COLUMNS claim_id, source_object_type, source_object_id;
+DEFINE INDEX IF NOT EXISTS supported_by_source_item_claim ON TABLE supported_by COLUMNS source_item_id, claim_id;
+DEFINE INDEX IF NOT EXISTS supported_by_source_object_claim ON TABLE supported_by COLUMNS source_object_type, source_object_id, claim_id;
 
 DEFINE TABLE IF NOT EXISTS corrected_by SCHEMAFULL;
 DEFINE FIELD IF NOT EXISTS relation_id ON TABLE corrected_by TYPE string;
 DEFINE FIELD IF NOT EXISTS claim_id ON TABLE corrected_by TYPE string;
+DEFINE FIELD IF NOT EXISTS source_kind ON TABLE corrected_by TYPE string ASSERT (($value = 'item' AND source_item_id != NONE AND source_object_type = NONE AND source_object_id = NONE) OR ($value = 'object' AND source_item_id = NONE AND source_object_type != NONE AND source_object_id != NONE));
 DEFINE FIELD IF NOT EXISTS source_item_id ON TABLE corrected_by TYPE option<string>;
-DEFINE FIELD IF NOT EXISTS source_object_type ON TABLE corrected_by TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS source_object_type ON TABLE corrected_by TYPE option<string> ASSERT $value = NONE OR $value INSIDE ['human', 'agent', 'tool', 'conversation', 'conversation_turn', 'conversation_item', 'memory_item', 'entity', 'relationship', 'context_packet'];
 DEFINE FIELD IF NOT EXISTS source_object_id ON TABLE corrected_by TYPE option<string>;
 DEFINE FIELD IF NOT EXISTS authority ON TABLE corrected_by TYPE string ASSERT $value INSIDE ['human_correction'];
 DEFINE FIELD IF NOT EXISTS excerpt ON TABLE corrected_by TYPE option<string>;
@@ -194,12 +201,15 @@ DEFINE FIELD IF NOT EXISTS created_at ON TABLE corrected_by TYPE datetime DEFAUL
 DEFINE INDEX IF NOT EXISTS corrected_by_relation_id ON TABLE corrected_by COLUMNS relation_id UNIQUE;
 DEFINE INDEX IF NOT EXISTS corrected_by_claim_source_item ON TABLE corrected_by COLUMNS claim_id, source_item_id;
 DEFINE INDEX IF NOT EXISTS corrected_by_claim_source_object ON TABLE corrected_by COLUMNS claim_id, source_object_type, source_object_id;
+DEFINE INDEX IF NOT EXISTS corrected_by_source_item_claim ON TABLE corrected_by COLUMNS source_item_id, claim_id;
+DEFINE INDEX IF NOT EXISTS corrected_by_source_object_claim ON TABLE corrected_by COLUMNS source_object_type, source_object_id, claim_id;
 
 DEFINE TABLE IF NOT EXISTS contradicted_by SCHEMAFULL;
 DEFINE FIELD IF NOT EXISTS relation_id ON TABLE contradicted_by TYPE string;
 DEFINE FIELD IF NOT EXISTS claim_id ON TABLE contradicted_by TYPE string;
+DEFINE FIELD IF NOT EXISTS source_kind ON TABLE contradicted_by TYPE string ASSERT (($value = 'item' AND source_item_id != NONE AND source_object_type = NONE AND source_object_id = NONE) OR ($value = 'object' AND source_item_id = NONE AND source_object_type != NONE AND source_object_id != NONE));
 DEFINE FIELD IF NOT EXISTS source_item_id ON TABLE contradicted_by TYPE option<string>;
-DEFINE FIELD IF NOT EXISTS source_object_type ON TABLE contradicted_by TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS source_object_type ON TABLE contradicted_by TYPE option<string> ASSERT $value = NONE OR $value INSIDE ['human', 'agent', 'tool', 'conversation', 'conversation_turn', 'conversation_item', 'memory_item', 'entity', 'relationship', 'context_packet'];
 DEFINE FIELD IF NOT EXISTS source_object_id ON TABLE contradicted_by TYPE option<string>;
 DEFINE FIELD IF NOT EXISTS authority ON TABLE contradicted_by TYPE string ASSERT $value INSIDE ['explicit_human_statement', 'document_source', 'agent_inference', 'weak_inference'];
 DEFINE FIELD IF NOT EXISTS excerpt ON TABLE contradicted_by TYPE option<string>;
@@ -210,6 +220,8 @@ DEFINE FIELD IF NOT EXISTS created_at ON TABLE contradicted_by TYPE datetime DEF
 DEFINE INDEX IF NOT EXISTS contradicted_by_relation_id ON TABLE contradicted_by COLUMNS relation_id UNIQUE;
 DEFINE INDEX IF NOT EXISTS contradicted_by_claim_source_item ON TABLE contradicted_by COLUMNS claim_id, source_item_id;
 DEFINE INDEX IF NOT EXISTS contradicted_by_claim_source_object ON TABLE contradicted_by COLUMNS claim_id, source_object_type, source_object_id;
+DEFINE INDEX IF NOT EXISTS contradicted_by_source_item_claim ON TABLE contradicted_by COLUMNS source_item_id, claim_id;
+DEFINE INDEX IF NOT EXISTS contradicted_by_source_object_claim ON TABLE contradicted_by COLUMNS source_object_type, source_object_id, claim_id;
 
 DEFINE TABLE IF NOT EXISTS supersedes SCHEMAFULL;
 DEFINE FIELD IF NOT EXISTS relation_id ON TABLE supersedes TYPE string;
