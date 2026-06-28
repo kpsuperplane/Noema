@@ -84,6 +84,10 @@ The next storage slice should stay small and concrete:
   provenance sources. Specialized evidence relations replace broad memory audit
   machinery for memory truth. Retrieval uses a small deterministic `use_mode`
   enum and fails closed.
+- The embedded SurrealDB store is split into focused store modules. Its current
+  bootstrap defines strict graph-memory tables for entities, predicates,
+  predicate proposals, claims, evidence edge records, and retrieval packets,
+  and seeds the built-in personal-agent predicates.
 
 ## Open Loops
 

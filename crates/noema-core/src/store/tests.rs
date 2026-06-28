@@ -31,6 +31,66 @@ async fn embedded_store_config_is_stable_for_reopen() {
 }
 
 #[tokio::test]
+async fn strict_schema_rejects_invalid_sensitivity() {
+    let store = test_store().await;
+
+    let error = store
+        .db()
+        .query(
+            r#"
+            CREATE type::thing('claims', 'invalid_sensitivity') SET
+              claim_id = 'claim:invalid-sensitivity',
+              subject_entity_id = 'entity:human-local',
+              predicate_id = 'likes',
+              fact = 'invalid sensitivity test claim',
+              status = 'candidate',
+              sensitivity = 'galaxy',
+              retrieval_hints = {},
+              policy_overrides = {},
+              metadata = {},
+              updated_at = time::now();
+            "#,
+        )
+        .await
+        .expect("invalid claim query")
+        .check()
+        .expect_err("invalid sensitivity should be rejected");
+
+    assert!(
+        error.to_string().contains("sensitivity") || error.to_string().contains("galaxy"),
+        "unexpected error: {error}"
+    );
+}
+
+#[tokio::test]
+async fn built_in_personal_predicates_are_seeded() {
+    #[derive(Debug, serde::Deserialize)]
+    struct PredicateRow {
+        label: String,
+        default_sensitivity: String,
+    }
+
+    let store = test_store().await;
+    let mut response = store
+        .db()
+        .query(
+            r#"
+            SELECT label, default_sensitivity
+            FROM predicates
+            WHERE predicate_id = 'likes'
+            LIMIT 1;
+            "#,
+        )
+        .await
+        .expect("select predicate");
+    let rows: Vec<PredicateRow> = response.take(0).expect("predicate rows");
+    let likes = rows.first().expect("likes predicate");
+
+    assert_eq!(likes.label, "likes");
+    assert_eq!(likes.default_sensitivity, "normal");
+}
+
+#[tokio::test]
 async fn default_provider_account_round_trips_status() {
     let store = test_store().await;
 

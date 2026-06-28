@@ -1,6 +1,10 @@
 //! Embedded SurrealDB-backed canonical Noema store.
 
+mod conversations;
 mod error;
+mod ids;
+pub mod objects;
+mod provider_accounts;
 mod runtime;
 mod schema;
 
