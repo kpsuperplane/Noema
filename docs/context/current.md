@@ -4,47 +4,49 @@ This file is the durable working brief for Codex sessions. Keep it concise and u
 
 ## Active Direction
 
-Noema is an always-on, self-hosted personal agent operating system. The current build path is chat-led and object-backed: clients connect to the Noema server, the server records durable state in Postgres, and inspection/control surfaces appear when they are useful.
+Noema is an always-on, self-hosted personal agent operating system. The approved storage direction is to replace Postgres with embedded SurrealDB as the canonical structured store, opened only by the Noema server process at `NOEMA_HOME/db`. The current implementation still contains Postgres-backed persistence until that replacement lands.
 
-The current slice should stay small and concrete:
+The next storage slice should stay small and concrete:
 
 - Local Noema home and config.
 - Codex-backed chat through the daemon using Noema-owned OAuth tokens and direct
   Codex Responses API calls.
 - Core-hosted local React web chat as the first frontend shell.
-- Postgres-backed persisted conversations, transcript items, memory records, provenance, and context packets.
-- Memory review and context graph inspection from Postgres-backed repositories.
+- SurrealDB-backed persisted conversations, transcript items, graph claims,
+  provenance, and retrieval packets.
+- Memory review and graph inspection from SurrealDB-backed repositories.
 - Frontend IA that exposes memory and provenance progressively instead of starting with admin dashboards.
 
 ## Settled Decisions
 
-- Postgres is the canonical structured store for the always-on personal server target.
-- Docker Compose mounts `NOEMA_HOME` into containers and stores Postgres physical files at `${NOEMA_HOME:-$HOME/.noema}/db/postgres`.
+- Embedded SurrealDB is the target canonical structured store for the always-on
+  personal server.
+- The Noema server process is the only process that opens the embedded database;
+  clients, CLI, desktop, web, and future mobile use Noema APIs.
+- Embedded database files live directly under `${NOEMA_HOME:-$HOME/.noema}/db`.
 - First-run web onboarding is derived from backend readiness checks and blocks
   chat until an active provider account is authenticated.
 - Provider credential/session material lives under
-  `${NOEMA_HOME:-$HOME/.noema}/providers/<provider>/<account>/`; Postgres stores
-  only non-secret provider metadata.
+  `${NOEMA_HOME:-$HOME/.noema}/providers/<provider>/<account>/`; the structured
+  store keeps only non-secret provider metadata.
 - Codex provider account homes contain Noema-owned `codex_tokens.json` OAuth
   state. They are not `CODEX_HOME` directories, and Noema does not silently
   import Codex CLI `auth.json` files.
-- Concrete object rows are the canonical structured state; actor/principal,
+- Concrete object records are the canonical structured state; actor/principal,
   governable scope, provenance source, and transcript item are interfaces
   implemented by concrete objects rather than universal parent tables.
-- Postgres audit/provenance actor roles use `*_actor_id` references to
-  `actors`; source, target, grantee, context, and used-for object references
-  remain typed object pairs.
 - Durable chat history is reconstructed from `conversation_items`; the daemon
   WebSocket and `agent_status` are live coordination state for current turns.
 - Filesystem storage is for durable object-owned documents, attachments, and artifacts.
 - `system/` state is derived and rebuildable.
 - Memory is governed context, not hidden model state.
-- Canonical memory rows own truth, policy, provenance, lifecycle, and audit.
-- Memory writes run through consolidation before creating rows: exact
-  fingerprints prevent duplicate appends, normal/public semantic repeats can
-  reuse or reinforce existing memory, and conflicts create reviewable disputed
-  state instead of silently overwriting truth.
-- Context graph and FTS/search indexes are derived projections and must remain rebuildable.
+- Canonical memory claims own truth, policy, provenance, lifecycle, and
+  evidence.
+- Memory writes should consolidate before creating or updating graph claims:
+  exact fingerprints prevent duplicate claims, repeated support reinforces
+  existing claims with evidence, and conflicts create reviewable disputed state
+  instead of silently overwriting truth.
+- Derived search/vector indexes are rebuildable projections.
 - Graph or fuzzy retrieval can suggest candidates, but policy gates inclusion.
 - Pre-stable schema changes do not need migrations or backwards compatibility unless explicitly requested.
 - The initial frontend should start with chat, memory, and inspection before exposing full workspaces, tasks, agents, tools, or governance.
@@ -63,7 +65,8 @@ The current slice should stay small and concrete:
   surfaces have been retired; GraphQL is now the only client-facing product
   API.
 - The web home chat should load `human:local.primary_conversation_id`; Noema
-  conversation continuity is owned by Postgres, not provider runtime state.
+  conversation continuity is owned by Noema structured state, not provider
+  runtime state.
 - Frontend build and lint use Bun from `crates/noema-core/web`.
 - Web GraphQL schema and operation types are generated with `bun run gen:types`.
 - The web UI uses shadcn/ui `base-rhea` components backed by Base UI, with
@@ -76,11 +79,20 @@ The current slice should stay small and concrete:
   Noema validates arguments, builds the trusted retrieval envelope, records a
   context packet, returns approved memories plus generic omissions as a normal
   tool result, and does not inject memories automatically before turns.
+- New graph memory direction: durable memories are strict graph claims over
+  entities and promoted predicate records. Conversation items are direct
+  provenance sources. Specialized evidence relations replace broad memory audit
+  machinery for memory truth. Retrieval uses a small deterministic `use_mode`
+  enum and fails closed.
 
 ## Open Loops
 
-- Continue removing stale SQLite/product-version wording from docs and planning notes now that runtime persistence is Postgres-only.
-- Add richer web drill-ins for memory details, memory review, and context graph inspection.
+- Replace Postgres persistence with embedded SurrealDB-backed repositories and
+  strict graph memory.
+- Retire stale SQLite/Postgres storage wording from docs after the SurrealDB
+  implementation lands.
+- Add richer web drill-ins for memory details, predicate review, provenance,
+  and graph inspection.
 - Continue aligning docs, schema, CLI inspection commands, and frontend IA.
 - Decide which export formats ship first and how export preview/redaction should work.
 - Revisit migrations only when the project needs persisted user data compatibility.
