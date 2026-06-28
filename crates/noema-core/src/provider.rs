@@ -109,6 +109,8 @@ pub enum GenerateStreamEvent {
         /// Text delta received from the provider.
         delta: String,
     },
+    /// A non-empty memory proposal block has started streaming.
+    MemoryProposalsStarted,
 }
 
 impl GenerateResponse {

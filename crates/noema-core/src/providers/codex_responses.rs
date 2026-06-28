@@ -218,8 +218,9 @@ impl CodexResponsesProvider {
         let mut noema_delta_extractor = NoemaAssistantTextDeltaExtractor::default();
         let mut forward_event = |event| {
             if require_noema_response {
-                let GenerateStreamEvent::AssistantTextDelta { delta } = event;
-                noema_delta_extractor.push_delta(&delta, on_event);
+                if let GenerateStreamEvent::AssistantTextDelta { delta } = event {
+                    noema_delta_extractor.push_delta(&delta, on_event);
+                }
             } else {
                 on_event(event);
             }
@@ -270,6 +271,7 @@ impl CodexResponsesProvider {
 struct NoemaAssistantTextDeltaExtractor {
     stack: Vec<JsonContext>,
     string: Option<JsonStringReader>,
+    memory_proposals_started_emitted: bool,
 }
 
 impl NoemaAssistantTextDeltaExtractor {
@@ -297,7 +299,7 @@ impl NoemaAssistantTextDeltaExtractor {
                 '"' => {
                     self.string = Some(JsonStringReader::new(self.next_string_target()));
                 }
-                '{' => self.push_object(),
+                '{' => self.push_object(on_event),
                 '[' => self.push_array(),
                 '}' | ']' => self.pop_container(),
                 ',' => self.handle_comma(),
@@ -314,7 +316,14 @@ impl NoemaAssistantTextDeltaExtractor {
         }
     }
 
-    fn push_object(&mut self) {
+    fn push_object(&mut self, on_event: &mut (dyn FnMut(GenerateStreamEvent) + Send)) {
+        if self.stack.last().is_some_and(|context| {
+            matches!(context, JsonContext::Array(JsonArrayRole::MemoryProposals))
+        }) && !self.memory_proposals_started_emitted
+        {
+            self.memory_proposals_started_emitted = true;
+            on_event(GenerateStreamEvent::MemoryProposalsStarted);
+        }
         let role = match self.stack.last() {
             None => JsonObjectRole::Root,
             Some(JsonContext::Array(JsonArrayRole::Output)) => {
@@ -336,6 +345,12 @@ impl NoemaAssistantTextDeltaExtractor {
             .is_some_and(|context| context.is_root_output_value())
         {
             JsonArrayRole::Output
+        } else if self
+            .stack
+            .last()
+            .is_some_and(|context| context.is_current_memory_proposals_value())
+        {
+            JsonArrayRole::MemoryProposals
         } else {
             JsonArrayRole::Nested
         };
@@ -447,6 +462,17 @@ impl JsonContext {
             }) if key == "output"
         )
     }
+
+    fn is_current_memory_proposals_value(&self) -> bool {
+        matches!(
+            self,
+            Self::Object(JsonObjectContext {
+                role: JsonObjectRole::OutputItem(item),
+                pending_key: Some(key),
+                ..
+            }) if key == "proposals" && item.is_memory_proposals()
+        )
+    }
 }
 
 #[derive(Debug)]
@@ -466,6 +492,7 @@ enum JsonObjectRole {
 #[derive(Debug)]
 enum JsonArrayRole {
     Output,
+    MemoryProposals,
     Nested,
 }
 
@@ -478,6 +505,10 @@ struct OutputItemState {
 impl OutputItemState {
     fn is_assistant(&self) -> bool {
         self.kind.as_deref() == Some("assistant_text")
+    }
+
+    fn is_memory_proposals(&self) -> bool {
+        self.kind.as_deref() == Some("memory_proposals")
     }
 }
 
@@ -794,8 +825,9 @@ mod tests {
 
         let streamed_text = events
             .iter()
-            .map(|event| match event {
-                GenerateStreamEvent::AssistantTextDelta { delta } => delta.as_str(),
+            .filter_map(|event| match event {
+                GenerateStreamEvent::AssistantTextDelta { delta } => Some(delta.as_str()),
+                GenerateStreamEvent::MemoryProposalsStarted => None,
             })
             .collect::<String>();
         assert_eq!(streamed_text, "Hi\nthere!");
@@ -832,6 +864,51 @@ mod tests {
         assert_eq!(streamed_text, "right");
     }
 
+    #[test]
+    fn noema_assistant_text_delta_extractor_emits_memory_started_for_non_empty_proposals() {
+        let mut extractor = NoemaAssistantTextDeltaExtractor::default();
+        let mut events = Vec::new();
+        extractor.push_delta(
+            r#"{"type":"noema_response","output":[{"kind":"assistant_text","text":"Hello"},"#,
+            &mut |event| events.push(event),
+        );
+        extractor.push_delta(
+            r#"{"kind":"memory_proposals","proposals":[{"proposal":{"content":"Kevin likes trains.""#,
+            &mut |event| events.push(event),
+        );
+
+        assert_eq!(
+            events,
+            vec![
+                GenerateStreamEvent::AssistantTextDelta {
+                    delta: "Hello".to_string()
+                },
+                GenerateStreamEvent::MemoryProposalsStarted,
+            ]
+        );
+    }
+
+    #[test]
+    fn noema_assistant_text_delta_extractor_does_not_emit_memory_started_for_empty_proposals() {
+        let mut extractor = NoemaAssistantTextDeltaExtractor::default();
+        let mut events = Vec::new();
+        extractor.push_delta(
+            r#"{"type":"noema_response","output":[{"kind":"assistant_text","text":"Hello"},"#,
+            &mut |event| events.push(event),
+        );
+        extractor.push_delta(
+            r#"{"kind":"memory_proposals","proposals":[]}]} "#,
+            &mut |event| events.push(event),
+        );
+
+        assert_eq!(
+            events,
+            vec![GenerateStreamEvent::AssistantTextDelta {
+                delta: "Hello".to_string()
+            }]
+        );
+    }
+
     fn extract_streamed_text(chunks: &[&str]) -> String {
         let mut extractor = NoemaAssistantTextDeltaExtractor::default();
         let mut events = Vec::new();
@@ -840,8 +917,9 @@ mod tests {
         }
         events
             .iter()
-            .map(|event| match event {
-                GenerateStreamEvent::AssistantTextDelta { delta } => delta.as_str(),
+            .filter_map(|event| match event {
+                GenerateStreamEvent::AssistantTextDelta { delta } => Some(delta.as_str()),
+                GenerateStreamEvent::MemoryProposalsStarted => None,
             })
             .collect()
     }

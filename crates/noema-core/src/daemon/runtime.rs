@@ -528,14 +528,22 @@ impl CodexRuntimeActor {
         );
 
         let initial_stream_id = assistant_stream_id(&turn.turn_id, "initial");
+        let initial_event_context = ConversationMemoryContext {
+            turn_index,
+            conversation_id: conversation_id.clone(),
+            turn_id: turn.turn_id.clone(),
+            user_item_id: user_item_id.clone(),
+            assistant_item_id: None,
+            user_content: input.clone(),
+            assistant_content: String::new(),
+            cwd: conversation.cwd.clone(),
+        };
         let mut on_initial_event = |event| {
-            let GenerateStreamEvent::AssistantTextDelta { delta } = event;
-            send_assistant_text_delta(
+            handle_provider_stream_event(
+                event,
                 &item_tx,
-                &conversation_id,
-                &turn.turn_id,
+                &initial_event_context,
                 &initial_stream_id,
-                delta,
             );
         };
 
@@ -700,14 +708,22 @@ impl CodexRuntimeActor {
                 &turn.user_input,
             );
             let continuation_stream_id = assistant_stream_id(&turn.turn_id, "continuation");
+            let continuation_event_context = ConversationMemoryContext {
+                turn_index: turn.turn_index,
+                conversation_id: turn.conversation_id.clone(),
+                turn_id: turn.turn_id.clone(),
+                user_item_id: turn.user_item_id.clone(),
+                assistant_item_id: None,
+                user_content: turn.user_input.clone(),
+                assistant_content: String::new(),
+                cwd: turn.cwd.clone(),
+            };
             let mut on_continuation_event = |event| {
-                let GenerateStreamEvent::AssistantTextDelta { delta } = event;
-                send_assistant_text_delta(
+                handle_provider_stream_event(
+                    event,
                     item_tx,
-                    &turn.conversation_id,
-                    &turn.turn_id,
+                    &continuation_event_context,
                     &continuation_stream_id,
-                    delta,
                 );
             };
             let continuation_response = self
@@ -1499,6 +1515,47 @@ fn send_transient_turn_item(
         }),
         item: Box::new(item),
     });
+}
+
+fn handle_provider_stream_event(
+    event: GenerateStreamEvent,
+    item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
+    context: &ConversationMemoryContext,
+    stream_id: &str,
+) {
+    match event {
+        GenerateStreamEvent::AssistantTextDelta { delta } => send_assistant_text_delta(
+            item_tx,
+            &context.conversation_id,
+            &context.turn_id,
+            stream_id,
+            delta,
+        ),
+        GenerateStreamEvent::MemoryProposalsStarted => {
+            send_memory_proposed_transient(context, item_tx);
+        }
+    }
+}
+
+fn send_memory_proposed_transient(
+    context: &ConversationMemoryContext,
+    item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
+) {
+    let activity_id = format!(
+        "memory_extraction:{}:{}",
+        context.conversation_id, context.turn_index
+    );
+    let activity = memory_activity(
+        &activity_id,
+        TurnActivityStatus::Started,
+        "Memory proposed",
+        Some("memory proposal is streaming"),
+        json!({
+            "turn_index": context.turn_index,
+            "source": "provider_structured_output",
+        }),
+    );
+    send_transient_turn_item(context, activity, item_tx);
 }
 
 fn send_assistant_text_delta(

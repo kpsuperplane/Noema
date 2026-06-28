@@ -1602,19 +1602,29 @@ impl super::runtime::RuntimeModelProvider for FakeCodexProvider {
         Box::pin(async move {
             let response = self.generate_response(request)?;
             for output in &response.output {
-                let GenerateOutputItem::AssistantText { text } = output else {
-                    continue;
-                };
-                let mut chunk = String::new();
-                for character in text.chars() {
-                    chunk.push(character);
-                    if chunk.chars().count() == 4 {
-                        on_event(GenerateStreamEvent::AssistantTextDelta { delta: chunk });
-                        chunk = String::new();
+                match output {
+                    GenerateOutputItem::AssistantText { text } => {
+                        let mut chunk = String::new();
+                        for character in text.chars() {
+                            chunk.push(character);
+                            if chunk.chars().count() == 4 {
+                                on_event(GenerateStreamEvent::AssistantTextDelta { delta: chunk });
+                                chunk = String::new();
+                            }
+                        }
+                        if !chunk.is_empty() {
+                            on_event(GenerateStreamEvent::AssistantTextDelta { delta: chunk });
+                        }
                     }
-                }
-                if !chunk.is_empty() {
-                    on_event(GenerateStreamEvent::AssistantTextDelta { delta: chunk });
+                    GenerateOutputItem::MemoryProposals { proposals } if !proposals.is_empty() => {
+                        on_event(GenerateStreamEvent::MemoryProposalsStarted);
+                    }
+                    GenerateOutputItem::MemoryProposals { .. }
+                    | GenerateOutputItem::ToolCall { .. }
+                    | GenerateOutputItem::ToolResult { .. }
+                    | GenerateOutputItem::ApprovalRequest { .. }
+                    | GenerateOutputItem::ApprovalResult { .. }
+                    | GenerateOutputItem::Structured { .. } => {}
                 }
             }
             Ok(response)
