@@ -7,8 +7,8 @@ use serde::Serialize;
 
 use crate::{
     provider::{
-        GenerateInput, GenerateRequest, GenerateResponse, ModelProvider, ProviderError,
-        output_items_from_text, required_output_items_from_text,
+        GenerateInput, GenerateRequest, GenerateResponse, GenerateStreamEvent, ModelProvider,
+        ProviderError, output_items_from_text, required_output_items_from_text,
     },
     providers::{
         codex_oauth::{
@@ -182,8 +182,12 @@ struct CodexInputMessage {
     content: String,
 }
 
-impl ModelProvider for CodexResponsesProvider {
-    async fn generate(&self, request: GenerateRequest) -> Result<GenerateResponse, ProviderError> {
+impl CodexResponsesProvider {
+    async fn generate_with_events(
+        &self,
+        request: GenerateRequest,
+        on_event: &mut (dyn FnMut(GenerateStreamEvent) + Send),
+    ) -> Result<GenerateResponse, ProviderError> {
         let GenerateInput::Text(input) = request.input;
         if input.trim().is_empty() {
             return Err(ProviderError::InvalidRequest {
@@ -212,7 +216,7 @@ impl ModelProvider for CodexResponsesProvider {
             .await?;
         let response = match self
             .transport
-            .send_stream(&access_token, body, HeaderMap::new())
+            .send_streaming(&access_token, body, HeaderMap::new(), on_event)
             .await
         {
             Ok(response) => response,
@@ -229,7 +233,7 @@ impl ModelProvider for CodexResponsesProvider {
                     temperature,
                 );
                 self.transport
-                    .send_stream(&refreshed, retry_body, HeaderMap::new())
+                    .send_streaming(&refreshed, retry_body, HeaderMap::new(), on_event)
                     .await?
             }
             Err(error) => return Err(error),
@@ -249,6 +253,20 @@ impl ModelProvider for CodexResponsesProvider {
             response_id: response.id,
             usage: response.usage.map(Into::into),
         })
+    }
+}
+
+impl ModelProvider for CodexResponsesProvider {
+    async fn generate(&self, request: GenerateRequest) -> Result<GenerateResponse, ProviderError> {
+        self.generate_with_events(request, &mut |_| {}).await
+    }
+
+    async fn generate_streaming(
+        &self,
+        request: GenerateRequest,
+        on_event: &mut (dyn FnMut(GenerateStreamEvent) + Send),
+    ) -> Result<GenerateResponse, ProviderError> {
+        self.generate_with_events(request, on_event).await
     }
 }
 
@@ -351,6 +369,62 @@ mod tests {
         assert_eq!(body["store"], false);
 
         assert_eq!(response.assistant_text(), "Hello");
+    }
+
+    #[tokio::test]
+    async fn forwards_codex_streaming_text_deltas() {
+        let (base_url, request_rx) = spawn_server(
+            200,
+            "event: response.output_text.delta\n\
+             data: {\"type\":\"response.output_text.delta\",\"delta\":\"Hel\"}\n\
+             \n\
+             event: response.output_text.delta\n\
+             data: {\"type\":\"response.output_text.delta\",\"delta\":\"lo\"}\n\
+             \n\
+             event: response.completed\n\
+             data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_test\",\"model\":\"gpt-test\",\"status\":\"completed\"}}\n\
+             \n",
+        )
+        .await;
+        let dir = TempDir::new().expect("temp dir");
+        let account_home = dir.path().join("providers/codex/default");
+        let provider = CodexResponsesProvider::new(CodexProviderConfig {
+            base_url,
+            default_model: Some("gpt-test".to_string()),
+            account_home: Some(account_home.clone()),
+            ..CodexProviderConfig::default()
+        })
+        .expect("provider");
+        provider
+            .token_store()
+            .write(&CodexOAuthTokens {
+                access_token: "access".to_string(),
+                refresh_token: "refresh".to_string(),
+                last_refresh: 123,
+            })
+            .expect("write token");
+
+        let mut events = Vec::new();
+        let response = provider
+            .generate_streaming(GenerateRequest::text("Hello?"), &mut |event| {
+                events.push(event);
+            })
+            .await
+            .expect("response");
+
+        let _captured = request_rx.await.expect("captured request");
+        assert_eq!(response.assistant_text(), "Hello");
+        assert_eq!(
+            events,
+            vec![
+                GenerateStreamEvent::AssistantTextDelta {
+                    delta: "Hel".to_string()
+                },
+                GenerateStreamEvent::AssistantTextDelta {
+                    delta: "lo".to_string()
+                }
+            ]
+        );
     }
 
     #[derive(Debug)]
