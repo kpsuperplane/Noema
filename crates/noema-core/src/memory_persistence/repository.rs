@@ -308,7 +308,7 @@ impl PostgresMemoryRepository {
                 source_conversation.conversation_id,
                 CASE
                   WHEN m.search_vector @@ plainto_tsquery('simple', $5) THEN 0
-                  WHEN lower(m.content) LIKE '%' || lower($5) || '%' THEN 1
+                  WHEN strpos(lower(m.content), lower($5)) > 0 THEN 1
                   ELSE 2
                 END AS match_rank,
                 m.created_at AS created_at_sort
@@ -328,6 +328,7 @@ impl PostgresMemoryRepository {
               LEFT JOIN memory_participants mp ON mp.memory_id = m.memory_id
               WHERE m.deleted_at IS NULL
                 AND m.status IN ('candidate', 'active', 'confirmed')
+                AND m.sensitivity IN ('public', 'normal')
                 AND m.memory_type = $1
                 AND (
                   (m.owner_object_type = $2 AND m.owner_object_id = $3)

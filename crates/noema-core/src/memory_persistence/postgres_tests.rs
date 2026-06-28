@@ -1111,6 +1111,116 @@ async fn append_memory_candidate_reuses_exact_dedupe_fingerprint() {
 }
 
 #[tokio::test]
+async fn find_memory_consolidation_matches_excludes_private_sensitive_and_secret() {
+    let Some(repo) = test_repo().await else {
+        return;
+    };
+    repo.ensure_default_actors().await.expect("actors");
+
+    let conversation = repo
+        .create_conversation(NewConversation::local_chat(
+            Some("test-model".to_string()),
+            Some("/tmp/noema".to_string()),
+        ))
+        .await
+        .expect("conversation");
+    let source_item = repo
+        .append_conversation_item(NewConversationItem {
+            conversation_id: conversation.conversation_id.clone(),
+            turn_id: None,
+            parent_item_id: None,
+            kind: ConversationItemKind::UserText,
+            status: ConversationItemStatus::Completed,
+            author: ActorRef::human("human:local"),
+            content_text: Some("memory consolidation sensitivity source".to_string()),
+            payload_json: serde_json::json!({}),
+            metadata: serde_json::json!({}),
+        })
+        .await
+        .expect("source item");
+
+    let owner = ObjectRef::new(
+        ObjectType::Conversation,
+        conversation.conversation_id.as_str(),
+    )
+    .expect("owner");
+    let source = ObjectRef::conversation_item(source_item.item_id.as_str());
+    let mut visible_ids = Vec::new();
+    let mut hidden_ids = Vec::new();
+
+    for (sensitivity, content, visible) in [
+        (Sensitivity::Public, "Public consolidation match", true),
+        (Sensitivity::Normal, "Normal consolidation match", true),
+        (Sensitivity::Private, "Private consolidation match", false),
+        (
+            Sensitivity::Sensitive,
+            "Sensitive consolidation match",
+            false,
+        ),
+        (Sensitivity::Secret, "Secret consolidation match", false),
+    ] {
+        let mut candidate = NewMemoryCandidate::confirmed_note(
+            owner.clone(),
+            content,
+            ActorRef::agent("agent:primary"),
+            source.clone(),
+        );
+        candidate.memory_type = MemoryType::Preference;
+        candidate.sensitivity = sensitivity;
+        candidate.participants = vec![NewMemoryParticipant::new(
+            ActorRef::human("human:local"),
+            ParticipantRole::HumanInScope,
+        )];
+
+        let summary = repo
+            .append_memory_candidate(candidate)
+            .await
+            .expect("memory candidate");
+        if visible {
+            visible_ids.push(summary.id);
+        } else {
+            hidden_ids.push(summary.id);
+        }
+    }
+
+    let mut query_candidate = NewMemoryCandidate::confirmed_note(
+        owner,
+        "consolidation match",
+        ActorRef::agent("agent:primary"),
+        source,
+    );
+    query_candidate.memory_type = MemoryType::Preference;
+    query_candidate.participants = vec![NewMemoryParticipant::new(
+        ActorRef::human("human:local"),
+        ParticipantRole::HumanInScope,
+    )];
+
+    let matches = repo
+        .find_memory_consolidation_matches(&query_candidate, 12)
+        .await
+        .expect("matches");
+    let match_ids = matches
+        .iter()
+        .map(|memory| memory.id.as_str())
+        .collect::<Vec<_>>();
+
+    assert!(
+        visible_ids
+            .iter()
+            .all(|id| match_ids.contains(&id.as_str()))
+    );
+    assert!(
+        hidden_ids
+            .iter()
+            .all(|id| !match_ids.contains(&id.as_str()))
+    );
+    assert!(matches.iter().all(|memory| matches!(
+        memory.sensitivity,
+        Sensitivity::Public | Sensitivity::Normal
+    )));
+}
+
+#[tokio::test]
 async fn append_memory_candidate_reuses_inferred_dedupe_fingerprint() {
     let Some(repo) = test_repo().await else {
         return;

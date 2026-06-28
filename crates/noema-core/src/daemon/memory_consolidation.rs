@@ -41,6 +41,7 @@ pub(super) enum SemanticConsolidationDecision {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct SemanticDecisionJson {
     decision: String,
     existing_memory_id: Option<String>,
@@ -57,17 +58,31 @@ pub(super) fn parse_semantic_decision(text: &str) -> Result<SemanticConsolidatio
         return Err("confidence must be between 0.0 and 1.0".to_string());
     }
     match parsed.decision.as_str() {
-        "create" => Ok(SemanticConsolidationDecision::Create),
+        "create" => {
+            if parsed
+                .existing_memory_id
+                .as_deref()
+                .is_some_and(|id| !id.trim().is_empty())
+            {
+                return Err("existing_memory_id must be empty for create".to_string());
+            }
+            Ok(SemanticConsolidationDecision::Create)
+        }
         "reuse" => Ok(SemanticConsolidationDecision::Reuse {
             existing_memory_id: required_existing_memory_id(&parsed)?,
         }),
         "reinforce" => Ok(SemanticConsolidationDecision::Reinforce {
             existing_memory_id: required_existing_memory_id(&parsed)?,
         }),
-        "conflict" => Ok(SemanticConsolidationDecision::Conflict {
-            existing_memory_id: required_existing_memory_id(&parsed)?,
-            rationale: parsed.rationale,
-        }),
+        "conflict" => {
+            if parsed.rationale.trim().is_empty() {
+                return Err("rationale is required for conflict".to_string());
+            }
+            Ok(SemanticConsolidationDecision::Conflict {
+                existing_memory_id: required_existing_memory_id(&parsed)?,
+                rationale: parsed.rationale,
+            })
+        }
         other => Err(format!("unsupported semantic decision: {other}")),
     }
 }
@@ -116,5 +131,35 @@ mod tests {
         .expect_err("missing id");
 
         assert_eq!(error, "existing_memory_id is required");
+    }
+
+    #[test]
+    fn parse_semantic_decision_rejects_unknown_fields() {
+        let error = parse_semantic_decision(
+            r#"{"decision":"create","existing_memory_id":null,"confidence":0.91,"rationale":"distinct","extra":"nope"}"#,
+        )
+        .expect_err("unknown field");
+
+        assert!(error.starts_with("invalid JSON:"), "{error}");
+    }
+
+    #[test]
+    fn parse_semantic_create_rejects_existing_memory_id() {
+        let error = parse_semantic_decision(
+            r#"{"decision":"create","existing_memory_id":"mem_1","confidence":0.91,"rationale":"distinct"}"#,
+        )
+        .expect_err("existing id");
+
+        assert_eq!(error, "existing_memory_id must be empty for create");
+    }
+
+    #[test]
+    fn parse_semantic_conflict_requires_non_empty_rationale() {
+        let error = parse_semantic_decision(
+            r#"{"decision":"conflict","existing_memory_id":"mem_1","confidence":0.91,"rationale":"   "}"#,
+        )
+        .expect_err("empty rationale");
+
+        assert_eq!(error, "rationale is required for conflict");
     }
 }
