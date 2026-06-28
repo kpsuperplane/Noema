@@ -524,6 +524,112 @@ async fn reinforcing_existing_claim_adds_evidence() {
 }
 
 #[tokio::test]
+async fn deleted_claim_fingerprint_can_be_reused_by_new_claim() {
+    let store = test_store().await;
+    let first_item = create_source_item(&store, "Kevin likes trains.").await;
+    let second_item = create_source_item(&store, "Kevin still likes trains.").await;
+
+    let deleted = store
+        .create_or_reinforce_claim(NewClaimCandidate {
+            subject: EntityCandidate::local_human(),
+            object: EntityCandidate::concept("trains", "trains"),
+            predicate_id: "likes".to_string(),
+            fact: "Kevin likes trains.".to_string(),
+            sensitivity: Sensitivity::Normal,
+            status: ClaimStatus::Active,
+            confidence: Some(0.9),
+            evidence: EvidenceCandidate {
+                source_item_id: first_item.item_id,
+                authority: EvidenceAuthority::ExplicitHumanStatement,
+                excerpt: Some("Kevin likes trains.".to_string()),
+            },
+            retrieval_hints: json!({}),
+            metadata: json!({}),
+        })
+        .await
+        .expect("initial claim");
+    store
+        .db()
+        .query(
+            r#"
+            UPDATE claims SET
+              status = 'deleted',
+              updated_at = time::now()
+            WHERE claim_id = $claim_id;
+            "#,
+        )
+        .bind(("claim_id", deleted.claim_id.clone()))
+        .await
+        .expect("delete claim")
+        .check()
+        .expect("deleted claim update should succeed");
+
+    let replacement = store
+        .create_or_reinforce_claim(NewClaimCandidate {
+            subject: EntityCandidate::local_human(),
+            object: EntityCandidate::concept("trains", "trains"),
+            predicate_id: "likes".to_string(),
+            fact: "Kevin likes trains.".to_string(),
+            sensitivity: Sensitivity::Normal,
+            status: ClaimStatus::Active,
+            confidence: Some(0.9),
+            evidence: EvidenceCandidate {
+                source_item_id: second_item.item_id,
+                authority: EvidenceAuthority::RepeatedObservation,
+                excerpt: Some("Kevin still likes trains.".to_string()),
+            },
+            retrieval_hints: json!({}),
+            metadata: json!({}),
+        })
+        .await
+        .expect("replacement claim should be created");
+
+    assert_ne!(deleted.claim_id, replacement.claim_id);
+    assert_eq!(replacement.status, ClaimStatus::Active);
+    assert_eq!(replacement.evidence_count, 1);
+
+    #[derive(Debug, serde::Deserialize)]
+    struct ClaimRow {
+        claim_id: String,
+        status: String,
+        evidence_count: i64,
+    }
+
+    let mut response = store
+        .db()
+        .query(
+            r#"
+            SELECT claim_id, status, count(SELECT * FROM supported_by WHERE claim_id = $parent.claim_id) AS evidence_count
+            FROM claims
+            WHERE subject_entity_id = 'human:local'
+              AND object_entity_id = 'concept:trains'
+              AND predicate_id = 'likes'
+              AND fact = 'Kevin likes trains.'
+            ORDER BY status ASC;
+            "#,
+        )
+        .await
+        .expect("select matching claims");
+    let rows: Vec<ClaimRow> = response.take(0).expect("matching claim rows");
+    let active_rows = rows
+        .iter()
+        .filter(|row| row.status != "deleted")
+        .collect::<Vec<_>>();
+
+    assert_eq!(rows.len(), 2);
+    assert_eq!(active_rows.len(), 1);
+    assert_eq!(active_rows[0].claim_id, replacement.claim_id);
+    assert_eq!(active_rows[0].evidence_count, 1);
+    assert_eq!(
+        rows.iter()
+            .find(|row| row.claim_id == deleted.claim_id)
+            .expect("deleted claim row")
+            .evidence_count,
+        1
+    );
+}
+
+#[tokio::test]
 async fn unknown_predicate_claim_is_rejected() {
     let store = test_store().await;
     let source_item = create_source_item(&store, "Kevin studies semaphore signals.").await;

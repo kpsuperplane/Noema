@@ -175,6 +175,7 @@ impl NoemaStore {
             Some(claim_id) => claim_id,
             None => {
                 let claim_id = allocate_id("claim");
+                self.release_deleted_claim_fingerprint(&fingerprint).await?;
                 self.insert_claim(&claim_id, &fingerprint, &candidate)
                     .await?;
                 claim_id
@@ -264,6 +265,23 @@ impl NoemaStore {
             .await?;
         let rows: Vec<ClaimIdRow> = response.take(0)?;
         Ok(rows.into_iter().next().map(|row| row.claim_id))
+    }
+
+    async fn release_deleted_claim_fingerprint(&self, fingerprint: &str) -> Result<(), StoreError> {
+        self.db
+            .query(
+                r#"
+                UPDATE claims SET
+                  dedupe_fingerprint = NONE,
+                  updated_at = time::now()
+                WHERE dedupe_fingerprint = $dedupe_fingerprint
+                  AND status = 'deleted';
+                "#,
+            )
+            .bind(("dedupe_fingerprint", fingerprint.to_string()))
+            .await?
+            .check()?;
+        Ok(())
     }
 
     async fn insert_claim(
