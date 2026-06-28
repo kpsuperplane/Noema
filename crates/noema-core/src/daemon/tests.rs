@@ -1615,9 +1615,15 @@ fn assistant_text(items: &[TurnTranscriptItem]) -> &str {
 
 async fn test_runtime_handle(
     provider: FakeCodexProvider,
-    database_url: String,
+    _database_url: String,
 ) -> CodexRuntimeHandle {
-    CodexRuntimeHandle::spawn_with_provider(Arc::new(provider), database_url)
+    let home = tempfile::tempdir().expect("temp noema home");
+    let paths = crate::NoemaPaths::from_noema_home(home.path()).expect("paths");
+    let store = crate::NoemaStore::open(&crate::StoreConfig::from_paths(&paths))
+        .await
+        .expect("store");
+    std::mem::forget(home);
+    CodexRuntimeHandle::spawn_with_provider(Arc::new(provider), store)
         .await
         .expect("runtime")
 }

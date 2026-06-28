@@ -13,10 +13,8 @@ use tokio::{
 };
 
 use crate::{
-    TurnActivityStatus, TurnTranscriptItem, WebConfig,
-    memory_persistence::{
-        ConversationItemKind, ConversationItemRecord, PostgresMemoryRepository, ReplayMode,
-    },
+    NoemaStore, TurnActivityStatus, TurnTranscriptItem, WebConfig,
+    memory_persistence::{ConversationItemKind, ConversationItemRecord, ReplayMode},
     provider_auth::{
         CodexDeviceAuthRequest, ProviderAuthAttemptStatus, ProviderAuthAttemptView,
         ProviderAuthManager,
@@ -38,7 +36,7 @@ const PROVIDER_AUTH_TERMINAL_PERSIST_INTERVAL: Duration = Duration::from_millis(
 #[derive(Clone)]
 pub(crate) struct WebState {
     runtime: CodexRuntimeHandle,
-    memory_repository: PostgresMemoryRepository,
+    store: NoemaStore,
     provider_auth: ProviderAuthManager,
     paths: crate::NoemaPaths,
     subscriptions: crate::graphql::ConversationSubscriptionRegistry,
@@ -49,13 +47,13 @@ impl WebState {
     #[must_use]
     pub(super) fn new(
         runtime: CodexRuntimeHandle,
-        memory_repository: PostgresMemoryRepository,
+        store: NoemaStore,
         provider_auth: ProviderAuthManager,
         paths: crate::NoemaPaths,
     ) -> Self {
         Self {
             runtime,
-            memory_repository,
+            store,
             provider_auth,
             paths,
             subscriptions: crate::graphql::ConversationSubscriptionRegistry::default(),
@@ -66,8 +64,8 @@ impl WebState {
         &self.runtime
     }
 
-    pub(crate) fn memory_repository(&self) -> &PostgresMemoryRepository {
-        &self.memory_repository
+    pub(crate) fn store(&self) -> &NoemaStore {
+        &self.store
     }
 
     pub(crate) fn provider_auth(&self) -> &ProviderAuthManager {
@@ -479,7 +477,7 @@ pub(crate) async fn start_provider_auth_attempt_view(
     }
 
     let Some(account) = state
-        .memory_repository
+        .store
         .get_provider_account(&body.provider_account_id)
         .await
         .map_err(|_| WebApiError::internal("provider auth status unavailable"))?
@@ -493,7 +491,7 @@ pub(crate) async fn start_provider_auth_attempt_view(
 
     match start_codex_provider_auth_attempt(
         &state.provider_auth,
-        &state.memory_repository,
+        &state.store,
         &state.paths,
         &account,
     )
@@ -503,7 +501,7 @@ pub(crate) async fn start_provider_auth_attempt_view(
             if !should_persist_provider_auth_attempt_status(&attempt) {
                 spawn_provider_auth_terminal_persistence(
                     state.provider_auth.clone(),
-                    state.memory_repository.clone(),
+                    state.store.clone(),
                     attempt.attempt_id.clone(),
                 );
             }
@@ -609,7 +607,7 @@ pub(crate) trait ProviderAccountStatusStore {
     ) -> Pin<Box<dyn Future<Output = Result<(), DaemonError>> + Send + 'a>>;
 }
 
-impl ProviderAccountStatusStore for PostgresMemoryRepository {
+impl ProviderAccountStatusStore for NoemaStore {
     fn update_provider_account_status<'a>(
         &'a self,
         provider_account_id: &'a str,
@@ -749,7 +747,7 @@ pub(crate) async fn persist_provider_account_status_from_attempt(
 
 fn spawn_provider_auth_terminal_persistence(
     poller: ProviderAuthManager,
-    status_store: PostgresMemoryRepository,
+    status_store: NoemaStore,
     attempt_id: String,
 ) {
     tokio::spawn(async move {
@@ -935,7 +933,7 @@ pub(crate) fn is_user_onboarded_for_chat(account: Option<crate::ProviderAccountR
 }
 
 pub(crate) async fn visible_conversation_replay(
-    repo: &PostgresMemoryRepository,
+    repo: &NoemaStore,
     conversation_id: &str,
 ) -> Result<Vec<ConversationItemRecord>, DaemonError> {
     Ok(repo

@@ -4,9 +4,8 @@ use std::{
 };
 
 use crate::{
-    DatabaseConfigError, NoemaPathError, NoemaPaths, WebConfig,
-    memory_persistence::MemoryPersistenceError, provider::ProviderError,
-    providers::codex_responses::CodexProviderConfig,
+    NoemaPathError, NoemaPaths, StoreError, WebConfig, memory_persistence::MemoryPersistenceError,
+    provider::ProviderError, providers::codex_responses::CodexProviderConfig,
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -216,8 +215,6 @@ pub struct DaemonServerConfig {
     pub socket_path: PathBuf,
     /// Codex provider configuration used by daemon conversations.
     pub codex: CodexProviderConfig,
-    /// Canonical Postgres database URL.
-    pub database_url: String,
     /// Local web UI configuration.
     pub web: WebConfig,
 }
@@ -225,16 +222,10 @@ pub struct DaemonServerConfig {
 impl DaemonServerConfig {
     /// Create daemon server configuration.
     #[must_use]
-    pub fn new(
-        socket_path: PathBuf,
-        codex: CodexProviderConfig,
-        database_url: String,
-        web: WebConfig,
-    ) -> Self {
+    pub fn new(socket_path: PathBuf, codex: CodexProviderConfig, web: WebConfig) -> Self {
         Self {
             socket_path,
             codex,
-            database_url,
             web,
         }
     }
@@ -245,18 +236,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn daemon_server_config_keeps_database_url_explicit() {
+    fn daemon_server_config_uses_embedded_store_path_from_noema_home() {
+        let home = tempfile::tempdir().expect("temp noema home");
+        let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
         let config = DaemonServerConfig::new(
-            PathBuf::from("/tmp/noema.sock"),
+            paths.socket_path(),
             CodexProviderConfig::default(),
-            "postgres://noema:noema@localhost:5432/noema".to_string(),
             WebConfig::default(),
         );
 
-        assert_eq!(
-            config.database_url,
-            "postgres://noema:noema@localhost:5432/noema"
-        );
+        assert_eq!(config.socket_path, paths.socket_path());
+        assert_eq!(crate::StoreConfig::from_paths(&paths).path, paths.db_dir());
     }
 }
 
@@ -299,9 +289,9 @@ pub enum DaemonError {
     #[error(transparent)]
     Memory(#[from] MemoryPersistenceError),
 
-    /// Database configuration failed.
+    /// Embedded store operation failed.
     #[error(transparent)]
-    Database(#[from] DatabaseConfigError),
+    Store(#[from] StoreError),
 
     /// Path resolution failed.
     #[error(transparent)]

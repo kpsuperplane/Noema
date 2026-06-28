@@ -66,10 +66,13 @@ pub use memory_extraction::{
     parse_memory_extraction_proposals, validate_memory_extraction_response,
 };
 pub use memory_persistence::{
-    ActorRef, DeleteConversationItem, MemoryAuthorityLevel, MemoryExtractionMethod,
-    MemoryPersistenceError, MemorySummary, MemoryType, NewMemoryCandidate, NewMemoryParticipant,
-    NewMemorySubject, NewObjectProvenanceEdge, ObjectProvenanceSource, ObjectRef, ObjectType,
-    PostgresMemoryRepository, ProviderAccountRecord, ProviderAccountStatus, ProviderAuthMethod,
+    ActorRef, ConversationItemKind, ConversationItemRecord, ConversationItemStatus,
+    ConversationRecord, ConversationTurnRecord, ConversationTurnStatus, DeleteConversationItem,
+    MemoryAuthorityLevel, MemoryExtractionMethod, MemoryPersistenceError, MemorySummary,
+    MemoryType, NewConversation, NewConversationItem, NewConversationTurn, NewMemoryCandidate,
+    NewMemoryParticipant, NewMemorySubject, NewObjectProvenanceEdge, ObjectProvenanceSource,
+    ObjectRef, ObjectType, PostgresMemoryRepository, ProviderAccountRecord, ProviderAccountStatus,
+    ProviderAuthMethod, ReplayMode,
 };
 pub use onboarding::{
     OnboardingStatus, OnboardingStep, OnboardingStepStatus, onboarding_status_from_account,

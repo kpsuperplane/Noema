@@ -92,12 +92,12 @@ impl QueryRoot {
         let state = ctx.data_unchecked::<GraphqlState>();
         let web = state.web_state()?;
         let account = web
-            .memory_repository()
+            .store()
             .active_provider_account("codex")
             .await
             .map_err(graphql_error)?;
         let account = crate::daemon::web::reconcile_onboarding_provider_account(
-            web.memory_repository(),
+            web.store(),
             web.paths(),
             account,
         )
@@ -121,12 +121,9 @@ impl QueryRoot {
             .await
             .map_err(graphql_error)?;
         if let Some(attempt) = &attempt {
-            crate::daemon::web::persist_provider_account_status_from_attempt(
-                web.memory_repository(),
-                attempt,
-            )
-            .await
-            .map_err(graphql_error)?;
+            crate::daemon::web::persist_provider_account_status_from_attempt(web.store(), attempt)
+                .await
+                .map_err(graphql_error)?;
         }
         Ok(attempt.map(Into::into))
     }
@@ -166,7 +163,7 @@ impl MutationRoot {
         let state = ctx.data_unchecked::<GraphqlState>();
         let web = state.web_state()?;
         let account = web
-            .memory_repository()
+            .store()
             .active_provider_account("codex")
             .await
             .map_err(graphql_error)?;
@@ -181,12 +178,10 @@ impl MutationRoot {
             .start_primary_conversation(model, cwd)
             .await
             .map_err(graphql_error)?;
-        let replay_records = crate::daemon::web::visible_conversation_replay(
-            web.memory_repository(),
-            &started.conversation_id,
-        )
-        .await
-        .map_err(graphql_error)?;
+        let replay_records =
+            crate::daemon::web::visible_conversation_replay(web.store(), &started.conversation_id)
+                .await
+                .map_err(graphql_error)?;
         let mut replay = Vec::new();
         for record in replay_records {
             if let Some(item) = crate::daemon::web::web_conversation_item_from_record(record)

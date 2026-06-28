@@ -1,20 +1,17 @@
 use std::{collections::HashMap, future::Future, pin::Pin, sync::Arc};
 
 use crate::{
-    DatabaseConfig,
+    NoemaStore,
     memory::ParticipantRole,
     memory::Sensitivity,
     memory_extraction::{
-        ExtractorMemoryProposal, ExtractorMemoryResponse, ValidatedMemoryProposal,
-        build_memory_extraction_prompt, parse_memory_extraction_proposals,
-        validate_memory_extraction_response,
+        ExtractorMemoryProposal, ExtractorMemoryResponse, validate_memory_extraction_response,
     },
     memory_persistence::{
         ActorRef, AgentStatus as PersistedAgentStatus, ConversationItemKind,
         ConversationItemRecord, ConversationItemStatus, MemoryAuthorityLevel,
         MemoryExtractionMethod, NewConversation, NewConversationItem, NewConversationTurn,
         NewMemoryCandidate, NewMemoryParticipant, ObjectProvenanceSource, ObjectRef, ObjectType,
-        PostgresMemoryRepository,
     },
     provider::{
         GenerateInput, GenerateOptions, GenerateOutputItem, GenerateRequest, GenerateResponse,
@@ -26,13 +23,11 @@ use serde_json::{Value, json};
 use tokio::sync::{mpsc, oneshot};
 
 use super::{
-    memory_consolidation::{
-        MemoryConsolidationOutcome, consolidate_memory_candidate, consolidation_outcome_json,
-    },
+    memory_consolidation::{MemoryConsolidationOutcome, consolidation_outcome_json},
     memory_pipeline::{
-        ConversationMemoryContext, explicit_memory_content, extracted_proposal_to_candidate,
-        infer_chat_memory_type, infer_chat_sensitivity, memory_activity, memory_activity_failed,
-        project_scope_from_cwd, title_from_memory_content, typed_memory_activity,
+        ConversationMemoryContext, explicit_memory_content, infer_chat_memory_type,
+        infer_chat_sensitivity, memory_activity, memory_activity_failed, project_scope_from_cwd,
+        title_from_memory_content, typed_memory_activity,
     },
     memory_tool::{
         MemoryToolResult, MemoryToolRuntimeContext, execute_search_memory, is_search_memory_tool,
@@ -84,7 +79,7 @@ pub(crate) struct CodexRuntimeHandle {
 impl CodexRuntimeHandle {
     pub(crate) async fn spawn(
         mut codex_config: CodexProviderConfig,
-        database_url: String,
+        store: NoemaStore,
     ) -> Result<Self, DaemonError> {
         let paths = crate::NoemaPaths::from_process_env()?;
         let account_home = paths.provider_account_home("codex", "default");
@@ -92,15 +87,15 @@ impl CodexRuntimeHandle {
         apply_provider_account_home(&mut codex_config, &account_home);
 
         let provider = Arc::new(CodexResponsesProvider::new(codex_config)?);
-        Self::spawn_with_provider(provider, database_url).await
+        Self::spawn_with_provider(provider, store).await
     }
 
     pub(crate) async fn spawn_with_provider(
         provider: Arc<dyn RuntimeModelProvider>,
-        database_url: String,
+        store: NoemaStore,
     ) -> Result<Self, DaemonError> {
         let (sender, receiver) = mpsc::channel(16);
-        let actor = CodexRuntimeActor::new(provider, database_url).await?;
+        let actor = CodexRuntimeActor::new(provider, store).await?;
         tokio::spawn(actor.run(receiver));
         Ok(Self { sender })
     }
@@ -225,14 +220,10 @@ struct MemoryExtractionWorkerHandle {
 impl MemoryExtractionWorkerHandle {
     async fn spawn(
         provider: Arc<dyn RuntimeModelProvider>,
-        database_url: String,
+        _store: NoemaStore,
     ) -> Result<Self, DaemonError> {
         let (sender, receiver) = mpsc::channel(16);
-        let database = DatabaseConfig::new(database_url)?;
-        let worker = MemoryExtractionWorker {
-            provider,
-            memory_repository: PostgresMemoryRepository::connect(&database).await?,
-        };
+        let worker = MemoryExtractionWorker { provider };
         tokio::spawn(worker.run(receiver));
         Ok(Self { sender })
     }
@@ -263,7 +254,6 @@ enum MemoryExtractionWorkerCommand {
 #[derive(Debug)]
 struct MemoryExtractionWorker {
     provider: Arc<dyn RuntimeModelProvider>,
-    memory_repository: PostgresMemoryRepository,
 }
 
 impl MemoryExtractionWorker {
@@ -285,37 +275,11 @@ impl MemoryExtractionWorker {
         &mut self,
         context: &ConversationMemoryContext,
     ) -> Result<Vec<MemoryConsolidationOutcome>, String> {
-        let project_hint = project_scope_from_cwd(context.cwd.as_deref());
-        let prompt = build_memory_extraction_prompt(
-            &context.user_content,
-            &context.assistant_content,
-            &context.conversation_id,
-            context.turn_index,
-            project_hint.as_deref(),
-        );
-
-        let extraction_text = self
-            .provider
-            .generate(GenerateRequest::text(prompt))
-            .await
-            .map_err(|error| format!("memory extraction model failed: {error}"))?
-            .assistant_text();
-
-        let proposals = parse_memory_extraction_proposals(
-            &extraction_text,
-            &context.user_content,
-            &context.assistant_content,
-        )
-        .map_err(|error| format!("memory extraction output was rejected: {error}"))?;
-
-        persist_validated_memory_proposals(
-            &self.memory_repository,
-            self.provider.as_ref(),
-            context,
-            proposals,
-            "ordinary_chat_extraction",
-        )
-        .await
+        // TODO(graph-claim store): ordinary chat memory proposal persistence
+        // moves to the embedded graph-claim store in a later task. Transcript
+        // persistence remains active through NoemaStore in this migration.
+        let _ = (&self.provider, context);
+        Ok(Vec::new())
     }
 }
 
@@ -323,24 +287,23 @@ impl MemoryExtractionWorker {
 struct CodexRuntimeActor {
     provider: Arc<dyn RuntimeModelProvider>,
     memory_extraction_worker: MemoryExtractionWorkerHandle,
-    memory_repository: PostgresMemoryRepository,
+    store: NoemaStore,
     conversations: HashMap<String, ActiveConversation>,
 }
 
 impl CodexRuntimeActor {
     async fn new(
         provider: Arc<dyn RuntimeModelProvider>,
-        database_url: String,
+        store: NoemaStore,
     ) -> Result<Self, DaemonError> {
-        let database = DatabaseConfig::new(database_url.clone())?;
         Ok(Self {
             memory_extraction_worker: MemoryExtractionWorkerHandle::spawn(
                 Arc::clone(&provider),
-                database_url,
+                store.clone(),
             )
             .await?,
             provider,
-            memory_repository: PostgresMemoryRepository::connect(&database).await?,
+            store,
             conversations: HashMap::new(),
         })
     }
@@ -383,12 +346,9 @@ impl CodexRuntimeActor {
         model: Option<String>,
         cwd: Option<String>,
     ) -> Result<StartedConversation, DaemonError> {
-        self.memory_repository.ensure_default_actors().await?;
+        self.store.ensure_default_actors().await?;
         let new_conversation = NewConversation::local_chat(model.clone(), cwd.clone());
-        let durable_conversation = self
-            .memory_repository
-            .create_conversation(new_conversation)
-            .await?;
+        let durable_conversation = self.store.create_conversation(new_conversation).await?;
         let conversation_id = durable_conversation.conversation_id;
         self.conversations.insert(
             conversation_id.clone(),
@@ -407,16 +367,16 @@ impl CodexRuntimeActor {
         model: Option<String>,
         cwd: Option<String>,
     ) -> Result<StartedConversation, DaemonError> {
-        self.memory_repository.ensure_default_actors().await?;
+        self.store.ensure_default_actors().await?;
         let durable_conversation = self
-            .memory_repository
+            .store
             .get_or_create_primary_conversation("human:local", model.clone(), cwd.clone())
             .await?;
         let conversation_id = durable_conversation.conversation_id;
 
         if !self.conversations.contains_key(&conversation_id) {
             let next_turn_index = self
-                .memory_repository
+                .store
                 .next_conversation_turn_index(&conversation_id)
                 .await?;
             self.conversations.insert(
@@ -447,7 +407,7 @@ impl CodexRuntimeActor {
             })?;
         let turn_index = conversation.next_turn_index;
         let turn = self
-            .memory_repository
+            .store
             .create_conversation_turn(NewConversationTurn {
                 conversation_id: conversation_id.clone(),
                 trigger_item_id: None,
@@ -455,7 +415,7 @@ impl CodexRuntimeActor {
             })
             .await?;
         let recent_context_items = self
-            .memory_repository
+            .store
             .list_recent_conversation_items_for_context(&conversation_id, 24)
             .await?;
         let recent_transcript = render_recent_transcript_for_prompt(&recent_context_items);
@@ -467,7 +427,7 @@ impl CodexRuntimeActor {
         .await?;
         let user_metadata = json!({ "turn_index": turn_index });
         let user_item = self
-            .memory_repository
+            .store
             .append_conversation_item(NewConversationItem {
                 conversation_id: conversation_id.clone(),
                 turn_id: Some(turn.turn_id.clone()),
@@ -802,9 +762,7 @@ impl CodexRuntimeActor {
             self.memory_extraction_worker.extract(memory_context).await;
         }
 
-        self.memory_repository
-            .complete_conversation_turn(&turn.turn_id)
-            .await?;
+        self.store.complete_conversation_turn(&turn.turn_id).await?;
         self.update_conversation_agent_status(
             &turn.conversation_id,
             PersistedAgentStatus::Idle,
@@ -837,7 +795,7 @@ impl CodexRuntimeActor {
                     "stream_id": turn.stream_id,
                 });
                 let assistant_item = self
-                    .memory_repository
+                    .store
                     .append_conversation_item(NewConversationItem {
                         conversation_id: turn.conversation_id.clone(),
                         turn_id: Some(turn.turn_id.clone()),
@@ -879,7 +837,7 @@ impl CodexRuntimeActor {
                     "source": "provider_structured_output",
                 });
                 let structured_item = self
-                    .memory_repository
+                    .store
                     .append_conversation_item(NewConversationItem {
                         conversation_id: turn.conversation_id.clone(),
                         turn_id: Some(turn.turn_id.clone()),
@@ -932,9 +890,7 @@ impl CodexRuntimeActor {
                 cwd: turn.cwd.clone(),
                 user_input: turn.user_input.clone(),
             };
-            results.push(
-                execute_search_memory(&self.memory_repository, &context, id.clone(), payload).await,
-            );
+            results.push(execute_search_memory(&self.store, &context, id.clone(), payload).await);
         }
         results
     }
@@ -1106,7 +1062,7 @@ impl CodexRuntimeActor {
             "provider": turn.provider.clone(),
         });
         let record = self
-            .memory_repository
+            .store
             .append_conversation_item(NewConversationItem {
                 conversation_id: turn.conversation_id.clone(),
                 turn_id: Some(turn.turn_id.clone()),
@@ -1187,9 +1143,7 @@ impl CodexRuntimeActor {
         message: String,
         item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
     ) -> Result<(), DaemonError> {
-        self.memory_repository
-            .fail_conversation_turn(&context.turn_id)
-            .await?;
+        self.store.fail_conversation_turn(&context.turn_id).await?;
         self.update_conversation_agent_status(
             &context.conversation_id,
             PersistedAgentStatus::Error,
@@ -1248,23 +1202,12 @@ impl CodexRuntimeActor {
         send_transient_turn_item(context, proposed_activity, item_tx);
         tokio::task::yield_now().await;
 
-        let consolidation_outcomes = match persist_validated_memory_proposals(
-            &self.memory_repository,
-            self.provider.as_ref(),
-            context,
-            proposals,
-            "provider_structured_output",
-        )
-        .await
-        {
-            Ok(outcomes) => outcomes,
-            Err(error) => {
-                let activity = memory_activity_failed(&activity_id, error);
-                self.persist_and_send_turn_item(context, activity, item_tx)
-                    .await?;
-                return Ok(());
-            }
-        };
+        // TODO(graph-claim store): provider memory proposals become graph
+        // claims in the SurrealDB memory slice. This intermediate task keeps
+        // transcript persistence live without retaining a hidden Postgres
+        // dependency for memory consolidation.
+        let _ = proposals;
+        let consolidation_outcomes = Vec::new();
         let created_memory_ids =
             created_memory_ids_from_consolidation_outcomes(&consolidation_outcomes);
         let memory_outcomes = consolidation_outcomes
@@ -1410,7 +1353,7 @@ impl CodexRuntimeActor {
             };
 
         let record = self
-            .memory_repository
+            .store
             .append_conversation_item(NewConversationItem {
                 conversation_id: context.conversation_id.clone(),
                 turn_id: Some(context.turn_id.clone()),
@@ -1463,14 +1406,11 @@ impl CodexRuntimeActor {
             "turn_index": turn_index,
         });
 
-        let outcome = consolidate_memory_candidate(
-            &self.memory_repository,
-            self.provider.as_ref(),
-            candidate,
-        )
-        .await
-        .map_err(DaemonError::Protocol)?;
-        Ok(Some(memory_id_from_consolidation_outcome(&outcome)))
+        let _ = candidate;
+        // TODO(graph-claim store): explicit "remember" writes need the pending
+        // graph-claim persistence layer. Do not keep Postgres alive solely for
+        // this transitional memory path.
+        Ok(None)
     }
 
     async fn update_conversation_agent_status(
@@ -1479,7 +1419,7 @@ impl CodexRuntimeActor {
         status: PersistedAgentStatus,
         item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
     ) -> Result<(), DaemonError> {
-        self.memory_repository
+        self.store
             .update_conversation_agent_status(conversation_id, status)
             .await?;
         let _ = item_tx.send(TurnStreamEvent::AgentStatusChanged {
@@ -1915,31 +1855,6 @@ struct ProviderActionOutput {
     payload: serde_json::Value,
 }
 
-async fn persist_validated_memory_proposals(
-    memory_repository: &PostgresMemoryRepository,
-    provider: &dyn RuntimeModelProvider,
-    context: &ConversationMemoryContext,
-    proposals: Vec<ValidatedMemoryProposal>,
-    trigger: &str,
-) -> Result<Vec<MemoryConsolidationOutcome>, String> {
-    let project_hint = project_scope_from_cwd(context.cwd.as_deref());
-    let mut outcomes = Vec::new();
-
-    for proposal in proposals {
-        let candidate = extracted_proposal_to_candidate(
-            &proposal,
-            context,
-            project_hint.as_deref(),
-            &context.user_content,
-            trigger,
-        )?;
-
-        outcomes.push(consolidate_memory_candidate(memory_repository, provider, candidate).await?);
-    }
-
-    Ok(outcomes)
-}
-
 fn created_memory_ids_from_consolidation_outcomes(
     outcomes: &[MemoryConsolidationOutcome],
 ) -> Vec<String> {
@@ -1970,15 +1885,6 @@ fn memory_outcome_summary(outcomes: &[MemoryConsolidationOutcome]) -> String {
     }
 
     format!("created {created}, reused {reused}, reinforced {reinforced}, conflicts {conflicts}")
-}
-
-fn memory_id_from_consolidation_outcome(outcome: &MemoryConsolidationOutcome) -> String {
-    match outcome {
-        MemoryConsolidationOutcome::Created { memory_id }
-        | MemoryConsolidationOutcome::Reused { memory_id, .. }
-        | MemoryConsolidationOutcome::Reinforced { memory_id, .. }
-        | MemoryConsolidationOutcome::Conflict { memory_id, .. } => memory_id.clone(),
-    }
 }
 
 #[cfg(test)]

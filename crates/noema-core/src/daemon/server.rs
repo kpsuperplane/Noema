@@ -1,6 +1,6 @@
 use std::{fs, path::Path, sync::Arc};
 
-use crate::{DatabaseConfig, memory_persistence::PostgresMemoryRepository};
+use crate::{NoemaPaths, StoreConfig};
 
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
@@ -23,19 +23,17 @@ use super::{
 pub async fn run_daemon(config: DaemonServerConfig) -> Result<(), DaemonError> {
     let listener = bind_listener(&config.socket_path).await?;
     let web_listener = web::bind_listener(&config.web).await?;
-    let database_url = config.database_url.clone();
-    let runtime = CodexRuntimeHandle::spawn(config.codex, database_url.clone()).await?;
-    let paths = crate::NoemaPaths::from_process_env()?;
-    let database = DatabaseConfig::new(database_url)?;
-    let web_repository = PostgresMemoryRepository::connect(&database).await?;
-    web_repository.ensure_default_provider_account().await?;
+    let paths = NoemaPaths::from_process_env()?;
+    let store = crate::NoemaStore::open(&StoreConfig::from_paths(&paths)).await?;
+    store.ensure_default_provider_account().await?;
+    let runtime = CodexRuntimeHandle::spawn(config.codex, store.clone()).await?;
     let provider_auth = crate::provider_auth::ProviderAuthManager::new();
     let (shutdown_tx, mut shutdown_rx) = watch::channel(false);
     let state = Arc::new(DaemonState {
         runtime: runtime.clone(),
         shutdown_tx,
     });
-    let web_state = WebState::new(runtime, web_repository, provider_auth, paths);
+    let web_state = WebState::new(runtime, store, provider_auth, paths);
 
     loop {
         tokio::select! {

@@ -5,7 +5,7 @@ use crate::providers::{
     codex_responses::{CodexProviderConfig, DEFAULT_CODEX_MODEL, DEFAULT_CODEX_TIMEOUT_SECONDS},
     openai::{DEFAULT_OPENAI_TIMEOUT_SECONDS, OpenAiProviderConfig},
 };
-use crate::{DatabaseConfig, NOEMA_DATABASE_URL_ENV, NOEMA_HOME_ENV, NoemaPathError, NoemaPaths};
+use crate::{NOEMA_HOME_ENV, NoemaPathError, NoemaPaths};
 use figment::{
     Figment,
     providers::{Env, Format, Serialized, Yaml},
@@ -42,7 +42,6 @@ const CONFIG_ENV_KEYS: &[&str] = &[
     "codex.model",
     "codex.base_url",
     "codex.timeout_seconds",
-    "database.url",
     "web.host",
     "web.port",
 ];
@@ -242,8 +241,6 @@ impl Config {
 pub struct DaemonResolvedConfig {
     /// Codex provider configuration used for daemon conversations.
     pub codex: CodexProviderConfig,
-    /// Canonical database configuration.
-    pub database: DatabaseConfig,
     /// Local web UI configuration.
     pub web: WebConfig,
 }
@@ -255,7 +252,6 @@ struct RawConfig {
     model: Option<String>,
     openai: RawOpenAiConfig,
     codex: RawCodexConfig,
-    database: RawDatabaseConfig,
     web: WebConfig,
 }
 
@@ -266,7 +262,6 @@ impl Default for RawConfig {
             model: None,
             openai: RawOpenAiConfig::default(),
             codex: RawCodexConfig::default(),
-            database: RawDatabaseConfig::default(),
             web: WebConfig::default(),
         }
     }
@@ -293,11 +288,9 @@ impl RawConfig {
 
     fn resolve_daemon_config(self) -> Result<DaemonResolvedConfig, ConfigError> {
         let codex = self.resolve_codex_config()?;
-        let database = self.resolve_database_config()?;
 
         Ok(DaemonResolvedConfig {
             codex,
-            database,
             web: self.web,
         })
     }
@@ -350,14 +343,6 @@ impl RawConfig {
             oauth: Default::default(),
         })
     }
-
-    fn resolve_database_config(&self) -> Result<DatabaseConfig, ConfigError> {
-        let Some(url) = non_empty_option(self.database.url.as_deref()) else {
-            return Err(ConfigError::MissingDatabaseUrl);
-        };
-
-        Ok(DatabaseConfig::new(url.to_string())?)
-    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -400,12 +385,6 @@ impl Default for RawCodexConfig {
     }
 }
 
-#[derive(Debug, Clone, Default, Deserialize, Serialize)]
-#[serde(default, deny_unknown_fields)]
-struct RawDatabaseConfig {
-    url: Option<String>,
-}
-
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 struct FileConfig {
@@ -413,7 +392,6 @@ struct FileConfig {
     model: Option<String>,
     openai: FileOpenAiConfig,
     codex: FileCodexConfig,
-    database: FileDatabaseConfig,
     web: FileWebConfig,
 }
 
@@ -432,12 +410,6 @@ struct FileCodexConfig {
     base_url: Option<String>,
     model: Option<String>,
     timeout_seconds: Option<u64>,
-}
-
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-struct FileDatabaseConfig {
-    url: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -494,14 +466,6 @@ pub enum ConfigError {
         /// Invalid value.
         value: String,
     },
-
-    /// Required database URL was missing.
-    #[error("{NOEMA_DATABASE_URL_ENV} is required for daemon database storage")]
-    MissingDatabaseUrl,
-
-    /// Database configuration failed validation.
-    #[error(transparent)]
-    Database(#[from] crate::DatabaseConfigError),
 
     /// Path resolution failed.
     #[error(transparent)]
@@ -593,11 +557,7 @@ fn config_env_provider() -> Env {
 
 fn normalize_config_env_key(key: &str) -> Option<String> {
     let key = key.to_ascii_lowercase();
-    let normalized = if key == "database_url" {
-        "database.url"
-    } else {
-        key.as_str()
-    };
+    let normalized = key.as_str();
 
     CONFIG_ENV_KEYS
         .contains(&normalized)

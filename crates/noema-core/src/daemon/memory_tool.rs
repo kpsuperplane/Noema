@@ -1,10 +1,11 @@
 use crate::{
+    NoemaStore,
     daemon::memory_pipeline::project_scope_from_cwd,
     memory::{
         EligibilityReason, MemoryRetrievalRequest, MemoryRetrievalResult, Purpose, Sensitivity,
         TrustedRetrievalContext, UntrustedHints,
     },
-    memory_persistence::{MemoryPersistenceError, MemorySummary, PostgresMemoryRepository},
+    memory_persistence::{MemoryPersistenceError, MemorySummary},
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -55,12 +56,12 @@ pub(super) fn is_search_memory_tool(name: &str) -> bool {
 }
 
 pub(super) async fn execute_search_memory(
-    repository: &PostgresMemoryRepository,
+    store: &NoemaStore,
     context: &MemoryToolRuntimeContext,
     call_id: Option<String>,
     payload: &Value,
 ) -> MemoryToolResult {
-    match execute_search_memory_inner(repository, context, call_id.as_deref(), payload).await {
+    match execute_search_memory_inner(store, context, call_id.as_deref(), payload).await {
         Ok(payload) => MemoryToolResult {
             call_id,
             name: SEARCH_MEMORY_TOOL.to_string(),
@@ -79,44 +80,27 @@ pub(super) async fn execute_search_memory(
 }
 
 async fn execute_search_memory_inner(
-    repository: &PostgresMemoryRepository,
+    _store: &NoemaStore,
     context: &MemoryToolRuntimeContext,
     call_id: Option<&str>,
     payload: &Value,
 ) -> Result<Value, MemoryToolError> {
     let arguments = parse_arguments(payload)?;
     let request = build_request(context, &arguments)?;
-    let retrieval = repository.retrieve_memories(&request).await?;
-    let limited_retrieval = limit_retrieval_result(retrieval, arguments.limit());
     let context_packet_id = context_packet_id(context, call_id);
-    repository
-        .record_context_packet(
-            &context_packet_id,
-            &context.turn_id,
-            &request,
-            &limited_retrieval,
-        )
-        .await?;
+    let _ = (arguments.limit(), request);
 
-    let mut memories = Vec::new();
-    for included in &limited_retrieval.included {
-        if let Some(memory) = repository.get_memory(&included.memory_id).await? {
-            memories.push(format_memory(
-                &memory,
-                eligibility_label(included.eligibility_reason),
-            ));
-        }
-    }
-
-    let omissions = limited_retrieval
-        .agent_visible_omissions
-        .iter()
-        .map(|omission| json!({ "reason": omission.reason }))
-        .collect::<Vec<_>>();
-
+    // TODO(graph-retrieval): search_memory will read graph claims and record a
+    // SurrealDB context packet when the graph retrieval slice lands. Until
+    // then, return a structured unavailable result instead of retaining a
+    // hidden Postgres retrieval dependency.
     Ok(json!({
-        "memories": memories,
-        "omissions": omissions,
+        "memories": [],
+        "omissions": [{"reason": "graph_retrieval_unavailable"}],
+        "unavailable": {
+            "reason": "graph_retrieval_pending",
+            "context_packet_id": context_packet_id,
+        },
     }))
 }
 

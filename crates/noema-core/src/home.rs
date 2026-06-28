@@ -13,7 +13,7 @@ codex:
   model: gpt-5.5
   timeout_seconds: 300
 
-# Set NOEMA_DATABASE_URL=postgres://noema:noema@localhost:5432/noema
+# The daemon opens the embedded Noema store under this home directory.
 
 web:
   host: 127.0.0.1

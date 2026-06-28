@@ -1,8 +1,7 @@
 use super::*;
+use crate::NOEMA_DATABASE_URL_ENV;
 use serde_json::{Number, Value};
 use tempfile::NamedTempFile;
-
-const TEST_DATABASE_URL: &str = "postgres://noema:noema@localhost:5432/noema";
 
 fn write_config(contents: &str) -> NamedTempFile {
     let file = NamedTempFile::new().expect("temp config");
@@ -335,94 +334,38 @@ fn daemon_config_resolves_codex_and_web_without_openai_credentials() {
         None,
         CliOverrides::new(Some("codex".to_string()), None, None),
         None,
-        &[(NOEMA_DATABASE_URL_ENV, TEST_DATABASE_URL)],
+        &[],
     )
     .expect("daemon config");
 
     assert_eq!(config.codex.base_url, DEFAULT_CODEX_BASE_URL);
     assert_eq!(config.web.port, DEFAULT_WEB_PORT);
-    assert_eq!(config.database.url, TEST_DATABASE_URL);
 }
 
 #[test]
-fn daemon_config_requires_database_url() {
+fn daemon_config_does_not_require_database_url() {
     let file = write_config(
         r"
 provider: codex
-codex:
-  base_url: https://chatgpt.com/backend-api/codex
-  model: gpt-5.5
-  timeout_seconds: 300
-web:
-  host: 127.0.0.1
-  port: 3737
 ",
     );
 
-    let error = load_daemon_config(
+    let config = load_daemon_config(
         Some(file.path().to_path_buf()),
         CliOverrides::default(),
         None,
-        &[],
+        &[("NOEMA_DATABASE_URL", "postgres://ignored/env")],
     )
-    .unwrap_err();
+    .expect("daemon config should use embedded store");
 
-    assert!(matches!(error, ConfigError::MissingDatabaseUrl));
+    assert_eq!(config.codex.base_url, DEFAULT_CODEX_BASE_URL);
+    assert_eq!(config.web, WebConfig::default());
 }
 
 #[test]
-fn resolves_database_url_from_yaml() {
-    let file = write_config(
-        r"
-provider: codex
-database:
-  url: postgres://noema:yaml@localhost:5432/noema
-",
-    );
-
-    let resolved = load_daemon_config(
-        Some(file.path().to_path_buf()),
-        CliOverrides::default(),
-        None,
-        &[],
-    )
-    .expect("config should load");
-
-    assert_eq!(
-        resolved.database.url,
-        "postgres://noema:yaml@localhost:5432/noema"
-    );
-}
-
-#[test]
-fn resolves_database_url_from_env() {
-    let resolved = load_daemon_config(
-        None,
-        CliOverrides::new(Some("codex".to_string()), None, None),
-        None,
-        &[(
-            NOEMA_DATABASE_URL_ENV,
-            "postgres://noema:env@localhost:5432/noema",
-        )],
-    )
-    .expect("config should load");
-
-    assert_eq!(
-        resolved.database.url,
-        "postgres://noema:env@localhost:5432/noema"
-    );
-}
-
-#[test]
-fn production_env_normalization_accepts_flat_database_url() {
-    assert_eq!(
-        normalize_env_key(NOEMA_DATABASE_URL_ENV).as_deref(),
-        Some("database.url")
-    );
-    assert_eq!(
-        normalize_config_env_key("DATABASE_URL").as_deref(),
-        Some("database.url")
-    );
+fn production_env_normalization_ignores_flat_database_url() {
+    assert_eq!(normalize_env_key(NOEMA_DATABASE_URL_ENV), None);
+    assert_eq!(normalize_config_env_key("DATABASE_URL").as_deref(), None);
 }
 
 #[test]
