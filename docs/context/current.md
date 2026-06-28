@@ -64,6 +64,10 @@ The current slice should stay small and concrete:
   runs, and object detail semantics.
 - `crates/noema-core/web/tests` has been removed; web validation should use
   `bun run lint`, `bun run build`, and local browser smoke checks.
+- Agent memory reads start as an explicit `search_memory` tool-only slice:
+  Noema validates arguments, builds the trusted retrieval envelope, records a
+  context packet, returns approved memories plus generic omissions as a normal
+  tool result, and does not inject memories automatically before turns.
 
 ## Open Loops
 
