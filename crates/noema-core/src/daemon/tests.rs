@@ -503,13 +503,25 @@ fn deterministic_sensitivity_classifier_fails_closed_for_common_secrets() {
 }
 
 #[test]
-fn explicit_claim_candidate_falls_back_when_relation_object_is_empty() {
-    let candidate = explicit_memory_claim_candidate("I like !!!", "item:test".to_string());
+fn explicit_claim_candidate_falls_back_for_punctuation_only_relation_objects() {
+    for content in ["I like !!!", "I like ---", "I like …", "I like  - … !!!  "] {
+        let candidate = explicit_memory_claim_candidate(content, "item:test".to_string());
+        let normalized = content.split_whitespace().collect::<Vec<_>>().join(" ");
+        let expected_fact = if normalized.ends_with(['.', '!', '?']) {
+            normalized.clone()
+        } else {
+            format!("{normalized}.")
+        };
 
-    assert_eq!(candidate.predicate_id, "has_note");
-    assert_eq!(candidate.fact, "I like !!!");
-    assert_eq!(candidate.object.canonical_name, "I like !!!");
-    assert_eq!(candidate.retrieval_hints["keywords"], json!(["I like !!!"]));
+        assert_eq!(candidate.predicate_id, "has_note", "{content}");
+        assert_eq!(candidate.fact, expected_fact, "{content}");
+        assert_eq!(candidate.object.canonical_name, normalized, "{content}");
+        assert_eq!(
+            candidate.retrieval_hints["keywords"],
+            json!([normalized]),
+            "{content}"
+        );
+    }
 }
 
 #[test]
