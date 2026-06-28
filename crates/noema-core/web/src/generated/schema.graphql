@@ -115,9 +115,31 @@ type GraphqlAssistantText {
 }
 
 """
+Ephemeral assistant text delta event delivered by subscription.
+"""
+type GraphqlAssistantTextDeltaEvent {
+	"""
+	Durable Noema conversation id.
+	"""
+	conversationId: String!
+	"""
+	Durable conversation turn id.
+	"""
+	turnId: String!
+	"""
+	Runtime stream id.
+	"""
+	streamId: String!
+	"""
+	Assistant text delta.
+	"""
+	delta: String!
+}
+
+"""
 Conversation subscription event union.
 """
-union GraphqlConversationEvent = GraphqlSubscriptionReadyEvent | GraphqlConversationItemEvent | GraphqlAgentStatusEvent | GraphqlTurnCompletedEvent
+union GraphqlConversationEvent = GraphqlSubscriptionReadyEvent | GraphqlConversationItemEvent | GraphqlAssistantTextDeltaEvent | GraphqlAgentStatusEvent | GraphqlTurnCompletedEvent
 
 """
 One visible conversation item.
@@ -157,6 +179,10 @@ type GraphqlConversationItemEvent {
 	Durable conversation turn id.
 	"""
 	turnId: String
+	"""
+	Structured durable item metadata.
+	"""
+	metadata: JSON!
 	"""
 	Transcript item to render.
 	"""

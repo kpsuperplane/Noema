@@ -30,11 +30,20 @@ export function handleConversationEvent(
     setters.setAgentStatus(event.status);
     return;
   }
+  if (event.__typename === "GraphqlAssistantTextDeltaEvent") {
+    appendAssistantTextDelta(setters.setTranscript, {
+      conversationId: event.conversationId,
+      turnId: event.deltaTurnId,
+      streamId: event.streamId,
+      delta: event.delta
+    });
+    return;
+  }
   if (event.__typename !== "GraphqlConversationItemEvent") {
     return;
   }
 
-  const entry = entryFromConversationItem(event.itemId, event.turnId ?? undefined, event.item);
+  const entry = entryFromConversationItem(event.itemId, event.turnId ?? undefined, event.item, event.metadata);
   if (!entry) {
     return;
   }
@@ -70,12 +79,68 @@ function upsertTranscriptEntry(
   setTranscript: Dispatch<SetStateAction<TranscriptEntry[]>>,
   entry: TranscriptEntry
 ) {
+  setTranscript((current) => upsertTranscriptEntryValue(current, entry));
+}
+
+function upsertTranscriptEntryValue(current: TranscriptEntry[], entry: TranscriptEntry): TranscriptEntry[] {
+  const entryItemId = transcriptEntryItemId(entry);
+  const existingIndex = current.findIndex(
+    (candidate) => (entryItemId !== undefined && transcriptEntryItemId(candidate) === entryItemId) || candidate.id === entry.id
+  );
+  const streamIndex =
+    entry.type === "assistant" && entry.streamId
+      ? current.findIndex((candidate) => candidate.type === "assistant_stream" && candidate.streamId === entry.streamId)
+      : -1;
+
+  if (existingIndex !== -1) {
+    return current.flatMap((candidate, candidateIndex) => {
+      if (candidateIndex === existingIndex) {
+        return [entry];
+      }
+      if (streamIndex !== -1 && candidateIndex === streamIndex) {
+        return [];
+      }
+      return [candidate];
+    });
+  }
+
+  if (streamIndex !== -1) {
+    return current.map((candidate, candidateIndex) => (candidateIndex === streamIndex ? entry : candidate));
+  }
+
+  return [...current, entry];
+}
+
+function transcriptEntryItemId(entry: TranscriptEntry): string | undefined {
+  return "itemId" in entry ? entry.itemId : undefined;
+}
+
+function appendAssistantTextDelta(
+  setTranscript: Dispatch<SetStateAction<TranscriptEntry[]>>,
+  event: { turnId: string; streamId: string; delta: string; conversationId: string }
+) {
+  void event.conversationId;
   setTranscript((current) => {
-    const index = current.findIndex((candidate) => candidate.itemId === entry.itemId || candidate.id === entry.id);
+    const index = current.findIndex(
+      (candidate) => candidate.type === "assistant_stream" && candidate.streamId === event.streamId
+    );
     if (index === -1) {
-      return [...current, entry];
+      return [
+        ...current,
+        {
+          id: event.streamId,
+          turnId: event.turnId,
+          type: "assistant_stream",
+          streamId: event.streamId,
+          text: event.delta
+        }
+      ];
     }
-    return current.map((candidate, candidateIndex) => (candidateIndex === index ? entry : candidate));
+    return current.map((candidate, candidateIndex) =>
+      candidateIndex === index && candidate.type === "assistant_stream"
+        ? { ...candidate, text: `${candidate.text}${event.delta}` }
+        : candidate
+    );
   });
 }
 
@@ -86,7 +151,8 @@ function entryFromReplayItem(item: ReplayItem): TranscriptEntry | null {
 function entryFromConversationItem(
   itemId: string,
   turnId: string | undefined,
-  item: GraphqlTranscriptItem
+  item: GraphqlTranscriptItem,
+  metadata?: unknown
 ): TranscriptEntry | null {
   const transcriptItem = transcriptItemFromGraphql(item);
   if (!transcriptItem) {
@@ -96,7 +162,14 @@ function entryFromConversationItem(
     return { id: itemId, itemId, turnId, type: "user", text: transcriptItem.text };
   }
   if (transcriptItem.kind === "assistant_text") {
-    return { id: itemId, itemId, turnId, type: "assistant", text: transcriptItem.text };
+    return {
+      id: itemId,
+      itemId,
+      turnId,
+      type: "assistant",
+      streamId: streamIdFromMetadata(metadata),
+      text: transcriptItem.text
+    };
   }
   if (transcriptItem.kind === "activity") {
     return { id: itemId, itemId, turnId, type: "activity", item: transcriptItem };
@@ -115,6 +188,17 @@ function entryFromConversationItem(
     };
   }
   return null;
+}
+
+function streamIdFromMetadata(metadata: unknown): string | undefined {
+  if (!isRecord(metadata)) {
+    return undefined;
+  }
+  return typeof metadata.stream_id === "string" ? metadata.stream_id : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function transcriptItemFromGraphql(item: GraphqlTranscriptItem): TurnTranscriptItem | null {

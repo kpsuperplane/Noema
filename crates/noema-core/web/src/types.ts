@@ -20,7 +20,14 @@ export type TurnTranscriptItem =
 
 export type TranscriptEntry =
   | { id: string; itemId?: string; turnId?: string; type: "user"; text: string }
-  | { id: string; itemId?: string; turnId?: string; type: "assistant"; text: string }
+  | { id: string; itemId?: string; turnId?: string; type: "assistant"; streamId?: string; text: string }
+  | {
+      id: string;
+      turnId?: string;
+      type: "assistant_stream";
+      streamId: string;
+      text: string;
+    }
   | {
       id: string;
       itemId?: string;

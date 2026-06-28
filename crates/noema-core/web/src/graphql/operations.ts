@@ -119,6 +119,7 @@ export const ConversationEventsDocument = gql`
         clientMessageId
         itemId
         turnId
+        metadata
         item {
           __typename
           ... on GraphqlUserText {
@@ -145,6 +146,12 @@ export const ConversationEventsDocument = gql`
             recoverable
           }
         }
+      }
+      ... on GraphqlAssistantTextDeltaEvent {
+        conversationId
+        deltaTurnId: turnId
+        streamId
+        delta
       }
       ... on GraphqlAgentStatusEvent {
         conversationId

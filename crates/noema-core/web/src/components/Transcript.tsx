@@ -21,11 +21,12 @@ import {
   MessageScrollerContent,
   MessageScrollerItem,
   MessageScrollerProvider,
-  MessageScrollerViewport
+  MessageScrollerViewport,
+  useMessageScroller
 } from "@/components/ui/message-scroller";
 import { cn } from "@/lib/utils";
 import { BrainIcon, WrenchIcon } from "lucide-react";
-import type * as React from "react";
+import * as React from "react";
 import { readableKind, statusLabel } from "../format";
 import { memoryCardsFromStructuredItem, type MemoryCardData } from "../memoryCards";
 import type { TranscriptEntry, TurnTranscriptItem } from "../types";
@@ -70,11 +71,16 @@ export function Transcript({
   onToggleActivity: (id: string) => void;
 }) {
   const renderedEntries = renderableTranscriptEntries(entries, pending);
+  const followBottomRef = React.useRef(true);
+  const scrollKey = transcriptScrollKey(renderedEntries);
+  const handleViewportScroll = React.useCallback((event: React.UIEvent<HTMLDivElement>) => {
+    followBottomRef.current = isScrolledToBottom(event.currentTarget);
+  }, []);
 
   return (
     <MessageScrollerProvider autoScroll defaultScrollPosition="end" scrollPreviousItemPeek={56}>
       <MessageScroller className="min-h-0 overflow-hidden">
-        <MessageScrollerViewport aria-label="Conversation transcript">
+        <MessageScrollerViewport aria-label="Conversation transcript" onScroll={handleViewportScroll}>
           <MessageScrollerContent className="mx-auto flex min-h-full w-[var(--chat-column-width)] flex-col gap-3 px-0.5 py-6">
             {renderedEntries.map((entry, index) => {
               const lane =
@@ -105,6 +111,7 @@ export function Transcript({
         </MessageScrollerViewport>
         <MessageScrollerButton />
       </MessageScroller>
+      <TranscriptBottomFollower followBottomRef={followBottomRef} scrollKey={scrollKey} />
     </MessageScrollerProvider>
   );
 }
@@ -162,7 +169,9 @@ export function shouldShowTypingIndicator(entries: TranscriptEntry[], pending: b
     return false;
   }
 
-  return !entries.slice(lastUserIndex + 1).some((entry) => entry.type === "assistant");
+  return !entries
+    .slice(lastUserIndex + 1)
+    .some((entry) => entry.type === "assistant" || entry.type === "assistant_stream");
 }
 
 function groupTranscriptMarkers(entries: TranscriptEntry[]): RenderTranscriptEntry[] {
@@ -326,6 +335,69 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function transcriptScrollKey(entries: RenderTranscriptEntry[]): string {
+  return entries.map(renderedEntryScrollFingerprint).join("|");
+}
+
+function renderedEntryScrollFingerprint(entry: RenderTranscriptEntry): string {
+  if (entry.kind === "entry") {
+    return transcriptEntryScrollFingerprint(entry.entry);
+  }
+  if (entry.kind === "typing") {
+    return entry.id;
+  }
+  if (entry.kind === "memory_marker") {
+    return [
+      entry.id,
+      entry.extraction?.status ?? "",
+      entry.extraction?.summary ?? "",
+      entry.proposal?.id ?? ""
+    ].join(":");
+  }
+  return [
+    entry.id,
+    entry.marker.call?.item.status ?? "",
+    entry.marker.call?.item.summary ?? "",
+    entry.marker.result?.item.status ?? "",
+    entry.marker.result?.item.summary ?? ""
+  ].join(":");
+}
+
+function transcriptEntryScrollFingerprint(entry: TranscriptEntry): string {
+  if (entry.type === "user" || entry.type === "assistant" || entry.type === "assistant_stream") {
+    return `${entry.id}:${entry.text.length}`;
+  }
+  if (entry.type === "activity") {
+    return `${entry.id}:${entry.item.status}:${entry.item.summary ?? ""}`;
+  }
+  if (entry.type === "card") {
+    return `${entry.id}:${entry.item.schema}`;
+  }
+  return `${entry.id}:${entry.message.length}`;
+}
+
+function isScrolledToBottom(element: HTMLElement) {
+  return element.scrollHeight - element.scrollTop - element.clientHeight <= 8;
+}
+
+function TranscriptBottomFollower({
+  followBottomRef,
+  scrollKey
+}: {
+  followBottomRef: React.MutableRefObject<boolean>;
+  scrollKey: string;
+}) {
+  const { scrollToEnd } = useMessageScroller();
+
+  React.useLayoutEffect(() => {
+    if (followBottomRef.current) {
+      scrollToEnd({ behavior: "auto" });
+    }
+  }, [followBottomRef, scrollKey, scrollToEnd]);
+
+  return null;
+}
+
 function renderTranscriptRenderEntry(
   entry: RenderTranscriptEntry,
   expandedActivities: Set<string>,
@@ -372,6 +444,9 @@ function renderTranscriptEntry(
     return <Message role="user" text={entry.text} showAvatar={showAvatar} />;
   }
   if (entry.type === "assistant") {
+    return <Message role="assistant" text={entry.text} showAvatar={showAvatar} />;
+  }
+  if (entry.type === "assistant_stream") {
     return <Message role="assistant" text={entry.text} showAvatar={showAvatar} />;
   }
   if (entry.type === "activity") {
@@ -536,7 +611,7 @@ function StructuredCard({
   }
 
   return (
-    <Attachment className="w-full max-w-full">
+    <Attachment className="max-w-full">
       <AttachmentContent>
         <AttachmentTitle>{item.schema}</AttachmentTitle>
         <AttachmentDescription>Structured card placeholder</AttachmentDescription>
@@ -622,7 +697,7 @@ function ToolDetailAttachment({ id, marker }: { id: string; marker: ToolMarkerGr
   const description = result?.summary ?? call?.summary ?? statusLabel(result?.status ?? call?.status ?? "COMPLETED");
 
   return (
-    <Attachment id={id} state={failed ? "error" : "done"} className="w-full max-w-full">
+    <Attachment id={id} state={failed ? "error" : "done"} className="max-w-full">
       <AttachmentMedia className={failed ? "text-[var(--red-700)]" : "text-[var(--blue-700)]"}>
         <WrenchIcon />
       </AttachmentMedia>
@@ -658,7 +733,7 @@ function MemoryStructuredCard({ schema, memories }: { schema: string; memories: 
   const source = schema === "memory_proposals" ? "Same-call proposal" : "Explicit request";
 
   return (
-    <Attachment className="w-full max-w-full">
+    <Attachment className="max-w-full">
       <AttachmentMedia className="text-[var(--pine-700)]">
         <BrainIcon />
       </AttachmentMedia>
@@ -686,7 +761,7 @@ function MemoryDetailAttachment({
   const description = extraction?.summary ?? (status ? `Memory extraction ${status.toLowerCase()}` : "Memory proposal");
 
   return (
-    <Attachment id={id} state={failed ? "error" : "done"} className="w-full max-w-full">
+    <Attachment id={id} state={failed ? "error" : "done"} className="max-w-full">
       <AttachmentMedia className="text-[var(--pine-700)]">
         <BrainIcon />
       </AttachmentMedia>
