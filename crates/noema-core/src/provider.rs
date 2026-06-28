@@ -516,6 +516,21 @@ mod tests {
     }
 
     #[test]
+    fn required_noema_response_accepts_tool_calls_with_memory_proposals() {
+        let output = required_output_items_from_text(
+            r#"{"type":"noema_response","output":[{"kind":"assistant_text","text":"I will check memory."},{"kind":"tool_call","id":"call_1","name":"search_memory","payload":{"query":"trains"}},{"kind":"memory_proposals","proposals":[]}]}"#
+                .to_string(),
+        )
+        .expect("required structured output");
+
+        assert!(matches!(
+            &output[1],
+            GenerateOutputItem::ToolCall { id: Some(id), name, .. }
+                if id == "call_1" && name == "search_memory"
+        ));
+    }
+
+    #[test]
     fn required_noema_response_rejects_plain_text() {
         let error = required_output_items_from_text("Hello".to_string()).unwrap_err();
 

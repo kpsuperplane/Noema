@@ -1434,6 +1434,12 @@ Return exactly this top-level shape:
   ]
 }}
 
+You may emit a search_memory tool call when memory would help answer the user's current message.
+Use this output item shape:
+{{"kind":"tool_call","id":"call_memory_1","name":"search_memory","payload":{{"query":"short search query","purpose":"answer_human_question","limit":8}}}}
+Only Noema supplies trusted memory policy fields. Do not invent memory results.
+After Noema sends a NOEMA_LOCAL_TOOL_RESULT message, answer using only the returned memories.
+
 Memory proposal shape:
 {{
   "content": "durable memory content",
