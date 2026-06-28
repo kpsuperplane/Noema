@@ -17,7 +17,7 @@ const attachmentVariants = cva(
         xs: "gap-1.5 rounded-xl text-xs has-data-[slot=attachment-content]:px-1.5 has-data-[slot=attachment-content]:py-1 has-data-[slot=attachment-media]:p-1",
       },
       orientation: {
-        horizontal: "min-w-40 items-center",
+        horizontal: "min-w-40 items-start",
         vertical: "w-24 flex-col has-data-[slot=attachment-content]:w-30",
       },
     },
