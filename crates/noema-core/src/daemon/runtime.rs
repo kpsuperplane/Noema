@@ -1208,6 +1208,24 @@ impl CodexRuntimeActor {
         };
 
         let card_proposals = proposals.clone();
+        let proposed_summary = match proposals.len() {
+            0 => "creating no memory candidates".to_string(),
+            1 => "creating 1 memory candidate".to_string(),
+            count => format!("creating {count} memory candidates"),
+        };
+        let proposed_activity = memory_activity(
+            &activity_id,
+            TurnActivityStatus::Started,
+            "Memory proposed",
+            Some(&proposed_summary),
+            json!({
+                "turn_index": turn_index,
+                "proposal_count": proposals.len(),
+            }),
+        );
+        send_transient_turn_item(context, proposed_activity, item_tx);
+        tokio::task::yield_now().await;
+
         let created_memory_ids = match persist_validated_memory_proposals(
             &self.memory_repository,
             context,
@@ -1450,6 +1468,35 @@ fn send_conversation_item(
         item_id: record.item_id,
         turn_id: record.turn_id,
         metadata,
+        item: Box::new(item),
+    });
+}
+
+fn send_transient_turn_item(
+    context: &ConversationMemoryContext,
+    item: TurnTranscriptItem,
+    item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
+) {
+    let runtime_item_id = match &item {
+        TurnTranscriptItem::Activity { id, .. } | TurnTranscriptItem::A2uiCard { id, .. } => {
+            id.clone()
+        }
+        TurnTranscriptItem::UserText { .. }
+        | TurnTranscriptItem::AssistantText { .. }
+        | TurnTranscriptItem::ErrorNotice { .. } => format!(
+            "transient:{}:{}",
+            context.conversation_id, context.turn_index
+        ),
+    };
+    let _ = item_tx.send(TurnStreamEvent::ConversationItem {
+        conversation_id: context.conversation_id.clone(),
+        item_id: format!("transient:{runtime_item_id}"),
+        turn_id: Some(context.turn_id.clone()),
+        metadata: json!({
+            "turn_index": context.turn_index,
+            "runtime_item_id": runtime_item_id,
+            "transient": true,
+        }),
         item: Box::new(item),
     });
 }

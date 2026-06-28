@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
+import * as React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import {
+  Transcript,
   memoryDetailItems,
   renderedTranscriptLane,
   shouldAnchorTranscriptEntry,
@@ -48,6 +51,56 @@ describe("renderedTranscriptLane", () => {
   });
 });
 
+describe("Transcript memory markers", () => {
+  test("labels started memory extraction as proposed before it is updated", () => {
+    const markup = renderToStaticMarkup(
+      React.createElement(Transcript, {
+        entries: [
+          {
+            id: "activity-1",
+            type: "activity",
+            itemId: "item-1",
+            turnId: "turn-1",
+            item: {
+              kind: "activity",
+              id: "memory_extraction:conversation_1:1",
+              activity_kind: "memory_extraction",
+              status: "STARTED",
+              title: "Memory proposed",
+              summary: "creating 1 memory candidate",
+              metadata: { turn_index: 1, proposal_count: 1 }
+            }
+          }
+        ],
+        pending: false,
+        expandedActivities: new Set<string>(),
+        onToggleActivity: () => {}
+      })
+    );
+
+    assert.match(markup, /Memory proposed/);
+    assert.doesNotMatch(markup, /Memory updated/);
+  });
+
+  test("collapses replayed proposed and updated memory rows into one updated marker", () => {
+    const markup = renderToStaticMarkup(
+      React.createElement(Transcript, {
+        entries: [
+          memoryExtractionEntry("activity-start", "item-start", "STARTED", "Memory proposed"),
+          memoryProposalCardEntry("card-1", "item-card"),
+          memoryExtractionEntry("activity-done", "item-done", "COMPLETED", "Memory extraction completed")
+        ],
+        pending: false,
+        expandedActivities: new Set<string>(),
+        onToggleActivity: () => {}
+      })
+    );
+
+    assert.doesNotMatch(markup, /Memory proposed/);
+    assert.equal(memoryUpdatedCount(markup), 1);
+  });
+});
+
 describe("shouldShowTypingIndicator", () => {
   test("shows while a user turn is pending and no assistant answer has arrived", () => {
     const entries: TranscriptEntry[] = [{ id: "user-1", type: "user", text: "Hello" }];
@@ -90,6 +143,63 @@ describe("shouldShowTypingIndicator", () => {
     assert.equal(shouldShowTypingIndicator(entries, false), false);
   });
 });
+
+function memoryExtractionEntry(
+  id: string,
+  itemId: string,
+  status: "STARTED" | "COMPLETED",
+  title: string
+): TranscriptEntry {
+  return {
+    id,
+    type: "activity",
+    itemId,
+    turnId: "turn-1",
+    item: {
+      kind: "activity",
+      id: "memory_extraction:conversation_1:1",
+      activity_kind: "memory_extraction",
+      status,
+      title,
+      summary: status === "STARTED" ? "creating 1 memory candidate" : "created 1 memory candidate",
+      metadata: { turn_index: 1, proposal_count: 1 }
+    }
+  };
+}
+
+function memoryProposalCardEntry(id: string, itemId: string): TranscriptEntry {
+  return {
+    id,
+    type: "card",
+    itemId,
+    turnId: "turn-1",
+    item: {
+      kind: "a2ui_card",
+      id: "memory_proposals:conversation_1:1",
+      schema: "memory_proposals",
+      payload: {
+        turn_index: 1,
+        source: "provider_structured_output",
+        created_memory_ids: ["memory_1"],
+        proposals: [
+          {
+            status: "active",
+            proposal: {
+              content: "Kevin prefers same-call memory proposals.",
+              title: "Same-call memory proposal preference",
+              memory_type: "preference",
+              sensitivity: "low"
+            }
+          }
+        ]
+      }
+    }
+  };
+}
+
+function memoryUpdatedCount(markup: string): number {
+  return markup.match(/Memory updated/g)?.length ?? 0;
+}
 
 describe("shouldAnchorTranscriptEntry", () => {
   test("does not use live message anchors for user messages", () => {

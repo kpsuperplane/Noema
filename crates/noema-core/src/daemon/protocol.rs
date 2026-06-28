@@ -75,7 +75,7 @@ pub enum DaemonResponse {
         #[serde(default)]
         metadata: serde_json::Value,
         /// Transcript item to render in chat.
-        item: TurnTranscriptItem,
+        item: Box<TurnTranscriptItem>,
     },
     /// Ephemeral assistant text delta from an in-progress turn.
     AssistantTextDelta {
@@ -384,7 +384,7 @@ impl TurnStreamEvent {
                 item_id,
                 turn_id,
                 metadata,
-                item: *item,
+                item,
             },
             Self::AssistantTextDelta {
                 conversation_id,

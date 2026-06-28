@@ -84,8 +84,12 @@ function upsertTranscriptEntry(
 
 function upsertTranscriptEntryValue(current: TranscriptEntry[], entry: TranscriptEntry): TranscriptEntry[] {
   const entryItemId = transcriptEntryItemId(entry);
+  const entryRuntimeId = transcriptEntryRuntimeId(entry);
   const existingIndex = current.findIndex(
-    (candidate) => (entryItemId !== undefined && transcriptEntryItemId(candidate) === entryItemId) || candidate.id === entry.id
+    (candidate) =>
+      (entryItemId !== undefined && transcriptEntryItemId(candidate) === entryItemId) ||
+      (entryRuntimeId !== undefined && transcriptEntryRuntimeId(candidate) === entryRuntimeId) ||
+      candidate.id === entry.id
   );
   const streamIndex =
     entry.type === "assistant" && entry.streamId
@@ -113,6 +117,13 @@ function upsertTranscriptEntryValue(current: TranscriptEntry[], entry: Transcrip
 
 function transcriptEntryItemId(entry: TranscriptEntry): string | undefined {
   return "itemId" in entry ? entry.itemId : undefined;
+}
+
+function transcriptEntryRuntimeId(entry: TranscriptEntry): string | undefined {
+  if (entry.type === "activity") {
+    return entry.item.id;
+  }
+  return undefined;
 }
 
 function appendAssistantTextDelta(

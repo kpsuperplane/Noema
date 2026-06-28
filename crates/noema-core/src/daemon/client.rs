@@ -174,8 +174,8 @@ impl DaemonClient {
                     metadata: _,
                     item,
                 } if item_conversation_id == conversation_id => {
-                    if !matches!(item, TurnTranscriptItem::UserText { .. }) {
-                        on_item(item);
+                    if !matches!(item.as_ref(), TurnTranscriptItem::UserText { .. }) {
+                        on_item(*item);
                     }
                 }
                 DaemonResponse::AssistantTextDelta {

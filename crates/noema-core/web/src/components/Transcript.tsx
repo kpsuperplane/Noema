@@ -189,6 +189,31 @@ function groupTranscriptMarkers(entries: TranscriptEntry[]): RenderTranscriptEnt
   for (let index = 0; index < entries.length; index += 1) {
     const entry = entries[index];
     const nextEntry = entries[index + 1];
+    const followingEntry = entries[index + 2];
+
+    if (
+      entry.type === "activity" &&
+      entry.item.activity_kind === "memory_extraction" &&
+      entry.item.status === "STARTED" &&
+      nextEntry &&
+      nextEntry.type === "card" &&
+      nextEntry.item.schema === "memory_proposals" &&
+      followingEntry &&
+      followingEntry.type === "activity" &&
+      followingEntry.item.activity_kind === "memory_extraction" &&
+      followingEntry.item.id === entry.item.id &&
+      sameTurn(entry, nextEntry) &&
+      sameTurn(entry, followingEntry)
+    ) {
+      rendered.push({
+        kind: "memory_marker",
+        id: `${entry.id}:${nextEntry.id}:${followingEntry.id}`,
+        extraction: followingEntry.item,
+        proposal: nextEntry.item
+      });
+      index += 2;
+      continue;
+    }
 
     if (
       entry.type === "activity" &&
@@ -668,6 +693,9 @@ function MemoryMarker({
 }) {
   const memories = proposal ? memoryCardsFromStructuredItem(proposal) ?? [] : [];
   const failed = extraction?.status === "FAILED";
+  const started = extraction?.status === "STARTED";
+  const label = failed ? "Memory update failed" : started ? "Memory proposed" : "Memory updated";
+  const tone = failed ? "error" : started ? "default" : "success";
 
   return (
     <div className="grid w-full max-w-full gap-2">
@@ -676,13 +704,13 @@ function MemoryMarker({
         aria-expanded={open}
         aria-controls={`${id}-details`}
         onClick={onToggle}
-        tone={failed ? "error" : "success"}
+        tone={tone}
         className="w-fit rounded-lg px-2 py-1 transition-colors hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:outline-none"
       >
         <MarkerIcon>
           <BrainIcon />
         </MarkerIcon>
-        <MarkerContent>{failed ? "Memory update failed" : "Memory updated"}</MarkerContent>
+        <MarkerContent>{label}</MarkerContent>
       </Marker>
       {open ? (
         <MemoryDetailAttachment id={`${id}-details`} extraction={extraction} memories={memories} failed={failed} />

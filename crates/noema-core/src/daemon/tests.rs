@@ -48,14 +48,14 @@ fn protocol_round_trips_requests_and_responses() {
         item_id: "item_1".to_string(),
         turn_id: Some("turn_1".to_string()),
         metadata: json!({ "stream_id": "assistant_stream:turn_1:initial" }),
-        item: TurnTranscriptItem::Activity {
+        item: Box::new(TurnTranscriptItem::Activity {
             id: "memory_extraction:conversation_1:1".to_string(),
             activity_kind: "memory_extraction".to_string(),
             status: TurnActivityStatus::Started,
             title: "Extracting memory proposals".to_string(),
             summary: Some("ordinary chat memory extraction is running".to_string()),
             metadata: json!({ "turn_index": 1 }),
-        },
+        }),
     };
     let encoded = serde_json::to_string(&response).expect("encode");
     assert!(encoded.contains(r#""type":"conversation_item""#));
@@ -655,14 +655,40 @@ async fn runtime_actor_persists_provider_structured_memory_proposals_as_activity
         .await
         .expect("conversation");
     let conversation_id = conversation.conversation_id.clone();
-    let items = collect_turn(
+    let (result, events) = collect_turn_events(
         &handle,
         conversation_id.clone(),
         "I prefer same-call memory proposals.".to_string(),
     )
-    .await
-    .expect("turn");
+    .await;
+    result.expect("turn");
+    let items = transcript_items_from_events(events.clone());
     assert_eq!(assistant_text(&items), "fake answer");
+    let proposed_index =
+        memory_extraction_event_index(&events, TurnActivityStatus::Started, "Memory proposed")
+            .expect("started memory proposal activity");
+    let card_index = memory_proposals_card_event_index(&events).expect("memory proposal card");
+    let completed_index = memory_extraction_event_index(
+        &events,
+        TurnActivityStatus::Completed,
+        "Memory extraction completed",
+    )
+    .expect("completed memory proposal activity");
+    assert!(
+        proposed_index < card_index,
+        "proposal marker should stream before proposal card: {events:?}"
+    );
+    let proposed_item_id =
+        memory_extraction_event_item_id(&events, TurnActivityStatus::Started, "Memory proposed")
+            .expect("started memory proposal item id");
+    assert!(
+        proposed_item_id.starts_with("transient:"),
+        "started memory proposal marker should be live-only, got {proposed_item_id}"
+    );
+    assert!(
+        card_index < completed_index,
+        "completed marker should stream after proposal card: {events:?}"
+    );
     assert!(items.iter().any(|item| {
         matches!(
             item,
@@ -717,6 +743,14 @@ async fn runtime_actor_persists_provider_structured_memory_proposals_as_activity
             && item.status == ConversationItemStatus::Completed
             && item.payload_json["activity_kind"] == "memory_extraction"
     }));
+    assert!(
+        !replay.iter().any(|item| {
+            item.kind == ConversationItemKind::Activity
+                && item.status == ConversationItemStatus::Running
+                && item.payload_json["activity_kind"] == "memory_extraction"
+        }),
+        "transient memory proposal marker should not be replayed"
+    );
     assert!(replay.iter().any(|item| {
         item.kind == ConversationItemKind::A2uiCard
             && item.status == ConversationItemStatus::Completed
@@ -1323,6 +1357,70 @@ fn transcript_items_from_events(events: Vec<TurnStreamEvent>) -> Vec<TurnTranscr
             | TurnStreamEvent::AgentStatusChanged { .. } => None,
         })
         .collect()
+}
+
+fn memory_extraction_event_index(
+    events: &[TurnStreamEvent],
+    expected_status: TurnActivityStatus,
+    expected_title: &str,
+) -> Option<usize> {
+    events.iter().position(|event| {
+        matches!(
+            event,
+            TurnStreamEvent::ConversationItem { item, .. }
+                if matches!(
+                    item.as_ref(),
+                    TurnTranscriptItem::Activity {
+                        activity_kind,
+                        status,
+                        title,
+                        ..
+                    } if activity_kind == "memory_extraction"
+                        && *status == expected_status
+                        && title == expected_title
+                )
+        )
+    })
+}
+
+fn memory_extraction_event_item_id(
+    events: &[TurnStreamEvent],
+    expected_status: TurnActivityStatus,
+    expected_title: &str,
+) -> Option<String> {
+    events.iter().find_map(|event| match event {
+        TurnStreamEvent::ConversationItem { item_id, item, .. }
+            if matches!(
+                item.as_ref(),
+                TurnTranscriptItem::Activity {
+                    activity_kind,
+                    status,
+                    title,
+                    ..
+                } if activity_kind == "memory_extraction"
+                    && *status == expected_status
+                    && title == expected_title
+            ) =>
+        {
+            Some(item_id.clone())
+        }
+        TurnStreamEvent::ConversationItem { .. }
+        | TurnStreamEvent::AssistantTextDelta { .. }
+        | TurnStreamEvent::AgentStatusChanged { .. } => None,
+    })
+}
+
+fn memory_proposals_card_event_index(events: &[TurnStreamEvent]) -> Option<usize> {
+    events.iter().position(|event| {
+        matches!(
+            event,
+            TurnStreamEvent::ConversationItem { item, .. }
+                if matches!(
+                    item.as_ref(),
+                    TurnTranscriptItem::A2uiCard { schema, .. } if schema == "memory_proposals"
+                )
+        )
+    })
 }
 
 fn assistant_text(items: &[TurnTranscriptItem]) -> &str {
