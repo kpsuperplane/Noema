@@ -1,12 +1,12 @@
-use crate::memory::MemoryStatus;
+use crate::memory::{MemoryStatus, Sensitivity};
 use serde_json::{Value, json};
 
 use super::{
     ActorRef, MemoryPersistenceError, MemorySummary, NewMemoryCandidate, NewMemorySubject,
     ObjectRef, ObjectType, PostgresMemoryRepository,
     helpers::{
-        memory_status_to_db, participant_role_to_db, sensitivity_to_db, subject_role_to_db,
-        title_from_content,
+        memory_status_to_db, parse_memory_status, parse_sensitivity, participant_role_to_db,
+        sensitivity_to_db, subject_role_to_db, title_from_content,
     },
     memory_candidate_dedupe_fingerprint,
     objects::{validate_actor_ref_for_pool, validate_object_ref_for_pool},
@@ -316,12 +316,18 @@ impl PostgresMemoryRepository {
             .await
             .map_err(MemoryPersistenceError::Database)?;
 
+        let Some(locked_target) = locked_memory_reinforcement_target_tx(&mut tx, memory_id).await?
+        else {
+            return Err(MemoryPersistenceError::MemoryNotFound {
+                memory_id: memory_id.to_string(),
+            });
+        };
+        validate_memory_reinforcement_target(&locked_target, candidate)?;
         let Some(existing) = existing_memory_summary_by_id_tx(&mut tx, memory_id).await? else {
             return Err(MemoryPersistenceError::MemoryNotFound {
                 memory_id: memory_id.to_string(),
             });
         };
-        validate_memory_reinforcement_target_tx(&mut tx, &existing, candidate).await?;
 
         if let Some(source) = &candidate.source {
             let target = ObjectRef::new(ObjectType::MemoryItem, memory_id.to_string())?;
@@ -657,40 +663,105 @@ async fn existing_memory_summary_by_id_tx(
     .transpose()
 }
 
-async fn validate_memory_reinforcement_target_tx(
-    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    existing: &MemorySummary,
-    candidate: &NewMemoryCandidate,
-) -> Result<(), MemoryPersistenceError> {
-    if existing.owner_object_type != candidate.owner.object_type.as_str()
-        || existing.owner_object_id != candidate.owner.object_id.as_str()
-        || existing.memory_type != candidate.memory_type
-        || !is_reinforceable_memory_status(existing.status)
-    {
-        return Err(MemoryPersistenceError::IncompatibleMemoryReinforcement {
-            memory_id: existing.id.clone(),
-        });
-    }
+struct LockedMemoryReinforcementTarget {
+    memory_id: String,
+    status: MemoryStatus,
+    memory_type: String,
+    owner_object_type: String,
+    owner_object_id: String,
+    sensitivity: Sensitivity,
+    deleted_at: Option<String>,
+    redacted_at: Option<String>,
+}
 
-    let deleted_or_redacted = sqlx::query_as::<_, (Option<String>, Option<String>)>(
+async fn locked_memory_reinforcement_target_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    memory_id: &str,
+) -> Result<Option<LockedMemoryReinforcementTarget>, MemoryPersistenceError> {
+    let row = sqlx::query_as::<
+        _,
+        (
+            String,
+            String,
+            String,
+            String,
+            String,
+            String,
+            Option<String>,
+            Option<String>,
+        ),
+    >(
         r"
-        SELECT deleted_at::text, redacted_at::text
+        SELECT
+          memory_id,
+          status,
+          memory_type,
+          owner_object_type,
+          owner_object_id,
+          sensitivity,
+          deleted_at::text,
+          redacted_at::text
         FROM memory_items
         WHERE memory_id = $1
+        FOR UPDATE
         ",
     )
-    .bind(existing.id.as_str())
-    .fetch_one(&mut **tx)
+    .bind(memory_id)
+    .fetch_optional(&mut **tx)
     .await
     .map_err(MemoryPersistenceError::Database)?;
 
-    if deleted_or_redacted.0.is_some() || deleted_or_redacted.1.is_some() {
+    row.map(
+        |(
+            memory_id,
+            status,
+            memory_type,
+            owner_object_type,
+            owner_object_id,
+            sensitivity,
+            deleted_at,
+            redacted_at,
+        )| {
+            Ok(LockedMemoryReinforcementTarget {
+                memory_id,
+                status: parse_memory_status(&status)?,
+                memory_type,
+                owner_object_type,
+                owner_object_id,
+                sensitivity: parse_sensitivity(&sensitivity)?,
+                deleted_at,
+                redacted_at,
+            })
+        },
+    )
+    .transpose()
+}
+
+fn validate_memory_reinforcement_target(
+    target: &LockedMemoryReinforcementTarget,
+    candidate: &NewMemoryCandidate,
+) -> Result<(), MemoryPersistenceError> {
+    if target.owner_object_type != candidate.owner.object_type.as_str()
+        || target.owner_object_id != candidate.owner.object_id.as_str()
+        || target.memory_type != candidate.memory_type.as_str()
+        || !is_reinforceable_memory_status(target.status)
+        || target.deleted_at.is_some()
+        || target.redacted_at.is_some()
+        || !candidate_sensitivity_can_reinforce_target(candidate.sensitivity, target.sensitivity)
+    {
         return Err(MemoryPersistenceError::IncompatibleMemoryReinforcement {
-            memory_id: existing.id.clone(),
+            memory_id: target.memory_id.clone(),
         });
     }
 
     Ok(())
+}
+
+fn candidate_sensitivity_can_reinforce_target(
+    candidate_sensitivity: Sensitivity,
+    target_sensitivity: Sensitivity,
+) -> bool {
+    candidate_sensitivity <= target_sensitivity
 }
 
 fn is_reinforceable_memory_status(status: MemoryStatus) -> bool {
@@ -899,4 +970,31 @@ async fn postgres_conversation_id_for_summary(
     .fetch_optional(&mut **tx)
     .await
     .map_err(MemoryPersistenceError::Database)
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::memory::Sensitivity;
+
+    use super::candidate_sensitivity_can_reinforce_target;
+
+    #[test]
+    fn candidate_sensitivity_must_not_exceed_target_sensitivity() {
+        assert!(candidate_sensitivity_can_reinforce_target(
+            Sensitivity::Public,
+            Sensitivity::Public
+        ));
+        assert!(candidate_sensitivity_can_reinforce_target(
+            Sensitivity::Private,
+            Sensitivity::Secret
+        ));
+        assert!(!candidate_sensitivity_can_reinforce_target(
+            Sensitivity::Private,
+            Sensitivity::Public
+        ));
+        assert!(!candidate_sensitivity_can_reinforce_target(
+            Sensitivity::Secret,
+            Sensitivity::Normal
+        ));
+    }
 }
