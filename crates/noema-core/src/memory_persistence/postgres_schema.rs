@@ -475,11 +475,12 @@ CREATE INDEX IF NOT EXISTS idx_memory_items_created_at ON memory_items(created_a
 CREATE INDEX IF NOT EXISTS idx_memory_items_status ON memory_items(status, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_memory_items_policy_status ON memory_items(retrieval_policy_status, sensitivity);
 CREATE INDEX IF NOT EXISTS idx_memory_items_search_vector ON memory_items USING GIN (search_vector);
+DROP INDEX IF EXISTS idx_memory_items_live_dedupe_fingerprint;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_items_live_dedupe_fingerprint
   ON memory_items(memory_dedupe_fingerprint)
   WHERE memory_dedupe_fingerprint IS NOT NULL
     AND deleted_at IS NULL
-    AND status != 'deleted';
+    AND status IN ('candidate', 'active', 'confirmed', 'inferred');
 CREATE INDEX IF NOT EXISTS idx_entities_owner_type ON entities(owner_object_type, owner_object_id, entity_type);
 CREATE INDEX IF NOT EXISTS idx_entities_canonical_name ON entities(entity_type, canonical_name);
 CREATE INDEX IF NOT EXISTS idx_memory_subjects_entity_role ON memory_subjects(entity_id, role, memory_id);

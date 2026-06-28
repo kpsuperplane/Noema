@@ -69,7 +69,7 @@ LEFT JOIN conversations c
   ON ci.conversation_id = c.conversation_id
 WHERE mi.memory_dedupe_fingerprint = $1
   AND mi.deleted_at IS NULL
-  AND mi.status IN ('candidate', 'active', 'confirmed')
+  AND mi.status IN ('candidate', 'active', 'confirmed', 'inferred')
 ORDER BY mi.created_at ASC, mi.memory_id ASC
 LIMIT 1
 ";

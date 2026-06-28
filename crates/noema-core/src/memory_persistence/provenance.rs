@@ -62,57 +62,13 @@ impl PostgresMemoryRepository {
             .await
             .map_err(MemoryPersistenceError::Database)?;
 
-        if let Some(existing) =
-            existing_memory_summary_for_dedupe_fingerprint_tx(&mut tx, &dedupe_fingerprint).await?
+        if let Some(existing) = reuse_memory_candidate_for_dedupe_fingerprint_tx(
+            &mut tx,
+            &candidate,
+            &dedupe_fingerprint,
+        )
+        .await?
         {
-            if let Some(source) = &candidate.source {
-                insert_postgres_object_provenance_edge_tx(
-                    &mut tx,
-                    &NewObjectProvenanceEdge {
-                        target: ObjectRef::new(ObjectType::MemoryItem, existing.id.as_str())?,
-                        source: source.source.clone(),
-                        relation: "supports".to_string(),
-                        evidence_excerpt: source.evidence_excerpt.clone(),
-                        created_by: candidate.created_by.clone(),
-                        metadata: json!({
-                            "reason": "exact_dedupe_fingerprint",
-                            "dedupe_fingerprint": dedupe_fingerprint,
-                        }),
-                    },
-                )
-                .await?;
-            }
-
-            let event_id = allocate_postgres_id(&mut *tx, "evt").await?;
-            sqlx::query(
-                r"
-                INSERT INTO object_events (
-                  event_id,
-                  event_type,
-                  actor_id,
-                  target_object_type,
-                  target_object_id,
-                  reason,
-                  details
-                )
-                VALUES ($1, 'memory_reused', $2, 'memory_item', $3, $4, $5)
-                ",
-            )
-            .bind(event_id.as_str())
-            .bind(candidate.created_by.actor_id.as_str())
-            .bind(existing.id.as_str())
-            .bind("exact_dedupe_fingerprint")
-            .bind(json_value(json!({
-                "dedupe_fingerprint": dedupe_fingerprint,
-                "source": candidate.source.as_ref().map(|source| json!({
-                    "object_type": source.source.object_type.as_str(),
-                    "object_id": source.source.object_id.as_str(),
-                })),
-            })))
-            .execute(&mut *tx)
-            .await
-            .map_err(MemoryPersistenceError::Database)?;
-
             tx.commit()
                 .await
                 .map_err(MemoryPersistenceError::Database)?;
@@ -126,7 +82,7 @@ impl PostgresMemoryRepository {
             .clone()
             .unwrap_or_else(|| title_from_content(&candidate.content));
 
-        let created_at = sqlx::query_scalar::<_, String>(
+        let created_at_result = sqlx::query_scalar::<_, String>(
             r"
             INSERT INTO memory_items (
               memory_id,
@@ -170,8 +126,26 @@ impl PostgresMemoryRepository {
         .bind(candidate.observed_at.as_deref())
         .bind(json_value(candidate.metadata.clone()))
         .fetch_one(&mut *tx)
-        .await
-        .map_err(MemoryPersistenceError::Database)?;
+        .await;
+        let created_at = match created_at_result {
+            Ok(created_at) => created_at,
+            Err(error) if is_memory_dedupe_unique_violation(&error) => {
+                tx.rollback()
+                    .await
+                    .map_err(MemoryPersistenceError::Database)?;
+                if let Some(existing) = self
+                    .reuse_memory_candidate_after_dedupe_conflict(
+                        &candidate,
+                        dedupe_fingerprint.as_str(),
+                    )
+                    .await?
+                {
+                    return Ok(existing);
+                }
+                return Err(MemoryPersistenceError::Database(error));
+            }
+            Err(error) => return Err(MemoryPersistenceError::Database(error)),
+        };
 
         for participant in &candidate.participants {
             sqlx::query(
@@ -296,6 +270,28 @@ impl PostgresMemoryRepository {
             .await
             .map_err(MemoryPersistenceError::Database)?;
         Ok(summary)
+    }
+
+    async fn reuse_memory_candidate_after_dedupe_conflict(
+        &self,
+        candidate: &NewMemoryCandidate,
+        dedupe_fingerprint: &str,
+    ) -> Result<Option<MemorySummary>, MemoryPersistenceError> {
+        let mut tx = self
+            .pool()
+            .begin()
+            .await
+            .map_err(MemoryPersistenceError::Database)?;
+        let existing = reuse_memory_candidate_for_dedupe_fingerprint_tx(
+            &mut tx,
+            candidate,
+            dedupe_fingerprint,
+        )
+        .await?;
+        tx.commit()
+            .await
+            .map_err(MemoryPersistenceError::Database)?;
+        Ok(existing)
     }
 
     /// Add a typed provenance edge between two concrete objects.
@@ -459,6 +455,82 @@ async fn validate_postgres_memory_candidate_refs(
         }
     }
     Ok(())
+}
+
+async fn reuse_memory_candidate_for_dedupe_fingerprint_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    candidate: &NewMemoryCandidate,
+    dedupe_fingerprint: &str,
+) -> Result<Option<MemorySummary>, MemoryPersistenceError> {
+    let Some(existing) =
+        existing_memory_summary_for_dedupe_fingerprint_tx(tx, dedupe_fingerprint).await?
+    else {
+        return Ok(None);
+    };
+
+    if let Some(source) = &candidate.source {
+        insert_postgres_object_provenance_edge_tx(
+            tx,
+            &NewObjectProvenanceEdge {
+                target: ObjectRef::new(ObjectType::MemoryItem, existing.id.as_str())?,
+                source: source.source.clone(),
+                relation: "supports".to_string(),
+                evidence_excerpt: source.evidence_excerpt.clone(),
+                created_by: candidate.created_by.clone(),
+                metadata: json!({
+                    "reason": "exact_dedupe_fingerprint",
+                    "dedupe_fingerprint": dedupe_fingerprint,
+                }),
+            },
+        )
+        .await?;
+    }
+
+    let event_id = allocate_postgres_id(&mut **tx, "evt").await?;
+    sqlx::query(
+        r"
+        INSERT INTO object_events (
+          event_id,
+          event_type,
+          actor_id,
+          target_object_type,
+          target_object_id,
+          reason,
+          details
+        )
+        VALUES ($1, 'memory_reused', $2, 'memory_item', $3, $4, $5)
+        ",
+    )
+    .bind(event_id.as_str())
+    .bind(candidate.created_by.actor_id.as_str())
+    .bind(existing.id.as_str())
+    .bind("exact_dedupe_fingerprint")
+    .bind(json_value(json!({
+        "dedupe_fingerprint": dedupe_fingerprint,
+        "source": candidate.source.as_ref().map(|source| json!({
+            "object_type": source.source.object_type.as_str(),
+            "object_id": source.source.object_id.as_str(),
+        })),
+    })))
+    .execute(&mut **tx)
+    .await
+    .map_err(MemoryPersistenceError::Database)?;
+
+    Ok(Some(existing))
+}
+
+fn is_memory_dedupe_unique_violation(error: &sqlx::Error) -> bool {
+    let Some(database_error) = error.as_database_error() else {
+        return false;
+    };
+    if database_error.code().as_deref() != Some("23505") {
+        return false;
+    }
+
+    database_error.constraint() == Some("idx_memory_items_live_dedupe_fingerprint")
+        || database_error
+            .message()
+            .contains("idx_memory_items_live_dedupe_fingerprint")
 }
 
 async fn existing_memory_summary_for_dedupe_fingerprint_tx(

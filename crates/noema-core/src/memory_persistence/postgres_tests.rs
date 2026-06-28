@@ -7,6 +7,7 @@ use super::{
     ObjectProvenanceSource, ObjectRef, ObjectType, PostgresMemoryRepository, ReplayMode,
     postgres_schema::POSTGRES_SCHEMA_SQL,
     provenance::DeleteConversationItem,
+    queries::POSTGRES_MEMORY_SUMMARY_BY_DEDUPE_FINGERPRINT_SQL,
     repository::{POSTGRES_BOOTSTRAP_MIGRATION_NAME, POSTGRES_BOOTSTRAP_MIGRATION_VERSION},
 };
 use crate::memory::{
@@ -1110,6 +1111,271 @@ async fn append_memory_candidate_reuses_exact_dedupe_fingerprint() {
 }
 
 #[tokio::test]
+async fn append_memory_candidate_reuses_inferred_dedupe_fingerprint() {
+    let Some(repo) = test_repo().await else {
+        return;
+    };
+    repo.ensure_default_actors().await.expect("actors");
+
+    let conversation = repo
+        .create_conversation(NewConversation::local_chat(None, None))
+        .await
+        .expect("conversation");
+    let first_item = repo
+        .append_conversation_item(NewConversationItem {
+            conversation_id: conversation.conversation_id.clone(),
+            turn_id: None,
+            parent_item_id: None,
+            kind: ConversationItemKind::UserText,
+            status: ConversationItemStatus::Completed,
+            author: ActorRef::human("human:local"),
+            content_text: Some("I prefer window seats.".to_string()),
+            payload_json: serde_json::json!({}),
+            metadata: serde_json::json!({}),
+        })
+        .await
+        .expect("first item");
+    let second_item = repo
+        .append_conversation_item(NewConversationItem {
+            conversation_id: conversation.conversation_id.clone(),
+            turn_id: None,
+            parent_item_id: None,
+            kind: ConversationItemKind::UserText,
+            status: ConversationItemStatus::Completed,
+            author: ActorRef::human("human:local"),
+            content_text: Some("I PREFER WINDOW SEATS".to_string()),
+            payload_json: serde_json::json!({}),
+            metadata: serde_json::json!({}),
+        })
+        .await
+        .expect("second item");
+
+    let mut first = NewMemoryCandidate::confirmed_note(
+        ObjectRef::new(
+            ObjectType::Conversation,
+            conversation.conversation_id.as_str(),
+        )
+        .expect("owner"),
+        "I prefer window seats.",
+        ActorRef::agent("agent:primary"),
+        ObjectRef::conversation_item(first_item.item_id.as_str()),
+    );
+    first.memory_type = MemoryType::Preference;
+    first.status = MemoryStatus::Inferred;
+
+    let mut second = first.clone();
+    second.content = "I PREFER WINDOW SEATS".to_string();
+    second.status = MemoryStatus::Confirmed;
+    second.source = Some(ObjectProvenanceSource {
+        source: ObjectRef::conversation_item(second_item.item_id.as_str()),
+        evidence_excerpt: Some("I PREFER WINDOW SEATS".to_string()),
+    });
+
+    let first_summary = repo
+        .append_memory_candidate(first)
+        .await
+        .expect("first memory");
+    let second_summary = repo
+        .append_memory_candidate(second)
+        .await
+        .expect("second memory");
+
+    assert_eq!(first_summary.status, MemoryStatus::Inferred);
+    assert_eq!(first_summary.id, second_summary.id);
+    assert_eq!(
+        first_summary.dedupe_fingerprint,
+        second_summary.dedupe_fingerprint
+    );
+
+    let memories = repo.list_recent_memories(Some(10)).await.expect("memories");
+    assert_eq!(memories.len(), 1);
+}
+
+#[tokio::test]
+async fn append_memory_candidate_does_not_reuse_archived_dedupe_fingerprint() {
+    let Some(repo) = test_repo().await else {
+        return;
+    };
+    repo.ensure_default_actors().await.expect("actors");
+
+    let conversation = repo
+        .create_conversation(NewConversation::local_chat(None, None))
+        .await
+        .expect("conversation");
+    let first_item = repo
+        .append_conversation_item(NewConversationItem {
+            conversation_id: conversation.conversation_id.clone(),
+            turn_id: None,
+            parent_item_id: None,
+            kind: ConversationItemKind::UserText,
+            status: ConversationItemStatus::Completed,
+            author: ActorRef::human("human:local"),
+            content_text: Some("I prefer aisle seats.".to_string()),
+            payload_json: serde_json::json!({}),
+            metadata: serde_json::json!({}),
+        })
+        .await
+        .expect("first item");
+    let second_item = repo
+        .append_conversation_item(NewConversationItem {
+            conversation_id: conversation.conversation_id.clone(),
+            turn_id: None,
+            parent_item_id: None,
+            kind: ConversationItemKind::UserText,
+            status: ConversationItemStatus::Completed,
+            author: ActorRef::human("human:local"),
+            content_text: Some("I PREFER AISLE SEATS".to_string()),
+            payload_json: serde_json::json!({}),
+            metadata: serde_json::json!({}),
+        })
+        .await
+        .expect("second item");
+
+    let mut archived = NewMemoryCandidate::confirmed_note(
+        ObjectRef::new(
+            ObjectType::Conversation,
+            conversation.conversation_id.as_str(),
+        )
+        .expect("owner"),
+        "I prefer aisle seats.",
+        ActorRef::agent("agent:primary"),
+        ObjectRef::conversation_item(first_item.item_id.as_str()),
+    );
+    archived.memory_type = MemoryType::Preference;
+    archived.status = MemoryStatus::Archived;
+
+    let mut current = archived.clone();
+    current.content = "I PREFER AISLE SEATS".to_string();
+    current.status = MemoryStatus::Confirmed;
+    current.source = Some(ObjectProvenanceSource {
+        source: ObjectRef::conversation_item(second_item.item_id.as_str()),
+        evidence_excerpt: Some("I PREFER AISLE SEATS".to_string()),
+    });
+
+    let archived_summary = repo
+        .append_memory_candidate(archived)
+        .await
+        .expect("archived memory");
+    let current_summary = repo
+        .append_memory_candidate(current)
+        .await
+        .expect("current memory");
+
+    assert_ne!(archived_summary.id, current_summary.id);
+    assert_eq!(
+        archived_summary.dedupe_fingerprint,
+        current_summary.dedupe_fingerprint
+    );
+
+    let matching_count = sqlx::query_scalar::<_, i64>(
+        r"
+        SELECT COUNT(*)
+        FROM memory_items
+        WHERE memory_dedupe_fingerprint = $1
+        ",
+    )
+    .bind(
+        current_summary
+            .dedupe_fingerprint
+            .as_deref()
+            .expect("dedupe fingerprint"),
+    )
+    .fetch_one(repo.pool())
+    .await
+    .expect("matching memory count");
+    assert_eq!(matching_count, 2);
+}
+
+#[tokio::test]
+async fn append_memory_candidate_concurrent_exact_appends_reuse_fingerprint() {
+    let Some(repo) = test_repo().await else {
+        return;
+    };
+    repo.ensure_default_actors().await.expect("actors");
+
+    let conversation = repo
+        .create_conversation(NewConversation::local_chat(None, None))
+        .await
+        .expect("conversation");
+    let first_item = repo
+        .append_conversation_item(NewConversationItem {
+            conversation_id: conversation.conversation_id.clone(),
+            turn_id: None,
+            parent_item_id: None,
+            kind: ConversationItemKind::UserText,
+            status: ConversationItemStatus::Completed,
+            author: ActorRef::human("human:local"),
+            content_text: Some("I like sleeper trains.".to_string()),
+            payload_json: serde_json::json!({}),
+            metadata: serde_json::json!({}),
+        })
+        .await
+        .expect("first item");
+    let second_item = repo
+        .append_conversation_item(NewConversationItem {
+            conversation_id: conversation.conversation_id.clone(),
+            turn_id: None,
+            parent_item_id: None,
+            kind: ConversationItemKind::UserText,
+            status: ConversationItemStatus::Completed,
+            author: ActorRef::human("human:local"),
+            content_text: Some("I LIKE SLEEPER TRAINS".to_string()),
+            payload_json: serde_json::json!({}),
+            metadata: serde_json::json!({}),
+        })
+        .await
+        .expect("second item");
+
+    let mut first = NewMemoryCandidate::confirmed_note(
+        ObjectRef::new(
+            ObjectType::Conversation,
+            conversation.conversation_id.as_str(),
+        )
+        .expect("owner"),
+        "I like sleeper trains.",
+        ActorRef::agent("agent:primary"),
+        ObjectRef::conversation_item(first_item.item_id.as_str()),
+    );
+    first.memory_type = MemoryType::Preference;
+    let mut second = first.clone();
+    second.content = "I LIKE SLEEPER TRAINS".to_string();
+    second.source = Some(ObjectProvenanceSource {
+        source: ObjectRef::conversation_item(second_item.item_id.as_str()),
+        evidence_excerpt: Some("I LIKE SLEEPER TRAINS".to_string()),
+    });
+
+    let barrier = std::sync::Arc::new(tokio::sync::Barrier::new(2));
+    let first_repo = repo.repo.clone();
+    let second_repo = repo.repo.clone();
+    let first_barrier = barrier.clone();
+    let second_barrier = barrier.clone();
+
+    let first_task = tokio::spawn(async move {
+        first_barrier.wait().await;
+        first_repo.append_memory_candidate(first).await
+    });
+    let second_task = tokio::spawn(async move {
+        second_barrier.wait().await;
+        second_repo.append_memory_candidate(second).await
+    });
+
+    let first_summary = first_task.await.expect("first task").expect("first memory");
+    let second_summary = second_task
+        .await
+        .expect("second task")
+        .expect("second memory");
+
+    assert_eq!(first_summary.id, second_summary.id);
+    assert_eq!(
+        first_summary.dedupe_fingerprint,
+        second_summary.dedupe_fingerprint
+    );
+
+    let memories = repo.list_recent_memories(Some(10)).await.expect("memories");
+    assert_eq!(memories.len(), 1);
+}
+
+#[tokio::test]
 async fn deleting_source_item_deletes_sole_provenance_memory() {
     let Some(repo) = test_repo().await else {
         return;
@@ -2035,6 +2301,16 @@ fn postgres_schema_includes_memory_fts_generated_column_and_index() {
         POSTGRES_SCHEMA_SQL
             .contains("CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_items_live_dedupe_fingerprint"),
         "missing live memory dedupe fingerprint unique index"
+    );
+    assert!(
+        POSTGRES_SCHEMA_SQL
+            .contains("AND status IN ('candidate', 'active', 'confirmed', 'inferred')"),
+        "memory dedupe fingerprint index should cover only usable live statuses"
+    );
+    assert!(
+        POSTGRES_MEMORY_SUMMARY_BY_DEDUPE_FINGERPRINT_SQL
+            .contains("AND mi.status IN ('candidate', 'active', 'confirmed', 'inferred')"),
+        "memory dedupe fingerprint lookup should match the usable live statuses"
     );
     assert!(
         POSTGRES_SCHEMA_SQL.contains("search_vector TSVECTOR GENERATED ALWAYS AS"),
