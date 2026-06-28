@@ -18,6 +18,8 @@ fn redacts_non_public_memory_list_titles() {
         sensitivity: Sensitivity::Normal,
         title: "my API key is sk-test1234567890".to_string(),
         content: "my API key is sk-test1234567890".to_string(),
+        dedupe_fingerprint: None,
+        subject_entity_ids: Vec::new(),
         created_at: "2026-06-24 12:00:00".to_string(),
         source_object_type: Some("conversation_item".to_string()),
         source_object_id: Some("item_1".to_string()),

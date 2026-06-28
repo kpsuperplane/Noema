@@ -40,6 +40,10 @@ The current slice should stay small and concrete:
 - `system/` state is derived and rebuildable.
 - Memory is governed context, not hidden model state.
 - Canonical memory rows own truth, policy, provenance, lifecycle, and audit.
+- Memory writes run through consolidation before creating rows: exact
+  fingerprints prevent duplicate appends, normal/public semantic repeats can
+  reuse or reinforce existing memory, and conflicts create reviewable disputed
+  state instead of silently overwriting truth.
 - Context graph and FTS/search indexes are derived projections and must remain rebuildable.
 - Graph or fuzzy retrieval can suggest candidates, but policy gates inclusion.
 - Pre-stable schema changes do not need migrations or backwards compatibility unless explicitly requested.
