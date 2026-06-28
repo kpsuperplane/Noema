@@ -15,19 +15,19 @@ type ProviderAuthAttemptView =
   | NonNullable<ProviderAuthAttemptQuery["providerAuthAttempt"]>;
 type ProviderAccountStatus = NonNullable<OnboardingStatus["steps"][number]["providerAccountStatus"]>;
 
+export const PROVIDER_AUTH_POLL_INTERVAL_MS = 5_000;
+
 export function Onboarding({
   onboarding,
   attempt,
   error,
   onConnect,
-  onCheck,
   onRetry
 }: {
   onboarding: OnboardingStatus;
   attempt: ProviderAuthAttemptView | null;
   error: string | null;
   onConnect: () => void;
-  onCheck: () => void;
   onRetry: () => void;
 }) {
   const step = onboarding.steps.find((candidate) => candidate.id === "connect_provider_account");
@@ -62,7 +62,7 @@ export function Onboarding({
             </Button>
           ) : null}
 
-          {waiting ? <AuthAttempt attempt={attempt} onCheck={onCheck} /> : null}
+          {waiting ? <AuthAttempt attempt={attempt} /> : null}
 
           {complete ? <p className="m-0 text-[var(--pine-700)]">Provider connected. Starting chat.</p> : null}
 
@@ -82,13 +82,7 @@ export function Onboarding({
   );
 }
 
-function AuthAttempt({
-  attempt,
-  onCheck
-}: {
-  attempt: ProviderAuthAttemptView;
-  onCheck: () => void;
-}) {
+function AuthAttempt({ attempt }: { attempt: ProviderAuthAttemptView }) {
   return (
     <Card className="grid min-w-0 max-w-[560px] gap-2.5" aria-live="polite">
       <CardContent className="grid gap-3.5">
@@ -104,9 +98,7 @@ function AuthAttempt({
           </code>
         ) : null}
         {attempt.instructions ? <p>{attempt.instructions}</p> : null}
-        <Button type="button" onClick={onCheck}>
-          {attempt.status === "WAITING_FOR_USER" ? "Continue" : "Check status"}
-        </Button>
+        <p className="m-0 text-sm text-muted-foreground">Noema will continue automatically.</p>
       </CardContent>
     </Card>
   );
@@ -122,6 +114,10 @@ function ProviderStatus({ status }: { status: ProviderAccountStatus }) {
 
 function isRetryableTerminalStatus(status: ProviderAuthAttemptView["status"]) {
   return status === "FAILED" || status === "EXPIRED" || status === "CANCELLED";
+}
+
+export function isProviderAuthAttemptPending(status: ProviderAuthAttemptView["status"]) {
+  return status === "STARTING" || status === "WAITING_FOR_USER";
 }
 
 const statusCopy: Record<ProviderAccountStatus | GraphqlProviderAuthAttemptStatus, string> = {

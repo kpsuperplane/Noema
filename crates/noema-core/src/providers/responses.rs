@@ -6,6 +6,7 @@ use reqwest::{
     header::{HeaderMap, HeaderValue},
 };
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 /// JSON request body sent to a Responses-compatible endpoint.
 #[derive(Debug, Serialize)]
@@ -158,12 +159,15 @@ impl ResponsesTransport {
     ///
     /// Returns [`ProviderError`] for HTTP transport failures, API errors, or
     /// malformed JSON responses.
-    pub async fn send(
+    pub async fn send<T>(
         &self,
         bearer_token: &str,
-        body: ResponsesRequest,
+        body: T,
         extra_headers: HeaderMap,
-    ) -> Result<ResponsesResponse, ProviderError> {
+    ) -> Result<ResponsesResponse, ProviderError>
+    where
+        T: Serialize,
+    {
         if bearer_token.trim().is_empty() {
             return Err(ProviderError::MissingCredentials {
                 provider: "responses".to_string(),
@@ -198,6 +202,243 @@ impl ResponsesTransport {
         serde_json::from_str(&body_text).map_err(|source| ProviderError::MalformedResponse {
             message: format!("failed to parse JSON: {source}"),
         })
+    }
+
+    /// Send one streaming Responses request and collect the terminal response.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ProviderError`] for HTTP transport failures, API errors, or
+    /// malformed Server-Sent Events.
+    pub async fn send_stream<T>(
+        &self,
+        bearer_token: &str,
+        body: T,
+        extra_headers: HeaderMap,
+    ) -> Result<ResponsesResponse, ProviderError>
+    where
+        T: Serialize,
+    {
+        if bearer_token.trim().is_empty() {
+            return Err(ProviderError::MissingCredentials {
+                provider: "responses".to_string(),
+                credential: "bearer_token".to_string(),
+            });
+        }
+
+        let mut builder = self
+            .client
+            .post(&self.responses_url)
+            .bearer_auth(bearer_token);
+        for (name, value) in &extra_headers {
+            builder = builder.header(name, value);
+        }
+
+        let response = builder
+            .json(&body)
+            .send()
+            .await
+            .map_err(|source| ProviderError::HttpFailure { source })?;
+        let status = response.status();
+        let request_id = request_id(response.headers());
+        let body_text = response
+            .text()
+            .await
+            .map_err(|source| ProviderError::HttpFailure { source })?;
+
+        if !status.is_success() {
+            return Err(error_from_status(status, request_id, &body_text));
+        }
+
+        response_from_sse(&body_text)
+    }
+}
+
+fn response_from_sse(text: &str) -> Result<ResponsesResponse, ProviderError> {
+    let mut output_values = Vec::new();
+    let mut output_text = String::new();
+    let mut response_id = None;
+    let mut model = None;
+    let mut usage = None;
+    let mut terminal_error = None;
+
+    for event in sse_events(text) {
+        let Some(data) = event.data else {
+            continue;
+        };
+        if data == "[DONE]" {
+            continue;
+        }
+
+        let value: Value =
+            serde_json::from_str(&data).map_err(|source| ProviderError::MalformedResponse {
+                message: format!("failed to parse SSE JSON: {source}"),
+            })?;
+        let event_type = value
+            .get("type")
+            .and_then(Value::as_str)
+            .or(event.event.as_deref())
+            .unwrap_or_default();
+
+        match event_type {
+            "response.output_text.delta" => {
+                if let Some(delta) = value.get("delta").and_then(Value::as_str) {
+                    output_text.push_str(delta);
+                }
+            }
+            "response.output_item.done" => {
+                if let Some(item) = value.get("item") {
+                    output_values.push(item.clone());
+                }
+            }
+            "response.completed" | "response.incomplete" => {
+                if let Some(response) = value.get("response") {
+                    collect_terminal_response_metadata(
+                        response,
+                        &mut response_id,
+                        &mut model,
+                        &mut usage,
+                    );
+                    if output_values.is_empty()
+                        && let Some(items) = response.get("output").and_then(Value::as_array)
+                    {
+                        output_values.extend(items.iter().cloned());
+                    }
+                }
+            }
+            "response.failed" => {
+                if let Some(response) = value.get("response") {
+                    collect_terminal_response_metadata(
+                        response,
+                        &mut response_id,
+                        &mut model,
+                        &mut usage,
+                    );
+                    terminal_error = response.get("error").cloned();
+                }
+            }
+            "error" => {
+                terminal_error = Some(value);
+            }
+            _ => {}
+        }
+    }
+
+    if let Some(error) = terminal_error {
+        return Err(ProviderError::ApiError {
+            status: 200,
+            message: response_stream_error_message(&error),
+            request_id: response_id,
+        });
+    }
+
+    if output_values.is_empty() && !output_text.is_empty() {
+        output_values.push(serde_json::json!({
+            "type": "message",
+            "content": [{"type": "output_text", "text": output_text}]
+        }));
+    }
+
+    let output = output_values
+        .into_iter()
+        .map(|value| {
+            serde_json::from_value(value).map_err(|source| ProviderError::MalformedResponse {
+                message: format!("failed to parse SSE output item: {source}"),
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    Ok(ResponsesResponse {
+        id: response_id,
+        model,
+        output,
+        usage,
+    })
+}
+
+fn collect_terminal_response_metadata(
+    response: &Value,
+    response_id: &mut Option<String>,
+    model: &mut Option<String>,
+    usage: &mut Option<ResponsesUsage>,
+) {
+    if response_id.is_none() {
+        *response_id = response
+            .get("id")
+            .and_then(Value::as_str)
+            .map(ToString::to_string);
+    }
+    if model.is_none() {
+        *model = response
+            .get("model")
+            .and_then(Value::as_str)
+            .map(ToString::to_string);
+    }
+    if usage.is_none() {
+        *usage = response
+            .get("usage")
+            .cloned()
+            .and_then(|value| serde_json::from_value(value).ok());
+    }
+}
+
+fn response_stream_error_message(error: &Value) -> String {
+    error
+        .get("message")
+        .and_then(Value::as_str)
+        .or_else(|| {
+            error
+                .get("error")
+                .and_then(|body| body.get("message"))
+                .and_then(Value::as_str)
+        })
+        .map(ToString::to_string)
+        .unwrap_or_else(|| error.to_string())
+}
+
+struct SseEvent {
+    event: Option<String>,
+    data: Option<String>,
+}
+
+fn sse_events(text: &str) -> impl Iterator<Item = SseEvent> + '_ {
+    text.split("\n\n").filter_map(|chunk| {
+        let mut event = None;
+        let mut data = Vec::new();
+        for line in chunk.lines() {
+            let line = line.trim_end_matches('\r');
+            if let Some(value) = line.strip_prefix("event:") {
+                event = Some(value.trim().to_string());
+            } else if let Some(value) = line.strip_prefix("data:") {
+                data.push(value.trim_start().to_string());
+            }
+        }
+
+        (event.is_some() || !data.is_empty()).then(|| SseEvent {
+            event,
+            data: (!data.is_empty()).then(|| data.join("\n")),
+        })
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn response_from_sse_prefers_output_item_done_over_terminal_output() {
+        let response = response_from_sse(
+            "event: response.output_item.done\n\
+             data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"message\",\"content\":[{\"type\":\"output_text\",\"text\":\"from item\"}]}}\n\
+             \n\
+             event: response.completed\n\
+             data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_test\",\"status\":\"completed\",\"output\":null}}\n\
+             \n",
+        )
+        .expect("sse response");
+
+        assert_eq!(response.id.as_deref(), Some("resp_test"));
+        assert_eq!(response.output_text().expect("output text"), "from item");
     }
 }
 

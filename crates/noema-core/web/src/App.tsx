@@ -15,7 +15,11 @@ import { AppHeader } from "@/components/shell/AppHeader";
 import { Composer } from "./components/Composer";
 import { EmptyState } from "./components/EmptyState";
 import { ErrorMarker } from "./components/ErrorMarker";
-import { Onboarding } from "./components/Onboarding";
+import {
+  isProviderAuthAttemptPending,
+  Onboarding,
+  PROVIDER_AUTH_POLL_INTERVAL_MS
+} from "./components/Onboarding";
 import { Transcript } from "./components/Transcript";
 import { entriesFromReplay, handleConversationEvent, pushTranscript } from "./transcript";
 import type { ConversationAgentStatus, SocketState, TranscriptEntry } from "./types";
@@ -47,6 +51,8 @@ export function App() {
   const status = localStatus.data?.localStatus ?? null;
   const onboarded = onboarding?.isUserOnboarded ?? false;
   const displayedOnboardingError = onboardingError ?? onboardingStatus.error?.message ?? null;
+  const authAttemptId = authAttempt?.attemptId;
+  const authAttemptStatus = authAttempt?.status;
 
   const reportConversationError = React.useCallback((error: Error) => {
     setSocketState("closed");
@@ -145,30 +151,63 @@ export function App() {
     }
   }
 
-  async function checkProviderAuthAttempt() {
-    if (!authAttempt) {
+  const checkProviderAuthAttempt = React.useCallback(
+    async (attemptId = authAttempt?.attemptId) => {
+      if (!attemptId) {
+        return;
+      }
+
+      setOnboardingError(null);
+      try {
+        const result = await apolloClient.query({
+          query: ProviderAuthAttemptDocument,
+          variables: { attemptId },
+          fetchPolicy: "network-only"
+        });
+        const next = result.data?.providerAuthAttempt;
+        if (!next) {
+          throw new Error("Provider login attempt was not found.");
+        }
+        setAuthAttempt(next);
+        if (next.status === "COMPLETED") {
+          await onboardingStatus.refetch();
+        }
+      } catch (error: unknown) {
+        setOnboardingError(error instanceof Error ? error.message : "Failed to check provider login");
+      }
+    },
+    [apolloClient, authAttempt?.attemptId, onboardingStatus]
+  );
+
+  React.useEffect(() => {
+    if (!authAttemptId || !authAttemptStatus || !isProviderAuthAttemptPending(authAttemptStatus)) {
       return;
     }
 
-    setOnboardingError(null);
-    try {
-      const result = await apolloClient.query({
-        query: ProviderAuthAttemptDocument,
-        variables: { attemptId: authAttempt.attemptId },
-        fetchPolicy: "network-only"
-      });
-      const next = result.data?.providerAuthAttempt;
-      if (!next) {
-        throw new Error("Provider login attempt was not found.");
+    let cancelled = false;
+    let timeoutId: number | null = null;
+
+    const poll = () => {
+      timeoutId = window.setTimeout(() => {
+        if (cancelled) {
+          return;
+        }
+        void checkProviderAuthAttempt(authAttemptId).then(() => {
+          if (!cancelled) {
+            poll();
+          }
+        });
+      }, PROVIDER_AUTH_POLL_INTERVAL_MS);
+    };
+
+    poll();
+    return () => {
+      cancelled = true;
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId);
       }
-      setAuthAttempt(next);
-      if (next.status === "COMPLETED") {
-        await onboardingStatus.refetch();
-      }
-    } catch (error: unknown) {
-      setOnboardingError(error instanceof Error ? error.message : "Failed to check provider login");
-    }
-  }
+    };
+  }, [authAttemptId, authAttemptStatus, checkProviderAuthAttempt]);
 
   async function sendMessage(text: string) {
     const input = text.trim();
@@ -243,7 +282,6 @@ export function App() {
           attempt={authAttempt}
           error={displayedOnboardingError}
           onConnect={() => void connectProvider()}
-          onCheck={() => void checkProviderAuthAttempt()}
           onRetry={() => {
             setAuthAttempt(null);
             setOnboardingError(null);

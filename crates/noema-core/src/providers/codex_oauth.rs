@@ -728,7 +728,37 @@ fn safe_auth_failure_message(error: ProviderError) -> String {
 struct DeviceCodeResponse {
     user_code: String,
     device_auth_id: String,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_optional_u64_from_string_or_number"
+    )]
     interval: Option<u64>,
+}
+
+fn deserialize_optional_u64_from_string_or_number<'de, D>(
+    deserializer: D,
+) -> Result<Option<u64>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let Some(value) = Option::<serde_json::Value>::deserialize(deserializer)? else {
+        return Ok(None);
+    };
+
+    match value {
+        serde_json::Value::Null => Ok(None),
+        serde_json::Value::Number(number) => number
+            .as_u64()
+            .map(Some)
+            .ok_or_else(|| serde::de::Error::custom("expected unsigned integer")),
+        serde_json::Value::String(value) => value
+            .parse::<u64>()
+            .map(Some)
+            .map_err(|source| serde::de::Error::custom(source.to_string())),
+        _ => Err(serde::de::Error::custom(
+            "expected unsigned integer or string",
+        )),
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -777,6 +807,35 @@ mod tests {
         store.write(&tokens).expect("write");
 
         assert_eq!(store.read().expect("read"), tokens);
+    }
+
+    #[test]
+    fn device_code_response_accepts_string_interval() {
+        let response: DeviceCodeResponse = serde_json::from_str(
+            r#"{
+                "device_auth_id": "deviceauth_test",
+                "user_code": "ABCD-EFGH",
+                "interval": "5",
+                "expires_at": "2026-06-28T00:38:54.083987+00:00"
+            }"#,
+        )
+        .expect("device code response");
+
+        assert_eq!(response.interval, Some(5));
+    }
+
+    #[test]
+    fn device_code_response_accepts_numeric_interval() {
+        let response: DeviceCodeResponse = serde_json::from_str(
+            r#"{
+                "device_auth_id": "deviceauth_test",
+                "user_code": "ABCD-EFGH",
+                "interval": 5
+            }"#,
+        )
+        .expect("device code response");
+
+        assert_eq!(response.interval, Some(5));
     }
 
     #[test]

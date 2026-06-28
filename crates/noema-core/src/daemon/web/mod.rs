@@ -331,31 +331,37 @@ impl From<std::io::Error> for HttpRequestError {
 
 #[derive(Debug)]
 pub(crate) struct WebApiError {
-    message: &'static str,
+    message: String,
 }
 
 impl WebApiError {
-    const fn bad_request(message: &'static str) -> Self {
-        Self { message }
+    fn bad_request(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+        }
     }
 
-    const fn not_found(message: &'static str) -> Self {
-        Self { message }
+    fn not_found(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+        }
     }
 
-    const fn internal(message: &'static str) -> Self {
-        Self { message }
+    fn internal(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+        }
     }
 
-    pub(crate) const fn message(&self) -> &'static str {
-        self.message
+    pub(crate) fn message(&self) -> &str {
+        &self.message
     }
 }
 
 impl From<HttpRequestError> for WebApiError {
     fn from(error: HttpRequestError) -> Self {
         Self {
-            message: error.message,
+            message: error.message.to_string(),
         }
     }
 }
@@ -448,7 +454,7 @@ async fn write_json<T: Serialize>(
 async fn write_json_error(
     stream: &mut TcpStream,
     status: &str,
-    message: &'static str,
+    message: &str,
 ) -> Result<(), DaemonError> {
     write_json(stream, status, &serde_json::json!({ "error": message })).await
 }
@@ -503,8 +509,8 @@ pub(crate) async fn start_provider_auth_attempt_view(
             }
             Ok(attempt)
         }
-        Err(StartProviderAuthAttemptError::ProviderUnavailable) => {
-            Err(WebApiError::internal("provider auth could not start"))
+        Err(StartProviderAuthAttemptError::ProviderUnavailable(message)) => {
+            Err(WebApiError::internal(message))
         }
         Err(StartProviderAuthAttemptError::StatusUnavailable) => {
             Err(WebApiError::internal("provider auth status unavailable"))
@@ -668,9 +674,9 @@ impl CodexDeviceAuthStarter for ProviderAuthManager {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum StartProviderAuthAttemptError {
-    ProviderUnavailable,
+    ProviderUnavailable(String),
     StatusUnavailable,
 }
 
@@ -688,7 +694,7 @@ async fn start_codex_provider_auth_attempt(
             attempt_timeout: None,
         })
         .await
-        .map_err(|_| StartProviderAuthAttemptError::ProviderUnavailable)?;
+        .map_err(|error| StartProviderAuthAttemptError::ProviderUnavailable(error.to_string()))?;
 
     if should_persist_provider_auth_attempt_status(&attempt) {
         persist_provider_account_status_from_attempt(status_store, &attempt)
@@ -1529,6 +1535,31 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn start_auth_preserves_provider_start_error_message() {
+        let store = RecordingProviderAccountStatusStore::default();
+        let starter = FailingCodexDeviceAuthStarter {
+            message: "device code request returned status 403",
+        };
+        let paths =
+            crate::NoemaPaths::from_noema_home(tempfile::tempdir().expect("temp dir").path())
+                .expect("paths");
+
+        let error =
+            start_codex_provider_auth_attempt(&starter, &store, &paths, &test_provider_account())
+                .await
+                .expect_err("auth start should fail");
+
+        assert_eq!(
+            error,
+            StartProviderAuthAttemptError::ProviderUnavailable(
+                "codex provider is unavailable: device code request returned status 403"
+                    .to_string()
+            )
+        );
+        assert!(store.updates.lock().expect("updates lock").is_empty());
+    }
+
+    #[tokio::test]
     async fn auth_terminal_watcher_persists_completed_attempt_without_http_poll() {
         let store = RecordingProviderAccountStatusStore::default();
         let mut waiting = test_provider_auth_attempt();
@@ -1675,6 +1706,10 @@ mod tests {
         attempt: ProviderAuthAttemptView,
     }
 
+    struct FailingCodexDeviceAuthStarter {
+        message: &'static str,
+    }
+
     struct RecordingProviderAuthAttemptPoller {
         attempts: std::sync::Mutex<Vec<ProviderAuthAttemptView>>,
     }
@@ -1700,6 +1735,27 @@ mod tests {
         > {
             let attempt = self.attempt.clone();
             Box::pin(async move { Ok(attempt) })
+        }
+    }
+
+    impl CodexDeviceAuthStarter for FailingCodexDeviceAuthStarter {
+        fn start_codex_device_code<'a>(
+            &'a self,
+            _request: CodexDeviceAuthRequest,
+        ) -> Pin<
+            Box<
+                dyn Future<Output = Result<ProviderAuthAttemptView, crate::ProviderError>>
+                    + Send
+                    + 'a,
+            >,
+        > {
+            let message = self.message.to_string();
+            Box::pin(async move {
+                Err(crate::ProviderError::ProviderUnavailable {
+                    provider: "codex".to_string(),
+                    message,
+                })
+            })
         }
     }
 
