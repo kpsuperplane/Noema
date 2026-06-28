@@ -16,6 +16,7 @@
 - For architecture, memory, harness, frontend IA, or workflow work, read `docs/project.md`, `docs/context/current.md`, and the closest relevant docs first.
 - For nontrivial work, make the task mode explicit before proceeding: explore only, plan only, implement, adversarial review, or ship.
 - Split long work at milestone boundaries. After a major commit or completed phase, summarize durable context into `docs/context/current.md` before continuing.
+- Make a commit after finishing each unit of work unless explicitly instructed not to.
 - Prefer small scoped changes. Avoid unrelated refactors unless they are needed to finish safely.
 - Treat raw `~/.codex/sessions` files as private source material. Read them only when asked, summarize durable decisions, and do not quote raw transcript unless explicitly requested.
 
@@ -31,8 +32,9 @@
   - `cargo check --workspace`
   - `cargo clippy --workspace --all-targets -- -D warnings`
   - `cargo test --workspace --no-fail-fast`
+- Run unit tests only. Do not run smoke tests or fixture tests unless explicitly requested.
 - Noema daemon/OpenAI provider tests may bind Unix/TCP sockets. If sandboxed tests fail with local socket `PermissionDenied`, rerun the same test command with socket permissions and report that distinction.
-- For frontend or UI work, start the appropriate local server, capture desktop and mobile screenshots, and inspect layout, overflow, and visual regressions before finalizing.
+- For frontend or UI work, do not inspect with browser tools unless explicitly requested.
 
 ## Ship Checklist
 - Before committing or pushing, run:
@@ -41,4 +43,4 @@
   - the relevant validation commands above
 - Inspect staged changes with `git diff --cached --stat` and `git diff --cached --name-status`.
 - Report remaining untracked or unstaged files.
-- Commit and push only when explicitly requested.
+- Commit after each finished unit of work. Push only when explicitly requested.
