@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, future::Future, pin::Pin, sync::Arc};
 
 use crate::{
     DatabaseConfig,
@@ -16,11 +16,11 @@ use crate::{
         NewMemoryCandidate, NewMemoryParticipant, ObjectProvenanceSource, ObjectRef, ObjectType,
         PostgresMemoryRepository,
     },
-    provider::{GenerateOutputItem, GenerateResponse, ProviderError},
-    providers::{
-        codex::CodexProviderConfig,
-        codex_app_server::{CodexAppServerConversation, CodexAppServerRuntime},
+    provider::{
+        GenerateInput, GenerateOptions, GenerateOutputItem, GenerateRequest, GenerateResponse,
+        ModelProvider, ProviderError,
     },
+    providers::codex_responses::{CodexProviderConfig, CodexResponsesProvider},
 };
 use serde_json::{Value, json};
 use tokio::sync::{mpsc, oneshot};
@@ -40,6 +40,25 @@ use super::{
     },
 };
 
+pub(crate) trait RuntimeModelProvider: std::fmt::Debug + Send + Sync {
+    fn generate<'a>(
+        &'a self,
+        request: GenerateRequest,
+    ) -> Pin<Box<dyn Future<Output = Result<GenerateResponse, ProviderError>> + Send + 'a>>;
+}
+
+impl<T> RuntimeModelProvider for T
+where
+    T: ModelProvider + std::fmt::Debug + Send + Sync,
+{
+    fn generate<'a>(
+        &'a self,
+        request: GenerateRequest,
+    ) -> Pin<Box<dyn Future<Output = Result<GenerateResponse, ProviderError>> + Send + 'a>> {
+        Box::pin(async move { ModelProvider::generate(self, request).await })
+    }
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct CodexRuntimeHandle {
     sender: mpsc::Sender<CodexRuntimeCommand>,
@@ -52,11 +71,19 @@ impl CodexRuntimeHandle {
     ) -> Result<Self, DaemonError> {
         let paths = crate::NoemaPaths::from_process_env()?;
         let account_home = paths.provider_account_home("codex", "default");
-        crate::provider_auth::ensure_codex_account_home(&account_home)?;
+        crate::provider_auth::ensure_provider_account_home(&account_home)?;
         apply_provider_account_home(&mut codex_config, &account_home);
 
+        let provider = Arc::new(CodexResponsesProvider::new(codex_config)?);
+        Self::spawn_with_provider(provider, database_url).await
+    }
+
+    pub(crate) async fn spawn_with_provider(
+        provider: Arc<dyn RuntimeModelProvider>,
+        database_url: String,
+    ) -> Result<Self, DaemonError> {
         let (sender, receiver) = mpsc::channel(16);
-        let actor = CodexRuntimeActor::new(codex_config, database_url).await?;
+        let actor = CodexRuntimeActor::new(provider, database_url).await?;
         tokio::spawn(actor.run(receiver));
         Ok(Self { sender })
     }
@@ -143,7 +170,7 @@ fn apply_provider_account_home(
     config: &mut crate::CodexProviderConfig,
     account_home: &std::path::Path,
 ) {
-    config.codex_home = Some(account_home.to_string_lossy().to_string());
+    config.account_home = Some(account_home.to_path_buf());
 }
 
 #[derive(Debug)]
@@ -179,11 +206,14 @@ struct MemoryExtractionWorkerHandle {
 }
 
 impl MemoryExtractionWorkerHandle {
-    async fn spawn(config: CodexProviderConfig, database_url: String) -> Result<Self, DaemonError> {
+    async fn spawn(
+        provider: Arc<dyn RuntimeModelProvider>,
+        database_url: String,
+    ) -> Result<Self, DaemonError> {
         let (sender, receiver) = mpsc::channel(16);
         let database = DatabaseConfig::new(database_url)?;
         let worker = MemoryExtractionWorker {
-            runtime: CodexAppServerRuntime::new(config)?,
+            provider,
             memory_repository: PostgresMemoryRepository::connect(&database).await?,
         };
         tokio::spawn(worker.run(receiver));
@@ -215,7 +245,7 @@ enum MemoryExtractionWorkerCommand {
 
 #[derive(Debug)]
 struct MemoryExtractionWorker {
-    runtime: CodexAppServerRuntime,
+    provider: Arc<dyn RuntimeModelProvider>,
     memory_repository: PostgresMemoryRepository,
 }
 
@@ -227,7 +257,6 @@ impl MemoryExtractionWorker {
                     let _ = self.extract_ordinary_chat_memories(&context).await;
                 }
                 MemoryExtractionWorkerCommand::Shutdown { reply } => {
-                    self.runtime.shutdown().await;
                     let _ = reply.send(());
                     break;
                 }
@@ -248,14 +277,9 @@ impl MemoryExtractionWorker {
             project_hint.as_deref(),
         );
 
-        let extraction_conversation = self
-            .runtime
-            .start_conversation(None, context.cwd.clone())
-            .await
-            .map_err(|error| format!("memory extraction model failed: {error}"))?;
         let extraction_text = self
-            .runtime
-            .turn(&extraction_conversation, prompt)
+            .provider
+            .generate(GenerateRequest::text(prompt))
             .await
             .map_err(|error| format!("memory extraction model failed: {error}"))?
             .assistant_text();
@@ -279,22 +303,25 @@ impl MemoryExtractionWorker {
 
 #[derive(Debug)]
 struct CodexRuntimeActor {
-    runtime: CodexAppServerRuntime,
+    provider: Arc<dyn RuntimeModelProvider>,
     memory_extraction_worker: MemoryExtractionWorkerHandle,
     memory_repository: PostgresMemoryRepository,
     conversations: HashMap<String, ActiveConversation>,
 }
 
 impl CodexRuntimeActor {
-    async fn new(config: CodexProviderConfig, database_url: String) -> Result<Self, DaemonError> {
+    async fn new(
+        provider: Arc<dyn RuntimeModelProvider>,
+        database_url: String,
+    ) -> Result<Self, DaemonError> {
         let database = DatabaseConfig::new(database_url.clone())?;
         Ok(Self {
             memory_extraction_worker: MemoryExtractionWorkerHandle::spawn(
-                config.clone(),
+                Arc::clone(&provider),
                 database_url,
             )
             .await?,
-            runtime: CodexAppServerRuntime::new(config)?,
+            provider,
             memory_repository: PostgresMemoryRepository::connect(&database).await?,
             conversations: HashMap::new(),
         })
@@ -325,7 +352,6 @@ impl CodexRuntimeActor {
                     let _ = reply.send(Ok(()));
                 }
                 CodexRuntimeCommand::Shutdown { reply } => {
-                    self.runtime.shutdown().await;
                     self.memory_extraction_worker.shutdown().await;
                     let _ = reply.send(());
                     break;
@@ -340,11 +366,7 @@ impl CodexRuntimeActor {
         cwd: Option<String>,
     ) -> Result<StartedConversation, DaemonError> {
         self.memory_repository.ensure_default_actors().await?;
-        let conversation = self
-            .runtime
-            .start_conversation(model.clone(), cwd.clone())
-            .await?;
-        let new_conversation = NewConversation::local_chat(model, cwd.clone());
+        let new_conversation = NewConversation::local_chat(model.clone(), cwd.clone());
         let durable_conversation = self
             .memory_repository
             .create_conversation(new_conversation)
@@ -353,7 +375,7 @@ impl CodexRuntimeActor {
         self.conversations.insert(
             conversation_id.clone(),
             ActiveConversation {
-                provider: conversation,
+                model,
                 cwd,
                 next_turn_index: 1,
             },
@@ -375,7 +397,6 @@ impl CodexRuntimeActor {
         let conversation_id = durable_conversation.conversation_id;
 
         if !self.conversations.contains_key(&conversation_id) {
-            let conversation = self.runtime.start_conversation(model, cwd.clone()).await?;
             let next_turn_index = self
                 .memory_repository
                 .next_conversation_turn_index(&conversation_id)
@@ -383,7 +404,7 @@ impl CodexRuntimeActor {
             self.conversations.insert(
                 conversation_id.clone(),
                 ActiveConversation {
-                    provider: conversation,
+                    model,
                     cwd,
                     next_turn_index,
                 },
@@ -491,12 +512,16 @@ impl CodexRuntimeActor {
         );
 
         match self
-            .runtime
-            .turn_structured(
-                &conversation.provider,
-                input.clone(),
-                structured_instructions,
-            )
+            .provider
+            .generate(GenerateRequest {
+                model: conversation.model.clone(),
+                input: GenerateInput::Text(input.clone()),
+                instructions: Some(structured_instructions),
+                options: GenerateOptions {
+                    require_noema_response: true,
+                    ..GenerateOptions::default()
+                },
+            })
             .await
         {
             Ok(response) => {
@@ -509,7 +534,7 @@ impl CodexRuntimeActor {
                             user_item_id: user_item_id.clone(),
                             user_input: input.clone(),
                             cwd: conversation.cwd.clone(),
-                            provider_conversation: conversation.provider.clone(),
+                            model: conversation.model.clone(),
                             response,
                             saved_memory_id,
                         },
@@ -640,12 +665,16 @@ impl CodexRuntimeActor {
                 &turn.user_input,
             );
             let continuation_response = self
-                .runtime
-                .turn_structured(
-                    &turn.provider_conversation,
-                    continuation_input.to_string(),
-                    continuation_instructions,
-                )
+                .provider
+                .generate(GenerateRequest {
+                    model: turn.model.clone(),
+                    input: GenerateInput::Text(continuation_input.to_string()),
+                    instructions: Some(continuation_instructions),
+                    options: GenerateOptions {
+                        require_noema_response: true,
+                        ..GenerateOptions::default()
+                    },
+                })
                 .await?;
             provider_memory_proposals.extend(continuation_response.memory_proposals());
             let continuation_action_turn = ProviderActionTurn {
@@ -1613,7 +1642,7 @@ fn truncate_chars(value: &str, limit: usize) -> String {
 
 #[derive(Debug, Clone)]
 struct ActiveConversation {
-    provider: CodexAppServerConversation,
+    model: Option<String>,
     cwd: Option<String>,
     next_turn_index: u64,
 }
@@ -1626,7 +1655,7 @@ struct SuccessfulProviderTurn {
     user_item_id: String,
     user_input: String,
     cwd: Option<String>,
-    provider_conversation: CodexAppServerConversation,
+    model: Option<String>,
     response: GenerateResponse,
     saved_memory_id: Option<String>,
 }
@@ -1703,9 +1732,6 @@ mod tests {
 
         apply_provider_account_home(&mut config, &account_home);
 
-        assert_eq!(
-            config.codex_home.as_deref(),
-            Some("/noema/providers/codex/default")
-        );
+        assert_eq!(config.account_home.as_deref(), Some(account_home.as_path()));
     }
 }

@@ -24,7 +24,6 @@ pub async fn run_daemon(config: DaemonServerConfig) -> Result<(), DaemonError> {
     let listener = bind_listener(&config.socket_path).await?;
     let web_listener = web::bind_listener(&config.web).await?;
     let database_url = config.database_url.clone();
-    let codex_command = config.codex.command.clone();
     let runtime = CodexRuntimeHandle::spawn(config.codex, database_url.clone()).await?;
     let paths = crate::NoemaPaths::from_process_env()?;
     let database = DatabaseConfig::new(database_url)?;
@@ -36,7 +35,7 @@ pub async fn run_daemon(config: DaemonServerConfig) -> Result<(), DaemonError> {
         runtime: runtime.clone(),
         shutdown_tx,
     });
-    let web_state = WebState::new(runtime, web_repository, provider_auth, paths, codex_command);
+    let web_state = WebState::new(runtime, web_repository, provider_auth, paths);
 
     loop {
         tokio::select! {

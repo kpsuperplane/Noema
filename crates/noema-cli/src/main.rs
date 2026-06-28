@@ -8,7 +8,7 @@ use graphql_client::{
 use inspection::{ContextCommand, MemoryCommand, run_context, run_memory};
 use noema_cli::collect_prompt;
 use noema_core::{
-    CliOverrides, CodexProvider, Config, DaemonClient, DaemonError, DaemonServerConfig,
+    CliOverrides, CodexResponsesProvider, Config, DaemonClient, DaemonError, DaemonServerConfig,
     GenerateInput, GenerateOptions, GenerateRequest, ModelProvider, NoemaHomeError,
     NoemaHomeInitOptions, NoemaPathError, NoemaPaths, OpenAiProvider, ProviderConfig,
     ProviderError, TurnActivityStatus, TurnTranscriptItem, default_socket_path, init_noema_home,
@@ -353,9 +353,11 @@ async fn run_one_shot(args: Args) -> Result<(), CliError> {
 
             print_response(&response.assistant_text())?;
         }
-        ProviderConfig::Codex(codex_config) => {
+        ProviderConfig::Codex(mut codex_config) => {
             let model = codex_config.default_model.clone();
-            let provider = CodexProvider::new(codex_config)?;
+            let paths = NoemaPaths::from_process_env()?;
+            codex_config.account_home = Some(paths.provider_account_home("codex", "default"));
+            let provider = CodexResponsesProvider::new(codex_config)?;
             let response = provider
                 .generate(GenerateRequest {
                     model,

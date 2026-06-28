@@ -3,11 +3,11 @@
 use crate::memory_extraction::ExtractorMemoryProposal;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::future::Future;
 use thiserror::Error;
 
 // The provider contract stays a native async trait and does not expose
 // `dyn ModelProvider`, so the public future-bound tradeoff is intentional.
-#[allow(async_fn_in_trait)]
 /// A model backend that can produce structured output from a generation request.
 pub trait ModelProvider: Send + Sync {
     /// Generate a response for the given request.
@@ -17,7 +17,10 @@ pub trait ModelProvider: Send + Sync {
     /// Returns [`ProviderError`] when the request is invalid, credentials are
     /// missing, the backend is unavailable, the backend returns an API error,
     /// or its response cannot be parsed.
-    async fn generate(&self, request: GenerateRequest) -> Result<GenerateResponse, ProviderError>;
+    fn generate(
+        &self,
+        request: GenerateRequest,
+    ) -> impl Future<Output = Result<GenerateResponse, ProviderError>> + Send;
 }
 
 /// Input and options for a provider generation call.

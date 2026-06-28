@@ -1,10 +1,8 @@
 //! Configuration loading and provider selection.
 
 use crate::providers::{
-    codex::{
-        CodexProviderConfig, DEFAULT_CODEX_STARTUP_TIMEOUT_SECONDS,
-        DEFAULT_CODEX_TURN_TIMEOUT_SECONDS,
-    },
+    codex_oauth::DEFAULT_CODEX_BASE_URL,
+    codex_responses::{CodexProviderConfig, DEFAULT_CODEX_MODEL, DEFAULT_CODEX_TIMEOUT_SECONDS},
     openai::{DEFAULT_OPENAI_TIMEOUT_SECONDS, OpenAiProviderConfig},
 };
 use crate::{DatabaseConfig, NOEMA_DATABASE_URL_ENV, NOEMA_HOME_ENV, NoemaPathError, NoemaPaths};
@@ -41,15 +39,9 @@ const CONFIG_ENV_KEYS: &[&str] = &[
     "openai.timeout_seconds",
     "openai.organization_id",
     "openai.project_id",
-    "codex.command",
     "codex.model",
-    "codex.sandbox",
-    "codex.ephemeral",
-    "codex.ignore_rules",
-    "codex.ignore_user_config",
-    "codex.startup_timeout_seconds",
-    "codex.turn_timeout_seconds",
-    "codex.home",
+    "codex.base_url",
+    "codex.timeout_seconds",
     "database.url",
     "web.host",
     "web.port",
@@ -340,31 +332,22 @@ impl RawConfig {
     }
 
     fn resolve_codex_config(&self) -> Result<CodexProviderConfig, ConfigError> {
-        let startup_timeout_seconds = require_positive(
-            self.codex.startup_timeout_seconds,
-            "NOEMA_CODEX__STARTUP_TIMEOUT_SECONDS",
-        )?;
-        let turn_timeout_seconds = require_positive(
-            self.codex.turn_timeout_seconds,
-            "NOEMA_CODEX__TURN_TIMEOUT_SECONDS",
-        )?;
+        let timeout_seconds =
+            require_positive(self.codex.timeout_seconds, "NOEMA_CODEX__TIMEOUT_SECONDS")?;
+        let base_url = non_empty_option(Some(self.codex.base_url.as_str()))
+            .unwrap_or(DEFAULT_CODEX_BASE_URL)
+            .trim_end_matches('/')
+            .to_string();
 
         Ok(CodexProviderConfig {
-            command: non_empty_option(Some(self.codex.command.as_str()))
-                .unwrap_or("codex")
-                .to_string(),
+            base_url,
             default_model: non_empty_option(self.model.as_deref())
                 .or_else(|| non_empty_option(self.codex.model.as_deref()))
+                .or(Some(DEFAULT_CODEX_MODEL))
                 .map(ToString::to_string),
-            sandbox: non_empty_option(Some(self.codex.sandbox.as_str()))
-                .unwrap_or("read-only")
-                .to_string(),
-            ephemeral: self.codex.ephemeral,
-            ignore_rules: self.codex.ignore_rules,
-            ignore_user_config: self.codex.ignore_user_config,
-            startup_timeout_seconds,
-            turn_timeout_seconds,
-            codex_home: non_empty_option(self.codex.home.as_deref()).map(ToString::to_string),
+            timeout_seconds,
+            account_home: None,
+            oauth: Default::default(),
         })
     }
 
@@ -402,30 +385,17 @@ impl Default for RawOpenAiConfig {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 struct RawCodexConfig {
-    command: String,
+    base_url: String,
     model: Option<String>,
-    sandbox: String,
-    ephemeral: bool,
-    ignore_rules: bool,
-    ignore_user_config: bool,
-    startup_timeout_seconds: u64,
-    turn_timeout_seconds: u64,
-    home: Option<String>,
+    timeout_seconds: u64,
 }
 
 impl Default for RawCodexConfig {
     fn default() -> Self {
-        let default = CodexProviderConfig::default();
         Self {
-            command: default.command,
-            model: default.default_model,
-            sandbox: default.sandbox,
-            ephemeral: default.ephemeral,
-            ignore_rules: default.ignore_rules,
-            ignore_user_config: default.ignore_user_config,
-            startup_timeout_seconds: DEFAULT_CODEX_STARTUP_TIMEOUT_SECONDS,
-            turn_timeout_seconds: DEFAULT_CODEX_TURN_TIMEOUT_SECONDS,
-            home: default.codex_home,
+            base_url: DEFAULT_CODEX_BASE_URL.to_string(),
+            model: Some(DEFAULT_CODEX_MODEL.to_string()),
+            timeout_seconds: DEFAULT_CODEX_TIMEOUT_SECONDS,
         }
     }
 }
@@ -459,15 +429,9 @@ struct FileOpenAiConfig {
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 struct FileCodexConfig {
-    command: Option<String>,
+    base_url: Option<String>,
     model: Option<String>,
-    sandbox: Option<String>,
-    ephemeral: Option<bool>,
-    ignore_rules: Option<bool>,
-    ignore_user_config: Option<bool>,
-    startup_timeout_seconds: Option<u64>,
-    turn_timeout_seconds: Option<u64>,
-    home: Option<String>,
+    timeout_seconds: Option<u64>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]

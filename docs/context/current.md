@@ -9,7 +9,8 @@ Noema is an always-on, self-hosted personal agent operating system. The current 
 The current slice should stay small and concrete:
 
 - Local Noema home and config.
-- Codex-backed chat through the daemon.
+- Codex-backed chat through the daemon using Noema-owned OAuth tokens and direct
+  Codex Responses API calls.
 - Core-hosted local React web chat as the first frontend shell.
 - Postgres-backed persisted conversations, transcript items, memory records, provenance, and context packets.
 - Memory review and context graph inspection from Postgres-backed repositories.
@@ -24,6 +25,9 @@ The current slice should stay small and concrete:
 - Provider credential/session material lives under
   `${NOEMA_HOME:-$HOME/.noema}/providers/<provider>/<account>/`; Postgres stores
   only non-secret provider metadata.
+- Codex provider account homes contain Noema-owned `codex_tokens.json` OAuth
+  state. They are not `CODEX_HOME` directories, and Noema does not silently
+  import Codex CLI `auth.json` files.
 - Concrete object rows are the canonical structured state; actor/principal,
   governable scope, provenance source, and transcript item are interfaces
   implemented by concrete objects rather than universal parent tables.

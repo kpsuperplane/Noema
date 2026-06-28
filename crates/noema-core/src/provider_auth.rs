@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::{Mutex, oneshot};
 use ts_rs::TS;
 
-use crate::ProviderError;
+use crate::{ProviderError, providers::codex_oauth::CodexOAuthConfig};
 
 /// Default maximum lifetime for a provider auth attempt.
 pub const DEFAULT_PROVIDER_AUTH_ATTEMPT_TIMEOUT: std::time::Duration =
@@ -41,10 +41,10 @@ pub enum ProviderAuthAttemptStatus {
 pub struct CodexDeviceAuthRequest {
     /// Stable provider account id.
     pub provider_account_id: String,
-    /// Account-specific Codex home used for portable credentials.
+    /// Account-specific directory for Noema-owned Codex credentials.
     pub account_home: PathBuf,
-    /// Command used to invoke Codex.
-    pub codex_command: String,
+    /// OAuth endpoint configuration.
+    pub oauth: CodexOAuthConfig,
     /// Optional attempt timeout override. Defaults to 5 minutes.
     pub attempt_timeout: Option<std::time::Duration>,
 }
@@ -126,7 +126,7 @@ impl ProviderAuthManager {
         &self,
         request: CodexDeviceAuthRequest,
     ) -> Result<ProviderAuthAttemptView, ProviderError> {
-        crate::providers::codex_auth::start_codex_device_auth(self.clone(), request).await
+        crate::providers::codex_oauth::start_codex_device_auth(self.clone(), request).await
     }
 
     /// Return a safe auth attempt view, if it is still known.
@@ -216,18 +216,13 @@ pub(crate) fn is_terminal_status(status: ProviderAuthAttemptStatus) -> bool {
     )
 }
 
-/// Prepare a Codex account home for portable file-backed credentials.
+/// Prepare a provider account home for Noema-owned credentials.
 ///
 /// # Errors
 ///
-/// Returns an error when the account directory or config file cannot be written.
-pub fn ensure_codex_account_home(account_home: &Path) -> io::Result<()> {
-    create_private_account_dir_all(account_home)?;
-    let config_path = account_home.join("config.toml");
-    if !config_path.exists() {
-        fs::write(config_path, "cli_auth_credentials_store = \"file\"\n")?;
-    }
-    Ok(())
+/// Returns an error when the account directory cannot be written.
+pub fn ensure_provider_account_home(account_home: &Path) -> io::Result<()> {
+    create_private_account_dir_all(account_home)
 }
 
 #[cfg(unix)]
@@ -258,47 +253,32 @@ fn create_private_account_dir_all(account_home: &Path) -> io::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use std::{fs, time::Duration};
+    use std::fs;
 
     use tempfile::TempDir;
 
     use super::*;
 
     #[test]
-    fn ensure_codex_account_home_writes_file_credential_config() {
+    fn ensure_provider_account_home_creates_private_directory() {
         let dir = TempDir::new().expect("temp dir");
         let account_home = dir.path().join("providers/codex/default");
 
-        ensure_codex_account_home(&account_home).expect("account home");
+        ensure_provider_account_home(&account_home).expect("account home");
 
-        let config = fs::read_to_string(account_home.join("config.toml")).expect("config");
-        assert!(config.contains("cli_auth_credentials_store = \"file\""));
-    }
-
-    #[test]
-    fn ensure_codex_account_home_preserves_existing_config() {
-        let dir = TempDir::new().expect("temp dir");
-        let account_home = dir.path().join("providers/codex/default");
-        fs::create_dir_all(&account_home).expect("account home dir");
-        let config_path = account_home.join("config.toml");
-        let existing = "model = \"gpt-5\"\ncli_auth_credentials_store = \"file\"\n";
-        fs::write(&config_path, existing).expect("existing config");
-
-        ensure_codex_account_home(&account_home).expect("account home");
-
-        let config = fs::read_to_string(config_path).expect("config");
-        assert_eq!(config, existing);
+        assert!(account_home.is_dir());
+        assert!(!account_home.join("config.toml").exists());
     }
 
     #[cfg(unix)]
     #[test]
-    fn ensure_codex_account_home_sets_private_unix_permissions() {
+    fn ensure_provider_account_home_sets_private_unix_permissions() {
         use std::os::unix::fs::PermissionsExt;
 
         let dir = TempDir::new().expect("temp dir");
         let account_home = dir.path().join("providers/codex/default");
 
-        ensure_codex_account_home(&account_home).expect("account home");
+        ensure_provider_account_home(&account_home).expect("account home");
 
         let mode = fs::metadata(&account_home)
             .expect("metadata")
@@ -306,166 +286,6 @@ mod tests {
             .mode()
             & 0o777;
         assert_eq!(mode, 0o700);
-    }
-
-    #[tokio::test]
-    async fn auth_manager_reports_codex_device_code_progress() {
-        let dir = TempDir::new().expect("temp dir");
-        let fake = dir.path().join("fake-codex");
-        fs::write(
-            &fake,
-            "#!/bin/sh\nprintf 'Open https://example.com/device and enter ABCD-EFGH\\n'\nsleep 1\nexit 0\n",
-        )
-        .expect("fake codex");
-        make_executable(&fake);
-
-        let manager = ProviderAuthManager::new();
-        let attempt = manager
-            .start_codex_device_code(codex_request(&dir, &fake))
-            .await
-            .expect("start auth");
-
-        let status = poll_until_status(
-            &manager,
-            &attempt.attempt_id,
-            ProviderAuthAttemptStatus::WaitingForUser,
-        )
-        .await;
-
-        assert_eq!(status.status, ProviderAuthAttemptStatus::WaitingForUser);
-        assert_eq!(
-            status.verification_url.as_deref(),
-            Some("https://example.com/device")
-        );
-        assert_eq!(status.user_code.as_deref(), Some("ABCD-EFGH"));
-    }
-
-    #[tokio::test]
-    async fn auth_manager_reports_multiline_ansi_codex_device_code_progress() {
-        let dir = TempDir::new().expect("temp dir");
-        let fake = dir.path().join("fake-codex");
-        fs::write(
-            &fake,
-            "#!/bin/sh\nprintf 'Follow these steps to sign in with ChatGPT using device code authorization:\\n'\nprintf '1. Open this link in your browser and sign in to your account\\n'\nprintf '   \\033[94mhttps://auth.openai.com/codex/device\\033[0m\\n'\nprintf '2. Enter this one-time code \\033[90m(expires in 15 minutes)\\033[0m\\n'\nprintf '   \\033[94m9JZS-15VQF\\033[0m\\n'\nsleep 30\nexit 0\n",
-        )
-        .expect("fake codex");
-        make_executable(&fake);
-
-        let manager = ProviderAuthManager::new();
-        let attempt = manager
-            .start_codex_device_code(codex_request(&dir, &fake))
-            .await
-            .expect("start auth");
-
-        let status = poll_until_status(
-            &manager,
-            &attempt.attempt_id,
-            ProviderAuthAttemptStatus::WaitingForUser,
-        )
-        .await;
-
-        assert_eq!(status.status, ProviderAuthAttemptStatus::WaitingForUser);
-        assert_eq!(
-            status.verification_url.as_deref(),
-            Some("https://auth.openai.com/codex/device")
-        );
-        assert_eq!(status.user_code.as_deref(), Some("9JZS-15VQF"));
-    }
-
-    #[tokio::test]
-    async fn auth_manager_marks_successful_attempt_completed() {
-        let dir = TempDir::new().expect("temp dir");
-        let fake = dir.path().join("fake-codex");
-        fs::write(
-            &fake,
-            "#!/bin/sh\nprintf 'Open https://example.com/device and enter ABCD-EFGH\\n'\nexit 0\n",
-        )
-        .expect("fake codex");
-        make_executable(&fake);
-
-        let manager = ProviderAuthManager::new();
-        let attempt = manager
-            .start_codex_device_code(codex_request(&dir, &fake))
-            .await
-            .expect("start auth");
-
-        let status = poll_until_status(
-            &manager,
-            &attempt.attempt_id,
-            ProviderAuthAttemptStatus::Completed,
-        )
-        .await;
-        assert_eq!(status.status, ProviderAuthAttemptStatus::Completed);
-    }
-
-    #[tokio::test]
-    async fn auth_manager_never_exposes_raw_codex_output() {
-        let dir = TempDir::new().expect("temp dir");
-        let fake = dir.path().join("fake-codex");
-        fs::write(
-            &fake,
-            "#!/bin/sh\nprintf 'Open https://example.com/device and enter ABCD-EFGH with OPENAI_API_KEY=sk-secret at /tmp/noema/providers/codex/default/auth.json\\n'\nsleep 1\nexit 0\n",
-        )
-        .expect("fake codex");
-        make_executable(&fake);
-
-        let manager = ProviderAuthManager::new();
-        let attempt = manager
-            .start_codex_device_code(codex_request(&dir, &fake))
-            .await
-            .expect("start auth");
-
-        let status = poll_until_status(
-            &manager,
-            &attempt.attempt_id,
-            ProviderAuthAttemptStatus::WaitingForUser,
-        )
-        .await;
-
-        assert_eq!(
-            status.verification_url.as_deref(),
-            Some("https://example.com/device")
-        );
-        assert_eq!(status.user_code.as_deref(), Some("ABCD-EFGH"));
-        assert_eq!(
-            status.instructions.as_deref(),
-            Some("Complete the login in your browser.")
-        );
-        let view = serde_json::to_string(&status).expect("view json");
-        assert!(!view.contains("sk-secret"));
-        assert!(!view.contains("auth.json"));
-        assert!(!view.contains("/providers/"));
-        assert!(!view.contains("OPENAI_API_KEY"));
-    }
-
-    #[tokio::test]
-    async fn auth_manager_does_not_treat_secret_token_as_user_code() {
-        let dir = TempDir::new().expect("temp dir");
-        let fake = dir.path().join("fake-codex");
-        fs::write(
-            &fake,
-            "#!/bin/sh\nprintf 'Open https://example.com/device and enter OPENAI_API_KEY=sk-secret\\n'\nexit 0\n",
-        )
-        .expect("fake codex");
-        make_executable(&fake);
-
-        let manager = ProviderAuthManager::new();
-        let attempt = manager
-            .start_codex_device_code(codex_request(&dir, &fake))
-            .await
-            .expect("start auth");
-
-        let status = poll_until_status(
-            &manager,
-            &attempt.attempt_id,
-            ProviderAuthAttemptStatus::Completed,
-        )
-        .await;
-
-        assert_eq!(status.user_code, None);
-        let view = serde_json::to_string(&status).expect("view json");
-        assert!(!view.contains("sk-secret"));
-        assert!(!view.contains("OPENAI_API_KEY"));
     }
 
     #[tokio::test]
@@ -492,202 +312,5 @@ mod tests {
             .expect("attempt exists");
 
         assert_eq!(status.status, ProviderAuthAttemptStatus::Cancelled);
-    }
-
-    #[tokio::test]
-    async fn auth_manager_cancel_kills_running_codex_attempt() {
-        let dir = TempDir::new().expect("temp dir");
-        let fake = dir.path().join("fake-codex");
-        let pid_path = dir.path().join("fake-codex.pid");
-        fs::write(
-            &fake,
-            format!(
-                "#!/bin/sh\nprintf '%s\\n' \"$$\" > '{}'\nprintf 'Open https://example.com/device and enter ABCD-EFGH\\n'\nsleep 30\nexit 0\n",
-                pid_path.display()
-            ),
-        )
-        .expect("fake codex");
-        make_executable(&fake);
-
-        let manager = ProviderAuthManager::new();
-        let attempt = manager
-            .start_codex_device_code(codex_request(&dir, &fake))
-            .await
-            .expect("start auth");
-        poll_until_status(
-            &manager,
-            &attempt.attempt_id,
-            ProviderAuthAttemptStatus::WaitingForUser,
-        )
-        .await;
-
-        let status = manager
-            .cancel_attempt(&attempt.attempt_id)
-            .await
-            .expect("cancel")
-            .expect("attempt exists");
-
-        assert_eq!(status.status, ProviderAuthAttemptStatus::Cancelled);
-        let pid = wait_for_pid(&pid_path).await;
-        poll_until_process_exits(pid).await;
-        let status = poll_until_status(
-            &manager,
-            &attempt.attempt_id,
-            ProviderAuthAttemptStatus::Cancelled,
-        )
-        .await;
-        assert_eq!(status.status, ProviderAuthAttemptStatus::Cancelled);
-    }
-
-    #[tokio::test]
-    async fn auth_manager_expires_and_kills_timed_out_attempt() {
-        let dir = TempDir::new().expect("temp dir");
-        let fake = dir.path().join("fake-codex");
-        let pid_path = dir.path().join("fake-codex.pid");
-        fs::write(
-            &fake,
-            format!(
-                "#!/bin/sh\nprintf '%s\\n' \"$$\" > '{}'\nprintf 'Open https://example.com/device and enter ABCD-EFGH\\n'\nsleep 30\nexit 0\n",
-                pid_path.display()
-            ),
-        )
-        .expect("fake codex");
-        make_executable(&fake);
-
-        let manager = ProviderAuthManager::new();
-        let mut request = codex_request(&dir, &fake);
-        request.attempt_timeout = Some(Duration::from_secs(1));
-        let attempt = manager
-            .start_codex_device_code(request)
-            .await
-            .expect("start auth");
-        let pid = wait_for_pid(&pid_path).await;
-
-        let status = poll_until_status(
-            &manager,
-            &attempt.attempt_id,
-            ProviderAuthAttemptStatus::Expired,
-        )
-        .await;
-
-        assert_eq!(status.error_code.as_deref(), Some("provider_auth_expired"));
-        assert_eq!(
-            status.error_message.as_deref(),
-            Some("provider auth expired")
-        );
-        poll_until_process_exits(pid).await;
-    }
-
-    #[tokio::test]
-    async fn auth_manager_nonzero_exit_uses_fixed_safe_failure() {
-        let dir = TempDir::new().expect("temp dir");
-        let fake = dir.path().join("fake-codex");
-        fs::write(
-            &fake,
-            "#!/bin/sh\nprintf 'Open https://example.com/device and enter ABCD-EFGH\\n'\nprintf 'OPENAI_API_KEY=sk-secret failed at /tmp/noema/providers/codex/default/auth.json\\n' >&2\nexit 42\n",
-        )
-        .expect("fake codex");
-        make_executable(&fake);
-
-        let manager = ProviderAuthManager::new();
-        let attempt = manager
-            .start_codex_device_code(codex_request(&dir, &fake))
-            .await
-            .expect("start auth");
-
-        let status = poll_until_status(
-            &manager,
-            &attempt.attempt_id,
-            ProviderAuthAttemptStatus::Failed,
-        )
-        .await;
-
-        assert_eq!(status.error_code.as_deref(), Some("codex_login_failed"));
-        assert_eq!(status.error_message.as_deref(), Some("codex login failed"));
-        let view = serde_json::to_string(&status).expect("view json");
-        assert!(!view.contains("sk-secret"));
-        assert!(!view.contains("auth.json"));
-        assert!(!view.contains("/providers/"));
-        assert!(!view.contains("OPENAI_API_KEY"));
-        assert!(!view.contains("42"));
-    }
-
-    fn codex_request(dir: &TempDir, fake: &std::path::Path) -> CodexDeviceAuthRequest {
-        CodexDeviceAuthRequest {
-            provider_account_id: "provider_account:codex:default".to_string(),
-            account_home: dir.path().join("providers/codex/default"),
-            codex_command: fake.to_string_lossy().to_string(),
-            attempt_timeout: None,
-        }
-    }
-
-    async fn poll_until_status(
-        manager: &ProviderAuthManager,
-        attempt_id: &str,
-        expected: ProviderAuthAttemptStatus,
-    ) -> ProviderAuthAttemptView {
-        tokio::time::timeout(Duration::from_secs(3), async {
-            loop {
-                let status = manager
-                    .poll_attempt(attempt_id)
-                    .await
-                    .expect("poll attempt")
-                    .expect("attempt exists");
-                if status.status == expected {
-                    return status;
-                }
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
-        })
-        .await
-        .expect("status before timeout")
-    }
-
-    async fn wait_for_pid(path: &std::path::Path) -> u32 {
-        tokio::time::timeout(Duration::from_secs(3), async {
-            loop {
-                if let Ok(pid) = std::fs::read_to_string(path)
-                    && let Ok(pid) = pid.trim().parse::<u32>()
-                {
-                    return pid;
-                }
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
-        })
-        .await
-        .expect("pid before timeout")
-    }
-
-    async fn poll_until_process_exits(pid: u32) {
-        tokio::time::timeout(Duration::from_secs(3), async {
-            loop {
-                if !process_is_running(pid) {
-                    return;
-                }
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
-        })
-        .await
-        .expect("process exit before timeout");
-    }
-
-    #[cfg(unix)]
-    fn process_is_running(pid: u32) -> bool {
-        std::process::Command::new("kill")
-            .arg("-0")
-            .arg(pid.to_string())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status()
-            .is_ok_and(|status| status.success())
-    }
-
-    #[cfg(unix)]
-    fn make_executable(path: &std::path::Path) {
-        use std::os::unix::fs::PermissionsExt;
-
-        let mut permissions = std::fs::metadata(path).expect("metadata").permissions();
-        permissions.set_mode(0o755);
-        std::fs::set_permissions(path, permissions).expect("permissions");
     }
 }

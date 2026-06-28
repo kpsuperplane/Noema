@@ -260,20 +260,10 @@ fn codex_provider_does_not_require_openai_api_key() {
         panic!("expected codex config");
     };
 
-    assert_eq!(codex.command, "codex");
-    assert_eq!(codex.sandbox, "read-only");
-    assert!(codex.ephemeral);
-    assert!(codex.ignore_rules);
-    assert!(!codex.ignore_user_config);
-    assert_eq!(
-        codex.startup_timeout_seconds,
-        DEFAULT_CODEX_STARTUP_TIMEOUT_SECONDS
-    );
-    assert_eq!(
-        codex.turn_timeout_seconds,
-        DEFAULT_CODEX_TURN_TIMEOUT_SECONDS
-    );
-    assert_eq!(codex.codex_home, None);
+    assert_eq!(codex.base_url, DEFAULT_CODEX_BASE_URL);
+    assert_eq!(codex.default_model.as_deref(), Some(DEFAULT_CODEX_MODEL));
+    assert_eq!(codex.timeout_seconds, DEFAULT_CODEX_TIMEOUT_SECONDS);
+    assert_eq!(codex.account_home, None);
 }
 
 #[test]
@@ -349,7 +339,7 @@ fn daemon_config_resolves_codex_and_web_without_openai_credentials() {
     )
     .expect("daemon config");
 
-    assert_eq!(config.codex.command, "codex");
+    assert_eq!(config.codex.base_url, DEFAULT_CODEX_BASE_URL);
     assert_eq!(config.web.port, DEFAULT_WEB_PORT);
     assert_eq!(config.database.url, TEST_DATABASE_URL);
 }
@@ -360,7 +350,9 @@ fn daemon_config_requires_database_url() {
         r"
 provider: codex
 codex:
-  command: codex
+  base_url: https://chatgpt.com/backend-api/codex
+  model: gpt-5.5
+  timeout_seconds: 300
 web:
   host: 127.0.0.1
   port: 3737
@@ -440,15 +432,9 @@ fn codex_config_reads_yaml_and_normalized_env_overrides() {
 provider: codex
 model: yaml-model
 codex:
-  command: yaml-codex
+  base_url: https://yaml.example/codex
   model: yaml-codex-model
-  sandbox: workspace-write
-  ephemeral: false
-  ignore_rules: false
-  ignore_user_config: true
-  startup_timeout_seconds: 45
-  turn_timeout_seconds: 120
-  home: /tmp/yaml-codex-home
+  timeout_seconds: 120
 ",
     );
 
@@ -458,11 +444,8 @@ codex:
         None,
         &[
             ("NOEMA_MODEL", "env-model"),
-            ("NOEMA_CODEX__COMMAND", "env-codex"),
-            ("NOEMA_CODEX__EPHEMERAL", "true"),
-            ("NOEMA_CODEX__STARTUP_TIMEOUT_SECONDS", "67"),
-            ("NOEMA_CODEX__TURN_TIMEOUT_SECONDS", "123"),
-            ("NOEMA_CODEX__HOME", "/tmp/env-codex-home"),
+            ("NOEMA_CODEX__BASE_URL", "https://env.example/codex/"),
+            ("NOEMA_CODEX__TIMEOUT_SECONDS", "123"),
         ],
     )
     .expect("codex config should resolve");
@@ -474,14 +457,9 @@ codex:
     };
 
     assert_eq!(codex.default_model.as_deref(), Some("env-model"));
-    assert_eq!(codex.command, "env-codex");
-    assert_eq!(codex.sandbox, "workspace-write");
-    assert!(codex.ephemeral);
-    assert!(!codex.ignore_rules);
-    assert!(codex.ignore_user_config);
-    assert_eq!(codex.startup_timeout_seconds, 67);
-    assert_eq!(codex.turn_timeout_seconds, 123);
-    assert_eq!(codex.codex_home.as_deref(), Some("/tmp/env-codex-home"));
+    assert_eq!(codex.base_url, "https://env.example/codex");
+    assert_eq!(codex.timeout_seconds, 123);
+    assert_eq!(codex.account_home, None);
 }
 
 #[test]
@@ -489,7 +467,7 @@ fn load_codex_ignores_default_openai_provider_credentials() {
     let codex = load_codex_config(None, CliOverrides::default(), None, &[])
         .expect("codex config should resolve");
 
-    assert_eq!(codex.command, "codex");
+    assert_eq!(codex.base_url, DEFAULT_CODEX_BASE_URL);
 }
 
 #[test]
@@ -541,22 +519,6 @@ fn missing_explicit_config_file_is_an_error() {
 }
 
 #[test]
-fn invalid_codex_bool_env_is_an_error() {
-    let error = load_resolved(
-        None,
-        CliOverrides::default(),
-        None,
-        &[
-            ("NOEMA_PROVIDER", "codex"),
-            ("NOEMA_CODEX__EPHEMERAL", "sometimes"),
-        ],
-    )
-    .unwrap_err();
-
-    assert!(matches!(error, ConfigError::Load(_)));
-}
-
-#[test]
 fn invalid_codex_timeout_env_is_an_error() {
     let error = load_resolved(
         None,
@@ -564,7 +526,7 @@ fn invalid_codex_timeout_env_is_an_error() {
         None,
         &[
             ("NOEMA_PROVIDER", "codex"),
-            ("NOEMA_CODEX__TURN_TIMEOUT_SECONDS", "abc"),
+            ("NOEMA_CODEX__TIMEOUT_SECONDS", "abc"),
         ],
     )
     .unwrap_err();
@@ -580,7 +542,7 @@ fn zero_codex_timeout_is_an_error() {
         None,
         &[
             ("NOEMA_PROVIDER", "codex"),
-            ("NOEMA_CODEX__TURN_TIMEOUT_SECONDS", "0"),
+            ("NOEMA_CODEX__TIMEOUT_SECONDS", "0"),
         ],
     )
     .unwrap_err();
@@ -613,6 +575,7 @@ fn generated_config_template_parses() {
     )
     .expect("generated config should parse");
 
-    assert_eq!(codex.command, "codex");
-    assert_eq!(codex.sandbox, "read-only");
+    assert_eq!(codex.base_url, DEFAULT_CODEX_BASE_URL);
+    assert_eq!(codex.default_model.as_deref(), Some(DEFAULT_CODEX_MODEL));
+    assert_eq!(codex.timeout_seconds, DEFAULT_CODEX_TIMEOUT_SECONDS);
 }

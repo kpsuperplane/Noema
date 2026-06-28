@@ -21,6 +21,7 @@ use crate::{
         CodexDeviceAuthRequest, ProviderAuthAttemptStatus, ProviderAuthAttemptView,
         ProviderAuthManager,
     },
+    providers::codex_oauth::{CodexOAuthConfig, CodexTokenStore},
 };
 
 use super::{protocol::DaemonError, runtime::CodexRuntimeHandle};
@@ -40,7 +41,6 @@ pub(crate) struct WebState {
     memory_repository: PostgresMemoryRepository,
     provider_auth: ProviderAuthManager,
     paths: crate::NoemaPaths,
-    codex_command: String,
     subscriptions: crate::graphql::ConversationSubscriptionRegistry,
 }
 
@@ -52,14 +52,12 @@ impl WebState {
         memory_repository: PostgresMemoryRepository,
         provider_auth: ProviderAuthManager,
         paths: crate::NoemaPaths,
-        codex_command: String,
     ) -> Self {
         Self {
             runtime,
             memory_repository,
             provider_auth,
             paths,
-            codex_command,
             subscriptions: crate::graphql::ConversationSubscriptionRegistry::default(),
         }
     }
@@ -491,7 +489,6 @@ pub(crate) async fn start_provider_auth_attempt_view(
         &state.provider_auth,
         &state.memory_repository,
         &state.paths,
-        &state.codex_command,
         &account,
     )
     .await
@@ -681,14 +678,13 @@ async fn start_codex_provider_auth_attempt(
     starter: &impl CodexDeviceAuthStarter,
     status_store: &impl ProviderAccountStatusStore,
     paths: &crate::NoemaPaths,
-    codex_command: &str,
     account: &crate::ProviderAccountRecord,
 ) -> Result<ProviderAuthAttemptView, StartProviderAuthAttemptError> {
     let attempt = starter
         .start_codex_device_code(CodexDeviceAuthRequest {
             provider_account_id: account.provider_account_id.clone(),
             account_home: paths.provider_account_home(&account.provider_kind, &account.account_key),
-            codex_command: codex_command.to_string(),
+            oauth: CodexOAuthConfig::default(),
             attempt_timeout: None,
         })
         .await
@@ -788,7 +784,7 @@ pub(crate) async fn reconcile_onboarding_provider_account(
         return Ok(None);
     };
     if account.status == crate::ProviderAccountStatus::Authenticated
-        || !codex_account_home_has_file_credentials(paths, &account)
+        || !codex_account_home_has_noema_tokens(paths, &account)
     {
         return Ok(Some(account));
     }
@@ -807,17 +803,15 @@ pub(crate) async fn reconcile_onboarding_provider_account(
     Ok(Some(account))
 }
 
-fn codex_account_home_has_file_credentials(
+fn codex_account_home_has_noema_tokens(
     paths: &crate::NoemaPaths,
     account: &crate::ProviderAccountRecord,
 ) -> bool {
     if account.provider_kind != "codex" {
         return false;
     }
-    paths
-        .provider_account_home(&account.provider_kind, &account.account_key)
-        .join("auth.json")
-        .is_file()
+    let account_home = paths.provider_account_home(&account.provider_kind, &account.account_key);
+    CodexTokenStore::new(account_home).has_usable_tokens()
 }
 
 async fn upgrade_graphql_websocket(
@@ -1234,6 +1228,7 @@ async fn write_ws_frame(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::providers::codex_oauth::CodexOAuthTokens;
     use crate::{
         memory_persistence::{
             ConversationItemKind, ConversationItemRecord, ConversationItemStatus,
@@ -1493,13 +1488,13 @@ mod tests {
 
         attempt.status = crate::provider_auth::ProviderAuthAttemptStatus::Failed;
         attempt.error_code = Some("codex_login_failed".to_string());
-        attempt.error_message = Some("codex login failed".to_string());
+        attempt.error_message = Some("codex auth failed".to_string());
         assert_eq!(
             provider_account_status_update_from_attempt(&attempt),
             Some(ProviderAccountStatusUpdate {
                 status: crate::ProviderAccountStatus::Unauthenticated,
                 error_code: Some("codex_login_failed".to_string()),
-                error_message: Some("codex login failed".to_string()),
+                error_message: Some("codex auth failed".to_string()),
             })
         );
 
@@ -1517,15 +1512,9 @@ mod tests {
             crate::NoemaPaths::from_noema_home(tempfile::tempdir().expect("temp dir").path())
                 .expect("paths");
 
-        start_codex_provider_auth_attempt(
-            &starter,
-            &store,
-            &paths,
-            "codex",
-            &test_provider_account(),
-        )
-        .await
-        .expect("start provider auth");
+        start_codex_provider_auth_attempt(&starter, &store, &paths, &test_provider_account())
+            .await
+            .expect("start provider auth");
 
         let updates = store.updates.lock().expect("updates lock");
         assert_eq!(
@@ -1570,7 +1559,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn onboarding_reconciles_existing_codex_file_credentials() {
+    async fn onboarding_reconciles_existing_noema_codex_tokens() {
         let store = RecordingProviderAccountStatusStore::default();
         let temp_dir = tempfile::tempdir().expect("temp dir");
         let paths = crate::NoemaPaths::from_noema_home(temp_dir.path()).expect("paths");
@@ -1578,8 +1567,13 @@ mod tests {
         account.status = crate::ProviderAccountStatus::Unauthenticated;
         let account_home =
             paths.provider_account_home(&account.provider_kind, &account.account_key);
-        std::fs::create_dir_all(&account_home).expect("account home");
-        std::fs::write(account_home.join("auth.json"), "{}").expect("credential marker");
+        CodexTokenStore::new(account_home)
+            .write(&CodexOAuthTokens {
+                access_token: "access".to_string(),
+                refresh_token: "refresh".to_string(),
+                last_refresh: 123,
+            })
+            .expect("credential marker");
 
         let reconciled = reconcile_onboarding_provider_account(&store, &paths, Some(account))
             .await

@@ -29,8 +29,8 @@ features can grow into:
   default config is missing.
 - The daemon owns live coordination state for active turns. Durable
   conversation identity and transcript history live in Postgres.
-- The daemon starts `codex app-server --listen stdio://` lazily on the first
-  chat conversation or memory extraction job.
+- The daemon calls Codex through Noema-owned OAuth tokens and the direct Codex
+  Responses API. It does not start the Codex CLI or use a `CODEX_HOME`.
 - The local web chat connects to the daemon, loads
   `human:local.primary_conversation_id`, and appends turns to that durable
   Noema conversation.
@@ -46,13 +46,12 @@ does not yet create durable run envelopes, event ledger entries, approvals,
 tools, or durable capability state. Provider runtime ids are adapter internals,
 not product continuity state.
 
-The daemon intentionally uses the stable Codex app-server flow as the current
-answer-generation adapter: initialize the connection, start an adapter-local
-session with the chat client's current working directory when needed, send
-text-only `turn/start` requests with Noema-assembled context, collect assistant
-output from streamed notifications, and wait for `turn/completed`. It does not
-send experimental Codex permission fields; Codex's own config continues to own
-sandbox and permission policy.
+The daemon intentionally owns conversation continuity itself. For each turn it
+assembles recent durable transcript context from Postgres, sends a single
+Responses request to Codex, persists provider output items, executes Noema-local
+tools such as `search_memory`, and sends a second Responses request only when a
+local tool result needs continuation. Codex credentials are stored as Noema-owned
+OAuth token state under the provider account directory.
 
 ## Runtime components
 

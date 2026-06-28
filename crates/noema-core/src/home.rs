@@ -9,13 +9,9 @@ pub const DEFAULT_NOEMA_CONFIG_YAML: &str = r"# Noema configuration
 provider: codex
 
 codex:
-  command: codex
-  sandbox: read-only
-  ephemeral: true
-  ignore_rules: true
-  ignore_user_config: false
-  startup_timeout_seconds: 60
-  turn_timeout_seconds: 300
+  base_url: https://chatgpt.com/backend-api/codex
+  model: gpt-5.5
+  timeout_seconds: 300
 
 # Set NOEMA_DATABASE_URL=postgres://noema:noema@localhost:5432/noema
 

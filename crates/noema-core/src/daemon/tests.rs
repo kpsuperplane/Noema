@@ -13,10 +13,12 @@ use crate::{
         NewMemoryCandidate, NewMemoryParticipant, ObjectRef, ObjectType, PostgresMemoryRepository,
         ReplayMode,
     },
-    providers::codex::CodexProviderConfig,
+    provider::{
+        GenerateInput, GenerateOutputItem, GenerateRequest, GenerateResponse, ProviderError,
+    },
 };
 use serde_json::json;
-use std::path::PathBuf;
+use std::{future::Future, path::PathBuf, pin::Pin, sync::Arc};
 use tokio::sync::mpsc;
 
 const TEST_DATABASE_URL_ENV: &str = "NOEMA_TEST_DATABASE_URL";
@@ -173,18 +175,7 @@ async fn runtime_actor_allocates_distinct_conversation_ids() {
     let Some(database) = test_database().await else {
         return;
     };
-    let script = fake_codex_app_server_script();
-    let handle = CodexRuntimeHandle::spawn(
-        CodexProviderConfig {
-            command: script.to_string_lossy().to_string(),
-            startup_timeout_seconds: 2,
-            turn_timeout_seconds: 2,
-            ..CodexProviderConfig::default()
-        },
-        database.url.clone(),
-    )
-    .await
-    .expect("runtime");
+    let handle = test_runtime_handle(fake_codex_provider(), database.url.clone()).await;
 
     let first = handle
         .start_conversation(None, None)
@@ -210,18 +201,7 @@ async fn runtime_turn_streams_durable_assistant_item_and_idle_status() {
     let Some(database) = test_database().await else {
         return;
     };
-    let script = fake_codex_app_server_script();
-    let handle = CodexRuntimeHandle::spawn(
-        CodexProviderConfig {
-            command: script.to_string_lossy().to_string(),
-            startup_timeout_seconds: 2,
-            turn_timeout_seconds: 2,
-            ..CodexProviderConfig::default()
-        },
-        database.url.clone(),
-    )
-    .await
-    .expect("runtime");
+    let handle = test_runtime_handle(fake_codex_provider(), database.url.clone()).await;
 
     let conversation = handle
         .start_conversation(None, None)
@@ -303,19 +283,11 @@ async fn runtime_primary_conversation_sends_recent_durable_context_after_restart
     let Some(database) = test_database().await else {
         return;
     };
-    let script = fake_codex_app_server_script_with_restart_context_check();
-
-    let first_handle = CodexRuntimeHandle::spawn(
-        CodexProviderConfig {
-            command: script.to_string_lossy().to_string(),
-            startup_timeout_seconds: 2,
-            turn_timeout_seconds: 2,
-            ..CodexProviderConfig::default()
-        },
+    let first_handle = test_runtime_handle(
+        fake_codex_provider_with_restart_context_check(),
         database.url.clone(),
     )
-    .await
-    .expect("first runtime");
+    .await;
     let first_conversation_id = first_handle
         .start_primary_conversation(None, None)
         .await
@@ -331,17 +303,11 @@ async fn runtime_primary_conversation_sends_recent_durable_context_after_restart
     assert_eq!(assistant_text(&first_items), "fake answer");
     first_handle.shutdown().await;
 
-    let second_handle = CodexRuntimeHandle::spawn(
-        CodexProviderConfig {
-            command: script.to_string_lossy().to_string(),
-            startup_timeout_seconds: 2,
-            turn_timeout_seconds: 2,
-            ..CodexProviderConfig::default()
-        },
+    let second_handle = test_runtime_handle(
+        fake_codex_provider_with_restart_context_check(),
         database.url.clone(),
     )
-    .await
-    .expect("second runtime");
+    .await;
     let restarted_conversation_id = second_handle
         .start_primary_conversation(None, None)
         .await
@@ -423,18 +389,11 @@ async fn runtime_actor_persists_explicit_remember_confirmed() {
     let Some(database) = test_database().await else {
         return;
     };
-    let script = fake_codex_app_server_script_with_memory_extraction();
-    let handle = CodexRuntimeHandle::spawn(
-        CodexProviderConfig {
-            command: script.to_string_lossy().to_string(),
-            startup_timeout_seconds: 2,
-            turn_timeout_seconds: 2,
-            ..CodexProviderConfig::default()
-        },
+    let handle = test_runtime_handle(
+        fake_codex_provider_with_memory_extraction(),
         database.url.clone(),
     )
-    .await
-    .expect("runtime");
+    .await;
 
     let conversation = handle
         .start_conversation(None, None)
@@ -562,18 +521,11 @@ async fn runtime_actor_extracts_ordinary_chat_memory_in_background() {
     let Some(database) = test_database().await else {
         return;
     };
-    let script = fake_codex_app_server_script_with_memory_extraction();
-    let handle = CodexRuntimeHandle::spawn(
-        CodexProviderConfig {
-            command: script.to_string_lossy().to_string(),
-            startup_timeout_seconds: 2,
-            turn_timeout_seconds: 2,
-            ..CodexProviderConfig::default()
-        },
+    let handle = test_runtime_handle(
+        fake_codex_provider_with_memory_extraction(),
         database.url.clone(),
     )
-    .await
-    .expect("runtime");
+    .await;
 
     let conversation = handle
         .start_conversation(None, None)
@@ -620,18 +572,11 @@ async fn runtime_actor_persists_provider_structured_memory_proposals_as_activity
     let Some(database) = test_database().await else {
         return;
     };
-    let script = fake_codex_app_server_script_with_memory_extraction();
-    let handle = CodexRuntimeHandle::spawn(
-        CodexProviderConfig {
-            command: script.to_string_lossy().to_string(),
-            startup_timeout_seconds: 2,
-            turn_timeout_seconds: 2,
-            ..CodexProviderConfig::default()
-        },
+    let handle = test_runtime_handle(
+        fake_codex_provider_with_memory_extraction(),
         database.url.clone(),
     )
-    .await
-    .expect("runtime");
+    .await;
 
     let conversation = handle
         .start_conversation(None, None)
@@ -716,18 +661,11 @@ async fn runtime_actor_extracts_natural_remember_through_structured_provider_out
     let Some(database) = test_database().await else {
         return;
     };
-    let script = fake_codex_app_server_script_with_memory_extraction();
-    let handle = CodexRuntimeHandle::spawn(
-        CodexProviderConfig {
-            command: script.to_string_lossy().to_string(),
-            startup_timeout_seconds: 2,
-            turn_timeout_seconds: 2,
-            ..CodexProviderConfig::default()
-        },
+    let handle = test_runtime_handle(
+        fake_codex_provider_with_memory_extraction(),
         database.url.clone(),
     )
-    .await
-    .expect("runtime");
+    .await;
 
     let conversation = handle
         .start_conversation(None, None)
@@ -770,18 +708,11 @@ async fn runtime_actor_keeps_third_party_subject_conversation_scoped() {
     let Some(database) = test_database().await else {
         return;
     };
-    let script = fake_codex_app_server_script_with_memory_extraction();
-    let handle = CodexRuntimeHandle::spawn(
-        CodexProviderConfig {
-            command: script.to_string_lossy().to_string(),
-            startup_timeout_seconds: 2,
-            turn_timeout_seconds: 2,
-            ..CodexProviderConfig::default()
-        },
+    let handle = test_runtime_handle(
+        fake_codex_provider_with_memory_extraction(),
         database.url.clone(),
     )
-    .await
-    .expect("runtime");
+    .await;
 
     let conversation = handle
         .start_conversation(None, None)
@@ -826,18 +757,8 @@ async fn runtime_actor_persists_explicit_remember_before_provider_failure() {
     let Some(database) = test_database().await else {
         return;
     };
-    let script = fake_codex_app_server_script_with_turn_error();
-    let handle = CodexRuntimeHandle::spawn(
-        CodexProviderConfig {
-            command: script.to_string_lossy().to_string(),
-            startup_timeout_seconds: 2,
-            turn_timeout_seconds: 2,
-            ..CodexProviderConfig::default()
-        },
-        database.url.clone(),
-    )
-    .await
-    .expect("runtime");
+    let handle =
+        test_runtime_handle(fake_codex_provider_with_turn_error(), database.url.clone()).await;
 
     let conversation = handle
         .start_conversation(None, None)
@@ -953,18 +874,8 @@ async fn runtime_actor_persists_provider_tool_items_as_action_rows() {
     let Some(database) = test_database().await else {
         return;
     };
-    let script = fake_codex_app_server_script_with_tool_item();
-    let handle = CodexRuntimeHandle::spawn(
-        CodexProviderConfig {
-            command: script.to_string_lossy().to_string(),
-            startup_timeout_seconds: 2,
-            turn_timeout_seconds: 2,
-            ..CodexProviderConfig::default()
-        },
-        database.url.clone(),
-    )
-    .await
-    .expect("runtime");
+    let handle =
+        test_runtime_handle(fake_codex_provider_with_tool_item(), database.url.clone()).await;
 
     let conversation_id = handle
         .start_conversation(None, None)
@@ -1018,18 +929,11 @@ async fn runtime_actor_persists_provider_tool_items_before_turn_failure() {
     let Some(database) = test_database().await else {
         return;
     };
-    let script = fake_codex_app_server_script_with_tool_item_then_failure();
-    let handle = CodexRuntimeHandle::spawn(
-        CodexProviderConfig {
-            command: script.to_string_lossy().to_string(),
-            startup_timeout_seconds: 2,
-            turn_timeout_seconds: 2,
-            ..CodexProviderConfig::default()
-        },
+    let handle = test_runtime_handle(
+        fake_codex_provider_with_tool_item_then_failure(),
         database.url.clone(),
     )
-    .await
-    .expect("runtime");
+    .await;
 
     let conversation_id = handle
         .start_conversation(None, None)
@@ -1073,18 +977,11 @@ async fn runtime_actor_executes_search_memory_as_local_tool_result() {
     let Some(database) = test_database().await else {
         return;
     };
-    let script = fake_codex_app_server_script_with_search_memory_continuation();
-    let handle = CodexRuntimeHandle::spawn(
-        CodexProviderConfig {
-            command: script.to_string_lossy().to_string(),
-            startup_timeout_seconds: 2,
-            turn_timeout_seconds: 2,
-            ..CodexProviderConfig::default()
-        },
+    let handle = test_runtime_handle(
+        fake_codex_provider_with_search_memory_continuation(),
         database.url.clone(),
     )
-    .await
-    .expect("runtime");
+    .await;
 
     let conversation = handle
         .start_conversation(None, None)
@@ -1186,18 +1083,11 @@ async fn search_memory_tool_redacts_policy_omissions() {
     let Some(database) = test_database().await else {
         return;
     };
-    let script = fake_codex_app_server_script_with_search_memory_continuation();
-    let handle = CodexRuntimeHandle::spawn(
-        CodexProviderConfig {
-            command: script.to_string_lossy().to_string(),
-            startup_timeout_seconds: 2,
-            turn_timeout_seconds: 2,
-            ..CodexProviderConfig::default()
-        },
+    let handle = test_runtime_handle(
+        fake_codex_provider_with_search_memory_continuation(),
         database.url.clone(),
     )
-    .await
-    .expect("runtime");
+    .await;
 
     let conversation_id = handle
         .start_conversation(None, None)
@@ -1266,18 +1156,11 @@ async fn search_memory_tool_invalid_arguments_are_failed_tool_result() {
     let Some(database) = test_database().await else {
         return;
     };
-    let script = fake_codex_app_server_script_with_invalid_search_memory_tool_item();
-    let handle = CodexRuntimeHandle::spawn(
-        CodexProviderConfig {
-            command: script.to_string_lossy().to_string(),
-            startup_timeout_seconds: 2,
-            turn_timeout_seconds: 2,
-            ..CodexProviderConfig::default()
-        },
+    let handle = test_runtime_handle(
+        fake_codex_provider_with_invalid_search_memory_tool_item(),
         database.url.clone(),
     )
-    .await
-    .expect("runtime");
+    .await;
 
     let conversation_id = handle
         .start_conversation(None, None)
@@ -1366,45 +1249,6 @@ fn transcript_items_from_events(events: Vec<TurnStreamEvent>) -> Vec<TurnTranscr
         .collect()
 }
 
-fn fake_codex_app_server_script_with_turn_error() -> std::path::PathBuf {
-    let dir = tempfile::tempdir().expect("temp dir").keep();
-    let path = dir.join("fake-codex-error");
-    std::fs::write(
-        &path,
-        r#"#!/usr/bin/env python3
-import json
-import sys
-
-next_thread = 1
-
-for line in sys.stdin:
-    msg = json.loads(line)
-    method = msg.get("method")
-    if method == "initialize":
-        print(json.dumps({"id": msg["id"], "result": {"userAgent": "fake"}}), flush=True)
-    elif method == "initialized":
-        pass
-    elif method == "thread/start":
-        thread = f"thread_{next_thread}"
-        next_thread += 1
-        print(json.dumps({"id": msg["id"], "result": {"thread": {"id": thread}}}), flush=True)
-    elif method == "turn/start":
-        print(json.dumps({"id": msg["id"], "error": {"code": -32000, "message": "turn failed"}}), flush=True)
-"#,
-    )
-    .expect("write script");
-
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mut permissions = std::fs::metadata(&path).expect("metadata").permissions();
-        permissions.set_mode(0o755);
-        std::fs::set_permissions(&path, permissions).expect("chmod");
-    }
-
-    path
-}
-
 fn assistant_text(items: &[TurnTranscriptItem]) -> &str {
     let Some(text) = items.iter().find_map(|item| match item {
         TurnTranscriptItem::AssistantText { text } => Some(text.as_str()),
@@ -1418,568 +1262,295 @@ fn assistant_text(items: &[TurnTranscriptItem]) -> &str {
     text
 }
 
-fn fake_codex_app_server_script() -> std::path::PathBuf {
-    let dir = tempfile::tempdir().expect("temp dir").keep();
-    let path = dir.join("fake-codex");
-    std::fs::write(
-        &path,
-        r#"#!/usr/bin/env python3
-import json
-import sys
-
-next_thread = 1
-
-for line in sys.stdin:
-    msg = json.loads(line)
-    method = msg.get("method")
-    if method == "initialize":
-        print(json.dumps({"id": msg["id"], "result": {"userAgent": "fake"}}), flush=True)
-    elif method == "initialized":
-        pass
-    elif method == "thread/start":
-        if "model" in msg.get("params", {}):
-            print(json.dumps({"id": msg["id"], "error": {"code": -32602, "message": "model should be omitted by default"}}), flush=True)
-            continue
-        thread = f"thread_{next_thread}"
-        next_thread += 1
-        print(json.dumps({"id": msg["id"], "result": {"thread": {"id": thread}}}), flush=True)
-    elif method == "turn/start":
-        input_text = "".join(
-            part.get("text", "")
-            for part in msg.get("params", {}).get("input", [])
-            if part.get("type") == "text"
-        )
-        text = "fake answer"
-        if "noema_response" in input_text:
-            text = json.dumps({
-                "type": "noema_response",
-                "output": [
-                    {"kind": "assistant_text", "text": "fake answer"},
-                    {"kind": "memory_proposals", "proposals": []}
-                ]
-            })
-        print(json.dumps({"id": msg["id"], "result": {"turn": {"id": "turn_1"}}}), flush=True)
-        print(json.dumps({"method": "item/completed", "params": {"item": {"type": "agentMessage", "text": text}}}), flush=True)
-        print(json.dumps({"method": "turn/completed", "params": {"turn": {"status": "completed"}}}), flush=True)
-"#,
-    )
-    .expect("write script");
-
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mut permissions = std::fs::metadata(&path).expect("metadata").permissions();
-        permissions.set_mode(0o755);
-        std::fs::set_permissions(&path, permissions).expect("chmod");
-    }
-
-    path
+async fn test_runtime_handle(
+    provider: FakeCodexProvider,
+    database_url: String,
+) -> CodexRuntimeHandle {
+    CodexRuntimeHandle::spawn_with_provider(Arc::new(provider), database_url)
+        .await
+        .expect("runtime")
 }
 
-fn fake_codex_app_server_script_with_restart_context_check() -> std::path::PathBuf {
-    let dir = tempfile::tempdir().expect("temp dir").keep();
-    let path = dir.join("fake-codex-restart-context");
-    std::fs::write(
-        &path,
-        r#"#!/usr/bin/env python3
-import json
-import sys
+#[derive(Debug, Clone)]
+struct FakeCodexProvider {
+    scenario: FakeCodexScenario,
+}
 
-next_thread = 1
+#[derive(Debug, Clone, Copy)]
+enum FakeCodexScenario {
+    Simple,
+    RestartContext,
+    TurnError,
+    ToolItem,
+    ToolItemThenFailure,
+    InvalidSearchMemory,
+    SearchMemoryContinuation,
+    MemoryExtraction,
+}
 
-for line in sys.stdin:
-    msg = json.loads(line)
-    method = msg.get("method")
-    if method == "initialize":
-        print(json.dumps({"id": msg["id"], "result": {"userAgent": "fake"}}), flush=True)
-    elif method == "initialized":
-        pass
-    elif method == "thread/start":
-        thread = f"thread_{next_thread}"
-        next_thread += 1
-        print(json.dumps({"id": msg["id"], "result": {"thread": {"id": thread}}}), flush=True)
-    elif method == "turn/start":
-        input_text = "".join(
-            part.get("text", "")
-            for part in msg.get("params", {}).get("input", [])
-            if part.get("type") == "text"
-        )
-        answer = "fake answer"
-        if (
-            "Recent durable transcript from Noema Postgres:" in input_text
-            and "User: first durable question" in input_text
-            and "Noema: fake answer" in input_text
-            and "User message:\nsecond durable question" in input_text
-        ):
-            answer = "saw durable context"
-        text = json.dumps({
-            "type": "noema_response",
-            "output": [
-                {"kind": "assistant_text", "text": answer},
-                {"kind": "memory_proposals", "proposals": []}
-            ]
+impl FakeCodexProvider {
+    fn new(scenario: FakeCodexScenario) -> Self {
+        Self { scenario }
+    }
+
+    fn generate_response(
+        &self,
+        request: GenerateRequest,
+    ) -> Result<GenerateResponse, ProviderError> {
+        let model = request
+            .model
+            .clone()
+            .unwrap_or_else(|| "fake-model".to_string());
+        let GenerateInput::Text(input) = request.input;
+        let instructions = request.instructions.unwrap_or_default();
+        let output = match self.scenario {
+            FakeCodexScenario::Simple => assistant_with_no_memories("fake answer"),
+            FakeCodexScenario::RestartContext => {
+                let saw_context = instructions
+                    .contains("Recent durable transcript from Noema Postgres:")
+                    && instructions.contains("User: first durable question")
+                    && instructions.contains("Noema: fake answer")
+                    && input.contains("second durable question");
+                assistant_with_no_memories(if saw_context {
+                    "saw durable context"
+                } else {
+                    "fake answer"
+                })
+            }
+            FakeCodexScenario::TurnError => {
+                return Err(ProviderError::ApiError {
+                    status: 500,
+                    message: "turn failed".to_string(),
+                    request_id: None,
+                });
+            }
+            FakeCodexScenario::ToolItem => vec![
+                search_memory_tool_call("call_1", json!({"arguments": {"query": "trains"}})),
+                GenerateOutputItem::AssistantText {
+                    text: "fake answer".to_string(),
+                },
+                GenerateOutputItem::MemoryProposals { proposals: vec![] },
+            ],
+            FakeCodexScenario::ToolItemThenFailure => {
+                return Err(ProviderError::PartialResponse {
+                    provider: "codex".to_string(),
+                    model,
+                    message: "tool failed later".to_string(),
+                    output: vec![search_memory_tool_call(
+                        "call_1",
+                        json!({"arguments": {"query": "trains"}}),
+                    )],
+                });
+            }
+            FakeCodexScenario::InvalidSearchMemory => {
+                if input.contains("NOEMA_LOCAL_TOOL_RESULT") {
+                    assistant_with_no_memories("invalid tool result received")
+                } else {
+                    vec![
+                        search_memory_tool_call(
+                            "call_bad",
+                            json!({"arguments": {"query": "trains", "purpose": "dump_everything"}}),
+                        ),
+                        GenerateOutputItem::MemoryProposals { proposals: vec![] },
+                    ]
+                }
+            }
+            FakeCodexScenario::SearchMemoryContinuation => {
+                if input.contains("NOEMA_LOCAL_TOOL_RESULT") {
+                    vec![
+                        GenerateOutputItem::AssistantText {
+                            text: "I found your train memory.".to_string(),
+                        },
+                        GenerateOutputItem::MemoryProposals {
+                            proposals: vec![proposal(json!({
+                                "content": "Noema found Kevin's train memory.",
+                                "memory_type": "note",
+                                "title": "Train memory recall",
+                                "confidence": 0.72,
+                                "sensitivity": "normal",
+                                "subjects": [{"id": "human:local", "kind": "human", "name": "Kevin", "role": "about"}],
+                                "retrieval_hints": {"topics": ["trains"], "keywords": ["train memory"], "summary": "Noema found Kevin's train memory."},
+                                "risk_flags": [],
+                                "evidence_excerpt": "I found your train memory."
+                            }))],
+                        },
+                    ]
+                } else if input.contains("Please remember I'm a big fan of trains") {
+                    vec![
+                        GenerateOutputItem::AssistantText {
+                            text: "fake answer".to_string(),
+                        },
+                        GenerateOutputItem::MemoryProposals {
+                            proposals: vec![train_preference_proposal()],
+                        },
+                    ]
+                } else if input.contains("What do you remember about trains?") {
+                    vec![
+                        GenerateOutputItem::AssistantText {
+                            text: "Searching memory.".to_string(),
+                        },
+                        search_memory_tool_call(
+                            "call_1",
+                            json!({"arguments": {"query": "trains"}}),
+                        ),
+                        GenerateOutputItem::MemoryProposals { proposals: vec![] },
+                    ]
+                } else {
+                    assistant_with_no_memories("fake answer")
+                }
+            }
+            FakeCodexScenario::MemoryExtraction => memory_extraction_output(&input),
+        };
+
+        Ok(GenerateResponse {
+            output,
+            provider: "codex".to_string(),
+            model,
+            response_id: Some("fake-response".to_string()),
+            usage: None,
         })
-        print(json.dumps({"id": msg["id"], "result": {"turn": {"id": "turn_1"}}}), flush=True)
-        print(json.dumps({"method": "item/completed", "params": {"item": {"type": "agentMessage", "text": text}}}), flush=True)
-        print(json.dumps({"method": "turn/completed", "params": {"turn": {"status": "completed"}}}), flush=True)
-"#,
-    )
-    .expect("write script");
-
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mut permissions = std::fs::metadata(&path).expect("metadata").permissions();
-        permissions.set_mode(0o755);
-        std::fs::set_permissions(&path, permissions).expect("chmod");
     }
-
-    path
 }
 
-fn fake_codex_app_server_script_with_tool_item() -> std::path::PathBuf {
-    let dir = tempfile::tempdir().expect("temp dir").keep();
-    let path = dir.join("fake-codex-tool-item");
-    std::fs::write(
-        &path,
-        r#"#!/usr/bin/env python3
-import json
-import sys
-
-next_thread = 1
-
-for line in sys.stdin:
-    msg = json.loads(line)
-    method = msg.get("method")
-    if method == "initialize":
-        print(json.dumps({"id": msg["id"], "result": {"userAgent": "fake"}}), flush=True)
-    elif method == "initialized":
-        pass
-    elif method == "thread/start":
-        thread = f"thread_{next_thread}"
-        next_thread += 1
-        print(json.dumps({"id": msg["id"], "result": {"thread": {"id": thread}}}), flush=True)
-    elif method == "turn/start":
-        print(json.dumps({"id": msg["id"], "result": {"turn": {"id": "turn_1"}}}), flush=True)
-        print(json.dumps({"method": "item/completed", "params": {"item": {"type": "toolCall", "id": "call_1", "name": "search_memory", "arguments": {"query": "trains"}}}}), flush=True)
-        print(json.dumps({"method": "item/completed", "params": {"item": {"type": "agentMessage", "text": "fake answer"}}}), flush=True)
-        print(json.dumps({"method": "turn/completed", "params": {"turn": {"status": "completed"}}}), flush=True)
-"#,
-    )
-    .expect("write script");
-
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mut permissions = std::fs::metadata(&path).expect("metadata").permissions();
-        permissions.set_mode(0o755);
-        std::fs::set_permissions(&path, permissions).expect("chmod");
+impl super::runtime::RuntimeModelProvider for FakeCodexProvider {
+    fn generate<'a>(
+        &'a self,
+        request: GenerateRequest,
+    ) -> Pin<Box<dyn Future<Output = Result<GenerateResponse, ProviderError>> + Send + 'a>> {
+        Box::pin(async move { self.generate_response(request) })
     }
-
-    path
 }
 
-fn fake_codex_app_server_script_with_tool_item_then_failure() -> std::path::PathBuf {
-    let dir = tempfile::tempdir().expect("temp dir").keep();
-    let path = dir.join("fake-codex-tool-item-failure");
-    std::fs::write(
-        &path,
-        r#"#!/usr/bin/env python3
-import json
-import sys
-
-next_thread = 1
-
-for line in sys.stdin:
-    msg = json.loads(line)
-    method = msg.get("method")
-    if method == "initialize":
-        print(json.dumps({"id": msg["id"], "result": {"userAgent": "fake"}}), flush=True)
-    elif method == "initialized":
-        pass
-    elif method == "thread/start":
-        thread = f"thread_{next_thread}"
-        next_thread += 1
-        print(json.dumps({"id": msg["id"], "result": {"thread": {"id": thread}}}), flush=True)
-    elif method == "turn/start":
-        print(json.dumps({"id": msg["id"], "result": {"turn": {"id": "turn_1"}}}), flush=True)
-        print(json.dumps({"method": "item/completed", "params": {"item": {"type": "toolCall", "id": "call_1", "name": "search_memory", "arguments": {"query": "trains"}}}}), flush=True)
-        print(json.dumps({"method": "turn/completed", "params": {"turn": {"status": "failed", "error": {"message": "tool failed later"}}}}), flush=True)
-"#,
-    )
-    .expect("write script");
-
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mut permissions = std::fs::metadata(&path).expect("metadata").permissions();
-        permissions.set_mode(0o755);
-        std::fs::set_permissions(&path, permissions).expect("chmod");
-    }
-
-    path
+fn assistant_with_no_memories(text: &str) -> Vec<GenerateOutputItem> {
+    vec![
+        GenerateOutputItem::AssistantText {
+            text: text.to_string(),
+        },
+        GenerateOutputItem::MemoryProposals { proposals: vec![] },
+    ]
 }
 
-fn fake_codex_app_server_script_with_invalid_search_memory_tool_item() -> std::path::PathBuf {
-    let dir = tempfile::tempdir().expect("temp dir").keep();
-    let path = dir.join("fake-codex-invalid-search-memory");
-    std::fs::write(
-        &path,
-        r#"#!/usr/bin/env python3
-import json
-import sys
-
-next_thread = 1
-
-for line in sys.stdin:
-    msg = json.loads(line)
-    method = msg.get("method")
-    if method == "initialize":
-        print(json.dumps({"id": msg["id"], "result": {"userAgent": "fake"}}), flush=True)
-    elif method == "initialized":
-        pass
-    elif method == "thread/start":
-        thread = f"thread_{next_thread}"
-        next_thread += 1
-        print(json.dumps({"id": msg["id"], "result": {"thread": {"id": thread}}}), flush=True)
-    elif method == "turn/start":
-        input_text = "".join(
-            part.get("text", "")
-            for part in msg.get("params", {}).get("input", [])
-            if part.get("type") == "text"
-        )
-        if "NOEMA_LOCAL_TOOL_RESULT" in input_text:
-            text = json.dumps({
-                "type": "noema_response",
-                "output": [
-                    {"kind": "assistant_text", "text": "invalid tool result received"},
-                    {"kind": "memory_proposals", "proposals": []}
-                ]
-            })
-        else:
-            text = json.dumps({
-                "type": "noema_response",
-                "output": [
-                    {
-                        "kind": "tool_call",
-                        "id": "call_bad",
-                        "name": "search_memory",
-                        "payload": {
-                            "arguments": {
-                                "query": "trains",
-                                "purpose": "dump_everything"
-                            }
-                        }
-                    },
-                    {"kind": "memory_proposals", "proposals": []}
-                ]
-            })
-        print(json.dumps({"id": msg["id"], "result": {"turn": {"id": "turn_1"}}}), flush=True)
-        print(json.dumps({"method": "item/completed", "params": {"item": {"type": "agentMessage", "text": text}}}), flush=True)
-        print(json.dumps({"method": "turn/completed", "params": {"turn": {"status": "completed"}}}), flush=True)
-"#,
-    )
-    .expect("write script");
-
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mut permissions = std::fs::metadata(&path).expect("metadata").permissions();
-        permissions.set_mode(0o755);
-        std::fs::set_permissions(&path, permissions).expect("chmod");
+fn search_memory_tool_call(id: &str, payload: serde_json::Value) -> GenerateOutputItem {
+    GenerateOutputItem::ToolCall {
+        id: Some(id.to_string()),
+        name: "search_memory".to_string(),
+        payload,
     }
-
-    path
 }
 
-fn fake_codex_app_server_script_with_search_memory_continuation() -> std::path::PathBuf {
-    let dir = tempfile::tempdir().expect("temp dir").keep();
-    let path = dir.join("fake-codex-search-memory-continuation");
-    std::fs::write(
-        &path,
-        r#"#!/usr/bin/env python3
-import json
-import sys
+fn proposal(value: serde_json::Value) -> crate::ExtractorMemoryProposal {
+    serde_json::from_value(value).expect("valid fake memory proposal")
+}
 
-next_thread = 1
+fn train_preference_proposal() -> crate::ExtractorMemoryProposal {
+    proposal(json!({
+        "content": "Kevin is a big fan of trains.",
+        "memory_type": "preference",
+        "title": "Train enthusiasm",
+        "confidence": 0.92,
+        "sensitivity": "normal",
+        "subjects": [{"id": "human:local", "kind": "human", "name": "Kevin", "role": "about"}],
+        "retrieval_hints": {"topics": ["interests"], "keywords": ["trains"], "summary": "Kevin is a big fan of trains."},
+        "risk_flags": [],
+        "evidence_excerpt": "I'm a big fan of trains"
+    }))
+}
 
-for line in sys.stdin:
-    msg = json.loads(line)
-    method = msg.get("method")
-    if method == "initialize":
-        print(json.dumps({"id": msg["id"], "result": {"userAgent": "fake"}}), flush=True)
-    elif method == "initialized":
-        pass
-    elif method == "thread/start":
-        thread = f"thread_{next_thread}"
-        next_thread += 1
-        print(json.dumps({"id": msg["id"], "result": {"thread": {"id": thread}}}), flush=True)
-    elif method == "turn/start":
-        input_text = "".join(
-            part.get("text", "")
-            for part in msg.get("params", {}).get("input", [])
-            if part.get("type") == "text"
-        )
-        if "NOEMA_LOCAL_TOOL_RESULT" in input_text:
-            proposal = {
-                "content": "Noema found Kevin's train memory.",
-                "memory_type": "note",
-                "title": "Train memory recall",
-                "confidence": 0.72,
-                "sensitivity": "normal",
-                "subjects": [
-                    {
-                        "id": "human:local",
-                        "kind": "human",
-                        "name": "Kevin",
-                        "role": "about"
-                    }
-                ],
-                "retrieval_hints": {
-                    "topics": ["trains"],
-                    "keywords": ["train memory"],
-                    "summary": "Noema found Kevin's train memory."
-                },
-                "risk_flags": [],
-                "evidence_excerpt": "I found your train memory."
-            }
-            text = json.dumps({
-                "type": "noema_response",
-                "output": [
-                    {"kind": "assistant_text", "text": "I found your train memory."},
-                    {"kind": "memory_proposals", "proposals": [proposal]}
-                ]
-            })
-        elif "Please remember I'm a big fan of trains" in input_text and "noema_response" in input_text:
-            proposal = {
-                "content": "Kevin is a big fan of trains.",
+fn memory_extraction_output(input: &str) -> Vec<GenerateOutputItem> {
+    if input.contains("ordinary-chat memory proposal extractor") {
+        let proposal = if input.contains("Alice prefers decaf.") {
+            proposal(json!({
+                "content": "Alice prefers decaf.",
                 "memory_type": "preference",
-                "title": "Train enthusiasm",
-                "confidence": 0.92,
-                "sensitivity": "normal",
-                "subjects": [
-                    {
-                        "id": "human:local",
-                        "kind": "human",
-                        "name": "Kevin",
-                        "role": "about"
-                    }
-                ],
-                "retrieval_hints": {
-                    "topics": ["interests"],
-                    "keywords": ["trains"],
-                    "summary": "Kevin is a big fan of trains."
-                },
-                "risk_flags": [],
-                "evidence_excerpt": "I'm a big fan of trains"
-            }
-            text = json.dumps({
-                "type": "noema_response",
-                "output": [
-                    {"kind": "assistant_text", "text": "fake answer"},
-                    {"kind": "memory_proposals", "proposals": [proposal]}
-                ]
-            })
-        elif "What do you remember about trains?" in input_text and "noema_response" in input_text:
-            text = json.dumps({
-                "type": "noema_response",
-                "output": [
-                    {"kind": "assistant_text", "text": "Searching memory."},
-                    {
-                        "kind": "tool_call",
-                        "id": "call_1",
-                        "name": "search_memory",
-                        "payload": {"arguments": {"query": "trains"}}
-                    },
-                    {"kind": "memory_proposals", "proposals": []}
-                ]
-            })
-        else:
-            text = json.dumps({
-                "type": "noema_response",
-                "output": [
-                    {"kind": "assistant_text", "text": "fake answer"},
-                    {"kind": "memory_proposals", "proposals": []}
-                ]
-            })
-        print(json.dumps({"id": msg["id"], "result": {"turn": {"id": "turn_1"}}}), flush=True)
-        print(json.dumps({"method": "item/completed", "params": {"item": {"type": "agentMessage", "text": text}}}), flush=True)
-        print(json.dumps({"method": "turn/completed", "params": {"turn": {"status": "completed"}}}), flush=True)
-"#,
-    )
-    .expect("write script");
-
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mut permissions = std::fs::metadata(&path).expect("metadata").permissions();
-        permissions.set_mode(0o755);
-        std::fs::set_permissions(&path, permissions).expect("chmod");
-    }
-
-    path
-}
-
-fn fake_codex_app_server_script_with_memory_extraction() -> std::path::PathBuf {
-    let dir = tempfile::tempdir().expect("temp dir").keep();
-    let path = dir.join("fake-codex-memory-extraction");
-    std::fs::write(
-        &path,
-        r#"#!/usr/bin/env python3
-import json
-import sys
-
-next_thread = 1
-
-for line in sys.stdin:
-    msg = json.loads(line)
-    method = msg.get("method")
-    if method == "initialize":
-        print(json.dumps({"id": msg["id"], "result": {"userAgent": "fake"}}), flush=True)
-    elif method == "initialized":
-        pass
-    elif method == "thread/start":
-        thread = f"thread_{next_thread}"
-        next_thread += 1
-        print(json.dumps({"id": msg["id"], "result": {"thread": {"id": thread}}}), flush=True)
-    elif method == "turn/start":
-        input_text = "".join(
-            part.get("text", "")
-            for part in msg.get("params", {}).get("input", [])
-            if part.get("type") == "text"
-        )
-        if "ordinary-chat memory proposal extractor" in input_text:
-            if "Alice prefers decaf." in input_text:
-                proposal = {
-                    "content": "Alice prefers decaf.",
-                    "memory_type": "preference",
-                    "title": "Alice decaf preference",
-                    "confidence": 0.91,
-                    "sensitivity": "normal",
-                    "subjects": [
-                        {
-                            "id": None,
-                            "kind": "human",
-                            "name": "Alice",
-                            "role": "about"
-                        }
-                    ],
-                    "retrieval_hints": {
-                        "topics": ["people"],
-                        "keywords": ["Alice", "decaf"],
-                        "summary": "Alice prefers decaf."
-                    },
-                    "risk_flags": [],
-                    "evidence_excerpt": "Alice prefers decaf."
-                }
-            else:
-                proposal = {
-                    "content": "Kevin prefers automatic memory extraction in chat.",
-                    "memory_type": "preference",
-                    "title": "Automatic memory extraction preference",
-                    "confidence": 0.91,
-                    "sensitivity": "normal",
-                    "subjects": [
-                        {
-                            "id": "human:local",
-                            "kind": "human",
-                            "name": "Kevin",
-                            "role": "about"
-                        }
-                    ],
-                    "retrieval_hints": {
-                        "topics": ["memory"],
-                        "keywords": ["automatic memory extraction", "chat"],
-                        "summary": "Kevin prefers automatic memory extraction in chat."
-                    },
-                    "risk_flags": [],
-                    "evidence_excerpt": "I prefer automatic memory extraction in chat."
-                }
-            text = json.dumps({"proposals": [proposal]})
-        elif "I prefer same-call memory proposals." in input_text and "noema_response" in input_text:
-            proposal = {
-                "content": "Kevin prefers same-call memory proposals.",
-                "memory_type": "preference",
-                "title": "Same-call memory proposal preference",
+                "title": "Alice decaf preference",
                 "confidence": 0.91,
                 "sensitivity": "normal",
-                "subjects": [
-                    {
-                        "id": "human:local",
-                        "kind": "human",
-                        "name": "Kevin",
-                        "role": "about"
-                    }
-                ],
-                "retrieval_hints": {
-                    "topics": ["memory"],
-                    "keywords": ["same-call memory proposals"],
-                    "summary": "Kevin prefers same-call memory proposals."
-                },
+                "subjects": [{"id": null, "kind": "human", "name": "Alice", "role": "about"}],
+                "retrieval_hints": {"topics": ["people"], "keywords": ["Alice", "decaf"], "summary": "Alice prefers decaf."},
                 "risk_flags": [],
-                "evidence_excerpt": "I prefer same-call memory proposals."
-            }
-            text = json.dumps({
-                "type": "noema_response",
-                "output": [
-                    {"kind": "assistant_text", "text": "fake answer"},
-                    {"kind": "memory_proposals", "proposals": [proposal]}
-                ]
-            })
-        elif "Please remember I'm a big fan of trains" in input_text and "noema_response" in input_text:
-            proposal = {
-                "content": "Kevin is a big fan of trains.",
+                "evidence_excerpt": "Alice prefers decaf."
+            }))
+        } else {
+            proposal(json!({
+                "content": "Kevin prefers automatic memory extraction in chat.",
                 "memory_type": "preference",
-                "title": "Train enthusiasm",
-                "confidence": 0.92,
+                "title": "Automatic memory extraction preference",
+                "confidence": 0.91,
                 "sensitivity": "normal",
-                "subjects": [
-                    {
-                        "id": "human:local",
-                        "kind": "human",
-                        "name": "Kevin",
-                        "role": "about"
-                    }
-                ],
-                "retrieval_hints": {
-                    "topics": ["interests"],
-                    "keywords": ["trains"],
-                    "summary": "Kevin is a big fan of trains."
-                },
+                "subjects": [{"id": "human:local", "kind": "human", "name": "Kevin", "role": "about"}],
+                "retrieval_hints": {"topics": ["memory"], "keywords": ["automatic memory extraction", "chat"], "summary": "Kevin prefers automatic memory extraction in chat."},
                 "risk_flags": [],
-                "evidence_excerpt": "I'm a big fan of trains"
-            }
-            text = json.dumps({
-                "type": "noema_response",
-                "output": [
-                    {"kind": "assistant_text", "text": "fake answer"},
-                    {"kind": "memory_proposals", "proposals": [proposal]}
-                ]
-            })
-        elif "noema_response" in input_text:
-            text = json.dumps({
-                "type": "noema_response",
-                "output": [
-                    {"kind": "assistant_text", "text": "fake answer"},
-                    {"kind": "memory_proposals", "proposals": []}
-                ]
-            })
-        else:
-            text = "fake answer"
-        print(json.dumps({"id": msg["id"], "result": {"turn": {"id": "turn_1"}}}), flush=True)
-        print(json.dumps({"method": "item/completed", "params": {"item": {"type": "agentMessage", "text": text}}}), flush=True)
-        print(json.dumps({"method": "turn/completed", "params": {"turn": {"status": "completed"}}}), flush=True)
-"#,
-    )
-    .expect("write script");
-
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mut permissions = std::fs::metadata(&path).expect("metadata").permissions();
-        permissions.set_mode(0o755);
-        std::fs::set_permissions(&path, permissions).expect("chmod");
+                "evidence_excerpt": "I prefer automatic memory extraction in chat."
+            }))
+        };
+        return vec![GenerateOutputItem::AssistantText {
+            text: serde_json::to_string(&json!({"proposals": [proposal]})).expect("extractor json"),
+        }];
     }
 
-    path
+    if input.contains("I prefer same-call memory proposals.") {
+        return vec![
+            GenerateOutputItem::AssistantText {
+                text: "fake answer".to_string(),
+            },
+            GenerateOutputItem::MemoryProposals {
+                proposals: vec![proposal(json!({
+                    "content": "Kevin prefers same-call memory proposals.",
+                    "memory_type": "preference",
+                    "title": "Same-call memory proposal preference",
+                    "confidence": 0.91,
+                    "sensitivity": "normal",
+                    "subjects": [{"id": "human:local", "kind": "human", "name": "Kevin", "role": "about"}],
+                    "retrieval_hints": {"topics": ["memory"], "keywords": ["same-call memory proposals"], "summary": "Kevin prefers same-call memory proposals."},
+                    "risk_flags": [],
+                    "evidence_excerpt": "I prefer same-call memory proposals."
+                }))],
+            },
+        ];
+    }
+
+    if input.contains("Please remember I'm a big fan of trains") {
+        return vec![
+            GenerateOutputItem::AssistantText {
+                text: "fake answer".to_string(),
+            },
+            GenerateOutputItem::MemoryProposals {
+                proposals: vec![train_preference_proposal()],
+            },
+        ];
+    }
+
+    assistant_with_no_memories("fake answer")
+}
+
+fn fake_codex_provider_with_turn_error() -> FakeCodexProvider {
+    FakeCodexProvider::new(FakeCodexScenario::TurnError)
+}
+
+fn fake_codex_provider() -> FakeCodexProvider {
+    FakeCodexProvider::new(FakeCodexScenario::Simple)
+}
+
+fn fake_codex_provider_with_restart_context_check() -> FakeCodexProvider {
+    FakeCodexProvider::new(FakeCodexScenario::RestartContext)
+}
+
+fn fake_codex_provider_with_tool_item() -> FakeCodexProvider {
+    FakeCodexProvider::new(FakeCodexScenario::ToolItem)
+}
+
+fn fake_codex_provider_with_tool_item_then_failure() -> FakeCodexProvider {
+    FakeCodexProvider::new(FakeCodexScenario::ToolItemThenFailure)
+}
+
+fn fake_codex_provider_with_invalid_search_memory_tool_item() -> FakeCodexProvider {
+    FakeCodexProvider::new(FakeCodexScenario::InvalidSearchMemory)
+}
+
+fn fake_codex_provider_with_search_memory_continuation() -> FakeCodexProvider {
+    FakeCodexProvider::new(FakeCodexScenario::SearchMemoryContinuation)
+}
+
+fn fake_codex_provider_with_memory_extraction() -> FakeCodexProvider {
+    FakeCodexProvider::new(FakeCodexScenario::MemoryExtraction)
 }

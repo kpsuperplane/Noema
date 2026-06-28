@@ -1,11 +1,15 @@
 //! Provider adapter for the OpenAI Responses API.
 
-use crate::provider::{
-    GenerateInput, GenerateRequest, GenerateResponse, ModelProvider, ProviderError, TokenUsage,
-    output_items_from_text, required_output_items_from_text,
+use crate::{
+    provider::{
+        GenerateInput, GenerateRequest, GenerateResponse, ModelProvider, ProviderError,
+        output_items_from_text, required_output_items_from_text,
+    },
+    providers::responses::{
+        ResponsesRequest, ResponsesTransport, header_value, normalize_base_url,
+    },
 };
-use reqwest::{StatusCode, header::HeaderMap};
-use serde::{Deserialize, Serialize};
+use reqwest::header::{HeaderMap, HeaderName};
 use std::time::Duration;
 
 /// Default request timeout for `OpenAI` calls.
@@ -31,7 +35,7 @@ pub struct OpenAiProviderConfig {
 /// Provider implementation backed by the `OpenAI` Responses API.
 #[derive(Debug)]
 pub struct OpenAiProvider {
-    client: reqwest::Client,
+    transport: ResponsesTransport,
     config: OpenAiProviderConfig,
 }
 
@@ -49,7 +53,7 @@ impl OpenAiProvider {
             .build()
             .map_err(|source| ProviderError::HttpFailure { source })?;
 
-        Ok(Self { client, config })
+        Self::with_client(client, config)
     }
 
     /// Build an `OpenAI` provider with a caller-supplied reqwest client.
@@ -64,12 +68,38 @@ impl OpenAiProvider {
         config: OpenAiProviderConfig,
     ) -> Result<Self, ProviderError> {
         let config = normalize_config(config)?;
-
-        Ok(Self { client, config })
+        let transport = ResponsesTransport::new(client, config.base_url.clone())?;
+        Ok(Self { transport, config })
     }
 
-    fn responses_url(&self) -> String {
-        format!("{}/responses", self.config.base_url)
+    fn extra_headers(&self) -> Result<HeaderMap, ProviderError> {
+        let mut headers = HeaderMap::new();
+
+        if let Some(organization_id) = self
+            .config
+            .organization_id
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+        {
+            headers.insert(
+                HeaderName::from_static("openai-organization"),
+                header_value(organization_id, "openai organization id")?,
+            );
+        }
+
+        if let Some(project_id) = self
+            .config
+            .project_id
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+        {
+            headers.insert(
+                HeaderName::from_static("openai-project"),
+                header_value(project_id, "openai project id")?,
+            );
+        }
+
+        Ok(headers)
     }
 }
 
@@ -83,18 +113,7 @@ fn normalize_config(
         });
     }
 
-    let base_url = config.base_url.trim().trim_end_matches('/').to_string();
-    if base_url.is_empty() {
-        return Err(ProviderError::InvalidRequest {
-            message: "openai base URL cannot be empty".to_string(),
-        });
-    }
-
-    if reqwest::Url::parse(&base_url).is_err() {
-        return Err(ProviderError::InvalidRequest {
-            message: "openai base URL must be an absolute URL".to_string(),
-        });
-    }
+    config.base_url = normalize_base_url(config.base_url, "openai base URL")?;
 
     let default_model = config.default_model.trim().to_string();
     if default_model.is_empty() {
@@ -109,7 +128,6 @@ fn normalize_config(
         });
     }
 
-    config.base_url = base_url;
     config.default_model = default_model;
     Ok(config)
 }
@@ -134,7 +152,7 @@ impl ModelProvider for OpenAiProvider {
             });
         }
 
-        let body = OpenAiResponsesRequest {
+        let body = ResponsesRequest {
             model: model.clone(),
             input,
             instructions: request
@@ -145,53 +163,11 @@ impl ModelProvider for OpenAiProvider {
             store: false,
         };
 
-        let mut builder = self
-            .client
-            .post(self.responses_url())
-            .bearer_auth(&self.config.api_key)
-            .json(&body);
-
-        if let Some(organization_id) = self
-            .config
-            .organization_id
-            .as_deref()
-            .filter(|value| !value.trim().is_empty())
-        {
-            builder = builder.header("OpenAI-Organization", organization_id);
-        }
-
-        if let Some(project_id) = self
-            .config
-            .project_id
-            .as_deref()
-            .filter(|value| !value.trim().is_empty())
-        {
-            builder = builder.header("OpenAI-Project", project_id);
-        }
-
-        let response = builder
-            .send()
-            .await
-            .map_err(|source| ProviderError::HttpFailure { source })?;
-        let status = response.status();
-        let request_id = request_id(response.headers());
-        let body_text = response
-            .text()
-            .await
-            .map_err(|source| ProviderError::HttpFailure { source })?;
-
-        if !status.is_success() {
-            return Err(error_from_status(status, request_id, &body_text));
-        }
-
-        let response: OpenAiResponsesResponse =
-            serde_json::from_str(&body_text).map_err(|source| {
-                ProviderError::MalformedResponse {
-                    message: format!("failed to parse JSON: {source}"),
-                }
-            })?;
-
-        let text = collect_output_text(&response)?;
+        let response = self
+            .transport
+            .send(&self.config.api_key, body, self.extra_headers()?)
+            .await?;
+        let text = response.output_text()?;
 
         let output = if request.options.require_noema_response {
             required_output_items_from_text(text)?
@@ -209,163 +185,10 @@ impl ModelProvider for OpenAiProvider {
     }
 }
 
-#[derive(Debug, Serialize)]
-struct OpenAiResponsesRequest {
-    model: String,
-    input: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    instructions: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    max_output_tokens: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    temperature: Option<f32>,
-    store: bool,
-}
-
-#[derive(Debug, Deserialize)]
-struct OpenAiResponsesResponse {
-    id: Option<String>,
-    model: Option<String>,
-    #[serde(default)]
-    output: Vec<OpenAiOutputItem>,
-    usage: Option<OpenAiUsage>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(tag = "type")]
-enum OpenAiOutputItem {
-    #[serde(rename = "message")]
-    Message { content: Vec<OpenAiContent> },
-    #[serde(other)]
-    Other,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(tag = "type")]
-enum OpenAiContent {
-    #[serde(rename = "output_text")]
-    OutputText { text: String },
-    #[serde(rename = "refusal")]
-    Refusal { refusal: String },
-    #[serde(other)]
-    Other,
-}
-
-#[derive(Debug, Deserialize)]
-struct OpenAiUsage {
-    #[serde(default, rename = "input_tokens")]
-    input: u64,
-    #[serde(default, rename = "output_tokens")]
-    output: u64,
-    #[serde(default, rename = "total_tokens")]
-    total: u64,
-}
-
-impl From<OpenAiUsage> for TokenUsage {
-    fn from(value: OpenAiUsage) -> Self {
-        Self {
-            input_tokens: value.input,
-            output_tokens: value.output,
-            total_tokens: value.total,
-        }
-    }
-}
-
-#[derive(Debug, Deserialize)]
-struct OpenAiErrorResponse {
-    error: Option<OpenAiErrorBody>,
-}
-
-#[derive(Debug, Deserialize)]
-struct OpenAiErrorBody {
-    message: Option<String>,
-}
-
-fn collect_output_text(response: &OpenAiResponsesResponse) -> Result<String, ProviderError> {
-    let mut output = String::new();
-    let mut refusals = Vec::new();
-
-    for item in &response.output {
-        let OpenAiOutputItem::Message { content } = item else {
-            continue;
-        };
-
-        for content_item in content {
-            match content_item {
-                OpenAiContent::OutputText { text } => output.push_str(text),
-                OpenAiContent::Refusal { refusal } => refusals.push(refusal.as_str()),
-                OpenAiContent::Other => {}
-            }
-        }
-    }
-
-    if !output.is_empty() {
-        return Ok(output);
-    }
-
-    if !refusals.is_empty() {
-        return Err(ProviderError::ApiError {
-            status: 200,
-            message: refusals.join("\n"),
-            request_id: response.id.clone(),
-        });
-    }
-
-    Err(ProviderError::MalformedResponse {
-        message: "response did not contain output_text".to_string(),
-    })
-}
-
-fn error_from_status(
-    status: StatusCode,
-    request_id: Option<String>,
-    body_text: &str,
-) -> ProviderError {
-    let message = serde_json::from_str::<OpenAiErrorResponse>(body_text)
-        .ok()
-        .and_then(|body| body.error)
-        .and_then(|error| error.message)
-        .filter(|message| !message.trim().is_empty())
-        .unwrap_or_else(|| body_text.trim().to_string())
-        .if_empty_then(|| status.canonical_reason().unwrap_or("API error").to_string());
-
-    match status {
-        StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => ProviderError::AuthenticationFailure {
-            message,
-            request_id,
-        },
-        StatusCode::TOO_MANY_REQUESTS => ProviderError::RateLimit {
-            message,
-            request_id,
-        },
-        _ => ProviderError::ApiError {
-            status: status.as_u16(),
-            message,
-            request_id,
-        },
-    }
-}
-
-fn request_id(headers: &HeaderMap) -> Option<String> {
-    headers
-        .get("x-request-id")
-        .and_then(|value| value.to_str().ok())
-        .map(ToString::to_string)
-}
-
-trait EmptyStringExt {
-    fn if_empty_then(self, fallback: impl FnOnce() -> String) -> String;
-}
-
-impl EmptyStringExt for String {
-    fn if_empty_then(self, fallback: impl FnOnce() -> String) -> String {
-        if self.is_empty() { fallback() } else { self }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::provider::TokenUsage;
     use serde_json::Value;
     use std::collections::HashMap;
     use tokio::{
@@ -618,7 +441,7 @@ mod tests {
                 _ => "Error",
             };
             let response = format!(
-                "HTTP/1.1 {status} {reason}\r\ncontent-type: application/json\r\nx-request-id: req_test\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                "HTTP/1.1 {status} {reason}\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n{}",
                 response_body.len(),
                 response_body
             );
@@ -632,58 +455,64 @@ mod tests {
     }
 
     async fn read_request(socket: &mut tokio::net::TcpStream) -> CapturedRequest {
-        let mut buffer = Vec::new();
-        let header_end;
-
+        let mut bytes = Vec::new();
+        let mut buffer = [0_u8; 1024];
         loop {
-            let mut chunk = [0_u8; 1024];
-            let bytes_read = socket.read(&mut chunk).await.expect("read request");
-            assert!(bytes_read > 0, "connection closed before headers");
-            buffer.extend_from_slice(&chunk[..bytes_read]);
-
-            if let Some(position) = find_header_end(&buffer) {
-                header_end = position;
-                break;
+            let read = socket.read(&mut buffer).await.expect("read request");
+            assert_ne!(read, 0, "client closed before complete request");
+            bytes.extend_from_slice(&buffer[..read]);
+            if bytes.windows(4).any(|window| window == b"\r\n\r\n") {
+                let text = String::from_utf8_lossy(&bytes);
+                if let Some(content_length) = parse_content_length(&text) {
+                    let header_end = bytes
+                        .windows(4)
+                        .position(|window| window == b"\r\n\r\n")
+                        .expect("header end")
+                        + 4;
+                    if bytes.len() >= header_end + content_length {
+                        break;
+                    }
+                }
             }
         }
 
-        let header_text = String::from_utf8(buffer[..header_end].to_vec()).expect("utf8 headers");
-        let mut lines = header_text.split("\r\n");
+        parse_request(&bytes)
+    }
+
+    fn parse_request(bytes: &[u8]) -> CapturedRequest {
+        let header_end = bytes
+            .windows(4)
+            .position(|window| window == b"\r\n\r\n")
+            .expect("header end");
+        let headers_text = String::from_utf8(bytes[..header_end].to_vec()).expect("headers utf8");
+        let body = String::from_utf8(bytes[header_end + 4..].to_vec()).expect("body utf8");
+        let mut lines = headers_text.lines();
         let request_line = lines.next().expect("request line");
         let mut request_parts = request_line.split_whitespace();
         let method = request_parts.next().expect("method").to_string();
         let path = request_parts.next().expect("path").to_string();
-
         let mut headers = HashMap::new();
         for line in lines {
-            if let Some((name, value)) = line.split_once(':') {
-                headers.insert(name.trim().to_ascii_lowercase(), value.trim().to_string());
-            }
-        }
-
-        let content_length = headers
-            .get("content-length")
-            .and_then(|value| value.parse::<usize>().ok())
-            .unwrap_or(0);
-        let body_start = header_end + 4;
-        let mut body = buffer[body_start..].to_vec();
-
-        while body.len() < content_length {
-            let mut chunk = vec![0_u8; content_length - body.len()];
-            let bytes_read = socket.read(&mut chunk).await.expect("read body");
-            assert!(bytes_read > 0, "connection closed before body");
-            body.extend_from_slice(&chunk[..bytes_read]);
+            let Some((name, value)) = line.split_once(':') else {
+                continue;
+            };
+            headers.insert(name.to_ascii_lowercase(), value.trim().to_string());
         }
 
         CapturedRequest {
             method,
             path,
             headers,
-            body: String::from_utf8(body).expect("utf8 body"),
+            body,
         }
     }
 
-    fn find_header_end(buffer: &[u8]) -> Option<usize> {
-        buffer.windows(4).position(|window| window == b"\r\n\r\n")
+    fn parse_content_length(text: &str) -> Option<usize> {
+        text.lines().find_map(|line| {
+            let (name, value) = line.split_once(':')?;
+            (name.eq_ignore_ascii_case("content-length"))
+                .then(|| value.trim().parse().ok())
+                .flatten()
+        })
     }
 }

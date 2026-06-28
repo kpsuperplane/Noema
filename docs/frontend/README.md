@@ -176,7 +176,8 @@ The current repository implements only a narrow slice:
 - `noema config` initializes the Noema directory and config.
 - `noema start` runs a foreground local daemon and serves the basic local web
   chat.
-- `noema chat` starts daemon-backed Codex app-server chat.
+- `noema chat` starts daemon-backed Codex chat through Noema-owned OAuth and
+  direct Codex Responses API calls.
 - One-shot prompts can use the configured provider.
 - Explicit `remember this:` and `/remember` messages are persisted.
 - Ordinary chat memory extraction can produce persisted candidates.
@@ -196,7 +197,7 @@ from chat/work context rather than pretending they already exist.
 | Area | Status | Notes |
 | --- | --- | --- |
 | Setup/config health | Current Rust-backed | `noema config`, `NoemaPaths`, config loading, daemon socket paths |
-| Live chat | Current Rust-backed | GraphQL mutations/subscriptions, Noema runtime commands, and Codex app-server conversation runtime |
+| Live chat | Current Rust-backed | GraphQL mutations/subscriptions, Noema runtime commands, and direct Codex Responses provider runtime |
 | Transcript activity | Current Rust-backed | Assistant text, activity notices, errors, turn completion, future `A2uiCard` payloads |
 | Persisted chat history | Current Rust-backed | Durable chat history is reconstructed from `conversation_items`; live turn coordination comes from GraphQL subscriptions and `agent_status` |
 | Explicit memory save | Current Rust-backed | `remember this:` and `/remember` persist memory with provenance |
