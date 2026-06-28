@@ -202,7 +202,7 @@ async fn strict_schema_rejects_invalid_evidence_authority() {
               source_object_id = NONE,
               authority = 'rumor',
               excerpt = 'invalid authority test evidence',
-              observed_at = '123',
+              observed_at = time::now(),
               created_by = 'agent:primary',
               metadata = {};
             "#,
@@ -214,6 +214,39 @@ async fn strict_schema_rejects_invalid_evidence_authority() {
 
     assert!(
         error.to_string().contains("authority") || error.to_string().contains("rumor"),
+        "unexpected error: {error}"
+    );
+}
+
+#[tokio::test]
+async fn strict_schema_rejects_invalid_evidence_observed_at() {
+    let store = test_store().await;
+
+    let error = store
+        .db()
+        .query(
+            r#"
+            CREATE type::thing('supported_by', 'invalid_observed_at') SET
+              relation_id = 'evidence:invalid-observed-at',
+              claim_id = 'claim:test',
+              source_kind = 'item',
+              source_item_id = 'item:test',
+              source_object_type = NONE,
+              source_object_id = NONE,
+              authority = 'explicit_human_statement',
+              excerpt = 'invalid observed_at test evidence',
+              observed_at = '123',
+              created_by = 'agent:primary',
+              metadata = {};
+            "#,
+        )
+        .await
+        .expect("invalid evidence observed_at query")
+        .check()
+        .expect_err("invalid evidence observed_at should be rejected");
+
+    assert!(
+        error.to_string().contains("observed_at") || error.to_string().contains("datetime"),
         "unexpected error: {error}"
     );
 }
@@ -231,7 +264,7 @@ async fn strict_schema_rejects_evidence_without_source() {
               claim_id = 'claim:test',
               authority = 'explicit_human_statement',
               excerpt = 'missing source test evidence',
-              observed_at = '123',
+              observed_at = time::now(),
               created_by = 'agent:primary',
               metadata = {};
             "#,
@@ -266,7 +299,7 @@ async fn strict_schema_rejects_evidence_with_both_source_shapes() {
               source_object_id = 'conversation:test',
               authority = 'explicit_human_statement',
               excerpt = 'both source shapes test evidence',
-              observed_at = '123',
+              observed_at = time::now(),
               created_by = 'agent:primary',
               metadata = {};
             "#,
@@ -299,7 +332,7 @@ async fn strict_schema_accepts_valid_evidence_source_shape() {
               source_object_id = 'conversation:test',
               authority = 'explicit_human_statement',
               excerpt = 'valid source shape test evidence',
-              observed_at = '123',
+              observed_at = time::now(),
               created_by = 'agent:primary',
               metadata = {};
             "#,

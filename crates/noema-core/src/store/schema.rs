@@ -175,7 +175,7 @@ DEFINE FIELD IF NOT EXISTS source_object_type ON TABLE supported_by TYPE option<
 DEFINE FIELD IF NOT EXISTS source_object_id ON TABLE supported_by TYPE option<string>;
 DEFINE FIELD IF NOT EXISTS authority ON TABLE supported_by TYPE string ASSERT $value INSIDE ['human_correction', 'explicit_human_statement', 'document_source', 'repeated_observation', 'agent_inference', 'weak_inference', 'system_rule'];
 DEFINE FIELD IF NOT EXISTS excerpt ON TABLE supported_by TYPE option<string>;
-DEFINE FIELD IF NOT EXISTS observed_at ON TABLE supported_by TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS observed_at ON TABLE supported_by TYPE option<datetime>;
 DEFINE FIELD IF NOT EXISTS created_by ON TABLE supported_by TYPE string;
 DEFINE FIELD IF NOT EXISTS metadata ON TABLE supported_by FLEXIBLE TYPE object DEFAULT {};
 DEFINE FIELD IF NOT EXISTS created_at ON TABLE supported_by TYPE datetime DEFAULT time::now();
@@ -194,7 +194,7 @@ DEFINE FIELD IF NOT EXISTS source_object_type ON TABLE corrected_by TYPE option<
 DEFINE FIELD IF NOT EXISTS source_object_id ON TABLE corrected_by TYPE option<string>;
 DEFINE FIELD IF NOT EXISTS authority ON TABLE corrected_by TYPE string ASSERT $value INSIDE ['human_correction'];
 DEFINE FIELD IF NOT EXISTS excerpt ON TABLE corrected_by TYPE option<string>;
-DEFINE FIELD IF NOT EXISTS observed_at ON TABLE corrected_by TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS observed_at ON TABLE corrected_by TYPE option<datetime>;
 DEFINE FIELD IF NOT EXISTS created_by ON TABLE corrected_by TYPE string;
 DEFINE FIELD IF NOT EXISTS metadata ON TABLE corrected_by FLEXIBLE TYPE object DEFAULT {};
 DEFINE FIELD IF NOT EXISTS created_at ON TABLE corrected_by TYPE datetime DEFAULT time::now();
@@ -213,7 +213,7 @@ DEFINE FIELD IF NOT EXISTS source_object_type ON TABLE contradicted_by TYPE opti
 DEFINE FIELD IF NOT EXISTS source_object_id ON TABLE contradicted_by TYPE option<string>;
 DEFINE FIELD IF NOT EXISTS authority ON TABLE contradicted_by TYPE string ASSERT $value INSIDE ['explicit_human_statement', 'document_source', 'agent_inference', 'weak_inference'];
 DEFINE FIELD IF NOT EXISTS excerpt ON TABLE contradicted_by TYPE option<string>;
-DEFINE FIELD IF NOT EXISTS observed_at ON TABLE contradicted_by TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS observed_at ON TABLE contradicted_by TYPE option<datetime>;
 DEFINE FIELD IF NOT EXISTS created_by ON TABLE contradicted_by TYPE string;
 DEFINE FIELD IF NOT EXISTS metadata ON TABLE contradicted_by FLEXIBLE TYPE object DEFAULT {};
 DEFINE FIELD IF NOT EXISTS created_at ON TABLE contradicted_by TYPE datetime DEFAULT time::now();
