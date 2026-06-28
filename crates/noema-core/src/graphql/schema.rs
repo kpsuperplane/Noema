@@ -6,12 +6,12 @@ use crate::daemon::TurnStreamEvent;
 use super::{
     ConversationLiveEvent, ConversationSubscriptionRegistry,
     types::{
-        GraphqlAgentStatusEvent, GraphqlAssistantConnection, GraphqlConversationEvent,
-        GraphqlConversationItem, GraphqlConversationItemEvent, GraphqlConversationStarted,
-        GraphqlLocalServiceStatus, GraphqlLocalStatus, GraphqlMemoryStorageStatus,
-        GraphqlOnboardingStatus, GraphqlProviderAuthAttempt, GraphqlSendConversationTurnInput,
-        GraphqlStartProviderAuthAttemptInput, GraphqlSubscriptionReadyEvent, GraphqlTurnAccepted,
-        GraphqlTurnCompletedEvent,
+        GraphqlAgentStatusEvent, GraphqlAssistantConnection, GraphqlAssistantTextDeltaEvent,
+        GraphqlConversationEvent, GraphqlConversationItem, GraphqlConversationItemEvent,
+        GraphqlConversationStarted, GraphqlLocalServiceStatus, GraphqlLocalStatus,
+        GraphqlMemoryStorageStatus, GraphqlOnboardingStatus, GraphqlProviderAuthAttempt,
+        GraphqlSendConversationTurnInput, GraphqlStartProviderAuthAttemptInput,
+        GraphqlSubscriptionReadyEvent, GraphqlTurnAccepted, GraphqlTurnCompletedEvent,
     },
 };
 
@@ -288,8 +288,8 @@ impl SubscriptionRoot {
                                 conversation_id,
                                 item_id,
                                 turn_id,
+                                metadata,
                                 item,
-                                ..
                             } => {
                         yield GraphqlConversationEvent::ConversationItem(
                             Box::new(GraphqlConversationItemEvent {
@@ -297,6 +297,7 @@ impl SubscriptionRoot {
                                 client_message_id,
                                 item_id,
                                 turn_id,
+                                metadata: async_graphql::Json(metadata),
                                 item: (*item).into(),
                             }),
                         );
@@ -312,7 +313,21 @@ impl SubscriptionRoot {
                             },
                         );
                     }
-                        crate::daemon::TurnStreamEvent::AssistantTextDelta { .. } => {}
+                        crate::daemon::TurnStreamEvent::AssistantTextDelta {
+                                conversation_id,
+                                turn_id,
+                                stream_id,
+                                delta,
+                            } => {
+                        yield GraphqlConversationEvent::AssistantTextDelta(
+                            GraphqlAssistantTextDeltaEvent {
+                                conversation_id,
+                                turn_id,
+                                stream_id,
+                                delta,
+                            },
+                        );
+                    }
                     },
                     ConversationLiveEvent::Completed {
                         conversation_id,
@@ -373,6 +388,7 @@ fn publish_turn_terminal_events(
 mod tests {
     use super::*;
     use futures_util::StreamExt;
+    use serde_json::json;
 
     #[test]
     fn schema_sdl_exposes_initial_noema_fields() {
@@ -388,6 +404,7 @@ mod tests {
         assert!(sdl.contains("sendConversationTurn"));
         assert!(sdl.contains("type Subscription"));
         assert!(sdl.contains("conversationEvents"));
+        assert!(sdl.contains("GraphqlAssistantTextDeltaEvent"));
     }
 
     #[tokio::test]
@@ -414,6 +431,7 @@ mod tests {
         let crate::daemon::TurnStreamEvent::ConversationItem {
             conversation_id,
             item_id,
+            metadata,
             item,
             ..
         } = *event
@@ -422,6 +440,7 @@ mod tests {
         };
         assert_eq!(conversation_id, "conversation_1");
         assert_eq!(item_id, "graphql_runtime_error:conversation_1:client_1");
+        assert_eq!(metadata, json!({}));
         let crate::TurnTranscriptItem::ErrorNotice {
             message,
             recoverable,
@@ -494,6 +513,104 @@ mod tests {
             data.pointer("/conversationEvents/clientMessageId")
                 .and_then(serde_json::Value::as_str),
             Some("client_1")
+        );
+    }
+
+    #[tokio::test]
+    async fn subscription_streams_assistant_text_delta_event() {
+        let state = GraphqlState::for_tests();
+        let subscriptions = state.subscriptions().clone();
+        let schema = build_schema(state);
+        let mut stream = schema.execute_stream(async_graphql::Request::new(
+            r#"
+            subscription {
+              conversationEvents(conversationId: "conversation_1") {
+                __typename
+                ... on GraphqlAssistantTextDeltaEvent {
+                  conversationId
+                  turnId
+                  streamId
+                  delta
+                }
+              }
+            }
+            "#,
+        ));
+
+        let ready = stream.next().await.expect("ready response");
+        assert_eq!(
+            ready.data.into_json().expect("ready json")["conversationEvents"]["__typename"],
+            "GraphqlSubscriptionReadyEvent"
+        );
+
+        subscriptions.publish(ConversationLiveEvent::Turn {
+            client_message_id: None,
+            event: Box::new(TurnStreamEvent::AssistantTextDelta {
+                conversation_id: "conversation_1".to_string(),
+                turn_id: "turn_1".to_string(),
+                stream_id: "assistant_stream:turn_1:initial".to_string(),
+                delta: "Hel".to_string(),
+            }),
+        });
+
+        let response = stream.next().await.expect("delta response");
+        let data = response.data.into_json().expect("delta json");
+        let event = &data["conversationEvents"];
+        assert_eq!(event["__typename"], "GraphqlAssistantTextDeltaEvent");
+        assert_eq!(event["conversationId"], "conversation_1");
+        assert_eq!(event["turnId"], "turn_1");
+        assert_eq!(event["streamId"], "assistant_stream:turn_1:initial");
+        assert_eq!(event["delta"], "Hel");
+    }
+
+    #[tokio::test]
+    async fn subscription_streams_conversation_item_metadata() {
+        let state = GraphqlState::for_tests();
+        let subscriptions = state.subscriptions().clone();
+        let schema = build_schema(state);
+        let mut stream = schema.execute_stream(async_graphql::Request::new(
+            r#"
+            subscription {
+              conversationEvents(conversationId: "conversation_1") {
+                __typename
+                ... on GraphqlConversationItemEvent {
+                  conversationId
+                  itemId
+                  metadata
+                }
+              }
+            }
+            "#,
+        ));
+
+        let ready = stream.next().await.expect("ready response");
+        assert_eq!(
+            ready.data.into_json().expect("ready json")["conversationEvents"]["__typename"],
+            "GraphqlSubscriptionReadyEvent"
+        );
+
+        subscriptions.publish(ConversationLiveEvent::Turn {
+            client_message_id: None,
+            event: Box::new(TurnStreamEvent::ConversationItem {
+                conversation_id: "conversation_1".to_string(),
+                item_id: "item_1".to_string(),
+                turn_id: Some("turn_1".to_string()),
+                metadata: json!({"stream_id":"assistant_stream:turn_1:initial"}),
+                item: Box::new(crate::TurnTranscriptItem::AssistantText {
+                    text: "Hello".to_string(),
+                }),
+            }),
+        });
+
+        let response = stream.next().await.expect("item response");
+        let data = response.data.into_json().expect("item json");
+        let event = &data["conversationEvents"];
+        assert_eq!(event["__typename"], "GraphqlConversationItemEvent");
+        assert_eq!(event["conversationId"], "conversation_1");
+        assert_eq!(event["itemId"], "item_1");
+        assert_eq!(
+            event["metadata"],
+            json!({"stream_id":"assistant_stream:turn_1:initial"})
         );
     }
 }

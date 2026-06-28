@@ -479,8 +479,23 @@ pub struct GraphqlConversationItemEvent {
     pub item_id: String,
     /// Durable conversation turn id.
     pub turn_id: Option<String>,
+    /// Structured durable item metadata.
+    pub metadata: Json<Value>,
     /// Transcript item to render.
     pub item: GraphqlTranscriptItem,
+}
+
+/// Ephemeral assistant text delta event delivered by subscription.
+#[derive(Clone, Debug, SimpleObject)]
+pub struct GraphqlAssistantTextDeltaEvent {
+    /// Durable Noema conversation id.
+    pub conversation_id: String,
+    /// Durable conversation turn id.
+    pub turn_id: String,
+    /// Runtime stream id.
+    pub stream_id: String,
+    /// Assistant text delta.
+    pub delta: String,
 }
 
 /// Agent status event delivered by subscription.
@@ -515,6 +530,8 @@ pub enum GraphqlConversationEvent {
     SubscriptionReady(GraphqlSubscriptionReadyEvent),
     /// Conversation item event.
     ConversationItem(Box<GraphqlConversationItemEvent>),
+    /// Ephemeral assistant text delta event.
+    AssistantTextDelta(GraphqlAssistantTextDeltaEvent),
     /// Agent status changed event.
     AgentStatusChanged(GraphqlAgentStatusEvent),
     /// Turn completed event.
