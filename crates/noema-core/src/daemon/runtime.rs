@@ -423,22 +423,23 @@ impl CodexRuntimeActor {
                 text: input.clone(),
             },
         );
-        let saved_memory_id = if let Some(explicit_content) = explicit_memory_content(&input) {
-            let memory_context = ConversationMemoryContext {
-                turn_index,
-                conversation_id: conversation_id.clone(),
-                turn_id: turn.turn_id.clone(),
-                user_item_id: user_item_id.clone(),
-                assistant_item_id: None,
-                user_content: input.clone(),
-                assistant_content: String::new(),
-                cwd: conversation.cwd.clone(),
+        let explicit_memory_outcome =
+            if let Some(explicit_content) = explicit_memory_content(&input) {
+                let memory_context = ConversationMemoryContext {
+                    turn_index,
+                    conversation_id: conversation_id.clone(),
+                    turn_id: turn.turn_id.clone(),
+                    user_item_id: user_item_id.clone(),
+                    assistant_item_id: None,
+                    user_content: input.clone(),
+                    assistant_content: String::new(),
+                    cwd: conversation.cwd.clone(),
+                };
+                self.persist_explicit_memory_claim(&memory_context, &explicit_content, &item_tx)
+                    .await?
+            } else {
+                ExplicitMemoryOutcome::None
             };
-            self.persist_explicit_memory_claim(&memory_context, &explicit_content, &item_tx)
-                .await?
-        } else {
-            None
-        };
         self.update_conversation_agent_status(
             &conversation_id,
             PersistedAgentStatus::Thinking,
@@ -502,7 +503,7 @@ impl CodexRuntimeActor {
                             model: conversation.model.clone(),
                             initial_stream_id: initial_stream_id.clone(),
                             response,
-                            saved_memory_id: saved_memory_id.clone(),
+                            explicit_memory_outcome,
                         },
                         &item_tx,
                     )
@@ -712,14 +713,14 @@ impl CodexRuntimeActor {
             cwd: turn.cwd,
         };
 
-        if turn.saved_memory_id.is_none() && !provider_memory_proposals.is_empty() {
+        if !turn.explicit_memory_outcome.was_attempted() && !provider_memory_proposals.is_empty() {
             self.persist_provider_memory_proposals(
                 &memory_context,
                 provider_memory_proposals,
                 item_tx,
             )
             .await?;
-        } else if turn.saved_memory_id.is_none() {
+        } else if !turn.explicit_memory_outcome.was_attempted() {
             self.persist_memory_unavailable_activity(
                 &memory_context,
                 "ordinary_chat",
@@ -1147,7 +1148,7 @@ impl CodexRuntimeActor {
         context: &ConversationMemoryContext,
         content: &str,
         item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
-    ) -> Result<Option<String>, DaemonError> {
+    ) -> Result<ExplicitMemoryOutcome, DaemonError> {
         let candidate = explicit_memory_claim_candidate(content, context.user_item_id.clone());
         match self.store.create_or_reinforce_claim(candidate).await {
             Ok(summary) => {
@@ -1172,7 +1173,7 @@ impl CodexRuntimeActor {
                 );
                 self.persist_and_send_turn_item(context, activity, item_tx)
                     .await?;
-                Ok(Some(summary.claim_id))
+                Ok(ExplicitMemoryOutcome::Saved)
             }
             Err(error) => {
                 let activity = memory_activity(
@@ -1192,7 +1193,7 @@ impl CodexRuntimeActor {
                 );
                 self.persist_and_send_turn_item(context, activity, item_tx)
                     .await?;
-                Ok(None)
+                Ok(ExplicitMemoryOutcome::Failed)
             }
         }
     }
@@ -1766,7 +1767,20 @@ struct SuccessfulProviderTurn {
     model: Option<String>,
     initial_stream_id: String,
     response: GenerateResponse,
-    saved_memory_id: Option<String>,
+    explicit_memory_outcome: ExplicitMemoryOutcome,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ExplicitMemoryOutcome {
+    None,
+    Saved,
+    Failed,
+}
+
+impl ExplicitMemoryOutcome {
+    fn was_attempted(&self) -> bool {
+        !matches!(self, Self::None)
+    }
 }
 
 struct ProviderActionTurn {

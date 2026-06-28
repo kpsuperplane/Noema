@@ -1,6 +1,8 @@
 use super::*;
 use super::{
-    memory_pipeline::{explicit_memory_content, infer_chat_sensitivity},
+    memory_pipeline::{
+        explicit_memory_claim_candidate, explicit_memory_content, infer_chat_sensitivity,
+    },
     protocol::TurnStreamEvent,
     runtime::CodexRuntimeHandle,
     server::bind_listener,
@@ -500,6 +502,26 @@ fn deterministic_sensitivity_classifier_fails_closed_for_common_secrets() {
     );
 }
 
+#[test]
+fn explicit_claim_candidate_falls_back_when_relation_object_is_empty() {
+    let candidate = explicit_memory_claim_candidate("I like !!!", "item:test".to_string());
+
+    assert_eq!(candidate.predicate_id, "has_note");
+    assert_eq!(candidate.fact, "I like !!!");
+    assert_eq!(candidate.object.canonical_name, "I like !!!");
+    assert_eq!(candidate.retrieval_hints["keywords"], json!(["I like !!!"]));
+}
+
+#[test]
+fn explicit_claim_candidate_normalizes_relation_object_whitespace() {
+    let candidate = explicit_memory_claim_candidate("I LIKE   ICE CREAM", "item:test".to_string());
+
+    assert_eq!(candidate.predicate_id, "likes");
+    assert_eq!(candidate.fact, "Kevin likes ice cream.");
+    assert_eq!(candidate.object.canonical_name, "ice cream");
+    assert_eq!(candidate.retrieval_hints["keywords"], json!(["ice cream"]));
+}
+
 #[tokio::test]
 async fn explicit_remember_creates_claim_with_source_evidence() {
     let (handle, store) =
@@ -561,6 +583,64 @@ async fn explicit_remember_creates_claim_with_source_evidence() {
             )
         }),
         "explicit memory should not emit a success-looking memory card: {items:?}"
+    );
+    handle.shutdown().await;
+}
+
+#[tokio::test]
+async fn explicit_remember_write_failure_suppresses_generic_unavailable_activity() {
+    let (handle, store) =
+        test_runtime_handle_with_store(fake_codex_provider_with_memory_extraction()).await;
+    store
+        .db()
+        .query("DELETE predicates WHERE predicate_id = 'likes';")
+        .await
+        .expect("delete likes predicate")
+        .check()
+        .expect("delete likes predicate check");
+
+    let conversation = handle
+        .start_conversation(None, None)
+        .await
+        .expect("conversation");
+    let items = collect_turn(
+        &handle,
+        conversation.conversation_id,
+        "remember: I like trains.".to_string(),
+    )
+    .await
+    .expect("turn");
+    assert_eq!(assistant_text(&items), "fake answer");
+    assert!(items.iter().any(|item| {
+        matches!(
+            item,
+            TurnTranscriptItem::Activity {
+                activity_kind,
+                status: TurnActivityStatus::Failed,
+                title,
+                metadata,
+                ..
+            } if activity_kind == "memory_extraction"
+                && title == "Explicit memory save failed"
+                && metadata["trigger"] == "explicit_remember"
+        )
+    }));
+    assert!(
+        !items.iter().any(|item| {
+            matches!(
+                item,
+                TurnTranscriptItem::Activity {
+                    activity_kind,
+                    status: TurnActivityStatus::Failed,
+                    title,
+                    metadata,
+                    ..
+                } if activity_kind == "memory_extraction"
+                    && title == "Memory extraction unavailable"
+                    && metadata["trigger"] == "ordinary_chat"
+            )
+        }),
+        "explicit write failure should not emit generic unavailable activity: {items:?}"
     );
     handle.shutdown().await;
 }

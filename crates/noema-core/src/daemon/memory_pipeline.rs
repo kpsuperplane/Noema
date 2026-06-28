@@ -115,6 +115,9 @@ fn parse_explicit_claim(content: &str) -> ParsedExplicitClaim {
     ] {
         if lowered.starts_with(prefix) {
             let object_phrase = normalize_object_phrase(&normalized[prefix.len()..]);
+            if object_phrase.is_empty() {
+                return fallback_note_claim(&normalized);
+            }
             return ParsedExplicitClaim {
                 predicate_id: "likes",
                 fact: format!("Kevin likes {}.", object_phrase),
@@ -126,6 +129,9 @@ fn parse_explicit_claim(content: &str) -> ParsedExplicitClaim {
     for prefix in ["i prefer ", "kevin prefers ", "i want ", "kevin wants "] {
         if lowered.starts_with(prefix) {
             let object_phrase = normalize_object_phrase(&normalized[prefix.len()..]);
+            if object_phrase.is_empty() {
+                return fallback_note_claim(&normalized);
+            }
             return ParsedExplicitClaim {
                 predicate_id: "prefers",
                 fact: format!("Kevin prefers {}.", object_phrase),
@@ -134,11 +140,14 @@ fn parse_explicit_claim(content: &str) -> ParsedExplicitClaim {
         }
     }
 
-    let fact = ensure_final_punctuation(&normalized);
+    fallback_note_claim(&normalized)
+}
+
+fn fallback_note_claim(normalized: &str) -> ParsedExplicitClaim {
     ParsedExplicitClaim {
         predicate_id: "has_note",
-        object_phrase: normalize_object_phrase(&normalized),
-        fact,
+        object_phrase: normalized.to_string(),
+        fact: ensure_final_punctuation(normalized),
     }
 }
 
