@@ -6,7 +6,7 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/utils"
 
 const markerVariants = cva(
-  "group/marker relative flex min-h-4 w-full items-center gap-2 text-left text-sm text-muted-foreground [&_svg:not([class*='size-'])]:size-4 [a]:underline [a]:underline-offset-3 [a]:hover:text-foreground",
+  "group/marker relative flex min-h-4 w-full items-center gap-2 text-left text-sm [&_svg:not([class*='size-'])]:size-4 [a]:underline [a]:underline-offset-3 [a]:hover:text-foreground",
   {
     variants: {
       variant: {
@@ -15,6 +15,17 @@ const markerVariants = cva(
           "before:mr-1 before:h-px before:min-w-0 before:flex-1 before:bg-border after:ml-1 after:h-px after:min-w-0 after:flex-1 after:bg-border",
         border: "border-b border-border pb-2",
       },
+      tone: {
+        default: "text-muted-foreground",
+        success: "text-[var(--pine-700)]",
+        warning: "text-[var(--clay-600)]",
+        error: "text-[var(--red-700)]",
+        muted: "text-[var(--text-faint)]",
+      },
+    },
+    defaultVariants: {
+      variant: "default",
+      tone: "default",
     },
   }
 )
@@ -22,6 +33,7 @@ const markerVariants = cva(
 function Marker({
   className,
   variant = "default",
+  tone = "default",
   render,
   ...props
 }: useRender.ComponentProps<"div"> & VariantProps<typeof markerVariants>) {
@@ -29,7 +41,7 @@ function Marker({
     defaultTagName: "div",
     props: mergeProps<"div">(
       {
-        className: cn(markerVariants({ variant, className })),
+        className: cn(markerVariants({ variant, tone, className })),
       },
       props
     ),
@@ -37,6 +49,7 @@ function Marker({
     state: {
       slot: "marker",
       variant,
+      tone,
     },
   })
 }

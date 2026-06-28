@@ -15,7 +15,8 @@ export function ErrorMarker({
   return (
     <Marker
       role={recoverable ? "status" : "alert"}
-      className={cn("w-fit max-w-[760px] text-[var(--red-700)]", className)}
+      tone="error"
+      className={cn("w-fit max-w-full", className)}
     >
       <MarkerContent className="flex flex-wrap gap-x-1.5">
         {label ? <strong>{label}</strong> : null}

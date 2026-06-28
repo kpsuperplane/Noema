@@ -425,10 +425,8 @@ function MemoryMarker({
         aria-expanded={open}
         aria-controls={`${id}-details`}
         onClick={onToggle}
-        className={cn(
-          "w-fit rounded-lg px-2 py-1 transition-colors hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:outline-none",
-          failed && "text-[var(--red-700)]"
-        )}
+        tone={failed ? "error" : "success"}
+        className="w-fit rounded-lg px-2 py-1 transition-colors hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:outline-none"
       >
         <MarkerIcon>
           <BrainIcon />
