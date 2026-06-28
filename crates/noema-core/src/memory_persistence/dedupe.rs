@@ -56,6 +56,7 @@ fn canonical_content(value: &str) -> String {
         .join(" ")
         .trim()
         .trim_end_matches(['.', '!', '?'])
+        .trim()
         .to_ascii_lowercase()
 }
 
@@ -114,6 +115,7 @@ mod tests {
             canonical_content("  I   Like ICE CREAM!  "),
             "i like ice cream"
         );
+        assert_eq!(canonical_content("I like ice cream !"), "i like ice cream");
     }
 
     #[test]
