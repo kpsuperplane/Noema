@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/message-scroller";
 import { cn } from "@/lib/utils";
 import { BrainIcon } from "lucide-react";
+import type * as React from "react";
 import { readableKind, statusLabel } from "../format";
 import { memoryCardsFromStructuredItem, type MemoryCardData } from "../memoryCards";
 import type { TranscriptEntry, TurnTranscriptItem } from "../types";
@@ -38,6 +39,13 @@ type RenderTranscriptEntry =
       extraction?: Extract<TurnTranscriptItem, { kind: "activity" }>;
       proposal?: Extract<TurnTranscriptItem, { kind: "a2ui_card" }>;
     };
+
+type TranscriptLane = "human" | "assistant";
+
+type RenderTranscriptLaneCandidate =
+  | { kind: "entry"; entryType: TranscriptEntry["type"] }
+  | { kind: "typing" }
+  | { kind: "memory_marker" };
 
 export function Transcript({
   entries,
@@ -57,16 +65,23 @@ export function Transcript({
       <MessageScroller className="min-h-0 overflow-hidden">
         <MessageScrollerViewport aria-label="Conversation transcript">
           <MessageScrollerContent className="mx-auto flex min-h-full w-[var(--chat-column-width)] flex-col gap-3 px-0.5 py-6">
-            {renderedEntries.map((entry) => (
-              <MessageScrollerItem
-                key={entry.id}
-                className={cn("flex w-full", entry.kind === "entry" && entry.entry.type === "user" && "justify-end")}
-                messageId={entry.id}
-                scrollAnchor={shouldAnchorRenderedEntry(entry)}
-              >
-                {renderTranscriptRenderEntry(entry, expandedActivities, onToggleActivity)}
-              </MessageScrollerItem>
-            ))}
+            {renderedEntries.map((entry) => {
+              const lane =
+                entry.kind === "entry"
+                  ? renderedTranscriptLane({ kind: "entry", entryType: entry.entry.type })
+                  : renderedTranscriptLane({ kind: entry.kind });
+
+              return (
+                <MessageScrollerItem
+                  key={entry.id}
+                  className={cn("flex w-full", lane === "human" && "justify-end")}
+                  messageId={entry.id}
+                  scrollAnchor={shouldAnchorRenderedEntry(entry)}
+                >
+                  {renderTranscriptRenderEntry(entry, expandedActivities, onToggleActivity)}
+                </MessageScrollerItem>
+              );
+            })}
           </MessageScrollerContent>
         </MessageScrollerViewport>
         <MessageScrollerButton />
@@ -98,6 +113,17 @@ function shouldAnchorRenderedEntry(entry: RenderTranscriptEntry): boolean {
     return shouldAnchorTranscriptEntry({ kind: "entry", entryType: entry.entry.type });
   }
   return shouldAnchorTranscriptEntry({ kind: entry.kind });
+}
+
+export function transcriptEntryLane(entryType: TranscriptEntry["type"]): TranscriptLane {
+  return entryType === "user" ? "human" : "assistant";
+}
+
+export function renderedTranscriptLane(entry: RenderTranscriptLaneCandidate): TranscriptLane {
+  if (entry.kind === "entry") {
+    return transcriptEntryLane(entry.entryType);
+  }
+  return "assistant";
 }
 
 export function shouldShowTypingIndicator(entries: TranscriptEntry[], pending: boolean): boolean {
@@ -193,13 +219,15 @@ function renderTranscriptRenderEntry(
 ) {
   if (entry.kind === "memory_marker") {
     return (
-      <MemoryMarker
-        id={entry.id}
-        extraction={entry.extraction}
-        proposal={entry.proposal}
-        open={expandedActivities.has(entry.id)}
-        onToggle={() => onToggleActivity(entry.id)}
-      />
+      <TranscriptRow lane="assistant">
+        <MemoryMarker
+          id={entry.id}
+          extraction={entry.extraction}
+          proposal={entry.proposal}
+          open={expandedActivities.has(entry.id)}
+          onToggle={() => onToggleActivity(entry.id)}
+        />
+      </TranscriptRow>
     );
   }
   if (entry.kind === "typing") {
@@ -221,56 +249,65 @@ function renderTranscriptEntry(
   }
   if (entry.type === "activity") {
     return (
-      <ActivityRow item={entry.item} open={expandedActivities.has(entry.id)} onToggle={() => onToggleActivity(entry.id)} />
+      <TranscriptRow lane="assistant">
+        <ActivityRow item={entry.item} open={expandedActivities.has(entry.id)} onToggle={() => onToggleActivity(entry.id)} />
+      </TranscriptRow>
     );
   }
   if (entry.type === "card") {
     return (
-      <StructuredCard item={entry.item} open={expandedActivities.has(entry.id)} onToggle={() => onToggleActivity(entry.id)} />
+      <TranscriptRow lane="assistant">
+        <StructuredCard item={entry.item} open={expandedActivities.has(entry.id)} onToggle={() => onToggleActivity(entry.id)} />
+      </TranscriptRow>
     );
   }
-  return <ErrorNotice message={entry.message} recoverable={entry.recoverable} />;
+  return (
+    <TranscriptRow lane="assistant">
+      <ErrorNotice message={entry.message} recoverable={entry.recoverable} />
+    </TranscriptRow>
+  );
 }
 
-function Message({ role, text }: { role: "user" | "assistant"; text: string }) {
+function TranscriptRow({ lane, children }: { lane: TranscriptLane; children: React.ReactNode }) {
+  const role = lane === "human" ? "user" : "assistant";
+
   return (
-    <MessagePrimitive align={role === "user" ? "end" : "start"} className="max-w-[760px]">
+    <MessagePrimitive align={lane === "human" ? "end" : "start"} className="max-w-[760px]">
       <MessageAvatar>
         <Avatar size="sm">
           <AvatarFallback>{role === "user" ? "ME" : "N"}</AvatarFallback>
         </Avatar>
       </MessageAvatar>
-      <MessageContent>
-        <Bubble variant={role === "user" ? "default" : "muted"}>
-          <BubbleContent className="leading-[1.7] whitespace-pre-wrap">{text}</BubbleContent>
-        </Bubble>
-      </MessageContent>
+      <MessageContent>{children}</MessageContent>
     </MessagePrimitive>
+  );
+}
+
+function Message({ role, text }: { role: "user" | "assistant"; text: string }) {
+  return (
+    <TranscriptRow lane={role === "user" ? "human" : "assistant"}>
+      <Bubble variant={role === "user" ? "default" : "muted"}>
+        <BubbleContent className="leading-[1.7] whitespace-pre-wrap">{text}</BubbleContent>
+      </Bubble>
+    </TranscriptRow>
   );
 }
 
 function TypingMessage() {
   return (
-    <MessagePrimitive align="start" className="max-w-[760px]">
-      <MessageAvatar>
-        <Avatar size="sm">
-          <AvatarFallback>N</AvatarFallback>
-        </Avatar>
-      </MessageAvatar>
-      <MessageContent>
-        <Bubble variant="muted">
-          <BubbleContent
-            className="flex min-h-9 w-[58px] items-center justify-center gap-1.5 px-3 py-2"
-            aria-label="Noema is typing"
-            role="status"
-          >
-            <span className="size-1.5 animate-bounce rounded-full bg-muted-foreground/70 [animation-delay:-0.24s]" />
-            <span className="size-1.5 animate-bounce rounded-full bg-muted-foreground/70 [animation-delay:-0.12s]" />
-            <span className="size-1.5 animate-bounce rounded-full bg-muted-foreground/70" />
-          </BubbleContent>
-        </Bubble>
-      </MessageContent>
-    </MessagePrimitive>
+    <TranscriptRow lane="assistant">
+      <Bubble variant="muted">
+        <BubbleContent
+          className="flex min-h-9 w-[58px] items-center justify-center gap-1.5 px-3 py-2"
+          aria-label="Noema is typing"
+          role="status"
+        >
+          <span className="size-1.5 animate-bounce rounded-full bg-muted-foreground/70 [animation-delay:-0.24s]" />
+          <span className="size-1.5 animate-bounce rounded-full bg-muted-foreground/70 [animation-delay:-0.12s]" />
+          <span className="size-1.5 animate-bounce rounded-full bg-muted-foreground/70" />
+        </BubbleContent>
+      </Bubble>
+    </TranscriptRow>
   );
 }
 
@@ -288,7 +325,7 @@ function ActivityRow({
   const status = statusLabel(item.status);
 
   return (
-    <Attachment className="max-w-[760px]">
+    <Attachment className="w-full max-w-full">
       <Button
         type="button"
         variant="ghost"
@@ -356,7 +393,7 @@ function StructuredCard({
   }
 
   return (
-    <Attachment className="max-w-[760px]">
+    <Attachment className="w-full max-w-full">
       <AttachmentContent>
         <AttachmentTitle>{item.schema}</AttachmentTitle>
         <AttachmentDescription>Structured card placeholder</AttachmentDescription>
@@ -411,7 +448,7 @@ function MemoryStructuredCard({ schema, memories }: { schema: string; memories: 
   const source = schema === "memory_proposals" ? "Same-call proposal" : "Explicit request";
 
   return (
-    <Attachment className="max-w-[760px]">
+    <Attachment className="w-full max-w-full">
       <AttachmentMedia className="text-[var(--pine-700)]">
         <BrainIcon />
       </AttachmentMedia>
@@ -439,7 +476,7 @@ function MemoryDetailAttachment({
   const description = extraction?.summary ?? (status ? `Memory extraction ${status.toLowerCase()}` : "Memory proposal");
 
   return (
-    <Attachment id={id} state={failed ? "error" : "done"} className="max-w-[760px]">
+    <Attachment id={id} state={failed ? "error" : "done"} className="w-full max-w-full">
       <AttachmentMedia className="text-[var(--pine-700)]">
         <BrainIcon />
       </AttachmentMedia>
