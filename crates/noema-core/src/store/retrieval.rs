@@ -60,8 +60,9 @@ impl NoemaStore {
             )
             .await?;
         let rows: Vec<ClaimRetrievalRow> = response.take(0)?;
-        let query = query_text.trim().to_ascii_lowercase();
+        let query = query_text.trim().to_lowercase();
         let mut result = ClaimRetrievalResult::default();
+        let mut included = Vec::new();
 
         for row in rows {
             let Some(match_score) = deterministic_match_score(&row, &query) else {
@@ -85,18 +86,25 @@ impl NoemaStore {
             };
 
             if claim_policy_allows(&policy_claim, request).is_ok() {
-                if result.included.len() < limit {
-                    result.included.push(RetrievedClaim {
-                        claim_id: row.claim_id,
-                        fact: row.fact,
-                        predicate_id: row.predicate_id,
-                        rank_score: match_score,
-                    });
-                }
+                included.push(RetrievedClaim {
+                    claim_id: row.claim_id,
+                    fact: row.fact,
+                    predicate_id: row.predicate_id,
+                    rank_score: match_score,
+                });
             } else {
                 result.redacted_omission_count += 1;
             }
         }
+
+        included.sort_by(|left, right| {
+            right
+                .rank_score
+                .cmp(&left.rank_score)
+                .then_with(|| left.claim_id.cmp(&right.claim_id))
+        });
+        included.truncate(limit);
+        result.included = included;
 
         Ok(result)
     }
@@ -147,13 +155,13 @@ fn deterministic_match_score(row: &ClaimRetrievalRow, query: &str) -> Option<i64
         return Some(50);
     }
 
-    if row.fact.to_ascii_lowercase().contains(query) {
+    if row.fact.to_lowercase().contains(query) {
         return Some(100);
     }
 
     row.retrieval_hints
         .to_string()
-        .to_ascii_lowercase()
+        .to_lowercase()
         .contains(query)
         .then_some(50)
 }
