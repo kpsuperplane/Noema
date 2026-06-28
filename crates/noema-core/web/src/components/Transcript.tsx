@@ -419,7 +419,7 @@ function MemoryMarker({
   const failed = extraction?.status === "FAILED";
 
   return (
-    <div className="ml-10 grid w-[calc(100%-2.5rem)] max-w-[720px] gap-2">
+    <div className="grid w-full max-w-full gap-2">
       <Marker
         render={<button type="button" />}
         aria-expanded={open}
