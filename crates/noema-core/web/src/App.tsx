@@ -28,6 +28,20 @@ type ProviderAuthAttemptView =
   | StartProviderAuthAttemptMutation["startProviderAuthAttempt"]
   | NonNullable<ProviderAuthAttemptQuery["providerAuthAttempt"]>;
 
+type SendMessageReadiness = {
+  text: string;
+  conversationId: string | null;
+  socketState: SocketState;
+  pending: boolean;
+};
+
+export function canSendMessage(readiness: SendMessageReadiness): readiness is SendMessageReadiness & {
+  conversationId: string;
+} {
+  const { text, conversationId, socketState } = readiness;
+  return Boolean(text.trim() && conversationId && socketState === "ready");
+}
+
 export function App() {
   const apolloClient = useApolloClient();
   const localStatus = useQuery(LocalStatusDocument);
@@ -211,7 +225,8 @@ export function App() {
 
   async function sendMessage(text: string) {
     const input = text.trim();
-    if (!input || !conversationId || socketState !== "ready" || pending) {
+    const readiness = { text, conversationId, socketState, pending };
+    if (!canSendMessage(readiness)) {
       return;
     }
 
@@ -225,7 +240,7 @@ export function App() {
       await sendConversationTurn({
         variables: {
           input: {
-            conversationId,
+            conversationId: readiness.conversationId,
             input,
             clientMessageId
           }
@@ -322,7 +337,7 @@ export function App() {
 
         <Composer
           value={draft}
-          disabled={!ready || pending}
+          ready={ready}
           pending={pending}
           placeholder={ready ? "Message Noema" : "Starting Noema chat..."}
           onChange={setDraft}
