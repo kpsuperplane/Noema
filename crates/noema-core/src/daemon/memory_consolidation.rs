@@ -31,6 +31,43 @@ pub(super) enum MemoryConsolidationOutcome {
     },
 }
 
+pub(super) fn consolidation_outcome_json(
+    outcome: &MemoryConsolidationOutcome,
+    proposal_content: &str,
+) -> Value {
+    match outcome {
+        MemoryConsolidationOutcome::Created { memory_id } => json!({
+            "outcome": "created",
+            "memory_id": memory_id,
+            "proposal_content": proposal_content,
+            "reason": null,
+        }),
+        MemoryConsolidationOutcome::Reused { memory_id, reason } => json!({
+            "outcome": "reused",
+            "memory_id": memory_id,
+            "proposal_content": proposal_content,
+            "reason": reason,
+        }),
+        MemoryConsolidationOutcome::Reinforced { memory_id, reason } => json!({
+            "outcome": "reinforced",
+            "memory_id": memory_id,
+            "proposal_content": proposal_content,
+            "reason": reason,
+        }),
+        MemoryConsolidationOutcome::Conflict {
+            memory_id,
+            conflicting_memory_id,
+            reason,
+        } => json!({
+            "outcome": "conflict",
+            "memory_id": memory_id,
+            "proposal_content": proposal_content,
+            "reason": reason,
+            "conflicting_memory_id": conflicting_memory_id,
+        }),
+    }
+}
+
 // Task 3 parser is tested here; runtime consumers are added in later tasks.
 #[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -451,7 +488,11 @@ fn candidate_subjects_overlap_memory(
 
 #[cfg(test)]
 mod tests {
-    use super::{SemanticConsolidationDecision, parse_semantic_decision};
+    use super::{
+        MemoryConsolidationOutcome, SemanticConsolidationDecision, consolidation_outcome_json,
+        parse_semantic_decision,
+    };
+    use serde_json::json;
 
     #[test]
     fn parse_semantic_reinforce_decision() {
@@ -518,6 +559,29 @@ mod tests {
         assert_eq!(
             error,
             "existing_memory_id must not contain surrounding whitespace"
+        );
+    }
+
+    #[test]
+    fn consolidation_outcome_json_reports_conflict_fields() {
+        let payload = consolidation_outcome_json(
+            &MemoryConsolidationOutcome::Conflict {
+                memory_id: "mem_new".to_string(),
+                conflicting_memory_id: "mem_old".to_string(),
+                reason: "opposite preference".to_string(),
+            },
+            "Kevin hates ice cream.",
+        );
+
+        assert_eq!(
+            payload,
+            json!({
+                "outcome": "conflict",
+                "memory_id": "mem_new",
+                "proposal_content": "Kevin hates ice cream.",
+                "reason": "opposite preference",
+                "conflicting_memory_id": "mem_old",
+            })
         );
     }
 }

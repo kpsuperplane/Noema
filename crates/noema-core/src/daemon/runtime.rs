@@ -26,7 +26,9 @@ use serde_json::{Value, json};
 use tokio::sync::{mpsc, oneshot};
 
 use super::{
-    memory_consolidation::{MemoryConsolidationOutcome, consolidate_memory_candidate},
+    memory_consolidation::{
+        MemoryConsolidationOutcome, consolidate_memory_candidate, consolidation_outcome_json,
+    },
     memory_pipeline::{
         ConversationMemoryContext, explicit_memory_content, extracted_proposal_to_candidate,
         infer_chat_memory_type, infer_chat_sensitivity, memory_activity, memory_activity_failed,
@@ -1265,6 +1267,13 @@ impl CodexRuntimeActor {
         };
         let created_memory_ids =
             created_memory_ids_from_consolidation_outcomes(&consolidation_outcomes);
+        let memory_outcomes = consolidation_outcomes
+            .iter()
+            .zip(card_proposals.iter())
+            .map(|(outcome, proposal)| {
+                consolidation_outcome_json(outcome, &proposal.proposal.content)
+            })
+            .collect::<Vec<_>>();
 
         let card = TurnTranscriptItem::A2uiCard {
             id: format!("memory_proposals:{}:{turn_index}", context.conversation_id),
@@ -1273,17 +1282,14 @@ impl CodexRuntimeActor {
                 "turn_index": turn_index,
                 "source": "provider_structured_output",
                 "created_memory_ids": created_memory_ids.clone(),
+                "memory_outcomes": memory_outcomes.clone(),
                 "proposals": card_proposals,
             }),
         };
         self.persist_and_send_turn_item(context, card, item_tx)
             .await?;
 
-        let summary = match created_memory_ids.len() {
-            0 => "created no memory candidates".to_string(),
-            1 => "created 1 memory candidate".to_string(),
-            count => format!("created {count} memory candidates"),
-        };
+        let summary = memory_outcome_summary(&consolidation_outcomes);
         let activity = memory_activity(
             &activity_id,
             TurnActivityStatus::Completed,
@@ -1292,6 +1298,7 @@ impl CodexRuntimeActor {
             json!({
                 "turn_index": turn_index,
                 "created_memory_ids": created_memory_ids,
+                "memory_outcomes": memory_outcomes,
             }),
         );
         self.persist_and_send_turn_item(context, activity, item_tx)
@@ -1945,6 +1952,24 @@ fn created_memory_ids_from_consolidation_outcomes(
             | MemoryConsolidationOutcome::Conflict { .. } => None,
         })
         .collect()
+}
+
+fn memory_outcome_summary(outcomes: &[MemoryConsolidationOutcome]) -> String {
+    let mut created = 0;
+    let mut reused = 0;
+    let mut reinforced = 0;
+    let mut conflicts = 0;
+
+    for outcome in outcomes {
+        match outcome {
+            MemoryConsolidationOutcome::Created { .. } => created += 1,
+            MemoryConsolidationOutcome::Reused { .. } => reused += 1,
+            MemoryConsolidationOutcome::Reinforced { .. } => reinforced += 1,
+            MemoryConsolidationOutcome::Conflict { .. } => conflicts += 1,
+        }
+    }
+
+    format!("created {created}, reused {reused}, reinforced {reinforced}, conflicts {conflicts}")
 }
 
 fn memory_id_from_consolidation_outcome(outcome: &MemoryConsolidationOutcome) -> String {

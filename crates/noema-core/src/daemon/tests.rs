@@ -7,7 +7,7 @@ use super::{
 };
 use crate::{
     DatabaseConfig,
-    memory::{ParticipantRole, Sensitivity},
+    memory::{MemoryStatus, ParticipantRole, Sensitivity},
     memory_persistence::{
         ActorRef, ConversationItemKind, ConversationItemStatus, MemoryType, NewConversationItem,
         NewMemoryCandidate, NewMemoryParticipant, ObjectRef, ObjectType, PostgresMemoryRepository,
@@ -726,6 +726,47 @@ async fn runtime_actor_reinforces_semantic_memory_repeat() {
 }
 
 #[tokio::test]
+async fn runtime_actor_creates_disputed_memory_for_semantic_conflict() {
+    let Some(database) = test_database().await else {
+        return;
+    };
+    let handle = test_runtime_handle(
+        fake_codex_provider_with_memory_extraction(),
+        database.url.clone(),
+    )
+    .await;
+
+    let conversation = handle
+        .start_conversation(None, None)
+        .await
+        .expect("conversation");
+    let conversation_id = conversation.conversation_id.clone();
+
+    collect_turn(
+        &handle,
+        conversation_id.clone(),
+        "I like ice cream.".to_string(),
+    )
+    .await
+    .expect("first turn");
+    collect_turn(&handle, conversation_id, "I hate ice cream.".to_string())
+        .await
+        .expect("second turn");
+    handle.shutdown().await;
+
+    let repo = postgres_repo(&database).await;
+    let memories = repo.list_recent_memories(Some(10)).await.expect("memories");
+    assert_eq!(memories.len(), 2);
+    assert!(
+        memories
+            .iter()
+            .any(|memory| memory.content == "Kevin hates ice cream."
+                && memory.status == MemoryStatus::Disputed),
+        "expected disputed hate-ice-cream memory, got {memories:?}"
+    );
+}
+
+#[tokio::test]
 async fn runtime_actor_persists_provider_structured_memory_proposals_as_activity() {
     let Some(database) = test_database().await else {
         return;
@@ -784,7 +825,7 @@ async fn runtime_actor_persists_provider_structured_memory_proposals_as_activity
                 summary: Some(summary),
                 ..
             } if activity_kind == "memory_extraction"
-                && summary == "created 1 memory candidate"
+                && summary == "created 1, reused 0, reinforced 0, conflicts 0"
         )
     }));
     let proposal_card = items
@@ -808,6 +849,19 @@ async fn runtime_actor_persists_provider_structured_memory_proposals_as_activity
         "Kevin prefers same-call memory proposals."
     );
     assert_eq!(proposal_card["proposals"][0]["status"], "active");
+    assert_eq!(
+        proposal_card["memory_outcomes"][0]["outcome"],
+        serde_json::json!("created")
+    );
+    assert_eq!(
+        proposal_card["memory_outcomes"][0]["proposal_content"],
+        "Kevin prefers same-call memory proposals."
+    );
+    assert!(
+        proposal_card["memory_outcomes"][0]["memory_id"]
+            .as_str()
+            .is_some_and(|id| !id.is_empty())
+    );
     handle.shutdown().await;
 
     let repo = postgres_repo(&database).await;
@@ -1799,14 +1853,23 @@ fn memory_extraction_output(input: &str) -> Vec<GenerateOutputItem> {
     if input.contains("Noema's memory consolidation comparator") {
         let existing_memory_id =
             first_memory_id_from_consolidation_prompt(input).expect("existing memory id");
-        return vec![GenerateOutputItem::AssistantText {
-            text: serde_json::to_string(&json!({
+        let decision = if input.contains("Kevin hates ice cream.") {
+            json!({
+                "decision": "conflict",
+                "existing_memory_id": existing_memory_id,
+                "confidence": 0.93,
+                "rationale": "opposite ice cream preference",
+            })
+        } else {
+            json!({
                 "decision": "reinforce",
                 "existing_memory_id": existing_memory_id,
                 "confidence": 0.92,
                 "rationale": "same ice cream preference",
-            }))
-            .expect("semantic decision json"),
+            })
+        };
+        return vec![GenerateOutputItem::AssistantText {
+            text: serde_json::to_string(&decision).expect("semantic decision json"),
         }];
     }
 
@@ -1869,6 +1932,27 @@ fn memory_extraction_output(input: &str) -> Vec<GenerateOutputItem> {
                     "retrieval_hints": {"topics": ["food"], "keywords": ["ice cream", "dessert"], "summary": "Kevin enjoys ice cream desserts."},
                     "risk_flags": [],
                     "evidence_excerpt": "Ice cream is one of my favorite desserts."
+                }))],
+            },
+        ];
+    }
+
+    if input.contains("I hate ice cream.") {
+        return vec![
+            GenerateOutputItem::AssistantText {
+                text: "fake answer".to_string(),
+            },
+            GenerateOutputItem::MemoryProposals {
+                proposals: vec![proposal(json!({
+                    "content": "Kevin hates ice cream.",
+                    "memory_type": "preference",
+                    "title": "Ice cream dislike",
+                    "confidence": 0.91,
+                    "sensitivity": "normal",
+                    "subjects": [{"id": "human:local", "kind": "human", "name": "Kevin", "role": "about"}],
+                    "retrieval_hints": {"topics": ["food"], "keywords": ["ice cream"], "summary": "Kevin hates ice cream."},
+                    "risk_flags": ["contradiction"],
+                    "evidence_excerpt": "I hate ice cream."
                 }))],
             },
         ];
