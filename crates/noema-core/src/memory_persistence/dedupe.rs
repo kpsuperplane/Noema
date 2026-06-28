@@ -1,3 +1,6 @@
+// Task 2 wires this module into append/storage; Task 1 lands it with unit tests first.
+#![allow(dead_code)]
+
 use ring::digest;
 
 use super::{
@@ -10,10 +13,9 @@ pub(crate) fn memory_candidate_dedupe_fingerprint(candidate: &NewMemoryCandidate
         .participants
         .iter()
         .map(|participant| {
-            format!(
-                "{}:{}",
-                participant.participant.actor_id,
-                participant_role_to_db(participant.role)
+            (
+                participant.participant.actor_id.as_str(),
+                participant_role_to_db(participant.role),
             )
         })
         .collect::<Vec<_>>();
@@ -23,11 +25,10 @@ pub(crate) fn memory_candidate_dedupe_fingerprint(candidate: &NewMemoryCandidate
         .subjects
         .iter()
         .map(|subject| {
-            format!(
-                "{}:{}:{}",
-                subject.entity_id,
-                subject.entity_type,
-                subject_role_to_db(subject.role)
+            (
+                subject.entity_id.as_str(),
+                subject.entity_type.as_str(),
+                subject_role_to_db(subject.role),
             )
         })
         .collect::<Vec<_>>();
@@ -155,5 +156,47 @@ mod tests {
             memory_candidate_dedupe_fingerprint(&first),
             memory_candidate_dedupe_fingerprint(&second)
         );
+    }
+
+    #[test]
+    fn fingerprint_ignores_participant_order() {
+        let first = candidate("I like ice cream.");
+        let mut second = candidate("I like ice cream.");
+        second.participants.reverse();
+
+        assert_eq!(
+            memory_candidate_dedupe_fingerprint(&first),
+            memory_candidate_dedupe_fingerprint(&second)
+        );
+    }
+
+    #[test]
+    fn fingerprint_ignores_subject_order() {
+        let mut first = candidate("I like ice cream.");
+        first.subjects.push(NewMemorySubject::new(
+            "agent:primary",
+            "agent",
+            "Primary agent",
+            SubjectRole::Source,
+        ));
+        let mut second = first.clone();
+        second.subjects.reverse();
+
+        assert_eq!(
+            memory_candidate_dedupe_fingerprint(&first),
+            memory_candidate_dedupe_fingerprint(&second)
+        );
+    }
+
+    #[test]
+    fn fingerprint_uses_sha256_lower_hex_shape() {
+        let fingerprint = memory_candidate_dedupe_fingerprint(&candidate("I like ice cream."));
+
+        let hex = fingerprint
+            .strip_prefix("sha256:")
+            .expect("fingerprint should use sha256 prefix");
+        assert_eq!(hex.len(), 64);
+        assert!(hex.bytes().all(|byte| byte.is_ascii_hexdigit()));
+        assert_eq!(hex, hex.to_ascii_lowercase());
     }
 }
