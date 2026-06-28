@@ -1,5 +1,12 @@
-use crate::{memory::Sensitivity, memory_persistence::NewMemoryCandidate};
+use crate::{
+    memory::Sensitivity,
+    memory_persistence::{MemorySummary, NewMemoryCandidate},
+    provider::{GenerateRequest, ProviderError},
+};
 use serde::Deserialize;
+use serde_json::{Value, json};
+
+use super::runtime::RuntimeModelProvider;
 
 // Task 3 defines outcomes before runtime integration lands in Tasks 5/6.
 #[allow(dead_code)]
@@ -104,6 +111,86 @@ pub(super) fn semantic_consolidation_allowed(candidate: &NewMemoryCandidate) -> 
     )
 }
 
+#[allow(dead_code)]
+pub(super) fn build_semantic_consolidation_prompt(
+    proposal_content: &str,
+    matches: &[MemorySummary],
+) -> String {
+    let existing = Value::Array(
+        matches
+            .iter()
+            .map(|memory| {
+                json!({
+                    "memory_id": memory.id,
+                    "memory_type": memory.memory_type.as_str(),
+                    "owner": {
+                        "object_type": memory.owner_object_type,
+                        "object_id": memory.owner_object_id,
+                    },
+                    "sensitivity": sensitivity_label(memory.sensitivity),
+                    "content": memory.content,
+                })
+            })
+            .collect(),
+    );
+
+    format!(
+        r#"You are Noema's memory consolidation comparator.
+
+Return strict JSON only. Do not include Markdown, prose, or comments.
+
+Choose one decision:
+- create: the proposal is distinct from every existing memory.
+- reuse: an existing memory fully covers the proposal and no new support is useful.
+- reinforce: the proposal restates existing truth and should add supporting provenance.
+- conflict: the proposal and an existing memory cannot both be true.
+
+Return exactly this shape:
+{{"decision":"create|reuse|reinforce|conflict","existing_memory_id":null,"confidence":0.0,"rationale":"short reason"}}
+
+Rules:
+- Use reuse, reinforce, or conflict only when the existing memory has the same subject and owner.
+- Prefer create when uncertain.
+- Prefer reinforce for paraphrases of the same preference or fact.
+- Prefer conflict for direct contradiction.
+
+Proposal:
+{proposal_content}
+
+Existing memories:
+{existing}"#
+    )
+}
+
+#[allow(dead_code)]
+pub(super) async fn semantic_consolidation_decision(
+    provider: &dyn RuntimeModelProvider,
+    candidate: &NewMemoryCandidate,
+    matches: &[MemorySummary],
+) -> Result<SemanticConsolidationDecision, String> {
+    if matches.is_empty() || !semantic_consolidation_allowed(candidate) {
+        return Ok(SemanticConsolidationDecision::Create);
+    }
+
+    let prompt = build_semantic_consolidation_prompt(&candidate.content, matches);
+    let response = provider
+        .generate(GenerateRequest::text(prompt))
+        .await
+        .map_err(|error: ProviderError| format!("semantic consolidation model failed: {error}"))?;
+    parse_semantic_decision(&response.assistant_text())
+}
+
+#[allow(dead_code)]
+fn sensitivity_label(sensitivity: Sensitivity) -> &'static str {
+    match sensitivity {
+        Sensitivity::Public => "public",
+        Sensitivity::Normal => "normal",
+        Sensitivity::Private => "private",
+        Sensitivity::Sensitive => "sensitive",
+        Sensitivity::Secret => "secret",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{SemanticConsolidationDecision, parse_semantic_decision};
@@ -161,5 +248,48 @@ mod tests {
         .expect_err("empty rationale");
 
         assert_eq!(error, "rationale is required for conflict");
+    }
+}
+
+#[cfg(test)]
+mod prompt_tests {
+    use crate::{
+        memory::{MemoryStatus, Sensitivity},
+        memory_persistence::{MemorySummary, MemoryType},
+    };
+
+    use super::build_semantic_consolidation_prompt;
+
+    fn summary(id: &str, content: &str) -> MemorySummary {
+        MemorySummary {
+            id: id.to_string(),
+            status: MemoryStatus::Active,
+            memory_type: MemoryType::Preference,
+            home_scope_id: "human:human:local".to_string(),
+            owner_object_type: "human".to_string(),
+            owner_object_id: "human:local".to_string(),
+            sensitivity: Sensitivity::Normal,
+            title: content.to_string(),
+            content: content.to_string(),
+            created_at: "2026-06-28 00:00:00+00".to_string(),
+            dedupe_fingerprint: Some("sha256:abc".to_string()),
+            source_object_type: None,
+            source_object_id: None,
+            source_type: None,
+            source_id: None,
+            conversation_id: None,
+        }
+    }
+
+    #[test]
+    fn semantic_prompt_contains_strict_decision_contract() {
+        let prompt = build_semantic_consolidation_prompt(
+            "Kevin likes ice cream.",
+            &[summary("mem_1", "Kevin enjoys ice cream.")],
+        );
+
+        assert!(prompt.contains("\"decision\":\"create|reuse|reinforce|conflict\""));
+        assert!(prompt.contains("mem_1"));
+        assert!(prompt.contains("Kevin likes ice cream."));
     }
 }

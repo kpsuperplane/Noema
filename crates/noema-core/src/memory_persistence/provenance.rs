@@ -10,7 +10,9 @@ use super::{
     memory_candidate_dedupe_fingerprint,
     objects::{validate_actor_ref_for_pool, validate_object_ref_for_pool},
     postgres_helpers::{allocate_id as allocate_postgres_id, json_value},
-    queries::POSTGRES_MEMORY_SUMMARY_BY_DEDUPE_FINGERPRINT_SQL,
+    queries::{
+        POSTGRES_MEMORY_SUMMARY_BY_DEDUPE_FINGERPRINT_SQL, POSTGRES_MEMORY_SUMMARY_BY_ID_SQL,
+    },
     repository::{MemorySummaryRow, postgres_row_to_memory_summary},
 };
 
@@ -294,6 +296,77 @@ impl PostgresMemoryRepository {
         Ok(existing)
     }
 
+    /// Reinforce an existing memory with candidate provenance.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MemoryPersistenceError`] when the memory or referenced
+    /// candidate objects are missing, or Postgres writes fail.
+    pub async fn reinforce_memory_with_candidate(
+        &self,
+        memory_id: &str,
+        candidate: &NewMemoryCandidate,
+        reason: &str,
+    ) -> Result<MemorySummary, MemoryPersistenceError> {
+        validate_postgres_memory_candidate_refs(self.pool(), candidate).await?;
+        let mut tx = self
+            .pool()
+            .begin()
+            .await
+            .map_err(MemoryPersistenceError::Database)?;
+
+        let Some(existing) = existing_memory_summary_by_id_tx(&mut tx, memory_id).await? else {
+            return Err(MemoryPersistenceError::MemoryNotFound {
+                memory_id: memory_id.to_string(),
+            });
+        };
+
+        if let Some(source) = &candidate.source {
+            let target = ObjectRef::new(ObjectType::MemoryItem, memory_id.to_string())?;
+            insert_postgres_object_provenance_edge_tx(
+                &mut tx,
+                &NewObjectProvenanceEdge {
+                    target,
+                    source: source.source.clone(),
+                    relation: "supports".to_string(),
+                    evidence_excerpt: source.evidence_excerpt.clone(),
+                    created_by: candidate.created_by.clone(),
+                    metadata: json!({"reason": reason}),
+                },
+            )
+            .await?;
+        }
+
+        let event_id = allocate_postgres_id(&mut *tx, "evt").await?;
+        sqlx::query(
+            r"
+            INSERT INTO object_events (
+              event_id,
+              event_type,
+              actor_id,
+              target_object_type,
+              target_object_id,
+              reason,
+              details
+            )
+            VALUES ($1, 'memory_reinforced', $2, 'memory_item', $3, $4, $5)
+            ",
+        )
+        .bind(event_id.as_str())
+        .bind(candidate.created_by.actor_id.as_str())
+        .bind(memory_id)
+        .bind(reason)
+        .bind(json_value(json!({"candidate_content": candidate.content})))
+        .execute(&mut *tx)
+        .await
+        .map_err(MemoryPersistenceError::Database)?;
+
+        tx.commit()
+            .await
+            .map_err(MemoryPersistenceError::Database)?;
+        Ok(existing)
+    }
+
     /// Add a typed provenance edge between two concrete objects.
     ///
     /// # Errors
@@ -517,6 +590,69 @@ async fn reuse_memory_candidate_for_dedupe_fingerprint_tx(
     .map_err(MemoryPersistenceError::Database)?;
 
     Ok(Some(existing))
+}
+
+async fn existing_memory_summary_by_id_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    memory_id: &str,
+) -> Result<Option<MemorySummary>, MemoryPersistenceError> {
+    let row = sqlx::query_as::<
+        _,
+        (
+            String,
+            String,
+            String,
+            String,
+            String,
+            String,
+            String,
+            String,
+            Option<String>,
+            String,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+        ),
+    >(POSTGRES_MEMORY_SUMMARY_BY_ID_SQL)
+    .bind(memory_id)
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(MemoryPersistenceError::Database)?;
+
+    row.map(
+        |(
+            memory_id,
+            status,
+            memory_type,
+            owner_object_type,
+            owner_object_id,
+            sensitivity,
+            title,
+            content,
+            dedupe_fingerprint,
+            created_at,
+            source_object_type,
+            source_object_id,
+            conversation_id,
+        )| {
+            postgres_row_to_memory_summary(MemorySummaryRow {
+                memory_id,
+                status,
+                memory_type,
+                owner_object_type,
+                owner_object_id,
+                sensitivity,
+                title,
+                content,
+                dedupe_fingerprint,
+                created_at,
+                source_object_type,
+                source_object_id,
+                conversation_id,
+            })
+        },
+    )
+    .transpose()
 }
 
 fn is_memory_dedupe_unique_violation(error: &sqlx::Error) -> bool {
