@@ -111,6 +111,13 @@ pub enum GenerateStreamEvent {
     },
     /// A non-empty memory proposal block has started streaming.
     MemoryProposalsStarted,
+    /// A provider tool call output item has started streaming.
+    ToolCallStarted {
+        /// Zero-based index of the output item in the provider response.
+        output_index: usize,
+        /// Tool name reported by the provider.
+        name: String,
+    },
 }
 
 impl GenerateResponse {

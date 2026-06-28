@@ -5,6 +5,7 @@
 
 mod context_packets;
 mod conversations;
+#[cfg(test)]
 mod dedupe;
 mod error;
 mod helpers;
@@ -26,7 +27,6 @@ pub use conversations::{
     ConversationRecord, ConversationTurnRecord, ConversationTurnStatus, NewConversation,
     NewConversationItem, NewConversationTurn, ReplayMode,
 };
-pub(crate) use dedupe::memory_candidate_dedupe_fingerprint;
 pub use error::MemoryPersistenceError;
 pub use ids::{
     ActorId, ContextPacketId, ConversationId, ConversationItemId, MemoryItemId, ObjectId,

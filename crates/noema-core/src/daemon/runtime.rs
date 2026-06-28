@@ -544,6 +544,7 @@ impl CodexRuntimeActor {
                 &item_tx,
                 &initial_event_context,
                 &initial_stream_id,
+                0,
             );
         };
 
@@ -708,6 +709,7 @@ impl CodexRuntimeActor {
                 &turn.user_input,
             );
             let continuation_stream_id = assistant_stream_id(&turn.turn_id, "continuation");
+            let continuation_output_base = initial_output_count + local_tool_results.len();
             let continuation_event_context = ConversationMemoryContext {
                 turn_index: turn.turn_index,
                 conversation_id: turn.conversation_id.clone(),
@@ -724,6 +726,7 @@ impl CodexRuntimeActor {
                     item_tx,
                     &continuation_event_context,
                     &continuation_stream_id,
+                    continuation_output_base,
                 );
             };
             let continuation_response = self
@@ -750,7 +753,6 @@ impl CodexRuntimeActor {
                 provider: continuation_response.provider.clone(),
                 stream_id: Some(continuation_stream_id.clone()),
             };
-            let continuation_output_base = initial_output_count + local_tool_results.len();
             for (offset, output) in continuation_response.output.into_iter().enumerate() {
                 self.persist_provider_response_output_item(
                     &continuation_action_turn,
@@ -1522,6 +1524,7 @@ fn handle_provider_stream_event(
     item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
     context: &ConversationMemoryContext,
     stream_id: &str,
+    output_index_base: usize,
 ) {
     match event {
         GenerateStreamEvent::AssistantTextDelta { delta } => send_assistant_text_delta(
@@ -1533,6 +1536,14 @@ fn handle_provider_stream_event(
         ),
         GenerateStreamEvent::MemoryProposalsStarted => {
             send_memory_proposed_transient(context, item_tx);
+        }
+        GenerateStreamEvent::ToolCallStarted { output_index, name } => {
+            send_tool_call_started_transient(
+                context,
+                item_tx,
+                output_index_base + output_index,
+                &name,
+            );
         }
     }
 }
@@ -1553,6 +1564,34 @@ fn send_memory_proposed_transient(
         json!({
             "turn_index": context.turn_index,
             "source": "provider_structured_output",
+        }),
+    );
+    send_transient_turn_item(context, activity, item_tx);
+}
+
+fn send_tool_call_started_transient(
+    context: &ConversationMemoryContext,
+    item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
+    output_index: usize,
+    name: &str,
+) {
+    let activity_id = format!(
+        "tool_call:{}:{}:{}",
+        context.conversation_id, context.turn_index, output_index
+    );
+    let activity = typed_memory_activity(
+        &activity_id,
+        "tool_call",
+        TurnActivityStatus::Started,
+        &format!("Tool call: {name}"),
+        Some("tool call is streaming"),
+        json!({
+            "turn_index": context.turn_index,
+            "output_index": output_index,
+            "source": "provider_structured_output",
+            "action": {
+                "name": name,
+            },
         }),
     );
     send_transient_turn_item(context, activity, item_tx);

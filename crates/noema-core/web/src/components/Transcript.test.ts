@@ -101,6 +101,42 @@ describe("Transcript memory markers", () => {
   });
 });
 
+describe("Transcript tool markers", () => {
+  test("labels started tool calls as in progress before the result arrives", () => {
+    const markup = renderToStaticMarkup(
+      React.createElement(Transcript, {
+        entries: [
+          {
+            id: "activity-1",
+            type: "activity",
+            itemId: "item-1",
+            turnId: "turn-1",
+            item: {
+              kind: "activity",
+              id: "tool_call:conversation_1:1:1",
+              activity_kind: "tool_call",
+              status: "STARTED",
+              title: "Tool call: search_memory",
+              summary: "tool call is streaming",
+              metadata: {
+                turn_index: 1,
+                output_index: 1,
+                action: { name: "search_memory" }
+              }
+            }
+          }
+        ],
+        pending: false,
+        expandedActivities: new Set<string>(),
+        onToggleActivity: () => {}
+      })
+    );
+
+    assert.match(markup, /Using search_memory/);
+    assert.doesNotMatch(markup, /Used search_memory/);
+  });
+});
+
 describe("shouldShowTypingIndicator", () => {
   test("shows while a user turn is pending and no assistant answer has arrived", () => {
     const entries: TranscriptEntry[] = [{ id: "user-1", type: "user", text: "Hello" }];

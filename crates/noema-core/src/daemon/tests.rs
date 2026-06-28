@@ -1008,6 +1008,43 @@ async fn runtime_actor_persists_provider_tool_items_as_action_rows() {
         } if activity_kind == "tool_call" && title == "Tool call: search_memory"
     )));
 
+    let started_tool_position = items
+        .iter()
+        .position(|item| {
+            matches!(
+                item,
+                TurnTranscriptItem::Activity {
+                    id,
+                    activity_kind,
+                    status,
+                    ..
+                } if id == "tool_call:conversation_1:1:1"
+                    && activity_kind == "tool_call"
+                    && *status == TurnActivityStatus::Started
+            )
+        })
+        .expect("started tool call marker");
+    let completed_tool_position = items
+        .iter()
+        .position(|item| {
+            matches!(
+                item,
+                TurnTranscriptItem::Activity {
+                    id,
+                    activity_kind,
+                    status,
+                    ..
+                } if id == "tool_call:conversation_1:1:1"
+                    && activity_kind == "tool_call"
+                    && *status == TurnActivityStatus::Completed
+            )
+        })
+        .expect("completed tool call marker");
+    assert!(
+        started_tool_position < completed_tool_position,
+        "tool call should appear as started before it completes"
+    );
+
     let repo = postgres_repo(&database).await;
     let replay = repo
         .list_conversation_items(&conversation_id, ReplayMode::Visible)
@@ -1601,7 +1638,7 @@ impl super::runtime::RuntimeModelProvider for FakeCodexProvider {
     ) -> Pin<Box<dyn Future<Output = Result<GenerateResponse, ProviderError>> + Send + 'a>> {
         Box::pin(async move {
             let response = self.generate_response(request)?;
-            for output in &response.output {
+            for (index, output) in response.output.iter().enumerate() {
                 match output {
                     GenerateOutputItem::AssistantText { text } => {
                         let mut chunk = String::new();
@@ -1619,8 +1656,13 @@ impl super::runtime::RuntimeModelProvider for FakeCodexProvider {
                     GenerateOutputItem::MemoryProposals { proposals } if !proposals.is_empty() => {
                         on_event(GenerateStreamEvent::MemoryProposalsStarted);
                     }
+                    GenerateOutputItem::ToolCall { name, .. } => {
+                        on_event(GenerateStreamEvent::ToolCallStarted {
+                            output_index: index,
+                            name: name.clone(),
+                        });
+                    }
                     GenerateOutputItem::MemoryProposals { .. }
-                    | GenerateOutputItem::ToolCall { .. }
                     | GenerateOutputItem::ToolResult { .. }
                     | GenerateOutputItem::ApprovalRequest { .. }
                     | GenerateOutputItem::ApprovalResult { .. }

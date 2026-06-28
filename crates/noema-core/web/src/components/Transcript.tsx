@@ -320,6 +320,9 @@ function toolMarkerTone(marker: ToolMarkerGroup): "default" | "error" {
 function toolMarkerLabel(marker: ToolMarkerGroup): string {
   const toolName = toolNameFromMetadata(marker.call?.item.metadata) ?? toolNameFromMetadata(marker.result?.item.metadata);
   if (toolName) {
+    if (marker.call && !marker.result && marker.call.item.status === "STARTED") {
+      return `Using ${toolName}`;
+    }
     return `Used ${toolName}`;
   }
   return marker.call?.item.title ?? marker.result?.item.title ?? "Tool activity";
