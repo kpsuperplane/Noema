@@ -977,6 +977,132 @@ async fn append_memory_candidate_records_source_conversation_and_edges() {
 }
 
 #[tokio::test]
+async fn reinforce_memory_with_candidate_rejects_incompatible_target() {
+    let Some(repo) = test_repo().await else {
+        return;
+    };
+    repo.ensure_default_actors().await.expect("actors");
+
+    let conversation = repo
+        .create_conversation(NewConversation::local_chat(
+            Some("test-model".to_string()),
+            Some("/tmp/noema".to_string()),
+        ))
+        .await
+        .expect("conversation");
+    let source_item = repo
+        .append_conversation_item(NewConversationItem {
+            conversation_id: conversation.conversation_id.clone(),
+            turn_id: None,
+            parent_item_id: None,
+            kind: ConversationItemKind::UserText,
+            status: ConversationItemStatus::Completed,
+            author: ActorRef::human("human:local"),
+            content_text: Some("Kevin likes quiet mornings.".to_string()),
+            payload_json: serde_json::json!({}),
+            metadata: serde_json::json!({}),
+        })
+        .await
+        .expect("source item");
+
+    let mut existing_candidate = NewMemoryCandidate::confirmed_note(
+        ObjectRef::human("human:local"),
+        "Kevin likes quiet mornings.",
+        ActorRef::agent("agent:primary"),
+        ObjectRef::conversation_item(source_item.item_id.as_str()),
+    );
+    existing_candidate.memory_type = MemoryType::Preference;
+    let existing = repo
+        .append_memory_candidate(existing_candidate)
+        .await
+        .expect("existing memory");
+
+    let mut incompatible_candidate = NewMemoryCandidate::confirmed_note(
+        ObjectRef::human("human:local"),
+        "Kevin likes tranquil mornings.",
+        ActorRef::agent("agent:primary"),
+        ObjectRef::conversation_item(source_item.item_id.as_str()),
+    );
+    incompatible_candidate.memory_type = MemoryType::Fact;
+
+    let error = repo
+        .reinforce_memory_with_candidate(&existing.id, &incompatible_candidate, "semantic")
+        .await
+        .expect_err("incompatible target");
+
+    assert!(matches!(
+        error,
+        MemoryPersistenceError::IncompatibleMemoryReinforcement { memory_id }
+            if memory_id == existing.id
+    ));
+
+    let mut compatible_candidate = incompatible_candidate.clone();
+    compatible_candidate.memory_type = MemoryType::Preference;
+
+    sqlx::query("UPDATE memory_items SET status = 'archived' WHERE memory_id = $1")
+        .bind(existing.id.as_str())
+        .execute(repo.pool())
+        .await
+        .expect("archive memory");
+    let archived_error = repo
+        .reinforce_memory_with_candidate(&existing.id, &compatible_candidate, "semantic")
+        .await
+        .expect_err("archived target");
+    assert!(matches!(
+        archived_error,
+        MemoryPersistenceError::IncompatibleMemoryReinforcement { memory_id }
+            if memory_id == existing.id
+    ));
+
+    sqlx::query(
+        "UPDATE memory_items SET status = 'active', redacted_at = now() WHERE memory_id = $1",
+    )
+    .bind(existing.id.as_str())
+    .execute(repo.pool())
+    .await
+    .expect("redact memory");
+    let redacted_error = repo
+        .reinforce_memory_with_candidate(&existing.id, &compatible_candidate, "semantic")
+        .await
+        .expect_err("redacted target");
+    assert!(matches!(
+        redacted_error,
+        MemoryPersistenceError::IncompatibleMemoryReinforcement { memory_id }
+            if memory_id == existing.id
+    ));
+
+    let support_edges = sqlx::query_scalar::<_, i64>(
+        r"
+        SELECT COUNT(*)
+        FROM object_provenance_edges
+        WHERE target_object_type = 'memory_item'
+          AND target_object_id = $1
+          AND relation = 'supports'
+        ",
+    )
+    .bind(existing.id.as_str())
+    .fetch_one(repo.pool())
+    .await
+    .expect("support edge count");
+    assert_eq!(support_edges, 0);
+
+    let reinforcement_events = sqlx::query_scalar::<_, i64>(
+        r"
+        SELECT COUNT(*)
+        FROM object_events
+        WHERE target_object_type = 'memory_item'
+          AND target_object_id = $1
+          AND event_type = 'memory_reinforced'
+        ",
+    )
+    .bind(existing.id.as_str())
+    .fetch_one(repo.pool())
+    .await
+    .expect("reinforcement event count");
+    assert_eq!(reinforcement_events, 0);
+}
+
+#[tokio::test]
 async fn append_memory_candidate_reuses_exact_dedupe_fingerprint() {
     let Some(repo) = test_repo().await else {
         return;

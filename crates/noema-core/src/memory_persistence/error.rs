@@ -59,6 +59,13 @@ pub enum MemoryPersistenceError {
         memory_id: MemoryId,
     },
 
+    /// Existing memory cannot be reinforced by the provided candidate.
+    #[error("memory cannot be reinforced with this candidate: {memory_id}")]
+    IncompatibleMemoryReinforcement {
+        /// Rejected memory id.
+        memory_id: MemoryId,
+    },
+
     /// A provider account expected to exist was not found.
     #[error("provider account not found: {provider_account_id}")]
     ProviderAccountNotFound {

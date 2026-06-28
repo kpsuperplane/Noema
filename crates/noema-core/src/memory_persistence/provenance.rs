@@ -1,3 +1,4 @@
+use crate::memory::MemoryStatus;
 use serde_json::{Value, json};
 
 use super::{
@@ -320,6 +321,7 @@ impl PostgresMemoryRepository {
                 memory_id: memory_id.to_string(),
             });
         };
+        validate_memory_reinforcement_target_tx(&mut tx, &existing, candidate).await?;
 
         if let Some(source) = &candidate.source {
             let target = ObjectRef::new(ObjectType::MemoryItem, memory_id.to_string())?;
@@ -653,6 +655,52 @@ async fn existing_memory_summary_by_id_tx(
         },
     )
     .transpose()
+}
+
+async fn validate_memory_reinforcement_target_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    existing: &MemorySummary,
+    candidate: &NewMemoryCandidate,
+) -> Result<(), MemoryPersistenceError> {
+    if existing.owner_object_type != candidate.owner.object_type.as_str()
+        || existing.owner_object_id != candidate.owner.object_id.as_str()
+        || existing.memory_type != candidate.memory_type
+        || !is_reinforceable_memory_status(existing.status)
+    {
+        return Err(MemoryPersistenceError::IncompatibleMemoryReinforcement {
+            memory_id: existing.id.clone(),
+        });
+    }
+
+    let deleted_or_redacted = sqlx::query_as::<_, (Option<String>, Option<String>)>(
+        r"
+        SELECT deleted_at::text, redacted_at::text
+        FROM memory_items
+        WHERE memory_id = $1
+        ",
+    )
+    .bind(existing.id.as_str())
+    .fetch_one(&mut **tx)
+    .await
+    .map_err(MemoryPersistenceError::Database)?;
+
+    if deleted_or_redacted.0.is_some() || deleted_or_redacted.1.is_some() {
+        return Err(MemoryPersistenceError::IncompatibleMemoryReinforcement {
+            memory_id: existing.id.clone(),
+        });
+    }
+
+    Ok(())
+}
+
+fn is_reinforceable_memory_status(status: MemoryStatus) -> bool {
+    matches!(
+        status,
+        MemoryStatus::Candidate
+            | MemoryStatus::Active
+            | MemoryStatus::Confirmed
+            | MemoryStatus::Inferred
+    )
 }
 
 fn is_memory_dedupe_unique_violation(error: &sqlx::Error) -> bool {

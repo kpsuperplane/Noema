@@ -208,14 +208,28 @@ pub(super) fn validate_semantic_consolidation_decision(
         return Err("semantic consolidation referenced memory outside match set".to_string());
     };
 
-    if existing.owner_object_type != candidate.owner.object_type.as_str()
-        || existing.owner_object_id != candidate.owner.object_id.as_str()
-        || existing.memory_type != candidate.memory_type
-    {
+    if !memory_is_semantically_compatible(candidate, existing) {
         return Err("semantic consolidation referenced incompatible memory".to_string());
     }
 
     Ok(decision)
+}
+
+#[allow(dead_code)]
+pub(super) fn trusted_semantic_matches(
+    candidate: &NewMemoryCandidate,
+    matches: &[MemorySummary],
+) -> Vec<MemorySummary> {
+    matches
+        .iter()
+        .filter(|memory| {
+            matches!(
+                memory.sensitivity,
+                Sensitivity::Public | Sensitivity::Normal
+            ) && memory_is_semantically_compatible(candidate, memory)
+        })
+        .cloned()
+        .collect()
 }
 
 #[allow(dead_code)]
@@ -224,17 +238,22 @@ pub(super) async fn semantic_consolidation_decision(
     candidate: &NewMemoryCandidate,
     matches: &[MemorySummary],
 ) -> Result<SemanticConsolidationDecision, String> {
-    if matches.is_empty() || !semantic_consolidation_allowed(candidate) {
+    if !semantic_consolidation_allowed(candidate) {
         return Ok(SemanticConsolidationDecision::Create);
     }
 
-    let prompt = build_semantic_consolidation_prompt(candidate, matches);
+    let trusted_matches = trusted_semantic_matches(candidate, matches);
+    if trusted_matches.is_empty() {
+        return Ok(SemanticConsolidationDecision::Create);
+    }
+
+    let prompt = build_semantic_consolidation_prompt(candidate, &trusted_matches);
     let response = provider
         .generate(GenerateRequest::text(prompt))
         .await
         .map_err(|error: ProviderError| format!("semantic consolidation model failed: {error}"))?;
     let decision = parse_semantic_decision(&response.assistant_text())?;
-    validate_semantic_consolidation_decision(candidate, matches, decision)
+    validate_semantic_consolidation_decision(candidate, &trusted_matches, decision)
 }
 
 #[allow(dead_code)]
@@ -258,6 +277,15 @@ fn subject_role_label(role: crate::memory::SubjectRole) -> &'static str {
         crate::memory::SubjectRole::Source => "source",
         crate::memory::SubjectRole::Target => "target",
     }
+}
+
+fn memory_is_semantically_compatible(
+    candidate: &NewMemoryCandidate,
+    memory: &MemorySummary,
+) -> bool {
+    memory.owner_object_type == candidate.owner.object_type.as_str()
+        && memory.owner_object_id == candidate.owner.object_id.as_str()
+        && memory.memory_type == candidate.memory_type
 }
 
 #[cfg(test)]
@@ -345,7 +373,7 @@ mod prompt_tests {
 
     use super::{
         SemanticConsolidationDecision, build_semantic_consolidation_prompt,
-        validate_semantic_consolidation_decision,
+        trusted_semantic_matches, validate_semantic_consolidation_decision,
     };
 
     fn summary(id: &str, content: &str) -> MemorySummary {
@@ -459,5 +487,40 @@ mod prompt_tests {
             error,
             "semantic consolidation referenced incompatible memory"
         );
+    }
+
+    #[test]
+    fn trusted_semantic_matches_filters_sensitivity_owner_and_type() {
+        let mut public_match = summary("mem_public", "Kevin likes tea.");
+        public_match.sensitivity = Sensitivity::Public;
+        let normal_match = summary("mem_normal", "Kevin likes coffee.");
+        let mut private_match = summary("mem_private", "Private preference.");
+        private_match.sensitivity = Sensitivity::Private;
+        let mut sensitive_match = summary("mem_sensitive", "Sensitive preference.");
+        sensitive_match.sensitivity = Sensitivity::Sensitive;
+        let mut secret_match = summary("mem_secret", "Secret preference.");
+        secret_match.sensitivity = Sensitivity::Secret;
+        let mut wrong_owner = summary("mem_owner", "Different owner.");
+        wrong_owner.owner_object_id = "human:other".to_string();
+        let mut wrong_type = summary("mem_type", "Different type.");
+        wrong_type.memory_type = MemoryType::Fact;
+
+        let matches = vec![
+            public_match,
+            normal_match,
+            private_match,
+            sensitive_match,
+            secret_match,
+            wrong_owner,
+            wrong_type,
+        ];
+
+        let trusted = trusted_semantic_matches(&candidate("Kevin likes tea."), &matches);
+        let trusted_ids = trusted
+            .iter()
+            .map(|memory| memory.id.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(trusted_ids, ["mem_public", "mem_normal"]);
     }
 }
