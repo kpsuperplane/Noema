@@ -97,12 +97,6 @@ impl NoemaPaths {
         self.root.join("db")
     }
 
-    /// Path to the local Postgres data directory.
-    #[must_use]
-    pub fn postgres_data_dir(&self) -> PathBuf {
-        self.db_dir().join("postgres")
-    }
-
     /// Path to the provider credential root.
     #[must_use]
     pub fn providers_dir(&self) -> PathBuf {
@@ -188,10 +182,13 @@ mod tests {
             paths.socket_path(),
             PathBuf::from("/tmp/custom-noema/run/noema.sock")
         );
-        assert_eq!(
-            paths.postgres_data_dir(),
-            PathBuf::from("/tmp/custom-noema/db/postgres")
-        );
+    }
+
+    #[test]
+    fn db_dir_is_the_embedded_database_root() {
+        let paths = NoemaPaths::from_noema_home("/tmp/custom-noema").expect("paths");
+
+        assert_eq!(paths.db_dir(), PathBuf::from("/tmp/custom-noema/db"));
     }
 
     #[test]

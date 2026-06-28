@@ -35,6 +35,8 @@ pub mod provider_auth;
 /// Concrete model provider adapters.
 pub mod providers;
 mod retrieval_policy_fingerprint;
+/// Embedded canonical structured store.
+pub mod store;
 
 pub use config::{
     CliOverrides, Config, ConfigError, DaemonResolvedConfig, ProviderConfig, ProviderKind,
@@ -81,3 +83,4 @@ pub use providers::{
     codex_responses::{CodexProviderConfig, CodexResponsesProvider},
     openai::{OpenAiProvider, OpenAiProviderConfig},
 };
+pub use store::{NoemaStore, StoreConfig, StoreError};
