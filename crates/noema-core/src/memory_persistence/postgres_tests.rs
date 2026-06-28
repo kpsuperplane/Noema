@@ -1221,6 +1221,91 @@ async fn find_memory_consolidation_matches_excludes_private_sensitive_and_secret
 }
 
 #[tokio::test]
+async fn find_memory_consolidation_matches_does_not_match_agent_overlap_across_owners() {
+    let Some(repo) = test_repo().await else {
+        return;
+    };
+    repo.ensure_default_actors().await.expect("actors");
+
+    let existing_conversation = repo
+        .create_conversation(NewConversation::local_chat(
+            Some("test-model".to_string()),
+            Some("/tmp/noema".to_string()),
+        ))
+        .await
+        .expect("existing conversation");
+    let query_conversation = repo
+        .create_conversation(NewConversation::local_chat(
+            Some("test-model".to_string()),
+            Some("/tmp/noema".to_string()),
+        ))
+        .await
+        .expect("query conversation");
+    let existing_source = repo
+        .append_conversation_item(NewConversationItem {
+            conversation_id: existing_conversation.conversation_id.clone(),
+            turn_id: None,
+            parent_item_id: None,
+            kind: ConversationItemKind::UserText,
+            status: ConversationItemStatus::Completed,
+            author: ActorRef::human("human:local"),
+            content_text: Some("agent-only consolidation source".to_string()),
+            payload_json: serde_json::json!({}),
+            metadata: serde_json::json!({}),
+        })
+        .await
+        .expect("existing source");
+
+    let mut existing = NewMemoryCandidate::confirmed_note(
+        ObjectRef::new(
+            ObjectType::Conversation,
+            existing_conversation.conversation_id.as_str(),
+        )
+        .expect("existing owner"),
+        "Agent-only overlap should not consolidate across owners.",
+        ActorRef::agent("agent:primary"),
+        ObjectRef::conversation_item(existing_source.item_id.as_str()),
+    );
+    existing.memory_type = MemoryType::Preference;
+    existing.sensitivity = Sensitivity::Normal;
+    existing.participants = vec![NewMemoryParticipant::new(
+        ActorRef::agent("agent:primary"),
+        ParticipantRole::AgentInScope,
+    )];
+    let existing_summary = repo
+        .append_memory_candidate(existing)
+        .await
+        .expect("existing memory");
+
+    let mut query_candidate = NewMemoryCandidate::confirmed_note(
+        ObjectRef::new(
+            ObjectType::Conversation,
+            query_conversation.conversation_id.as_str(),
+        )
+        .expect("query owner"),
+        "Agent-only overlap",
+        ActorRef::agent("agent:primary"),
+        ObjectRef::conversation_item("synthetic_query_item"),
+    );
+    query_candidate.memory_type = MemoryType::Preference;
+    query_candidate.participants = vec![NewMemoryParticipant::new(
+        ActorRef::agent("agent:primary"),
+        ParticipantRole::AgentInScope,
+    )];
+
+    let matches = repo
+        .find_memory_consolidation_matches(&query_candidate, 12)
+        .await
+        .expect("matches");
+
+    assert!(
+        !matches
+            .iter()
+            .any(|memory| memory.id == existing_summary.id)
+    );
+}
+
+#[tokio::test]
 async fn append_memory_candidate_reuses_inferred_dedupe_fingerprint() {
     let Some(repo) = test_repo().await else {
         return;

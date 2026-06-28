@@ -1,6 +1,6 @@
 use crate::{
     database::DatabaseConfig,
-    memory::{MemoryRetrievalRequest, MemoryRetrievalResult},
+    memory::{MemoryRetrievalRequest, MemoryRetrievalResult, ParticipantRole},
     postgres_memory_retrieval, postgres_retrieval_policy_fingerprint,
 };
 use sqlx::PgPool;
@@ -8,6 +8,7 @@ use sqlx::PgPool;
 use super::{
     error::MemoryPersistenceError,
     helpers::*,
+    ids::ActorId,
     models::*,
     objects::{ActorRef, validate_actor_ref_for_pool},
     postgres_schema::POSTGRES_SCHEMA_SQL,
@@ -33,6 +34,43 @@ pub(super) struct MemorySummaryRow {
     pub(super) conversation_id: Option<String>,
 }
 
+#[cfg(test)]
+mod tests {
+    use crate::{
+        memory::ParticipantRole,
+        memory_persistence::{
+            ActorRef, NewMemoryCandidate, NewMemoryParticipant, ObjectRef, ObjectType,
+        },
+    };
+
+    use super::human_in_scope_participant_actor_ids;
+
+    #[test]
+    fn human_in_scope_participant_actor_ids_excludes_agent_participants() {
+        let mut candidate = NewMemoryCandidate::confirmed_note(
+            ObjectRef::new(ObjectType::Conversation, "conversation_1").expect("owner"),
+            "Window seats matter.",
+            ActorRef::agent("agent:primary"),
+            ObjectRef::conversation_item("item_1"),
+        );
+        candidate.participants = vec![
+            NewMemoryParticipant::new(
+                ActorRef::agent("agent:primary"),
+                ParticipantRole::AgentInScope,
+            ),
+            NewMemoryParticipant::new(
+                ActorRef::human("human:local"),
+                ParticipantRole::HumanInScope,
+            ),
+            NewMemoryParticipant::new(ActorRef::human("human:observer"), ParticipantRole::Observer),
+        ];
+
+        let actor_ids = human_in_scope_participant_actor_ids(&candidate);
+        assert_eq!(actor_ids.len(), 1);
+        assert_eq!(actor_ids[0].as_str(), "human:local");
+    }
+}
+
 pub(super) fn postgres_row_to_memory_summary(
     row: MemorySummaryRow,
 ) -> Result<MemorySummary, MemoryPersistenceError> {
@@ -54,6 +92,15 @@ pub(super) fn postgres_row_to_memory_summary(
         source_id: row.source_object_id,
         conversation_id: row.conversation_id,
     })
+}
+
+fn human_in_scope_participant_actor_ids(candidate: &NewMemoryCandidate) -> Vec<ActorId> {
+    candidate
+        .participants
+        .iter()
+        .filter(|participant| participant.role == ParticipantRole::HumanInScope)
+        .map(|participant| participant.participant.actor_id.clone())
+        .collect()
 }
 
 /// Postgres-backed memory repository.
@@ -332,7 +379,10 @@ impl PostgresMemoryRepository {
                 AND m.memory_type = $1
                 AND (
                   (m.owner_object_type = $2 AND m.owner_object_id = $3)
-                  OR mp.participant_actor_id = ANY($4)
+                  OR (
+                    mp.role = 'human_in_scope'
+                    AND mp.participant_actor_id = ANY($4)
+                  )
                 )
             ) matches
             ORDER BY
@@ -344,13 +394,7 @@ impl PostgresMemoryRepository {
         .bind(candidate.memory_type.as_str())
         .bind(candidate.owner.object_type.as_str())
         .bind(candidate.owner.object_id.as_str())
-        .bind(
-            candidate
-                .participants
-                .iter()
-                .map(|participant| participant.participant.actor_id.clone())
-                .collect::<Vec<_>>(),
-        )
+        .bind(human_in_scope_participant_actor_ids(candidate))
         .bind(candidate.content.as_str())
         .bind(i64::from(limit))
         .fetch_all(&self.pool)
