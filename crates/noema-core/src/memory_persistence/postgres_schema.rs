@@ -188,6 +188,7 @@ CREATE TABLE IF NOT EXISTS memory_items (
     CHECK (memory_type IN ('fact','preference','person','organization','project','place','routine','goal','open_loop','procedure','constraint','trigger','decision','skill','policy','note','other')),
   title TEXT NOT NULL,
   content TEXT NOT NULL,
+  memory_dedupe_fingerprint TEXT,
   structured_value JSONB NOT NULL DEFAULT '{}'::jsonb,
   retrieval_hints JSONB NOT NULL DEFAULT '{}'::jsonb,
   status TEXT NOT NULL DEFAULT 'candidate'
@@ -237,6 +238,21 @@ CREATE TABLE IF NOT EXISTS memory_items (
     )
   )
 );
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'memory_items'
+      AND column_name = 'memory_dedupe_fingerprint'
+  ) THEN
+    ALTER TABLE memory_items
+      ADD COLUMN memory_dedupe_fingerprint TEXT;
+  END IF;
+END
+$$;
 
 CREATE TABLE IF NOT EXISTS entities (
   entity_id TEXT PRIMARY KEY,
@@ -459,6 +475,11 @@ CREATE INDEX IF NOT EXISTS idx_memory_items_created_at ON memory_items(created_a
 CREATE INDEX IF NOT EXISTS idx_memory_items_status ON memory_items(status, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_memory_items_policy_status ON memory_items(retrieval_policy_status, sensitivity);
 CREATE INDEX IF NOT EXISTS idx_memory_items_search_vector ON memory_items USING GIN (search_vector);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_items_live_dedupe_fingerprint
+  ON memory_items(memory_dedupe_fingerprint)
+  WHERE memory_dedupe_fingerprint IS NOT NULL
+    AND deleted_at IS NULL
+    AND status != 'deleted';
 CREATE INDEX IF NOT EXISTS idx_entities_owner_type ON entities(owner_object_type, owner_object_id, entity_type);
 CREATE INDEX IF NOT EXISTS idx_entities_canonical_name ON entities(entity_type, canonical_name);
 CREATE INDEX IF NOT EXISTS idx_memory_subjects_entity_role ON memory_subjects(entity_id, role, memory_id);

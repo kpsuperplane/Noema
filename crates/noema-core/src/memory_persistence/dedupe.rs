@@ -1,6 +1,3 @@
-// Task 2 wires this module into append/storage; Task 1 lands it with unit tests first.
-#![allow(dead_code)]
-
 use ring::digest;
 
 use super::{

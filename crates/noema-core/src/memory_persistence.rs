@@ -26,8 +26,6 @@ pub use conversations::{
     ConversationRecord, ConversationTurnRecord, ConversationTurnStatus, NewConversation,
     NewConversationItem, NewConversationTurn, ReplayMode,
 };
-// Task 2 wires this into append/storage; Task 1 exposes it for that integration.
-#[allow(unused_imports)]
 pub(crate) use dedupe::memory_candidate_dedupe_fingerprint;
 pub use error::MemoryPersistenceError;
 pub use ids::{

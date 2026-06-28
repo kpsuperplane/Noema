@@ -7,8 +7,11 @@ use super::{
         memory_status_to_db, participant_role_to_db, sensitivity_to_db, subject_role_to_db,
         title_from_content,
     },
+    memory_candidate_dedupe_fingerprint,
     objects::{validate_actor_ref_for_pool, validate_object_ref_for_pool},
     postgres_helpers::{allocate_id as allocate_postgres_id, json_value},
+    queries::POSTGRES_MEMORY_SUMMARY_BY_DEDUPE_FINGERPRINT_SQL,
+    repository::{MemorySummaryRow, postgres_row_to_memory_summary},
 };
 
 /// New typed provenance edge between concrete objects.
@@ -51,12 +54,71 @@ impl PostgresMemoryRepository {
         candidate: NewMemoryCandidate,
     ) -> Result<MemorySummary, MemoryPersistenceError> {
         validate_postgres_memory_candidate_refs(self.pool(), &candidate).await?;
+        let dedupe_fingerprint = memory_candidate_dedupe_fingerprint(&candidate);
 
         let mut tx = self
             .pool()
             .begin()
             .await
             .map_err(MemoryPersistenceError::Database)?;
+
+        if let Some(existing) =
+            existing_memory_summary_for_dedupe_fingerprint_tx(&mut tx, &dedupe_fingerprint).await?
+        {
+            if let Some(source) = &candidate.source {
+                insert_postgres_object_provenance_edge_tx(
+                    &mut tx,
+                    &NewObjectProvenanceEdge {
+                        target: ObjectRef::new(ObjectType::MemoryItem, existing.id.as_str())?,
+                        source: source.source.clone(),
+                        relation: "supports".to_string(),
+                        evidence_excerpt: source.evidence_excerpt.clone(),
+                        created_by: candidate.created_by.clone(),
+                        metadata: json!({
+                            "reason": "exact_dedupe_fingerprint",
+                            "dedupe_fingerprint": dedupe_fingerprint,
+                        }),
+                    },
+                )
+                .await?;
+            }
+
+            let event_id = allocate_postgres_id(&mut *tx, "evt").await?;
+            sqlx::query(
+                r"
+                INSERT INTO object_events (
+                  event_id,
+                  event_type,
+                  actor_id,
+                  target_object_type,
+                  target_object_id,
+                  reason,
+                  details
+                )
+                VALUES ($1, 'memory_reused', $2, 'memory_item', $3, $4, $5)
+                ",
+            )
+            .bind(event_id.as_str())
+            .bind(candidate.created_by.actor_id.as_str())
+            .bind(existing.id.as_str())
+            .bind("exact_dedupe_fingerprint")
+            .bind(json_value(json!({
+                "dedupe_fingerprint": dedupe_fingerprint,
+                "source": candidate.source.as_ref().map(|source| json!({
+                    "object_type": source.source.object_type.as_str(),
+                    "object_id": source.source.object_id.as_str(),
+                })),
+            })))
+            .execute(&mut *tx)
+            .await
+            .map_err(MemoryPersistenceError::Database)?;
+
+            tx.commit()
+                .await
+                .map_err(MemoryPersistenceError::Database)?;
+            return Ok(existing);
+        }
+
         let memory_id = allocate_postgres_id(&mut *tx, "mem").await?;
         let event_id = allocate_postgres_id(&mut *tx, "evt").await?;
         let title = candidate
@@ -73,6 +135,7 @@ impl PostgresMemoryRepository {
               memory_type,
               title,
               content,
+              memory_dedupe_fingerprint,
               retrieval_hints,
               status,
               confidence,
@@ -85,7 +148,7 @@ impl PostgresMemoryRepository {
             )
             VALUES (
               $1, $2, $3, $4, $5, $6, $7, $8,
-              $9, $10, $11, $12, $13, $14::timestamptz, $15
+              $9, $10, $11, $12, $13, $14, $15::timestamptz, $16
             )
             RETURNING created_at::text
             ",
@@ -96,6 +159,7 @@ impl PostgresMemoryRepository {
         .bind(candidate.memory_type.as_str())
         .bind(title.as_str())
         .bind(candidate.content.as_str())
+        .bind(dedupe_fingerprint.as_str())
         .bind(json_value(candidate.retrieval_hints.clone()))
         .bind(memory_status_to_db(candidate.status))
         .bind(candidate.confidence)
@@ -198,6 +262,7 @@ impl PostgresMemoryRepository {
                 "object_type": source.source.object_type.as_str(),
                 "object_id": source.source.object_id.as_str(),
             })),
+            "dedupe_fingerprint": dedupe_fingerprint,
         })))
         .execute(&mut *tx)
         .await
@@ -218,6 +283,7 @@ impl PostgresMemoryRepository {
             sensitivity: candidate.sensitivity,
             title,
             content: candidate.content.clone(),
+            dedupe_fingerprint: Some(dedupe_fingerprint),
             created_at,
             source_object_type: source_object_type.clone(),
             source_object_id: source_object_id.clone(),
@@ -393,6 +459,69 @@ async fn validate_postgres_memory_candidate_refs(
         }
     }
     Ok(())
+}
+
+async fn existing_memory_summary_for_dedupe_fingerprint_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    dedupe_fingerprint: &str,
+) -> Result<Option<MemorySummary>, MemoryPersistenceError> {
+    let row = sqlx::query_as::<
+        _,
+        (
+            String,
+            String,
+            String,
+            String,
+            String,
+            String,
+            String,
+            String,
+            Option<String>,
+            String,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+        ),
+    >(POSTGRES_MEMORY_SUMMARY_BY_DEDUPE_FINGERPRINT_SQL)
+    .bind(dedupe_fingerprint)
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(MemoryPersistenceError::Database)?;
+
+    row.map(
+        |(
+            memory_id,
+            status,
+            memory_type,
+            owner_object_type,
+            owner_object_id,
+            sensitivity,
+            title,
+            content,
+            dedupe_fingerprint,
+            created_at,
+            source_object_type,
+            source_object_id,
+            conversation_id,
+        )| {
+            postgres_row_to_memory_summary(MemorySummaryRow {
+                memory_id,
+                status,
+                memory_type,
+                owner_object_type,
+                owner_object_id,
+                sensitivity,
+                title,
+                content,
+                dedupe_fingerprint,
+                created_at,
+                source_object_type,
+                source_object_id,
+                conversation_id,
+            })
+        },
+    )
+    .transpose()
 }
 
 async fn insert_postgres_object_provenance_edge_tx(

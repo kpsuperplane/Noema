@@ -4,7 +4,7 @@ use super::{
     ActorId, ActorRef, ConversationId, ConversationItemKind, ConversationItemStatus, MemoryItemId,
     MemoryPersistenceError, MemoryType, NewConversation, NewConversationItem, NewConversationTurn,
     NewMemoryCandidate, NewMemoryParticipant, NewMemorySubject, NewObjectProvenanceEdge, ObjectId,
-    ObjectRef, ObjectType, PostgresMemoryRepository, ReplayMode,
+    ObjectProvenanceSource, ObjectRef, ObjectType, PostgresMemoryRepository, ReplayMode,
     postgres_schema::POSTGRES_SCHEMA_SQL,
     provenance::DeleteConversationItem,
     repository::{POSTGRES_BOOTSTRAP_MIGRATION_NAME, POSTGRES_BOOTSTRAP_MIGRATION_VERSION},
@@ -110,10 +110,12 @@ async fn bootstrap_creates_core_tables() {
         ("object_links", "idx_object_links_source_relation"),
         ("object_links", "idx_object_links_target_relation"),
         ("memory_items", "idx_memory_items_search_vector"),
+        ("memory_items", "idx_memory_items_live_dedupe_fingerprint"),
     ] {
         assert_index_exists(repo.pool(), table_name, index_name).await;
     }
 
+    assert_memory_dedupe_fingerprint_column_exists(repo.pool()).await;
     assert_memory_search_vector_column_exists(repo.pool()).await;
 
     let migration_name = sqlx::query_scalar::<_, Option<String>>(
@@ -974,6 +976,140 @@ async fn append_memory_candidate_records_source_conversation_and_edges() {
 }
 
 #[tokio::test]
+async fn append_memory_candidate_reuses_exact_dedupe_fingerprint() {
+    let Some(repo) = test_repo().await else {
+        return;
+    };
+    repo.ensure_default_actors().await.expect("actors");
+
+    let conversation = repo
+        .create_conversation(NewConversation::local_chat(
+            Some("test-model".to_string()),
+            Some("/tmp/noema".to_string()),
+        ))
+        .await
+        .expect("conversation");
+    let turn = repo
+        .create_conversation_turn(NewConversationTurn {
+            conversation_id: conversation.conversation_id.clone(),
+            trigger_item_id: None,
+            metadata: serde_json::json!({}),
+        })
+        .await
+        .expect("turn");
+    let first_item = repo
+        .append_conversation_item(NewConversationItem {
+            conversation_id: conversation.conversation_id.clone(),
+            turn_id: Some(turn.turn_id.clone()),
+            parent_item_id: None,
+            kind: ConversationItemKind::UserText,
+            status: ConversationItemStatus::Completed,
+            author: ActorRef::human("human:local"),
+            content_text: Some("I like ice cream.".to_string()),
+            payload_json: serde_json::json!({}),
+            metadata: serde_json::json!({}),
+        })
+        .await
+        .expect("first item");
+    let second_item = repo
+        .append_conversation_item(NewConversationItem {
+            conversation_id: conversation.conversation_id.clone(),
+            turn_id: Some(turn.turn_id.clone()),
+            parent_item_id: None,
+            kind: ConversationItemKind::UserText,
+            status: ConversationItemStatus::Completed,
+            author: ActorRef::human("human:local"),
+            content_text: Some("I LIKE   ICE CREAM".to_string()),
+            payload_json: serde_json::json!({}),
+            metadata: serde_json::json!({}),
+        })
+        .await
+        .expect("second item");
+
+    let mut first = NewMemoryCandidate::confirmed_note(
+        ObjectRef::new(
+            ObjectType::Conversation,
+            conversation.conversation_id.as_str(),
+        )
+        .expect("owner"),
+        "I like ice cream.",
+        ActorRef::agent("agent:primary"),
+        ObjectRef::conversation_item(first_item.item_id.as_str()),
+    );
+    first.memory_type = MemoryType::Preference;
+    first.participants = vec![NewMemoryParticipant::new(
+        ActorRef::human("human:local"),
+        ParticipantRole::HumanInScope,
+    )];
+    let mut subject =
+        NewMemorySubject::new("human:local", "human", "Local human", SubjectRole::About);
+    subject.linked_object = Some(ObjectRef::human("human:local"));
+    first.subjects = vec![subject.clone()];
+
+    let mut second = first.clone();
+    second.content = "I LIKE   ICE CREAM".to_string();
+    second.source = Some(ObjectProvenanceSource {
+        source: ObjectRef::conversation_item(second_item.item_id.as_str()),
+        evidence_excerpt: Some("I LIKE   ICE CREAM".to_string()),
+    });
+
+    let first_summary = repo
+        .append_memory_candidate(first)
+        .await
+        .expect("first memory");
+    let second_summary = repo
+        .append_memory_candidate(second)
+        .await
+        .expect("second memory");
+
+    assert_eq!(first_summary.id, second_summary.id);
+    assert_eq!(
+        first_summary.dedupe_fingerprint,
+        second_summary.dedupe_fingerprint
+    );
+    let dedupe_fingerprint = first_summary
+        .dedupe_fingerprint
+        .as_deref()
+        .expect("dedupe fingerprint");
+
+    let memories = repo.list_recent_memories(Some(10)).await.expect("memories");
+    assert_eq!(memories.len(), 1);
+
+    let edge_count = sqlx::query_scalar::<_, i64>(
+        r#"
+        SELECT COUNT(*)
+        FROM object_provenance_edges
+        WHERE target_object_type = 'memory_item'
+          AND target_object_id = $1
+          AND source_object_type = 'conversation_item'
+        "#,
+    )
+    .bind(first_summary.id.as_str())
+    .fetch_one(repo.pool())
+    .await
+    .expect("edge count");
+    assert_eq!(edge_count, 2);
+
+    let reused_event_count = sqlx::query_scalar::<_, i64>(
+        r#"
+        SELECT COUNT(*)
+        FROM object_events
+        WHERE target_object_type = 'memory_item'
+          AND target_object_id = $1
+          AND event_type = 'memory_reused'
+          AND reason = 'exact_dedupe_fingerprint'
+          AND details->>'dedupe_fingerprint' = $2
+        "#,
+    )
+    .bind(first_summary.id.as_str())
+    .bind(dedupe_fingerprint)
+    .fetch_one(repo.pool())
+    .await
+    .expect("reused event count");
+    assert_eq!(reused_event_count, 1);
+}
+
+#[tokio::test]
 async fn deleting_source_item_deletes_sole_provenance_memory() {
     let Some(repo) = test_repo().await else {
         return;
@@ -1757,6 +1893,25 @@ async fn assert_memory_search_vector_column_exists(pool: &sqlx::PgPool) {
     assert_eq!(column.1, "tsvector");
 }
 
+async fn assert_memory_dedupe_fingerprint_column_exists(pool: &sqlx::PgPool) {
+    let column = sqlx::query_as::<_, (String, String)>(
+        r"
+        SELECT is_nullable, udt_name
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'memory_items'
+          AND column_name = 'memory_dedupe_fingerprint'
+        ",
+    )
+    .fetch_optional(pool)
+    .await
+    .expect("check memory_items.memory_dedupe_fingerprint column")
+    .expect("missing memory_items.memory_dedupe_fingerprint column");
+
+    assert_eq!(column.0, "YES");
+    assert_eq!(column.1, "text");
+}
+
 async fn test_repo() -> Option<TestRepo> {
     let Some(database_url) = test_database_url() else {
         println!("skipping Postgres test: {TEST_DATABASE_URL_ENV} is unset");
@@ -1872,6 +2027,15 @@ fn postgres_schema_includes_object_event_and_link_tables() {
 
 #[test]
 fn postgres_schema_includes_memory_fts_generated_column_and_index() {
+    assert!(
+        POSTGRES_SCHEMA_SQL.contains("memory_dedupe_fingerprint TEXT"),
+        "missing memory dedupe fingerprint column"
+    );
+    assert!(
+        POSTGRES_SCHEMA_SQL
+            .contains("CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_items_live_dedupe_fingerprint"),
+        "missing live memory dedupe fingerprint unique index"
+    );
     assert!(
         POSTGRES_SCHEMA_SQL.contains("search_vector TSVECTOR GENERATED ALWAYS AS"),
         "missing generated memory search column"

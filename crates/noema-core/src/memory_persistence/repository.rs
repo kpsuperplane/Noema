@@ -17,22 +17,23 @@ use super::{
 pub(super) const POSTGRES_BOOTSTRAP_MIGRATION_VERSION: i32 = 0;
 pub(super) const POSTGRES_BOOTSTRAP_MIGRATION_NAME: &str = "postgres_bootstrap_v0";
 
-struct MemorySummaryRow {
-    memory_id: String,
-    status: String,
-    memory_type: String,
-    owner_object_type: String,
-    owner_object_id: String,
-    sensitivity: String,
-    title: String,
-    content: String,
-    created_at: String,
-    source_object_type: Option<String>,
-    source_object_id: Option<String>,
-    conversation_id: Option<String>,
+pub(super) struct MemorySummaryRow {
+    pub(super) memory_id: String,
+    pub(super) status: String,
+    pub(super) memory_type: String,
+    pub(super) owner_object_type: String,
+    pub(super) owner_object_id: String,
+    pub(super) sensitivity: String,
+    pub(super) title: String,
+    pub(super) content: String,
+    pub(super) dedupe_fingerprint: Option<String>,
+    pub(super) created_at: String,
+    pub(super) source_object_type: Option<String>,
+    pub(super) source_object_id: Option<String>,
+    pub(super) conversation_id: Option<String>,
 }
 
-fn postgres_row_to_memory_summary(
+pub(super) fn postgres_row_to_memory_summary(
     row: MemorySummaryRow,
 ) -> Result<MemorySummary, MemoryPersistenceError> {
     Ok(MemorySummary {
@@ -45,6 +46,7 @@ fn postgres_row_to_memory_summary(
         sensitivity: parse_sensitivity(&row.sensitivity)?,
         title: row.title,
         content: row.content,
+        dedupe_fingerprint: row.dedupe_fingerprint,
         created_at: row.created_at,
         source_object_type: row.source_object_type.clone(),
         source_object_id: row.source_object_id.clone(),
@@ -125,6 +127,7 @@ impl PostgresMemoryRepository {
                 String,
                 String,
                 String,
+                Option<String>,
                 String,
                 Option<String>,
                 Option<String>,
@@ -147,6 +150,7 @@ impl PostgresMemoryRepository {
                     sensitivity,
                     title,
                     content,
+                    dedupe_fingerprint,
                     created_at,
                     source_object_type,
                     source_object_id,
@@ -161,6 +165,7 @@ impl PostgresMemoryRepository {
                         sensitivity,
                         title,
                         content,
+                        dedupe_fingerprint,
                         created_at,
                         source_object_type,
                         source_object_id,
@@ -193,6 +198,7 @@ impl PostgresMemoryRepository {
                 String,
                 String,
                 String,
+                Option<String>,
                 String,
                 Option<String>,
                 Option<String>,
@@ -214,6 +220,7 @@ impl PostgresMemoryRepository {
                 sensitivity,
                 title,
                 content,
+                dedupe_fingerprint,
                 created_at,
                 source_object_type,
                 source_object_id,
@@ -228,6 +235,7 @@ impl PostgresMemoryRepository {
                     sensitivity,
                     title,
                     content,
+                    dedupe_fingerprint,
                     created_at,
                     source_object_type,
                     source_object_id,

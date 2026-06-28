@@ -345,6 +345,9 @@ pub struct MemorySummary {
     pub title: String,
     /// Memory content.
     pub content: String,
+    /// Canonical exact-dedupe fingerprint, if this row was created after the
+    /// fingerprinting integration.
+    pub dedupe_fingerprint: Option<String>,
     /// Storage-created timestamp.
     pub created_at: String,
     /// Concrete source object type, if available.
