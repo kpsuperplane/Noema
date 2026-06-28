@@ -24,11 +24,20 @@ import {
   MessageScrollerViewport
 } from "@/components/ui/message-scroller";
 import { cn } from "@/lib/utils";
-import { BrainIcon } from "lucide-react";
+import { BrainIcon, WrenchIcon } from "lucide-react";
 import type * as React from "react";
 import { readableKind, statusLabel } from "../format";
 import { memoryCardsFromStructuredItem, type MemoryCardData } from "../memoryCards";
 import type { TranscriptEntry, TurnTranscriptItem } from "../types";
+
+type ActivityTranscriptEntry = Extract<TranscriptEntry, { type: "activity" }>;
+type ActivityTranscriptItem = Extract<TurnTranscriptItem, { kind: "activity" }>;
+
+type ToolMarkerGroup = {
+  id: string;
+  call?: ActivityTranscriptEntry;
+  result?: ActivityTranscriptEntry;
+};
 
 type RenderTranscriptEntry =
   | { kind: "entry"; id: string; entry: TranscriptEntry }
@@ -36,16 +45,18 @@ type RenderTranscriptEntry =
   | {
       kind: "memory_marker";
       id: string;
-      extraction?: Extract<TurnTranscriptItem, { kind: "activity" }>;
+      extraction?: ActivityTranscriptItem;
       proposal?: Extract<TurnTranscriptItem, { kind: "a2ui_card" }>;
-    };
+    }
+  | { kind: "tool_marker"; id: string; marker: ToolMarkerGroup };
 
 type TranscriptLane = "human" | "assistant";
 
 type RenderTranscriptLaneCandidate =
   | { kind: "entry"; entryType: TranscriptEntry["type"] }
   | { kind: "typing" }
-  | { kind: "memory_marker" };
+  | { kind: "memory_marker" }
+  | { kind: "tool_marker" };
 
 export function Transcript({
   entries,
@@ -65,11 +76,19 @@ export function Transcript({
       <MessageScroller className="min-h-0 overflow-hidden">
         <MessageScrollerViewport aria-label="Conversation transcript">
           <MessageScrollerContent className="mx-auto flex min-h-full w-[var(--chat-column-width)] flex-col gap-3 px-0.5 py-6">
-            {renderedEntries.map((entry) => {
+            {renderedEntries.map((entry, index) => {
               const lane =
                 entry.kind === "entry"
                   ? renderedTranscriptLane({ kind: "entry", entryType: entry.entry.type })
                   : renderedTranscriptLane({ kind: entry.kind });
+              const previousEntry = renderedEntries[index - 1];
+              const previousLane =
+                previousEntry && previousEntry.kind === "entry"
+                  ? renderedTranscriptLane({ kind: "entry", entryType: previousEntry.entry.type })
+                  : previousEntry
+                    ? renderedTranscriptLane({ kind: previousEntry.kind })
+                    : null;
+              const showAvatar = previousLane !== lane;
 
               return (
                 <MessageScrollerItem
@@ -78,7 +97,7 @@ export function Transcript({
                   messageId={entry.id}
                   scrollAnchor={shouldAnchorRenderedEntry(entry)}
                 >
-                  {renderTranscriptRenderEntry(entry, expandedActivities, onToggleActivity)}
+                  {renderTranscriptRenderEntry(entry, expandedActivities, onToggleActivity, showAvatar)}
                 </MessageScrollerItem>
               );
             })}
@@ -91,7 +110,7 @@ export function Transcript({
 }
 
 function renderableTranscriptEntries(entries: TranscriptEntry[], pending: boolean): RenderTranscriptEntry[] {
-  const renderedEntries = groupMemoryMarkers(entries);
+  const renderedEntries = groupTranscriptMarkers(entries);
   if (shouldShowTypingIndicator(entries, pending)) {
     renderedEntries.push({ kind: "typing", id: "typing-indicator" });
   }
@@ -101,7 +120,8 @@ function renderableTranscriptEntries(entries: TranscriptEntry[], pending: boolea
 type TranscriptEntryAnchorCandidate =
   | { kind: "entry"; entryType: TranscriptEntry["type"] }
   | { kind: "typing" }
-  | { kind: "memory_marker" };
+  | { kind: "memory_marker" }
+  | { kind: "tool_marker" };
 
 export function shouldAnchorTranscriptEntry(entry: TranscriptEntryAnchorCandidate): boolean {
   void entry;
@@ -145,14 +165,21 @@ export function shouldShowTypingIndicator(entries: TranscriptEntry[], pending: b
   return !entries.slice(lastUserIndex + 1).some((entry) => entry.type === "assistant");
 }
 
-function groupMemoryMarkers(entries: TranscriptEntry[]): RenderTranscriptEntry[] {
+function groupTranscriptMarkers(entries: TranscriptEntry[]): RenderTranscriptEntry[] {
   const rendered: RenderTranscriptEntry[] = [];
 
   for (let index = 0; index < entries.length; index += 1) {
     const entry = entries[index];
     const nextEntry = entries[index + 1];
 
-    if (isMemoryExtractionEntry(entry) && nextEntry && isMemoryProposalEntry(nextEntry) && sameTurn(entry, nextEntry)) {
+    if (
+      entry.type === "activity" &&
+      entry.item.activity_kind === "memory_extraction" &&
+      nextEntry &&
+      nextEntry.type === "card" &&
+      nextEntry.item.schema === "memory_proposals" &&
+      sameTurn(entry, nextEntry)
+    ) {
       rendered.push({
         kind: "memory_marker",
         id: `${entry.id}:${nextEntry.id}`,
@@ -163,7 +190,14 @@ function groupMemoryMarkers(entries: TranscriptEntry[]): RenderTranscriptEntry[]
       continue;
     }
 
-    if (isMemoryProposalEntry(entry) && nextEntry && isMemoryExtractionEntry(nextEntry) && sameTurn(entry, nextEntry)) {
+    if (
+      entry.type === "card" &&
+      entry.item.schema === "memory_proposals" &&
+      nextEntry &&
+      nextEntry.type === "activity" &&
+      nextEntry.item.activity_kind === "memory_extraction" &&
+      sameTurn(entry, nextEntry)
+    ) {
       rendered.push({
         kind: "memory_marker",
         id: `${entry.id}:${nextEntry.id}`,
@@ -174,7 +208,7 @@ function groupMemoryMarkers(entries: TranscriptEntry[]): RenderTranscriptEntry[]
       continue;
     }
 
-    if (isMemoryExtractionEntry(entry)) {
+    if (entry.type === "activity" && entry.item.activity_kind === "memory_extraction") {
       rendered.push({
         kind: "memory_marker",
         id: entry.id,
@@ -183,11 +217,45 @@ function groupMemoryMarkers(entries: TranscriptEntry[]): RenderTranscriptEntry[]
       continue;
     }
 
-    if (isMemoryProposalEntry(entry)) {
+    if (entry.type === "card" && entry.item.schema === "memory_proposals") {
       rendered.push({
         kind: "memory_marker",
         id: entry.id,
         proposal: entry.item
+      });
+      continue;
+    }
+
+    if (entry.type === "activity" && entry.item.activity_kind === "tool_call") {
+      if (
+        nextEntry &&
+        nextEntry.type === "activity" &&
+        nextEntry.item.activity_kind === "tool_result" &&
+        sameTurn(entry, nextEntry)
+      ) {
+        const id = `${entry.id}:${nextEntry.id}`;
+        rendered.push({
+          kind: "tool_marker",
+          id,
+          marker: { id, call: entry, result: nextEntry }
+        });
+        index += 1;
+        continue;
+      }
+
+      rendered.push({
+        kind: "tool_marker",
+        id: entry.id,
+        marker: { id: entry.id, call: entry }
+      });
+      continue;
+    }
+
+    if (entry.type === "activity" && entry.item.activity_kind === "tool_result") {
+      rendered.push({
+        kind: "tool_marker",
+        id: entry.id,
+        marker: { id: entry.id, result: entry }
       });
       continue;
     }
@@ -198,28 +266,75 @@ function groupMemoryMarkers(entries: TranscriptEntry[]): RenderTranscriptEntry[]
   return rendered;
 }
 
-function isMemoryExtractionEntry(
-  entry: TranscriptEntry
-): entry is Extract<TranscriptEntry, { type: "activity" }> {
-  return entry.type === "activity" && entry.item.activity_kind === "memory_extraction";
-}
-
-function isMemoryProposalEntry(entry: TranscriptEntry): entry is Extract<TranscriptEntry, { type: "card" }> {
-  return entry.type === "card" && entry.item.schema === "memory_proposals";
-}
-
 function sameTurn(left: TranscriptEntry, right: TranscriptEntry) {
   return !left.turnId || !right.turnId || left.turnId === right.turnId;
+}
+
+function toolMarkerTone(marker: ToolMarkerGroup): "default" | "error" {
+  return marker.result?.item.status === "FAILED" ? "error" : "default";
+}
+
+function toolMarkerLabel(marker: ToolMarkerGroup): string {
+  const toolName = toolNameFromMetadata(marker.call?.item.metadata) ?? toolNameFromMetadata(marker.result?.item.metadata);
+  if (toolName) {
+    return `Used ${toolName}`;
+  }
+  return marker.call?.item.title ?? marker.result?.item.title ?? "Tool activity";
+}
+
+function toolNameFromMetadata(metadata: unknown): string | null {
+  if (!isRecord(metadata)) {
+    return null;
+  }
+
+  const action = metadata.action;
+  if (isRecord(action) && typeof action.name === "string" && action.name.trim()) {
+    return action.name;
+  }
+  if (typeof metadata.name === "string" && metadata.name.trim()) {
+    return metadata.name;
+  }
+  if (typeof metadata.tool_name === "string" && metadata.tool_name.trim()) {
+    return metadata.tool_name;
+  }
+  return null;
+}
+
+function formatToolDetail(fallback: string, metadata: unknown): string {
+  const metadataText = formatMetadata(metadata);
+  if (!metadataText) {
+    return fallback;
+  }
+  return `${fallback}\n${metadataText}`;
+}
+
+function formatMetadata(metadata: unknown): string | null {
+  if (metadata === null || metadata === undefined) {
+    return null;
+  }
+  if (typeof metadata === "string") {
+    return metadata;
+  }
+  try {
+    return JSON.stringify(metadata, null, 2);
+  } catch {
+    return String(metadata);
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function renderTranscriptRenderEntry(
   entry: RenderTranscriptEntry,
   expandedActivities: Set<string>,
-  onToggleActivity: (id: string) => void
+  onToggleActivity: (id: string) => void,
+  showAvatar: boolean
 ) {
   if (entry.kind === "memory_marker") {
     return (
-      <TranscriptRow lane="assistant">
+      <TranscriptRow lane="assistant" showAvatar={showAvatar}>
         <MemoryMarker
           id={entry.id}
           extraction={entry.extraction}
@@ -230,50 +345,70 @@ function renderTranscriptRenderEntry(
       </TranscriptRow>
     );
   }
-  if (entry.kind === "typing") {
-    return <TypingMessage />;
+  if (entry.kind === "tool_marker") {
+    return (
+      <TranscriptRow lane="assistant" showAvatar={showAvatar}>
+        <ToolMarker
+          marker={entry.marker}
+          open={expandedActivities.has(entry.id)}
+          onToggle={() => onToggleActivity(entry.id)}
+        />
+      </TranscriptRow>
+    );
   }
-  return renderTranscriptEntry(entry.entry, expandedActivities, onToggleActivity);
+  if (entry.kind === "typing") {
+    return <TypingMessage showAvatar={showAvatar} />;
+  }
+  return renderTranscriptEntry(entry.entry, expandedActivities, onToggleActivity, showAvatar);
 }
 
 function renderTranscriptEntry(
   entry: TranscriptEntry,
   expandedActivities: Set<string>,
-  onToggleActivity: (id: string) => void
+  onToggleActivity: (id: string) => void,
+  showAvatar: boolean
 ) {
   if (entry.type === "user") {
-    return <Message role="user" text={entry.text} />;
+    return <Message role="user" text={entry.text} showAvatar={showAvatar} />;
   }
   if (entry.type === "assistant") {
-    return <Message role="assistant" text={entry.text} />;
+    return <Message role="assistant" text={entry.text} showAvatar={showAvatar} />;
   }
   if (entry.type === "activity") {
     return (
-      <TranscriptRow lane="assistant">
+      <TranscriptRow lane="assistant" showAvatar={showAvatar}>
         <ActivityRow item={entry.item} open={expandedActivities.has(entry.id)} onToggle={() => onToggleActivity(entry.id)} />
       </TranscriptRow>
     );
   }
   if (entry.type === "card") {
     return (
-      <TranscriptRow lane="assistant">
+      <TranscriptRow lane="assistant" showAvatar={showAvatar}>
         <StructuredCard item={entry.item} open={expandedActivities.has(entry.id)} onToggle={() => onToggleActivity(entry.id)} />
       </TranscriptRow>
     );
   }
   return (
-    <TranscriptRow lane="assistant">
+    <TranscriptRow lane="assistant" showAvatar={showAvatar}>
       <ErrorNotice message={entry.message} recoverable={entry.recoverable} />
     </TranscriptRow>
   );
 }
 
-function TranscriptRow({ lane, children }: { lane: TranscriptLane; children: React.ReactNode }) {
+function TranscriptRow({
+  lane,
+  showAvatar = true,
+  children
+}: {
+  lane: TranscriptLane;
+  showAvatar?: boolean;
+  children: React.ReactNode;
+}) {
   const role = lane === "human" ? "user" : "assistant";
 
   return (
     <MessagePrimitive align={lane === "human" ? "end" : "start"} className="max-w-[760px]">
-      <MessageAvatar>
+      <MessageAvatar aria-hidden={!showAvatar} className={cn(!showAvatar && "invisible")}>
         <Avatar size="sm">
           <AvatarFallback>{role === "user" ? "ME" : "N"}</AvatarFallback>
         </Avatar>
@@ -283,9 +418,17 @@ function TranscriptRow({ lane, children }: { lane: TranscriptLane; children: Rea
   );
 }
 
-function Message({ role, text }: { role: "user" | "assistant"; text: string }) {
+function Message({
+  role,
+  text,
+  showAvatar
+}: {
+  role: "user" | "assistant";
+  text: string;
+  showAvatar: boolean;
+}) {
   return (
-    <TranscriptRow lane={role === "user" ? "human" : "assistant"}>
+    <TranscriptRow lane={role === "user" ? "human" : "assistant"} showAvatar={showAvatar}>
       <Bubble variant={role === "user" ? "default" : "muted"}>
         <BubbleContent className="leading-[1.7] whitespace-pre-wrap">{text}</BubbleContent>
       </Bubble>
@@ -293,9 +436,9 @@ function Message({ role, text }: { role: "user" | "assistant"; text: string }) {
   );
 }
 
-function TypingMessage() {
+function TypingMessage({ showAvatar }: { showAvatar: boolean }) {
   return (
-    <TranscriptRow lane="assistant">
+    <TranscriptRow lane="assistant" showAvatar={showAvatar}>
       <Bubble variant="muted">
         <BubbleContent
           className="flex min-h-9 w-[58px] items-center justify-center gap-1.5 px-3 py-2"
@@ -436,6 +579,75 @@ function MemoryMarker({
       {open ? (
         <MemoryDetailAttachment id={`${id}-details`} extraction={extraction} memoryCount={memories.length} failed={failed} />
       ) : null}
+    </div>
+  );
+}
+
+function ToolMarker({
+  marker,
+  open,
+  onToggle
+}: {
+  marker: ToolMarkerGroup;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  const tone = toolMarkerTone(marker);
+
+  return (
+    <div className="grid w-full max-w-full gap-2">
+      <Marker
+        render={<button type="button" />}
+        aria-expanded={open}
+        aria-controls={`${marker.id}-details`}
+        onClick={onToggle}
+        tone={tone}
+        className="w-fit rounded-lg px-2 py-1 transition-colors hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:outline-none"
+      >
+        <MarkerIcon>
+          <WrenchIcon />
+        </MarkerIcon>
+        <MarkerContent>{toolMarkerLabel(marker)}</MarkerContent>
+      </Marker>
+      {open ? <ToolDetailAttachment id={`${marker.id}-details`} marker={marker} /> : null}
+    </div>
+  );
+}
+
+function ToolDetailAttachment({ id, marker }: { id: string; marker: ToolMarkerGroup }) {
+  const result = marker.result?.item;
+  const call = marker.call?.item;
+  const failed = result?.status === "FAILED";
+  const title = toolMarkerLabel(marker);
+  const description = result?.summary ?? call?.summary ?? statusLabel(result?.status ?? call?.status ?? "COMPLETED");
+
+  return (
+    <Attachment id={id} state={failed ? "error" : "done"} className="w-full max-w-full">
+      <AttachmentMedia className={failed ? "text-[var(--red-700)]" : "text-[var(--blue-700)]"}>
+        <WrenchIcon />
+      </AttachmentMedia>
+      <AttachmentContent>
+        <AttachmentTitle>{title}</AttachmentTitle>
+        <AttachmentDescription>{description}</AttachmentDescription>
+        <dl className="mt-3 grid gap-2 border-t border-[var(--border-subtle)] pt-2.5">
+          {call ? <ToolDetailRow label="Call" value={formatToolDetail(call.title, call.metadata)} /> : null}
+          {result ? (
+            <ToolDetailRow label="Result" value={formatToolDetail(result.summary ?? result.title, result.metadata)} />
+          ) : null}
+          <ToolDetailRow label="Status" value={statusLabel(result?.status ?? call?.status ?? "COMPLETED")} />
+        </dl>
+      </AttachmentContent>
+    </Attachment>
+  );
+}
+
+function ToolDetailRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="grid gap-0.5">
+      <dt className="font-mono text-[10px] tracking-[0.08em] text-[var(--text-faint)] uppercase">{label}</dt>
+      <dd className="m-0 max-h-40 overflow-auto whitespace-pre-wrap break-words text-[13px] text-muted-foreground">
+        {value}
+      </dd>
     </div>
   );
 }
