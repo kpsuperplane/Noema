@@ -63,11 +63,46 @@ async fn strict_schema_rejects_invalid_sensitivity() {
 }
 
 #[tokio::test]
+async fn strict_schema_rejects_invalid_evidence_authority() {
+    let store = test_store().await;
+
+    let error = store
+        .db()
+        .query(
+            r#"
+            CREATE type::thing('supported_by', 'invalid_authority') SET
+              relation_id = 'evidence:invalid-authority',
+              claim_id = 'claim:test',
+              source_item_id = 'item:test',
+              source_object_type = NONE,
+              source_object_id = NONE,
+              authority = 'rumor',
+              excerpt = 'invalid authority test evidence',
+              observed_at = '123',
+              created_by = 'agent:primary',
+              metadata = {};
+            "#,
+        )
+        .await
+        .expect("invalid evidence query")
+        .check()
+        .expect_err("invalid evidence authority should be rejected");
+
+    assert!(
+        error.to_string().contains("authority") || error.to_string().contains("rumor"),
+        "unexpected error: {error}"
+    );
+}
+
+#[tokio::test]
 async fn built_in_personal_predicates_are_seeded() {
     #[derive(Debug, serde::Deserialize)]
     struct PredicateRow {
         label: String,
         default_sensitivity: String,
+        inverse_behavior: String,
+        proactivity_default: i64,
+        synonym_hints: Vec<String>,
     }
 
     let store = test_store().await;
@@ -75,7 +110,7 @@ async fn built_in_personal_predicates_are_seeded() {
         .db()
         .query(
             r#"
-            SELECT label, default_sensitivity
+            SELECT label, default_sensitivity, inverse_behavior, proactivity_default, synonym_hints
             FROM predicates
             WHERE predicate_id = 'likes'
             LIMIT 1;
@@ -88,6 +123,9 @@ async fn built_in_personal_predicates_are_seeded() {
 
     assert_eq!(likes.label, "likes");
     assert_eq!(likes.default_sensitivity, "normal");
+    assert_eq!(likes.inverse_behavior, "none");
+    assert_eq!(likes.proactivity_default, 2);
+    assert!(likes.synonym_hints.contains(&"enjoys".to_string()));
 }
 
 #[tokio::test]

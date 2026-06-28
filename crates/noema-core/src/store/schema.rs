@@ -120,6 +120,11 @@ DEFINE FIELD IF NOT EXISTS allowed_use_modes ON TABLE predicates TYPE array<stri
 DEFINE FIELD IF NOT EXISTS default_sensitivity ON TABLE predicates TYPE string ASSERT $value INSIDE ['public', 'normal', 'private', 'sensitive', 'secret'];
 DEFINE FIELD IF NOT EXISTS conflict_policy ON TABLE predicates TYPE string ASSERT $value INSIDE ['allow_many', 'single_current', 'mutually_exclusive'];
 DEFINE FIELD IF NOT EXISTS review_policy ON TABLE predicates TYPE string ASSERT $value INSIDE ['auto_candidate', 'auto_active', 'requires_review'];
+DEFINE FIELD IF NOT EXISTS inverse_behavior ON TABLE predicates TYPE string ASSERT $value INSIDE ['none', 'symmetric', 'inverse_predicate'];
+DEFINE FIELD IF NOT EXISTS inverse_predicate_id ON TABLE predicates TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS proactivity_default ON TABLE predicates TYPE int ASSERT $value >= 0 AND $value <= 6;
+DEFINE FIELD IF NOT EXISTS merge_hints ON TABLE predicates FLEXIBLE TYPE object DEFAULT {};
+DEFINE FIELD IF NOT EXISTS synonym_hints ON TABLE predicates TYPE array<string> DEFAULT [];
 DEFINE FIELD IF NOT EXISTS extraction_hints ON TABLE predicates FLEXIBLE TYPE object DEFAULT {};
 DEFINE FIELD IF NOT EXISTS created_at ON TABLE predicates TYPE datetime DEFAULT time::now();
 DEFINE FIELD IF NOT EXISTS updated_at ON TABLE predicates TYPE datetime DEFAULT time::now();
@@ -161,29 +166,50 @@ DEFINE INDEX IF NOT EXISTS claims_dedupe_fingerprint ON TABLE claims COLUMNS ded
 DEFINE TABLE IF NOT EXISTS supported_by SCHEMAFULL;
 DEFINE FIELD IF NOT EXISTS relation_id ON TABLE supported_by TYPE string;
 DEFINE FIELD IF NOT EXISTS claim_id ON TABLE supported_by TYPE string;
-DEFINE FIELD IF NOT EXISTS source_item_id ON TABLE supported_by TYPE string;
+DEFINE FIELD IF NOT EXISTS source_item_id ON TABLE supported_by TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS source_object_type ON TABLE supported_by TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS source_object_id ON TABLE supported_by TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS authority ON TABLE supported_by TYPE string ASSERT $value INSIDE ['human_correction', 'explicit_human_statement', 'document_source', 'repeated_observation', 'agent_inference', 'weak_inference', 'system_rule'];
+DEFINE FIELD IF NOT EXISTS excerpt ON TABLE supported_by TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS observed_at ON TABLE supported_by TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS created_by ON TABLE supported_by TYPE string;
 DEFINE FIELD IF NOT EXISTS metadata ON TABLE supported_by FLEXIBLE TYPE object DEFAULT {};
 DEFINE FIELD IF NOT EXISTS created_at ON TABLE supported_by TYPE datetime DEFAULT time::now();
 DEFINE INDEX IF NOT EXISTS supported_by_relation_id ON TABLE supported_by COLUMNS relation_id UNIQUE;
-DEFINE INDEX IF NOT EXISTS supported_by_claim_source ON TABLE supported_by COLUMNS claim_id, source_item_id UNIQUE;
+DEFINE INDEX IF NOT EXISTS supported_by_claim_source_item ON TABLE supported_by COLUMNS claim_id, source_item_id;
+DEFINE INDEX IF NOT EXISTS supported_by_claim_source_object ON TABLE supported_by COLUMNS claim_id, source_object_type, source_object_id;
 
 DEFINE TABLE IF NOT EXISTS corrected_by SCHEMAFULL;
 DEFINE FIELD IF NOT EXISTS relation_id ON TABLE corrected_by TYPE string;
 DEFINE FIELD IF NOT EXISTS claim_id ON TABLE corrected_by TYPE string;
-DEFINE FIELD IF NOT EXISTS correcting_claim_id ON TABLE corrected_by TYPE string;
+DEFINE FIELD IF NOT EXISTS source_item_id ON TABLE corrected_by TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS source_object_type ON TABLE corrected_by TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS source_object_id ON TABLE corrected_by TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS authority ON TABLE corrected_by TYPE string ASSERT $value INSIDE ['human_correction'];
+DEFINE FIELD IF NOT EXISTS excerpt ON TABLE corrected_by TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS observed_at ON TABLE corrected_by TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS created_by ON TABLE corrected_by TYPE string;
 DEFINE FIELD IF NOT EXISTS metadata ON TABLE corrected_by FLEXIBLE TYPE object DEFAULT {};
 DEFINE FIELD IF NOT EXISTS created_at ON TABLE corrected_by TYPE datetime DEFAULT time::now();
 DEFINE INDEX IF NOT EXISTS corrected_by_relation_id ON TABLE corrected_by COLUMNS relation_id UNIQUE;
-DEFINE INDEX IF NOT EXISTS corrected_by_claim_pair ON TABLE corrected_by COLUMNS claim_id, correcting_claim_id UNIQUE;
+DEFINE INDEX IF NOT EXISTS corrected_by_claim_source_item ON TABLE corrected_by COLUMNS claim_id, source_item_id;
+DEFINE INDEX IF NOT EXISTS corrected_by_claim_source_object ON TABLE corrected_by COLUMNS claim_id, source_object_type, source_object_id;
 
 DEFINE TABLE IF NOT EXISTS contradicted_by SCHEMAFULL;
 DEFINE FIELD IF NOT EXISTS relation_id ON TABLE contradicted_by TYPE string;
 DEFINE FIELD IF NOT EXISTS claim_id ON TABLE contradicted_by TYPE string;
-DEFINE FIELD IF NOT EXISTS contradicting_claim_id ON TABLE contradicted_by TYPE string;
+DEFINE FIELD IF NOT EXISTS source_item_id ON TABLE contradicted_by TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS source_object_type ON TABLE contradicted_by TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS source_object_id ON TABLE contradicted_by TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS authority ON TABLE contradicted_by TYPE string ASSERT $value INSIDE ['explicit_human_statement', 'document_source', 'agent_inference', 'weak_inference'];
+DEFINE FIELD IF NOT EXISTS excerpt ON TABLE contradicted_by TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS observed_at ON TABLE contradicted_by TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS created_by ON TABLE contradicted_by TYPE string;
 DEFINE FIELD IF NOT EXISTS metadata ON TABLE contradicted_by FLEXIBLE TYPE object DEFAULT {};
 DEFINE FIELD IF NOT EXISTS created_at ON TABLE contradicted_by TYPE datetime DEFAULT time::now();
 DEFINE INDEX IF NOT EXISTS contradicted_by_relation_id ON TABLE contradicted_by COLUMNS relation_id UNIQUE;
-DEFINE INDEX IF NOT EXISTS contradicted_by_claim_pair ON TABLE contradicted_by COLUMNS claim_id, contradicting_claim_id UNIQUE;
+DEFINE INDEX IF NOT EXISTS contradicted_by_claim_source_item ON TABLE contradicted_by COLUMNS claim_id, source_item_id;
+DEFINE INDEX IF NOT EXISTS contradicted_by_claim_source_object ON TABLE contradicted_by COLUMNS claim_id, source_object_type, source_object_id;
 
 DEFINE TABLE IF NOT EXISTS supersedes SCHEMAFULL;
 DEFINE FIELD IF NOT EXISTS relation_id ON TABLE supersedes TYPE string;
@@ -225,6 +251,11 @@ UPSERT type::thing('predicates', 'likes') SET
   default_sensitivity = 'normal',
   conflict_policy = 'allow_many',
   review_policy = 'auto_candidate',
+  inverse_behavior = 'none',
+  inverse_predicate_id = NONE,
+  proactivity_default = 2,
+  merge_hints = { strategy: 'object_identity' },
+  synonym_hints = ['enjoys', 'is into'],
   extraction_hints = {},
   updated_at = time::now();
 UPSERT type::thing('predicates', 'dislikes') SET
@@ -237,6 +268,11 @@ UPSERT type::thing('predicates', 'dislikes') SET
   default_sensitivity = 'normal',
   conflict_policy = 'allow_many',
   review_policy = 'auto_candidate',
+  inverse_behavior = 'none',
+  inverse_predicate_id = NONE,
+  proactivity_default = 2,
+  merge_hints = { strategy: 'object_identity' },
+  synonym_hints = ['does not like', 'avoids'],
   extraction_hints = {},
   updated_at = time::now();
 UPSERT type::thing('predicates', 'prefers') SET
@@ -249,6 +285,11 @@ UPSERT type::thing('predicates', 'prefers') SET
   default_sensitivity = 'normal',
   conflict_policy = 'allow_many',
   review_policy = 'auto_candidate',
+  inverse_behavior = 'none',
+  inverse_predicate_id = NONE,
+  proactivity_default = 2,
+  merge_hints = { strategy: 'preference_scope' },
+  synonym_hints = ['would rather', 'favors'],
   extraction_hints = {},
   updated_at = time::now();
 UPSERT type::thing('predicates', 'uses') SET
@@ -261,6 +302,11 @@ UPSERT type::thing('predicates', 'uses') SET
   default_sensitivity = 'normal',
   conflict_policy = 'allow_many',
   review_policy = 'auto_candidate',
+  inverse_behavior = 'none',
+  inverse_predicate_id = NONE,
+  proactivity_default = 2,
+  merge_hints = { strategy: 'tool_or_object_identity' },
+  synonym_hints = ['works with', 'relies on'],
   extraction_hints = {},
   updated_at = time::now();
 UPSERT type::thing('predicates', 'works_on') SET
@@ -273,6 +319,11 @@ UPSERT type::thing('predicates', 'works_on') SET
   default_sensitivity = 'normal',
   conflict_policy = 'allow_many',
   review_policy = 'auto_candidate',
+  inverse_behavior = 'none',
+  inverse_predicate_id = NONE,
+  proactivity_default = 3,
+  merge_hints = { strategy: 'active_work_scope' },
+  synonym_hints = ['is working on', 'focuses on'],
   extraction_hints = {},
   updated_at = time::now();
 UPSERT type::thing('predicates', 'prefers_interaction_style') SET
@@ -285,6 +336,11 @@ UPSERT type::thing('predicates', 'prefers_interaction_style') SET
   default_sensitivity = 'normal',
   conflict_policy = 'single_current',
   review_policy = 'auto_candidate',
+  inverse_behavior = 'none',
+  inverse_predicate_id = NONE,
+  proactivity_default = 2,
+  merge_hints = { strategy: 'latest_current_style' },
+  synonym_hints = ['likes responses to be', 'wants interaction to be'],
   extraction_hints = {},
   updated_at = time::now();
 "#;
