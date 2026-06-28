@@ -589,6 +589,45 @@ async fn runtime_actor_persists_explicit_remember_confirmed() {
 }
 
 #[tokio::test]
+async fn runtime_actor_reuses_repeated_explicit_memory() {
+    let Some(database) = test_database().await else {
+        return;
+    };
+    let handle = test_runtime_handle(
+        fake_codex_provider_with_memory_extraction(),
+        database.url.clone(),
+    )
+    .await;
+
+    let conversation = handle
+        .start_conversation(None, None)
+        .await
+        .expect("conversation");
+    let conversation_id = conversation.conversation_id.clone();
+
+    collect_turn(
+        &handle,
+        conversation_id.clone(),
+        "remember: I like ice cream.".to_string(),
+    )
+    .await
+    .expect("first turn");
+    collect_turn(
+        &handle,
+        conversation_id,
+        "remember: I LIKE   ICE CREAM".to_string(),
+    )
+    .await
+    .expect("second turn");
+    handle.shutdown().await;
+
+    let repo = postgres_repo(&database).await;
+    let memories = repo.list_recent_memories(Some(10)).await.expect("memories");
+    assert_eq!(memories.len(), 1);
+    assert_eq!(memories[0].content, "I like ice cream.");
+}
+
+#[tokio::test]
 async fn runtime_actor_extracts_ordinary_chat_memory_in_background() {
     let Some(database) = test_database().await else {
         return;
@@ -637,6 +676,53 @@ async fn runtime_actor_extracts_ordinary_chat_memory_in_background() {
         memories[0].conversation_id.as_deref(),
         Some(conversation_id.as_str())
     );
+}
+
+#[tokio::test]
+async fn runtime_actor_reinforces_semantic_memory_repeat() {
+    let Some(database) = test_database().await else {
+        return;
+    };
+    let handle = test_runtime_handle(
+        fake_codex_provider_with_memory_extraction(),
+        database.url.clone(),
+    )
+    .await;
+
+    let conversation = handle
+        .start_conversation(None, None)
+        .await
+        .expect("conversation");
+    let conversation_id = conversation.conversation_id.clone();
+
+    collect_turn(
+        &handle,
+        conversation_id.clone(),
+        "I like ice cream.".to_string(),
+    )
+    .await
+    .expect("first turn");
+    collect_turn(
+        &handle,
+        conversation_id,
+        "Ice cream is one of my favorite desserts.".to_string(),
+    )
+    .await
+    .expect("second turn");
+    handle.shutdown().await;
+
+    let repo = postgres_repo(&database).await;
+    let memories = repo.list_recent_memories(Some(10)).await.expect("memories");
+    assert_eq!(memories.len(), 1);
+    assert_eq!(memories[0].content, "Kevin likes ice cream.");
+
+    let reinforced_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM object_events WHERE event_type = 'memory_reinforced'",
+    )
+    .fetch_one(repo.pool())
+    .await
+    .expect("reinforced count");
+    assert_eq!(reinforced_count, 1);
 }
 
 #[tokio::test]
@@ -1710,6 +1796,20 @@ fn train_preference_proposal() -> crate::ExtractorMemoryProposal {
 }
 
 fn memory_extraction_output(input: &str) -> Vec<GenerateOutputItem> {
+    if input.contains("Noema's memory consolidation comparator") {
+        let existing_memory_id =
+            first_memory_id_from_consolidation_prompt(input).expect("existing memory id");
+        return vec![GenerateOutputItem::AssistantText {
+            text: serde_json::to_string(&json!({
+                "decision": "reinforce",
+                "existing_memory_id": existing_memory_id,
+                "confidence": 0.92,
+                "rationale": "same ice cream preference",
+            }))
+            .expect("semantic decision json"),
+        }];
+    }
+
     if input.contains("ordinary-chat memory proposal extractor") {
         let proposal = if input.contains("Alice prefers decaf.") {
             proposal(json!({
@@ -1722,6 +1822,18 @@ fn memory_extraction_output(input: &str) -> Vec<GenerateOutputItem> {
                 "retrieval_hints": {"topics": ["people"], "keywords": ["Alice", "decaf"], "summary": "Alice prefers decaf."},
                 "risk_flags": [],
                 "evidence_excerpt": "Alice prefers decaf."
+            }))
+        } else if input.contains("I like ice cream.") {
+            proposal(json!({
+                "content": "Kevin likes ice cream.",
+                "memory_type": "preference",
+                "title": "Ice cream preference",
+                "confidence": 0.91,
+                "sensitivity": "normal",
+                "subjects": [{"id": "human:local", "kind": "human", "name": "Kevin", "role": "about"}],
+                "retrieval_hints": {"topics": ["food"], "keywords": ["ice cream"], "summary": "Kevin likes ice cream."},
+                "risk_flags": [],
+                "evidence_excerpt": "I like ice cream."
             }))
         } else {
             proposal(json!({
@@ -1739,6 +1851,27 @@ fn memory_extraction_output(input: &str) -> Vec<GenerateOutputItem> {
         return vec![GenerateOutputItem::AssistantText {
             text: serde_json::to_string(&json!({"proposals": [proposal]})).expect("extractor json"),
         }];
+    }
+
+    if input.contains("Ice cream is one of my favorite desserts.") {
+        return vec![
+            GenerateOutputItem::AssistantText {
+                text: "fake answer".to_string(),
+            },
+            GenerateOutputItem::MemoryProposals {
+                proposals: vec![proposal(json!({
+                    "content": "Kevin enjoys ice cream desserts.",
+                    "memory_type": "preference",
+                    "title": "Ice cream dessert preference",
+                    "confidence": 0.91,
+                    "sensitivity": "normal",
+                    "subjects": [{"id": "human:local", "kind": "human", "name": "Kevin", "role": "about"}],
+                    "retrieval_hints": {"topics": ["food"], "keywords": ["ice cream", "dessert"], "summary": "Kevin enjoys ice cream desserts."},
+                    "risk_flags": [],
+                    "evidence_excerpt": "Ice cream is one of my favorite desserts."
+                }))],
+            },
+        ];
     }
 
     if input.contains("I prefer same-call memory proposals.") {
@@ -1774,6 +1907,17 @@ fn memory_extraction_output(input: &str) -> Vec<GenerateOutputItem> {
     }
 
     assistant_with_no_memories("fake answer")
+}
+
+fn first_memory_id_from_consolidation_prompt(input: &str) -> Option<String> {
+    let payload = input.split("Input JSON payload:").nth(1)?.trim();
+    let value: serde_json::Value = serde_json::from_str(payload).ok()?;
+    value["existing_memories"]
+        .as_array()?
+        .first()?
+        .get("memory_id")?
+        .as_str()
+        .map(str::to_string)
 }
 
 fn fake_codex_provider_with_turn_error() -> FakeCodexProvider {

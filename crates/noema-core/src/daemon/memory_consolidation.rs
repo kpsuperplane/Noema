@@ -1,6 +1,9 @@
 use crate::{
-    memory::Sensitivity,
-    memory_persistence::{MemorySummary, NewMemoryCandidate},
+    memory::{MemoryStatus, Sensitivity},
+    memory_persistence::{
+        MemorySummary, NewMemoryCandidate, PostgresMemoryRepository,
+        memory_candidate_dedupe_fingerprint,
+    },
     provider::{GenerateRequest, ProviderError},
 };
 use serde::Deserialize;
@@ -8,8 +11,6 @@ use serde_json::{Value, json};
 
 use super::runtime::RuntimeModelProvider;
 
-// Task 3 defines outcomes before runtime integration lands in Tasks 5/6.
-#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum MemoryConsolidationOutcome {
     Created {
@@ -254,6 +255,93 @@ pub(super) async fn semantic_consolidation_decision(
         .map_err(|error: ProviderError| format!("semantic consolidation model failed: {error}"))?;
     let decision = parse_semantic_decision(&response.assistant_text())?;
     validate_semantic_consolidation_decision(candidate, &trusted_matches, decision)
+}
+
+pub(super) async fn consolidate_memory_candidate(
+    repository: &PostgresMemoryRepository,
+    provider: &dyn RuntimeModelProvider,
+    candidate: NewMemoryCandidate,
+) -> Result<MemoryConsolidationOutcome, String> {
+    let matches = repository
+        .find_memory_consolidation_matches(&candidate, 12)
+        .await
+        .map_err(|error| format!("failed to find memory consolidation matches: {error}"))?;
+    let dedupe_fingerprint = memory_candidate_dedupe_fingerprint(&candidate);
+
+    if let Some(existing) = matches.iter().find(|memory| {
+        memory
+            .dedupe_fingerprint
+            .as_deref()
+            .is_some_and(|fingerprint| fingerprint == dedupe_fingerprint)
+    }) {
+        let reinforced = repository
+            .reinforce_memory_with_candidate(&existing.id, &candidate, "exact_repeat")
+            .await
+            .map_err(|error| format!("failed to reinforce exact memory repeat: {error}"))?;
+        return Ok(MemoryConsolidationOutcome::Reinforced {
+            memory_id: reinforced.id,
+            reason: "exact_repeat",
+        });
+    }
+
+    match semantic_consolidation_decision(provider, &candidate, &matches)
+        .await
+        .unwrap_or(SemanticConsolidationDecision::Create)
+    {
+        SemanticConsolidationDecision::Create => {
+            let created = repository
+                .append_memory_candidate(candidate)
+                .await
+                .map_err(|error| format!("failed to persist extracted memory: {error}"))?;
+            Ok(MemoryConsolidationOutcome::Created {
+                memory_id: created.id,
+            })
+        }
+        SemanticConsolidationDecision::Reuse { existing_memory_id } => {
+            Ok(MemoryConsolidationOutcome::Reused {
+                memory_id: existing_memory_id,
+                reason: "semantic_reuse",
+            })
+        }
+        SemanticConsolidationDecision::Reinforce { existing_memory_id } => {
+            let reinforced = repository
+                .reinforce_memory_with_candidate(&existing_memory_id, &candidate, "semantic_repeat")
+                .await
+                .map_err(|error| format!("failed to reinforce semantic memory repeat: {error}"))?;
+            Ok(MemoryConsolidationOutcome::Reinforced {
+                memory_id: reinforced.id,
+                reason: "semantic_repeat",
+            })
+        }
+        SemanticConsolidationDecision::Conflict {
+            existing_memory_id,
+            rationale,
+        } => {
+            let mut disputed = candidate;
+            disputed.status = MemoryStatus::Disputed;
+            let conflict_metadata = json!({
+                "conflicting_memory_id": existing_memory_id,
+                "rationale": rationale,
+            });
+            if let Some(metadata) = disputed.metadata.as_object_mut() {
+                metadata.insert("conflict".to_string(), conflict_metadata);
+            } else {
+                disputed.metadata = json!({
+                    "conflict": conflict_metadata,
+                    "previous_metadata": disputed.metadata,
+                });
+            }
+            let created = repository
+                .append_memory_candidate(disputed)
+                .await
+                .map_err(|error| format!("failed to persist disputed memory: {error}"))?;
+            Ok(MemoryConsolidationOutcome::Conflict {
+                memory_id: created.id,
+                conflicting_memory_id: existing_memory_id,
+                reason: rationale,
+            })
+        }
+    }
 }
 
 #[allow(dead_code)]

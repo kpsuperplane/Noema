@@ -26,6 +26,7 @@ use serde_json::{Value, json};
 use tokio::sync::{mpsc, oneshot};
 
 use super::{
+    memory_consolidation::{MemoryConsolidationOutcome, consolidate_memory_candidate},
     memory_pipeline::{
         ConversationMemoryContext, explicit_memory_content, extracted_proposal_to_candidate,
         infer_chat_memory_type, infer_chat_sensitivity, memory_activity, memory_activity_failed,
@@ -281,7 +282,7 @@ impl MemoryExtractionWorker {
     async fn extract_ordinary_chat_memories(
         &mut self,
         context: &ConversationMemoryContext,
-    ) -> Result<Vec<String>, String> {
+    ) -> Result<Vec<MemoryConsolidationOutcome>, String> {
         let project_hint = project_scope_from_cwd(context.cwd.as_deref());
         let prompt = build_memory_extraction_prompt(
             &context.user_content,
@@ -307,6 +308,7 @@ impl MemoryExtractionWorker {
 
         persist_validated_memory_proposals(
             &self.memory_repository,
+            self.provider.as_ref(),
             context,
             proposals,
             "ordinary_chat_extraction",
@@ -1244,15 +1246,16 @@ impl CodexRuntimeActor {
         send_transient_turn_item(context, proposed_activity, item_tx);
         tokio::task::yield_now().await;
 
-        let created_memory_ids = match persist_validated_memory_proposals(
+        let consolidation_outcomes = match persist_validated_memory_proposals(
             &self.memory_repository,
+            self.provider.as_ref(),
             context,
             proposals,
             "provider_structured_output",
         )
         .await
         {
-            Ok(created_memory_ids) => created_memory_ids,
+            Ok(outcomes) => outcomes,
             Err(error) => {
                 let activity = memory_activity_failed(&activity_id, error);
                 self.persist_and_send_turn_item(context, activity, item_tx)
@@ -1260,6 +1263,8 @@ impl CodexRuntimeActor {
                 return Ok(());
             }
         };
+        let created_memory_ids =
+            created_memory_ids_from_consolidation_outcomes(&consolidation_outcomes);
 
         let card = TurnTranscriptItem::A2uiCard {
             id: format!("memory_proposals:{}:{turn_index}", context.conversation_id),
@@ -1902,12 +1907,13 @@ struct ProviderActionOutput {
 
 async fn persist_validated_memory_proposals(
     memory_repository: &PostgresMemoryRepository,
+    provider: &dyn RuntimeModelProvider,
     context: &ConversationMemoryContext,
     proposals: Vec<ValidatedMemoryProposal>,
     trigger: &str,
-) -> Result<Vec<String>, String> {
+) -> Result<Vec<MemoryConsolidationOutcome>, String> {
     let project_hint = project_scope_from_cwd(context.cwd.as_deref());
-    let mut created_memory_ids = Vec::new();
+    let mut outcomes = Vec::new();
 
     for proposal in proposals {
         let candidate = extracted_proposal_to_candidate(
@@ -1918,14 +1924,24 @@ async fn persist_validated_memory_proposals(
             trigger,
         )?;
 
-        let summary = memory_repository
-            .append_memory_candidate(candidate)
-            .await
-            .map_err(|error| format!("failed to persist extracted memory: {error}"))?;
-        created_memory_ids.push(summary.id);
+        outcomes.push(consolidate_memory_candidate(memory_repository, provider, candidate).await?);
     }
 
-    Ok(created_memory_ids)
+    Ok(outcomes)
+}
+
+fn created_memory_ids_from_consolidation_outcomes(
+    outcomes: &[MemoryConsolidationOutcome],
+) -> Vec<String> {
+    outcomes
+        .iter()
+        .filter_map(|outcome| match outcome {
+            MemoryConsolidationOutcome::Created { memory_id } => Some(memory_id.clone()),
+            MemoryConsolidationOutcome::Reused { .. }
+            | MemoryConsolidationOutcome::Reinforced { .. }
+            | MemoryConsolidationOutcome::Conflict { .. } => None,
+        })
+        .collect()
 }
 
 #[cfg(test)]
