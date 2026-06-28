@@ -1,13 +1,15 @@
 use std::path::Path;
 
+use crate::{memory::Sensitivity, memory_persistence::MemoryType};
+#[cfg(test)]
 use crate::{
-    memory::{ParticipantRole, Sensitivity, SubjectRole},
+    memory::{ParticipantRole, SubjectRole},
     memory_extraction::{
         MemoryExtractionSubject, MemoryExtractionSubjectKind, MemoryExtractionSubjectRole,
         ValidatedMemoryProposal,
     },
     memory_persistence::{
-        ActorRef, MemoryAuthorityLevel, MemoryExtractionMethod, MemoryType, NewMemoryCandidate,
+        ActorRef, MemoryAuthorityLevel, MemoryExtractionMethod, NewMemoryCandidate,
         NewMemoryParticipant, NewMemorySubject, ObjectProvenanceSource, ObjectRef,
     },
 };
@@ -53,6 +55,10 @@ pub(super) fn explicit_memory_content(input: &str) -> Option<String> {
     None
 }
 
+#[expect(
+    dead_code,
+    reason = "graph-claim memory write bridge keeps classification helpers staged for the next slice"
+)]
 pub(super) fn infer_chat_memory_type(content: &str) -> MemoryType {
     let lowered = content.to_ascii_lowercase();
     if lowered.contains("prefer") || lowered.contains("preference") {
@@ -64,6 +70,13 @@ pub(super) fn infer_chat_memory_type(content: &str) -> MemoryType {
     }
 }
 
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "graph-claim memory writes are temporarily unavailable outside tests"
+    )
+)]
 pub(super) fn infer_chat_sensitivity(content: &str) -> Sensitivity {
     let lowered = content.to_ascii_lowercase();
     if contains_any(
@@ -134,10 +147,19 @@ pub(super) fn looks_like_secret_token(content: &str) -> bool {
     })
 }
 
+#[expect(
+    dead_code,
+    reason = "graph-claim memory write bridge keeps title derivation staged for the next slice"
+)]
 pub(super) fn title_from_memory_content(content: &str) -> String {
     content.trim().chars().take(80).collect()
 }
 
+#[cfg(test)]
+#[expect(
+    dead_code,
+    reason = "validated proposal conversion awaits graph-claim persistence wiring"
+)]
 pub(super) fn extracted_proposal_to_candidate(
     validated: &ValidatedMemoryProposal,
     context: &ConversationMemoryContext,
@@ -186,6 +208,7 @@ pub(super) fn extracted_proposal_to_candidate(
     Ok(candidate)
 }
 
+#[cfg(test)]
 pub(super) fn owner_for_extracted_proposal(
     proposal: &crate::memory_extraction::ExtractorMemoryProposal,
     context: &ConversationMemoryContext,
@@ -210,6 +233,7 @@ pub(super) fn owner_for_extracted_proposal(
     .map_err(|error| error.to_string())
 }
 
+#[cfg(test)]
 pub(super) fn source_item_ref_for_evidence(
     evidence_excerpt: &str,
     user_input: &str,
@@ -227,6 +251,7 @@ pub(super) fn source_item_ref_for_evidence(
     }
 }
 
+#[cfg(test)]
 pub(super) fn memory_extraction_subject_to_persistence(
     subject: &MemoryExtractionSubject,
 ) -> NewMemorySubject {
@@ -246,6 +271,7 @@ pub(super) fn memory_extraction_subject_to_persistence(
     stored
 }
 
+#[cfg(test)]
 pub(super) fn memory_extraction_subject_is_local_human(subject: &MemoryExtractionSubject) -> bool {
     subject.id.as_deref().is_some_and(|id| id == "human:local")
         || matches!(
@@ -254,6 +280,7 @@ pub(super) fn memory_extraction_subject_is_local_human(subject: &MemoryExtractio
         )
 }
 
+#[cfg(test)]
 pub(super) fn generated_entity_id(kind: MemoryExtractionSubjectKind, name: &str) -> String {
     format!(
         "{}:{}",
@@ -262,6 +289,7 @@ pub(super) fn generated_entity_id(kind: MemoryExtractionSubjectKind, name: &str)
     )
 }
 
+#[cfg(test)]
 pub(super) fn subject_kind_to_entity_type(kind: MemoryExtractionSubjectKind) -> &'static str {
     match kind {
         MemoryExtractionSubjectKind::Human => "human",
@@ -280,6 +308,7 @@ pub(super) fn subject_kind_to_entity_type(kind: MemoryExtractionSubjectKind) -> 
     }
 }
 
+#[cfg(test)]
 pub(super) fn subject_role_to_memory_role(role: MemoryExtractionSubjectRole) -> SubjectRole {
     match role {
         MemoryExtractionSubjectRole::About | MemoryExtractionSubjectRole::Participant => {

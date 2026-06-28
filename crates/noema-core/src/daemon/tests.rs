@@ -7,11 +7,9 @@ use super::{
 };
 use crate::{
     DatabaseConfig,
-    memory::{MemoryStatus, ParticipantRole, Sensitivity},
+    memory::{MemoryStatus, Sensitivity},
     memory_persistence::{
-        ActorRef, ConversationItemKind, ConversationItemStatus, MemoryType, NewConversationItem,
-        NewMemoryCandidate, NewMemoryParticipant, ObjectRef, ObjectType, PostgresMemoryRepository,
-        ReplayMode,
+        ConversationItemKind, ConversationItemStatus, PostgresMemoryRepository, ReplayMode,
     },
     provider::{
         GenerateInput, GenerateOutputItem, GenerateRequest, GenerateResponse, GenerateStreamEvent,
@@ -216,7 +214,8 @@ async fn runtime_turn_streams_durable_assistant_item_and_idle_status() {
     let Some(database) = test_database().await else {
         return;
     };
-    let handle = test_runtime_handle(fake_codex_provider(), database.url.clone()).await;
+    let (handle, store) = test_runtime_handle_with_store(fake_codex_provider()).await;
+    let _ = database;
 
     let conversation = handle
         .start_conversation(None, None)
@@ -278,8 +277,7 @@ async fn runtime_turn_streams_durable_assistant_item_and_idle_status() {
     assert!(assistant_item_id.starts_with("item_"));
     assert!(assistant_turn_id.is_some());
 
-    let repo = postgres_repo(&database).await;
-    let replay = repo
+    let replay = store
         .list_conversation_items(&conversation_id, ReplayMode::Visible)
         .await
         .expect("conversation replay");
@@ -288,10 +286,6 @@ async fn runtime_turn_streams_durable_assistant_item_and_idle_status() {
             && item.kind == ConversationItemKind::AssistantText
             && item.status == ConversationItemStatus::Completed
     }));
-
-    let (agent_status, turn_status) = conversation_and_turn_statuses(&repo, &conversation_id).await;
-    assert_eq!(agent_status, "idle");
-    assert_eq!(turn_status, "completed");
 }
 
 #[tokio::test]
@@ -299,7 +293,8 @@ async fn runtime_turn_streams_assistant_text_deltas_before_durable_item() {
     let Some(database) = test_database().await else {
         return;
     };
-    let handle = test_runtime_handle(fake_codex_provider(), database.url.clone()).await;
+    let (handle, store) = test_runtime_handle_with_store(fake_codex_provider()).await;
+    let _ = database;
     let conversation = handle
         .start_conversation(None, None)
         .await
@@ -326,8 +321,7 @@ async fn runtime_turn_streams_assistant_text_deltas_before_durable_item() {
         .expect("durable assistant");
     assert!(first_delta < durable_assistant);
 
-    let repo = postgres_repo(&database).await;
-    let replay = repo
+    let replay = store
         .list_conversation_items(&conversation_id, ReplayMode::Visible)
         .await
         .expect("replay");
@@ -336,18 +330,11 @@ async fn runtime_turn_streams_assistant_text_deltas_before_durable_item() {
         .filter(|item| item.kind == ConversationItemKind::AssistantText)
         .collect::<Vec<_>>();
     assert_eq!(assistant_items.len(), 1);
-    let stream_id = sqlx::query_scalar::<_, Option<String>>(
-        r"
-        SELECT metadata->>'stream_id'
-        FROM conversation_items
-        WHERE item_id = $1
-        ",
-    )
-    .bind(assistant_items[0].item_id.as_str())
-    .fetch_one(repo.pool())
-    .await
-    .expect("assistant metadata stream id");
-    assert!(stream_id.is_some());
+    assert!(
+        assistant_items[0].payload_json["metadata"]["stream_id"]
+            .as_str()
+            .is_some()
+    );
 }
 
 #[tokio::test]
@@ -355,11 +342,9 @@ async fn runtime_primary_conversation_sends_recent_durable_context_after_restart
     let Some(database) = test_database().await else {
         return;
     };
-    let first_handle = test_runtime_handle(
-        fake_codex_provider_with_restart_context_check(),
-        database.url.clone(),
-    )
-    .await;
+    let (first_handle, store) =
+        test_runtime_handle_with_store(fake_codex_provider_with_restart_context_check()).await;
+    let _ = database;
     let first_conversation_id = first_handle
         .start_primary_conversation(None, None)
         .await
@@ -375,11 +360,12 @@ async fn runtime_primary_conversation_sends_recent_durable_context_after_restart
     assert_eq!(assistant_text(&first_items), "fake answer");
     first_handle.shutdown().await;
 
-    let second_handle = test_runtime_handle(
-        fake_codex_provider_with_restart_context_check(),
-        database.url.clone(),
+    let second_handle = CodexRuntimeHandle::spawn_with_provider(
+        Arc::new(fake_codex_provider_with_restart_context_check()),
+        store.clone(),
     )
-    .await;
+    .await
+    .expect("runtime");
     let restarted_conversation_id = second_handle
         .start_primary_conversation(None, None)
         .await
@@ -397,8 +383,7 @@ async fn runtime_primary_conversation_sends_recent_durable_context_after_restart
     assert_eq!(assistant_text(&second_items), "saw durable context");
     second_handle.shutdown().await;
 
-    let repo = postgres_repo(&database).await;
-    let replay = repo
+    let replay = store
         .list_conversation_items(&first_conversation_id, ReplayMode::Visible)
         .await
         .expect("conversation replay");
@@ -457,7 +442,7 @@ fn deterministic_sensitivity_classifier_fails_closed_for_common_secrets() {
 }
 
 #[tokio::test]
-async fn runtime_actor_persists_explicit_remember_confirmed() {
+async fn runtime_actor_reports_explicit_remember_unavailable() {
     let Some(database) = test_database().await else {
         return;
     };
@@ -485,111 +470,32 @@ async fn runtime_actor_persists_explicit_remember_confirmed() {
             item,
             TurnTranscriptItem::Activity {
                 activity_kind,
-                status: TurnActivityStatus::Completed,
+                status: TurnActivityStatus::Failed,
                 title,
                 summary: Some(summary),
+                metadata,
                 ..
-            } if activity_kind == "memory_save"
-                && title == "Memory saved"
-                && summary == "saved one explicit memory"
+            } if activity_kind == "memory_extraction"
+                && title == "Explicit memory unavailable"
+                && summary == "graph-claim memory writes are pending"
+                && metadata["trigger"] == "explicit_remember"
+                && metadata["unavailable"]["reason"] == "graph_claim_writes_pending"
         )
     }));
-    let explicit_card = items
-        .iter()
-        .find_map(|item| match item {
-            TurnTranscriptItem::A2uiCard {
-                schema, payload, ..
-            } if schema == "memory_cards" => Some(payload),
-            _ => None,
-        })
-        .expect("explicit memory card");
-    assert_eq!(
-        explicit_card["created_memory_ids"]
-            .as_array()
-            .expect("created ids")
-            .len(),
-        1
-    );
-    assert_eq!(
-        explicit_card["memories"][0]["content"],
-        "Kevin prefers CLI memory inspection."
-    );
     assert!(
         !items.iter().any(|item| {
             matches!(
                 item,
-                TurnTranscriptItem::Activity {
-                    activity_kind,
-                    title,
-                    ..
-                } if activity_kind == "memory_extraction"
-                    && title == "Extracting memory proposals"
+                TurnTranscriptItem::A2uiCard { schema, .. } if schema == "memory_cards"
             )
         }),
-        "explicit memory should not trigger automatic extraction activity: {items:?}"
+        "explicit memory should not emit a success-looking memory card: {items:?}"
     );
     handle.shutdown().await;
-
-    let repo = postgres_repo(&database).await;
-    let memories = repo.list_recent_memories(Some(10)).await.expect("memories");
-    assert_eq!(memories.len(), 1);
-    assert_eq!(memories[0].content, "Kevin prefers CLI memory inspection.");
-    assert_eq!(memories[0].status, crate::memory::MemoryStatus::Confirmed);
-    assert_eq!(memories[0].memory_type, MemoryType::Preference);
-    assert_eq!(
-        memories[0].conversation_id.as_deref(),
-        Some(conversation_id.as_str())
-    );
-
-    let replay = repo
-        .list_conversation_items(&conversation_id, ReplayMode::Visible)
-        .await
-        .expect("conversation replay");
-    assert_eq!(replay.len(), 4);
-    assert!(replay.iter().any(|item| {
-        item.kind == ConversationItemKind::Activity
-            && item.status == ConversationItemStatus::Completed
-            && item.payload_json["activity_kind"] == "memory_save"
-    }));
-    assert!(replay.iter().any(|item| {
-        item.kind == ConversationItemKind::A2uiCard
-            && item.status == ConversationItemStatus::Completed
-            && item.payload_json["schema"] == "memory_cards"
-    }));
-
-    let conversation_item_provenance_count: i64 = sqlx::query_scalar(
-        r"
-            SELECT COUNT(*)
-            FROM object_provenance_edges pe
-            JOIN conversation_items ci
-              ON pe.source_object_type = 'conversation_item'
-             AND ci.item_id = pe.source_object_id
-            WHERE pe.target_object_type = 'memory_item'
-              AND pe.target_object_id = $1
-              AND ci.kind = 'user_text'
-            ",
-    )
-    .bind(&memories[0].id)
-    .fetch_one(repo.pool())
-    .await
-    .expect("conversation item provenance count");
-    assert_eq!(conversation_item_provenance_count, 1);
-
-    let conversation_item_count: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM conversation_items WHERE conversation_id = $1")
-            .bind(&conversation_id)
-            .fetch_one(repo.pool())
-            .await
-            .expect("conversation item count");
-    assert_eq!(conversation_item_count, 4);
-
-    let (agent_status, turn_status) = conversation_and_turn_statuses(&repo, &conversation_id).await;
-    assert_eq!(agent_status, "idle");
-    assert_eq!(turn_status, "completed");
 }
 
 #[tokio::test]
-async fn runtime_actor_reuses_repeated_explicit_memory() {
+async fn runtime_actor_reports_repeated_explicit_memory_unavailable() {
     let Some(database) = test_database().await else {
         return;
     };
@@ -605,14 +511,14 @@ async fn runtime_actor_reuses_repeated_explicit_memory() {
         .expect("conversation");
     let conversation_id = conversation.conversation_id.clone();
 
-    collect_turn(
+    let first_items = collect_turn(
         &handle,
         conversation_id.clone(),
         "remember: I like ice cream.".to_string(),
     )
     .await
     .expect("first turn");
-    collect_turn(
+    let second_items = collect_turn(
         &handle,
         conversation_id,
         "remember: I LIKE   ICE CREAM".to_string(),
@@ -621,14 +527,24 @@ async fn runtime_actor_reuses_repeated_explicit_memory() {
     .expect("second turn");
     handle.shutdown().await;
 
-    let repo = postgres_repo(&database).await;
-    let memories = repo.list_recent_memories(Some(10)).await.expect("memories");
-    assert_eq!(memories.len(), 1);
-    assert_eq!(memories[0].content, "I like ice cream.");
+    for items in [first_items, second_items] {
+        assert!(items.iter().any(|item| {
+            matches!(
+                item,
+                TurnTranscriptItem::Activity {
+                    activity_kind,
+                    status: TurnActivityStatus::Failed,
+                    title,
+                    ..
+                } if activity_kind == "memory_extraction"
+                    && title == "Explicit memory unavailable"
+            )
+        }));
+    }
 }
 
 #[tokio::test]
-async fn runtime_actor_extracts_ordinary_chat_memory_in_background() {
+async fn runtime_actor_skips_ordinary_chat_memory_until_graph_claims_land() {
     let Some(database) = test_database().await else {
         return;
     };
@@ -642,10 +558,9 @@ async fn runtime_actor_extracts_ordinary_chat_memory_in_background() {
         .start_conversation(None, None)
         .await
         .expect("conversation");
-    let conversation_id = conversation.conversation_id.clone();
     let items = collect_turn(
         &handle,
-        conversation_id.clone(),
+        conversation.conversation_id,
         "I prefer automatic memory extraction in chat.".to_string(),
     )
     .await
@@ -662,24 +577,11 @@ async fn runtime_actor_extracts_ordinary_chat_memory_in_background() {
         "fallback extraction should not block the turn stream: {items:?}"
     );
     handle.shutdown().await;
-
-    let repo = postgres_repo(&database).await;
-    let memories = repo.list_recent_memories(Some(10)).await.expect("memories");
-    assert_eq!(memories.len(), 1);
-    assert_eq!(
-        memories[0].content,
-        "Kevin prefers automatic memory extraction in chat."
-    );
-    assert_eq!(memories[0].status, crate::memory::MemoryStatus::Active);
-    assert_eq!(memories[0].memory_type, MemoryType::Preference);
-    assert_eq!(
-        memories[0].conversation_id.as_deref(),
-        Some(conversation_id.as_str())
-    );
 }
 
 #[tokio::test]
-async fn runtime_actor_reinforces_semantic_memory_repeat() {
+#[ignore = "legacy Postgres memory consolidation awaits graph-claim store replacement"]
+async fn legacy_runtime_actor_reinforces_semantic_memory_repeat_in_postgres() {
     let Some(database) = test_database().await else {
         return;
     };
@@ -726,7 +628,8 @@ async fn runtime_actor_reinforces_semantic_memory_repeat() {
 }
 
 #[tokio::test]
-async fn runtime_actor_creates_disputed_memory_for_semantic_conflict() {
+#[ignore = "legacy Postgres memory consolidation awaits graph-claim store replacement"]
+async fn legacy_runtime_actor_creates_disputed_memory_for_semantic_conflict_in_postgres() {
     let Some(database) = test_database().await else {
         return;
     };
@@ -767,7 +670,7 @@ async fn runtime_actor_creates_disputed_memory_for_semantic_conflict() {
 }
 
 #[tokio::test]
-async fn runtime_actor_persists_provider_structured_memory_proposals_as_activity() {
+async fn runtime_actor_reports_provider_memory_proposals_unavailable() {
     let Some(database) = test_database().await else {
         return;
     };
@@ -794,17 +697,16 @@ async fn runtime_actor_persists_provider_structured_memory_proposals_as_activity
     let proposed_index =
         memory_extraction_event_index(&events, TurnActivityStatus::Started, "Memory proposed")
             .expect("started memory proposal activity");
-    let card_index = memory_proposals_card_event_index(&events).expect("memory proposal card");
-    let completed_index = memory_extraction_event_index(
-        &events,
-        TurnActivityStatus::Completed,
-        "Memory extraction completed",
-    )
-    .expect("completed memory proposal activity");
     assert!(
-        proposed_index < card_index,
-        "proposal marker should stream before proposal card: {events:?}"
+        memory_proposals_card_event_index(&events).is_none(),
+        "provider proposal card should be suppressed until graph-claim writes land"
     );
+    let unavailable_index = memory_extraction_event_index(
+        &events,
+        TurnActivityStatus::Failed,
+        "Memory persistence unavailable",
+    )
+    .expect("unavailable memory proposal activity");
     let proposed_item_id =
         memory_extraction_event_item_id(&events, TurnActivityStatus::Started, "Memory proposed")
             .expect("started memory proposal item id");
@@ -813,97 +715,29 @@ async fn runtime_actor_persists_provider_structured_memory_proposals_as_activity
         "started memory proposal marker should be live-only, got {proposed_item_id}"
     );
     assert!(
-        card_index < completed_index,
-        "completed marker should stream after proposal card: {events:?}"
+        proposed_index < unavailable_index,
+        "unavailable marker should stream after proposal marker: {events:?}"
     );
     assert!(items.iter().any(|item| {
         matches!(
             item,
             TurnTranscriptItem::Activity {
                 activity_kind,
-                status: TurnActivityStatus::Completed,
+                status: TurnActivityStatus::Failed,
                 summary: Some(summary),
+                metadata,
                 ..
             } if activity_kind == "memory_extraction"
-                && summary == "created 1, reused 0, reinforced 0, conflicts 0"
+                && summary == "graph-claim memory writes are pending"
+                && metadata["unavailable"]["reason"] == "graph_claim_writes_pending"
+                && metadata["proposal_count"] == 1
         )
     }));
-    let proposal_card = items
-        .iter()
-        .find_map(|item| match item {
-            TurnTranscriptItem::A2uiCard {
-                schema, payload, ..
-            } if schema == "memory_proposals" => Some(payload),
-            _ => None,
-        })
-        .expect("provider memory proposal card");
-    assert_eq!(
-        proposal_card["created_memory_ids"]
-            .as_array()
-            .expect("created ids")
-            .len(),
-        1
-    );
-    assert_eq!(
-        proposal_card["proposals"][0]["proposal"]["content"],
-        "Kevin prefers same-call memory proposals."
-    );
-    assert_eq!(proposal_card["proposals"][0]["status"], "active");
-    assert_eq!(
-        proposal_card["memory_outcomes"][0]["outcome"],
-        serde_json::json!("created")
-    );
-    assert_eq!(
-        proposal_card["memory_outcomes"][0]["proposal_content"],
-        "Kevin prefers same-call memory proposals."
-    );
-    assert!(
-        proposal_card["memory_outcomes"][0]["memory_id"]
-            .as_str()
-            .is_some_and(|id| !id.is_empty())
-    );
     handle.shutdown().await;
-
-    let repo = postgres_repo(&database).await;
-    let memories = repo.list_recent_memories(Some(10)).await.expect("memories");
-    assert_eq!(memories.len(), 1);
-    assert_eq!(
-        memories[0].content,
-        "Kevin prefers same-call memory proposals."
-    );
-    assert_eq!(memories[0].status, crate::memory::MemoryStatus::Active);
-    assert_eq!(memories[0].memory_type, MemoryType::Preference);
-
-    let replay = repo
-        .list_conversation_items(&conversation_id, ReplayMode::Visible)
-        .await
-        .expect("conversation replay");
-    assert!(replay.iter().any(|item| {
-        item.kind == ConversationItemKind::Activity
-            && item.status == ConversationItemStatus::Completed
-            && item.payload_json["activity_kind"] == "memory_extraction"
-    }));
-    assert!(
-        !replay.iter().any(|item| {
-            item.kind == ConversationItemKind::Activity
-                && item.status == ConversationItemStatus::Running
-                && item.payload_json["activity_kind"] == "memory_extraction"
-        }),
-        "transient memory proposal marker should not be replayed"
-    );
-    assert!(replay.iter().any(|item| {
-        item.kind == ConversationItemKind::A2uiCard
-            && item.status == ConversationItemStatus::Completed
-            && item.payload_json["schema"] == "memory_proposals"
-    }));
-
-    let (agent_status, turn_status) = conversation_and_turn_statuses(&repo, &conversation_id).await;
-    assert_eq!(agent_status, "idle");
-    assert_eq!(turn_status, "completed");
 }
 
 #[tokio::test]
-async fn runtime_actor_extracts_natural_remember_through_structured_provider_output() {
+async fn runtime_actor_reports_natural_remember_provider_proposals_unavailable() {
     let Some(database) = test_database().await else {
         return;
     };
@@ -925,32 +759,35 @@ async fn runtime_actor_extracts_natural_remember_through_structured_provider_out
     .await
     .expect("turn");
     assert_eq!(assistant_text(&items), "fake answer");
-    let proposal_card = items
-        .iter()
-        .find_map(|item| match item {
-            TurnTranscriptItem::A2uiCard {
-                schema, payload, ..
-            } if schema == "memory_proposals" => Some(payload),
-            _ => None,
-        })
-        .expect("provider memory proposal card");
-    assert_eq!(
-        proposal_card["proposals"][0]["proposal"]["content"],
-        "Kevin is a big fan of trains."
+    assert!(items.iter().any(|item| {
+        matches!(
+            item,
+            TurnTranscriptItem::Activity {
+                activity_kind,
+                status: TurnActivityStatus::Failed,
+                title,
+                summary: Some(summary),
+                ..
+            } if activity_kind == "memory_extraction"
+                && title == "Memory persistence unavailable"
+                && summary == "graph-claim memory writes are pending"
+        )
+    }));
+    assert!(
+        !items.iter().any(|item| {
+            matches!(
+                item,
+                TurnTranscriptItem::A2uiCard { schema, .. } if schema == "memory_proposals"
+            )
+        }),
+        "provider proposals should not emit a success-looking memory card: {items:?}"
     );
-    assert_eq!(proposal_card["proposals"][0]["status"], "active");
     handle.shutdown().await;
-
-    let repo = postgres_repo(&database).await;
-    let memories = repo.list_recent_memories(Some(10)).await.expect("memories");
-    assert_eq!(memories.len(), 1);
-    assert_eq!(memories[0].content, "Kevin is a big fan of trains.");
-    assert_eq!(memories[0].status, crate::memory::MemoryStatus::Active);
-    assert_eq!(memories[0].memory_type, MemoryType::Preference);
 }
 
 #[tokio::test]
-async fn runtime_actor_keeps_third_party_subject_conversation_scoped() {
+#[ignore = "legacy Postgres subject scoping awaits graph-claim store replacement"]
+async fn legacy_runtime_actor_keeps_third_party_subject_conversation_scoped_in_postgres() {
     let Some(database) = test_database().await else {
         return;
     };
@@ -999,7 +836,7 @@ async fn runtime_actor_keeps_third_party_subject_conversation_scoped() {
 }
 
 #[tokio::test]
-async fn runtime_actor_persists_explicit_remember_before_provider_failure() {
+async fn runtime_actor_reports_explicit_remember_unavailable_before_provider_failure() {
     let Some(database) = test_database().await else {
         return;
     };
@@ -1030,7 +867,7 @@ async fn runtime_actor_persists_explicit_remember_before_provider_failure() {
             } if id == &conversation_id
         )
     }));
-    for expected in ["activity", "a2ui_card", "error_notice"] {
+    for expected in ["activity", "error_notice"] {
         let Some(item_id) = events.iter().find_map(|event| match (expected, event) {
             (
                 "activity",
@@ -1042,21 +879,16 @@ async fn runtime_actor_persists_explicit_remember_before_provider_failure() {
                     ..
                 },
             ) if id == &conversation_id
-                && matches!(item.as_ref(), TurnTranscriptItem::Activity { .. }) =>
-            {
-                Some(item_id.clone())
-            }
-            (
-                "a2ui_card",
-                TurnStreamEvent::ConversationItem {
-                    conversation_id: id,
-                    item_id,
-                    turn_id: Some(_),
-                    item,
-                    ..
-                },
-            ) if id == &conversation_id
-                && matches!(item.as_ref(), TurnTranscriptItem::A2uiCard { .. }) =>
+                && matches!(
+                    item.as_ref(),
+                    TurnTranscriptItem::Activity {
+                        activity_kind,
+                        status: TurnActivityStatus::Failed,
+                        title,
+                        ..
+                    } if activity_kind == "memory_extraction"
+                        && title == "Explicit memory unavailable"
+                ) =>
             {
                 Some(item_id.clone())
             }
@@ -1080,42 +912,21 @@ async fn runtime_actor_persists_explicit_remember_before_provider_failure() {
         };
         assert!(item_id.starts_with("item_"));
     }
-
-    let repo = postgres_repo(&database).await;
-    let memories = repo.list_recent_memories(Some(10)).await.expect("memories");
-    assert_eq!(memories.len(), 1);
-    assert_eq!(
-        memories[0].content,
-        "Kevin wants failed turns to keep explicit memory."
+    assert!(
+        !events.iter().any(|event| {
+            matches!(
+                event,
+                TurnStreamEvent::ConversationItem {
+                    item,
+                    ..
+                } if matches!(
+                    item.as_ref(),
+                    TurnTranscriptItem::A2uiCard { schema, .. } if schema == "memory_cards"
+                )
+            )
+        }),
+        "explicit memory should not emit a success-looking memory card: {events:?}"
     );
-    assert_eq!(memories[0].status, crate::memory::MemoryStatus::Confirmed);
-
-    let replay = repo
-        .list_conversation_items(&conversation_id, ReplayMode::Visible)
-        .await
-        .expect("conversation replay");
-    assert!(replay.iter().any(|item| {
-        item.kind == ConversationItemKind::Activity
-            && item.status == ConversationItemStatus::Completed
-            && item.payload_json["activity_kind"] == "memory_save"
-    }));
-    assert!(replay.iter().any(|item| {
-        item.kind == ConversationItemKind::A2uiCard
-            && item.status == ConversationItemStatus::Completed
-            && item.payload_json["schema"] == "memory_cards"
-    }));
-    assert!(replay.iter().any(|item| {
-        item.kind == ConversationItemKind::ErrorNotice
-            && item.status == ConversationItemStatus::Failed
-            && item
-                .content_text
-                .as_deref()
-                .is_some_and(|text| text.contains("turn failed"))
-    }));
-
-    let (agent_status, turn_status) = conversation_and_turn_statuses(&repo, &conversation_id).await;
-    assert_eq!(agent_status, "error");
-    assert_eq!(turn_status, "failed");
 }
 
 #[tokio::test]
@@ -1123,8 +934,9 @@ async fn runtime_actor_persists_provider_tool_items_as_action_rows() {
     let Some(database) = test_database().await else {
         return;
     };
-    let handle =
-        test_runtime_handle(fake_codex_provider_with_tool_item(), database.url.clone()).await;
+    let (handle, store) =
+        test_runtime_handle_with_store(fake_codex_provider_with_tool_item()).await;
+    let _ = database;
 
     let conversation_id = handle
         .start_conversation(None, None)
@@ -1185,8 +997,7 @@ async fn runtime_actor_persists_provider_tool_items_as_action_rows() {
         "tool call should appear as started before it completes"
     );
 
-    let repo = postgres_repo(&database).await;
-    let replay = repo
+    let replay = store
         .list_conversation_items(&conversation_id, ReplayMode::Visible)
         .await
         .expect("conversation replay");
@@ -1215,11 +1026,9 @@ async fn runtime_actor_persists_provider_tool_items_before_turn_failure() {
     let Some(database) = test_database().await else {
         return;
     };
-    let handle = test_runtime_handle(
-        fake_codex_provider_with_tool_item_then_failure(),
-        database.url.clone(),
-    )
-    .await;
+    let (handle, store) =
+        test_runtime_handle_with_store(fake_codex_provider_with_tool_item_then_failure()).await;
+    let _ = database;
 
     let conversation_id = handle
         .start_conversation(None, None)
@@ -1233,6 +1042,15 @@ async fn runtime_actor_persists_provider_tool_items_before_turn_failure() {
     )
     .await;
     assert!(matches!(result, Err(DaemonError::Provider(_))));
+    assert!(events.iter().any(|event| {
+        matches!(
+            event,
+            TurnStreamEvent::AgentStatusChanged {
+                conversation_id: id,
+                status: AgentStatus::Error,
+            } if id == &conversation_id
+        )
+    }));
     let items = transcript_items_from_events(events);
     assert!(items.iter().any(|item| matches!(
         item,
@@ -1243,8 +1061,7 @@ async fn runtime_actor_persists_provider_tool_items_before_turn_failure() {
         } if activity_kind == "tool_call" && title == "Tool call: search_memory"
     )));
 
-    let repo = postgres_repo(&database).await;
-    let replay = repo
+    let replay = store
         .list_conversation_items(&conversation_id, ReplayMode::Visible)
         .await
         .expect("conversation replay");
@@ -1253,9 +1070,6 @@ async fn runtime_actor_persists_provider_tool_items_before_turn_failure() {
             && item.status == ConversationItemStatus::Completed
             && item.payload_json["activity_kind"] == "tool_call"
     }));
-    let (agent_status, turn_status) = conversation_and_turn_statuses(&repo, &conversation_id).await;
-    assert_eq!(agent_status, "error");
-    assert_eq!(turn_status, "failed");
 }
 
 #[tokio::test]
@@ -1303,69 +1117,26 @@ async fn runtime_actor_executes_search_memory_as_local_tool_result() {
             activity_kind,
             status: TurnActivityStatus::Completed,
             title,
+            metadata,
             ..
-        } if activity_kind == "tool_result" && title == "Tool result: search_memory"
+        } if activity_kind == "tool_result"
+            && title == "Tool result: search_memory"
+            && metadata["action"]["success"] == true
+            && metadata["action"]["payload"]["memories"]
+                .as_array()
+                .is_some_and(|memories| memories.is_empty())
+            && metadata["action"]["payload"]["unavailable"]["reason"]
+                == "graph_retrieval_pending"
     )));
     assert!(items.iter().any(|item| matches!(
         item,
         TurnTranscriptItem::AssistantText { text } if text == "I found your train memory."
     )));
     handle.shutdown().await;
-
-    let repo = postgres_repo(&database).await;
-    let replay = repo
-        .list_conversation_items(&conversation_id, ReplayMode::Visible)
-        .await
-        .expect("conversation replay");
-    assert!(replay.iter().any(|item| {
-        item.kind == ConversationItemKind::ToolCall
-            && item.status == ConversationItemStatus::Completed
-            && item.payload_json["activity_kind"] == "tool_call"
-            && item.payload_json["metadata"]["action"]["name"] == "search_memory"
-    }));
-    assert!(replay.iter().any(|item| {
-        item.kind == ConversationItemKind::ToolResult
-            && item.status == ConversationItemStatus::Completed
-            && item.payload_json["activity_kind"] == "tool_result"
-            && item.payload_json["metadata"]["action"]["name"] == "search_memory"
-            && item.payload_json["metadata"]["action"]["success"] == true
-            && item.payload_json["metadata"]["action"]["payload"]["memories"][0]["content"]
-                == "Kevin is a big fan of trains."
-    }));
-    let assistant_texts = replay
-        .iter()
-        .filter_map(|item| {
-            (item.kind == ConversationItemKind::AssistantText)
-                .then_some(item.content_text.as_deref())
-                .flatten()
-        })
-        .collect::<Vec<_>>();
-    assert_eq!(
-        assistant_texts.last().copied(),
-        Some("I found your train memory.")
-    );
-    assert!(replay.iter().any(|item| {
-        item.kind == ConversationItemKind::A2uiCard
-            && item.status == ConversationItemStatus::Completed
-            && item.payload_json["schema"] == "memory_proposals"
-            && item.payload_json["payload"]["proposals"]
-                .as_array()
-                .is_some_and(|proposals| {
-                    proposals.iter().any(|proposal| {
-                        proposal["proposal"]["content"] == "Noema found Kevin's train memory."
-                    })
-                })
-    }));
-    let memories = repo.list_recent_memories(Some(10)).await.expect("memories");
-    assert!(
-        memories
-            .iter()
-            .any(|memory| memory.content == "Noema found Kevin's train memory.")
-    );
 }
 
 #[tokio::test]
-async fn search_memory_tool_redacts_policy_omissions() {
+async fn search_memory_tool_returns_structured_unavailable_result() {
     let Some(database) = test_database().await else {
         return;
     };
@@ -1380,37 +1151,7 @@ async fn search_memory_tool_redacts_policy_omissions() {
         .await
         .expect("conversation")
         .conversation_id;
-    let repo = postgres_repo(&database).await;
-    let source_item = repo
-        .append_conversation_item(NewConversationItem {
-            conversation_id: conversation_id.clone(),
-            turn_id: None,
-            parent_item_id: None,
-            kind: ConversationItemKind::UserText,
-            status: ConversationItemStatus::Completed,
-            author: ActorRef::human("human:local"),
-            content_text: Some("medical train memory source".to_string()),
-            payload_json: json!({}),
-            metadata: json!({}),
-        })
-        .await
-        .expect("source");
-    let mut memory = NewMemoryCandidate::confirmed_note(
-        ObjectRef::new(ObjectType::Conversation, conversation_id.as_str())
-            .expect("conversation object"),
-        "Kevin has a sensitive train-related medical appointment.",
-        ActorRef::human("human:local"),
-        ObjectRef::conversation_item(source_item.item_id.as_str()),
-    );
-    memory.status = crate::memory::MemoryStatus::Active;
-    memory.sensitivity = Sensitivity::Sensitive;
-    memory.participants = vec![NewMemoryParticipant::new(
-        ActorRef::human("human:local"),
-        ParticipantRole::HumanInScope,
-    )];
-    let denied = repo.append_memory_candidate(memory).await.expect("memory");
-
-    collect_turn(
+    let items = collect_turn(
         &handle,
         conversation_id.clone(),
         "What do you remember about trains?".to_string(),
@@ -1419,22 +1160,28 @@ async fn search_memory_tool_redacts_policy_omissions() {
     .expect("turn");
     handle.shutdown().await;
 
-    let replay = repo
-        .list_conversation_items(&conversation_id, ReplayMode::Visible)
-        .await
-        .expect("replay");
-    let tool_result = replay
+    let payload = items
         .iter()
-        .find(|item| item.kind == ConversationItemKind::ToolResult)
-        .expect("tool result");
-    let payload = &tool_result.payload_json["metadata"]["action"]["payload"];
+        .find_map(|item| match item {
+            TurnTranscriptItem::Activity {
+                activity_kind,
+                status: TurnActivityStatus::Completed,
+                metadata,
+                ..
+            } if activity_kind == "tool_result" => Some(&metadata["action"]["payload"]),
+            _ => None,
+        })
+        .expect("tool result payload");
     assert_eq!(
         payload["omissions"],
-        json!([{ "reason": "policy_restricted_context" }])
+        json!([{ "reason": "graph_retrieval_unavailable" }])
     );
-    let payload_string = payload.to_string();
-    assert!(!payload_string.contains(denied.id.as_str()));
-    assert!(!payload_string.contains("medical appointment"));
+    assert_eq!(payload["unavailable"]["reason"], "graph_retrieval_pending");
+    assert!(
+        payload["memories"]
+            .as_array()
+            .is_some_and(|memories| memories.is_empty())
+    );
 }
 
 #[tokio::test]
@@ -1453,7 +1200,7 @@ async fn search_memory_tool_invalid_arguments_are_failed_tool_result() {
         .await
         .expect("conversation")
         .conversation_id;
-    collect_turn(
+    let items = collect_turn(
         &handle,
         conversation_id.clone(),
         "Use your tool".to_string(),
@@ -1462,38 +1209,19 @@ async fn search_memory_tool_invalid_arguments_are_failed_tool_result() {
     .expect("turn");
     handle.shutdown().await;
 
-    let repo = postgres_repo(&database).await;
-    let replay = repo
-        .list_conversation_items(&conversation_id, ReplayMode::Visible)
-        .await
-        .expect("replay");
-    let tool_result = replay
+    let payload = items
         .iter()
-        .find(|item| item.kind == ConversationItemKind::ToolResult)
-        .expect("tool result");
-    assert_eq!(tool_result.status, ConversationItemStatus::Failed);
-    assert_eq!(
-        tool_result.payload_json["metadata"]["action"]["payload"]["error"],
-        "unsupported purpose: dump_everything"
-    );
-}
-
-async fn conversation_and_turn_statuses(
-    repo: &PostgresMemoryRepository,
-    conversation_id: &str,
-) -> (String, String) {
-    sqlx::query_as::<_, (String, String)>(
-        r"
-        SELECT c.agent_status, t.status
-        FROM conversations c
-        JOIN conversation_turns t ON t.conversation_id = c.conversation_id
-        WHERE c.conversation_id = $1
-        ",
-    )
-    .bind(conversation_id)
-    .fetch_one(repo.pool())
-    .await
-    .expect("conversation statuses")
+        .find_map(|item| match item {
+            TurnTranscriptItem::Activity {
+                activity_kind,
+                status: TurnActivityStatus::Failed,
+                metadata,
+                ..
+            } if activity_kind == "tool_result" => Some(&metadata["action"]["payload"]),
+            _ => None,
+        })
+        .expect("failed tool result payload");
+    assert_eq!(payload["error"], "unsupported purpose: dump_everything");
 }
 
 async fn collect_turn(
@@ -1617,15 +1345,22 @@ async fn test_runtime_handle(
     provider: FakeCodexProvider,
     _database_url: String,
 ) -> CodexRuntimeHandle {
+    test_runtime_handle_with_store(provider).await.0
+}
+
+async fn test_runtime_handle_with_store(
+    provider: FakeCodexProvider,
+) -> (CodexRuntimeHandle, crate::NoemaStore) {
     let home = tempfile::tempdir().expect("temp noema home");
     let paths = crate::NoemaPaths::from_noema_home(home.path()).expect("paths");
     let store = crate::NoemaStore::open(&crate::StoreConfig::from_paths(&paths))
         .await
         .expect("store");
     std::mem::forget(home);
-    CodexRuntimeHandle::spawn_with_provider(Arc::new(provider), store)
+    let handle = CodexRuntimeHandle::spawn_with_provider(Arc::new(provider), store.clone())
         .await
-        .expect("runtime")
+        .expect("runtime");
+    (handle, store)
 }
 
 #[derive(Debug, Clone)]

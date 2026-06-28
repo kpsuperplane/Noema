@@ -1,3 +1,8 @@
+#![expect(
+    dead_code,
+    reason = "legacy Postgres memory consolidation is staged until graph-claim writes replace it"
+)]
+
 use crate::{
     memory::{MemoryStatus, Sensitivity},
     memory_persistence::{

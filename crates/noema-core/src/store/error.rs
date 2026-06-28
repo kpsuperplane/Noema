@@ -8,7 +8,7 @@ pub enum StoreError {
     PreparePath(std::io::Error),
     /// Embedded SurrealDB operation failed.
     #[error("embedded store operation failed: {0}")]
-    Surreal(#[from] surrealdb::Error),
+    Surreal(Box<surrealdb::Error>),
     /// Schema bootstrap returned an invalid result.
     #[error("store schema bootstrap failed: {0}")]
     Schema(String),
@@ -38,4 +38,10 @@ pub enum StoreError {
         /// Missing turn id.
         turn_id: String,
     },
+}
+
+impl From<surrealdb::Error> for StoreError {
+    fn from(source: surrealdb::Error) -> Self {
+        Self::Surreal(Box::new(source))
+    }
 }

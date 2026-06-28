@@ -291,11 +291,17 @@ pub enum DaemonError {
 
     /// Embedded store operation failed.
     #[error(transparent)]
-    Store(#[from] StoreError),
+    Store(Box<StoreError>),
 
     /// Path resolution failed.
     #[error(transparent)]
     Path(#[from] NoemaPathError),
+}
+
+impl From<StoreError> for DaemonError {
+    fn from(source: StoreError) -> Self {
+        Self::Store(Box::new(source))
+    }
 }
 
 /// Return the default daemon socket path for the current process environment.

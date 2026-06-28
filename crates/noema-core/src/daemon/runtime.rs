@@ -2,16 +2,13 @@ use std::{collections::HashMap, future::Future, pin::Pin, sync::Arc};
 
 use crate::{
     NoemaStore,
-    memory::ParticipantRole,
-    memory::Sensitivity,
     memory_extraction::{
         ExtractorMemoryProposal, ExtractorMemoryResponse, validate_memory_extraction_response,
     },
     memory_persistence::{
         ActorRef, AgentStatus as PersistedAgentStatus, ConversationItemKind,
-        ConversationItemRecord, ConversationItemStatus, MemoryAuthorityLevel,
-        MemoryExtractionMethod, NewConversation, NewConversationItem, NewConversationTurn,
-        NewMemoryCandidate, NewMemoryParticipant, ObjectProvenanceSource, ObjectRef, ObjectType,
+        ConversationItemRecord, ConversationItemStatus, NewConversation, NewConversationItem,
+        NewConversationTurn,
     },
     provider::{
         GenerateInput, GenerateOptions, GenerateOutputItem, GenerateRequest, GenerateResponse,
@@ -23,11 +20,9 @@ use serde_json::{Value, json};
 use tokio::sync::{mpsc, oneshot};
 
 use super::{
-    memory_consolidation::{MemoryConsolidationOutcome, consolidation_outcome_json},
     memory_pipeline::{
-        ConversationMemoryContext, explicit_memory_content, infer_chat_memory_type,
-        infer_chat_sensitivity, memory_activity, memory_activity_failed, project_scope_from_cwd,
-        title_from_memory_content, typed_memory_activity,
+        ConversationMemoryContext, explicit_memory_content, memory_activity,
+        memory_activity_failed, project_scope_from_cwd, typed_memory_activity,
     },
     memory_tool::{
         MemoryToolResult, MemoryToolRuntimeContext, execute_search_memory, is_search_memory_tool,
@@ -39,6 +34,13 @@ use super::{
 };
 
 pub(crate) trait RuntimeModelProvider: std::fmt::Debug + Send + Sync {
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "non-streaming generation is only used by staged memory consolidation"
+        )
+    )]
     fn generate<'a>(
         &'a self,
         request: GenerateRequest,
@@ -274,12 +276,12 @@ impl MemoryExtractionWorker {
     async fn extract_ordinary_chat_memories(
         &mut self,
         context: &ConversationMemoryContext,
-    ) -> Result<Vec<MemoryConsolidationOutcome>, String> {
+    ) -> Result<(), String> {
         // TODO(graph-claim store): ordinary chat memory proposal persistence
         // moves to the embedded graph-claim store in a later task. Transcript
         // persistence remains active through NoemaStore in this migration.
         let _ = (&self.provider, context);
-        Ok(Vec::new())
+        Ok(())
     }
 }
 
@@ -449,10 +451,8 @@ impl CodexRuntimeActor {
                 text: input.clone(),
             },
         );
-        let saved_memory_id = self
-            .persist_chat_memory_candidate(&conversation_id, turn_index, &user_item_id, &input)
-            .await?;
-        if let Some(memory_id) = saved_memory_id.as_deref() {
+        let explicit_memory_requested = explicit_memory_content(&input).is_some();
+        if explicit_memory_requested {
             let memory_context = ConversationMemoryContext {
                 turn_index,
                 conversation_id: conversation_id.clone(),
@@ -463,20 +463,14 @@ impl CodexRuntimeActor {
                 assistant_content: String::new(),
                 cwd: conversation.cwd.clone(),
             };
-            if let Err(error) = self
-                .persist_explicit_memory_transcript_items(
-                    &memory_context,
-                    memory_id,
-                    &input,
-                    &item_tx,
-                )
-                .await
-            {
-                self.record_turn_failure(&memory_context, error.to_string(), &item_tx)
-                    .await?;
-                self.conversations.remove(&conversation_id);
-                return Err(error);
-            }
+            self.persist_memory_unavailable_activity(
+                &memory_context,
+                "explicit_remember",
+                "Explicit memory unavailable",
+                "graph-claim memory writes are pending",
+                &item_tx,
+            )
+            .await?;
         }
         self.update_conversation_agent_status(
             &conversation_id,
@@ -541,7 +535,7 @@ impl CodexRuntimeActor {
                             model: conversation.model.clone(),
                             initial_stream_id: initial_stream_id.clone(),
                             response,
-                            saved_memory_id,
+                            saved_memory_id: None,
                         },
                         &item_tx,
                     )
@@ -1088,55 +1082,6 @@ impl CodexRuntimeActor {
         Ok(())
     }
 
-    async fn persist_explicit_memory_transcript_items(
-        &mut self,
-        context: &ConversationMemoryContext,
-        memory_id: &str,
-        user_input: &str,
-        item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
-    ) -> Result<(), DaemonError> {
-        let activity = typed_memory_activity(
-            &format!(
-                "memory_save:{}:{}",
-                context.conversation_id, context.turn_index
-            ),
-            "memory_save",
-            TurnActivityStatus::Completed,
-            "Memory saved",
-            Some("saved one explicit memory"),
-            json!({
-                "turn_index": context.turn_index,
-                "created_memory_ids": [memory_id],
-                "trigger": "explicit_remember",
-            }),
-        );
-        self.persist_and_send_turn_item(context, activity, item_tx)
-            .await?;
-
-        let memory_content = explicit_memory_content(user_input).unwrap_or_default();
-        let card = TurnTranscriptItem::A2uiCard {
-            id: format!(
-                "memory_cards:{}:{}",
-                context.conversation_id, context.turn_index
-            ),
-            schema: "memory_cards".to_string(),
-            payload: json!({
-                "turn_index": context.turn_index,
-                "source": "explicit_remember",
-                "created_memory_ids": [memory_id],
-                "memories": [{
-                    "content": memory_content,
-                    "title": title_from_memory_content(&memory_content),
-                    "memory_type": infer_chat_memory_type(&memory_content).as_str(),
-                    "sensitivity": sensitivity_payload_label(infer_chat_sensitivity(&memory_content)),
-                    "status": "confirmed",
-                }],
-            }),
-        };
-        self.persist_and_send_turn_item(context, card, item_tx)
-            .await
-    }
-
     async fn record_turn_failure(
         &mut self,
         context: &ConversationMemoryContext,
@@ -1183,7 +1128,6 @@ impl CodexRuntimeActor {
             }
         };
 
-        let card_proposals = proposals.clone();
         let proposed_summary = match proposals.len() {
             0 => "creating no memory candidates".to_string(),
             1 => "creating 1 memory candidate".to_string(),
@@ -1197,51 +1141,55 @@ impl CodexRuntimeActor {
             json!({
                 "turn_index": turn_index,
                 "proposal_count": proposals.len(),
+                "cwd_project_hint": project_scope_from_cwd(context.cwd.as_deref()),
             }),
         );
         send_transient_turn_item(context, proposed_activity, item_tx);
         tokio::task::yield_now().await;
 
         // TODO(graph-claim store): provider memory proposals become graph
-        // claims in the SurrealDB memory slice. This intermediate task keeps
-        // transcript persistence live without retaining a hidden Postgres
-        // dependency for memory consolidation.
-        let _ = proposals;
-        let consolidation_outcomes = Vec::new();
-        let created_memory_ids =
-            created_memory_ids_from_consolidation_outcomes(&consolidation_outcomes);
-        let memory_outcomes = consolidation_outcomes
-            .iter()
-            .zip(card_proposals.iter())
-            .map(|(outcome, proposal)| {
-                consolidation_outcome_json(outcome, &proposal.proposal.content)
-            })
-            .collect::<Vec<_>>();
-
-        let card = TurnTranscriptItem::A2uiCard {
-            id: format!("memory_proposals:{}:{turn_index}", context.conversation_id),
-            schema: "memory_proposals".to_string(),
-            payload: json!({
-                "turn_index": turn_index,
-                "source": "provider_structured_output",
-                "created_memory_ids": created_memory_ids.clone(),
-                "memory_outcomes": memory_outcomes.clone(),
-                "proposals": card_proposals,
-            }),
-        };
-        self.persist_and_send_turn_item(context, card, item_tx)
-            .await?;
-
-        let summary = memory_outcome_summary(&consolidation_outcomes);
+        // claims in the SurrealDB memory slice. This bridge records an
+        // unavailable activity instead of emitting a success-looking card.
         let activity = memory_activity(
             &activity_id,
-            TurnActivityStatus::Completed,
-            "Memory extraction completed",
-            Some(&summary),
+            TurnActivityStatus::Failed,
+            "Memory persistence unavailable",
+            Some("graph-claim memory writes are pending"),
             json!({
                 "turn_index": turn_index,
-                "created_memory_ids": created_memory_ids,
-                "memory_outcomes": memory_outcomes,
+                "proposal_count": proposals.len(),
+                "source": "provider_structured_output",
+                "unavailable": {
+                    "reason": "graph_claim_writes_pending",
+                },
+            }),
+        );
+        self.persist_and_send_turn_item(context, activity, item_tx)
+            .await
+    }
+
+    async fn persist_memory_unavailable_activity(
+        &mut self,
+        context: &ConversationMemoryContext,
+        trigger: &str,
+        title: &str,
+        summary: &str,
+        item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
+    ) -> Result<(), DaemonError> {
+        let activity = memory_activity(
+            &format!(
+                "memory_unavailable:{}:{}",
+                context.conversation_id, context.turn_index
+            ),
+            TurnActivityStatus::Failed,
+            title,
+            Some(summary),
+            json!({
+                "turn_index": context.turn_index,
+                "trigger": trigger,
+                "unavailable": {
+                    "reason": "graph_claim_writes_pending",
+                },
             }),
         );
         self.persist_and_send_turn_item(context, activity, item_tx)
@@ -1367,50 +1315,6 @@ impl CodexRuntimeActor {
             })
             .await?;
         Ok((record, metadata))
-    }
-
-    async fn persist_chat_memory_candidate(
-        &mut self,
-        conversation_id: &str,
-        turn_index: u64,
-        user_item_id: &str,
-        user_input: &str,
-    ) -> Result<Option<String>, DaemonError> {
-        let Some(memory_content) = explicit_memory_content(user_input) else {
-            return Ok(None);
-        };
-
-        let mut candidate = NewMemoryCandidate::confirmed_note(
-            ObjectRef::new(ObjectType::Conversation, conversation_id)?,
-            memory_content,
-            ActorRef::human("human:local"),
-            ObjectRef::conversation_item(user_item_id),
-        );
-        candidate.memory_type = infer_chat_memory_type(&candidate.content);
-        candidate.title = Some(title_from_memory_content(&candidate.content));
-        candidate.sensitivity = infer_chat_sensitivity(&candidate.content);
-        candidate.status = crate::memory::MemoryStatus::Confirmed;
-        candidate.owner_actor = Some(ActorRef::human("human:local"));
-        candidate.authority_level = MemoryAuthorityLevel::ExplicitHumanStatement;
-        candidate.extraction_method = MemoryExtractionMethod::ExplicitHuman;
-        candidate.source = Some(ObjectProvenanceSource {
-            source: ObjectRef::conversation_item(user_item_id),
-            evidence_excerpt: Some(user_input.trim().to_string()),
-        });
-        candidate.participants = vec![
-            NewMemoryParticipant::new("human:local", ParticipantRole::HumanInScope),
-            NewMemoryParticipant::new("agent:primary", ParticipantRole::AgentInScope),
-        ];
-        candidate.metadata = json!({
-            "trigger": "explicit_remember",
-            "turn_index": turn_index,
-        });
-
-        let _ = candidate;
-        // TODO(graph-claim store): explicit "remember" writes need the pending
-        // graph-claim persistence layer. Do not keep Postgres alive solely for
-        // this transitional memory path.
-        Ok(None)
     }
 
     async fn update_conversation_agent_status(
@@ -1565,16 +1469,6 @@ fn send_assistant_text_delta(
         stream_id: stream_id.to_string(),
         delta,
     });
-}
-
-const fn sensitivity_payload_label(sensitivity: Sensitivity) -> &'static str {
-    match sensitivity {
-        Sensitivity::Public => "public",
-        Sensitivity::Normal => "normal",
-        Sensitivity::Private => "private",
-        Sensitivity::Sensitive => "sensitive",
-        Sensitivity::Secret => "secret",
-    }
 }
 
 const fn conversation_item_status_for_activity(
@@ -1853,38 +1747,6 @@ struct ProviderActionOutput {
     title: String,
     summary: Option<String>,
     payload: serde_json::Value,
-}
-
-fn created_memory_ids_from_consolidation_outcomes(
-    outcomes: &[MemoryConsolidationOutcome],
-) -> Vec<String> {
-    outcomes
-        .iter()
-        .filter_map(|outcome| match outcome {
-            MemoryConsolidationOutcome::Created { memory_id } => Some(memory_id.clone()),
-            MemoryConsolidationOutcome::Reused { .. }
-            | MemoryConsolidationOutcome::Reinforced { .. }
-            | MemoryConsolidationOutcome::Conflict { .. } => None,
-        })
-        .collect()
-}
-
-fn memory_outcome_summary(outcomes: &[MemoryConsolidationOutcome]) -> String {
-    let mut created = 0;
-    let mut reused = 0;
-    let mut reinforced = 0;
-    let mut conflicts = 0;
-
-    for outcome in outcomes {
-        match outcome {
-            MemoryConsolidationOutcome::Created { .. } => created += 1,
-            MemoryConsolidationOutcome::Reused { .. } => reused += 1,
-            MemoryConsolidationOutcome::Reinforced { .. } => reinforced += 1,
-            MemoryConsolidationOutcome::Conflict { .. } => conflicts += 1,
-        }
-    }
-
-    format!("created {created}, reused {reused}, reinforced {reinforced}, conflicts {conflicts}")
 }
 
 #[cfg(test)]

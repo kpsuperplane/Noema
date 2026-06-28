@@ -2,14 +2,12 @@ use crate::{
     NoemaStore,
     daemon::memory_pipeline::project_scope_from_cwd,
     memory::{
-        EligibilityReason, MemoryRetrievalRequest, MemoryRetrievalResult, Purpose, Sensitivity,
-        TrustedRetrievalContext, UntrustedHints,
+        MemoryRetrievalRequest, Purpose, Sensitivity, TrustedRetrievalContext, UntrustedHints,
     },
-    memory_persistence::{MemoryPersistenceError, MemorySummary},
+    memory_persistence::MemoryPersistenceError,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
-use std::collections::HashSet;
 
 const SEARCH_MEMORY_TOOL: &str = "search_memory";
 const DEFAULT_LIMIT: usize = 8;
@@ -201,7 +199,13 @@ fn sanitize_context_packet_fragment(value: &str) -> String {
     }
 }
 
-fn limit_retrieval_result(retrieval: MemoryRetrievalResult, limit: usize) -> MemoryRetrievalResult {
+#[cfg(test)]
+fn limit_retrieval_result(
+    retrieval: crate::memory::MemoryRetrievalResult,
+    limit: usize,
+) -> crate::memory::MemoryRetrievalResult {
+    use std::collections::HashSet;
+
     let included = retrieval
         .included
         .into_iter()
@@ -217,7 +221,7 @@ fn limit_retrieval_result(retrieval: MemoryRetrievalResult, limit: usize) -> Mem
         .filter(|record| included_ids.contains(record.memory_id.as_str()))
         .collect::<Vec<_>>();
 
-    MemoryRetrievalResult {
+    crate::memory::MemoryRetrievalResult {
         included,
         denied_for_audit: retrieval.denied_for_audit,
         agent_visible_omissions: retrieval.agent_visible_omissions,
@@ -234,7 +238,12 @@ fn explicit_memory_request(input: &str) -> bool {
         || lowered.contains("what do you know about")
 }
 
-fn format_memory(memory: &MemorySummary, why: &'static str) -> Value {
+#[cfg(test)]
+#[expect(
+    dead_code,
+    reason = "search-memory formatting is staged until graph retrieval lands"
+)]
+fn format_memory(memory: &crate::MemorySummary, why: &'static str) -> Value {
     json!({
         "id": memory.id,
         "title": memory.title,
@@ -245,6 +254,7 @@ fn format_memory(memory: &MemorySummary, why: &'static str) -> Value {
     })
 }
 
+#[cfg(test)]
 fn sensitivity_label(sensitivity: Sensitivity) -> &'static str {
     match sensitivity {
         Sensitivity::Public => "public",
@@ -255,14 +265,19 @@ fn sensitivity_label(sensitivity: Sensitivity) -> &'static str {
     }
 }
 
-fn eligibility_label(reason: EligibilityReason) -> &'static str {
+#[cfg(test)]
+#[expect(
+    dead_code,
+    reason = "search-memory formatting is staged until graph retrieval lands"
+)]
+fn eligibility_label(reason: crate::memory::EligibilityReason) -> &'static str {
     match reason {
-        EligibilityReason::ActiveScope => "active_scope",
-        EligibilityReason::ParticipantOverlap => "participant_overlap",
-        EligibilityReason::ExplicitGrant => "explicit_grant",
-        EligibilityReason::TrustedObjectLink => "trusted_object_link",
-        EligibilityReason::PublicHint => "public_hint",
-        EligibilityReason::GraphExpansion => "graph_expansion",
+        crate::memory::EligibilityReason::ActiveScope => "active_scope",
+        crate::memory::EligibilityReason::ParticipantOverlap => "participant_overlap",
+        crate::memory::EligibilityReason::ExplicitGrant => "explicit_grant",
+        crate::memory::EligibilityReason::TrustedObjectLink => "trusted_object_link",
+        crate::memory::EligibilityReason::PublicHint => "public_hint",
+        crate::memory::EligibilityReason::GraphExpansion => "graph_expansion",
     }
 }
 
@@ -276,7 +291,9 @@ fn safe_error_message(error: &MemoryToolError) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::memory::{MemoryUseRecord, RetrievedMemory};
+    use crate::memory::{
+        EligibilityReason, MemoryRetrievalResult, MemoryUseRecord, RetrievedMemory,
+    };
 
     #[test]
     fn parses_nested_payload_clamps_limit_and_accepts_default_purpose() {
