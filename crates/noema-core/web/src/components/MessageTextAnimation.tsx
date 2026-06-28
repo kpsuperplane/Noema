@@ -13,9 +13,11 @@ export function AnimatedMessageText({
   animate: boolean;
   text: string;
 }) {
+  const prefersReducedMotion = usePrefersReducedMotion();
+  const shouldAnimate = animate && !prefersReducedMotion;
   const tokens = React.useMemo(() => messageTextAnimationTokens(text), [text]);
   const wordCount = React.useMemo(() => messageTextWordCount(tokens), [tokens]);
-  const [visibleWordCount, setVisibleWordCount] = React.useState(() => (animate ? 0 : wordCount));
+  const [visibleWordCount, setVisibleWordCount] = React.useState(() => (shouldAnimate ? 0 : wordCount));
   const visibleWordCountRef = React.useRef(visibleWordCount);
 
   React.useEffect(() => {
@@ -23,7 +25,7 @@ export function AnimatedMessageText({
   }, [visibleWordCount]);
 
   React.useEffect(() => {
-    if (!animate) {
+    if (!shouldAnimate) {
       return;
     }
 
@@ -42,9 +44,11 @@ export function AnimatedMessageText({
     return () => {
       timers.forEach((timer) => window.clearTimeout(timer));
     };
-  }, [animate, wordCount]);
+  }, [shouldAnimate, wordCount]);
 
-  const visibleTokens = animate ? visibleMessageTextAnimationTokens(tokens, Math.min(visibleWordCount, wordCount)) : tokens;
+  const visibleTokens = shouldAnimate
+    ? visibleMessageTextAnimationTokens(tokens, Math.min(visibleWordCount, wordCount))
+    : tokens;
 
   return (
     <>
@@ -55,7 +59,7 @@ export function AnimatedMessageText({
         return (
           <span
             key={`word-${index}`}
-            className={animate ? "message-word-fade" : undefined}
+            className={shouldAnimate ? "message-word-fade" : undefined}
           >
             {token.value}
           </span>
@@ -63,6 +67,26 @@ export function AnimatedMessageText({
       })}
     </>
   );
+}
+
+function usePrefersReducedMotion(): boolean {
+  const [prefersReducedMotion, setPrefersReducedMotion] = React.useState(() => {
+    if (typeof window === "undefined") {
+      return false;
+    }
+    return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  });
+
+  React.useEffect(() => {
+    const mediaQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const handleChange = () => setPrefersReducedMotion(mediaQuery.matches);
+
+    handleChange();
+    mediaQuery.addEventListener("change", handleChange);
+    return () => mediaQuery.removeEventListener("change", handleChange);
+  }, []);
+
+  return prefersReducedMotion;
 }
 
 export function messageTextAnimationTokens(text: string): MessageTextAnimationToken[] {
