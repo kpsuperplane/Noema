@@ -159,6 +159,7 @@ impl NoemaStore {
         &self,
         candidate: NewClaimCandidate,
     ) -> Result<ClaimSummary, StoreError> {
+        let _claim_write_guard = self.claim_write_lock.lock().await;
         self.require_predicate(&candidate.predicate_id).await?;
         self.require_source_item(&candidate.evidence.source_item_id)
             .await?;
@@ -187,25 +188,53 @@ impl NoemaStore {
     }
 
     async fn upsert_entity(&self, entity: &EntityCandidate) -> Result<(), StoreError> {
-        self.db
-            .query(
-                r#"
-                UPSERT type::thing('entities', $record_id) SET
-                  entity_id = $entity_id,
-                  entity_type = $entity_type,
-                  canonical_name = $canonical_name,
-                  aliases = [],
-                  metadata = {},
-                  updated_at = time::now();
-                "#,
-            )
-            .bind(("record_id", record_fragment(&entity.entity_id)))
-            .bind(("entity_id", entity.entity_id.clone()))
-            .bind(("entity_type", entity.entity_type.as_str().to_string()))
-            .bind(("canonical_name", entity.canonical_name.clone()))
-            .await?
-            .check()?;
+        if self.entity_exists(&entity.entity_id).await? {
+            self.db
+                .query(
+                    r#"
+                    UPDATE entities SET
+                      entity_type = $entity_type,
+                      canonical_name = $canonical_name,
+                      updated_at = time::now()
+                    WHERE entity_id = $entity_id;
+                    "#,
+                )
+                .bind(("entity_id", entity.entity_id.clone()))
+                .bind(("entity_type", entity.entity_type.as_str().to_string()))
+                .bind(("canonical_name", entity.canonical_name.clone()))
+                .await?
+                .check()?;
+        } else {
+            self.db
+                .query(
+                    r#"
+                    CREATE type::thing('entities', $record_id) SET
+                      entity_id = $entity_id,
+                      entity_type = $entity_type,
+                      canonical_name = $canonical_name,
+                      aliases = [],
+                      metadata = {},
+                      updated_at = time::now();
+                    "#,
+                )
+                .bind(("record_id", entity_record_id(&entity.entity_id)))
+                .bind(("entity_id", entity.entity_id.clone()))
+                .bind(("entity_type", entity.entity_type.as_str().to_string()))
+                .bind(("canonical_name", entity.canonical_name.clone()))
+                .await?
+                .check()?;
+        }
         Ok(())
+    }
+
+    async fn entity_exists(&self, entity_id: &str) -> Result<bool, StoreError> {
+        let mut response = self
+            .db
+            .query("SELECT entity_id FROM entities WHERE entity_id = $entity_id LIMIT 1;")
+            .bind(("entity_id", entity_id.to_string()))
+            .await?;
+        let rows: Vec<EntityIdRow> = response.take(0)?;
+        Ok(!rows.is_empty())
     }
 
     async fn require_predicate(&self, predicate_id: &str) -> Result<(), StoreError> {
@@ -390,10 +419,15 @@ impl NoemaStore {
             .into_iter()
             .next()
             .ok_or_else(|| StoreError::Schema(format!("missing claim after write: {claim_id}")))?;
+        let object_entity_id = row.object_entity_id.ok_or_else(|| {
+            StoreError::Schema(format!(
+                "claim missing object_entity_id after write: {claim_id}"
+            ))
+        })?;
         Ok(ClaimSummary {
             claim_id: row.claim_id,
             subject_entity_id: row.subject_entity_id,
-            object_entity_id: row.object_entity_id.unwrap_or_default(),
+            object_entity_id,
             predicate_id: row.predicate_id,
             fact: row.fact,
             status: ClaimStatus::parse(&row.status)?,
@@ -401,6 +435,12 @@ impl NoemaStore {
             evidence_count: counts.first().map_or(0, |row| row.count),
         })
     }
+}
+
+#[derive(Debug, Deserialize)]
+struct EntityIdRow {
+    #[allow(dead_code)]
+    entity_id: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -480,3 +520,17 @@ fn parse_sensitivity(value: &str) -> Result<Sensitivity, StoreError> {
         }),
     }
 }
+
+fn entity_record_id(entity_id: &str) -> String {
+    let mut encoded = String::with_capacity("entity_".len() + entity_id.len().saturating_mul(2));
+    encoded.push_str("entity_");
+    for byte in entity_id.as_bytes() {
+        encoded.push(HEX_CHARS[usize::from(byte >> 4)]);
+        encoded.push(HEX_CHARS[usize::from(byte & 0x0f)]);
+    }
+    encoded
+}
+
+const HEX_CHARS: [char; 16] = [
+    '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f',
+];

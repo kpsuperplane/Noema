@@ -33,6 +33,7 @@ impl StoreConfig {
 pub struct NoemaStore {
     pub(super) db: Surreal<Db>,
     pub(super) append_item_lock: Arc<Mutex<()>>,
+    pub(super) claim_write_lock: Arc<Mutex<()>>,
 }
 
 impl NoemaStore {
@@ -51,6 +52,7 @@ impl NoemaStore {
         Ok(Self {
             db,
             append_item_lock: Arc::new(Mutex::new(())),
+            claim_write_lock: Arc::new(Mutex::new(())),
         })
     }
 
