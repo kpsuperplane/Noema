@@ -1456,11 +1456,14 @@ impl CodexRuntimeActor {
             "turn_index": turn_index,
         });
 
-        let memory = self
-            .memory_repository
-            .append_memory_candidate(candidate)
-            .await?;
-        Ok(Some(memory.id))
+        let outcome = consolidate_memory_candidate(
+            &self.memory_repository,
+            self.provider.as_ref(),
+            candidate,
+        )
+        .await
+        .map_err(DaemonError::Protocol)?;
+        Ok(Some(memory_id_from_consolidation_outcome(&outcome)))
     }
 
     async fn update_conversation_agent_status(
@@ -1942,6 +1945,15 @@ fn created_memory_ids_from_consolidation_outcomes(
             | MemoryConsolidationOutcome::Conflict { .. } => None,
         })
         .collect()
+}
+
+fn memory_id_from_consolidation_outcome(outcome: &MemoryConsolidationOutcome) -> String {
+    match outcome {
+        MemoryConsolidationOutcome::Created { memory_id }
+        | MemoryConsolidationOutcome::Reused { memory_id, .. }
+        | MemoryConsolidationOutcome::Reinforced { memory_id, .. }
+        | MemoryConsolidationOutcome::Conflict { memory_id, .. } => memory_id.clone(),
+    }
 }
 
 #[cfg(test)]
