@@ -46,13 +46,13 @@ pub enum StoreError {
         /// Expected conversation id.
         conversation_id: String,
     },
-    /// A parent item expected to exist was not found.
+    /// A referenced conversation item expected to exist was not found.
     #[error("conversation item not found: {item_id}")]
     ConversationItemNotFound {
         /// Missing item id.
         item_id: String,
     },
-    /// A parent item belongs to a different conversation than the item being written.
+    /// A referenced item belongs to a different conversation than the owner row.
     #[error("conversation item {item_id} does not belong to conversation {conversation_id}")]
     ConversationItemConversationMismatch {
         /// Referenced item id.

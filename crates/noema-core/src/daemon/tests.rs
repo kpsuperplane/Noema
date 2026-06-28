@@ -17,10 +17,13 @@ use crate::{
     },
 };
 use serde_json::json;
-use std::{future::Future, path::PathBuf, pin::Pin, sync::Arc};
+use std::{future::Future, path::PathBuf, pin::Pin, process::Command, sync::Arc};
 use tokio::sync::mpsc;
 
 const TEST_DATABASE_URL_ENV: &str = "NOEMA_TEST_DATABASE_URL";
+const RESTART_CONTEXT_TEST_PHASE_ENV: &str = "NOEMA_RESTART_CONTEXT_TEST_PHASE";
+const RESTART_CONTEXT_TEST_HOME_ENV: &str = "NOEMA_RESTART_CONTEXT_TEST_HOME";
+const RESTART_CONTEXT_TEST_CONVERSATION_FILE: &str = "restart_context_conversation_id";
 static DAEMON_POSTGRES_TEST_SCHEMA_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 #[test]
@@ -327,8 +330,51 @@ async fn runtime_turn_streams_assistant_text_deltas_before_durable_item() {
 
 #[tokio::test]
 async fn runtime_primary_conversation_sends_recent_durable_context_after_restart() {
-    let (first_handle, store) =
-        test_runtime_handle_with_store(fake_codex_provider_with_restart_context_check()).await;
+    if let Ok(phase) = std::env::var(RESTART_CONTEXT_TEST_PHASE_ENV) {
+        let home = PathBuf::from(
+            std::env::var(RESTART_CONTEXT_TEST_HOME_ENV).expect("restart test home env"),
+        );
+        match phase.as_str() {
+            "write" => restart_context_write_phase(&home).await,
+            "read" => restart_context_read_phase(&home).await,
+            other => panic!("unknown restart context test phase: {other}"),
+        }
+        return;
+    }
+
+    let home = tempfile::tempdir().expect("temp noema home");
+    run_restart_context_child_phase("write", home.path());
+    run_restart_context_child_phase("read", home.path());
+}
+
+fn run_restart_context_child_phase(phase: &str, home: &std::path::Path) {
+    let output = Command::new(std::env::current_exe().expect("current test binary"))
+        .arg("daemon::tests::runtime_primary_conversation_sends_recent_durable_context_after_restart")
+        .arg("--exact")
+        .env(RESTART_CONTEXT_TEST_PHASE_ENV, phase)
+        .env(RESTART_CONTEXT_TEST_HOME_ENV, home)
+        .output()
+        .expect("run restart context test phase");
+    assert!(
+        output.status.success(),
+        "restart context {phase} phase failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+async fn restart_context_write_phase(home: &std::path::Path) {
+    let paths = crate::NoemaPaths::from_noema_home(home).expect("paths");
+    let config = crate::StoreConfig::from_paths(&paths);
+    let first_store = crate::NoemaStore::open(&config)
+        .await
+        .expect("open first store");
+    let first_handle = CodexRuntimeHandle::spawn_with_provider(
+        Arc::new(fake_codex_provider_with_restart_context_check()),
+        first_store.clone(),
+    )
+    .await
+    .expect("first runtime");
     let first_conversation_id = first_handle
         .start_primary_conversation(None, None)
         .await
@@ -343,13 +389,29 @@ async fn runtime_primary_conversation_sends_recent_durable_context_after_restart
     .expect("first turn");
     assert_eq!(assistant_text(&first_items), "fake answer");
     first_handle.shutdown().await;
+    std::fs::write(
+        home.join(RESTART_CONTEXT_TEST_CONVERSATION_FILE),
+        &first_conversation_id,
+    )
+    .expect("write restart conversation id");
+    first_store.close().await.expect("close first store");
+}
 
+async fn restart_context_read_phase(home: &std::path::Path) {
+    let first_conversation_id =
+        std::fs::read_to_string(home.join(RESTART_CONTEXT_TEST_CONVERSATION_FILE))
+            .expect("read restart conversation id");
+    let paths = crate::NoemaPaths::from_noema_home(home).expect("paths");
+    let config = crate::StoreConfig::from_paths(&paths);
+    let reopened_store = crate::NoemaStore::open(&config)
+        .await
+        .expect("reopen store");
     let second_handle = CodexRuntimeHandle::spawn_with_provider(
         Arc::new(fake_codex_provider_with_restart_context_check()),
-        store.clone(),
+        reopened_store.clone(),
     )
     .await
-    .expect("runtime");
+    .expect("second runtime");
     let restarted_conversation_id = second_handle
         .start_primary_conversation(None, None)
         .await
@@ -367,7 +429,7 @@ async fn runtime_primary_conversation_sends_recent_durable_context_after_restart
     assert_eq!(assistant_text(&second_items), "saw durable context");
     second_handle.shutdown().await;
 
-    let replay = store
+    let replay = reopened_store
         .list_conversation_items(&first_conversation_id, ReplayMode::Visible)
         .await
         .expect("conversation replay");
@@ -383,6 +445,7 @@ async fn runtime_primary_conversation_sends_recent_durable_context_after_restart
             Some("second durable question")
         ]
     );
+    reopened_store.close().await.expect("close reopened store");
 }
 
 #[test]

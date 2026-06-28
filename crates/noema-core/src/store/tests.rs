@@ -4,7 +4,7 @@ use tempfile::TempDir;
 use super::{NoemaStore, StoreConfig};
 use crate::{
     ActorRef, ConversationItemKind, ConversationItemStatus, NewConversationItem,
-    NewConversationTurn, ProviderAccountStatus, ReplayMode, StoreError,
+    NewConversationTurn, ObjectRef, ProviderAccountStatus, ReplayMode, StoreError,
     memory_persistence::NewConversation,
 };
 
@@ -78,6 +78,46 @@ async fn primary_conversation_reuses_existing_home_conversation() {
         .expect("second primary conversation");
 
     assert_eq!(first.conversation_id, second.conversation_id);
+}
+
+#[tokio::test]
+async fn primary_conversation_ignores_pointer_to_other_human_conversation() {
+    let store = test_store().await;
+    store.ensure_default_actors().await.expect("actors");
+    let mut other_human_conversation = NewConversation::local_chat(None, None);
+    other_human_conversation.owner = ObjectRef::human("human:other");
+    other_human_conversation.primary_human_id = Some("human:other".to_string());
+    let other = store
+        .create_conversation(other_human_conversation)
+        .await
+        .expect("other human conversation");
+    store
+        .db()
+        .query(
+            r#"
+            UPDATE humans SET
+              primary_conversation_id = $conversation_id,
+              updated_at = time::now()
+            WHERE human_id = 'human:local';
+            "#,
+        )
+        .bind(("conversation_id", other.conversation_id.clone()))
+        .await
+        .expect("update human pointer")
+        .check()
+        .expect("checked pointer update");
+
+    let local = store
+        .get_or_create_primary_conversation("human:local", None, None)
+        .await
+        .expect("local primary conversation");
+    let local_again = store
+        .get_or_create_primary_conversation("human:local", None, None)
+        .await
+        .expect("local primary conversation again");
+
+    assert_ne!(local.conversation_id, other.conversation_id);
+    assert_eq!(local.conversation_id, local_again.conversation_id);
 }
 
 #[tokio::test]
@@ -183,6 +223,51 @@ async fn append_conversation_item_rejects_cross_conversation_turn() {
             turn_id,
             conversation_id,
         } if turn_id == first_turn.turn_id && conversation_id == second.conversation_id
+    ));
+}
+
+#[tokio::test]
+async fn create_conversation_turn_rejects_cross_conversation_trigger_item() {
+    let store = test_store().await;
+    store.ensure_default_actors().await.expect("actors");
+    let first = store
+        .create_conversation(NewConversation::local_chat(None, None))
+        .await
+        .expect("first conversation");
+    let second = store
+        .create_conversation(NewConversation::local_chat(None, None))
+        .await
+        .expect("second conversation");
+    let first_item = store
+        .append_conversation_item(NewConversationItem {
+            conversation_id: first.conversation_id,
+            turn_id: None,
+            parent_item_id: None,
+            kind: ConversationItemKind::UserText,
+            status: ConversationItemStatus::Completed,
+            author: ActorRef::human("human:local"),
+            content_text: Some("wrong trigger".to_string()),
+            payload_json: json!({}),
+            metadata: json!({}),
+        })
+        .await
+        .expect("first conversation item");
+
+    let error = store
+        .create_conversation_turn(NewConversationTurn {
+            conversation_id: second.conversation_id.clone(),
+            trigger_item_id: Some(first_item.item_id.clone()),
+            metadata: json!({ "turn_index": 1 }),
+        })
+        .await
+        .expect_err("cross-conversation trigger item should be rejected");
+
+    assert!(matches!(
+        error,
+        StoreError::ConversationItemConversationMismatch {
+            item_id,
+            conversation_id,
+        } if item_id == first_item.item_id && conversation_id == second.conversation_id
     ));
 }
 

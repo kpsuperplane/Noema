@@ -319,7 +319,9 @@ impl NoemaStore {
             .into_iter()
             .next()
             .map(|row| row.primary_conversation_id)
-            && self.conversation_exists(&conversation_id).await?
+            && self
+                .primary_conversation_matches_human(&conversation_id, human_id)
+                .await?
         {
             return Ok(ConversationRecord { conversation_id });
         }
@@ -384,6 +386,10 @@ impl NoemaStore {
         turn: NewConversationTurn,
     ) -> Result<ConversationTurnRecord, StoreError> {
         self.require_conversation(&turn.conversation_id).await?;
+        if let Some(trigger_item_id) = &turn.trigger_item_id {
+            self.require_conversation_item_for_conversation(trigger_item_id, &turn.conversation_id)
+                .await?;
+        }
         let turn_id = allocate_id("turn");
         self.db
             .query(
@@ -631,6 +637,33 @@ impl NoemaStore {
             .await?
             .check()?;
         Ok(ConversationRecord { conversation_id })
+    }
+
+    async fn primary_conversation_matches_human(
+        &self,
+        conversation_id: &str,
+        human_id: &str,
+    ) -> Result<bool, StoreError> {
+        let mut response = self
+            .db
+            .query(
+                r#"
+                SELECT conversation_id
+                FROM conversations
+                WHERE conversation_id = $conversation_id
+                  AND owner_object_type = 'human'
+                  AND owner_object_id = $human_id
+                  AND primary_human_id = $human_id
+                  AND lifecycle_status = 'active'
+                  AND deleted_at = NONE
+                LIMIT 1;
+                "#,
+            )
+            .bind(("conversation_id", conversation_id.to_string()))
+            .bind(("human_id", human_id.to_string()))
+            .await?;
+        let rows: Vec<ConversationIdRow> = response.take(0)?;
+        Ok(!rows.is_empty())
     }
 
     async fn conversation_exists(&self, conversation_id: &str) -> Result<bool, StoreError> {
