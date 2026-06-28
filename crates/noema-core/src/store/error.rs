@@ -38,6 +38,28 @@ pub enum StoreError {
         /// Missing turn id.
         turn_id: String,
     },
+    /// A turn belongs to a different conversation than the item being written.
+    #[error("conversation turn {turn_id} does not belong to conversation {conversation_id}")]
+    ConversationTurnConversationMismatch {
+        /// Referenced turn id.
+        turn_id: String,
+        /// Expected conversation id.
+        conversation_id: String,
+    },
+    /// A parent item expected to exist was not found.
+    #[error("conversation item not found: {item_id}")]
+    ConversationItemNotFound {
+        /// Missing item id.
+        item_id: String,
+    },
+    /// A parent item belongs to a different conversation than the item being written.
+    #[error("conversation item {item_id} does not belong to conversation {conversation_id}")]
+    ConversationItemConversationMismatch {
+        /// Referenced item id.
+        item_id: String,
+        /// Expected conversation id.
+        conversation_id: String,
+    },
 }
 
 impl From<surrealdb::Error> for StoreError {

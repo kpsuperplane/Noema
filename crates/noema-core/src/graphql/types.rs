@@ -28,6 +28,8 @@ pub enum GraphqlMemoryStorageStatus {
     Ready,
     /// The canonical memory store is initializing.
     Initializing,
+    /// Graph memory writes and retrieval are not available yet.
+    Unavailable,
 }
 
 /// Local status returned by `Query.localStatus`.

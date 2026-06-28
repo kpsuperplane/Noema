@@ -1553,7 +1553,7 @@ conversation_id: {conversation_id}
 turn_index: {turn_index}
 cwd_project_hint: {project_hint}
 
-Recent durable transcript from Noema Postgres:
+Recent durable transcript from embedded Noema store:
 {recent_transcript}"#
     )
 }

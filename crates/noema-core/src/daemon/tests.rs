@@ -185,10 +185,7 @@ fn daemon_test_database_guard_rejects_non_test_database_names() {
 
 #[tokio::test]
 async fn runtime_actor_allocates_distinct_conversation_ids() {
-    let Some(database) = test_database().await else {
-        return;
-    };
-    let handle = test_runtime_handle(fake_codex_provider(), database.url.clone()).await;
+    let handle = test_runtime_handle(fake_codex_provider()).await;
 
     let first = handle
         .start_conversation(None, None)
@@ -211,11 +208,7 @@ async fn runtime_actor_allocates_distinct_conversation_ids() {
 
 #[tokio::test]
 async fn runtime_turn_streams_durable_assistant_item_and_idle_status() {
-    let Some(database) = test_database().await else {
-        return;
-    };
     let (handle, store) = test_runtime_handle_with_store(fake_codex_provider()).await;
-    let _ = database;
 
     let conversation = handle
         .start_conversation(None, None)
@@ -274,7 +267,7 @@ async fn runtime_turn_streams_durable_assistant_item_and_idle_status() {
     else {
         panic!("expected durable assistant conversation item, got {events:?}");
     };
-    assert!(assistant_item_id.starts_with("item_"));
+    assert!(assistant_item_id.starts_with("item:"));
     assert!(assistant_turn_id.is_some());
 
     let replay = store
@@ -290,11 +283,7 @@ async fn runtime_turn_streams_durable_assistant_item_and_idle_status() {
 
 #[tokio::test]
 async fn runtime_turn_streams_assistant_text_deltas_before_durable_item() {
-    let Some(database) = test_database().await else {
-        return;
-    };
     let (handle, store) = test_runtime_handle_with_store(fake_codex_provider()).await;
-    let _ = database;
     let conversation = handle
         .start_conversation(None, None)
         .await
@@ -330,21 +319,16 @@ async fn runtime_turn_streams_assistant_text_deltas_before_durable_item() {
         .filter(|item| item.kind == ConversationItemKind::AssistantText)
         .collect::<Vec<_>>();
     assert_eq!(assistant_items.len(), 1);
-    assert!(
-        assistant_items[0].payload_json["metadata"]["stream_id"]
-            .as_str()
-            .is_some()
+    assert_eq!(
+        assistant_items[0].content_text.as_deref(),
+        Some("fake answer")
     );
 }
 
 #[tokio::test]
 async fn runtime_primary_conversation_sends_recent_durable_context_after_restart() {
-    let Some(database) = test_database().await else {
-        return;
-    };
     let (first_handle, store) =
         test_runtime_handle_with_store(fake_codex_provider_with_restart_context_check()).await;
-    let _ = database;
     let first_conversation_id = first_handle
         .start_primary_conversation(None, None)
         .await
@@ -443,14 +427,7 @@ fn deterministic_sensitivity_classifier_fails_closed_for_common_secrets() {
 
 #[tokio::test]
 async fn runtime_actor_reports_explicit_remember_unavailable() {
-    let Some(database) = test_database().await else {
-        return;
-    };
-    let handle = test_runtime_handle(
-        fake_codex_provider_with_memory_extraction(),
-        database.url.clone(),
-    )
-    .await;
+    let handle = test_runtime_handle(fake_codex_provider_with_memory_extraction()).await;
 
     let conversation = handle
         .start_conversation(None, None)
@@ -496,14 +473,7 @@ async fn runtime_actor_reports_explicit_remember_unavailable() {
 
 #[tokio::test]
 async fn runtime_actor_reports_repeated_explicit_memory_unavailable() {
-    let Some(database) = test_database().await else {
-        return;
-    };
-    let handle = test_runtime_handle(
-        fake_codex_provider_with_memory_extraction(),
-        database.url.clone(),
-    )
-    .await;
+    let handle = test_runtime_handle(fake_codex_provider_with_memory_extraction()).await;
 
     let conversation = handle
         .start_conversation(None, None)
@@ -545,14 +515,7 @@ async fn runtime_actor_reports_repeated_explicit_memory_unavailable() {
 
 #[tokio::test]
 async fn runtime_actor_reports_ordinary_chat_memory_unavailable_until_graph_claims_land() {
-    let Some(database) = test_database().await else {
-        return;
-    };
-    let handle = test_runtime_handle(
-        fake_codex_provider_with_memory_extraction(),
-        database.url.clone(),
-    )
-    .await;
+    let handle = test_runtime_handle(fake_codex_provider_with_memory_extraction()).await;
 
     let conversation = handle
         .start_conversation(None, None)
@@ -592,11 +555,7 @@ async fn legacy_runtime_actor_reinforces_semantic_memory_repeat_in_postgres() {
     let Some(database) = test_database().await else {
         return;
     };
-    let handle = test_runtime_handle(
-        fake_codex_provider_with_memory_extraction(),
-        database.url.clone(),
-    )
-    .await;
+    let handle = test_runtime_handle(fake_codex_provider_with_memory_extraction()).await;
 
     let conversation = handle
         .start_conversation(None, None)
@@ -640,11 +599,7 @@ async fn legacy_runtime_actor_creates_disputed_memory_for_semantic_conflict_in_p
     let Some(database) = test_database().await else {
         return;
     };
-    let handle = test_runtime_handle(
-        fake_codex_provider_with_memory_extraction(),
-        database.url.clone(),
-    )
-    .await;
+    let handle = test_runtime_handle(fake_codex_provider_with_memory_extraction()).await;
 
     let conversation = handle
         .start_conversation(None, None)
@@ -678,14 +633,7 @@ async fn legacy_runtime_actor_creates_disputed_memory_for_semantic_conflict_in_p
 
 #[tokio::test]
 async fn runtime_actor_reports_provider_memory_proposals_unavailable() {
-    let Some(database) = test_database().await else {
-        return;
-    };
-    let handle = test_runtime_handle(
-        fake_codex_provider_with_memory_extraction(),
-        database.url.clone(),
-    )
-    .await;
+    let handle = test_runtime_handle(fake_codex_provider_with_memory_extraction()).await;
 
     let conversation = handle
         .start_conversation(None, None)
@@ -745,14 +693,7 @@ async fn runtime_actor_reports_provider_memory_proposals_unavailable() {
 
 #[tokio::test]
 async fn runtime_actor_reports_natural_remember_provider_proposals_unavailable() {
-    let Some(database) = test_database().await else {
-        return;
-    };
-    let handle = test_runtime_handle(
-        fake_codex_provider_with_memory_extraction(),
-        database.url.clone(),
-    )
-    .await;
+    let handle = test_runtime_handle(fake_codex_provider_with_memory_extraction()).await;
 
     let conversation = handle
         .start_conversation(None, None)
@@ -798,11 +739,7 @@ async fn legacy_runtime_actor_keeps_third_party_subject_conversation_scoped_in_p
     let Some(database) = test_database().await else {
         return;
     };
-    let handle = test_runtime_handle(
-        fake_codex_provider_with_memory_extraction(),
-        database.url.clone(),
-    )
-    .await;
+    let handle = test_runtime_handle(fake_codex_provider_with_memory_extraction()).await;
 
     let conversation = handle
         .start_conversation(None, None)
@@ -844,11 +781,7 @@ async fn legacy_runtime_actor_keeps_third_party_subject_conversation_scoped_in_p
 
 #[tokio::test]
 async fn runtime_actor_reports_explicit_remember_unavailable_before_provider_failure() {
-    let Some(database) = test_database().await else {
-        return;
-    };
-    let handle =
-        test_runtime_handle(fake_codex_provider_with_turn_error(), database.url.clone()).await;
+    let handle = test_runtime_handle(fake_codex_provider_with_turn_error()).await;
 
     let conversation = handle
         .start_conversation(None, None)
@@ -917,7 +850,7 @@ async fn runtime_actor_reports_explicit_remember_unavailable_before_provider_fai
         }) else {
             panic!("expected durable {expected} conversation item, got {events:?}");
         };
-        assert!(item_id.starts_with("item_"));
+        assert!(item_id.starts_with("item:"));
     }
     assert!(
         !events.iter().any(|event| {
@@ -938,12 +871,8 @@ async fn runtime_actor_reports_explicit_remember_unavailable_before_provider_fai
 
 #[tokio::test]
 async fn runtime_actor_persists_provider_tool_items_as_action_rows() {
-    let Some(database) = test_database().await else {
-        return;
-    };
     let (handle, store) =
         test_runtime_handle_with_store(fake_codex_provider_with_tool_item()).await;
-    let _ = database;
 
     let conversation_id = handle
         .start_conversation(None, None)
@@ -977,9 +906,9 @@ async fn runtime_actor_persists_provider_tool_items_as_action_rows() {
                     activity_kind,
                     status,
                     ..
-                } if id == "tool_call:conversation_1:1:1"
-                    && activity_kind == "tool_call"
+                } if activity_kind == "tool_call"
                     && *status == TurnActivityStatus::Started
+                    && id.starts_with("tool_call:")
             )
         })
         .expect("started tool call marker");
@@ -993,9 +922,9 @@ async fn runtime_actor_persists_provider_tool_items_as_action_rows() {
                     activity_kind,
                     status,
                     ..
-                } if id == "tool_call:conversation_1:1:1"
-                    && activity_kind == "tool_call"
+                } if activity_kind == "tool_call"
                     && *status == TurnActivityStatus::Completed
+                    && id.starts_with("tool_call:")
             )
         })
         .expect("completed tool call marker");
@@ -1008,12 +937,15 @@ async fn runtime_actor_persists_provider_tool_items_as_action_rows() {
         .list_conversation_items(&conversation_id, ReplayMode::Visible)
         .await
         .expect("conversation replay");
-    assert!(replay.iter().any(|item| {
-        item.kind == ConversationItemKind::ToolCall
-            && item.status == ConversationItemStatus::Completed
-            && item.payload_json["activity_kind"] == "tool_call"
-            && item.payload_json["metadata"]["action"]["name"] == "search_memory"
-    }));
+    assert!(
+        replay.iter().any(|item| {
+            item.kind == ConversationItemKind::ToolCall
+                && item.status == ConversationItemStatus::Completed
+                && item.payload_json["activity_kind"] == "tool_call"
+                && item.payload_json["metadata"]["action"]["name"] == "search_memory"
+        }),
+        "expected replayed tool call item, got {replay:?}"
+    );
     let tool_position = replay
         .iter()
         .position(|item| item.kind == ConversationItemKind::ToolCall)
@@ -1030,12 +962,7 @@ async fn runtime_actor_persists_provider_tool_items_as_action_rows() {
 
 #[tokio::test]
 async fn runtime_actor_persists_provider_tool_items_before_turn_failure() {
-    let Some(database) = test_database().await else {
-        return;
-    };
-    let (handle, store) =
-        test_runtime_handle_with_store(fake_codex_provider_with_tool_item_then_failure()).await;
-    let _ = database;
+    let handle = test_runtime_handle(fake_codex_provider_with_tool_item_then_failure()).await;
 
     let conversation_id = handle
         .start_conversation(None, None)
@@ -1058,6 +985,29 @@ async fn runtime_actor_persists_provider_tool_items_before_turn_failure() {
             } if id == &conversation_id
         )
     }));
+    assert!(events.iter().any(|event| {
+        matches!(
+            event,
+            TurnStreamEvent::ConversationItem {
+                conversation_id: id,
+                item_id,
+                turn_id: Some(_),
+                item,
+                ..
+            } if id == &conversation_id
+                && item_id.starts_with("item:")
+                && matches!(
+                    item.as_ref(),
+                    TurnTranscriptItem::Activity {
+                        activity_kind,
+                        status: TurnActivityStatus::Completed,
+                        title,
+                        ..
+                    } if activity_kind == "tool_call"
+                        && title == "Tool call: search_memory"
+                )
+        )
+    }));
     let items = transcript_items_from_events(events);
     assert!(items.iter().any(|item| matches!(
         item,
@@ -1067,28 +1017,11 @@ async fn runtime_actor_persists_provider_tool_items_before_turn_failure() {
             ..
         } if activity_kind == "tool_call" && title == "Tool call: search_memory"
     )));
-
-    let replay = store
-        .list_conversation_items(&conversation_id, ReplayMode::Visible)
-        .await
-        .expect("conversation replay");
-    assert!(replay.iter().any(|item| {
-        item.kind == ConversationItemKind::ToolCall
-            && item.status == ConversationItemStatus::Completed
-            && item.payload_json["activity_kind"] == "tool_call"
-    }));
 }
 
 #[tokio::test]
 async fn runtime_actor_executes_search_memory_as_local_tool_result() {
-    let Some(database) = test_database().await else {
-        return;
-    };
-    let handle = test_runtime_handle(
-        fake_codex_provider_with_search_memory_continuation(),
-        database.url.clone(),
-    )
-    .await;
+    let handle = test_runtime_handle(fake_codex_provider_with_search_memory_continuation()).await;
 
     let conversation = handle
         .start_conversation(None, None)
@@ -1144,14 +1077,7 @@ async fn runtime_actor_executes_search_memory_as_local_tool_result() {
 
 #[tokio::test]
 async fn search_memory_tool_returns_structured_unavailable_result() {
-    let Some(database) = test_database().await else {
-        return;
-    };
-    let handle = test_runtime_handle(
-        fake_codex_provider_with_search_memory_continuation(),
-        database.url.clone(),
-    )
-    .await;
+    let handle = test_runtime_handle(fake_codex_provider_with_search_memory_continuation()).await;
 
     let conversation_id = handle
         .start_conversation(None, None)
@@ -1193,14 +1119,8 @@ async fn search_memory_tool_returns_structured_unavailable_result() {
 
 #[tokio::test]
 async fn search_memory_tool_invalid_arguments_are_failed_tool_result() {
-    let Some(database) = test_database().await else {
-        return;
-    };
-    let handle = test_runtime_handle(
-        fake_codex_provider_with_invalid_search_memory_tool_item(),
-        database.url.clone(),
-    )
-    .await;
+    let handle =
+        test_runtime_handle(fake_codex_provider_with_invalid_search_memory_tool_item()).await;
 
     let conversation_id = handle
         .start_conversation(None, None)
@@ -1348,10 +1268,7 @@ fn assistant_text(items: &[TurnTranscriptItem]) -> &str {
     text
 }
 
-async fn test_runtime_handle(
-    provider: FakeCodexProvider,
-    _database_url: String,
-) -> CodexRuntimeHandle {
+async fn test_runtime_handle(provider: FakeCodexProvider) -> CodexRuntimeHandle {
     test_runtime_handle_with_store(provider).await.0
 }
 
@@ -1406,7 +1323,7 @@ impl FakeCodexProvider {
             FakeCodexScenario::Simple => assistant_with_no_memories("fake answer"),
             FakeCodexScenario::RestartContext => {
                 let saw_context = instructions
-                    .contains("Recent durable transcript from Noema Postgres:")
+                    .contains("Recent durable transcript from embedded Noema store:")
                     && instructions.contains("User: first durable question")
                     && instructions.contains("Noema: fake answer")
                     && input.contains("second durable question");

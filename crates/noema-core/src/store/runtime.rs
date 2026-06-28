@@ -1,7 +1,10 @@
 use std::{
     fs,
     path::PathBuf,
-    sync::atomic::{AtomicU64, Ordering},
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -11,6 +14,7 @@ use surrealdb::{
     Surreal,
     engine::local::{Db, RocksDb},
 };
+use tokio::sync::Mutex;
 
 use crate::{
     ConversationItemKind, ConversationItemRecord, ConversationItemStatus, ConversationRecord,
@@ -47,6 +51,7 @@ impl StoreConfig {
 #[derive(Debug, Clone)]
 pub struct NoemaStore {
     db: Surreal<Db>,
+    append_item_lock: Arc<Mutex<()>>,
 }
 
 impl NoemaStore {
@@ -62,7 +67,10 @@ impl NoemaStore {
         db.use_ns(NOEMA_NAMESPACE).use_db(NOEMA_DATABASE).await?;
         debug_assert_eq!(STORE_SCHEMA_VERSION, 1);
         db.query(STORE_SCHEMA_SQL).await?.check()?;
-        Ok(Self { db })
+        Ok(Self {
+            db,
+            append_item_lock: Arc::new(Mutex::new(())),
+        })
     }
 
     /// Access the embedded SurrealDB client for repository modules.
@@ -415,8 +423,14 @@ impl NoemaStore {
     ) -> Result<ConversationItemRecord, StoreError> {
         self.require_conversation(&item.conversation_id).await?;
         if let Some(turn_id) = &item.turn_id {
-            self.require_turn(turn_id).await?;
+            self.require_turn_for_conversation(turn_id, &item.conversation_id)
+                .await?;
         }
+        if let Some(parent_item_id) = &item.parent_item_id {
+            self.require_conversation_item_for_conversation(parent_item_id, &item.conversation_id)
+                .await?;
+        }
+        let _append_guard = self.append_item_lock.lock().await;
         let item_id = allocate_id("item");
         let sequence_index = self.next_item_sequence_index(&item.conversation_id).await?;
         self.db
@@ -657,6 +671,58 @@ impl NoemaStore {
         }
     }
 
+    async fn require_turn_for_conversation(
+        &self,
+        turn_id: &str,
+        conversation_id: &str,
+    ) -> Result<(), StoreError> {
+        let mut response = self
+            .db
+            .query("SELECT turn_id, conversation_id FROM conversation_turns WHERE turn_id = $turn_id LIMIT 1;")
+            .bind(("turn_id", turn_id.to_string()))
+            .await?;
+        let rows: Vec<TurnRefRow> = response.take(0)?;
+        let Some(row) = rows.first() else {
+            return Err(StoreError::ConversationTurnNotFound {
+                turn_id: turn_id.to_string(),
+            });
+        };
+        if row.conversation_id == conversation_id {
+            Ok(())
+        } else {
+            Err(StoreError::ConversationTurnConversationMismatch {
+                turn_id: turn_id.to_string(),
+                conversation_id: conversation_id.to_string(),
+            })
+        }
+    }
+
+    async fn require_conversation_item_for_conversation(
+        &self,
+        item_id: &str,
+        conversation_id: &str,
+    ) -> Result<(), StoreError> {
+        let mut response = self
+            .db
+            .query("SELECT item_id, conversation_id FROM conversation_items WHERE item_id = $item_id AND deleted_at = NONE LIMIT 1;")
+            .bind(("item_id", item_id.to_string()))
+            .await?;
+        let rows: Vec<ConversationItemRefRow> = response.take(0)?;
+        let Some(row) = rows.first() else {
+            return Err(StoreError::ConversationItemNotFound {
+                item_id: item_id.to_string(),
+            });
+        };
+        if row.conversation_id == conversation_id {
+            Ok(())
+        } else {
+            Err(StoreError::ConversationItemConversationMismatch {
+                item_id: item_id.to_string(),
+                conversation_id: conversation_id.to_string(),
+            })
+        }
+    }
+
     async fn update_turn_status(&self, turn_id: &str, status: &str) -> Result<(), StoreError> {
         self.require_turn(turn_id).await?;
         self.db
@@ -724,6 +790,20 @@ struct ConversationIdRow {
 struct TurnIdRow {
     #[allow(dead_code)]
     turn_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct TurnRefRow {
+    #[allow(dead_code)]
+    turn_id: String,
+    conversation_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct ConversationItemRefRow {
+    #[allow(dead_code)]
+    item_id: String,
+    conversation_id: String,
 }
 
 #[derive(Debug, Deserialize)]

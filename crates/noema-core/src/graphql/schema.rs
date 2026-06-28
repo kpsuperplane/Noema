@@ -23,7 +23,7 @@ pub type GraphqlSchema = Schema<QueryRoot, MutationRoot, SubscriptionRoot>;
 pub struct GraphqlState {
     web_state: Option<crate::daemon::web::WebState>,
     subscriptions: ConversationSubscriptionRegistry,
-    memory_storage_ready: bool,
+    memory_storage: GraphqlMemoryStorageStatus,
 }
 
 impl GraphqlState {
@@ -33,7 +33,7 @@ impl GraphqlState {
         Self {
             web_state: None,
             subscriptions: ConversationSubscriptionRegistry::default(),
-            memory_storage_ready: true,
+            memory_storage: GraphqlMemoryStorageStatus::Ready,
         }
     }
 
@@ -43,7 +43,7 @@ impl GraphqlState {
         Self {
             subscriptions: web_state.subscriptions().clone(),
             web_state: Some(web_state),
-            memory_storage_ready: true,
+            memory_storage: GraphqlMemoryStorageStatus::Unavailable,
         }
     }
 
@@ -74,16 +74,10 @@ impl QueryRoot {
     /// Return local Noema status.
     async fn local_status(&self, ctx: &Context<'_>) -> GraphqlLocalStatus {
         let state = ctx.data_unchecked::<GraphqlState>();
-        let memory_storage = if state.memory_storage_ready {
-            GraphqlMemoryStorageStatus::Ready
-        } else {
-            GraphqlMemoryStorageStatus::Initializing
-        };
-
         GraphqlLocalStatus {
             local_service: GraphqlLocalServiceStatus::Running,
             assistant_connection: GraphqlAssistantConnection::Codex,
-            memory_storage,
+            memory_storage: state.memory_storage,
         }
     }
 

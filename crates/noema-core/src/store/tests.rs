@@ -4,7 +4,8 @@ use tempfile::TempDir;
 use super::{NoemaStore, StoreConfig};
 use crate::{
     ActorRef, ConversationItemKind, ConversationItemStatus, NewConversationItem,
-    NewConversationTurn, ProviderAccountStatus, ReplayMode, memory_persistence::NewConversation,
+    NewConversationTurn, ProviderAccountStatus, ReplayMode, StoreError,
+    memory_persistence::NewConversation,
 };
 
 #[tokio::test]
@@ -138,6 +139,118 @@ async fn conversation_items_replay_in_append_order() {
         content,
         vec![Some("first".to_string()), Some("second".to_string())]
     );
+}
+
+#[tokio::test]
+async fn append_conversation_item_rejects_cross_conversation_turn() {
+    let store = test_store().await;
+    store.ensure_default_actors().await.expect("actors");
+    let first = store
+        .create_conversation(NewConversation::local_chat(None, None))
+        .await
+        .expect("first conversation");
+    let second = store
+        .create_conversation(NewConversation::local_chat(None, None))
+        .await
+        .expect("second conversation");
+    let first_turn = store
+        .create_conversation_turn(NewConversationTurn {
+            conversation_id: first.conversation_id,
+            trigger_item_id: None,
+            metadata: json!({ "turn_index": 1 }),
+        })
+        .await
+        .expect("first turn");
+
+    let error = store
+        .append_conversation_item(NewConversationItem {
+            conversation_id: second.conversation_id.clone(),
+            turn_id: Some(first_turn.turn_id.clone()),
+            parent_item_id: None,
+            kind: ConversationItemKind::UserText,
+            status: ConversationItemStatus::Completed,
+            author: ActorRef::human("human:local"),
+            content_text: Some("wrong turn".to_string()),
+            payload_json: json!({}),
+            metadata: json!({}),
+        })
+        .await
+        .expect_err("cross-conversation turn should be rejected");
+
+    assert!(matches!(
+        error,
+        StoreError::ConversationTurnConversationMismatch {
+            turn_id,
+            conversation_id,
+        } if turn_id == first_turn.turn_id && conversation_id == second.conversation_id
+    ));
+}
+
+#[tokio::test]
+async fn append_conversation_item_rejects_cross_conversation_parent() {
+    let store = test_store().await;
+    store.ensure_default_actors().await.expect("actors");
+    let first = store
+        .create_conversation(NewConversation::local_chat(None, None))
+        .await
+        .expect("first conversation");
+    let second = store
+        .create_conversation(NewConversation::local_chat(None, None))
+        .await
+        .expect("second conversation");
+    let first_turn = store
+        .create_conversation_turn(NewConversationTurn {
+            conversation_id: first.conversation_id.clone(),
+            trigger_item_id: None,
+            metadata: json!({ "turn_index": 1 }),
+        })
+        .await
+        .expect("first turn");
+    let second_turn = store
+        .create_conversation_turn(NewConversationTurn {
+            conversation_id: second.conversation_id.clone(),
+            trigger_item_id: None,
+            metadata: json!({ "turn_index": 1 }),
+        })
+        .await
+        .expect("second turn");
+    let first_item = store
+        .append_conversation_item(NewConversationItem {
+            conversation_id: first.conversation_id,
+            turn_id: Some(first_turn.turn_id),
+            parent_item_id: None,
+            kind: ConversationItemKind::UserText,
+            status: ConversationItemStatus::Completed,
+            author: ActorRef::human("human:local"),
+            content_text: Some("first parent".to_string()),
+            payload_json: json!({}),
+            metadata: json!({}),
+        })
+        .await
+        .expect("first item");
+
+    let error = store
+        .append_conversation_item(NewConversationItem {
+            conversation_id: second.conversation_id.clone(),
+            turn_id: Some(second_turn.turn_id),
+            parent_item_id: Some(first_item.item_id.clone()),
+            kind: ConversationItemKind::AssistantText,
+            status: ConversationItemStatus::Completed,
+            author: ActorRef::agent("agent:primary"),
+            content_text: Some("wrong parent".to_string()),
+            payload_json: json!({}),
+            metadata: json!({}),
+        })
+        .await
+        .expect_err("cross-conversation parent should be rejected");
+
+    assert!(matches!(
+        error,
+        StoreError::ConversationItemConversationMismatch {
+            item_id,
+            conversation_id,
+        } if item_id == first_item.item_id && conversation_id == second.conversation_id
+    ));
 }
 
 async fn test_store() -> NoemaStore {
