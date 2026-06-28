@@ -1,6 +1,7 @@
 //! Shared transport and parser for OpenAI-compatible Responses API calls.
 
-use crate::provider::{ProviderError, TokenUsage};
+use crate::provider::{GenerateStreamEvent, ProviderError, TokenUsage};
+use futures_util::StreamExt;
 use reqwest::{
     StatusCode,
     header::{HeaderMap, HeaderValue},
@@ -219,6 +220,27 @@ impl ResponsesTransport {
     where
         T: Serialize,
     {
+        self.send_streaming(bearer_token, body, extra_headers, &mut |_| {})
+            .await
+    }
+
+    /// Send one streaming Responses request, emitting incremental assistant text
+    /// events as SSE chunks arrive, and collect the terminal response.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ProviderError`] for HTTP transport failures, API errors, or
+    /// malformed Server-Sent Events.
+    pub async fn send_streaming<T>(
+        &self,
+        bearer_token: &str,
+        body: T,
+        extra_headers: HeaderMap,
+        on_event: &mut (dyn FnMut(GenerateStreamEvent) + Send),
+    ) -> Result<ResponsesResponse, ProviderError>
+    where
+        T: Serialize,
+    {
         if bearer_token.trim().is_empty() {
             return Err(ProviderError::MissingCredentials {
                 provider: "responses".to_string(),
@@ -241,33 +263,118 @@ impl ResponsesTransport {
             .map_err(|source| ProviderError::HttpFailure { source })?;
         let status = response.status();
         let request_id = request_id(response.headers());
-        let body_text = response
-            .text()
-            .await
-            .map_err(|source| ProviderError::HttpFailure { source })?;
 
         if !status.is_success() {
+            let body_text = response
+                .text()
+                .await
+                .map_err(|source| ProviderError::HttpFailure { source })?;
             return Err(error_from_status(status, request_id, &body_text));
         }
 
-        response_from_sse(&body_text)
+        let mut accumulator = SseAccumulator::default();
+        let mut stream = response.bytes_stream();
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk.map_err(|source| ProviderError::HttpFailure { source })?;
+            let chunk =
+                std::str::from_utf8(&chunk).map_err(|source| ProviderError::MalformedResponse {
+                    message: format!("failed to decode SSE chunk as UTF-8: {source}"),
+                })?;
+            accumulator.push_chunk(chunk, on_event)?;
+        }
+
+        accumulator.finish(on_event)
     }
 }
 
+#[allow(dead_code)]
 fn response_from_sse(text: &str) -> Result<ResponsesResponse, ProviderError> {
-    let mut output_values = Vec::new();
-    let mut output_text = String::new();
-    let mut response_id = None;
-    let mut model = None;
-    let mut usage = None;
-    let mut terminal_error = None;
+    let mut accumulator = SseAccumulator::default();
+    accumulator.push_chunk(text, &mut |_| {})?;
+    accumulator.finish(&mut |_| {})
+}
 
-    for event in sse_events(text) {
+#[derive(Default)]
+struct SseAccumulator {
+    pending: String,
+    output_values: Vec<Value>,
+    output_text: String,
+    response_id: Option<String>,
+    model: Option<String>,
+    usage: Option<ResponsesUsage>,
+    terminal_error: Option<Value>,
+}
+
+impl SseAccumulator {
+    fn push_chunk(
+        &mut self,
+        chunk: &str,
+        on_event: &mut (dyn FnMut(GenerateStreamEvent) + Send),
+    ) -> Result<(), ProviderError> {
+        self.pending.push_str(chunk);
+
+        while let Some((index, delimiter_len)) = next_sse_event_boundary(&self.pending) {
+            let raw = self.pending[..index].to_string();
+            self.pending.drain(..index + delimiter_len);
+            self.handle_event(parse_sse_event(&raw), on_event)?;
+        }
+
+        Ok(())
+    }
+
+    fn finish(
+        mut self,
+        on_event: &mut (dyn FnMut(GenerateStreamEvent) + Send),
+    ) -> Result<ResponsesResponse, ProviderError> {
+        if !self.pending.trim().is_empty() {
+            let event = parse_sse_event(&self.pending);
+            self.pending.clear();
+            self.handle_event(event, on_event)?;
+        }
+
+        if let Some(error) = self.terminal_error {
+            return Err(ProviderError::ApiError {
+                status: 200,
+                message: response_stream_error_message(&error),
+                request_id: self.response_id,
+            });
+        }
+
+        if self.output_values.is_empty() && !self.output_text.is_empty() {
+            self.output_values.push(serde_json::json!({
+                "type": "message",
+                "content": [{"type": "output_text", "text": self.output_text}]
+            }));
+        }
+
+        let output = self
+            .output_values
+            .into_iter()
+            .map(|value| {
+                serde_json::from_value(value).map_err(|source| ProviderError::MalformedResponse {
+                    message: format!("failed to parse SSE output item: {source}"),
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(ResponsesResponse {
+            id: self.response_id,
+            model: self.model,
+            output,
+            usage: self.usage,
+        })
+    }
+
+    fn handle_event(
+        &mut self,
+        event: SseEvent,
+        on_event: &mut (dyn FnMut(GenerateStreamEvent) + Send),
+    ) -> Result<(), ProviderError> {
         let Some(data) = event.data else {
-            continue;
+            return Ok(());
         };
         if data == "[DONE]" {
-            continue;
+            return Ok(());
         }
 
         let value: Value =
@@ -283,26 +390,29 @@ fn response_from_sse(text: &str) -> Result<ResponsesResponse, ProviderError> {
         match event_type {
             "response.output_text.delta" => {
                 if let Some(delta) = value.get("delta").and_then(Value::as_str) {
-                    output_text.push_str(delta);
+                    self.output_text.push_str(delta);
+                    on_event(GenerateStreamEvent::AssistantTextDelta {
+                        delta: delta.to_string(),
+                    });
                 }
             }
             "response.output_item.done" => {
                 if let Some(item) = value.get("item") {
-                    output_values.push(item.clone());
+                    self.output_values.push(item.clone());
                 }
             }
             "response.completed" | "response.incomplete" => {
                 if let Some(response) = value.get("response") {
                     collect_terminal_response_metadata(
                         response,
-                        &mut response_id,
-                        &mut model,
-                        &mut usage,
+                        &mut self.response_id,
+                        &mut self.model,
+                        &mut self.usage,
                     );
-                    if output_values.is_empty()
+                    if self.output_values.is_empty()
                         && let Some(items) = response.get("output").and_then(Value::as_array)
                     {
-                        output_values.extend(items.iter().cloned());
+                        self.output_values.extend(items.iter().cloned());
                     }
                 }
             }
@@ -310,50 +420,21 @@ fn response_from_sse(text: &str) -> Result<ResponsesResponse, ProviderError> {
                 if let Some(response) = value.get("response") {
                     collect_terminal_response_metadata(
                         response,
-                        &mut response_id,
-                        &mut model,
-                        &mut usage,
+                        &mut self.response_id,
+                        &mut self.model,
+                        &mut self.usage,
                     );
-                    terminal_error = response.get("error").cloned();
+                    self.terminal_error = response.get("error").cloned();
                 }
             }
             "error" => {
-                terminal_error = Some(value);
+                self.terminal_error = Some(value);
             }
             _ => {}
         }
+
+        Ok(())
     }
-
-    if let Some(error) = terminal_error {
-        return Err(ProviderError::ApiError {
-            status: 200,
-            message: response_stream_error_message(&error),
-            request_id: response_id,
-        });
-    }
-
-    if output_values.is_empty() && !output_text.is_empty() {
-        output_values.push(serde_json::json!({
-            "type": "message",
-            "content": [{"type": "output_text", "text": output_text}]
-        }));
-    }
-
-    let output = output_values
-        .into_iter()
-        .map(|value| {
-            serde_json::from_value(value).map_err(|source| ProviderError::MalformedResponse {
-                message: format!("failed to parse SSE output item: {source}"),
-            })
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-
-    Ok(ResponsesResponse {
-        id: response_id,
-        model,
-        output,
-        usage,
-    })
 }
 
 fn collect_terminal_response_metadata(
@@ -401,29 +482,80 @@ struct SseEvent {
     data: Option<String>,
 }
 
+fn parse_sse_event(raw: &str) -> SseEvent {
+    let mut event = None;
+    let mut data = Vec::new();
+    for line in raw.lines() {
+        let line = line.trim_end_matches('\r');
+        if let Some(value) = line.strip_prefix("event:") {
+            event = Some(value.trim().to_string());
+        } else if let Some(value) = line.strip_prefix("data:") {
+            data.push(value.trim_start().to_string());
+        }
+    }
+
+    SseEvent {
+        event,
+        data: (!data.is_empty()).then(|| data.join("\n")),
+    }
+}
+
+#[allow(dead_code)]
 fn sse_events(text: &str) -> impl Iterator<Item = SseEvent> + '_ {
     text.split("\n\n").filter_map(|chunk| {
-        let mut event = None;
-        let mut data = Vec::new();
-        for line in chunk.lines() {
-            let line = line.trim_end_matches('\r');
-            if let Some(value) = line.strip_prefix("event:") {
-                event = Some(value.trim().to_string());
-            } else if let Some(value) = line.strip_prefix("data:") {
-                data.push(value.trim_start().to_string());
-            }
-        }
-
-        (event.is_some() || !data.is_empty()).then(|| SseEvent {
-            event,
-            data: (!data.is_empty()).then(|| data.join("\n")),
-        })
+        let event = parse_sse_event(chunk);
+        (event.event.is_some() || event.data.is_some()).then_some(event)
     })
+}
+
+fn next_sse_event_boundary(text: &str) -> Option<(usize, usize)> {
+    [("\n\n", 2), ("\r\n\r\n", 4)]
+        .into_iter()
+        .filter_map(|(delimiter, len)| text.find(delimiter).map(|index| (index, len)))
+        .min_by_key(|(index, _)| *index)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn incremental_sse_parser_emits_deltas_before_terminal_response() {
+        let mut events = Vec::new();
+        let mut accumulator = SseAccumulator::default();
+        accumulator
+            .push_chunk(
+                "event: response.output_text.delta\n\
+                 data: {\"type\":\"response.output_text.delta\",\"delta\":\"Hel\"}\n\n",
+                &mut |event| events.push(event),
+            )
+            .expect("first chunk");
+        accumulator
+            .push_chunk(
+                "event: response.output_text.delta\n\
+                 data: {\"type\":\"response.output_text.delta\",\"delta\":\"lo\"}\n\n\
+                 event: response.completed\n\
+                 data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_test\",\"model\":\"gpt-test\",\"status\":\"completed\"}}\n\n",
+                &mut |event| events.push(event),
+            )
+            .expect("second chunk");
+
+        assert_eq!(
+            events,
+            vec![
+                GenerateStreamEvent::AssistantTextDelta {
+                    delta: "Hel".to_string()
+                },
+                GenerateStreamEvent::AssistantTextDelta {
+                    delta: "lo".to_string()
+                }
+            ]
+        );
+
+        let response = accumulator.finish(&mut |_| {}).expect("response");
+        assert_eq!(response.id.as_deref(), Some("resp_test"));
+        assert_eq!(response.output_text().expect("output text"), "Hello");
+    }
 
     #[test]
     fn response_from_sse_prefers_output_item_done_over_terminal_output() {
