@@ -1,0 +1,464 @@
+use serde::Deserialize;
+use serde_json::Value;
+
+use crate::memory::Sensitivity;
+
+use super::{
+    NoemaStore, StoreError,
+    ids::{allocate_id, record_fragment},
+    ontology::EntityCandidate,
+};
+
+/// Claim lifecycle status stored in the embedded graph store.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ClaimStatus {
+    /// Proposed claim not normally retrieved.
+    Candidate,
+    /// Current active claim.
+    Active,
+    /// Human or system-confirmed claim.
+    Confirmed,
+    /// Claim has unresolved contradictory evidence.
+    Disputed,
+    /// Claim was replaced by a newer claim.
+    Superseded,
+    /// Claim is retained but not active.
+    Archived,
+    /// Claim is deleted.
+    Deleted,
+}
+
+impl ClaimStatus {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Candidate => "candidate",
+            Self::Active => "active",
+            Self::Confirmed => "confirmed",
+            Self::Disputed => "disputed",
+            Self::Superseded => "superseded",
+            Self::Archived => "archived",
+            Self::Deleted => "deleted",
+        }
+    }
+
+    fn parse(value: &str) -> Result<Self, StoreError> {
+        match value {
+            "candidate" => Ok(Self::Candidate),
+            "active" => Ok(Self::Active),
+            "confirmed" => Ok(Self::Confirmed),
+            "disputed" => Ok(Self::Disputed),
+            "superseded" => Ok(Self::Superseded),
+            "archived" => Ok(Self::Archived),
+            "deleted" => Ok(Self::Deleted),
+            _ => Err(StoreError::InvalidEnum {
+                kind: "claim status",
+                value: value.to_string(),
+            }),
+        }
+    }
+}
+
+/// Evidence authority vocabulary for claim support rows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum EvidenceAuthority {
+    /// Human explicitly corrected a prior claim.
+    HumanCorrection,
+    /// Human explicitly stated the claim.
+    ExplicitHumanStatement,
+    /// Claim came from a document source.
+    DocumentSource,
+    /// Claim was observed repeatedly.
+    RepeatedObservation,
+    /// Claim was inferred by an agent.
+    AgentInference,
+    /// Claim was weakly inferred by an agent.
+    WeakInference,
+    /// Claim follows from a system rule.
+    SystemRule,
+}
+
+impl EvidenceAuthority {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::HumanCorrection => "human_correction",
+            Self::ExplicitHumanStatement => "explicit_human_statement",
+            Self::DocumentSource => "document_source",
+            Self::RepeatedObservation => "repeated_observation",
+            Self::AgentInference => "agent_inference",
+            Self::WeakInference => "weak_inference",
+            Self::SystemRule => "system_rule",
+        }
+    }
+}
+
+/// Candidate evidence row supporting a claim.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EvidenceCandidate {
+    /// Source conversation item id.
+    pub source_item_id: String,
+    /// Authority class for this evidence.
+    pub authority: EvidenceAuthority,
+    /// Optional short source excerpt.
+    pub excerpt: Option<String>,
+}
+
+/// Candidate claim plus one supporting evidence row.
+#[derive(Debug, Clone, PartialEq)]
+pub struct NewClaimCandidate {
+    /// Subject entity to upsert.
+    pub subject: EntityCandidate,
+    /// Object entity to upsert.
+    pub object: EntityCandidate,
+    /// Existing predicate id.
+    pub predicate_id: String,
+    /// Human-readable fact text.
+    pub fact: String,
+    /// Claim sensitivity.
+    pub sensitivity: Sensitivity,
+    /// Claim lifecycle status.
+    pub status: ClaimStatus,
+    /// Optional confidence in `[0, 1]`.
+    pub confidence: Option<f64>,
+    /// Supporting source evidence.
+    pub evidence: EvidenceCandidate,
+    /// Retrieval hints stored with the claim.
+    pub retrieval_hints: Value,
+    /// Caller metadata stored with the claim.
+    pub metadata: Value,
+}
+
+/// Typed summary returned after creating or reinforcing a claim.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ClaimSummary {
+    /// Stable claim id.
+    pub claim_id: String,
+    /// Subject entity id.
+    pub subject_entity_id: String,
+    /// Object entity id.
+    pub object_entity_id: String,
+    /// Predicate id.
+    pub predicate_id: String,
+    /// Fact text.
+    pub fact: String,
+    /// Claim status.
+    pub status: ClaimStatus,
+    /// Claim sensitivity.
+    pub sensitivity: Sensitivity,
+    /// Count of support evidence rows.
+    pub evidence_count: i64,
+}
+
+impl NoemaStore {
+    /// Create a graph-memory claim or reinforce an existing non-deleted claim.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when the predicate or source item is missing,
+    /// stored enum data is invalid, or the embedded store read/write fails.
+    pub async fn create_or_reinforce_claim(
+        &self,
+        candidate: NewClaimCandidate,
+    ) -> Result<ClaimSummary, StoreError> {
+        self.require_predicate(&candidate.predicate_id).await?;
+        self.require_source_item(&candidate.evidence.source_item_id)
+            .await?;
+        self.upsert_entity(&candidate.subject).await?;
+        self.upsert_entity(&candidate.object).await?;
+
+        let fingerprint = claim_fingerprint(
+            &candidate.subject.entity_id,
+            &candidate.predicate_id,
+            &candidate.object.entity_id,
+            &candidate.fact,
+        );
+        let claim_id = match self.existing_claim_id(&fingerprint).await? {
+            Some(claim_id) => claim_id,
+            None => {
+                let claim_id = allocate_id("claim");
+                self.insert_claim(&claim_id, &fingerprint, &candidate)
+                    .await?;
+                claim_id
+            }
+        };
+        self.insert_support_evidence(&claim_id, &candidate.evidence)
+            .await?;
+        self.claim_summary(&claim_id).await
+    }
+
+    async fn upsert_entity(&self, entity: &EntityCandidate) -> Result<(), StoreError> {
+        self.db
+            .query(
+                r#"
+                UPSERT type::thing('entities', $record_id) SET
+                  entity_id = $entity_id,
+                  entity_type = $entity_type,
+                  canonical_name = $canonical_name,
+                  aliases = [],
+                  metadata = {},
+                  updated_at = time::now();
+                "#,
+            )
+            .bind(("record_id", record_fragment(&entity.entity_id)))
+            .bind(("entity_id", entity.entity_id.clone()))
+            .bind(("entity_type", entity.entity_type.as_str().to_string()))
+            .bind(("canonical_name", entity.canonical_name.clone()))
+            .await?
+            .check()?;
+        Ok(())
+    }
+
+    async fn require_predicate(&self, predicate_id: &str) -> Result<(), StoreError> {
+        let mut response = self
+            .db
+            .query(
+                r#"
+                SELECT predicate_id, label, default_sensitivity, allowed_use_modes
+                FROM predicates
+                WHERE predicate_id = $predicate_id
+                LIMIT 1;
+                "#,
+            )
+            .bind(("predicate_id", predicate_id.to_string()))
+            .await?;
+        let rows: Vec<super::PredicateRecord> = response.take(0)?;
+        if rows.is_empty() {
+            Err(StoreError::PredicateNotFound {
+                predicate_id: predicate_id.to_string(),
+            })
+        } else {
+            Ok(())
+        }
+    }
+
+    async fn require_source_item(&self, item_id: &str) -> Result<(), StoreError> {
+        let mut response = self
+            .db
+            .query(
+                "SELECT item_id FROM conversation_items WHERE item_id = $item_id AND deleted_at = NONE LIMIT 1;",
+            )
+            .bind(("item_id", item_id.to_string()))
+            .await?;
+        let rows: Vec<SourceItemRow> = response.take(0)?;
+        if rows.is_empty() {
+            Err(StoreError::ConversationItemNotFound {
+                item_id: item_id.to_string(),
+            })
+        } else {
+            Ok(())
+        }
+    }
+
+    async fn existing_claim_id(&self, fingerprint: &str) -> Result<Option<String>, StoreError> {
+        let mut response = self
+            .db
+            .query(
+                r#"
+                SELECT claim_id
+                FROM claims
+                WHERE dedupe_fingerprint = $dedupe_fingerprint
+                  AND status != 'deleted'
+                LIMIT 1;
+                "#,
+            )
+            .bind(("dedupe_fingerprint", fingerprint.to_string()))
+            .await?;
+        let rows: Vec<ClaimIdRow> = response.take(0)?;
+        Ok(rows.into_iter().next().map(|row| row.claim_id))
+    }
+
+    async fn insert_claim(
+        &self,
+        claim_id: &str,
+        fingerprint: &str,
+        candidate: &NewClaimCandidate,
+    ) -> Result<(), StoreError> {
+        self.db
+            .query(
+                r#"
+                CREATE type::thing('claims', $record_id) SET
+                  claim_id = $claim_id,
+                  subject_entity_id = $subject_entity_id,
+                  object_entity_id = $object_entity_id,
+                  predicate_id = $predicate_id,
+                  fact = $fact,
+                  status = $status,
+                  sensitivity = $sensitivity,
+                  valid_from = NONE,
+                  valid_to = NONE,
+                  observed_at = time::now(),
+                  confidence = $confidence,
+                  dedupe_fingerprint = $dedupe_fingerprint,
+                  retrieval_hints = $retrieval_hints,
+                  policy_overrides = {},
+                  metadata = $metadata,
+                  updated_at = time::now();
+                "#,
+            )
+            .bind(("record_id", record_fragment(claim_id)))
+            .bind(("claim_id", claim_id.to_string()))
+            .bind(("subject_entity_id", candidate.subject.entity_id.clone()))
+            .bind(("object_entity_id", Some(candidate.object.entity_id.clone())))
+            .bind(("predicate_id", candidate.predicate_id.clone()))
+            .bind(("fact", candidate.fact.clone()))
+            .bind(("status", candidate.status.as_str().to_string()))
+            .bind((
+                "sensitivity",
+                sensitivity_to_store(candidate.sensitivity).to_string(),
+            ))
+            .bind(("confidence", candidate.confidence))
+            .bind(("dedupe_fingerprint", fingerprint.to_string()))
+            .bind(("retrieval_hints", candidate.retrieval_hints.clone()))
+            .bind(("metadata", candidate.metadata.clone()))
+            .await?
+            .check()?;
+        Ok(())
+    }
+
+    async fn insert_support_evidence(
+        &self,
+        claim_id: &str,
+        evidence: &EvidenceCandidate,
+    ) -> Result<(), StoreError> {
+        let relation_id = allocate_id("evidence");
+        self.db
+            .query(
+                r#"
+                CREATE type::thing('supported_by', $record_id) SET
+                  relation_id = $relation_id,
+                  claim_id = $claim_id,
+                  source_kind = 'item',
+                  source_item_id = $source_item_id,
+                  source_object_type = NONE,
+                  source_object_id = NONE,
+                  authority = $authority,
+                  excerpt = $excerpt,
+                  observed_at = time::now(),
+                  created_by = 'agent:primary',
+                  metadata = {};
+                "#,
+            )
+            .bind(("record_id", record_fragment(&relation_id)))
+            .bind(("relation_id", relation_id))
+            .bind(("claim_id", claim_id.to_string()))
+            .bind(("source_item_id", evidence.source_item_id.clone()))
+            .bind(("authority", evidence.authority.as_str().to_string()))
+            .bind(("excerpt", evidence.excerpt.clone()))
+            .await?
+            .check()?;
+        Ok(())
+    }
+
+    async fn claim_summary(&self, claim_id: &str) -> Result<ClaimSummary, StoreError> {
+        let mut response = self
+            .db
+            .query(
+                r#"
+                SELECT claim_id, subject_entity_id, object_entity_id, predicate_id, fact, status, sensitivity
+                FROM claims
+                WHERE claim_id = $claim_id
+                LIMIT 1;
+
+                SELECT count() AS count
+                FROM supported_by
+                WHERE claim_id = $claim_id
+                GROUP ALL;
+                "#,
+            )
+            .bind(("claim_id", claim_id.to_string()))
+            .await?;
+        let rows: Vec<ClaimRow> = response.take(0)?;
+        let counts: Vec<CountRow> = response.take(1)?;
+        let row = rows
+            .into_iter()
+            .next()
+            .ok_or_else(|| StoreError::Schema(format!("missing claim after write: {claim_id}")))?;
+        Ok(ClaimSummary {
+            claim_id: row.claim_id,
+            subject_entity_id: row.subject_entity_id,
+            object_entity_id: row.object_entity_id.unwrap_or_default(),
+            predicate_id: row.predicate_id,
+            fact: row.fact,
+            status: ClaimStatus::parse(&row.status)?,
+            sensitivity: parse_sensitivity(&row.sensitivity)?,
+            evidence_count: counts.first().map_or(0, |row| row.count),
+        })
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct SourceItemRow {
+    #[allow(dead_code)]
+    item_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct ClaimIdRow {
+    claim_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct ClaimRow {
+    claim_id: String,
+    subject_entity_id: String,
+    object_entity_id: Option<String>,
+    predicate_id: String,
+    fact: String,
+    status: String,
+    sensitivity: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct CountRow {
+    count: i64,
+}
+
+fn claim_fingerprint(
+    subject_entity_id: &str,
+    predicate_id: &str,
+    object_entity_id: &str,
+    fact: &str,
+) -> String {
+    let normalized_fact = normalize_fact(fact);
+    format!(
+        "claim-fingerprint:v1:{}:{}:{}:{}:{}:{}:{}:{}",
+        subject_entity_id.len(),
+        subject_entity_id,
+        predicate_id.len(),
+        predicate_id,
+        object_entity_id.len(),
+        object_entity_id,
+        normalized_fact.len(),
+        normalized_fact
+    )
+}
+
+fn normalize_fact(fact: &str) -> String {
+    fact.split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_ascii_lowercase()
+}
+
+fn sensitivity_to_store(sensitivity: Sensitivity) -> &'static str {
+    match sensitivity {
+        Sensitivity::Public => "public",
+        Sensitivity::Normal => "normal",
+        Sensitivity::Private => "private",
+        Sensitivity::Sensitive => "sensitive",
+        Sensitivity::Secret => "secret",
+    }
+}
+
+fn parse_sensitivity(value: &str) -> Result<Sensitivity, StoreError> {
+    match value {
+        "public" => Ok(Sensitivity::Public),
+        "normal" => Ok(Sensitivity::Normal),
+        "private" => Ok(Sensitivity::Private),
+        "sensitive" => Ok(Sensitivity::Sensitive),
+        "secret" => Ok(Sensitivity::Secret),
+        _ => Err(StoreError::InvalidEnum {
+            kind: "sensitivity",
+            value: value.to_string(),
+        }),
+    }
+}

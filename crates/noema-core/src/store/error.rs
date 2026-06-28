@@ -52,6 +52,12 @@ pub enum StoreError {
         /// Missing item id.
         item_id: String,
     },
+    /// A predicate expected to exist was not found.
+    #[error("predicate not found: {predicate_id}")]
+    PredicateNotFound {
+        /// Missing predicate id.
+        predicate_id: String,
+    },
     /// A referenced item belongs to a different conversation than the owner row.
     #[error("conversation item {item_id} does not belong to conversation {conversation_id}")]
     ConversationItemConversationMismatch {

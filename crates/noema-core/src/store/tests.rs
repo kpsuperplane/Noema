@@ -1,11 +1,14 @@
 use serde_json::json;
 use tempfile::TempDir;
 
-use super::{NoemaStore, StoreConfig, schema::STORE_SCHEMA_SQL};
+use super::{
+    ClaimStatus, EntityCandidate, EvidenceAuthority, EvidenceCandidate, NewClaimCandidate,
+    NoemaStore, StoreConfig, schema::STORE_SCHEMA_SQL,
+};
 use crate::{
     ActorRef, ConversationItemKind, ConversationItemStatus, NewConversationItem,
     NewConversationTurn, ObjectRef, ProviderAccountStatus, ReplayMode, StoreError,
-    memory_persistence::NewConversation,
+    memory::Sensitivity, memory_persistence::NewConversation,
 };
 
 #[tokio::test]
@@ -428,6 +431,143 @@ async fn built_in_predicate_seed_is_idempotent_when_bootstrap_replays() {
 }
 
 #[tokio::test]
+async fn known_predicate_claim_gets_evidence() {
+    let store = test_store().await;
+    let source_item = create_source_item(&store, "Kevin likes trains.").await;
+
+    let summary = store
+        .create_or_reinforce_claim(NewClaimCandidate {
+            subject: EntityCandidate::local_human(),
+            object: EntityCandidate::concept("trains", "trains"),
+            predicate_id: "likes".to_string(),
+            fact: "Kevin likes trains.".to_string(),
+            sensitivity: Sensitivity::Normal,
+            status: ClaimStatus::Active,
+            confidence: Some(0.9),
+            evidence: EvidenceCandidate {
+                source_item_id: source_item.item_id,
+                authority: EvidenceAuthority::ExplicitHumanStatement,
+                excerpt: Some("Kevin likes trains.".to_string()),
+            },
+            retrieval_hints: json!({ "keywords": ["trains"] }),
+            metadata: json!({}),
+        })
+        .await
+        .expect("create claim");
+
+    assert_eq!(summary.predicate_id, "likes");
+    assert_eq!(summary.status, ClaimStatus::Active);
+    assert_eq!(summary.sensitivity, Sensitivity::Normal);
+    assert_eq!(summary.evidence_count, 1);
+}
+
+#[tokio::test]
+async fn reinforcing_existing_claim_adds_evidence() {
+    let store = test_store().await;
+    let first_item = create_source_item(&store, "Kevin likes trains.").await;
+    let second_item = create_source_item(&store, "Still true: Kevin likes trains.").await;
+
+    let first = store
+        .create_or_reinforce_claim(NewClaimCandidate {
+            subject: EntityCandidate::local_human(),
+            object: EntityCandidate::concept("trains", "trains"),
+            predicate_id: "likes".to_string(),
+            fact: "Kevin likes trains.".to_string(),
+            sensitivity: Sensitivity::Normal,
+            status: ClaimStatus::Active,
+            confidence: Some(0.9),
+            evidence: EvidenceCandidate {
+                source_item_id: first_item.item_id,
+                authority: EvidenceAuthority::ExplicitHumanStatement,
+                excerpt: Some("Kevin likes trains.".to_string()),
+            },
+            retrieval_hints: json!({}),
+            metadata: json!({}),
+        })
+        .await
+        .expect("first claim");
+    let second = store
+        .create_or_reinforce_claim(NewClaimCandidate {
+            subject: EntityCandidate::local_human(),
+            object: EntityCandidate::concept("trains", "trains"),
+            predicate_id: "likes".to_string(),
+            fact: "  kevin likes trains.  ".to_string(),
+            sensitivity: Sensitivity::Normal,
+            status: ClaimStatus::Active,
+            confidence: Some(0.8),
+            evidence: EvidenceCandidate {
+                source_item_id: second_item.item_id,
+                authority: EvidenceAuthority::RepeatedObservation,
+                excerpt: Some("Still true: Kevin likes trains.".to_string()),
+            },
+            retrieval_hints: json!({}),
+            metadata: json!({}),
+        })
+        .await
+        .expect("reinforce claim");
+
+    assert_eq!(first.claim_id, second.claim_id);
+    assert_eq!(second.evidence_count, 2);
+
+    #[derive(Debug, serde::Deserialize)]
+    struct CountRow {
+        count: i64,
+    }
+
+    let mut response = store
+        .db()
+        .query("SELECT count() AS count FROM claims GROUP ALL;")
+        .await
+        .expect("count claims");
+    let rows: Vec<CountRow> = response.take(0).expect("claim count rows");
+    assert_eq!(rows.first().map_or(0, |row| row.count), 1);
+}
+
+#[tokio::test]
+async fn unknown_predicate_claim_is_rejected() {
+    let store = test_store().await;
+    let source_item = create_source_item(&store, "Kevin studies semaphore signals.").await;
+
+    let error = store
+        .create_or_reinforce_claim(NewClaimCandidate {
+            subject: EntityCandidate::local_human(),
+            object: EntityCandidate::concept("semaphore", "semaphore"),
+            predicate_id: "studies".to_string(),
+            fact: "Kevin studies semaphore signals.".to_string(),
+            sensitivity: Sensitivity::Normal,
+            status: ClaimStatus::Active,
+            confidence: Some(0.7),
+            evidence: EvidenceCandidate {
+                source_item_id: source_item.item_id,
+                authority: EvidenceAuthority::ExplicitHumanStatement,
+                excerpt: Some("Kevin studies semaphore signals.".to_string()),
+            },
+            retrieval_hints: json!({}),
+            metadata: json!({}),
+        })
+        .await
+        .expect_err("unknown predicate should be rejected");
+
+    assert!(
+        error.to_string().contains("predicate"),
+        "unexpected error: {error}"
+    );
+
+    #[derive(Debug, serde::Deserialize)]
+    struct CountRow {
+        count: i64,
+    }
+
+    let mut response = store
+        .db()
+        .query("SELECT count() AS count FROM claims GROUP ALL;")
+        .await
+        .expect("count claims");
+    let rows: Vec<CountRow> = response.take(0).expect("claim count rows");
+    assert_eq!(rows.first().map_or(0, |row| row.count), 0);
+}
+
+#[tokio::test]
 async fn default_provider_account_round_trips_status() {
     let store = test_store().await;
 
@@ -742,4 +882,34 @@ async fn test_store() -> NoemaStore {
     let store = NoemaStore::open(&config).await.expect("open store");
     std::mem::forget(home);
     store
+}
+
+async fn create_source_item(store: &NoemaStore, text: &str) -> crate::ConversationItemRecord {
+    store.ensure_default_actors().await.expect("actors");
+    let conversation = store
+        .create_conversation(NewConversation::local_chat(None, None))
+        .await
+        .expect("conversation");
+    let turn = store
+        .create_conversation_turn(NewConversationTurn {
+            conversation_id: conversation.conversation_id.clone(),
+            trigger_item_id: None,
+            metadata: json!({ "turn_index": 1 }),
+        })
+        .await
+        .expect("turn");
+    store
+        .append_conversation_item(NewConversationItem {
+            conversation_id: conversation.conversation_id,
+            turn_id: Some(turn.turn_id),
+            parent_item_id: None,
+            kind: ConversationItemKind::UserText,
+            status: ConversationItemStatus::Completed,
+            author: ActorRef::human("human:local"),
+            content_text: Some(text.to_string()),
+            payload_json: json!({}),
+            metadata: json!({}),
+        })
+        .await
+        .expect("source item")
 }

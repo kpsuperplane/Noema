@@ -86,4 +86,7 @@ pub use providers::{
     codex_responses::{CodexProviderConfig, CodexResponsesProvider},
     openai::{OpenAiProvider, OpenAiProviderConfig},
 };
-pub use store::{NoemaStore, StoreConfig, StoreError};
+pub use store::{
+    ClaimStatus, ClaimSummary, EntityCandidate, EntityType, EvidenceAuthority, EvidenceCandidate,
+    NewClaimCandidate, NoemaStore, PredicateRecord, StoreConfig, StoreError,
+};
