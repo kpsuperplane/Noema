@@ -106,8 +106,8 @@ enum CliError {
     #[error(transparent)]
     Memory(#[from] MemoryPersistenceError),
 
-    #[error("memory not found: {0}")]
-    MemoryNotFound(String),
+    #[error("{0}")]
+    Unavailable(String),
 
     #[error("failed to read stdin: {0}")]
     ReadStdin(io::Error),
@@ -173,7 +173,6 @@ async fn run_start(args: &Args) -> Result<(), CliError> {
     run_daemon(DaemonServerConfig::new(
         socket_path,
         daemon_config.codex,
-        daemon_config.database.url,
         daemon_config.web,
     ))
     .await?;

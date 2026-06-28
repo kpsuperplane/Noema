@@ -1,10 +1,14 @@
 //! CLI inspection commands for local memory and context state.
 
+#![allow(
+    dead_code,
+    reason = "Postgres-backed inspection is disabled until graph retrieval lands"
+)]
+
 use clap::Subcommand;
 pub(crate) use context_graph_output::ContextGraphFormat;
 use context_graph_output::write_context_graph;
 use noema_core::{
-    CliOverrides, Config, ContextGraphFilter, PostgresMemoryRepository,
     memory::{
         Effect, ExternalEgressPolicy, MemoryStatus, ParticipantRole, ParticipantVisibilityPolicy,
         Purpose, RelationshipStatus, RetrievalPolicyStatus, Sensitivity, SubjectRole,
@@ -57,54 +61,34 @@ pub(crate) enum ContextCommand {
 
 pub(crate) async fn run_memory(
     command: &MemoryCommand,
-    config_path: Option<PathBuf>,
+    _config_path: Option<PathBuf>,
 ) -> Result<(), CliError> {
-    let config = Config::load_daemon(config_path, CliOverrides::default())?;
-    let repo = PostgresMemoryRepository::connect(&config.database).await?;
-
     match command {
-        MemoryCommand::List { limit } => {
-            let memories = repo.list_recent_memories(Some(*limit)).await?;
-            print_memory_list(&memories)?;
-        }
-        MemoryCommand::Show { memory_id } => {
-            let memory = repo
-                .get_memory(memory_id)
-                .await?
-                .ok_or_else(|| CliError::MemoryNotFound(memory_id.clone()))?;
-            print_memory_detail(&memory)?;
+        MemoryCommand::List { .. } | MemoryCommand::Show { .. } => {
+            Err(memory_inspection_unavailable())
         }
     }
-
-    Ok(())
 }
 
 pub(crate) async fn run_context(
     command: &ContextCommand,
-    config_path: Option<PathBuf>,
+    _config_path: Option<PathBuf>,
 ) -> Result<(), CliError> {
-    let config = Config::load_daemon(config_path, CliOverrides::default())?;
-    let repo = PostgresMemoryRepository::connect(&config.database).await?;
-
     match command {
-        ContextCommand::Graph {
-            limit,
-            run_id,
-            context_packet_id,
-            format,
-        } => {
-            let filter = ContextGraphFilter {
-                run_id: run_id.clone(),
-                context_packet_id: context_packet_id.clone(),
-            };
-            let graph = repo
-                .inspect_context_graph_with_filter(&filter, Some(*limit))
-                .await?;
-            print_context_graph(&graph, *format)?;
-        }
+        ContextCommand::Graph { .. } => Err(context_inspection_unavailable()),
     }
+}
 
-    Ok(())
+fn memory_inspection_unavailable() -> CliError {
+    CliError::Unavailable(
+        "memory inspection is unavailable until graph-claim storage lands".to_string(),
+    )
+}
+
+fn context_inspection_unavailable() -> CliError {
+    CliError::Unavailable(
+        "context graph inspection is unavailable until graph retrieval lands".to_string(),
+    )
 }
 
 fn print_context_graph(
