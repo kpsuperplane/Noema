@@ -1270,7 +1270,7 @@ async fn find_memory_consolidation_matches_does_not_match_agent_overlap_across_o
     existing.sensitivity = Sensitivity::Normal;
     existing.participants = vec![NewMemoryParticipant::new(
         ActorRef::agent("agent:primary"),
-        ParticipantRole::AgentInScope,
+        ParticipantRole::HumanInScope,
     )];
     let existing_summary = repo
         .append_memory_candidate(existing)
@@ -1290,7 +1290,7 @@ async fn find_memory_consolidation_matches_does_not_match_agent_overlap_across_o
     query_candidate.memory_type = MemoryType::Preference;
     query_candidate.participants = vec![NewMemoryParticipant::new(
         ActorRef::agent("agent:primary"),
-        ParticipantRole::AgentInScope,
+        ParticipantRole::HumanInScope,
     )];
 
     let matches = repo

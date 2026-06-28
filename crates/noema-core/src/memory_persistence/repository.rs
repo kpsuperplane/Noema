@@ -10,7 +10,7 @@ use super::{
     helpers::*,
     ids::ActorId,
     models::*,
-    objects::{ActorRef, validate_actor_ref_for_pool},
+    objects::{ActorKind, ActorRef, validate_actor_ref_for_pool},
     postgres_schema::POSTGRES_SCHEMA_SQL,
     queries::{POSTGRES_MEMORY_SUMMARY_BY_ID_SQL, POSTGRES_RECENT_MEMORY_SQL},
 };
@@ -59,6 +59,10 @@ mod tests {
                 ParticipantRole::AgentInScope,
             ),
             NewMemoryParticipant::new(
+                ActorRef::agent("agent:mislabeled"),
+                ParticipantRole::HumanInScope,
+            ),
+            NewMemoryParticipant::new(
                 ActorRef::human("human:local"),
                 ParticipantRole::HumanInScope,
             ),
@@ -98,7 +102,10 @@ fn human_in_scope_participant_actor_ids(candidate: &NewMemoryCandidate) -> Vec<A
     candidate
         .participants
         .iter()
-        .filter(|participant| participant.role == ParticipantRole::HumanInScope)
+        .filter(|participant| {
+            participant.role == ParticipantRole::HumanInScope
+                && participant.participant.actor_kind == ActorKind::Human
+        })
         .map(|participant| participant.participant.actor_id.clone())
         .collect()
 }
@@ -373,6 +380,8 @@ impl PostgresMemoryRepository {
                 ON source.source_object_type = 'conversation_item'
                AND source.source_object_id = source_conversation.item_id
               LEFT JOIN memory_participants mp ON mp.memory_id = m.memory_id
+              LEFT JOIN actors participant_actor
+                ON participant_actor.actor_id = mp.participant_actor_id
               WHERE m.deleted_at IS NULL
                 AND m.status IN ('candidate', 'active', 'confirmed')
                 AND m.sensitivity IN ('public', 'normal')
@@ -381,6 +390,7 @@ impl PostgresMemoryRepository {
                   (m.owner_object_type = $2 AND m.owner_object_id = $3)
                   OR (
                     mp.role = 'human_in_scope'
+                    AND participant_actor.actor_kind = 'human'
                     AND mp.participant_actor_id = ANY($4)
                   )
                 )
