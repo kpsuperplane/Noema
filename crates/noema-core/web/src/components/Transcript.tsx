@@ -96,7 +96,7 @@ export function Transcript({
     <MessageScrollerProvider autoScroll defaultScrollPosition="end" scrollPreviousItemPeek={56}>
       <MessageScroller className="min-h-0 overflow-hidden">
         <MessageScrollerViewport aria-label="Conversation transcript" onScroll={handleViewportScroll}>
-          <MessageScrollerContent className="mx-auto flex min-h-full w-[var(--chat-column-width)] flex-col gap-3 px-0.5 py-6">
+          <MessageScrollerContent className="mx-auto flex min-h-full w-[var(--chat-column-width)] flex-col justify-end gap-3 px-0.5 py-6">
             {renderedEntries.map((entry, index) => {
               const lane =
                 entry.kind === "entry"

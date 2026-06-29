@@ -52,6 +52,14 @@ describe("renderedTranscriptLane", () => {
   });
 });
 
+describe("Transcript layout", () => {
+  test("bottom-aligns short conversations in the transcript viewport", () => {
+    const markup = renderTranscript([{ id: "user-1", type: "user", text: "Hello" }]);
+
+    assert.match(messageScrollerContentClassName(markup), /\bjustify-end\b/);
+  });
+});
+
 describe("Transcript memory markers", () => {
   test("labels started memory extraction as proposed before it is updated", () => {
     const markup = renderToStaticMarkup(
@@ -412,6 +420,12 @@ function memoryProposalCardEntry(id: string, itemId: string): TranscriptEntry {
 
 function memoryUpdatedCount(markup: string): number {
   return markup.match(/Memory updated/g)?.length ?? 0;
+}
+
+function messageScrollerContentClassName(markup: string): string {
+  const match = markup.match(/data-slot="message-scroller-content"[^>]*class="([^"]*)"/);
+  assert.ok(match, "expected transcript markup to include message scroller content");
+  return match[1];
 }
 
 describe("shouldAnchorTranscriptEntry", () => {
