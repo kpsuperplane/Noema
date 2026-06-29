@@ -87,7 +87,12 @@ pub(super) async fn execute_update_own_name_inner(
 }
 
 fn parse_arguments(payload: &Value) -> Result<UpdateOwnNameArguments, AgentNameToolError> {
-    let argument_value = payload.get("arguments").unwrap_or(payload).clone();
+    let argument_value = if let Some(arguments) = payload.get("arguments") {
+        reject_nested_outer_fields(payload)?;
+        arguments.clone()
+    } else {
+        payload.clone()
+    };
     let mut arguments: UpdateOwnNameArguments =
         serde_json::from_value(argument_value).map_err(|error| {
             AgentNameToolError::InvalidArguments(format!("invalid arguments: {error}"))
@@ -104,6 +109,19 @@ fn parse_arguments(payload: &Value) -> Result<UpdateOwnNameArguments, AgentNameT
         ));
     }
     Ok(arguments)
+}
+
+fn reject_nested_outer_fields(payload: &Value) -> Result<(), AgentNameToolError> {
+    let Some(object) = payload.as_object() else {
+        return Ok(());
+    };
+    if object.keys().all(|key| key == "arguments") {
+        Ok(())
+    } else {
+        Err(AgentNameToolError::InvalidArguments(
+            "nested arguments payload cannot include outer fields".to_string(),
+        ))
+    }
 }
 
 fn user_explicitly_names_agent(user_input: &str, name: &str) -> bool {
@@ -197,6 +215,23 @@ mod tests {
         let arguments = parse_arguments(&payload).expect("parse arguments");
 
         assert_eq!(arguments.name, "Mira");
+    }
+
+    #[test]
+    fn rejects_nested_arguments_with_outer_targeting_fields() {
+        let payload = json!({
+            "arguments": {
+                "name": "Mira"
+            },
+            "agent_id": "agent:other"
+        });
+
+        let error = parse_arguments(&payload).expect_err("outer targeting field rejected");
+
+        assert_eq!(
+            safe_error_message(&error),
+            "nested arguments payload cannot include outer fields"
+        );
     }
 
     #[test]
