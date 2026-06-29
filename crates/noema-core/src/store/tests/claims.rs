@@ -100,6 +100,74 @@ async fn reinforce_claim_by_id_rejects_different_object_without_match_context() 
         "unexpected error: {error:?}"
     );
     assert_eq!(support_count(&store, &first.claim_id).await, 1);
+    assert!(
+        entities_by_id(&store, &["concept:ice_cream_desserts"])
+            .await
+            .is_empty()
+    );
+}
+
+#[tokio::test]
+async fn rejected_reinforce_claim_by_id_subject_mismatch_does_not_rename_object_entity() {
+    let store = test_store().await;
+    let first_item = create_source_item(&store, "Kevin likes trains.").await;
+    let second_item = create_source_item(&store, "Alex likes rail transport.").await;
+
+    let first = store
+        .create_or_reinforce_claim(train_claim(first_item.item_id))
+        .await
+        .expect("first claim");
+    let mut subject_mismatch = person_train_claim(
+        "person:alex",
+        "Alex",
+        second_item.item_id,
+        "Alex likes rail transport.",
+    );
+    subject_mismatch.object = EntityCandidate::concept("trains", "rail transport");
+
+    let error = store
+        .reinforce_claim_by_id(&first.claim_id, subject_mismatch)
+        .await
+        .expect_err("subject mismatch should reject targeted reinforce");
+
+    assert!(
+        matches!(error, StoreError::Schema(ref message) if message.contains("incompatible")),
+        "unexpected error: {error:?}"
+    );
+    assert_eq!(support_count(&store, &first.claim_id).await, 1);
+    let rows = entities_by_id(&store, &["concept:trains"]).await;
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].canonical_name, "trains");
+}
+
+#[tokio::test]
+async fn rejected_reinforce_claim_by_id_predicate_mismatch_does_not_rename_object_entity() {
+    let store = test_store().await;
+    let first_item = create_source_item(&store, "Kevin likes trains.").await;
+    let second_item = create_source_item(&store, "Kevin dislikes rail transport.").await;
+
+    let first = store
+        .create_or_reinforce_claim(train_claim(first_item.item_id))
+        .await
+        .expect("first claim");
+    let mut predicate_mismatch = train_claim(second_item.item_id);
+    predicate_mismatch.predicate_id = "dislikes".to_string();
+    predicate_mismatch.object = EntityCandidate::concept("trains", "rail transport");
+    predicate_mismatch.fact = "Kevin dislikes rail transport.".to_string();
+
+    let error = store
+        .reinforce_claim_by_id(&first.claim_id, predicate_mismatch)
+        .await
+        .expect_err("predicate mismatch should reject targeted reinforce");
+
+    assert!(
+        matches!(error, StoreError::Schema(ref message) if message.contains("incompatible")),
+        "unexpected error: {error:?}"
+    );
+    assert_eq!(support_count(&store, &first.claim_id).await, 1);
+    let rows = entities_by_id(&store, &["concept:trains"]).await;
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].canonical_name, "trains");
 }
 
 #[tokio::test]
