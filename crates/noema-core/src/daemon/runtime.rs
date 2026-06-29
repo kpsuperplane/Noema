@@ -718,10 +718,7 @@ impl CodexRuntimeActor {
 
         let local_tool_results = self.execute_local_tools(&turn, &turn.agent_identity).await;
         let has_local_tool_results = !local_tool_results.is_empty();
-        let mut continuation_assistant_response = ProviderAssistantResponse::default();
         if has_local_tool_results {
-            let continuation_agent_identity =
-                agent_identity_after_local_tools(&turn.agent_identity, &local_tool_results);
             let local_action_turn = ProviderActionTurn {
                 conversation_id: turn.conversation_id.clone(),
                 turn_id: turn.turn_id.clone(),
@@ -739,8 +736,17 @@ impl CodexRuntimeActor {
                 )
                 .await?;
             }
+        }
 
-            let continuation_input = local_tool_result_continuation_input(&local_tool_results);
+        let continuation_tool_results = local_tool_results
+            .iter()
+            .filter(|result| result.requires_provider_continuation())
+            .collect::<Vec<_>>();
+        if !continuation_tool_results.is_empty() {
+            let continuation_agent_identity =
+                agent_identity_after_local_tools(&turn.agent_identity, &local_tool_results);
+            let continuation_input =
+                local_tool_result_continuation_input(&continuation_tool_results);
             let continuation_instructions = build_local_tool_result_continuation_system_prompt(
                 &turn.conversation_id,
                 turn.turn_index,
@@ -787,6 +793,7 @@ impl CodexRuntimeActor {
                 )
                 .await?;
             let continuation_memory_proposals = continuation_response.memory_proposals();
+            let mut continuation_assistant_response = ProviderAssistantResponse::default();
             let continuation_action_turn = ProviderActionTurn {
                 conversation_id: turn.conversation_id.clone(),
                 turn_id: turn.turn_id.clone(),
@@ -2479,6 +2486,10 @@ impl LocalToolResult {
             Self::AgentName(result) => &result.payload,
         }
     }
+
+    fn requires_provider_continuation(&self) -> bool {
+        matches!(self, Self::Memory(_))
+    }
 }
 
 fn agent_identity_after_local_tools(
@@ -2501,10 +2512,13 @@ fn agent_identity_after_local_tools(
     agent_identity
 }
 
-fn local_tool_result_continuation_input(results: &[LocalToolResult]) -> Value {
+fn local_tool_result_continuation_input(results: &[&LocalToolResult]) -> Value {
     json!({
         "type": "NOEMA_LOCAL_TOOL_RESULT",
-        "results": results.iter().map(local_tool_result_payload).collect::<Vec<_>>(),
+        "results": results
+            .iter()
+            .map(|result| local_tool_result_payload(result))
+            .collect::<Vec<_>>(),
     })
 }
 

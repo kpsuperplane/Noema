@@ -2725,7 +2725,7 @@ async fn runtime_actor_executes_search_memory_as_local_tool_result() {
 }
 
 #[tokio::test]
-async fn update_own_name_tool_updates_agent_and_continues_turn() {
+async fn update_own_name_tool_updates_agent_without_continuation_turn() {
     let (handle, store) =
         test_runtime_handle_with_store(fake_codex_provider_with_update_own_name_continuation())
             .await;
@@ -2767,14 +2767,14 @@ async fn update_own_name_tool_updates_agent_and_continues_turn() {
             && metadata["action"]["success"] == true
             && metadata["action"]["payload"]["display_name"] == "Fred"
     )));
-    assert!(items.iter().any(|item| matches!(
+    assert!(!items.iter().any(|item| matches!(
         item,
         TurnTranscriptItem::AssistantText { text } if text == "Fred it is."
     )));
 }
 
 #[tokio::test]
-async fn local_tool_continuation_does_not_persist_repeated_tool_calls() {
+async fn update_own_name_tool_does_not_start_repeated_continuation_tool_calls() {
     let (handle, store) =
         test_runtime_handle_with_store(fake_codex_provider_with_repeated_update_own_name()).await;
 
@@ -2795,21 +2795,6 @@ async fn local_tool_continuation_does_not_persist_repeated_tool_calls() {
         .expect("agent exists");
     assert_eq!(agent.display_name.as_deref(), Some("Fred"));
 
-    let update_name_tool_activities = items
-        .iter()
-        .filter(|item| {
-            matches!(
-                item,
-                TurnTranscriptItem::Activity {
-                    activity_kind,
-                    title,
-                    ..
-                } if activity_kind == "tool_call" && title == "Tool call: update_own_name"
-            )
-        })
-        .count();
-    assert_eq!(update_name_tool_activities, 2, "{items:?}");
-
     let update_name_tool_calls = items
         .iter()
         .filter(|item| {
@@ -2825,7 +2810,7 @@ async fn local_tool_continuation_does_not_persist_repeated_tool_calls() {
         })
         .count();
     assert_eq!(update_name_tool_calls, 1, "{items:?}");
-    assert!(items.iter().any(|item| matches!(
+    assert!(!items.iter().any(|item| matches!(
         item,
         TurnTranscriptItem::AssistantText { text } if text == "Fred it is."
     )));
