@@ -498,6 +498,27 @@ async fn ensure_default_actors_preserves_existing_agent_name() {
 }
 
 #[tokio::test]
+async fn ensure_default_actors_reuses_primary_agent_created_through_store_api() {
+    let store = test_store().await;
+
+    store
+        .create_agent(crate::NewAgent {
+            agent_id: "agent:primary".to_string(),
+            display_name: Some("Mira".to_string()),
+        })
+        .await
+        .expect("create primary agent");
+    store.ensure_default_actors().await.expect("actors");
+
+    let agent = store
+        .get_agent("agent:primary")
+        .await
+        .expect("get agent")
+        .expect("primary agent exists");
+    assert_eq!(agent.display_name.as_deref(), Some("Mira"));
+}
+
+#[tokio::test]
 async fn agent_display_name_updates_trim_and_preserve_casing() {
     let store = test_store().await;
 

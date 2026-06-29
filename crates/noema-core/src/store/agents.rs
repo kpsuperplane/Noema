@@ -143,7 +143,7 @@ fn normalize_agent_display_name(display_name: Option<&str>) -> Result<Option<Str
         .transpose()
 }
 
-fn agent_record_fragment(agent_id: &str) -> String {
+pub(super) fn agent_record_fragment(agent_id: &str) -> String {
     const HEX: &[u8; 16] = b"0123456789abcdef";
 
     let mut fragment = String::with_capacity("agent_".len() + agent_id.len() * 2);

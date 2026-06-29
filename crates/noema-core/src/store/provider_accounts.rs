@@ -6,7 +6,7 @@ use crate::{
     ProviderAccountRecord, ProviderAccountStatus, ProviderAuthMethod, store::ids::now_string,
 };
 
-use super::{NoemaStore, StoreError};
+use super::{NoemaStore, StoreError, agents::agent_record_fragment};
 
 impl NoemaStore {
     /// Create or refresh the built-in local human and primary agent.
@@ -22,11 +22,12 @@ impl NoemaStore {
                   human_id = 'human:local',
                   display_name = 'Local Human',
                   updated_at = time::now();
-                UPSERT type::record('agents', 'agent_primary') SET
+                UPSERT type::record('agents', $agent_record_id) SET
                   agent_id = 'agent:primary',
                   updated_at = time::now();
                 "#,
             )
+            .bind(("agent_record_id", agent_record_fragment("agent:primary")))
             .await?
             .check()?;
         Ok(())
