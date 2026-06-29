@@ -11,6 +11,11 @@ use crate::memory::{
 
 use super::{NoemaStore, StoreError};
 
+const RAW_CONTENT_MATCH_SCORE: i64 = 100;
+const CONTENT_TERM_MATCH_BASE_SCORE: i64 = 70;
+const HINT_MATCH_BASE_SCORE: i64 = 50;
+const MAX_HINT_TERM_BONUS_BELOW_CONTENT: usize = 19;
+
 /// Claim selected for graph-memory retrieval.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RetrievedClaim {
@@ -277,7 +282,7 @@ fn deterministic_match_score(
     let joined = haystack.join(" ").to_lowercase();
 
     if joined.contains(&query.raw) {
-        return Some(100);
+        return Some(RAW_CONTENT_MATCH_SCORE);
     }
 
     let content_terms = query
@@ -286,12 +291,12 @@ fn deterministic_match_score(
         .filter(|term| joined.contains(term.as_str()))
         .count();
     if content_terms > 0 {
-        return Some(70 + i64::try_from(content_terms).unwrap_or(0));
+        return Some(CONTENT_TERM_MATCH_BASE_SCORE + i64::try_from(content_terms).unwrap_or(0));
     }
 
     let hints = row.retrieval_hints.to_string().to_lowercase();
     if hints.contains(&query.raw) {
-        return Some(50);
+        return Some(HINT_MATCH_BASE_SCORE);
     }
 
     let hint_terms = query
@@ -299,7 +304,10 @@ fn deterministic_match_score(
         .iter()
         .filter(|term| hints.contains(term.as_str()))
         .count();
-    (hint_terms > 0).then_some(50 + i64::try_from(hint_terms).unwrap_or(0))
+    (hint_terms > 0).then_some(
+        HINT_MATCH_BASE_SCORE
+            + i64::try_from(hint_terms.min(MAX_HINT_TERM_BONUS_BELOW_CONTENT)).unwrap_or(0),
+    )
 }
 
 fn parse_use_mode(value: &str) -> Result<UseMode, StoreError> {

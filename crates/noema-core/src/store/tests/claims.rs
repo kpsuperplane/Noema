@@ -524,10 +524,13 @@ async fn retrieval_term_ranking_keeps_content_matches_over_hint_only_matches() {
     let store = test_store().await;
     let hint_item = create_source_item(&store, "Kevin likes locomotives.").await;
     let fact_item = create_source_item(&store, "Kevin likes night trains.").await;
+    let hint_terms = (0..25)
+        .map(|index| format!("hint{index}"))
+        .collect::<Vec<_>>();
     let mut hint_only = train_claim(hint_item.item_id);
     hint_only.fact = "Kevin likes locomotives.".to_string();
     hint_only.object = EntityCandidate::concept("locomotives", "locomotives");
-    hint_only.retrieval_hints = json!({ "keywords": ["night", "scenic"] });
+    hint_only.retrieval_hints = json!({ "keywords": hint_terms.clone() });
     let hint_summary = store
         .create_or_reinforce_claim(hint_only)
         .await
@@ -539,8 +542,9 @@ async fn retrieval_term_ranking_keeps_content_matches_over_hint_only_matches() {
         .await
         .expect("create content-match claim");
 
+    let query = format!("night {}", hint_terms.join(" "));
     let result = store
-        .retrieve_claims(&personalize_request(), "night scenic", 1)
+        .retrieve_claims(&personalize_request(), &query, 1)
         .await
         .expect("retrieve claims");
 
