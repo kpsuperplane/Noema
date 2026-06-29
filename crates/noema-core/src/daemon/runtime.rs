@@ -4,8 +4,10 @@ use crate::{
     ClaimWriteOutcome, NoemaStore,
     memory::Sensitivity,
     memory_consolidation::{
-        CanonicalClaimCandidate, MemoryConsolidationError, MemoryWriteProposal,
-        PredicateResolution, build_claim_canonicalization_prompt, parse_canonicalization_response,
+        CanonicalClaimCandidate, ConsolidationDecision, ConsolidationDecisionKind,
+        MemoryConsolidationError, MemoryWriteProposal, PredicateResolution,
+        build_claim_canonicalization_prompt, build_consolidation_prompt,
+        parse_canonicalization_response, parse_consolidation_decision,
     },
     memory_extraction::{
         ExtractorMemoryProposal, ExtractorMemoryResponse, ValidatedMemoryProposal,
@@ -16,6 +18,7 @@ use crate::{
         GenerateStreamEvent, ModelProvider, ProviderError,
     },
     providers::codex_responses::{CodexProviderConfig, CodexResponsesProvider},
+    store::{ClaimStatus, ConsolidationMatchRequest, NewClaimCandidate, RelatedClaimCandidate},
     {
         ActorRef, ConversationItemKind, ConversationItemRecord, ConversationItemStatus,
         NewConversation, NewConversationItem, NewConversationTurn, PersistedAgentStatus,
@@ -1176,6 +1179,9 @@ impl CodexRuntimeActor {
         let mut claim_outcomes = Vec::with_capacity(proposal_count);
         let mut created_claim_count = 0usize;
         let mut reinforced_claim_count = 0usize;
+        let mut disputed_claim_count = 0usize;
+        let mut related_claim_count = 0usize;
+        let mut needs_review_claim_count = 0usize;
         let mut active_saved_claim_count = 0usize;
         let mut predicate_proposal_count = 0usize;
         let mut failed_proposals = Vec::new();
@@ -1216,17 +1222,28 @@ impl CodexRuntimeActor {
                                 continue;
                             }
                         };
-                        match self.store.create_or_reinforce_claim(candidate).await {
-                            Ok(summary) => {
-                                match summary.write_outcome {
-                                    ClaimWriteOutcome::Created => created_claim_count += 1,
-                                    ClaimWriteOutcome::Reinforced => reinforced_claim_count += 1,
+                        match self.consolidate_promoted_claim(candidate, &canonical).await {
+                            Ok(outcome) => {
+                                match outcome.outcome {
+                                    "created" => created_claim_count += 1,
+                                    "reinforced" => reinforced_claim_count += 1,
+                                    "disputed" => disputed_claim_count += 1,
+                                    "related" => related_claim_count += 1,
+                                    "needs_review" => needs_review_claim_count += 1,
+                                    _ => {}
                                 }
-                                if saved_claim_counts_as_active(summary.status) {
+                                if saved_claim_counts_as_active(outcome.status) {
                                     active_saved_claim_count += 1;
                                 }
-                                claim_outcomes.push(claim_outcome_json(&summary));
-                                claim_ids.push(summary.claim_id);
+                                claim_outcomes.push(json!({
+                                    "claim_id": outcome.claim_id,
+                                    "outcome": outcome.outcome,
+                                    "fact_preview": outcome.fact_preview,
+                                    "sensitivity": outcome.sensitivity,
+                                }));
+                                if let Some(claim_id) = outcome.claim_id {
+                                    claim_ids.push(claim_id);
+                                }
                             }
                             Err(error) => {
                                 failed_proposals.push(json!({
@@ -1322,20 +1339,27 @@ impl CodexRuntimeActor {
 
         let failed_proposal_count = failed_proposals.len();
         let saved_claim_count = claim_ids.len();
-        let (status, title, persisted_summary) =
-            if predicate_proposal_count > 0 && active_saved_claim_count == 0 {
-                (
-                    if failed_proposal_count == 0 {
-                        TurnActivityStatus::Completed
-                    } else {
-                        TurnActivityStatus::Failed
-                    },
-                    "Memory needs review",
-                    provider_memory_review_summary(predicate_proposal_count, failed_proposal_count),
-                )
-            } else {
-                provider_memory_claim_activity(saved_claim_count, failed_proposal_count)
-            };
+        let review_claim_count = disputed_claim_count + needs_review_claim_count;
+        let (status, title, persisted_summary) = if (predicate_proposal_count > 0
+            || review_claim_count > 0)
+            && active_saved_claim_count == 0
+        {
+            (
+                if failed_proposal_count == 0 {
+                    TurnActivityStatus::Completed
+                } else {
+                    TurnActivityStatus::Failed
+                },
+                "Memory needs review",
+                provider_memory_review_summary(
+                    predicate_proposal_count,
+                    review_claim_count,
+                    failed_proposal_count,
+                ),
+            )
+        } else {
+            provider_memory_claim_activity(saved_claim_count, failed_proposal_count)
+        };
         let activity = memory_activity(
             &activity_id,
             status,
@@ -1349,6 +1373,9 @@ impl CodexRuntimeActor {
                 "claim_outcomes": claim_outcomes,
                 "created_claim_count": created_claim_count,
                 "reinforced_claim_count": reinforced_claim_count,
+                "disputed_claim_count": disputed_claim_count,
+                "related_claim_count": related_claim_count,
+                "needs_review_claim_count": needs_review_claim_count,
                 "active_saved_claim_count": active_saved_claim_count,
                 "predicate_proposal_count": predicate_proposal_count,
                 "failed_proposal_count": failed_proposal_count,
@@ -1358,6 +1385,124 @@ impl CodexRuntimeActor {
         );
         self.persist_and_send_turn_item(&activity_context, activity, item_tx)
             .await
+    }
+
+    async fn consolidate_promoted_claim(
+        &self,
+        candidate: NewClaimCandidate,
+        canonical: &CanonicalClaimCandidate,
+    ) -> Result<PersistedMemoryOutcome, DaemonError> {
+        let query_terms = canonical
+            .retrieval_hints
+            .get("keywords")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .map(ToString::to_string)
+            .collect::<Vec<_>>();
+        let matches = self
+            .store
+            .find_consolidation_matches(ConsolidationMatchRequest {
+                subject_entity_id: candidate.subject.entity_id.clone(),
+                predicate_id: candidate.predicate_id.clone(),
+                object_entity_id: Some(candidate.object.entity_id.clone()),
+                query_terms,
+                sensitivity: candidate.sensitivity,
+                limit: 12,
+            })
+            .await?;
+
+        if matches.is_empty() {
+            let summary = self.store.create_or_reinforce_claim(candidate).await?;
+            return Ok(PersistedMemoryOutcome::from_claim_summary(summary));
+        }
+
+        let existing_json = serde_json::to_value(
+            matches
+                .iter()
+                .map(|item| {
+                    json!({
+                        "memory_id": item.claim_id,
+                        "claim_id": item.claim_id,
+                        "fact": item.fact,
+                        "predicate_id": item.predicate_id,
+                        "status": claim_status_label(item.status),
+                        "sensitivity": sensitivity_label(item.sensitivity),
+                    })
+                })
+                .collect::<Vec<_>>(),
+        )
+        .map_err(|error| DaemonError::Protocol(format!("match serialization failed: {error}")))?;
+        let prompt = build_consolidation_prompt(canonical, &existing_json);
+        let mut ignored_events = |_| {};
+        let response = self
+            .provider
+            .generate_streaming(GenerateRequest::text(prompt), &mut ignored_events)
+            .await
+            .map_err(DaemonError::Provider)?;
+        let decision =
+            parse_consolidation_decision(&response.assistant_text()).map_err(|error| {
+                DaemonError::Protocol(format!("memory consolidation failed: {error}"))
+            })?;
+        self.persist_consolidation_decision(candidate, decision)
+            .await
+    }
+
+    async fn persist_consolidation_decision(
+        &self,
+        mut candidate: NewClaimCandidate,
+        decision: ConsolidationDecision,
+    ) -> Result<PersistedMemoryOutcome, DaemonError> {
+        match decision.decision {
+            ConsolidationDecisionKind::Create | ConsolidationDecisionKind::Reinforce => {
+                let summary = self.store.create_or_reinforce_claim(candidate).await?;
+                Ok(PersistedMemoryOutcome::from_claim_summary(summary))
+            }
+            ConsolidationDecisionKind::Dispute => {
+                candidate.status = ClaimStatus::Disputed;
+                let summary = self.store.create_or_reinforce_claim(candidate).await?;
+                Ok(PersistedMemoryOutcome {
+                    claim_id: Some(summary.claim_id),
+                    outcome: "disputed",
+                    fact_preview: fact_preview(&summary.fact),
+                    sensitivity: sensitivity_label(summary.sensitivity).to_string(),
+                    status: summary.status,
+                })
+            }
+            ConsolidationDecisionKind::Relate => {
+                let related_claim_id = decision.existing_claim_id.clone().ok_or_else(|| {
+                    DaemonError::Protocol("relate decision missing existing claim id".to_string())
+                })?;
+                let summary = self.store.create_or_reinforce_claim(candidate).await?;
+                self.store
+                    .relate_claims(RelatedClaimCandidate {
+                        claim_id: summary.claim_id.clone(),
+                        related_claim_id,
+                        relation_kind: "semantic_related".to_string(),
+                        rationale: decision.rationale,
+                    })
+                    .await?;
+                Ok(PersistedMemoryOutcome {
+                    claim_id: Some(summary.claim_id),
+                    outcome: "related",
+                    fact_preview: fact_preview(&summary.fact),
+                    sensitivity: sensitivity_label(summary.sensitivity).to_string(),
+                    status: summary.status,
+                })
+            }
+            ConsolidationDecisionKind::Supersede | ConsolidationDecisionKind::NeedsReview => {
+                candidate.status = ClaimStatus::Candidate;
+                let summary = self.store.create_or_reinforce_claim(candidate).await?;
+                Ok(PersistedMemoryOutcome {
+                    claim_id: Some(summary.claim_id),
+                    outcome: "needs_review",
+                    fact_preview: fact_preview(&summary.fact),
+                    sensitivity: sensitivity_label(summary.sensitivity).to_string(),
+                    status: summary.status,
+                })
+            }
+        }
     }
 
     async fn persist_explicit_memory_claim(
@@ -1911,6 +2056,27 @@ fn claim_outcome_json(summary: &crate::ClaimSummary) -> Value {
     })
 }
 
+#[derive(Debug, Clone)]
+struct PersistedMemoryOutcome {
+    claim_id: Option<String>,
+    outcome: &'static str,
+    fact_preview: String,
+    sensitivity: String,
+    status: ClaimStatus,
+}
+
+impl PersistedMemoryOutcome {
+    fn from_claim_summary(summary: crate::ClaimSummary) -> Self {
+        Self {
+            claim_id: Some(summary.claim_id),
+            outcome: claim_write_outcome_label(summary.write_outcome),
+            fact_preview: fact_preview(&summary.fact),
+            sensitivity: sensitivity_label(summary.sensitivity).to_string(),
+            status: summary.status,
+        }
+    }
+}
+
 fn claim_write_outcome_label(outcome: ClaimWriteOutcome) -> &'static str {
     match outcome {
         ClaimWriteOutcome::Created => "created",
@@ -1951,20 +2117,33 @@ fn provider_memory_claim_summary(saved_count: usize, failed_count: usize) -> Str
     }
 }
 
-fn provider_memory_review_summary(predicate_proposal_count: usize, failed_count: usize) -> String {
-    match (predicate_proposal_count, failed_count) {
+fn provider_memory_review_summary(
+    predicate_proposal_count: usize,
+    review_claim_count: usize,
+    failed_count: usize,
+) -> String {
+    let reviewed = predicate_proposal_count + review_claim_count;
+    let reviewed_label = match (predicate_proposal_count, review_claim_count) {
+        (0, 1) => "stored 1 graph claim for review".to_string(),
+        (0, count) => format!("stored {count} graph claims for review"),
         (1, 0) => "stored 1 predicate proposal for review".to_string(),
         (count, 0) => format!("stored {count} predicate proposals for review"),
-        (1, 1) => "stored 1 predicate proposal for review; 1 proposal failed".to_string(),
-        (1, failed) => {
-            format!("stored 1 predicate proposal for review; {failed} proposals failed")
+        (1, 1) => "stored 1 graph claim and 1 predicate proposal for review".to_string(),
+        (predicates, 1) => {
+            format!("stored 1 graph claim and {predicates} predicate proposals for review")
         }
-        (count, 1) => {
-            format!("stored {count} predicate proposals for review; 1 proposal failed")
+        (1, claims) => {
+            format!("stored {claims} graph claims and 1 predicate proposal for review")
         }
-        (count, failed) => {
-            format!("stored {count} predicate proposals for review; {failed} proposals failed")
+        (predicates, claims) => {
+            format!("stored {claims} graph claims and {predicates} predicate proposals for review")
         }
+    };
+
+    match (reviewed, failed_count) {
+        (_, 0) => reviewed_label,
+        (_, 1) => format!("{reviewed_label}; 1 proposal failed"),
+        (_, failed) => format!("{reviewed_label}; {failed} proposals failed"),
     }
 }
 
@@ -2004,6 +2183,18 @@ fn sensitivity_label(sensitivity: Sensitivity) -> &'static str {
         Sensitivity::Private => "private",
         Sensitivity::Sensitive => "sensitive",
         Sensitivity::Secret => "secret",
+    }
+}
+
+fn claim_status_label(status: ClaimStatus) -> &'static str {
+    match status {
+        ClaimStatus::Candidate => "candidate",
+        ClaimStatus::Active => "active",
+        ClaimStatus::Confirmed => "confirmed",
+        ClaimStatus::Disputed => "disputed",
+        ClaimStatus::Superseded => "superseded",
+        ClaimStatus::Archived => "archived",
+        ClaimStatus::Deleted => "deleted",
     }
 }
 

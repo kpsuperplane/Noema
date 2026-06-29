@@ -1611,6 +1611,113 @@ async fn provider_first_person_memory_reinforces_explicit_canonical_claim() {
 }
 
 #[tokio::test]
+async fn semantic_repeat_reinforces_existing_claim() {
+    let (handle, store) =
+        test_runtime_handle_with_store(fake_codex_provider_with_memory_extraction()).await;
+    let conversation = handle
+        .start_conversation(None, None)
+        .await
+        .expect("conversation");
+    let conversation_id = conversation.conversation_id.clone();
+
+    collect_turn(
+        &handle,
+        conversation_id.clone(),
+        "I like ice cream.".to_string(),
+    )
+    .await
+    .expect("seed turn");
+    let items = collect_turn(
+        &handle,
+        conversation_id,
+        "Ice cream is one of my favorite desserts.".to_string(),
+    )
+    .await
+    .expect("repeat turn");
+
+    assert!(
+        items.iter().any(|item| {
+            matches!(
+                item,
+                TurnTranscriptItem::Activity {
+                    activity_kind,
+                    status: TurnActivityStatus::Completed,
+                    title,
+                    metadata,
+                    ..
+                } if activity_kind == "memory_extraction"
+                    && title == "Memory persisted"
+                    && metadata["reinforced_claim_count"] == 1
+            )
+        }),
+        "expected reinforced memory activity, got {items:?}"
+    );
+
+    let claims = store
+        .retrieve_claims(&answer_claim_request(), "ice cream", 8)
+        .await
+        .expect("retrieve ice cream");
+    assert_eq!(
+        claims.included.len(),
+        1,
+        "expected one reinforced claim: {claims:?}"
+    );
+    handle.shutdown().await;
+}
+
+#[tokio::test]
+async fn contradiction_becomes_reviewable_dispute() {
+    let (handle, store) =
+        test_runtime_handle_with_store(fake_codex_provider_with_memory_extraction()).await;
+    let conversation = handle
+        .start_conversation(None, None)
+        .await
+        .expect("conversation");
+    let conversation_id = conversation.conversation_id.clone();
+
+    collect_turn(
+        &handle,
+        conversation_id.clone(),
+        "I like ice cream.".to_string(),
+    )
+    .await
+    .expect("seed turn");
+    let items = collect_turn(&handle, conversation_id, "I hate ice cream.".to_string())
+        .await
+        .expect("conflict turn");
+
+    assert!(
+        items.iter().any(|item| {
+            matches!(
+                item,
+                TurnTranscriptItem::Activity {
+                    activity_kind,
+                    status: TurnActivityStatus::Completed,
+                    title,
+                    metadata,
+                    ..
+                } if activity_kind == "memory_extraction"
+                    && title == "Memory needs review"
+                    && metadata["disputed_claim_count"] == 1
+            )
+        }),
+        "expected disputed memory activity, got {items:?}"
+    );
+
+    let claims = store
+        .list_claims(crate::MemoryClaimFilter {
+            query: Some("ice cream".to_string()),
+            status: Some(crate::ClaimStatus::Disputed),
+            predicate_id: None,
+            limit: Some(10),
+        })
+        .await
+        .expect("disputed claims");
+    assert_eq!(claims.len(), 1);
+    handle.shutdown().await;
+}
+
+#[tokio::test]
 async fn provider_user_loves_planes_canonicalizes_to_likes_claim() {
     let (handle, store) =
         test_runtime_handle_with_store(fake_codex_provider_with_memory_extraction()).await;
@@ -3360,19 +3467,21 @@ fn canonicalization_response_text(input: &str, scenario: FakeCodexScenario) -> S
 
 fn memory_extraction_output(input: &str) -> Vec<GenerateOutputItem> {
     if input.contains("Noema's memory consolidation comparator") {
-        let existing_memory_id =
+        let existing_claim_id =
             first_memory_id_from_consolidation_prompt(input).expect("existing memory id");
-        let decision = if input.contains("Kevin hates ice cream.") {
+        let decision = if input.contains("Kevin hates ice cream.")
+            || input.contains("Kevin dislikes ice cream.")
+        {
             json!({
-                "decision": "conflict",
-                "existing_memory_id": existing_memory_id,
+                "decision": "dispute",
+                "existing_claim_id": existing_claim_id,
                 "confidence": 0.93,
                 "rationale": "opposite ice cream preference",
             })
         } else {
             json!({
                 "decision": "reinforce",
-                "existing_memory_id": existing_memory_id,
+                "existing_claim_id": existing_claim_id,
                 "confidence": 0.92,
                 "rationale": "same ice cream preference",
             })
@@ -3560,6 +3669,27 @@ fn memory_extraction_output(input: &str) -> Vec<GenerateOutputItem> {
                         "evidence_excerpt": "I collect model aircraft."
                     })),
                 ],
+            },
+        ];
+    }
+
+    if input.contains("I like ice cream.") {
+        return vec![
+            GenerateOutputItem::AssistantText {
+                text: "fake answer".to_string(),
+            },
+            GenerateOutputItem::MemoryProposals {
+                proposals: vec![proposal(json!({
+                    "content": "Kevin likes ice cream.",
+                    "memory_type": "preference",
+                    "title": "Ice cream preference",
+                    "confidence": 0.91,
+                    "sensitivity": "normal",
+                    "subjects": [{"id": "human:local", "kind": "human", "name": "Kevin", "role": "about"}],
+                    "retrieval_hints": {"topics": ["food"], "keywords": ["ice cream"], "summary": "Kevin likes ice cream."},
+                    "risk_flags": [],
+                    "evidence_excerpt": "I like ice cream."
+                }))],
             },
         ];
     }
