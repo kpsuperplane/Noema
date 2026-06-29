@@ -1242,7 +1242,7 @@ impl CodexRuntimeActor {
         proposal: &MemoryWriteProposal,
     ) -> Result<Vec<CanonicalClaimCandidate>, DaemonError> {
         let predicates = self.store.predicate_catalog().await?;
-        let catalog_json = serde_json::to_value(predicates).map_err(|error| {
+        let catalog_json = serde_json::to_value(&predicates).map_err(|error| {
             DaemonError::Protocol(format!("predicate catalog serialization failed: {error}"))
         })?;
         let prompt = build_claim_canonicalization_prompt(proposal, &catalog_json);
@@ -1263,6 +1263,17 @@ impl CodexRuntimeActor {
                 )));
             }
         };
+        for candidate in &parsed.candidates {
+            if let PredicateResolution::PromotedPredicate { predicate_id } = &candidate.predicate
+                && !predicates
+                    .iter()
+                    .any(|predicate| predicate.predicate_id == *predicate_id)
+            {
+                return Err(DaemonError::Protocol(format!(
+                    "memory canonicalization failed: unknown promoted predicate_id {predicate_id}"
+                )));
+            }
+        }
         Ok(parsed.candidates)
     }
 
@@ -1522,7 +1533,14 @@ impl CodexRuntimeActor {
                     ),
                 )
             } else {
-                provider_memory_claim_activity(saved_claim_count, failed_proposal_count)
+                provider_memory_claim_activity(
+                    saved_claim_count,
+                    failed_proposal_count,
+                    failed_proposals
+                        .first()
+                        .and_then(|proposal| proposal.get("error"))
+                        .and_then(Value::as_str),
+                )
             };
         let activity = memory_activity(
             &activity_id,
@@ -2307,6 +2325,7 @@ fn build_local_tool_result_continuation_system_prompt(
 fn provider_memory_claim_activity(
     saved_count: usize,
     failed_count: usize,
+    first_error: Option<&str>,
 ) -> (TurnActivityStatus, &'static str, String) {
     if failed_count == 0 {
         return (
@@ -2318,7 +2337,7 @@ fn provider_memory_claim_activity(
 
     if saved_count == 0 {
         let summary = if failed_count == 1 {
-            "graph claim write failed".to_string()
+            provider_memory_single_failure_summary(first_error)
         } else {
             provider_memory_claim_summary(saved_count, failed_count)
         };
@@ -2334,6 +2353,14 @@ fn provider_memory_claim_activity(
         "Memory persistence partially failed",
         provider_memory_claim_summary(saved_count, failed_count),
     )
+}
+
+fn provider_memory_single_failure_summary(error: Option<&str>) -> String {
+    if error.is_some_and(|error| error.contains("memory canonicalization failed")) {
+        "memory canonicalization failed".to_string()
+    } else {
+        "graph claim write failed".to_string()
+    }
 }
 
 fn claim_outcome_json(summary: &crate::ClaimSummary) -> Value {

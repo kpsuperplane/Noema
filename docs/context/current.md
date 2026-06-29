@@ -61,6 +61,11 @@ The next storage slice should stay small and concrete:
   predicates create review-gated predicate proposals, bounded match search
   supports conservative consolidation, and GraphQL/CLI expose predicate
   proposal inspection.
+- The claim canonicalizer prompt must spell out the exact strict JSON contract
+  consumed by the parser. Runtime canonicalization validates promoted
+  `predicate_id` values against the current catalog before any graph write, so
+  provider/schema mismatches surface as canonicalization failures rather than
+  generic graph write failures.
 - Derived search/vector indexes are rebuildable projections.
 - Graph or fuzzy retrieval can suggest candidates, but policy gates inclusion.
 - Pre-stable schema changes do not need migrations or backwards compatibility unless explicitly requested.

@@ -1235,10 +1235,12 @@ async fn provider_memory_malformed_canonicalizer_response_fails_without_fallback
                 activity_kind,
                 status: TurnActivityStatus::Failed,
                 title,
+                summary: Some(summary),
                 metadata,
                 ..
             } if activity_kind == "memory_extraction"
                 && title == "Memory persistence failed"
+                && summary.contains("memory canonicalization failed")
                 && metadata["failed_proposal_count"] == 1
                 && metadata["failed_proposals"][0]["error"]
                     .as_str()
@@ -1333,6 +1335,50 @@ async fn provider_memory_mismatched_canonical_entity_fails_without_fallback_clai
         assert_eq!(local_human.entity_type, "human");
         assert_eq!(local_human.canonical_name, "Local human");
     }
+    handle.shutdown().await;
+}
+
+#[tokio::test]
+async fn provider_memory_unknown_promoted_predicate_fails_before_graph_write() {
+    let (handle, _store) =
+        test_runtime_handle_with_store(fake_codex_provider_with_unknown_canonical_predicate())
+            .await;
+
+    let conversation = handle
+        .start_conversation(None, None)
+        .await
+        .expect("conversation");
+    let items = collect_turn(
+        &handle,
+        conversation.conversation_id,
+        "I prefer automatic memory extraction in chat.".to_string(),
+    )
+    .await
+    .expect("turn should complete despite unknown promoted predicate");
+
+    assert_eq!(assistant_text(&items), "fake answer");
+    assert!(
+        items.iter().any(|item| {
+            matches!(
+                item,
+                TurnTranscriptItem::Activity {
+                    activity_kind,
+                    status: TurnActivityStatus::Failed,
+                    title,
+                    metadata,
+                    ..
+                } if activity_kind == "memory_extraction"
+                    && title == "Memory persistence failed"
+                    && metadata["source"] == "provider_structured_output"
+                    && metadata["proposal_count"] == 1
+                    && metadata["failed_proposal_count"] == 1
+                    && metadata["failed_proposals"][0]["error"]
+                        .as_str()
+                        .is_some_and(|error| error.contains("unknown promoted predicate_id adores"))
+            )
+        }),
+        "unexpected memory activity items: {items:?}"
+    );
     handle.shutdown().await;
 }
 
@@ -3315,6 +3361,7 @@ enum FakeCodexScenario {
     MislabelledSecretMemory,
     MalformedCanonicalizer,
     MismatchedCanonicalEntity,
+    UnknownCanonicalPredicate,
     PartialMemoryWrite,
     InvalidMemoryProposal,
     MemoryExtraction,
@@ -3790,6 +3837,13 @@ impl FakeCodexProvider {
                     }))],
                 },
             ],
+            FakeCodexScenario::UnknownCanonicalPredicate => memory_extraction_output(
+                &input,
+                self.invalid_consolidation_target_id
+                    .lock()
+                    .expect("invalid consolidation target lock")
+                    .as_deref(),
+            ),
             FakeCodexScenario::MemoryExtraction => memory_extraction_output(
                 &input,
                 self.invalid_consolidation_target_id
@@ -3929,6 +3983,22 @@ fn canonicalization_response_text(input: &str, scenario: FakeCodexScenario) -> S
                 "confidence": 0.9,
                 "retrieval_hints": {"keywords": ["canonical entity validation"], "summary": "Kevin prefers unsafe canonical entity metadata."},
                 "rationale": "Unsafe fake canonicalizer promotion used to verify entity identity validation."
+            }]
+        })
+    } else if matches!(scenario, FakeCodexScenario::UnknownCanonicalPredicate)
+        && input.contains("Kevin prefers automatic memory extraction in chat.")
+    {
+        json!({
+            "candidates": [{
+                "subject": {"entity_id": "human:local", "entity_type": "human", "canonical_name": "Local human"},
+                "object": {"entity_id": "concept:automatic_memory_extraction", "entity_type": "concept", "canonical_name": "automatic memory extraction in chat"},
+                "predicate": {"kind": "promoted_predicate", "predicate_id": "adores"},
+                "fact": "Kevin adores automatic memory extraction in chat.",
+                "sensitivity": "normal",
+                "status": "active",
+                "confidence": 0.9,
+                "retrieval_hints": {"keywords": ["automatic memory extraction", "chat"], "summary": "Kevin adores automatic memory extraction in chat."},
+                "rationale": "Unsafe fake canonicalizer promotion used to verify catalog validation."
             }]
         })
     } else if input.contains("Kevin collects model aircraft.") {
@@ -4599,6 +4669,10 @@ fn fake_codex_provider_with_malformed_canonicalizer() -> FakeCodexProvider {
 
 fn fake_codex_provider_with_mismatched_canonical_entity() -> FakeCodexProvider {
     FakeCodexProvider::new(FakeCodexScenario::MismatchedCanonicalEntity)
+}
+
+fn fake_codex_provider_with_unknown_canonical_predicate() -> FakeCodexProvider {
+    FakeCodexProvider::new(FakeCodexScenario::UnknownCanonicalPredicate)
 }
 
 fn fake_codex_provider_with_partial_memory_write() -> FakeCodexProvider {

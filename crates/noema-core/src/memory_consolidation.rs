@@ -460,6 +460,56 @@ pub fn build_claim_canonicalization_prompt(
 
 Return strict JSON only. Do not include Markdown, comments, or prose.
 
+Required output JSON shape:
+{{
+  "candidates": [
+    {{
+      "subject": {{
+        "entity_id": "human:local",
+        "entity_type": "human",
+        "canonical_name": "Local human"
+      }},
+      "object": {{
+        "entity_id": "concept:stable_object_id",
+        "entity_type": "concept",
+        "canonical_name": "stable object name"
+      }},
+      "predicate": {{
+        "kind": "promoted_predicate",
+        "predicate_id": "exact_catalog_predicate_id"
+      }},
+      "fact": "Local human has a durable relationship to stable object.",
+      "sensitivity": "normal",
+      "status": "active",
+      "confidence": 0.9,
+      "retrieval_hints": {{
+        "keywords": ["stable object"],
+        "summary": "Local human has a durable relationship to stable object."
+      }},
+      "rationale": "The source states a durable relationship."
+    }}
+  ]
+}}
+
+Every candidate must include subject, object, predicate, fact, sensitivity,
+status, confidence, retrieval_hints, and rationale. Use only these field names.
+Entity fields are exactly entity_id, entity_type, and canonical_name.
+Sensitivity must be one of public, normal, private, sensitive, or secret.
+Status must be active, confirmed, or candidate. Use candidate when the memory
+needs review. Use active for memories that can be saved immediately.
+
+Predicate resolution variants:
+- Use {{"kind": "promoted_predicate", "predicate_id": "..."}} only when the
+  predicate_id is copied exactly from the promoted predicate catalog below.
+- Use {{"kind": "predicate_proposal", "proposal": {{...}}}} when no catalog
+  predicate clearly fits. A predicate proposal must include label, description,
+  allowed_subject_types, allowed_object_types, allowed_use_modes,
+  default_sensitivity, conflict_policy, review_policy, inverse_behavior,
+  inverse_predicate_id, proactivity_default, merge_hints, synonym_hints,
+  extraction_hints, and rationale.
+- Use {{"kind": "fallback_note"}} only for genuinely unstructured notes that do
+  not express a durable relationship.
+
 Map the proposal to promoted predicates when one clearly fits. If none fits,
 return a predicate_proposal. Use fallback_note only for genuinely unstructured
 notes that do not express a durable relationship.
@@ -634,6 +684,11 @@ mod tests {
         assert!(prompt.contains("You are Noema's memory claim canonicalizer."));
         assert!(prompt.contains("Return strict JSON only."));
         assert!(prompt.contains("Do not include Markdown, comments, or prose."));
+        assert!(prompt.contains("Required output JSON shape:"));
+        assert!(prompt.contains(r#""kind": "promoted_predicate""#));
+        assert!(prompt.contains(r#""kind": "predicate_proposal""#));
+        assert!(prompt.contains(r#""kind": "fallback_note""#));
+        assert!(prompt.contains("Use active for memories that can be saved immediately."));
         assert!(prompt.contains("Map the proposal to promoted predicates when one clearly fits."));
         assert!(prompt.contains("Use fallback_note only for genuinely unstructured"));
         assert!(prompt.contains("Promoted predicate catalog JSON:"));
