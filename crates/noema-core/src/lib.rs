@@ -94,6 +94,7 @@ pub use providers::{
 pub use store::{
     ClaimRetrievalResult, ClaimStatus, ClaimSummary, ClaimWriteOutcome, EntityCandidate,
     EntityType, EvidenceAuthority, EvidenceCandidate, MemoryClaimDetail, MemoryClaimEvidence,
-    MemoryClaimFilter, MemoryClaimRecord, NewClaimCandidate, NoemaStore, PredicateRecord,
+    MemoryClaimFilter, MemoryClaimRecord, MemoryGraph, MemoryGraphEdge, MemoryGraphFilter,
+    MemoryGraphNode, MemoryGraphSummary, NewClaimCandidate, NoemaStore, PredicateRecord,
     RetrievedClaim, StoreConfig, StoreError,
 };

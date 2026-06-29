@@ -16,8 +16,8 @@ pub(crate) mod tests;
 
 pub use claims::{
     ClaimStatus, ClaimSummary, ClaimWriteOutcome, EvidenceAuthority, EvidenceCandidate,
-    MemoryClaimDetail, MemoryClaimEvidence, MemoryClaimFilter, MemoryClaimRecord,
-    NewClaimCandidate,
+    MemoryClaimDetail, MemoryClaimEvidence, MemoryClaimFilter, MemoryClaimRecord, MemoryGraph,
+    MemoryGraphEdge, MemoryGraphFilter, MemoryGraphNode, MemoryGraphSummary, NewClaimCandidate,
 };
 pub use error::StoreError;
 pub use ontology::{EntityCandidate, EntityType, PredicateRecord};

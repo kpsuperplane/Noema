@@ -580,6 +580,167 @@ async fn list_claims_filters_status_predicate_query_and_clamps_limit() {
 }
 
 #[tokio::test]
+async fn memory_graph_defaults_to_current_statuses_and_reports_truncation() {
+    let store = test_store().await;
+    let train_item = create_source_item(&store, "Kevin likes trains.").await;
+    let coffee_item = create_source_item(&store, "Kevin prefers coffee.").await;
+    let tea_item = create_source_item(&store, "Kevin prefers tea.").await;
+    let notebook_item = create_source_item(&store, "Kevin keeps a Noema notebook.").await;
+    let archived_item = create_source_item(&store, "Kevin liked old buses.").await;
+
+    let mut train = train_claim(train_item.item_id);
+    train.status = ClaimStatus::Candidate;
+    store
+        .create_or_reinforce_claim(train)
+        .await
+        .expect("create candidate claim");
+
+    let mut coffee = train_claim(coffee_item.item_id);
+    coffee.object = EntityCandidate::concept("coffee", "coffee");
+    coffee.predicate_id = "prefers".to_string();
+    coffee.fact = "Kevin prefers coffee.".to_string();
+    coffee.status = ClaimStatus::Active;
+    store
+        .create_or_reinforce_claim(coffee)
+        .await
+        .expect("create active claim");
+
+    let mut tea = train_claim(tea_item.item_id);
+    tea.object = EntityCandidate::concept("tea", "tea");
+    tea.predicate_id = "prefers".to_string();
+    tea.fact = "Kevin prefers tea.".to_string();
+    tea.status = ClaimStatus::Confirmed;
+    store
+        .create_or_reinforce_claim(tea)
+        .await
+        .expect("create confirmed claim");
+
+    let mut notebook = train_claim(notebook_item.item_id);
+    notebook.object = EntityCandidate::concept("noema-notebook", "Noema notebook");
+    notebook.predicate_id = "has_note".to_string();
+    notebook.fact = "Kevin keeps a Noema notebook.".to_string();
+    notebook.status = ClaimStatus::Active;
+    store
+        .create_or_reinforce_claim(notebook)
+        .await
+        .expect("create second active claim");
+
+    let mut archived = train_claim(archived_item.item_id);
+    archived.object = EntityCandidate::concept("old-buses", "old buses");
+    archived.fact = "Kevin liked old buses.".to_string();
+    archived.status = ClaimStatus::Archived;
+    store
+        .create_or_reinforce_claim(archived)
+        .await
+        .expect("create archived claim");
+
+    let full_graph = store
+        .memory_graph(crate::MemoryGraphFilter {
+            query: None,
+            statuses: None,
+            predicate_id: None,
+            sensitivity: None,
+            limit: Some(10),
+        })
+        .await
+        .expect("full memory graph");
+
+    assert_eq!(full_graph.edges.len(), 4);
+    assert!(
+        full_graph
+            .edges
+            .iter()
+            .any(|edge| edge.status == ClaimStatus::Candidate)
+    );
+    assert!(
+        full_graph
+            .edges
+            .iter()
+            .any(|edge| edge.status == ClaimStatus::Active)
+    );
+    assert!(
+        full_graph
+            .edges
+            .iter()
+            .any(|edge| edge.status == ClaimStatus::Confirmed)
+    );
+    assert!(
+        full_graph
+            .edges
+            .iter()
+            .all(|edge| edge.status != ClaimStatus::Archived)
+    );
+
+    let graph = store
+        .memory_graph(crate::MemoryGraphFilter {
+            query: None,
+            statuses: None,
+            predicate_id: None,
+            sensitivity: None,
+            limit: Some(3),
+        })
+        .await
+        .expect("memory graph");
+
+    assert_eq!(graph.summary.limit, 3);
+    assert_eq!(graph.edges.len(), 3);
+    assert_eq!(graph.summary.returned_claim_count, 3);
+    assert_eq!(graph.summary.returned_node_count, graph.nodes.len() as i64);
+    assert!(graph.summary.truncated);
+    assert!(
+        graph
+            .nodes
+            .iter()
+            .any(|node| node.entity_id == "human:local" && node.claim_count >= 1)
+    );
+}
+
+#[tokio::test]
+async fn memory_graph_filters_query_predicate_and_sensitivity() {
+    let store = test_store().await;
+    let train_item = create_source_item(&store, "Kevin likes trains.").await;
+    let private_item = create_source_item(&store, "Garage code is 1234.").await;
+
+    store
+        .create_or_reinforce_claim(train_claim(train_item.item_id))
+        .await
+        .expect("create train claim");
+
+    let mut private_note = train_claim(private_item.item_id);
+    private_note.object = EntityCandidate::concept("garage-code", "Garage code");
+    private_note.predicate_id = "has_note".to_string();
+    private_note.fact = "Garage code is 1234.".to_string();
+    private_note.sensitivity = Sensitivity::Private;
+    private_note.status = ClaimStatus::Confirmed;
+    store
+        .create_or_reinforce_claim(private_note)
+        .await
+        .expect("create private claim");
+
+    let graph = store
+        .memory_graph(crate::MemoryGraphFilter {
+            query: Some("garage".to_string()),
+            statuses: Some(vec![ClaimStatus::Confirmed]),
+            predicate_id: Some("has_note".to_string()),
+            sensitivity: Some(Sensitivity::Private),
+            limit: Some(150),
+        })
+        .await
+        .expect("memory graph");
+
+    assert_eq!(graph.edges.len(), 1);
+    assert_eq!(graph.edges[0].predicate_id, "has_note");
+    assert_eq!(graph.edges[0].sensitivity, Sensitivity::Private);
+    assert_eq!(graph.edges[0].fact, "Garage code is 1234.");
+    assert!(
+        graph
+            .nodes
+            .iter()
+            .any(|node| node.max_sensitivity == Sensitivity::Private)
+    );
+}
+
+#[tokio::test]
 async fn claim_detail_includes_support_evidence_and_unknown_claim_is_none() {
     let store = test_store().await;
     let first_item = create_source_item(&store, "Kevin likes trains.").await;

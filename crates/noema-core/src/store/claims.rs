@@ -238,6 +238,91 @@ pub struct MemoryClaimEvidence {
     pub created_at: String,
 }
 
+/// Read-only filters for the bounded memory graph read model.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct MemoryGraphFilter {
+    /// Optional text query matched against facts, predicate labels, and entity names.
+    pub query: Option<String>,
+    /// Optional claim lifecycle statuses. Defaults to candidate, active, and confirmed.
+    pub statuses: Option<Vec<ClaimStatus>>,
+    /// Optional predicate id.
+    pub predicate_id: Option<String>,
+    /// Optional exact sensitivity filter.
+    pub sensitivity: Option<Sensitivity>,
+    /// Optional bounded result limit.
+    pub limit: Option<usize>,
+}
+
+/// Bounded graph-memory projection for owner/admin inspection.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MemoryGraph {
+    /// Entity nodes incident to the returned claim edges.
+    pub nodes: Vec<MemoryGraphNode>,
+    /// Claim edges connecting returned entity nodes.
+    pub edges: Vec<MemoryGraphEdge>,
+    /// Summary metadata for the bounded result.
+    pub summary: MemoryGraphSummary,
+}
+
+/// Entity node in the memory graph read model.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MemoryGraphNode {
+    /// Stable graph node id derived from the entity id.
+    pub node_id: String,
+    /// Canonical entity id.
+    pub entity_id: String,
+    /// Human-readable entity label.
+    pub label: String,
+    /// Entity type string.
+    pub entity_type: String,
+    /// Strictest sensitivity among returned incident edges.
+    pub max_sensitivity: Sensitivity,
+    /// Count of returned incident claim edges.
+    pub claim_count: i64,
+}
+
+/// Claim edge in the memory graph read model.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MemoryGraphEdge {
+    /// Stable claim id.
+    pub claim_id: String,
+    /// Source entity node id.
+    pub source_node_id: String,
+    /// Target entity node id.
+    pub target_node_id: String,
+    /// Predicate id.
+    pub predicate_id: String,
+    /// Predicate label.
+    pub predicate_label: String,
+    /// Canonical fact text.
+    pub fact: String,
+    /// Claim status.
+    pub status: ClaimStatus,
+    /// Claim sensitivity.
+    pub sensitivity: Sensitivity,
+    /// Claim confidence.
+    pub confidence: Option<f64>,
+    /// Count of supporting evidence rows.
+    pub evidence_count: i64,
+    /// Creation timestamp.
+    pub created_at: String,
+    /// Update timestamp.
+    pub updated_at: String,
+}
+
+/// Summary metadata for a bounded memory graph result.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MemoryGraphSummary {
+    /// Number of claim edges returned.
+    pub returned_claim_count: i64,
+    /// Number of entity nodes returned.
+    pub returned_node_count: i64,
+    /// Effective result limit after clamping.
+    pub limit: usize,
+    /// Whether at least one matching claim was omitted by the limit.
+    pub truncated: bool,
+}
+
 impl NoemaStore {
     /// List graph-memory claims for owner/admin inspection.
     ///
@@ -313,6 +398,154 @@ impl NoemaStore {
         }
 
         Ok(claims)
+    }
+
+    /// Return a bounded memory graph read model for owner/admin inspection.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when stored enum data is invalid or the embedded
+    /// store read fails.
+    pub async fn memory_graph(&self, filter: MemoryGraphFilter) -> Result<MemoryGraph, StoreError> {
+        let predicates = self.inspection_predicates().await?;
+        let entities = self.inspection_entities().await?;
+        let evidence_counts = self.inspection_evidence_counts().await?;
+        let query = filter
+            .query
+            .as_deref()
+            .map(str::trim)
+            .filter(|query| !query.is_empty())
+            .map(str::to_ascii_lowercase);
+        let statuses = filter
+            .statuses
+            .filter(|statuses| !statuses.is_empty())
+            .unwrap_or_else(default_memory_graph_statuses);
+        let status_values = statuses
+            .iter()
+            .map(|status| status.as_str().to_string())
+            .collect::<Vec<_>>();
+        let limit = clamp_memory_graph_limit(filter.limit);
+        let fetch_limit = limit.saturating_add(1);
+        let db_limit = query.is_none().then_some(fetch_limit);
+
+        let mut sql = String::from(
+            r#"
+            SELECT claim_id, subject_entity_id, object_entity_id, predicate_id, fact,
+              status, sensitivity, confidence, created_at, updated_at
+            FROM claims
+            WHERE status IN $statuses
+            "#,
+        );
+        if filter.predicate_id.is_some() {
+            sql.push_str("AND predicate_id = $predicate_id\n");
+        }
+        if filter.sensitivity.is_some() {
+            sql.push_str("AND sensitivity = $sensitivity\n");
+        }
+        sql.push_str(
+            r#"
+            ORDER BY created_at DESC, claim_id ASC
+            "#,
+        );
+        if db_limit.is_some() {
+            sql.push_str("LIMIT $limit\n");
+        }
+        sql.push(';');
+
+        let mut statement = self.db.query(sql).bind(("statuses", status_values));
+        if let Some(db_limit) = db_limit {
+            statement = statement.bind(("limit", db_limit));
+        }
+        if let Some(predicate_id) = filter.predicate_id {
+            statement = statement.bind(("predicate_id", predicate_id));
+        }
+        if let Some(sensitivity) = filter.sensitivity {
+            statement =
+                statement.bind(("sensitivity", sensitivity_to_store(sensitivity).to_string()));
+        }
+        let mut response = statement.await?;
+        let rows: Vec<InspectionClaimRow> = response.take(0)?;
+        let mut claims = Vec::new();
+        let mut truncated = false;
+
+        for row in rows {
+            let claim = memory_claim_record(row, &predicates, &entities, &evidence_counts)?;
+            if let Some(query) = query.as_deref()
+                && !claim.matches_query(query)
+            {
+                continue;
+            }
+            if claims.len() >= limit {
+                truncated = true;
+                break;
+            }
+            claims.push(claim);
+        }
+
+        let mut node_map = HashMap::<String, MemoryGraphNode>::new();
+        let mut edges = Vec::new();
+
+        for claim in claims {
+            let source_node_id = entity_node_id(&claim.subject_entity_id);
+            let target_entity_id = claim
+                .object_entity_id
+                .as_deref()
+                .unwrap_or(&claim.subject_entity_id);
+            let target_node_id = entity_node_id(target_entity_id);
+
+            upsert_memory_graph_node(
+                &mut node_map,
+                &source_node_id,
+                &claim.subject_entity_id,
+                &claim.subject_entity_name,
+                &claim.subject_entity_type,
+                claim.sensitivity,
+            );
+            if let (Some(object_entity_id), Some(object_name), Some(object_type)) = (
+                claim.object_entity_id.as_deref(),
+                claim.object_entity_name.as_deref(),
+                claim.object_entity_type.as_deref(),
+            ) {
+                upsert_memory_graph_node(
+                    &mut node_map,
+                    &target_node_id,
+                    object_entity_id,
+                    object_name,
+                    object_type,
+                    claim.sensitivity,
+                );
+            }
+
+            edges.push(MemoryGraphEdge {
+                claim_id: claim.claim_id,
+                source_node_id,
+                target_node_id,
+                predicate_id: claim.predicate_id,
+                predicate_label: claim.predicate_label,
+                fact: claim.fact,
+                status: claim.status,
+                sensitivity: claim.sensitivity,
+                confidence: claim.confidence,
+                evidence_count: claim.evidence_count,
+                created_at: claim.created_at,
+                updated_at: claim.updated_at,
+            });
+        }
+
+        let mut nodes = node_map.into_values().collect::<Vec<_>>();
+        nodes.sort_by(|left, right| left.node_id.cmp(&right.node_id));
+        edges.sort_by(|left, right| left.claim_id.cmp(&right.claim_id));
+
+        Ok(MemoryGraph {
+            summary: MemoryGraphSummary {
+                returned_claim_count: edges.len() as i64,
+                returned_node_count: nodes.len() as i64,
+                limit,
+                truncated,
+            },
+            nodes,
+            edges,
+        })
     }
 
     /// Return one graph-memory claim with support evidence for owner/admin inspection.
@@ -1016,6 +1249,69 @@ fn contains_case_folded(value: &str, query: &str) -> bool {
 
 fn clamp_claim_inspection_limit(limit: Option<usize>) -> usize {
     limit.unwrap_or(50).clamp(1, 100)
+}
+
+const DEFAULT_MEMORY_GRAPH_LIMIT: usize = 150;
+const MAX_MEMORY_GRAPH_LIMIT: usize = 500;
+
+fn clamp_memory_graph_limit(limit: Option<usize>) -> usize {
+    limit
+        .unwrap_or(DEFAULT_MEMORY_GRAPH_LIMIT)
+        .clamp(1, MAX_MEMORY_GRAPH_LIMIT)
+}
+
+fn default_memory_graph_statuses() -> Vec<ClaimStatus> {
+    vec![
+        ClaimStatus::Candidate,
+        ClaimStatus::Active,
+        ClaimStatus::Confirmed,
+    ]
+}
+
+fn entity_node_id(entity_id: &str) -> String {
+    format!("entity:{entity_id}")
+}
+
+fn upsert_memory_graph_node(
+    nodes: &mut HashMap<String, MemoryGraphNode>,
+    node_id: &str,
+    entity_id: &str,
+    label: &str,
+    entity_type: &str,
+    sensitivity: Sensitivity,
+) {
+    nodes
+        .entry(node_id.to_string())
+        .and_modify(|node| {
+            node.claim_count += 1;
+            node.max_sensitivity = stricter_sensitivity(node.max_sensitivity, sensitivity);
+        })
+        .or_insert_with(|| MemoryGraphNode {
+            node_id: node_id.to_string(),
+            entity_id: entity_id.to_string(),
+            label: label.to_string(),
+            entity_type: entity_type.to_string(),
+            max_sensitivity: sensitivity,
+            claim_count: 1,
+        });
+}
+
+fn stricter_sensitivity(left: Sensitivity, right: Sensitivity) -> Sensitivity {
+    if sensitivity_rank(left) >= sensitivity_rank(right) {
+        left
+    } else {
+        right
+    }
+}
+
+const fn sensitivity_rank(sensitivity: Sensitivity) -> u8 {
+    match sensitivity {
+        Sensitivity::Public => 0,
+        Sensitivity::Normal => 1,
+        Sensitivity::Private => 2,
+        Sensitivity::Sensitive => 3,
+        Sensitivity::Secret => 4,
+    }
 }
 
 fn format_datetime(value: Datetime) -> String {
