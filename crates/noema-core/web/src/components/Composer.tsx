@@ -3,6 +3,18 @@ import { SendHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 
+const composerMinWidthCh = 18;
+const composerMaxWidthCh = 58;
+const composerWidthBufferCh = 5;
+const composerWidthBufferPx = 32;
+
+type ComposerInlineSize = {
+  minWidth: string;
+  width: string;
+};
+
+const useBrowserLayoutEffect = typeof window === "undefined" ? React.useEffect : React.useLayoutEffect;
+
 export function isComposerTextareaDisabled({ ready }: { ready: boolean }) {
   return !ready;
 }
@@ -26,23 +38,71 @@ export function composerTextareaProps() {
   return {
     rows: 1,
     className:
-      "min-h-9 max-h-40 min-w-0 w-auto max-w-[min(58ch,calc(var(--chat-column-width)_-_5rem))] overflow-y-auto border-transparent bg-transparent px-2.5 py-1.5 leading-6 text-primary-foreground placeholder:text-primary-foreground/70 focus-visible:border-transparent focus-visible:ring-0 disabled:opacity-70"
+      "min-h-9 max-h-40 min-w-0 w-full overflow-y-auto border-transparent bg-transparent px-2.5 py-1.5 leading-6 text-primary-foreground placeholder:text-primary-foreground/70 focus-visible:border-transparent focus-visible:ring-0 disabled:opacity-70"
   };
 }
 
 export function composerDraftInlineSize({
   value,
-  placeholder
+  placeholder,
+  measureText,
+  widthBufferPx = composerWidthBufferPx
 }: {
   value: string;
   placeholder: string;
-}): string {
+  measureText?: (text: string) => number;
+  widthBufferPx?: number;
+}): ComposerInlineSize {
   const content = value.length > 0 ? value : placeholder;
-  const longestLine = content
-    .split(/\r\n|\n|\r/)
-    .reduce((longest, line) => Math.max(longest, Array.from(line).length), 0);
-  const widthInCh = Math.min(58, Math.max(14, longestLine + 2));
-  return `${widthInCh}ch`;
+  const longestLine = longestDraftLine(content);
+  const longestPlaceholderLine = longestDraftLine(placeholder);
+
+  if (measureText) {
+    const placeholderWidth = Math.ceil(measureText(longestPlaceholderLine) + widthBufferPx);
+    const contentWidth = Math.ceil(measureText(longestLine) + widthBufferPx);
+    return {
+      minWidth: `${placeholderWidth}px`,
+      width: `${Math.max(placeholderWidth, contentWidth)}px`
+    };
+  }
+
+  const minWidthInCh = Math.min(
+    composerMaxWidthCh,
+    Math.max(composerMinWidthCh, Array.from(longestPlaceholderLine).length + composerWidthBufferCh)
+  );
+  const widthInCh = Math.min(
+    composerMaxWidthCh,
+    Math.max(minWidthInCh, Array.from(longestLine).length + composerWidthBufferCh)
+  );
+  return { minWidth: `${minWidthInCh}ch`, width: `${widthInCh}ch` };
+}
+
+function longestDraftLine(content: string): string {
+  return content.split(/\r\n|\n|\r/).reduce((longest, line) => {
+    return Array.from(line).length > Array.from(longest).length ? line : longest;
+  }, "");
+}
+
+export function composerTextareaStyle(): React.CSSProperties {
+  return {
+    fieldSizing: "fixed"
+  };
+}
+
+export function composerTextareaWrapStyle({
+  inlineSize,
+  value,
+  placeholder
+}: {
+  inlineSize?: ComposerInlineSize;
+  value: string;
+  placeholder: string;
+}): React.CSSProperties {
+  const size = inlineSize ?? composerDraftInlineSize({ value, placeholder });
+  return {
+    width: size.width,
+    minWidth: size.minWidth
+  };
 }
 
 export function refocusComposerTextarea(
@@ -82,7 +142,51 @@ export function Composer({
 
   const submitState = composerSubmitState({ ready, value, pending });
   const textareaProps = composerTextareaProps();
-  const textareaInlineSize = composerDraftInlineSize({ value, placeholder });
+  const sizeKey = `${value}\u0000${placeholder}`;
+  const fallbackInlineSize = React.useMemo(
+    () => composerDraftInlineSize({ value, placeholder }),
+    [value, placeholder]
+  );
+  const [measuredInlineSize, setMeasuredInlineSize] = React.useState<{
+    key: string;
+    size: ComposerInlineSize;
+  } | null>(null);
+
+  useBrowserLayoutEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea || typeof document === "undefined") {
+      return;
+    }
+    const context = document.createElement("canvas").getContext("2d");
+    if (!context) {
+      return;
+    }
+
+    const styles = window.getComputedStyle(textarea);
+    context.font = styles.font;
+    const padding =
+      Number.parseFloat(styles.paddingLeft || "0") + Number.parseFloat(styles.paddingRight || "0");
+    const nextSize = composerDraftInlineSize({
+      value,
+      placeholder,
+      measureText: (text) => context.measureText(text || " ").width,
+      widthBufferPx: padding + 16
+    });
+    setMeasuredInlineSize((previous) =>
+      previous?.key === sizeKey &&
+      previous.size.width === nextSize.width &&
+      previous.size.minWidth === nextSize.minWidth
+        ? previous
+        : { key: sizeKey, size: nextSize }
+    );
+  }, [placeholder, sizeKey, value]);
+
+  const textareaStyle = composerTextareaStyle();
+  const textareaWrapStyle = composerTextareaWrapStyle({
+    value,
+    placeholder,
+    inlineSize: measuredInlineSize?.key === sizeKey ? measuredInlineSize.size : fallbackInlineSize
+  });
 
   return (
     <form
@@ -95,28 +199,30 @@ export function Composer({
     >
       <div
         data-slot="composer-bubble"
-        className="flex w-fit min-w-[min(13rem,100%)] max-w-[88%] items-end gap-1.5 rounded-3xl bg-primary p-1.5 text-primary-foreground shadow-[0_8px_24px_rgba(23,22,15,0.08)] max-[760px]:max-w-full"
+        className="relative w-fit min-w-[min(13rem,100%)] max-w-[88%] rounded-3xl bg-primary p-1.5 pr-12 text-primary-foreground shadow-[0_8px_24px_rgba(23,22,15,0.08)] max-[760px]:max-w-full"
       >
-        <Textarea
-          ref={textareaRef}
-          value={value}
-          disabled={isComposerTextareaDisabled({ ready })}
-          placeholder={placeholder}
-          rows={textareaProps.rows}
-          style={{ width: textareaInlineSize }}
-          className={textareaProps.className}
-          onChange={(event) => onChange(event.currentTarget.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && !event.shiftKey) {
-              event.preventDefault();
-              submit();
-            }
-          }}
-        />
+        <div data-slot="composer-textarea-wrap" className="min-w-0" style={textareaWrapStyle}>
+          <Textarea
+            ref={textareaRef}
+            value={value}
+            disabled={isComposerTextareaDisabled({ ready })}
+            placeholder={placeholder}
+            rows={textareaProps.rows}
+            style={textareaStyle}
+            className={textareaProps.className}
+            onChange={(event) => onChange(event.currentTarget.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault();
+                submit();
+              }
+            }}
+          />
+        </div>
         <Button
           type="submit"
           size="icon-lg"
-          className="rounded-full bg-primary-foreground text-primary hover:bg-primary-foreground/90 disabled:text-primary/70"
+          className="absolute right-1.5 bottom-1.5 rounded-full bg-primary-foreground text-primary hover:bg-primary-foreground/90 disabled:text-primary/70"
           aria-label={submitState.label}
           disabled={submitState.disabled}
         >

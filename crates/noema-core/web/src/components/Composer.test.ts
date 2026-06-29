@@ -52,47 +52,87 @@ describe("composer human bubble presentation", () => {
     assert.doesNotMatch(shellClassName, /\bborder-t\b/);
 
     const bubbleClassName = dataSlotClassName(markup, "composer-bubble");
-    assert.match(bubbleClassName, /\bflex\b/);
+    assert.match(bubbleClassName, /\brelative\b/);
     assert.match(bubbleClassName, /\bw-fit\b/);
     assert.match(bubbleClassName, /min-w-\[min\(13rem,100%\)\]/);
     assert.match(bubbleClassName, /max-w-\[88%\]/);
+    assert.match(bubbleClassName, /\bpr-12\b/);
     assert.match(bubbleClassName, /\bbg-primary\b/);
     assert.match(bubbleClassName, /\brounded-3xl\b/);
     assert.doesNotMatch(bubbleClassName, /minmax\(0,auto\)/);
 
+    const textareaWrapClassName = dataSlotClassName(markup, "composer-textarea-wrap");
+    assert.match(textareaWrapClassName, /\bmin-w-0\b/);
+    assert.match(markup, /data-slot="composer-textarea-wrap"[^>]*style="width:18ch;min-width:18ch"/);
+
     const textareaClassName = dataSlotClassName(markup, "textarea");
     assert.match(textareaClassName, /\bfield-sizing-content\b/);
-    assert.match(textareaClassName, /\bw-auto\b/);
+    assert.match(textareaClassName, /\bw-full\b/);
+    assert.doesNotMatch(textareaClassName, /\bw-auto\b/);
     assert.match(textareaClassName, /\bbg-transparent\b/);
     assert.match(textareaClassName, /\btext-primary-foreground\b/);
-    assert.match(markup, /<textarea[^>]*style="width:14ch"/);
+    assert.match(markup, /<textarea[^>]*style="field-sizing:fixed"/);
 
-    assert.match(markup, /<button[^>]*class="[^"]*\bbg-primary-foreground\b/);
+    const buttonClassName = dataSlotClassName(markup, "button");
+    assert.match(buttonClassName, /\babsolute\b/);
+    assert.match(buttonClassName, /\bright-1\.5\b/);
+    assert.match(buttonClassName, /\bbottom-1\.5\b/);
+    assert.match(buttonClassName, /\bbg-primary-foreground\b/);
   });
 });
 
 describe("composer draft bubble sizing", () => {
   test("starts compact from the placeholder, then expands with longer drafts", () => {
-    assert.equal(composerDraftInlineSize({ value: "", placeholder: "Message Noema" }), "15ch");
-    assert.equal(composerDraftInlineSize({ value: "Tiny", placeholder: "Message Noema" }), "14ch");
-    assert.equal(
+    assert.deepEqual(composerDraftInlineSize({ value: "", placeholder: "Message Noema" }), {
+      minWidth: "18ch",
+      width: "18ch"
+    });
+    assert.deepEqual(composerDraftInlineSize({ value: "Tiny", placeholder: "Message Noema" }), {
+      minWidth: "18ch",
+      width: "18ch"
+    });
+    assert.deepEqual(
       composerDraftInlineSize({
         value: "This draft is long enough to widen the human bubble",
         placeholder: "Message Noema"
       }),
-      "53ch"
+      {
+        minWidth: "18ch",
+        width: "56ch"
+      }
     );
   });
 
   test("caps width and uses the longest line for multiline drafts", () => {
-    assert.equal(
+    assert.deepEqual(
       composerDraftInlineSize({
         value: "short\nthis line is the one that should set the width",
         placeholder: "Message Noema"
       }),
-      "48ch"
+      {
+        minWidth: "18ch",
+        width: "51ch"
+      }
     );
-    assert.equal(composerDraftInlineSize({ value: "x".repeat(90), placeholder: "Message Noema" }), "58ch");
+    assert.deepEqual(composerDraftInlineSize({ value: "x".repeat(90), placeholder: "Message Noema" }), {
+      minWidth: "18ch",
+      width: "58ch"
+    });
+  });
+
+  test("uses measured text width with padding when available", () => {
+    assert.deepEqual(
+      composerDraftInlineSize({
+        value: "Message Noema",
+        placeholder: "Message Noema",
+        measureText: (text) => text.length * 11,
+        widthBufferPx: 36
+      }),
+      {
+        minWidth: "179px",
+        width: "179px"
+      }
+    );
   });
 });
 
