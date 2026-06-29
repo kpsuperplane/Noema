@@ -72,6 +72,92 @@ describe("Transcript layout", () => {
     assert.match(markup, /data-message-id="activity-two"[^>]*class="[^"]*(?:^| )-mt-1(?: |")/);
   });
 
+  test("does not replay arrival for live rows on initial transcript render", () => {
+    const markup = renderTranscript([{ id: "user-1", type: "user", text: "Hello" }]);
+
+    assert.doesNotMatch(markup, /data-arrival="true"/);
+    assert.doesNotMatch(markup, /data-slot="message-arrival-content"/);
+  });
+
+  test("does not replay assistant text reveal on initial transcript render", () => {
+    const markup = renderTranscript([{ id: "assistant-1", type: "assistant", text: "Hello from Noema" }]);
+
+    assert.match(markup, /Hello/);
+    assert.match(markup, /from/);
+    assert.match(markup, /Noema/);
+    assert.doesNotMatch(markup, /message-word-fade/);
+  });
+
+  test("does not mark replayed rows for arrival animation", () => {
+    const markup = renderTranscript([{ id: "user-1", source: "replay", type: "user", text: "Hello" }]);
+
+    assert.doesNotMatch(markup, /data-arrival="true"/);
+    assert.doesNotMatch(markup, /data-slot="message-arrival-content"/);
+  });
+
+  test("does not run row-arrival animation for the typing indicator", () => {
+    const markup = renderTranscript([{ id: "user-1", source: "replay", type: "user", text: "Hello" }], {
+      pending: true
+    });
+
+    assert.match(markup, /Noema is typing/);
+    assert.doesNotMatch(markup, /data-arrival="true"/);
+  });
+
+  test("does not delay the typing indicator after an initially rendered live row", () => {
+    const markup = renderTranscript([{ id: "user-1", type: "user", text: "Hello" }], {
+      pending: true
+    });
+
+    assert.match(markup, /Noema is typing/);
+    assert.doesNotMatch(markup, /data-reveal-after-arrival="true"/);
+  });
+
+  test("does not replay row arrival when the typing indicator becomes a streaming response", () => {
+    const markup = renderTranscript(
+      [
+        { id: "user-1", type: "user", text: "Hello" },
+        { id: "assistant-stream-1", type: "assistant_stream", streamId: "stream-1", text: "Hi" }
+      ],
+      { pending: true }
+    );
+
+    assert.doesNotMatch(messageScrollerItemOpenTag(markup, "stream-1"), /data-arrival="true"/);
+  });
+
+  test("does not replay row arrival when the streaming response becomes the final assistant item", () => {
+    const markup = renderTranscript([
+      { id: "user-1", type: "user", text: "Hello" },
+      { id: "assistant-1", type: "assistant", streamId: "stream-1", text: "Hi" }
+    ]);
+
+    assert.doesNotMatch(messageScrollerItemOpenTag(markup, "stream-1"), /data-arrival="true"/);
+  });
+
+  test("keeps tool marker row identity stable when the result arrives", () => {
+    const pendingMarkup = renderTranscript([toolCallEntry("tool-call-1", "STARTED")]);
+    const completedMarkup = renderTranscript([toolCallEntry("tool-call-1", "STARTED"), toolResultEntry("tool-result-1")]);
+
+    assert.equal(firstMessageId(pendingMarkup), "tool-call-1");
+    assert.equal(firstMessageId(completedMarkup), "tool-call-1");
+  });
+
+  test("does not replay row arrival when a tool call completes", () => {
+    const pendingMarkup = renderTranscript([toolCallEntry("tool-call-1", "STARTED")]);
+    const completedMarkup = renderTranscript([toolCallEntry("tool-call-1", "STARTED"), toolResultEntry("tool-result-1")]);
+
+    assert.doesNotMatch(messageScrollerItemOpenTag(pendingMarkup, "tool-call-1"), /data-arrival="true"/);
+    assert.doesNotMatch(messageScrollerItemOpenTag(completedMarkup, "tool-call-1"), /data-arrival="true"/);
+  });
+
+  test("does not clip the arrival frame while row height animates", () => {
+    const source = readFileSync(new URL("./Transcript.tsx", import.meta.url), "utf8");
+
+    assert.match(source, /data-slot="message-arrival-inner"/);
+    assert.match(source, /className="min-h-0"/);
+    assert.doesNotMatch(source, /data-slot="message-arrival-inner"[^>]*overflow-hidden/s);
+  });
+
   test("uses stable actor ids as transcript avatar seeds", () => {
     const markup = renderTranscript([
       { id: "user-1", type: "user", text: "Hello" },
@@ -338,6 +424,52 @@ describe("pending marker glimmer styles", () => {
   });
 });
 
+describe("message arrival styles", () => {
+  test("animates row height and content opacity for live arrivals", () => {
+    const styles = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
+
+    assert.match(styles, /\[data-slot="message-scroller-item"\]\[data-arrival="true"\]/);
+    assert.match(styles, /\[data-slot="message-scroller-item"\]\[data-arrival="true"\]\s*{[^}]*content-visibility: visible/s);
+    assert.match(styles, /\[data-slot="message-scroller-item"\]\[data-arrival="true"\]\s*{[^}]*z-index: 1/s);
+    assert.match(styles, /animation: message-row-arrival/);
+    assert.match(styles, /\[data-slot="message-arrival-content"\]/);
+    assert.match(styles, /grid-template-rows: 0fr/);
+    assert.match(styles, /\[data-slot="message-arrival-content"\]\s*{[^}]*overflow: visible/s);
+    assert.match(styles, /\[data-slot="message-arrival-inner"\]\s*{[^}]*align-items: end/s);
+    assert.doesNotMatch(styles, /transform: translateY\(8px\)/);
+    assert.match(styles, /@keyframes message-content-arrival/);
+    assert.match(styles, /prefers-reduced-motion: reduce/);
+  });
+
+  test("delays the typing indicator paint until the previous row arrival completes", () => {
+    const styles = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
+
+    assert.match(styles, /\[data-slot="message-scroller-item"\]\[data-reveal-after-arrival="true"\]/);
+    assert.match(styles, /animation: typing-indicator-after-arrival/);
+    assert.match(styles, /260ms both/);
+    assert.match(styles, /@keyframes typing-indicator-after-arrival/);
+  });
+
+  test("keeps the transcript pinned to bottom while arrival height animates", () => {
+    const source = readFileSync(new URL("./Transcript.tsx", import.meta.url), "utf8");
+
+    assert.match(source, /arrivalScrollKey=\{arrivalScrollKey\}/);
+    assert.match(source, /ARRIVAL_SCROLL_FOLLOW_DURATION_MS/);
+    assert.match(source, /window\.requestAnimationFrame/);
+    assert.match(source, /elapsedMs < ARRIVAL_SCROLL_FOLLOW_DURATION_MS/);
+  });
+
+  test("starts arrival animation only after the mounted view has seen its baseline rows", () => {
+    const source = readFileSync(new URL("./Transcript.tsx", import.meta.url), "utf8");
+
+    assert.match(source, /React\.useState<ReadonlySet<string>>/);
+    assert.match(source, /initialSeenArrivalMessageIds\(renderedEntries\)/);
+    assert.match(source, /shouldAnimateMessageArrival/);
+    assert.match(source, /setSeenArrivalMessageIds\(nextSeenMessageIds\)/);
+    assert.match(source, /window\.setTimeout/);
+  });
+});
+
 describe("shouldShowTypingIndicator", () => {
   test("shows while a user turn is pending and no assistant answer has arrived", () => {
     const entries: TranscriptEntry[] = [{ id: "user-1", type: "user", text: "Hello" }];
@@ -405,15 +537,57 @@ function memoryExtractionEntry(
   };
 }
 
-function renderTranscript(entries: TranscriptEntry[], expandedActivities = new Set<string>()): string {
+function renderTranscript(
+  entries: TranscriptEntry[],
+  options: Set<string> | { expandedActivities?: Set<string>; pending?: boolean } = {}
+): string {
+  const expandedActivities = options instanceof Set ? options : (options.expandedActivities ?? new Set<string>());
+  const pending = options instanceof Set ? false : (options.pending ?? false);
+
   return renderToStaticMarkup(
     React.createElement(Transcript, {
       entries,
-      pending: false,
+      pending,
       expandedActivities,
       onToggleActivity: () => {}
     })
   );
+}
+
+function toolCallEntry(id: string, status: "STARTED" | "COMPLETED" | "FAILED"): TranscriptEntry {
+  return {
+    id,
+    type: "activity",
+    itemId: id,
+    turnId: "turn-1",
+    item: {
+      kind: "activity",
+      id: "tool_call:conversation_1:1:search_memory",
+      activity_kind: "tool_call",
+      status,
+      title: "Tool call: search_memory",
+      summary: "tool call is streaming",
+      metadata: { action: { name: "search_memory" } }
+    }
+  };
+}
+
+function toolResultEntry(id: string): TranscriptEntry {
+  return {
+    id,
+    type: "activity",
+    itemId: id,
+    turnId: "turn-1",
+    item: {
+      kind: "activity",
+      id: "tool_result:conversation_1:1:search_memory",
+      activity_kind: "tool_result",
+      status: "COMPLETED",
+      title: "Tool result: search_memory",
+      summary: "tool call completed",
+      metadata: { action: { name: "search_memory" } }
+    }
+  };
 }
 
 function memoryProposalCardEntry(id: string, itemId: string): TranscriptEntry {
@@ -454,6 +628,18 @@ function messageScrollerContentClassName(markup: string): string {
   const match = markup.match(/data-slot="message-scroller-content"[^>]*class="([^"]*)"/);
   assert.ok(match, "expected transcript markup to include message scroller content");
   return match[1];
+}
+
+function firstMessageId(markup: string): string {
+  const match = markup.match(/data-message-id="([^"]+)"/);
+  assert.ok(match, "expected transcript markup to include a message id");
+  return match[1];
+}
+
+function messageScrollerItemOpenTag(markup: string, messageId: string): string {
+  const match = markup.match(new RegExp(`<div[^>]*data-message-id="${messageId}"[^>]*>`));
+  assert.ok(match, `expected transcript markup to include message item ${messageId}`);
+  return match[0];
 }
 
 describe("shouldAnchorTranscriptEntry", () => {

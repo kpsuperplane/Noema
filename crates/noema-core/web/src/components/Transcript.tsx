@@ -42,15 +42,22 @@ type ToolMarkerGroup = {
 };
 
 type RenderTranscriptEntry =
-  | { kind: "entry"; id: string; entry: TranscriptEntry }
+  | { kind: "entry"; id: string; entry: TranscriptEntry; suppressArrival?: boolean }
   | { kind: "typing"; id: string }
   | {
       kind: "memory_marker";
       id: string;
+      source?: TranscriptEntry["source"];
       extraction?: ActivityTranscriptItem;
       proposal?: Extract<TurnTranscriptItem, { kind: "a2ui_card" }>;
     }
-  | { kind: "tool_marker"; id: string; marker: ToolMarkerGroup };
+  | {
+      kind: "tool_marker";
+      id: string;
+      source?: TranscriptEntry["source"];
+      marker: ToolMarkerGroup;
+      suppressArrival?: boolean;
+    };
 
 type TranscriptLane = "human" | "assistant";
 
@@ -74,6 +81,8 @@ type RenderTranscriptLaneCandidate =
   | { kind: "memory_marker" }
   | { kind: "tool_marker" };
 
+const ARRIVAL_SCROLL_FOLLOW_DURATION_MS = 360;
+
 export function Transcript({
   entries,
   pending,
@@ -86,11 +95,50 @@ export function Transcript({
   onToggleActivity: (id: string) => void;
 }) {
   const renderedEntries = renderableTranscriptEntries(entries, pending);
+  const [seenArrivalMessageIds, setSeenArrivalMessageIds] = React.useState<ReadonlySet<string>>(() =>
+    initialSeenArrivalMessageIds(renderedEntries)
+  );
+  const [textAnimatingMessageIds, setTextAnimatingMessageIds] = React.useState<ReadonlySet<string>>(() => new Set());
   const followBottomRef = React.useRef(true);
   const scrollKey = transcriptScrollKey(renderedEntries);
+  const arrivalScrollKey = transcriptArrivalScrollKey(renderedEntries, seenArrivalMessageIds);
   const handleViewportScroll = React.useCallback((event: React.UIEvent<HTMLDivElement>) => {
     followBottomRef.current = isScrolledToBottom(event.currentTarget);
   }, []);
+
+  React.useEffect(() => {
+    const nextSeenMessageIds = new Set(seenArrivalMessageIds);
+    const nextTextAnimatingMessageIds = new Set(textAnimatingMessageIds);
+    let changed = false;
+    let textAnimatingChanged = false;
+    for (const entry of renderedEntries) {
+      const messageId = renderedEntryMessageId(entry);
+      if (!nextSeenMessageIds.has(messageId)) {
+        nextSeenMessageIds.add(messageId);
+        changed = true;
+        if (shouldAnimateRenderedEntryText(entry) && !nextTextAnimatingMessageIds.has(messageId)) {
+          nextTextAnimatingMessageIds.add(messageId);
+          textAnimatingChanged = true;
+        }
+      }
+    }
+    if (!changed && !textAnimatingChanged) {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      if (changed) {
+        setSeenArrivalMessageIds(nextSeenMessageIds);
+      }
+      if (textAnimatingChanged) {
+        setTextAnimatingMessageIds(nextTextAnimatingMessageIds);
+      }
+    }, arrivalScrollKey ? ARRIVAL_SCROLL_FOLLOW_DURATION_MS : 0);
+
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, [arrivalScrollKey, renderedEntries, seenArrivalMessageIds, textAnimatingMessageIds]);
 
   return (
     <MessageScrollerProvider autoScroll defaultScrollPosition="end" scrollPreviousItemPeek={56}>
@@ -111,6 +159,23 @@ export function Transcript({
                     : null;
               const showAvatar = previousLane !== lane;
               const messageId = renderedEntryMessageId(entry);
+              const animateArrival = shouldAnimateRenderedEntryArrivalForSeen(
+                entry,
+                messageId,
+                seenArrivalMessageIds
+              );
+              const previousEntryMessageId = previousEntry ? renderedEntryMessageId(previousEntry) : null;
+              const previousEntryAnimateArrival =
+                previousEntry && previousEntryMessageId
+                  ? shouldAnimateRenderedEntryArrivalForSeen(previousEntry, previousEntryMessageId, seenArrivalMessageIds)
+                  : false;
+              const revealAfterArrival = shouldRevealRenderedEntryAfterArrival(entry, previousEntryAnimateArrival);
+              const animateText = shouldAnimateRenderedEntryTextForSeen(
+                entry,
+                messageId,
+                seenArrivalMessageIds,
+                textAnimatingMessageIds
+              );
 
               return (
                 <MessageScrollerItem
@@ -120,10 +185,14 @@ export function Transcript({
                     lane === "human" && "justify-end",
                     shouldCompactMarkerClusterSpacing(entry, previousEntry) && "-mt-1"
                   )}
+                  data-arrival={animateArrival ? "true" : undefined}
+                  data-reveal-after-arrival={revealAfterArrival ? "true" : undefined}
                   messageId={messageId}
                   scrollAnchor={shouldAnchorRenderedEntry(entry)}
                 >
-                  {renderTranscriptRenderEntry(entry, expandedActivities, onToggleActivity, showAvatar)}
+                  <RenderedTranscriptEntryFrame animateArrival={animateArrival}>
+                    {renderTranscriptRenderEntry(entry, expandedActivities, onToggleActivity, showAvatar, animateText)}
+                  </RenderedTranscriptEntryFrame>
                 </MessageScrollerItem>
               );
             })}
@@ -131,13 +200,23 @@ export function Transcript({
         </MessageScrollerViewport>
         <MessageScrollerButton />
       </MessageScroller>
-      <TranscriptBottomFollower followBottomRef={followBottomRef} scrollKey={scrollKey} />
+      <TranscriptBottomFollower
+        arrivalScrollKey={arrivalScrollKey}
+        followBottomRef={followBottomRef}
+        scrollKey={scrollKey}
+      />
     </MessageScrollerProvider>
   );
 }
 
 function renderableTranscriptEntries(entries: TranscriptEntry[], pending: boolean): RenderTranscriptEntry[] {
-  const renderedEntries = groupTranscriptMarkers(entries);
+  const typingContinuationRenderIds = typingContinuationAssistantRenderIds(entries);
+  const renderedEntries = groupTranscriptMarkers(entries).map((entry): RenderTranscriptEntry => {
+    if (entry.kind !== "entry" || !typingContinuationRenderIds.has(transcriptEntryRenderId(entry.entry))) {
+      return entry;
+    }
+    return { ...entry, suppressArrival: true };
+  });
   if (shouldShowTypingIndicator(entries, pending)) {
     renderedEntries.push({ kind: "typing", id: "typing-indicator" });
   }
@@ -160,6 +239,95 @@ function shouldAnchorRenderedEntry(entry: RenderTranscriptEntry): boolean {
     return shouldAnchorTranscriptEntry({ kind: "entry", entryType: entry.entry.type });
   }
   return shouldAnchorTranscriptEntry({ kind: entry.kind });
+}
+
+function shouldAnimateRenderedEntryArrival(entry: RenderTranscriptEntry): boolean {
+  if (entry.kind === "entry" && entry.suppressArrival) {
+    return false;
+  }
+  if (entry.kind === "tool_marker" && entry.suppressArrival) {
+    return false;
+  }
+  if (entry.kind === "typing") {
+    return false;
+  }
+  if (entry.kind === "entry") {
+    return entry.entry.source !== "replay";
+  }
+  return entry.source !== "replay";
+}
+
+function shouldAnimateRenderedEntryArrivalForSeen(
+  entry: RenderTranscriptEntry,
+  messageId: string,
+  seenMessageIds: ReadonlySet<string>
+): boolean {
+  return shouldAnimateMessageArrival({
+    eligible: shouldAnimateRenderedEntryArrival(entry),
+    messageId,
+    seenMessageIds
+  });
+}
+
+function shouldAnimateMessageArrival({
+  eligible,
+  messageId,
+  seenMessageIds
+}: {
+  eligible: boolean;
+  messageId: string;
+  seenMessageIds: ReadonlySet<string>;
+}): boolean {
+  return eligible && !seenMessageIds.has(messageId);
+}
+
+function shouldRevealRenderedEntryAfterArrival(
+  entry: RenderTranscriptEntry,
+  previousEntryAnimateArrival: boolean
+): boolean {
+  return entry.kind === "typing" && previousEntryAnimateArrival;
+}
+
+function shouldAnimateRenderedEntryText(entry: RenderTranscriptEntry): boolean {
+  return entry.kind === "entry" && isTextTranscriptEntry(entry.entry) && shouldAnimateMessageText(entry.entry);
+}
+
+function shouldAnimateRenderedEntryTextForSeen(
+  entry: RenderTranscriptEntry,
+  messageId: string,
+  seenMessageIds: ReadonlySet<string>,
+  textAnimatingMessageIds: ReadonlySet<string>
+): boolean {
+  return (
+    shouldAnimateRenderedEntryText(entry) &&
+    (!seenMessageIds.has(messageId) || textAnimatingMessageIds.has(messageId))
+  );
+}
+
+function isTextTranscriptEntry(entry: TranscriptEntry): entry is Extract<TranscriptEntry, { text: string }> {
+  return "text" in entry;
+}
+
+function typingContinuationAssistantRenderIds(entries: TranscriptEntry[]): Set<string> {
+  const renderIds = new Set<string>();
+  const lastUserIndex = latestUserEntryIndex(entries);
+  if (lastUserIndex === -1) {
+    return renderIds;
+  }
+
+  for (let index = lastUserIndex + 1; index < entries.length; index += 1) {
+    const entry = entries[index];
+    if (!entry || (entry.type !== "assistant" && entry.type !== "assistant_stream")) {
+      continue;
+    }
+
+    if (entry.streamId) {
+      renderIds.add(transcriptEntryRenderId(entry));
+    }
+    break;
+  }
+
+  return renderIds;
 }
 
 export function transcriptEntryLane(entryType: TranscriptEntry["type"]): TranscriptLane {
@@ -200,13 +368,7 @@ export function shouldShowTypingIndicator(entries: TranscriptEntry[], pending: b
     return false;
   }
 
-  let lastUserIndex = -1;
-  for (let index = entries.length - 1; index >= 0; index -= 1) {
-    if (entries[index]?.type === "user") {
-      lastUserIndex = index;
-      break;
-    }
-  }
+  const lastUserIndex = latestUserEntryIndex(entries);
   if (lastUserIndex === -1) {
     return false;
   }
@@ -214,6 +376,15 @@ export function shouldShowTypingIndicator(entries: TranscriptEntry[], pending: b
   return !entries
     .slice(lastUserIndex + 1)
     .some((entry) => entry.type === "assistant" || entry.type === "assistant_stream");
+}
+
+function latestUserEntryIndex(entries: TranscriptEntry[]): number {
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    if (entries[index]?.type === "user") {
+      return index;
+    }
+  }
+  return -1;
 }
 
 function groupTranscriptMarkers(entries: TranscriptEntry[]): RenderTranscriptEntry[] {
@@ -241,6 +412,7 @@ function groupTranscriptMarkers(entries: TranscriptEntry[]): RenderTranscriptEnt
       rendered.push({
         kind: "memory_marker",
         id: `${entry.id}:${nextEntry.id}:${followingEntry.id}`,
+        source: transcriptGroupSource(entry, nextEntry, followingEntry),
         extraction: followingEntry.item,
         proposal: nextEntry.item
       });
@@ -259,6 +431,7 @@ function groupTranscriptMarkers(entries: TranscriptEntry[]): RenderTranscriptEnt
       rendered.push({
         kind: "memory_marker",
         id: `${entry.id}:${nextEntry.id}`,
+        source: transcriptGroupSource(entry, nextEntry),
         extraction: entry.item,
         proposal: nextEntry.item
       });
@@ -277,6 +450,7 @@ function groupTranscriptMarkers(entries: TranscriptEntry[]): RenderTranscriptEnt
       rendered.push({
         kind: "memory_marker",
         id: `${entry.id}:${nextEntry.id}`,
+        source: transcriptGroupSource(entry, nextEntry),
         extraction: nextEntry.item,
         proposal: entry.item
       });
@@ -288,6 +462,7 @@ function groupTranscriptMarkers(entries: TranscriptEntry[]): RenderTranscriptEnt
       rendered.push({
         kind: "memory_marker",
         id: entry.id,
+        source: transcriptGroupSource(entry),
         extraction: entry.item
       });
       continue;
@@ -297,6 +472,7 @@ function groupTranscriptMarkers(entries: TranscriptEntry[]): RenderTranscriptEnt
       rendered.push({
         kind: "memory_marker",
         id: entry.id,
+        source: transcriptGroupSource(entry),
         proposal: entry.item
       });
       continue;
@@ -309,11 +485,13 @@ function groupTranscriptMarkers(entries: TranscriptEntry[]): RenderTranscriptEnt
         nextEntry.item.activity_kind === "tool_result" &&
         sameTurn(entry, nextEntry)
       ) {
-        const id = `${entry.id}:${nextEntry.id}`;
+        const id = entry.id;
         rendered.push({
           kind: "tool_marker",
           id,
-          marker: { id, call: entry, result: nextEntry }
+          source: transcriptGroupSource(entry, nextEntry),
+          marker: { id, call: entry, result: nextEntry },
+          suppressArrival: true
         });
         index += 1;
         continue;
@@ -322,6 +500,7 @@ function groupTranscriptMarkers(entries: TranscriptEntry[]): RenderTranscriptEnt
       rendered.push({
         kind: "tool_marker",
         id: entry.id,
+        source: transcriptGroupSource(entry),
         marker: { id: entry.id, call: entry }
       });
       continue;
@@ -331,6 +510,7 @@ function groupTranscriptMarkers(entries: TranscriptEntry[]): RenderTranscriptEnt
       rendered.push({
         kind: "tool_marker",
         id: entry.id,
+        source: transcriptGroupSource(entry),
         marker: { id: entry.id, result: entry }
       });
       continue;
@@ -344,6 +524,10 @@ function groupTranscriptMarkers(entries: TranscriptEntry[]): RenderTranscriptEnt
 
 function sameTurn(left: TranscriptEntry, right: TranscriptEntry) {
   return !left.turnId || !right.turnId || left.turnId === right.turnId;
+}
+
+function transcriptGroupSource(...entries: TranscriptEntry[]): TranscriptEntry["source"] | undefined {
+  return entries.every((entry) => entry.source === "replay") ? "replay" : undefined;
 }
 
 function toolMarkerTone(marker: ToolMarkerGroup): "default" | "error" {
@@ -413,6 +597,20 @@ function transcriptScrollKey(entries: RenderTranscriptEntry[]): string {
   return entries.map(renderedEntryScrollFingerprint).join("|");
 }
 
+function transcriptArrivalScrollKey(
+  entries: RenderTranscriptEntry[],
+  seenMessageIds: ReadonlySet<string>
+): string {
+  return entries
+    .filter((entry) => shouldAnimateRenderedEntryArrivalForSeen(entry, renderedEntryMessageId(entry), seenMessageIds))
+    .map(renderedEntryMessageId)
+    .join("|");
+}
+
+function initialSeenArrivalMessageIds(entries: RenderTranscriptEntry[]): ReadonlySet<string> {
+  return new Set(entries.map(renderedEntryMessageId));
+}
+
 function renderedEntryScrollFingerprint(entry: RenderTranscriptEntry): string {
   if (entry.kind === "entry") {
     return transcriptEntryScrollFingerprint(entry.entry);
@@ -471,9 +669,11 @@ function isScrolledToBottom(element: HTMLElement) {
 }
 
 function TranscriptBottomFollower({
+  arrivalScrollKey,
   followBottomRef,
   scrollKey
 }: {
+  arrivalScrollKey: string;
   followBottomRef: React.MutableRefObject<boolean>;
   scrollKey: string;
 }) {
@@ -485,14 +685,68 @@ function TranscriptBottomFollower({
     }
   }, [followBottomRef, scrollKey, scrollToEnd]);
 
+  React.useLayoutEffect(() => {
+    if (!arrivalScrollKey || !followBottomRef.current) {
+      return;
+    }
+
+    let animationFrame: number | null = null;
+    let startedAt: number | null = null;
+
+    const followArrival = (timestamp: number) => {
+      if (!followBottomRef.current) {
+        return;
+      }
+      if (startedAt === null) {
+        startedAt = timestamp;
+      }
+
+      scrollToEnd({ behavior: "auto" });
+
+      const elapsedMs = timestamp - startedAt;
+      if (elapsedMs < ARRIVAL_SCROLL_FOLLOW_DURATION_MS) {
+        animationFrame = window.requestAnimationFrame(followArrival);
+      }
+    };
+
+    animationFrame = window.requestAnimationFrame(followArrival);
+
+    return () => {
+      if (animationFrame !== null) {
+        window.cancelAnimationFrame(animationFrame);
+      }
+    };
+  }, [arrivalScrollKey, followBottomRef, scrollToEnd]);
+
   return null;
+}
+
+function RenderedTranscriptEntryFrame({
+  animateArrival,
+  children
+}: {
+  animateArrival: boolean;
+  children: React.ReactNode;
+}) {
+  if (!animateArrival) {
+    return <>{children}</>;
+  }
+
+  return (
+    <div data-slot="message-arrival-content" className="w-full max-w-[760px] min-w-0">
+      <div data-slot="message-arrival-inner" className="min-h-0">
+        {children}
+      </div>
+    </div>
+  );
 }
 
 function renderTranscriptRenderEntry(
   entry: RenderTranscriptEntry,
   expandedActivities: Set<string>,
   onToggleActivity: (id: string) => void,
-  showAvatar: boolean
+  showAvatar: boolean,
+  animateText: boolean
 ) {
   if (entry.kind === "memory_marker") {
     return (
@@ -521,23 +775,24 @@ function renderTranscriptRenderEntry(
   if (entry.kind === "typing") {
     return <TypingMessage showAvatar={showAvatar} />;
   }
-  return renderTranscriptEntry(entry.entry, expandedActivities, onToggleActivity, showAvatar);
+  return renderTranscriptEntry(entry.entry, expandedActivities, onToggleActivity, showAvatar, animateText);
 }
 
 function renderTranscriptEntry(
   entry: TranscriptEntry,
   expandedActivities: Set<string>,
   onToggleActivity: (id: string) => void,
-  showAvatar: boolean
+  showAvatar: boolean,
+  animateText: boolean
 ) {
   if (entry.type === "user") {
-    return <Message animate={shouldAnimateMessageText(entry)} role="user" text={entry.text} showAvatar={showAvatar} />;
+    return <Message animate={animateText} role="user" text={entry.text} showAvatar={showAvatar} />;
   }
   if (entry.type === "assistant") {
-    return <Message animate={shouldAnimateMessageText(entry)} role="assistant" text={entry.text} showAvatar={showAvatar} />;
+    return <Message animate={animateText} role="assistant" text={entry.text} showAvatar={showAvatar} />;
   }
   if (entry.type === "assistant_stream") {
-    return <Message animate={shouldAnimateMessageText(entry)} role="assistant" text={entry.text} showAvatar={showAvatar} />;
+    return <Message animate={animateText} role="assistant" text={entry.text} showAvatar={showAvatar} />;
   }
   if (entry.type === "activity") {
     return (

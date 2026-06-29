@@ -114,6 +114,34 @@ body {
   animation: message-word-fade-in 180ms ease-out both;
 }
 
+[data-slot="message-scroller-item"][data-arrival="true"] {
+  content-visibility: visible;
+  position: relative;
+  z-index: 1;
+}
+
+[data-slot="message-scroller-item"][data-arrival="true"] [data-slot="message-arrival-content"] {
+  display: grid;
+  grid-template-rows: 1fr;
+  overflow: visible;
+  transform-origin: bottom center;
+  animation: message-row-arrival 260ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+
+[data-slot="message-scroller-item"][data-reveal-after-arrival="true"] {
+  opacity: 0;
+  animation: typing-indicator-after-arrival 140ms cubic-bezier(0.2, 0, 0, 1) 260ms both;
+}
+
+[data-slot="message-scroller-item"][data-arrival="true"] [data-slot="message-arrival-inner"] {
+  display: grid;
+  align-items: end;
+}
+
+[data-slot="message-scroller-item"][data-arrival="true"] [data-slot="message-arrival-inner"] > * {
+  animation: message-content-arrival 220ms cubic-bezier(0.2, 0, 0, 1) 35ms both;
+}
+
 [data-slot="marker"][data-pending] {
   --marker-glimmer-base: var(--text-muted);
   --marker-glimmer-flare: color-mix(in srgb, var(--pure-white) 76%, var(--marker-glimmer-base) 24%);
@@ -163,6 +191,36 @@ body {
   }
 }
 
+@keyframes message-row-arrival {
+  from {
+    grid-template-rows: 0fr;
+  }
+
+  to {
+    grid-template-rows: 1fr;
+  }
+}
+
+@keyframes message-content-arrival {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes typing-indicator-after-arrival {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
 @keyframes marker-text-glimmer {
   from {
     background-position: 130% 0;
@@ -175,6 +233,25 @@ body {
 
 @media (prefers-reduced-motion: reduce) {
   .message-word-fade {
+    animation: none;
+  }
+
+  [data-slot="message-scroller-item"][data-reveal-after-arrival="true"] {
+    opacity: 1;
+    animation: none;
+  }
+
+  [data-slot="message-scroller-item"][data-arrival="true"] [data-slot="message-arrival-content"] {
+    display: block;
+    overflow: visible;
+    animation: none;
+  }
+
+  [data-slot="message-scroller-item"][data-arrival="true"] [data-slot="message-arrival-inner"] {
+    overflow: visible;
+  }
+
+  [data-slot="message-scroller-item"][data-arrival="true"] [data-slot="message-arrival-inner"] > * {
     animation: none;
   }
 
