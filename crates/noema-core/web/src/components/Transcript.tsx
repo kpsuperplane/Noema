@@ -5,11 +5,11 @@ import {
   AttachmentMedia,
   AttachmentTitle
 } from "@/components/ui/attachment";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Bubble, BubbleContent } from "@/components/ui/bubble";
 import { Button } from "@/components/ui/button";
 import { Marker, MarkerContent, MarkerIcon } from "@/components/ui/marker";
 import { ErrorMarker } from "./ErrorMarker";
+import { IdentityAvatar, LOCAL_AGENT_AVATAR_ID, LOCAL_HUMAN_AVATAR_ID } from "./IdentityAvatar";
 import { AnimatedMessageText } from "./MessageTextAnimation";
 import {
   Message as MessagePrimitive,
@@ -547,14 +547,12 @@ function TranscriptRow({
   showAvatar?: boolean;
   children: React.ReactNode;
 }) {
-  const role = lane === "human" ? "user" : "assistant";
+  const actorId = lane === "human" ? LOCAL_HUMAN_AVATAR_ID : LOCAL_AGENT_AVATAR_ID;
 
   return (
     <MessagePrimitive align={lane === "human" ? "end" : "start"} className="max-w-[760px]">
       <MessageAvatar aria-hidden={!showAvatar} className={cn(!showAvatar && "invisible")}>
-        <Avatar size="sm">
-          <AvatarFallback>{role === "user" ? "ME" : "N"}</AvatarFallback>
-        </Avatar>
+        <IdentityAvatar actorId={actorId} size="sm" />
       </MessageAvatar>
       <MessageContent>{children}</MessageContent>
     </MessagePrimitive>

@@ -58,6 +58,18 @@ describe("Transcript layout", () => {
 
     assert.match(messageScrollerContentClassName(markup), /\bjustify-end\b/);
   });
+
+  test("uses stable actor ids as transcript avatar seeds", () => {
+    const markup = renderTranscript([
+      { id: "user-1", type: "user", text: "Hello" },
+      { id: "assistant-1", type: "assistant", text: "Hi there." }
+    ]);
+
+    assert.match(markup, /data-avatar-seed="human:local"/);
+    assert.match(markup, /data-avatar-seed="agent:local"/);
+    assert.doesNotMatch(markup, />ME</);
+    assert.doesNotMatch(markup, />N</);
+  });
 });
 
 describe("Transcript memory markers", () => {
