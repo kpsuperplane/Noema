@@ -188,8 +188,28 @@ describe("Transcript memory markers", () => {
     assert.match(markup, /Memory saved: 1 memory; 1 failed/);
     assert.match(markup, /User likes planes/);
     assert.match(markup, /claim:planes/);
+    assert.match(markup, /data-tone="error"/);
+    assert.match(markup, /data-state="error"/);
     assert.doesNotMatch(markup, /Memory update failed/);
-    assert.doesNotMatch(markup, /data-state="error"/);
+    assert.doesNotMatch(markup, /data-state="done"/);
+  });
+
+  test("renders full memory failures with error title and state", () => {
+    const markup = renderTranscript(
+      [
+        memoryExtractionEntry("activity-done", "item-done", "FAILED", "Memory saved", {
+          claim_outcomes: [],
+          created_claim_count: 0,
+          reinforced_claim_count: 0,
+          failed_proposal_count: 1
+        })
+      ],
+      new Set(["activity-done"])
+    );
+
+    assert.match(markup, /Memory update failed/);
+    assert.match(markup, /data-tone="error"/);
+    assert.match(markup, /data-state="error"/);
   });
 
   test("preserves legacy completed marker when failed count has no valid outcomes", () => {

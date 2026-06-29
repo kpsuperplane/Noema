@@ -706,7 +706,9 @@ function MemoryMarker({
   onToggle: () => void;
 }) {
   const memories = proposal ? memoryCardsFromStructuredItem(proposal) ?? [] : memoryCardsFromClaimOutcomes(extraction);
-  const failed = extraction?.status === "FAILED" && memories.length === 0;
+  const failed =
+    extraction?.status === "FAILED" &&
+    (memories.length === 0 || metadataCount(extraction.metadata, "failed_proposal_count") > 0);
   const started = extraction?.status === "STARTED";
   const label = memoryMarkerLabel(extraction);
   const tone = failed ? "error" : started ? "default" : "success";
@@ -938,7 +940,7 @@ function MemoryDetailAttachment({
   failed: boolean;
 }) {
   const memoryCount = memories.length;
-  const title = failed ? "Memory update failed" : memoryDetailTitle(extraction, memoryCount);
+  const title = failed && memoryCount === 0 ? "Memory update failed" : memoryDetailTitle(extraction, memoryCount);
   const status = extraction ? statusLabel(extraction.status) : null;
   const description = extraction?.summary ?? (status ? `Memory extraction ${status.toLowerCase()}` : "Memory proposal");
 
