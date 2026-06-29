@@ -12,6 +12,7 @@ import {
   shouldShowTypingIndicator,
   transcriptEntryLane
 } from "./Transcript";
+import { avatarSeedForActorId } from "./IdentityAvatar";
 import { messageTextAnimationTokens, visibleMessageTextAnimationTokens } from "./MessageTextAnimation";
 import type { TranscriptEntry } from "../types";
 
@@ -65,8 +66,11 @@ describe("Transcript layout", () => {
       { id: "assistant-1", type: "assistant", text: "Hi there." }
     ]);
 
-    assert.match(markup, /data-avatar-seed="human:local"/);
-    assert.match(markup, /data-avatar-seed="agent:local"/);
+    assert.match(markup, new RegExp(`data-avatar-seed="${avatarSeedForActorId("human:local")}"`));
+    assert.match(markup, new RegExp(`data-avatar-seed="${avatarSeedForActorId("agent:local")}"`));
+    assert.match(markup, /data-avatar-variant="marble"/);
+    assert.match(markup, /data-avatar-variant="beam"/);
+    assert.doesNotMatch(markup, /human:local|agent:local/);
     assert.doesNotMatch(markup, />ME</);
     assert.doesNotMatch(markup, />N</);
   });

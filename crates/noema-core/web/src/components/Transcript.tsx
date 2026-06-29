@@ -548,11 +548,12 @@ function TranscriptRow({
   children: React.ReactNode;
 }) {
   const actorId = lane === "human" ? LOCAL_HUMAN_AVATAR_ID : LOCAL_AGENT_AVATAR_ID;
+  const actorType = lane === "human" ? "human" : "agent";
 
   return (
     <MessagePrimitive align={lane === "human" ? "end" : "start"} className="max-w-[760px]">
       <MessageAvatar aria-hidden={!showAvatar} className={cn(!showAvatar && "invisible")}>
-        <IdentityAvatar actorId={actorId} size="sm" />
+        <IdentityAvatar actorId={actorId} actorType={actorType} size="sm" />
       </MessageAvatar>
       <MessageContent>{children}</MessageContent>
     </MessagePrimitive>
