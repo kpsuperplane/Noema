@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { IdentityAvatar, avatarSeedForActorId } from "./IdentityAvatar";
+import { IdentityAvatar, NOEMA_AVATAR_COLORS, avatarSeedForActorId } from "./IdentityAvatar";
 
 describe("IdentityAvatar", () => {
   test("uses actor ids as stable seeds without Noema green avatar fills", () => {
@@ -14,6 +14,10 @@ describe("IdentityAvatar", () => {
     assert.match(markup, new RegExp(`data-avatar-seed="${avatarSeedForActorId("agent:local")}"`));
     assert.doesNotMatch(markup, /human:local|agent:local/);
     assert.doesNotMatch(markup, /#(?:176046|1f7a57|114a37)/i);
+  });
+
+  test("uses a muted harmonious palette for generated avatar pairings", () => {
+    assert.deepEqual(NOEMA_AVATAR_COLORS, ["#3b4a6b", "#7d6a91", "#b9786d", "#d6ad6b", "#e6d8c4", "#2f3440"]);
   });
 
   test("uses marble avatars for humans and beam avatars for agents", () => {

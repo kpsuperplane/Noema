@@ -3,7 +3,7 @@ import BoringAvatar from "boring-avatars";
 import { Avatar } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
 
-const NOEMA_AVATAR_COLORS = ["#5b4b8a", "#ff7a59", "#ffd166", "#8bd3ff", "#2b2d42"];
+export const NOEMA_AVATAR_COLORS = ["#3b4a6b", "#7d6a91", "#b9786d", "#d6ad6b", "#e6d8c4", "#2f3440"];
 
 export const LOCAL_HUMAN_AVATAR_ID = "human:local";
 export const LOCAL_AGENT_AVATAR_ID = "agent:local";
