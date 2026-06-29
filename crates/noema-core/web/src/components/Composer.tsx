@@ -1,4 +1,5 @@
 import React from "react";
+import { SendHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -17,7 +18,14 @@ export function composerSubmitState({
 }) {
   return {
     disabled: !ready || !value.trim(),
-    label: pending ? "Sending" : "Send"
+    label: pending ? "Sending message" : "Send message"
+  };
+}
+
+export function composerTextareaProps() {
+  return {
+    rows: 1,
+    className: "min-h-9 max-h-40 overflow-y-auto py-1.5 leading-6"
   };
 }
 
@@ -57,10 +65,11 @@ export function Composer({
   }
 
   const submitState = composerSubmitState({ ready, value, pending });
+  const textareaProps = composerTextareaProps();
 
   return (
     <form
-      className="mx-auto grid w-[var(--chat-column-width)] grid-cols-[minmax(0,1fr)_auto] items-end gap-2.5 border-t border-[var(--border-subtle)] bg-background pt-3.5 max-[760px]:grid-cols-1"
+      className="mx-auto grid w-[var(--chat-column-width)] grid-cols-[minmax(0,1fr)_auto] items-end gap-2.5 border-t border-[var(--border-subtle)] bg-background pt-3.5"
       onSubmit={(event) => {
         event.preventDefault();
         submit();
@@ -71,7 +80,8 @@ export function Composer({
         value={value}
         disabled={isComposerTextareaDisabled({ ready })}
         placeholder={placeholder}
-        rows={3}
+        rows={textareaProps.rows}
+        className={textareaProps.className}
         onChange={(event) => onChange(event.currentTarget.value)}
         onKeyDown={(event) => {
           if (event.key === "Enter" && !event.shiftKey) {
@@ -80,8 +90,8 @@ export function Composer({
           }
         }}
       />
-      <Button type="submit" disabled={submitState.disabled}>
-        {submitState.label}
+      <Button type="submit" size="icon-lg" aria-label={submitState.label} disabled={submitState.disabled}>
+        <SendHorizontal aria-hidden="true" />
       </Button>
     </form>
   );
