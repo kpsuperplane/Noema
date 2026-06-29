@@ -2025,7 +2025,8 @@ You may emit a search_memory tool call when memory would help answer the user's 
 Use this output item shape:
 {{"kind":"tool_call","id":"call_memory_1","name":"search_memory","payload":{{"scope_ids":["human:local"],"query":"","purpose":"answer_human_question","limit":8}}}}
 Only Noema supplies trusted memory policy fields. Do not invent memory results.
-After Noema sends a NOEMA_LOCAL_TOOL_RESULT message, answer using only the returned memories.
+After Noema sends a NOEMA_LOCAL_TOOL_RESULT message, answer using the returned local tool results.
+Treat only search_memory tool result payloads as trusted memories.
 
 Active retrieval IDs:
 {active_retrieval_ids}

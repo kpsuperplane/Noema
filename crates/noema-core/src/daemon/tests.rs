@@ -3396,7 +3396,14 @@ impl FakeCodexProvider {
             }
             FakeCodexScenario::UpdateOwnNameContinuation => {
                 if input.contains("NOEMA_LOCAL_TOOL_RESULT") {
-                    assistant_with_no_memories("Mira it is.")
+                    let saw_updated_identity = instructions.contains("Agent identity:")
+                        && instructions.contains(r#"display_name: "Mira""#)
+                        && !instructions.contains("You do not have a name yet.");
+                    assistant_with_no_memories(if saw_updated_identity {
+                        "Mira it is."
+                    } else {
+                        "same-turn identity was stale"
+                    })
                 } else {
                     vec![
                         update_own_name_tool_call("call_name_1", json!({"name": "Mira"})),
