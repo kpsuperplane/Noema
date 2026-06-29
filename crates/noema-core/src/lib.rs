@@ -87,7 +87,7 @@ pub use providers::{
     openai::{OpenAiProvider, OpenAiProviderConfig},
 };
 pub use store::{
-    ClaimRetrievalResult, ClaimStatus, ClaimSummary, EntityCandidate, EntityType,
-    EvidenceAuthority, EvidenceCandidate, NewClaimCandidate, NoemaStore, PredicateRecord,
-    RetrievedClaim, StoreConfig, StoreError,
+    ClaimRetrievalResult, ClaimStatus, ClaimSummary, ClaimWriteOutcome, EntityCandidate,
+    EntityType, EvidenceAuthority, EvidenceCandidate, NewClaimCandidate, NoemaStore,
+    PredicateRecord, RetrievedClaim, StoreConfig, StoreError,
 };

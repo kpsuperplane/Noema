@@ -2,9 +2,9 @@ use serde_json::{Value, json};
 
 use super::test_store;
 use crate::{
-    ActorRef, ClaimStatus, ConversationItemKind, ConversationItemStatus, EntityCandidate,
-    EntityType, EvidenceAuthority, EvidenceCandidate, NewClaimCandidate, NewConversationItem,
-    NewConversationTurn, NoemaStore, StoreError,
+    ActorRef, ClaimStatus, ClaimWriteOutcome, ConversationItemKind, ConversationItemStatus,
+    EntityCandidate, EntityType, EvidenceAuthority, EvidenceCandidate, NewClaimCandidate,
+    NewConversationItem, NewConversationTurn, NoemaStore, StoreError,
     memory::{ClaimRetrievalRequest, Sensitivity, UseMode},
     memory_persistence::NewConversation,
 };
@@ -38,6 +38,7 @@ async fn known_predicate_claim_gets_evidence() {
     assert_eq!(summary.status, ClaimStatus::Active);
     assert_eq!(summary.sensitivity, Sensitivity::Normal);
     assert_eq!(summary.evidence_count, 1);
+    assert_eq!(summary.write_outcome, ClaimWriteOutcome::Created);
 }
 
 #[tokio::test]
@@ -61,8 +62,128 @@ async fn reinforcing_existing_claim_adds_evidence() {
         .expect("reinforce claim");
 
     assert_eq!(first.claim_id, second.claim_id);
+    assert_eq!(first.write_outcome, ClaimWriteOutcome::Created);
+    assert_eq!(second.write_outcome, ClaimWriteOutcome::Reinforced);
     assert_eq!(second.evidence_count, 2);
     assert_eq!(claim_count(&store).await, 1);
+}
+
+#[tokio::test]
+async fn fallback_note_punctuation_variants_reinforce_one_claim() {
+    let store = test_store().await;
+    let first_item = create_source_item(&store, "Garage code is 1234!").await;
+    let second_item = create_source_item(&store, "Garage code is 1234.").await;
+
+    let first = store
+        .create_or_reinforce_claim(note_claim(
+            first_item.item_id,
+            "claim_object:has_note:note:v1:placeholder".to_string(),
+            "Garage code is 1234",
+            "Garage code is 1234!",
+        ))
+        .await
+        .expect("first note claim");
+    let second = store
+        .create_or_reinforce_claim(note_claim(
+            second_item.item_id,
+            "claim_object:has_note:note:v1:placeholder".to_string(),
+            "Garage code is 1234",
+            "Garage code is 1234.",
+        ))
+        .await
+        .expect("reinforced note claim");
+
+    assert_eq!(first.claim_id, second.claim_id);
+    assert_eq!(second.write_outcome, ClaimWriteOutcome::Reinforced);
+    assert_eq!(second.evidence_count, 2);
+    assert_eq!(claim_count(&store).await, 1);
+}
+
+#[tokio::test]
+async fn confirmed_reinforcement_promotes_candidate_claim() {
+    let store = test_store().await;
+    let provider_item = create_source_item(&store, "I like trains.").await;
+    let explicit_item = create_source_item(&store, "remember: I like trains.").await;
+
+    let mut provider_candidate = train_claim(provider_item.item_id);
+    provider_candidate.status = ClaimStatus::Candidate;
+    provider_candidate.sensitivity = Sensitivity::Public;
+    provider_candidate.confidence = Some(0.42);
+    provider_candidate.evidence.authority = EvidenceAuthority::AgentInference;
+    let candidate = store
+        .create_or_reinforce_claim(provider_candidate)
+        .await
+        .expect("candidate claim");
+
+    assert_eq!(candidate.status, ClaimStatus::Candidate);
+    assert!(
+        store
+            .retrieve_claims(&personalize_request(), "trains", 8)
+            .await
+            .expect("candidate retrieval")
+            .included
+            .is_empty()
+    );
+
+    let mut explicit_candidate = train_claim(explicit_item.item_id);
+    explicit_candidate.status = ClaimStatus::Confirmed;
+    explicit_candidate.confidence = Some(0.95);
+    let confirmed = store
+        .create_or_reinforce_claim(explicit_candidate)
+        .await
+        .expect("confirmed reinforcement");
+
+    assert_eq!(candidate.claim_id, confirmed.claim_id);
+    assert_eq!(confirmed.write_outcome, ClaimWriteOutcome::Reinforced);
+    assert_eq!(confirmed.status, ClaimStatus::Confirmed);
+    assert_eq!(confirmed.sensitivity, Sensitivity::Normal);
+    assert_eq!(confirmed.evidence_count, 2);
+    assert_eq!(
+        claim_confidence(&store, &confirmed.claim_id).await,
+        Some(0.95)
+    );
+
+    let result = store
+        .retrieve_claims(&personalize_request(), "trains", 8)
+        .await
+        .expect("confirmed retrieval");
+    assert_eq!(result.included.len(), 1);
+    assert_eq!(result.included[0].claim_id, confirmed.claim_id);
+}
+
+#[tokio::test]
+async fn reinforcement_does_not_resurrect_non_live_claim_statuses() {
+    for existing_status in [
+        ClaimStatus::Archived,
+        ClaimStatus::Superseded,
+        ClaimStatus::Disputed,
+    ] {
+        for incoming_status in [ClaimStatus::Active, ClaimStatus::Confirmed] {
+            let store = test_store().await;
+            let first_item = create_source_item(&store, "Kevin likes trains.").await;
+            let second_item = create_source_item(&store, "Still true: Kevin likes trains.").await;
+
+            let existing = store
+                .create_or_reinforce_claim(train_claim(first_item.item_id))
+                .await
+                .expect("initial claim");
+            set_claim_status(&store, &existing.claim_id, existing_status).await;
+
+            let mut reinforcement = train_claim(second_item.item_id);
+            reinforcement.status = incoming_status;
+            reinforcement.evidence.authority = EvidenceAuthority::RepeatedObservation;
+            reinforcement.evidence.excerpt = Some("Still true: Kevin likes trains.".to_string());
+            let reinforced = store
+                .create_or_reinforce_claim(reinforcement)
+                .await
+                .expect("reinforce non-live claim");
+
+            assert_eq!(reinforced.claim_id, existing.claim_id);
+            assert_eq!(reinforced.write_outcome, ClaimWriteOutcome::Reinforced);
+            assert_eq!(reinforced.status, existing_status);
+            assert_eq!(reinforced.evidence_count, 2);
+        }
+    }
 }
 
 #[tokio::test]
@@ -130,6 +251,7 @@ async fn deleted_claim_fingerprint_can_be_reused_by_new_claim() {
     assert_ne!(deleted.claim_id, replacement.claim_id);
     assert_eq!(replacement.status, ClaimStatus::Active);
     assert_eq!(replacement.evidence_count, 1);
+    assert_eq!(replacement.write_outcome, ClaimWriteOutcome::Created);
 
     let rows = matching_train_claims(&store).await;
     let active_rows = rows
@@ -464,6 +586,30 @@ fn train_claim(source_item_id: String) -> NewClaimCandidate {
     }
 }
 
+fn note_claim(
+    source_item_id: String,
+    object_entity_id: String,
+    object_name: &str,
+    fact: &str,
+) -> NewClaimCandidate {
+    NewClaimCandidate {
+        subject: EntityCandidate::local_human(),
+        object: EntityCandidate::concept(&object_entity_id, object_name),
+        predicate_id: "has_note".to_string(),
+        fact: fact.to_string(),
+        sensitivity: Sensitivity::Normal,
+        status: ClaimStatus::Active,
+        confidence: Some(0.9),
+        evidence: EvidenceCandidate {
+            source_item_id,
+            authority: EvidenceAuthority::ExplicitHumanStatement,
+            excerpt: Some(fact.to_string()),
+        },
+        retrieval_hints: json!({}),
+        metadata: json!({}),
+    }
+}
+
 fn personalize_request() -> ClaimRetrievalRequest {
     ClaimRetrievalRequest {
         requesting_agent_id: "agent:primary".to_string(),
@@ -540,6 +686,60 @@ async fn support_count(store: &NoemaStore, claim_id: &str) -> i64 {
         .expect("count support rows");
     let rows: Vec<CountRow> = response.take(0).expect("support count rows");
     rows.first().map_or(0, |row| row.count)
+}
+
+async fn claim_confidence(store: &NoemaStore, claim_id: &str) -> Option<f64> {
+    #[derive(Debug, serde::Deserialize)]
+    struct ConfidenceRow {
+        confidence: Option<f64>,
+    }
+
+    let mut response = store
+        .db()
+        .query(
+            r#"
+            SELECT confidence
+            FROM claims
+            WHERE claim_id = $claim_id
+            LIMIT 1;
+            "#,
+        )
+        .bind(("claim_id", claim_id.to_string()))
+        .await
+        .expect("select claim confidence");
+    let rows: Vec<ConfidenceRow> = response.take(0).expect("confidence rows");
+    rows.into_iter().next().and_then(|row| row.confidence)
+}
+
+async fn set_claim_status(store: &NoemaStore, claim_id: &str, status: ClaimStatus) {
+    store
+        .db()
+        .query(
+            r#"
+            UPDATE claims SET
+              status = $status,
+              updated_at = time::now()
+            WHERE claim_id = $claim_id;
+            "#,
+        )
+        .bind(("claim_id", claim_id.to_string()))
+        .bind(("status", claim_status_str(status).to_string()))
+        .await
+        .expect("update claim status")
+        .check()
+        .expect("claim status update should succeed");
+}
+
+const fn claim_status_str(status: ClaimStatus) -> &'static str {
+    match status {
+        ClaimStatus::Candidate => "candidate",
+        ClaimStatus::Active => "active",
+        ClaimStatus::Confirmed => "confirmed",
+        ClaimStatus::Disputed => "disputed",
+        ClaimStatus::Superseded => "superseded",
+        ClaimStatus::Archived => "archived",
+        ClaimStatus::Deleted => "deleted",
+    }
 }
 
 async fn matching_train_claims(store: &NoemaStore) -> Vec<ClaimRow> {

@@ -1,10 +1,11 @@
 use std::{collections::HashMap, future::Future, pin::Pin, sync::Arc};
 
 use crate::{
-    NoemaStore,
+    ClaimWriteOutcome, NoemaStore,
     memory::Sensitivity,
     memory_extraction::{
-        ExtractorMemoryProposal, ExtractorMemoryResponse, validate_memory_extraction_response,
+        ExtractorMemoryProposal, ExtractorMemoryResponse, ValidatedMemoryProposal,
+        validate_memory_extraction_response_with_assistant_items,
     },
     memory_persistence::{
         ActorRef, AgentStatus as PersistedAgentStatus, ConversationItemKind,
@@ -22,8 +23,9 @@ use tokio::sync::{mpsc, oneshot};
 
 use super::{
     memory_pipeline::{
-        ConversationMemoryContext, explicit_memory_claim_candidate, explicit_memory_content,
-        memory_activity, memory_activity_failed, project_scope_from_cwd, typed_memory_activity,
+        AssistantEvidenceItem, ConversationMemoryContext, explicit_memory_claim_candidate,
+        explicit_memory_content, memory_activity, memory_activity_failed, project_scope_from_cwd,
+        provider_memory_claim_candidate, typed_memory_activity,
     },
     memory_tool::{
         MemoryToolResult, MemoryToolRuntimeContext, execute_search_memory, is_search_memory_tool,
@@ -431,8 +433,8 @@ impl CodexRuntimeActor {
                     turn_id: turn.turn_id.clone(),
                     user_item_id: user_item_id.clone(),
                     assistant_item_id: None,
+                    assistant_items: Vec::new(),
                     user_content: input.clone(),
-                    assistant_content: String::new(),
                     cwd: conversation.cwd.clone(),
                 };
                 self.persist_explicit_memory_claim(&memory_context, &explicit_content, &item_tx)
@@ -460,8 +462,8 @@ impl CodexRuntimeActor {
             turn_id: turn.turn_id.clone(),
             user_item_id: user_item_id.clone(),
             assistant_item_id: None,
+            assistant_items: Vec::new(),
             user_content: input.clone(),
-            assistant_content: String::new(),
             cwd: conversation.cwd.clone(),
         };
         let mut on_initial_event = |event| {
@@ -515,8 +517,8 @@ impl CodexRuntimeActor {
                         turn_id: turn.turn_id,
                         user_item_id,
                         assistant_item_id: None,
+                        assistant_items: Vec::new(),
                         user_content: input,
-                        assistant_content: String::new(),
                         cwd: conversation.cwd.clone(),
                     };
                     self.record_turn_failure(&failure_context, error.to_string(), &item_tx)
@@ -551,8 +553,8 @@ impl CodexRuntimeActor {
                     turn_id: turn.turn_id.clone(),
                     user_item_id: user_item_id.clone(),
                     assistant_item_id: None,
+                    assistant_items: Vec::new(),
                     user_content: input.clone(),
-                    assistant_content: String::new(),
                     cwd: conversation.cwd.clone(),
                 };
                 if let Some((provider, output)) = partial_output {
@@ -580,7 +582,7 @@ impl CodexRuntimeActor {
         turn: SuccessfulProviderTurn,
         item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
     ) -> Result<(), DaemonError> {
-        let mut provider_memory_proposals = turn.response.memory_proposals();
+        let initial_memory_proposals = turn.response.memory_proposals();
         let initial_output_count = turn.response.output.len();
         let action_turn = ProviderActionTurn {
             conversation_id: turn.conversation_id.clone(),
@@ -590,24 +592,38 @@ impl CodexRuntimeActor {
             provider: turn.response.provider.clone(),
             stream_id: Some(turn.initial_stream_id.clone()),
         };
-        let mut initial_assistant_item_id = None;
-        let mut initial_assistant_text = String::new();
+        let mut initial_assistant_response = ProviderAssistantResponse::default();
         for (index, output) in turn.response.output.iter().cloned().enumerate() {
             self.persist_provider_response_output_item(
                 &action_turn,
                 index,
                 output,
-                &mut initial_assistant_item_id,
-                &mut initial_assistant_text,
+                &mut initial_assistant_response,
                 item_tx,
             )
             .await?;
         }
 
+        let mut provider_memory_batches = Vec::new();
+        if !initial_memory_proposals.is_empty() {
+            provider_memory_batches.push(ProviderMemoryProposalBatch {
+                context: ConversationMemoryContext {
+                    turn_index: turn.turn_index,
+                    conversation_id: turn.conversation_id.clone(),
+                    turn_id: turn.turn_id.clone(),
+                    user_item_id: turn.user_item_id.clone(),
+                    assistant_item_id: initial_assistant_response.item_id.clone(),
+                    assistant_items: initial_assistant_response.items.clone(),
+                    user_content: turn.user_input.clone(),
+                    cwd: turn.cwd.clone(),
+                },
+                proposals: initial_memory_proposals,
+            });
+        }
+
         let local_tool_results = self.execute_local_search_memory_tools(&turn).await;
         let has_local_tool_results = !local_tool_results.is_empty();
-        let mut continuation_assistant_item_id = None;
-        let mut continuation_assistant_text = String::new();
+        let mut continuation_assistant_response = ProviderAssistantResponse::default();
         if has_local_tool_results {
             let local_action_turn = ProviderActionTurn {
                 conversation_id: turn.conversation_id.clone(),
@@ -642,8 +658,8 @@ impl CodexRuntimeActor {
                 turn_id: turn.turn_id.clone(),
                 user_item_id: turn.user_item_id.clone(),
                 assistant_item_id: None,
+                assistant_items: Vec::new(),
                 user_content: turn.user_input.clone(),
-                assistant_content: String::new(),
                 cwd: turn.cwd.clone(),
             };
             let mut on_continuation_event = |event| {
@@ -670,7 +686,7 @@ impl CodexRuntimeActor {
                     &mut on_continuation_event,
                 )
                 .await?;
-            provider_memory_proposals.extend(continuation_response.memory_proposals());
+            let continuation_memory_proposals = continuation_response.memory_proposals();
             let continuation_action_turn = ProviderActionTurn {
                 conversation_id: turn.conversation_id.clone(),
                 turn_id: turn.turn_id.clone(),
@@ -684,51 +700,31 @@ impl CodexRuntimeActor {
                     &continuation_action_turn,
                     continuation_output_base + offset,
                     output,
-                    &mut continuation_assistant_item_id,
-                    &mut continuation_assistant_text,
+                    &mut continuation_assistant_response,
                     item_tx,
                 )
                 .await?;
             }
+            if !continuation_memory_proposals.is_empty() {
+                provider_memory_batches.push(ProviderMemoryProposalBatch {
+                    context: ConversationMemoryContext {
+                        turn_index: turn.turn_index,
+                        conversation_id: turn.conversation_id.clone(),
+                        turn_id: turn.turn_id.clone(),
+                        user_item_id: turn.user_item_id.clone(),
+                        assistant_item_id: continuation_assistant_response.item_id.clone(),
+                        assistant_items: continuation_assistant_response.items.clone(),
+                        user_content: turn.user_input.clone(),
+                        cwd: turn.cwd.clone(),
+                    },
+                    proposals: continuation_memory_proposals,
+                });
+            }
         }
-        let assistant_item_id = final_assistant_item_id(
-            has_local_tool_results,
-            initial_assistant_item_id,
-            continuation_assistant_item_id,
-        );
-        let assistant_text = final_assistant_text_for_memory_context(
-            has_local_tool_results,
-            &initial_assistant_text,
-            &continuation_assistant_text,
-        );
 
-        let memory_context = ConversationMemoryContext {
-            turn_index: turn.turn_index,
-            conversation_id: turn.conversation_id.clone(),
-            turn_id: turn.turn_id.clone(),
-            user_item_id: turn.user_item_id.clone(),
-            assistant_item_id,
-            user_content: turn.user_input,
-            assistant_content: assistant_text,
-            cwd: turn.cwd,
-        };
-
-        if !turn.explicit_memory_outcome.was_attempted() && !provider_memory_proposals.is_empty() {
-            self.persist_provider_memory_proposals(
-                &memory_context,
-                provider_memory_proposals,
-                item_tx,
-            )
-            .await?;
-        } else if !turn.explicit_memory_outcome.was_attempted() {
-            self.persist_memory_unavailable_activity(
-                &memory_context,
-                "ordinary_chat",
-                "Memory extraction unavailable",
-                "graph-claim memory writes are pending",
-                item_tx,
-            )
-            .await?;
+        if !turn.explicit_memory_outcome.was_attempted() && !provider_memory_batches.is_empty() {
+            self.persist_provider_memory_proposals(provider_memory_batches, item_tx)
+                .await?;
         }
 
         self.store.complete_conversation_turn(&turn.turn_id).await?;
@@ -751,13 +747,12 @@ impl CodexRuntimeActor {
         turn: &ProviderActionTurn,
         index: usize,
         output: GenerateOutputItem,
-        assistant_item_id: &mut Option<String>,
-        assistant_text: &mut String,
+        assistant_response: &mut ProviderAssistantResponse,
         item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
     ) -> Result<(), DaemonError> {
         match output {
             GenerateOutputItem::AssistantText { text } => {
-                assistant_text.push_str(&text);
+                assistant_response.push_text(&text);
                 let metadata = json!({
                     "turn_index": turn.turn_index,
                     "output_index": index,
@@ -777,9 +772,13 @@ impl CodexRuntimeActor {
                         metadata: metadata.clone(),
                     })
                     .await?;
-                if assistant_item_id.is_none() {
-                    *assistant_item_id = Some(assistant_item.item_id.clone());
+                if assistant_response.item_id.is_none() {
+                    assistant_response.item_id = Some(assistant_item.item_id.clone());
                 }
+                assistant_response.items.push(AssistantEvidenceItem {
+                    item_id: assistant_item.item_id.clone(),
+                    text: text.clone(),
+                });
                 send_conversation_item(
                     item_tx,
                     assistant_item,
@@ -1080,30 +1079,58 @@ impl CodexRuntimeActor {
 
     async fn persist_provider_memory_proposals(
         &mut self,
-        context: &ConversationMemoryContext,
-        proposals: Vec<ExtractorMemoryProposal>,
+        batches: Vec<ProviderMemoryProposalBatch>,
         item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
     ) -> Result<(), DaemonError> {
-        let turn_index = context.turn_index;
-        let activity_id = format!("memory_extraction:{}:{turn_index}", context.conversation_id);
-        let proposals = match validate_memory_extraction_response(
-            ExtractorMemoryResponse { proposals },
-            &context.user_content,
-            &context.assistant_content,
-        ) {
-            Ok(proposals) => proposals,
-            Err(error) => {
-                let activity = memory_activity_failed(
-                    &activity_id,
-                    format!("memory extraction output was rejected: {error}"),
-                );
-                self.persist_and_send_turn_item(context, activity, item_tx)
-                    .await?;
-                return Ok(());
-            }
+        let Some(activity_context) = batches.first().map(|batch| batch.context.clone()) else {
+            return Ok(());
         };
+        let turn_index = activity_context.turn_index;
+        let activity_id = format!(
+            "memory_extraction:{}:{turn_index}",
+            activity_context.conversation_id
+        );
+        let proposal_count = batches
+            .iter()
+            .map(|batch| batch.proposals.len())
+            .sum::<usize>();
+        let mut validated_proposals = Vec::with_capacity(proposal_count);
+        for batch in batches {
+            let assistant_item_texts = batch
+                .context
+                .assistant_items
+                .iter()
+                .map(|item| item.text.as_str())
+                .collect::<Vec<_>>();
+            let proposals = match validate_memory_extraction_response_with_assistant_items(
+                ExtractorMemoryResponse {
+                    proposals: batch.proposals,
+                },
+                &batch.context.user_content,
+                &assistant_item_texts,
+            ) {
+                Ok(proposals) => proposals,
+                Err(error) => {
+                    let activity = memory_activity_failed(
+                        &activity_id,
+                        format!("memory extraction output was rejected: {error}"),
+                    );
+                    self.persist_and_send_turn_item(&activity_context, activity, item_tx)
+                        .await?;
+                    return Ok(());
+                }
+            };
+            for proposal in proposals {
+                let proposal_index = validated_proposals.len();
+                validated_proposals.push(ValidatedProviderMemoryProposal {
+                    context: batch.context.clone(),
+                    proposal,
+                    proposal_index,
+                });
+            }
+        }
 
-        let proposed_summary = match proposals.len() {
+        let proposed_summary = match proposal_count {
             0 => "creating no memory candidates".to_string(),
             1 => "creating 1 memory candidate".to_string(),
             count => format!("creating {count} memory candidates"),
@@ -1115,31 +1142,64 @@ impl CodexRuntimeActor {
             Some(&proposed_summary),
             json!({
                 "turn_index": turn_index,
-                "proposal_count": proposals.len(),
-                "cwd_project_hint": project_scope_from_cwd(context.cwd.as_deref()),
+                "proposal_count": proposal_count,
+                "cwd_project_hint": project_scope_from_cwd(activity_context.cwd.as_deref()),
             }),
         );
-        send_transient_turn_item(context, proposed_activity, item_tx);
+        send_transient_turn_item(&activity_context, proposed_activity, item_tx);
         tokio::task::yield_now().await;
 
-        // TODO(graph-claim store): provider memory proposals become graph
-        // claims in the SurrealDB memory slice. This bridge records an
-        // unavailable activity instead of emitting a success-looking card.
+        let mut claim_ids = Vec::with_capacity(proposal_count);
+        let mut created_claim_count = 0usize;
+        let mut reinforced_claim_count = 0usize;
+        let mut failed_proposals = Vec::new();
+        for proposal in validated_proposals {
+            let proposal_index = proposal.proposal_index;
+            let candidate = provider_memory_claim_candidate(
+                &proposal.proposal,
+                &proposal.context,
+                proposal_index,
+                "ordinary_chat",
+            );
+            match self.store.create_or_reinforce_claim(candidate).await {
+                Ok(summary) => {
+                    match summary.write_outcome {
+                        ClaimWriteOutcome::Created => created_claim_count += 1,
+                        ClaimWriteOutcome::Reinforced => reinforced_claim_count += 1,
+                    }
+                    claim_ids.push(summary.claim_id);
+                }
+                Err(error) => {
+                    failed_proposals.push(json!({
+                        "proposal_index": proposal_index,
+                        "error": error.to_string(),
+                    }));
+                }
+            }
+        }
+
+        let failed_proposal_count = failed_proposals.len();
+        let saved_claim_count = claim_ids.len();
+        let (status, title, persisted_summary) =
+            provider_memory_persistence_activity(saved_claim_count, failed_proposal_count);
         let activity = memory_activity(
             &activity_id,
-            TurnActivityStatus::Failed,
-            "Memory persistence unavailable",
-            Some("graph-claim memory writes are pending"),
+            status,
+            title,
+            Some(&persisted_summary),
             json!({
                 "turn_index": turn_index,
-                "proposal_count": proposals.len(),
                 "source": "provider_structured_output",
-                "unavailable": {
-                    "reason": "graph_claim_writes_pending",
-                },
+                "proposal_count": proposal_count,
+                "claim_ids": claim_ids,
+                "created_claim_count": created_claim_count,
+                "reinforced_claim_count": reinforced_claim_count,
+                "failed_proposal_count": failed_proposal_count,
+                "failed_proposals": failed_proposals,
+                "cwd_project_hint": project_scope_from_cwd(activity_context.cwd.as_deref()),
             }),
         );
-        self.persist_and_send_turn_item(context, activity, item_tx)
+        self.persist_and_send_turn_item(&activity_context, activity, item_tx)
             .await
     }
 
@@ -1196,34 +1256,6 @@ impl CodexRuntimeActor {
                 Ok(ExplicitMemoryOutcome::Failed)
             }
         }
-    }
-
-    async fn persist_memory_unavailable_activity(
-        &mut self,
-        context: &ConversationMemoryContext,
-        trigger: &str,
-        title: &str,
-        summary: &str,
-        item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
-    ) -> Result<(), DaemonError> {
-        let activity = memory_activity(
-            &format!(
-                "memory_unavailable:{}:{}",
-                context.conversation_id, context.turn_index
-            ),
-            TurnActivityStatus::Failed,
-            title,
-            Some(summary),
-            json!({
-                "turn_index": context.turn_index,
-                "trigger": trigger,
-                "unavailable": {
-                    "reason": "graph_claim_writes_pending",
-                },
-            }),
-        );
-        self.persist_and_send_turn_item(context, activity, item_tx)
-            .await
     }
 
     async fn persist_and_send_turn_item(
@@ -1585,7 +1617,7 @@ Memory proposal shape:
     "summary": null
   }},
   "risk_flags": [],
-  "evidence_excerpt": "exact contiguous quote from the user message"
+  "evidence_excerpt": "exact contiguous quote from the user or assistant source message"
 }}
 
 Rules:
@@ -1593,7 +1625,8 @@ Rules:
 - Include exactly one memory_proposals item. Use an empty proposals array when there are no durable memories.
 - Propose only durable facts, preferences, constraints, decisions, routines, goals, procedures, or notes that could matter later.
 - Do not propose jokes, speculation, transient task chatter, or generic world facts.
-- evidence_excerpt must be an exact contiguous quote from the user message and directly support the proposal.
+- evidence_excerpt must be an exact contiguous quote from the original turn/source message and directly support the proposal.
+- For assistant-supported proposals, evidence_excerpt must exactly quote the assistant text that generated the proposal in the same provider response phase.
 - subjects must be non-empty and must show a human subject or participant when the memory affects a person.
 - Use id "human:local" only for the current human/user/me. Do not use it for third-party people.
 - confidence must be between 0.0 and 1.0. Use at least 0.70 only when evidence directly supports the proposal.
@@ -1627,6 +1660,51 @@ fn build_local_tool_result_continuation_system_prompt(
     prompt
 }
 
+fn provider_memory_persistence_activity(
+    saved_count: usize,
+    failed_count: usize,
+) -> (TurnActivityStatus, &'static str, String) {
+    if failed_count == 0 {
+        return (
+            TurnActivityStatus::Completed,
+            "Memory persisted",
+            provider_memory_persistence_summary(saved_count, failed_count),
+        );
+    }
+
+    if saved_count == 0 {
+        let summary = if failed_count == 1 {
+            "graph claim write failed".to_string()
+        } else {
+            provider_memory_persistence_summary(saved_count, failed_count)
+        };
+        return (
+            TurnActivityStatus::Failed,
+            "Memory persistence failed",
+            summary,
+        );
+    }
+
+    (
+        TurnActivityStatus::Failed,
+        "Memory persistence partially failed",
+        provider_memory_persistence_summary(saved_count, failed_count),
+    )
+}
+
+fn provider_memory_persistence_summary(saved_count: usize, failed_count: usize) -> String {
+    match (saved_count, failed_count) {
+        (1, 0) => "saved 1 graph claim".to_string(),
+        (count, 0) => format!("saved {count} graph claims"),
+        (0, 1) => "saved 0 graph claims; 1 proposal failed".to_string(),
+        (0, failed) => format!("saved 0 graph claims; {failed} proposals failed"),
+        (1, 1) => "saved 1 graph claim; 1 proposal failed".to_string(),
+        (1, failed) => format!("saved 1 graph claim; {failed} proposals failed"),
+        (saved, 1) => format!("saved {saved} graph claims; 1 proposal failed"),
+        (saved, failed) => format!("saved {saved} graph claims; {failed} proposals failed"),
+    }
+}
+
 fn local_tool_result_continuation_input(results: &[MemoryToolResult]) -> Value {
     json!({
         "type": "NOEMA_LOCAL_TOOL_RESULT",
@@ -1649,30 +1727,6 @@ fn local_tool_result_output_item(result: &MemoryToolResult) -> GenerateOutputIte
         name: Some(result.name.clone()),
         success: Some(result.success),
         payload: result.payload.clone(),
-    }
-}
-
-fn final_assistant_text_for_memory_context(
-    has_local_tool_results: bool,
-    initial_assistant_text: &str,
-    continuation_assistant_text: &str,
-) -> String {
-    if has_local_tool_results && !continuation_assistant_text.trim().is_empty() {
-        continuation_assistant_text.to_string()
-    } else {
-        initial_assistant_text.to_string()
-    }
-}
-
-fn final_assistant_item_id(
-    has_local_tool_results: bool,
-    initial_assistant_item_id: Option<String>,
-    continuation_assistant_item_id: Option<String>,
-) -> Option<String> {
-    if has_local_tool_results && continuation_assistant_item_id.is_some() {
-        continuation_assistant_item_id
-    } else {
-        initial_assistant_item_id
     }
 }
 
@@ -1770,6 +1824,35 @@ struct SuccessfulProviderTurn {
     explicit_memory_outcome: ExplicitMemoryOutcome,
 }
 
+#[derive(Debug)]
+struct ProviderMemoryProposalBatch {
+    context: ConversationMemoryContext,
+    proposals: Vec<ExtractorMemoryProposal>,
+}
+
+#[derive(Debug, Default)]
+struct ProviderAssistantResponse {
+    item_id: Option<String>,
+    text: String,
+    items: Vec<AssistantEvidenceItem>,
+}
+
+impl ProviderAssistantResponse {
+    fn push_text(&mut self, text: &str) {
+        if !self.text.is_empty() {
+            self.text.push_str("\n\n");
+        }
+        self.text.push_str(text);
+    }
+}
+
+#[derive(Debug)]
+struct ValidatedProviderMemoryProposal {
+    context: ConversationMemoryContext,
+    proposal: ValidatedMemoryProposal,
+    proposal_index: usize,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum ExplicitMemoryOutcome {
     None,
@@ -1805,21 +1888,6 @@ struct ProviderActionOutput {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn final_assistant_text_for_memory_context_uses_continuation_text_after_local_tools() {
-        let text =
-            final_assistant_text_for_memory_context(true, "Searching memory.", "I found it.");
-
-        assert_eq!(text, "I found it.");
-    }
-
-    #[test]
-    fn final_assistant_text_for_memory_context_uses_initial_text_without_local_tools() {
-        let text = final_assistant_text_for_memory_context(false, "Direct answer.", "");
-
-        assert_eq!(text, "Direct answer.");
-    }
 
     #[test]
     fn codex_config_for_provider_account_uses_account_home() {

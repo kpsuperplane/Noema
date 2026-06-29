@@ -15,7 +15,8 @@ mod schema;
 mod tests;
 
 pub use claims::{
-    ClaimStatus, ClaimSummary, EvidenceAuthority, EvidenceCandidate, NewClaimCandidate,
+    ClaimStatus, ClaimSummary, ClaimWriteOutcome, EvidenceAuthority, EvidenceCandidate,
+    NewClaimCandidate,
 };
 pub use error::StoreError;
 pub use ontology::{EntityCandidate, EntityType, PredicateRecord};

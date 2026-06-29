@@ -28,6 +28,15 @@ pub enum ClaimStatus {
     Deleted,
 }
 
+/// Result category for a graph claim write.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ClaimWriteOutcome {
+    /// A new claim row was inserted.
+    Created,
+    /// An existing claim row was reinforced with new evidence.
+    Reinforced,
+}
+
 impl ClaimStatus {
     const fn as_str(self) -> &'static str {
         match self {
@@ -146,6 +155,8 @@ pub struct ClaimSummary {
     pub sensitivity: Sensitivity,
     /// Count of support evidence rows.
     pub evidence_count: i64,
+    /// Whether this write inserted a claim or reinforced an existing one.
+    pub write_outcome: ClaimWriteOutcome,
 }
 
 impl NoemaStore {
@@ -172,19 +183,86 @@ impl NoemaStore {
             &candidate.object.entity_id,
             &candidate.fact,
         );
-        let claim_id = match self.existing_claim_id(&fingerprint).await? {
-            Some(claim_id) => claim_id,
+        let (claim_id, write_outcome) = match self.existing_claim_id(&fingerprint).await? {
+            Some(claim_id) => {
+                self.merge_reinforced_claim(&claim_id, &candidate).await?;
+                (claim_id, ClaimWriteOutcome::Reinforced)
+            }
             None => {
                 let claim_id = allocate_id("claim");
                 self.release_deleted_claim_fingerprint(&fingerprint).await?;
                 self.insert_claim(&claim_id, &fingerprint, &candidate)
                     .await?;
-                claim_id
+                (claim_id, ClaimWriteOutcome::Created)
             }
         };
         self.insert_support_evidence(&claim_id, &candidate.evidence)
             .await?;
-        self.claim_summary(&claim_id).await
+        self.claim_summary(&claim_id, write_outcome).await
+    }
+
+    async fn merge_reinforced_claim(
+        &self,
+        claim_id: &str,
+        candidate: &NewClaimCandidate,
+    ) -> Result<(), StoreError> {
+        let existing = self.existing_claim_for_merge(claim_id).await?;
+        let status = strongest_claim_status(existing.status, candidate.status);
+        let sensitivity = existing.sensitivity.max(candidate.sensitivity);
+        let confidence = strongest_confidence(existing.confidence, candidate.confidence);
+
+        if status == existing.status
+            && sensitivity == existing.sensitivity
+            && confidence == existing.confidence
+        {
+            return Ok(());
+        }
+
+        self.db
+            .query(
+                r#"
+                UPDATE claims SET
+                  status = $status,
+                  sensitivity = $sensitivity,
+                  confidence = $confidence,
+                  updated_at = time::now()
+                WHERE claim_id = $claim_id;
+                "#,
+            )
+            .bind(("claim_id", claim_id.to_string()))
+            .bind(("status", status.as_str().to_string()))
+            .bind(("sensitivity", sensitivity_to_store(sensitivity).to_string()))
+            .bind(("confidence", confidence))
+            .await?
+            .check()?;
+        Ok(())
+    }
+
+    async fn existing_claim_for_merge(
+        &self,
+        claim_id: &str,
+    ) -> Result<ExistingClaimMergeRow, StoreError> {
+        let mut response = self
+            .db
+            .query(
+                r#"
+                SELECT claim_id, status, sensitivity, confidence
+                FROM claims
+                WHERE claim_id = $claim_id
+                LIMIT 1;
+                "#,
+            )
+            .bind(("claim_id", claim_id.to_string()))
+            .await?;
+        let rows: Vec<ExistingClaimMergeRecord> = response.take(0)?;
+        let row = rows.into_iter().next().ok_or_else(|| {
+            StoreError::Schema(format!("missing existing claim before merge: {claim_id}"))
+        })?;
+        Ok(ExistingClaimMergeRow {
+            status: ClaimStatus::parse(&row.status)?,
+            sensitivity: parse_sensitivity(&row.sensitivity)?,
+            confidence: row.confidence,
+        })
     }
 
     async fn upsert_entity(&self, entity: &EntityCandidate) -> Result<(), StoreError> {
@@ -395,7 +473,11 @@ impl NoemaStore {
         Ok(())
     }
 
-    async fn claim_summary(&self, claim_id: &str) -> Result<ClaimSummary, StoreError> {
+    async fn claim_summary(
+        &self,
+        claim_id: &str,
+        write_outcome: ClaimWriteOutcome,
+    ) -> Result<ClaimSummary, StoreError> {
         let mut response = self
             .db
             .query(
@@ -433,6 +515,7 @@ impl NoemaStore {
             status: ClaimStatus::parse(&row.status)?,
             sensitivity: parse_sensitivity(&row.sensitivity)?,
             evidence_count: counts.first().map_or(0, |row| row.count),
+            write_outcome,
         })
     }
 }
@@ -470,13 +553,46 @@ struct CountRow {
     count: i64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct ExistingClaimMergeRow {
+    status: ClaimStatus,
+    sensitivity: Sensitivity,
+    confidence: Option<f64>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ExistingClaimMergeRecord {
+    #[allow(dead_code)]
+    claim_id: String,
+    status: String,
+    sensitivity: String,
+    confidence: Option<f64>,
+}
+
+fn strongest_claim_status(existing: ClaimStatus, incoming: ClaimStatus) -> ClaimStatus {
+    match (existing, incoming) {
+        (ClaimStatus::Candidate, ClaimStatus::Active | ClaimStatus::Confirmed) => incoming,
+        (ClaimStatus::Active, ClaimStatus::Confirmed) => ClaimStatus::Confirmed,
+        _ => existing,
+    }
+}
+
+fn strongest_confidence(existing: Option<f64>, incoming: Option<f64>) -> Option<f64> {
+    match (existing, incoming) {
+        (Some(existing), Some(incoming)) => Some(existing.max(incoming)),
+        (Some(existing), None) => Some(existing),
+        (None, Some(incoming)) => Some(incoming),
+        (None, None) => None,
+    }
+}
+
 fn claim_fingerprint(
     subject_entity_id: &str,
     predicate_id: &str,
     object_entity_id: &str,
     fact: &str,
 ) -> String {
-    let normalized_fact = normalize_fact(fact);
+    let normalized_fact = normalize_fact_for_fingerprint(predicate_id, fact);
     format!(
         "claim-fingerprint:v1:{}:{}:{}:{}:{}:{}:{}:{}",
         subject_entity_id.len(),
@@ -490,11 +606,30 @@ fn claim_fingerprint(
     )
 }
 
-fn normalize_fact(fact: &str) -> String {
-    fact.split_whitespace()
+fn normalize_fact_for_fingerprint(predicate_id: &str, fact: &str) -> String {
+    let normalized = fact
+        .split_whitespace()
         .collect::<Vec<_>>()
         .join(" ")
-        .to_ascii_lowercase()
+        .to_ascii_lowercase();
+
+    if predicate_id != "has_note" {
+        return normalized;
+    }
+
+    let terminal_punctuation_count = normalized
+        .chars()
+        .rev()
+        .take_while(|ch| matches!(ch, '.' | '!' | '?'))
+        .count();
+    if terminal_punctuation_count == 1 {
+        normalized
+            .trim_end_matches(['.', '!', '?'])
+            .trim_end()
+            .to_string()
+    } else {
+        normalized
+    }
 }
 
 fn sensitivity_to_store(sensitivity: Sensitivity) -> &'static str {

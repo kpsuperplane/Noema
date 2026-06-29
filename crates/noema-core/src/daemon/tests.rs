@@ -1,14 +1,15 @@
 use super::*;
 use super::{
     memory_pipeline::{
-        explicit_memory_claim_candidate, explicit_memory_content, infer_chat_sensitivity,
+        ConversationMemoryContext, explicit_memory_claim_candidate, explicit_memory_content,
+        infer_chat_sensitivity, provider_memory_claim_candidate,
     },
     protocol::TurnStreamEvent,
     runtime::CodexRuntimeHandle,
     server::bind_listener,
 };
 use crate::{
-    DatabaseConfig,
+    DatabaseConfig, EntityType,
     memory::{ClaimRetrievalRequest, MemoryStatus, Sensitivity, UseMode},
     memory_persistence::{
         ConversationItemKind, ConversationItemStatus, PostgresMemoryRepository, ReplayMode,
@@ -18,6 +19,7 @@ use crate::{
         ProviderError,
     },
 };
+use serde::Deserialize;
 use serde_json::json;
 use std::{future::Future, path::PathBuf, pin::Pin, process::Command, sync::Arc};
 use tokio::sync::mpsc;
@@ -534,6 +536,261 @@ fn explicit_claim_candidate_normalizes_relation_object_whitespace() {
     assert_eq!(candidate.retrieval_hints["keywords"], json!(["ice cream"]));
 }
 
+#[test]
+fn explicit_claim_candidate_canonicalizes_dislikes() {
+    let candidate = explicit_memory_claim_candidate("I hate   ICE CREAM", "item:test".to_string());
+
+    assert_eq!(candidate.predicate_id, "dislikes");
+    assert_eq!(candidate.fact, "Kevin dislikes ice cream.");
+    assert_eq!(candidate.object.canonical_name, "ice cream");
+    assert_eq!(candidate.retrieval_hints["keywords"], json!(["ice cream"]));
+}
+
+#[test]
+fn explicit_and_provider_dislikes_share_claim_shape() {
+    let explicit = explicit_memory_claim_candidate("I hate ice cream", "item:explicit".to_string());
+    let provider = provider_memory_claim_candidate(
+        &crate::memory_extraction::ValidatedMemoryProposal {
+            proposal: proposal(json!({
+                "content": "I hate ice cream",
+                "memory_type": "preference",
+                "title": "Ice cream dislike",
+                "confidence": 0.81,
+                "sensitivity": "normal",
+                "subjects": [{"id": null, "kind": "human", "name": "Kevin", "role": "about"}],
+                "retrieval_hints": {"topics": ["food"], "keywords": ["ice cream"], "summary": "Kevin dislikes ice cream."},
+                "risk_flags": [],
+                "evidence_excerpt": "I hate ice cream"
+            })),
+            status: MemoryStatus::Candidate,
+        },
+        &ConversationMemoryContext {
+            conversation_id: "conversation:test".to_string(),
+            turn_id: "turn:test".to_string(),
+            turn_index: 1,
+            user_item_id: "item:provider".to_string(),
+            assistant_item_id: None,
+            assistant_items: Vec::new(),
+            user_content: "I hate ice cream".to_string(),
+            cwd: None,
+        },
+        0,
+        "ordinary_chat",
+    );
+
+    assert_eq!(provider.subject.entity_id, explicit.subject.entity_id);
+    assert_eq!(provider.predicate_id, explicit.predicate_id);
+    assert_eq!(provider.fact, explicit.fact);
+    assert_eq!(provider.object.entity_id, explicit.object.entity_id);
+}
+
+#[test]
+fn provider_note_fallback_uses_content_for_object_identity() {
+    let explicit =
+        explicit_memory_claim_candidate("Garage keypad code is 1234.", "item:explicit".to_string());
+    let provider = provider_memory_claim_candidate(
+        &crate::memory_extraction::ValidatedMemoryProposal {
+            proposal: proposal(json!({
+                "content": "Garage keypad code is 1234.",
+                "memory_type": "note",
+                "title": "Garage code",
+                "confidence": 0.81,
+                "sensitivity": "secret",
+                "subjects": [{"id": null, "kind": "human", "name": "Kevin", "role": "about"}],
+                "retrieval_hints": {"topics": ["home"], "keywords": ["garage"], "summary": "Garage keypad code is 1234."},
+                "risk_flags": [],
+                "evidence_excerpt": "Garage keypad code is 1234."
+            })),
+            status: MemoryStatus::Candidate,
+        },
+        &ConversationMemoryContext {
+            conversation_id: "conversation:test".to_string(),
+            turn_id: "turn:test".to_string(),
+            turn_index: 1,
+            user_item_id: "item:provider".to_string(),
+            assistant_item_id: None,
+            assistant_items: Vec::new(),
+            user_content: "Garage keypad code is 1234.".to_string(),
+            cwd: None,
+        },
+        0,
+        "ordinary_chat",
+    );
+
+    assert_eq!(explicit.predicate_id, "has_note");
+    assert_eq!(provider.predicate_id, "has_note");
+    assert_eq!(provider.subject.entity_id, "human:local");
+    assert_eq!(provider.object.entity_id, explicit.object.entity_id);
+    assert_eq!(
+        provider.object.canonical_name,
+        explicit.object.canonical_name
+    );
+    assert_eq!(provider.object.canonical_name, "Garage keypad code is 1234");
+}
+
+#[test]
+fn note_fallback_object_id_uses_opaque_content_fingerprint() {
+    let first =
+        explicit_memory_claim_candidate("Garage keypad code is 1234!", "item:first".to_string());
+    let second =
+        explicit_memory_claim_candidate("Garage keypad code is 1234.", "item:second".to_string());
+
+    assert_eq!(first.predicate_id, "has_note");
+    assert_eq!(first.object.entity_id, second.object.entity_id);
+    assert!(first.object.entity_id.starts_with("concept:claim_object_"));
+    assert!(
+        !first
+            .object
+            .entity_id
+            .to_ascii_lowercase()
+            .contains("garage")
+    );
+    assert!(!first.object.entity_id.contains("1234"));
+    assert_eq!(first.object.canonical_name, "Garage keypad code is 1234");
+}
+
+#[test]
+fn third_party_same_name_provider_subject_stays_non_local() {
+    let provider = provider_memory_claim_candidate(
+        &crate::memory_extraction::ValidatedMemoryProposal {
+            proposal: proposal(json!({
+                "content": "Kevin prefers decaf.",
+                "memory_type": "preference",
+                "title": "Kevin decaf",
+                "confidence": 0.81,
+                "sensitivity": "normal",
+                "subjects": [{"id": null, "kind": "human", "name": "Kevin", "role": "about"}],
+                "retrieval_hints": {"topics": ["people"], "keywords": ["Kevin", "decaf"], "summary": "Kevin prefers decaf."},
+                "risk_flags": [],
+                "evidence_excerpt": "My friend Kevin prefers decaf."
+            })),
+            status: MemoryStatus::Candidate,
+        },
+        &ConversationMemoryContext {
+            conversation_id: "conversation:test".to_string(),
+            turn_id: "turn:test".to_string(),
+            turn_index: 1,
+            user_item_id: "item:provider".to_string(),
+            assistant_item_id: None,
+            assistant_items: Vec::new(),
+            user_content: "My friend Kevin prefers decaf.".to_string(),
+            cwd: None,
+        },
+        0,
+        "ordinary_chat",
+    );
+
+    assert_ne!(provider.subject.entity_id, "human:local");
+    assert_eq!(provider.subject.entity_id, "human:kevin");
+}
+
+#[test]
+fn named_same_name_provider_subject_stays_non_local() {
+    let provider = provider_memory_claim_candidate(
+        &crate::memory_extraction::ValidatedMemoryProposal {
+            proposal: proposal(json!({
+                "content": "Kevin prefers decaf.",
+                "memory_type": "preference",
+                "title": "Kevin decaf",
+                "confidence": 0.81,
+                "sensitivity": "normal",
+                "subjects": [{"id": null, "kind": "human", "name": "Kevin", "role": "about"}],
+                "retrieval_hints": {"topics": ["people"], "keywords": ["Kevin", "decaf"], "summary": "Kevin prefers decaf."},
+                "risk_flags": [],
+                "evidence_excerpt": "I talked to Kevin and he prefers decaf."
+            })),
+            status: MemoryStatus::Candidate,
+        },
+        &ConversationMemoryContext {
+            conversation_id: "conversation:test".to_string(),
+            turn_id: "turn:test".to_string(),
+            turn_index: 1,
+            user_item_id: "item:provider".to_string(),
+            assistant_item_id: None,
+            assistant_items: Vec::new(),
+            user_content: "I talked to Kevin and he prefers decaf.".to_string(),
+            cwd: None,
+        },
+        0,
+        "ordinary_chat",
+    );
+
+    assert_ne!(provider.subject.entity_id, "human:local");
+    assert_eq!(provider.subject.entity_id, "human:kevin");
+}
+
+#[test]
+fn literal_local_human_provider_subject_maps_to_local() {
+    let provider = provider_memory_claim_candidate(
+        &crate::memory_extraction::ValidatedMemoryProposal {
+            proposal: proposal(json!({
+                "content": "The local human prefers local models.",
+                "memory_type": "preference",
+                "title": "Local model preference",
+                "confidence": 0.81,
+                "sensitivity": "normal",
+                "subjects": [{"id": null, "kind": "human", "name": "local human", "role": "about"}],
+                "retrieval_hints": {"topics": ["models"], "keywords": ["local models"], "summary": "The local human prefers local models."},
+                "risk_flags": [],
+                "evidence_excerpt": "I prefer local models."
+            })),
+            status: MemoryStatus::Active,
+        },
+        &ConversationMemoryContext {
+            conversation_id: "conversation:test".to_string(),
+            turn_id: "turn:test".to_string(),
+            turn_index: 1,
+            user_item_id: "item:provider".to_string(),
+            assistant_item_id: None,
+            assistant_items: Vec::new(),
+            user_content: "I prefer local models.".to_string(),
+            cwd: None,
+        },
+        0,
+        "ordinary_chat",
+    );
+
+    assert_eq!(provider.subject.entity_id, "human:local");
+}
+
+#[test]
+fn provider_subject_uses_first_subject_without_local_participant_override() {
+    let provider = provider_memory_claim_candidate(
+        &crate::memory_extraction::ValidatedMemoryProposal {
+            proposal: proposal(json!({
+                "content": "Noema uses graph memory.",
+                "memory_type": "project",
+                "title": "Graph memory",
+                "confidence": 0.81,
+                "sensitivity": "normal",
+                "subjects": [
+                    {"id": "project:noema", "kind": "project", "name": "Noema", "role": "about"},
+                    {"id": "human:local", "kind": "human", "name": "Kevin", "role": "owner"}
+                ],
+                "retrieval_hints": {"topics": ["memory"], "keywords": ["Noema", "graph memory"], "summary": "Noema uses graph memory."},
+                "risk_flags": [],
+                "evidence_excerpt": "Noema uses graph memory."
+            })),
+            status: MemoryStatus::Candidate,
+        },
+        &ConversationMemoryContext {
+            conversation_id: "conversation:test".to_string(),
+            turn_id: "turn:test".to_string(),
+            turn_index: 1,
+            user_item_id: "item:provider".to_string(),
+            assistant_item_id: None,
+            assistant_items: Vec::new(),
+            user_content: "Noema uses graph memory.".to_string(),
+            cwd: None,
+        },
+        0,
+        "ordinary_chat",
+    );
+
+    assert_eq!(provider.subject.entity_id, "project:noema");
+    assert_eq!(provider.subject.entity_type, EntityType::Project);
+}
+
 #[tokio::test]
 async fn explicit_remember_creates_claim_with_source_evidence() {
     let (handle, store) =
@@ -727,8 +984,9 @@ fn assert_no_failed_memory_extraction(items: &[TurnTranscriptItem]) {
 }
 
 #[tokio::test]
-async fn runtime_actor_reports_ordinary_chat_memory_unavailable_until_graph_claims_land() {
-    let handle = test_runtime_handle(fake_codex_provider_with_memory_extraction()).await;
+async fn runtime_actor_persists_ordinary_provider_memory_as_graph_claim() {
+    let (handle, store) =
+        test_runtime_handle_with_store(fake_codex_provider_with_memory_extraction()).await;
 
     let conversation = handle
         .start_conversation(None, None)
@@ -742,6 +1000,159 @@ async fn runtime_actor_reports_ordinary_chat_memory_unavailable_until_graph_clai
     .await
     .expect("turn");
     assert_eq!(assistant_text(&items), "fake answer");
+    let claim_id = items
+        .iter()
+        .find_map(|item| match item {
+            TurnTranscriptItem::Activity {
+                activity_kind,
+                status: TurnActivityStatus::Completed,
+                title,
+                summary: Some(summary),
+                metadata,
+                ..
+            } if activity_kind == "memory_extraction"
+                && title == "Memory persisted"
+                && summary == "saved 1 graph claim"
+                && metadata["source"] == "provider_structured_output"
+                && metadata["proposal_count"] == 1
+                && metadata["created_claim_count"] == 1
+                && metadata["reinforced_claim_count"] == 0 =>
+            {
+                metadata["claim_ids"][0].as_str().map(str::to_string)
+            }
+            _ => None,
+        })
+        .expect("completed provider memory activity with claim id");
+    assert_no_failed_memory_extraction(&items);
+    let claims = store
+        .retrieve_claims(&answer_claim_request(), "automatic memory extraction", 8)
+        .await
+        .expect("retrieve ordinary provider claim");
+    assert!(
+        !items.iter().any(|item| {
+            matches!(
+                item,
+                TurnTranscriptItem::A2uiCard { schema, .. } if schema == "memory_proposals"
+            )
+        }),
+        "provider proposals should not emit a memory_proposals card: {items:?}"
+    );
+    assert!(
+        claims.included.iter().any(|claim| {
+            claim.claim_id == claim_id
+                && claim.fact == "Kevin prefers automatic memory extraction in chat."
+                && claim.predicate_id == "prefers"
+        }),
+        "expected ordinary provider claim in retrieval, got {claims:?}"
+    );
+    handle.shutdown().await;
+}
+
+#[tokio::test]
+async fn provider_memory_mislabelled_secret_stays_candidate_and_unretrievable() {
+    let (handle, store) =
+        test_runtime_handle_with_store(fake_codex_provider_with_mislabelled_secret_memory()).await;
+
+    let conversation = handle
+        .start_conversation(None, None)
+        .await
+        .expect("conversation");
+    let (result, events) = collect_turn_events(
+        &handle,
+        conversation.conversation_id,
+        "My API key is sk-testSecretToken123456789.".to_string(),
+    )
+    .await;
+    result.expect("turn");
+    let claim_id = memory_persisted_claim_id(&events);
+
+    let stored = claim_status_and_sensitivity(&store, &claim_id).await;
+    assert_eq!(stored.status, "candidate");
+    assert_eq!(stored.sensitivity, "secret");
+
+    let claims = store
+        .retrieve_claims(&answer_claim_request(), "api key", 8)
+        .await
+        .expect("retrieve api key claim");
+    assert!(claims.included.is_empty(), "unexpected claims: {claims:?}");
+    handle.shutdown().await;
+}
+
+#[tokio::test]
+async fn provider_memory_validation_rejection_persists_failed_activity() {
+    let (handle, _store) =
+        test_runtime_handle_with_store(fake_codex_provider_with_invalid_memory_proposal()).await;
+
+    let conversation = handle
+        .start_conversation(None, None)
+        .await
+        .expect("conversation");
+    let items = collect_turn(
+        &handle,
+        conversation.conversation_id,
+        "Please produce an invalid memory proposal.".to_string(),
+    )
+    .await
+    .expect("turn should complete despite rejected memory proposal");
+
+    assert_eq!(assistant_text(&items), "fake answer");
+    assert!(items.iter().any(|item| {
+        matches!(
+            item,
+            TurnTranscriptItem::Activity {
+                activity_kind,
+                status: TurnActivityStatus::Failed,
+                title,
+                summary: Some(summary),
+                ..
+            } if activity_kind == "memory_extraction"
+                && title == "Memory extraction failed"
+                && summary.contains("memory extraction output was rejected")
+        )
+    }));
+    assert!(
+        !items.iter().any(|item| {
+            matches!(
+                item,
+                TurnTranscriptItem::Activity {
+                    activity_kind,
+                    status: TurnActivityStatus::Completed,
+                    title,
+                    ..
+                } if activity_kind == "memory_extraction"
+                    && title == "Memory persisted"
+            )
+        }),
+        "rejected proposal should not persist memory: {items:?}"
+    );
+    handle.shutdown().await;
+}
+
+#[tokio::test]
+async fn provider_memory_graph_write_failure_persists_failed_activity() {
+    let (handle, store) =
+        test_runtime_handle_with_store(fake_codex_provider_with_memory_extraction()).await;
+    store
+        .db()
+        .query("DELETE predicates WHERE predicate_id = 'prefers';")
+        .await
+        .expect("delete prefers predicate")
+        .check()
+        .expect("delete prefers predicate check");
+
+    let conversation = handle
+        .start_conversation(None, None)
+        .await
+        .expect("conversation");
+    let items = collect_turn(
+        &handle,
+        conversation.conversation_id,
+        "I prefer automatic memory extraction in chat.".to_string(),
+    )
+    .await
+    .expect("turn should complete despite graph write failure");
+
+    assert_eq!(assistant_text(&items), "fake answer");
     assert!(items.iter().any(|item| {
         matches!(
             item,
@@ -753,12 +1164,27 @@ async fn runtime_actor_reports_ordinary_chat_memory_unavailable_until_graph_clai
                 metadata,
                 ..
             } if activity_kind == "memory_extraction"
-                && title == "Memory extraction unavailable"
-                && summary == "graph-claim memory writes are pending"
-                && metadata["trigger"] == "ordinary_chat"
-                && metadata["unavailable"]["reason"] == "graph_claim_writes_pending"
+                && title == "Memory persistence failed"
+                && summary == "graph claim write failed"
+                && metadata["source"] == "provider_structured_output"
+                && metadata["proposal_count"] == 1
         )
     }));
+    assert!(
+        !items.iter().any(|item| {
+            matches!(
+                item,
+                TurnTranscriptItem::Activity {
+                    activity_kind,
+                    status: TurnActivityStatus::Completed,
+                    title,
+                    ..
+                } if activity_kind == "memory_extraction"
+                    && title == "Memory persisted"
+            )
+        }),
+        "failed graph write should not emit persisted activity: {items:?}"
+    );
     handle.shutdown().await;
 }
 
@@ -845,8 +1271,9 @@ async fn legacy_runtime_actor_creates_disputed_memory_for_semantic_conflict_in_p
 }
 
 #[tokio::test]
-async fn runtime_actor_reports_provider_memory_proposals_unavailable() {
-    let handle = test_runtime_handle(fake_codex_provider_with_memory_extraction()).await;
+async fn runtime_actor_persists_provider_memory_proposals_as_graph_claims() {
+    let (handle, store) =
+        test_runtime_handle_with_store(fake_codex_provider_with_memory_extraction()).await;
 
     let conversation = handle
         .start_conversation(None, None)
@@ -867,14 +1294,11 @@ async fn runtime_actor_reports_provider_memory_proposals_unavailable() {
             .expect("started memory proposal activity");
     assert!(
         memory_proposals_card_event_index(&events).is_none(),
-        "provider proposal card should be suppressed until graph-claim writes land"
+        "provider proposal card should stay suppressed for graph-claim writes"
     );
-    let unavailable_index = memory_extraction_event_index(
-        &events,
-        TurnActivityStatus::Failed,
-        "Memory persistence unavailable",
-    )
-    .expect("unavailable memory proposal activity");
+    let persisted_index =
+        memory_extraction_event_index(&events, TurnActivityStatus::Completed, "Memory persisted")
+            .expect("persisted memory proposal activity");
     let proposed_item_id =
         memory_extraction_event_item_id(&events, TurnActivityStatus::Started, "Memory proposed")
             .expect("started memory proposal item id");
@@ -883,30 +1307,51 @@ async fn runtime_actor_reports_provider_memory_proposals_unavailable() {
         "started memory proposal marker should be live-only, got {proposed_item_id}"
     );
     assert!(
-        proposed_index < unavailable_index,
-        "unavailable marker should stream after proposal marker: {events:?}"
+        proposed_index < persisted_index,
+        "persisted marker should stream after proposal marker: {events:?}"
     );
-    assert!(items.iter().any(|item| {
-        matches!(
-            item,
+    let claim_id = items
+        .iter()
+        .find_map(|item| match item {
             TurnTranscriptItem::Activity {
                 activity_kind,
-                status: TurnActivityStatus::Failed,
+                status: TurnActivityStatus::Completed,
+                title,
                 summary: Some(summary),
                 metadata,
                 ..
             } if activity_kind == "memory_extraction"
-                && summary == "graph-claim memory writes are pending"
-                && metadata["unavailable"]["reason"] == "graph_claim_writes_pending"
+                && title == "Memory persisted"
+                && summary == "saved 1 graph claim"
+                && metadata["source"] == "provider_structured_output"
                 && metadata["proposal_count"] == 1
-        )
-    }));
+                && metadata["created_claim_count"] == 1 =>
+            {
+                metadata["claim_ids"][0].as_str().map(str::to_string)
+            }
+            _ => None,
+        })
+        .expect("persisted memory proposal claim id");
+    assert_no_failed_memory_extraction(&items);
+    let claims = store
+        .retrieve_claims(&answer_claim_request(), "same-call memory proposals", 8)
+        .await
+        .expect("retrieve provider claim");
+    assert!(
+        claims.included.iter().any(|claim| {
+            claim.claim_id == claim_id
+                && claim.fact == "Kevin prefers same-call memory proposals."
+                && claim.predicate_id == "prefers"
+        }),
+        "expected provider claim in retrieval, got {claims:?}"
+    );
     handle.shutdown().await;
 }
 
 #[tokio::test]
-async fn runtime_actor_reports_natural_remember_provider_proposals_unavailable() {
-    let handle = test_runtime_handle(fake_codex_provider_with_memory_extraction()).await;
+async fn runtime_actor_persists_natural_remember_provider_proposals_as_graph_claims() {
+    let (handle, store) =
+        test_runtime_handle_with_store(fake_codex_provider_with_memory_extraction()).await;
 
     let conversation = handle
         .start_conversation(None, None)
@@ -920,6 +1365,249 @@ async fn runtime_actor_reports_natural_remember_provider_proposals_unavailable()
     .await
     .expect("turn");
     assert_eq!(assistant_text(&items), "fake answer");
+    let claim_id = items
+        .iter()
+        .find_map(|item| match item {
+            TurnTranscriptItem::Activity {
+                activity_kind,
+                status: TurnActivityStatus::Completed,
+                title,
+                metadata,
+                ..
+            } if activity_kind == "memory_extraction"
+                && title == "Memory persisted"
+                && metadata["proposal_count"] == 1 =>
+            {
+                metadata["claim_ids"][0].as_str().map(str::to_string)
+            }
+            _ => None,
+        })
+        .expect("persisted natural remember provider claim id");
+    assert_no_failed_memory_extraction(&items);
+    assert!(items.iter().any(|item| {
+        matches!(
+            item,
+            TurnTranscriptItem::Activity {
+                activity_kind,
+                status: TurnActivityStatus::Completed,
+                title,
+                ..
+            } if activity_kind == "memory_extraction"
+                && title == "Memory persisted"
+        )
+    }));
+    let claims = store
+        .retrieve_claims(&answer_claim_request(), "trains", 8)
+        .await
+        .expect("retrieve natural remember provider claim");
+    assert!(
+        claims.included.iter().any(|claim| {
+            claim.claim_id == claim_id
+                && claim.fact == "Kevin likes trains."
+                && claim.predicate_id == "likes"
+        }),
+        "expected natural remember provider claim in retrieval, got {claims:?}"
+    );
+    assert!(
+        !items.iter().any(|item| {
+            matches!(
+                item,
+                TurnTranscriptItem::A2uiCard { schema, .. } if schema == "memory_proposals"
+            )
+        }),
+        "provider proposals should not emit a success-looking memory card: {items:?}"
+    );
+    handle.shutdown().await;
+}
+
+#[tokio::test]
+async fn provider_first_person_memory_reinforces_explicit_canonical_claim() {
+    let (handle, store) =
+        test_runtime_handle_with_store(fake_codex_provider_with_memory_extraction()).await;
+
+    let conversation = handle
+        .start_conversation(None, None)
+        .await
+        .expect("conversation");
+    let conversation_id = conversation.conversation_id.clone();
+    collect_turn(
+        &handle,
+        conversation_id.clone(),
+        "remember: I prefer dark mode.".to_string(),
+    )
+    .await
+    .expect("explicit seed turn");
+
+    let items = collect_turn(&handle, conversation_id, "I prefer dark mode.".to_string())
+        .await
+        .expect("provider proposal turn");
+    assert!(items.iter().any(|item| {
+        matches!(
+            item,
+            TurnTranscriptItem::Activity {
+                activity_kind,
+                status: TurnActivityStatus::Completed,
+                title,
+                metadata,
+                ..
+            } if activity_kind == "memory_extraction"
+                && title == "Memory persisted"
+                && metadata["created_claim_count"] == 0
+                && metadata["reinforced_claim_count"] == 1
+        )
+    }));
+
+    let claims = store
+        .retrieve_claims(&answer_claim_request(), "dark mode", 8)
+        .await
+        .expect("retrieve dark mode claim");
+    assert_eq!(claims.included.len(), 1, "expected one claim: {claims:?}");
+    assert_eq!(claims.included[0].fact, "Kevin prefers dark mode.");
+    assert_eq!(claims.included[0].predicate_id, "prefers");
+    handle.shutdown().await;
+}
+
+#[tokio::test]
+async fn provider_first_person_local_name_memory_persists_without_explicit_seed() {
+    let (handle, store) =
+        test_runtime_handle_with_store(fake_codex_provider_with_memory_extraction()).await;
+
+    let conversation = handle
+        .start_conversation(None, None)
+        .await
+        .expect("conversation");
+    let items = collect_turn(
+        &handle,
+        conversation.conversation_id,
+        "I prefer dark mode.".to_string(),
+    )
+    .await
+    .expect("provider proposal turn");
+
+    assert!(items.iter().any(|item| {
+        matches!(
+            item,
+            TurnTranscriptItem::Activity {
+                activity_kind,
+                status: TurnActivityStatus::Completed,
+                title,
+                metadata,
+                ..
+            } if activity_kind == "memory_extraction"
+                && title == "Memory persisted"
+                && metadata["created_claim_count"] == 1
+                && metadata["reinforced_claim_count"] == 0
+        )
+    }));
+    assert_no_failed_memory_extraction(&items);
+
+    let claims = store
+        .retrieve_claims(&answer_claim_request(), "dark mode", 8)
+        .await
+        .expect("retrieve dark mode claim");
+    assert_eq!(claims.included.len(), 1, "expected one claim: {claims:?}");
+    assert_eq!(claims.included[0].fact, "Kevin prefers dark mode.");
+    assert_eq!(claims.included[0].predicate_id, "prefers");
+    handle.shutdown().await;
+}
+
+#[tokio::test]
+async fn provider_memory_proposal_uses_initial_assistant_context_before_continuation() {
+    let (handle, store) = test_runtime_handle_with_store(
+        fake_codex_provider_with_initial_assistant_memory_continuation(),
+    )
+    .await;
+
+    let conversation = handle
+        .start_conversation(None, None)
+        .await
+        .expect("conversation");
+    let conversation_id = conversation.conversation_id.clone();
+    let (result, events) = collect_turn_events(
+        &handle,
+        conversation_id.clone(),
+        "Search before saving the assistant note.".to_string(),
+    )
+    .await;
+    result.expect("turn");
+
+    let initial_assistant_item_id = assistant_item_id_for_text(
+        &events,
+        &conversation_id,
+        "I will search memory before saving a note.",
+    );
+    let claim_id = memory_persisted_claim_id(&events);
+    let source_item_id = claim_evidence_source_item_id(&store, &claim_id).await;
+    assert_eq!(source_item_id, initial_assistant_item_id);
+    assert!(events.iter().any(|event| {
+        matches!(
+            event,
+            TurnStreamEvent::ConversationItem { item, .. }
+                if matches!(
+                    item.as_ref(),
+                    TurnTranscriptItem::Activity {
+                        activity_kind,
+                        status: TurnActivityStatus::Completed,
+                        title,
+                        metadata,
+                        ..
+                    } if activity_kind == "memory_extraction"
+                        && title == "Memory persisted"
+                        && metadata["proposal_count"] == 1
+                )
+        )
+    }));
+    handle.shutdown().await;
+}
+
+#[tokio::test]
+async fn provider_memory_proposal_uses_matching_assistant_item_within_phase() {
+    let (handle, store) =
+        test_runtime_handle_with_store(fake_codex_provider_with_multi_assistant_memory()).await;
+
+    let conversation = handle
+        .start_conversation(None, None)
+        .await
+        .expect("conversation");
+    let conversation_id = conversation.conversation_id.clone();
+    let (result, events) = collect_turn_events(
+        &handle,
+        conversation_id.clone(),
+        "Emit two assistant notes and save the second.".to_string(),
+    )
+    .await;
+    result.expect("turn");
+
+    let second_assistant_item_id = assistant_item_id_for_text(
+        &events,
+        &conversation_id,
+        "Second assistant item contains the durable note.",
+    );
+    let claim_id = memory_persisted_claim_id(&events);
+    let source_item_id = claim_evidence_source_item_id(&store, &claim_id).await;
+    assert_eq!(source_item_id, second_assistant_item_id);
+    handle.shutdown().await;
+}
+
+#[tokio::test]
+async fn provider_memory_proposal_rejects_assistant_evidence_spanning_items() {
+    let (handle, store) =
+        test_runtime_handle_with_store(fake_codex_provider_with_split_assistant_evidence_memory())
+            .await;
+
+    let conversation = handle
+        .start_conversation(None, None)
+        .await
+        .expect("conversation");
+    let (result, events) = collect_turn_events(
+        &handle,
+        conversation.conversation_id,
+        "Emit split assistant evidence and try to save it.".to_string(),
+    )
+    .await;
+    result.expect("turn");
+    let items = transcript_items_from_events(events);
+
     assert!(items.iter().any(|item| {
         matches!(
             item,
@@ -930,19 +1618,64 @@ async fn runtime_actor_reports_natural_remember_provider_proposals_unavailable()
                 summary: Some(summary),
                 ..
             } if activity_kind == "memory_extraction"
-                && title == "Memory persistence unavailable"
-                && summary == "graph-claim memory writes are pending"
+                && title == "Memory extraction failed"
+                && summary.contains("rejected")
         )
     }));
-    assert!(
-        !items.iter().any(|item| {
-            matches!(
-                item,
-                TurnTranscriptItem::A2uiCard { schema, .. } if schema == "memory_proposals"
-            )
-        }),
-        "provider proposals should not emit a success-looking memory card: {items:?}"
+    let claims = store
+        .retrieve_claims(&answer_claim_request(), "split assistant note", 8)
+        .await
+        .expect("retrieve split assistant claims");
+    assert!(claims.included.is_empty(), "unexpected claims: {claims:?}");
+    handle.shutdown().await;
+}
+
+#[tokio::test]
+async fn provider_memory_partial_write_reports_partial_failure() {
+    let (handle, store) =
+        test_runtime_handle_with_store(fake_codex_provider_with_partial_memory_write()).await;
+    delete_predicate(&store, "has_note").await;
+
+    let conversation = handle
+        .start_conversation(None, None)
+        .await
+        .expect("conversation");
+    let items = collect_turn(
+        &handle,
+        conversation.conversation_id,
+        "I like partial write trains and need one failing note.".to_string(),
+    )
+    .await
+    .expect("turn");
+
+    assert!(items.iter().any(|item| {
+        matches!(
+            item,
+            TurnTranscriptItem::Activity {
+                activity_kind,
+                status: TurnActivityStatus::Failed,
+                title,
+                summary: Some(summary),
+                metadata,
+                ..
+            } if activity_kind == "memory_extraction"
+                && title == "Memory persistence partially failed"
+                && summary == "saved 1 graph claim; 1 proposal failed"
+                && metadata["proposal_count"] == 2
+                && metadata["created_claim_count"] == 1
+                && metadata["failed_proposal_count"] == 1
+        )
+    }));
+    let claims = store
+        .retrieve_claims(&answer_claim_request(), "partial write trains", 8)
+        .await
+        .expect("retrieve partial write claim");
+    assert_eq!(
+        claims.included.len(),
+        1,
+        "expected persisted claim: {claims:?}"
     );
+    assert_eq!(claims.included[0].fact, "Kevin likes partial write trains.");
     handle.shutdown().await;
 }
 
@@ -1481,6 +2214,120 @@ fn memory_proposals_card_event_index(events: &[TurnStreamEvent]) -> Option<usize
     })
 }
 
+fn assistant_item_id_for_text(
+    events: &[TurnStreamEvent],
+    conversation_id: &str,
+    expected_text: &str,
+) -> String {
+    events
+        .iter()
+        .find_map(|event| match event {
+            TurnStreamEvent::ConversationItem {
+                conversation_id: id,
+                item_id,
+                item,
+                ..
+            } if id == conversation_id => match item.as_ref() {
+                TurnTranscriptItem::AssistantText { text } if text == expected_text => {
+                    Some(item_id.clone())
+                }
+                _ => None,
+            },
+            TurnStreamEvent::ConversationItem { .. }
+            | TurnStreamEvent::AssistantTextDelta { .. }
+            | TurnStreamEvent::AgentStatusChanged { .. } => None,
+        })
+        .unwrap_or_else(|| panic!("expected assistant item `{expected_text}`, got {events:?}"))
+}
+
+fn memory_persisted_claim_id(events: &[TurnStreamEvent]) -> String {
+    events
+        .iter()
+        .find_map(|event| match event {
+            TurnStreamEvent::ConversationItem { item, .. } => match item.as_ref() {
+                TurnTranscriptItem::Activity {
+                    activity_kind,
+                    status: TurnActivityStatus::Completed,
+                    title,
+                    metadata,
+                    ..
+                } if activity_kind == "memory_extraction" && title == "Memory persisted" => {
+                    metadata["claim_ids"][0].as_str().map(str::to_string)
+                }
+                _ => None,
+            },
+            TurnStreamEvent::AssistantTextDelta { .. }
+            | TurnStreamEvent::AgentStatusChanged { .. } => None,
+        })
+        .unwrap_or_else(|| panic!("expected persisted memory claim id, got {events:?}"))
+}
+
+async fn claim_evidence_source_item_id(store: &crate::NoemaStore, claim_id: &str) -> String {
+    let mut response = store
+        .db()
+        .query(
+            r#"
+            SELECT source_item_id
+            FROM supported_by
+            WHERE claim_id = $claim_id
+            LIMIT 1;
+            "#,
+        )
+        .bind(("claim_id", claim_id.to_string()))
+        .await
+        .expect("claim evidence query");
+    let rows: Vec<ClaimEvidenceSourceRow> = response.take(0).expect("claim evidence rows");
+    rows.into_iter()
+        .next()
+        .and_then(|row| row.source_item_id)
+        .expect("claim evidence source item id")
+}
+
+async fn claim_status_and_sensitivity(
+    store: &crate::NoemaStore,
+    claim_id: &str,
+) -> ClaimStatusAndSensitivityRow {
+    let mut response = store
+        .db()
+        .query(
+            r#"
+            SELECT status, sensitivity
+            FROM claims
+            WHERE claim_id = $claim_id
+            LIMIT 1;
+            "#,
+        )
+        .bind(("claim_id", claim_id.to_string()))
+        .await
+        .expect("claim sensitivity query");
+    let rows: Vec<ClaimStatusAndSensitivityRow> = response.take(0).expect("claim sensitivity rows");
+    rows.into_iter()
+        .next()
+        .expect("claim status and sensitivity row")
+}
+
+async fn delete_predicate(store: &crate::NoemaStore, predicate_id: &str) {
+    store
+        .db()
+        .query("DELETE predicates WHERE predicate_id = $predicate_id;")
+        .bind(("predicate_id", predicate_id.to_string()))
+        .await
+        .expect("delete predicate")
+        .check()
+        .expect("predicate deletion should succeed");
+}
+
+#[derive(Debug, Deserialize)]
+struct ClaimEvidenceSourceRow {
+    source_item_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ClaimStatusAndSensitivityRow {
+    status: String,
+    sensitivity: String,
+}
+
 fn assistant_text(items: &[TurnTranscriptItem]) -> &str {
     let Some(text) = items.iter().find_map(|item| match item {
         TurnTranscriptItem::AssistantText { text } => Some(text.as_str()),
@@ -1527,6 +2374,12 @@ enum FakeCodexScenario {
     ToolItemThenFailure,
     InvalidSearchMemory,
     SearchMemoryContinuation,
+    InitialAssistantMemoryContinuation,
+    MultiAssistantMemory,
+    SplitAssistantEvidenceMemory,
+    MislabelledSecretMemory,
+    PartialMemoryWrite,
+    InvalidMemoryProposal,
     MemoryExtraction,
 }
 
@@ -1641,6 +2494,169 @@ impl FakeCodexProvider {
                     assistant_with_no_memories("fake answer")
                 }
             }
+            FakeCodexScenario::InitialAssistantMemoryContinuation => {
+                if input.contains("NOEMA_LOCAL_TOOL_RESULT") {
+                    assistant_with_no_memories("Continuation answer without the initial evidence.")
+                } else if input.contains("Search before saving the assistant note.") {
+                    vec![
+                        GenerateOutputItem::AssistantText {
+                            text: "I will search memory before saving a note.".to_string(),
+                        },
+                        search_memory_tool_call(
+                            "call_1",
+                            json!({"arguments": {"query": "trains"}}),
+                        ),
+                        GenerateOutputItem::MemoryProposals {
+                            proposals: vec![proposal(json!({
+                                "content": "Noema should remember the initial assistant note.",
+                                "memory_type": "note",
+                                "title": "Initial assistant note",
+                                "confidence": 0.74,
+                                "sensitivity": "normal",
+                                "subjects": [{"id": "human:local", "kind": "human", "name": "Kevin", "role": "about"}],
+                                "retrieval_hints": {"topics": ["memory"], "keywords": ["initial assistant note"], "summary": "Noema should remember the initial assistant note."},
+                                "risk_flags": [],
+                                "evidence_excerpt": "I will search memory before saving a note."
+                            }))],
+                        },
+                    ]
+                } else {
+                    assistant_with_no_memories("fake answer")
+                }
+            }
+            FakeCodexScenario::MultiAssistantMemory => {
+                if input.contains("Emit two assistant notes and save the second.") {
+                    vec![
+                        GenerateOutputItem::AssistantText {
+                            text: "First assistant item should not own the evidence.".to_string(),
+                        },
+                        GenerateOutputItem::AssistantText {
+                            text: "Second assistant item contains the durable note.".to_string(),
+                        },
+                        GenerateOutputItem::MemoryProposals {
+                            proposals: vec![proposal(json!({
+                                "content": "Noema should remember the second assistant note.",
+                                "memory_type": "note",
+                                "title": "Second assistant note",
+                                "confidence": 0.78,
+                                "sensitivity": "normal",
+                                "subjects": [{"id": "human:local", "kind": "human", "name": "Kevin", "role": "about"}],
+                                "retrieval_hints": {"topics": ["memory"], "keywords": ["second assistant note"], "summary": "Noema should remember the second assistant note."},
+                                "risk_flags": [],
+                                "evidence_excerpt": "Second assistant item contains the durable note."
+                            }))],
+                        },
+                    ]
+                } else {
+                    assistant_with_no_memories("fake answer")
+                }
+            }
+            FakeCodexScenario::SplitAssistantEvidenceMemory => {
+                if input.contains("Emit split assistant evidence and try to save it.") {
+                    vec![
+                        GenerateOutputItem::AssistantText {
+                            text: "first assistant text".to_string(),
+                        },
+                        GenerateOutputItem::AssistantText {
+                            text: "second assistant text".to_string(),
+                        },
+                        GenerateOutputItem::MemoryProposals {
+                            proposals: vec![proposal(json!({
+                                "content": "Noema should remember the split assistant note.",
+                                "memory_type": "note",
+                                "title": "Split assistant note",
+                                "confidence": 0.78,
+                                "sensitivity": "normal",
+                                "subjects": [{"id": "human:local", "kind": "human", "name": "Kevin", "role": "about"}],
+                                "retrieval_hints": {"topics": ["memory"], "keywords": ["split assistant note"], "summary": "Noema should remember the split assistant note."},
+                                "risk_flags": [],
+                                "evidence_excerpt": "first assistant text\n\nsecond assistant text"
+                            }))],
+                        },
+                    ]
+                } else {
+                    assistant_with_no_memories("fake answer")
+                }
+            }
+            FakeCodexScenario::MislabelledSecretMemory => {
+                if input.contains("My API key is sk-testSecretToken123456789.") {
+                    vec![
+                        GenerateOutputItem::AssistantText {
+                            text: "fake answer".to_string(),
+                        },
+                        GenerateOutputItem::MemoryProposals {
+                            proposals: vec![proposal(json!({
+                                "content": "Kevin's API key is sk-testSecretToken123456789.",
+                                "memory_type": "note",
+                                "title": "API key",
+                                "confidence": 0.98,
+                                "sensitivity": "normal",
+                                "subjects": [{"id": "human:local", "kind": "human", "name": "Kevin", "role": "about"}],
+                                "retrieval_hints": {"topics": ["credentials"], "keywords": ["api key"], "summary": "Kevin's API key is sk-testSecretToken123456789."},
+                                "risk_flags": [],
+                                "evidence_excerpt": "My API key is sk-testSecretToken123456789."
+                            }))],
+                        },
+                    ]
+                } else {
+                    assistant_with_no_memories("fake answer")
+                }
+            }
+            FakeCodexScenario::PartialMemoryWrite => {
+                if input.contains("I like partial write trains and need one failing note.") {
+                    vec![
+                        GenerateOutputItem::AssistantText {
+                            text: "fake answer".to_string(),
+                        },
+                        GenerateOutputItem::MemoryProposals {
+                            proposals: vec![
+                                proposal(json!({
+                                    "content": "Kevin likes partial write trains.",
+                                    "memory_type": "preference",
+                                    "title": "Partial write train preference",
+                                    "confidence": 0.91,
+                                    "sensitivity": "normal",
+                                    "subjects": [{"id": null, "kind": "human", "name": "Kevin", "role": "about"}],
+                                    "retrieval_hints": {"topics": ["trains"], "keywords": ["partial write trains"], "summary": "Kevin likes partial write trains."},
+                                    "risk_flags": [],
+                                    "evidence_excerpt": "I like partial write trains and need one failing note."
+                                })),
+                                proposal(json!({
+                                    "content": "Provider note requiring the deleted note predicate.",
+                                    "memory_type": "note",
+                                    "title": "Deleted predicate note",
+                                    "confidence": 0.91,
+                                    "sensitivity": "normal",
+                                    "subjects": [{"id": "human:local", "kind": "human", "name": "Kevin", "role": "about"}],
+                                    "retrieval_hints": {"topics": ["memory"], "keywords": ["deleted note predicate"], "summary": "Provider note requiring the deleted note predicate."},
+                                    "risk_flags": [],
+                                    "evidence_excerpt": "I like partial write trains and need one failing note."
+                                })),
+                            ],
+                        },
+                    ]
+                } else {
+                    assistant_with_no_memories("fake answer")
+                }
+            }
+            FakeCodexScenario::InvalidMemoryProposal => vec![
+                GenerateOutputItem::AssistantText {
+                    text: "fake answer".to_string(),
+                },
+                GenerateOutputItem::MemoryProposals {
+                    proposals: vec![proposal(json!({
+                        "content": "Kevin prefers invalid memory fixtures.",
+                        "memory_type": "preference",
+                        "title": "Invalid memory fixture",
+                        "confidence": 0.91,
+                        "sensitivity": "normal",
+                        "subjects": [{"id": "human:local", "kind": "human", "name": "Kevin", "role": "about"}],
+                        "retrieval_hints": {"topics": ["tests"], "keywords": ["invalid memory fixtures"], "summary": "Kevin prefers invalid memory fixtures."},
+                        "risk_flags": [],
+                        "evidence_excerpt": "this text is not in the turn"
+                    }))],
+                },
+            ],
             FakeCodexScenario::MemoryExtraction => memory_extraction_output(&input),
         };
 
@@ -1840,7 +2856,7 @@ fn memory_extraction_output(input: &str) -> Vec<GenerateOutputItem> {
                     "title": "Ice cream dislike",
                     "confidence": 0.91,
                     "sensitivity": "normal",
-                    "subjects": [{"id": "human:local", "kind": "human", "name": "Kevin", "role": "about"}],
+                    "subjects": [{"id": null, "kind": "human", "name": "Kevin", "role": "about"}],
                     "retrieval_hints": {"topics": ["food"], "keywords": ["ice cream"], "summary": "Kevin hates ice cream."},
                     "risk_flags": ["contradiction"],
                     "evidence_excerpt": "I hate ice cream."
@@ -1865,6 +2881,48 @@ fn memory_extraction_output(input: &str) -> Vec<GenerateOutputItem> {
                     "retrieval_hints": {"topics": ["memory"], "keywords": ["same-call memory proposals"], "summary": "Kevin prefers same-call memory proposals."},
                     "risk_flags": [],
                     "evidence_excerpt": "I prefer same-call memory proposals."
+                }))],
+            },
+        ];
+    }
+
+    if input.contains("I prefer dark mode.") {
+        return vec![
+            GenerateOutputItem::AssistantText {
+                text: "fake answer".to_string(),
+            },
+            GenerateOutputItem::MemoryProposals {
+                proposals: vec![proposal(json!({
+                    "content": "I prefer dark mode.",
+                    "memory_type": "preference",
+                    "title": "Dark mode preference",
+                    "confidence": 0.92,
+                    "sensitivity": "normal",
+                    "subjects": [{"id": null, "kind": "human", "name": "Kevin", "role": "about"}],
+                    "retrieval_hints": {"topics": ["display"], "keywords": ["dark mode"], "summary": "Kevin prefers dark mode."},
+                    "risk_flags": [],
+                    "evidence_excerpt": "I prefer dark mode."
+                }))],
+            },
+        ];
+    }
+
+    if input.contains("I prefer automatic memory extraction in chat.") {
+        return vec![
+            GenerateOutputItem::AssistantText {
+                text: "fake answer".to_string(),
+            },
+            GenerateOutputItem::MemoryProposals {
+                proposals: vec![proposal(json!({
+                    "content": "Kevin prefers automatic memory extraction in chat.",
+                    "memory_type": "preference",
+                    "title": "Automatic memory extraction preference",
+                    "confidence": 0.91,
+                    "sensitivity": "normal",
+                    "subjects": [{"id": "human:local", "kind": "human", "name": "Kevin", "role": "about"}],
+                    "retrieval_hints": {"topics": ["memory"], "keywords": ["automatic memory extraction", "chat"], "summary": "Kevin prefers automatic memory extraction in chat."},
+                    "risk_flags": [],
+                    "evidence_excerpt": "I prefer automatic memory extraction in chat."
                 }))],
             },
         ];
@@ -1921,6 +2979,30 @@ fn fake_codex_provider_with_invalid_search_memory_tool_item() -> FakeCodexProvid
 
 fn fake_codex_provider_with_search_memory_continuation() -> FakeCodexProvider {
     FakeCodexProvider::new(FakeCodexScenario::SearchMemoryContinuation)
+}
+
+fn fake_codex_provider_with_initial_assistant_memory_continuation() -> FakeCodexProvider {
+    FakeCodexProvider::new(FakeCodexScenario::InitialAssistantMemoryContinuation)
+}
+
+fn fake_codex_provider_with_multi_assistant_memory() -> FakeCodexProvider {
+    FakeCodexProvider::new(FakeCodexScenario::MultiAssistantMemory)
+}
+
+fn fake_codex_provider_with_split_assistant_evidence_memory() -> FakeCodexProvider {
+    FakeCodexProvider::new(FakeCodexScenario::SplitAssistantEvidenceMemory)
+}
+
+fn fake_codex_provider_with_mislabelled_secret_memory() -> FakeCodexProvider {
+    FakeCodexProvider::new(FakeCodexScenario::MislabelledSecretMemory)
+}
+
+fn fake_codex_provider_with_partial_memory_write() -> FakeCodexProvider {
+    FakeCodexProvider::new(FakeCodexScenario::PartialMemoryWrite)
+}
+
+fn fake_codex_provider_with_invalid_memory_proposal() -> FakeCodexProvider {
+    FakeCodexProvider::new(FakeCodexScenario::InvalidMemoryProposal)
 }
 
 fn fake_codex_provider_with_memory_extraction() -> FakeCodexProvider {

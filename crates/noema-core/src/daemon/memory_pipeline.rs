@@ -1,22 +1,15 @@
 use std::path::Path;
 
 use crate::{
-    memory::Sensitivity,
+    memory::{MemoryStatus, Sensitivity},
+    memory_extraction::{
+        MemoryExtractionSubject, MemoryExtractionSubjectKind, ValidatedMemoryProposal,
+        infer_memory_text_sensitivity, memory_extraction_subject_implies_local_human,
+    },
     memory_persistence::MemoryType,
     store::{
-        ClaimStatus, EntityCandidate, EvidenceAuthority, EvidenceCandidate, NewClaimCandidate,
-    },
-};
-#[cfg(test)]
-use crate::{
-    memory::{ParticipantRole, SubjectRole},
-    memory_extraction::{
-        MemoryExtractionSubject, MemoryExtractionSubjectKind, MemoryExtractionSubjectRole,
-        ValidatedMemoryProposal,
-    },
-    memory_persistence::{
-        ActorRef, MemoryAuthorityLevel, MemoryExtractionMethod, NewMemoryCandidate,
-        NewMemoryParticipant, NewMemorySubject, ObjectProvenanceSource, ObjectRef,
+        ClaimStatus, EntityCandidate, EntityType, EvidenceAuthority, EvidenceCandidate,
+        NewClaimCandidate,
     },
 };
 use serde_json::json;
@@ -30,9 +23,15 @@ pub(super) struct ConversationMemoryContext {
     pub turn_index: u64,
     pub user_item_id: String,
     pub assistant_item_id: Option<String>,
+    pub assistant_items: Vec<AssistantEvidenceItem>,
     pub user_content: String,
-    pub assistant_content: String,
     pub cwd: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub(super) struct AssistantEvidenceItem {
+    pub item_id: String,
+    pub text: String,
 }
 
 pub(super) fn explicit_memory_content(input: &str) -> Option<String> {
@@ -70,10 +69,7 @@ pub(super) fn explicit_memory_claim_candidate(
     let object_phrase = parsed.object_phrase;
     NewClaimCandidate {
         subject: EntityCandidate::local_human(),
-        object: EntityCandidate::concept(
-            &format!("explicit:{}:{}", parsed.predicate_id, object_phrase),
-            &object_phrase,
-        ),
+        object: claim_object_entity(parsed.predicate_id, &object_phrase),
         predicate_id: parsed.predicate_id.to_string(),
         fact: fact.clone(),
         sensitivity: infer_chat_sensitivity(content),
@@ -91,6 +87,51 @@ pub(super) fn explicit_memory_claim_candidate(
         }),
         metadata: json!({
             "trigger": "explicit_remember",
+        }),
+    }
+}
+
+pub(super) fn provider_memory_claim_candidate(
+    validated: &ValidatedMemoryProposal,
+    context: &ConversationMemoryContext,
+    proposal_index: usize,
+    trigger: &str,
+) -> NewClaimCandidate {
+    let proposal = &validated.proposal;
+    let parsed = parse_provider_claim(&proposal.content, proposal.title.as_deref());
+    let evidence_source = evidence_source_for_excerpt(&proposal.evidence_excerpt, context);
+    let source_item_id = evidence_source.source_item_id.clone();
+
+    NewClaimCandidate {
+        subject: provider_subject_entity(&proposal.subjects, &proposal.evidence_excerpt),
+        object: claim_object_entity(parsed.predicate_id, &parsed.object_phrase),
+        predicate_id: parsed.predicate_id.to_string(),
+        fact: parsed.fact,
+        sensitivity: proposal.sensitivity,
+        status: claim_status_from_memory_status(validated.status),
+        confidence: Some(f64::from(proposal.confidence)),
+        evidence: EvidenceCandidate {
+            source_item_id,
+            authority: EvidenceAuthority::AgentInference,
+            excerpt: Some(proposal.evidence_excerpt.clone()),
+        },
+        retrieval_hints: serde_json::to_value(&proposal.retrieval_hints).unwrap_or_else(|_| {
+            json!({
+                "keywords": [parsed.object_phrase],
+                "summary": proposal.content,
+            })
+        }),
+        metadata: json!({
+            "trigger": trigger,
+            "source": "provider_structured_output",
+            "turn_id": context.turn_id,
+            "turn_index": context.turn_index,
+            "proposal_index": proposal_index,
+            "memory_type": memory_type_label(proposal.memory_type),
+            "title": proposal.title,
+            "risk_flags": proposal.risk_flags,
+            "evidence_source": evidence_source.source.as_str(),
+            "cwd_project_hint": project_scope_from_cwd(context.cwd.as_deref()),
         }),
     }
 }
@@ -126,6 +167,29 @@ fn parse_explicit_claim(content: &str) -> ParsedExplicitClaim {
         }
     }
 
+    for prefix in [
+        "i dislike ",
+        "i don't like ",
+        "i do not like ",
+        "i hate ",
+        "kevin dislikes ",
+        "kevin doesn't like ",
+        "kevin does not like ",
+        "kevin hates ",
+    ] {
+        if lowered.starts_with(prefix) {
+            let object_phrase = normalize_object_phrase(&normalized[prefix.len()..]);
+            if !is_substantive_object_phrase(&object_phrase) {
+                return fallback_note_claim(&normalized);
+            }
+            return ParsedExplicitClaim {
+                predicate_id: "dislikes",
+                fact: format!("Kevin dislikes {}.", object_phrase),
+                object_phrase,
+            };
+        }
+    }
+
     for prefix in ["i prefer ", "kevin prefers ", "i want ", "kevin wants "] {
         if lowered.starts_with(prefix) {
             let object_phrase = normalize_object_phrase(&normalized[prefix.len()..]);
@@ -143,11 +207,246 @@ fn parse_explicit_claim(content: &str) -> ParsedExplicitClaim {
     fallback_note_claim(&normalized)
 }
 
+fn parse_provider_claim(content: &str, _title: Option<&str>) -> ParsedExplicitClaim {
+    let normalized = collapse_whitespace(content);
+    let lowered = normalized.to_ascii_lowercase();
+
+    for prefix in [
+        "i like ",
+        "i love ",
+        "i'm a big fan of ",
+        "i am a big fan of ",
+        "kevin likes ",
+        "kevin loves ",
+        "kevin is a big fan of ",
+        "local human likes ",
+        "the user likes ",
+        "user likes ",
+    ] {
+        if lowered.starts_with(prefix) {
+            let object_phrase = normalize_object_phrase(&normalized[prefix.len()..]);
+            if is_substantive_object_phrase(&object_phrase) {
+                return ParsedExplicitClaim {
+                    predicate_id: "likes",
+                    fact: format!("Kevin likes {}.", object_phrase),
+                    object_phrase,
+                };
+            }
+        }
+    }
+
+    for prefix in [
+        "i dislike ",
+        "i don't like ",
+        "i do not like ",
+        "i hate ",
+        "kevin dislikes ",
+        "kevin doesn't like ",
+        "kevin does not like ",
+        "kevin hates ",
+        "local human dislikes ",
+        "the user dislikes ",
+        "user dislikes ",
+    ] {
+        if lowered.starts_with(prefix) {
+            let object_phrase = normalize_object_phrase(&normalized[prefix.len()..]);
+            if is_substantive_object_phrase(&object_phrase) {
+                return ParsedExplicitClaim {
+                    predicate_id: "dislikes",
+                    fact: format!("Kevin dislikes {}.", object_phrase),
+                    object_phrase,
+                };
+            }
+        }
+    }
+
+    for prefix in [
+        "i prefer ",
+        "i want ",
+        "kevin prefers ",
+        "kevin wants ",
+        "local human prefers ",
+        "the user prefers ",
+        "user prefers ",
+    ] {
+        if lowered.starts_with(prefix) {
+            let object_phrase = normalize_object_phrase(&normalized[prefix.len()..]);
+            if is_substantive_object_phrase(&object_phrase) {
+                return ParsedExplicitClaim {
+                    predicate_id: "prefers",
+                    fact: format!("Kevin prefers {}.", object_phrase),
+                    object_phrase,
+                };
+            }
+        }
+    }
+
+    fallback_note_claim(&normalized)
+}
+
 fn fallback_note_claim(normalized: &str) -> ParsedExplicitClaim {
     ParsedExplicitClaim {
         predicate_id: "has_note",
-        object_phrase: normalized.to_string(),
+        object_phrase: normalize_note_object_phrase(normalized),
         fact: ensure_final_punctuation(normalized),
+    }
+}
+
+fn normalize_note_object_phrase(value: &str) -> String {
+    let normalized = collapse_whitespace(value);
+    let terminal_punctuation_count = normalized
+        .chars()
+        .rev()
+        .take_while(|ch| matches!(ch, '.' | '!' | '?'))
+        .count();
+
+    if terminal_punctuation_count == 1 {
+        let without_terminal = normalized.trim_end_matches(['.', '!', '?']).trim_end();
+        if !without_terminal.is_empty() {
+            return without_terminal.to_string();
+        }
+    }
+
+    normalized
+}
+
+fn claim_object_entity(predicate_id: &str, object_phrase: &str) -> EntityCandidate {
+    let normalized_object = object_phrase
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_ascii_lowercase();
+    if predicate_id == "has_note" {
+        let fingerprint = stable_hex_fingerprint(normalized_object.as_bytes());
+        return EntityCandidate::concept(
+            &format!("claim_object:{predicate_id}:note:v1:{fingerprint}"),
+            object_phrase,
+        );
+    }
+
+    EntityCandidate::concept(
+        &format!("claim_object:{predicate_id}:{normalized_object}"),
+        object_phrase,
+    )
+}
+
+fn provider_subject_entity(
+    subjects: &[MemoryExtractionSubject],
+    evidence_excerpt: &str,
+) -> EntityCandidate {
+    let Some(subject) = subjects.first() else {
+        return EntityCandidate::local_human();
+    };
+    if memory_extraction_subject_is_local_human(subject, evidence_excerpt) {
+        return EntityCandidate::local_human();
+    }
+
+    let entity_type = entity_type_for_subject_kind(subject.kind);
+    let entity_id = subject
+        .id
+        .clone()
+        .unwrap_or_else(|| generated_entity_id(subject.kind, &subject.name));
+    EntityCandidate {
+        entity_id,
+        entity_type,
+        canonical_name: subject.name.clone(),
+    }
+}
+
+fn entity_type_for_subject_kind(kind: MemoryExtractionSubjectKind) -> EntityType {
+    match kind {
+        MemoryExtractionSubjectKind::Human => EntityType::Person,
+        MemoryExtractionSubjectKind::Agent => EntityType::Agent,
+        MemoryExtractionSubjectKind::Conversation => EntityType::Conversation,
+        MemoryExtractionSubjectKind::Workspace => EntityType::Workspace,
+        MemoryExtractionSubjectKind::Project => EntityType::Project,
+        MemoryExtractionSubjectKind::Task => EntityType::Task,
+        MemoryExtractionSubjectKind::Cron => EntityType::Other,
+        MemoryExtractionSubjectKind::Relationship => EntityType::Other,
+        MemoryExtractionSubjectKind::Tool => EntityType::Tool,
+        MemoryExtractionSubjectKind::Organization => EntityType::Organization,
+        MemoryExtractionSubjectKind::Place => EntityType::Place,
+        MemoryExtractionSubjectKind::Concept => EntityType::Concept,
+        MemoryExtractionSubjectKind::Other => EntityType::Other,
+    }
+}
+
+fn claim_status_from_memory_status(status: MemoryStatus) -> ClaimStatus {
+    match status {
+        MemoryStatus::Candidate => ClaimStatus::Candidate,
+        MemoryStatus::Active | MemoryStatus::Inferred => ClaimStatus::Active,
+        MemoryStatus::Confirmed => ClaimStatus::Confirmed,
+        MemoryStatus::Disputed => ClaimStatus::Disputed,
+        MemoryStatus::Superseded => ClaimStatus::Superseded,
+        MemoryStatus::Stale | MemoryStatus::Archived => ClaimStatus::Archived,
+        MemoryStatus::Deleted => ClaimStatus::Deleted,
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum ProviderEvidenceSource {
+    User,
+    Assistant,
+}
+
+impl ProviderEvidenceSource {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::User => "user",
+            Self::Assistant => "assistant",
+        }
+    }
+}
+
+#[derive(Debug)]
+struct ProviderEvidenceSelection {
+    source: ProviderEvidenceSource,
+    source_item_id: String,
+}
+
+fn evidence_source_for_excerpt(
+    evidence_excerpt: &str,
+    context: &ConversationMemoryContext,
+) -> ProviderEvidenceSelection {
+    if context.user_content.contains(evidence_excerpt) {
+        ProviderEvidenceSelection {
+            source: ProviderEvidenceSource::User,
+            source_item_id: context.user_item_id.clone(),
+        }
+    } else {
+        let source_item_id = context
+            .assistant_items
+            .iter()
+            .find(|item| item.text.contains(evidence_excerpt))
+            .map(|item| item.item_id.clone())
+            .or_else(|| context.assistant_item_id.clone())
+            .unwrap_or_else(|| context.user_item_id.clone());
+        ProviderEvidenceSelection {
+            source: ProviderEvidenceSource::Assistant,
+            source_item_id,
+        }
+    }
+}
+
+fn memory_type_label(memory_type: MemoryType) -> &'static str {
+    match memory_type {
+        MemoryType::Fact => "fact",
+        MemoryType::Preference => "preference",
+        MemoryType::Person => "person",
+        MemoryType::Organization => "organization",
+        MemoryType::Project => "project",
+        MemoryType::Place => "place",
+        MemoryType::Routine => "routine",
+        MemoryType::Goal => "goal",
+        MemoryType::OpenLoop => "open_loop",
+        MemoryType::Procedure => "procedure",
+        MemoryType::Constraint => "constraint",
+        MemoryType::Trigger => "trigger",
+        MemoryType::Decision => "decision",
+        MemoryType::Skill => "skill",
+        MemoryType::Policy => "policy",
+        MemoryType::Note => "note",
+        MemoryType::Other => "other",
     }
 }
 
@@ -201,73 +500,7 @@ pub(super) fn infer_chat_memory_type(content: &str) -> MemoryType {
 }
 
 pub(super) fn infer_chat_sensitivity(content: &str) -> Sensitivity {
-    let lowered = content.to_ascii_lowercase();
-    if contains_any(
-        &lowered,
-        &[
-            "api key",
-            "access key",
-            "access token",
-            "auth token",
-            "bearer token",
-            "client secret",
-            "password",
-            "passphrase",
-            "private key",
-            "secret key",
-            "ssh key",
-            "ssn",
-            "social security number",
-            "recovery code",
-        ],
-    ) || looks_like_secret_token(content)
-    {
-        return Sensitivity::Secret;
-    }
-
-    if contains_any(
-        &lowered,
-        &[
-            "bank account",
-            "compensation",
-            "credit card",
-            "diagnosed",
-            "diagnosis",
-            "doctor",
-            "driver license",
-            "health insurance",
-            "lawyer",
-            "legal matter",
-            "medical",
-            "medication",
-            "passport",
-            "routing number",
-            "salary",
-            "tax return",
-            "therapist",
-            "therapy",
-        ],
-    ) {
-        return Sensitivity::Sensitive;
-    }
-
-    Sensitivity::Normal
-}
-
-pub(super) fn contains_any(value: &str, needles: &[&str]) -> bool {
-    needles.iter().any(|needle| value.contains(needle))
-}
-
-pub(super) fn looks_like_secret_token(content: &str) -> bool {
-    content.split_whitespace().any(|token| {
-        let token =
-            token.trim_matches(|ch: char| !(ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_')));
-        let lowered = token.to_ascii_lowercase();
-        lowered.starts_with("sk-")
-            || lowered.starts_with("ghp_")
-            || lowered.starts_with("xoxb-")
-            || (lowered.starts_with("akia") && lowered.len() >= 16)
-    })
+    infer_memory_text_sensitivity([content])
 }
 
 #[expect(
@@ -278,142 +511,27 @@ pub(super) fn title_from_memory_content(content: &str) -> String {
     content.trim().chars().take(80).collect()
 }
 
-#[cfg(test)]
-#[expect(
-    dead_code,
-    reason = "validated proposal conversion awaits graph-claim persistence wiring"
-)]
-pub(super) fn extracted_proposal_to_candidate(
-    validated: &ValidatedMemoryProposal,
-    context: &ConversationMemoryContext,
-    project_scope_id: Option<&str>,
-    user_input: &str,
-    trigger: &str,
-) -> Result<NewMemoryCandidate, String> {
-    let proposal = &validated.proposal;
-    let owner = owner_for_extracted_proposal(proposal, context, project_scope_id)?;
-    let mut candidate = NewMemoryCandidate::confirmed_note(
-        owner,
-        proposal.content.clone(),
-        ActorRef::agent("agent:primary"),
-        source_item_ref_for_evidence(&proposal.evidence_excerpt, user_input, context),
-    );
-    candidate.memory_type = proposal.memory_type;
-    candidate.title = proposal.title.clone();
-    candidate.sensitivity = proposal.sensitivity;
-    candidate.status = validated.status;
-    candidate.confidence = Some(f64::from(proposal.confidence));
-    candidate.retrieval_hints =
-        serde_json::to_value(&proposal.retrieval_hints).map_err(|error| error.to_string())?;
-    candidate.owner_actor = Some(ActorRef::human("human:local"));
-    candidate.authority_level = MemoryAuthorityLevel::AgentInference;
-    candidate.extraction_method = MemoryExtractionMethod::LlmExtracted;
-    candidate.source = Some(ObjectProvenanceSource {
-        source: source_item_ref_for_evidence(&proposal.evidence_excerpt, user_input, context),
-        evidence_excerpt: Some(proposal.evidence_excerpt.clone()),
-    });
-    candidate.participants = vec![
-        NewMemoryParticipant::new("human:local", ParticipantRole::HumanInScope),
-        NewMemoryParticipant::new("agent:primary", ParticipantRole::AgentInScope),
-    ];
-    candidate.subjects = proposal
-        .subjects
-        .iter()
-        .map(memory_extraction_subject_to_persistence)
-        .collect();
-    candidate.metadata = json!({
-        "trigger": trigger,
-        "turn_id": context.turn_id,
-        "turn_index": context.turn_index,
-        "risk_flags": proposal.risk_flags,
-    });
-
-    Ok(candidate)
-}
-
-#[cfg(test)]
-pub(super) fn owner_for_extracted_proposal(
-    proposal: &crate::memory_extraction::ExtractorMemoryProposal,
-    context: &ConversationMemoryContext,
-    _project_scope_id: Option<&str>,
-) -> Result<ObjectRef, String> {
-    if proposal
-        .subjects
-        .iter()
-        .any(memory_extraction_subject_is_local_human)
-        && matches!(
-            proposal.memory_type,
-            MemoryType::Fact | MemoryType::Preference
-        )
-    {
-        return Ok(ObjectRef::human("human:local"));
-    }
-
-    ObjectRef::new(
-        crate::memory_persistence::ObjectType::Conversation,
-        context.conversation_id.clone(),
-    )
-    .map_err(|error| error.to_string())
-}
-
-#[cfg(test)]
-pub(super) fn source_item_ref_for_evidence(
-    evidence_excerpt: &str,
-    user_input: &str,
-    context: &ConversationMemoryContext,
-) -> ObjectRef {
-    if user_input.contains(evidence_excerpt) {
-        ObjectRef::conversation_item(context.user_item_id.clone())
-    } else {
-        ObjectRef::conversation_item(
-            context
-                .assistant_item_id
-                .clone()
-                .unwrap_or_else(|| context.user_item_id.clone()),
-        )
-    }
-}
-
-#[cfg(test)]
-pub(super) fn memory_extraction_subject_to_persistence(
+pub(super) fn memory_extraction_subject_is_local_human(
     subject: &MemoryExtractionSubject,
-) -> NewMemorySubject {
-    let entity_id = subject
-        .id
-        .clone()
-        .unwrap_or_else(|| generated_entity_id(subject.kind, &subject.name));
-    let mut stored = NewMemorySubject::new(
-        entity_id,
-        subject_kind_to_entity_type(subject.kind),
-        subject.name.clone(),
-        subject_role_to_memory_role(subject.role),
-    );
-    if memory_extraction_subject_is_local_human(subject) {
-        stored.linked_object = Some(ObjectRef::human("human:local"));
+    evidence_excerpt: &str,
+) -> bool {
+    memory_extraction_subject_implies_local_human(subject, evidence_excerpt)
+}
+
+fn stable_hex_fingerprint(bytes: &[u8]) -> String {
+    let mut hash = 0xcbf29ce484222325_u64;
+    for byte in bytes {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100000001b3);
     }
-    stored
+    format!("{hash:016x}")
 }
 
-#[cfg(test)]
-pub(super) fn memory_extraction_subject_is_local_human(subject: &MemoryExtractionSubject) -> bool {
-    subject.id.as_deref().is_some_and(|id| id == "human:local")
-        || matches!(
-            subject.name.trim().to_ascii_lowercase().as_str(),
-            "current human" | "user" | "me"
-        )
-}
-
-#[cfg(test)]
 pub(super) fn generated_entity_id(kind: MemoryExtractionSubjectKind, name: &str) -> String {
-    format!(
-        "{}:{}",
-        subject_kind_to_entity_type(kind),
-        slug_fragment(name)
-    )
+    format!("{}:{}", subject_kind_id_prefix(kind), slug_fragment(name))
 }
 
-#[cfg(test)]
-pub(super) fn subject_kind_to_entity_type(kind: MemoryExtractionSubjectKind) -> &'static str {
+fn subject_kind_id_prefix(kind: MemoryExtractionSubjectKind) -> &'static str {
     match kind {
         MemoryExtractionSubjectKind::Human => "human",
         MemoryExtractionSubjectKind::Agent => "agent",
@@ -428,20 +546,6 @@ pub(super) fn subject_kind_to_entity_type(kind: MemoryExtractionSubjectKind) -> 
         MemoryExtractionSubjectKind::Place => "place",
         MemoryExtractionSubjectKind::Concept => "concept",
         MemoryExtractionSubjectKind::Other => "other",
-    }
-}
-
-#[cfg(test)]
-pub(super) fn subject_role_to_memory_role(role: MemoryExtractionSubjectRole) -> SubjectRole {
-    match role {
-        MemoryExtractionSubjectRole::About | MemoryExtractionSubjectRole::Participant => {
-            SubjectRole::About
-        }
-        MemoryExtractionSubjectRole::Owner => SubjectRole::Owner,
-        MemoryExtractionSubjectRole::Affected => SubjectRole::Affected,
-        MemoryExtractionSubjectRole::Assignee => SubjectRole::Assignee,
-        MemoryExtractionSubjectRole::Source => SubjectRole::Source,
-        MemoryExtractionSubjectRole::Target => SubjectRole::Target,
     }
 }
 

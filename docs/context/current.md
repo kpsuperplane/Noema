@@ -94,10 +94,20 @@ The next storage slice should stay small and concrete:
   omission counts without writing retrieval packets yet.
 - Explicit `/remember` and `remember:` chat commands now create or reinforce
   SurrealDB graph claims before provider generation, using the user
-  conversation item as explicit-human evidence. The local `search_memory` tool
-  reads graph claims and returns claim-shaped tool results. Provider-structured
-  ordinary memory proposals are still intentionally unavailable until the next
-  extraction slice.
+  conversation item as explicit-human evidence.
+- Provider-structured ordinary memory proposals now route through SurrealDB
+  graph claims instead of the legacy memory persistence path. Validation and
+  persistence record conversation item provenance, accept user or assistant
+  evidence, track response phases and assistant items, reject split assistant
+  evidence that cannot map to one item, and report created versus reinforced
+  claims, partial versus full failure, and failed proposal diagnostics.
+- Local-human canonicalization is deterministic: explicit aliases are local;
+  same-name Kevin is local for direct or first-person local assertions and
+  non-local for named third-party evidence. Note fallback objects use opaque
+  deterministic IDs plus punctuation-normalized dedupe and reinforcement, so
+  note content and secrets are not embedded in entity IDs.
+- The local `search_memory` tool reads graph claims and returns claim-shaped
+  tool results. CLI/API graph inspection remains pending.
 
 ## Open Loops
 

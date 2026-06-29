@@ -84,21 +84,37 @@ impl MemoryExtractionSubject {
             .is_some_and(|id| id.trim().starts_with("human:"))
             || matches!(
                 self.name.trim().to_ascii_lowercase().as_str(),
-                "human" | "current human" | "user" | "me"
+                "human" | "current human" | "local human" | "user" | "me"
             )
     }
 
-    fn implies_local_human(&self) -> bool {
+    fn explicitly_implies_local_human(&self) -> bool {
         self.id.as_deref().is_some_and(|id| id == "human:local")
             || matches!(
                 self.name.trim().to_ascii_lowercase().as_str(),
-                "current human" | "user" | "me"
+                "current human" | "local human" | "user" | "me"
             )
     }
 
-    fn implies_third_party_human(&self) -> bool {
-        self.kind == MemoryExtractionSubjectKind::Human && !self.implies_local_human()
+    fn implies_local_human_for_evidence(&self, evidence_excerpt: &str) -> bool {
+        self.explicitly_implies_local_human()
+            || (self.kind == MemoryExtractionSubjectKind::Human
+                && self.name.trim().eq_ignore_ascii_case("kevin")
+                && !evidence_mentions_subject_name(evidence_excerpt, &self.name)
+                && !has_third_party_human_signal(evidence_excerpt))
     }
+
+    fn implies_third_party_human_for_evidence(&self, evidence_excerpt: &str) -> bool {
+        self.kind == MemoryExtractionSubjectKind::Human
+            && !self.implies_local_human_for_evidence(evidence_excerpt)
+    }
+}
+
+pub(crate) fn memory_extraction_subject_implies_local_human(
+    subject: &MemoryExtractionSubject,
+    evidence_excerpt: &str,
+) -> bool {
+    subject.implies_local_human_for_evidence(evidence_excerpt)
 }
 
 /// Broad kind for a proposal subject.
@@ -320,6 +336,23 @@ pub fn parse_memory_extraction_proposals(
     validate_memory_extraction_response(response, user_input, assistant_response)
 }
 
+/// Parse and validate strict extractor JSON with item-bounded assistant sources.
+///
+/// # Errors
+///
+/// Returns [`MemoryExtractionError::InvalidJson`] when the extractor text is
+/// not valid JSON or uses unsupported enum values, and
+/// [`MemoryExtractionError::InvalidProposal`] when any proposal violates the
+/// ordinary-chat validation policy.
+pub fn parse_memory_extraction_proposals_with_assistant_items(
+    extractor_text: &str,
+    user_input: &str,
+    assistant_items: &[&str],
+) -> Result<Vec<ValidatedMemoryProposal>, MemoryExtractionError> {
+    let response: ExtractorMemoryResponse = serde_json::from_str(extractor_text.trim())?;
+    validate_memory_extraction_response_with_assistant_items(response, user_input, assistant_items)
+}
+
 /// Validate an already-structured extractor response.
 ///
 /// # Errors
@@ -331,6 +364,29 @@ pub fn validate_memory_extraction_response(
     user_input: &str,
     assistant_response: &str,
 ) -> Result<Vec<ValidatedMemoryProposal>, MemoryExtractionError> {
+    validate_memory_extraction_response_with_assistant_items(
+        response,
+        user_input,
+        &[assistant_response],
+    )
+}
+
+/// Validate an already-structured extractor response with item-bounded
+/// assistant sources.
+///
+/// User evidence is valid when the excerpt appears in the user item. Assistant
+/// evidence is valid only when the excerpt appears in at least one assistant
+/// item supplied here.
+///
+/// # Errors
+///
+/// Returns [`MemoryExtractionError::InvalidProposal`] when any proposal violates
+/// the ordinary-chat validation policy.
+pub fn validate_memory_extraction_response_with_assistant_items(
+    response: ExtractorMemoryResponse,
+    user_input: &str,
+    assistant_items: &[&str],
+) -> Result<Vec<ValidatedMemoryProposal>, MemoryExtractionError> {
     if is_explicit_memory_command(user_input) && !response.proposals.is_empty() {
         return invalid_proposal(0, "explicit memory commands are out of scope");
     }
@@ -339,7 +395,7 @@ pub fn validate_memory_extraction_response(
         .proposals
         .into_iter()
         .enumerate()
-        .map(|(index, proposal)| validate_proposal(index, proposal, user_input, assistant_response))
+        .map(|(index, proposal)| validate_proposal(index, proposal, user_input, assistant_items))
         .collect()
 }
 
@@ -371,7 +427,7 @@ pub fn decide_memory_proposal_status(
     if proposal
         .subjects
         .iter()
-        .any(MemoryExtractionSubject::implies_third_party_human)
+        .any(|subject| subject.implies_third_party_human_for_evidence(&proposal.evidence_excerpt))
     {
         return MemoryStatus::Candidate;
     }
@@ -396,7 +452,7 @@ fn validate_proposal(
     index: usize,
     mut proposal: ExtractorMemoryProposal,
     user_input: &str,
-    assistant_response: &str,
+    assistant_items: &[&str],
 ) -> Result<ValidatedMemoryProposal, MemoryExtractionError> {
     proposal.content = proposal.content.trim().to_string();
     if proposal.content.is_empty() {
@@ -427,8 +483,10 @@ fn validate_proposal(
         return invalid_proposal(index, "evidence_excerpt must not be empty");
     }
 
+    proposal.sensitivity = effective_proposal_sensitivity(&proposal);
+
     let Some(evidence_source) =
-        evidence_source(&proposal.evidence_excerpt, user_input, assistant_response)
+        evidence_source(&proposal.evidence_excerpt, user_input, assistant_items)
     else {
         return invalid_proposal(
             index,
@@ -503,15 +561,147 @@ fn is_explicit_memory_command(input: &str) -> bool {
 fn evidence_source(
     evidence_excerpt: &str,
     user_input: &str,
-    assistant_response: &str,
+    assistant_items: &[&str],
 ) -> Option<EvidenceSource> {
     if user_input.contains(evidence_excerpt) {
         Some(EvidenceSource::User)
-    } else if assistant_response.contains(evidence_excerpt) {
+    } else if assistant_items
+        .iter()
+        .any(|assistant_item| assistant_item.contains(evidence_excerpt))
+    {
         Some(EvidenceSource::Assistant)
     } else {
         None
     }
+}
+
+fn effective_proposal_sensitivity(proposal: &ExtractorMemoryProposal) -> Sensitivity {
+    proposal.sensitivity.max(infer_memory_text_sensitivity([
+        proposal.content.as_str(),
+        proposal.title.as_deref().unwrap_or_default(),
+        proposal.evidence_excerpt.as_str(),
+    ]))
+}
+
+pub(crate) fn infer_memory_text_sensitivity<'a>(
+    parts: impl IntoIterator<Item = &'a str>,
+) -> Sensitivity {
+    let mut sensitivity = Sensitivity::Normal;
+    for part in parts {
+        sensitivity = sensitivity.max(infer_single_text_sensitivity(part));
+        if sensitivity == Sensitivity::Secret {
+            break;
+        }
+    }
+    sensitivity
+}
+
+fn infer_single_text_sensitivity(content: &str) -> Sensitivity {
+    let lowered = content.to_ascii_lowercase();
+    if contains_any(
+        &lowered,
+        &[
+            "api key",
+            "access key",
+            "access token",
+            "auth token",
+            "bearer token",
+            "client secret",
+            "password",
+            "passphrase",
+            "private key",
+            "secret key",
+            "ssh key",
+            "ssn",
+            "social security number",
+            "recovery code",
+        ],
+    ) || looks_like_secret_token(content)
+    {
+        return Sensitivity::Secret;
+    }
+
+    if contains_any(
+        &lowered,
+        &[
+            "bank account",
+            "compensation",
+            "credit card",
+            "diagnosed",
+            "diagnosis",
+            "doctor",
+            "driver license",
+            "health insurance",
+            "lawyer",
+            "legal matter",
+            "medical",
+            "medication",
+            "passport",
+            "routing number",
+            "salary",
+            "tax return",
+            "therapist",
+            "therapy",
+        ],
+    ) {
+        return Sensitivity::Sensitive;
+    }
+
+    Sensitivity::Normal
+}
+
+pub(crate) fn contains_any(value: &str, needles: &[&str]) -> bool {
+    needles.iter().any(|needle| value.contains(needle))
+}
+
+pub(crate) fn looks_like_secret_token(content: &str) -> bool {
+    content.split_whitespace().any(|token| {
+        let token =
+            token.trim_matches(|ch: char| !(ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_')));
+        let lowered = token.to_ascii_lowercase();
+        lowered.starts_with("sk-")
+            || lowered.starts_with("ghp_")
+            || lowered.starts_with("xoxb-")
+            || (lowered.starts_with("akia") && lowered.len() >= 16)
+    })
+}
+
+fn has_third_party_human_signal(evidence_excerpt: &str) -> bool {
+    [
+        "friend",
+        "coworker",
+        "colleague",
+        "partner",
+        "brother",
+        "sister",
+        "mother",
+        "father",
+        "dad",
+        "mom",
+        "wife",
+        "husband",
+        "manager",
+        "boss",
+        "neighbor",
+        "neighbour",
+        "roommate",
+        "teammate",
+        "client",
+    ]
+    .iter()
+    .any(|relation| contains_word_ascii(evidence_excerpt, relation))
+}
+
+fn evidence_mentions_subject_name(evidence_excerpt: &str, name: &str) -> bool {
+    let name = name.trim().to_ascii_lowercase();
+    !name.is_empty() && contains_word_ascii(evidence_excerpt, &name)
+}
+
+fn contains_word_ascii(value: &str, needle: &str) -> bool {
+    value
+        .to_ascii_lowercase()
+        .split(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '\''))
+        .any(|word| word == needle)
 }
 
 fn has_human_implication(
