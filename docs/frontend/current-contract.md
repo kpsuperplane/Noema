@@ -344,7 +344,7 @@ Entry points:
 - Review-required activity row in chat.
 - Expanded memory card.
 - Memory settings.
-- Optional later attention/Home surface.
+- Optional later attention surface.
 
 Card fields:
 
