@@ -520,6 +520,37 @@ async fn retrieval_limit_keeps_fact_match_over_earlier_hint_only_match() {
 }
 
 #[tokio::test]
+async fn retrieval_term_ranking_keeps_content_matches_over_hint_only_matches() {
+    let store = test_store().await;
+    let hint_item = create_source_item(&store, "Kevin likes locomotives.").await;
+    let fact_item = create_source_item(&store, "Kevin likes night trains.").await;
+    let mut hint_only = train_claim(hint_item.item_id);
+    hint_only.fact = "Kevin likes locomotives.".to_string();
+    hint_only.object = EntityCandidate::concept("locomotives", "locomotives");
+    hint_only.retrieval_hints = json!({ "keywords": ["night", "scenic"] });
+    let hint_summary = store
+        .create_or_reinforce_claim(hint_only)
+        .await
+        .expect("create hint-only claim");
+    let mut fact = train_claim(fact_item.item_id);
+    fact.fact = "Kevin likes night trains.".to_string();
+    let fact_summary = store
+        .create_or_reinforce_claim(fact)
+        .await
+        .expect("create content-match claim");
+
+    let result = store
+        .retrieve_claims(&personalize_request(), "night scenic", 1)
+        .await
+        .expect("retrieve claims");
+
+    assert_eq!(result.redacted_omission_count, 0);
+    assert_eq!(result.included.len(), 1);
+    assert_eq!(result.included[0].claim_id, fact_summary.claim_id);
+    assert_ne!(result.included[0].claim_id, hint_summary.claim_id);
+}
+
+#[tokio::test]
 async fn retrieval_limit_zero_returns_empty_result() {
     let store = test_store().await;
     let source_item = create_source_item(&store, "Kevin likes trains.").await;

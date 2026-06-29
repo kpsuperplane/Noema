@@ -280,17 +280,26 @@ fn deterministic_match_score(
         return Some(100);
     }
 
+    let content_terms = query
+        .terms
+        .iter()
+        .filter(|term| joined.contains(term.as_str()))
+        .count();
+    if content_terms > 0 {
+        return Some(70 + i64::try_from(content_terms).unwrap_or(0));
+    }
+
     let hints = row.retrieval_hints.to_string().to_lowercase();
     if hints.contains(&query.raw) {
         return Some(50);
     }
 
-    let matched_terms = query
+    let hint_terms = query
         .terms
         .iter()
-        .filter(|term| joined.contains(term.as_str()) || hints.contains(term.as_str()))
+        .filter(|term| hints.contains(term.as_str()))
         .count();
-    (matched_terms > 0).then_some(50 + i64::try_from(matched_terms).unwrap_or(0))
+    (hint_terms > 0).then_some(50 + i64::try_from(hint_terms).unwrap_or(0))
 }
 
 fn parse_use_mode(value: &str) -> Result<UseMode, StoreError> {
