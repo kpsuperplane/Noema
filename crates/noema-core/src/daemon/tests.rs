@@ -310,6 +310,57 @@ async fn runtime_prompt_includes_unnamed_agent_onboarding() {
     )));
 }
 
+#[tokio::test]
+async fn start_primary_conversation_generates_initial_name_onboarding_message() {
+    let (handle, store) =
+        test_runtime_handle_with_store(fake_codex_provider_with_initial_name_onboarding()).await;
+
+    let conversation_id = handle
+        .start_primary_conversation(None, None)
+        .await
+        .expect("primary conversation")
+        .conversation_id;
+    handle.shutdown().await;
+
+    let items = store
+        .list_conversation_items(&conversation_id, ReplayMode::Visible)
+        .await
+        .expect("conversation replay");
+    assert!(
+        !items
+            .iter()
+            .any(|item| item.kind == ConversationItemKind::UserText),
+        "initial onboarding should not fake a user message: {items:?}"
+    );
+    assert!(items.iter().any(|item| {
+        item.kind == ConversationItemKind::AssistantText
+            && item.content_text.as_deref() == Some("What would you like to call me?")
+    }));
+}
+
+#[tokio::test]
+async fn failed_initial_name_onboarding_recomputes_turn_index_on_retry() {
+    let (handle, store) =
+        test_runtime_handle_with_store(fake_codex_provider_with_turn_error()).await;
+
+    assert!(handle.start_primary_conversation(None, None).await.is_err());
+    assert!(handle.start_primary_conversation(None, None).await.is_err());
+    handle.shutdown().await;
+
+    let conversation_id = store
+        .get_or_create_primary_conversation("human:local", None, None)
+        .await
+        .expect("primary conversation")
+        .conversation_id;
+    assert_eq!(
+        store
+            .next_conversation_turn_index(&conversation_id)
+            .await
+            .expect("next turn index"),
+        3
+    );
+}
+
 fn run_restart_context_child_phase(phase: &str, home: &std::path::Path) {
     let output = Command::new(std::env::current_exe().expect("current test binary"))
         .arg("daemon::tests::runtime_primary_conversation_sends_recent_durable_context_after_restart")
@@ -3201,6 +3252,7 @@ enum FakeCodexScenario {
     Simple,
     RestartContext,
     IdentityPromptCheck,
+    InitialNameOnboarding,
     TurnError,
     ToolItem,
     ToolItemThenFailure,
@@ -3282,6 +3334,18 @@ impl FakeCodexProvider {
                     "saw unnamed identity"
                 } else {
                     "missing unnamed identity"
+                })
+            }
+            FakeCodexScenario::InitialNameOnboarding => {
+                let saw_onboarding = instructions.contains("Agent identity:")
+                    && instructions.contains("display_name: null")
+                    && instructions.contains("Onboarding prompt:")
+                    && instructions.contains("Ask the user what they would like to name you.")
+                    && !input.contains("Your name is");
+                assistant_with_no_memories(if saw_onboarding {
+                    "What would you like to call me?"
+                } else {
+                    "missing onboarding prompt"
                 })
             }
             FakeCodexScenario::TurnError => {
@@ -4396,6 +4460,10 @@ fn fake_codex_provider_with_restart_context_check() -> FakeCodexProvider {
 
 fn fake_codex_provider_with_identity_prompt_check() -> FakeCodexProvider {
     FakeCodexProvider::new(FakeCodexScenario::IdentityPromptCheck)
+}
+
+fn fake_codex_provider_with_initial_name_onboarding() -> FakeCodexProvider {
+    FakeCodexProvider::new(FakeCodexScenario::InitialNameOnboarding)
 }
 
 fn fake_codex_provider_with_tool_item() -> FakeCodexProvider {

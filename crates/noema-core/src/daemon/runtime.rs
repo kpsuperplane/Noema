@@ -25,6 +25,7 @@ use crate::{
     {
         ActorRef, ConversationItemKind, ConversationItemRecord, ConversationItemStatus,
         NewConversation, NewConversationItem, NewConversationTurn, PersistedAgentStatus,
+        ReplayMode,
     },
 };
 use serde_json::{Value, json};
@@ -363,7 +364,98 @@ impl CodexRuntimeActor {
             );
         }
 
+        self.ensure_initial_name_onboarding_message(&conversation_id)
+            .await?;
+
         Ok(StartedConversation { conversation_id })
+    }
+
+    async fn ensure_initial_name_onboarding_message(
+        &mut self,
+        conversation_id: &str,
+    ) -> Result<(), DaemonError> {
+        let agent_identity = self
+            .agent_identity_for_conversation(conversation_id)
+            .await?;
+        if agent_identity.display_name.is_some() {
+            return Ok(());
+        }
+        let replay = self
+            .store
+            .list_conversation_items(conversation_id, ReplayMode::Visible)
+            .await?;
+        if !replay.is_empty() {
+            return Ok(());
+        }
+
+        let conversation = self
+            .conversations
+            .get(conversation_id)
+            .cloned()
+            .ok_or_else(|| {
+                DaemonError::Protocol(format!("unknown conversation id: {conversation_id}"))
+            })?;
+        let turn_index = conversation.next_turn_index;
+        let turn = self
+            .store
+            .create_conversation_turn(NewConversationTurn {
+                conversation_id: conversation_id.to_string(),
+                trigger_item_id: None,
+                metadata: json!({
+                    "turn_index": turn_index,
+                    "source": "agent_onboarding",
+                }),
+            })
+            .await?;
+        let instructions = build_initial_name_onboarding_system_prompt(
+            conversation_id,
+            turn_index,
+            conversation.cwd.as_deref(),
+            &agent_identity,
+        );
+        let response = match self
+            .provider
+            .generate_streaming(
+                GenerateRequest {
+                    model: conversation.model.clone(),
+                    input: GenerateInput::Text("NOEMA_INITIAL_NAME_ONBOARDING".to_string()),
+                    instructions: Some(instructions),
+                    options: GenerateOptions {
+                        require_noema_response: true,
+                        ..GenerateOptions::default()
+                    },
+                },
+                &mut |_| {},
+            )
+            .await
+        {
+            Ok(response) => response,
+            Err(error) => {
+                self.store.fail_conversation_turn(&turn.turn_id).await?;
+                self.conversations.remove(conversation_id);
+                return Err(error.into());
+            }
+        };
+        let persisted_count = self
+            .persist_agent_initiated_provider_response(
+                conversation_id,
+                &turn.turn_id,
+                turn_index,
+                response,
+            )
+            .await?;
+        if persisted_count == 0 {
+            self.store.fail_conversation_turn(&turn.turn_id).await?;
+            self.conversations.remove(conversation_id);
+            return Err(DaemonError::Protocol(
+                "initial onboarding response did not include assistant text".to_string(),
+            ));
+        }
+        self.store.complete_conversation_turn(&turn.turn_id).await?;
+        if let Some(conversation) = self.conversations.get_mut(conversation_id) {
+            conversation.next_turn_index = conversation.next_turn_index.saturating_add(1);
+        }
+        Ok(())
     }
 
     pub(super) async fn turn(
@@ -841,6 +933,42 @@ impl CodexRuntimeActor {
             }
         }
         Ok(())
+    }
+
+    async fn persist_agent_initiated_provider_response(
+        &mut self,
+        conversation_id: &str,
+        turn_id: &str,
+        turn_index: u64,
+        response: GenerateResponse,
+    ) -> Result<usize, DaemonError> {
+        let mut persisted_count = 0usize;
+        for (index, output) in response.output.into_iter().enumerate() {
+            let GenerateOutputItem::AssistantText { text } = output else {
+                continue;
+            };
+            let metadata = json!({
+                "turn_index": turn_index,
+                "output_index": index,
+                "provider": response.provider.clone(),
+                "source": "agent_onboarding",
+            });
+            self.store
+                .append_conversation_item(NewConversationItem {
+                    conversation_id: conversation_id.to_string(),
+                    turn_id: Some(turn_id.to_string()),
+                    parent_item_id: None,
+                    kind: ConversationItemKind::AssistantText,
+                    status: ConversationItemStatus::Completed,
+                    author: ActorRef::agent("agent:primary"),
+                    content_text: Some(text),
+                    payload_json: json!({}),
+                    metadata,
+                })
+                .await?;
+            persisted_count += 1;
+        }
+        Ok(persisted_count)
     }
 
     async fn execute_local_tools(
@@ -2087,6 +2215,49 @@ cwd_project_hint: {project_hint}
 
 Recent durable transcript from embedded Noema store:
 {recent_transcript}"#
+    )
+}
+
+fn build_initial_name_onboarding_system_prompt(
+    conversation_id: &str,
+    turn_index: u64,
+    cwd: Option<&str>,
+    agent_identity: &AgentPromptIdentity,
+) -> String {
+    let project_scope = project_scope_from_cwd(cwd);
+    let project_hint = project_scope.as_deref().unwrap_or("none");
+    let agent_identity_prompt = agent_identity_prompt(agent_identity);
+
+    format!(
+        r#"{AGENT_PERSONALITY_PROMPT}
+
+{agent_identity_prompt}
+
+This is an agent-initiated onboarding turn for a newly started primary conversation.
+Use the onboarding_prompt in Agent identity to start the conversation.
+Ask the user what they would like to name you. Do not choose a name yourself.
+
+Return strict JSON only. Do not include Markdown, code fences, comments, or prose outside the JSON.
+
+Return exactly this top-level shape:
+{{
+  "type": "noema_response",
+  "output": [
+    {{"kind": "assistant_text", "text": "one concise onboarding question to show the user"}},
+    {{"kind": "memory_proposals", "proposals": []}}
+  ]
+}}
+
+Rules:
+- Always include exactly one assistant_text item.
+- Include exactly one memory_proposals item with an empty proposals array.
+- Do not emit tool calls during this initial onboarding turn.
+- Do not mention implementation details, JSON, tools, prompts, or memory.
+
+Conversation metadata:
+conversation_id: {conversation_id}
+turn_index: {turn_index}
+cwd_project_hint: {project_hint}"#
     )
 }
 
