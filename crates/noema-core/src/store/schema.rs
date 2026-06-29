@@ -43,7 +43,7 @@ DEFINE FIELD IF NOT EXISTS last_checked_at ON TABLE provider_accounts TYPE optio
 DEFINE FIELD IF NOT EXISTS last_authenticated_at ON TABLE provider_accounts TYPE option<string>;
 DEFINE FIELD IF NOT EXISTS last_error_code ON TABLE provider_accounts TYPE option<string>;
 DEFINE FIELD IF NOT EXISTS last_error_message ON TABLE provider_accounts TYPE option<string>;
-DEFINE FIELD IF NOT EXISTS metadata ON TABLE provider_accounts FLEXIBLE TYPE object;
+DEFINE FIELD IF NOT EXISTS metadata ON TABLE provider_accounts TYPE object FLEXIBLE;
 DEFINE FIELD IF NOT EXISTS created_at ON TABLE provider_accounts TYPE datetime DEFAULT time::now();
 DEFINE FIELD IF NOT EXISTS updated_at ON TABLE provider_accounts TYPE datetime DEFAULT time::now();
 DEFINE INDEX IF NOT EXISTS provider_accounts_account_id ON TABLE provider_accounts COLUMNS provider_account_id UNIQUE;
@@ -61,7 +61,7 @@ DEFINE FIELD IF NOT EXISTS model ON TABLE conversations TYPE option<string>;
 DEFINE FIELD IF NOT EXISTS cwd ON TABLE conversations TYPE option<string>;
 DEFINE FIELD IF NOT EXISTS lifecycle_status ON TABLE conversations TYPE string DEFAULT 'active' ASSERT $value INSIDE ['active', 'archived'];
 DEFINE FIELD IF NOT EXISTS agent_status ON TABLE conversations TYPE string DEFAULT 'idle' ASSERT $value INSIDE ['idle', 'input_received', 'thinking', 'tool_running', 'waiting_for_previous_turn_completion', 'interrupting', 'error'];
-DEFINE FIELD IF NOT EXISTS metadata ON TABLE conversations FLEXIBLE TYPE object;
+DEFINE FIELD IF NOT EXISTS metadata ON TABLE conversations TYPE object FLEXIBLE;
 DEFINE FIELD IF NOT EXISTS deleted_at ON TABLE conversations TYPE option<string>;
 DEFINE FIELD IF NOT EXISTS created_at ON TABLE conversations TYPE datetime DEFAULT time::now();
 DEFINE FIELD IF NOT EXISTS updated_at ON TABLE conversations TYPE datetime DEFAULT time::now();
@@ -72,7 +72,7 @@ DEFINE FIELD IF NOT EXISTS turn_id ON TABLE conversation_turns TYPE string;
 DEFINE FIELD IF NOT EXISTS conversation_id ON TABLE conversation_turns TYPE string;
 DEFINE FIELD IF NOT EXISTS trigger_item_id ON TABLE conversation_turns TYPE option<string>;
 DEFINE FIELD IF NOT EXISTS status ON TABLE conversation_turns TYPE string ASSERT $value INSIDE ['input_received', 'running', 'waiting_for_tool', 'interrupted', 'completed', 'failed', 'cancelled'];
-DEFINE FIELD IF NOT EXISTS metadata ON TABLE conversation_turns FLEXIBLE TYPE object;
+DEFINE FIELD IF NOT EXISTS metadata ON TABLE conversation_turns TYPE object FLEXIBLE;
 DEFINE FIELD IF NOT EXISTS started_at ON TABLE conversation_turns TYPE datetime DEFAULT time::now();
 DEFINE FIELD IF NOT EXISTS completed_at ON TABLE conversation_turns TYPE option<string>;
 DEFINE FIELD IF NOT EXISTS created_at ON TABLE conversation_turns TYPE datetime DEFAULT time::now();
@@ -90,8 +90,8 @@ DEFINE FIELD IF NOT EXISTS kind ON TABLE conversation_items TYPE string ASSERT $
 DEFINE FIELD IF NOT EXISTS status ON TABLE conversation_items TYPE string ASSERT $value INSIDE ['pending', 'running', 'completed', 'failed', 'cancelled', 'interrupted'];
 DEFINE FIELD IF NOT EXISTS author_actor_id ON TABLE conversation_items TYPE string;
 DEFINE FIELD IF NOT EXISTS content_text ON TABLE conversation_items TYPE option<string>;
-DEFINE FIELD IF NOT EXISTS payload_json ON TABLE conversation_items FLEXIBLE TYPE object;
-DEFINE FIELD IF NOT EXISTS metadata ON TABLE conversation_items FLEXIBLE TYPE object;
+DEFINE FIELD IF NOT EXISTS payload_json ON TABLE conversation_items TYPE object FLEXIBLE;
+DEFINE FIELD IF NOT EXISTS metadata ON TABLE conversation_items TYPE object FLEXIBLE;
 DEFINE FIELD IF NOT EXISTS deleted_at ON TABLE conversation_items TYPE option<string>;
 DEFINE FIELD IF NOT EXISTS created_at ON TABLE conversation_items TYPE datetime DEFAULT time::now();
 DEFINE FIELD IF NOT EXISTS updated_at ON TABLE conversation_items TYPE datetime DEFAULT time::now();
@@ -105,7 +105,7 @@ DEFINE FIELD IF NOT EXISTS canonical_name ON TABLE entities TYPE string;
 DEFINE FIELD IF NOT EXISTS aliases ON TABLE entities TYPE array<string> DEFAULT [];
 DEFINE FIELD IF NOT EXISTS linked_object_type ON TABLE entities TYPE option<string>;
 DEFINE FIELD IF NOT EXISTS linked_object_id ON TABLE entities TYPE option<string>;
-DEFINE FIELD IF NOT EXISTS metadata ON TABLE entities FLEXIBLE TYPE object DEFAULT {};
+DEFINE FIELD IF NOT EXISTS metadata ON TABLE entities TYPE object FLEXIBLE DEFAULT {};
 DEFINE FIELD IF NOT EXISTS created_at ON TABLE entities TYPE datetime DEFAULT time::now();
 DEFINE FIELD IF NOT EXISTS updated_at ON TABLE entities TYPE datetime DEFAULT time::now();
 DEFINE INDEX IF NOT EXISTS entities_entity_id ON TABLE entities COLUMNS entity_id UNIQUE;
@@ -123,9 +123,9 @@ DEFINE FIELD IF NOT EXISTS review_policy ON TABLE predicates TYPE string ASSERT 
 DEFINE FIELD IF NOT EXISTS inverse_behavior ON TABLE predicates TYPE string ASSERT $value INSIDE ['none', 'symmetric', 'inverse_predicate'];
 DEFINE FIELD IF NOT EXISTS inverse_predicate_id ON TABLE predicates TYPE option<string>;
 DEFINE FIELD IF NOT EXISTS proactivity_default ON TABLE predicates TYPE int ASSERT $value >= 0 AND $value <= 6;
-DEFINE FIELD IF NOT EXISTS merge_hints ON TABLE predicates FLEXIBLE TYPE object DEFAULT {};
+DEFINE FIELD IF NOT EXISTS merge_hints ON TABLE predicates TYPE object FLEXIBLE DEFAULT {};
 DEFINE FIELD IF NOT EXISTS synonym_hints ON TABLE predicates TYPE array<string> DEFAULT [];
-DEFINE FIELD IF NOT EXISTS extraction_hints ON TABLE predicates FLEXIBLE TYPE object DEFAULT {};
+DEFINE FIELD IF NOT EXISTS extraction_hints ON TABLE predicates TYPE object FLEXIBLE DEFAULT {};
 DEFINE FIELD IF NOT EXISTS created_at ON TABLE predicates TYPE datetime DEFAULT time::now();
 DEFINE FIELD IF NOT EXISTS updated_at ON TABLE predicates TYPE datetime DEFAULT time::now();
 DEFINE INDEX IF NOT EXISTS predicates_predicate_id ON TABLE predicates COLUMNS predicate_id UNIQUE;
@@ -134,7 +134,7 @@ DEFINE TABLE IF NOT EXISTS predicate_proposals SCHEMAFULL;
 DEFINE FIELD IF NOT EXISTS proposal_id ON TABLE predicate_proposals TYPE string;
 DEFINE FIELD IF NOT EXISTS label ON TABLE predicate_proposals TYPE string;
 DEFINE FIELD IF NOT EXISTS description ON TABLE predicate_proposals TYPE string;
-DEFINE FIELD IF NOT EXISTS proposed_predicate ON TABLE predicate_proposals FLEXIBLE TYPE object;
+DEFINE FIELD IF NOT EXISTS proposed_predicate ON TABLE predicate_proposals TYPE object FLEXIBLE;
 DEFINE FIELD IF NOT EXISTS status ON TABLE predicate_proposals TYPE string ASSERT $value INSIDE ['candidate', 'approved', 'rejected', 'merged'];
 DEFINE FIELD IF NOT EXISTS source_item_id ON TABLE predicate_proposals TYPE option<string>;
 DEFINE FIELD IF NOT EXISTS created_at ON TABLE predicate_proposals TYPE datetime DEFAULT time::now();
@@ -154,9 +154,9 @@ DEFINE FIELD IF NOT EXISTS valid_to ON TABLE claims TYPE option<datetime>;
 DEFINE FIELD IF NOT EXISTS observed_at ON TABLE claims TYPE option<datetime>;
 DEFINE FIELD IF NOT EXISTS confidence ON TABLE claims TYPE option<float> ASSERT $value = NONE OR ($value >= 0 AND $value <= 1);
 DEFINE FIELD IF NOT EXISTS dedupe_fingerprint ON TABLE claims TYPE option<string>;
-DEFINE FIELD IF NOT EXISTS retrieval_hints ON TABLE claims FLEXIBLE TYPE object DEFAULT {};
-DEFINE FIELD IF NOT EXISTS policy_overrides ON TABLE claims FLEXIBLE TYPE object DEFAULT {};
-DEFINE FIELD IF NOT EXISTS metadata ON TABLE claims FLEXIBLE TYPE object DEFAULT {};
+DEFINE FIELD IF NOT EXISTS retrieval_hints ON TABLE claims TYPE object FLEXIBLE DEFAULT {};
+DEFINE FIELD IF NOT EXISTS policy_overrides ON TABLE claims TYPE object FLEXIBLE DEFAULT {};
+DEFINE FIELD IF NOT EXISTS metadata ON TABLE claims TYPE object FLEXIBLE DEFAULT {};
 DEFINE FIELD IF NOT EXISTS created_at ON TABLE claims TYPE datetime DEFAULT time::now();
 DEFINE FIELD IF NOT EXISTS updated_at ON TABLE claims TYPE datetime DEFAULT time::now();
 DEFINE INDEX IF NOT EXISTS claims_claim_id ON TABLE claims COLUMNS claim_id UNIQUE;
@@ -177,7 +177,7 @@ DEFINE FIELD IF NOT EXISTS authority ON TABLE supported_by TYPE string ASSERT $v
 DEFINE FIELD IF NOT EXISTS excerpt ON TABLE supported_by TYPE option<string>;
 DEFINE FIELD IF NOT EXISTS observed_at ON TABLE supported_by TYPE option<datetime>;
 DEFINE FIELD IF NOT EXISTS created_by ON TABLE supported_by TYPE string;
-DEFINE FIELD IF NOT EXISTS metadata ON TABLE supported_by FLEXIBLE TYPE object DEFAULT {};
+DEFINE FIELD IF NOT EXISTS metadata ON TABLE supported_by TYPE object FLEXIBLE DEFAULT {};
 DEFINE FIELD IF NOT EXISTS created_at ON TABLE supported_by TYPE datetime DEFAULT time::now();
 DEFINE INDEX IF NOT EXISTS supported_by_relation_id ON TABLE supported_by COLUMNS relation_id UNIQUE;
 DEFINE INDEX IF NOT EXISTS supported_by_claim_source_item ON TABLE supported_by COLUMNS claim_id, source_item_id;
@@ -196,7 +196,7 @@ DEFINE FIELD IF NOT EXISTS authority ON TABLE corrected_by TYPE string ASSERT $v
 DEFINE FIELD IF NOT EXISTS excerpt ON TABLE corrected_by TYPE option<string>;
 DEFINE FIELD IF NOT EXISTS observed_at ON TABLE corrected_by TYPE option<datetime>;
 DEFINE FIELD IF NOT EXISTS created_by ON TABLE corrected_by TYPE string;
-DEFINE FIELD IF NOT EXISTS metadata ON TABLE corrected_by FLEXIBLE TYPE object DEFAULT {};
+DEFINE FIELD IF NOT EXISTS metadata ON TABLE corrected_by TYPE object FLEXIBLE DEFAULT {};
 DEFINE FIELD IF NOT EXISTS created_at ON TABLE corrected_by TYPE datetime DEFAULT time::now();
 DEFINE INDEX IF NOT EXISTS corrected_by_relation_id ON TABLE corrected_by COLUMNS relation_id UNIQUE;
 DEFINE INDEX IF NOT EXISTS corrected_by_claim_source_item ON TABLE corrected_by COLUMNS claim_id, source_item_id;
@@ -215,7 +215,7 @@ DEFINE FIELD IF NOT EXISTS authority ON TABLE contradicted_by TYPE string ASSERT
 DEFINE FIELD IF NOT EXISTS excerpt ON TABLE contradicted_by TYPE option<string>;
 DEFINE FIELD IF NOT EXISTS observed_at ON TABLE contradicted_by TYPE option<datetime>;
 DEFINE FIELD IF NOT EXISTS created_by ON TABLE contradicted_by TYPE string;
-DEFINE FIELD IF NOT EXISTS metadata ON TABLE contradicted_by FLEXIBLE TYPE object DEFAULT {};
+DEFINE FIELD IF NOT EXISTS metadata ON TABLE contradicted_by TYPE object FLEXIBLE DEFAULT {};
 DEFINE FIELD IF NOT EXISTS created_at ON TABLE contradicted_by TYPE datetime DEFAULT time::now();
 DEFINE INDEX IF NOT EXISTS contradicted_by_relation_id ON TABLE contradicted_by COLUMNS relation_id UNIQUE;
 DEFINE INDEX IF NOT EXISTS contradicted_by_claim_source_item ON TABLE contradicted_by COLUMNS claim_id, source_item_id;
@@ -227,7 +227,7 @@ DEFINE TABLE IF NOT EXISTS supersedes SCHEMAFULL;
 DEFINE FIELD IF NOT EXISTS relation_id ON TABLE supersedes TYPE string;
 DEFINE FIELD IF NOT EXISTS claim_id ON TABLE supersedes TYPE string;
 DEFINE FIELD IF NOT EXISTS superseded_claim_id ON TABLE supersedes TYPE string;
-DEFINE FIELD IF NOT EXISTS metadata ON TABLE supersedes FLEXIBLE TYPE object DEFAULT {};
+DEFINE FIELD IF NOT EXISTS metadata ON TABLE supersedes TYPE object FLEXIBLE DEFAULT {};
 DEFINE FIELD IF NOT EXISTS created_at ON TABLE supersedes TYPE datetime DEFAULT time::now();
 DEFINE INDEX IF NOT EXISTS supersedes_relation_id ON TABLE supersedes COLUMNS relation_id UNIQUE;
 DEFINE INDEX IF NOT EXISTS supersedes_claim_pair ON TABLE supersedes COLUMNS claim_id, superseded_claim_id UNIQUE;
@@ -236,7 +236,7 @@ DEFINE TABLE IF NOT EXISTS derived_from SCHEMAFULL;
 DEFINE FIELD IF NOT EXISTS relation_id ON TABLE derived_from TYPE string;
 DEFINE FIELD IF NOT EXISTS claim_id ON TABLE derived_from TYPE string;
 DEFINE FIELD IF NOT EXISTS source_claim_id ON TABLE derived_from TYPE string;
-DEFINE FIELD IF NOT EXISTS metadata ON TABLE derived_from FLEXIBLE TYPE object DEFAULT {};
+DEFINE FIELD IF NOT EXISTS metadata ON TABLE derived_from TYPE object FLEXIBLE DEFAULT {};
 DEFINE FIELD IF NOT EXISTS created_at ON TABLE derived_from TYPE datetime DEFAULT time::now();
 DEFINE INDEX IF NOT EXISTS derived_from_relation_id ON TABLE derived_from COLUMNS relation_id UNIQUE;
 DEFINE INDEX IF NOT EXISTS derived_from_claim_pair ON TABLE derived_from COLUMNS claim_id, source_claim_id UNIQUE;
@@ -245,15 +245,15 @@ DEFINE TABLE IF NOT EXISTS retrieval_packets SCHEMAFULL;
 DEFINE FIELD IF NOT EXISTS run_id ON TABLE retrieval_packets TYPE string;
 DEFINE FIELD IF NOT EXISTS requesting_agent_id ON TABLE retrieval_packets TYPE string;
 DEFINE FIELD IF NOT EXISTS active_human_ids ON TABLE retrieval_packets TYPE array<string>;
-DEFINE FIELD IF NOT EXISTS active_objects ON TABLE retrieval_packets FLEXIBLE TYPE array DEFAULT [];
+DEFINE FIELD IF NOT EXISTS active_objects ON TABLE retrieval_packets TYPE array DEFAULT [];
 DEFINE FIELD IF NOT EXISTS use_mode ON TABLE retrieval_packets TYPE string ASSERT $value INSIDE ['answer', 'personalize', 'plan', 'act', 'notify', 'inspect', 'export'];
 DEFINE FIELD IF NOT EXISTS included_claim_ids ON TABLE retrieval_packets TYPE array<string> DEFAULT [];
-DEFINE FIELD IF NOT EXISTS redacted_omissions ON TABLE retrieval_packets FLEXIBLE TYPE array DEFAULT [];
+DEFINE FIELD IF NOT EXISTS redacted_omissions ON TABLE retrieval_packets TYPE array DEFAULT [];
 DEFINE FIELD IF NOT EXISTS policy_version ON TABLE retrieval_packets TYPE int ASSERT $value >= 1;
 DEFINE FIELD IF NOT EXISTS created_at ON TABLE retrieval_packets TYPE datetime DEFAULT time::now();
 DEFINE INDEX IF NOT EXISTS retrieval_packets_run_id ON TABLE retrieval_packets COLUMNS run_id;
 
-UPSERT type::thing('predicates', 'likes') SET
+UPSERT type::record('predicates', 'likes') SET
   predicate_id = 'likes',
   label = 'likes',
   description = 'The subject likes the object.',
@@ -270,7 +270,7 @@ UPSERT type::thing('predicates', 'likes') SET
   synonym_hints = ['enjoys', 'is into'],
   extraction_hints = {},
   updated_at = time::now();
-UPSERT type::thing('predicates', 'dislikes') SET
+UPSERT type::record('predicates', 'dislikes') SET
   predicate_id = 'dislikes',
   label = 'dislikes',
   description = 'The subject dislikes the object.',
@@ -287,7 +287,7 @@ UPSERT type::thing('predicates', 'dislikes') SET
   synonym_hints = ['does not like', 'avoids'],
   extraction_hints = {},
   updated_at = time::now();
-UPSERT type::thing('predicates', 'prefers') SET
+UPSERT type::record('predicates', 'prefers') SET
   predicate_id = 'prefers',
   label = 'prefers',
   description = 'The subject prefers the object or option.',
@@ -304,7 +304,7 @@ UPSERT type::thing('predicates', 'prefers') SET
   synonym_hints = ['would rather', 'favors'],
   extraction_hints = {},
   updated_at = time::now();
-UPSERT type::thing('predicates', 'uses') SET
+UPSERT type::record('predicates', 'uses') SET
   predicate_id = 'uses',
   label = 'uses',
   description = 'The subject uses the object.',
@@ -321,7 +321,7 @@ UPSERT type::thing('predicates', 'uses') SET
   synonym_hints = ['works with', 'relies on'],
   extraction_hints = {},
   updated_at = time::now();
-UPSERT type::thing('predicates', 'works_on') SET
+UPSERT type::record('predicates', 'works_on') SET
   predicate_id = 'works_on',
   label = 'works on',
   description = 'The subject works on the object.',
@@ -338,7 +338,7 @@ UPSERT type::thing('predicates', 'works_on') SET
   synonym_hints = ['is working on', 'focuses on'],
   extraction_hints = {},
   updated_at = time::now();
-UPSERT type::thing('predicates', 'has_note') SET
+UPSERT type::record('predicates', 'has_note') SET
   predicate_id = 'has_note',
   label = 'has note',
   description = 'The subject has a durable remembered note about the object.',
@@ -355,7 +355,7 @@ UPSERT type::thing('predicates', 'has_note') SET
   synonym_hints = ['remembered', 'noted', 'said'],
   extraction_hints = {},
   updated_at = time::now();
-UPSERT type::thing('predicates', 'prefers_interaction_style') SET
+UPSERT type::record('predicates', 'prefers_interaction_style') SET
   predicate_id = 'prefers_interaction_style',
   label = 'prefers interaction style',
   description = 'The subject prefers a specific interaction style.',

@@ -18,11 +18,11 @@ impl NoemaStore {
         self.db
             .query(
                 r#"
-                UPSERT type::thing('humans', 'human_local') SET
+                UPSERT type::record('humans', 'human_local') SET
                   human_id = 'human:local',
                   display_name = 'Local Human',
                   updated_at = time::now();
-                UPSERT type::thing('agents', 'agent_primary') SET
+                UPSERT type::record('agents', 'agent_primary') SET
                   agent_id = 'agent:primary',
                   display_name = 'Noema',
                   updated_at = time::now();
@@ -51,7 +51,7 @@ impl NoemaStore {
         self.db
             .query(
                 r#"
-                UPSERT type::thing('provider_accounts', 'codex_default') SET
+                UPSERT type::record('provider_accounts', 'codex_default') SET
                   provider_account_id = 'provider_account:codex:default',
                   provider_kind = 'codex',
                   account_key = 'default',

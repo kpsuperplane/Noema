@@ -40,7 +40,7 @@ async fn strict_schema_rejects_invalid_sensitivity() {
         .db()
         .query(
             r#"
-            CREATE type::thing('claims', 'invalid_sensitivity') SET
+            CREATE type::record('claims', 'invalid_sensitivity') SET
               claim_id = 'claim:invalid-sensitivity',
               subject_entity_id = 'entity:human-local',
               predicate_id = 'likes',
@@ -72,7 +72,7 @@ async fn strict_schema_accepts_minimal_claim_with_datetime_fields() {
         .db()
         .query(
             r#"
-            CREATE type::thing('claims', 'valid_datetime_claim') SET
+            CREATE type::record('claims', 'valid_datetime_claim') SET
               claim_id = 'claim:valid-datetime',
               subject_entity_id = 'entity:human-local',
               object_entity_id = 'entity:ice-cream',
@@ -104,7 +104,7 @@ async fn strict_schema_rejects_invalid_claim_timestamp() {
         .db()
         .query(
             r#"
-            CREATE type::thing('claims', 'invalid_timestamp_claim') SET
+            CREATE type::record('claims', 'invalid_timestamp_claim') SET
               claim_id = 'claim:invalid-timestamp',
               subject_entity_id = 'entity:human-local',
               predicate_id = 'likes',
@@ -138,7 +138,7 @@ async fn strict_schema_rejects_duplicate_claim_dedupe_fingerprint() {
         .db()
         .query(
             r#"
-            CREATE type::thing('claims', 'first_dedupe_claim') SET
+            CREATE type::record('claims', 'first_dedupe_claim') SET
               claim_id = 'claim:first-dedupe',
               subject_entity_id = 'entity:human-local',
               predicate_id = 'likes',
@@ -161,7 +161,7 @@ async fn strict_schema_rejects_duplicate_claim_dedupe_fingerprint() {
         .db()
         .query(
             r#"
-            CREATE type::thing('claims', 'second_dedupe_claim') SET
+            CREATE type::record('claims', 'second_dedupe_claim') SET
               claim_id = 'claim:second-dedupe',
               subject_entity_id = 'entity:human-local',
               predicate_id = 'likes',
@@ -195,7 +195,7 @@ async fn strict_schema_rejects_invalid_evidence_authority() {
         .db()
         .query(
             r#"
-            CREATE type::thing('supported_by', 'invalid_authority') SET
+            CREATE type::record('supported_by', 'invalid_authority') SET
               relation_id = 'evidence:invalid-authority',
               claim_id = 'claim:test',
               source_kind = 'item',
@@ -228,7 +228,7 @@ async fn strict_schema_rejects_invalid_evidence_observed_at() {
         .db()
         .query(
             r#"
-            CREATE type::thing('supported_by', 'invalid_observed_at') SET
+            CREATE type::record('supported_by', 'invalid_observed_at') SET
               relation_id = 'evidence:invalid-observed-at',
               claim_id = 'claim:test',
               source_kind = 'item',
@@ -261,7 +261,7 @@ async fn strict_schema_rejects_evidence_without_source() {
         .db()
         .query(
             r#"
-            CREATE type::thing('supported_by', 'missing_source') SET
+            CREATE type::record('supported_by', 'missing_source') SET
               relation_id = 'evidence:missing-source',
               claim_id = 'claim:test',
               authority = 'explicit_human_statement',
@@ -292,7 +292,7 @@ async fn strict_schema_rejects_evidence_with_both_source_shapes() {
         .db()
         .query(
             r#"
-            CREATE type::thing('supported_by', 'both_sources') SET
+            CREATE type::record('supported_by', 'both_sources') SET
               relation_id = 'evidence:both-sources',
               claim_id = 'claim:test',
               source_kind = 'item',
@@ -325,7 +325,7 @@ async fn strict_schema_accepts_valid_evidence_source_shape() {
         .db()
         .query(
             r#"
-            CREATE type::thing('supported_by', 'valid_source') SET
+            CREATE type::record('supported_by', 'valid_source') SET
               relation_id = 'evidence:valid-source',
               claim_id = 'claim:test',
               source_kind = 'object',

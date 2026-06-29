@@ -537,7 +537,7 @@ impl NoemaStore {
             self.db
                 .query(
                     r#"
-                    CREATE type::thing('entities', $record_id) SET
+                    CREATE type::record('entities', $record_id) SET
                       entity_id = $entity_id,
                       entity_type = $entity_type,
                       canonical_name = $canonical_name,
@@ -651,7 +651,7 @@ impl NoemaStore {
         self.db
             .query(
                 r#"
-                CREATE type::thing('claims', $record_id) SET
+                CREATE type::record('claims', $record_id) SET
                   claim_id = $claim_id,
                   subject_entity_id = $subject_entity_id,
                   object_entity_id = $object_entity_id,
@@ -699,7 +699,7 @@ impl NoemaStore {
         self.db
             .query(
                 r#"
-                CREATE type::thing('supported_by', $record_id) SET
+                CREATE type::record('supported_by', $record_id) SET
                   relation_id = $relation_id,
                   claim_id = $claim_id,
                   source_kind = 'item',

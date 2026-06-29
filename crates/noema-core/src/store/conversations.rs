@@ -125,7 +125,7 @@ impl NoemaStore {
         self.db
             .query(
                 r#"
-                CREATE type::thing('conversation_turns', $record_id) SET
+                CREATE type::record('conversation_turns', $record_id) SET
                   turn_id = $turn_id,
                   conversation_id = $conversation_id,
                   trigger_item_id = $trigger_item_id,
@@ -173,7 +173,7 @@ impl NoemaStore {
         self.db
             .query(
                 r#"
-                CREATE type::thing('conversation_items', $record_id) SET
+                CREATE type::record('conversation_items', $record_id) SET
                   item_id = $item_id,
                   conversation_id = $conversation_id,
                   turn_id = $turn_id,
@@ -335,7 +335,7 @@ impl NoemaStore {
         self.db
             .query(
                 r#"
-                CREATE type::thing('conversations', $record_id) SET
+                CREATE type::record('conversations', $record_id) SET
                   conversation_id = $conversation_id,
                   title = $title,
                   owner_object_type = $owner_object_type,
