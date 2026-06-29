@@ -189,6 +189,10 @@ pub struct PredicateRecord {
 
 impl NoemaStore {
     /// Return the promoted predicate catalog for canonicalization.
+    ///
+    /// # Errors
+    ///
+    /// Returns a store error if the catalog query fails or cannot be decoded.
     pub async fn predicate_catalog(&self) -> Result<Vec<PredicateRecord>, StoreError> {
         let mut response = self
             .db
@@ -209,6 +213,11 @@ impl NoemaStore {
     }
 
     /// Persist a candidate predicate proposal for later review.
+    ///
+    /// # Errors
+    ///
+    /// Returns a store error if the source item is missing, the proposal cannot
+    /// be written, or the written proposal cannot be fetched.
     pub async fn create_predicate_proposal(
         &self,
         candidate: PredicateProposalCandidate,
@@ -255,6 +264,10 @@ impl NoemaStore {
     }
 
     /// List predicate proposals, newest first.
+    ///
+    /// # Errors
+    ///
+    /// Returns a store error if the proposal query fails or cannot be decoded.
     pub async fn list_predicate_proposals(
         &self,
         filter: PredicateProposalFilter,
@@ -282,6 +295,10 @@ impl NoemaStore {
     }
 
     /// Fetch one predicate proposal by stable id.
+    ///
+    /// # Errors
+    ///
+    /// Returns a store error if the proposal query fails or cannot be decoded.
     pub async fn get_predicate_proposal(
         &self,
         proposal_id: &str,
