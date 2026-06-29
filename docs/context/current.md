@@ -132,6 +132,12 @@ The next storage slice should stay small and concrete:
   evidence, track response phases and assistant items, reject split assistant
   evidence that cannot map to one item, and report created versus reinforced
   claims, partial versus full failure, and failed proposal diagnostics.
+- Provider memory extraction output is treated as fallible draft data. Invalid
+  extractor proposals are discarded before canonicalization; all-invalid batches
+  produce no user-facing memory activity, while mixed batches persist valid
+  proposals and record rejected draft counts in metadata. Assistant evidence may
+  support non-human notes, but human-subject memories require direct user
+  evidence.
 - Local-human canonicalization is deterministic: explicit aliases are local;
   same-name Kevin is local for direct or first-person local assertions and
   non-local for named third-party evidence. Note fallback objects use opaque

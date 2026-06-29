@@ -1383,7 +1383,7 @@ async fn provider_memory_unknown_promoted_predicate_fails_before_graph_write() {
 }
 
 #[tokio::test]
-async fn provider_memory_validation_rejection_persists_failed_activity() {
+async fn provider_memory_validation_rejection_is_discarded_without_failure_activity() {
     let (handle, _store) =
         test_runtime_handle_with_store(fake_codex_provider_with_invalid_memory_proposal()).await;
 
@@ -1400,18 +1400,55 @@ async fn provider_memory_validation_rejection_persists_failed_activity() {
     .expect("turn should complete despite rejected memory proposal");
 
     assert_eq!(assistant_text(&items), "fake answer");
+    assert!(
+        !items.iter().any(|item| {
+            matches!(
+                item,
+                TurnTranscriptItem::Activity {
+                    activity_kind,
+                    ..
+                } if activity_kind == "memory_extraction"
+            )
+        }),
+        "fully rejected provider memory proposals should not create a user-facing memory activity: {items:?}"
+    );
+    handle.shutdown().await;
+}
+
+#[tokio::test]
+async fn provider_memory_discards_invalid_extraction_proposal_and_persists_valid_one() {
+    let (handle, store) =
+        test_runtime_handle_with_store(fake_codex_provider_with_mixed_invalid_memory_proposals())
+            .await;
+
+    let conversation = handle
+        .start_conversation(None, None)
+        .await
+        .expect("conversation");
+    let items = collect_turn(
+        &handle,
+        conversation.conversation_id,
+        "I like planes, but please include one bad proposal fixture.".to_string(),
+    )
+    .await
+    .expect("turn should persist valid memory despite one rejected proposal");
+
+    assert_eq!(assistant_text(&items), "fake answer");
     assert!(items.iter().any(|item| {
         matches!(
             item,
             TurnTranscriptItem::Activity {
                 activity_kind,
-                status: TurnActivityStatus::Failed,
+                status: TurnActivityStatus::Completed,
                 title,
-                summary: Some(summary),
+                metadata,
                 ..
             } if activity_kind == "memory_extraction"
-                && title == "Memory extraction failed"
-                && summary.contains("memory extraction output was rejected")
+                && title == "Memory persisted"
+                && metadata["proposal_count"] == 2
+                && metadata["validated_proposal_count"] == 1
+                && metadata["rejected_extraction_proposal_count"] == 1
+                && metadata["failed_proposal_count"] == 0
         )
     }));
     assert!(
@@ -1420,15 +1457,61 @@ async fn provider_memory_validation_rejection_persists_failed_activity() {
                 item,
                 TurnTranscriptItem::Activity {
                     activity_kind,
-                    status: TurnActivityStatus::Completed,
-                    title,
+                    status: TurnActivityStatus::Failed,
                     ..
                 } if activity_kind == "memory_extraction"
-                    && title == "Memory persisted"
             )
         }),
-        "rejected proposal should not persist memory: {items:?}"
+        "one rejected extractor proposal should not make the memory activity fail: {items:?}"
     );
+
+    let claims = store
+        .retrieve_claims(&answer_claim_request(), "planes", 8)
+        .await
+        .expect("retrieve valid memory claim");
+    assert!(
+        claims
+            .included
+            .iter()
+            .any(|claim| claim.fact == "Kevin likes planes."),
+        "valid proposal should persist: {claims:?}"
+    );
+    handle.shutdown().await;
+}
+
+#[tokio::test]
+async fn provider_memory_discards_local_human_preference_from_assistant_status_chatter() {
+    let (handle, store) =
+        test_runtime_handle_with_store(fake_codex_provider_with_assistant_status_chatter_memory())
+            .await;
+
+    let conversation = handle
+        .start_conversation(None, None)
+        .await
+        .expect("conversation");
+    let items = collect_turn(&handle, conversation.conversation_id, "Nice".to_string())
+        .await
+        .expect("turn should complete despite rejected status-chatter memory proposal");
+
+    assert_eq!(
+        assistant_text(&items),
+        "Tiny but important onboarding victory. Fred has a plane-shaped sticky note now."
+    );
+    assert!(
+        !items.iter().any(|item| {
+            matches!(
+                item,
+                TurnTranscriptItem::Activity { activity_kind, .. } if activity_kind == "memory_extraction"
+            )
+        }),
+        "assistant status chatter should not create a user-facing memory activity: {items:?}"
+    );
+
+    let claims = store
+        .retrieve_claims(&answer_claim_request(), "planes", 8)
+        .await
+        .expect("retrieve plane claims");
+    assert!(claims.included.is_empty(), "unexpected claims: {claims:?}");
     handle.shutdown().await;
 }
 
@@ -2370,7 +2453,7 @@ async fn provider_memory_proposal_uses_matching_assistant_item_within_phase() {
 }
 
 #[tokio::test]
-async fn provider_memory_proposal_rejects_assistant_evidence_spanning_items() {
+async fn provider_memory_proposal_discards_assistant_evidence_spanning_items() {
     let (handle, store) =
         test_runtime_handle_with_store(fake_codex_provider_with_split_assistant_evidence_memory())
             .await;
@@ -2388,20 +2471,15 @@ async fn provider_memory_proposal_rejects_assistant_evidence_spanning_items() {
     result.expect("turn");
     let items = transcript_items_from_events(events);
 
-    assert!(items.iter().any(|item| {
-        matches!(
-            item,
-            TurnTranscriptItem::Activity {
-                activity_kind,
-                status: TurnActivityStatus::Failed,
-                title,
-                summary: Some(summary),
-                ..
-            } if activity_kind == "memory_extraction"
-                && title == "Memory extraction failed"
-                && summary.contains("rejected")
-        )
-    }));
+    assert!(
+        !items.iter().any(|item| {
+            matches!(
+                item,
+                TurnTranscriptItem::Activity { activity_kind, .. } if activity_kind == "memory_extraction"
+            )
+        }),
+        "invalid assistant evidence should be discarded without user-facing memory activity: {items:?}"
+    );
     let claims = store
         .retrieve_claims(&answer_claim_request(), "split assistant note", 8)
         .await
@@ -3364,6 +3442,8 @@ enum FakeCodexScenario {
     UnknownCanonicalPredicate,
     PartialMemoryWrite,
     InvalidMemoryProposal,
+    MixedInvalidMemoryProposal,
+    AssistantStatusChatterMemory,
     MemoryExtraction,
 }
 
@@ -3500,7 +3580,7 @@ impl FakeCodexProvider {
                                 "title": "Train memory recall",
                                 "confidence": 0.72,
                                 "sensitivity": "normal",
-                                "subjects": [{"id": "human:local", "kind": "human", "name": "Kevin", "role": "about"}],
+                                "subjects": [{"id": null, "kind": "conversation", "name": "current conversation", "role": "about"}],
                                 "retrieval_hints": {"topics": ["trains"], "keywords": ["train memory"], "summary": "Noema found Kevin's train memory."},
                                 "risk_flags": [],
                                 "evidence_excerpt": "I found your train memory."
@@ -3645,7 +3725,7 @@ impl FakeCodexProvider {
                                 "title": "Initial assistant note",
                                 "confidence": 0.74,
                                 "sensitivity": "normal",
-                                "subjects": [{"id": "human:local", "kind": "human", "name": "Kevin", "role": "about"}],
+                                "subjects": [{"id": null, "kind": "conversation", "name": "current conversation", "role": "about"}],
                                 "retrieval_hints": {"topics": ["memory"], "keywords": ["initial assistant note"], "summary": "Noema should remember the initial assistant note."},
                                 "risk_flags": [],
                                 "evidence_excerpt": "I will search memory before saving a note."
@@ -3672,7 +3752,7 @@ impl FakeCodexProvider {
                                 "title": "Second assistant note",
                                 "confidence": 0.78,
                                 "sensitivity": "normal",
-                                "subjects": [{"id": "human:local", "kind": "human", "name": "Kevin", "role": "about"}],
+                                "subjects": [{"id": null, "kind": "conversation", "name": "current conversation", "role": "about"}],
                                 "retrieval_hints": {"topics": ["memory"], "keywords": ["second assistant note"], "summary": "Noema should remember the second assistant note."},
                                 "risk_flags": [],
                                 "evidence_excerpt": "Second assistant item contains the durable note."
@@ -3837,6 +3917,68 @@ impl FakeCodexProvider {
                     }))],
                 },
             ],
+            FakeCodexScenario::MixedInvalidMemoryProposal => {
+                if input.contains("one bad proposal fixture") {
+                    vec![
+                        GenerateOutputItem::AssistantText {
+                            text: "fake answer".to_string(),
+                        },
+                        GenerateOutputItem::MemoryProposals {
+                            proposals: vec![
+                                proposal(json!({
+                                    "content": "Kevin likes planes.",
+                                    "memory_type": "preference",
+                                    "title": "Plane preference",
+                                    "confidence": 0.91,
+                                    "sensitivity": "normal",
+                                    "subjects": [{"id": "human:local", "kind": "human", "name": "Kevin", "role": "about"}],
+                                    "retrieval_hints": {"topics": ["aviation"], "keywords": ["planes"], "summary": "Kevin likes planes."},
+                                    "risk_flags": [],
+                                    "evidence_excerpt": "I like planes"
+                                })),
+                                proposal(json!({
+                                    "content": "Kevin likes helicopters.",
+                                    "memory_type": "preference",
+                                    "title": "Helicopter preference",
+                                    "confidence": 0.91,
+                                    "sensitivity": "normal",
+                                    "subjects": [{"id": "human:local", "kind": "human", "name": "Kevin", "role": "about"}],
+                                    "retrieval_hints": {"topics": ["aviation"], "keywords": ["helicopters"], "summary": "Kevin likes helicopters."},
+                                    "risk_flags": [],
+                                    "evidence_excerpt": "I like helicopters"
+                                })),
+                            ],
+                        },
+                    ]
+                } else {
+                    assistant_with_no_memories("fake answer")
+                }
+            }
+            FakeCodexScenario::AssistantStatusChatterMemory => {
+                if input == "Nice" {
+                    vec![
+                        GenerateOutputItem::AssistantText {
+                            text: "Tiny but important onboarding victory. Fred has a plane-shaped sticky note now."
+                                .to_string(),
+                        },
+                        GenerateOutputItem::MemoryProposals {
+                            proposals: vec![proposal(json!({
+                                "content": "Kevin likes planes.",
+                                "memory_type": "preference",
+                                "title": "Plane preference",
+                                "confidence": 0.91,
+                                "sensitivity": "normal",
+                                "subjects": [{"id": "human:local", "kind": "human", "name": "Kevin", "role": "about"}],
+                                "retrieval_hints": {"topics": ["aviation"], "keywords": ["planes"], "summary": "Kevin likes planes."},
+                                "risk_flags": [],
+                                "evidence_excerpt": "Fred has a plane-shaped sticky note now."
+                            }))],
+                        },
+                    ]
+                } else {
+                    assistant_with_no_memories("fake answer")
+                }
+            }
             FakeCodexScenario::UnknownCanonicalPredicate => memory_extraction_output(
                 &input,
                 self.invalid_consolidation_target_id
@@ -4681,6 +4823,14 @@ fn fake_codex_provider_with_partial_memory_write() -> FakeCodexProvider {
 
 fn fake_codex_provider_with_invalid_memory_proposal() -> FakeCodexProvider {
     FakeCodexProvider::new(FakeCodexScenario::InvalidMemoryProposal)
+}
+
+fn fake_codex_provider_with_mixed_invalid_memory_proposals() -> FakeCodexProvider {
+    FakeCodexProvider::new(FakeCodexScenario::MixedInvalidMemoryProposal)
+}
+
+fn fake_codex_provider_with_assistant_status_chatter_memory() -> FakeCodexProvider {
+    FakeCodexProvider::new(FakeCodexScenario::AssistantStatusChatterMemory)
 }
 
 fn fake_codex_provider_with_invalid_consolidation_target()

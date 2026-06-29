@@ -59,6 +59,33 @@ pub struct ValidatedMemoryProposal {
     pub status: MemoryStatus,
 }
 
+/// One proposal accepted while partitioning a structured extractor response.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AcceptedMemoryExtractionProposal {
+    /// Zero-based index in the original extractor proposal batch.
+    pub proposal_index: usize,
+    /// The validated proposal payload.
+    pub proposal: ValidatedMemoryProposal,
+}
+
+/// One proposal rejected while partitioning a structured extractor response.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RejectedMemoryExtractionProposal {
+    /// Zero-based index in the original extractor proposal batch.
+    pub proposal_index: usize,
+    /// Human-readable validation failure.
+    pub error: String,
+}
+
+/// Accepted and rejected proposals from a structured extractor response.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MemoryExtractionValidationPartition {
+    /// Valid proposals that may continue to canonicalization and persistence.
+    pub accepted: Vec<AcceptedMemoryExtractionProposal>,
+    /// Invalid proposals discarded before persistence.
+    pub rejected: Vec<RejectedMemoryExtractionProposal>,
+}
+
 /// Subject entity attached to a memory proposal.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -292,6 +319,11 @@ Rules:
 - Propose only durable facts, preferences, constraints, decisions, routines,
   goals, procedures, or notes that could matter later.
 - Do not propose jokes, speculation, transient task chatter, or generic world facts.
+- Do not propose memories from assistant acknowledgements, status commentary,
+  celebratory/meta commentary, or statements that something was saved, recorded,
+  remembered, updated, or available in memory.
+- Assistant evidence may support durable assistant, conversation, project, or
+  workspace notes, but human-subject memories require direct user evidence.
 - evidence_excerpt must be an exact contiguous quote from the user or assistant
   message and must directly support the proposal.
 - subjects must be non-empty and must show a human subject or participant when
@@ -399,6 +431,52 @@ pub fn validate_memory_extraction_response_with_assistant_items(
         .collect()
 }
 
+/// Partition an already-structured extractor response into valid proposals and
+/// invalid drafts that should be discarded.
+#[must_use]
+pub fn partition_memory_extraction_response_with_assistant_items(
+    response: ExtractorMemoryResponse,
+    user_input: &str,
+    assistant_items: &[&str],
+) -> MemoryExtractionValidationPartition {
+    if is_explicit_memory_command(user_input) && !response.proposals.is_empty() {
+        let rejected = response
+            .proposals
+            .into_iter()
+            .enumerate()
+            .map(|(proposal_index, _)| RejectedMemoryExtractionProposal {
+                proposal_index,
+                error: MemoryExtractionError::InvalidProposal {
+                    index: proposal_index,
+                    reason: "explicit memory commands are out of scope",
+                }
+                .to_string(),
+            })
+            .collect();
+        return MemoryExtractionValidationPartition {
+            accepted: Vec::new(),
+            rejected,
+        };
+    }
+
+    let mut accepted = Vec::new();
+    let mut rejected = Vec::new();
+    for (proposal_index, proposal) in response.proposals.into_iter().enumerate() {
+        match validate_proposal(proposal_index, proposal, user_input, assistant_items) {
+            Ok(proposal) => accepted.push(AcceptedMemoryExtractionProposal {
+                proposal_index,
+                proposal,
+            }),
+            Err(error) => rejected.push(RejectedMemoryExtractionProposal {
+                proposal_index,
+                error: error.to_string(),
+            }),
+        }
+    }
+
+    MemoryExtractionValidationPartition { accepted, rejected }
+}
+
 /// Choose the initial status for a validated ordinary-chat memory proposal.
 #[must_use]
 pub fn decide_memory_proposal_status(
@@ -494,8 +572,8 @@ fn validate_proposal(
         );
     };
 
-    if !has_human_implication(&proposal, evidence_source) {
-        return invalid_proposal(index, "proposal must imply a human subject or participant");
+    if matches!(evidence_source, EvidenceSource::Assistant) && has_human_subject(&proposal) {
+        return invalid_proposal(index, "human-subject memories require direct user evidence");
     }
 
     let status =
@@ -704,15 +782,11 @@ fn contains_word_ascii(value: &str, needle: &str) -> bool {
         .any(|word| word == needle)
 }
 
-fn has_human_implication(
-    proposal: &ExtractorMemoryProposal,
-    evidence_source: EvidenceSource,
-) -> bool {
+fn has_human_subject(proposal: &ExtractorMemoryProposal) -> bool {
     proposal
         .subjects
         .iter()
         .any(MemoryExtractionSubject::implies_human)
-        || matches!(evidence_source, EvidenceSource::User)
 }
 
 fn invalid_proposal<T>(index: usize, reason: &'static str) -> Result<T, MemoryExtractionError> {

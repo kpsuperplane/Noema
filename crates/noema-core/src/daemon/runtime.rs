@@ -11,7 +11,7 @@ use crate::{
     },
     memory_extraction::{
         ExtractorMemoryProposal, ExtractorMemoryResponse, ValidatedMemoryProposal,
-        validate_memory_extraction_response_with_assistant_items,
+        partition_memory_extraction_response_with_assistant_items,
     },
     provider::{
         GenerateInput, GenerateOptions, GenerateOutputItem, GenerateRequest, GenerateResponse,
@@ -40,9 +40,8 @@ use super::{
     memory_pipeline::{
         AssistantEvidenceItem, ConversationMemoryContext, claim_status_from_memory_status,
         deterministic_canonical_claim, explicit_memory_content, explicit_memory_write_proposal,
-        memory_activity, memory_activity_failed, new_claim_from_canonical,
-        predicate_proposal_candidate_from_canonical, project_scope_from_cwd,
-        provider_memory_write_proposal, typed_memory_activity,
+        memory_activity, new_claim_from_canonical, predicate_proposal_candidate_from_canonical,
+        project_scope_from_cwd, provider_memory_write_proposal, typed_memory_activity,
     },
     memory_tool::{
         MemoryToolResult, MemoryToolRuntimeContext, execute_search_memory, is_search_memory_tool,
@@ -1295,43 +1294,46 @@ impl CodexRuntimeActor {
             .map(|batch| batch.proposals.len())
             .sum::<usize>();
         let mut validated_proposals = Vec::with_capacity(proposal_count);
+        let mut rejected_extraction_proposals = Vec::new();
+        let mut proposal_index_offset = 0usize;
         for batch in batches {
+            let batch_proposal_count = batch.proposals.len();
             let assistant_item_texts = batch
                 .context
                 .assistant_items
                 .iter()
                 .map(|item| item.text.as_str())
                 .collect::<Vec<_>>();
-            let proposals = match validate_memory_extraction_response_with_assistant_items(
+            let partition = partition_memory_extraction_response_with_assistant_items(
                 ExtractorMemoryResponse {
                     proposals: batch.proposals,
                 },
                 &batch.context.user_content,
                 &assistant_item_texts,
-            ) {
-                Ok(proposals) => proposals,
-                Err(error) => {
-                    let activity = memory_activity_failed(
-                        &activity_id,
-                        format!("memory extraction output was rejected: {error}"),
-                    );
-                    self.persist_and_send_turn_item(&activity_context, activity, item_tx)
-                        .await?;
-                    return Ok(());
-                }
-            };
-            for proposal in proposals {
-                let proposal_index = validated_proposals.len();
+            );
+            for rejected in partition.rejected {
+                rejected_extraction_proposals.push(json!({
+                    "proposal_index": proposal_index_offset + rejected.proposal_index,
+                    "error": rejected.error,
+                }));
+            }
+            for accepted in partition.accepted {
                 validated_proposals.push(ValidatedProviderMemoryProposal {
                     context: batch.context.clone(),
-                    proposal,
-                    proposal_index,
+                    proposal: accepted.proposal,
+                    proposal_index: proposal_index_offset + accepted.proposal_index,
                 });
             }
+            proposal_index_offset += batch_proposal_count;
         }
 
-        let proposed_summary = match proposal_count {
-            0 => "creating no memory candidates".to_string(),
+        let validated_proposal_count = validated_proposals.len();
+        if validated_proposal_count == 0 {
+            return Ok(());
+        }
+        let rejected_extraction_proposal_count = rejected_extraction_proposals.len();
+
+        let proposed_summary = match validated_proposal_count {
             1 => "creating 1 memory candidate".to_string(),
             count => format!("creating {count} memory candidates"),
         };
@@ -1343,14 +1345,17 @@ impl CodexRuntimeActor {
             json!({
                 "turn_index": turn_index,
                 "proposal_count": proposal_count,
+                "validated_proposal_count": validated_proposal_count,
+                "rejected_extraction_proposal_count": rejected_extraction_proposal_count,
+                "rejected_extraction_proposals": rejected_extraction_proposals.clone(),
                 "cwd_project_hint": project_scope_from_cwd(activity_context.cwd.as_deref()),
             }),
         );
         send_transient_turn_item(&activity_context, proposed_activity, item_tx);
         tokio::task::yield_now().await;
 
-        let mut claim_ids = Vec::with_capacity(proposal_count);
-        let mut claim_outcomes = Vec::with_capacity(proposal_count);
+        let mut claim_ids = Vec::with_capacity(validated_proposal_count);
+        let mut claim_outcomes = Vec::with_capacity(validated_proposal_count);
         let mut created_claim_count = 0usize;
         let mut reinforced_claim_count = 0usize;
         let mut disputed_claim_count = 0usize;
@@ -1551,6 +1556,9 @@ impl CodexRuntimeActor {
                 "turn_index": turn_index,
                 "source": "provider_structured_output",
                 "proposal_count": proposal_count,
+                "validated_proposal_count": validated_proposal_count,
+                "rejected_extraction_proposal_count": rejected_extraction_proposal_count,
+                "rejected_extraction_proposals": rejected_extraction_proposals,
                 "claim_ids": claim_ids,
                 "claim_outcomes": claim_outcomes,
                 "created_claim_count": created_claim_count,
@@ -2034,9 +2042,7 @@ fn handle_provider_stream_event(
             stream_id,
             delta,
         ),
-        GenerateStreamEvent::MemoryProposalsStarted => {
-            send_memory_proposed_transient(context, item_tx);
-        }
+        GenerateStreamEvent::MemoryProposalsStarted => {}
         GenerateStreamEvent::ToolCallStarted { output_index, name } => {
             send_tool_call_started_transient(
                 context,
@@ -2046,27 +2052,6 @@ fn handle_provider_stream_event(
             );
         }
     }
-}
-
-fn send_memory_proposed_transient(
-    context: &ConversationMemoryContext,
-    item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
-) {
-    let activity_id = format!(
-        "memory_extraction:{}:{}",
-        context.conversation_id, context.turn_index
-    );
-    let activity = memory_activity(
-        &activity_id,
-        TurnActivityStatus::Started,
-        "Memory proposed",
-        Some("memory proposal is streaming"),
-        json!({
-            "turn_index": context.turn_index,
-            "source": "provider_structured_output",
-        }),
-    );
-    send_transient_turn_item(context, activity, item_tx);
 }
 
 fn send_tool_call_started_transient(
@@ -2235,6 +2220,8 @@ Rules:
 - Include exactly one memory_proposals item. Use an empty proposals array when there are no durable memories.
 - Propose only durable facts, preferences, constraints, decisions, routines, goals, procedures, or notes that could matter later.
 - Do not propose jokes, speculation, transient task chatter, or generic world facts.
+- Do not propose memories from assistant acknowledgements, status commentary, celebratory/meta commentary, or statements that something was saved, recorded, remembered, updated, or available in memory.
+- Assistant evidence may support durable assistant, conversation, project, or workspace notes, but human-subject memories require direct user evidence.
 - evidence_excerpt must be an exact contiguous quote from the original turn/source message and directly support the proposal.
 - For assistant-supported proposals, evidence_excerpt must exactly quote the assistant text that generated the proposal in the same provider response phase.
 - subjects must be non-empty and must show a human subject or participant when the memory affects a person.
@@ -2767,6 +2754,9 @@ mod tests {
         assert!(prompt.contains("Return strict JSON only"));
         assert!(prompt.contains("Always include exactly one assistant_text item"));
         assert!(prompt.contains("Only Noema supplies trusted memory policy fields"));
+        assert!(prompt.contains("Do not propose memories from assistant acknowledgements"));
+        assert!(prompt.contains("statements that something was saved"));
+        assert!(prompt.contains("human-subject memories require direct user evidence"));
     }
 
     #[test]

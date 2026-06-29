@@ -89,6 +89,171 @@ fn assistant_evidence_must_be_within_one_item() {
 }
 
 #[test]
+fn partition_keeps_valid_proposals_and_reports_invalid_drafts() {
+    let response: ExtractorMemoryResponse = serde_json::from_str(
+        r#"{
+          "proposals": [
+            {
+              "content": "Kevin likes planes.",
+              "memory_type": "preference",
+              "title": "Plane preference",
+              "confidence": 0.91,
+              "sensitivity": "normal",
+              "subjects": [
+                {
+                  "id": "human:local",
+                  "kind": "human",
+                  "name": "Kevin",
+                  "role": "about"
+                }
+              ],
+              "retrieval_hints": {
+                "topics": ["aviation"],
+                "keywords": ["planes"],
+                "summary": "Kevin likes planes."
+              },
+              "risk_flags": [],
+              "evidence_excerpt": "I like planes"
+            },
+            {
+              "content": "Kevin likes helicopters.",
+              "memory_type": "preference",
+              "title": "Helicopter preference",
+              "confidence": 0.91,
+              "sensitivity": "normal",
+              "subjects": [
+                {
+                  "id": "human:local",
+                  "kind": "human",
+                  "name": "Kevin",
+                  "role": "about"
+                }
+              ],
+              "retrieval_hints": {
+                "topics": ["aviation"],
+                "keywords": ["helicopters"],
+                "summary": "Kevin likes helicopters."
+              },
+              "risk_flags": [],
+              "evidence_excerpt": "I like helicopters"
+            }
+          ]
+        }"#,
+    )
+    .expect("response");
+
+    let partition = partition_memory_extraction_response_with_assistant_items(
+        response,
+        "I like planes, but please include one bad proposal fixture.",
+        &["fake answer"],
+    );
+
+    assert_eq!(partition.accepted.len(), 1);
+    assert_eq!(partition.accepted[0].proposal_index, 0);
+    assert_eq!(partition.accepted[0].proposal.status, MemoryStatus::Active);
+    assert_eq!(partition.rejected.len(), 1);
+    assert_eq!(partition.rejected[0].proposal_index, 1);
+    assert!(
+        partition.rejected[0]
+            .error
+            .contains("evidence_excerpt must exactly quote the original turn")
+    );
+}
+
+#[test]
+fn assistant_evidence_cannot_establish_local_human_preference() {
+    let response: ExtractorMemoryResponse = serde_json::from_str(
+        r#"{
+          "proposals": [
+            {
+              "content": "Kevin likes planes.",
+              "memory_type": "preference",
+              "title": "Plane preference",
+              "confidence": 0.91,
+              "sensitivity": "normal",
+              "subjects": [
+                {
+                  "id": "human:local",
+                  "kind": "human",
+                  "name": "Kevin",
+                  "role": "about"
+                }
+              ],
+              "retrieval_hints": {
+                "topics": ["aviation"],
+                "keywords": ["planes"],
+                "summary": "Kevin likes planes."
+              },
+              "risk_flags": [],
+              "evidence_excerpt": "Fred has a plane-shaped sticky note now."
+            }
+          ]
+        }"#,
+    )
+    .expect("response");
+
+    let partition = partition_memory_extraction_response_with_assistant_items(
+        response,
+        "Nice",
+        &["Tiny but important onboarding victory. Fred has a plane-shaped sticky note now."],
+    );
+
+    assert!(partition.accepted.is_empty());
+    assert_eq!(partition.rejected.len(), 1);
+    assert!(
+        partition.rejected[0]
+            .error
+            .contains("human-subject memories require direct user evidence")
+    );
+}
+
+#[test]
+fn assistant_evidence_can_support_conversation_note() {
+    let response: ExtractorMemoryResponse = serde_json::from_str(
+        r#"{
+          "proposals": [
+            {
+              "content": "The current conversation has a durable assistant note.",
+              "memory_type": "note",
+              "title": "Assistant note",
+              "confidence": 0.78,
+              "sensitivity": "normal",
+              "subjects": [
+                {
+                  "id": null,
+                  "kind": "conversation",
+                  "name": "current conversation",
+                  "role": "about"
+                }
+              ],
+              "retrieval_hints": {
+                "topics": ["memory"],
+                "keywords": ["assistant note"],
+                "summary": "The current conversation has a durable assistant note."
+              },
+              "risk_flags": [],
+              "evidence_excerpt": "Second assistant item contains the durable note."
+            }
+          ]
+        }"#,
+    )
+    .expect("response");
+
+    let proposals = validate_memory_extraction_response_with_assistant_items(
+        response,
+        "Emit two assistant notes and save the second.",
+        &[
+            "First assistant item should not own the evidence.",
+            "Second assistant item contains the durable note.",
+        ],
+    )
+    .expect("assistant conversation note");
+
+    assert_eq!(proposals.len(), 1);
+    assert_eq!(proposals[0].status, MemoryStatus::Candidate);
+}
+
+#[test]
 fn mislabelled_secret_sensitivity_is_escalated_before_promotion() {
     let user_input = "My API key is sk-testSecretToken123456789.";
     let extracted = r#"{

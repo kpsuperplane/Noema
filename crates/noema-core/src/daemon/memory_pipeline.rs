@@ -1056,13 +1056,3 @@ pub(super) fn typed_memory_activity(
         metadata,
     }
 }
-
-pub(super) fn memory_activity_failed(id: &str, message: String) -> TurnTranscriptItem {
-    memory_activity(
-        id,
-        TurnActivityStatus::Failed,
-        "Memory extraction failed",
-        Some(&message),
-        json!({}),
-    )
-}
