@@ -60,6 +60,18 @@ describe("Transcript layout", () => {
     assert.match(messageScrollerContentClassName(markup), /\bjustify-end\b/);
   });
 
+  test("pulls markers closer to the message cluster they follow", () => {
+    const markup = renderTranscript([
+      { id: "user-1", type: "user", turnId: "turn-1", text: "Remember this and check memory." },
+      memoryExtractionEntry("activity-one", "item-one", "COMPLETED", "Memory saved"),
+      memoryExtractionEntry("activity-two", "item-two", "COMPLETED", "Memory saved")
+    ]);
+
+    assert.doesNotMatch(markup, /data-message-id="user-1"[^>]*class="[^"]*(?:^| )-mt-1(?: |")/);
+    assert.match(markup, /data-message-id="activity-one"[^>]*class="[^"]*(?:^| )-mt-1(?: |")/);
+    assert.match(markup, /data-message-id="activity-two"[^>]*class="[^"]*(?:^| )-mt-1(?: |")/);
+  });
+
   test("uses stable actor ids as transcript avatar seeds", () => {
     const markup = renderTranscript([
       { id: "user-1", type: "user", text: "Hello" },

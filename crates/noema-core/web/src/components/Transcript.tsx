@@ -115,7 +115,11 @@ export function Transcript({
               return (
                 <MessageScrollerItem
                   key={messageId}
-                  className={cn("flex w-full", lane === "human" && "justify-end")}
+                  className={cn(
+                    "flex w-full",
+                    lane === "human" && "justify-end",
+                    shouldCompactMarkerClusterSpacing(entry, previousEntry) && "-mt-1"
+                  )}
                   messageId={messageId}
                   scrollAnchor={shouldAnchorRenderedEntry(entry)}
                 >
@@ -167,6 +171,28 @@ export function renderedTranscriptLane(entry: RenderTranscriptLaneCandidate): Tr
     return transcriptEntryLane(entry.entryType);
   }
   return "assistant";
+}
+
+function shouldCompactMarkerClusterSpacing(
+  entry: RenderTranscriptEntry,
+  previousEntry: RenderTranscriptEntry | undefined
+): boolean {
+  return (
+    isMarkerRenderEntry(entry) &&
+    !!previousEntry &&
+    (isTextMessageRenderEntry(previousEntry) || isMarkerRenderEntry(previousEntry))
+  );
+}
+
+function isMarkerRenderEntry(entry: RenderTranscriptEntry): boolean {
+  return entry.kind === "memory_marker" || entry.kind === "tool_marker";
+}
+
+function isTextMessageRenderEntry(entry: RenderTranscriptEntry): boolean {
+  return (
+    entry.kind === "entry" &&
+    (entry.entry.type === "user" || entry.entry.type === "assistant" || entry.entry.type === "assistant_stream")
+  );
 }
 
 export function shouldShowTypingIndicator(entries: TranscriptEntry[], pending: boolean): boolean {
