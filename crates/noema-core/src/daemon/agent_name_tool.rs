@@ -136,8 +136,10 @@ fn strip_prefix_case_insensitive<'a>(value: &'a str, prefix: &str) -> Option<&'a
 fn candidate_name_matches(candidate: &str, name: &str) -> bool {
     let candidate = candidate.trim_start();
     let name = name.trim();
-    let remaining = strip_prefix_case_insensitive(candidate, name);
-    remaining.is_some_and(remaining_is_only_sentence_end)
+    let Some(candidate_name) = explicit_candidate_name(candidate) else {
+        return false;
+    };
+    candidate_name.eq_ignore_ascii_case(name)
 }
 
 fn matching_prefix_end(value: &str, prefix: &str) -> Option<usize> {
@@ -157,14 +159,18 @@ fn chars_equal_ignore_case(left: char, right: char) -> bool {
     left.to_lowercase().to_string() == right.to_lowercase().to_string()
 }
 
-fn remaining_is_only_sentence_end(remaining: &str) -> bool {
-    let trimmed = remaining.trim_start();
-    if trimmed.is_empty() {
-        return true;
+fn explicit_candidate_name(candidate: &str) -> Option<&str> {
+    let candidate = candidate.trim();
+    if candidate.is_empty() {
+        return None;
     }
 
-    let mut chars = trimmed.chars();
-    matches!(chars.next(), Some('.') | Some('!') | Some('?')) && chars.as_str().trim().is_empty()
+    let trimmed = candidate.strip_suffix('.').unwrap_or(candidate).trim_end();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed)
+    }
 }
 
 fn safe_error_message(error: &AgentNameToolError) -> String {
@@ -275,6 +281,8 @@ mod tests {
         let examples = [
             ("Your name is C.", "C++"),
             ("Your name is Mira.", "Mira!!!"),
+            ("Your name is Mira.", "Mira."),
+            ("Your name is Mira?", "Mira"),
         ];
 
         for (input, name) in examples {
