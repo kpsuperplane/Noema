@@ -2264,10 +2264,10 @@ enum LocalToolResult {
 }
 
 impl LocalToolResult {
-    fn call_id(&self) -> &Option<String> {
+    fn call_id(&self) -> Option<&String> {
         match self {
-            Self::Memory(result) => &result.call_id,
-            Self::AgentName(result) => &result.call_id,
+            Self::Memory(result) => result.call_id.as_ref(),
+            Self::AgentName(result) => result.call_id.as_ref(),
         }
     }
 
@@ -2331,7 +2331,7 @@ fn local_tool_result_payload(result: &LocalToolResult) -> Value {
 
 fn local_tool_result_output_item(result: &LocalToolResult) -> GenerateOutputItem {
     GenerateOutputItem::ToolResult {
-        call_id: result.call_id().clone(),
+        call_id: result.call_id().cloned(),
         name: Some(result.name().to_string()),
         success: Some(result.success()),
         payload: result.payload().clone(),
