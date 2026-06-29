@@ -11,7 +11,8 @@ import {
   type ProviderAuthAttemptQuery,
   type StartProviderAuthAttemptMutation
 } from "./generated/graphql";
-import { AppHeader } from "@/components/shell/AppHeader";
+import { AppShell } from "@/components/shell/AppShell";
+import { SetupFrame } from "@/components/shell/SetupFrame";
 import { Composer } from "./components/Composer";
 import { EmptyState } from "./components/EmptyState";
 import { ErrorMarker } from "./components/ErrorMarker";
@@ -56,7 +57,7 @@ export function App() {
 
   const [socketState, setSocketState] = React.useState<SocketState>("closed");
   const [conversationId, setConversationId] = React.useState<string | null>(null);
-  const [agentStatus, setAgentStatus] = React.useState<ConversationAgentStatus>("closed");
+  const [, setAgentStatus] = React.useState<ConversationAgentStatus>("closed");
   const [authAttempt, setAuthAttempt] = React.useState<ProviderAuthAttemptView | null>(null);
   const [onboardingError, setOnboardingError] = React.useState<string | null>(null);
   const [transcript, setTranscript] = React.useState<TranscriptEntry[]>([]);
@@ -266,6 +267,42 @@ export function App() {
   const waitingForOnboardingDecision = !onboarding && !displayedOnboardingError;
   const waitingForConversationDecision =
     chatRoute && onboarding?.isUserOnboarded === true && !conversationId && transcript.length === 0;
+  const chatView = (
+    <section
+      className="grid h-full min-h-0 w-full grid-rows-[minmax(0,1fr)_auto] overflow-hidden pb-[22px] [--chat-column-width:min(860px,calc(100%_-_48px))] max-[760px]:pb-[18px] max-[760px]:[--chat-column-width:calc(100%_-_40px)]"
+      aria-label="Noema chat"
+    >
+      {transcript.length === 0 ? (
+        <EmptyState onPick={(starter) => setDraft(starter)} />
+      ) : (
+        <Transcript
+          entries={transcript}
+          pending={pending}
+          expandedActivities={expandedActivities}
+          onToggleActivity={(id) =>
+            setExpandedActivities((current) => {
+              const next = new Set(current);
+              if (next.has(id)) {
+                next.delete(id);
+              } else {
+                next.add(id);
+              }
+              return next;
+            })
+          }
+        />
+      )}
+
+      <Composer
+        value={draft}
+        ready={ready}
+        pending={pending}
+        placeholder={ready ? "Message Noema" : "Starting Noema chat..."}
+        onChange={setDraft}
+        onSubmit={() => void sendMessage(draft)}
+      />
+    </section>
+  );
 
   if (waitingForOnboardingDecision || waitingForConversationDecision) {
     return null;
@@ -273,10 +310,9 @@ export function App() {
 
   if (!onboarding) {
     return (
-      <main className="grid h-dvh min-h-screen grid-rows-[auto_minmax(0,1fr)] overflow-hidden bg-background">
-        <AppHeader status={status} socketState={socketState} agentStatus={agentStatus} />
+      <SetupFrame>
         <section
-          className="mx-auto grid min-h-[calc(100vh-68px)] w-[min(760px,100%)] content-center px-6 max-[760px]:min-h-[calc(100vh-118px)] max-[760px]:content-start max-[760px]:px-5"
+          className="mx-auto grid min-h-full w-[min(760px,100%)] content-center px-6 max-[760px]:content-start max-[760px]:px-5"
           aria-label="Noema onboarding"
         >
           <div className="grid min-w-0 gap-3.5 py-[18px]">
@@ -290,14 +326,13 @@ export function App() {
             {displayedOnboardingError ? <ErrorMarker message={displayedOnboardingError} /> : null}
           </div>
         </section>
-      </main>
+      </SetupFrame>
     );
   }
 
   if (!onboarding.isUserOnboarded) {
     return (
-      <main className="grid h-dvh min-h-screen grid-rows-[auto_minmax(0,1fr)] overflow-hidden bg-background">
-        <AppHeader status={status} socketState={socketState} agentStatus={agentStatus} />
+      <SetupFrame>
         <Onboarding
           onboarding={onboarding}
           attempt={authAttempt}
@@ -308,66 +343,29 @@ export function App() {
             setOnboardingError(null);
           }}
         />
-      </main>
+      </SetupFrame>
     );
   }
 
   if (route.kind === "memory_home") {
     return (
-      <main className="grid h-dvh min-h-screen grid-rows-[auto_minmax(0,1fr)] overflow-hidden bg-background">
-        <AppHeader status={status} socketState={socketState} agentStatus={agentStatus} />
+      <AppShell route={route} status={status} socketState={socketState} onNavigate={navigate}>
         <MemoryHomePage onOpenGraph={() => navigate({ kind: "memory_graph" })} />
-      </main>
+      </AppShell>
     );
   }
 
   if (route.kind === "memory_graph") {
     return (
-      <main className="grid h-dvh min-h-screen grid-rows-[auto_minmax(0,1fr)] overflow-hidden bg-background">
-        <AppHeader status={status} socketState={socketState} agentStatus={agentStatus} />
+      <AppShell route={route} status={status} socketState={socketState} onNavigate={navigate}>
         <MemoryGraphPage />
-      </main>
+      </AppShell>
     );
   }
 
   return (
-    <main className="grid h-dvh min-h-screen grid-rows-[auto_minmax(0,1fr)] overflow-hidden bg-background">
-      <AppHeader status={status} socketState={socketState} agentStatus={agentStatus} />
-
-      <section
-        className="grid h-full min-h-0 w-full grid-rows-[minmax(0,1fr)_auto] overflow-hidden pb-[22px] [--chat-column-width:min(860px,calc(100%_-_48px))] max-[760px]:pb-[18px] max-[760px]:[--chat-column-width:calc(100%_-_40px)]"
-        aria-label="Noema chat"
-      >
-        {transcript.length === 0 ? (
-          <EmptyState onPick={(starter) => setDraft(starter)} />
-        ) : (
-          <Transcript
-            entries={transcript}
-            pending={pending}
-            expandedActivities={expandedActivities}
-            onToggleActivity={(id) =>
-              setExpandedActivities((current) => {
-                const next = new Set(current);
-                if (next.has(id)) {
-                  next.delete(id);
-                } else {
-                  next.add(id);
-                }
-                return next;
-              })
-            }
-          />
-        )}
-
-        <Composer
-          value={draft}
-          ready={ready}
-          pending={pending}
-          placeholder={ready ? "Message Noema" : "Starting Noema chat..."}
-          onChange={setDraft}
-          onSubmit={() => void sendMessage(draft)}
-        />
-      </section>
-    </main>
+    <AppShell route={route} status={status} socketState={socketState} onNavigate={navigate}>
+      {chatView}
+    </AppShell>
   );
 }

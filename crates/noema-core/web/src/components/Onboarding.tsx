@@ -40,7 +40,7 @@ export function Onboarding({
 
   return (
     <section
-      className="mx-auto grid min-h-[calc(100vh-68px)] w-[min(760px,100%)] content-center px-6 py-[34px] max-[760px]:min-h-[calc(100vh-118px)] max-[760px]:content-start max-[760px]:px-5 max-[760px]:py-7"
+      className="mx-auto grid min-h-full w-[min(760px,100%)] content-center px-6 py-[34px] max-[760px]:content-start max-[760px]:px-5 max-[760px]:py-7"
       aria-label="Noema onboarding"
     >
       <Card className="grid min-w-0 gap-3.5 py-[18px]">
