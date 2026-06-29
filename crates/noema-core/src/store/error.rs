@@ -32,6 +32,9 @@ pub enum StoreError {
         /// Missing agent id.
         agent_id: String,
     },
+    /// Agent display name input was empty after trimming whitespace.
+    #[error("agent display name cannot be empty")]
+    AgentDisplayNameEmpty,
     /// A conversation expected to exist was not found.
     #[error("conversation not found: {conversation_id}")]
     ConversationNotFound {

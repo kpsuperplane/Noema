@@ -1,7 +1,7 @@
 use serde::Deserialize;
 use surrealdb::types::SurrealValue;
 
-use super::{NoemaStore, StoreError, ids::record_fragment};
+use super::{NoemaStore, StoreError};
 
 /// Input for creating a durable agent row.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -28,6 +28,7 @@ impl NoemaStore {
     ///
     /// Returns [`StoreError`] when the embedded store write or read fails.
     pub async fn create_agent(&self, agent: NewAgent) -> Result<AgentRecord, StoreError> {
+        let display_name = normalize_agent_display_name(agent.display_name.as_deref())?;
         self.db
             .query(
                 r#"
@@ -37,9 +38,9 @@ impl NoemaStore {
                   updated_at = time::now();
                 "#,
             )
-            .bind(("record_id", record_fragment(&agent.agent_id)))
+            .bind(("record_id", agent_record_fragment(&agent.agent_id)))
             .bind(("agent_id", agent.agent_id.clone()))
-            .bind(("display_name", agent.display_name))
+            .bind(("display_name", display_name))
             .await?
             .check()?;
         self.get_agent(&agent.agent_id)
@@ -83,7 +84,8 @@ impl NoemaStore {
         display_name: &str,
     ) -> Result<AgentRecord, StoreError> {
         self.require_agent(agent_id).await?;
-        let trimmed = display_name.trim();
+        let display_name = normalize_agent_display_name(Some(display_name))?
+            .expect("non-empty display name is required when updating an agent");
         self.db
             .query(
                 r#"
@@ -94,7 +96,7 @@ impl NoemaStore {
                 "#,
             )
             .bind(("agent_id", agent_id.to_string()))
-            .bind(("display_name", trimmed.to_string()))
+            .bind(("display_name", display_name))
             .await?
             .check()?;
         self.get_agent(agent_id)
@@ -126,4 +128,29 @@ fn agent_from_row(row: AgentRow) -> AgentRecord {
         agent_id: row.agent_id,
         display_name: row.display_name,
     }
+}
+
+fn normalize_agent_display_name(display_name: Option<&str>) -> Result<Option<String>, StoreError> {
+    display_name
+        .map(|name| {
+            let trimmed = name.trim();
+            if trimmed.is_empty() {
+                Err(StoreError::AgentDisplayNameEmpty)
+            } else {
+                Ok(trimmed.to_string())
+            }
+        })
+        .transpose()
+}
+
+fn agent_record_fragment(agent_id: &str) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+
+    let mut fragment = String::with_capacity("agent_".len() + agent_id.len() * 2);
+    fragment.push_str("agent_");
+    for byte in agent_id.bytes() {
+        fragment.push(HEX[(byte >> 4) as usize] as char);
+        fragment.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+    fragment
 }

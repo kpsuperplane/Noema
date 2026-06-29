@@ -519,6 +519,112 @@ async fn agent_display_name_updates_trim_and_preserve_casing() {
 }
 
 #[tokio::test]
+async fn agent_display_name_update_rejects_whitespace_only_and_preserves_existing_name() {
+    let store = test_store().await;
+
+    store
+        .create_agent(crate::NewAgent {
+            agent_id: "agent:test-empty-update".to_string(),
+            display_name: Some("Mira".to_string()),
+        })
+        .await
+        .expect("create agent");
+
+    let error = store
+        .update_agent_display_name("agent:test-empty-update", "   ")
+        .await
+        .expect_err("empty display name should be rejected");
+
+    assert!(matches!(error, StoreError::AgentDisplayNameEmpty));
+    let agent = store
+        .get_agent("agent:test-empty-update")
+        .await
+        .expect("get agent")
+        .expect("agent exists");
+    assert_eq!(agent.display_name.as_deref(), Some("Mira"));
+}
+
+#[tokio::test]
+async fn create_agent_rejects_whitespace_only_display_name() {
+    let store = test_store().await;
+
+    let error = store
+        .create_agent(crate::NewAgent {
+            agent_id: "agent:test-empty-create".to_string(),
+            display_name: Some("   ".to_string()),
+        })
+        .await
+        .expect_err("empty display name should be rejected");
+
+    assert!(matches!(error, StoreError::AgentDisplayNameEmpty));
+    assert!(
+        store
+            .get_agent("agent:test-empty-create")
+            .await
+            .expect("get agent")
+            .is_none()
+    );
+}
+
+#[tokio::test]
+async fn create_agent_distinguishes_ids_with_punctuation_differences() {
+    let store = test_store().await;
+
+    let dashed = store
+        .create_agent(crate::NewAgent {
+            agent_id: "agent:a-b".to_string(),
+            display_name: Some("Dash".to_string()),
+        })
+        .await
+        .expect("create dashed agent");
+    let underscored = store
+        .create_agent(crate::NewAgent {
+            agent_id: "agent:a_b".to_string(),
+            display_name: Some("  Under  ".to_string()),
+        })
+        .await
+        .expect("create underscored agent");
+
+    assert_eq!(dashed.agent_id, "agent:a-b");
+    assert_eq!(underscored.agent_id, "agent:a_b");
+    assert_eq!(
+        store
+            .get_agent("agent:a-b")
+            .await
+            .expect("get dashed")
+            .expect("dashed exists")
+            .display_name
+            .as_deref(),
+        Some("Dash")
+    );
+    assert_eq!(
+        store
+            .get_agent("agent:a_b")
+            .await
+            .expect("get underscored")
+            .expect("underscored exists")
+            .display_name
+            .as_deref(),
+        Some("Under")
+    );
+}
+
+#[tokio::test]
+async fn update_agent_display_name_rejects_missing_agent() {
+    let store = test_store().await;
+
+    let error = store
+        .update_agent_display_name("agent:missing", "Mira")
+        .await
+        .expect_err("missing agent should be rejected");
+
+    assert!(matches!(
+        error,
+        StoreError::AgentNotFound { agent_id } if agent_id == "agent:missing"
+    ));
+}
+
+#[tokio::test]
 async fn primary_conversation_reuses_existing_home_conversation() {
     let store = test_store().await;
     store.ensure_default_actors().await.expect("actors");
