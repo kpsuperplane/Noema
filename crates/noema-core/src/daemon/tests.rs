@@ -2671,6 +2671,123 @@ async fn runtime_actor_executes_search_memory_as_local_tool_result() {
 }
 
 #[tokio::test]
+async fn update_own_name_tool_updates_agent_and_continues_turn() {
+    let (handle, store) =
+        test_runtime_handle_with_store(fake_codex_provider_with_update_own_name_continuation())
+            .await;
+
+    let conversation_id = handle
+        .start_conversation(None, None)
+        .await
+        .expect("conversation")
+        .conversation_id;
+    let items = collect_turn(&handle, conversation_id, "Your name is Mira.".to_string())
+        .await
+        .expect("turn");
+    handle.shutdown().await;
+
+    let agent = store
+        .get_agent("agent:primary")
+        .await
+        .expect("agent")
+        .expect("agent exists");
+    assert_eq!(agent.display_name.as_deref(), Some("Mira"));
+    assert!(items.iter().any(|item| matches!(
+        item,
+        TurnTranscriptItem::Activity {
+            activity_kind,
+            title,
+            ..
+        } if activity_kind == "tool_call" && title == "Tool call: update_own_name"
+    )));
+    assert!(items.iter().any(|item| matches!(
+        item,
+        TurnTranscriptItem::Activity {
+            activity_kind,
+            status: TurnActivityStatus::Completed,
+            title,
+            metadata,
+            ..
+        } if activity_kind == "tool_result"
+            && title == "Tool result: update_own_name"
+            && metadata["action"]["success"] == true
+            && metadata["action"]["payload"]["display_name"] == "Mira"
+    )));
+    assert!(items.iter().any(|item| matches!(
+        item,
+        TurnTranscriptItem::AssistantText { text } if text == "Mira it is."
+    )));
+}
+
+#[tokio::test]
+async fn update_own_name_tool_rejects_ambiguous_user_instruction() {
+    let (handle, store) =
+        test_runtime_handle_with_store(fake_codex_provider_with_ambiguous_update_own_name()).await;
+
+    let conversation_id = handle
+        .start_conversation(None, None)
+        .await
+        .expect("conversation")
+        .conversation_id;
+    let items = collect_turn(
+        &handle,
+        conversation_id,
+        "Maybe you could be Mira?".to_string(),
+    )
+    .await
+    .expect("turn");
+    handle.shutdown().await;
+
+    let agent = store
+        .get_agent("agent:primary")
+        .await
+        .expect("agent")
+        .expect("agent exists");
+    assert_eq!(agent.display_name, None);
+    assert!(items.iter().any(|item| matches!(
+        item,
+        TurnTranscriptItem::Activity {
+            activity_kind,
+            status: TurnActivityStatus::Failed,
+            title,
+            metadata,
+            ..
+        } if activity_kind == "tool_result"
+            && title == "Tool result: update_own_name"
+            && metadata["action"]["payload"]["error"]
+                == "name update requires explicit user instruction"
+    )));
+}
+
+#[tokio::test]
+async fn runtime_prompt_includes_stored_agent_name_after_update() {
+    let handle =
+        test_runtime_handle(fake_codex_provider_with_update_own_name_then_identity_check()).await;
+
+    let conversation_id = handle
+        .start_conversation(None, None)
+        .await
+        .expect("conversation")
+        .conversation_id;
+    collect_turn(
+        &handle,
+        conversation_id.clone(),
+        "Your name is Mira.".to_string(),
+    )
+    .await
+    .expect("name turn");
+    let items = collect_turn(&handle, conversation_id, "What is your name?".to_string())
+        .await
+        .expect("identity turn");
+    handle.shutdown().await;
+
+    assert!(items.iter().any(|item| matches!(
+        item,
+        TurnTranscriptItem::AssistantText { text } if text == "saw stored identity"
+    )));
+}
+
+#[tokio::test]
 async fn search_memory_profile_continuation_uses_scoped_empty_query() {
     let (handle, store) = test_runtime_handle_with_store(
         fake_codex_provider_with_search_memory_profile_continuation(),
@@ -3090,6 +3207,9 @@ enum FakeCodexScenario {
     InvalidSearchMemory,
     SearchMemoryContinuation,
     SearchMemoryProfileContinuation,
+    UpdateOwnNameContinuation,
+    AmbiguousUpdateOwnName,
+    UpdateOwnNameThenIdentityCheck,
     InitialAssistantMemoryContinuation,
     MultiAssistantMemory,
     SplitAssistantEvidenceMemory,
@@ -3272,6 +3392,45 @@ impl FakeCodexProvider {
                     ]
                 } else {
                     assistant_with_no_memories("fake answer")
+                }
+            }
+            FakeCodexScenario::UpdateOwnNameContinuation => {
+                if input.contains("NOEMA_LOCAL_TOOL_RESULT") {
+                    assistant_with_no_memories("Mira it is.")
+                } else {
+                    vec![
+                        update_own_name_tool_call("call_name_1", json!({"name": "Mira"})),
+                        GenerateOutputItem::MemoryProposals { proposals: vec![] },
+                    ]
+                }
+            }
+            FakeCodexScenario::AmbiguousUpdateOwnName => {
+                if input.contains("NOEMA_LOCAL_TOOL_RESULT") {
+                    assistant_with_no_memories("Please confirm what you'd like to call me.")
+                } else {
+                    vec![
+                        update_own_name_tool_call("call_name_1", json!({"name": "Mira"})),
+                        GenerateOutputItem::MemoryProposals { proposals: vec![] },
+                    ]
+                }
+            }
+            FakeCodexScenario::UpdateOwnNameThenIdentityCheck => {
+                if input.contains("NOEMA_LOCAL_TOOL_RESULT") {
+                    assistant_with_no_memories("Mira it is.")
+                } else if input.contains("Your name is Mira.") {
+                    vec![
+                        update_own_name_tool_call("call_name_1", json!({"name": "Mira"})),
+                        GenerateOutputItem::MemoryProposals { proposals: vec![] },
+                    ]
+                } else {
+                    let saw_identity = instructions.contains("Agent identity:")
+                        && instructions.contains(r#"display_name: "Mira""#)
+                        && !instructions.contains("You do not have a name yet.");
+                    assistant_with_no_memories(if saw_identity {
+                        "saw stored identity"
+                    } else {
+                        "missing stored identity"
+                    })
                 }
             }
             FakeCodexScenario::InitialAssistantMemoryContinuation => {
@@ -3561,6 +3720,14 @@ fn search_memory_tool_call(id: &str, payload: serde_json::Value) -> GenerateOutp
     GenerateOutputItem::ToolCall {
         id: Some(id.to_string()),
         name: "search_memory".to_string(),
+        payload,
+    }
+}
+
+fn update_own_name_tool_call(id: &str, payload: serde_json::Value) -> GenerateOutputItem {
+    GenerateOutputItem::ToolCall {
+        id: Some(id.to_string()),
+        name: "update_own_name".to_string(),
         payload,
     }
 }
@@ -4242,6 +4409,18 @@ fn fake_codex_provider_with_search_memory_continuation() -> FakeCodexProvider {
 
 fn fake_codex_provider_with_search_memory_profile_continuation() -> FakeCodexProvider {
     FakeCodexProvider::new(FakeCodexScenario::SearchMemoryProfileContinuation)
+}
+
+fn fake_codex_provider_with_update_own_name_continuation() -> FakeCodexProvider {
+    FakeCodexProvider::new(FakeCodexScenario::UpdateOwnNameContinuation)
+}
+
+fn fake_codex_provider_with_ambiguous_update_own_name() -> FakeCodexProvider {
+    FakeCodexProvider::new(FakeCodexScenario::AmbiguousUpdateOwnName)
+}
+
+fn fake_codex_provider_with_update_own_name_then_identity_check() -> FakeCodexProvider {
+    FakeCodexProvider::new(FakeCodexScenario::UpdateOwnNameThenIdentityCheck)
 }
 
 fn fake_codex_provider_with_initial_assistant_memory_continuation() -> FakeCodexProvider {

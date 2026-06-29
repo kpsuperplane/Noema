@@ -31,6 +31,10 @@ use serde_json::{Value, json};
 use tokio::sync::{mpsc, oneshot};
 
 use super::{
+    agent_name_tool::{
+        AgentNameToolResult, AgentNameToolRuntimeContext, execute_update_own_name,
+        is_update_own_name_tool,
+    },
     agent_onboarding::{AgentPromptIdentity, agent_identity_prompt},
     memory_pipeline::{
         AssistantEvidenceItem, ConversationMemoryContext, claim_status_from_memory_status,
@@ -620,10 +624,12 @@ impl CodexRuntimeActor {
             });
         }
 
-        let local_tool_results = self.execute_local_search_memory_tools(&turn).await;
+        let local_tool_results = self.execute_local_tools(&turn, &turn.agent_identity).await;
         let has_local_tool_results = !local_tool_results.is_empty();
         let mut continuation_assistant_response = ProviderAssistantResponse::default();
         if has_local_tool_results {
+            let continuation_agent_identity =
+                agent_identity_after_local_tools(&turn.agent_identity, &local_tool_results);
             let local_action_turn = ProviderActionTurn {
                 conversation_id: turn.conversation_id.clone(),
                 turn_id: turn.turn_id.clone(),
@@ -648,7 +654,7 @@ impl CodexRuntimeActor {
                 turn.turn_index,
                 turn.cwd.as_deref(),
                 &turn.user_input,
-                &turn.agent_identity,
+                &continuation_agent_identity,
             );
             let continuation_stream_id = assistant_stream_id(&turn.turn_id, "continuation");
             let continuation_output_base = initial_output_count + local_tool_results.len();
@@ -837,28 +843,37 @@ impl CodexRuntimeActor {
         Ok(())
     }
 
-    async fn execute_local_search_memory_tools(
+    async fn execute_local_tools(
         &self,
         turn: &SuccessfulProviderTurn,
-    ) -> Vec<MemoryToolResult> {
+        agent_identity: &AgentPromptIdentity,
+    ) -> Vec<LocalToolResult> {
         let mut results = Vec::new();
         for (index, output) in turn.response.output.iter().enumerate() {
             let GenerateOutputItem::ToolCall { id, name, payload } = output else {
                 continue;
             };
-            if !is_search_memory_tool(name) {
-                continue;
+            if is_search_memory_tool(name) {
+                let context = MemoryToolRuntimeContext {
+                    conversation_id: turn.conversation_id.clone(),
+                    turn_id: turn.turn_id.clone(),
+                    turn_index: turn.turn_index,
+                    call_site_id: format!("output_{index}"),
+                    cwd: turn.cwd.clone(),
+                    user_input: turn.user_input.clone(),
+                };
+                results.push(LocalToolResult::Memory(
+                    execute_search_memory(&self.store, &context, id.clone(), payload).await,
+                ));
+            } else if is_update_own_name_tool(name) {
+                let context = AgentNameToolRuntimeContext {
+                    agent_id: agent_identity.agent_id.clone(),
+                    user_input: turn.user_input.clone(),
+                };
+                results.push(LocalToolResult::AgentName(
+                    execute_update_own_name(&self.store, &context, id.clone(), payload).await,
+                ));
             }
-
-            let context = MemoryToolRuntimeContext {
-                conversation_id: turn.conversation_id.clone(),
-                turn_id: turn.turn_id.clone(),
-                turn_index: turn.turn_index,
-                call_site_id: format!("output_{index}"),
-                cwd: turn.cwd.clone(),
-                user_input: turn.user_input.clone(),
-            };
-            results.push(execute_search_memory(&self.store, &context, id.clone(), payload).await);
         }
         results
     }
@@ -2021,6 +2036,12 @@ For topical questions about the user, keep "scope_ids":["human:local"] and use a
 Never invent scope IDs. Use only IDs listed in Active retrieval IDs or returned by prior Noema tools.
 Do not tell the user Noema has no memories unless the scoped tool result is empty for the scope actually being discussed.
 
+You may emit an update_own_name tool call only when the current user explicitly names or renames you.
+Use this output item shape:
+{{"kind":"tool_call","id":"call_name_1","name":"update_own_name","payload":{{"name":"Mira"}}}}
+Never call update_own_name because you prefer a name or the user's wording is ambiguous.
+Ask for confirmation when a possible name is ambiguous.
+
 Memory proposal shape:
 {{
   "content": "durable memory content",
@@ -2235,28 +2256,84 @@ fn provider_memory_review_summary(
     }
 }
 
-fn local_tool_result_continuation_input(results: &[MemoryToolResult]) -> Value {
+#[derive(Debug, Clone)]
+enum LocalToolResult {
+    Memory(MemoryToolResult),
+    AgentName(AgentNameToolResult),
+}
+
+impl LocalToolResult {
+    fn call_id(&self) -> &Option<String> {
+        match self {
+            Self::Memory(result) => &result.call_id,
+            Self::AgentName(result) => &result.call_id,
+        }
+    }
+
+    fn name(&self) -> &str {
+        match self {
+            Self::Memory(result) => &result.name,
+            Self::AgentName(result) => &result.name,
+        }
+    }
+
+    fn success(&self) -> bool {
+        match self {
+            Self::Memory(result) => result.success,
+            Self::AgentName(result) => result.success,
+        }
+    }
+
+    fn payload(&self) -> &Value {
+        match self {
+            Self::Memory(result) => &result.payload,
+            Self::AgentName(result) => &result.payload,
+        }
+    }
+}
+
+fn agent_identity_after_local_tools(
+    current: &AgentPromptIdentity,
+    results: &[LocalToolResult],
+) -> AgentPromptIdentity {
+    let mut agent_identity = current.clone();
+    for result in results {
+        let LocalToolResult::AgentName(result) = result else {
+            continue;
+        };
+        if result.success {
+            agent_identity.display_name = result
+                .payload
+                .get("display_name")
+                .and_then(Value::as_str)
+                .map(str::to_string);
+        }
+    }
+    agent_identity
+}
+
+fn local_tool_result_continuation_input(results: &[LocalToolResult]) -> Value {
     json!({
         "type": "NOEMA_LOCAL_TOOL_RESULT",
         "results": results.iter().map(local_tool_result_payload).collect::<Vec<_>>(),
     })
 }
 
-fn local_tool_result_payload(result: &MemoryToolResult) -> Value {
+fn local_tool_result_payload(result: &LocalToolResult) -> Value {
     json!({
-        "call_id": result.call_id,
-        "name": result.name,
-        "success": result.success,
-        "payload": result.payload,
+        "call_id": result.call_id(),
+        "name": result.name(),
+        "success": result.success(),
+        "payload": result.payload(),
     })
 }
 
-fn local_tool_result_output_item(result: &MemoryToolResult) -> GenerateOutputItem {
+fn local_tool_result_output_item(result: &LocalToolResult) -> GenerateOutputItem {
     GenerateOutputItem::ToolResult {
-        call_id: result.call_id.clone(),
-        name: Some(result.name.clone()),
-        success: Some(result.success),
-        payload: result.payload.clone(),
+        call_id: result.call_id().clone(),
+        name: Some(result.name().to_string()),
+        success: Some(result.success()),
+        payload: result.payload().clone(),
     }
 }
 
