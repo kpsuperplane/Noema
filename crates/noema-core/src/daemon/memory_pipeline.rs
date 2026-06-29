@@ -127,43 +127,14 @@ pub(super) fn provider_memory_claim_candidate(
     proposal_index: usize,
     trigger: &str,
 ) -> NewClaimCandidate {
-    let proposal = &validated.proposal;
-    let parsed = parse_provider_claim(&proposal.content, proposal.title.as_deref());
-    let evidence_source = evidence_source_for_excerpt(&proposal.evidence_excerpt, context);
-    let source_item_id = evidence_source.source_item_id.clone();
-
-    NewClaimCandidate {
-        subject: provider_subject_entity(&proposal.subjects, &proposal.evidence_excerpt),
-        object: claim_object_entity(parsed.predicate_id, &parsed.object_phrase),
-        predicate_id: parsed.predicate_id.to_string(),
-        fact: parsed.fact,
-        sensitivity: proposal.sensitivity,
-        status: claim_status_from_memory_status(validated.status),
-        confidence: Some(f64::from(proposal.confidence)),
-        evidence: EvidenceCandidate {
-            source_item_id,
-            authority: EvidenceAuthority::AgentInference,
-            excerpt: Some(proposal.evidence_excerpt.clone()),
-        },
-        retrieval_hints: serde_json::to_value(&proposal.retrieval_hints).unwrap_or_else(|_| {
-            json!({
-                "keywords": [parsed.object_phrase],
-                "summary": proposal.content,
-            })
-        }),
-        metadata: json!({
-            "trigger": trigger,
-            "source": "provider_structured_output",
-            "turn_id": context.turn_id,
-            "turn_index": context.turn_index,
-            "proposal_index": proposal_index,
-            "memory_type": memory_type_label(proposal.memory_type),
-            "title": proposal.title,
-            "risk_flags": proposal.risk_flags,
-            "evidence_source": evidence_source.source.as_str(),
-            "cwd_project_hint": project_scope_from_cwd(context.cwd.as_deref()),
-        }),
-    }
+    let write_proposal =
+        provider_memory_write_proposal(validated, context, proposal_index, trigger);
+    deterministic_canonical_claim(
+        &write_proposal,
+        claim_status_from_memory_status(validated.status),
+        Some(f64::from(validated.proposal.confidence)),
+        EvidenceAuthority::AgentInference,
+    )
 }
 
 pub(super) fn provider_memory_write_proposal(
