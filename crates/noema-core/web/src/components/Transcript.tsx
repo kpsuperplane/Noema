@@ -56,6 +56,13 @@ type TranscriptLane = "human" | "assistant";
 
 type MemoryDetailRowData = { label: string; value: string };
 
+type MemoryClaimOutcome = {
+  claimId: string;
+  outcome: "created" | "reinforced";
+  factPreview?: string;
+  sensitivity?: string;
+};
+
 export type MemoryDetailItem = {
   title: string;
   rows: MemoryDetailRowData[];
@@ -698,10 +705,10 @@ function MemoryMarker({
   open: boolean;
   onToggle: () => void;
 }) {
-  const memories = proposal ? memoryCardsFromStructuredItem(proposal) ?? [] : [];
+  const memories = proposal ? memoryCardsFromStructuredItem(proposal) ?? [] : memoryCardsFromClaimOutcomes(extraction);
   const failed = extraction?.status === "FAILED";
   const started = extraction?.status === "STARTED";
-  const label = failed ? "Memory update failed" : started ? "Memory proposed" : "Memory updated";
+  const label = memoryMarkerLabel(extraction);
   const tone = failed ? "error" : started ? "default" : "success";
 
   return (
@@ -725,6 +732,86 @@ function MemoryMarker({
       ) : null}
     </div>
   );
+}
+
+function memoryClaimOutcomes(metadata: unknown): MemoryClaimOutcome[] {
+  if (!metadata || typeof metadata !== "object") {
+    return [];
+  }
+  const outcomes = (metadata as { claim_outcomes?: unknown }).claim_outcomes;
+  if (!Array.isArray(outcomes)) {
+    return [];
+  }
+  return outcomes.flatMap((outcome): MemoryClaimOutcome[] => {
+    if (!outcome || typeof outcome !== "object") {
+      return [];
+    }
+    const record = outcome as Record<string, unknown>;
+    const claimId = typeof record.claim_id === "string" ? record.claim_id : "";
+    const rawOutcome = record.outcome;
+    if (!claimId || (rawOutcome !== "created" && rawOutcome !== "reinforced")) {
+      return [];
+    }
+    return [
+      {
+        claimId,
+        outcome: rawOutcome,
+        factPreview: typeof record.fact_preview === "string" ? record.fact_preview : undefined,
+        sensitivity: typeof record.sensitivity === "string" ? record.sensitivity : undefined
+      }
+    ];
+  });
+}
+
+function metadataCount(metadata: unknown, key: string): number {
+  if (!metadata || typeof metadata !== "object") {
+    return 0;
+  }
+  const value = (metadata as Record<string, unknown>)[key];
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+function memoryMarkerLabel(extraction?: Extract<TurnTranscriptItem, { kind: "activity" }>): string {
+  if (!extraction) {
+    return "Memory updated";
+  }
+  if (extraction.status === "FAILED") {
+    return "Memory update failed";
+  }
+  if (extraction.status === "STARTED") {
+    return "Memory proposed";
+  }
+
+  const outcomes = memoryClaimOutcomes(extraction.metadata);
+  const failedCount = metadataCount(extraction.metadata, "failed_proposal_count");
+  if (outcomes.length === 0) {
+    return failedCount > 0 ? "Memory update failed" : "Memory updated";
+  }
+  if (outcomes.length === 1 && failedCount === 0) {
+    const outcome = outcomes[0];
+    const verb = outcome.outcome === "reinforced" ? "Memory updated" : "Memory saved";
+    return outcome.factPreview ? `${verb}: ${outcome.factPreview}` : verb;
+  }
+
+  const createdCount = metadataCount(extraction.metadata, "created_claim_count");
+  const reinforcedCount = metadataCount(extraction.metadata, "reinforced_claim_count");
+  const savedCount = createdCount + reinforcedCount || outcomes.length;
+  const noun = savedCount === 1 ? "memory" : "memories";
+  const prefix = createdCount > 0 ? "Memory saved" : "Memory updated";
+  const failureSuffix = failedCount > 0 ? `; ${failedCount} failed` : "";
+  return `${prefix}: ${savedCount} ${noun}${failureSuffix}`;
+}
+
+function memoryCardsFromClaimOutcomes(
+  extraction?: Extract<TurnTranscriptItem, { kind: "activity" }>
+): MemoryCardData[] {
+  return memoryClaimOutcomes(extraction?.metadata).map((outcome) => ({
+    id: outcome.claimId,
+    title: outcome.factPreview ?? outcome.claimId,
+    content: outcome.factPreview ?? outcome.claimId,
+    status: outcome.outcome,
+    sensitivity: outcome.sensitivity
+  }));
 }
 
 function ToolMarker({

@@ -102,6 +102,103 @@ describe("Transcript memory markers", () => {
     assert.doesNotMatch(markup, /data-pending=/);
     assert.equal(memoryUpdatedCount(markup), 1);
   });
+
+  test("renders a saved memory marker with a single fact preview", () => {
+    const markup = renderTranscript([
+      memoryExtractionEntry("activity-done", "item-done", "COMPLETED", "Memory saved", {
+        claim_outcomes: [
+          {
+            claim_id: "claim:planes",
+            outcome: "created",
+            fact_preview: "User likes planes",
+            sensitivity: "normal"
+          }
+        ],
+        created_claim_count: 1,
+        reinforced_claim_count: 0,
+        failed_proposal_count: 0
+      })
+    ]);
+
+    assert.match(markup, /Memory saved: User likes planes/);
+  });
+
+  test("renders an updated memory marker with a reinforced fact preview", () => {
+    const markup = renderTranscript([
+      memoryExtractionEntry("activity-done", "item-done", "COMPLETED", "Memory updated", {
+        claim_outcomes: [
+          {
+            claim_id: "claim:planes",
+            outcome: "reinforced",
+            fact_preview: "User likes planes",
+            sensitivity: "normal"
+          }
+        ],
+        created_claim_count: 0,
+        reinforced_claim_count: 1,
+        failed_proposal_count: 0
+      })
+    ]);
+
+    assert.match(markup, /Memory updated: User likes planes/);
+  });
+
+  test("renders count marker for multiple memory outcomes", () => {
+    const markup = renderTranscript([
+      memoryExtractionEntry("activity-done", "item-done", "COMPLETED", "Memory saved", {
+        claim_outcomes: [
+          { claim_id: "claim:planes", outcome: "created", fact_preview: "User likes planes" },
+          { claim_id: "claim:trains", outcome: "created", fact_preview: "User likes trains" }
+        ],
+        created_claim_count: 2,
+        reinforced_claim_count: 0,
+        failed_proposal_count: 0
+      })
+    ]);
+
+    assert.match(markup, /Memory saved: 2 memories/);
+  });
+
+  test("renders partial failure marker for memory outcomes", () => {
+    const markup = renderTranscript([
+      memoryExtractionEntry("activity-done", "item-done", "COMPLETED", "Memory saved", {
+        claim_outcomes: [{ claim_id: "claim:planes", outcome: "created", fact_preview: "User likes planes" }],
+        created_claim_count: 1,
+        reinforced_claim_count: 0,
+        failed_proposal_count: 1
+      })
+    ]);
+
+    assert.match(markup, /Memory saved: 1 memory; 1 failed/);
+  });
+
+  test("renders claim outcomes in expanded memory marker details", () => {
+    const markup = renderTranscript(
+      [
+        memoryExtractionEntry("activity-done", "item-done", "COMPLETED", "Memory saved", {
+          claim_outcomes: [
+            {
+              claim_id: "claim:planes",
+              outcome: "created",
+              fact_preview: "User likes planes",
+              sensitivity: "normal"
+            }
+          ],
+          created_claim_count: 1,
+          reinforced_claim_count: 0,
+          failed_proposal_count: 0
+        })
+      ],
+      new Set(["activity-done"])
+    );
+
+    assert.match(markup, /Memory ID/);
+    assert.match(markup, /claim:planes/);
+    assert.match(markup, /Status/);
+    assert.match(markup, /created/);
+    assert.match(markup, /Sensitivity/);
+    assert.match(markup, /normal/);
+  });
 });
 
 describe("Transcript tool markers", () => {
@@ -198,7 +295,8 @@ function memoryExtractionEntry(
   id: string,
   itemId: string,
   status: "STARTED" | "COMPLETED",
-  title: string
+  title: string,
+  metadata: Record<string, unknown> = { turn_index: 1, proposal_count: 1 }
 ): TranscriptEntry {
   return {
     id,
@@ -212,9 +310,20 @@ function memoryExtractionEntry(
       status,
       title,
       summary: status === "STARTED" ? "creating 1 memory candidate" : "created 1 memory candidate",
-      metadata: { turn_index: 1, proposal_count: 1 }
+      metadata
     }
   };
+}
+
+function renderTranscript(entries: TranscriptEntry[], expandedActivities = new Set<string>()): string {
+  return renderToStaticMarkup(
+    React.createElement(Transcript, {
+      entries,
+      pending: false,
+      expandedActivities,
+      onToggleActivity: () => {}
+    })
+  );
 }
 
 function memoryProposalCardEntry(id: string, itemId: string): TranscriptEntry {
