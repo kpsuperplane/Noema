@@ -76,12 +76,10 @@ fn graph_claim_detail_includes_unredacted_evidence() {
 
 #[test]
 fn predicate_proposal_list_shows_compact_columns() {
-    let proposal = GraphqlPredicateProposal {
+    let proposal = GraphqlPredicateProposalSummary {
         proposal_id: "predicate_proposal_1".to_string(),
         label: "collects".to_string(),
         description: "The subject collects the object.".to_string(),
-        proposed_predicate: serde_json::json!({ "label": "collects" }),
-        proposed_claim: serde_json::json!({ "fact": "Kevin collects model trains." }),
         status: "candidate".to_string(),
         source_item_id: Some("item_1".to_string()),
         created_at: "2026-06-29T12:00:00Z".to_string(),
@@ -96,6 +94,14 @@ fn predicate_proposal_list_shows_compact_columns() {
     assert!(output.contains("candidate"));
     assert!(output.contains("collects"));
     assert!(output.contains("The subject collects the object."));
+}
+
+#[test]
+fn predicate_proposal_list_query_omits_full_json_fields() {
+    assert!(!PREDICATE_PROPOSALS_QUERY.contains("proposedPredicate"));
+    assert!(!PREDICATE_PROPOSALS_QUERY.contains("proposedClaim"));
+    assert!(PREDICATE_PROPOSAL_QUERY.contains("proposedPredicate"));
+    assert!(PREDICATE_PROPOSAL_QUERY.contains("proposedClaim"));
 }
 
 #[test]

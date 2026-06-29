@@ -216,8 +216,6 @@ query CliPredicateProposals($status: String, $limit: Int) {
     proposalId
     label
     description
-    proposedPredicate
-    proposedClaim
     status
     sourceItemId
     createdAt
@@ -257,7 +255,7 @@ struct MemoryClaimData {
 #[derive(Debug, Deserialize)]
 struct PredicateProposalsData {
     #[serde(rename = "memoryPredicateProposals")]
-    memory_predicate_proposals: Vec<GraphqlPredicateProposal>,
+    memory_predicate_proposals: Vec<GraphqlPredicateProposalSummary>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -366,6 +364,21 @@ pub(crate) struct GraphqlPredicateProposal {
     updated_at: String,
 }
 
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub(crate) struct GraphqlPredicateProposalSummary {
+    #[serde(rename = "proposalId")]
+    proposal_id: String,
+    label: String,
+    description: String,
+    status: String,
+    #[serde(rename = "sourceItemId")]
+    source_item_id: Option<String>,
+    #[serde(rename = "createdAt")]
+    created_at: String,
+    #[serde(rename = "updatedAt")]
+    updated_at: String,
+}
+
 fn context_inspection_unavailable() -> CliError {
     CliError::Unavailable(
         "context graph inspection is unavailable until graph retrieval lands".to_string(),
@@ -463,7 +476,7 @@ fn write_memory_claim_detail<W: Write>(
 
 fn write_predicate_proposal_list<W: Write>(
     writer: &mut W,
-    proposals: &[GraphqlPredicateProposal],
+    proposals: &[GraphqlPredicateProposalSummary],
 ) -> io::Result<()> {
     if proposals.is_empty() {
         writeln!(writer, "No predicate proposals found.")?;
