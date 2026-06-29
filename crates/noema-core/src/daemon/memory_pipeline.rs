@@ -232,17 +232,19 @@ pub(super) fn new_claim_from_canonical(
     let PredicateResolution::PromotedPredicate { predicate_id } = &candidate.predicate else {
         return None;
     };
+    let subject = canonical_entity_candidate(
+        &candidate.subject.entity_id,
+        &candidate.subject.entity_type,
+        &candidate.subject.canonical_name,
+    )?;
+    let object = canonical_entity_candidate(
+        &candidate.object.entity_id,
+        &candidate.object.entity_type,
+        &candidate.object.canonical_name,
+    )?;
     Some(NewClaimCandidate {
-        subject: EntityCandidate {
-            entity_id: candidate.subject.entity_id.clone(),
-            entity_type: entity_type_from_canonical(&candidate.subject.entity_type),
-            canonical_name: candidate.subject.canonical_name.clone(),
-        },
-        object: EntityCandidate {
-            entity_id: candidate.object.entity_id.clone(),
-            entity_type: entity_type_from_canonical(&candidate.object.entity_type),
-            canonical_name: candidate.object.canonical_name.clone(),
-        },
+        subject,
+        object,
         predicate_id: predicate_id.clone(),
         fact: candidate.fact.clone(),
         sensitivity: candidate.sensitivity.max(proposal.sensitivity),
@@ -655,8 +657,51 @@ fn entity_type_for_subject_kind(kind: MemoryExtractionSubjectKind) -> EntityType
     }
 }
 
-fn entity_type_from_canonical(entity_type: &str) -> EntityType {
-    entity_type_from_label(entity_type).unwrap_or(EntityType::Other)
+fn canonical_entity_candidate(
+    entity_id: &str,
+    entity_type: &str,
+    canonical_name: &str,
+) -> Option<EntityCandidate> {
+    if entity_id == "human:local" {
+        return (canonical_entity_type(entity_type)? == EntityType::Human)
+            .then(EntityCandidate::local_human);
+    }
+
+    let entity_type = canonical_entity_type(entity_type)?;
+    if stable_entity_prefix_type(entity_id).is_some_and(|expected| expected != entity_type) {
+        return None;
+    }
+
+    Some(EntityCandidate {
+        entity_id: entity_id.to_string(),
+        entity_type,
+        canonical_name: canonical_name.to_string(),
+    })
+}
+
+fn canonical_entity_type(entity_type: &str) -> Option<EntityType> {
+    entity_type_from_label(&entity_type.trim().to_ascii_lowercase())
+}
+
+fn stable_entity_prefix_type(entity_id: &str) -> Option<EntityType> {
+    let (prefix, _) = entity_id.split_once(':')?;
+    match prefix {
+        "human" => Some(EntityType::Human),
+        "agent" => Some(EntityType::Agent),
+        "person" => Some(EntityType::Person),
+        "organization" => Some(EntityType::Organization),
+        "project" => Some(EntityType::Project),
+        "workspace" => Some(EntityType::Workspace),
+        "conversation" => Some(EntityType::Conversation),
+        "document" => Some(EntityType::Document),
+        "tool" => Some(EntityType::Tool),
+        "place" => Some(EntityType::Place),
+        "task" => Some(EntityType::Task),
+        "goal" => Some(EntityType::Goal),
+        "concept" => Some(EntityType::Concept),
+        "other" => Some(EntityType::Other),
+        _ => None,
+    }
 }
 
 pub(super) fn claim_status_from_memory_status(status: MemoryStatus) -> ClaimStatus {
