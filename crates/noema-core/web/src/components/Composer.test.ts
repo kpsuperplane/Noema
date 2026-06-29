@@ -58,7 +58,7 @@ describe("composer human bubble presentation", () => {
     assert.match(bubbleClassName, /max-w-\[88%\]/);
     assert.match(bubbleClassName, /\bpr-12\b/);
     assert.match(bubbleClassName, /\bbg-primary\b/);
-    assert.match(bubbleClassName, /\brounded-3xl\b/);
+    assert.match(bubbleClassName, /\brounded-(3xl|4xl)\b/);
     assert.doesNotMatch(bubbleClassName, /minmax\(0,auto\)/);
 
     const textareaWrapClassName = dataSlotClassName(markup, "composer-textarea-wrap");
@@ -76,7 +76,9 @@ describe("composer human bubble presentation", () => {
     const buttonClassName = dataSlotClassName(markup, "button");
     assert.match(buttonClassName, /\babsolute\b/);
     assert.match(buttonClassName, /\bright-1\.5\b/);
-    assert.match(buttonClassName, /\bbottom-1\.5\b/);
+    assert.match(buttonClassName, /\btop-1\/2\b/);
+    assert.match(buttonClassName, /(^|\s)-translate-y-1\/2(\s|$)/);
+    assert.doesNotMatch(buttonClassName, /\bbottom-1\.5\b/);
     assert.match(buttonClassName, /\bbg-primary-foreground\b/);
   });
 });

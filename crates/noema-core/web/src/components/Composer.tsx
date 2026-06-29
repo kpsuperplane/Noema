@@ -222,7 +222,7 @@ export function Composer({
         <Button
           type="submit"
           size="icon-lg"
-          className="absolute right-1.5 bottom-1.5 rounded-full bg-primary-foreground text-primary hover:bg-primary-foreground/90 disabled:text-primary/70"
+          className="absolute top-1/2 right-1.5 -translate-y-1/2 rounded-full bg-primary-foreground text-primary hover:bg-primary-foreground/90 disabled:text-primary/70"
           aria-label={submitState.label}
           disabled={submitState.disabled}
         >
