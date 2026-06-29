@@ -25,7 +25,7 @@ DEFINE INDEX IF NOT EXISTS humans_human_id ON TABLE humans COLUMNS human_id UNIQ
 
 DEFINE TABLE IF NOT EXISTS agents SCHEMAFULL;
 DEFINE FIELD IF NOT EXISTS agent_id ON TABLE agents TYPE string;
-DEFINE FIELD IF NOT EXISTS display_name ON TABLE agents TYPE string;
+DEFINE FIELD IF NOT EXISTS display_name ON TABLE agents TYPE option<string>;
 DEFINE FIELD IF NOT EXISTS created_at ON TABLE agents TYPE datetime DEFAULT time::now();
 DEFINE FIELD IF NOT EXISTS updated_at ON TABLE agents TYPE datetime DEFAULT time::now();
 DEFINE INDEX IF NOT EXISTS agents_agent_id ON TABLE agents COLUMNS agent_id UNIQUE;

@@ -26,6 +26,12 @@ pub enum StoreError {
         /// Missing provider account id.
         provider_account_id: String,
     },
+    /// An agent expected to exist was not found.
+    #[error("agent not found: {agent_id}")]
+    AgentNotFound {
+        /// Missing agent id.
+        agent_id: String,
+    },
     /// A conversation expected to exist was not found.
     #[error("conversation not found: {conversation_id}")]
     ConversationNotFound {

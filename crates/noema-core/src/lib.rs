@@ -101,11 +101,11 @@ pub use providers::{
     openai::{OpenAiProvider, OpenAiProviderConfig},
 };
 pub use store::{
-    ClaimRetrievalResult, ClaimStatus, ClaimSummary, ClaimWriteOutcome, ConsolidationMatch,
-    ConsolidationMatchRequest, EntityCandidate, EntityType, EvidenceAuthority, EvidenceCandidate,
-    MemoryClaimDetail, MemoryClaimEvidence, MemoryClaimFilter, MemoryClaimRecord, MemoryGraph,
-    MemoryGraphEdge, MemoryGraphFilter, MemoryGraphNode, MemoryGraphSummary, NewClaimCandidate,
-    NoemaStore, PredicateProposalCandidate, PredicateProposalFilter, PredicateProposalRecord,
-    PredicateRecord, RelatedClaimCandidate, RelatedClaimRecord, RetrievedClaim, StoreConfig,
-    StoreError,
+    AgentRecord, ClaimRetrievalResult, ClaimStatus, ClaimSummary, ClaimWriteOutcome,
+    ConsolidationMatch, ConsolidationMatchRequest, EntityCandidate, EntityType, EvidenceAuthority,
+    EvidenceCandidate, MemoryClaimDetail, MemoryClaimEvidence, MemoryClaimFilter,
+    MemoryClaimRecord, MemoryGraph, MemoryGraphEdge, MemoryGraphFilter, MemoryGraphNode,
+    MemoryGraphSummary, NewAgent, NewClaimCandidate, NoemaStore, PredicateProposalCandidate,
+    PredicateProposalFilter, PredicateProposalRecord, PredicateRecord, RelatedClaimCandidate,
+    RelatedClaimRecord, RetrievedClaim, StoreConfig, StoreError,
 };

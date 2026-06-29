@@ -24,7 +24,6 @@ impl NoemaStore {
                   updated_at = time::now();
                 UPSERT type::record('agents', 'agent_primary') SET
                   agent_id = 'agent:primary',
-                  display_name = 'Noema',
                   updated_at = time::now();
                 "#,
             )

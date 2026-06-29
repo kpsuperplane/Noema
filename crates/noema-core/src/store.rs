@@ -1,5 +1,6 @@
 //! Embedded SurrealDB-backed canonical Noema store.
 
+mod agents;
 mod claims;
 mod conversations;
 mod error;
@@ -14,6 +15,7 @@ mod schema;
 #[cfg(test)]
 pub(crate) mod tests;
 
+pub use agents::{AgentRecord, NewAgent};
 pub use claims::{
     ClaimStatus, ClaimSummary, ClaimWriteOutcome, ConsolidationMatch, ConsolidationMatchRequest,
     EvidenceAuthority, EvidenceCandidate, MemoryClaimDetail, MemoryClaimEvidence,

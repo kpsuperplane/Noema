@@ -464,6 +464,61 @@ async fn default_provider_account_round_trips_status() {
 }
 
 #[tokio::test]
+async fn default_primary_agent_starts_unnamed() {
+    let store = test_store().await;
+
+    store.ensure_default_actors().await.expect("actors");
+
+    let agent = store
+        .get_agent("agent:primary")
+        .await
+        .expect("get agent")
+        .expect("primary agent exists");
+    assert_eq!(agent.agent_id, "agent:primary");
+    assert_eq!(agent.display_name, None);
+}
+
+#[tokio::test]
+async fn ensure_default_actors_preserves_existing_agent_name() {
+    let store = test_store().await;
+
+    store.ensure_default_actors().await.expect("actors");
+    store
+        .update_agent_display_name("agent:primary", "Mira")
+        .await
+        .expect("update name");
+    store.ensure_default_actors().await.expect("actors again");
+
+    let agent = store
+        .get_agent("agent:primary")
+        .await
+        .expect("get agent")
+        .expect("primary agent exists");
+    assert_eq!(agent.display_name.as_deref(), Some("Mira"));
+}
+
+#[tokio::test]
+async fn agent_display_name_updates_trim_and_preserve_casing() {
+    let store = test_store().await;
+
+    let agent = store
+        .create_agent(crate::NewAgent {
+            agent_id: "agent:test-naming".to_string(),
+            display_name: None,
+        })
+        .await
+        .expect("create agent");
+    assert_eq!(agent.display_name, None);
+
+    let updated = store
+        .update_agent_display_name("agent:test-naming", "  Mira Sol  ")
+        .await
+        .expect("update name");
+
+    assert_eq!(updated.display_name.as_deref(), Some("Mira Sol"));
+}
+
+#[tokio::test]
 async fn primary_conversation_reuses_existing_home_conversation() {
     let store = test_store().await;
     store.ensure_default_actors().await.expect("actors");
