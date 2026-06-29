@@ -85,6 +85,10 @@ The next storage slice should stay small and concrete:
   Noema validates arguments, builds the trusted retrieval envelope, records a
   context packet, returns approved memories plus generic omissions as a normal
   tool result, and does not inject memories automatically before turns.
+- The local `search_memory` tool supports validated concrete `scope_ids`.
+  Empty `query` is allowed only for scoped reads, and `query` narrows within
+  scope rather than broadening it. Memory write activities expose canonical
+  claim outcome previews so chat markers can name the saved or reinforced fact.
 - New graph memory direction: durable memories are strict graph claims over
   entities and promoted predicate records. Conversation items are direct
   provenance sources. Specialized evidence relations replace broad memory audit
