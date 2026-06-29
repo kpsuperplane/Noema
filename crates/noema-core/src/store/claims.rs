@@ -1,5 +1,8 @@
+use std::collections::HashMap;
+
 use serde::Deserialize;
 use serde_json::Value;
+use surrealdb::sql::Datetime;
 
 use crate::memory::Sensitivity;
 
@@ -159,7 +162,255 @@ pub struct ClaimSummary {
     pub write_outcome: ClaimWriteOutcome,
 }
 
+/// Read-only filters for owner/admin graph-claim inspection.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct MemoryClaimFilter {
+    /// Optional text query matched against facts, predicate labels, and entity names.
+    pub query: Option<String>,
+    /// Optional claim lifecycle status.
+    pub status: Option<ClaimStatus>,
+    /// Optional predicate id.
+    pub predicate_id: Option<String>,
+    /// Optional bounded result limit.
+    pub limit: Option<usize>,
+}
+
+/// Read-only graph-claim projection for owner/admin inspection.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MemoryClaimRecord {
+    /// Stable claim id.
+    pub claim_id: String,
+    /// Human-readable fact text.
+    pub fact: String,
+    /// Predicate id.
+    pub predicate_id: String,
+    /// Predicate label.
+    pub predicate_label: String,
+    /// Subject entity id.
+    pub subject_entity_id: String,
+    /// Subject entity display name.
+    pub subject_entity_name: String,
+    /// Subject entity type.
+    pub subject_entity_type: String,
+    /// Object entity id when present.
+    pub object_entity_id: Option<String>,
+    /// Object entity display name when present.
+    pub object_entity_name: Option<String>,
+    /// Object entity type when present.
+    pub object_entity_type: Option<String>,
+    /// Claim status.
+    pub status: ClaimStatus,
+    /// Claim sensitivity.
+    pub sensitivity: Sensitivity,
+    /// Claim confidence.
+    pub confidence: Option<f64>,
+    /// Count of supporting evidence rows.
+    pub evidence_count: i64,
+    /// Creation timestamp.
+    pub created_at: String,
+    /// Update timestamp.
+    pub updated_at: String,
+}
+
+/// Read-only graph-claim detail projection.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MemoryClaimDetail {
+    /// Claim projection.
+    pub claim: MemoryClaimRecord,
+    /// Supporting evidence rows.
+    pub evidence: Vec<MemoryClaimEvidence>,
+}
+
+/// Read-only evidence projection for owner/admin graph-claim inspection.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MemoryClaimEvidence {
+    /// Stable evidence relation id if available.
+    pub evidence_id: Option<String>,
+    /// Source conversation item id if this evidence came from a transcript item.
+    pub source_item_id: Option<String>,
+    /// Evidence authority string.
+    pub authority: String,
+    /// Optional excerpt.
+    pub excerpt: Option<String>,
+    /// Observation timestamp if available.
+    pub observed_at: Option<String>,
+    /// Evidence creation timestamp.
+    pub created_at: String,
+}
+
 impl NoemaStore {
+    /// List graph-memory claims for owner/admin inspection.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when stored enum data is invalid or the embedded
+    /// store read fails.
+    pub async fn list_claims(
+        &self,
+        filter: MemoryClaimFilter,
+    ) -> Result<Vec<MemoryClaimRecord>, StoreError> {
+        let predicates = self.inspection_predicates().await?;
+        let entities = self.inspection_entities().await?;
+        let evidence_counts = self.inspection_evidence_counts().await?;
+        let query = filter
+            .query
+            .as_deref()
+            .map(str::trim)
+            .filter(|query| !query.is_empty())
+            .map(str::to_ascii_lowercase);
+        let limit = clamp_claim_inspection_limit(filter.limit);
+        let db_limit = query.is_none().then_some(limit);
+        let mut sql = String::from(
+            r#"
+            SELECT claim_id, subject_entity_id, object_entity_id, predicate_id, fact,
+              status, sensitivity, confidence, created_at, updated_at
+            FROM claims
+            "#,
+        );
+        let mut clauses = Vec::new();
+        if filter.status.is_some() {
+            clauses.push("status = $status");
+        }
+        if filter.predicate_id.is_some() {
+            clauses.push("predicate_id = $predicate_id");
+        }
+        if !clauses.is_empty() {
+            sql.push_str("WHERE ");
+            sql.push_str(&clauses.join(" AND "));
+            sql.push('\n');
+        }
+        sql.push_str("ORDER BY created_at DESC, claim_id ASC\n");
+        if db_limit.is_some() {
+            sql.push_str("LIMIT $limit\n");
+        }
+        sql.push(';');
+
+        let mut statement = self.db.query(sql);
+        if let Some(status) = filter.status {
+            statement = statement.bind(("status", status.as_str().to_string()));
+        }
+        if let Some(predicate_id) = filter.predicate_id {
+            statement = statement.bind(("predicate_id", predicate_id));
+        }
+        if let Some(db_limit) = db_limit {
+            statement = statement.bind(("limit", db_limit));
+        }
+        let mut response = statement.await?;
+        let rows: Vec<InspectionClaimRow> = response.take(0)?;
+        let mut claims = Vec::new();
+
+        for row in rows {
+            let claim = memory_claim_record(row, &predicates, &entities, &evidence_counts)?;
+            if let Some(query) = query.as_deref()
+                && !claim.matches_query(query)
+            {
+                continue;
+            }
+            claims.push(claim);
+            if claims.len() >= limit {
+                break;
+            }
+        }
+
+        Ok(claims)
+    }
+
+    /// Return one graph-memory claim with support evidence for owner/admin inspection.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when stored enum data is invalid or the embedded
+    /// store read fails.
+    pub async fn get_claim_detail(
+        &self,
+        claim_id: &str,
+    ) -> Result<Option<MemoryClaimDetail>, StoreError> {
+        let predicates = self.inspection_predicates().await?;
+        let entities = self.inspection_entities().await?;
+        let evidence_counts = self.inspection_evidence_counts().await?;
+        let mut response = self
+            .db
+            .query(
+                r#"
+                SELECT claim_id, subject_entity_id, object_entity_id, predicate_id, fact,
+                  status, sensitivity, confidence, created_at, updated_at
+                FROM claims
+                WHERE claim_id = $claim_id
+                LIMIT 1;
+
+                SELECT relation_id, source_item_id, authority, excerpt, observed_at, created_at
+                FROM supported_by
+                WHERE claim_id = $claim_id
+                ORDER BY created_at ASC, relation_id ASC;
+                "#,
+            )
+            .bind(("claim_id", claim_id.to_string()))
+            .await?;
+        let rows: Vec<InspectionClaimRow> = response.take(0)?;
+        let Some(row) = rows.into_iter().next() else {
+            return Ok(None);
+        };
+        let evidence_rows: Vec<InspectionEvidenceRow> = response.take(1)?;
+        let claim = memory_claim_record(row, &predicates, &entities, &evidence_counts)?;
+        let evidence = evidence_rows
+            .into_iter()
+            .map(|row| MemoryClaimEvidence {
+                evidence_id: row.relation_id,
+                source_item_id: row.source_item_id,
+                authority: row.authority,
+                excerpt: row.excerpt,
+                observed_at: row.observed_at.map(format_datetime),
+                created_at: format_datetime(row.created_at),
+            })
+            .collect();
+
+        Ok(Some(MemoryClaimDetail { claim, evidence }))
+    }
+
+    async fn inspection_predicates(&self) -> Result<HashMap<String, String>, StoreError> {
+        let mut response = self
+            .db
+            .query("SELECT predicate_id, label FROM predicates;")
+            .await?;
+        let rows: Vec<InspectionPredicateRow> = response.take(0)?;
+        Ok(rows
+            .into_iter()
+            .map(|row| (row.predicate_id, row.label))
+            .collect())
+    }
+
+    async fn inspection_entities(&self) -> Result<HashMap<String, InspectionEntity>, StoreError> {
+        let mut response = self
+            .db
+            .query("SELECT entity_id, entity_type, canonical_name FROM entities;")
+            .await?;
+        let rows: Vec<InspectionEntityRow> = response.take(0)?;
+        Ok(rows
+            .into_iter()
+            .map(|row| {
+                (
+                    row.entity_id,
+                    InspectionEntity {
+                        entity_type: row.entity_type,
+                        canonical_name: row.canonical_name,
+                    },
+                )
+            })
+            .collect())
+    }
+
+    async fn inspection_evidence_counts(&self) -> Result<HashMap<String, i64>, StoreError> {
+        let mut response = self
+            .db
+            .query("SELECT claim_id, count() AS count FROM supported_by GROUP BY claim_id;")
+            .await?;
+        let rows: Vec<InspectionEvidenceCountRow> = response.take(0)?;
+        Ok(rows
+            .into_iter()
+            .map(|row| (row.claim_id, row.count))
+            .collect())
+    }
+
     /// Create a graph-memory claim or reinforce an existing non-deleted claim.
     ///
     /// # Errors
@@ -553,6 +804,55 @@ struct CountRow {
     count: i64,
 }
 
+#[derive(Debug, Deserialize)]
+struct InspectionClaimRow {
+    claim_id: String,
+    subject_entity_id: String,
+    object_entity_id: Option<String>,
+    predicate_id: String,
+    fact: String,
+    status: String,
+    sensitivity: String,
+    confidence: Option<f64>,
+    created_at: Datetime,
+    updated_at: Datetime,
+}
+
+#[derive(Debug, Deserialize)]
+struct InspectionPredicateRow {
+    predicate_id: String,
+    label: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct InspectionEntityRow {
+    entity_id: String,
+    entity_type: String,
+    canonical_name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct InspectionEntity {
+    entity_type: String,
+    canonical_name: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct InspectionEvidenceCountRow {
+    claim_id: String,
+    count: i64,
+}
+
+#[derive(Debug, Deserialize)]
+struct InspectionEvidenceRow {
+    relation_id: Option<String>,
+    source_item_id: Option<String>,
+    authority: String,
+    excerpt: Option<String>,
+    observed_at: Option<Datetime>,
+    created_at: Datetime,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct ExistingClaimMergeRow {
     status: ClaimStatus,
@@ -654,6 +954,72 @@ fn parse_sensitivity(value: &str) -> Result<Sensitivity, StoreError> {
             value: value.to_string(),
         }),
     }
+}
+
+fn memory_claim_record(
+    row: InspectionClaimRow,
+    predicates: &HashMap<String, String>,
+    entities: &HashMap<String, InspectionEntity>,
+    evidence_counts: &HashMap<String, i64>,
+) -> Result<MemoryClaimRecord, StoreError> {
+    let subject = entities.get(&row.subject_entity_id).ok_or_else(|| {
+        StoreError::Schema(format!("claim missing subject entity: {}", row.claim_id))
+    })?;
+    let object = row
+        .object_entity_id
+        .as_deref()
+        .and_then(|entity_id| entities.get(entity_id));
+    Ok(MemoryClaimRecord {
+        claim_id: row.claim_id.clone(),
+        fact: row.fact,
+        predicate_label: predicates
+            .get(&row.predicate_id)
+            .cloned()
+            .unwrap_or_else(|| row.predicate_id.clone()),
+        predicate_id: row.predicate_id,
+        subject_entity_id: row.subject_entity_id,
+        subject_entity_name: subject.canonical_name.clone(),
+        subject_entity_type: subject.entity_type.clone(),
+        object_entity_id: row.object_entity_id,
+        object_entity_name: object.map(|entity| entity.canonical_name.clone()),
+        object_entity_type: object.map(|entity| entity.entity_type.clone()),
+        status: ClaimStatus::parse(&row.status)?,
+        sensitivity: parse_sensitivity(&row.sensitivity)?,
+        confidence: row.confidence,
+        evidence_count: evidence_counts.get(&row.claim_id).copied().unwrap_or(0),
+        created_at: format_datetime(row.created_at),
+        updated_at: format_datetime(row.updated_at),
+    })
+}
+
+impl MemoryClaimRecord {
+    fn matches_query(&self, query: &str) -> bool {
+        contains_case_folded(&self.fact, query)
+            || contains_case_folded(&self.predicate_id, query)
+            || contains_case_folded(&self.predicate_label, query)
+            || contains_case_folded(&self.subject_entity_id, query)
+            || contains_case_folded(&self.subject_entity_name, query)
+            || self
+                .object_entity_id
+                .as_deref()
+                .is_some_and(|value| contains_case_folded(value, query))
+            || self
+                .object_entity_name
+                .as_deref()
+                .is_some_and(|value| contains_case_folded(value, query))
+    }
+}
+
+fn contains_case_folded(value: &str, query: &str) -> bool {
+    value.to_ascii_lowercase().contains(query)
+}
+
+fn clamp_claim_inspection_limit(limit: Option<usize>) -> usize {
+    limit.unwrap_or(50).clamp(1, 100)
+}
+
+fn format_datetime(value: Datetime) -> String {
+    value.to_string()
 }
 
 fn entity_record_id(entity_id: &str) -> String {

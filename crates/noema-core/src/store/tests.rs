@@ -738,7 +738,7 @@ async fn append_conversation_item_rejects_cross_conversation_parent() {
     ));
 }
 
-async fn test_store() -> NoemaStore {
+pub(crate) async fn test_store() -> NoemaStore {
     let home = TempDir::new().expect("temp noema home");
     let paths = crate::NoemaPaths::from_noema_home(home.path()).expect("paths");
     let config = StoreConfig::from_paths(&paths);

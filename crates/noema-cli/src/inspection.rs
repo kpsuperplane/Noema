@@ -1,28 +1,38 @@
 //! CLI inspection commands for local memory and context state.
-
 #![allow(
     dead_code,
-    reason = "Postgres-backed inspection is disabled until graph retrieval lands"
+    reason = "context graph inspection remains disabled, but its formatter is test-covered for a future graph-inspection slice"
 )]
 
 use clap::Subcommand;
 pub(crate) use context_graph_output::ContextGraphFormat;
+#[cfg(test)]
 use context_graph_output::write_context_graph;
-use noema_core::{
-    memory::{
-        Effect, ExternalEgressPolicy, MemoryStatus, ParticipantRole, ParticipantVisibilityPolicy,
-        Purpose, RelationshipStatus, RetrievalPolicyStatus, Sensitivity, SubjectRole,
-    },
-    memory_persistence::MemorySummary,
+use noema_core::memory::{
+    Effect, ExternalEgressPolicy, MemoryStatus, ParticipantRole, ParticipantVisibilityPolicy,
+    Purpose, RelationshipStatus, RetrievalPolicyStatus, Sensitivity, SubjectRole,
 };
+use serde::Deserialize;
+use serde_json::json;
 use std::{
     io::{self, Write},
     path::PathBuf,
 };
 
-use crate::CliError;
+use crate::{
+    CliError,
+    graphql_client::{self, GraphqlRequest},
+};
 
+#[allow(
+    dead_code,
+    reason = "context graph inspection remains unavailable while formatter tests preserve behavior"
+)]
 mod context_graph_output;
+#[allow(
+    dead_code,
+    reason = "context graph inspection remains unavailable while formatter tests preserve behavior"
+)]
 mod context_graph_text;
 
 #[derive(Debug, Subcommand)]
@@ -31,6 +41,15 @@ pub(crate) enum MemoryCommand {
     List {
         #[arg(long, default_value_t = 20, help = "Maximum memories to show.")]
         limit: u32,
+        #[arg(long, help = "Text query matched against claim facts and labels.")]
+        query: Option<String>,
+        #[arg(long, help = "Only show claims with this lifecycle status.")]
+        status: Option<String>,
+        #[arg(
+            long = "predicate-id",
+            help = "Only show claims with this predicate id."
+        )]
+        predicate_id: Option<String>,
     },
     #[command(about = "Show one local memory.")]
     Show {
@@ -61,11 +80,51 @@ pub(crate) enum ContextCommand {
 
 pub(crate) async fn run_memory(
     command: &MemoryCommand,
-    _config_path: Option<PathBuf>,
+    graphql_base_url: &str,
 ) -> Result<(), CliError> {
     match command {
-        MemoryCommand::List { .. } | MemoryCommand::Show { .. } => {
-            Err(memory_inspection_unavailable())
+        MemoryCommand::List {
+            limit,
+            query,
+            status,
+            predicate_id,
+        } => {
+            let data = graphql_client::execute::<MemoryClaimsData>(
+                graphql_base_url,
+                GraphqlRequest::new(
+                    MEMORY_CLAIMS_QUERY,
+                    json!({
+                        "query": query,
+                        "status": status,
+                        "predicateId": predicate_id,
+                        "limit": i32::try_from(*limit).unwrap_or(i32::MAX),
+                    }),
+                ),
+            )
+            .await
+            .map_err(CliError::Graphql)?;
+            let mut stdout = io::stdout();
+            write_memory_claim_list(&mut stdout, &data.memory_claims).map_err(CliError::WriteOutput)
+        }
+        MemoryCommand::Show { memory_id } => {
+            let data = graphql_client::execute::<MemoryClaimData>(
+                graphql_base_url,
+                GraphqlRequest::new(
+                    MEMORY_CLAIM_QUERY,
+                    json!({
+                        "claimId": memory_id,
+                    }),
+                ),
+            )
+            .await
+            .map_err(CliError::Graphql)?;
+            let Some(claim) = data.memory_claim else {
+                return Err(CliError::Unavailable(format!(
+                    "memory claim not found: {memory_id}"
+                )));
+            };
+            let mut stdout = io::stdout();
+            write_memory_claim_detail(&mut stdout, &claim).map_err(CliError::WriteOutput)
         }
     }
 }
@@ -79,10 +138,152 @@ pub(crate) async fn run_context(
     }
 }
 
-fn memory_inspection_unavailable() -> CliError {
-    CliError::Unavailable(
-        "memory inspection is unavailable until graph-claim storage lands".to_string(),
-    )
+const MEMORY_CLAIMS_QUERY: &str = r#"
+query CliMemoryClaims($query: String, $status: String, $predicateId: String, $limit: Int) {
+  memoryClaims(query: $query, status: $status, predicateId: $predicateId, limit: $limit) {
+    claimId
+    fact
+    factRedacted
+    predicateId
+    predicateLabel
+    subjectEntityId
+    subjectEntityName
+    subjectEntityType
+    objectEntityId
+    objectEntityName
+    objectEntityType
+    status
+    sensitivity
+    confidence
+    evidenceCount
+    createdAt
+    updatedAt
+  }
+}
+"#;
+
+const MEMORY_CLAIM_QUERY: &str = r#"
+query CliMemoryClaim($claimId: String!) {
+  memoryClaim(claimId: $claimId) {
+    claimId
+    fact
+    predicateId
+    predicateLabel
+    subjectEntityId
+    subjectEntityName
+    subjectEntityType
+    objectEntityId
+    objectEntityName
+    objectEntityType
+    status
+    sensitivity
+    confidence
+    evidenceCount
+    createdAt
+    updatedAt
+    evidence {
+      evidenceId
+      sourceItemId
+      authority
+      excerpt
+      observedAt
+      createdAt
+    }
+  }
+}
+"#;
+
+#[derive(Debug, Deserialize)]
+struct MemoryClaimsData {
+    #[serde(rename = "memoryClaims")]
+    memory_claims: Vec<GraphqlMemoryClaim>,
+}
+
+#[derive(Debug, Deserialize)]
+struct MemoryClaimData {
+    #[serde(rename = "memoryClaim")]
+    memory_claim: Option<GraphqlMemoryClaimDetail>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub(crate) struct GraphqlMemoryClaim {
+    #[serde(rename = "claimId")]
+    claim_id: String,
+    fact: String,
+    #[serde(rename = "factRedacted")]
+    fact_redacted: bool,
+    #[serde(rename = "predicateId")]
+    predicate_id: String,
+    #[serde(rename = "predicateLabel")]
+    predicate_label: String,
+    #[serde(rename = "subjectEntityId")]
+    subject_entity_id: String,
+    #[serde(rename = "subjectEntityName")]
+    subject_entity_name: String,
+    #[serde(rename = "subjectEntityType")]
+    subject_entity_type: String,
+    #[serde(rename = "objectEntityId")]
+    object_entity_id: Option<String>,
+    #[serde(rename = "objectEntityName")]
+    object_entity_name: Option<String>,
+    #[serde(rename = "objectEntityType")]
+    object_entity_type: Option<String>,
+    status: String,
+    sensitivity: String,
+    confidence: Option<f64>,
+    #[serde(rename = "evidenceCount")]
+    evidence_count: i64,
+    #[serde(rename = "createdAt")]
+    created_at: String,
+    #[serde(rename = "updatedAt")]
+    updated_at: String,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub(crate) struct GraphqlMemoryClaimDetail {
+    #[serde(rename = "claimId")]
+    claim_id: String,
+    fact: String,
+    #[serde(rename = "predicateId")]
+    predicate_id: String,
+    #[serde(rename = "predicateLabel")]
+    predicate_label: String,
+    #[serde(rename = "subjectEntityId")]
+    subject_entity_id: String,
+    #[serde(rename = "subjectEntityName")]
+    subject_entity_name: String,
+    #[serde(rename = "subjectEntityType")]
+    subject_entity_type: String,
+    #[serde(rename = "objectEntityId")]
+    object_entity_id: Option<String>,
+    #[serde(rename = "objectEntityName")]
+    object_entity_name: Option<String>,
+    #[serde(rename = "objectEntityType")]
+    object_entity_type: Option<String>,
+    status: String,
+    sensitivity: String,
+    confidence: Option<f64>,
+    #[serde(rename = "evidenceCount")]
+    evidence_count: i64,
+    #[serde(rename = "createdAt")]
+    created_at: String,
+    #[serde(rename = "updatedAt")]
+    updated_at: String,
+    evidence: Vec<GraphqlMemoryClaimEvidence>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub(crate) struct GraphqlMemoryClaimEvidence {
+    #[serde(rename = "evidenceId")]
+    evidence_id: Option<String>,
+    #[serde(rename = "sourceItemId")]
+    source_item_id: Option<String>,
+    authority: String,
+    excerpt: Option<String>,
+    #[serde(rename = "observedAt")]
+    observed_at: Option<String>,
+    #[serde(rename = "createdAt")]
+    created_at: String,
 }
 
 fn context_inspection_unavailable() -> CliError {
@@ -91,92 +292,100 @@ fn context_inspection_unavailable() -> CliError {
     )
 }
 
-fn print_context_graph(
-    graph: &noema_core::ContextGraphSummary,
-    format: ContextGraphFormat,
-) -> Result<(), CliError> {
-    let mut stdout = io::stdout();
-    write_context_graph(&mut stdout, graph, format)
-}
-
-fn print_memory_list(memories: &[MemorySummary]) -> Result<(), CliError> {
-    if memories.is_empty() {
-        println!("No memories found.");
+fn write_memory_claim_list<W: Write>(
+    writer: &mut W,
+    claims: &[GraphqlMemoryClaim],
+) -> io::Result<()> {
+    if claims.is_empty() {
+        writeln!(writer, "No memory claims found.")?;
         return Ok(());
     }
 
-    let mut stdout = io::stdout();
     writeln!(
-        stdout,
-        "{:<38}  {:<10}  {:<10}  {:<10}  {:<24}  Title",
-        "ID", "Status", "Type", "Privacy", "Created"
-    )
-    .map_err(CliError::WriteOutput)?;
+        writer,
+        "{:<38}  {:<10}  {:<10}  {:<18}  {:<24}  Fact",
+        "ID", "Status", "Privacy", "Predicate", "Created"
+    )?;
 
-    for memory in memories {
+    for claim in claims {
         writeln!(
-            stdout,
-            "{:<38}  {:<10}  {:<10}  {:<10}  {:<24}  {}",
-            memory.id,
-            memory_status_label(memory.status),
-            memory.memory_type.as_str(),
-            sensitivity_label(memory.sensitivity),
-            memory.created_at,
-            redacted_list_title(memory),
-        )
-        .map_err(CliError::WriteOutput)?;
+            writer,
+            "{:<38}  {:<10}  {:<10}  {:<18}  {:<24}  {}",
+            claim.claim_id,
+            claim.status,
+            claim.sensitivity,
+            preview(&claim.predicate_label, 18),
+            claim.created_at,
+            claim_list_fact(claim),
+        )?;
     }
 
     Ok(())
 }
 
-fn print_memory_detail(memory: &MemorySummary) -> Result<(), CliError> {
-    let mut stdout = io::stdout();
-    writeln!(stdout, "ID: {}", memory.id).map_err(CliError::WriteOutput)?;
-    writeln!(stdout, "Status: {}", memory_status_label(memory.status))
-        .map_err(CliError::WriteOutput)?;
-    writeln!(stdout, "Type: {}", memory.memory_type.as_str()).map_err(CliError::WriteOutput)?;
+fn write_memory_claim_detail<W: Write>(
+    writer: &mut W,
+    claim: &GraphqlMemoryClaimDetail,
+) -> io::Result<()> {
+    writeln!(writer, "ID: {}", claim.claim_id)?;
+    writeln!(writer, "Status: {}", claim.status)?;
+    writeln!(writer, "Sensitivity: {}", claim.sensitivity)?;
     writeln!(
-        stdout,
-        "Sensitivity: {}",
-        sensitivity_label(memory.sensitivity)
-    )
-    .map_err(CliError::WriteOutput)?;
+        writer,
+        "Predicate: {} ({})",
+        claim.predicate_label, claim.predicate_id
+    )?;
     writeln!(
-        stdout,
-        "Owner: {}",
-        object_ref(&memory.owner_object_type, &memory.owner_object_id)
-    )
-    .map_err(CliError::WriteOutput)?;
-    writeln!(stdout, "Created: {}", memory.created_at).map_err(CliError::WriteOutput)?;
-    if let Some(conversation_id) = &memory.conversation_id {
-        writeln!(stdout, "Conversation: {conversation_id}").map_err(CliError::WriteOutput)?;
+        writer,
+        "Subject: {} ({}, {})",
+        claim.subject_entity_name, claim.subject_entity_type, claim.subject_entity_id
+    )?;
+    if let Some(object_id) = &claim.object_entity_id {
+        writeln!(
+            writer,
+            "Object: {} ({}, {})",
+            claim.object_entity_name.as_deref().unwrap_or("-"),
+            claim.object_entity_type.as_deref().unwrap_or("-"),
+            object_id
+        )?;
     }
-    if let Some(source) = memory
-        .source_object_type
-        .as_deref()
-        .zip(memory.source_object_id.as_deref())
-    {
-        writeln!(stdout, "Source: {}", object_ref(source.0, source.1))
-            .map_err(CliError::WriteOutput)?;
+    if let Some(confidence) = claim.confidence {
+        writeln!(writer, "Confidence: {confidence:.3}")?;
     }
-    writeln!(stdout, "Title: {}", memory.title).map_err(CliError::WriteOutput)?;
-    writeln!(stdout).map_err(CliError::WriteOutput)?;
-    writeln!(stdout, "{}", memory.content).map_err(CliError::WriteOutput)?;
+    writeln!(writer, "Evidence count: {}", claim.evidence_count)?;
+    writeln!(writer, "Created: {}", claim.created_at)?;
+    writeln!(writer, "Updated: {}", claim.updated_at)?;
+    writeln!(writer, "Fact: {}", claim.fact)?;
+
+    if !claim.evidence.is_empty() {
+        writeln!(writer)?;
+        writeln!(writer, "Evidence")?;
+        for evidence in &claim.evidence {
+            writeln!(
+                writer,
+                "- {} source={} observed={} created={}",
+                evidence.authority,
+                evidence.source_item_id.as_deref().unwrap_or("-"),
+                evidence.observed_at.as_deref().unwrap_or("-"),
+                evidence.created_at
+            )?;
+            if let Some(evidence_id) = &evidence.evidence_id {
+                writeln!(writer, "  id: {evidence_id}")?;
+            }
+            if let Some(excerpt) = &evidence.excerpt {
+                writeln!(writer, "  excerpt: {excerpt}")?;
+            }
+        }
+    }
+
     Ok(())
 }
 
-fn redacted_list_title(memory: &MemorySummary) -> String {
-    redacted_title(memory.sensitivity, &memory.title, 96)
-}
-
-fn redacted_title(sensitivity: Sensitivity, title: &str, max_chars: usize) -> String {
-    match sensitivity {
-        Sensitivity::Public => preview(title, max_chars),
-        Sensitivity::Normal
-        | Sensitivity::Private
-        | Sensitivity::Sensitive
-        | Sensitivity::Secret => "[redacted; use memory show <id>]".to_string(),
+fn claim_list_fact(claim: &GraphqlMemoryClaim) -> String {
+    if claim.fact_redacted {
+        claim.fact.clone()
+    } else {
+        preview(&claim.fact, 96)
     }
 }
 

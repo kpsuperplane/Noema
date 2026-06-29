@@ -107,7 +107,14 @@ The next storage slice should stay small and concrete:
   deterministic IDs plus punctuation-normalized dedupe and reinforcement, so
   note content and secrets are not embedded in entity IDs.
 - The local `search_memory` tool reads graph claims and returns claim-shaped
-  tool results. CLI/API graph inspection remains pending.
+  tool results.
+- The first graph-memory inspection surface has landed. GraphQL exposes bounded
+  owner/admin graph-claim inspection through `memoryClaims` and `memoryClaim`:
+  lists redact non-public fact text and content-bearing display names, while
+  explicit detail inspection shows full fact and evidence. CLI `noema memory
+  list` and `noema memory show <id>` consume GraphQL through the daemon/web
+  endpoint rather than opening SurrealDB directly. Generated web GraphQL
+  schema/types are kept in sync.
 
 ## Open Loops
 
@@ -117,6 +124,7 @@ The next storage slice should stay small and concrete:
   implementation lands.
 - Add richer web drill-ins for memory details, predicate review, provenance,
   and graph inspection.
+- Add `noema context graph` and richer graph neighborhood inspection.
 - Continue aligning docs, schema, CLI inspection commands, and frontend IA.
 - Decide which export formats ship first and how export preview/redaction should work.
 - Revisit migrations only when the project needs persisted user data compatibility.

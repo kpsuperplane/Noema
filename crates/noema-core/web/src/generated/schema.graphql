@@ -250,6 +250,184 @@ type GraphqlLocalStatus {
 }
 
 """
+Graph-memory claim exposed for owner/admin inspection.
+"""
+type GraphqlMemoryClaim {
+	"""
+	Stable claim id.
+	"""
+	claimId: String!
+	"""
+	Conservative fact preview. Non-public facts are redacted in list views.
+	"""
+	fact: String!
+	"""
+	Whether the fact was redacted at the GraphQL boundary.
+	"""
+	factRedacted: Boolean!
+	"""
+	Predicate id.
+	"""
+	predicateId: String!
+	"""
+	Predicate label.
+	"""
+	predicateLabel: String!
+	"""
+	Subject entity id.
+	"""
+	subjectEntityId: String!
+	"""
+	Subject entity display name.
+	"""
+	subjectEntityName: String!
+	"""
+	Subject entity type.
+	"""
+	subjectEntityType: String!
+	"""
+	Object entity id when present.
+	"""
+	objectEntityId: String
+	"""
+	Object entity display name when present.
+	"""
+	objectEntityName: String
+	"""
+	Object entity type when present.
+	"""
+	objectEntityType: String
+	"""
+	Claim lifecycle status.
+	"""
+	status: String!
+	"""
+	Claim sensitivity.
+	"""
+	sensitivity: String!
+	"""
+	Claim confidence.
+	"""
+	confidence: Float
+	"""
+	Count of supporting evidence rows.
+	"""
+	evidenceCount: Int!
+	"""
+	Creation timestamp.
+	"""
+	createdAt: String!
+	"""
+	Update timestamp.
+	"""
+	updatedAt: String!
+}
+
+"""
+Graph-memory claim detail exposed for owner/admin inspection.
+"""
+type GraphqlMemoryClaimDetail {
+	"""
+	Stable claim id.
+	"""
+	claimId: String!
+	"""
+	Human-readable fact text.
+	"""
+	fact: String!
+	"""
+	Predicate id.
+	"""
+	predicateId: String!
+	"""
+	Predicate label.
+	"""
+	predicateLabel: String!
+	"""
+	Subject entity id.
+	"""
+	subjectEntityId: String!
+	"""
+	Subject entity display name.
+	"""
+	subjectEntityName: String!
+	"""
+	Subject entity type.
+	"""
+	subjectEntityType: String!
+	"""
+	Object entity id when present.
+	"""
+	objectEntityId: String
+	"""
+	Object entity display name when present.
+	"""
+	objectEntityName: String
+	"""
+	Object entity type when present.
+	"""
+	objectEntityType: String
+	"""
+	Claim lifecycle status.
+	"""
+	status: String!
+	"""
+	Claim sensitivity.
+	"""
+	sensitivity: String!
+	"""
+	Claim confidence.
+	"""
+	confidence: Float
+	"""
+	Count of supporting evidence rows.
+	"""
+	evidenceCount: Int!
+	"""
+	Creation timestamp.
+	"""
+	createdAt: String!
+	"""
+	Update timestamp.
+	"""
+	updatedAt: String!
+	"""
+	Support evidence rows.
+	"""
+	evidence: [GraphqlMemoryClaimEvidence!]!
+}
+
+"""
+Supporting evidence exposed for explicit owner/admin claim detail inspection.
+"""
+type GraphqlMemoryClaimEvidence {
+	"""
+	Stable evidence relation id if available.
+	"""
+	evidenceId: String
+	"""
+	Source conversation item id if available.
+	"""
+	sourceItemId: String
+	"""
+	Evidence authority.
+	"""
+	authority: String!
+	"""
+	Evidence excerpt when available.
+	"""
+	excerpt: String
+	"""
+	Observation timestamp when available.
+	"""
+	observedAt: String
+	"""
+	Evidence creation timestamp.
+	"""
+	createdAt: String!
+}
+
+"""
 Memory storage readiness shown by clients.
 """
 enum GraphqlMemoryStorageStatus {
@@ -261,6 +439,10 @@ enum GraphqlMemoryStorageStatus {
 	The canonical memory store is initializing.
 	"""
 	INITIALIZING
+	"""
+	Graph memory writes and retrieval are not available yet.
+	"""
+	UNAVAILABLE
 }
 
 """
@@ -593,6 +775,14 @@ type QueryRoot {
 	Return a short-lived provider auth attempt.
 	"""
 	providerAuthAttempt(attemptId: String!): GraphqlProviderAuthAttempt
+	"""
+	List graph-memory claims for owner/admin inspection.
+	"""
+	memoryClaims(query: String, status: String, predicateId: String, limit: Int): [GraphqlMemoryClaim!]!
+	"""
+	Return one graph-memory claim for owner/admin inspection.
+	"""
+	memoryClaim(claimId: String!): GraphqlMemoryClaimDetail
 }
 
 type SubscriptionRoot {

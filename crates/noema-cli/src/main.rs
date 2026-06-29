@@ -149,7 +149,7 @@ async fn run() -> Result<(), CliError> {
         Some(CommandKind::DevDaemon) => run_dev_daemon(dev_daemon_options(&args))
             .await
             .map_err(Into::into),
-        Some(CommandKind::Memory { command }) => run_memory(command, args.config.clone()).await,
+        Some(CommandKind::Memory { command }) => run_memory_graphql(&args, command).await,
         Some(CommandKind::Context { command }) => run_context(command, args.config.clone()).await,
         None => run_one_shot(args).await,
     }
@@ -266,6 +266,22 @@ async fn run_chat(args: &Args, prompt_args: &[String]) -> Result<(), CliError> {
 
     result?;
     end_result?;
+    shutdown_result?;
+    Ok(())
+}
+
+async fn run_memory_graphql(args: &Args, command: &MemoryCommand) -> Result<(), CliError> {
+    let mut daemon = ConnectedDaemon::connect_or_start(args).await?;
+    let daemon_config = Config::load_daemon(args.config.clone(), cli_overrides(args))?;
+    let graphql_base_url = daemon_config.web.url();
+    validate_graphql_base_url(&graphql_base_url)
+        .await
+        .map_err(CliError::Graphql)?;
+
+    let result = run_memory(command, &graphql_base_url).await;
+    let shutdown_result = daemon.shutdown_if_temporary().await;
+
+    result?;
     shutdown_result?;
     Ok(())
 }
@@ -626,8 +642,41 @@ mod tests {
         assert!(matches!(
             args.command,
             Some(CommandKind::Memory {
-                command: MemoryCommand::List { limit: 7 }
+                command: MemoryCommand::List {
+                    limit: 7,
+                    query: None,
+                    status: None,
+                    predicate_id: None,
+                }
             })
+        ));
+    }
+
+    #[test]
+    fn parses_memory_list_filters() {
+        let args = Args::try_parse_from([
+            "noema",
+            "memory",
+            "list",
+            "--query",
+            "trains",
+            "--status",
+            "confirmed",
+            "--predicate-id",
+            "likes",
+        ])
+        .expect("args");
+
+        assert!(matches!(
+            args.command,
+            Some(CommandKind::Memory {
+                command: MemoryCommand::List {
+                    query: Some(query),
+                    status: Some(status),
+                    predicate_id: Some(predicate_id),
+                    ..
+                }
+            }) if query == "trains" && status == "confirmed" && predicate_id == "likes"
         ));
     }
 

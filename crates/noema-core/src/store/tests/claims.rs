@@ -537,6 +537,100 @@ async fn retrieval_limit_zero_returns_empty_result() {
     assert_eq!(result.redacted_omission_count, 0);
 }
 
+#[tokio::test]
+async fn list_claims_filters_status_predicate_query_and_clamps_limit() {
+    let store = test_store().await;
+    let trains_item = create_source_item(&store, "Kevin likes trains.").await;
+    let coffee_item = create_source_item(&store, "Kevin prefers coffee.").await;
+    let mut trains = train_claim(trains_item.item_id);
+    trains.status = ClaimStatus::Confirmed;
+    let trains_summary = store
+        .create_or_reinforce_claim(trains)
+        .await
+        .expect("create train claim");
+    let mut coffee = train_claim(coffee_item.item_id);
+    coffee.object = EntityCandidate::concept("coffee", "coffee");
+    coffee.predicate_id = "prefers".to_string();
+    coffee.fact = "Kevin prefers coffee.".to_string();
+    coffee.status = ClaimStatus::Candidate;
+    store
+        .create_or_reinforce_claim(coffee)
+        .await
+        .expect("create coffee claim");
+
+    let claims = store
+        .list_claims(crate::MemoryClaimFilter {
+            query: Some("trains".to_string()),
+            status: Some(ClaimStatus::Confirmed),
+            predicate_id: Some("likes".to_string()),
+            limit: Some(999),
+        })
+        .await
+        .expect("list claims");
+
+    assert_eq!(claims.len(), 1);
+    assert_eq!(claims[0].claim_id, trains_summary.claim_id);
+    assert_eq!(claims[0].predicate_label, "likes");
+    assert_eq!(claims[0].subject_entity_name, "Local human");
+    assert_eq!(claims[0].object_entity_name.as_deref(), Some("trains"));
+    assert_eq!(claims[0].object_entity_type.as_deref(), Some("concept"));
+    assert_eq!(claims[0].evidence_count, 1);
+    assert!(claims[0].created_at.contains('T'));
+    assert!(claims[0].updated_at.contains('T'));
+}
+
+#[tokio::test]
+async fn claim_detail_includes_support_evidence_and_unknown_claim_is_none() {
+    let store = test_store().await;
+    let first_item = create_source_item(&store, "Kevin likes trains.").await;
+    let second_item = create_source_item(&store, "Still true: Kevin likes trains.").await;
+    let first = store
+        .create_or_reinforce_claim(train_claim(first_item.item_id.clone()))
+        .await
+        .expect("first claim");
+    let mut second = train_claim(second_item.item_id.clone());
+    second.evidence.authority = EvidenceAuthority::RepeatedObservation;
+    second.evidence.excerpt = Some("Still true: Kevin likes trains.".to_string());
+    store
+        .create_or_reinforce_claim(second)
+        .await
+        .expect("reinforce claim");
+
+    let detail = store
+        .get_claim_detail(&first.claim_id)
+        .await
+        .expect("get detail")
+        .expect("claim detail");
+
+    assert_eq!(detail.claim.claim_id, first.claim_id);
+    assert_eq!(detail.claim.evidence_count, 2);
+    assert_eq!(detail.evidence.len(), 2);
+    assert!(
+        detail
+            .evidence
+            .iter()
+            .all(|evidence| evidence.evidence_id.is_some())
+    );
+    assert!(
+        detail
+            .evidence
+            .iter()
+            .any(|evidence| evidence.source_item_id.as_deref() == Some(&first_item.item_id))
+    );
+    assert!(
+        detail
+            .evidence
+            .iter()
+            .any(|evidence| evidence.authority == "repeated_observation")
+    );
+
+    let missing = store
+        .get_claim_detail("claim:missing")
+        .await
+        .expect("missing detail");
+    assert!(missing.is_none());
+}
+
 async fn create_source_item(store: &NoemaStore, text: &str) -> crate::ConversationItemRecord {
     store.ensure_default_actors().await.expect("actors");
     let conversation = store

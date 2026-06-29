@@ -12,10 +12,11 @@ mod runtime;
 mod schema;
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 pub use claims::{
     ClaimStatus, ClaimSummary, ClaimWriteOutcome, EvidenceAuthority, EvidenceCandidate,
+    MemoryClaimDetail, MemoryClaimEvidence, MemoryClaimFilter, MemoryClaimRecord,
     NewClaimCandidate,
 };
 pub use error::StoreError;

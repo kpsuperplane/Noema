@@ -35,7 +35,9 @@ export type GraphqlMemoryStorageStatus =
   /** The canonical memory store is initializing. */
   | 'INITIALIZING'
   /** The canonical memory store is ready. */
-  | 'READY';
+  | 'READY'
+  /** Graph memory writes and retrieval are not available yet. */
+  | 'UNAVAILABLE';
 
 /** Onboarding step status exposed through GraphQL. */
 export type GraphqlOnboardingStepStatus =

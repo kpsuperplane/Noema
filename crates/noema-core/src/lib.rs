@@ -88,6 +88,7 @@ pub use providers::{
 };
 pub use store::{
     ClaimRetrievalResult, ClaimStatus, ClaimSummary, ClaimWriteOutcome, EntityCandidate,
-    EntityType, EvidenceAuthority, EvidenceCandidate, NewClaimCandidate, NoemaStore,
-    PredicateRecord, RetrievedClaim, StoreConfig, StoreError,
+    EntityType, EvidenceAuthority, EvidenceCandidate, MemoryClaimDetail, MemoryClaimEvidence,
+    MemoryClaimFilter, MemoryClaimRecord, NewClaimCandidate, NoemaStore, PredicateRecord,
+    RetrievedClaim, StoreConfig, StoreError,
 };

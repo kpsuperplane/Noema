@@ -9,9 +9,10 @@ use super::{
         GraphqlAgentStatusEvent, GraphqlAssistantConnection, GraphqlAssistantTextDeltaEvent,
         GraphqlConversationEvent, GraphqlConversationItem, GraphqlConversationItemEvent,
         GraphqlConversationStarted, GraphqlLocalServiceStatus, GraphqlLocalStatus,
-        GraphqlMemoryStorageStatus, GraphqlOnboardingStatus, GraphqlProviderAuthAttempt,
-        GraphqlSendConversationTurnInput, GraphqlStartProviderAuthAttemptInput,
-        GraphqlSubscriptionReadyEvent, GraphqlTurnAccepted, GraphqlTurnCompletedEvent,
+        GraphqlMemoryClaim, GraphqlMemoryClaimDetail, GraphqlMemoryStorageStatus,
+        GraphqlOnboardingStatus, GraphqlProviderAuthAttempt, GraphqlSendConversationTurnInput,
+        GraphqlStartProviderAuthAttemptInput, GraphqlSubscriptionReadyEvent, GraphqlTurnAccepted,
+        GraphqlTurnCompletedEvent,
     },
 };
 
@@ -22,6 +23,8 @@ pub type GraphqlSchema = Schema<QueryRoot, MutationRoot, SubscriptionRoot>;
 #[derive(Clone)]
 pub struct GraphqlState {
     web_state: Option<crate::daemon::web::WebState>,
+    #[cfg(test)]
+    test_store: Option<crate::NoemaStore>,
     subscriptions: ConversationSubscriptionRegistry,
     memory_storage: GraphqlMemoryStorageStatus,
 }
@@ -32,6 +35,20 @@ impl GraphqlState {
     pub fn for_tests() -> Self {
         Self {
             web_state: None,
+            #[cfg(test)]
+            test_store: None,
+            subscriptions: ConversationSubscriptionRegistry::default(),
+            memory_storage: GraphqlMemoryStorageStatus::Ready,
+        }
+    }
+
+    /// Build test state backed by a real embedded store.
+    #[cfg(test)]
+    #[must_use]
+    pub fn for_tests_with_store(store: crate::NoemaStore) -> Self {
+        Self {
+            web_state: None,
+            test_store: Some(store),
             subscriptions: ConversationSubscriptionRegistry::default(),
             memory_storage: GraphqlMemoryStorageStatus::Ready,
         }
@@ -43,7 +60,9 @@ impl GraphqlState {
         Self {
             subscriptions: web_state.subscriptions().clone(),
             web_state: Some(web_state),
-            memory_storage: GraphqlMemoryStorageStatus::Unavailable,
+            #[cfg(test)]
+            test_store: None,
+            memory_storage: GraphqlMemoryStorageStatus::Ready,
         }
     }
 
@@ -55,6 +74,15 @@ impl GraphqlState {
 
     pub(crate) fn subscriptions(&self) -> &ConversationSubscriptionRegistry {
         &self.subscriptions
+    }
+
+    fn store(&self) -> Result<&crate::NoemaStore> {
+        #[cfg(test)]
+        if let Some(store) = &self.test_store {
+            return Ok(store);
+        }
+
+        Ok(self.web_state()?.store())
     }
 }
 
@@ -120,6 +148,61 @@ impl QueryRoot {
                 .map_err(graphql_error)?;
         }
         Ok(attempt.map(Into::into))
+    }
+
+    /// List graph-memory claims for owner/admin inspection.
+    async fn memory_claims(
+        &self,
+        ctx: &Context<'_>,
+        query: Option<String>,
+        status: Option<String>,
+        predicate_id: Option<String>,
+        limit: Option<i32>,
+    ) -> Result<Vec<GraphqlMemoryClaim>> {
+        let limit = match limit {
+            Some(value) if value < 1 => {
+                return Err(async_graphql::Error::new(
+                    "memoryClaims limit must be at least 1",
+                ));
+            }
+            Some(value) => Some(
+                usize::try_from(value)
+                    .map_err(|_| async_graphql::Error::new("memoryClaims limit is too large"))?,
+            ),
+            None => None,
+        };
+        let state = ctx.data_unchecked::<GraphqlState>();
+        let status = status
+            .as_deref()
+            .map(parse_graphql_claim_status)
+            .transpose()?;
+        let claims = state
+            .store()?
+            .list_claims(crate::MemoryClaimFilter {
+                query,
+                status,
+                predicate_id,
+                limit,
+            })
+            .await
+            .map_err(graphql_error)?;
+
+        Ok(claims.into_iter().map(Into::into).collect())
+    }
+
+    /// Return one graph-memory claim for owner/admin inspection.
+    async fn memory_claim(
+        &self,
+        ctx: &Context<'_>,
+        claim_id: String,
+    ) -> Result<Option<GraphqlMemoryClaimDetail>> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        let detail = state
+            .store()?
+            .get_claim_detail(&claim_id)
+            .await
+            .map_err(graphql_error)?;
+        Ok(detail.map(Into::into))
     }
 }
 
@@ -339,6 +422,21 @@ fn graphql_error(error: impl std::fmt::Display) -> async_graphql::Error {
     async_graphql::Error::new(error.to_string())
 }
 
+fn parse_graphql_claim_status(value: &str) -> Result<crate::ClaimStatus> {
+    match value {
+        "candidate" => Ok(crate::ClaimStatus::Candidate),
+        "active" => Ok(crate::ClaimStatus::Active),
+        "confirmed" => Ok(crate::ClaimStatus::Confirmed),
+        "disputed" => Ok(crate::ClaimStatus::Disputed),
+        "superseded" => Ok(crate::ClaimStatus::Superseded),
+        "archived" => Ok(crate::ClaimStatus::Archived),
+        "deleted" => Ok(crate::ClaimStatus::Deleted),
+        _ => Err(async_graphql::Error::new(format!(
+            "unknown memory claim status: {value}"
+        ))),
+    }
+}
+
 fn publish_turn_terminal_events(
     subscriptions: &ConversationSubscriptionRegistry,
     conversation_id: String,
@@ -394,6 +492,251 @@ mod tests {
         assert!(sdl.contains("type Subscription"));
         assert!(sdl.contains("conversationEvents"));
         assert!(sdl.contains("GraphqlAssistantTextDeltaEvent"));
+        assert!(sdl.contains("memoryClaims"));
+        assert!(sdl.contains("memoryClaim"));
+        assert!(sdl.contains("type GraphqlMemoryClaim"));
+        assert!(sdl.contains("type GraphqlMemoryClaimEvidence"));
+    }
+
+    #[tokio::test]
+    async fn memory_claim_query_returns_seeded_detail() {
+        use crate::{
+            ActorRef, ClaimStatus, ConversationItemKind, ConversationItemStatus, EntityCandidate,
+            EvidenceAuthority, EvidenceCandidate, NewClaimCandidate, NewConversationItem,
+            NewConversationTurn, memory::Sensitivity, memory_persistence::NewConversation,
+            store::tests::test_store,
+        };
+
+        let store = test_store().await;
+        store.ensure_default_actors().await.expect("actors");
+        let conversation = store
+            .create_conversation(NewConversation::local_chat(None, None))
+            .await
+            .expect("conversation");
+        let turn = store
+            .create_conversation_turn(NewConversationTurn {
+                conversation_id: conversation.conversation_id.clone(),
+                trigger_item_id: None,
+                metadata: json!({}),
+            })
+            .await
+            .expect("turn");
+        let item = store
+            .append_conversation_item(NewConversationItem {
+                conversation_id: conversation.conversation_id,
+                turn_id: Some(turn.turn_id),
+                parent_item_id: None,
+                kind: ConversationItemKind::UserText,
+                status: ConversationItemStatus::Completed,
+                author: ActorRef::human("human:local"),
+                content_text: Some("Kevin likes trains.".to_string()),
+                payload_json: json!({}),
+                metadata: json!({}),
+            })
+            .await
+            .expect("source item");
+        let summary = store
+            .create_or_reinforce_claim(NewClaimCandidate {
+                subject: EntityCandidate::local_human(),
+                object: EntityCandidate::concept("trains", "trains"),
+                predicate_id: "likes".to_string(),
+                fact: "Kevin likes trains.".to_string(),
+                sensitivity: Sensitivity::Normal,
+                status: ClaimStatus::Confirmed,
+                confidence: Some(0.9),
+                evidence: EvidenceCandidate {
+                    source_item_id: item.item_id.clone(),
+                    authority: EvidenceAuthority::ExplicitHumanStatement,
+                    excerpt: Some("Kevin likes trains.".to_string()),
+                },
+                retrieval_hints: json!({}),
+                metadata: json!({}),
+            })
+            .await
+            .expect("claim");
+
+        let schema = build_schema(GraphqlState::for_tests_with_store(store));
+        let response = schema
+            .execute(async_graphql::Request::new(format!(
+                r#"
+                {{
+                  memoryClaim(claimId: "{}") {{
+                    claimId
+                    fact
+                    predicateLabel
+                    subjectEntityName
+                    objectEntityName
+                    evidence {{ sourceItemId authority excerpt }}
+                  }}
+                }}
+                "#,
+                summary.claim_id
+            )))
+            .await;
+
+        assert!(response.errors.is_empty(), "{:?}", response.errors);
+        let data = response.data.into_json().expect("json");
+        assert_eq!(data["memoryClaim"]["claimId"], summary.claim_id);
+        assert_eq!(data["memoryClaim"]["predicateLabel"], "likes");
+        assert_eq!(data["memoryClaim"]["subjectEntityName"], "Local human");
+        assert_eq!(data["memoryClaim"]["objectEntityName"], "trains");
+        assert_eq!(
+            data["memoryClaim"]["evidence"][0]["sourceItemId"],
+            item.item_id
+        );
+        assert_eq!(
+            data["memoryClaim"]["evidence"][0]["authority"],
+            "explicit_human_statement"
+        );
+    }
+
+    #[tokio::test]
+    async fn memory_claims_list_redacts_non_public_facts() {
+        use crate::{
+            ActorRef, ClaimStatus, ConversationItemKind, ConversationItemStatus, EntityCandidate,
+            EvidenceAuthority, EvidenceCandidate, NewClaimCandidate, NewConversationItem,
+            NewConversationTurn, memory::Sensitivity, memory_persistence::NewConversation,
+            store::tests::test_store,
+        };
+
+        let store = test_store().await;
+        store.ensure_default_actors().await.expect("actors");
+        let conversation = store
+            .create_conversation(NewConversation::local_chat(None, None))
+            .await
+            .expect("conversation");
+        let turn = store
+            .create_conversation_turn(NewConversationTurn {
+                conversation_id: conversation.conversation_id.clone(),
+                trigger_item_id: None,
+                metadata: json!({}),
+            })
+            .await
+            .expect("turn");
+        let item = store
+            .append_conversation_item(NewConversationItem {
+                conversation_id: conversation.conversation_id,
+                turn_id: Some(turn.turn_id),
+                parent_item_id: None,
+                kind: ConversationItemKind::UserText,
+                status: ConversationItemStatus::Completed,
+                author: ActorRef::human("human:local"),
+                content_text: Some("Garage code is 1234.".to_string()),
+                payload_json: json!({}),
+                metadata: json!({}),
+            })
+            .await
+            .expect("source item");
+        let private_note = "Garage code is 1234.";
+        let summary = store
+            .create_or_reinforce_claim(NewClaimCandidate {
+                subject: EntityCandidate::local_human(),
+                object: EntityCandidate::concept(private_note, private_note),
+                predicate_id: "has_note".to_string(),
+                fact: private_note.to_string(),
+                sensitivity: Sensitivity::Private,
+                status: ClaimStatus::Confirmed,
+                confidence: Some(0.9),
+                evidence: EvidenceCandidate {
+                    source_item_id: item.item_id,
+                    authority: EvidenceAuthority::ExplicitHumanStatement,
+                    excerpt: Some(private_note.to_string()),
+                },
+                retrieval_hints: json!({}),
+                metadata: json!({}),
+            })
+            .await
+            .expect("claim");
+
+        let schema = build_schema(GraphqlState::for_tests_with_store(store));
+        let list_response = schema
+            .execute(async_graphql::Request::new(
+                r#"
+                {
+                  memoryClaims(limit: 10) {
+                    claimId
+                    fact
+                    factRedacted
+                    subjectEntityName
+                    objectEntityName
+                    sensitivity
+                  }
+                }
+                "#,
+            ))
+            .await;
+
+        assert!(
+            list_response.errors.is_empty(),
+            "{:?}",
+            list_response.errors
+        );
+        let data = list_response.data.into_json().expect("json");
+        assert_eq!(data["memoryClaims"][0]["claimId"], summary.claim_id);
+        assert_eq!(
+            data["memoryClaims"][0]["fact"],
+            "[redacted; use memoryClaim(claimId) for detail]"
+        );
+        assert_eq!(
+            data["memoryClaims"][0]["subjectEntityName"],
+            "[redacted; use memoryClaim(claimId) for detail]"
+        );
+        assert_eq!(
+            data["memoryClaims"][0]["objectEntityName"],
+            "[redacted; use memoryClaim(claimId) for detail]"
+        );
+        assert_eq!(data["memoryClaims"][0]["factRedacted"], true);
+        assert_eq!(data["memoryClaims"][0]["sensitivity"], "private");
+
+        let detail_response = schema
+            .execute(async_graphql::Request::new(format!(
+                r#"
+                {{
+                  memoryClaim(claimId: "{}") {{
+                    fact
+                    subjectEntityName
+                    objectEntityName
+                  }}
+                }}
+                "#,
+                summary.claim_id
+            )))
+            .await;
+
+        assert!(
+            detail_response.errors.is_empty(),
+            "{:?}",
+            detail_response.errors
+        );
+        let data = detail_response.data.into_json().expect("json");
+        assert_eq!(data["memoryClaim"]["fact"], private_note);
+        assert_eq!(data["memoryClaim"]["subjectEntityName"], "Local human");
+        assert_eq!(data["memoryClaim"]["objectEntityName"], private_note);
+    }
+
+    #[tokio::test]
+    async fn memory_claims_rejects_negative_limit() {
+        let schema = build_schema(GraphqlState::for_tests());
+        let response = schema
+            .execute(async_graphql::Request::new(
+                r#"
+                {
+                  memoryClaims(limit: -1) {
+                    claimId
+                  }
+                }
+                "#,
+            ))
+            .await;
+
+        assert_eq!(response.errors.len(), 1);
+        assert!(
+            response.errors[0]
+                .message
+                .contains("memoryClaims limit must be at least 1"),
+            "{:?}",
+            response.errors
+        );
     }
 
     #[tokio::test]

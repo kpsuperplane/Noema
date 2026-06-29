@@ -2,8 +2,10 @@ use async_graphql::{Enum, InputObject, Json, SimpleObject, Union};
 use serde_json::Value;
 
 use crate::{
-    AgentStatus, OnboardingStatus, ProviderAccountStatus, ProviderAuthMethod, TurnActivityStatus,
+    AgentStatus, ClaimStatus, MemoryClaimDetail, MemoryClaimEvidence, MemoryClaimRecord,
+    OnboardingStatus, ProviderAccountStatus, ProviderAuthMethod, TurnActivityStatus,
     TurnTranscriptItem,
+    memory::Sensitivity,
     provider_auth::{ProviderAuthAttemptStatus, ProviderAuthAttemptView},
 };
 
@@ -41,6 +43,211 @@ pub struct GraphqlLocalStatus {
     pub assistant_connection: GraphqlAssistantConnection,
     /// Memory storage status.
     pub memory_storage: GraphqlMemoryStorageStatus,
+}
+
+/// Graph-memory claim exposed for owner/admin inspection.
+#[derive(Clone, Debug, SimpleObject)]
+pub struct GraphqlMemoryClaim {
+    /// Stable claim id.
+    pub claim_id: String,
+    /// Conservative fact preview. Non-public facts are redacted in list views.
+    pub fact: String,
+    /// Whether the fact was redacted at the GraphQL boundary.
+    pub fact_redacted: bool,
+    /// Predicate id.
+    pub predicate_id: String,
+    /// Predicate label.
+    pub predicate_label: String,
+    /// Subject entity id.
+    pub subject_entity_id: String,
+    /// Subject entity display name.
+    pub subject_entity_name: String,
+    /// Subject entity type.
+    pub subject_entity_type: String,
+    /// Object entity id when present.
+    pub object_entity_id: Option<String>,
+    /// Object entity display name when present.
+    pub object_entity_name: Option<String>,
+    /// Object entity type when present.
+    pub object_entity_type: Option<String>,
+    /// Claim lifecycle status.
+    pub status: String,
+    /// Claim sensitivity.
+    pub sensitivity: String,
+    /// Claim confidence.
+    pub confidence: Option<f64>,
+    /// Count of supporting evidence rows.
+    pub evidence_count: i64,
+    /// Creation timestamp.
+    pub created_at: String,
+    /// Update timestamp.
+    pub updated_at: String,
+}
+
+impl From<MemoryClaimRecord> for GraphqlMemoryClaim {
+    fn from(claim: MemoryClaimRecord) -> Self {
+        let fact_redacted = claim.sensitivity != Sensitivity::Public;
+        Self {
+            claim_id: claim.claim_id,
+            fact: graphql_list_fact(&claim.fact, claim.sensitivity),
+            fact_redacted,
+            predicate_id: claim.predicate_id,
+            predicate_label: claim.predicate_label,
+            subject_entity_id: claim.subject_entity_id,
+            subject_entity_name: graphql_list_display_name(
+                claim.subject_entity_name,
+                claim.sensitivity,
+            ),
+            subject_entity_type: claim.subject_entity_type,
+            object_entity_id: claim.object_entity_id,
+            object_entity_name: claim
+                .object_entity_name
+                .map(|name| graphql_list_display_name(name, claim.sensitivity)),
+            object_entity_type: claim.object_entity_type,
+            status: claim_status_label(claim.status).to_string(),
+            sensitivity: sensitivity_label(claim.sensitivity).to_string(),
+            confidence: claim.confidence,
+            evidence_count: claim.evidence_count,
+            created_at: claim.created_at,
+            updated_at: claim.updated_at,
+        }
+    }
+}
+
+fn graphql_list_fact(fact: &str, sensitivity: Sensitivity) -> String {
+    match sensitivity {
+        Sensitivity::Public => fact.to_string(),
+        Sensitivity::Normal
+        | Sensitivity::Private
+        | Sensitivity::Sensitive
+        | Sensitivity::Secret => "[redacted; use memoryClaim(claimId) for detail]".to_string(),
+    }
+}
+
+fn graphql_list_display_name(name: String, sensitivity: Sensitivity) -> String {
+    match sensitivity {
+        Sensitivity::Public => name,
+        Sensitivity::Normal
+        | Sensitivity::Private
+        | Sensitivity::Sensitive
+        | Sensitivity::Secret => "[redacted; use memoryClaim(claimId) for detail]".to_string(),
+    }
+}
+
+fn claim_status_label(status: ClaimStatus) -> &'static str {
+    match status {
+        ClaimStatus::Candidate => "candidate",
+        ClaimStatus::Active => "active",
+        ClaimStatus::Confirmed => "confirmed",
+        ClaimStatus::Disputed => "disputed",
+        ClaimStatus::Superseded => "superseded",
+        ClaimStatus::Archived => "archived",
+        ClaimStatus::Deleted => "deleted",
+    }
+}
+
+fn sensitivity_label(sensitivity: Sensitivity) -> &'static str {
+    match sensitivity {
+        Sensitivity::Public => "public",
+        Sensitivity::Normal => "normal",
+        Sensitivity::Private => "private",
+        Sensitivity::Sensitive => "sensitive",
+        Sensitivity::Secret => "secret",
+    }
+}
+
+/// Supporting evidence exposed for explicit owner/admin claim detail inspection.
+#[derive(Clone, Debug, SimpleObject)]
+pub struct GraphqlMemoryClaimEvidence {
+    /// Stable evidence relation id if available.
+    pub evidence_id: Option<String>,
+    /// Source conversation item id if available.
+    pub source_item_id: Option<String>,
+    /// Evidence authority.
+    pub authority: String,
+    /// Evidence excerpt when available.
+    pub excerpt: Option<String>,
+    /// Observation timestamp when available.
+    pub observed_at: Option<String>,
+    /// Evidence creation timestamp.
+    pub created_at: String,
+}
+
+impl From<MemoryClaimEvidence> for GraphqlMemoryClaimEvidence {
+    fn from(evidence: MemoryClaimEvidence) -> Self {
+        Self {
+            evidence_id: evidence.evidence_id,
+            source_item_id: evidence.source_item_id,
+            authority: evidence.authority,
+            excerpt: evidence.excerpt,
+            observed_at: evidence.observed_at,
+            created_at: evidence.created_at,
+        }
+    }
+}
+
+/// Graph-memory claim detail exposed for owner/admin inspection.
+#[derive(Clone, Debug, SimpleObject)]
+pub struct GraphqlMemoryClaimDetail {
+    /// Stable claim id.
+    pub claim_id: String,
+    /// Human-readable fact text.
+    pub fact: String,
+    /// Predicate id.
+    pub predicate_id: String,
+    /// Predicate label.
+    pub predicate_label: String,
+    /// Subject entity id.
+    pub subject_entity_id: String,
+    /// Subject entity display name.
+    pub subject_entity_name: String,
+    /// Subject entity type.
+    pub subject_entity_type: String,
+    /// Object entity id when present.
+    pub object_entity_id: Option<String>,
+    /// Object entity display name when present.
+    pub object_entity_name: Option<String>,
+    /// Object entity type when present.
+    pub object_entity_type: Option<String>,
+    /// Claim lifecycle status.
+    pub status: String,
+    /// Claim sensitivity.
+    pub sensitivity: String,
+    /// Claim confidence.
+    pub confidence: Option<f64>,
+    /// Count of supporting evidence rows.
+    pub evidence_count: i64,
+    /// Creation timestamp.
+    pub created_at: String,
+    /// Update timestamp.
+    pub updated_at: String,
+    /// Support evidence rows.
+    pub evidence: Vec<GraphqlMemoryClaimEvidence>,
+}
+
+impl From<MemoryClaimDetail> for GraphqlMemoryClaimDetail {
+    fn from(detail: MemoryClaimDetail) -> Self {
+        let claim = detail.claim;
+        Self {
+            claim_id: claim.claim_id,
+            fact: claim.fact,
+            predicate_id: claim.predicate_id,
+            predicate_label: claim.predicate_label,
+            subject_entity_id: claim.subject_entity_id,
+            subject_entity_name: claim.subject_entity_name,
+            subject_entity_type: claim.subject_entity_type,
+            object_entity_id: claim.object_entity_id,
+            object_entity_name: claim.object_entity_name,
+            object_entity_type: claim.object_entity_type,
+            status: claim_status_label(claim.status).to_string(),
+            sensitivity: sensitivity_label(claim.sensitivity).to_string(),
+            confidence: claim.confidence,
+            evidence_count: claim.evidence_count,
+            created_at: claim.created_at,
+            updated_at: claim.updated_at,
+            evidence: detail.evidence.into_iter().map(Into::into).collect(),
+        }
+    }
 }
 
 /// Provider auth method exposed through GraphQL.
