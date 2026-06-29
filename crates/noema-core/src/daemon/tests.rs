@@ -334,7 +334,10 @@ async fn start_primary_conversation_generates_initial_name_onboarding_message() 
     );
     assert!(items.iter().any(|item| {
         item.kind == ConversationItemKind::AssistantText
-            && item.content_text.as_deref() == Some("What would you like to call me?")
+            && item.content_text.as_deref()
+                == Some(
+                    "Hi, I'm glad to be here. Before we start building this together, what would you like to name me?",
+                )
     }));
 }
 
@@ -3341,11 +3344,13 @@ impl FakeCodexProvider {
                     && instructions.contains("display_name: null")
                     && instructions.contains("Onboarding prompt:")
                     && instructions.contains("Ask the user what they would like to name you.")
+                    && instructions.contains("warm and welcoming")
+                    && instructions.contains("2-3 short sentences")
                     && !input.contains("Your name is");
                 assistant_with_no_memories(if saw_onboarding {
-                    "What would you like to call me?"
+                    "Hi, I'm glad to be here. Before we start building this together, what would you like to name me?"
                 } else {
-                    "missing onboarding prompt"
+                    "missing warm onboarding prompt"
                 })
             }
             FakeCodexScenario::TurnError => {
