@@ -161,7 +161,7 @@ describe("Transcript memory markers", () => {
 
   test("renders partial failure marker for memory outcomes", () => {
     const markup = renderTranscript([
-      memoryExtractionEntry("activity-done", "item-done", "COMPLETED", "Memory saved", {
+      memoryExtractionEntry("activity-done", "item-done", "FAILED", "Memory saved", {
         claim_outcomes: [{ claim_id: "claim:planes", outcome: "created", fact_preview: "User likes planes" }],
         created_claim_count: 1,
         reinforced_claim_count: 0,
@@ -170,6 +170,26 @@ describe("Transcript memory markers", () => {
     ]);
 
     assert.match(markup, /Memory saved: 1 memory; 1 failed/);
+  });
+
+  test("renders saved outcome details for partial memory failures", () => {
+    const markup = renderTranscript(
+      [
+        memoryExtractionEntry("activity-done", "item-done", "FAILED", "Memory saved", {
+          claim_outcomes: [{ claim_id: "claim:planes", outcome: "created", fact_preview: "User likes planes" }],
+          created_claim_count: 1,
+          reinforced_claim_count: 0,
+          failed_proposal_count: 1
+        })
+      ],
+      new Set(["activity-done"])
+    );
+
+    assert.match(markup, /Memory saved: 1 memory; 1 failed/);
+    assert.match(markup, /User likes planes/);
+    assert.match(markup, /claim:planes/);
+    assert.doesNotMatch(markup, /Memory update failed/);
+    assert.doesNotMatch(markup, /data-state="error"/);
   });
 
   test("preserves legacy completed marker when failed count has no valid outcomes", () => {
@@ -308,7 +328,7 @@ describe("shouldShowTypingIndicator", () => {
 function memoryExtractionEntry(
   id: string,
   itemId: string,
-  status: "STARTED" | "COMPLETED",
+  status: "STARTED" | "COMPLETED" | "FAILED",
   title: string,
   metadata: Record<string, unknown> = { turn_index: 1, proposal_count: 1 }
 ): TranscriptEntry {

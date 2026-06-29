@@ -706,7 +706,7 @@ function MemoryMarker({
   onToggle: () => void;
 }) {
   const memories = proposal ? memoryCardsFromStructuredItem(proposal) ?? [] : memoryCardsFromClaimOutcomes(extraction);
-  const failed = extraction?.status === "FAILED";
+  const failed = extraction?.status === "FAILED" && memories.length === 0;
   const started = extraction?.status === "STARTED";
   const label = memoryMarkerLabel(extraction);
   const tone = failed ? "error" : started ? "default" : "success";
@@ -775,9 +775,6 @@ function memoryMarkerLabel(extraction?: Extract<TurnTranscriptItem, { kind: "act
   if (!extraction) {
     return "Memory updated";
   }
-  if (extraction.status === "FAILED") {
-    return "Memory update failed";
-  }
   if (extraction.status === "STARTED") {
     return "Memory proposed";
   }
@@ -785,7 +782,7 @@ function memoryMarkerLabel(extraction?: Extract<TurnTranscriptItem, { kind: "act
   const outcomes = memoryClaimOutcomes(extraction.metadata);
   const failedCount = metadataCount(extraction.metadata, "failed_proposal_count");
   if (outcomes.length === 0) {
-    return "Memory updated";
+    return extraction.status === "FAILED" ? "Memory update failed" : "Memory updated";
   }
   if (outcomes.length === 1 && failedCount === 0) {
     const outcome = outcomes[0];
@@ -941,7 +938,7 @@ function MemoryDetailAttachment({
   failed: boolean;
 }) {
   const memoryCount = memories.length;
-  const title = failed ? "Memory update failed" : memoryCount === 1 ? "Memory saved" : `${memoryCount} memories saved`;
+  const title = failed ? "Memory update failed" : memoryDetailTitle(extraction, memoryCount);
   const status = extraction ? statusLabel(extraction.status) : null;
   const description = extraction?.summary ?? (status ? `Memory extraction ${status.toLowerCase()}` : "Memory proposal");
 
@@ -957,6 +954,16 @@ function MemoryDetailAttachment({
       </AttachmentContent>
     </Attachment>
   );
+}
+
+function memoryDetailTitle(
+  extraction: Extract<TurnTranscriptItem, { kind: "activity" }> | undefined,
+  memoryCount: number
+): string {
+  if (extraction && memoryCount > 0 && metadataCount(extraction.metadata, "failed_proposal_count") > 0) {
+    return memoryMarkerLabel(extraction);
+  }
+  return memoryCount === 1 ? "Memory saved" : `${memoryCount} memories saved`;
 }
 
 function MemoryDetailList({ memories }: { memories: MemoryCardData[] }) {
