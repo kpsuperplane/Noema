@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use async_graphql::{Enum, InputObject, Json, SimpleObject, Union};
 use serde_json::Value;
 
@@ -339,20 +341,61 @@ pub struct GraphqlMemoryGraphSummary {
 
 impl From<MemoryGraph> for GraphqlMemoryGraph {
     fn from(graph: MemoryGraph) -> Self {
+        let MemoryGraph {
+            nodes,
+            edges,
+            summary,
+        } = graph;
+        let node_id_map = opaque_memory_graph_node_ids(&nodes);
         Self {
-            nodes: graph.nodes.into_iter().map(Into::into).collect(),
-            edges: graph.edges.into_iter().map(Into::into).collect(),
-            summary: graph.summary.into(),
+            nodes: nodes
+                .into_iter()
+                .map(|node| GraphqlMemoryGraphNode::from_store_node(node, &node_id_map))
+                .collect(),
+            edges: edges
+                .into_iter()
+                .map(|edge| GraphqlMemoryGraphEdge::from_store_edge(edge, &node_id_map))
+                .collect(),
+            summary: summary.into(),
         }
     }
 }
 
-impl From<MemoryGraphNode> for GraphqlMemoryGraphNode {
-    fn from(node: MemoryGraphNode) -> Self {
+fn opaque_memory_graph_node_ids(nodes: &[MemoryGraphNode]) -> HashMap<String, String> {
+    let mut node_ids = nodes
+        .iter()
+        .map(|node| node.node_id.clone())
+        .collect::<Vec<_>>();
+    node_ids.sort();
+    node_ids
+        .into_iter()
+        .enumerate()
+        .map(|(index, node_id)| (node_id, format!("memory-node:{}", index + 1)))
+        .collect()
+}
+
+fn mapped_memory_graph_node_id(
+    node_id_map: &HashMap<String, String>,
+    store_node_id: &str,
+) -> String {
+    node_id_map
+        .get(store_node_id)
+        .cloned()
+        .unwrap_or_else(|| "memory-node:unknown".to_string())
+}
+
+impl GraphqlMemoryGraphNode {
+    fn from_store_node(node: MemoryGraphNode, node_id_map: &HashMap<String, String>) -> Self {
         let redacted = node.max_sensitivity != Sensitivity::Public;
+        let node_id = mapped_memory_graph_node_id(node_id_map, &node.node_id);
+        let entity_id = if redacted {
+            node_id.clone()
+        } else {
+            node.entity_id
+        };
         Self {
-            node_id: node.node_id,
-            entity_id: node.entity_id,
+            node_id,
+            entity_id,
             label: graphql_list_display_name(node.label, node.max_sensitivity),
             entity_type: node.entity_type,
             redacted,
@@ -361,13 +404,13 @@ impl From<MemoryGraphNode> for GraphqlMemoryGraphNode {
     }
 }
 
-impl From<MemoryGraphEdge> for GraphqlMemoryGraphEdge {
-    fn from(edge: MemoryGraphEdge) -> Self {
+impl GraphqlMemoryGraphEdge {
+    fn from_store_edge(edge: MemoryGraphEdge, node_id_map: &HashMap<String, String>) -> Self {
         let fact_redacted = edge.sensitivity != Sensitivity::Public;
         Self {
             claim_id: edge.claim_id,
-            source_node_id: edge.source_node_id,
-            target_node_id: edge.target_node_id,
+            source_node_id: mapped_memory_graph_node_id(node_id_map, &edge.source_node_id),
+            target_node_id: mapped_memory_graph_node_id(node_id_map, &edge.target_node_id),
             predicate_id: edge.predicate_id,
             predicate_label: edge.predicate_label,
             fact: graphql_list_fact(&edge.fact, edge.sensitivity),

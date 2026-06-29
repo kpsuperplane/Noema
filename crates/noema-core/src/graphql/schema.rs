@@ -851,8 +851,8 @@ mod tests {
                 r#"
                 {
                   memoryGraph(input: { statuses: ["confirmed"], limit: 150 }) {
-                    nodes { nodeId label redacted claimCount }
-                    edges { claimId fact factRedacted predicateLabel sensitivity }
+                    nodes { nodeId entityId label redacted claimCount }
+                    edges { claimId sourceNodeId targetNodeId fact factRedacted predicateLabel sensitivity }
                     summary { returnedClaimCount returnedNodeCount limit truncated }
                   }
                 }
@@ -872,6 +872,36 @@ mod tests {
         );
         assert_eq!(data["memoryGraph"]["edges"][0]["factRedacted"], true);
         assert_eq!(data["memoryGraph"]["nodes"][0]["redacted"], true);
+
+        let graph_json = serde_json::to_string(&data["memoryGraph"]).expect("graph json");
+        assert!(!graph_json.contains("garage-code"), "{graph_json}");
+        assert!(!graph_json.contains("garage_code"), "{graph_json}");
+        assert!(!graph_json.contains("Garage code"), "{graph_json}");
+        assert!(!graph_json.contains("1234"), "{graph_json}");
+
+        let nodes = data["memoryGraph"]["nodes"].as_array().expect("nodes");
+        let edge = &data["memoryGraph"]["edges"][0];
+        assert!(
+            nodes
+                .iter()
+                .any(|node| node["nodeId"] == edge["sourceNodeId"])
+        );
+        assert!(
+            nodes
+                .iter()
+                .any(|node| node["nodeId"] == edge["targetNodeId"])
+        );
+        for node in nodes {
+            assert!(
+                node["nodeId"]
+                    .as_str()
+                    .expect("node id")
+                    .starts_with("memory-node:")
+            );
+            if node["redacted"] == true {
+                assert_eq!(node["entityId"], node["nodeId"]);
+            }
+        }
     }
 
     #[tokio::test]
@@ -891,6 +921,20 @@ mod tests {
                 .contains("memoryGraph limit must be at least 1")
         );
 
+        let high_limit = schema
+            .execute(async_graphql::Request::new(
+                r#"
+                { memoryGraph(input: { limit: 501 }) { summary { limit } } }
+                "#,
+            ))
+            .await;
+        assert_eq!(high_limit.errors.len(), 1);
+        assert!(
+            high_limit.errors[0]
+                .message
+                .contains("memoryGraph limit must be at most 500")
+        );
+
         let bad_status = schema
             .execute(async_graphql::Request::new(
                 r#"
@@ -903,6 +947,20 @@ mod tests {
             bad_status.errors[0]
                 .message
                 .contains("unknown memory claim status: sleepy")
+        );
+
+        let bad_sensitivity = schema
+            .execute(async_graphql::Request::new(
+                r#"
+                { memoryGraph(input: { sensitivity: "spicy" }) { summary { limit } } }
+                "#,
+            ))
+            .await;
+        assert_eq!(bad_sensitivity.errors.len(), 1);
+        assert!(
+            bad_sensitivity.errors[0]
+                .message
+                .contains("unknown memory sensitivity: spicy")
         );
     }
 
