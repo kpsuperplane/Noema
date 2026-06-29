@@ -18,6 +18,8 @@ pub mod home;
 pub mod ids;
 /// Memory storage and retrieval policy model.
 pub mod memory;
+/// Future-write memory consolidation types and prompts.
+pub mod memory_consolidation;
 /// Shared memory/domain error types.
 pub mod memory_error;
 /// Pure ordinary-chat memory extraction proposal layer.
@@ -61,6 +63,13 @@ pub use home::{
 };
 pub use ids::{
     ActorId, ContextPacketId, ConversationId, ConversationItemId, MemoryItemId, ObjectId,
+};
+pub use memory_consolidation::{
+    CanonicalClaimCandidate, CanonicalClaimStatus, CanonicalEntity, ConsolidationDecision,
+    ConsolidationDecisionKind, MemoryConsolidationError, MemoryWriteProposal,
+    MemoryWriteSourceKind, PredicateResolution, ProposedPredicate,
+    build_claim_canonicalization_prompt, build_consolidation_prompt,
+    parse_canonicalization_response, parse_consolidation_decision,
 };
 pub use memory_error::MemoryPersistenceError;
 pub use memory_extraction::{
