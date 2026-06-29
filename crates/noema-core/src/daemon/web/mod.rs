@@ -386,7 +386,9 @@ struct EmbeddedAsset {
 
 fn embedded_asset(path: &str) -> Option<EmbeddedAsset> {
     let (content_type, name) = match path {
-        "/" | "/index.html" | "/chat" => ("text/html; charset=utf-8", "index.html"),
+        "/" | "/index.html" | "/chat" | "/memory" | "/memory/graph" => {
+            ("text/html; charset=utf-8", "index.html")
+        }
         "/assets/app.js" => ("application/javascript; charset=utf-8", "app.js"),
         "/assets/styles.css" => ("text/css; charset=utf-8", "styles.css"),
         "/assets/noema-mark.svg" => ("image/svg+xml; charset=utf-8", "noema-mark.svg"),
@@ -1287,6 +1289,16 @@ mod tests {
         assert!(is_supported_product_route("POST", "/graphql"));
         assert!(is_supported_product_route("GET", "/graphql/ws"));
         assert!(is_supported_product_route("GET", "/graphql/schema.graphql"));
+    }
+
+    #[test]
+    fn memory_routes_serve_spa_entry_asset() {
+        for path in ["/memory", "/memory/graph"] {
+            let asset = embedded_asset(path).expect("memory route should serve index");
+            assert_eq!(asset.content_type, "text/html; charset=utf-8");
+        }
+
+        assert!(embedded_asset("/memory/nope").is_none());
     }
 
     #[tokio::test]
