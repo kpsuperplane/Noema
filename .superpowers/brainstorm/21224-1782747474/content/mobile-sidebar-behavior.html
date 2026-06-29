@@ -1,0 +1,76 @@
+<h2>How should the sidebar behave on narrow screens?</h2>
+<p class="subtitle">Desktop uses a left sidebar with Noema, Home, and Memory. Pick the mobile behavior that feels closest.</p>
+
+<div class="cards">
+  <div class="card" data-choice="bottom-tabs" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="width:100%;height:220px;border:1px solid #ddd6c8;border-radius:10px;background:#fff;display:grid;grid-template-rows:34px 1fr 44px;overflow:hidden">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:0 12px;border-bottom:1px solid #eee7db;font-size:11px;color:#5e5a4b">
+          <strong>Noema</strong><span>Ready</span>
+        </div>
+        <div style="display:grid;align-content:end;gap:8px;padding:14px">
+          <div style="width:74%;height:24px;border-radius:8px;background:#f7f2e8"></div>
+          <div style="width:58%;height:24px;border-radius:8px;background:#e9f2ec;justify-self:end"></div>
+          <div style="height:34px;border-radius:9px;border:1px solid #ddd6c8;background:#fcfaf5"></div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;border-top:1px solid #ddd6c8;background:#fff">
+          <div style="display:grid;place-items:center;border-right:1px solid #eee7db;color:#176046;font-weight:700;font-size:12px">Home</div>
+          <div style="display:grid;place-items:center;color:#827d6b;font-size:12px">Memory</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A. Bottom Tabs</h3>
+      <p>Recommended: keeps Home and Memory one tap away without taking scarce mobile width.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="drawer" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="width:100%;height:220px;border:1px solid #ddd6c8;border-radius:10px;background:#fff;display:grid;grid-template-rows:42px 1fr;overflow:hidden">
+        <div style="display:flex;align-items:center;gap:10px;padding:0 12px;border-bottom:1px solid #eee7db;font-size:12px;color:#5e5a4b">
+          <span style="font-size:18px;line-height:1">☰</span><strong>Noema</strong><span style="margin-left:auto">Ready</span>
+        </div>
+        <div style="display:grid;grid-template-columns:116px 1fr;min-height:0">
+          <div style="border-right:1px solid #ddd6c8;background:#fcfaf5;padding:12px;display:grid;align-content:start;gap:8px;font-size:12px">
+            <strong style="color:#176046">Home</strong>
+            <span style="color:#827d6b">Memory</span>
+          </div>
+          <div style="display:grid;align-content:end;gap:8px;padding:14px">
+            <div style="width:80%;height:24px;border-radius:8px;background:#f7f2e8"></div>
+            <div style="width:55%;height:24px;border-radius:8px;background:#e9f2ec;justify-self:end"></div>
+            <div style="height:34px;border-radius:9px;border:1px solid #ddd6c8;background:#fcfaf5"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B. Drawer</h3>
+      <p>Most like a desktop sidebar, but it brings back a small top control and adds open/close behavior.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="mini-rail" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="width:100%;height:220px;border:1px solid #ddd6c8;border-radius:10px;background:#fff;display:grid;grid-template-columns:48px 1fr;overflow:hidden">
+        <div style="border-right:1px solid #ddd6c8;background:#fcfaf5;display:grid;grid-template-rows:44px 44px 44px 1fr;justify-items:center;align-items:center;color:#827d6b">
+          <strong style="font-size:13px;color:#17160f">N</strong>
+          <span style="width:28px;height:28px;border-radius:8px;background:#e9f2ec;color:#176046;display:grid;place-items:center;font-size:13px">H</span>
+          <span style="font-size:13px">M</span>
+        </div>
+        <div style="display:grid;grid-template-rows:34px 1fr;min-width:0">
+          <div style="display:flex;align-items:center;justify-content:flex-end;padding:0 12px;border-bottom:1px solid #eee7db;font-size:11px;color:#5e5a4b">Ready</div>
+          <div style="display:grid;align-content:end;gap:8px;padding:14px">
+            <div style="width:74%;height:24px;border-radius:8px;background:#f7f2e8"></div>
+            <div style="width:58%;height:24px;border-radius:8px;background:#e9f2ec;justify-self:end"></div>
+            <div style="height:34px;border-radius:9px;border:1px solid #ddd6c8;background:#fcfaf5"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C. Mini Rail</h3>
+      <p>Preserves the sidebar idea everywhere, but labels disappear and the chat loses horizontal room.</p>
+    </div>
+  </div>
+</div>

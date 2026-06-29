@@ -200,7 +200,7 @@ export function Composer({
     >
       <div
         data-slot="composer-bubble"
-        className="relative w-fit min-w-[min(13rem,100%)] max-w-full rounded-3xl bg-primary p-1.5 pr-12 text-primary-foreground shadow-[0_8px_24px_rgba(23,22,15,0.08)]"
+        className="relative w-fit min-w-[min(13rem,100%)] max-w-full rounded-4xl bg-primary p-1.5 pr-12 text-primary-foreground shadow-[0_8px_24px_rgba(23,22,15,0.08)]"
       >
         <div data-slot="composer-textarea-wrap" className="min-w-0" style={textareaWrapStyle}>
           <Textarea

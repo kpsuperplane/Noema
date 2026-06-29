@@ -1,0 +1,75 @@
+<h2>Shared shell design</h2>
+<p class="subtitle">Selected direction: desktop sidebar, mobile drawer, two primary destinations.</p>
+
+<div class="split">
+  <div class="mockup">
+    <div class="mockup-header">Desktop: persistent sidebar</div>
+    <div class="mockup-body">
+      <div style="height:360px;border:1px solid #ddd6c8;border-radius:10px;overflow:hidden;background:#fff;display:grid;grid-template-columns:232px 1fr">
+        <aside style="background:#fcfaf5;border-right:1px solid #ddd6c8;display:grid;grid-template-rows:auto 1fr auto;padding:18px 14px;gap:18px">
+          <div style="display:flex;align-items:center;gap:10px">
+            <div style="width:32px;height:32px;border-radius:8px;background:#e9f2ec;display:grid;place-items:center;color:#176046;font-weight:800">N</div>
+            <div>
+              <strong style="display:block;font-size:14px">Noema</strong>
+              <span style="display:block;color:#827d6b;font-size:11px">Local agent OS</span>
+            </div>
+          </div>
+          <nav style="display:grid;align-content:start;gap:7px">
+            <div style="border-radius:8px;background:#e9f2ec;color:#176046;padding:9px 10px;font-weight:700;font-size:13px">Home</div>
+            <div style="border-radius:8px;color:#5e5a4b;padding:9px 10px;font-size:13px">Memory</div>
+          </nav>
+          <div style="display:flex;flex-wrap:wrap;gap:6px">
+            <span style="border:1px solid #c9e4d6;background:#e9f2ec;color:#176046;border-radius:999px;padding:3px 7px;font-size:10px">Ready</span>
+            <span style="border:1px solid #ddd6c8;background:#fff;color:#5e5a4b;border-radius:999px;padding:3px 7px;font-size:10px">Chat live</span>
+          </div>
+        </aside>
+        <main style="display:grid;grid-template-rows:auto 1fr auto;min-width:0">
+          <header style="border-bottom:1px solid #eee7db;padding:14px 20px">
+            <strong style="font-size:18px">Home</strong>
+            <span style="display:block;color:#827d6b;font-size:12px">Primary conversation</span>
+          </header>
+          <section style="display:grid;align-content:end;gap:10px;padding:20px 28px">
+            <div style="width:68%;height:30px;border-radius:8px;background:#f7f2e8"></div>
+            <div style="width:54%;height:30px;border-radius:8px;background:#e9f2ec;justify-self:end"></div>
+          </section>
+          <div style="margin:0 28px 20px;height:42px;border-radius:10px;border:1px solid #ddd6c8;background:#fcfaf5"></div>
+        </main>
+      </div>
+    </div>
+  </div>
+
+  <div class="mockup">
+    <div class="mockup-header">Mobile: drawer shell</div>
+    <div class="mockup-body">
+      <div style="height:360px;width:min(230px,100%);margin:auto;border:1px solid #ddd6c8;border-radius:16px;overflow:hidden;background:#fff;display:grid;grid-template-rows:44px 1fr">
+        <header style="display:flex;align-items:center;gap:9px;padding:0 12px;border-bottom:1px solid #eee7db">
+          <span style="font-size:19px;line-height:1;color:#5e5a4b">☰</span>
+          <strong style="font-size:13px">Home</strong>
+          <span style="margin-left:auto;border:1px solid #c9e4d6;background:#e9f2ec;color:#176046;border-radius:999px;padding:2px 6px;font-size:9px">Ready</span>
+        </header>
+        <div style="display:grid;grid-template-columns:112px 1fr;min-height:0">
+          <aside style="background:#fcfaf5;border-right:1px solid #ddd6c8;padding:12px 10px;display:grid;align-content:start;gap:8px">
+            <div style="display:flex;align-items:center;gap:7px;margin-bottom:6px">
+              <div style="width:24px;height:24px;border-radius:7px;background:#e9f2ec;display:grid;place-items:center;color:#176046;font-weight:800;font-size:11px">N</div>
+              <strong style="font-size:12px">Noema</strong>
+            </div>
+            <div style="border-radius:8px;background:#e9f2ec;color:#176046;padding:7px 8px;font-weight:700;font-size:12px">Home</div>
+            <div style="border-radius:8px;color:#5e5a4b;padding:7px 8px;font-size:12px">Memory</div>
+          </aside>
+          <main style="display:grid;grid-template-rows:1fr auto;min-width:0">
+            <section style="display:grid;align-content:end;gap:8px;padding:12px">
+              <div style="width:82%;height:22px;border-radius:8px;background:#f7f2e8"></div>
+              <div style="width:60%;height:22px;border-radius:8px;background:#e9f2ec;justify-self:end"></div>
+            </section>
+            <div style="margin:0 12px 12px;height:32px;border-radius:9px;border:1px solid #ddd6c8;background:#fcfaf5"></div>
+          </main>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Design section 1: shell behavior</h3>
+  <p>The app gets one shared navigation shell after onboarding. Desktop keeps a persistent left sidebar. Narrow screens use a drawer opened from a small top bar. Both variants expose the same primary destinations: <strong>Home</strong> for the durable primary conversation and <strong>Memory</strong> for the memory management surface.</p>
+</div>

@@ -14,7 +14,7 @@ export function avatarSeedForActorId(actorId: string): string {
   let hash = 0x811c9dc5;
   for (let index = 0; index < actorId.length; index += 1) {
     hash ^= actorId.charCodeAt(index);
-    hash = Math.imul(hash, 0x01000193);
+    hash = Math.imul(hash, 0x01000162);
   }
   return `actor-${(hash >>> 0).toString(16).padStart(8, "0")}`;
 }

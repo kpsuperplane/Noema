@@ -134,7 +134,7 @@ export function AppShell({
 
   return (
     <main className="grid h-dvh min-h-screen grid-cols-[236px_minmax(0,1fr)] overflow-hidden bg-background max-[760px]:grid-cols-1 max-[760px]:grid-rows-[auto_minmax(0,1fr)]">
-      <aside className="grid min-h-0 border-r border-[var(--border-subtle)] bg-[var(--surface-sunken)] px-3.5 py-4 max-[760px]:hidden">
+      <aside className="grid min-h-0 border-r border-[var(--border-subtle)] px-3.5 py-4 max-[760px]:hidden">
         <ShellSidebar
           activeDestination={activeDestination}
           attention={attention}
@@ -153,7 +153,7 @@ export function AppShell({
           </SheetTrigger>
           <SheetContent
             side="left"
-            className="w-[min(320px,86vw)] bg-[var(--surface-sunken)] p-0"
+            className="w-[min(320px,86vw)] p-0"
             showCloseButton={false}
           >
             <SheetHeader className="sr-only">
