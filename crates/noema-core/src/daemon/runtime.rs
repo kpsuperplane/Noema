@@ -1340,26 +1340,24 @@ impl CodexRuntimeActor {
         let failed_proposal_count = failed_proposals.len();
         let saved_claim_count = claim_ids.len();
         let review_claim_count = disputed_claim_count + needs_review_claim_count;
-        let (status, title, persisted_summary) = if (predicate_proposal_count > 0
-            || review_claim_count > 0)
-            && active_saved_claim_count == 0
-        {
-            (
-                if failed_proposal_count == 0 {
-                    TurnActivityStatus::Completed
-                } else {
-                    TurnActivityStatus::Failed
-                },
-                "Memory needs review",
-                provider_memory_review_summary(
-                    predicate_proposal_count,
-                    review_claim_count,
-                    failed_proposal_count,
-                ),
-            )
-        } else {
-            provider_memory_claim_activity(saved_claim_count, failed_proposal_count)
-        };
+        let (status, title, persisted_summary) =
+            if predicate_proposal_count > 0 || review_claim_count > 0 {
+                (
+                    if failed_proposal_count == 0 {
+                        TurnActivityStatus::Completed
+                    } else {
+                        TurnActivityStatus::Failed
+                    },
+                    "Memory needs review",
+                    provider_memory_review_summary(
+                        predicate_proposal_count,
+                        review_claim_count,
+                        failed_proposal_count,
+                    ),
+                )
+            } else {
+                provider_memory_claim_activity(saved_claim_count, failed_proposal_count)
+            };
         let activity = memory_activity(
             &activity_id,
             status,

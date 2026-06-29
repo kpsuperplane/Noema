@@ -1718,6 +1718,88 @@ async fn contradiction_becomes_reviewable_dispute() {
 }
 
 #[tokio::test]
+async fn provider_mixed_active_and_disputed_claims_needs_review() {
+    let (handle, store) =
+        test_runtime_handle_with_store(fake_codex_provider_with_memory_extraction()).await;
+    let conversation = handle
+        .start_conversation(None, None)
+        .await
+        .expect("conversation");
+    let conversation_id = conversation.conversation_id.clone();
+
+    collect_turn(
+        &handle,
+        conversation_id.clone(),
+        "I like ice cream.".to_string(),
+    )
+    .await
+    .expect("seed turn");
+    let items = collect_turn(
+        &handle,
+        conversation_id,
+        "I like planes. I hate ice cream.".to_string(),
+    )
+    .await
+    .expect("mixed provider batch turn");
+
+    let memory_activity = items
+        .iter()
+        .rev()
+        .find(|item| {
+            matches!(
+                item,
+                TurnTranscriptItem::Activity {
+                    activity_kind,
+                    title,
+                    ..
+                } if activity_kind == "memory_extraction" && title != "Memory proposed"
+            )
+        })
+        .expect("memory extraction activity");
+    assert!(
+        matches!(
+            memory_activity,
+            TurnTranscriptItem::Activity {
+                status: TurnActivityStatus::Completed,
+                title,
+                metadata,
+                ..
+            } if title == "Memory needs review"
+                && metadata["created_claim_count"].as_u64().unwrap_or_default() > 0
+                && metadata["active_saved_claim_count"].as_u64().unwrap_or_default() > 0
+                && metadata["disputed_claim_count"].as_u64().unwrap_or_default() > 0
+        ),
+        "unexpected memory activity: {memory_activity:?}"
+    );
+
+    let active_claims = store
+        .retrieve_claims(&answer_claim_request(), "planes", 8)
+        .await
+        .expect("retrieve planes claim");
+    assert_eq!(
+        active_claims.included.len(),
+        1,
+        "expected one active planes claim: {active_claims:?}"
+    );
+
+    let disputed_claims = store
+        .list_claims(crate::MemoryClaimFilter {
+            query: Some("ice cream".to_string()),
+            status: Some(crate::ClaimStatus::Disputed),
+            predicate_id: None,
+            limit: Some(10),
+        })
+        .await
+        .expect("disputed claims");
+    assert_eq!(
+        disputed_claims.len(),
+        1,
+        "expected one disputed ice cream claim: {disputed_claims:?}"
+    );
+    handle.shutdown().await;
+}
+
+#[tokio::test]
 async fn provider_user_loves_planes_canonicalizes_to_likes_claim() {
     let (handle, store) =
         test_runtime_handle_with_store(fake_codex_provider_with_memory_extraction()).await;
@@ -1922,7 +2004,7 @@ async fn provider_active_claim_with_predicate_proposal_persists_memory() {
                 title,
                 metadata,
                 ..
-            } if title == "Memory persisted"
+            } if title == "Memory needs review"
                 && metadata["predicate_proposal_count"] == 1
                 && metadata["created_claim_count"] == 1
                 && metadata["active_saved_claim_count"] == 1
@@ -3417,6 +3499,20 @@ fn canonicalization_response_text(input: &str, scenario: FakeCodexScenario) -> S
                 "rationale": "The source states a durable collecting relationship."
             }]
         })
+    } else if input.contains("The user loves planes.") || input.contains("Kevin likes planes.") {
+        json!({
+            "candidates": [{
+                "subject": {"entity_id": "human:local", "entity_type": "human", "canonical_name": "Local human"},
+                "object": {"entity_id": "concept:claim_object_likes_planes", "entity_type": "concept", "canonical_name": "planes"},
+                "predicate": {"kind": "promoted_predicate", "predicate_id": "likes"},
+                "fact": "Kevin likes planes.",
+                "sensitivity": "normal",
+                "status": "active",
+                "confidence": 0.9,
+                "retrieval_hints": {"keywords": ["planes"], "summary": "Kevin likes planes."},
+                "rationale": "The source states a durable plane preference."
+            }]
+        })
     } else if input.contains("Kevin enjoys ice cream desserts.")
         || input.contains("Kevin likes ice cream.")
     {
@@ -3523,6 +3619,21 @@ fn memory_extraction_output(input: &str) -> Vec<GenerateOutputItem> {
                     "confidence": 0.9,
                     "retrieval_hints": {"keywords": ["model aircraft"], "summary": "Kevin collects model aircraft."},
                     "rationale": "The source states a durable collecting relationship."
+                }]
+            })
+        } else if input.contains("The user loves planes.") || input.contains("Kevin likes planes.")
+        {
+            json!({
+                "candidates": [{
+                    "subject": {"entity_id": "human:local", "entity_type": "human", "canonical_name": "Local human"},
+                    "object": {"entity_id": "concept:claim_object_likes_planes", "entity_type": "concept", "canonical_name": "planes"},
+                    "predicate": {"kind": "promoted_predicate", "predicate_id": "likes"},
+                    "fact": "Kevin likes planes.",
+                    "sensitivity": "normal",
+                    "status": "active",
+                    "confidence": 0.9,
+                    "retrieval_hints": {"keywords": ["planes"], "summary": "Kevin likes planes."},
+                    "rationale": "The source states a durable plane preference."
                 }]
             })
         } else if input.contains("Kevin enjoys ice cream desserts.")
@@ -3635,6 +3746,40 @@ fn memory_extraction_output(input: &str) -> Vec<GenerateOutputItem> {
                     "risk_flags": [],
                     "evidence_excerpt": "Ice cream is one of my favorite desserts."
                 }))],
+            },
+        ];
+    }
+
+    if input.contains("I like planes. I hate ice cream.") {
+        return vec![
+            GenerateOutputItem::AssistantText {
+                text: "fake answer".to_string(),
+            },
+            GenerateOutputItem::MemoryProposals {
+                proposals: vec![
+                    proposal(json!({
+                        "content": "The user loves planes.",
+                        "memory_type": "preference",
+                        "title": "Plane preference",
+                        "confidence": 0.91,
+                        "sensitivity": "normal",
+                        "subjects": [{"id": "human:local", "kind": "human", "name": "Kevin", "role": "about"}],
+                        "retrieval_hints": {"topics": ["aviation"], "keywords": ["planes"], "summary": "The user loves planes."},
+                        "risk_flags": [],
+                        "evidence_excerpt": "I like planes."
+                    })),
+                    proposal(json!({
+                        "content": "Kevin hates ice cream.",
+                        "memory_type": "preference",
+                        "title": "Ice cream dislike",
+                        "confidence": 0.91,
+                        "sensitivity": "normal",
+                        "subjects": [{"id": null, "kind": "human", "name": "Kevin", "role": "about"}],
+                        "retrieval_hints": {"topics": ["food"], "keywords": ["ice cream"], "summary": "Kevin hates ice cream."},
+                        "risk_flags": ["contradiction"],
+                        "evidence_excerpt": "I hate ice cream."
+                    })),
+                ],
             },
         ];
     }
