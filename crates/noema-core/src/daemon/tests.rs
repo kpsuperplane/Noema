@@ -2735,7 +2735,7 @@ async fn update_own_name_tool_updates_agent_and_continues_turn() {
         .await
         .expect("conversation")
         .conversation_id;
-    let items = collect_turn(&handle, conversation_id, "Your name is Mira.".to_string())
+    let items = collect_turn(&handle, conversation_id, "Hey! How about Fred?".to_string())
         .await
         .expect("turn");
     handle.shutdown().await;
@@ -2745,7 +2745,7 @@ async fn update_own_name_tool_updates_agent_and_continues_turn() {
         .await
         .expect("agent")
         .expect("agent exists");
-    assert_eq!(agent.display_name.as_deref(), Some("Mira"));
+    assert_eq!(agent.display_name.as_deref(), Some("Fred"));
     assert!(items.iter().any(|item| matches!(
         item,
         TurnTranscriptItem::Activity {
@@ -2765,16 +2765,16 @@ async fn update_own_name_tool_updates_agent_and_continues_turn() {
         } if activity_kind == "tool_result"
             && title == "Tool result: update_own_name"
             && metadata["action"]["success"] == true
-            && metadata["action"]["payload"]["display_name"] == "Mira"
+            && metadata["action"]["payload"]["display_name"] == "Fred"
     )));
     assert!(items.iter().any(|item| matches!(
         item,
-        TurnTranscriptItem::AssistantText { text } if text == "Mira it is."
+        TurnTranscriptItem::AssistantText { text } if text == "Fred it is."
     )));
 }
 
 #[tokio::test]
-async fn update_own_name_tool_rejects_ambiguous_user_instruction() {
+async fn ambiguous_name_suggestion_asks_confirmation_without_tool_call() {
     let (handle, store) =
         test_runtime_handle_with_store(fake_codex_provider_with_ambiguous_update_own_name()).await;
 
@@ -2798,18 +2798,18 @@ async fn update_own_name_tool_rejects_ambiguous_user_instruction() {
         .expect("agent")
         .expect("agent exists");
     assert_eq!(agent.display_name, None);
-    assert!(items.iter().any(|item| matches!(
+    assert!(!items.iter().any(|item| matches!(
         item,
         TurnTranscriptItem::Activity {
             activity_kind,
-            status: TurnActivityStatus::Failed,
             title,
-            metadata,
             ..
-        } if activity_kind == "tool_result"
-            && title == "Tool result: update_own_name"
-            && metadata["action"]["payload"]["error"]
-                == "name update requires explicit user instruction"
+        } if activity_kind == "tool_call" && title == "Tool call: update_own_name"
+    )));
+    assert!(items.iter().any(|item| matches!(
+        item,
+        TurnTranscriptItem::AssistantText { text }
+            if text == "Please confirm what you'd like to call me."
     )));
 }
 
@@ -3470,30 +3470,35 @@ impl FakeCodexProvider {
             }
             FakeCodexScenario::UpdateOwnNameContinuation => {
                 if input.contains("NOEMA_LOCAL_TOOL_RESULT") {
-                    let saw_updated_identity = instructions.contains("Agent identity:")
-                        && instructions.contains(r#"display_name: "Mira""#)
-                        && !instructions.contains("You do not have a name yet.");
-                    assistant_with_no_memories(if saw_updated_identity {
-                        "Mira it is."
+                    let expected_name = if instructions.contains(r#"display_name: "Fred""#) {
+                        "Fred"
                     } else {
-                        "same-turn identity was stale"
-                    })
+                        "Mira"
+                    };
+                    let display_name_marker = format!(r#"display_name: "{expected_name}""#);
+                    let saw_updated_identity = instructions.contains("Agent identity:")
+                        && instructions.contains(&display_name_marker)
+                        && !instructions.contains("You do not have a name yet.");
+                    if saw_updated_identity {
+                        let reply = format!("{expected_name} it is.");
+                        assistant_with_no_memories(&reply)
+                    } else {
+                        assistant_with_no_memories("same-turn identity was stale")
+                    }
                 } else {
+                    let name = if input.contains("Fred") {
+                        "Fred"
+                    } else {
+                        "Mira"
+                    };
                     vec![
-                        update_own_name_tool_call("call_name_1", json!({"name": "Mira"})),
+                        update_own_name_tool_call("call_name_1", json!({"name": name})),
                         GenerateOutputItem::MemoryProposals { proposals: vec![] },
                     ]
                 }
             }
             FakeCodexScenario::AmbiguousUpdateOwnName => {
-                if input.contains("NOEMA_LOCAL_TOOL_RESULT") {
-                    assistant_with_no_memories("Please confirm what you'd like to call me.")
-                } else {
-                    vec![
-                        update_own_name_tool_call("call_name_1", json!({"name": "Mira"})),
-                        GenerateOutputItem::MemoryProposals { proposals: vec![] },
-                    ]
-                }
+                assistant_with_no_memories("Please confirm what you'd like to call me.")
             }
             FakeCodexScenario::UpdateOwnNameThenIdentityCheck => {
                 if input.contains("NOEMA_LOCAL_TOOL_RESULT") {

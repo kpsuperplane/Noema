@@ -996,7 +996,6 @@ impl CodexRuntimeActor {
             } else if is_update_own_name_tool(name) {
                 let context = AgentNameToolRuntimeContext {
                     agent_id: agent_identity.agent_id.clone(),
-                    user_input: turn.user_input.clone(),
                 };
                 results.push(LocalToolResult::AgentName(
                     execute_update_own_name(&self.store, &context, id.clone(), payload).await,

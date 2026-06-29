@@ -11,7 +11,6 @@ pub(super) const MAX_AGENT_NAME_CHARS: usize = 80;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct AgentNameToolRuntimeContext {
     pub agent_id: String,
-    pub user_input: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -70,12 +69,8 @@ pub(super) async fn execute_update_own_name_inner(
     payload: &Value,
 ) -> Result<Value, AgentNameToolError> {
     let arguments = parse_arguments(payload)?;
-    if !user_explicitly_names_agent(&context.user_input, &arguments.name) {
-        return Err(AgentNameToolError::InvalidArguments(
-            "name update requires explicit user instruction".to_string(),
-        ));
-    }
-
+    // The provider tool call is the structured intent signal; do not re-parse
+    // user text here with language-specific string matching.
     let updated = store
         .update_agent_display_name(&context.agent_id, &arguments.name)
         .await?;
@@ -122,88 +117,6 @@ fn reject_nested_outer_fields(payload: &Value) -> Result<(), AgentNameToolError>
             "nested arguments payload cannot include outer fields".to_string(),
         ))
     }
-}
-
-fn user_explicitly_names_agent(user_input: &str, name: &str) -> bool {
-    let input = user_input.trim_start();
-    let name = name.trim();
-    if input.is_empty() || name.is_empty() {
-        return false;
-    }
-
-    const EXPLICIT_PREFIXES: &[&str] = &[
-        "your name is ",
-        "call yourself ",
-        "rename yourself to ",
-        "i want to call you ",
-        "i'll call you ",
-        "i’ll call you ",
-    ];
-
-    EXPLICIT_PREFIXES
-        .iter()
-        .filter_map(|prefix| strip_prefix_case_insensitive(input, prefix))
-        .any(|candidate_name| candidate_name_matches(candidate_name, name))
-}
-
-fn strip_prefix_case_insensitive<'a>(value: &'a str, prefix: &str) -> Option<&'a str> {
-    let end = matching_prefix_end(value, prefix)?;
-    Some(&value[end..])
-}
-
-fn candidate_name_matches(candidate: &str, name: &str) -> bool {
-    let candidate = candidate.trim_start();
-    let name = name.trim();
-    if !payload_name_has_safe_punctuation(name) {
-        return false;
-    }
-    let Some(remaining) = strip_prefix_case_insensitive(candidate, name) else {
-        return false;
-    };
-    remaining_after_explicit_name_is_safe(remaining)
-}
-
-fn payload_name_has_safe_punctuation(name: &str) -> bool {
-    !name.contains(['.', '!', '?'])
-}
-
-fn matching_prefix_end(value: &str, prefix: &str) -> Option<usize> {
-    let mut value_chars = value.char_indices();
-    let mut end = 0;
-    for prefix_ch in prefix.chars() {
-        let (idx, value_ch) = value_chars.next()?;
-        if !chars_equal_ignore_case(value_ch, prefix_ch) {
-            return None;
-        }
-        end = idx + value_ch.len_utf8();
-    }
-    Some(end)
-}
-
-fn chars_equal_ignore_case(left: char, right: char) -> bool {
-    left.to_lowercase().to_string() == right.to_lowercase().to_string()
-}
-
-fn remaining_after_explicit_name_is_safe(remaining: &str) -> bool {
-    let remaining = remaining.trim_start();
-    if remaining.is_empty() {
-        return true;
-    }
-
-    if let Some(after_sentence_punctuation) =
-        remaining.strip_prefix(|ch| matches!(ch, '.' | '!' | '?'))
-    {
-        let after_sentence_punctuation = after_sentence_punctuation.trim_start();
-        return after_sentence_punctuation.is_empty()
-            || (starts_with_uppercase(after_sentence_punctuation)
-                && after_sentence_punctuation.split_whitespace().count() > 1);
-    }
-
-    false
-}
-
-fn starts_with_uppercase(value: &str) -> bool {
-    value.chars().next().is_some_and(|ch| ch.is_uppercase())
 }
 
 fn safe_error_message(error: &AgentNameToolError) -> String {
@@ -274,92 +187,12 @@ mod tests {
         );
     }
 
-    #[test]
-    fn accepts_explicit_name_instructions() {
-        let examples = [
-            ("Your name is Mira.", "Mira"),
-            ("Call yourself Orin.", "Orin"),
-            ("Rename yourself to Halcyon.", "Halcyon"),
-            ("I want to call you Tess.", "Tess"),
-            ("I'll call you Mira.", "Mira"),
-            ("I’ll call you Mira.", "Mira"),
-            ("Your name is Mira. Please say hi.", "Mira"),
-            ("Your name is Mira!", "Mira"),
-            ("Your name is Mira?", "Mira"),
-            ("Your name is Mira! Please say hi.", "Mira"),
-            ("Your name is Mira? Please say hi.", "Mira"),
-        ];
-
-        for (input, name) in examples {
-            assert!(
-                user_explicitly_names_agent(input, name),
-                "{input:?} should explicitly name the agent {name:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn rejects_ambiguous_name_mentions() {
-        let examples = [
-            ("What name do you like?", "Mira"),
-            ("Maybe you could be Mira?", "Mira"),
-            ("Mira is a nice name.", "Mira"),
-        ];
-
-        for (input, name) in examples {
-            assert!(
-                !user_explicitly_names_agent(input, name),
-                "{input:?} should not explicitly name the agent {name:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn rejects_negated_narrated_and_quoted_name_mentions() {
-        let examples = [
-            ("Don't call yourself Mira.", "Mira"),
-            ("Do not rename yourself to Mira.", "Mira"),
-            ("I heard your name is Mira.", "Mira"),
-            (r#"The phrase "your name is Mira" is in my prompt."#, "Mira"),
-        ];
-
-        for (input, name) in examples {
-            assert!(
-                !user_explicitly_names_agent(input, name),
-                "{input:?} should not explicitly name the agent {name:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn rejects_material_name_mismatches_after_normalization() {
-        let examples = [
-            ("Your name is C.", "C++"),
-            ("Your name is Mira.", "Mira!!!"),
-            ("Your name is Mira.", "Mira."),
-            ("Your name is Mira. Please say hi.", "Mira. Please say hi"),
-            ("Your name is Mira! Please say hi.", "Mira! Please say hi"),
-            ("Your name is Mira? Please say hi.", "Mira? Please say hi"),
-            // Fail closed for now: stored names may not contain sentence punctuation.
-            ("Your name is Dr. Nova.", "Dr"),
-            ("Your name is Dr. Nova.", "Dr. Nova"),
-        ];
-
-        for (input, name) in examples {
-            assert!(
-                !user_explicitly_names_agent(input, name),
-                "{input:?} should not authorize materially different payload name {name:?}"
-            );
-        }
-    }
-
     #[tokio::test]
     async fn store_backed_success_updates_agent_display_name() {
         let (_home, store) = test_store().await;
         store.ensure_default_actors().await.expect("actors");
         let context = AgentNameToolRuntimeContext {
             agent_id: "agent:primary".to_string(),
-            user_input: "Your name is Mira.".to_string(),
         };
 
         let result = execute_update_own_name(
@@ -389,28 +222,27 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn rejects_call_without_explicit_user_instruction() {
+    async fn store_backed_structured_name_tool_accepts_onboarding_answer() {
         let (_home, store) = test_store().await;
         store.ensure_default_actors().await.expect("actors");
         let context = AgentNameToolRuntimeContext {
             agent_id: "agent:primary".to_string(),
-            user_input: "Maybe you could be Mira?".to_string(),
         };
 
         let result = execute_update_own_name(
             &store,
             &context,
-            Some("call_2".to_string()),
-            &json!({"name": "Mira"}),
+            Some("call_name_1".to_string()),
+            &json!({"name": "Fred"}),
         )
         .await;
 
-        assert!(!result.success);
-        assert_eq!(result.call_id.as_deref(), Some("call_2"));
+        assert!(result.success);
         assert_eq!(
             result.payload,
             json!({
-                "error": "name update requires explicit user instruction"
+                "agent_id": "agent:primary",
+                "display_name": "Fred"
             })
         );
         let agent = store
@@ -418,7 +250,7 @@ mod tests {
             .await
             .expect("get agent")
             .expect("agent exists");
-        assert_eq!(agent.display_name, None);
+        assert_eq!(agent.display_name.as_deref(), Some("Fred"));
     }
 
     #[test]

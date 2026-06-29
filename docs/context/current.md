@@ -95,8 +95,9 @@ The next storage slice should stay small and concrete:
   `onboarding_prompt` asking the model to ask the user for a name while the
   agent has no display name. The local `update_own_name` tool persists later
   naming or renaming only when the current user explicitly names or renames the
-  agent, and the runtime feeds successful local tool results back into the same
-  turn plus subsequent prompts.
+  agent. Intent is carried by the structured tool call and trusted runtime
+  state rather than direct user-text matching. The runtime feeds successful
+  local tool results back into the same turn plus subsequent prompts.
 - The local `search_memory` tool supports validated concrete `scope_ids`.
   Empty `query` is allowed only for scoped reads, and `query` narrows within
   scope rather than broadening it. Memory write activities expose canonical
