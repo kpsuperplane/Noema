@@ -150,7 +150,7 @@ impl QueryRoot {
         Ok(attempt.map(Into::into))
     }
 
-    /// List graph-memory claims for owner/admin inspection.
+    /// List graph-memory claims for memory-management inspection.
     async fn memory_claims(
         &self,
         ctx: &Context<'_>,
@@ -190,7 +190,7 @@ impl QueryRoot {
         Ok(claims.into_iter().map(Into::into).collect())
     }
 
-    /// Return one graph-memory claim for owner/admin inspection.
+    /// Return one graph-memory claim for memory-management inspection.
     async fn memory_claim(
         &self,
         ctx: &Context<'_>,
@@ -205,7 +205,7 @@ impl QueryRoot {
         Ok(detail.map(Into::into))
     }
 
-    /// Return a bounded graph-memory projection for owner/admin inspection.
+    /// Return a bounded graph-memory projection for memory-management inspection.
     async fn memory_graph(
         &self,
         ctx: &Context<'_>,

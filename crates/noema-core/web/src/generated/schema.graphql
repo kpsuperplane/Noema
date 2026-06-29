@@ -250,7 +250,7 @@ type GraphqlLocalStatus {
 }
 
 """
-Graph-memory claim exposed for owner/admin inspection.
+Graph-memory claim exposed for memory-management inspection.
 """
 type GraphqlMemoryClaim {
 	"""
@@ -324,7 +324,7 @@ type GraphqlMemoryClaim {
 }
 
 """
-Graph-memory claim detail exposed for owner/admin inspection.
+Graph-memory claim detail exposed for memory-management inspection.
 """
 type GraphqlMemoryClaimDetail {
 	"""
@@ -398,7 +398,7 @@ type GraphqlMemoryClaimDetail {
 }
 
 """
-Supporting evidence exposed for explicit owner/admin claim detail inspection.
+Supporting evidence exposed for explicit memory-management claim detail inspection.
 """
 type GraphqlMemoryClaimEvidence {
 	"""
@@ -428,7 +428,7 @@ type GraphqlMemoryClaimEvidence {
 }
 
 """
-Bounded graph-memory projection for owner/admin inspection.
+Bounded graph-memory projection for memory-management inspection.
 """
 type GraphqlMemoryGraph {
 	"""
@@ -508,7 +508,7 @@ Input filters for bounded graph-memory inspection.
 """
 input GraphqlMemoryGraphInput {
 	"""
-	Optional text query matched by the store read model.
+	Optional text query matched against predicate labels and public content.
 	"""
 	query: String
 	"""
@@ -576,7 +576,7 @@ type GraphqlMemoryGraphSummary {
 	"""
 	limit: Int!
 	"""
-	Whether at least one matching claim was omitted by the limit.
+	Whether the bounded candidate read window hit the effective limit.
 	"""
 	truncated: Boolean!
 }
@@ -930,15 +930,15 @@ type QueryRoot {
 	"""
 	providerAuthAttempt(attemptId: String!): GraphqlProviderAuthAttempt
 	"""
-	List graph-memory claims for owner/admin inspection.
+	List graph-memory claims for memory-management inspection.
 	"""
 	memoryClaims(query: String, status: String, predicateId: String, limit: Int): [GraphqlMemoryClaim!]!
 	"""
-	Return one graph-memory claim for owner/admin inspection.
+	Return one graph-memory claim for memory-management inspection.
 	"""
 	memoryClaim(claimId: String!): GraphqlMemoryClaimDetail
 	"""
-	Return a bounded graph-memory projection for owner/admin inspection.
+	Return a bounded graph-memory projection for memory-management inspection.
 	"""
 	memoryGraph(input: GraphqlMemoryGraphInput): GraphqlMemoryGraph!
 }

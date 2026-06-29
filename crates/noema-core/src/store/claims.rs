@@ -162,7 +162,7 @@ pub struct ClaimSummary {
     pub write_outcome: ClaimWriteOutcome,
 }
 
-/// Read-only filters for owner/admin graph-claim inspection.
+/// Read-only filters for memory-management claim inspection.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct MemoryClaimFilter {
     /// Optional text query matched against facts, predicate labels, and entity names.
@@ -175,7 +175,7 @@ pub struct MemoryClaimFilter {
     pub limit: Option<usize>,
 }
 
-/// Read-only graph-claim projection for owner/admin inspection.
+/// Read-only graph-claim projection for memory-management inspection.
 #[derive(Debug, Clone, PartialEq)]
 pub struct MemoryClaimRecord {
     /// Stable claim id.
@@ -221,7 +221,7 @@ pub struct MemoryClaimDetail {
     pub evidence: Vec<MemoryClaimEvidence>,
 }
 
-/// Read-only evidence projection for owner/admin graph-claim inspection.
+/// Read-only evidence projection for memory-management claim inspection.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MemoryClaimEvidence {
     /// Stable evidence relation id if available.
@@ -241,7 +241,7 @@ pub struct MemoryClaimEvidence {
 /// Read-only filters for the bounded memory graph read model.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct MemoryGraphFilter {
-    /// Optional text query matched against facts, predicate labels, and entity names.
+    /// Optional text query matched against predicate labels and public content.
     pub query: Option<String>,
     /// Optional claim lifecycle statuses. Defaults to candidate, active, and confirmed.
     pub statuses: Option<Vec<ClaimStatus>>,
@@ -253,7 +253,7 @@ pub struct MemoryGraphFilter {
     pub limit: Option<usize>,
 }
 
-/// Bounded graph-memory projection for owner/admin inspection.
+/// Bounded graph-memory projection for memory-management inspection.
 #[derive(Debug, Clone, PartialEq)]
 pub struct MemoryGraph {
     /// Entity nodes incident to the returned claim edges.
@@ -319,12 +319,12 @@ pub struct MemoryGraphSummary {
     pub returned_node_count: i64,
     /// Effective result limit after clamping.
     pub limit: usize,
-    /// Whether at least one matching claim was omitted by the limit.
+    /// Whether the bounded candidate read window hit the effective limit.
     pub truncated: bool,
 }
 
 impl NoemaStore {
-    /// List graph-memory claims for owner/admin inspection.
+    /// List graph-memory claims for memory-management inspection.
     ///
     /// # Errors
     ///
@@ -400,7 +400,7 @@ impl NoemaStore {
         Ok(claims)
     }
 
-    /// Return a bounded memory graph read model for owner/admin inspection.
+    /// Return a bounded memory graph read model for memory-management inspection.
     ///
     /// # Errors
     ///
@@ -423,7 +423,6 @@ impl NoemaStore {
             .collect::<Vec<_>>();
         let limit = clamp_memory_graph_limit(filter.limit);
         let fetch_limit = limit.saturating_add(1);
-        let db_limit = query.is_none().then_some(fetch_limit);
 
         let mut sql = String::from(
             r#"
@@ -444,15 +443,14 @@ impl NoemaStore {
             ORDER BY created_at DESC, claim_id ASC
             "#,
         );
-        if db_limit.is_some() {
-            sql.push_str("LIMIT $limit\n");
-        }
+        sql.push_str("LIMIT $limit\n");
         sql.push(';');
 
-        let mut statement = self.db.query(sql).bind(("statuses", status_values));
-        if let Some(db_limit) = db_limit {
-            statement = statement.bind(("limit", db_limit));
-        }
+        let mut statement = self
+            .db
+            .query(sql)
+            .bind(("statuses", status_values))
+            .bind(("limit", fetch_limit));
         if let Some(predicate_id) = filter.predicate_id {
             statement = statement.bind(("predicate_id", predicate_id));
         }
@@ -466,12 +464,12 @@ impl NoemaStore {
         let entities = self.inspection_entities_for_claims(&rows).await?;
         let evidence_counts = self.inspection_evidence_counts_for_claims(&rows).await?;
         let mut claims = Vec::new();
-        let mut truncated = false;
+        let mut truncated = rows.len() > limit;
 
         for row in rows {
             let claim = memory_claim_record(row, &predicates, &entities, &evidence_counts)?;
             if let Some(query) = query.as_deref()
-                && !claim.matches_query(query)
+                && !claim.matches_graph_query(query)
             {
                 continue;
             }
@@ -548,7 +546,7 @@ impl NoemaStore {
         })
     }
 
-    /// Return one graph-memory claim with support evidence for owner/admin inspection.
+    /// Return one graph-memory claim with support evidence for memory-management inspection.
     ///
     /// # Errors
     ///
@@ -1353,6 +1351,25 @@ impl MemoryClaimRecord {
                 .object_entity_id
                 .as_deref()
                 .is_some_and(|value| contains_case_folded(value, query))
+            || self
+                .object_entity_name
+                .as_deref()
+                .is_some_and(|value| contains_case_folded(value, query))
+    }
+
+    fn matches_graph_query(&self, query: &str) -> bool {
+        if contains_case_folded(&self.predicate_id, query)
+            || contains_case_folded(&self.predicate_label, query)
+        {
+            return true;
+        }
+
+        if self.sensitivity != Sensitivity::Public {
+            return false;
+        }
+
+        contains_case_folded(&self.fact, query)
+            || contains_case_folded(&self.subject_entity_name, query)
             || self
                 .object_entity_name
                 .as_deref()

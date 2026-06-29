@@ -719,7 +719,7 @@ async fn memory_graph_filters_query_predicate_and_sensitivity() {
 
     let graph = store
         .memory_graph(crate::MemoryGraphFilter {
-            query: Some("garage".to_string()),
+            query: Some("has_note".to_string()),
             statuses: Some(vec![ClaimStatus::Confirmed]),
             predicate_id: Some("has_note".to_string()),
             sensitivity: Some(Sensitivity::Private),
@@ -738,6 +738,110 @@ async fn memory_graph_filters_query_predicate_and_sensitivity() {
             .iter()
             .any(|node| node.max_sensitivity == Sensitivity::Private)
     );
+}
+
+#[tokio::test]
+async fn memory_graph_query_does_not_match_non_public_content() {
+    let store = test_store().await;
+    let private_item = create_source_item(&store, "Garage code is 1234.").await;
+
+    let mut private_note = train_claim(private_item.item_id);
+    private_note.object = EntityCandidate::concept("garage-code", "Garage code");
+    private_note.predicate_id = "has_note".to_string();
+    private_note.fact = "Garage code is 1234.".to_string();
+    private_note.sensitivity = Sensitivity::Private;
+    private_note.status = ClaimStatus::Confirmed;
+    store
+        .create_or_reinforce_claim(private_note)
+        .await
+        .expect("create private claim");
+
+    let fact_graph = store
+        .memory_graph(crate::MemoryGraphFilter {
+            query: Some("1234".to_string()),
+            statuses: Some(vec![ClaimStatus::Confirmed]),
+            predicate_id: None,
+            sensitivity: None,
+            limit: Some(10),
+        })
+        .await
+        .expect("private fact query should not error");
+    assert!(fact_graph.edges.is_empty());
+
+    let entity_graph = store
+        .memory_graph(crate::MemoryGraphFilter {
+            query: Some("garage".to_string()),
+            statuses: Some(vec![ClaimStatus::Confirmed]),
+            predicate_id: None,
+            sensitivity: None,
+            limit: Some(10),
+        })
+        .await
+        .expect("private entity query should not error");
+    assert!(entity_graph.edges.is_empty());
+}
+
+#[tokio::test]
+async fn memory_graph_query_uses_bounded_candidate_window() {
+    let store = test_store().await;
+    let old_item = create_source_item(&store, "Kevin likes old trains.").await;
+    let mid_item = create_source_item(&store, "Kevin likes mid-century trains.").await;
+    let new_item = create_source_item(&store, "Kevin likes new trains.").await;
+
+    let mut old = train_claim(old_item.item_id);
+    old.object = EntityCandidate::concept("old-trains", "old trains");
+    old.fact = "Kevin likes old trains.".to_string();
+    let old_summary = store
+        .create_or_reinforce_claim(old)
+        .await
+        .expect("create older matching claim");
+
+    let mut mid = train_claim(mid_item.item_id);
+    mid.object = EntityCandidate::concept("mid-century-trains", "mid-century trains");
+    mid.fact = "Kevin likes mid-century trains.".to_string();
+    store
+        .create_or_reinforce_claim(mid)
+        .await
+        .expect("create middle matching claim");
+
+    let mut new = train_claim(new_item.item_id);
+    new.object = EntityCandidate::concept("new-trains", "new trains");
+    new.fact = "Kevin likes new trains.".to_string();
+    store
+        .create_or_reinforce_claim(new)
+        .await
+        .expect("create newest matching claim");
+
+    store
+        .db
+        .query(
+            r#"
+            UPDATE claims SET
+              object_entity_id = 'concept:missing',
+              created_at = <datetime>'2020-01-01T00:00:00Z',
+              updated_at = <datetime>'2020-01-01T00:00:00Z'
+            WHERE claim_id = $claim_id;
+            "#,
+        )
+        .bind(("claim_id", old_summary.claim_id))
+        .await
+        .expect("corrupt older claim object reference")
+        .check()
+        .expect("corrupt older claim object reference check");
+
+    let graph = store
+        .memory_graph(crate::MemoryGraphFilter {
+            query: Some("not-in-any-visible-row".to_string()),
+            statuses: Some(vec![ClaimStatus::Active]),
+            predicate_id: None,
+            sensitivity: None,
+            limit: Some(1),
+        })
+        .await
+        .expect("bounded query should not inspect older corrupt rows");
+
+    assert!(graph.edges.is_empty());
+    assert!(graph.summary.truncated);
 }
 
 #[tokio::test]

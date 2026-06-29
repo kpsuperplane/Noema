@@ -36,7 +36,7 @@ export type GraphqlMemoryGraphInput = {
   limit?: number | null | undefined;
   /** Optional predicate id. */
   predicateId?: string | null | undefined;
-  /** Optional text query matched by the store read model. */
+  /** Optional text query matched against predicate labels and public content. */
   query?: string | null | undefined;
   /** Optional exact sensitivity filter. */
   sensitivity?: string | null | undefined;

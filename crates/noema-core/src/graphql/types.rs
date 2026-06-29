@@ -47,7 +47,7 @@ pub struct GraphqlLocalStatus {
     pub memory_storage: GraphqlMemoryStorageStatus,
 }
 
-/// Graph-memory claim exposed for owner/admin inspection.
+/// Graph-memory claim exposed for memory-management inspection.
 #[derive(Clone, Debug, SimpleObject)]
 pub struct GraphqlMemoryClaim {
     /// Stable claim id.
@@ -158,7 +158,7 @@ fn sensitivity_label(sensitivity: Sensitivity) -> &'static str {
     }
 }
 
-/// Supporting evidence exposed for explicit owner/admin claim detail inspection.
+/// Supporting evidence exposed for explicit memory-management claim detail inspection.
 #[derive(Clone, Debug, SimpleObject)]
 pub struct GraphqlMemoryClaimEvidence {
     /// Stable evidence relation id if available.
@@ -188,7 +188,7 @@ impl From<MemoryClaimEvidence> for GraphqlMemoryClaimEvidence {
     }
 }
 
-/// Graph-memory claim detail exposed for owner/admin inspection.
+/// Graph-memory claim detail exposed for memory-management inspection.
 #[derive(Clone, Debug, SimpleObject)]
 pub struct GraphqlMemoryClaimDetail {
     /// Stable claim id.
@@ -255,7 +255,7 @@ impl From<MemoryClaimDetail> for GraphqlMemoryClaimDetail {
 /// Input filters for bounded graph-memory inspection.
 #[derive(Clone, Debug, Default, InputObject)]
 pub struct GraphqlMemoryGraphInput {
-    /// Optional text query matched by the store read model.
+    /// Optional text query matched against predicate labels and public content.
     pub query: Option<String>,
     /// Optional claim lifecycle statuses. Defaults are owned by the store.
     pub statuses: Option<Vec<String>>,
@@ -267,7 +267,7 @@ pub struct GraphqlMemoryGraphInput {
     pub limit: Option<i32>,
 }
 
-/// Bounded graph-memory projection for owner/admin inspection.
+/// Bounded graph-memory projection for memory-management inspection.
 #[derive(Clone, Debug, SimpleObject)]
 pub struct GraphqlMemoryGraph {
     /// Entity nodes incident to returned claim edges.
@@ -335,7 +335,7 @@ pub struct GraphqlMemoryGraphSummary {
     pub returned_node_count: i64,
     /// Effective result limit.
     pub limit: i32,
-    /// Whether at least one matching claim was omitted by the limit.
+    /// Whether the bounded candidate read window hit the effective limit.
     pub truncated: bool,
 }
 

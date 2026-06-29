@@ -15,7 +15,7 @@ The next storage slice should stay small and concrete:
 - SurrealDB-backed persisted conversations, transcript items, graph claims,
   provenance, and retrieval packets.
 - Memory review and graph inspection from SurrealDB-backed repositories.
-- Frontend IA that exposes memory and provenance progressively instead of starting with admin dashboards.
+- Frontend IA that exposes memory and provenance progressively instead of starting with back-office dashboards.
 
 ## Settled Decisions
 
@@ -115,25 +115,26 @@ The next storage slice should stay small and concrete:
 - The local `search_memory` tool reads graph claims and returns claim-shaped
   tool results.
 - The first graph-memory inspection surface has landed. GraphQL exposes bounded
-  owner/admin graph-claim inspection through `memoryClaims` and `memoryClaim`:
+  memory-management graph-claim inspection through `memoryClaims` and `memoryClaim`:
   lists redact non-public fact text and content-bearing display names, while
   explicit detail inspection shows full fact and evidence. CLI `noema memory
   list` and `noema memory show <id>` consume GraphQL through the daemon/web
   endpoint rather than opening SurrealDB directly. Generated web GraphQL
   schema/types are kept in sync.
-- Next web memory-management direction: add a human-facing `/memory/graph`
-  page backed by a bounded `memoryGraph` GraphQL read model. It should default
-  to candidate, active, and confirmed claims, cap the first load at 150
-  claims, render entity nodes plus claim edges with React Flow pan/zoom, and
-  show evidence/provenance in a selected-claim detail panel rather than as
-  canvas nodes.
+- The first web memory graph page has landed under `/memory/graph`, reached
+  from the memory management surface. It uses a bounded `memoryGraph` GraphQL
+  read model, defaults to candidate, active, and confirmed claims, caps the
+  first load at 150 claims, renders entity nodes plus claim edges with React
+  Flow pan/zoom, and shows selected-claim evidence/provenance in a detail
+  panel rather than as canvas nodes.
 
 ## Open Loops
 
 - Add richer web drill-ins for memory details, predicate review, provenance,
   and graph inspection.
-- Implement the approved Memory Graph page design in
-  `docs/superpowers/specs/2026-06-29-memory-graph-page-design.md`.
+- Refine the landed Memory Graph page from
+  `docs/superpowers/specs/2026-06-29-memory-graph-page-design.md` with richer
+  filters, neighborhoods, and detail views.
 - Add richer graph neighborhood inspection for CLI, GraphQL, and web.
 - Continue aligning docs, schema, CLI inspection commands, and frontend IA.
 - Decide which export formats ship first and how export preview/redaction should work.
