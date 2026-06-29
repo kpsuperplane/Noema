@@ -12,6 +12,7 @@ export function MemoryGraphPage() {
   const [query, setQuery] = React.useState("");
   const [statuses, setStatuses] = React.useState(() => graphStatusDefaults());
   const [selectedClaimId, setSelectedClaimId] = React.useState<string | null>(null);
+  const defaultStatuses = React.useMemo(() => graphStatusDefaults(), []);
 
   const variables = React.useMemo(
     () => ({
@@ -50,7 +51,9 @@ export function MemoryGraphPage() {
     setStatuses(nextStatuses.length > 0 ? nextStatuses : graphStatusDefaults());
   }
 
-  const hasActiveFilters = query.trim().length > 0 || statuses.join("\0") !== graphStatusDefaults().join("\0");
+  const hasDefaultStatuses =
+    statuses.length === defaultStatuses.length && statuses.every((status) => defaultStatuses.includes(status));
+  const hasActiveFilters = query.trim().length > 0 || !hasDefaultStatuses;
 
   if (result.loading && !graph) {
     return (
@@ -106,7 +109,7 @@ export function MemoryGraphPage() {
           </p>
         </div>
       ) : (
-        <div className="grid min-h-0 grid-cols-[minmax(0,1fr)_minmax(300px,360px)] overflow-hidden max-[900px]:grid-cols-1 max-[900px]:grid-rows-[minmax(420px,1fr)_auto]">
+        <div className="grid min-h-0 grid-cols-[minmax(0,1fr)_minmax(300px,360px)] overflow-hidden max-[900px]:grid-cols-1 max-[900px]:grid-rows-[minmax(420px,1fr)_minmax(0,360px)]">
           <MemoryGraphCanvas
             nodes={layout.nodes}
             edges={layout.edges}
