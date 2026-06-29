@@ -3,17 +3,17 @@ import { readFileSync } from "node:fs";
 import { describe, test } from "node:test";
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { Transcript } from "./Transcript";
+import { avatarSeedForActorId } from "./IdentityAvatar";
+import { messageTextAnimationTokens, visibleMessageTextAnimationTokens } from "./MessageTextAnimation";
+import { memoryDetailItems } from "./transcript/markerModel";
 import {
-  Transcript,
-  memoryDetailItems,
   renderedTranscriptLane,
   shouldAnchorTranscriptEntry,
   shouldAnimateMessageText,
   shouldShowTypingIndicator,
   transcriptEntryLane
-} from "./Transcript";
-import { avatarSeedForActorId } from "./IdentityAvatar";
-import { messageTextAnimationTokens, visibleMessageTextAnimationTokens } from "./MessageTextAnimation";
+} from "./transcript/renderModel";
 import type { TranscriptEntry } from "../types";
 
 describe("transcriptEntryLane", () => {
@@ -460,13 +460,16 @@ describe("message arrival styles", () => {
   });
 
   test("starts arrival animation only after the mounted view has seen its baseline rows", () => {
-    const source = readFileSync(new URL("./Transcript.tsx", import.meta.url), "utf8");
+    const transcriptSource = readFileSync(new URL("./Transcript.tsx", import.meta.url), "utf8");
+    const renderModelSource = readFileSync(new URL("./transcript/renderModel.ts", import.meta.url), "utf8");
+    const scrollModelSource = readFileSync(new URL("./transcript/scrollModel.ts", import.meta.url), "utf8");
 
-    assert.match(source, /React\.useState<ReadonlySet<string>>/);
-    assert.match(source, /initialSeenArrivalMessageIds\(renderedEntries\)/);
-    assert.match(source, /shouldAnimateMessageArrival/);
-    assert.match(source, /setSeenArrivalMessageIds\(nextSeenMessageIds\)/);
-    assert.match(source, /window\.setTimeout/);
+    assert.match(transcriptSource, /React\.useState<ReadonlySet<string>>/);
+    assert.match(transcriptSource, /initialSeenArrivalMessageIds\(renderedEntries\)/);
+    assert.match(transcriptSource, /setSeenArrivalMessageIds\(nextSeenMessageIds\)/);
+    assert.match(transcriptSource, /window\.setTimeout/);
+    assert.match(renderModelSource, /shouldAnimateMessageArrival/);
+    assert.match(scrollModelSource, /shouldAnimateRenderedEntryArrivalForSeen/);
   });
 });
 

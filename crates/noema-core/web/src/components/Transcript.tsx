@@ -31,55 +31,36 @@ import * as React from "react";
 import { readableKind, statusLabel } from "../format";
 import { memoryCardsFromStructuredItem, type MemoryCardData } from "../memoryCards";
 import type { TranscriptEntry, TurnTranscriptItem } from "../types";
-
-type ActivityTranscriptEntry = Extract<TranscriptEntry, { type: "activity" }>;
-type ActivityTranscriptItem = Extract<TurnTranscriptItem, { kind: "activity" }>;
-
-type ToolMarkerGroup = {
-  id: string;
-  call?: ActivityTranscriptEntry;
-  result?: ActivityTranscriptEntry;
-};
-
-type RenderTranscriptEntry =
-  | { kind: "entry"; id: string; entry: TranscriptEntry; suppressArrival?: boolean }
-  | { kind: "typing"; id: string }
-  | {
-      kind: "memory_marker";
-      id: string;
-      source?: TranscriptEntry["source"];
-      extraction?: ActivityTranscriptItem;
-      proposal?: Extract<TurnTranscriptItem, { kind: "a2ui_card" }>;
-    }
-  | {
-      kind: "tool_marker";
-      id: string;
-      source?: TranscriptEntry["source"];
-      marker: ToolMarkerGroup;
-      suppressArrival?: boolean;
-    };
-
-type TranscriptLane = "human" | "assistant";
-
-type MemoryDetailRowData = { label: string; value: string };
-
-type MemoryClaimOutcome = {
-  claimId: string;
-  outcome: "created" | "reinforced";
-  factPreview?: string;
-  sensitivity?: string;
-};
-
-export type MemoryDetailItem = {
-  title: string;
-  rows: MemoryDetailRowData[];
-};
-
-type RenderTranscriptLaneCandidate =
-  | { kind: "entry"; entryType: TranscriptEntry["type"] }
-  | { kind: "typing" }
-  | { kind: "memory_marker" }
-  | { kind: "tool_marker" };
+import {
+  formatToolDetail,
+  memoryCardsFromClaimOutcomes,
+  memoryDetailItems,
+  memoryMarkerLabel,
+  metadataCount,
+  toolMarkerLabel,
+  toolMarkerPending,
+  toolMarkerTone
+} from "./transcript/markerModel";
+import {
+  renderableTranscriptEntries,
+  renderedEntryMessageId,
+  renderedTranscriptLane,
+  shouldAnchorRenderedEntry,
+  shouldAnimateRenderedEntryArrivalForSeen,
+  shouldAnimateRenderedEntryText,
+  shouldAnimateRenderedEntryTextForSeen,
+  shouldCompactMarkerClusterSpacing,
+  shouldRevealRenderedEntryAfterArrival,
+  type ToolMarkerGroup,
+  type RenderTranscriptEntry,
+  type TranscriptLane
+} from "./transcript/renderModel";
+import {
+  initialSeenArrivalMessageIds,
+  isScrolledToBottom,
+  transcriptArrivalScrollKey,
+  transcriptScrollKey
+} from "./transcript/scrollModel";
 
 const ARRIVAL_SCROLL_FOLLOW_DURATION_MS = 360;
 
@@ -209,464 +190,6 @@ export function Transcript({
   );
 }
 
-function renderableTranscriptEntries(entries: TranscriptEntry[], pending: boolean): RenderTranscriptEntry[] {
-  const typingContinuationRenderIds = typingContinuationAssistantRenderIds(entries);
-  const renderedEntries = groupTranscriptMarkers(entries).map((entry): RenderTranscriptEntry => {
-    if (entry.kind !== "entry" || !typingContinuationRenderIds.has(transcriptEntryRenderId(entry.entry))) {
-      return entry;
-    }
-    return { ...entry, suppressArrival: true };
-  });
-  if (shouldShowTypingIndicator(entries, pending)) {
-    renderedEntries.push({ kind: "typing", id: "typing-indicator" });
-  }
-  return renderedEntries;
-}
-
-type TranscriptEntryAnchorCandidate =
-  | { kind: "entry"; entryType: TranscriptEntry["type"] }
-  | { kind: "typing" }
-  | { kind: "memory_marker" }
-  | { kind: "tool_marker" };
-
-export function shouldAnchorTranscriptEntry(entry: TranscriptEntryAnchorCandidate): boolean {
-  void entry;
-  return false;
-}
-
-function shouldAnchorRenderedEntry(entry: RenderTranscriptEntry): boolean {
-  if (entry.kind === "entry") {
-    return shouldAnchorTranscriptEntry({ kind: "entry", entryType: entry.entry.type });
-  }
-  return shouldAnchorTranscriptEntry({ kind: entry.kind });
-}
-
-function shouldAnimateRenderedEntryArrival(entry: RenderTranscriptEntry): boolean {
-  if (entry.kind === "entry" && entry.suppressArrival) {
-    return false;
-  }
-  if (entry.kind === "tool_marker" && entry.suppressArrival) {
-    return false;
-  }
-  if (entry.kind === "typing") {
-    return false;
-  }
-  if (entry.kind === "entry") {
-    return entry.entry.source !== "replay";
-  }
-  return entry.source !== "replay";
-}
-
-function shouldAnimateRenderedEntryArrivalForSeen(
-  entry: RenderTranscriptEntry,
-  messageId: string,
-  seenMessageIds: ReadonlySet<string>
-): boolean {
-  return shouldAnimateMessageArrival({
-    eligible: shouldAnimateRenderedEntryArrival(entry),
-    messageId,
-    seenMessageIds
-  });
-}
-
-function shouldAnimateMessageArrival({
-  eligible,
-  messageId,
-  seenMessageIds
-}: {
-  eligible: boolean;
-  messageId: string;
-  seenMessageIds: ReadonlySet<string>;
-}): boolean {
-  return eligible && !seenMessageIds.has(messageId);
-}
-
-function shouldRevealRenderedEntryAfterArrival(
-  entry: RenderTranscriptEntry,
-  previousEntryAnimateArrival: boolean
-): boolean {
-  return entry.kind === "typing" && previousEntryAnimateArrival;
-}
-
-function shouldAnimateRenderedEntryText(entry: RenderTranscriptEntry): boolean {
-  return entry.kind === "entry" && isTextTranscriptEntry(entry.entry) && shouldAnimateMessageText(entry.entry);
-}
-
-function shouldAnimateRenderedEntryTextForSeen(
-  entry: RenderTranscriptEntry,
-  messageId: string,
-  seenMessageIds: ReadonlySet<string>,
-  textAnimatingMessageIds: ReadonlySet<string>
-): boolean {
-  return (
-    shouldAnimateRenderedEntryText(entry) &&
-    (!seenMessageIds.has(messageId) || textAnimatingMessageIds.has(messageId))
-  );
-}
-
-function isTextTranscriptEntry(entry: TranscriptEntry): entry is Extract<TranscriptEntry, { text: string }> {
-  return "text" in entry;
-}
-
-function typingContinuationAssistantRenderIds(entries: TranscriptEntry[]): Set<string> {
-  const renderIds = new Set<string>();
-  const lastUserIndex = latestUserEntryIndex(entries);
-  if (lastUserIndex === -1) {
-    return renderIds;
-  }
-
-  for (let index = lastUserIndex + 1; index < entries.length; index += 1) {
-    const entry = entries[index];
-    if (!entry || (entry.type !== "assistant" && entry.type !== "assistant_stream")) {
-      continue;
-    }
-
-    if (entry.streamId) {
-      renderIds.add(transcriptEntryRenderId(entry));
-    }
-    break;
-  }
-
-  return renderIds;
-}
-
-export function transcriptEntryLane(entryType: TranscriptEntry["type"]): TranscriptLane {
-  return entryType === "user" ? "human" : "assistant";
-}
-
-export function renderedTranscriptLane(entry: RenderTranscriptLaneCandidate): TranscriptLane {
-  if (entry.kind === "entry") {
-    return transcriptEntryLane(entry.entryType);
-  }
-  return "assistant";
-}
-
-function shouldCompactMarkerClusterSpacing(
-  entry: RenderTranscriptEntry,
-  previousEntry: RenderTranscriptEntry | undefined
-): boolean {
-  return (
-    isMarkerRenderEntry(entry) &&
-    !!previousEntry &&
-    (isTextMessageRenderEntry(previousEntry) || isMarkerRenderEntry(previousEntry))
-  );
-}
-
-function isMarkerRenderEntry(entry: RenderTranscriptEntry): boolean {
-  return entry.kind === "memory_marker" || entry.kind === "tool_marker";
-}
-
-function isTextMessageRenderEntry(entry: RenderTranscriptEntry): boolean {
-  return (
-    entry.kind === "entry" &&
-    (entry.entry.type === "user" || entry.entry.type === "assistant" || entry.entry.type === "assistant_stream")
-  );
-}
-
-export function shouldShowTypingIndicator(entries: TranscriptEntry[], pending: boolean): boolean {
-  if (!pending) {
-    return false;
-  }
-
-  const lastUserIndex = latestUserEntryIndex(entries);
-  if (lastUserIndex === -1) {
-    return false;
-  }
-
-  return !entries
-    .slice(lastUserIndex + 1)
-    .some((entry) => entry.type === "assistant" || entry.type === "assistant_stream");
-}
-
-function latestUserEntryIndex(entries: TranscriptEntry[]): number {
-  for (let index = entries.length - 1; index >= 0; index -= 1) {
-    if (entries[index]?.type === "user") {
-      return index;
-    }
-  }
-  return -1;
-}
-
-function groupTranscriptMarkers(entries: TranscriptEntry[]): RenderTranscriptEntry[] {
-  const rendered: RenderTranscriptEntry[] = [];
-
-  for (let index = 0; index < entries.length; index += 1) {
-    const entry = entries[index];
-    const nextEntry = entries[index + 1];
-    const followingEntry = entries[index + 2];
-
-    if (
-      entry.type === "activity" &&
-      entry.item.activity_kind === "memory_extraction" &&
-      entry.item.status === "STARTED" &&
-      nextEntry &&
-      nextEntry.type === "card" &&
-      nextEntry.item.schema === "memory_proposals" &&
-      followingEntry &&
-      followingEntry.type === "activity" &&
-      followingEntry.item.activity_kind === "memory_extraction" &&
-      followingEntry.item.id === entry.item.id &&
-      sameTurn(entry, nextEntry) &&
-      sameTurn(entry, followingEntry)
-    ) {
-      rendered.push({
-        kind: "memory_marker",
-        id: `${entry.id}:${nextEntry.id}:${followingEntry.id}`,
-        source: transcriptGroupSource(entry, nextEntry, followingEntry),
-        extraction: followingEntry.item,
-        proposal: nextEntry.item
-      });
-      index += 2;
-      continue;
-    }
-
-    if (
-      entry.type === "activity" &&
-      entry.item.activity_kind === "memory_extraction" &&
-      nextEntry &&
-      nextEntry.type === "card" &&
-      nextEntry.item.schema === "memory_proposals" &&
-      sameTurn(entry, nextEntry)
-    ) {
-      rendered.push({
-        kind: "memory_marker",
-        id: `${entry.id}:${nextEntry.id}`,
-        source: transcriptGroupSource(entry, nextEntry),
-        extraction: entry.item,
-        proposal: nextEntry.item
-      });
-      index += 1;
-      continue;
-    }
-
-    if (
-      entry.type === "card" &&
-      entry.item.schema === "memory_proposals" &&
-      nextEntry &&
-      nextEntry.type === "activity" &&
-      nextEntry.item.activity_kind === "memory_extraction" &&
-      sameTurn(entry, nextEntry)
-    ) {
-      rendered.push({
-        kind: "memory_marker",
-        id: `${entry.id}:${nextEntry.id}`,
-        source: transcriptGroupSource(entry, nextEntry),
-        extraction: nextEntry.item,
-        proposal: entry.item
-      });
-      index += 1;
-      continue;
-    }
-
-    if (entry.type === "activity" && entry.item.activity_kind === "memory_extraction") {
-      rendered.push({
-        kind: "memory_marker",
-        id: entry.id,
-        source: transcriptGroupSource(entry),
-        extraction: entry.item
-      });
-      continue;
-    }
-
-    if (entry.type === "card" && entry.item.schema === "memory_proposals") {
-      rendered.push({
-        kind: "memory_marker",
-        id: entry.id,
-        source: transcriptGroupSource(entry),
-        proposal: entry.item
-      });
-      continue;
-    }
-
-    if (entry.type === "activity" && entry.item.activity_kind === "tool_call") {
-      if (
-        nextEntry &&
-        nextEntry.type === "activity" &&
-        nextEntry.item.activity_kind === "tool_result" &&
-        sameTurn(entry, nextEntry)
-      ) {
-        const id = entry.id;
-        rendered.push({
-          kind: "tool_marker",
-          id,
-          source: transcriptGroupSource(entry, nextEntry),
-          marker: { id, call: entry, result: nextEntry },
-          suppressArrival: true
-        });
-        index += 1;
-        continue;
-      }
-
-      rendered.push({
-        kind: "tool_marker",
-        id: entry.id,
-        source: transcriptGroupSource(entry),
-        marker: { id: entry.id, call: entry }
-      });
-      continue;
-    }
-
-    if (entry.type === "activity" && entry.item.activity_kind === "tool_result") {
-      rendered.push({
-        kind: "tool_marker",
-        id: entry.id,
-        source: transcriptGroupSource(entry),
-        marker: { id: entry.id, result: entry }
-      });
-      continue;
-    }
-
-    rendered.push({ kind: "entry", id: entry.id, entry });
-  }
-
-  return rendered;
-}
-
-function sameTurn(left: TranscriptEntry, right: TranscriptEntry) {
-  return !left.turnId || !right.turnId || left.turnId === right.turnId;
-}
-
-function transcriptGroupSource(...entries: TranscriptEntry[]): TranscriptEntry["source"] | undefined {
-  return entries.every((entry) => entry.source === "replay") ? "replay" : undefined;
-}
-
-function toolMarkerTone(marker: ToolMarkerGroup): "default" | "error" {
-  return marker.result?.item.status === "FAILED" ? "error" : "default";
-}
-
-function toolMarkerPending(marker: ToolMarkerGroup): boolean {
-  return marker.call?.item.status === "STARTED" && !marker.result;
-}
-
-function toolMarkerLabel(marker: ToolMarkerGroup): string {
-  const toolName = toolNameFromMetadata(marker.call?.item.metadata) ?? toolNameFromMetadata(marker.result?.item.metadata);
-  if (toolName) {
-    if (marker.call && !marker.result && marker.call.item.status === "STARTED") {
-      return `Using ${toolName}`;
-    }
-    return `Used ${toolName}`;
-  }
-  return marker.call?.item.title ?? marker.result?.item.title ?? "Tool activity";
-}
-
-function toolNameFromMetadata(metadata: unknown): string | null {
-  if (!isRecord(metadata)) {
-    return null;
-  }
-
-  const action = metadata.action;
-  if (isRecord(action) && typeof action.name === "string" && action.name.trim()) {
-    return action.name;
-  }
-  if (typeof metadata.name === "string" && metadata.name.trim()) {
-    return metadata.name;
-  }
-  if (typeof metadata.tool_name === "string" && metadata.tool_name.trim()) {
-    return metadata.tool_name;
-  }
-  return null;
-}
-
-function formatToolDetail(fallback: string, metadata: unknown): string {
-  const metadataText = formatMetadata(metadata);
-  if (!metadataText) {
-    return fallback;
-  }
-  return `${fallback}\n${metadataText}`;
-}
-
-function formatMetadata(metadata: unknown): string | null {
-  if (metadata === null || metadata === undefined) {
-    return null;
-  }
-  if (typeof metadata === "string") {
-    return metadata;
-  }
-  try {
-    return JSON.stringify(metadata, null, 2);
-  } catch {
-    return String(metadata);
-  }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function transcriptScrollKey(entries: RenderTranscriptEntry[]): string {
-  return entries.map(renderedEntryScrollFingerprint).join("|");
-}
-
-function transcriptArrivalScrollKey(
-  entries: RenderTranscriptEntry[],
-  seenMessageIds: ReadonlySet<string>
-): string {
-  return entries
-    .filter((entry) => shouldAnimateRenderedEntryArrivalForSeen(entry, renderedEntryMessageId(entry), seenMessageIds))
-    .map(renderedEntryMessageId)
-    .join("|");
-}
-
-function initialSeenArrivalMessageIds(entries: RenderTranscriptEntry[]): ReadonlySet<string> {
-  return new Set(entries.map(renderedEntryMessageId));
-}
-
-function renderedEntryScrollFingerprint(entry: RenderTranscriptEntry): string {
-  if (entry.kind === "entry") {
-    return transcriptEntryScrollFingerprint(entry.entry);
-  }
-  if (entry.kind === "typing") {
-    return entry.id;
-  }
-  if (entry.kind === "memory_marker") {
-    return [
-      entry.id,
-      entry.extraction?.status ?? "",
-      entry.extraction?.summary ?? "",
-      entry.proposal?.id ?? ""
-    ].join(":");
-  }
-  return [
-    entry.id,
-    entry.marker.call?.item.status ?? "",
-    entry.marker.call?.item.summary ?? "",
-    entry.marker.result?.item.status ?? "",
-    entry.marker.result?.item.summary ?? ""
-  ].join(":");
-}
-
-function renderedEntryMessageId(entry: RenderTranscriptEntry): string {
-  if (entry.kind === "entry") {
-    return transcriptEntryRenderId(entry.entry);
-  }
-  return entry.id;
-}
-
-function transcriptEntryRenderId(entry: TranscriptEntry): string {
-  if ((entry.type === "assistant" || entry.type === "assistant_stream") && entry.streamId) {
-    return entry.streamId;
-  }
-  return entry.id;
-}
-
-function transcriptEntryScrollFingerprint(entry: TranscriptEntry): string {
-  const renderId = transcriptEntryRenderId(entry);
-
-  if (entry.type === "user" || entry.type === "assistant" || entry.type === "assistant_stream") {
-    return `${renderId}:${entry.text.length}`;
-  }
-  if (entry.type === "activity") {
-    return `${renderId}:${entry.item.status}:${entry.item.summary ?? ""}`;
-  }
-  if (entry.type === "card") {
-    return `${renderId}:${entry.item.schema}`;
-  }
-  return `${renderId}:${entry.message.length}`;
-}
-
-function isScrolledToBottom(element: HTMLElement) {
-  return element.scrollHeight - element.scrollTop - element.clientHeight <= 8;
-}
 
 function TranscriptBottomFollower({
   arrivalScrollKey,
@@ -813,10 +336,6 @@ function renderTranscriptEntry(
       <ErrorNotice message={entry.message} recoverable={entry.recoverable} />
     </TranscriptRow>
   );
-}
-
-export function shouldAnimateMessageText(entry: Extract<TranscriptEntry, { text: string }>): boolean {
-  return entry.type !== "user" && entry.source !== "replay";
 }
 
 function TranscriptRow({
@@ -1016,82 +535,6 @@ function MemoryMarker({
   );
 }
 
-function memoryClaimOutcomes(metadata: unknown): MemoryClaimOutcome[] {
-  if (!metadata || typeof metadata !== "object") {
-    return [];
-  }
-  const outcomes = (metadata as { claim_outcomes?: unknown }).claim_outcomes;
-  if (!Array.isArray(outcomes)) {
-    return [];
-  }
-  return outcomes.flatMap((outcome): MemoryClaimOutcome[] => {
-    if (!outcome || typeof outcome !== "object") {
-      return [];
-    }
-    const record = outcome as Record<string, unknown>;
-    const claimId = typeof record.claim_id === "string" ? record.claim_id : "";
-    const rawOutcome = record.outcome;
-    if (!claimId || (rawOutcome !== "created" && rawOutcome !== "reinforced")) {
-      return [];
-    }
-    return [
-      {
-        claimId,
-        outcome: rawOutcome,
-        factPreview: typeof record.fact_preview === "string" ? record.fact_preview : undefined,
-        sensitivity: typeof record.sensitivity === "string" ? record.sensitivity : undefined
-      }
-    ];
-  });
-}
-
-function metadataCount(metadata: unknown, key: string): number {
-  if (!metadata || typeof metadata !== "object") {
-    return 0;
-  }
-  const value = (metadata as Record<string, unknown>)[key];
-  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0;
-}
-
-function memoryMarkerLabel(extraction?: Extract<TurnTranscriptItem, { kind: "activity" }>): string {
-  if (!extraction) {
-    return "Memory updated";
-  }
-  if (extraction.status === "STARTED") {
-    return "Memory proposed";
-  }
-
-  const outcomes = memoryClaimOutcomes(extraction.metadata);
-  const failedCount = metadataCount(extraction.metadata, "failed_proposal_count");
-  if (outcomes.length === 0) {
-    return extraction.status === "FAILED" ? "Memory update failed" : "Memory updated";
-  }
-  if (outcomes.length === 1 && failedCount === 0) {
-    const outcome = outcomes[0];
-    const verb = outcome.outcome === "reinforced" ? "Memory updated" : "Memory saved";
-    return outcome.factPreview ? `${verb}: ${outcome.factPreview}` : verb;
-  }
-
-  const createdCount = metadataCount(extraction.metadata, "created_claim_count");
-  const reinforcedCount = metadataCount(extraction.metadata, "reinforced_claim_count");
-  const savedCount = createdCount + reinforcedCount || outcomes.length;
-  const noun = savedCount === 1 ? "memory" : "memories";
-  const prefix = createdCount > 0 ? "Memory saved" : "Memory updated";
-  const failureSuffix = failedCount > 0 ? `; ${failedCount} failed` : "";
-  return `${prefix}: ${savedCount} ${noun}${failureSuffix}`;
-}
-
-function memoryCardsFromClaimOutcomes(
-  extraction?: Extract<TurnTranscriptItem, { kind: "activity" }>
-): MemoryCardData[] {
-  return memoryClaimOutcomes(extraction?.metadata).map((outcome) => ({
-    id: outcome.claimId,
-    title: outcome.factPreview ?? outcome.claimId,
-    content: outcome.factPreview ?? outcome.claimId,
-    status: outcome.outcome,
-    sensitivity: outcome.sensitivity
-  }));
-}
 
 function ToolMarker({
   marker,
@@ -1183,30 +626,6 @@ function MemoryStructuredCard({ schema, memories }: { schema: string; memories: 
   );
 }
 
-export function memoryDetailItems(memories: MemoryCardData[]): MemoryDetailItem[] {
-  return memories.map((memory) => {
-    const rows: MemoryDetailRowData[] = [{ label: "Memory", value: memory.content }];
-    if (memory.memoryType) {
-      rows.push({ label: "Type", value: memory.memoryType });
-    }
-    if (memory.sensitivity) {
-      rows.push({ label: "Sensitivity", value: memory.sensitivity });
-    }
-    if (memory.status) {
-      rows.push({ label: "Status", value: memory.status });
-    }
-    if (typeof memory.confidence === "number") {
-      rows.push({ label: "Confidence", value: `${Math.round(memory.confidence * 100)}%` });
-    }
-    if (memory.evidenceExcerpt) {
-      rows.push({ label: "Evidence", value: memory.evidenceExcerpt });
-    }
-    if (memory.id) {
-      rows.push({ label: "Memory ID", value: memory.id });
-    }
-    return { title: memory.title, rows };
-  });
-}
 
 function MemoryDetailAttachment({
   id,
@@ -1272,7 +691,7 @@ function MemoryDetailList({ memories }: { memories: MemoryCardData[] }) {
   );
 }
 
-function MemoryDetailRow({ label, value }: MemoryDetailRowData) {
+function MemoryDetailRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="grid gap-0.5">
       <dt className="font-mono text-[10px] tracking-[0.08em] text-[var(--text-faint)] uppercase">{label}</dt>
