@@ -884,7 +884,7 @@ impl NoemaStore {
             )
             .bind(("predicate_id", predicate_id.to_string()))
             .await?;
-        let rows: Vec<super::PredicateRecord> = response.take(0)?;
+        let rows: Vec<PredicateExistsRow> = response.take(0)?;
         if rows.is_empty() {
             Err(StoreError::PredicateNotFound {
                 predicate_id: predicate_id.to_string(),
@@ -894,7 +894,7 @@ impl NoemaStore {
         }
     }
 
-    async fn require_source_item(&self, item_id: &str) -> Result<(), StoreError> {
+    pub(super) async fn require_source_item(&self, item_id: &str) -> Result<(), StoreError> {
         let mut response = self
             .db
             .query(
@@ -1086,6 +1086,12 @@ struct EntityIdRow {
 struct SourceItemRow {
     #[allow(dead_code)]
     item_id: String,
+}
+
+#[derive(Debug, Deserialize, SurrealValue)]
+struct PredicateExistsRow {
+    #[allow(dead_code)]
+    predicate_id: String,
 }
 
 #[derive(Debug, Deserialize, SurrealValue)]
@@ -1448,7 +1454,7 @@ const fn sensitivity_rank(sensitivity: Sensitivity) -> u8 {
     }
 }
 
-fn format_datetime(value: Datetime) -> String {
+pub(super) fn format_datetime(value: Datetime) -> String {
     value.to_string()
 }
 

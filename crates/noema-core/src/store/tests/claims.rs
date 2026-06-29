@@ -305,6 +305,69 @@ async fn unknown_predicate_claim_is_rejected() {
 }
 
 #[tokio::test]
+async fn predicate_proposal_can_be_created_and_listed() {
+    let store = test_store().await;
+    let source_item = create_source_item(&store, "I collect model aircraft.").await;
+
+    let proposal = store
+        .create_predicate_proposal(crate::store::PredicateProposalCandidate {
+            label: "collects".to_string(),
+            description: "The subject collects the object.".to_string(),
+            proposed_predicate: json!({
+                "allowed_subject_types": ["human", "person"],
+                "allowed_object_types": ["concept", "other"],
+                "allowed_use_modes": ["answer", "personalize"],
+                "default_sensitivity": "normal",
+                "conflict_policy": "allow_many",
+                "review_policy": "auto_candidate",
+                "inverse_behavior": "none",
+                "inverse_predicate_id": null,
+                "proactivity_default": 1,
+                "merge_hints": {"strategy": "object_identity"},
+                "synonym_hints": ["keeps a collection of"],
+                "extraction_hints": {"examples": ["I collect model aircraft"]},
+                "rationale": "No promoted predicate represents collecting."
+            }),
+            source_item_id: Some(source_item.item_id.clone()),
+            proposed_claim: json!({
+                "fact": "Kevin collects model aircraft.",
+                "subject_entity_id": "human:local",
+                "object_entity_id": "concept:model_aircraft"
+            }),
+        })
+        .await
+        .expect("create predicate proposal");
+
+    assert!(proposal.proposal_id.starts_with("predicate_proposal:"));
+    assert_eq!(proposal.status, "candidate");
+    assert_eq!(
+        proposal.source_item_id.as_deref(),
+        Some(source_item.item_id.as_str())
+    );
+
+    let proposals = store
+        .list_predicate_proposals(crate::store::PredicateProposalFilter {
+            status: Some("candidate".to_string()),
+            limit: Some(10),
+        })
+        .await
+        .expect("list predicate proposals");
+    assert_eq!(proposals.len(), 1);
+    assert_eq!(proposals[0].proposal_id, proposal.proposal_id);
+
+    let detail = store
+        .get_predicate_proposal(&proposal.proposal_id)
+        .await
+        .expect("get proposal")
+        .expect("proposal exists");
+    assert_eq!(detail.label, "collects");
+    assert_eq!(
+        detail.proposed_claim["fact"],
+        "Kevin collects model aircraft."
+    );
+}
+
+#[tokio::test]
 async fn missing_source_item_claim_is_rejected() {
     let store = test_store().await;
 

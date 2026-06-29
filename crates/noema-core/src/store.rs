@@ -20,6 +20,9 @@ pub use claims::{
     MemoryGraphEdge, MemoryGraphFilter, MemoryGraphNode, MemoryGraphSummary, NewClaimCandidate,
 };
 pub use error::StoreError;
-pub use ontology::{EntityCandidate, EntityType, PredicateRecord};
+pub use ontology::{
+    EntityCandidate, EntityType, PredicateProposalCandidate, PredicateProposalFilter,
+    PredicateProposalRecord, PredicateRecord,
+};
 pub use retrieval::{ClaimRetrievalResult, RetrievedClaim};
 pub use runtime::{NoemaStore, StoreConfig};
