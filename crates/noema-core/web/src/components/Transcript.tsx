@@ -785,7 +785,7 @@ function memoryMarkerLabel(extraction?: Extract<TurnTranscriptItem, { kind: "act
   const outcomes = memoryClaimOutcomes(extraction.metadata);
   const failedCount = metadataCount(extraction.metadata, "failed_proposal_count");
   if (outcomes.length === 0) {
-    return failedCount > 0 ? "Memory update failed" : "Memory updated";
+    return "Memory updated";
   }
   if (outcomes.length === 1 && failedCount === 0) {
     const outcome = outcomes[0];

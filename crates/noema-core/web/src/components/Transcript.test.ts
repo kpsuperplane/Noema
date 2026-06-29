@@ -172,6 +172,20 @@ describe("Transcript memory markers", () => {
     assert.match(markup, /Memory saved: 1 memory; 1 failed/);
   });
 
+  test("preserves legacy completed marker when failed count has no valid outcomes", () => {
+    const markup = renderTranscript([
+      memoryExtractionEntry("activity-done", "item-done", "COMPLETED", "Memory saved", {
+        claim_outcomes: [{ claim_id: "", outcome: "created", fact_preview: "User likes planes" }],
+        created_claim_count: 0,
+        reinforced_claim_count: 0,
+        failed_proposal_count: 1
+      })
+    ]);
+
+    assert.match(markup, /Memory updated/);
+    assert.doesNotMatch(markup, /Memory update failed/);
+  });
+
   test("renders claim outcomes in expanded memory marker details", () => {
     const markup = renderTranscript(
       [
