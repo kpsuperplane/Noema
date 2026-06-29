@@ -97,6 +97,58 @@ async fn strict_schema_accepts_minimal_claim_with_datetime_fields() {
 }
 
 #[tokio::test]
+async fn bootstrap_refreshes_stale_claim_timestamp_field_definitions() {
+    let store = test_store().await;
+    store
+        .db()
+        .query(
+            r#"
+            DEFINE FIELD OVERWRITE valid_from ON TABLE claims TYPE option<string>;
+            DEFINE FIELD OVERWRITE valid_to ON TABLE claims TYPE option<string>;
+            DEFINE FIELD OVERWRITE observed_at ON TABLE claims TYPE option<string>;
+            "#,
+        )
+        .await
+        .expect("stale claim timestamp field query")
+        .check()
+        .expect("stale claim timestamp fields should define");
+    store
+        .db()
+        .query(STORE_SCHEMA_SQL)
+        .await
+        .expect("replay schema bootstrap")
+        .check()
+        .expect("schema bootstrap should replay");
+
+    store
+        .db()
+        .query(
+            r#"
+            CREATE type::record('claims', 'refreshed_datetime_claim') SET
+              claim_id = 'claim:refreshed-datetime',
+              subject_entity_id = 'entity:human-local',
+              object_entity_id = 'entity:trains',
+              predicate_id = 'likes',
+              fact = 'Kevin likes trains.',
+              status = 'candidate',
+              sensitivity = 'normal',
+              valid_from = time::now(),
+              valid_to = time::now(),
+              observed_at = time::now(),
+              dedupe_fingerprint = 'claim-fingerprint:refreshed-datetime',
+              retrieval_hints = {},
+              policy_overrides = {},
+              metadata = {},
+              updated_at = time::now();
+            "#,
+        )
+        .await
+        .expect("refreshed datetime claim query")
+        .check()
+        .expect("refreshed datetime fields should accept datetime values");
+}
+
+#[tokio::test]
 async fn strict_schema_rejects_invalid_claim_timestamp() {
     let store = test_store().await;
 
