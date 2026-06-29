@@ -264,7 +264,6 @@ export function App() {
   }
 
   const ready = socketState === "ready" && conversationId !== null;
-  const waitingForOnboardingDecision = !onboarding && !displayedOnboardingError;
   const waitingForConversationDecision =
     chatRoute && onboarding?.isUserOnboarded === true && !conversationId && transcript.length === 0;
   const chatView = (
@@ -304,7 +303,7 @@ export function App() {
     </section>
   );
 
-  if (waitingForOnboardingDecision || waitingForConversationDecision) {
+  if (waitingForConversationDecision) {
     return null;
   }
 
