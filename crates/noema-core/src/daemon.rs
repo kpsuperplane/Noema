@@ -1,5 +1,6 @@
 //! Local daemon protocol and Unix-socket runtime.
 
+mod agent_onboarding;
 mod client;
 mod memory_pipeline;
 mod memory_tool;

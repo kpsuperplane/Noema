@@ -25,6 +25,7 @@ use serde_json::{Value, json};
 use tokio::sync::{mpsc, oneshot};
 
 use super::{
+    agent_onboarding::{AgentPromptIdentity, agent_identity_prompt},
     memory_pipeline::{
         AssistantEvidenceItem, ConversationMemoryContext, claim_status_from_memory_status,
         deterministic_canonical_claim, explicit_memory_content, explicit_memory_write_proposal,
@@ -382,6 +383,9 @@ impl CodexRuntimeActor {
             .list_recent_conversation_items_for_context(&conversation_id, 24)
             .await?;
         let recent_transcript = render_recent_transcript_for_prompt(&recent_context_items);
+        let agent_identity = self
+            .agent_identity_for_conversation(&conversation_id)
+            .await?;
         self.update_conversation_agent_status(
             &conversation_id,
             PersistedAgentStatus::InputReceived,
@@ -440,6 +444,7 @@ impl CodexRuntimeActor {
             turn_index,
             conversation.cwd.as_deref(),
             &recent_transcript,
+            &agent_identity,
         );
 
         let initial_stream_id = assistant_stream_id(&turn.turn_id, "initial");
@@ -493,6 +498,7 @@ impl CodexRuntimeActor {
                             initial_stream_id: initial_stream_id.clone(),
                             response,
                             explicit_memory_outcome,
+                            agent_identity,
                         },
                         &item_tx,
                     )
@@ -636,6 +642,7 @@ impl CodexRuntimeActor {
                 turn.turn_index,
                 turn.cwd.as_deref(),
                 &turn.user_input,
+                &turn.agent_identity,
             );
             let continuation_stream_id = assistant_stream_id(&turn.turn_id, "continuation");
             let continuation_output_base = initial_output_count + local_tool_results.len();
@@ -1551,6 +1558,22 @@ impl CodexRuntimeActor {
         });
         Ok(())
     }
+
+    async fn agent_identity_for_conversation(
+        &self,
+        _conversation_id: &str,
+    ) -> Result<AgentPromptIdentity, DaemonError> {
+        let agent_id = "agent:primary".to_string();
+        let agent = self
+            .store
+            .get_agent(&agent_id)
+            .await?
+            .ok_or_else(|| DaemonError::Protocol(format!("unknown agent id: {agent_id}")))?;
+        Ok(AgentPromptIdentity {
+            agent_id: agent.agent_id,
+            display_name: agent.display_name,
+        })
+    }
 }
 
 fn send_conversation_item(
@@ -1730,6 +1753,7 @@ fn build_structured_turn_system_prompt(
     turn_index: u64,
     cwd: Option<&str>,
     recent_transcript: &str,
+    agent_identity: &AgentPromptIdentity,
 ) -> String {
     let project_scope = project_scope_from_cwd(cwd);
     let project_hint = project_scope.as_deref().unwrap_or("none");
@@ -1741,9 +1765,12 @@ fn build_structured_turn_system_prompt(
         active_retrieval_ids.push(format!("- {project_scope}"));
     }
     let active_retrieval_ids = active_retrieval_ids.join("\n");
+    let agent_identity_prompt = agent_identity_prompt(agent_identity);
 
     format!(
         r#"{AGENT_PERSONALITY_PROMPT}
+
+{agent_identity_prompt}
 
 Reply to the user and emit any durable memory proposals in one structured response.
 
@@ -1825,8 +1852,10 @@ fn build_local_tool_result_continuation_system_prompt(
     turn_index: u64,
     cwd: Option<&str>,
     user_input: &str,
+    agent_identity: &AgentPromptIdentity,
 ) -> String {
-    let mut prompt = build_structured_turn_system_prompt(conversation_id, turn_index, cwd, "");
+    let mut prompt =
+        build_structured_turn_system_prompt(conversation_id, turn_index, cwd, "", agent_identity);
     prompt.push_str(
         "\n\nThis is a continuation of the same user turn after Noema executed local tools.",
     );
@@ -2052,6 +2081,7 @@ struct SuccessfulProviderTurn {
     initial_stream_id: String,
     response: GenerateResponse,
     explicit_memory_outcome: ExplicitMemoryOutcome,
+    agent_identity: AgentPromptIdentity,
 }
 
 #[derive(Debug)]
@@ -2126,6 +2156,7 @@ mod tests {
             4,
             Some("/Users/kpsuperplane/Documents/Projects/Noema"),
             "",
+            &test_agent_identity(),
         );
 
         assert!(prompt.contains("Active retrieval IDs:"));
@@ -2137,7 +2168,8 @@ mod tests {
 
     #[test]
     fn structured_turn_prompt_includes_personality_layer_without_weakening_runtime_contract() {
-        let prompt = build_structured_turn_system_prompt("conv_123", 4, None, "");
+        let prompt =
+            build_structured_turn_system_prompt("conv_123", 4, None, "", &test_agent_identity());
 
         assert!(prompt.contains("Adaptive social energy:"));
         assert!(prompt.contains("Start each conversation at about 6/10 social warmth"));
@@ -2155,5 +2187,12 @@ mod tests {
         apply_provider_account_home(&mut config, &account_home);
 
         assert_eq!(config.account_home.as_deref(), Some(account_home.as_path()));
+    }
+
+    fn test_agent_identity() -> AgentPromptIdentity {
+        AgentPromptIdentity {
+            agent_id: "agent:primary".to_string(),
+            display_name: None,
+        }
     }
 }

@@ -284,6 +284,26 @@ async fn runtime_primary_conversation_sends_recent_durable_context_after_restart
     run_restart_context_child_phase("read", home.path());
 }
 
+#[tokio::test]
+async fn runtime_prompt_includes_unnamed_agent_onboarding() {
+    let handle = test_runtime_handle(fake_codex_provider_with_identity_prompt_check()).await;
+
+    let conversation_id = handle
+        .start_conversation(None, None)
+        .await
+        .expect("conversation")
+        .conversation_id;
+    let items = collect_turn(&handle, conversation_id, "hello".to_string())
+        .await
+        .expect("turn");
+    handle.shutdown().await;
+
+    assert!(items.iter().any(|item| matches!(
+        item,
+        TurnTranscriptItem::AssistantText { text } if text == "saw unnamed identity"
+    )));
+}
+
 fn run_restart_context_child_phase(phase: &str, home: &std::path::Path) {
     let output = Command::new(std::env::current_exe().expect("current test binary"))
         .arg("daemon::tests::runtime_primary_conversation_sends_recent_durable_context_after_restart")
@@ -2765,6 +2785,7 @@ struct FakeCodexProvider {
 enum FakeCodexScenario {
     Simple,
     RestartContext,
+    IdentityPromptCheck,
     TurnError,
     ToolItem,
     ToolItemThenFailure,
@@ -2819,6 +2840,18 @@ impl FakeCodexProvider {
                     "saw durable context"
                 } else {
                     "fake answer"
+                })
+            }
+            FakeCodexScenario::IdentityPromptCheck => {
+                let saw_identity = instructions.contains("Agent identity:")
+                    && instructions.contains("agent_id: agent:primary")
+                    && instructions.contains("display_name: none")
+                    && instructions.contains("Onboarding prompt:")
+                    && instructions.contains("update_own_name");
+                assistant_with_no_memories(if saw_identity {
+                    "saw unnamed identity"
+                } else {
+                    "missing unnamed identity"
                 })
             }
             FakeCodexScenario::TurnError => {
@@ -3752,6 +3785,10 @@ fn fake_codex_provider() -> FakeCodexProvider {
 
 fn fake_codex_provider_with_restart_context_check() -> FakeCodexProvider {
     FakeCodexProvider::new(FakeCodexScenario::RestartContext)
+}
+
+fn fake_codex_provider_with_identity_prompt_check() -> FakeCodexProvider {
+    FakeCodexProvider::new(FakeCodexScenario::IdentityPromptCheck)
 }
 
 fn fake_codex_provider_with_tool_item() -> FakeCodexProvider {
