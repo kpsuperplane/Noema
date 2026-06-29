@@ -1131,6 +1131,65 @@ async fn provider_memory_mislabelled_secret_stays_candidate_and_unretrievable() 
 }
 
 #[tokio::test]
+async fn provider_memory_malformed_canonicalizer_response_fails_without_fallback_claim() {
+    let (handle, store) =
+        test_runtime_handle_with_store(fake_codex_provider_with_malformed_canonicalizer()).await;
+
+    let conversation = handle
+        .start_conversation(None, None)
+        .await
+        .expect("conversation");
+    let items = collect_turn(
+        &handle,
+        conversation.conversation_id,
+        "I prefer malformed canonicalizer tests.".to_string(),
+    )
+    .await
+    .expect("turn should complete despite malformed canonicalizer response");
+
+    assert_eq!(assistant_text(&items), "fake answer");
+    assert!(items.iter().any(|item| {
+        matches!(
+            item,
+            TurnTranscriptItem::Activity {
+                activity_kind,
+                status: TurnActivityStatus::Failed,
+                title,
+                metadata,
+                ..
+            } if activity_kind == "memory_extraction"
+                && title == "Memory persistence failed"
+                && metadata["failed_proposal_count"] == 1
+                && metadata["failed_proposals"][0]["error"]
+                    .as_str()
+                    .is_some_and(|error| error.contains("memory canonicalization failed"))
+        )
+    }));
+    assert!(
+        !items.iter().any(|item| {
+            matches!(
+                item,
+                TurnTranscriptItem::Activity {
+                    activity_kind,
+                    status: TurnActivityStatus::Completed,
+                    title,
+                    ..
+                } if activity_kind == "memory_extraction"
+                    && title == "Memory persisted"
+            )
+        }),
+        "malformed canonicalizer response should not persist fallback memory: {items:?}"
+    );
+
+    let claims = store
+        .retrieve_claims(&answer_claim_request(), "malformed canonicalizer tests", 8)
+        .await
+        .expect("retrieve malformed canonicalizer claim");
+    assert!(claims.included.is_empty(), "unexpected claims: {claims:?}");
+    handle.shutdown().await;
+}
+
+#[tokio::test]
 async fn provider_memory_validation_rejection_persists_failed_activity() {
     let (handle, _store) =
         test_runtime_handle_with_store(fake_codex_provider_with_invalid_memory_proposal()).await;
@@ -2599,6 +2658,7 @@ enum FakeCodexScenario {
     MultiAssistantMemory,
     SplitAssistantEvidenceMemory,
     MislabelledSecretMemory,
+    MalformedCanonicalizer,
     PartialMemoryWrite,
     InvalidMemoryProposal,
     MemoryExtraction,
@@ -2619,6 +2679,16 @@ impl FakeCodexProvider {
             .unwrap_or_else(|| "fake-model".to_string());
         let GenerateInput::Text(input) = request.input;
         let instructions = request.instructions.unwrap_or_default();
+        if input.contains("Noema's memory claim canonicalizer") {
+            let text = canonicalization_response_text(&input, self.scenario);
+            return Ok(GenerateResponse {
+                output: vec![GenerateOutputItem::AssistantText { text }],
+                provider: "codex".to_string(),
+                model,
+                response_id: Some("fake-response".to_string()),
+                usage: None,
+            });
+        }
         let output = match self.scenario {
             FakeCodexScenario::Simple => assistant_with_no_memories("fake answer"),
             FakeCodexScenario::RestartContext => {
@@ -2851,6 +2921,30 @@ impl FakeCodexProvider {
                     assistant_with_no_memories("fake answer")
                 }
             }
+            FakeCodexScenario::MalformedCanonicalizer => {
+                if input.contains("I prefer malformed canonicalizer tests.") {
+                    vec![
+                        GenerateOutputItem::AssistantText {
+                            text: "fake answer".to_string(),
+                        },
+                        GenerateOutputItem::MemoryProposals {
+                            proposals: vec![proposal(json!({
+                                "content": "Kevin prefers malformed canonicalizer tests.",
+                                "memory_type": "preference",
+                                "title": "Malformed canonicalizer test preference",
+                                "confidence": 0.91,
+                                "sensitivity": "normal",
+                                "subjects": [{"id": "human:local", "kind": "human", "name": "Kevin", "role": "about"}],
+                                "retrieval_hints": {"topics": ["tests"], "keywords": ["malformed canonicalizer tests"], "summary": "Kevin prefers malformed canonicalizer tests."},
+                                "risk_flags": [],
+                                "evidence_excerpt": "I prefer malformed canonicalizer tests."
+                            }))],
+                        },
+                    ]
+                } else {
+                    assistant_with_no_memories("fake answer")
+                }
+            }
             FakeCodexScenario::PartialMemoryWrite => {
                 if input.contains("I like partial write trains and need one failing note.") {
                     vec![
@@ -2996,6 +3090,106 @@ fn train_preference_proposal() -> crate::ExtractorMemoryProposal {
         "risk_flags": [],
         "evidence_excerpt": "I'm a big fan of trains"
     }))
+}
+
+fn canonicalization_response_text(input: &str, scenario: FakeCodexScenario) -> String {
+    if matches!(scenario, FakeCodexScenario::MalformedCanonicalizer) {
+        return "{not valid canonicalization json".to_string();
+    }
+
+    let response = if input.contains("Kevin's API key is sk-testSecretToken123456789.") {
+        json!({
+            "candidates": [{
+                "subject": {"entity_id": "human:local", "entity_type": "human", "canonical_name": "Local human"},
+                "object": {"entity_id": "concept:api_key", "entity_type": "concept", "canonical_name": "API key"},
+                "predicate": {"kind": "promoted_predicate", "predicate_id": "has_note"},
+                "fact": "Kevin's API key is sk-testSecretToken123456789.",
+                "sensitivity": "normal",
+                "status": "active",
+                "confidence": 0.98,
+                "retrieval_hints": {"keywords": ["api key"], "summary": "Kevin's API key is sk-testSecretToken123456789."},
+                "rationale": "Unsafe fake canonicalizer promotion used to verify deterministic safety clamps."
+            }]
+        })
+    } else if input.contains("Kevin collects model aircraft.") {
+        json!({
+            "candidates": [{
+                "subject": {"entity_id": "human:local", "entity_type": "human", "canonical_name": "Local human"},
+                "object": {"entity_id": "concept:model_aircraft", "entity_type": "concept", "canonical_name": "model aircraft"},
+                "predicate": {
+                    "kind": "predicate_proposal",
+                    "proposal": {
+                        "label": "collects",
+                        "description": "The subject collects the object.",
+                        "allowed_subject_types": ["human", "person"],
+                        "allowed_object_types": ["concept", "other"],
+                        "allowed_use_modes": ["answer", "personalize"],
+                        "default_sensitivity": "normal",
+                        "conflict_policy": "allow_many",
+                        "review_policy": "auto_candidate",
+                        "inverse_behavior": "none",
+                        "inverse_predicate_id": null,
+                        "proactivity_default": 1,
+                        "merge_hints": {"strategy": "object_identity"},
+                        "synonym_hints": ["keeps a collection of"],
+                        "extraction_hints": {"examples": ["I collect model aircraft"]},
+                        "rationale": "No promoted predicate represents collecting."
+                    }
+                },
+                "fact": "Kevin collects model aircraft.",
+                "sensitivity": "normal",
+                "status": "candidate",
+                "confidence": 0.9,
+                "retrieval_hints": {"keywords": ["model aircraft"], "summary": "Kevin collects model aircraft."},
+                "rationale": "The source states a durable collecting relationship."
+            }]
+        })
+    } else if input.contains("Kevin enjoys ice cream desserts.")
+        || input.contains("Kevin likes ice cream.")
+    {
+        json!({
+            "candidates": [{
+                "subject": {"entity_id": "human:local", "entity_type": "human", "canonical_name": "Local human"},
+                "object": {"entity_id": "concept:claim_object_likes_ice_cream", "entity_type": "concept", "canonical_name": "ice cream"},
+                "predicate": {"kind": "promoted_predicate", "predicate_id": "likes"},
+                "fact": "Kevin likes ice cream.",
+                "sensitivity": "normal",
+                "status": "active",
+                "confidence": 0.9,
+                "retrieval_hints": {"keywords": ["ice cream"], "summary": "Kevin likes ice cream."},
+                "rationale": "The source states a durable ice cream preference."
+            }]
+        })
+    } else if input.contains("Kevin hates ice cream.") {
+        json!({
+            "candidates": [{
+                "subject": {"entity_id": "human:local", "entity_type": "human", "canonical_name": "Local human"},
+                "object": {"entity_id": "concept:claim_object_dislikes_ice_cream", "entity_type": "concept", "canonical_name": "ice cream"},
+                "predicate": {"kind": "promoted_predicate", "predicate_id": "dislikes"},
+                "fact": "Kevin dislikes ice cream.",
+                "sensitivity": "normal",
+                "status": "candidate",
+                "confidence": 0.91,
+                "retrieval_hints": {"keywords": ["ice cream"], "summary": "Kevin dislikes ice cream."},
+                "rationale": "The source directly states a dislike that may conflict with an existing like."
+            }]
+        })
+    } else {
+        json!({
+            "candidates": [{
+                "subject": {"entity_id": "human:local", "entity_type": "human", "canonical_name": "Local human"},
+                "object": {"entity_id": "concept:canonicalizer_fallback", "entity_type": "concept", "canonical_name": "canonicalizer fallback"},
+                "predicate": {"kind": "fallback_note"},
+                "fact": "Canonicalizer fallback note.",
+                "sensitivity": "normal",
+                "status": "candidate",
+                "confidence": 0.5,
+                "retrieval_hints": {"keywords": ["canonicalizer fallback"], "summary": "Canonicalizer fallback note."},
+                "rationale": "Fake provider fallback for tests."
+            }]
+        })
+    };
+    serde_json::to_string(&response).expect("canonicalizer json")
 }
 
 fn memory_extraction_output(input: &str) -> Vec<GenerateOutputItem> {
@@ -3436,6 +3630,10 @@ fn fake_codex_provider_with_split_assistant_evidence_memory() -> FakeCodexProvid
 
 fn fake_codex_provider_with_mislabelled_secret_memory() -> FakeCodexProvider {
     FakeCodexProvider::new(FakeCodexScenario::MislabelledSecretMemory)
+}
+
+fn fake_codex_provider_with_malformed_canonicalizer() -> FakeCodexProvider {
+    FakeCodexProvider::new(FakeCodexScenario::MalformedCanonicalizer)
 }
 
 fn fake_codex_provider_with_partial_memory_write() -> FakeCodexProvider {

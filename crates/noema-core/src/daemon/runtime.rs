@@ -4,8 +4,8 @@ use crate::{
     ClaimWriteOutcome, NoemaStore,
     memory::Sensitivity,
     memory_consolidation::{
-        CanonicalClaimCandidate, MemoryWriteProposal, PredicateResolution,
-        build_claim_canonicalization_prompt, parse_canonicalization_response,
+        CanonicalClaimCandidate, MemoryConsolidationError, MemoryWriteProposal,
+        PredicateResolution, build_claim_canonicalization_prompt, parse_canonicalization_response,
     },
     memory_extraction::{
         ExtractorMemoryProposal, ExtractorMemoryResponse, ValidatedMemoryProposal,
@@ -1079,10 +1079,17 @@ impl CodexRuntimeActor {
             .generate_streaming(GenerateRequest::text(prompt), &mut ignored_events)
             .await
             .map_err(DaemonError::Provider)?;
-        let parsed =
-            parse_canonicalization_response(&response.assistant_text()).map_err(|error| {
-                DaemonError::Protocol(format!("memory canonicalization failed: {error}"))
-            })?;
+        let parsed = match parse_canonicalization_response(&response.assistant_text()) {
+            Ok(parsed) => parsed,
+            Err(MemoryConsolidationError::InvalidCanonicalization(
+                "candidates must not be empty",
+            )) => return Ok(Vec::new()),
+            Err(error) => {
+                return Err(DaemonError::Protocol(format!(
+                    "memory canonicalization failed: {error}"
+                )));
+            }
+        };
         Ok(parsed.candidates)
     }
 
@@ -1174,10 +1181,16 @@ impl CodexRuntimeActor {
                 "ordinary_chat",
             );
 
-            let canonical_candidates = self
-                .canonicalize_memory_write(&write_proposal)
-                .await
-                .unwrap_or_default();
+            let canonical_candidates = match self.canonicalize_memory_write(&write_proposal).await {
+                Ok(candidates) => candidates,
+                Err(error) => {
+                    failed_proposals.push(json!({
+                        "proposal_index": proposal_index,
+                        "error": error.to_string(),
+                    }));
+                    continue;
+                }
+            };
             let mut usable_candidate_seen = false;
             for canonical in canonical_candidates {
                 match &canonical.predicate {

@@ -179,6 +179,7 @@ pub(super) fn provider_memory_write_proposal(
             "proposal_index": proposal_index,
             "memory_type": memory_type_label(proposal.memory_type),
             "title": proposal.title,
+            "validated_status": memory_status_label(validated.status),
             "risk_flags": risk_flags,
             "evidence_source": evidence_source.source.as_str(),
             "cwd_project_hint": project_scope_from_cwd(context.cwd.as_deref()),
@@ -244,8 +245,8 @@ pub(super) fn new_claim_from_canonical(
         },
         predicate_id: predicate_id.clone(),
         fact: candidate.fact.clone(),
-        sensitivity: candidate.sensitivity,
-        status: claim_status_from_canonical(candidate.status),
+        sensitivity: candidate.sensitivity.max(proposal.sensitivity),
+        status: bounded_canonical_claim_status(candidate.status, proposal),
         confidence: Some(candidate.confidence),
         evidence: EvidenceCandidate {
             source_item_id: proposal.source_item_id.clone(),
@@ -675,6 +676,66 @@ fn claim_status_from_canonical(status: CanonicalClaimStatus) -> ClaimStatus {
         CanonicalClaimStatus::Candidate => ClaimStatus::Candidate,
         CanonicalClaimStatus::Active => ClaimStatus::Active,
         CanonicalClaimStatus::Confirmed => ClaimStatus::Confirmed,
+    }
+}
+
+fn bounded_canonical_claim_status(
+    status: CanonicalClaimStatus,
+    proposal: &MemoryWriteProposal,
+) -> ClaimStatus {
+    let canonical = claim_status_from_canonical(status);
+    let Some(validated) = proposal.metadata["validated_status"]
+        .as_str()
+        .and_then(memory_status_from_label)
+        .map(claim_status_from_memory_status)
+    else {
+        return canonical;
+    };
+    if claim_status_rank(canonical) <= claim_status_rank(validated) {
+        canonical
+    } else {
+        validated
+    }
+}
+
+const fn claim_status_rank(status: ClaimStatus) -> u8 {
+    match status {
+        ClaimStatus::Candidate => 0,
+        ClaimStatus::Active => 1,
+        ClaimStatus::Confirmed => 2,
+        ClaimStatus::Disputed
+        | ClaimStatus::Superseded
+        | ClaimStatus::Archived
+        | ClaimStatus::Deleted => 0,
+    }
+}
+
+fn memory_status_from_label(label: &str) -> Option<MemoryStatus> {
+    match label {
+        "candidate" => Some(MemoryStatus::Candidate),
+        "active" => Some(MemoryStatus::Active),
+        "confirmed" => Some(MemoryStatus::Confirmed),
+        "inferred" => Some(MemoryStatus::Inferred),
+        "stale" => Some(MemoryStatus::Stale),
+        "superseded" => Some(MemoryStatus::Superseded),
+        "archived" => Some(MemoryStatus::Archived),
+        "deleted" => Some(MemoryStatus::Deleted),
+        "disputed" => Some(MemoryStatus::Disputed),
+        _ => None,
+    }
+}
+
+fn memory_status_label(status: MemoryStatus) -> &'static str {
+    match status {
+        MemoryStatus::Candidate => "candidate",
+        MemoryStatus::Active => "active",
+        MemoryStatus::Confirmed => "confirmed",
+        MemoryStatus::Inferred => "inferred",
+        MemoryStatus::Stale => "stale",
+        MemoryStatus::Superseded => "superseded",
+        MemoryStatus::Archived => "archived",
+        MemoryStatus::Deleted => "deleted",
+        MemoryStatus::Disputed => "disputed",
     }
 }
 
