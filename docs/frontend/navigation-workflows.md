@@ -45,7 +45,7 @@ the user has a reason to inspect them.
 | Object page | User opens a memory, task, project, approval, tool, or run | Manage durable state and linked evidence |
 | Settings | User needs local setup, account, storage, backup, or memory management | Secondary utility surface |
 | Owner/admin inspection | User explicitly asks for exact internals | Redacted privileged inspection |
-| Home/attention view | Later, when there is enough activity to summarize | Optional overview, not the first post-ramp experience |
+| Future attention view | Later, when there is enough activity to summarize | Optional overview once enough durable state exists |
 
 Current shell behavior: desktop shows a persistent left sidebar, while narrow
 screens use a drawer opened from a compact top bar. Healthy setup, service,
@@ -274,12 +274,13 @@ Primary actions:
 - Rebuild derived indexes.
 - Create backup.
 
-## Home / Attention View
+## Future Attention View
 
-Home is optional and later-stage. It is not the post-ramp default.
+Current `Home` is the durable primary conversation. A separate operational
+attention or overview surface is optional and later-stage, useful only when
+there is enough durable state that the user needs a summary across surfaces.
 
-Home becomes useful when there is enough durable state that the user needs an
-overview:
+The future attention view can summarize:
 
 - Pending memory reviews.
 - Pending approvals.
@@ -289,8 +290,8 @@ overview:
 - Workspace updates.
 - Local service health.
 
-Home should avoid duplicating every object page. It links users into the
-chat, workspace, memory, approval, run, or setting that owns the work.
+The attention view should avoid duplicating every object page. It links users
+into the chat, workspace, memory, approval, run, or setting that owns the work.
 
 ## Command Palette
 
@@ -604,7 +605,7 @@ addressability and backing, not what the first shell emphasizes.
 
 | Route | Visible label | Backed by | Capability | Status |
 | --- | --- | --- | --- | --- |
-| `/` | Chat | setup health and local service state | route to chat when ready; show setup readiness if blocked | Current |
+| `/` | Home | setup health, local service state, primary conversation | route to the durable primary conversation when ready; show setup readiness if blocked | Current |
 | `/setup` | Setup | local folder, assistant connection, local service checks | create/update setup through guided setup flow | Current |
 | `/chat` | Chat | local service stream | live chat, transcript activity, inline memory extraction rows | Current |
 | `/chat/:id` | Chat detail | active daemon conversation; persisted `conversation_items` where available | live while daemon conversation exists; durable chat history after acknowledged turns | Current limited |
