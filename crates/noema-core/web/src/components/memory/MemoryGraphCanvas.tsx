@@ -9,13 +9,14 @@ import {
   type EdgeProps,
   type EdgeTypes,
   type Node,
+  type NodeChange,
   type NodeProps,
   type NodeTypes,
 } from "@xyflow/react"
 import "@xyflow/react/dist/style.css"
-import { useMemo } from "react"
+import { useCallback, useMemo, useState } from "react"
 
-import type { MemoryGraphEdgeData, MemoryGraphNodeData } from "@/memoryGraphLayout"
+import { applyMemoryGraphNodeChanges, type MemoryGraphEdgeData, type MemoryGraphNodeData } from "@/memoryGraphLayout"
 
 function MemoryEntityNode({ data, selected }: NodeProps<Node<MemoryGraphNodeData>>) {
   return (
@@ -101,6 +102,42 @@ export function MemoryGraphCanvas({
   selectedClaimId: string | null
   onSelectClaim: (claimId: string | null) => void
 }) {
+  const layoutKey = useMemo(
+    () =>
+      nodes
+        .map((node) => `${node.id}:${Math.round(node.position.x)}:${Math.round(node.position.y)}`)
+        .join("|"),
+    [nodes],
+  )
+
+  return (
+    <MemoryGraphFlow
+      key={layoutKey}
+      initialNodes={nodes}
+      edges={edges}
+      selectedClaimId={selectedClaimId}
+      onSelectClaim={onSelectClaim}
+    />
+  )
+}
+
+function MemoryGraphFlow({
+  initialNodes,
+  edges,
+  selectedClaimId,
+  onSelectClaim,
+}: {
+  initialNodes: Node<MemoryGraphNodeData>[]
+  edges: Edge<MemoryGraphEdgeData>[]
+  selectedClaimId: string | null
+  onSelectClaim: (claimId: string | null) => void
+}) {
+  const [flowNodes, setFlowNodes] = useState(initialNodes)
+
+  const handleNodesChange = useCallback((changes: NodeChange<Node<MemoryGraphNodeData>>[]) => {
+    setFlowNodes((currentNodes) => applyMemoryGraphNodeChanges(currentNodes, changes))
+  }, [])
+
   const selectedEdges = useMemo(
     () =>
       edges.map((edge) => ({
@@ -113,14 +150,16 @@ export function MemoryGraphCanvas({
   return (
     <div className="h-full min-h-[420px] overflow-hidden bg-[var(--surface-sunken)]">
       <ReactFlow
-        nodes={nodes}
+        nodes={flowNodes}
         edges={selectedEdges}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         fitView
         panOnDrag
+        nodesDraggable
         zoomOnScroll
         zoomOnPinch
+        onNodesChange={handleNodesChange}
         onEdgeClick={(_, edge) => onSelectClaim(edge.id)}
         onPaneClick={() => onSelectClaim(null)}
       >

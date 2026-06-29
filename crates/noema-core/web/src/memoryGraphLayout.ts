@@ -1,5 +1,5 @@
+import { applyNodeChanges, type Edge, type Node, type NodeChange } from "@xyflow/react";
 import { forceCenter, forceCollide, forceLink, forceManyBody, forceSimulation } from "d3-force";
-import type { Edge, Node } from "@xyflow/react";
 import type { NormalizedMemoryGraph, NormalizedMemoryGraphEdge, NormalizedMemoryGraphNode } from "./memoryGraph";
 
 export type MemoryGraphNodeData = NormalizedMemoryGraphNode;
@@ -23,6 +23,8 @@ type SimulationLink = {
 };
 
 const SIMULATION_TICKS = 180;
+const NODE_COLLISION_RADIUS = 124;
+const NODE_LINK_DISTANCE = 300;
 
 export function layoutMemoryGraph(
   graph: NormalizedMemoryGraph,
@@ -59,12 +61,12 @@ export function layoutMemoryGraph(
       "link",
       forceLink<SimulationNode, SimulationLink>(simulationLinks)
         .id((node) => node.id)
-        .distance(180)
-        .strength(0.45),
+        .distance(NODE_LINK_DISTANCE)
+        .strength(0.28),
     )
-    .force("charge", forceManyBody().strength(-420))
+    .force("charge", forceManyBody().strength(-950))
     .force("center", forceCenter(centerX, centerY))
-    .force("collide", forceCollide<SimulationNode>().radius(72).strength(0.7))
+    .force("collide", forceCollide<SimulationNode>().radius(NODE_COLLISION_RADIUS).strength(0.95))
     .stop()
     .tick(SIMULATION_TICKS);
 
@@ -76,6 +78,7 @@ export function layoutMemoryGraph(
         x: node.x,
         y: node.y,
       },
+      draggable: true,
       data: node.data,
     })),
     edges: orderedEdges.map((edge) => ({
@@ -87,4 +90,11 @@ export function layoutMemoryGraph(
       data: edge,
     })),
   };
+}
+
+export function applyMemoryGraphNodeChanges(
+  nodes: Node<MemoryGraphNodeData>[],
+  changes: NodeChange<Node<MemoryGraphNodeData>>[],
+): Node<MemoryGraphNodeData>[] {
+  return applyNodeChanges(changes, nodes);
 }

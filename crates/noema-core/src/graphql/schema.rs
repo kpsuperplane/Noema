@@ -205,7 +205,7 @@ impl QueryRoot {
         Ok(detail.map(Into::into))
     }
 
-    /// Return a bounded graph-memory projection for memory-management inspection.
+    /// Return a bounded graph-memory projection for local memory-management inspection.
     async fn memory_graph(
         &self,
         ctx: &Context<'_>,
@@ -789,7 +789,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn memory_graph_query_returns_redacted_nodes_edges_and_summary() {
+    async fn memory_graph_query_returns_readable_nodes_edges_and_summary() {
         use crate::{
             ActorRef, ClaimStatus, ConversationItemKind, ConversationItemStatus, EntityCandidate,
             EvidenceAuthority, EvidenceCandidate, NewClaimCandidate, NewConversation,
@@ -868,16 +868,16 @@ mod tests {
         assert_eq!(data["memoryGraph"]["edges"][0]["claimId"], summary.claim_id);
         assert_eq!(
             data["memoryGraph"]["edges"][0]["fact"],
-            "[redacted; use memoryClaim(claimId) for detail]"
+            "Garage code is 1234."
         );
-        assert_eq!(data["memoryGraph"]["edges"][0]["factRedacted"], true);
-        assert_eq!(data["memoryGraph"]["nodes"][0]["redacted"], true);
+        assert_eq!(data["memoryGraph"]["edges"][0]["factRedacted"], false);
+        assert_eq!(data["memoryGraph"]["nodes"][0]["redacted"], false);
 
         let graph_json = serde_json::to_string(&data["memoryGraph"]).expect("graph json");
         assert!(!graph_json.contains("garage-code"), "{graph_json}");
         assert!(!graph_json.contains("garage_code"), "{graph_json}");
-        assert!(!graph_json.contains("Garage code"), "{graph_json}");
-        assert!(!graph_json.contains("1234"), "{graph_json}");
+        assert!(graph_json.contains("Garage code"), "{graph_json}");
+        assert!(graph_json.contains("1234"), "{graph_json}");
 
         let nodes = data["memoryGraph"]["nodes"].as_array().expect("nodes");
         let edge = &data["memoryGraph"]["edges"][0];

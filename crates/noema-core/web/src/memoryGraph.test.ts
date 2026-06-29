@@ -9,16 +9,16 @@ describe("graphStatusDefaults", () => {
 });
 
 describe("normalizeMemoryGraph", () => {
-  test("keeps display-ready labels and creates edge selection labels", () => {
+  test("keeps readable graph labels and creates edge selection labels", () => {
     const normalized = normalizeMemoryGraph({
       nodes: [
         {
           __typename: "GraphqlMemoryGraphNode",
           nodeId: "entity:human:local",
           entityId: "human:local",
-          label: "[redacted; use memoryClaim(claimId) for detail]",
+          label: "Local human",
           entityType: "human",
-          redacted: true,
+          redacted: false,
           claimCount: 1,
         },
       ],
@@ -30,8 +30,8 @@ describe("normalizeMemoryGraph", () => {
           targetNodeId: "entity:human:local",
           predicateId: "has_note",
           predicateLabel: "has_note",
-          fact: "[redacted; use memoryClaim(claimId) for detail]",
-          factRedacted: true,
+          fact: "Garage code is 1234.",
+          factRedacted: false,
           status: "confirmed",
           sensitivity: "private",
           confidence: 0.9,
@@ -49,8 +49,8 @@ describe("normalizeMemoryGraph", () => {
       },
     });
 
-    assert.equal(normalized.nodes[0].label, "[redacted; use memoryClaim(claimId) for detail]");
-    assert.equal(normalized.nodes[0].redacted, true);
+    assert.equal(normalized.nodes[0].label, "Local human");
+    assert.equal(normalized.nodes[0].redacted, false);
     assert.equal(normalized.edges[0].label, "has_note");
     assert.equal(normalized.edges[0].claimId, "claim:1");
     assert.equal(normalized.summary.returnedClaimCount, 1);

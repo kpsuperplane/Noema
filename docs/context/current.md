@@ -126,7 +126,9 @@ The next storage slice should stay small and concrete:
   read model, defaults to candidate, active, and confirmed claims, caps the
   first load at 150 claims, renders entity nodes plus claim edges with React
   Flow pan/zoom, and shows selected-claim evidence/provenance in a detail
-  panel rather than as canvas nodes.
+  panel rather than as canvas nodes. The local graph inspection view returns
+  readable labels and facts for loaded claims, while graph search matching
+  still avoids non-public fact/entity text before the bounded result is loaded.
 
 ## Open Loops
 

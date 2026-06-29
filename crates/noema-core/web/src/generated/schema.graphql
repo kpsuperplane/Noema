@@ -428,7 +428,7 @@ type GraphqlMemoryClaimEvidence {
 }
 
 """
-Bounded graph-memory projection for memory-management inspection.
+Bounded graph-memory projection for local memory-management inspection.
 """
 type GraphqlMemoryGraph {
 	"""
@@ -470,7 +470,7 @@ type GraphqlMemoryGraphEdge {
 	"""
 	predicateLabel: String!
 	"""
-	Conservative fact preview. Non-public facts are redacted in graph lists.
+	Human-readable fact text for local graph inspection.
 	"""
 	fact: String!
 	"""
@@ -542,7 +542,7 @@ type GraphqlMemoryGraphNode {
 	"""
 	entityId: String!
 	"""
-	Human-readable entity label. Non-public labels are redacted in lists.
+	Human-readable entity label for local graph inspection.
 	"""
 	label: String!
 	"""
@@ -938,7 +938,7 @@ type QueryRoot {
 	"""
 	memoryClaim(claimId: String!): GraphqlMemoryClaimDetail
 	"""
-	Return a bounded graph-memory projection for memory-management inspection.
+	Return a bounded graph-memory projection for local memory-management inspection.
 	"""
 	memoryGraph(input: GraphqlMemoryGraphInput): GraphqlMemoryGraph!
 }

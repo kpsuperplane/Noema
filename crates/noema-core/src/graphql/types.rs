@@ -267,7 +267,7 @@ pub struct GraphqlMemoryGraphInput {
     pub limit: Option<i32>,
 }
 
-/// Bounded graph-memory projection for memory-management inspection.
+/// Bounded graph-memory projection for local memory-management inspection.
 #[derive(Clone, Debug, SimpleObject)]
 pub struct GraphqlMemoryGraph {
     /// Entity nodes incident to returned claim edges.
@@ -285,7 +285,7 @@ pub struct GraphqlMemoryGraphNode {
     pub node_id: String,
     /// Opaque entity reference for this graph response.
     pub entity_id: String,
-    /// Human-readable entity label. Non-public labels are redacted in lists.
+    /// Human-readable entity label for local graph inspection.
     pub label: String,
     /// Entity type string.
     pub entity_type: String,
@@ -308,7 +308,7 @@ pub struct GraphqlMemoryGraphEdge {
     pub predicate_id: String,
     /// Predicate label.
     pub predicate_label: String,
-    /// Conservative fact preview. Non-public facts are redacted in graph lists.
+    /// Human-readable fact text for local graph inspection.
     pub fact: String,
     /// Whether the fact was redacted at the GraphQL boundary.
     pub fact_redacted: bool,
@@ -396,14 +396,13 @@ fn mapped_memory_graph_edge_endpoint_id(
 
 impl GraphqlMemoryGraphNode {
     fn from_store_node(node: MemoryGraphNode, node_id_map: &HashMap<String, String>) -> Self {
-        let redacted = node.max_sensitivity != Sensitivity::Public;
         let node_id = mapped_memory_graph_node_id(node_id_map, &node.node_id);
         Self {
             entity_id: node_id.clone(),
             node_id,
-            label: graphql_list_display_name(node.label, node.max_sensitivity),
+            label: node.label,
             entity_type: node.entity_type,
-            redacted,
+            redacted: false,
             claim_count: node.claim_count,
         }
     }
@@ -411,15 +410,14 @@ impl GraphqlMemoryGraphNode {
 
 impl GraphqlMemoryGraphEdge {
     fn from_store_edge(edge: MemoryGraphEdge, node_id_map: &HashMap<String, String>) -> Self {
-        let fact_redacted = edge.sensitivity != Sensitivity::Public;
         Self {
             claim_id: edge.claim_id,
             source_node_id: mapped_memory_graph_edge_endpoint_id(node_id_map, &edge.source_node_id),
             target_node_id: mapped_memory_graph_edge_endpoint_id(node_id_map, &edge.target_node_id),
             predicate_id: edge.predicate_id,
             predicate_label: edge.predicate_label,
-            fact: graphql_list_fact(&edge.fact, edge.sensitivity),
-            fact_redacted,
+            fact: edge.fact,
+            fact_redacted: false,
             status: claim_status_label(edge.status).to_string(),
             sensitivity: sensitivity_label(edge.sensitivity).to_string(),
             confidence: edge.confidence,
