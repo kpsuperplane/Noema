@@ -12,7 +12,6 @@ import {
   type StartProviderAuthAttemptMutation
 } from "./generated/graphql";
 import { AppHeader } from "@/components/shell/AppHeader";
-import { Button } from "@/components/ui/button";
 import { Composer } from "./components/Composer";
 import { EmptyState } from "./components/EmptyState";
 import { ErrorMarker } from "./components/ErrorMarker";
@@ -327,28 +326,6 @@ export function App() {
       <main className="grid h-dvh min-h-screen grid-rows-[auto_minmax(0,1fr)] overflow-hidden bg-background">
         <AppHeader status={status} socketState={socketState} agentStatus={agentStatus} />
         <MemoryGraphPage />
-      </main>
-    );
-  }
-
-  if (route.kind === "not_found") {
-    return (
-      <main className="grid h-dvh min-h-screen grid-rows-[auto_minmax(0,1fr)] overflow-hidden bg-background">
-        <AppHeader status={status} socketState={socketState} agentStatus={agentStatus} />
-        <section className="mx-auto grid min-h-0 w-[min(760px,100%)] content-start gap-3 px-6 py-7 max-[760px]:px-5">
-          <p className="m-0 font-mono text-[11px] tracking-[0.12em] text-[var(--text-accent)] uppercase">
-            Not found
-          </p>
-          <h1 className="m-0 font-heading text-[32px] leading-[1.1] tracking-normal text-foreground">
-            Page not found
-          </h1>
-          <p className="m-0 max-w-[560px] text-sm text-muted-foreground">
-            Noema does not have a route for {route.path}.
-          </p>
-          <Button type="button" className="w-fit" onClick={() => navigate({ kind: "memory_home" })}>
-            Open memory
-          </Button>
-        </section>
       </main>
     );
   }
