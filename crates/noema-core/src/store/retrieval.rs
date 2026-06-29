@@ -274,18 +274,21 @@ fn deterministic_match_score(
     {
         haystack.push(object_name.as_str());
     }
-    let hints = row.retrieval_hints.to_string();
-    haystack.push(hints.as_str());
     let joined = haystack.join(" ").to_lowercase();
 
     if joined.contains(&query.raw) {
         return Some(100);
     }
 
+    let hints = row.retrieval_hints.to_string().to_lowercase();
+    if hints.contains(&query.raw) {
+        return Some(50);
+    }
+
     let matched_terms = query
         .terms
         .iter()
-        .filter(|term| joined.contains(term.as_str()))
+        .filter(|term| joined.contains(term.as_str()) || hints.contains(term.as_str()))
         .count();
     (matched_terms > 0).then_some(50 + i64::try_from(matched_terms).unwrap_or(0))
 }
