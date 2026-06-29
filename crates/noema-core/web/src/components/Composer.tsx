@@ -4,7 +4,6 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 
 const composerMinWidthCh = 18;
-const composerMaxWidthCh = 58;
 const composerWidthBufferCh = 5;
 const composerWidthBufferPx = 32;
 const composerMeasuredTextSlackPx = 4;
@@ -67,14 +66,11 @@ export function composerDraftInlineSize({
     };
   }
 
-  const minWidthInCh = Math.min(
-    composerMaxWidthCh,
-    Math.max(composerMinWidthCh, Array.from(longestPlaceholderLine).length + composerWidthBufferCh)
+  const minWidthInCh = Math.max(
+    composerMinWidthCh,
+    Array.from(longestPlaceholderLine).length + composerWidthBufferCh
   );
-  const widthInCh = Math.min(
-    composerMaxWidthCh,
-    Math.max(minWidthInCh, Array.from(longestLine).length + composerWidthBufferCh)
-  );
+  const widthInCh = Math.max(minWidthInCh, Array.from(longestLine).length + composerWidthBufferCh);
   return { minWidth: `${minWidthInCh}ch`, width: `${widthInCh}ch` };
 }
 
@@ -105,8 +101,8 @@ export function composerTextareaWrapStyle({
 }): React.CSSProperties {
   const size = inlineSize ?? composerDraftInlineSize({ value, placeholder });
   return {
-    width: size.width,
-    minWidth: size.minWidth
+    width: `min(${size.width}, 100%)`,
+    minWidth: `min(${size.minWidth}, 100%)`
   };
 }
 
@@ -204,7 +200,7 @@ export function Composer({
     >
       <div
         data-slot="composer-bubble"
-        className="relative w-fit min-w-[min(13rem,100%)] max-w-[88%] rounded-3xl bg-primary p-1.5 pr-12 text-primary-foreground shadow-[0_8px_24px_rgba(23,22,15,0.08)] max-[760px]:max-w-full"
+        className="relative w-fit min-w-[min(13rem,100%)] max-w-full rounded-3xl bg-primary p-1.5 pr-12 text-primary-foreground shadow-[0_8px_24px_rgba(23,22,15,0.08)]"
       >
         <div data-slot="composer-textarea-wrap" className="min-w-0" style={textareaWrapStyle}>
           <Textarea
@@ -227,7 +223,7 @@ export function Composer({
         <Button
           type="submit"
           size="icon-lg"
-          className="absolute top-1/2 right-1.5 -translate-y-1/2 rounded-full bg-primary-foreground text-primary hover:bg-primary-foreground/90 disabled:text-primary/70"
+          className="absolute right-1.5 bottom-1.5 rounded-full bg-primary-foreground text-primary hover:bg-primary-foreground/90 disabled:text-primary/70"
           aria-label={submitState.label}
           disabled={submitState.disabled}
         >

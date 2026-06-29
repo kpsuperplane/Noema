@@ -8,6 +8,7 @@ import {
   composerMeasuredWidthBuffer,
   composerSubmitState,
   composerTextareaProps,
+  composerTextareaWrapStyle,
   isComposerTextareaDisabled,
   refocusComposerTextarea
 } from "./Composer";
@@ -58,7 +59,8 @@ describe("composer human bubble presentation", () => {
     assert.match(bubbleClassName, /\brelative\b/);
     assert.match(bubbleClassName, /\bw-fit\b/);
     assert.match(bubbleClassName, /min-w-\[min\(13rem,100%\)\]/);
-    assert.match(bubbleClassName, /max-w-\[88%\]/);
+    assert.match(bubbleClassName, /\bmax-w-full\b/);
+    assert.doesNotMatch(bubbleClassName, /max-w-\[88%\]/);
     assert.match(bubbleClassName, /\bpr-12\b/);
     assert.match(bubbleClassName, /\bbg-primary\b/);
     assert.match(bubbleClassName, /\brounded-(3xl|4xl)\b/);
@@ -66,7 +68,10 @@ describe("composer human bubble presentation", () => {
 
     const textareaWrapClassName = dataSlotClassName(markup, "composer-textarea-wrap");
     assert.match(textareaWrapClassName, /\bmin-w-0\b/);
-    assert.match(markup, /data-slot="composer-textarea-wrap"[^>]*style="width:18ch;min-width:18ch"/);
+    assert.match(
+      markup,
+      /data-slot="composer-textarea-wrap"[^>]*style="width:min\(18ch, 100%\);min-width:min\(18ch, 100%\)"/
+    );
 
     const textareaClassName = dataSlotClassName(markup, "textarea");
     assert.match(textareaClassName, /\bfield-sizing-content\b/);
@@ -79,9 +84,9 @@ describe("composer human bubble presentation", () => {
     const buttonClassName = dataSlotClassName(markup, "button");
     assert.match(buttonClassName, /\babsolute\b/);
     assert.match(buttonClassName, /\bright-1\.5\b/);
-    assert.match(buttonClassName, /\btop-1\/2\b/);
-    assert.match(buttonClassName, /(^|\s)-translate-y-1\/2(\s|$)/);
-    assert.doesNotMatch(buttonClassName, /\bbottom-1\.5\b/);
+    assert.match(buttonClassName, /\bbottom-1\.5\b/);
+    assert.doesNotMatch(buttonClassName, /\btop-1\/2\b/);
+    assert.doesNotMatch(buttonClassName, /(^|\s)-translate-y-1\/2(\s|$)/);
     assert.match(buttonClassName, /\bbg-primary-foreground\b/);
   });
 });
@@ -108,7 +113,7 @@ describe("composer draft bubble sizing", () => {
     );
   });
 
-  test("caps width and uses the longest line for multiline drafts", () => {
+  test("uses the longest line for multiline drafts without an arbitrary text cap", () => {
     assert.deepEqual(
       composerDraftInlineSize({
         value: "short\nthis line is the one that should set the width",
@@ -121,8 +126,22 @@ describe("composer draft bubble sizing", () => {
     );
     assert.deepEqual(composerDraftInlineSize({ value: "x".repeat(90), placeholder: "Message Noema" }), {
       minWidth: "18ch",
-      width: "58ch"
+      width: "95ch"
     });
+  });
+
+  test("caps textarea width against the available bubble width", () => {
+    assert.deepEqual(
+      composerTextareaWrapStyle({
+        inlineSize: { minWidth: "18ch", width: "1200px" },
+        value: "x".repeat(200),
+        placeholder: "Message Noema"
+      }),
+      {
+        width: "min(1200px, 100%)",
+        minWidth: "min(18ch, 100%)"
+      }
+    );
   });
 
   test("uses measured text width with padding when available", () => {
