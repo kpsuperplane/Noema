@@ -114,6 +114,33 @@ body {
   animation: message-word-fade-in 180ms ease-out both;
 }
 
+[data-slot="marker"][data-pending] {
+  isolation: isolate;
+  overflow: hidden;
+}
+
+[data-slot="marker"][data-pending] > * {
+  position: relative;
+  z-index: 1;
+}
+
+[data-slot="marker"][data-pending]::after {
+  position: absolute;
+  inset: -45% -55%;
+  z-index: 0;
+  background: linear-gradient(
+    105deg,
+    transparent 34%,
+    color-mix(in srgb, var(--pure-white) 70%, currentColor 30%) 50%,
+    transparent 66%
+  );
+  content: "";
+  opacity: 0.58;
+  transform: translateX(-65%);
+  animation: marker-glimmer 1.8s cubic-bezier(0.45, 0, 0.2, 1) infinite;
+  pointer-events: none;
+}
+
 @keyframes message-word-fade-in {
   from {
     opacity: 0;
@@ -124,8 +151,23 @@ body {
   }
 }
 
+@keyframes marker-glimmer {
+  from {
+    transform: translateX(-65%);
+  }
+
+  to {
+    transform: translateX(65%);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .message-word-fade {
     animation: none;
+  }
+
+  [data-slot="marker"][data-pending]::after {
+    animation: none;
+    opacity: 0;
   }
 }

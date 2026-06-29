@@ -30,13 +30,19 @@ const markerVariants = cva(
   }
 )
 
+type MarkerProps = useRender.ComponentProps<"div"> &
+  VariantProps<typeof markerVariants> & {
+    pending?: boolean
+  }
+
 function Marker({
   className,
   variant = "default",
   tone = "default",
+  pending = false,
   render,
   ...props
-}: useRender.ComponentProps<"div"> & VariantProps<typeof markerVariants>) {
+}: MarkerProps) {
   return useRender({
     defaultTagName: "div",
     props: mergeProps<"div">(
@@ -50,6 +56,7 @@ function Marker({
       slot: "marker",
       variant,
       tone,
+      pending,
     },
   })
 }

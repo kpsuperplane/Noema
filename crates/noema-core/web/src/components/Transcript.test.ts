@@ -79,6 +79,7 @@ describe("Transcript memory markers", () => {
     );
 
     assert.match(markup, /Memory proposed/);
+    assert.match(markup, /data-pending=""/);
     assert.doesNotMatch(markup, /Memory updated/);
   });
 
@@ -97,6 +98,7 @@ describe("Transcript memory markers", () => {
     );
 
     assert.doesNotMatch(markup, /Memory proposed/);
+    assert.doesNotMatch(markup, /data-pending=/);
     assert.equal(memoryUpdatedCount(markup), 1);
   });
 });
@@ -133,6 +135,7 @@ describe("Transcript tool markers", () => {
     );
 
     assert.match(markup, /Using search_memory/);
+    assert.match(markup, /data-pending=""/);
     assert.doesNotMatch(markup, /Used search_memory/);
   });
 });

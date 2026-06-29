@@ -317,6 +317,10 @@ function toolMarkerTone(marker: ToolMarkerGroup): "default" | "error" {
   return marker.result?.item.status === "FAILED" ? "error" : "default";
 }
 
+function toolMarkerPending(marker: ToolMarkerGroup): boolean {
+  return marker.call?.item.status === "STARTED" && !marker.result;
+}
+
 function toolMarkerLabel(marker: ToolMarkerGroup): string {
   const toolName = toolNameFromMetadata(marker.call?.item.metadata) ?? toolNameFromMetadata(marker.result?.item.metadata);
   if (toolName) {
@@ -708,6 +712,7 @@ function MemoryMarker({
         aria-controls={`${id}-details`}
         onClick={onToggle}
         tone={tone}
+        pending={started}
         className="w-fit rounded-lg px-2 py-1 transition-colors hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:outline-none"
       >
         <MarkerIcon>
@@ -732,6 +737,7 @@ function ToolMarker({
   onToggle: () => void;
 }) {
   const tone = toolMarkerTone(marker);
+  const pending = toolMarkerPending(marker);
 
   return (
     <div className="grid w-full max-w-full gap-2">
@@ -741,6 +747,7 @@ function ToolMarker({
         aria-controls={`${marker.id}-details`}
         onClick={onToggle}
         tone={tone}
+        pending={pending}
         className="w-fit rounded-lg px-2 py-1 transition-colors hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:outline-none"
       >
         <MarkerIcon>
