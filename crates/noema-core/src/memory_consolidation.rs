@@ -232,7 +232,15 @@ pub fn parse_canonicalization_response(
     text: &str,
 ) -> Result<CanonicalizationResponse, MemoryConsolidationError> {
     let mut response: CanonicalizationResponse = serde_json::from_str(text.trim())?;
+    if response.candidates.is_empty() {
+        return Err(MemoryConsolidationError::InvalidCanonicalization(
+            "candidates must not be empty",
+        ));
+    }
     for candidate in &mut response.candidates {
+        validate_entity(&mut candidate.subject, "subject")?;
+        validate_entity(&mut candidate.object, "object")?;
+        validate_predicate_resolution(&mut candidate.predicate)?;
         candidate.fact = candidate.fact.trim().to_string();
         candidate.rationale = candidate.rationale.trim().to_string();
         if candidate.fact.is_empty() {
@@ -252,6 +260,153 @@ pub fn parse_canonicalization_response(
         }
     }
     Ok(response)
+}
+
+fn validate_entity(
+    entity: &mut CanonicalEntity,
+    prefix: &str,
+) -> Result<(), MemoryConsolidationError> {
+    entity.entity_id = entity.entity_id.trim().to_string();
+    entity.entity_type = entity.entity_type.trim().to_string();
+    entity.canonical_name = entity.canonical_name.trim().to_string();
+    if entity.entity_id.is_empty() {
+        return Err(MemoryConsolidationError::InvalidCanonicalization(
+            if prefix == "subject" {
+                "subject.entity_id must not be empty"
+            } else {
+                "object.entity_id must not be empty"
+            },
+        ));
+    }
+    if entity.entity_type.is_empty() {
+        return Err(MemoryConsolidationError::InvalidCanonicalization(
+            if prefix == "subject" {
+                "subject.entity_type must not be empty"
+            } else {
+                "object.entity_type must not be empty"
+            },
+        ));
+    }
+    if entity.canonical_name.is_empty() {
+        return Err(MemoryConsolidationError::InvalidCanonicalization(
+            if prefix == "subject" {
+                "subject.canonical_name must not be empty"
+            } else {
+                "object.canonical_name must not be empty"
+            },
+        ));
+    }
+    Ok(())
+}
+
+fn validate_predicate_resolution(
+    predicate: &mut PredicateResolution,
+) -> Result<(), MemoryConsolidationError> {
+    match predicate {
+        PredicateResolution::PromotedPredicate { predicate_id } => {
+            *predicate_id = predicate_id.trim().to_string();
+            if predicate_id.is_empty() {
+                return Err(MemoryConsolidationError::InvalidCanonicalization(
+                    "predicate_id must not be empty",
+                ));
+            }
+        }
+        PredicateResolution::PredicateProposal { proposal } => {
+            validate_predicate_proposal(proposal)?
+        }
+        PredicateResolution::FallbackNote => {}
+    }
+    Ok(())
+}
+
+fn validate_predicate_proposal(
+    proposal: &mut ProposedPredicate,
+) -> Result<(), MemoryConsolidationError> {
+    proposal.label = proposal.label.trim().to_string();
+    proposal.description = proposal.description.trim().to_string();
+    proposal.conflict_policy = proposal.conflict_policy.trim().to_string();
+    proposal.review_policy = proposal.review_policy.trim().to_string();
+    proposal.inverse_behavior = proposal.inverse_behavior.trim().to_string();
+    proposal.rationale = proposal.rationale.trim().to_string();
+    proposal.synonym_hints = proposal
+        .synonym_hints
+        .iter()
+        .map(|hint| hint.trim())
+        .filter(|hint| !hint.is_empty())
+        .map(ToOwned::to_owned)
+        .collect();
+
+    require_non_empty_field(
+        &proposal.label,
+        "predicate proposal label must not be empty",
+    )?;
+    require_non_empty_field(
+        &proposal.description,
+        "predicate proposal description must not be empty",
+    )?;
+    require_non_empty_field(
+        &proposal.conflict_policy,
+        "predicate proposal conflict_policy must not be empty",
+    )?;
+    require_non_empty_field(
+        &proposal.review_policy,
+        "predicate proposal review_policy must not be empty",
+    )?;
+    require_non_empty_field(
+        &proposal.inverse_behavior,
+        "predicate proposal inverse_behavior must not be empty",
+    )?;
+    require_non_empty_field(
+        &proposal.rationale,
+        "predicate proposal rationale must not be empty",
+    )?;
+    trim_non_empty_vector(
+        &mut proposal.allowed_subject_types,
+        "predicate proposal allowed_subject_types must not be empty",
+        "predicate proposal allowed_subject_types entries must not be empty",
+    )?;
+    trim_non_empty_vector(
+        &mut proposal.allowed_object_types,
+        "predicate proposal allowed_object_types must not be empty",
+        "predicate proposal allowed_object_types entries must not be empty",
+    )?;
+    trim_non_empty_vector(
+        &mut proposal.allowed_use_modes,
+        "predicate proposal allowed_use_modes must not be empty",
+        "predicate proposal allowed_use_modes entries must not be empty",
+    )?;
+    Ok(())
+}
+
+fn require_non_empty_field(
+    value: &str,
+    message: &'static str,
+) -> Result<(), MemoryConsolidationError> {
+    if value.is_empty() {
+        return Err(MemoryConsolidationError::InvalidCanonicalization(message));
+    }
+    Ok(())
+}
+
+fn trim_non_empty_vector(
+    values: &mut Vec<String>,
+    empty_message: &'static str,
+    blank_entry_message: &'static str,
+) -> Result<(), MemoryConsolidationError> {
+    if values.is_empty() {
+        return Err(MemoryConsolidationError::InvalidCanonicalization(
+            empty_message,
+        ));
+    }
+    for value in values {
+        *value = value.trim().to_string();
+        if value.is_empty() {
+            return Err(MemoryConsolidationError::InvalidCanonicalization(
+                blank_entry_message,
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// Parse and validate strict consolidation decision JSON.
@@ -437,6 +592,33 @@ mod tests {
         }
     }
 
+    fn predicate_proposal_fixture() -> ProposedPredicate {
+        ProposedPredicate {
+            label: "collects".to_string(),
+            description: "The subject collects the object.".to_string(),
+            allowed_subject_types: vec!["human".to_string()],
+            allowed_object_types: vec!["concept".to_string()],
+            allowed_use_modes: vec!["answer".to_string()],
+            default_sensitivity: Sensitivity::Normal,
+            conflict_policy: "allow_many".to_string(),
+            review_policy: "auto_candidate".to_string(),
+            inverse_behavior: "none".to_string(),
+            inverse_predicate_id: None,
+            proactivity_default: 1,
+            merge_hints: serde_json::json!({}),
+            synonym_hints: vec!["  gathers  ".to_string(), "   ".to_string()],
+            extraction_hints: serde_json::json!({}),
+            rationale: "No promoted predicate represents collecting.".to_string(),
+        }
+    }
+
+    fn canonicalization_json(candidate: CanonicalClaimCandidate) -> String {
+        serde_json::to_string(&CanonicalizationResponse {
+            candidates: vec![candidate],
+        })
+        .expect("serialize canonicalization")
+    }
+
     #[test]
     fn claim_canonicalization_prompt_includes_strict_json_input_and_predicates() {
         let promoted_predicates = serde_json::json!([{
@@ -588,6 +770,96 @@ mod tests {
                 .to_string()
                 .contains("confidence must be between 0.0 and 1.0")
         );
+    }
+
+    #[test]
+    fn rejects_empty_canonicalization_candidates() {
+        let json = serde_json::to_string(&CanonicalizationResponse { candidates: vec![] })
+            .expect("serialize empty canonicalization");
+
+        let error = parse_canonicalization_response(&json).expect_err("empty candidates");
+
+        assert!(
+            error.to_string().contains("candidates must not be empty"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn rejects_blank_entity_or_promoted_predicate_id() {
+        let mut blank_subject_id = candidate_fixture();
+        blank_subject_id.subject.entity_id = "   ".to_string();
+
+        let mut blank_object_name = candidate_fixture();
+        blank_object_name.object.canonical_name = "   ".to_string();
+
+        let mut blank_predicate_id = candidate_fixture();
+        blank_predicate_id.predicate = PredicateResolution::PromotedPredicate {
+            predicate_id: "   ".to_string(),
+        };
+
+        let cases = [
+            (
+                "blank_subject_entity_id",
+                blank_subject_id,
+                "subject.entity_id must not be empty",
+            ),
+            (
+                "blank_object_canonical_name",
+                blank_object_name,
+                "object.canonical_name must not be empty",
+            ),
+            (
+                "blank_promoted_predicate_id",
+                blank_predicate_id,
+                "predicate_id must not be empty",
+            ),
+        ];
+
+        for (case, candidate, expected) in cases {
+            let json = canonicalization_json(candidate);
+            let error = parse_canonicalization_response(&json).expect_err(case);
+            assert!(error.to_string().contains(expected), "{case}: {error}");
+        }
+    }
+
+    #[test]
+    fn rejects_unusable_predicate_proposal() {
+        let mut blank_label = predicate_proposal_fixture();
+        blank_label.label = "   ".to_string();
+
+        let mut empty_use_modes = predicate_proposal_fixture();
+        empty_use_modes.allowed_use_modes = vec![];
+
+        let mut blank_subject_type = predicate_proposal_fixture();
+        blank_subject_type.allowed_subject_types = vec!["human".to_string(), "   ".to_string()];
+
+        let cases = [
+            (
+                "blank_label",
+                blank_label,
+                "predicate proposal label must not be empty",
+            ),
+            (
+                "empty_allowed_use_modes",
+                empty_use_modes,
+                "predicate proposal allowed_use_modes must not be empty",
+            ),
+            (
+                "blank_allowed_subject_type",
+                blank_subject_type,
+                "predicate proposal allowed_subject_types entries must not be empty",
+            ),
+        ];
+
+        for (case, proposal, expected) in cases {
+            let mut candidate = candidate_fixture();
+            candidate.status = CanonicalClaimStatus::Candidate;
+            candidate.predicate = PredicateResolution::PredicateProposal { proposal };
+            let json = canonicalization_json(candidate);
+            let error = parse_canonicalization_response(&json).expect_err(case);
+            assert!(error.to_string().contains(expected), "{case}: {error}");
+        }
     }
 
     #[test]
