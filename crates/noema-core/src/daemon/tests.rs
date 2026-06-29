@@ -2774,6 +2774,64 @@ async fn update_own_name_tool_updates_agent_and_continues_turn() {
 }
 
 #[tokio::test]
+async fn local_tool_continuation_does_not_persist_repeated_tool_calls() {
+    let (handle, store) =
+        test_runtime_handle_with_store(fake_codex_provider_with_repeated_update_own_name()).await;
+
+    let conversation_id = handle
+        .start_conversation(None, None)
+        .await
+        .expect("conversation")
+        .conversation_id;
+    let items = collect_turn(&handle, conversation_id, "Hey! How about Fred?".to_string())
+        .await
+        .expect("turn");
+    handle.shutdown().await;
+
+    let agent = store
+        .get_agent("agent:primary")
+        .await
+        .expect("agent")
+        .expect("agent exists");
+    assert_eq!(agent.display_name.as_deref(), Some("Fred"));
+
+    let update_name_tool_activities = items
+        .iter()
+        .filter(|item| {
+            matches!(
+                item,
+                TurnTranscriptItem::Activity {
+                    activity_kind,
+                    title,
+                    ..
+                } if activity_kind == "tool_call" && title == "Tool call: update_own_name"
+            )
+        })
+        .count();
+    assert_eq!(update_name_tool_activities, 2, "{items:?}");
+
+    let update_name_tool_calls = items
+        .iter()
+        .filter(|item| {
+            matches!(
+                item,
+                TurnTranscriptItem::Activity {
+                    activity_kind,
+                    status: TurnActivityStatus::Completed,
+                    title,
+                    ..
+                } if activity_kind == "tool_call" && title == "Tool call: update_own_name"
+            )
+        })
+        .count();
+    assert_eq!(update_name_tool_calls, 1, "{items:?}");
+    assert!(items.iter().any(|item| matches!(
+        item,
+        TurnTranscriptItem::AssistantText { text } if text == "Fred it is."
+    )));
+}
+
+#[tokio::test]
 async fn ambiguous_name_suggestion_asks_confirmation_without_tool_call() {
     let (handle, store) =
         test_runtime_handle_with_store(fake_codex_provider_with_ambiguous_update_own_name()).await;
@@ -3263,6 +3321,7 @@ enum FakeCodexScenario {
     SearchMemoryContinuation,
     SearchMemoryProfileContinuation,
     UpdateOwnNameContinuation,
+    RepeatedUpdateOwnNameContinuation,
     AmbiguousUpdateOwnName,
     UpdateOwnNameThenIdentityCheck,
     InitialAssistantMemoryContinuation,
@@ -3493,6 +3552,22 @@ impl FakeCodexProvider {
                     };
                     vec![
                         update_own_name_tool_call("call_name_1", json!({"name": name})),
+                        GenerateOutputItem::MemoryProposals { proposals: vec![] },
+                    ]
+                }
+            }
+            FakeCodexScenario::RepeatedUpdateOwnNameContinuation => {
+                if input.contains("NOEMA_LOCAL_TOOL_RESULT") {
+                    vec![
+                        update_own_name_tool_call("call_name_2", json!({"name": "Fred"})),
+                        GenerateOutputItem::AssistantText {
+                            text: "Fred it is.".to_string(),
+                        },
+                        GenerateOutputItem::MemoryProposals { proposals: vec![] },
+                    ]
+                } else {
+                    vec![
+                        update_own_name_tool_call("call_name_1", json!({"name": "Fred"})),
                         GenerateOutputItem::MemoryProposals { proposals: vec![] },
                     ]
                 }
@@ -4503,6 +4578,10 @@ fn fake_codex_provider_with_search_memory_profile_continuation() -> FakeCodexPro
 
 fn fake_codex_provider_with_update_own_name_continuation() -> FakeCodexProvider {
     FakeCodexProvider::new(FakeCodexScenario::UpdateOwnNameContinuation)
+}
+
+fn fake_codex_provider_with_repeated_update_own_name() -> FakeCodexProvider {
+    FakeCodexProvider::new(FakeCodexScenario::RepeatedUpdateOwnNameContinuation)
 }
 
 fn fake_codex_provider_with_ambiguous_update_own_name() -> FakeCodexProvider {

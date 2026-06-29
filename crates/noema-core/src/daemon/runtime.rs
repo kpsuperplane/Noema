@@ -761,13 +761,15 @@ impl CodexRuntimeActor {
                 cwd: turn.cwd.clone(),
             };
             let mut on_continuation_event = |event| {
-                handle_provider_stream_event(
-                    event,
-                    item_tx,
-                    &continuation_event_context,
-                    &continuation_stream_id,
-                    continuation_output_base,
-                );
+                if !matches!(event, GenerateStreamEvent::ToolCallStarted { .. }) {
+                    handle_provider_stream_event(
+                        event,
+                        item_tx,
+                        &continuation_event_context,
+                        &continuation_stream_id,
+                        continuation_output_base,
+                    );
+                }
             };
             let continuation_response = self
                 .provider
@@ -794,6 +796,15 @@ impl CodexRuntimeActor {
                 stream_id: Some(continuation_stream_id.clone()),
             };
             for (offset, output) in continuation_response.output.into_iter().enumerate() {
+                if matches!(
+                    output,
+                    GenerateOutputItem::ToolCall { .. }
+                        | GenerateOutputItem::ToolResult { .. }
+                        | GenerateOutputItem::ApprovalRequest { .. }
+                        | GenerateOutputItem::ApprovalResult { .. }
+                ) {
+                    continue;
+                }
                 self.persist_provider_response_output_item(
                     &continuation_action_turn,
                     continuation_output_base + offset,
@@ -2280,6 +2291,7 @@ fn build_local_tool_result_continuation_system_prompt(
     );
     prompt.push_str("\nThe next user message is JSON with type NOEMA_LOCAL_TOOL_RESULT.");
     prompt.push_str("\nUse those results to answer the original user message.");
+    prompt.push_str("\nDo not emit tool calls or approval requests in this continuation.");
     prompt.push_str("\n\nOriginal user message:\n");
     prompt.push_str(user_input);
     prompt
