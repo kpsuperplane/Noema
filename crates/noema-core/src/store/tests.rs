@@ -1,4 +1,5 @@
 use serde_json::json;
+use surrealdb::types::SurrealValue;
 use tempfile::TempDir;
 
 mod claims;
@@ -346,7 +347,7 @@ async fn strict_schema_accepts_valid_evidence_source_shape() {
 
 #[tokio::test]
 async fn built_in_personal_predicates_are_seeded() {
-    #[derive(Debug, serde::Deserialize)]
+    #[derive(Debug, serde::Deserialize, SurrealValue)]
     struct PredicateRow {
         label: String,
         default_sensitivity: String,
@@ -380,7 +381,7 @@ async fn built_in_personal_predicates_are_seeded() {
 
 #[tokio::test]
 async fn built_in_predicate_seed_is_idempotent_when_bootstrap_replays() {
-    #[derive(Debug, serde::Deserialize)]
+    #[derive(Debug, serde::Deserialize, SurrealValue)]
     struct PredicateIdRow {
         predicate_id: String,
     }

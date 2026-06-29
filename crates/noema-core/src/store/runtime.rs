@@ -3,6 +3,7 @@ use std::{fs, path::PathBuf, sync::Arc};
 use surrealdb::{
     Surreal,
     engine::local::{Db, RocksDb},
+    types::SurrealValue,
 };
 use tokio::sync::Mutex;
 
@@ -69,7 +70,7 @@ impl NoemaStore {
     ///
     /// Returns [`StoreError`] when the schema marker cannot be queried.
     pub async fn schema_version(&self) -> Result<i64, StoreError> {
-        #[derive(serde::Deserialize)]
+        #[derive(serde::Deserialize, SurrealValue)]
         struct Row {
             version: i64,
         }

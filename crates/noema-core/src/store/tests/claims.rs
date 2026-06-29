@@ -1,4 +1,5 @@
 use serde_json::{Value, json};
+use surrealdb::types::SurrealValue;
 
 use super::test_store;
 use crate::{
@@ -744,7 +745,7 @@ fn person_train_claim(
 }
 
 async fn claim_count(store: &NoemaStore) -> i64 {
-    #[derive(Debug, serde::Deserialize)]
+    #[derive(Debug, serde::Deserialize, SurrealValue)]
     struct CountRow {
         count: i64,
     }
@@ -759,7 +760,7 @@ async fn claim_count(store: &NoemaStore) -> i64 {
 }
 
 async fn support_count(store: &NoemaStore, claim_id: &str) -> i64 {
-    #[derive(Debug, serde::Deserialize)]
+    #[derive(Debug, serde::Deserialize, SurrealValue)]
     struct CountRow {
         count: i64,
     }
@@ -782,7 +783,7 @@ async fn support_count(store: &NoemaStore, claim_id: &str) -> i64 {
 }
 
 async fn claim_confidence(store: &NoemaStore, claim_id: &str) -> Option<f64> {
-    #[derive(Debug, serde::Deserialize)]
+    #[derive(Debug, serde::Deserialize, SurrealValue)]
     struct ConfidenceRow {
         confidence: Option<f64>,
     }
@@ -877,14 +878,14 @@ async fn entities_by_id(store: &NoemaStore, entity_ids: &[&str]) -> Vec<EntityRo
     response.take(0).expect("entity rows")
 }
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(Debug, serde::Deserialize, SurrealValue)]
 struct ClaimRow {
     claim_id: String,
     status: String,
     evidence_count: i64,
 }
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(Debug, serde::Deserialize, SurrealValue)]
 struct EntityRow {
     entity_id: String,
     canonical_name: String,

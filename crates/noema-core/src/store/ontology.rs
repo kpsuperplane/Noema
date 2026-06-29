@@ -1,3 +1,5 @@
+use surrealdb::types::SurrealValue;
+
 /// Closed graph entity type vocabulary stored in the embedded graph tables.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EntityType {
@@ -86,7 +88,7 @@ impl EntityCandidate {
 }
 
 /// Persisted predicate fields needed by the first graph-memory write API.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, SurrealValue)]
 pub struct PredicateRecord {
     /// Stable predicate id.
     pub predicate_id: String,

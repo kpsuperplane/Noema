@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use serde::Deserialize;
 use serde_json::Value;
-use surrealdb::sql::Datetime;
+use surrealdb::types::{Datetime, SurrealValue};
 
 use crate::memory::Sensitivity;
 
@@ -771,24 +771,24 @@ impl NoemaStore {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, SurrealValue)]
 struct EntityIdRow {
     #[allow(dead_code)]
     entity_id: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, SurrealValue)]
 struct SourceItemRow {
     #[allow(dead_code)]
     item_id: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, SurrealValue)]
 struct ClaimIdRow {
     claim_id: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, SurrealValue)]
 struct ClaimRow {
     claim_id: String,
     subject_entity_id: String,
@@ -799,12 +799,12 @@ struct ClaimRow {
     sensitivity: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, SurrealValue)]
 struct CountRow {
     count: i64,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, SurrealValue)]
 struct InspectionClaimRow {
     claim_id: String,
     subject_entity_id: String,
@@ -818,13 +818,13 @@ struct InspectionClaimRow {
     updated_at: Datetime,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, SurrealValue)]
 struct InspectionPredicateRow {
     predicate_id: String,
     label: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, SurrealValue)]
 struct InspectionEntityRow {
     entity_id: String,
     entity_type: String,
@@ -837,13 +837,13 @@ struct InspectionEntity {
     canonical_name: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, SurrealValue)]
 struct InspectionEvidenceCountRow {
     claim_id: String,
     count: i64,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, SurrealValue)]
 struct InspectionEvidenceRow {
     relation_id: Option<String>,
     source_item_id: Option<String>,
@@ -860,7 +860,7 @@ struct ExistingClaimMergeRow {
     confidence: Option<f64>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, SurrealValue)]
 struct ExistingClaimMergeRecord {
     #[allow(dead_code)]
     claim_id: String,

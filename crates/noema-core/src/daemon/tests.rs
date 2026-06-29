@@ -20,6 +20,7 @@ use crate::{
 use serde::Deserialize;
 use serde_json::json;
 use std::{future::Future, path::PathBuf, pin::Pin, process::Command, sync::Arc};
+use surrealdb::types::SurrealValue;
 use tokio::sync::mpsc;
 
 const RESTART_CONTEXT_TEST_PHASE_ENV: &str = "NOEMA_RESTART_CONTEXT_TEST_PHASE";
@@ -2109,12 +2110,12 @@ async fn delete_predicate(store: &crate::NoemaStore, predicate_id: &str) {
         .expect("predicate deletion should succeed");
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, SurrealValue)]
 struct ClaimEvidenceSourceRow {
     source_item_id: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, SurrealValue)]
 struct ClaimStatusAndSensitivityRow {
     status: String,
     sensitivity: String,

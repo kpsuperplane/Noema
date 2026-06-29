@@ -1,5 +1,6 @@
 use serde::Deserialize;
 use serde_json::Value;
+use surrealdb::types::SurrealValue;
 
 use crate::memory::{
     ClaimRetrievalRequest, ClaimStatusForPolicy, PolicyClaim, Sensitivity, UseMode,
@@ -131,7 +132,7 @@ impl NoemaStore {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, SurrealValue)]
 struct ClaimRetrievalRow {
     claim_id: String,
     subject_entity_id: String,
@@ -143,7 +144,7 @@ struct ClaimRetrievalRow {
     retrieval_hints: Value,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, SurrealValue)]
 struct PredicatePolicyRow {
     #[allow(dead_code)]
     predicate_id: String,

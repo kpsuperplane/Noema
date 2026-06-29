@@ -1,5 +1,6 @@
 use serde::Deserialize;
 use serde_json::Value;
+use surrealdb::types::SurrealValue;
 
 use crate::{
     ConversationItemKind, ConversationItemRecord, ConversationItemStatus, ConversationRecord,
@@ -521,48 +522,48 @@ impl NoemaStore {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, SurrealValue)]
 struct PrimaryConversationRow {
     primary_conversation_id: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, SurrealValue)]
 struct ConversationIdRow {
     #[allow(dead_code)]
     conversation_id: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, SurrealValue)]
 struct TurnIdRow {
     #[allow(dead_code)]
     turn_id: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, SurrealValue)]
 struct TurnRefRow {
     #[allow(dead_code)]
     turn_id: String,
     conversation_id: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, SurrealValue)]
 struct ConversationItemRefRow {
     #[allow(dead_code)]
     item_id: String,
     conversation_id: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, SurrealValue)]
 struct SequenceRow {
     sequence_index: i64,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, SurrealValue)]
 struct MetadataRow {
     metadata: Value,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, SurrealValue)]
 struct ConversationItemRow {
     item_id: String,
     conversation_id: String,

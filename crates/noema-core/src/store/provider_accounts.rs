@@ -1,5 +1,6 @@
 use serde::Deserialize;
 use serde_json::Value;
+use surrealdb::types::SurrealValue;
 
 use crate::{
     ProviderAccountRecord, ProviderAccountStatus, ProviderAuthMethod, store::ids::now_string,
@@ -185,7 +186,7 @@ impl NoemaStore {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, SurrealValue)]
 struct ProviderAccountRow {
     provider_account_id: String,
     provider_kind: String,
