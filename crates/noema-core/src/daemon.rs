@@ -3,6 +3,7 @@
 mod client;
 mod memory_pipeline;
 mod memory_tool;
+mod prompts;
 mod protocol;
 mod runtime;
 mod server;

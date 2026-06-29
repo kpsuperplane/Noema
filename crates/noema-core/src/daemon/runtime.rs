@@ -29,6 +29,7 @@ use super::{
     memory_tool::{
         MemoryToolResult, MemoryToolRuntimeContext, execute_search_memory, is_search_memory_tool,
     },
+    prompts::AGENT_PERSONALITY_PROMPT,
     protocol::{
         AgentStatus, DaemonError, StartedConversation, TurnActivityStatus, TurnStreamEvent,
         TurnTranscriptItem,
@@ -1574,7 +1575,9 @@ fn build_structured_turn_system_prompt(
     let active_retrieval_ids = active_retrieval_ids.join("\n");
 
     format!(
-        r#"You are Noema, a local-first personal assistant. Reply to the user and emit any durable memory proposals in one structured response.
+        r#"{AGENT_PERSONALITY_PROMPT}
+
+Reply to the user and emit any durable memory proposals in one structured response.
 
 Return strict JSON only. Do not include Markdown, code fences, comments, or prose outside the JSON.
 
@@ -1938,6 +1941,18 @@ mod tests {
         assert!(prompt.contains("- conversation:conv_123"));
         assert!(prompt.contains("\"scope_ids\":[\"human:local\"],\"query\":\"\""));
         assert!(prompt.contains("Never invent scope IDs"));
+    }
+
+    #[test]
+    fn structured_turn_prompt_includes_personality_layer_without_weakening_runtime_contract() {
+        let prompt = build_structured_turn_system_prompt("conv_123", 4, None, "");
+
+        assert!(prompt.contains("Adaptive social energy:"));
+        assert!(prompt.contains("Start each conversation at about 6/10 social warmth"));
+        assert!(prompt.contains("Never let personality slow down the work"));
+        assert!(prompt.contains("Return strict JSON only"));
+        assert!(prompt.contains("Always include exactly one assistant_text item"));
+        assert!(prompt.contains("Only Noema supplies trusted memory policy fields"));
     }
 
     #[test]
