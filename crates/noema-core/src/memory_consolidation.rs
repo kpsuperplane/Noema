@@ -298,6 +298,8 @@ pub fn build_claim_canonicalization_prompt(
     proposal: &MemoryWriteProposal,
     promoted_predicates_json: &Value,
 ) -> String {
+    let promoted_predicates =
+        serde_json::to_string_pretty(promoted_predicates_json).expect("serialize predicates");
     format!(
         r#"You are Noema's memory claim canonicalizer.
 
@@ -308,7 +310,7 @@ return a predicate_proposal. Use fallback_note only for genuinely unstructured
 notes that do not express a durable relationship.
 
 Promoted predicate catalog JSON:
-{promoted_predicates_json}
+{promoted_predicates}
 
 Input JSON payload:
 {}"#,
@@ -385,6 +387,107 @@ mod sensitivity_json {
 mod tests {
     use super::*;
     use crate::memory::Sensitivity;
+
+    fn proposal_fixture() -> MemoryWriteProposal {
+        MemoryWriteProposal {
+            source_kind: MemoryWriteSourceKind::ExplicitRemember,
+            source_item_id: "conversation_item:source-1".to_string(),
+            source_actor_id: "human:local".to_string(),
+            source_excerpt: "Remember that I adore trains.".to_string(),
+            owner_object_type: "human".to_string(),
+            owner_object_id: "human:local".to_string(),
+            raw_text: "I adore trains.".to_string(),
+            memory_type: "preference".to_string(),
+            sensitivity: Sensitivity::Normal,
+            risk_flags: vec!["user_asserted".to_string()],
+            retrieval_hints: serde_json::json!({
+                "keywords": ["trains"],
+                "summary": "Kevin likes trains."
+            }),
+            metadata: serde_json::json!({
+                "conversation_id": "conversation:abc"
+            }),
+        }
+    }
+
+    fn candidate_fixture() -> CanonicalClaimCandidate {
+        CanonicalClaimCandidate {
+            subject: CanonicalEntity {
+                entity_id: "human:local".to_string(),
+                entity_type: "human".to_string(),
+                canonical_name: "Local human".to_string(),
+            },
+            object: CanonicalEntity {
+                entity_id: "concept:trains".to_string(),
+                entity_type: "concept".to_string(),
+                canonical_name: "trains".to_string(),
+            },
+            predicate: PredicateResolution::PromotedPredicate {
+                predicate_id: "likes".to_string(),
+            },
+            fact: "Kevin likes trains.".to_string(),
+            sensitivity: Sensitivity::Normal,
+            status: CanonicalClaimStatus::Active,
+            confidence: 0.94,
+            retrieval_hints: serde_json::json!({
+                "keywords": ["trains"],
+                "summary": "Kevin likes trains."
+            }),
+            rationale: "The source directly states a durable preference.".to_string(),
+        }
+    }
+
+    #[test]
+    fn claim_canonicalization_prompt_includes_strict_json_input_and_predicates() {
+        let promoted_predicates = serde_json::json!([{
+            "predicate_id": "likes",
+            "label": "likes",
+            "allowed_subject_types": ["human"],
+            "allowed_object_types": ["concept"],
+            "merge_hints": {"equivalent_phrases": ["adore", "love"]}
+        }]);
+
+        let prompt = build_claim_canonicalization_prompt(&proposal_fixture(), &promoted_predicates);
+
+        assert!(prompt.contains("You are Noema's memory claim canonicalizer."));
+        assert!(prompt.contains("Return strict JSON only."));
+        assert!(prompt.contains("Do not include Markdown, comments, or prose."));
+        assert!(prompt.contains("Map the proposal to promoted predicates when one clearly fits."));
+        assert!(prompt.contains("Use fallback_note only for genuinely unstructured"));
+        assert!(prompt.contains("Promoted predicate catalog JSON:"));
+        assert!(prompt.contains("\"predicate_id\": \"likes\""));
+        assert!(prompt.contains("\"equivalent_phrases\""));
+        assert!(prompt.contains("Input JSON payload:"));
+        assert!(prompt.contains("\"source_item_id\": \"conversation_item:source-1\""));
+        assert!(prompt.contains("\"raw_text\": \"I adore trains.\""));
+        assert!(prompt.contains("\"summary\": \"Kevin likes trains.\""));
+    }
+
+    #[test]
+    fn consolidation_prompt_includes_strict_json_candidate_and_existing_memories() {
+        let existing = serde_json::json!([{
+            "claim_id": "claim:likes-trains",
+            "predicate_id": "likes",
+            "fact": "Kevin likes trains.",
+            "status": "active",
+            "retrieval_hints": {"keywords": ["rail", "trains"]}
+        }]);
+
+        let prompt = build_consolidation_prompt(&candidate_fixture(), &existing);
+
+        assert!(prompt.contains("You are Noema's memory consolidation comparator."));
+        assert!(prompt.contains("Return strict JSON only with fields decision, existing_claim_id, confidence, and rationale."));
+        assert!(
+            prompt.contains("Use create, reinforce, supersede, dispute, relate, or needs_review.")
+        );
+        assert!(prompt.contains("Prefer needs_review when uncertain."));
+        assert!(prompt.contains("Input JSON payload:"));
+        assert!(prompt.contains("\"candidate\""));
+        assert!(prompt.contains("\"existing_memories\""));
+        assert!(prompt.contains("\"fact\": \"Kevin likes trains.\""));
+        assert!(prompt.contains("\"claim_id\": \"claim:likes-trains\""));
+        assert!(prompt.contains("\"keywords\""));
+    }
 
     #[test]
     fn parses_promoted_predicate_canonicalization() {
@@ -500,5 +603,36 @@ mod tests {
         assert_eq!(decision.decision, ConsolidationDecisionKind::Reinforce);
         assert_eq!(decision.existing_claim_id.as_deref(), Some("claim:abc"));
         assert_eq!(decision.confidence, 0.92);
+    }
+
+    #[test]
+    fn rejects_consolidation_decisions_missing_existing_claim_id() {
+        for (case, json) in [
+            (
+                "missing",
+                r#"{
+                  "decision": "reinforce",
+                  "confidence": 0.92,
+                  "rationale": "same preference"
+                }"#,
+            ),
+            (
+                "blank",
+                r#"{
+                  "decision": "supersede",
+                  "existing_claim_id": "   ",
+                  "confidence": 0.86,
+                  "rationale": "newer correction replaces older truth"
+                }"#,
+            ),
+        ] {
+            let error = parse_consolidation_decision(json).expect_err(case);
+            assert!(
+                error
+                    .to_string()
+                    .contains("existing_claim_id is required for this decision"),
+                "{case}: {error}"
+            );
+        }
     }
 }
