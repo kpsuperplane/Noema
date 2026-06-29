@@ -421,6 +421,42 @@ impl NoemaStore {
             .filter(|term| !term.is_empty())
             .collect::<Vec<_>>();
 
+        if exact_match_only_sensitivity(request.sensitivity) {
+            let Some(object_entity_id) = request.object_entity_id.as_deref() else {
+                return Ok(Vec::new());
+            };
+            let mut response = self
+                .db
+                .query(
+                    r#"
+                    SELECT claim_id, subject_entity_id, object_entity_id, predicate_id, fact,
+                      status, sensitivity, confidence, updated_at
+                    FROM claims
+                    WHERE subject_entity_id = $subject_entity_id
+                      AND object_entity_id = $object_entity_id
+                      AND predicate_id IN $predicate_ids
+                      AND status IN ['candidate', 'active', 'confirmed']
+                      AND sensitivity IN $allowed_sensitivities
+                    ORDER BY updated_at DESC, claim_id ASC
+                    LIMIT $limit;
+                    "#,
+                )
+                .bind(("subject_entity_id", request.subject_entity_id))
+                .bind(("object_entity_id", object_entity_id.to_string()))
+                .bind((
+                    "predicate_ids",
+                    compatible_match_predicates(&request.predicate_id),
+                ))
+                .bind((
+                    "allowed_sensitivities",
+                    allowed_match_sensitivities(request.sensitivity),
+                ))
+                .bind(("limit", limit))
+                .await?;
+            let rows: Vec<ConsolidationMatchRow> = response.take(0)?;
+            return rows.into_iter().map(consolidation_match).collect();
+        }
+
         if let Some(object_entity_id) = request.object_entity_id.as_deref()
             && query_terms.is_empty()
         {
@@ -454,6 +490,95 @@ impl NoemaStore {
                 .await?;
             let rows: Vec<ConsolidationMatchRow> = response.take(0)?;
             return rows.into_iter().map(consolidation_match).collect();
+        }
+
+        if let Some(object_entity_id) = request.object_entity_id.as_deref() {
+            let object_entity_id = object_entity_id.to_string();
+            let mut response = self
+                .db
+                .query(
+                    r#"
+                    SELECT claim_id, subject_entity_id, object_entity_id, predicate_id, fact,
+                      status, sensitivity, confidence, updated_at
+                    FROM claims
+                    WHERE subject_entity_id = $subject_entity_id
+                      AND object_entity_id = $object_entity_id
+                      AND predicate_id IN $predicate_ids
+                      AND status IN ['candidate', 'active', 'confirmed']
+                      AND sensitivity IN $allowed_sensitivities
+                    ORDER BY updated_at DESC, claim_id ASC
+                    LIMIT $limit;
+                    "#,
+                )
+                .bind(("subject_entity_id", request.subject_entity_id.clone()))
+                .bind(("object_entity_id", object_entity_id.clone()))
+                .bind((
+                    "predicate_ids",
+                    compatible_match_predicates(&request.predicate_id),
+                ))
+                .bind((
+                    "allowed_sensitivities",
+                    allowed_match_sensitivities(request.sensitivity),
+                ))
+                .bind(("limit", limit))
+                .await?;
+            let exact_rows: Vec<ConsolidationMatchRow> = response.take(0)?;
+            let mut matches = exact_rows
+                .into_iter()
+                .map(consolidation_match)
+                .collect::<Result<Vec<_>, _>>()?;
+            if matches.len() >= limit {
+                return Ok(matches);
+            }
+
+            let mut response = self
+                .db
+                .query(
+                    r#"
+                    SELECT claim_id, subject_entity_id, object_entity_id, predicate_id, fact,
+                      status, sensitivity, confidence, updated_at
+                    FROM claims
+                    WHERE subject_entity_id = $subject_entity_id
+                      AND predicate_id IN $predicate_ids
+                      AND status IN ['candidate', 'active', 'confirmed']
+                      AND sensitivity IN $allowed_sensitivities
+                    ORDER BY updated_at DESC, claim_id ASC
+                    LIMIT $candidate_limit;
+                    "#,
+                )
+                .bind(("subject_entity_id", request.subject_entity_id))
+                .bind((
+                    "predicate_ids",
+                    compatible_match_predicates(&request.predicate_id),
+                ))
+                .bind((
+                    "allowed_sensitivities",
+                    allowed_match_sensitivities(request.sensitivity),
+                ))
+                .bind(("candidate_limit", limit))
+                .await?;
+            let rows: Vec<ConsolidationMatchRow> = response.take(0)?;
+            for row in rows {
+                if !consolidation_match_is_relevant(
+                    &row,
+                    Some(object_entity_id.as_str()),
+                    &query_terms,
+                ) {
+                    continue;
+                }
+                let item = consolidation_match(row)?;
+                if matches
+                    .iter()
+                    .any(|existing| existing.claim_id == item.claim_id)
+                {
+                    continue;
+                }
+                matches.push(item);
+                if matches.len() >= limit {
+                    break;
+                }
+            }
+            return Ok(matches);
         }
 
         if request.object_entity_id.is_none() && query_terms.is_empty() {
@@ -499,6 +624,7 @@ impl NoemaStore {
                   AND status IN ['candidate', 'active', 'confirmed']
                   AND sensitivity IN $allowed_sensitivities
                 ORDER BY updated_at DESC, claim_id ASC
+                LIMIT $candidate_limit;
                 "#,
             )
             .bind(("subject_entity_id", request.subject_entity_id))
@@ -510,6 +636,7 @@ impl NoemaStore {
                 "allowed_sensitivities",
                 allowed_match_sensitivities(request.sensitivity),
             ))
+            .bind(("candidate_limit", limit))
             .await?;
         let rows: Vec<ConsolidationMatchRow> = response.take(0)?;
         rows.into_iter()
@@ -1221,11 +1348,8 @@ impl NoemaStore {
                 "deleted claim cannot be reinforced: {claim_id}"
             )));
         }
-        let object_matches =
-            existing.object_entity_id.as_deref() == Some(candidate.object.entity_id.as_str());
         if existing.subject_entity_id != candidate.subject.entity_id
             || existing.predicate_id != candidate.predicate_id
-            || !object_matches
         {
             return Err(StoreError::Schema(format!(
                 "claim reinforcement target is incompatible: {claim_id}"
@@ -1881,6 +2005,13 @@ fn allowed_match_sensitivities(sensitivity: Sensitivity) -> Vec<String> {
             vec![sensitivity_to_store(sensitivity).to_string()]
         }
     }
+}
+
+fn exact_match_only_sensitivity(sensitivity: Sensitivity) -> bool {
+    matches!(
+        sensitivity,
+        Sensitivity::Private | Sensitivity::Sensitive | Sensitivity::Secret
+    )
 }
 
 fn compatible_match_predicates(predicate_id: &str) -> Vec<String> {

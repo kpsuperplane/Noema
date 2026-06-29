@@ -19,7 +19,13 @@ use crate::{
 };
 use serde::Deserialize;
 use serde_json::json;
-use std::{future::Future, path::PathBuf, pin::Pin, process::Command, sync::Arc};
+use std::{
+    future::Future,
+    path::PathBuf,
+    pin::Pin,
+    process::Command,
+    sync::{Arc, Mutex},
+};
 use surrealdb::types::SurrealValue;
 use tokio::sync::mpsc;
 
@@ -1709,6 +1715,90 @@ async fn semantic_repeat_reinforces_existing_claim_by_id_without_duplicate() {
 }
 
 #[tokio::test]
+async fn consolidation_decision_rejects_existing_claim_id_outside_bounded_matches() {
+    let (provider, invalid_target) = fake_codex_provider_with_invalid_consolidation_target();
+    let (handle, store) = test_runtime_handle_with_store(provider).await;
+    let conversation = handle
+        .start_conversation(None, None)
+        .await
+        .expect("conversation");
+    let conversation_id = conversation.conversation_id.clone();
+
+    collect_turn(
+        &handle,
+        conversation_id.clone(),
+        "I like planes.".to_string(),
+    )
+    .await
+    .expect("seed plane turn");
+    let plane_claims = store
+        .list_claims(crate::MemoryClaimFilter {
+            query: Some("planes".to_string()),
+            status: Some(crate::ClaimStatus::Active),
+            predicate_id: Some("likes".to_string()),
+            limit: Some(10),
+        })
+        .await
+        .expect("plane claims");
+    assert_eq!(
+        plane_claims.len(),
+        1,
+        "expected seeded plane claim: {plane_claims:?}"
+    );
+    *invalid_target.lock().expect("target lock") = Some(plane_claims[0].claim_id.clone());
+
+    collect_turn(
+        &handle,
+        conversation_id.clone(),
+        "I like ice cream.".to_string(),
+    )
+    .await
+    .expect("seed ice cream turn");
+    let items = collect_turn(
+        &handle,
+        conversation_id,
+        "Ice cream is one of my favorite desserts.".to_string(),
+    )
+    .await
+    .expect("turn should complete despite rejected consolidation decision");
+
+    assert!(items.iter().any(|item| {
+        matches!(
+            item,
+            TurnTranscriptItem::Activity {
+                activity_kind,
+                status: TurnActivityStatus::Failed,
+                title,
+                metadata,
+                ..
+            } if activity_kind == "memory_extraction"
+                && title == "Memory persistence failed"
+                && metadata["failed_proposal_count"] == 1
+                && metadata["failed_proposals"][0]["error"]
+                    .as_str()
+                    .is_some_and(|error| error.contains("not in consolidation match set"))
+        )
+    }));
+
+    let ice_cream_claims = store
+        .list_claims(crate::MemoryClaimFilter {
+            query: Some("ice cream".to_string()),
+            status: Some(crate::ClaimStatus::Active),
+            predicate_id: Some("likes".to_string()),
+            limit: Some(10),
+        })
+        .await
+        .expect("ice cream claims");
+    assert_eq!(
+        ice_cream_claims.len(),
+        1,
+        "out-of-set relate decision should not create another ice cream claim: {ice_cream_claims:?}"
+    );
+    assert_eq!(ice_cream_claims[0].evidence_count, 1);
+    handle.shutdown().await;
+}
+
+#[tokio::test]
 async fn contradiction_becomes_reviewable_dispute() {
     let (handle, store) =
         test_runtime_handle_with_store(fake_codex_provider_with_memory_extraction()).await;
@@ -2986,6 +3076,7 @@ async fn test_runtime_handle_with_store(
 #[derive(Debug, Clone)]
 struct FakeCodexProvider {
     scenario: FakeCodexScenario,
+    invalid_consolidation_target_id: Arc<Mutex<Option<String>>>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -3012,7 +3103,19 @@ enum FakeCodexScenario {
 
 impl FakeCodexProvider {
     fn new(scenario: FakeCodexScenario) -> Self {
-        Self { scenario }
+        Self {
+            scenario,
+            invalid_consolidation_target_id: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    fn with_invalid_consolidation_target(
+        invalid_consolidation_target_id: Arc<Mutex<Option<String>>>,
+    ) -> Self {
+        Self {
+            scenario: FakeCodexScenario::MemoryExtraction,
+            invalid_consolidation_target_id,
+        }
     }
 
     fn generate_response(
@@ -3382,7 +3485,13 @@ impl FakeCodexProvider {
                     }))],
                 },
             ],
-            FakeCodexScenario::MemoryExtraction => memory_extraction_output(&input),
+            FakeCodexScenario::MemoryExtraction => memory_extraction_output(
+                &input,
+                self.invalid_consolidation_target_id
+                    .lock()
+                    .expect("invalid consolidation target lock")
+                    .as_deref(),
+            ),
         };
 
         Ok(GenerateResponse {
@@ -3604,11 +3713,21 @@ fn canonicalization_response_text(input: &str, scenario: FakeCodexScenario) -> S
     serde_json::to_string(&response).expect("canonicalizer json")
 }
 
-fn memory_extraction_output(input: &str) -> Vec<GenerateOutputItem> {
+fn memory_extraction_output(
+    input: &str,
+    invalid_consolidation_target_id: Option<&str>,
+) -> Vec<GenerateOutputItem> {
     if input.contains("Noema's memory consolidation comparator") {
         let existing_claim_id =
             first_memory_id_from_consolidation_prompt(input).expect("existing memory id");
-        let decision = if input.contains("Kevin hates ice cream.")
+        let decision = if let Some(invalid_target_id) = invalid_consolidation_target_id {
+            json!({
+                "decision": "relate",
+                "existing_claim_id": invalid_target_id,
+                "confidence": 0.92,
+                "rationale": "maliciously references an unshown target",
+            })
+        } else if input.contains("Kevin hates ice cream.")
             || input.contains("Kevin dislikes ice cream.")
         {
             json!({
@@ -3823,6 +3942,27 @@ fn memory_extraction_output(input: &str) -> Vec<GenerateOutputItem> {
                         "evidence_excerpt": "I hate ice cream."
                     })),
                 ],
+            },
+        ];
+    }
+
+    if input.contains("I like planes.") {
+        return vec![
+            GenerateOutputItem::AssistantText {
+                text: "fake answer".to_string(),
+            },
+            GenerateOutputItem::MemoryProposals {
+                proposals: vec![proposal(json!({
+                    "content": "Kevin likes planes.",
+                    "memory_type": "preference",
+                    "title": "Plane preference",
+                    "confidence": 0.91,
+                    "sensitivity": "normal",
+                    "subjects": [{"id": "human:local", "kind": "human", "name": "Kevin", "role": "about"}],
+                    "retrieval_hints": {"topics": ["aviation"], "keywords": ["planes"], "summary": "Kevin likes planes."},
+                    "risk_flags": [],
+                    "evidence_excerpt": "I like planes."
+                }))],
             },
         ];
     }
@@ -4134,6 +4274,15 @@ fn fake_codex_provider_with_partial_memory_write() -> FakeCodexProvider {
 
 fn fake_codex_provider_with_invalid_memory_proposal() -> FakeCodexProvider {
     FakeCodexProvider::new(FakeCodexScenario::InvalidMemoryProposal)
+}
+
+fn fake_codex_provider_with_invalid_consolidation_target()
+-> (FakeCodexProvider, Arc<Mutex<Option<String>>>) {
+    let invalid_target_id = Arc::new(Mutex::new(None));
+    (
+        FakeCodexProvider::with_invalid_consolidation_target(invalid_target_id.clone()),
+        invalid_target_id,
+    )
 }
 
 fn fake_codex_provider_with_memory_extraction() -> FakeCodexProvider {

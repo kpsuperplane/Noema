@@ -83,20 +83,34 @@ async fn reinforcing_claim_by_id_accepts_semantic_fact_variant_without_duplicate
         ))
         .await
         .expect("first claim");
+    let mut semantic_variant = ice_cream_claim(
+        second_item.item_id,
+        "Ice cream is one of Kevin's favorite desserts.",
+    );
+    semantic_variant.object =
+        EntityCandidate::concept("concept:ice_cream_desserts", "ice cream desserts");
     let second = store
-        .reinforce_claim_by_id(
-            &first.claim_id,
-            ice_cream_claim(
-                second_item.item_id,
-                "Ice cream is one of Kevin's favorite desserts.",
-            ),
-        )
+        .reinforce_claim_by_id(&first.claim_id, semantic_variant)
         .await
         .expect("targeted reinforce");
 
     assert_eq!(first.claim_id, second.claim_id);
     assert_eq!(second.write_outcome, ClaimWriteOutcome::Reinforced);
     assert_eq!(second.evidence_count, 2);
+    let active_claims = store
+        .list_claims(crate::MemoryClaimFilter {
+            query: Some("ice cream".to_string()),
+            status: Some(ClaimStatus::Active),
+            predicate_id: Some("likes".to_string()),
+            limit: Some(10),
+        })
+        .await
+        .expect("active claims");
+    assert_eq!(
+        active_claims.len(),
+        1,
+        "unexpected active claims: {active_claims:?}"
+    );
     assert_eq!(claim_count(&store).await, 1);
 }
 
@@ -548,7 +562,7 @@ async fn consolidation_match_search_scans_past_newer_irrelevant_candidates() {
 }
 
 #[tokio::test]
-async fn consolidation_match_search_scans_past_newer_irrelevant_candidates_for_query_terms() {
+async fn consolidation_match_search_bounds_query_terms_before_filtering() {
     let store = test_store().await;
     let target_item = create_source_item(&store, "Kevin likes night trains.").await;
     let mut target_candidate = train_claim(target_item.item_id);
@@ -587,12 +601,56 @@ async fn consolidation_match_search_scans_past_newer_irrelevant_candidates_for_q
         .expect("matches");
 
     assert!(
-        matches
+        !matches
             .iter()
             .any(|claim| claim.claim_id == target.claim_id),
-        "older fact-term match should not be hidden by newer irrelevant rows: {matches:?}"
+        "query-term matching should be bounded before in-memory filtering: {matches:?}"
     );
     assert!(matches.len() <= 3);
+}
+
+#[tokio::test]
+async fn sensitive_consolidation_match_search_requires_exact_object_identity() {
+    let store = test_store().await;
+    let source_item = create_source_item(&store, "Kevin's private train note.").await;
+    let mut target_candidate = train_claim(source_item.item_id);
+    target_candidate.object = EntityCandidate::concept("private-trains", "private trains");
+    target_candidate.fact = "Kevin's private train note.".to_string();
+    target_candidate.sensitivity = Sensitivity::Private;
+    let target = store
+        .create_or_reinforce_claim(target_candidate)
+        .await
+        .expect("target claim");
+
+    let no_object_matches = store
+        .find_consolidation_matches(crate::store::ConsolidationMatchRequest {
+            subject_entity_id: "human:local".to_string(),
+            predicate_id: "likes".to_string(),
+            object_entity_id: None,
+            query_terms: vec!["private train note".to_string()],
+            sensitivity: Sensitivity::Private,
+            limit: 12,
+        })
+        .await
+        .expect("no object matches");
+    assert!(
+        no_object_matches.is_empty(),
+        "private query-term matching should not broaden without exact object: {no_object_matches:?}"
+    );
+
+    let exact_matches = store
+        .find_consolidation_matches(crate::store::ConsolidationMatchRequest {
+            subject_entity_id: "human:local".to_string(),
+            predicate_id: "likes".to_string(),
+            object_entity_id: Some("concept:private_trains".to_string()),
+            query_terms: vec!["does not need to match fact".to_string()],
+            sensitivity: Sensitivity::Private,
+            limit: 12,
+        })
+        .await
+        .expect("exact matches");
+    assert_eq!(exact_matches.len(), 1);
+    assert_eq!(exact_matches[0].claim_id, target.claim_id);
 }
 
 #[tokio::test]
