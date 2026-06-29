@@ -5,6 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import {
   Composer,
   composerDraftInlineSize,
+  composerMeasuredWidthBuffer,
   composerSubmitState,
   composerTextareaProps,
   isComposerTextareaDisabled,
@@ -133,6 +134,24 @@ describe("composer draft bubble sizing", () => {
       {
         minWidth: "179px",
         width: "179px"
+      }
+    );
+  });
+
+  test("keeps measured expansion close to the draft text before the send button gutter", () => {
+    const widthBufferPx = composerMeasuredWidthBuffer(20);
+
+    assert.equal(widthBufferPx, 24);
+    assert.deepEqual(
+      composerDraftInlineSize({
+        value: "Message Noema",
+        placeholder: "Message Noema",
+        measureText: (text) => text.length * 11,
+        widthBufferPx
+      }),
+      {
+        minWidth: "167px",
+        width: "167px"
       }
     );
   });

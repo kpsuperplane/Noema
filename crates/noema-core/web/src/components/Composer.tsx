@@ -7,6 +7,7 @@ const composerMinWidthCh = 18;
 const composerMaxWidthCh = 58;
 const composerWidthBufferCh = 5;
 const composerWidthBufferPx = 32;
+const composerMeasuredTextSlackPx = 4;
 
 type ComposerInlineSize = {
   minWidth: string;
@@ -75,6 +76,10 @@ export function composerDraftInlineSize({
     Math.max(minWidthInCh, Array.from(longestLine).length + composerWidthBufferCh)
   );
   return { minWidth: `${minWidthInCh}ch`, width: `${widthInCh}ch` };
+}
+
+export function composerMeasuredWidthBuffer(textareaPaddingInlinePx: number): number {
+  return textareaPaddingInlinePx + composerMeasuredTextSlackPx;
 }
 
 function longestDraftLine(content: string): string {
@@ -170,7 +175,7 @@ export function Composer({
       value,
       placeholder,
       measureText: (text) => context.measureText(text || " ").width,
-      widthBufferPx: padding + 16
+      widthBufferPx: composerMeasuredWidthBuffer(padding)
     });
     setMeasuredInlineSize((previous) =>
       previous?.key === sizeKey &&
