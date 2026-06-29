@@ -118,11 +118,19 @@ The next storage slice should stay small and concrete:
   list` and `noema memory show <id>` consume GraphQL through the daemon/web
   endpoint rather than opening SurrealDB directly. Generated web GraphQL
   schema/types are kept in sync.
+- Next web memory-management direction: add a human-facing `/memory/graph`
+  page backed by a bounded `memoryGraph` GraphQL read model. It should default
+  to candidate, active, and confirmed claims, cap the first load at 150
+  claims, render entity nodes plus claim edges with React Flow pan/zoom, and
+  show evidence/provenance in a selected-claim detail panel rather than as
+  canvas nodes.
 
 ## Open Loops
 
 - Add richer web drill-ins for memory details, predicate review, provenance,
   and graph inspection.
+- Implement the approved Memory Graph page design in
+  `docs/superpowers/specs/2026-06-29-memory-graph-page-design.md`.
 - Add richer graph neighborhood inspection for CLI, GraphQL, and web.
 - Continue aligning docs, schema, CLI inspection commands, and frontend IA.
 - Decide which export formats ship first and how export preview/redaction should work.
