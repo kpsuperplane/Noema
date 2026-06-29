@@ -407,9 +407,6 @@ impl NoemaStore {
     /// Returns [`StoreError`] when stored enum data is invalid or the embedded
     /// store read fails.
     pub async fn memory_graph(&self, filter: MemoryGraphFilter) -> Result<MemoryGraph, StoreError> {
-        let predicates = self.inspection_predicates().await?;
-        let entities = self.inspection_entities().await?;
-        let evidence_counts = self.inspection_evidence_counts().await?;
         let query = filter
             .query
             .as_deref()
@@ -465,6 +462,9 @@ impl NoemaStore {
         }
         let mut response = statement.await?;
         let rows: Vec<InspectionClaimRow> = response.take(0)?;
+        let predicates = self.inspection_predicates_for_claims(&rows).await?;
+        let entities = self.inspection_entities_for_claims(&rows).await?;
+        let evidence_counts = self.inspection_evidence_counts_for_claims(&rows).await?;
         let mut claims = Vec::new();
         let mut truncated = false;
 
@@ -636,6 +636,80 @@ impl NoemaStore {
         let mut response = self
             .db
             .query("SELECT claim_id, count() AS count FROM supported_by GROUP BY claim_id;")
+            .await?;
+        let rows: Vec<InspectionEvidenceCountRow> = response.take(0)?;
+        Ok(rows
+            .into_iter()
+            .map(|row| (row.claim_id, row.count))
+            .collect())
+    }
+
+    async fn inspection_predicates_for_claims(
+        &self,
+        rows: &[InspectionClaimRow],
+    ) -> Result<HashMap<String, String>, StoreError> {
+        let predicate_ids = claim_predicate_ids(rows);
+        if predicate_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let mut response = self
+            .db
+            .query(
+                "SELECT predicate_id, label FROM predicates WHERE predicate_id IN $predicate_ids;",
+            )
+            .bind(("predicate_ids", predicate_ids))
+            .await?;
+        let rows: Vec<InspectionPredicateRow> = response.take(0)?;
+        Ok(rows
+            .into_iter()
+            .map(|row| (row.predicate_id, row.label))
+            .collect())
+    }
+
+    async fn inspection_entities_for_claims(
+        &self,
+        rows: &[InspectionClaimRow],
+    ) -> Result<HashMap<String, InspectionEntity>, StoreError> {
+        let entity_ids = claim_entity_ids(rows);
+        if entity_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let mut response = self
+            .db
+            .query(
+                "SELECT entity_id, entity_type, canonical_name FROM entities WHERE entity_id IN $entity_ids;",
+            )
+            .bind(("entity_ids", entity_ids))
+            .await?;
+        let rows: Vec<InspectionEntityRow> = response.take(0)?;
+        Ok(rows
+            .into_iter()
+            .map(|row| {
+                (
+                    row.entity_id,
+                    InspectionEntity {
+                        entity_type: row.entity_type,
+                        canonical_name: row.canonical_name,
+                    },
+                )
+            })
+            .collect())
+    }
+
+    async fn inspection_evidence_counts_for_claims(
+        &self,
+        rows: &[InspectionClaimRow],
+    ) -> Result<HashMap<String, i64>, StoreError> {
+        let claim_ids = inspection_claim_ids(rows);
+        if claim_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let mut response = self
+            .db
+            .query(
+                "SELECT claim_id, count() AS count FROM supported_by WHERE claim_id IN $claim_ids GROUP BY claim_id;",
+            )
+            .bind(("claim_ids", claim_ids))
             .await?;
         let rows: Vec<InspectionEvidenceCountRow> = response.take(0)?;
         Ok(rows
@@ -1201,7 +1275,15 @@ fn memory_claim_record(
     let object = row
         .object_entity_id
         .as_deref()
-        .and_then(|entity_id| entities.get(entity_id));
+        .map(|entity_id| {
+            entities.get(entity_id).ok_or_else(|| {
+                StoreError::Schema(format!(
+                    "claim missing object entity: {} references {}",
+                    row.claim_id, entity_id
+                ))
+            })
+        })
+        .transpose()?;
     Ok(MemoryClaimRecord {
         claim_id: row.claim_id.clone(),
         fact: row.fact,
@@ -1223,6 +1305,41 @@ fn memory_claim_record(
         created_at: format_datetime(row.created_at),
         updated_at: format_datetime(row.updated_at),
     })
+}
+
+fn claim_predicate_ids(rows: &[InspectionClaimRow]) -> Vec<String> {
+    let mut predicate_ids = Vec::new();
+    for row in rows {
+        if !predicate_ids.contains(&row.predicate_id) {
+            predicate_ids.push(row.predicate_id.clone());
+        }
+    }
+    predicate_ids
+}
+
+fn claim_entity_ids(rows: &[InspectionClaimRow]) -> Vec<String> {
+    let mut entity_ids = Vec::new();
+    for row in rows {
+        if !entity_ids.contains(&row.subject_entity_id) {
+            entity_ids.push(row.subject_entity_id.clone());
+        }
+        if let Some(object_entity_id) = &row.object_entity_id
+            && !entity_ids.contains(object_entity_id)
+        {
+            entity_ids.push(object_entity_id.clone());
+        }
+    }
+    entity_ids
+}
+
+fn inspection_claim_ids(rows: &[InspectionClaimRow]) -> Vec<String> {
+    let mut claim_ids = Vec::new();
+    for row in rows {
+        if !claim_ids.contains(&row.claim_id) {
+            claim_ids.push(row.claim_id.clone());
+        }
+    }
+    claim_ids
 }
 
 impl MemoryClaimRecord {

@@ -741,6 +741,43 @@ async fn memory_graph_filters_query_predicate_and_sensitivity() {
 }
 
 #[tokio::test]
+async fn memory_graph_errors_on_unresolved_object_entity_reference() {
+    let store = test_store().await;
+    let source_item = create_source_item(&store, "Kevin likes trains.").await;
+    let summary = store
+        .create_or_reinforce_claim(train_claim(source_item.item_id))
+        .await
+        .expect("create claim");
+
+    store
+        .db
+        .query(
+            r#"
+            UPDATE claims SET object_entity_id = 'concept:missing'
+            WHERE claim_id = $claim_id;
+            "#,
+        )
+        .bind(("claim_id", summary.claim_id))
+        .await
+        .expect("corrupt claim object reference")
+        .check()
+        .expect("corrupt claim object reference check");
+
+    let error = store
+        .memory_graph(crate::MemoryGraphFilter {
+            query: None,
+            statuses: None,
+            predicate_id: None,
+            sensitivity: None,
+            limit: Some(10),
+        })
+        .await
+        .expect_err("corrupt graph reference should fail closed");
+
+    assert!(matches!(error, StoreError::Schema(message) if message.contains("object entity")));
+}
+
+#[tokio::test]
 async fn claim_detail_includes_support_evidence_and_unknown_claim_is_none() {
     let store = test_store().await;
     let first_item = create_source_item(&store, "Kevin likes trains.").await;
