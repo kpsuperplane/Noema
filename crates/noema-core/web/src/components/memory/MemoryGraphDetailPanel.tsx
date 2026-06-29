@@ -12,7 +12,7 @@ export function MemoryGraphDetailPanel({ selectedEdge }: { selectedEdge: Normali
 
   if (!selectedEdge) {
     return (
-      <aside className="grid content-start gap-2 border-l border-[var(--border-subtle)] bg-white p-5">
+      <aside className="grid min-h-0 content-start gap-2 overflow-y-auto border-l border-[var(--border-subtle)] bg-white p-5">
         <h2 className="m-0 font-heading text-lg tracking-normal">Memory detail</h2>
         <p className="m-0 text-sm text-muted-foreground">Select a claim edge to inspect evidence.</p>
       </aside>
@@ -23,7 +23,7 @@ export function MemoryGraphDetailPanel({ selectedEdge }: { selectedEdge: Normali
   const claimUnavailable = !detail.loading && !detail.error && detail.data && !claim
 
   return (
-    <aside className="grid content-start gap-4 border-l border-[var(--border-subtle)] bg-white p-5">
+    <aside className="grid min-h-0 content-start gap-4 overflow-y-auto border-l border-[var(--border-subtle)] bg-white p-5">
       <div className="grid gap-1">
         <p className="m-0 font-mono text-[11px] tracking-[0.12em] text-[var(--text-accent)] uppercase">
           {claim?.status ?? selectedEdge.status}

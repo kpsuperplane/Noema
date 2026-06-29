@@ -50,6 +50,8 @@ export function MemoryGraphPage() {
     setStatuses(nextStatuses.length > 0 ? nextStatuses : graphStatusDefaults());
   }
 
+  const hasActiveFilters = query.trim().length > 0 || statuses.join("\0") !== graphStatusDefaults().join("\0");
+
   if (result.loading && !graph) {
     return (
       <section className="grid min-h-0 place-items-center px-6 text-sm text-muted-foreground" aria-label="Memory Graph">
@@ -69,7 +71,7 @@ export function MemoryGraphPage() {
     );
   }
 
-  if (!graph || graph.edges.length === 0) {
+  if (!graph) {
     return (
       <section className="mx-auto grid min-h-0 w-[min(760px,100%)] content-center gap-3 px-6 py-7" aria-label="Memory Graph">
         <h1 className="m-0 font-heading text-[32px] leading-[1.1] tracking-normal text-foreground">
@@ -92,15 +94,28 @@ export function MemoryGraphPage() {
         onQueryChange={setQuery}
         onStatusesChange={handleStatusesChange}
       />
-      <div className="grid min-h-0 grid-cols-[minmax(0,1fr)_minmax(300px,360px)] overflow-hidden max-[900px]:grid-cols-1 max-[900px]:grid-rows-[minmax(420px,1fr)_auto]">
-        <MemoryGraphCanvas
-          nodes={layout.nodes}
-          edges={layout.edges}
-          selectedClaimId={selectedClaimId}
-          onSelectClaim={setSelectedClaimId}
-        />
-        <MemoryGraphDetailPanel selectedEdge={selectedEdge} />
-      </div>
+      {graph.edges.length === 0 ? (
+        <div className="mx-auto grid min-h-0 w-[min(760px,100%)] content-center gap-3 px-6 py-7">
+          <h1 className="m-0 font-heading text-[32px] leading-[1.1] tracking-normal text-foreground">
+            {hasActiveFilters ? "No matching memories" : "No memory graph yet"}
+          </h1>
+          <p className="m-0 max-w-[560px] text-sm text-muted-foreground">
+            {hasActiveFilters
+              ? "Adjust the search or status filters to bring memories back into view."
+              : "Start a chat with Noema or use remember-this notes to create inspectable memories."}
+          </p>
+        </div>
+      ) : (
+        <div className="grid min-h-0 grid-cols-[minmax(0,1fr)_minmax(300px,360px)] overflow-hidden max-[900px]:grid-cols-1 max-[900px]:grid-rows-[minmax(420px,1fr)_auto]">
+          <MemoryGraphCanvas
+            nodes={layout.nodes}
+            edges={layout.edges}
+            selectedClaimId={selectedClaimId}
+            onSelectClaim={setSelectedClaimId}
+          />
+          <MemoryGraphDetailPanel selectedEdge={selectedEdge} />
+        </div>
+      )}
     </section>
   );
 }
