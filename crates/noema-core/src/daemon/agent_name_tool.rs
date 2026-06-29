@@ -72,7 +72,7 @@ pub(super) async fn execute_update_own_name_inner(
     let arguments = parse_arguments(payload)?;
     if !user_explicitly_names_agent(&context.user_input, &arguments.name) {
         return Err(AgentNameToolError::InvalidArguments(
-            "user did not explicitly instruct this agent rename".to_string(),
+            "name update requires explicit user instruction".to_string(),
         ));
     }
 
@@ -107,43 +107,64 @@ fn parse_arguments(payload: &Value) -> Result<UpdateOwnNameArguments, AgentNameT
 }
 
 fn user_explicitly_names_agent(user_input: &str, name: &str) -> bool {
-    let input = normalize_for_name_match(user_input);
-    let name = normalize_for_name_match(name);
-    if name.is_empty() {
+    let input = user_input.trim_start();
+    let name = name.trim();
+    if input.is_empty() || name.is_empty() {
         return false;
     }
 
-    let explicit_phrases = [
-        format!("your name is {name}"),
-        format!("call yourself {name}"),
-        format!("rename yourself to {name}"),
-        format!("i want to call you {name}"),
+    const EXPLICIT_PREFIXES: &[&str] = &[
+        "your name is ",
+        "call yourself ",
+        "rename yourself to ",
+        "i want to call you ",
+        "i'll call you ",
+        "i’ll call you ",
     ];
-    explicit_phrases
+
+    EXPLICIT_PREFIXES
         .iter()
-        .any(|phrase| contains_normalized_phrase(&input, phrase))
+        .filter_map(|prefix| strip_prefix_case_insensitive(input, prefix))
+        .any(|candidate_name| candidate_name_matches(candidate_name, name))
 }
 
-fn normalize_for_name_match(value: &str) -> String {
-    value
-        .chars()
-        .flat_map(char::to_lowercase)
-        .map(|ch| if ch.is_alphanumeric() { ch } else { ' ' })
-        .collect::<String>()
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
+fn strip_prefix_case_insensitive<'a>(value: &'a str, prefix: &str) -> Option<&'a str> {
+    let end = matching_prefix_end(value, prefix)?;
+    Some(&value[end..])
 }
 
-fn contains_normalized_phrase(input: &str, phrase: &str) -> bool {
-    input == phrase
-        || input
-            .strip_prefix(phrase)
-            .is_some_and(|remaining| remaining.starts_with(' '))
-        || input
-            .strip_suffix(phrase)
-            .is_some_and(|remaining| remaining.ends_with(' '))
-        || input.contains(&format!(" {phrase} "))
+fn candidate_name_matches(candidate: &str, name: &str) -> bool {
+    let candidate = candidate.trim_start();
+    let name = name.trim();
+    let remaining = strip_prefix_case_insensitive(candidate, name);
+    remaining.is_some_and(remaining_is_only_sentence_end)
+}
+
+fn matching_prefix_end(value: &str, prefix: &str) -> Option<usize> {
+    let mut value_chars = value.char_indices();
+    let mut end = 0;
+    for prefix_ch in prefix.chars() {
+        let (idx, value_ch) = value_chars.next()?;
+        if !chars_equal_ignore_case(value_ch, prefix_ch) {
+            return None;
+        }
+        end = idx + value_ch.len_utf8();
+    }
+    Some(end)
+}
+
+fn chars_equal_ignore_case(left: char, right: char) -> bool {
+    left.to_lowercase().to_string() == right.to_lowercase().to_string()
+}
+
+fn remaining_is_only_sentence_end(remaining: &str) -> bool {
+    let trimmed = remaining.trim_start();
+    if trimmed.is_empty() {
+        return true;
+    }
+
+    let mut chars = trimmed.chars();
+    matches!(chars.next(), Some('.') | Some('!') | Some('?')) && chars.as_str().trim().is_empty()
 }
 
 fn safe_error_message(error: &AgentNameToolError) -> String {
@@ -204,6 +225,8 @@ mod tests {
             ("Call yourself Orin.", "Orin"),
             ("Rename yourself to Halcyon.", "Halcyon"),
             ("I want to call you Tess.", "Tess"),
+            ("I'll call you Mira.", "Mira"),
+            ("I’ll call you Mira.", "Mira"),
         ];
 
         for (input, name) in examples {
@@ -230,9 +253,41 @@ mod tests {
         }
     }
 
+    #[test]
+    fn rejects_negated_narrated_and_quoted_name_mentions() {
+        let examples = [
+            ("Don't call yourself Mira.", "Mira"),
+            ("Do not rename yourself to Mira.", "Mira"),
+            ("I heard your name is Mira.", "Mira"),
+            (r#"The phrase "your name is Mira" is in my prompt."#, "Mira"),
+        ];
+
+        for (input, name) in examples {
+            assert!(
+                !user_explicitly_names_agent(input, name),
+                "{input:?} should not explicitly name the agent {name:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_material_name_mismatches_after_normalization() {
+        let examples = [
+            ("Your name is C.", "C++"),
+            ("Your name is Mira.", "Mira!!!"),
+        ];
+
+        for (input, name) in examples {
+            assert!(
+                !user_explicitly_names_agent(input, name),
+                "{input:?} should not authorize materially different payload name {name:?}"
+            );
+        }
+    }
+
     #[tokio::test]
     async fn store_backed_success_updates_agent_display_name() {
-        let store = test_store().await;
+        let (_home, store) = test_store().await;
         store.ensure_default_actors().await.expect("actors");
         let context = AgentNameToolRuntimeContext {
             agent_id: "agent:primary".to_string(),
@@ -267,7 +322,7 @@ mod tests {
 
     #[tokio::test]
     async fn rejects_call_without_explicit_user_instruction() {
-        let store = test_store().await;
+        let (_home, store) = test_store().await;
         store.ensure_default_actors().await.expect("actors");
         let context = AgentNameToolRuntimeContext {
             agent_id: "agent:primary".to_string(),
@@ -287,7 +342,7 @@ mod tests {
         assert_eq!(
             result.payload,
             json!({
-                "error": "user did not explicitly instruct this agent rename"
+                "error": "name update requires explicit user instruction"
             })
         );
         let agent = store
@@ -305,12 +360,11 @@ mod tests {
         assert!(!is_update_own_name_tool("update_own_name_v2"));
     }
 
-    async fn test_store() -> crate::NoemaStore {
+    async fn test_store() -> (tempfile::TempDir, crate::NoemaStore) {
         let home = tempfile::tempdir().expect("temp noema home");
         let paths = crate::NoemaPaths::from_noema_home(home.path()).expect("paths");
         let config = crate::StoreConfig::from_paths(&paths);
         let store = crate::NoemaStore::open(&config).await.expect("open store");
-        std::mem::forget(home);
-        store
+        (home, store)
     }
 }
