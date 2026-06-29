@@ -876,6 +876,14 @@ async fn repeated_explicit_memory_reinforces_one_claim() {
         })
         .expect("second explicit memory activity");
     assert_eq!(claim_activity["evidence_count"], 2);
+    assert_eq!(
+        claim_activity["claim_outcomes"][0]["outcome"],
+        json!("reinforced")
+    );
+    assert_eq!(
+        claim_activity["claim_outcomes"][0]["fact_preview"],
+        json!("Kevin likes ice cream.")
+    );
     assert_no_failed_memory_extraction(&second_items);
 
     let claims = store
@@ -885,6 +893,50 @@ async fn repeated_explicit_memory_reinforces_one_claim() {
     assert_eq!(claims.included.len(), 1, "expected one claim: {claims:?}");
     assert_eq!(claims.included[0].fact, "Kevin likes ice cream.");
     assert_eq!(claims.included[0].predicate_id, "likes");
+    handle.shutdown().await;
+}
+
+#[tokio::test]
+async fn explicit_memory_saved_activity_includes_claim_outcome() {
+    let handle = test_runtime_handle(fake_codex_provider_with_memory_extraction()).await;
+    let conversation = handle
+        .start_conversation(None, None)
+        .await
+        .expect("conversation");
+
+    let items = collect_turn(
+        &handle,
+        conversation.conversation_id,
+        "remember: I like planes.".to_string(),
+    )
+    .await
+    .expect("turn");
+
+    let metadata = items
+        .iter()
+        .find_map(|item| match item {
+            TurnTranscriptItem::Activity {
+                activity_kind,
+                status: TurnActivityStatus::Completed,
+                title,
+                metadata,
+                ..
+            } if activity_kind == "memory_extraction" && title == "Explicit memory saved" => {
+                Some(metadata)
+            }
+            _ => None,
+        })
+        .expect("explicit memory activity metadata");
+
+    assert_eq!(
+        metadata["claim_outcomes"][0]["fact_preview"],
+        json!("Kevin likes planes.")
+    );
+    assert_eq!(metadata["claim_outcomes"][0]["outcome"], json!("created"));
+    assert_eq!(
+        metadata["claim_outcomes"][0]["sensitivity"],
+        json!("normal")
+    );
     handle.shutdown().await;
 }
 
@@ -1171,6 +1223,33 @@ async fn runtime_actor_persists_provider_memory_proposals_as_graph_claims() {
             _ => None,
         })
         .expect("persisted memory proposal claim id");
+    let activity_metadata = items
+        .iter()
+        .find_map(|item| match item {
+            TurnTranscriptItem::Activity {
+                activity_kind,
+                status: TurnActivityStatus::Completed,
+                title,
+                metadata,
+                ..
+            } if activity_kind == "memory_extraction" && title == "Memory persisted" => {
+                Some(metadata)
+            }
+            _ => None,
+        })
+        .expect("provider memory activity metadata");
+    assert_eq!(
+        activity_metadata["claim_outcomes"][0]["fact_preview"],
+        json!("Kevin prefers same-call memory proposals.")
+    );
+    assert_eq!(
+        activity_metadata["claim_outcomes"][0]["outcome"],
+        json!("created")
+    );
+    assert_eq!(
+        activity_metadata["claim_outcomes"][0]["sensitivity"],
+        json!("normal")
+    );
     assert_no_failed_memory_extraction(&items);
     let claims = store
         .retrieve_claims(&answer_claim_request(), "same-call memory proposals", 8)

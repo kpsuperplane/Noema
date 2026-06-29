@@ -1130,6 +1130,7 @@ impl CodexRuntimeActor {
         tokio::task::yield_now().await;
 
         let mut claim_ids = Vec::with_capacity(proposal_count);
+        let mut claim_outcomes = Vec::with_capacity(proposal_count);
         let mut created_claim_count = 0usize;
         let mut reinforced_claim_count = 0usize;
         let mut failed_proposals = Vec::new();
@@ -1147,6 +1148,7 @@ impl CodexRuntimeActor {
                         ClaimWriteOutcome::Created => created_claim_count += 1,
                         ClaimWriteOutcome::Reinforced => reinforced_claim_count += 1,
                     }
+                    claim_outcomes.push(claim_outcome_json(&summary));
                     claim_ids.push(summary.claim_id);
                 }
                 Err(error) => {
@@ -1172,6 +1174,7 @@ impl CodexRuntimeActor {
                 "source": "provider_structured_output",
                 "proposal_count": proposal_count,
                 "claim_ids": claim_ids,
+                "claim_outcomes": claim_outcomes,
                 "created_claim_count": created_claim_count,
                 "reinforced_claim_count": reinforced_claim_count,
                 "failed_proposal_count": failed_proposal_count,
@@ -1192,6 +1195,7 @@ impl CodexRuntimeActor {
         let candidate = explicit_memory_claim_candidate(content, context.user_item_id.clone());
         match self.store.create_or_reinforce_claim(candidate).await {
             Ok(summary) => {
+                let claim_outcome = claim_outcome_json(&summary);
                 let claim_id = summary.claim_id.clone();
                 let activity = memory_activity(
                     &format!(
@@ -1205,6 +1209,10 @@ impl CodexRuntimeActor {
                         "turn_index": context.turn_index,
                         "trigger": "explicit_remember",
                         "claim_id": claim_id,
+                        "claim_outcomes": [claim_outcome],
+                        "created_claim_count": if summary.write_outcome == ClaimWriteOutcome::Created { 1 } else { 0 },
+                        "reinforced_claim_count": if summary.write_outcome == ClaimWriteOutcome::Reinforced { 1 } else { 0 },
+                        "failed_proposal_count": 0,
                         "predicate_id": summary.predicate_id,
                         "source_item_id": context.user_item_id,
                         "evidence_count": summary.evidence_count,
@@ -1688,6 +1696,35 @@ fn provider_memory_claim_activity(
         "Memory persistence partially failed",
         provider_memory_claim_summary(saved_count, failed_count),
     )
+}
+
+fn claim_outcome_json(summary: &crate::ClaimSummary) -> Value {
+    json!({
+        "claim_id": summary.claim_id,
+        "outcome": claim_write_outcome_label(summary.write_outcome),
+        "fact_preview": fact_preview(&summary.fact),
+        "sensitivity": sensitivity_label(summary.sensitivity),
+    })
+}
+
+fn claim_write_outcome_label(outcome: ClaimWriteOutcome) -> &'static str {
+    match outcome {
+        ClaimWriteOutcome::Created => "created",
+        ClaimWriteOutcome::Reinforced => "reinforced",
+    }
+}
+
+fn fact_preview(fact: &str) -> String {
+    const MAX_PREVIEW_CHARS: usize = 120;
+    let trimmed = fact.trim();
+    if trimmed.chars().count() <= MAX_PREVIEW_CHARS {
+        return trimmed.to_string();
+    }
+    let preview = trimmed
+        .chars()
+        .take(MAX_PREVIEW_CHARS - 3)
+        .collect::<String>();
+    format!("{preview}...")
 }
 
 fn provider_memory_claim_summary(saved_count: usize, failed_count: usize) -> String {
