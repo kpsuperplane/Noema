@@ -154,10 +154,23 @@ fn strip_prefix_case_insensitive<'a>(value: &'a str, prefix: &str) -> Option<&'a
 fn candidate_name_matches(candidate: &str, name: &str) -> bool {
     let candidate = candidate.trim_start();
     let name = name.trim();
-    let Some(candidate_name) = explicit_candidate_name(candidate) else {
+    if !payload_name_has_safe_punctuation(name) {
+        return false;
+    }
+    let Some(remaining) = strip_prefix_case_insensitive(candidate, name) else {
         return false;
     };
-    candidate_name.eq_ignore_ascii_case(name)
+    remaining_after_explicit_name_is_safe(remaining)
+}
+
+fn payload_name_has_safe_punctuation(name: &str) -> bool {
+    if name.ends_with(['.', '!', '?']) {
+        return false;
+    }
+
+    name.split(". ")
+        .skip(1)
+        .all(|part| part.split_whitespace().count() == 1)
 }
 
 fn matching_prefix_end(value: &str, prefix: &str) -> Option<usize> {
@@ -177,22 +190,24 @@ fn chars_equal_ignore_case(left: char, right: char) -> bool {
     left.to_lowercase().to_string() == right.to_lowercase().to_string()
 }
 
-fn explicit_candidate_name(candidate: &str) -> Option<&str> {
-    let candidate = candidate.trim();
-    if candidate.is_empty() {
-        return None;
+fn remaining_after_explicit_name_is_safe(remaining: &str) -> bool {
+    let remaining = remaining.trim_start();
+    if remaining.is_empty() {
+        return true;
     }
 
-    let trimmed = candidate
-        .split_once('.')
-        .map(|(name, _)| name)
-        .unwrap_or(candidate)
-        .trim_end();
-    if trimmed.is_empty() {
-        None
-    } else {
-        Some(trimmed)
+    if let Some(after_period) = remaining.strip_prefix('.') {
+        let after_period = after_period.trim_start();
+        return after_period.is_empty()
+            || (starts_with_uppercase(after_period)
+                && after_period.split_whitespace().count() > 1);
     }
+
+    false
+}
+
+fn starts_with_uppercase(value: &str) -> bool {
+    value.chars().next().is_some_and(|ch| ch.is_uppercase())
 }
 
 fn safe_error_message(error: &AgentNameToolError) -> String {
@@ -273,6 +288,7 @@ mod tests {
             ("I'll call you Mira.", "Mira"),
             ("I’ll call you Mira.", "Mira"),
             ("Your name is Mira. Please say hi.", "Mira"),
+            ("Your name is Dr. Nova.", "Dr. Nova"),
         ];
 
         for (input, name) in examples {
@@ -324,6 +340,7 @@ mod tests {
             ("Your name is Mira.", "Mira."),
             ("Your name is Mira?", "Mira"),
             ("Your name is Mira. Please say hi.", "Mira. Please say hi"),
+            ("Your name is Dr. Nova.", "Dr"),
         ];
 
         for (input, name) in examples {
