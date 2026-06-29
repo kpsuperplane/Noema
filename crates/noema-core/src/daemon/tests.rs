@@ -1386,6 +1386,48 @@ async fn provider_first_person_memory_reinforces_explicit_canonical_claim() {
 }
 
 #[tokio::test]
+async fn provider_user_loves_planes_canonicalizes_to_likes_claim() {
+    let (handle, store) =
+        test_runtime_handle_with_store(fake_codex_provider_with_memory_extraction()).await;
+
+    let conversation = handle
+        .start_conversation(None, None)
+        .await
+        .expect("conversation");
+    let items = collect_turn(
+        &handle,
+        conversation.conversation_id,
+        "I love planes.".to_string(),
+    )
+    .await
+    .expect("turn");
+
+    assert!(items.iter().any(|item| {
+        matches!(
+            item,
+            TurnTranscriptItem::Activity {
+                activity_kind,
+                status: TurnActivityStatus::Completed,
+                title,
+                metadata,
+                ..
+            } if activity_kind == "memory_extraction"
+                && title == "Memory persisted"
+                && metadata["created_claim_count"] == 1
+        )
+    }));
+
+    let claims = store
+        .retrieve_claims(&answer_claim_request(), "planes", 8)
+        .await
+        .expect("retrieve planes claim");
+    assert_eq!(claims.included.len(), 1, "expected one claim: {claims:?}");
+    assert_eq!(claims.included[0].predicate_id, "likes");
+    assert_eq!(claims.included[0].fact, "Kevin likes planes.");
+    handle.shutdown().await;
+}
+
+#[tokio::test]
 async fn provider_first_person_local_name_memory_persists_without_explicit_seed() {
     let (handle, store) =
         test_runtime_handle_with_store(fake_codex_provider_with_memory_extraction()).await;
@@ -2850,6 +2892,27 @@ fn memory_extraction_output(input: &str) -> Vec<GenerateOutputItem> {
                     "retrieval_hints": {"topics": ["display"], "keywords": ["dark mode"], "summary": "Kevin prefers dark mode."},
                     "risk_flags": [],
                     "evidence_excerpt": "I prefer dark mode."
+                }))],
+            },
+        ];
+    }
+
+    if input.contains("I love planes.") {
+        return vec![
+            GenerateOutputItem::AssistantText {
+                text: "fake answer".to_string(),
+            },
+            GenerateOutputItem::MemoryProposals {
+                proposals: vec![proposal(json!({
+                    "content": "The user loves planes.",
+                    "memory_type": "preference",
+                    "title": "Plane preference",
+                    "confidence": 0.91,
+                    "sensitivity": "normal",
+                    "subjects": [{"id": "human:local", "kind": "human", "name": "Kevin", "role": "about"}],
+                    "retrieval_hints": {"topics": ["aviation"], "keywords": ["planes"], "summary": "The user loves planes."},
+                    "risk_flags": [],
+                    "evidence_excerpt": "I love planes."
                 }))],
             },
         ];

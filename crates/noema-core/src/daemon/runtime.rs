@@ -22,9 +22,10 @@ use tokio::sync::{mpsc, oneshot};
 
 use super::{
     memory_pipeline::{
-        AssistantEvidenceItem, ConversationMemoryContext, explicit_memory_claim_candidate,
-        explicit_memory_content, memory_activity, memory_activity_failed, project_scope_from_cwd,
-        provider_memory_claim_candidate, typed_memory_activity,
+        AssistantEvidenceItem, ConversationMemoryContext, claim_status_from_memory_status,
+        deterministic_canonical_claim, explicit_memory_content, explicit_memory_write_proposal,
+        memory_activity, memory_activity_failed, project_scope_from_cwd,
+        provider_memory_write_proposal, typed_memory_activity,
     },
     memory_tool::{
         MemoryToolResult, MemoryToolRuntimeContext, execute_search_memory, is_search_memory_tool,
@@ -1137,11 +1138,17 @@ impl CodexRuntimeActor {
         let mut failed_proposals = Vec::new();
         for proposal in validated_proposals {
             let proposal_index = proposal.proposal_index;
-            let candidate = provider_memory_claim_candidate(
+            let write_proposal = provider_memory_write_proposal(
                 &proposal.proposal,
                 &proposal.context,
                 proposal_index,
                 "ordinary_chat",
+            );
+            let candidate = deterministic_canonical_claim(
+                &write_proposal,
+                claim_status_from_memory_status(proposal.proposal.status),
+                Some(f64::from(proposal.proposal.proposal.confidence)),
+                crate::EvidenceAuthority::AgentInference,
             );
             match self.store.create_or_reinforce_claim(candidate).await {
                 Ok(summary) => {
@@ -1193,7 +1200,13 @@ impl CodexRuntimeActor {
         content: &str,
         item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
     ) -> Result<ExplicitMemoryOutcome, DaemonError> {
-        let candidate = explicit_memory_claim_candidate(content, context.user_item_id.clone());
+        let write_proposal = explicit_memory_write_proposal(content, context);
+        let candidate = deterministic_canonical_claim(
+            &write_proposal,
+            crate::ClaimStatus::Confirmed,
+            Some(1.0),
+            crate::EvidenceAuthority::ExplicitHumanStatement,
+        );
         match self.store.create_or_reinforce_claim(candidate).await {
             Ok(summary) => {
                 let claim_outcome = claim_outcome_json(&summary);

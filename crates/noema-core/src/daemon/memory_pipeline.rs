@@ -3,6 +3,7 @@ use std::path::Path;
 use crate::{
     MemoryType,
     memory::{MemoryStatus, Sensitivity},
+    memory_consolidation::{MemoryWriteProposal, MemoryWriteSourceKind},
     memory_extraction::{
         MemoryExtractionSubject, MemoryExtractionSubjectKind, ValidatedMemoryProposal,
         infer_memory_text_sensitivity, memory_extraction_subject_implies_local_human,
@@ -60,37 +61,66 @@ pub(super) fn explicit_memory_content(input: &str) -> Option<String> {
     None
 }
 
+#[allow(
+    dead_code,
+    reason = "legacy daemon tests exercise this wrapper while runtime writes use proposal routing"
+)]
 pub(super) fn explicit_memory_claim_candidate(
     content: &str,
     source_item_id: String,
 ) -> NewClaimCandidate {
-    let parsed = parse_explicit_claim(content);
-    let fact = parsed.fact;
-    let object_phrase = parsed.object_phrase;
-    NewClaimCandidate {
-        subject: EntityCandidate::local_human(),
-        object: claim_object_entity(parsed.predicate_id, &object_phrase),
-        predicate_id: parsed.predicate_id.to_string(),
-        fact: fact.clone(),
+    let context = ConversationMemoryContext {
+        conversation_id: String::new(),
+        turn_id: String::new(),
+        turn_index: 0,
+        user_item_id: source_item_id,
+        assistant_item_id: None,
+        assistant_items: Vec::new(),
+        user_content: content.to_string(),
+        cwd: None,
+    };
+    let proposal = explicit_memory_write_proposal(content, &context);
+    deterministic_canonical_claim(
+        &proposal,
+        ClaimStatus::Confirmed,
+        Some(1.0),
+        EvidenceAuthority::ExplicitHumanStatement,
+    )
+}
+
+pub(super) fn explicit_memory_write_proposal(
+    content: &str,
+    context: &ConversationMemoryContext,
+) -> MemoryWriteProposal {
+    let parsed = parse_provider_claim(content, None);
+    MemoryWriteProposal {
+        source_kind: MemoryWriteSourceKind::ExplicitRemember,
+        source_item_id: context.user_item_id.clone(),
+        source_actor_id: "human:local".to_string(),
+        source_excerpt: content.to_string(),
+        owner_object_type: "human".to_string(),
+        owner_object_id: "human:local".to_string(),
+        raw_text: content.to_string(),
+        memory_type: "note".to_string(),
         sensitivity: infer_chat_sensitivity(content),
-        status: ClaimStatus::Confirmed,
-        confidence: Some(1.0),
-        evidence: EvidenceCandidate {
-            source_item_id,
-            authority: EvidenceAuthority::ExplicitHumanStatement,
-            excerpt: Some(content.to_string()),
-        },
+        risk_flags: Vec::new(),
         retrieval_hints: json!({
-            "keywords": [object_phrase],
-            "summary": fact,
+            "keywords": [parsed.object_phrase],
+            "summary": parsed.fact,
             "source": "explicit_remember",
         }),
         metadata: json!({
             "trigger": "explicit_remember",
+            "turn_id": context.turn_id,
+            "turn_index": context.turn_index,
         }),
     }
 }
 
+#[allow(
+    dead_code,
+    reason = "legacy daemon tests exercise this wrapper while runtime writes use proposal routing"
+)]
 pub(super) fn provider_memory_claim_candidate(
     validated: &ValidatedMemoryProposal,
     context: &ConversationMemoryContext,
@@ -136,75 +166,86 @@ pub(super) fn provider_memory_claim_candidate(
     }
 }
 
+pub(super) fn provider_memory_write_proposal(
+    validated: &ValidatedMemoryProposal,
+    context: &ConversationMemoryContext,
+    proposal_index: usize,
+    trigger: &str,
+) -> MemoryWriteProposal {
+    let proposal = &validated.proposal;
+    let evidence_source = evidence_source_for_excerpt(&proposal.evidence_excerpt, context);
+    MemoryWriteProposal {
+        source_kind: MemoryWriteSourceKind::OrdinaryChat,
+        source_item_id: evidence_source.source_item_id,
+        source_actor_id: match evidence_source.source {
+            ProviderEvidenceSource::User => "human:local",
+            ProviderEvidenceSource::Assistant => "agent:primary",
+        }
+        .to_string(),
+        source_excerpt: proposal.evidence_excerpt.clone(),
+        owner_object_type: "human".to_string(),
+        owner_object_id: "human:local".to_string(),
+        raw_text: proposal.content.clone(),
+        memory_type: memory_type_label(proposal.memory_type).to_string(),
+        sensitivity: proposal.sensitivity,
+        risk_flags: proposal
+            .risk_flags
+            .iter()
+            .map(|flag| format!("{flag:?}"))
+            .collect(),
+        retrieval_hints: serde_json::to_value(&proposal.retrieval_hints)
+            .unwrap_or_else(|_| json!({})),
+        metadata: json!({
+            "trigger": trigger,
+            "source": "provider_structured_output",
+            "turn_id": context.turn_id,
+            "turn_index": context.turn_index,
+            "proposal_index": proposal_index,
+            "memory_type": memory_type_label(proposal.memory_type),
+            "title": proposal.title,
+            "risk_flags": proposal.risk_flags,
+            "evidence_source": evidence_source.source.as_str(),
+            "cwd_project_hint": project_scope_from_cwd(context.cwd.as_deref()),
+        }),
+    }
+}
+
+pub(super) fn deterministic_canonical_claim(
+    proposal: &MemoryWriteProposal,
+    status: ClaimStatus,
+    confidence: Option<f64>,
+    authority: EvidenceAuthority,
+) -> NewClaimCandidate {
+    let parsed = parse_provider_claim(&proposal.raw_text, None);
+    NewClaimCandidate {
+        subject: EntityCandidate::local_human(),
+        object: claim_object_entity(parsed.predicate_id, &parsed.object_phrase),
+        predicate_id: parsed.predicate_id.to_string(),
+        fact: parsed.fact.clone(),
+        sensitivity: proposal.sensitivity,
+        status,
+        confidence,
+        evidence: EvidenceCandidate {
+            source_item_id: proposal.source_item_id.clone(),
+            authority,
+            excerpt: Some(proposal.source_excerpt.clone()),
+        },
+        retrieval_hints: if proposal.retrieval_hints.is_object() {
+            proposal.retrieval_hints.clone()
+        } else {
+            json!({
+                "keywords": [parsed.object_phrase],
+                "summary": parsed.fact,
+            })
+        },
+        metadata: proposal.metadata.clone(),
+    }
+}
+
 struct ParsedExplicitClaim {
     predicate_id: &'static str,
     object_phrase: String,
     fact: String,
-}
-
-fn parse_explicit_claim(content: &str) -> ParsedExplicitClaim {
-    let normalized = collapse_whitespace(content);
-    let lowered = normalized.to_ascii_lowercase();
-
-    for prefix in [
-        "i'm a big fan of ",
-        "i am a big fan of ",
-        "i like ",
-        "i love ",
-        "kevin likes ",
-        "kevin loves ",
-    ] {
-        if lowered.starts_with(prefix) {
-            let object_phrase = normalize_object_phrase(&normalized[prefix.len()..]);
-            if !is_substantive_object_phrase(&object_phrase) {
-                return fallback_note_claim(&normalized);
-            }
-            return ParsedExplicitClaim {
-                predicate_id: "likes",
-                fact: format!("Kevin likes {}.", object_phrase),
-                object_phrase,
-            };
-        }
-    }
-
-    for prefix in [
-        "i dislike ",
-        "i don't like ",
-        "i do not like ",
-        "i hate ",
-        "kevin dislikes ",
-        "kevin doesn't like ",
-        "kevin does not like ",
-        "kevin hates ",
-    ] {
-        if lowered.starts_with(prefix) {
-            let object_phrase = normalize_object_phrase(&normalized[prefix.len()..]);
-            if !is_substantive_object_phrase(&object_phrase) {
-                return fallback_note_claim(&normalized);
-            }
-            return ParsedExplicitClaim {
-                predicate_id: "dislikes",
-                fact: format!("Kevin dislikes {}.", object_phrase),
-                object_phrase,
-            };
-        }
-    }
-
-    for prefix in ["i prefer ", "kevin prefers ", "i want ", "kevin wants "] {
-        if lowered.starts_with(prefix) {
-            let object_phrase = normalize_object_phrase(&normalized[prefix.len()..]);
-            if !is_substantive_object_phrase(&object_phrase) {
-                return fallback_note_claim(&normalized);
-            }
-            return ParsedExplicitClaim {
-                predicate_id: "prefers",
-                fact: format!("Kevin prefers {}.", object_phrase),
-                object_phrase,
-            };
-        }
-    }
-
-    fallback_note_claim(&normalized)
 }
 
 fn parse_provider_claim(content: &str, _title: Option<&str>) -> ParsedExplicitClaim {
@@ -220,8 +261,15 @@ fn parse_provider_claim(content: &str, _title: Option<&str>) -> ParsedExplicitCl
         "kevin loves ",
         "kevin is a big fan of ",
         "local human likes ",
+        "local human loves ",
         "the user likes ",
+        "the user loves ",
         "user likes ",
+        "user loves ",
+        "current human likes ",
+        "current human loves ",
+        "current user likes ",
+        "current user loves ",
     ] {
         if lowered.starts_with(prefix) {
             let object_phrase = normalize_object_phrase(&normalized[prefix.len()..]);
@@ -245,8 +293,25 @@ fn parse_provider_claim(content: &str, _title: Option<&str>) -> ParsedExplicitCl
         "kevin does not like ",
         "kevin hates ",
         "local human dislikes ",
+        "local human doesn't like ",
+        "local human does not like ",
+        "local human hates ",
         "the user dislikes ",
+        "the user doesn't like ",
+        "the user does not like ",
+        "the user hates ",
         "user dislikes ",
+        "user doesn't like ",
+        "user does not like ",
+        "user hates ",
+        "current human dislikes ",
+        "current human doesn't like ",
+        "current human does not like ",
+        "current human hates ",
+        "current user dislikes ",
+        "current user doesn't like ",
+        "current user does not like ",
+        "current user hates ",
     ] {
         if lowered.starts_with(prefix) {
             let object_phrase = normalize_object_phrase(&normalized[prefix.len()..]);
@@ -266,8 +331,15 @@ fn parse_provider_claim(content: &str, _title: Option<&str>) -> ParsedExplicitCl
         "kevin prefers ",
         "kevin wants ",
         "local human prefers ",
+        "local human wants ",
         "the user prefers ",
+        "the user wants ",
         "user prefers ",
+        "user wants ",
+        "current human prefers ",
+        "current human wants ",
+        "current user prefers ",
+        "current user wants ",
     ] {
         if lowered.starts_with(prefix) {
             let object_phrase = normalize_object_phrase(&normalized[prefix.len()..]);
@@ -330,6 +402,10 @@ fn claim_object_entity(predicate_id: &str, object_phrase: &str) -> EntityCandida
     )
 }
 
+#[allow(
+    dead_code,
+    reason = "legacy provider candidate wrapper preserves subject behavior for daemon tests"
+)]
 fn provider_subject_entity(
     subjects: &[MemoryExtractionSubject],
     evidence_excerpt: &str,
@@ -353,6 +429,10 @@ fn provider_subject_entity(
     }
 }
 
+#[allow(
+    dead_code,
+    reason = "legacy provider candidate wrapper preserves subject behavior for daemon tests"
+)]
 fn entity_type_for_subject_kind(kind: MemoryExtractionSubjectKind) -> EntityType {
     match kind {
         MemoryExtractionSubjectKind::Human => EntityType::Person,
@@ -371,7 +451,7 @@ fn entity_type_for_subject_kind(kind: MemoryExtractionSubjectKind) -> EntityType
     }
 }
 
-fn claim_status_from_memory_status(status: MemoryStatus) -> ClaimStatus {
+pub(super) fn claim_status_from_memory_status(status: MemoryStatus) -> ClaimStatus {
     match status {
         MemoryStatus::Candidate => ClaimStatus::Candidate,
         MemoryStatus::Active | MemoryStatus::Inferred => ClaimStatus::Active,
@@ -511,6 +591,10 @@ pub(super) fn title_from_memory_content(content: &str) -> String {
     content.trim().chars().take(80).collect()
 }
 
+#[allow(
+    dead_code,
+    reason = "legacy provider candidate wrapper preserves subject behavior for daemon tests"
+)]
 pub(super) fn memory_extraction_subject_is_local_human(
     subject: &MemoryExtractionSubject,
     evidence_excerpt: &str,
@@ -527,10 +611,18 @@ fn stable_hex_fingerprint(bytes: &[u8]) -> String {
     format!("{hash:016x}")
 }
 
+#[allow(
+    dead_code,
+    reason = "legacy provider candidate wrapper preserves subject behavior for daemon tests"
+)]
 pub(super) fn generated_entity_id(kind: MemoryExtractionSubjectKind, name: &str) -> String {
     format!("{}:{}", subject_kind_id_prefix(kind), slug_fragment(name))
 }
 
+#[allow(
+    dead_code,
+    reason = "legacy provider candidate wrapper preserves subject behavior for daemon tests"
+)]
 fn subject_kind_id_prefix(kind: MemoryExtractionSubjectKind) -> &'static str {
     match kind {
         MemoryExtractionSubjectKind::Human => "human",
