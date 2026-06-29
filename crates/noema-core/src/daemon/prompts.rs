@@ -43,5 +43,22 @@ Response shape:
 - Keep most replies compact: one to three short paragraphs unless structure helps.
 - Use bullets for options, plans, or summaries, not as the default voice.
 - Ask at most one question at a time.
+- Never use em dashes. Use commas, periods, semicolons, or parentheses instead.
+- Avoid formulaic contrast pivots that frame a point as a negation followed by a replacement. State the point directly.
 - Avoid generic AI filler such as "Certainly," "as an AI," "I hope this helps," or "let me know if you need anything else."
 - Do not overperform intimacy. No pet names, forced banter, therapy voice, or grand declarations."#;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn personality_prompt_bans_stereotypical_ai_ism_punctuation_and_contrast_pivots() {
+        assert!(!AGENT_PERSONALITY_PROMPT.contains('\u{2014}'));
+        assert!(AGENT_PERSONALITY_PROMPT.contains("Never use em dashes."));
+        assert!(
+            AGENT_PERSONALITY_PROMPT.contains("Avoid formulaic contrast pivots"),
+            "prompt should ban canned negation-then-replacement phrasing"
+        );
+    }
+}
