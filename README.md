@@ -163,22 +163,32 @@ compatibility becomes a product requirement.
 
 ## Development
 
-Copy the default environment file once:
+Use `.env.example` as a reference for local environment variables. Host-side
+commands read variables from your shell, so export them directly or load them
+with your usual environment manager:
 
 ```bash
-cp .env.example .env
+export NOEMA_HOME="$PWD/.noema-dev"
+export NOEMA_OPENAI__API_KEY="..."
+```
+
+Install `cargo-watch` once:
+
+```bash
+cargo install cargo-watch --locked
 ```
 
 Start the auto-reloading local development stack:
 
 ```bash
-docker compose up dev
+NOEMA_HOME=.noema-dev cargo dev-daemon
 ```
 
-The `dev` service starts the Rust daemon watcher and the core web asset
-watcher. The web chat is available at <http://localhost:3737/>. Embedded
+The `dev-daemon` cargo alias starts the Rust daemon watcher and the core web
+asset watcher. The web chat is available at <http://localhost:3737/>. Embedded
 SurrealDB structured state is stored under
-`${NOEMA_HOME:-$HOME/.noema}/db`.
+`${NOEMA_HOME:-$HOME/.noema}/db`; the command above keeps development state in
+`.noema-dev/db`.
 
 On first launch, the web UI checks backend onboarding readiness before opening
 chat. Chat stays blocked until an active provider account is authenticated.
@@ -188,20 +198,22 @@ For Codex, the default credential home is
 The preferred first-run flow is:
 
 ```bash
-docker compose up dev
+NOEMA_HOME=.noema-dev cargo dev-daemon
 ```
 
 Then open <http://localhost:3737/> and click **Connect Codex**. If you need a
 terminal fallback, run:
 
 ```bash
-docker compose run --rm -e CODEX_HOME=/noema/providers/codex/default dev codex login --device-auth
+NOEMA_HOME="$PWD/.noema-dev" \
+CODEX_HOME="$PWD/.noema-dev/providers/codex/default" \
+codex login --device-auth
 ```
 
-To run the one-shot server container without file watching:
+To run the server without file watching:
 
 ```bash
-docker compose --profile server up noema-server
+NOEMA_HOME=.noema-dev cargo run -p noema-cli -- start
 ```
 
 General Rust validation:
@@ -227,17 +239,8 @@ bun run build
 web protocol types before running TypeScript or Vite. `bun run dev` keeps Vite
 in build-watch mode and writes updated assets into `noema-core`.
 
-For host-side daemon development, install `cargo-watch` and use the repo alias
-to restart the foreground daemon whenever Rust sources, Cargo manifests, or
-generated web assets change. The alias also starts the core web `bun run dev`
-asset watcher:
-
-```bash
-cargo install cargo-watch --locked
-NOEMA_HOME=.noema-dev cargo dev-daemon
-```
-
-Then connect from another terminal:
+For chat development, connect from another terminal while `cargo dev-daemon`
+is running:
 
 ```bash
 NOEMA_HOME=.noema-dev cargo run -p noema-cli -- chat

@@ -24,6 +24,9 @@ The next storage slice should stay small and concrete:
 - The Noema server process is the only process that opens the embedded database;
   clients, CLI, desktop, web, and future mobile use Noema APIs.
 - Embedded database files live directly under `${NOEMA_HOME:-$HOME/.noema}/db`.
+- Docker/Compose development infrastructure has been retired after the embedded
+  SurrealDB migration; local development uses host Rust, Bun, the Codex CLI, and
+  the `cargo dev-daemon` alias.
 - First-run web onboarding is derived from backend readiness checks and blocks
   chat until an active provider account is authenticated.
 - Provider credential/session material lives under
