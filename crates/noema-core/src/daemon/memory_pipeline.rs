@@ -20,6 +20,27 @@ use serde_json::json;
 
 use super::protocol::{TurnActivityStatus, TurnTranscriptItem};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum CanonicalClaimConversionError {
+    UnsupportedPredicateResolution,
+    InvalidSubjectEntityMetadata,
+    InvalidObjectEntityMetadata,
+}
+
+impl std::fmt::Display for CanonicalClaimConversionError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::UnsupportedPredicateResolution => {
+                formatter.write_str("canonical claim candidate is not a promoted predicate")
+            }
+            Self::InvalidSubjectEntityMetadata => formatter
+                .write_str("invalid canonical entity metadata for promoted predicate subject"),
+            Self::InvalidObjectEntityMetadata => formatter
+                .write_str("invalid canonical entity metadata for promoted predicate object"),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub(super) struct ConversationMemoryContext {
     pub conversation_id: String,
@@ -228,21 +249,23 @@ pub(super) fn new_claim_from_canonical(
     candidate: &CanonicalClaimCandidate,
     proposal: &MemoryWriteProposal,
     authority: EvidenceAuthority,
-) -> Option<NewClaimCandidate> {
+) -> Result<NewClaimCandidate, CanonicalClaimConversionError> {
     let PredicateResolution::PromotedPredicate { predicate_id } = &candidate.predicate else {
-        return None;
+        return Err(CanonicalClaimConversionError::UnsupportedPredicateResolution);
     };
     let subject = canonical_entity_candidate(
         &candidate.subject.entity_id,
         &candidate.subject.entity_type,
         &candidate.subject.canonical_name,
-    )?;
+    )
+    .ok_or(CanonicalClaimConversionError::InvalidSubjectEntityMetadata)?;
     let object = canonical_entity_candidate(
         &candidate.object.entity_id,
         &candidate.object.entity_type,
         &candidate.object.canonical_name,
-    )?;
-    Some(NewClaimCandidate {
+    )
+    .ok_or(CanonicalClaimConversionError::InvalidObjectEntityMetadata)?;
+    Ok(NewClaimCandidate {
         subject,
         object,
         predicate_id: predicate_id.clone(),

@@ -1210,7 +1210,7 @@ async fn provider_memory_malformed_canonicalizer_response_fails_without_fallback
 }
 
 #[tokio::test]
-async fn provider_memory_mismatched_canonical_entity_uses_deterministic_fallback() {
+async fn provider_memory_mismatched_canonical_entity_fails_without_fallback_claim() {
     let (handle, store) =
         test_runtime_handle_with_store(fake_codex_provider_with_mismatched_canonical_entity())
             .await;
@@ -1228,51 +1228,51 @@ async fn provider_memory_mismatched_canonical_entity_uses_deterministic_fallback
     .expect("turn should complete despite mismatched canonical entity");
 
     assert_eq!(assistant_text(&items), "fake answer");
-    let claim_id = items
-        .iter()
-        .find_map(|item| match item {
+    assert!(items.iter().any(|item| {
+        matches!(
+            item,
             TurnTranscriptItem::Activity {
                 activity_kind,
-                status: TurnActivityStatus::Completed,
+                status: TurnActivityStatus::Failed,
                 title,
-                summary: Some(summary),
                 metadata,
                 ..
             } if activity_kind == "memory_extraction"
-                && title == "Memory persisted"
-                && summary == "saved 1 graph claim"
+                && title == "Memory persistence failed"
                 && metadata["source"] == "provider_structured_output"
                 && metadata["proposal_count"] == 1
-                && metadata["created_claim_count"] == 1
-                && metadata["failed_proposal_count"] == 0 =>
-            {
-                metadata["claim_ids"][0].as_str().map(str::to_string)
-            }
-            _ => None,
-        })
-        .expect("completed provider memory fallback activity with claim id");
-    assert_no_failed_memory_extraction(&items);
+                && metadata["failed_proposal_count"] == 1
+                && metadata["failed_proposals"][0]["error"]
+                    .as_str()
+                    .is_some_and(|error| error.contains("invalid canonical entity metadata"))
+        )
+    }));
+    assert!(
+        !items.iter().any(|item| {
+            matches!(
+                item,
+                TurnTranscriptItem::Activity {
+                    activity_kind,
+                    status: TurnActivityStatus::Completed,
+                    title,
+                    ..
+                } if activity_kind == "memory_extraction"
+                    && title == "Memory persisted"
+            )
+        }),
+        "invalid canonical entity metadata should not persist fallback memory: {items:?}"
+    );
 
     let claims = store
         .retrieve_claims(&answer_claim_request(), "canonical entity validation", 8)
         .await
-        .expect("retrieve fallback claim");
-    let claim = claims
-        .included
-        .iter()
-        .find(|claim| claim.claim_id == claim_id)
-        .unwrap_or_else(|| panic!("expected fallback claim in retrieval, got {claims:?}"));
-    assert_eq!(claim.fact, "Kevin prefers canonical entity validation.");
-    let persisted_claim = claim_row(&store, &claim_id).await;
-    assert_eq!(persisted_claim.subject_entity_id, "human:local");
-    assert_eq!(
-        persisted_claim.fact,
-        "Kevin prefers canonical entity validation."
-    );
+        .expect("retrieve invalid canonical entity claim");
+    assert!(claims.included.is_empty(), "unexpected claims: {claims:?}");
 
-    let local_human = entity_row(&store, "human:local").await;
-    assert_eq!(local_human.entity_type, "human");
-    assert_eq!(local_human.canonical_name, "Local human");
+    if let Some(local_human) = maybe_entity_row(&store, "human:local").await {
+        assert_eq!(local_human.entity_type, "human");
+        assert_eq!(local_human.canonical_name, "Local human");
+    }
     handle.shutdown().await;
 }
 
@@ -2672,7 +2672,7 @@ async fn claim_status_and_sensitivity(
         .expect("claim status and sensitivity row")
 }
 
-async fn entity_row(store: &crate::NoemaStore, entity_id: &str) -> EntityRow {
+async fn maybe_entity_row(store: &crate::NoemaStore, entity_id: &str) -> Option<EntityRow> {
     let mut response = store
         .db()
         .query(
@@ -2687,25 +2687,7 @@ async fn entity_row(store: &crate::NoemaStore, entity_id: &str) -> EntityRow {
         .await
         .expect("entity query");
     let rows: Vec<EntityRow> = response.take(0).expect("entity rows");
-    rows.into_iter().next().expect("entity row")
-}
-
-async fn claim_row(store: &crate::NoemaStore, claim_id: &str) -> ClaimRow {
-    let mut response = store
-        .db()
-        .query(
-            r#"
-            SELECT claim_id, subject_entity_id, fact
-            FROM claims
-            WHERE claim_id = $claim_id
-            LIMIT 1;
-            "#,
-        )
-        .bind(("claim_id", claim_id.to_string()))
-        .await
-        .expect("claim query");
-    let rows: Vec<ClaimRow> = response.take(0).expect("claim rows");
-    rows.into_iter().next().expect("claim row")
+    rows.into_iter().next()
 }
 
 async fn delete_predicate(store: &crate::NoemaStore, predicate_id: &str) {
@@ -2735,13 +2717,6 @@ struct EntityRow {
     entity_id: String,
     entity_type: String,
     canonical_name: String,
-}
-
-#[derive(Debug, Deserialize, SurrealValue)]
-struct ClaimRow {
-    claim_id: String,
-    subject_entity_id: String,
-    fact: String,
 }
 
 fn assistant_text(items: &[TurnTranscriptItem]) -> &str {

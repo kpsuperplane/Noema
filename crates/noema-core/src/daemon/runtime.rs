@@ -1198,18 +1198,24 @@ impl CodexRuntimeActor {
                     continue;
                 }
             };
-            let mut usable_candidate_seen = false;
+            let canonical_candidates_empty = canonical_candidates.is_empty();
             for canonical in canonical_candidates {
                 match &canonical.predicate {
                     PredicateResolution::PromotedPredicate { .. } => {
-                        let Some(candidate) = new_claim_from_canonical(
+                        let candidate = match new_claim_from_canonical(
                             &canonical,
                             &write_proposal,
                             crate::EvidenceAuthority::AgentInference,
-                        ) else {
-                            continue;
+                        ) {
+                            Ok(candidate) => candidate,
+                            Err(error) => {
+                                failed_proposals.push(json!({
+                                    "proposal_index": proposal_index,
+                                    "error": error.to_string(),
+                                }));
+                                continue;
+                            }
                         };
-                        usable_candidate_seen = true;
                         match self.store.create_or_reinforce_claim(candidate).await {
                             Ok(summary) => {
                                 match summary.write_outcome {
@@ -1237,7 +1243,6 @@ impl CodexRuntimeActor {
                         ) else {
                             continue;
                         };
-                        usable_candidate_seen = true;
                         match self.store.create_predicate_proposal(candidate).await {
                             Ok(record) => {
                                 predicate_proposal_count += 1;
@@ -1257,7 +1262,6 @@ impl CodexRuntimeActor {
                         }
                     }
                     PredicateResolution::FallbackNote => {
-                        usable_candidate_seen = true;
                         let candidate = deterministic_canonical_claim(
                             &write_proposal,
                             claim_status_from_memory_status(proposal.proposal.status),
@@ -1287,7 +1291,7 @@ impl CodexRuntimeActor {
                 }
             }
 
-            if !usable_candidate_seen {
+            if canonical_candidates_empty {
                 let candidate = deterministic_canonical_claim(
                     &write_proposal,
                     claim_status_from_memory_status(proposal.proposal.status),
