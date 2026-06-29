@@ -115,30 +115,42 @@ body {
 }
 
 [data-slot="marker"][data-pending] {
-  isolation: isolate;
-  overflow: hidden;
+  --marker-glimmer-base: var(--text-muted);
+  --marker-glimmer-flare: color-mix(in srgb, var(--pure-white) 76%, var(--marker-glimmer-base) 24%);
 }
 
-[data-slot="marker"][data-pending] > * {
-  position: relative;
-  z-index: 1;
+[data-slot="marker"][data-pending][data-tone="success"] {
+  --marker-glimmer-base: var(--pine-700);
 }
 
-[data-slot="marker"][data-pending]::after {
-  position: absolute;
-  inset: -45% -55%;
-  z-index: 0;
+[data-slot="marker"][data-pending][data-tone="warning"] {
+  --marker-glimmer-base: var(--clay-600);
+}
+
+[data-slot="marker"][data-pending][data-tone="error"] {
+  --marker-glimmer-base: var(--red-700);
+}
+
+[data-slot="marker"][data-pending][data-tone="muted"] {
+  --marker-glimmer-base: var(--text-faint);
+}
+
+[data-slot="marker"][data-pending] [data-slot="marker-content"] {
   background: linear-gradient(
     105deg,
-    transparent 34%,
-    color-mix(in srgb, var(--pure-white) 70%, currentColor 30%) 50%,
-    transparent 66%
+    var(--marker-glimmer-base) 0%,
+    var(--marker-glimmer-base) 34%,
+    var(--marker-glimmer-flare) 50%,
+    var(--marker-glimmer-base) 66%,
+    var(--marker-glimmer-base) 100%
   );
-  content: "";
-  opacity: 0.58;
-  transform: translateX(-65%);
-  animation: marker-glimmer 1.8s cubic-bezier(0.45, 0, 0.2, 1) infinite;
-  pointer-events: none;
+  background-size: 230% 100%;
+  background-position: 130% 0;
+  background-clip: text;
+  -webkit-background-clip: text;
+  animation: marker-text-glimmer 2s cubic-bezier(0.45, 0, 0.2, 1) infinite;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
 }
 
 @keyframes message-word-fade-in {
@@ -151,13 +163,13 @@ body {
   }
 }
 
-@keyframes marker-glimmer {
+@keyframes marker-text-glimmer {
   from {
-    transform: translateX(-65%);
+    background-position: 130% 0;
   }
 
   to {
-    transform: translateX(65%);
+    background-position: -30% 0;
   }
 }
 
@@ -166,8 +178,10 @@ body {
     animation: none;
   }
 
-  [data-slot="marker"][data-pending]::after {
+  [data-slot="marker"][data-pending] [data-slot="marker-content"] {
     animation: none;
-    opacity: 0;
+    background: none;
+    color: var(--marker-glimmer-base);
+    -webkit-text-fill-color: currentColor;
   }
 }

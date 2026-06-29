@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { describe, test } from "node:test";
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -137,6 +138,16 @@ describe("Transcript tool markers", () => {
     assert.match(markup, /Using search_memory/);
     assert.match(markup, /data-pending=""/);
     assert.doesNotMatch(markup, /Used search_memory/);
+  });
+});
+
+describe("pending marker glimmer styles", () => {
+  test("applies the animated shader to marker text instead of the marker container", () => {
+    const styles = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
+
+    assert.match(styles, /\[data-slot="marker"\]\[data-pending\]\s+\[data-slot="marker-content"\]/);
+    assert.match(styles, /background-clip: text/);
+    assert.doesNotMatch(styles, /\[data-slot="marker"\]\[data-pending\]::after/);
   });
 });
 
