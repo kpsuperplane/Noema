@@ -538,6 +538,96 @@ async fn retrieval_limit_zero_returns_empty_result() {
 }
 
 #[tokio::test]
+async fn scoped_empty_query_returns_active_claims_for_scope() {
+    let store = test_store().await;
+    let train_item = create_source_item(&store, "Kevin likes planes.").await;
+    let alex_item = create_source_item(&store, "Alex likes planes.").await;
+    let train_summary = store
+        .create_or_reinforce_claim({
+            let mut claim = train_claim(train_item.item_id);
+            claim.object = EntityCandidate::concept("planes", "planes");
+            claim.fact = "Kevin likes planes.".to_string();
+            claim.retrieval_hints = json!({ "keywords": ["planes", "aviation"] });
+            claim
+        })
+        .await
+        .expect("create local human claim");
+    store
+        .create_or_reinforce_claim(person_train_claim(
+            "person:alex",
+            "Alex",
+            alex_item.item_id,
+            "Alex likes planes.",
+        ))
+        .await
+        .expect("create other person claim");
+
+    let result = store
+        .retrieve_claims_scoped(&personalize_request(), "", &["human:local".to_string()], 8)
+        .await
+        .expect("retrieve scoped memories");
+
+    assert_eq!(result.redacted_omission_count, 0);
+    assert_eq!(result.included.len(), 1);
+    assert_eq!(result.included[0].claim_id, train_summary.claim_id);
+    assert_eq!(result.included[0].fact, "Kevin likes planes.");
+}
+
+#[tokio::test]
+async fn scoped_query_narrows_inside_requested_scope() {
+    let store = test_store().await;
+    let train_item = create_source_item(&store, "Kevin likes trains.").await;
+    let coffee_item = create_source_item(&store, "Kevin prefers coffee.").await;
+    let train_summary = store
+        .create_or_reinforce_claim(train_claim(train_item.item_id))
+        .await
+        .expect("create train claim");
+    store
+        .create_or_reinforce_claim({
+            let mut claim = train_claim(coffee_item.item_id);
+            claim.object = EntityCandidate::concept("coffee", "coffee");
+            claim.predicate_id = "prefers".to_string();
+            claim.fact = "Kevin prefers coffee.".to_string();
+            claim.retrieval_hints = json!({ "keywords": ["coffee"] });
+            claim
+        })
+        .await
+        .expect("create coffee claim");
+
+    let result = store
+        .retrieve_claims_scoped(
+            &personalize_request(),
+            "trains",
+            &["human:local".to_string()],
+            8,
+        )
+        .await
+        .expect("retrieve scoped topical memories");
+
+    assert_eq!(result.redacted_omission_count, 0);
+    assert_eq!(result.included.len(), 1);
+    assert_eq!(result.included[0].claim_id, train_summary.claim_id);
+}
+
+#[tokio::test]
+async fn query_only_retrieval_still_uses_existing_api() {
+    let store = test_store().await;
+    let source_item = create_source_item(&store, "Kevin likes trains.").await;
+    let summary = store
+        .create_or_reinforce_claim(train_claim(source_item.item_id))
+        .await
+        .expect("create claim");
+
+    let result = store
+        .retrieve_claims(&personalize_request(), "trains", 8)
+        .await
+        .expect("retrieve query-only memories");
+
+    assert_eq!(result.included.len(), 1);
+    assert_eq!(result.included[0].claim_id, summary.claim_id);
+}
+
+#[tokio::test]
 async fn list_claims_filters_status_predicate_query_and_clamps_limit() {
     let store = test_store().await;
     let trains_item = create_source_item(&store, "Kevin likes trains.").await;
