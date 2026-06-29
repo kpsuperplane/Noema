@@ -39,7 +39,7 @@ export function composerTextareaProps() {
   return {
     rows: 1,
     className:
-      "min-h-9 max-h-40 min-w-0 w-full overflow-y-auto border-transparent bg-transparent px-2.5 py-1.5 leading-6 text-primary-foreground placeholder:text-primary-foreground/70 focus-visible:border-transparent focus-visible:ring-0 disabled:opacity-70"
+      "min-h-9 min-w-0 w-full overflow-y-hidden border-transparent bg-transparent px-2.5 py-1.5 leading-6 text-primary-foreground placeholder:text-primary-foreground/70 focus-visible:border-transparent focus-visible:ring-0 disabled:opacity-70"
   };
 }
 
@@ -90,7 +90,7 @@ function longestDraftLine(content: string): string {
 
 export function composerTextareaStyle(): React.CSSProperties {
   return {
-    fieldSizing: "fixed"
+    fieldSizing: "content"
   };
 }
 

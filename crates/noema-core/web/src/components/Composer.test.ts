@@ -35,12 +35,14 @@ describe("composer submit presentation", () => {
 });
 
 describe("composer textarea presentation", () => {
-  test("starts as one line with local compact sizing", () => {
+  test("starts as one line and grows instead of scrolling", () => {
     const props = composerTextareaProps();
 
     assert.equal(props.rows, 1);
     assert.match(props.className, /min-h-9/);
-    assert.match(props.className, /max-h-40/);
+    assert.match(props.className, /overflow-y-hidden/);
+    assert.doesNotMatch(props.className, /max-h-/);
+    assert.doesNotMatch(props.className, /overflow-y-auto/);
   });
 });
 
@@ -72,7 +74,7 @@ describe("composer human bubble presentation", () => {
     assert.doesNotMatch(textareaClassName, /\bw-auto\b/);
     assert.match(textareaClassName, /\bbg-transparent\b/);
     assert.match(textareaClassName, /\btext-primary-foreground\b/);
-    assert.match(markup, /<textarea[^>]*style="field-sizing:fixed"/);
+    assert.match(markup, /<textarea[^>]*style="field-sizing:content"/);
 
     const buttonClassName = dataSlotClassName(markup, "button");
     assert.match(buttonClassName, /\babsolute\b/);
