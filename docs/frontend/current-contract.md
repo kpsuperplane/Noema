@@ -49,7 +49,7 @@ primary navigation priority.
 
 | Route | Label | Backing | Capability | Status |
 | --- | --- | --- | --- | --- |
-| `/` | Chat | setup health, local service state | route to chat when ready; show guided readiness state if blocked | Current |
+| `/` | Home | setup health, local service state, primary conversation | route to the durable primary conversation when ready; show guided readiness state if blocked | Current |
 | `/setup` | Setup | local folder, assistant connection, local service checks | initialize or update setup through explicit setup flow | Current |
 | `/chat` | Chat | local service stream | start chat, render transcript items, show inline memory/activity rows | Current |
 | `/chat/:id` | Chat detail | active daemon conversation; persisted `conversation_items` after acknowledged turns | live while active; durable item replay after turn | Current limited |
@@ -78,6 +78,11 @@ Future route groups:
 
 Future routes may appear as disabled rows only when doing so helps explain why
 a feature is unavailable. Disabled rows must not present mutation controls.
+
+Current shell note: after onboarding, the web UI uses a sidebar-first shell.
+`Home` is the visible label for the durable primary conversation, not a
+dashboard. `Memory` is the only other primary sidebar destination in the
+current slice. Unknown browser paths fall back to `Home`.
 
 ## First Shell Assumption
 

@@ -27,12 +27,12 @@ needs to complete in Noema.
 The default navigation model is not a dashboard. It is a chat surface that can
 grow side rails and side panels.
 
-User-facing labels should favor clear product nouns over architecture nouns.
-In the current slice, the primary visible destination is `Chat`. `Settings`, `Memory`, and
-`Inspect` exist, but they are reached through utility controls, inline memory
-events, `Why?` links, or direct owner/admin routes. Terms like `Governance`,
-`Audit`, `RunEnvelope`, and `ContextPacket` belong in advanced inspection
-panels until the user has a reason to inspect them.
+User-facing labels should favor clear product nouns over architecture nouns. In
+the current slice, the primary visible destinations are `Home` and `Memory`.
+`Home` is the durable primary conversation, not an operational dashboard.
+`Memory` opens the memory management surface. Terms like `Governance`, `Audit`,
+`RunEnvelope`, and `ContextPacket` belong in advanced inspection panels until
+the user has a reason to inspect them.
 
 ### Surface Order
 
@@ -46,6 +46,12 @@ panels until the user has a reason to inspect them.
 | Settings | User needs local setup, account, storage, backup, or memory management | Secondary utility surface |
 | Owner/admin inspection | User explicitly asks for exact internals | Redacted privileged inspection |
 | Home/attention view | Later, when there is enough activity to summarize | Optional overview, not the first post-ramp experience |
+
+Current shell behavior: desktop shows a persistent left sidebar, while narrow
+screens use a drawer opened from a compact top bar. Healthy setup, service,
+chat, provider, and memory state are silent in the shell. The shell shows a
+single compact attention item only when state is degraded or action-worthy; the
+active page owns detailed recovery UI.
 
 ## Chat
 
