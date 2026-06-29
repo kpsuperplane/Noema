@@ -52,6 +52,10 @@ The next storage slice should stay small and concrete:
   exact fingerprints prevent duplicate claims, repeated support reinforces
   existing claims with evidence, and conflicts create reviewable disputed state
   instead of silently overwriting truth.
+- Long-term memory writes should flow through an ontology-aware consolidation
+  pipeline: LLMs propose graph-shaped claims and predicate proposals, while
+  Noema validates evidence, promoted predicate policy, bounded matching,
+  consolidation decisions, and lifecycle before persisting active truth.
 - Derived search/vector indexes are rebuildable projections.
 - Graph or fuzzy retrieval can suggest candidates, but policy gates inclusion.
 - Pre-stable schema changes do not need migrations or backwards compatibility unless explicitly requested.
@@ -142,6 +146,9 @@ The next storage slice should stay small and concrete:
   `docs/superpowers/specs/2026-06-29-memory-graph-page-design.md` with richer
   filters, neighborhoods, and detail views.
 - Add richer graph neighborhood inspection for CLI, GraphQL, and web.
+- Plan and implement the long-term future-write memory consolidation pipeline
+  from `docs/superpowers/specs/2026-06-29-memory-consolidation-pipeline-design.md`
+  in one cohesive pass with slice boundaries for validation and commits.
 - Continue aligning docs, schema, CLI inspection commands, and frontend IA.
 - Decide which export formats ship first and how export preview/redaction should work.
 - Revisit migrations only when the project needs persisted user data compatibility.
