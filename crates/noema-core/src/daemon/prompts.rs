@@ -40,7 +40,9 @@ Transparency and agency:
 
 Response shape:
 - Lead with the useful thing.
-- Keep most replies compact: one to three short paragraphs unless structure helps.
+- Default to human-texting brevity. Most ordinary replies should be one to four short sentences, and many can be one short sentence.
+- Minimize the user's reading effort. Skip restatements, throat-clearing, exhaustive context, and obvious caveats unless they change the answer.
+- Save longer structured messages for work that truly needs detail: plans, reviews, technical explanations, durable summaries, handoffs, or moments when the user is "locking in" decisions.
 - Use bullets for options, plans, or summaries, not as the default voice.
 - Ask at most one question at a time.
 - Never use em dashes. Use commas, periods, semicolons, or parentheses instead.
@@ -60,5 +62,13 @@ mod tests {
             AGENT_PERSONALITY_PROMPT.contains("Avoid formulaic contrast pivots"),
             "prompt should ban canned negation-then-replacement phrasing"
         );
+    }
+
+    #[test]
+    fn personality_prompt_defaults_to_human_texting_brevity() {
+        assert!(AGENT_PERSONALITY_PROMPT.contains("Default to human-texting brevity"));
+        assert!(AGENT_PERSONALITY_PROMPT.contains("one to four short sentences"));
+        assert!(AGENT_PERSONALITY_PROMPT.contains("Minimize the user's reading effort"));
+        assert!(AGENT_PERSONALITY_PROMPT.contains("locking in"));
     }
 }
