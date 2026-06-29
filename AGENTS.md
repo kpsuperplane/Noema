@@ -9,6 +9,7 @@
 - The project is under active development, do not build backwards compatibility unless explicitly instructed
 - Pre-V1 schema changes may rewrite tables/docs directly. Do not add migrations or compatibility layers unless explicitly requested.
 - Try to keep code source files under 750 lines. It is not a hard rule, however any file exceeding that threshold should be inspected for refactor, split up, and cleanup opportunities
+- Do not use direct text, prefix, or English phrase matching as the authority for semantic user intent. It is brittle and fails for multilingual users. Prefer explicit product state, structured model/tool interpretation with policy checks, or language-aware parsers/tests.
 
 ## Codex Workflow
 - Start by checking `git status --short --branch`.
