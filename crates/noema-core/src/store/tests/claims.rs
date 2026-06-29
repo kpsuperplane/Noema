@@ -445,7 +445,7 @@ async fn consolidation_match_search_scans_past_newer_irrelevant_candidates() {
         .await
         .expect("target claim");
 
-    for index in 0..25 {
+    for index in 0..125 {
         let fact = format!("Kevin likes unrelated topic {index}.");
         let source_item = create_source_item(&store, &fact).await;
         let mut candidate = train_claim(source_item.item_id);
@@ -477,6 +477,54 @@ async fn consolidation_match_search_scans_past_newer_irrelevant_candidates() {
             .iter()
             .any(|claim| claim.claim_id == target.claim_id),
         "older exact-object match should not be hidden by newer irrelevant rows: {matches:?}"
+    );
+    assert!(matches.len() <= 3);
+}
+
+#[tokio::test]
+async fn consolidation_match_search_scans_past_newer_irrelevant_candidates_for_query_terms() {
+    let store = test_store().await;
+    let target_item = create_source_item(&store, "Kevin likes night trains.").await;
+    let mut target_candidate = train_claim(target_item.item_id);
+    target_candidate.object = EntityCandidate::concept("night-trains", "night trains");
+    target_candidate.fact = "Kevin likes night trains.".to_string();
+    let target = store
+        .create_or_reinforce_claim(target_candidate)
+        .await
+        .expect("target claim");
+
+    for index in 0..125 {
+        let fact = format!("Kevin likes unrelated topic {index}.");
+        let source_item = create_source_item(&store, &fact).await;
+        let mut candidate = train_claim(source_item.item_id);
+        let object_id = format!("unrelated-topic-{index}");
+        let object_name = format!("unrelated topic {index}");
+        candidate.object = EntityCandidate::concept(&object_id, &object_name);
+        candidate.fact = fact;
+        candidate.retrieval_hints = json!({ "keywords": [format!("unrelated topic {index}")] });
+        store
+            .create_or_reinforce_claim(candidate)
+            .await
+            .expect("irrelevant claim");
+    }
+
+    let matches = store
+        .find_consolidation_matches(crate::store::ConsolidationMatchRequest {
+            subject_entity_id: "human:local".to_string(),
+            predicate_id: "likes".to_string(),
+            object_entity_id: None,
+            query_terms: vec!["night trains".to_string()],
+            sensitivity: Sensitivity::Normal,
+            limit: 3,
+        })
+        .await
+        .expect("matches");
+
+    assert!(
+        matches
+            .iter()
+            .any(|claim| claim.claim_id == target.claim_id),
+        "older fact-term match should not be hidden by newer irrelevant rows: {matches:?}"
     );
     assert!(matches.len() <= 3);
 }
