@@ -179,8 +179,12 @@ pub struct PredicateRecord {
     pub inverse_predicate_id: Option<String>,
     /// Default proactivity level for memories using this predicate.
     pub proactivity_default: i64,
+    /// Canonicalizer merge strategy hints.
+    pub merge_hints: Value,
     /// Canonicalizer synonym hints.
     pub synonym_hints: Vec<String>,
+    /// Canonicalizer extraction hints.
+    pub extraction_hints: Value,
 }
 
 impl NoemaStore {
@@ -193,7 +197,8 @@ impl NoemaStore {
                 SELECT predicate_id, label, description, allowed_subject_types,
                   allowed_object_types, allowed_use_modes, default_sensitivity,
                   conflict_policy, review_policy, inverse_behavior,
-                  inverse_predicate_id, proactivity_default, synonym_hints
+                  inverse_predicate_id, proactivity_default, merge_hints,
+                  synonym_hints, extraction_hints
                 FROM predicates
                 ORDER BY predicate_id ASC;
                 "#,

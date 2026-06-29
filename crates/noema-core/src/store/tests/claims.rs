@@ -368,6 +368,23 @@ async fn predicate_proposal_can_be_created_and_listed() {
 }
 
 #[tokio::test]
+async fn predicate_catalog_includes_canonicalizer_hints() {
+    let store = test_store().await;
+
+    let predicates = store
+        .predicate_catalog()
+        .await
+        .expect("load predicate catalog");
+    let likes = predicates
+        .iter()
+        .find(|predicate| predicate.predicate_id == "likes")
+        .expect("seeded likes predicate");
+
+    assert_eq!(likes.merge_hints, json!({ "strategy": "object_identity" }));
+    assert_eq!(likes.extraction_hints, json!({}));
+}
+
+#[tokio::test]
 async fn missing_source_item_claim_is_rejected() {
     let store = test_store().await;
 
