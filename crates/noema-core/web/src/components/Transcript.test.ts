@@ -67,9 +67,9 @@ describe("Transcript layout", () => {
       memoryExtractionEntry("activity-two", "item-two", "COMPLETED", "Memory saved")
     ]);
 
-    assert.doesNotMatch(markup, /data-message-id="user-1"[^>]*class="[^"]*(?:^| )-mt-1(?: |")/);
-    assert.match(markup, /data-message-id="activity-one"[^>]*class="[^"]*(?:^| )-mt-1(?: |")/);
-    assert.match(markup, /data-message-id="activity-two"[^>]*class="[^"]*(?:^| )-mt-1(?: |")/);
+    assert.doesNotMatch(markup, /data-message-id="user-1"[^>]*class="[^"]*(?:^| )-mt-2(?: |")/);
+    assert.match(markup, /data-message-id="activity-one"[^>]*class="[^"]*(?:^| )-mt-2(?: |")/);
+    assert.match(markup, /data-message-id="activity-two"[^>]*class="[^"]*(?:^| )-mt-2(?: |")/);
   });
 
   test("does not replay arrival for live rows on initial transcript render", () => {

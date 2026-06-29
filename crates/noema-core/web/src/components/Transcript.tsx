@@ -183,7 +183,7 @@ export function Transcript({
                   className={cn(
                     "flex w-full",
                     lane === "human" && "justify-end",
-                    shouldCompactMarkerClusterSpacing(entry, previousEntry) && "-mt-1"
+                    shouldCompactMarkerClusterSpacing(entry, previousEntry) && "-mt-2"
                   )}
                   data-arrival={animateArrival ? "true" : undefined}
                   data-reveal-after-arrival={revealAfterArrival ? "true" : undefined}
