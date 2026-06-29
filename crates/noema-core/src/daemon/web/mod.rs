@@ -386,12 +386,10 @@ struct EmbeddedAsset {
 
 fn embedded_asset(path: &str) -> Option<EmbeddedAsset> {
     let (content_type, name) = match path {
-        "/" | "/index.html" | "/chat" | "/memory" | "/memory/graph" => {
-            ("text/html; charset=utf-8", "index.html")
-        }
         "/assets/app.js" => ("application/javascript; charset=utf-8", "app.js"),
         "/assets/styles.css" => ("text/css; charset=utf-8", "styles.css"),
         "/assets/noema-mark.svg" => ("image/svg+xml; charset=utf-8", "noema-mark.svg"),
+        path if is_spa_entry_path(path) => ("text/html; charset=utf-8", "index.html"),
         _ => return None,
     };
 
@@ -399,6 +397,26 @@ fn embedded_asset(path: &str) -> Option<EmbeddedAsset> {
         content_type,
         body: asset_body(name)?,
     })
+}
+
+fn is_spa_entry_path(path: &str) -> bool {
+    if !path.starts_with('/') {
+        return false;
+    }
+
+    if path == "/assets"
+        || path.starts_with("/assets/")
+        || path == "/api"
+        || path.starts_with("/api/")
+        || path == "/graphql"
+        || path.starts_with("/graphql/")
+    {
+        return false;
+    }
+
+    path.rsplit('/')
+        .next()
+        .is_some_and(|segment| !segment.contains('.'))
 }
 
 /// Resolve a web asset's bytes for release builds: embed them into the binary.
@@ -1293,12 +1311,21 @@ mod tests {
 
     #[test]
     fn memory_routes_serve_spa_entry_asset() {
-        for path in ["/memory", "/memory/graph"] {
+        for path in ["/memory", "/memory/graph", "/memory/nope"] {
             let asset = embedded_asset(path).expect("memory route should serve index");
             assert_eq!(asset.content_type, "text/html; charset=utf-8");
         }
+    }
 
-        assert!(embedded_asset("/memory/nope").is_none());
+    #[test]
+    fn unknown_web_routes_serve_spa_entry_asset() {
+        let asset = embedded_asset("/not-a-real-route").expect("unknown route should serve index");
+        assert_eq!(asset.content_type, "text/html; charset=utf-8");
+    }
+
+    #[test]
+    fn missing_static_assets_still_miss() {
+        assert!(embedded_asset("/assets/missing.css").is_none());
     }
 
     #[tokio::test]
