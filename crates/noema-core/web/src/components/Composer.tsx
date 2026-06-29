@@ -206,6 +206,7 @@ export function Composer({
           <Textarea
             ref={textareaRef}
             value={value}
+            autoFocus={ready}
             disabled={isComposerTextareaDisabled({ ready })}
             placeholder={placeholder}
             rows={textareaProps.rows}

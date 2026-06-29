@@ -45,6 +45,18 @@ describe("composer textarea presentation", () => {
     assert.doesNotMatch(props.className, /max-h-/);
     assert.doesNotMatch(props.className, /overflow-y-auto/);
   });
+
+  test("requests focus once the chat composer is ready", () => {
+    const markup = renderComposer({ ready: true });
+
+    assert.match(markup, /<textarea[^>]*autofocus=""/);
+  });
+
+  test("does not request focus while chat is still opening", () => {
+    const markup = renderComposer({ ready: false });
+
+    assert.doesNotMatch(markup, /<textarea[^>]*autofocus=""/);
+  });
 });
 
 describe("composer human bubble presentation", () => {
@@ -197,7 +209,7 @@ describe("refocusComposerTextarea", () => {
   });
 });
 
-function renderComposer(): string {
+function renderComposer(overrides: Partial<React.ComponentProps<typeof Composer>> = {}): string {
   return renderToStaticMarkup(
     React.createElement(Composer, {
       value: "Hello Noema",
@@ -205,7 +217,8 @@ function renderComposer(): string {
       pending: false,
       placeholder: "Message Noema",
       onChange: () => {},
-      onSubmit: () => {}
+      onSubmit: () => {},
+      ...overrides
     })
   );
 }
