@@ -87,8 +87,7 @@ async fn reinforce_claim_by_id_rejects_different_object_without_match_context() 
         second_item.item_id,
         "Ice cream is one of Kevin's favorite desserts.",
     );
-    semantic_variant.object =
-        EntityCandidate::concept("concept:ice_cream_desserts", "ice cream desserts");
+    semantic_variant.object = concept_entity("concept:ice_cream_desserts", "ice cream desserts");
 
     let error = store
         .reinforce_claim_by_id(&first.claim_id, semantic_variant)
@@ -188,8 +187,7 @@ async fn reinforce_matched_claim_by_id_accepts_semantic_fact_variant_without_dup
         second_item.item_id,
         "Ice cream is one of Kevin's favorite desserts.",
     );
-    semantic_variant.object =
-        EntityCandidate::concept("concept:ice_cream_desserts", "ice cream desserts");
+    semantic_variant.object = concept_entity("concept:ice_cream_desserts", "ice cream desserts");
     let second = store
         .reinforce_matched_claim_by_id(&first.claim_id, Some("concept:ice_cream"), semantic_variant)
         .await
@@ -213,6 +211,57 @@ async fn reinforce_matched_claim_by_id_accepts_semantic_fact_variant_without_dup
         "unexpected active claims: {active_claims:?}"
     );
     assert_eq!(claim_count(&store).await, 1);
+    assert!(
+        entities_by_id(&store, &["concept:ice_cream_desserts"])
+            .await
+            .is_empty()
+    );
+}
+
+#[tokio::test]
+async fn reinforce_matched_claim_by_id_does_not_rename_existing_variant_object_entity() {
+    let store = test_store().await;
+    let unrelated_item = create_source_item(&store, "Alex likes dessert taxonomy.").await;
+    let first_item = create_source_item(&store, "Kevin likes ice cream.").await;
+    let second_item =
+        create_source_item(&store, "Ice cream is one of Kevin's favorite desserts.").await;
+
+    let mut unrelated_variant = person_train_claim(
+        "person:alex",
+        "Alex",
+        unrelated_item.item_id,
+        "Alex likes dessert taxonomy.",
+    );
+    unrelated_variant.object = concept_entity("concept:ice_cream_desserts", "dessert taxonomy");
+    store
+        .create_or_reinforce_claim(unrelated_variant)
+        .await
+        .expect("unrelated variant entity claim");
+
+    let first = store
+        .create_or_reinforce_claim(ice_cream_claim(
+            first_item.item_id,
+            "Kevin likes ice cream.",
+        ))
+        .await
+        .expect("first claim");
+    let mut semantic_variant = ice_cream_claim(
+        second_item.item_id,
+        "Ice cream is one of Kevin's favorite desserts.",
+    );
+    semantic_variant.object = concept_entity("concept:ice_cream_desserts", "ice cream desserts");
+
+    let second = store
+        .reinforce_matched_claim_by_id(&first.claim_id, Some("concept:ice_cream"), semantic_variant)
+        .await
+        .expect("matched targeted reinforce");
+
+    assert_eq!(first.claim_id, second.claim_id);
+    assert_eq!(second.write_outcome, ClaimWriteOutcome::Reinforced);
+    assert_eq!(second.evidence_count, 2);
+    let rows = entities_by_id(&store, &["concept:ice_cream_desserts"]).await;
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].canonical_name, "dessert taxonomy");
 }
 
 #[tokio::test]
@@ -233,8 +282,7 @@ async fn reinforce_matched_claim_by_id_rejects_unrelated_match_object() {
         second_item.item_id,
         "Ice cream is one of Kevin's favorite desserts.",
     );
-    semantic_variant.object =
-        EntityCandidate::concept("concept:ice_cream_desserts", "ice cream desserts");
+    semantic_variant.object = concept_entity("concept:ice_cream_desserts", "ice cream desserts");
 
     let error = store
         .reinforce_matched_claim_by_id(&first.claim_id, Some("trains"), semantic_variant)
@@ -1932,6 +1980,14 @@ fn person_train_claim(
         },
         retrieval_hints: json!({}),
         metadata: json!({}),
+    }
+}
+
+fn concept_entity(entity_id: &str, canonical_name: &str) -> EntityCandidate {
+    EntityCandidate {
+        entity_id: entity_id.to_string(),
+        entity_type: EntityType::Concept,
+        canonical_name: canonical_name.to_string(),
     }
 }
 

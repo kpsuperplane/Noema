@@ -1298,8 +1298,6 @@ impl NoemaStore {
             .await?;
         self.require_matched_reinforcement_target(claim_id, matched_object_entity_id, &candidate)
             .await?;
-        self.upsert_entity(&candidate.subject).await?;
-        self.upsert_entity(&candidate.object).await?;
         self.merge_reinforced_claim(claim_id, &candidate).await?;
         self.insert_support_evidence(claim_id, &candidate.evidence)
             .await?;
