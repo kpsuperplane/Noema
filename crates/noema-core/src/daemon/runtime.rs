@@ -1554,7 +1554,16 @@ fn build_structured_turn_system_prompt(
     cwd: Option<&str>,
     recent_transcript: &str,
 ) -> String {
-    let project_hint = project_scope_from_cwd(cwd).unwrap_or_else(|| "none".to_string());
+    let project_scope = project_scope_from_cwd(cwd);
+    let project_hint = project_scope.as_deref().unwrap_or("none");
+    let mut active_retrieval_ids = vec![
+        "- human:local".to_string(),
+        format!("- conversation:{conversation_id}"),
+    ];
+    if let Some(project_scope) = project_scope.as_deref() {
+        active_retrieval_ids.push(format!("- {project_scope}"));
+    }
+    let active_retrieval_ids = active_retrieval_ids.join("\n");
 
     format!(
         r#"You are Noema, a local-first personal assistant. Reply to the user and emit any durable memory proposals in one structured response.
@@ -1572,9 +1581,18 @@ Return exactly this top-level shape:
 
 You may emit a search_memory tool call when memory would help answer the user's current message.
 Use this output item shape:
-{{"kind":"tool_call","id":"call_memory_1","name":"search_memory","payload":{{"query":"short search query","purpose":"answer_human_question","limit":8}}}}
+{{"kind":"tool_call","id":"call_memory_1","name":"search_memory","payload":{{"scope_ids":["human:local"],"query":"","purpose":"answer_human_question","limit":8}}}}
 Only Noema supplies trusted memory policy fields. Do not invent memory results.
 After Noema sends a NOEMA_LOCAL_TOOL_RESULT message, answer using only the returned memories.
+
+Active retrieval IDs:
+{active_retrieval_ids}
+
+Use scope_ids to choose the concrete memory owner or context, and query only to narrow within those IDs.
+For broad questions about what Noema remembers about the user, call search_memory with "scope_ids":["human:local"] and "query":"".
+For topical questions about the user, keep "scope_ids":["human:local"] and use a concise topic query such as "aviation" or "planes".
+Never invent scope IDs. Use only IDs listed in Active retrieval IDs or returned by prior Noema tools.
+Do not tell the user Noema has no memories unless the scoped tool result is empty for the scope actually being discussed.
 
 Memory proposal shape:
 {{
@@ -1868,6 +1886,22 @@ struct ProviderActionOutput {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn structured_turn_prompt_exposes_active_retrieval_ids_and_scope_guidance() {
+        let prompt = build_structured_turn_system_prompt(
+            "conv_123",
+            4,
+            Some("/Users/kpsuperplane/Documents/Projects/Noema"),
+            "",
+        );
+
+        assert!(prompt.contains("Active retrieval IDs:"));
+        assert!(prompt.contains("- human:local"));
+        assert!(prompt.contains("- conversation:conv_123"));
+        assert!(prompt.contains("\"scope_ids\":[\"human:local\"],\"query\":\"\""));
+        assert!(prompt.contains("Never invent scope IDs"));
+    }
 
     #[test]
     fn codex_config_for_provider_account_uses_account_home() {

@@ -4,6 +4,8 @@ use crate::{
     memory::{ClaimRetrievalRequest, Purpose, Sensitivity, UseMode},
     store::StoreError,
 };
+use std::collections::HashSet;
+
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -41,6 +43,8 @@ pub(super) enum MemoryToolError {
 #[serde(deny_unknown_fields)]
 struct SearchMemoryArguments {
     query: String,
+    #[serde(default)]
+    scope_ids: Vec<String>,
     #[serde(default)]
     purpose: Option<String>,
     #[serde(default)]
@@ -82,10 +86,16 @@ async fn execute_search_memory_inner(
     payload: &Value,
 ) -> Result<Value, MemoryToolError> {
     let arguments = parse_arguments(payload)?;
+    validate_scope_ids(context, &arguments)?;
     let request = build_request(context, &arguments)?;
     let context_packet_id = context_packet_id(context, call_id);
     let retrieval = store
-        .retrieve_claims(&request, arguments.query.trim(), arguments.limit())
+        .retrieve_claims_scoped(
+            &request,
+            arguments.query.trim(),
+            &arguments.scope_ids,
+            arguments.limit(),
+        )
         .await?;
     let memories = retrieval
         .included
@@ -113,6 +123,7 @@ async fn execute_search_memory_inner(
         "memories": memories,
         "omissions": omissions,
         "context_packet_id": context_packet_id,
+        "scope_ids": arguments.scope_ids,
     }))
 }
 
@@ -122,9 +133,9 @@ fn parse_arguments(payload: &Value) -> Result<SearchMemoryArguments, MemoryToolE
         serde_json::from_value(argument_value).map_err(|error| {
             MemoryToolError::InvalidArguments(format!("invalid arguments: {error}"))
         })?;
-    if arguments.query.trim().is_empty() {
+    if arguments.query.trim().is_empty() && arguments.scope_ids.is_empty() {
         return Err(MemoryToolError::InvalidArguments(
-            "query is required".to_string(),
+            "query is required unless scope_ids is non-empty".to_string(),
         ));
     }
     parse_purpose(arguments.purpose.as_deref())?;
@@ -135,6 +146,36 @@ impl SearchMemoryArguments {
     fn limit(&self) -> usize {
         self.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT)
     }
+}
+
+fn trusted_active_scope_ids(context: &MemoryToolRuntimeContext) -> Vec<String> {
+    let mut ids = vec![
+        "human:local".to_string(),
+        format!("conversation:{}", context.conversation_id),
+    ];
+    if let Some(project_scope) = project_scope_from_cwd(context.cwd.as_deref()) {
+        ids.push(project_scope);
+    }
+    ids.sort();
+    ids.dedup();
+    ids
+}
+
+fn validate_scope_ids(
+    context: &MemoryToolRuntimeContext,
+    arguments: &SearchMemoryArguments,
+) -> Result<(), MemoryToolError> {
+    let trusted = trusted_active_scope_ids(context)
+        .into_iter()
+        .collect::<HashSet<_>>();
+    for scope_id in &arguments.scope_ids {
+        if !trusted.contains(scope_id) {
+            return Err(MemoryToolError::InvalidArguments(format!(
+                "unsupported scope_id: {scope_id}"
+            )));
+        }
+    }
+    Ok(())
 }
 
 fn build_request(
@@ -251,7 +292,87 @@ mod tests {
 
         let error = parse_arguments(&payload).expect_err("empty query rejected");
 
-        assert_eq!(safe_error_message(&error), "query is required");
+        assert_eq!(
+            safe_error_message(&error),
+            "query is required unless scope_ids is non-empty"
+        );
+    }
+
+    #[test]
+    fn parses_empty_query_when_scope_ids_are_present() {
+        let payload = json!({
+            "arguments": {
+                "scope_ids": ["human:local"],
+                "query": "",
+                "purpose": "answer_human_question"
+            }
+        });
+
+        let arguments = parse_arguments(&payload).expect("parse scoped empty query");
+
+        assert_eq!(arguments.query, "");
+        assert_eq!(arguments.scope_ids, vec!["human:local"]);
+    }
+
+    #[test]
+    fn rejects_empty_query_without_scope_ids() {
+        let payload = json!({
+            "arguments": {
+                "query": "   "
+            }
+        });
+
+        let error = parse_arguments(&payload).expect_err("empty unscoped query rejected");
+
+        assert_eq!(
+            safe_error_message(&error),
+            "query is required unless scope_ids is non-empty"
+        );
+    }
+
+    #[test]
+    fn validates_scope_ids_against_trusted_active_ids() {
+        let context = MemoryToolRuntimeContext {
+            conversation_id: "conv_123".to_string(),
+            turn_id: "turn_456".to_string(),
+            turn_index: 7,
+            call_site_id: "output_0".to_string(),
+            cwd: Some("/Users/kpsuperplane/Documents/Projects/Noema".to_string()),
+            user_input: "What memories do you have of me?".to_string(),
+        };
+        let arguments = SearchMemoryArguments {
+            query: "".to_string(),
+            scope_ids: vec!["human:local".to_string()],
+            purpose: Some("answer_human_question".to_string()),
+            limit: None,
+        };
+
+        validate_scope_ids(&context, &arguments).expect("trusted scope id");
+    }
+
+    #[test]
+    fn rejects_out_of_context_scope_ids() {
+        let context = MemoryToolRuntimeContext {
+            conversation_id: "conv_123".to_string(),
+            turn_id: "turn_456".to_string(),
+            turn_index: 7,
+            call_site_id: "output_0".to_string(),
+            cwd: None,
+            user_input: "What memories do you have of me?".to_string(),
+        };
+        let arguments = SearchMemoryArguments {
+            query: "".to_string(),
+            scope_ids: vec!["project:other".to_string()],
+            purpose: Some("answer_human_question".to_string()),
+            limit: None,
+        };
+
+        let error = validate_scope_ids(&context, &arguments).expect_err("invalid scope id");
+
+        assert_eq!(
+            safe_error_message(&error),
+            "unsupported scope_id: project:other"
+        );
     }
 
     #[test]
@@ -281,6 +402,7 @@ mod tests {
         };
         let arguments = SearchMemoryArguments {
             query: "  launch criteria  ".to_string(),
+            scope_ids: vec![],
             purpose: Some("answer_human_question".to_string()),
             limit: None,
         };
@@ -308,6 +430,7 @@ mod tests {
         };
         let arguments = SearchMemoryArguments {
             query: "project memory".to_string(),
+            scope_ids: vec![],
             purpose: Some("external_action".to_string()),
             limit: None,
         };

@@ -1830,6 +1830,60 @@ async fn runtime_actor_executes_search_memory_as_local_tool_result() {
 }
 
 #[tokio::test]
+async fn search_memory_profile_continuation_uses_scoped_empty_query() {
+    let (handle, store) = test_runtime_handle_with_store(
+        fake_codex_provider_with_search_memory_profile_continuation(),
+    )
+    .await;
+
+    let conversation = handle
+        .start_conversation(None, None)
+        .await
+        .expect("conversation");
+    let conversation_id = conversation.conversation_id.clone();
+    collect_turn(
+        &handle,
+        conversation_id.clone(),
+        "remember: I like planes.".to_string(),
+    )
+    .await
+    .expect("seed turn");
+
+    collect_turn(
+        &handle,
+        conversation_id.clone(),
+        "What memories do you have of me?".to_string(),
+    )
+    .await
+    .expect("profile search turn");
+    handle.shutdown().await;
+
+    let replay = store
+        .list_conversation_items(&conversation_id, ReplayMode::Visible)
+        .await
+        .expect("conversation replay");
+    assert!(
+        replay.iter().any(|item| {
+            item.kind == ConversationItemKind::ToolResult
+                && item.status == ConversationItemStatus::Completed
+                && item.payload_json["metadata"]["action"]["success"] == true
+                && item.payload_json["metadata"]["action"]["payload"]["scope_ids"]
+                    == json!(["human:local"])
+                && item.payload_json["metadata"]["action"]["payload"]["memories"]
+                    .as_array()
+                    .is_some_and(|memories| {
+                        memories.iter().any(|memory| {
+                            memory["kind"] == "claim"
+                                && memory["fact"] == "Kevin likes planes."
+                                && memory["predicate_id"] == "likes"
+                        })
+                    })
+        }),
+        "expected persisted successful scoped profile tool result, got {replay:?}"
+    );
+}
+
+#[tokio::test]
 async fn search_memory_tool_returns_empty_graph_result_without_unavailable() {
     let handle = test_runtime_handle(fake_codex_provider_with_search_memory_continuation()).await;
 
@@ -2167,6 +2221,7 @@ enum FakeCodexScenario {
     ToolItemThenFailure,
     InvalidSearchMemory,
     SearchMemoryContinuation,
+    SearchMemoryProfileContinuation,
     InitialAssistantMemoryContinuation,
     MultiAssistantMemory,
     SplitAssistantEvidenceMemory,
@@ -2280,6 +2335,34 @@ impl FakeCodexProvider {
                         search_memory_tool_call(
                             "call_1",
                             json!({"arguments": {"query": "trains"}}),
+                        ),
+                        GenerateOutputItem::MemoryProposals { proposals: vec![] },
+                    ]
+                } else {
+                    assistant_with_no_memories("fake answer")
+                }
+            }
+            FakeCodexScenario::SearchMemoryProfileContinuation => {
+                if input.contains("NOEMA_LOCAL_TOOL_RESULT") {
+                    vec![
+                        GenerateOutputItem::AssistantText {
+                            text: "I remember that you like planes.".to_string(),
+                        },
+                        GenerateOutputItem::MemoryProposals { proposals: vec![] },
+                    ]
+                } else if input.contains("What memories do you have of me?") {
+                    vec![
+                        GenerateOutputItem::AssistantText {
+                            text: "Searching memory.".to_string(),
+                        },
+                        search_memory_tool_call(
+                            "call_profile",
+                            json!({"arguments": {
+                                "scope_ids": ["human:local"],
+                                "query": "",
+                                "purpose": "answer_human_question",
+                                "limit": 8
+                            }}),
                         ),
                         GenerateOutputItem::MemoryProposals { proposals: vec![] },
                     ]
@@ -2765,6 +2848,10 @@ fn fake_codex_provider_with_invalid_search_memory_tool_item() -> FakeCodexProvid
 
 fn fake_codex_provider_with_search_memory_continuation() -> FakeCodexProvider {
     FakeCodexProvider::new(FakeCodexScenario::SearchMemoryContinuation)
+}
+
+fn fake_codex_provider_with_search_memory_profile_continuation() -> FakeCodexProvider {
+    FakeCodexProvider::new(FakeCodexScenario::SearchMemoryProfileContinuation)
 }
 
 fn fake_codex_provider_with_initial_assistant_memory_continuation() -> FakeCodexProvider {
