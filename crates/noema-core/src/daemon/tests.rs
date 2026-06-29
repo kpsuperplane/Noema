@@ -336,7 +336,7 @@ async fn start_primary_conversation_generates_initial_name_onboarding_message() 
         item.kind == ConversationItemKind::AssistantText
             && item.content_text.as_deref()
                 == Some(
-                    "Hi - I'm here and ready to help you think, plan, make, untangle, or keep momentum with whatever you're working on. Before we dive in, what would you like to name me?",
+                    "Hey 👋 I'm your Noema personal agent, here to help you think, plan, make, untangle, or whatever keeps your momentum going in life. Before we dive in, give me a name!",
                 )
     }));
 }
@@ -3346,11 +3346,14 @@ impl FakeCodexProvider {
                     && instructions.contains("Ask the user what they would like to name you.")
                     && instructions.contains("warm and welcoming")
                     && instructions.contains("energy")
+                    && instructions.contains("Noema personal agent")
+                    && instructions.contains("momentum going in life")
+                    && instructions.contains("give you a name")
                     && instructions.contains("think, plan, make, untangle")
-                    && instructions.contains("2-3 short sentences")
+                    && instructions.contains("1-2 warm, energetic sentences")
                     && !input.contains("Your name is");
                 assistant_with_no_memories(if saw_onboarding {
-                    "Hi - I'm here and ready to help you think, plan, make, untangle, or keep momentum with whatever you're working on. Before we dive in, what would you like to name me?"
+                    "Hey 👋 I'm your Noema personal agent, here to help you think, plan, make, untangle, or whatever keeps your momentum going in life. Before we dive in, give me a name!"
                 } else {
                     "missing warm onboarding prompt"
                 })

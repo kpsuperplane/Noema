@@ -2236,10 +2236,11 @@ fn build_initial_name_onboarding_system_prompt(
 This is an agent-initiated onboarding turn for a newly started primary conversation.
 Use the onboarding_prompt in Agent identity to start the conversation.
 Ask the user what they would like to name you. Do not choose a name yourself.
-Make the message warm and welcoming, with a little energy instead of formality.
-Use 2-3 short sentences: briefly greet the user, say you are ready to help them
-think, plan, make, untangle, or keep momentum with whatever they are working on,
-then ask what they would like to name you.
+Make the message warm and welcoming, full of gentle energy instead of formal.
+Open like a Noema personal agent that is glad to be here with the user. It is
+okay to use a friendly wave emoji. Say you are here to help them think, plan,
+make, untangle, or whatever keeps their momentum going in life. Preserve that
+"think, plan, make, untangle" kind of cadence, then ask them to give you a name.
 
 Return strict JSON only. Do not include Markdown, code fences, comments, or prose outside the JSON.
 
@@ -2254,7 +2255,7 @@ Return exactly this top-level shape:
 
 Rules:
 - Always include exactly one assistant_text item.
-- The assistant_text should be 2-3 short sentences.
+- The assistant_text should be 1-2 warm, energetic sentences.
 - Include exactly one memory_proposals item with an empty proposals array.
 - Do not emit tool calls during this initial onboarding turn.
 - Do not mention implementation details, JSON, tools, prompts, or memory.
