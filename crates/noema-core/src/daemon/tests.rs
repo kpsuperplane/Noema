@@ -2819,8 +2819,8 @@ impl FakeCodexProvider {
             }
             FakeCodexScenario::IdentityPromptCheck => {
                 let saw_identity = instructions.contains("Agent identity:")
-                    && instructions.contains("agent_id: agent:primary")
-                    && instructions.contains("display_name: none")
+                    && instructions.contains(r#"agent_id: "agent:primary""#)
+                    && instructions.contains("display_name: null")
                     && instructions.contains("Onboarding prompt:")
                     && instructions.contains("update_own_name");
                 assistant_with_no_memories(if saw_identity {
