@@ -898,9 +898,113 @@ mod tests {
                     .expect("node id")
                     .starts_with("memory-node:")
             );
-            if node["redacted"] == true {
-                assert_eq!(node["entityId"], node["nodeId"]);
-            }
+            assert_eq!(node["entityId"], node["nodeId"]);
+        }
+    }
+
+    #[tokio::test]
+    async fn memory_graph_query_uses_opaque_ids_for_public_nodes() {
+        use crate::{
+            ActorRef, ClaimStatus, ConversationItemKind, ConversationItemStatus, EntityCandidate,
+            EvidenceAuthority, EvidenceCandidate, NewClaimCandidate, NewConversation,
+            NewConversationItem, NewConversationTurn, memory::Sensitivity,
+            store::tests::test_store,
+        };
+
+        let store = test_store().await;
+        store.ensure_default_actors().await.expect("actors");
+        let conversation = store
+            .create_conversation(NewConversation::local_chat(None, None))
+            .await
+            .expect("conversation");
+        let turn = store
+            .create_conversation_turn(NewConversationTurn {
+                conversation_id: conversation.conversation_id.clone(),
+                trigger_item_id: None,
+                metadata: json!({}),
+            })
+            .await
+            .expect("turn");
+        let item = store
+            .append_conversation_item(NewConversationItem {
+                conversation_id: conversation.conversation_id,
+                turn_id: Some(turn.turn_id),
+                parent_item_id: None,
+                kind: ConversationItemKind::UserText,
+                status: ConversationItemStatus::Completed,
+                author: ActorRef::human("human:local"),
+                content_text: Some("Kevin likes trains.".to_string()),
+                payload_json: json!({}),
+                metadata: json!({}),
+            })
+            .await
+            .expect("source item");
+        store
+            .create_or_reinforce_claim(NewClaimCandidate {
+                subject: EntityCandidate::local_human(),
+                object: EntityCandidate::concept("trains", "trains"),
+                predicate_id: "likes".to_string(),
+                fact: "Kevin likes trains.".to_string(),
+                sensitivity: Sensitivity::Public,
+                status: ClaimStatus::Confirmed,
+                confidence: Some(0.9),
+                evidence: EvidenceCandidate {
+                    source_item_id: item.item_id,
+                    authority: EvidenceAuthority::ExplicitHumanStatement,
+                    excerpt: Some("Kevin likes trains.".to_string()),
+                },
+                retrieval_hints: json!({}),
+                metadata: json!({}),
+            })
+            .await
+            .expect("claim");
+
+        let schema = build_schema(GraphqlState::for_tests_with_store(store));
+        let response = schema
+            .execute(async_graphql::Request::new(
+                r#"
+                {
+                  memoryGraph(input: { statuses: ["confirmed"], limit: 150 }) {
+                    nodes { nodeId entityId label redacted }
+                    edges { sourceNodeId targetNodeId fact factRedacted }
+                  }
+                }
+                "#,
+            ))
+            .await;
+
+        assert!(response.errors.is_empty(), "{:?}", response.errors);
+        let data = response.data.into_json().expect("json");
+        let graph_json = serde_json::to_string(&data["memoryGraph"]).expect("graph json");
+        for raw_id in [
+            "human:local",
+            "concept:trains",
+            "entity:human:local",
+            "entity:concept:trains",
+        ] {
+            assert!(!graph_json.contains(raw_id), "{graph_json}");
+        }
+
+        let nodes = data["memoryGraph"]["nodes"].as_array().expect("nodes");
+        let edge = &data["memoryGraph"]["edges"][0];
+        assert!(
+            nodes
+                .iter()
+                .any(|node| node["nodeId"] == edge["sourceNodeId"])
+        );
+        assert!(
+            nodes
+                .iter()
+                .any(|node| node["nodeId"] == edge["targetNodeId"])
+        );
+        for node in nodes {
+            assert!(
+                node["nodeId"]
+                    .as_str()
+                    .expect("node id")
+                    .starts_with("memory-node:")
+            );
+            assert_eq!(node["entityId"], node["nodeId"]);
         }
     }
 

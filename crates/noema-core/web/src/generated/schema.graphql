@@ -428,6 +428,160 @@ type GraphqlMemoryClaimEvidence {
 }
 
 """
+Bounded graph-memory projection for owner/admin inspection.
+"""
+type GraphqlMemoryGraph {
+	"""
+	Entity nodes incident to returned claim edges.
+	"""
+	nodes: [GraphqlMemoryGraphNode!]!
+	"""
+	Claim edges connecting returned entity nodes.
+	"""
+	edges: [GraphqlMemoryGraphEdge!]!
+	"""
+	Summary metadata for the bounded result.
+	"""
+	summary: GraphqlMemoryGraphSummary!
+}
+
+"""
+Claim edge in the graph-memory projection.
+"""
+type GraphqlMemoryGraphEdge {
+	"""
+	Stable claim id.
+	"""
+	claimId: String!
+	"""
+	Opaque source graph node id matching a returned node.
+	"""
+	sourceNodeId: String!
+	"""
+	Opaque target graph node id matching a returned node.
+	"""
+	targetNodeId: String!
+	"""
+	Predicate id.
+	"""
+	predicateId: String!
+	"""
+	Predicate label.
+	"""
+	predicateLabel: String!
+	"""
+	Conservative fact preview. Non-public facts are redacted in graph lists.
+	"""
+	fact: String!
+	"""
+	Whether the fact was redacted at the GraphQL boundary.
+	"""
+	factRedacted: Boolean!
+	"""
+	Claim lifecycle status.
+	"""
+	status: String!
+	"""
+	Claim sensitivity.
+	"""
+	sensitivity: String!
+	"""
+	Claim confidence.
+	"""
+	confidence: Float
+	"""
+	Count of supporting evidence rows.
+	"""
+	evidenceCount: Int!
+	"""
+	Creation timestamp.
+	"""
+	createdAt: String!
+	"""
+	Update timestamp.
+	"""
+	updatedAt: String!
+}
+
+"""
+Input filters for bounded graph-memory inspection.
+"""
+input GraphqlMemoryGraphInput {
+	"""
+	Optional text query matched by the store read model.
+	"""
+	query: String
+	"""
+	Optional claim lifecycle statuses. Defaults are owned by the store.
+	"""
+	statuses: [String!]
+	"""
+	Optional predicate id.
+	"""
+	predicateId: String
+	"""
+	Optional exact sensitivity filter.
+	"""
+	sensitivity: String
+	"""
+	Optional bounded result limit.
+	"""
+	limit: Int
+}
+
+"""
+Entity node in the graph-memory projection.
+"""
+type GraphqlMemoryGraphNode {
+	"""
+	Opaque graph node id for this response.
+	"""
+	nodeId: String!
+	"""
+	Opaque entity reference for this graph response.
+	"""
+	entityId: String!
+	"""
+	Human-readable entity label. Non-public labels are redacted in lists.
+	"""
+	label: String!
+	"""
+	Entity type string.
+	"""
+	entityType: String!
+	"""
+	Whether this node label was redacted at the GraphQL boundary.
+	"""
+	redacted: Boolean!
+	"""
+	Count of returned incident claim edges.
+	"""
+	claimCount: Int!
+}
+
+"""
+Summary metadata for a bounded graph-memory result.
+"""
+type GraphqlMemoryGraphSummary {
+	"""
+	Number of claim edges returned.
+	"""
+	returnedClaimCount: Int!
+	"""
+	Number of entity nodes returned.
+	"""
+	returnedNodeCount: Int!
+	"""
+	Effective result limit.
+	"""
+	limit: Int!
+	"""
+	Whether at least one matching claim was omitted by the limit.
+	"""
+	truncated: Boolean!
+}
+
+"""
 Memory storage readiness shown by clients.
 """
 enum GraphqlMemoryStorageStatus {
@@ -783,6 +937,10 @@ type QueryRoot {
 	Return one graph-memory claim for owner/admin inspection.
 	"""
 	memoryClaim(claimId: String!): GraphqlMemoryClaimDetail
+	"""
+	Return a bounded graph-memory projection for owner/admin inspection.
+	"""
+	memoryGraph(input: GraphqlMemoryGraphInput): GraphqlMemoryGraph!
 }
 
 type SubscriptionRoot {

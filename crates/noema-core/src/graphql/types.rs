@@ -281,9 +281,9 @@ pub struct GraphqlMemoryGraph {
 /// Entity node in the graph-memory projection.
 #[derive(Clone, Debug, SimpleObject)]
 pub struct GraphqlMemoryGraphNode {
-    /// Stable graph node id.
+    /// Opaque graph node id for this response.
     pub node_id: String,
-    /// Canonical entity id.
+    /// Opaque entity reference for this graph response.
     pub entity_id: String,
     /// Human-readable entity label. Non-public labels are redacted in lists.
     pub label: String,
@@ -300,9 +300,9 @@ pub struct GraphqlMemoryGraphNode {
 pub struct GraphqlMemoryGraphEdge {
     /// Stable claim id.
     pub claim_id: String,
-    /// Source entity node id.
+    /// Opaque source graph node id matching a returned node.
     pub source_node_id: String,
-    /// Target entity node id.
+    /// Opaque target graph node id matching a returned node.
     pub target_node_id: String,
     /// Predicate id.
     pub predicate_id: String,
@@ -380,22 +380,27 @@ fn mapped_memory_graph_node_id(
 ) -> String {
     node_id_map
         .get(store_node_id)
-        .cloned()
-        .unwrap_or_else(|| "memory-node:unknown".to_string())
+        .expect("memory graph node must exist in response node map")
+        .clone()
+}
+
+fn mapped_memory_graph_edge_endpoint_id(
+    node_id_map: &HashMap<String, String>,
+    store_node_id: &str,
+) -> String {
+    node_id_map
+        .get(store_node_id)
+        .expect("memory graph edge endpoint must exist in returned nodes")
+        .clone()
 }
 
 impl GraphqlMemoryGraphNode {
     fn from_store_node(node: MemoryGraphNode, node_id_map: &HashMap<String, String>) -> Self {
         let redacted = node.max_sensitivity != Sensitivity::Public;
         let node_id = mapped_memory_graph_node_id(node_id_map, &node.node_id);
-        let entity_id = if redacted {
-            node_id.clone()
-        } else {
-            node.entity_id
-        };
         Self {
+            entity_id: node_id.clone(),
             node_id,
-            entity_id,
             label: graphql_list_display_name(node.label, node.max_sensitivity),
             entity_type: node.entity_type,
             redacted,
@@ -409,8 +414,8 @@ impl GraphqlMemoryGraphEdge {
         let fact_redacted = edge.sensitivity != Sensitivity::Public;
         Self {
             claim_id: edge.claim_id,
-            source_node_id: mapped_memory_graph_node_id(node_id_map, &edge.source_node_id),
-            target_node_id: mapped_memory_graph_node_id(node_id_map, &edge.target_node_id),
+            source_node_id: mapped_memory_graph_edge_endpoint_id(node_id_map, &edge.source_node_id),
+            target_node_id: mapped_memory_graph_edge_endpoint_id(node_id_map, &edge.target_node_id),
             predicate_id: edge.predicate_id,
             predicate_label: edge.predicate_label,
             fact: graphql_list_fact(&edge.fact, edge.sensitivity),
