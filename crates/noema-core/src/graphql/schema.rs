@@ -9,10 +9,10 @@ use super::{
         GraphqlAgentStatusEvent, GraphqlAssistantConnection, GraphqlAssistantTextDeltaEvent,
         GraphqlConversationEvent, GraphqlConversationItem, GraphqlConversationItemEvent,
         GraphqlConversationStarted, GraphqlLocalServiceStatus, GraphqlLocalStatus,
-        GraphqlMemoryClaim, GraphqlMemoryClaimDetail, GraphqlMemoryStorageStatus,
-        GraphqlOnboardingStatus, GraphqlProviderAuthAttempt, GraphqlSendConversationTurnInput,
-        GraphqlStartProviderAuthAttemptInput, GraphqlSubscriptionReadyEvent, GraphqlTurnAccepted,
-        GraphqlTurnCompletedEvent,
+        GraphqlMemoryClaim, GraphqlMemoryClaimDetail, GraphqlMemoryGraph, GraphqlMemoryGraphInput,
+        GraphqlMemoryStorageStatus, GraphqlOnboardingStatus, GraphqlProviderAuthAttempt,
+        GraphqlSendConversationTurnInput, GraphqlStartProviderAuthAttemptInput,
+        GraphqlSubscriptionReadyEvent, GraphqlTurnAccepted, GraphqlTurnCompletedEvent,
     },
 };
 
@@ -203,6 +203,49 @@ impl QueryRoot {
             .await
             .map_err(graphql_error)?;
         Ok(detail.map(Into::into))
+    }
+
+    /// Return a bounded graph-memory projection for owner/admin inspection.
+    async fn memory_graph(
+        &self,
+        ctx: &Context<'_>,
+        input: Option<GraphqlMemoryGraphInput>,
+    ) -> Result<GraphqlMemoryGraph> {
+        let input = input.unwrap_or_default();
+        let limit = parse_memory_graph_limit(input.limit)?;
+        let statuses = input
+            .statuses
+            .map(|statuses| {
+                if statuses.is_empty() {
+                    return Err(async_graphql::Error::new(
+                        "memoryGraph statuses must not be empty",
+                    ));
+                }
+                statuses
+                    .iter()
+                    .map(|status| parse_graphql_claim_status(status))
+                    .collect::<Result<Vec<_>>>()
+            })
+            .transpose()?;
+        let sensitivity = input
+            .sensitivity
+            .as_deref()
+            .map(parse_graphql_sensitivity)
+            .transpose()?;
+        let state = ctx.data_unchecked::<GraphqlState>();
+        let graph = state
+            .store()?
+            .memory_graph(crate::MemoryGraphFilter {
+                query: input.query,
+                statuses,
+                predicate_id: input.predicate_id,
+                sensitivity,
+                limit,
+            })
+            .await
+            .map_err(graphql_error)?;
+
+        Ok(graph.into())
     }
 }
 
@@ -437,6 +480,34 @@ fn parse_graphql_claim_status(value: &str) -> Result<crate::ClaimStatus> {
     }
 }
 
+fn parse_graphql_sensitivity(value: &str) -> Result<crate::memory::Sensitivity> {
+    match value {
+        "public" => Ok(crate::memory::Sensitivity::Public),
+        "normal" => Ok(crate::memory::Sensitivity::Normal),
+        "private" => Ok(crate::memory::Sensitivity::Private),
+        "sensitive" => Ok(crate::memory::Sensitivity::Sensitive),
+        "secret" => Ok(crate::memory::Sensitivity::Secret),
+        _ => Err(async_graphql::Error::new(format!(
+            "unknown memory sensitivity: {value}"
+        ))),
+    }
+}
+
+fn parse_memory_graph_limit(limit: Option<i32>) -> Result<Option<usize>> {
+    match limit {
+        Some(value) if value < 1 => Err(async_graphql::Error::new(
+            "memoryGraph limit must be at least 1",
+        )),
+        Some(value) if value > 500 => Err(async_graphql::Error::new(
+            "memoryGraph limit must be at most 500",
+        )),
+        Some(value) => Ok(Some(usize::try_from(value).map_err(|_| {
+            async_graphql::Error::new("memoryGraph limit is too large")
+        })?)),
+        None => Ok(None),
+    }
+}
+
 fn publish_turn_terminal_events(
     subscriptions: &ConversationSubscriptionRegistry,
     conversation_id: String,
@@ -494,8 +565,11 @@ mod tests {
         assert!(sdl.contains("GraphqlAssistantTextDeltaEvent"));
         assert!(sdl.contains("memoryClaims"));
         assert!(sdl.contains("memoryClaim"));
+        assert!(sdl.contains("memoryGraph"));
         assert!(sdl.contains("type GraphqlMemoryClaim"));
         assert!(sdl.contains("type GraphqlMemoryClaimEvidence"));
+        assert!(sdl.contains("GraphqlMemoryGraph"));
+        assert!(sdl.contains("GraphqlMemoryGraphInput"));
     }
 
     #[tokio::test]
@@ -712,6 +786,124 @@ mod tests {
         assert_eq!(data["memoryClaim"]["fact"], private_note);
         assert_eq!(data["memoryClaim"]["subjectEntityName"], "Local human");
         assert_eq!(data["memoryClaim"]["objectEntityName"], private_note);
+    }
+
+    #[tokio::test]
+    async fn memory_graph_query_returns_redacted_nodes_edges_and_summary() {
+        use crate::{
+            ActorRef, ClaimStatus, ConversationItemKind, ConversationItemStatus, EntityCandidate,
+            EvidenceAuthority, EvidenceCandidate, NewClaimCandidate, NewConversation,
+            NewConversationItem, NewConversationTurn, memory::Sensitivity,
+            store::tests::test_store,
+        };
+
+        let store = test_store().await;
+        store.ensure_default_actors().await.expect("actors");
+        let conversation = store
+            .create_conversation(NewConversation::local_chat(None, None))
+            .await
+            .expect("conversation");
+        let turn = store
+            .create_conversation_turn(NewConversationTurn {
+                conversation_id: conversation.conversation_id.clone(),
+                trigger_item_id: None,
+                metadata: json!({}),
+            })
+            .await
+            .expect("turn");
+        let item = store
+            .append_conversation_item(NewConversationItem {
+                conversation_id: conversation.conversation_id,
+                turn_id: Some(turn.turn_id),
+                parent_item_id: None,
+                kind: ConversationItemKind::UserText,
+                status: ConversationItemStatus::Completed,
+                author: ActorRef::human("human:local"),
+                content_text: Some("Garage code is 1234.".to_string()),
+                payload_json: json!({}),
+                metadata: json!({}),
+            })
+            .await
+            .expect("source item");
+        let summary = store
+            .create_or_reinforce_claim(NewClaimCandidate {
+                subject: EntityCandidate::local_human(),
+                object: EntityCandidate::concept("garage-code", "Garage code"),
+                predicate_id: "has_note".to_string(),
+                fact: "Garage code is 1234.".to_string(),
+                sensitivity: Sensitivity::Private,
+                status: ClaimStatus::Confirmed,
+                confidence: Some(0.9),
+                evidence: EvidenceCandidate {
+                    source_item_id: item.item_id,
+                    authority: EvidenceAuthority::ExplicitHumanStatement,
+                    excerpt: Some("Garage code is 1234.".to_string()),
+                },
+                retrieval_hints: json!({}),
+                metadata: json!({}),
+            })
+            .await
+            .expect("claim");
+
+        let schema = build_schema(GraphqlState::for_tests_with_store(store));
+        let response = schema
+            .execute(async_graphql::Request::new(
+                r#"
+                {
+                  memoryGraph(input: { statuses: ["confirmed"], limit: 150 }) {
+                    nodes { nodeId label redacted claimCount }
+                    edges { claimId fact factRedacted predicateLabel sensitivity }
+                    summary { returnedClaimCount returnedNodeCount limit truncated }
+                  }
+                }
+                "#,
+            ))
+            .await;
+
+        assert!(response.errors.is_empty(), "{:?}", response.errors);
+        let data = response.data.into_json().expect("json");
+        assert_eq!(data["memoryGraph"]["summary"]["returnedClaimCount"], 1);
+        assert_eq!(data["memoryGraph"]["summary"]["limit"], 150);
+        assert_eq!(data["memoryGraph"]["summary"]["truncated"], false);
+        assert_eq!(data["memoryGraph"]["edges"][0]["claimId"], summary.claim_id);
+        assert_eq!(
+            data["memoryGraph"]["edges"][0]["fact"],
+            "[redacted; use memoryClaim(claimId) for detail]"
+        );
+        assert_eq!(data["memoryGraph"]["edges"][0]["factRedacted"], true);
+        assert_eq!(data["memoryGraph"]["nodes"][0]["redacted"], true);
+    }
+
+    #[tokio::test]
+    async fn memory_graph_rejects_invalid_limit_and_status() {
+        let schema = build_schema(GraphqlState::for_tests());
+        let low_limit = schema
+            .execute(async_graphql::Request::new(
+                r#"
+                { memoryGraph(input: { limit: 0 }) { summary { limit } } }
+                "#,
+            ))
+            .await;
+        assert_eq!(low_limit.errors.len(), 1);
+        assert!(
+            low_limit.errors[0]
+                .message
+                .contains("memoryGraph limit must be at least 1")
+        );
+
+        let bad_status = schema
+            .execute(async_graphql::Request::new(
+                r#"
+                { memoryGraph(input: { statuses: ["sleepy"] }) { summary { limit } } }
+                "#,
+            ))
+            .await;
+        assert_eq!(bad_status.errors.len(), 1);
+        assert!(
+            bad_status.errors[0]
+                .message
+                .contains("unknown memory claim status: sleepy")
+        );
     }
 
     #[tokio::test]

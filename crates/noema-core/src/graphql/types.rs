@@ -3,8 +3,8 @@ use serde_json::Value;
 
 use crate::{
     AgentStatus, ClaimStatus, MemoryClaimDetail, MemoryClaimEvidence, MemoryClaimRecord,
-    OnboardingStatus, ProviderAccountStatus, ProviderAuthMethod, TurnActivityStatus,
-    TurnTranscriptItem,
+    MemoryGraph, MemoryGraphEdge, MemoryGraphNode, MemoryGraphSummary, OnboardingStatus,
+    ProviderAccountStatus, ProviderAuthMethod, TurnActivityStatus, TurnTranscriptItem,
     memory::Sensitivity,
     provider_auth::{ProviderAuthAttemptStatus, ProviderAuthAttemptView},
 };
@@ -246,6 +246,149 @@ impl From<MemoryClaimDetail> for GraphqlMemoryClaimDetail {
             created_at: claim.created_at,
             updated_at: claim.updated_at,
             evidence: detail.evidence.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+/// Input filters for bounded graph-memory inspection.
+#[derive(Clone, Debug, Default, InputObject)]
+pub struct GraphqlMemoryGraphInput {
+    /// Optional text query matched by the store read model.
+    pub query: Option<String>,
+    /// Optional claim lifecycle statuses. Defaults are owned by the store.
+    pub statuses: Option<Vec<String>>,
+    /// Optional predicate id.
+    pub predicate_id: Option<String>,
+    /// Optional exact sensitivity filter.
+    pub sensitivity: Option<String>,
+    /// Optional bounded result limit.
+    pub limit: Option<i32>,
+}
+
+/// Bounded graph-memory projection for owner/admin inspection.
+#[derive(Clone, Debug, SimpleObject)]
+pub struct GraphqlMemoryGraph {
+    /// Entity nodes incident to returned claim edges.
+    pub nodes: Vec<GraphqlMemoryGraphNode>,
+    /// Claim edges connecting returned entity nodes.
+    pub edges: Vec<GraphqlMemoryGraphEdge>,
+    /// Summary metadata for the bounded result.
+    pub summary: GraphqlMemoryGraphSummary,
+}
+
+/// Entity node in the graph-memory projection.
+#[derive(Clone, Debug, SimpleObject)]
+pub struct GraphqlMemoryGraphNode {
+    /// Stable graph node id.
+    pub node_id: String,
+    /// Canonical entity id.
+    pub entity_id: String,
+    /// Human-readable entity label. Non-public labels are redacted in lists.
+    pub label: String,
+    /// Entity type string.
+    pub entity_type: String,
+    /// Whether this node label was redacted at the GraphQL boundary.
+    pub redacted: bool,
+    /// Count of returned incident claim edges.
+    pub claim_count: i64,
+}
+
+/// Claim edge in the graph-memory projection.
+#[derive(Clone, Debug, SimpleObject)]
+pub struct GraphqlMemoryGraphEdge {
+    /// Stable claim id.
+    pub claim_id: String,
+    /// Source entity node id.
+    pub source_node_id: String,
+    /// Target entity node id.
+    pub target_node_id: String,
+    /// Predicate id.
+    pub predicate_id: String,
+    /// Predicate label.
+    pub predicate_label: String,
+    /// Conservative fact preview. Non-public facts are redacted in graph lists.
+    pub fact: String,
+    /// Whether the fact was redacted at the GraphQL boundary.
+    pub fact_redacted: bool,
+    /// Claim lifecycle status.
+    pub status: String,
+    /// Claim sensitivity.
+    pub sensitivity: String,
+    /// Claim confidence.
+    pub confidence: Option<f64>,
+    /// Count of supporting evidence rows.
+    pub evidence_count: i64,
+    /// Creation timestamp.
+    pub created_at: String,
+    /// Update timestamp.
+    pub updated_at: String,
+}
+
+/// Summary metadata for a bounded graph-memory result.
+#[derive(Clone, Debug, SimpleObject)]
+pub struct GraphqlMemoryGraphSummary {
+    /// Number of claim edges returned.
+    pub returned_claim_count: i64,
+    /// Number of entity nodes returned.
+    pub returned_node_count: i64,
+    /// Effective result limit.
+    pub limit: i32,
+    /// Whether at least one matching claim was omitted by the limit.
+    pub truncated: bool,
+}
+
+impl From<MemoryGraph> for GraphqlMemoryGraph {
+    fn from(graph: MemoryGraph) -> Self {
+        Self {
+            nodes: graph.nodes.into_iter().map(Into::into).collect(),
+            edges: graph.edges.into_iter().map(Into::into).collect(),
+            summary: graph.summary.into(),
+        }
+    }
+}
+
+impl From<MemoryGraphNode> for GraphqlMemoryGraphNode {
+    fn from(node: MemoryGraphNode) -> Self {
+        let redacted = node.max_sensitivity != Sensitivity::Public;
+        Self {
+            node_id: node.node_id,
+            entity_id: node.entity_id,
+            label: graphql_list_display_name(node.label, node.max_sensitivity),
+            entity_type: node.entity_type,
+            redacted,
+            claim_count: node.claim_count,
+        }
+    }
+}
+
+impl From<MemoryGraphEdge> for GraphqlMemoryGraphEdge {
+    fn from(edge: MemoryGraphEdge) -> Self {
+        let fact_redacted = edge.sensitivity != Sensitivity::Public;
+        Self {
+            claim_id: edge.claim_id,
+            source_node_id: edge.source_node_id,
+            target_node_id: edge.target_node_id,
+            predicate_id: edge.predicate_id,
+            predicate_label: edge.predicate_label,
+            fact: graphql_list_fact(&edge.fact, edge.sensitivity),
+            fact_redacted,
+            status: claim_status_label(edge.status).to_string(),
+            sensitivity: sensitivity_label(edge.sensitivity).to_string(),
+            confidence: edge.confidence,
+            evidence_count: edge.evidence_count,
+            created_at: edge.created_at,
+            updated_at: edge.updated_at,
+        }
+    }
+}
+
+impl From<MemoryGraphSummary> for GraphqlMemoryGraphSummary {
+    fn from(summary: MemoryGraphSummary) -> Self {
+        Self {
+            returned_claim_count: summary.returned_claim_count,
+            returned_node_count: summary.returned_node_count,
+            limit: i32::try_from(summary.limit).unwrap_or(i32::MAX),
+            truncated: summary.truncated,
         }
     }
 }
