@@ -238,6 +238,74 @@ pub struct MemoryClaimEvidence {
     pub created_at: String,
 }
 
+/// Request for bounded consolidation candidate matching.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConsolidationMatchRequest {
+    /// Candidate subject entity id.
+    pub subject_entity_id: String,
+    /// Candidate predicate id.
+    pub predicate_id: String,
+    /// Candidate object entity id if available.
+    pub object_entity_id: Option<String>,
+    /// Query terms used to post-filter fact text when object identity differs.
+    pub query_terms: Vec<String>,
+    /// Candidate sensitivity.
+    pub sensitivity: Sensitivity,
+    /// Requested result limit, clamped by the store.
+    pub limit: usize,
+}
+
+/// Existing claim that may consolidate with a candidate memory write.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ConsolidationMatch {
+    /// Stable claim id.
+    pub claim_id: String,
+    /// Subject entity id.
+    pub subject_entity_id: String,
+    /// Object entity id if present.
+    pub object_entity_id: Option<String>,
+    /// Predicate id.
+    pub predicate_id: String,
+    /// Canonical fact text.
+    pub fact: String,
+    /// Claim lifecycle status.
+    pub status: ClaimStatus,
+    /// Claim sensitivity.
+    pub sensitivity: Sensitivity,
+    /// Claim confidence.
+    pub confidence: Option<f64>,
+}
+
+/// Candidate relation linking two related claims.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RelatedClaimCandidate {
+    /// Primary claim id.
+    pub claim_id: String,
+    /// Related claim id.
+    pub related_claim_id: String,
+    /// Caller-defined relation kind.
+    pub relation_kind: String,
+    /// Human-readable rationale for the relation.
+    pub rationale: String,
+}
+
+/// Stored relation linking two related claims.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RelatedClaimRecord {
+    /// Stable relation id.
+    pub relation_id: String,
+    /// Primary claim id.
+    pub claim_id: String,
+    /// Related claim id.
+    pub related_claim_id: String,
+    /// Caller-defined relation kind.
+    pub relation_kind: String,
+    /// Human-readable rationale for the relation.
+    pub rationale: String,
+    /// Creation timestamp.
+    pub created_at: String,
+}
+
 /// Read-only filters for the bounded memory graph read model.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct MemoryGraphFilter {
@@ -324,6 +392,154 @@ pub struct MemoryGraphSummary {
 }
 
 impl NoemaStore {
+    /// Find bounded same-subject candidate matches for memory consolidation.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when stored enum data is invalid or the embedded
+    /// store read fails.
+    pub async fn find_consolidation_matches(
+        &self,
+        request: ConsolidationMatchRequest,
+    ) -> Result<Vec<ConsolidationMatch>, StoreError> {
+        let limit = request.limit.clamp(1, 20);
+        let query_terms = request
+            .query_terms
+            .iter()
+            .map(|term| term.trim().to_ascii_lowercase())
+            .filter(|term| !term.is_empty())
+            .collect::<Vec<_>>();
+        let mut response = self
+            .db
+            .query(
+                r#"
+                SELECT claim_id, subject_entity_id, object_entity_id, predicate_id, fact,
+                  status, sensitivity, confidence, updated_at
+                FROM claims
+                WHERE subject_entity_id = $subject_entity_id
+                  AND predicate_id IN $predicate_ids
+                  AND status IN ['candidate', 'active', 'confirmed']
+                  AND sensitivity IN $allowed_sensitivities
+                ORDER BY updated_at DESC, claim_id ASC
+                LIMIT $limit;
+                "#,
+            )
+            .bind(("subject_entity_id", request.subject_entity_id))
+            .bind((
+                "predicate_ids",
+                compatible_match_predicates(&request.predicate_id),
+            ))
+            .bind((
+                "allowed_sensitivities",
+                allowed_match_sensitivities(request.sensitivity),
+            ))
+            .bind(("limit", limit))
+            .await?;
+        let rows: Vec<ConsolidationMatchRow> = response.take(0)?;
+        rows.into_iter()
+            .filter(|row| {
+                if let Some(object_entity_id) = request.object_entity_id.as_deref()
+                    && row.object_entity_id.as_deref() == Some(object_entity_id)
+                {
+                    return true;
+                }
+                query_terms.is_empty()
+                    || query_terms
+                        .iter()
+                        .any(|term| row.fact.to_ascii_lowercase().contains(term))
+            })
+            .map(consolidation_match)
+            .collect()
+    }
+
+    /// Persist a relation between two related claims.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when the relation cannot be written or read back.
+    pub async fn relate_claims(
+        &self,
+        candidate: RelatedClaimCandidate,
+    ) -> Result<RelatedClaimRecord, StoreError> {
+        let relation_id = allocate_id("related_claim");
+        self.db
+            .query(
+                r#"
+                CREATE type::record('related_to', $record_id) SET
+                  relation_id = $relation_id,
+                  claim_id = $claim_id,
+                  related_claim_id = $related_claim_id,
+                  relation_kind = $relation_kind,
+                  rationale = $rationale,
+                  metadata = {};
+                "#,
+            )
+            .bind(("record_id", record_fragment(&relation_id)))
+            .bind(("relation_id", relation_id.clone()))
+            .bind(("claim_id", candidate.claim_id))
+            .bind(("related_claim_id", candidate.related_claim_id))
+            .bind(("relation_kind", candidate.relation_kind))
+            .bind(("rationale", candidate.rationale))
+            .await?
+            .check()?;
+        self.related_claim_by_relation_id(&relation_id)
+            .await?
+            .ok_or_else(|| {
+                StoreError::Schema(format!(
+                    "missing related claim relation after write: {relation_id}"
+                ))
+            })
+    }
+
+    /// List related-claim relations for a claim.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when stored relation data is invalid or the
+    /// embedded store read fails.
+    pub async fn related_claims(
+        &self,
+        claim_id: &str,
+    ) -> Result<Vec<RelatedClaimRecord>, StoreError> {
+        let mut response = self
+            .db
+            .query(
+                r#"
+                SELECT relation_id, claim_id, related_claim_id, relation_kind, rationale, created_at
+                FROM related_to
+                WHERE claim_id = $claim_id
+                ORDER BY created_at ASC, relation_id ASC;
+                "#,
+            )
+            .bind(("claim_id", claim_id.to_string()))
+            .await?;
+        let rows: Vec<RelatedClaimRow> = response.take(0)?;
+        rows.into_iter().map(related_claim_record).collect()
+    }
+
+    async fn related_claim_by_relation_id(
+        &self,
+        relation_id: &str,
+    ) -> Result<Option<RelatedClaimRecord>, StoreError> {
+        let mut response = self
+            .db
+            .query(
+                r#"
+                SELECT relation_id, claim_id, related_claim_id, relation_kind, rationale, created_at
+                FROM related_to
+                WHERE relation_id = $relation_id
+                LIMIT 1;
+                "#,
+            )
+            .bind(("relation_id", relation_id.to_string()))
+            .await?;
+        let rows: Vec<RelatedClaimRow> = response.take(0)?;
+        rows.into_iter()
+            .next()
+            .map(related_claim_record)
+            .transpose()
+    }
+
     /// List graph-memory claims for memory-management inspection.
     ///
     /// # Errors
@@ -1164,6 +1380,30 @@ struct InspectionEvidenceRow {
     created_at: Datetime,
 }
 
+#[derive(Debug, Deserialize, SurrealValue)]
+struct ConsolidationMatchRow {
+    claim_id: String,
+    subject_entity_id: String,
+    object_entity_id: Option<String>,
+    predicate_id: String,
+    fact: String,
+    status: String,
+    sensitivity: String,
+    confidence: Option<f64>,
+    #[allow(dead_code)]
+    updated_at: Datetime,
+}
+
+#[derive(Debug, Deserialize, SurrealValue)]
+struct RelatedClaimRow {
+    relation_id: String,
+    claim_id: String,
+    related_claim_id: String,
+    relation_kind: String,
+    rationale: String,
+    created_at: Datetime,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct ExistingClaimMergeRow {
     status: ClaimStatus,
@@ -1265,6 +1505,48 @@ fn parse_sensitivity(value: &str) -> Result<Sensitivity, StoreError> {
             value: value.to_string(),
         }),
     }
+}
+
+fn allowed_match_sensitivities(sensitivity: Sensitivity) -> Vec<String> {
+    match sensitivity {
+        Sensitivity::Public => vec!["public".to_string()],
+        Sensitivity::Normal => vec!["public".to_string(), "normal".to_string()],
+        Sensitivity::Private | Sensitivity::Sensitive | Sensitivity::Secret => {
+            vec![sensitivity_to_store(sensitivity).to_string()]
+        }
+    }
+}
+
+fn compatible_match_predicates(predicate_id: &str) -> Vec<String> {
+    match predicate_id {
+        "likes" => vec!["likes".to_string(), "dislikes".to_string()],
+        "dislikes" => vec!["dislikes".to_string(), "likes".to_string()],
+        other => vec![other.to_string()],
+    }
+}
+
+fn consolidation_match(row: ConsolidationMatchRow) -> Result<ConsolidationMatch, StoreError> {
+    Ok(ConsolidationMatch {
+        claim_id: row.claim_id,
+        subject_entity_id: row.subject_entity_id,
+        object_entity_id: row.object_entity_id,
+        predicate_id: row.predicate_id,
+        fact: row.fact,
+        status: ClaimStatus::parse(&row.status)?,
+        sensitivity: parse_sensitivity(&row.sensitivity)?,
+        confidence: row.confidence,
+    })
+}
+
+fn related_claim_record(row: RelatedClaimRow) -> Result<RelatedClaimRecord, StoreError> {
+    Ok(RelatedClaimRecord {
+        relation_id: row.relation_id,
+        claim_id: row.claim_id,
+        related_claim_id: row.related_claim_id,
+        relation_kind: row.relation_kind,
+        rationale: row.rationale,
+        created_at: format_datetime(row.created_at),
+    })
 }
 
 fn memory_claim_record(

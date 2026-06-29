@@ -241,6 +241,17 @@ DEFINE FIELD IF NOT EXISTS created_at ON TABLE derived_from TYPE datetime DEFAUL
 DEFINE INDEX IF NOT EXISTS derived_from_relation_id ON TABLE derived_from COLUMNS relation_id UNIQUE;
 DEFINE INDEX IF NOT EXISTS derived_from_claim_pair ON TABLE derived_from COLUMNS claim_id, source_claim_id UNIQUE;
 
+DEFINE TABLE IF NOT EXISTS related_to SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS relation_id ON TABLE related_to TYPE string;
+DEFINE FIELD IF NOT EXISTS claim_id ON TABLE related_to TYPE string;
+DEFINE FIELD IF NOT EXISTS related_claim_id ON TABLE related_to TYPE string;
+DEFINE FIELD IF NOT EXISTS relation_kind ON TABLE related_to TYPE string;
+DEFINE FIELD IF NOT EXISTS rationale ON TABLE related_to TYPE string;
+DEFINE FIELD IF NOT EXISTS metadata ON TABLE related_to TYPE object FLEXIBLE DEFAULT {};
+DEFINE FIELD IF NOT EXISTS created_at ON TABLE related_to TYPE datetime DEFAULT time::now();
+DEFINE INDEX IF NOT EXISTS related_to_relation_id ON TABLE related_to COLUMNS relation_id UNIQUE;
+DEFINE INDEX IF NOT EXISTS related_to_claim_pair ON TABLE related_to COLUMNS claim_id, related_claim_id, relation_kind UNIQUE;
+
 DEFINE TABLE IF NOT EXISTS retrieval_packets SCHEMAFULL;
 DEFINE FIELD IF NOT EXISTS run_id ON TABLE retrieval_packets TYPE string;
 DEFINE FIELD IF NOT EXISTS requesting_agent_id ON TABLE retrieval_packets TYPE string;

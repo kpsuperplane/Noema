@@ -385,6 +385,71 @@ async fn predicate_catalog_includes_canonicalizer_hints() {
 }
 
 #[tokio::test]
+async fn bounded_consolidation_match_search_finds_same_subject_predicate_claims() {
+    let store = test_store().await;
+    let source_item = create_source_item(&store, "Kevin likes trains.").await;
+    let summary = store
+        .create_or_reinforce_claim(train_claim(source_item.item_id))
+        .await
+        .expect("seed claim");
+
+    let matches = store
+        .find_consolidation_matches(crate::store::ConsolidationMatchRequest {
+            subject_entity_id: "human:local".to_string(),
+            predicate_id: "likes".to_string(),
+            object_entity_id: Some("concept:trains".to_string()),
+            query_terms: vec!["trains".to_string()],
+            sensitivity: Sensitivity::Normal,
+            limit: 12,
+        })
+        .await
+        .expect("matches");
+
+    assert_eq!(matches.len(), 1);
+    assert_eq!(matches[0].claim_id, summary.claim_id);
+    assert_eq!(matches[0].fact, "Kevin likes trains.");
+}
+
+#[tokio::test]
+async fn related_claim_relation_can_be_persisted() {
+    let store = test_store().await;
+    let train_item = create_source_item(&store, "Kevin likes trains.").await;
+    let aviation_item = create_source_item(&store, "Kevin likes commercial aviation.").await;
+    let train = store
+        .create_or_reinforce_claim(train_claim(train_item.item_id))
+        .await
+        .expect("train claim");
+    let mut aviation = train_claim(aviation_item.item_id);
+    aviation.object = EntityCandidate::concept(
+        "claim_object:likes:commercial aviation",
+        "commercial aviation",
+    );
+    aviation.fact = "Kevin likes commercial aviation.".to_string();
+    let aviation = store
+        .create_or_reinforce_claim(aviation)
+        .await
+        .expect("aviation claim");
+
+    store
+        .relate_claims(crate::store::RelatedClaimCandidate {
+            claim_id: aviation.claim_id.clone(),
+            related_claim_id: train.claim_id.clone(),
+            relation_kind: "related_preference".to_string(),
+            rationale: "Both claims describe aviation-related preferences.".to_string(),
+        })
+        .await
+        .expect("relate claims");
+
+    let relations = store
+        .related_claims(&aviation.claim_id)
+        .await
+        .expect("relations");
+    assert_eq!(relations.len(), 1);
+    assert_eq!(relations[0].related_claim_id, train.claim_id);
+    assert_eq!(relations[0].relation_kind, "related_preference");
+}
+
+#[tokio::test]
 async fn missing_source_item_claim_is_rejected() {
     let store = test_store().await;
 

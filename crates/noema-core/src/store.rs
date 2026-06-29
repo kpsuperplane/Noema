@@ -15,9 +15,11 @@ mod schema;
 pub(crate) mod tests;
 
 pub use claims::{
-    ClaimStatus, ClaimSummary, ClaimWriteOutcome, EvidenceAuthority, EvidenceCandidate,
-    MemoryClaimDetail, MemoryClaimEvidence, MemoryClaimFilter, MemoryClaimRecord, MemoryGraph,
-    MemoryGraphEdge, MemoryGraphFilter, MemoryGraphNode, MemoryGraphSummary, NewClaimCandidate,
+    ClaimStatus, ClaimSummary, ClaimWriteOutcome, ConsolidationMatch, ConsolidationMatchRequest,
+    EvidenceAuthority, EvidenceCandidate, MemoryClaimDetail, MemoryClaimEvidence,
+    MemoryClaimFilter, MemoryClaimRecord, MemoryGraph, MemoryGraphEdge, MemoryGraphFilter,
+    MemoryGraphNode, MemoryGraphSummary, NewClaimCandidate, RelatedClaimCandidate,
+    RelatedClaimRecord,
 };
 pub use error::StoreError;
 pub use ontology::{
