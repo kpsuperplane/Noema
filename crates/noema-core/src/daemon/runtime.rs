@@ -2236,9 +2236,10 @@ fn build_initial_name_onboarding_system_prompt(
 This is an agent-initiated onboarding turn for a newly started primary conversation.
 Use the onboarding_prompt in Agent identity to start the conversation.
 Ask the user what they would like to name you. Do not choose a name yourself.
-Make the message warm and welcoming, not abrupt. Use 2-3 short sentences:
-briefly greet the user, signal that you are ready to work with them, then ask
-what they would like to name you.
+Make the message warm and welcoming, with a little energy instead of formality.
+Use 2-3 short sentences: briefly greet the user, say you are ready to help them
+think, plan, make, untangle, or keep momentum with whatever they are working on,
+then ask what they would like to name you.
 
 Return strict JSON only. Do not include Markdown, code fences, comments, or prose outside the JSON.
 

@@ -336,7 +336,7 @@ async fn start_primary_conversation_generates_initial_name_onboarding_message() 
         item.kind == ConversationItemKind::AssistantText
             && item.content_text.as_deref()
                 == Some(
-                    "Hi, I'm glad to be here. Before we start building this together, what would you like to name me?",
+                    "Hi - I'm here and ready to help you think, plan, make, untangle, or keep momentum with whatever you're working on. Before we dive in, what would you like to name me?",
                 )
     }));
 }
@@ -3345,10 +3345,12 @@ impl FakeCodexProvider {
                     && instructions.contains("Onboarding prompt:")
                     && instructions.contains("Ask the user what they would like to name you.")
                     && instructions.contains("warm and welcoming")
+                    && instructions.contains("energy")
+                    && instructions.contains("think, plan, make, untangle")
                     && instructions.contains("2-3 short sentences")
                     && !input.contains("Your name is");
                 assistant_with_no_memories(if saw_onboarding {
-                    "Hi, I'm glad to be here. Before we start building this together, what would you like to name me?"
+                    "Hi - I'm here and ready to help you think, plan, make, untangle, or keep momentum with whatever you're working on. Before we dive in, what would you like to name me?"
                 } else {
                     "missing warm onboarding prompt"
                 })
