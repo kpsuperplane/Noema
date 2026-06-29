@@ -2,7 +2,7 @@ use super::*;
 use super::{
     memory_pipeline::{
         ConversationMemoryContext, explicit_memory_claim_candidate, explicit_memory_content,
-        infer_chat_sensitivity, provider_memory_claim_candidate,
+        infer_chat_sensitivity, provider_memory_claim_candidate, provider_memory_write_proposal,
     },
     protocol::TurnStreamEvent,
     runtime::CodexRuntimeHandle,
@@ -710,6 +710,85 @@ fn provider_subject_uses_first_subject_without_local_participant_override() {
 
     assert_eq!(provider.subject.entity_id, "project:noema");
     assert_eq!(provider.subject.entity_type, EntityType::Project);
+}
+
+#[test]
+fn provider_empty_retrieval_hints_fall_back_to_deterministic_hints() {
+    let provider = provider_memory_claim_candidate(
+        &crate::memory_extraction::ValidatedMemoryProposal {
+            proposal: proposal(json!({
+                "content": "The user loves planes.",
+                "memory_type": "preference",
+                "title": "Plane preference",
+                "confidence": 0.81,
+                "sensitivity": "normal",
+                "subjects": [{"id": "human:local", "kind": "human", "name": "Kevin", "role": "about"}],
+                "retrieval_hints": {"topics": [], "keywords": [], "summary": ""},
+                "risk_flags": [],
+                "evidence_excerpt": "I love planes."
+            })),
+            status: MemoryStatus::Candidate,
+        },
+        &ConversationMemoryContext {
+            conversation_id: "conversation:test".to_string(),
+            turn_id: "turn:test".to_string(),
+            turn_index: 1,
+            user_item_id: "item:provider".to_string(),
+            assistant_item_id: None,
+            assistant_items: Vec::new(),
+            user_content: "I love planes.".to_string(),
+            cwd: None,
+        },
+        0,
+        "ordinary_chat",
+    );
+
+    assert_eq!(provider.retrieval_hints["keywords"], json!(["planes"]));
+    assert_eq!(
+        provider.retrieval_hints["summary"],
+        json!("Kevin likes planes.")
+    );
+}
+
+#[test]
+fn provider_write_proposal_risk_flags_use_stable_snake_case_labels() {
+    let write_proposal = provider_memory_write_proposal(
+        &crate::memory_extraction::ValidatedMemoryProposal {
+            proposal: proposal(json!({
+                "content": "The user has a temporary secret.",
+                "memory_type": "note",
+                "title": "Temporary secret",
+                "confidence": 0.81,
+                "sensitivity": "secret",
+                "subjects": [{"id": "human:local", "kind": "human", "name": "Kevin", "role": "about"}],
+                "retrieval_hints": {"topics": ["security"], "keywords": ["temporary secret"], "summary": "The user has a temporary secret."},
+                "risk_flags": ["security_risk", "temporary_context"],
+                "evidence_excerpt": "This temporary secret matters."
+            })),
+            status: MemoryStatus::Candidate,
+        },
+        &ConversationMemoryContext {
+            conversation_id: "conversation:test".to_string(),
+            turn_id: "turn:test".to_string(),
+            turn_index: 1,
+            user_item_id: "item:provider".to_string(),
+            assistant_item_id: None,
+            assistant_items: Vec::new(),
+            user_content: "This temporary secret matters.".to_string(),
+            cwd: None,
+        },
+        0,
+        "ordinary_chat",
+    );
+
+    assert_eq!(
+        write_proposal.risk_flags,
+        vec!["security_risk".to_string(), "temporary_context".to_string()]
+    );
+    assert_eq!(
+        write_proposal.metadata["risk_flags"],
+        json!(["security_risk", "temporary_context"])
+    );
 }
 
 #[tokio::test]

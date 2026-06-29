@@ -92,7 +92,7 @@ pub(super) fn explicit_memory_write_proposal(
     content: &str,
     context: &ConversationMemoryContext,
 ) -> MemoryWriteProposal {
-    let parsed = parse_provider_claim(content, None);
+    let parsed = parse_explicit_claim(content);
     MemoryWriteProposal {
         source_kind: MemoryWriteSourceKind::ExplicitRemember,
         source_item_id: context.user_item_id.clone(),
@@ -145,6 +145,12 @@ pub(super) fn provider_memory_write_proposal(
 ) -> MemoryWriteProposal {
     let proposal = &validated.proposal;
     let evidence_source = evidence_source_for_excerpt(&proposal.evidence_excerpt, context);
+    let canonical_subject = provider_subject_entity(&proposal.subjects, &proposal.evidence_excerpt);
+    let risk_flags: Vec<String> = proposal
+        .risk_flags
+        .iter()
+        .filter_map(stable_risk_flag_label)
+        .collect();
     MemoryWriteProposal {
         source_kind: MemoryWriteSourceKind::OrdinaryChat,
         source_item_id: evidence_source.source_item_id,
@@ -159,11 +165,7 @@ pub(super) fn provider_memory_write_proposal(
         raw_text: proposal.content.clone(),
         memory_type: memory_type_label(proposal.memory_type).to_string(),
         sensitivity: proposal.sensitivity,
-        risk_flags: proposal
-            .risk_flags
-            .iter()
-            .map(|flag| format!("{flag:?}"))
-            .collect(),
+        risk_flags: risk_flags.clone(),
         retrieval_hints: serde_json::to_value(&proposal.retrieval_hints)
             .unwrap_or_else(|_| json!({})),
         metadata: json!({
@@ -174,9 +176,10 @@ pub(super) fn provider_memory_write_proposal(
             "proposal_index": proposal_index,
             "memory_type": memory_type_label(proposal.memory_type),
             "title": proposal.title,
-            "risk_flags": proposal.risk_flags,
+            "risk_flags": risk_flags,
             "evidence_source": evidence_source.source.as_str(),
             "cwd_project_hint": project_scope_from_cwd(context.cwd.as_deref()),
+            "canonical_subject": entity_candidate_metadata(&canonical_subject),
         }),
     }
 }
@@ -187,9 +190,13 @@ pub(super) fn deterministic_canonical_claim(
     confidence: Option<f64>,
     authority: EvidenceAuthority,
 ) -> NewClaimCandidate {
-    let parsed = parse_provider_claim(&proposal.raw_text, None);
+    let parsed = match proposal.source_kind {
+        MemoryWriteSourceKind::ExplicitRemember => parse_explicit_claim(&proposal.raw_text),
+        _ => parse_provider_claim(&proposal.raw_text, None),
+    };
     NewClaimCandidate {
-        subject: EntityCandidate::local_human(),
+        subject: canonical_subject_from_metadata(&proposal.metadata)
+            .unwrap_or_else(EntityCandidate::local_human),
         object: claim_object_entity(parsed.predicate_id, &parsed.object_phrase),
         predicate_id: parsed.predicate_id.to_string(),
         fact: parsed.fact.clone(),
@@ -201,7 +208,7 @@ pub(super) fn deterministic_canonical_claim(
             authority,
             excerpt: Some(proposal.source_excerpt.clone()),
         },
-        retrieval_hints: if proposal.retrieval_hints.is_object() {
+        retrieval_hints: if retrieval_hints_have_useful_content(&proposal.retrieval_hints) {
             proposal.retrieval_hints.clone()
         } else {
             json!({
@@ -217,6 +224,82 @@ struct ParsedExplicitClaim {
     predicate_id: &'static str,
     object_phrase: String,
     fact: String,
+}
+
+fn parse_explicit_claim(content: &str) -> ParsedExplicitClaim {
+    let normalized = collapse_whitespace(content);
+    let lowered = normalized.to_ascii_lowercase();
+
+    for prefix in [
+        "i like ",
+        "i love ",
+        "i'm a big fan of ",
+        "i am a big fan of ",
+        "kevin likes ",
+        "kevin loves ",
+        "kevin is a big fan of ",
+        "local human likes ",
+        "local human loves ",
+    ] {
+        if lowered.starts_with(prefix) {
+            let object_phrase = normalize_object_phrase(&normalized[prefix.len()..]);
+            if is_substantive_object_phrase(&object_phrase) {
+                return ParsedExplicitClaim {
+                    predicate_id: "likes",
+                    fact: format!("Kevin likes {}.", object_phrase),
+                    object_phrase,
+                };
+            }
+        }
+    }
+
+    for prefix in [
+        "i dislike ",
+        "i don't like ",
+        "i do not like ",
+        "i hate ",
+        "kevin dislikes ",
+        "kevin doesn't like ",
+        "kevin does not like ",
+        "kevin hates ",
+        "local human dislikes ",
+        "local human doesn't like ",
+        "local human does not like ",
+        "local human hates ",
+    ] {
+        if lowered.starts_with(prefix) {
+            let object_phrase = normalize_object_phrase(&normalized[prefix.len()..]);
+            if is_substantive_object_phrase(&object_phrase) {
+                return ParsedExplicitClaim {
+                    predicate_id: "dislikes",
+                    fact: format!("Kevin dislikes {}.", object_phrase),
+                    object_phrase,
+                };
+            }
+        }
+    }
+
+    for prefix in [
+        "i prefer ",
+        "i want ",
+        "kevin prefers ",
+        "kevin wants ",
+        "local human prefers ",
+        "local human wants ",
+    ] {
+        if lowered.starts_with(prefix) {
+            let object_phrase = normalize_object_phrase(&normalized[prefix.len()..]);
+            if is_substantive_object_phrase(&object_phrase) {
+                return ParsedExplicitClaim {
+                    predicate_id: "prefers",
+                    fact: format!("Kevin prefers {}.", object_phrase),
+                    object_phrase,
+                };
+            }
+        }
+    }
+
+    fallback_note_claim(&normalized)
 }
 
 fn parse_provider_claim(content: &str, _title: Option<&str>) -> ParsedExplicitClaim {
@@ -371,6 +454,90 @@ fn claim_object_entity(predicate_id: &str, object_phrase: &str) -> EntityCandida
         &format!("claim_object:{predicate_id}:{normalized_object}"),
         object_phrase,
     )
+}
+
+fn entity_candidate_metadata(entity: &EntityCandidate) -> serde_json::Value {
+    json!({
+        "entity_id": entity.entity_id,
+        "entity_type": entity_type_label(entity.entity_type),
+        "canonical_name": entity.canonical_name,
+    })
+}
+
+fn canonical_subject_from_metadata(metadata: &serde_json::Value) -> Option<EntityCandidate> {
+    let subject = metadata.get("canonical_subject")?;
+    let entity_id = non_empty_json_string(subject.get("entity_id")?)?;
+    let entity_type = entity_type_from_label(non_empty_json_string(subject.get("entity_type")?)?)?;
+    let canonical_name = non_empty_json_string(subject.get("canonical_name")?)?;
+    Some(EntityCandidate {
+        entity_id: entity_id.to_string(),
+        entity_type,
+        canonical_name: canonical_name.to_string(),
+    })
+}
+
+fn non_empty_json_string(value: &serde_json::Value) -> Option<&str> {
+    let value = value.as_str()?.trim();
+    if value.is_empty() { None } else { Some(value) }
+}
+
+fn entity_type_label(entity_type: EntityType) -> &'static str {
+    match entity_type {
+        EntityType::Human => "human",
+        EntityType::Agent => "agent",
+        EntityType::Person => "person",
+        EntityType::Organization => "organization",
+        EntityType::Project => "project",
+        EntityType::Workspace => "workspace",
+        EntityType::Conversation => "conversation",
+        EntityType::Document => "document",
+        EntityType::Tool => "tool",
+        EntityType::Place => "place",
+        EntityType::Task => "task",
+        EntityType::Goal => "goal",
+        EntityType::Concept => "concept",
+        EntityType::Other => "other",
+    }
+}
+
+fn entity_type_from_label(value: &str) -> Option<EntityType> {
+    match value {
+        "human" => Some(EntityType::Human),
+        "agent" => Some(EntityType::Agent),
+        "person" => Some(EntityType::Person),
+        "organization" => Some(EntityType::Organization),
+        "project" => Some(EntityType::Project),
+        "workspace" => Some(EntityType::Workspace),
+        "conversation" => Some(EntityType::Conversation),
+        "document" => Some(EntityType::Document),
+        "tool" => Some(EntityType::Tool),
+        "place" => Some(EntityType::Place),
+        "task" => Some(EntityType::Task),
+        "goal" => Some(EntityType::Goal),
+        "concept" => Some(EntityType::Concept),
+        "other" => Some(EntityType::Other),
+        _ => None,
+    }
+}
+
+fn retrieval_hints_have_useful_content(value: &serde_json::Value) -> bool {
+    match value {
+        serde_json::Value::Null => false,
+        serde_json::Value::String(value) => !value.trim().is_empty(),
+        serde_json::Value::Array(values) => values.iter().any(retrieval_hints_have_useful_content),
+        serde_json::Value::Object(values) => {
+            values.values().any(retrieval_hints_have_useful_content)
+        }
+        serde_json::Value::Bool(_) | serde_json::Value::Number(_) => true,
+    }
+}
+
+fn stable_risk_flag_label(
+    flag: &crate::memory_extraction::MemoryExtractionRiskFlag,
+) -> Option<String> {
+    serde_json::to_value(flag)
+        .ok()
+        .and_then(|value| value.as_str().map(ToOwned::to_owned))
 }
 
 #[allow(
