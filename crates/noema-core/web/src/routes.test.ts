@@ -10,11 +10,9 @@ describe("routeFromPathname", () => {
     assert.deepEqual(routeFromPathname("/memory/graph"), { kind: "memory_graph" });
   });
 
-  test("preserves unknown routes for not found states", () => {
-    assert.deepEqual(routeFromPathname("/memory/nope"), {
-      kind: "not_found",
-      path: "/memory/nope"
-    });
+  test("falls back to chat for unknown routes", () => {
+    assert.deepEqual(routeFromPathname("/memory/nope"), { kind: "chat" });
+    assert.deepEqual(routeFromPathname("/not-a-real-route"), { kind: "chat" });
   });
 });
 
