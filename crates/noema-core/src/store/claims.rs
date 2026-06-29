@@ -1192,6 +1192,13 @@ impl NoemaStore {
         candidate: NewClaimCandidate,
     ) -> Result<ClaimSummary, StoreError> {
         let _claim_write_guard = self.claim_write_lock.lock().await;
+        self.create_or_reinforce_claim_unlocked(candidate).await
+    }
+
+    async fn create_or_reinforce_claim_unlocked(
+        &self,
+        candidate: NewClaimCandidate,
+    ) -> Result<ClaimSummary, StoreError> {
         self.require_predicate(&candidate.predicate_id).await?;
         self.require_source_item(&candidate.evidence.source_item_id)
             .await?;
@@ -1222,6 +1229,28 @@ impl NoemaStore {
         self.claim_summary(&claim_id, write_outcome).await
     }
 
+    /// Return whether a candidate would reinforce a specific claim by exact fingerprint.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when the candidate's exact fingerprint lookup fails.
+    pub(crate) async fn claim_candidate_resolves_to_claim_id(
+        &self,
+        candidate: &NewClaimCandidate,
+        claim_id: &str,
+    ) -> Result<bool, StoreError> {
+        let fingerprint = claim_fingerprint(
+            &candidate.subject.entity_id,
+            &candidate.predicate_id,
+            &candidate.object.entity_id,
+            &candidate.fact,
+        );
+        Ok(self
+            .existing_claim_id(&fingerprint)
+            .await?
+            .is_some_and(|existing_claim_id| existing_claim_id == claim_id))
+    }
+
     /// Reinforce a specific existing non-deleted claim by id.
     ///
     /// # Errors
@@ -1248,6 +1277,36 @@ impl NoemaStore {
             .await
     }
 
+    /// Reinforce a specific claim selected from a bounded consolidation match.
+    ///
+    /// This accepts semantic object variants only when the selected match still
+    /// names the same object as the stored target claim.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when the target claim is missing, deleted, or
+    /// incompatible with the incoming candidate or selected match context.
+    pub(crate) async fn reinforce_matched_claim_by_id(
+        &self,
+        claim_id: &str,
+        matched_object_entity_id: Option<&str>,
+        candidate: NewClaimCandidate,
+    ) -> Result<ClaimSummary, StoreError> {
+        let _claim_write_guard = self.claim_write_lock.lock().await;
+        self.require_predicate(&candidate.predicate_id).await?;
+        self.require_source_item(&candidate.evidence.source_item_id)
+            .await?;
+        self.upsert_entity(&candidate.subject).await?;
+        self.upsert_entity(&candidate.object).await?;
+        self.require_matched_reinforcement_target(claim_id, matched_object_entity_id, &candidate)
+            .await?;
+        self.merge_reinforced_claim(claim_id, &candidate).await?;
+        self.insert_support_evidence(claim_id, &candidate.evidence)
+            .await?;
+        self.claim_summary(claim_id, ClaimWriteOutcome::Reinforced)
+            .await
+    }
+
     /// Create or reinforce a replacement claim, mark the old claim superseded,
     /// and record a supersedes edge from replacement to old claim.
     ///
@@ -1259,10 +1318,23 @@ impl NoemaStore {
         &self,
         candidate: SupersedeClaimCandidate,
     ) -> Result<ClaimSummary, StoreError> {
+        let _claim_write_guard = self.claim_write_lock.lock().await;
         self.require_non_deleted_claim(&candidate.superseded_claim_id)
             .await?;
+        if self
+            .claim_candidate_resolves_to_claim_id(
+                &candidate.replacement,
+                &candidate.superseded_claim_id,
+            )
+            .await?
+        {
+            return Err(StoreError::Schema(format!(
+                "claim cannot supersede itself: {}",
+                candidate.superseded_claim_id
+            )));
+        }
         let summary = self
-            .create_or_reinforce_claim(candidate.replacement)
+            .create_or_reinforce_claim_unlocked(candidate.replacement)
             .await?;
         self.insert_supersedes_relation(
             &summary.claim_id,
@@ -1350,6 +1422,30 @@ impl NoemaStore {
         }
         if existing.subject_entity_id != candidate.subject.entity_id
             || existing.predicate_id != candidate.predicate_id
+            || existing.object_entity_id.as_deref() != Some(candidate.object.entity_id.as_str())
+        {
+            return Err(StoreError::Schema(format!(
+                "claim reinforcement target is incompatible: {claim_id}"
+            )));
+        }
+        Ok(())
+    }
+
+    async fn require_matched_reinforcement_target(
+        &self,
+        claim_id: &str,
+        matched_object_entity_id: Option<&str>,
+        candidate: &NewClaimCandidate,
+    ) -> Result<(), StoreError> {
+        let existing = self.claim_identity_for_reinforcement(claim_id).await?;
+        if existing.status == ClaimStatus::Deleted {
+            return Err(StoreError::Schema(format!(
+                "deleted claim cannot be reinforced: {claim_id}"
+            )));
+        }
+        if existing.subject_entity_id != candidate.subject.entity_id
+            || existing.predicate_id != candidate.predicate_id
+            || existing.object_entity_id.as_deref() != matched_object_entity_id
         {
             return Err(StoreError::Schema(format!(
                 "claim reinforcement target is incompatible: {claim_id}"

@@ -1,9 +1,4 @@
-use std::{
-    collections::{HashMap, HashSet},
-    future::Future,
-    pin::Pin,
-    sync::Arc,
-};
+use std::{collections::HashMap, future::Future, pin::Pin, sync::Arc};
 
 use crate::{
     ClaimWriteOutcome, NoemaStore,
@@ -1465,10 +1460,6 @@ impl CodexRuntimeActor {
         decision: ConsolidationDecision,
         allowed_matches: &[ConsolidationMatch],
     ) -> Result<PersistedMemoryOutcome, DaemonError> {
-        let allowed_match_ids = allowed_matches
-            .iter()
-            .map(|item| item.claim_id.as_str())
-            .collect::<HashSet<_>>();
         match decision.decision {
             ConsolidationDecisionKind::Create => {
                 let summary = self.store.create_or_reinforce_claim(candidate).await?;
@@ -1480,14 +1471,18 @@ impl CodexRuntimeActor {
                         "reinforce decision missing existing claim id".to_string(),
                     )
                 })?;
-                validate_consolidation_decision_target(
+                let selected_match = validate_consolidation_decision_target(
                     "reinforce",
                     &existing_claim_id,
-                    &allowed_match_ids,
+                    allowed_matches,
                 )?;
                 let summary = self
                     .store
-                    .reinforce_claim_by_id(&existing_claim_id, candidate)
+                    .reinforce_matched_claim_by_id(
+                        &existing_claim_id,
+                        selected_match.object_entity_id.as_deref(),
+                        candidate,
+                    )
                     .await?;
                 Ok(PersistedMemoryOutcome::from_claim_summary(summary))
             }
@@ -1509,8 +1504,17 @@ impl CodexRuntimeActor {
                 validate_consolidation_decision_target(
                     "relate",
                     &related_claim_id,
-                    &allowed_match_ids,
+                    allowed_matches,
                 )?;
+                if self
+                    .store
+                    .claim_candidate_resolves_to_claim_id(&candidate, &related_claim_id)
+                    .await?
+                {
+                    return Err(DaemonError::Protocol(format!(
+                        "relate decision target resolves to incoming claim: {related_claim_id}"
+                    )));
+                }
                 let summary = self.store.create_or_reinforce_claim(candidate).await?;
                 self.store
                     .relate_claims(RelatedClaimCandidate {
@@ -1537,7 +1541,7 @@ impl CodexRuntimeActor {
                 validate_consolidation_decision_target(
                     "supersede",
                     &existing_claim_id,
-                    &allowed_match_ids,
+                    allowed_matches,
                 )?;
                 let metadata = json!({
                     "rationale": decision.rationale,
@@ -2124,13 +2128,16 @@ fn claim_outcome_json(summary: &crate::ClaimSummary) -> Value {
     })
 }
 
-fn validate_consolidation_decision_target(
+fn validate_consolidation_decision_target<'a>(
     decision_kind: &str,
     existing_claim_id: &str,
-    allowed_match_ids: &HashSet<&str>,
-) -> Result<(), DaemonError> {
-    if allowed_match_ids.contains(existing_claim_id) {
-        return Ok(());
+    allowed_matches: &'a [ConsolidationMatch],
+) -> Result<&'a ConsolidationMatch, DaemonError> {
+    if let Some(selected_match) = allowed_matches
+        .iter()
+        .find(|item| item.claim_id == existing_claim_id)
+    {
+        return Ok(selected_match);
     }
     Err(DaemonError::Protocol(format!(
         "{decision_kind} decision target is not in consolidation match set: {existing_claim_id}"

@@ -70,7 +70,40 @@ async fn reinforcing_existing_claim_adds_evidence() {
 }
 
 #[tokio::test]
-async fn reinforcing_claim_by_id_accepts_semantic_fact_variant_without_duplicate() {
+async fn reinforce_claim_by_id_rejects_different_object_without_match_context() {
+    let store = test_store().await;
+    let first_item = create_source_item(&store, "Kevin likes ice cream.").await;
+    let second_item =
+        create_source_item(&store, "Ice cream is one of Kevin's favorite desserts.").await;
+
+    let first = store
+        .create_or_reinforce_claim(ice_cream_claim(
+            first_item.item_id,
+            "Kevin likes ice cream.",
+        ))
+        .await
+        .expect("first claim");
+    let mut semantic_variant = ice_cream_claim(
+        second_item.item_id,
+        "Ice cream is one of Kevin's favorite desserts.",
+    );
+    semantic_variant.object =
+        EntityCandidate::concept("concept:ice_cream_desserts", "ice cream desserts");
+
+    let error = store
+        .reinforce_claim_by_id(&first.claim_id, semantic_variant)
+        .await
+        .expect_err("strict targeted reinforce should reject different object");
+
+    assert!(
+        matches!(error, StoreError::Schema(ref message) if message.contains("incompatible")),
+        "unexpected error: {error:?}"
+    );
+    assert_eq!(support_count(&store, &first.claim_id).await, 1);
+}
+
+#[tokio::test]
+async fn reinforce_matched_claim_by_id_accepts_semantic_fact_variant_without_duplicate() {
     let store = test_store().await;
     let first_item = create_source_item(&store, "Kevin likes ice cream.").await;
     let second_item =
@@ -90,9 +123,9 @@ async fn reinforcing_claim_by_id_accepts_semantic_fact_variant_without_duplicate
     semantic_variant.object =
         EntityCandidate::concept("concept:ice_cream_desserts", "ice cream desserts");
     let second = store
-        .reinforce_claim_by_id(&first.claim_id, semantic_variant)
+        .reinforce_matched_claim_by_id(&first.claim_id, Some("concept:ice_cream"), semantic_variant)
         .await
-        .expect("targeted reinforce");
+        .expect("matched targeted reinforce");
 
     assert_eq!(first.claim_id, second.claim_id);
     assert_eq!(second.write_outcome, ClaimWriteOutcome::Reinforced);
@@ -112,6 +145,39 @@ async fn reinforcing_claim_by_id_accepts_semantic_fact_variant_without_duplicate
         "unexpected active claims: {active_claims:?}"
     );
     assert_eq!(claim_count(&store).await, 1);
+}
+
+#[tokio::test]
+async fn reinforce_matched_claim_by_id_rejects_unrelated_match_object() {
+    let store = test_store().await;
+    let first_item = create_source_item(&store, "Kevin likes ice cream.").await;
+    let second_item =
+        create_source_item(&store, "Ice cream is one of Kevin's favorite desserts.").await;
+
+    let first = store
+        .create_or_reinforce_claim(ice_cream_claim(
+            first_item.item_id,
+            "Kevin likes ice cream.",
+        ))
+        .await
+        .expect("first claim");
+    let mut semantic_variant = ice_cream_claim(
+        second_item.item_id,
+        "Ice cream is one of Kevin's favorite desserts.",
+    );
+    semantic_variant.object =
+        EntityCandidate::concept("concept:ice_cream_desserts", "ice cream desserts");
+
+    let error = store
+        .reinforce_matched_claim_by_id(&first.claim_id, Some("trains"), semantic_variant)
+        .await
+        .expect_err("matched reinforce should reject unrelated match object");
+
+    assert!(
+        matches!(error, StoreError::Schema(ref message) if message.contains("incompatible")),
+        "unexpected error: {error:?}"
+    );
+    assert_eq!(support_count(&store, &first.claim_id).await, 1);
 }
 
 #[tokio::test]
@@ -146,6 +212,40 @@ async fn supersede_claim_marks_old_claim_and_links_replacement() {
         supersedes_count(&store, &new_summary.claim_id, &old.claim_id).await,
         1
     );
+}
+
+#[tokio::test]
+async fn supersede_claim_self_target_preflight_does_not_add_evidence_or_relation() {
+    let store = test_store().await;
+    let old_item = create_source_item(&store, "Kevin likes ice cream.").await;
+    let new_item = create_source_item(&store, "  kevin likes ice cream.  ").await;
+
+    let old = store
+        .create_or_reinforce_claim(ice_cream_claim(old_item.item_id, "Kevin likes ice cream."))
+        .await
+        .expect("old claim");
+    let mut replacement = ice_cream_claim(new_item.item_id, "  kevin likes ice cream.  ");
+    replacement.evidence.excerpt = Some("  kevin likes ice cream.  ".to_string());
+
+    let error = store
+        .supersede_claim(SupersedeClaimCandidate {
+            replacement,
+            superseded_claim_id: old.claim_id.clone(),
+            metadata: json!({"rationale": "same exact claim"}),
+        })
+        .await
+        .expect_err("self supersede should fail before writes");
+
+    assert!(
+        matches!(error, StoreError::Schema(ref message) if message.contains("supersede itself")),
+        "unexpected error: {error:?}"
+    );
+    assert_eq!(support_count(&store, &old.claim_id).await, 1);
+    assert_eq!(
+        supersedes_count(&store, &old.claim_id, &old.claim_id).await,
+        0
+    );
+    assert_eq!(claim_count(&store).await, 1);
 }
 
 #[tokio::test]
