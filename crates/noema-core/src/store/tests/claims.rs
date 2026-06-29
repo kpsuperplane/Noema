@@ -446,6 +446,24 @@ async fn retrieval_includes_normal_active_claim_for_allowed_use_mode() {
 }
 
 #[tokio::test]
+async fn query_only_retrieval_ignores_structural_metadata_matches() {
+    let store = test_store().await;
+    let source_item = create_source_item(&store, "Kevin likes trains.").await;
+    store
+        .create_or_reinforce_claim(train_claim(source_item.item_id))
+        .await
+        .expect("create claim");
+
+    let result = store
+        .retrieve_claims(&personalize_request(), "human", 8)
+        .await
+        .expect("retrieve query-only memories");
+
+    assert!(result.included.is_empty());
+    assert_eq!(result.redacted_omission_count, 0);
+}
+
+#[tokio::test]
 async fn retrieval_redacts_policy_denied_sensitive_claim() {
     let store = test_store().await;
     let source_item = create_source_item(&store, "Kevin likes night trains.").await;

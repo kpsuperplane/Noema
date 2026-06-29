@@ -93,6 +93,11 @@ impl NoemaStore {
         let entity_names = self.retrieval_entity_names(&rows).await?;
         let query = QueryTerms::from_query(query_text);
         let scope_set = scope_ids.iter().cloned().collect::<HashSet<_>>();
+        let matching_mode = if scope_set.is_empty() {
+            MatchingMode::FactAndHintsOnly
+        } else {
+            MatchingMode::Expanded
+        };
         let mut result = ClaimRetrievalResult::default();
         let mut included = Vec::new();
 
@@ -103,7 +108,7 @@ impl NoemaStore {
 
             let predicate = self.predicate_policy(&row.predicate_id).await?;
             let Some(match_score) =
-                deterministic_match_score(&row, &predicate, &entity_names, &query)
+                deterministic_match_score(&row, &predicate, &entity_names, &query, matching_mode)
             else {
                 continue;
             };
@@ -258,6 +263,12 @@ impl QueryTerms {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MatchingMode {
+    FactAndHintsOnly,
+    Expanded,
+}
+
 fn scope_matches_claim(row: &ClaimRetrievalRow, scope_ids: &HashSet<String>) -> bool {
     if scope_ids.is_empty() {
         return true;
@@ -274,23 +285,24 @@ fn deterministic_match_score(
     predicate: &PredicatePolicyRow,
     entity_names: &HashMap<String, String>,
     query: &QueryTerms,
+    matching_mode: MatchingMode,
 ) -> Option<i64> {
     if query.is_empty() {
         return Some(50);
     }
 
-    let mut haystack = vec![
-        row.fact.as_str(),
-        row.predicate_id.as_str(),
-        predicate.label.as_str(),
-    ];
-    if let Some(subject_name) = entity_names.get(&row.subject_entity_id) {
-        haystack.push(subject_name.as_str());
-    }
-    if let Some(object_entity_id) = row.object_entity_id.as_ref()
-        && let Some(object_name) = entity_names.get(object_entity_id)
-    {
-        haystack.push(object_name.as_str());
+    let mut haystack = vec![row.fact.as_str()];
+    if matching_mode == MatchingMode::Expanded {
+        haystack.push(row.predicate_id.as_str());
+        haystack.push(predicate.label.as_str());
+        if let Some(subject_name) = entity_names.get(&row.subject_entity_id) {
+            haystack.push(subject_name.as_str());
+        }
+        if let Some(object_entity_id) = row.object_entity_id.as_ref()
+            && let Some(object_name) = entity_names.get(object_entity_id)
+        {
+            haystack.push(object_name.as_str());
+        }
     }
     let joined = haystack.join(" ").to_lowercase();
     let content_tokens = tokenize_match_text(&joined);
