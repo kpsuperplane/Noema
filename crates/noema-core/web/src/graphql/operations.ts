@@ -45,6 +45,73 @@ export const ProviderAuthAttemptDocument = gql`
   }
 `;
 
+export const MemoryGraphDocument = gql`
+  query MemoryGraph($input: GraphqlMemoryGraphInput) {
+    memoryGraph(input: $input) {
+      nodes {
+        nodeId
+        entityId
+        label
+        entityType
+        redacted
+        claimCount
+      }
+      edges {
+        claimId
+        sourceNodeId
+        targetNodeId
+        predicateId
+        predicateLabel
+        fact
+        factRedacted
+        status
+        sensitivity
+        confidence
+        evidenceCount
+        createdAt
+        updatedAt
+      }
+      summary {
+        returnedClaimCount
+        returnedNodeCount
+        limit
+        truncated
+      }
+    }
+  }
+`;
+
+export const MemoryGraphClaimDetailDocument = gql`
+  query MemoryGraphClaimDetail($claimId: String!) {
+    memoryClaim(claimId: $claimId) {
+      claimId
+      fact
+      predicateId
+      predicateLabel
+      subjectEntityId
+      subjectEntityName
+      subjectEntityType
+      objectEntityId
+      objectEntityName
+      objectEntityType
+      status
+      sensitivity
+      confidence
+      evidenceCount
+      createdAt
+      updatedAt
+      evidence {
+        evidenceId
+        sourceItemId
+        authority
+        excerpt
+        observedAt
+        createdAt
+      }
+    }
+  }
+`;
+
 export const StartProviderAuthAttemptDocument = gql`
   mutation StartProviderAuthAttempt($input: GraphqlStartProviderAuthAttemptInput!) {
     startProviderAuthAttempt(input: $input) {
