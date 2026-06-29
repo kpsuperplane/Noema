@@ -2,7 +2,7 @@
 
 use clap::Subcommand;
 use serde::Deserialize;
-use serde_json::json;
+use serde_json::{Value, json};
 use std::{
     io::{self, Write},
     path::PathBuf,
@@ -33,6 +33,22 @@ pub(crate) enum MemoryCommand {
     Show {
         #[arg(value_name = "MEMORY_ID")]
         memory_id: String,
+    },
+    #[command(about = "List predicate proposals awaiting memory review.")]
+    PredicateProposals {
+        #[arg(
+            long,
+            default_value_t = 20,
+            help = "Maximum predicate proposals to show."
+        )]
+        limit: u32,
+        #[arg(long, help = "Only show proposals with this lifecycle status.")]
+        status: Option<String>,
+    },
+    #[command(about = "Show one predicate proposal.")]
+    PredicateProposal {
+        #[arg(value_name = "PROPOSAL_ID")]
+        proposal_id: String,
     },
 }
 
@@ -89,6 +105,43 @@ pub(crate) async fn run_memory(
             };
             let mut stdout = io::stdout();
             write_memory_claim_detail(&mut stdout, &claim).map_err(CliError::WriteOutput)
+        }
+        MemoryCommand::PredicateProposals { limit, status } => {
+            let data = graphql_client::execute::<PredicateProposalsData>(
+                graphql_base_url,
+                GraphqlRequest::new(
+                    PREDICATE_PROPOSALS_QUERY,
+                    json!({
+                        "status": status,
+                        "limit": i32::try_from(*limit).unwrap_or(i32::MAX),
+                    }),
+                ),
+            )
+            .await
+            .map_err(CliError::Graphql)?;
+            let mut stdout = io::stdout();
+            write_predicate_proposal_list(&mut stdout, &data.memory_predicate_proposals)
+                .map_err(CliError::WriteOutput)
+        }
+        MemoryCommand::PredicateProposal { proposal_id } => {
+            let data = graphql_client::execute::<PredicateProposalData>(
+                graphql_base_url,
+                GraphqlRequest::new(
+                    PREDICATE_PROPOSAL_QUERY,
+                    json!({
+                        "proposalId": proposal_id,
+                    }),
+                ),
+            )
+            .await
+            .map_err(CliError::Graphql)?;
+            let Some(proposal) = data.memory_predicate_proposal else {
+                return Err(CliError::Unavailable(format!(
+                    "predicate proposal not found: {proposal_id}"
+                )));
+            };
+            let mut stdout = io::stdout();
+            write_predicate_proposal_detail(&mut stdout, &proposal).map_err(CliError::WriteOutput)
         }
     }
 }
@@ -157,6 +210,38 @@ query CliMemoryClaim($claimId: String!) {
 }
 "#;
 
+const PREDICATE_PROPOSALS_QUERY: &str = r#"
+query CliPredicateProposals($status: String, $limit: Int) {
+  memoryPredicateProposals(status: $status, limit: $limit) {
+    proposalId
+    label
+    description
+    proposedPredicate
+    proposedClaim
+    status
+    sourceItemId
+    createdAt
+    updatedAt
+  }
+}
+"#;
+
+const PREDICATE_PROPOSAL_QUERY: &str = r#"
+query CliPredicateProposal($proposalId: String!) {
+  memoryPredicateProposal(proposalId: $proposalId) {
+    proposalId
+    label
+    description
+    proposedPredicate
+    proposedClaim
+    status
+    sourceItemId
+    createdAt
+    updatedAt
+  }
+}
+"#;
+
 #[derive(Debug, Deserialize)]
 struct MemoryClaimsData {
     #[serde(rename = "memoryClaims")]
@@ -167,6 +252,18 @@ struct MemoryClaimsData {
 struct MemoryClaimData {
     #[serde(rename = "memoryClaim")]
     memory_claim: Option<GraphqlMemoryClaimDetail>,
+}
+
+#[derive(Debug, Deserialize)]
+struct PredicateProposalsData {
+    #[serde(rename = "memoryPredicateProposals")]
+    memory_predicate_proposals: Vec<GraphqlPredicateProposal>,
+}
+
+#[derive(Debug, Deserialize)]
+struct PredicateProposalData {
+    #[serde(rename = "memoryPredicateProposal")]
+    memory_predicate_proposal: Option<GraphqlPredicateProposal>,
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq)]
@@ -248,6 +345,25 @@ pub(crate) struct GraphqlMemoryClaimEvidence {
     observed_at: Option<String>,
     #[serde(rename = "createdAt")]
     created_at: String,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub(crate) struct GraphqlPredicateProposal {
+    #[serde(rename = "proposalId")]
+    proposal_id: String,
+    label: String,
+    description: String,
+    #[serde(rename = "proposedPredicate")]
+    proposed_predicate: Value,
+    #[serde(rename = "proposedClaim")]
+    proposed_claim: Value,
+    status: String,
+    #[serde(rename = "sourceItemId")]
+    source_item_id: Option<String>,
+    #[serde(rename = "createdAt")]
+    created_at: String,
+    #[serde(rename = "updatedAt")]
+    updated_at: String,
 }
 
 fn context_inspection_unavailable() -> CliError {
@@ -345,6 +461,61 @@ fn write_memory_claim_detail<W: Write>(
     Ok(())
 }
 
+fn write_predicate_proposal_list<W: Write>(
+    writer: &mut W,
+    proposals: &[GraphqlPredicateProposal],
+) -> io::Result<()> {
+    if proposals.is_empty() {
+        writeln!(writer, "No predicate proposals found.")?;
+        return Ok(());
+    }
+
+    writeln!(
+        writer,
+        "{:<38}  {:<10}  {:<22}  {:<24}  Description",
+        "ID", "Status", "Label", "Created"
+    )?;
+
+    for proposal in proposals {
+        writeln!(
+            writer,
+            "{:<38}  {:<10}  {:<22}  {:<24}  {}",
+            proposal.proposal_id,
+            proposal.status,
+            preview(&proposal.label, 22),
+            proposal.created_at,
+            preview(&proposal.description, 96),
+        )?;
+    }
+
+    Ok(())
+}
+
+fn write_predicate_proposal_detail<W: Write>(
+    writer: &mut W,
+    proposal: &GraphqlPredicateProposal,
+) -> io::Result<()> {
+    writeln!(writer, "ID: {}", proposal.proposal_id)?;
+    writeln!(writer, "Status: {}", proposal.status)?;
+    writeln!(writer, "Label: {}", proposal.label)?;
+    writeln!(writer, "Description: {}", proposal.description)?;
+    writeln!(
+        writer,
+        "Source: {}",
+        proposal.source_item_id.as_deref().unwrap_or("-")
+    )?;
+    writeln!(writer, "Created: {}", proposal.created_at)?;
+    writeln!(writer, "Updated: {}", proposal.updated_at)?;
+    writeln!(writer)?;
+    writeln!(writer, "Proposed predicate")?;
+    writeln!(writer, "{}", pretty_json(&proposal.proposed_predicate))?;
+    writeln!(writer)?;
+    writeln!(writer, "Proposed claim")?;
+    writeln!(writer, "{}", pretty_json(&proposal.proposed_claim))?;
+
+    Ok(())
+}
+
 fn claim_list_fact(claim: &GraphqlMemoryClaim) -> String {
     if claim.fact_redacted {
         claim.fact.clone()
@@ -360,6 +531,10 @@ fn preview(value: &str, max_chars: usize) -> String {
         preview.push_str("...");
     }
     preview
+}
+
+fn pretty_json(value: &Value) -> String {
+    serde_json::to_string_pretty(value).unwrap_or_else(|_| value.to_string())
 }
 
 #[cfg(test)]

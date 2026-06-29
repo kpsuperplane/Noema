@@ -10,9 +10,10 @@ use super::{
         GraphqlConversationEvent, GraphqlConversationItem, GraphqlConversationItemEvent,
         GraphqlConversationStarted, GraphqlLocalServiceStatus, GraphqlLocalStatus,
         GraphqlMemoryClaim, GraphqlMemoryClaimDetail, GraphqlMemoryGraph, GraphqlMemoryGraphInput,
-        GraphqlMemoryStorageStatus, GraphqlOnboardingStatus, GraphqlProviderAuthAttempt,
-        GraphqlSendConversationTurnInput, GraphqlStartProviderAuthAttemptInput,
-        GraphqlSubscriptionReadyEvent, GraphqlTurnAccepted, GraphqlTurnCompletedEvent,
+        GraphqlMemoryStorageStatus, GraphqlOnboardingStatus, GraphqlPredicateProposal,
+        GraphqlProviderAuthAttempt, GraphqlSendConversationTurnInput,
+        GraphqlStartProviderAuthAttemptInput, GraphqlSubscriptionReadyEvent, GraphqlTurnAccepted,
+        GraphqlTurnCompletedEvent,
     },
 };
 
@@ -203,6 +204,49 @@ impl QueryRoot {
             .await
             .map_err(graphql_error)?;
         Ok(detail.map(Into::into))
+    }
+
+    /// List predicate proposals for memory-management inspection.
+    async fn memory_predicate_proposals(
+        &self,
+        ctx: &Context<'_>,
+        status: Option<String>,
+        limit: Option<i32>,
+    ) -> Result<Vec<GraphqlPredicateProposal>> {
+        let limit = match limit {
+            Some(value) if value < 1 => {
+                return Err(async_graphql::Error::new(
+                    "memoryPredicateProposals limit must be at least 1",
+                ));
+            }
+            Some(value) => Some(usize::try_from(value).map_err(|_| {
+                async_graphql::Error::new("memoryPredicateProposals limit is too large")
+            })?),
+            None => None,
+        };
+        let state = ctx.data_unchecked::<GraphqlState>();
+        let proposals = state
+            .store()?
+            .list_predicate_proposals(crate::PredicateProposalFilter { status, limit })
+            .await
+            .map_err(graphql_error)?;
+
+        Ok(proposals.into_iter().map(Into::into).collect())
+    }
+
+    /// Return one predicate proposal for memory-management inspection.
+    async fn memory_predicate_proposal(
+        &self,
+        ctx: &Context<'_>,
+        proposal_id: String,
+    ) -> Result<Option<GraphqlPredicateProposal>> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        let proposal = state
+            .store()?
+            .get_predicate_proposal(&proposal_id)
+            .await
+            .map_err(graphql_error)?;
+        Ok(proposal.map(Into::into))
     }
 
     /// Return a bounded graph-memory projection for local memory-management inspection.
@@ -565,9 +609,12 @@ mod tests {
         assert!(sdl.contains("GraphqlAssistantTextDeltaEvent"));
         assert!(sdl.contains("memoryClaims"));
         assert!(sdl.contains("memoryClaim"));
+        assert!(sdl.contains("memoryPredicateProposals"));
+        assert!(sdl.contains("memoryPredicateProposal"));
         assert!(sdl.contains("memoryGraph"));
         assert!(sdl.contains("type GraphqlMemoryClaim"));
         assert!(sdl.contains("type GraphqlMemoryClaimEvidence"));
+        assert!(sdl.contains("type GraphqlPredicateProposal"));
         assert!(sdl.contains("GraphqlMemoryGraph"));
         assert!(sdl.contains("GraphqlMemoryGraphInput"));
     }
@@ -786,6 +833,138 @@ mod tests {
         assert_eq!(data["memoryClaim"]["fact"], private_note);
         assert_eq!(data["memoryClaim"]["subjectEntityName"], "Local human");
         assert_eq!(data["memoryClaim"]["objectEntityName"], private_note);
+    }
+
+    #[tokio::test]
+    async fn predicate_proposal_query_returns_seeded_candidate() {
+        use crate::{
+            ActorRef, ConversationItemKind, ConversationItemStatus, NewConversation,
+            NewConversationItem, NewConversationTurn, PredicateProposalCandidate,
+            store::tests::test_store,
+        };
+
+        let store = test_store().await;
+        store.ensure_default_actors().await.expect("actors");
+        let conversation = store
+            .create_conversation(NewConversation::local_chat(None, None))
+            .await
+            .expect("conversation");
+        let turn = store
+            .create_conversation_turn(NewConversationTurn {
+                conversation_id: conversation.conversation_id.clone(),
+                trigger_item_id: None,
+                metadata: json!({}),
+            })
+            .await
+            .expect("turn");
+        let item = store
+            .append_conversation_item(NewConversationItem {
+                conversation_id: conversation.conversation_id,
+                turn_id: Some(turn.turn_id),
+                parent_item_id: None,
+                kind: ConversationItemKind::UserText,
+                status: ConversationItemStatus::Completed,
+                author: ActorRef::human("human:local"),
+                content_text: Some("Kevin collects model trains.".to_string()),
+                payload_json: json!({}),
+                metadata: json!({}),
+            })
+            .await
+            .expect("source item");
+        let proposal = store
+            .create_predicate_proposal(PredicateProposalCandidate {
+                label: "collects".to_string(),
+                description: "The subject collects the object.".to_string(),
+                proposed_predicate: json!({
+                    "label": "collects",
+                    "allowed_use_modes": ["answer", "personalize"],
+                }),
+                source_item_id: Some(item.item_id.clone()),
+                proposed_claim: json!({
+                    "fact": "Kevin collects model trains.",
+                    "subject": "human:local",
+                    "object": "concept:model_trains",
+                }),
+            })
+            .await
+            .expect("proposal");
+
+        let schema = build_schema(GraphqlState::for_tests_with_store(store));
+        let response = schema
+            .execute(async_graphql::Request::new(format!(
+                r#"
+                {{
+                  memoryPredicateProposal(proposalId: "{}") {{
+                    proposalId
+                    label
+                    description
+                    status
+                    sourceItemId
+                    proposedPredicate
+                    proposedClaim
+                  }}
+                  memoryPredicateProposals(status: "candidate", limit: 5) {{
+                    proposalId
+                    label
+                    status
+                    sourceItemId
+                    proposedPredicate
+                    proposedClaim
+                  }}
+                }}
+                "#,
+                proposal.proposal_id
+            )))
+            .await;
+
+        assert!(response.errors.is_empty(), "{:?}", response.errors);
+        let data = response.data.into_json().expect("json");
+        assert_eq!(
+            data["memoryPredicateProposal"]["proposalId"],
+            proposal.proposal_id
+        );
+        assert_eq!(data["memoryPredicateProposal"]["label"], "collects");
+        assert_eq!(
+            data["memoryPredicateProposal"]["description"],
+            "The subject collects the object."
+        );
+        assert_eq!(data["memoryPredicateProposal"]["status"], "candidate");
+        assert_eq!(
+            data["memoryPredicateProposal"]["sourceItemId"],
+            item.item_id
+        );
+        assert_eq!(
+            data["memoryPredicateProposal"]["proposedPredicate"]["label"],
+            "collects"
+        );
+        assert_eq!(
+            data["memoryPredicateProposal"]["proposedClaim"]["fact"],
+            "Kevin collects model trains."
+        );
+        assert_eq!(
+            data["memoryPredicateProposals"][0]["proposalId"],
+            proposal.proposal_id
+        );
+        assert_eq!(data["memoryPredicateProposals"][0]["label"], "collects");
+    }
+
+    #[tokio::test]
+    async fn memory_predicate_proposals_rejects_invalid_limit() {
+        let schema = build_schema(GraphqlState::for_tests());
+        let response = schema
+            .execute(async_graphql::Request::new(
+                r#"
+                { memoryPredicateProposals(limit: 0) { proposalId } }
+                "#,
+            ))
+            .await;
+
+        assert_eq!(response.errors.len(), 1);
+        assert!(
+            response.errors[0]
+                .message
+                .contains("memoryPredicateProposals limit must be at least 1")
+        );
     }
 
     #[tokio::test]

@@ -6,7 +6,8 @@ use serde_json::Value;
 use crate::{
     AgentStatus, ClaimStatus, MemoryClaimDetail, MemoryClaimEvidence, MemoryClaimRecord,
     MemoryGraph, MemoryGraphEdge, MemoryGraphNode, MemoryGraphSummary, OnboardingStatus,
-    ProviderAccountStatus, ProviderAuthMethod, TurnActivityStatus, TurnTranscriptItem,
+    PredicateProposalRecord, ProviderAccountStatus, ProviderAuthMethod, TurnActivityStatus,
+    TurnTranscriptItem,
     memory::Sensitivity,
     provider_auth::{ProviderAuthAttemptStatus, ProviderAuthAttemptView},
 };
@@ -248,6 +249,45 @@ impl From<MemoryClaimDetail> for GraphqlMemoryClaimDetail {
             created_at: claim.created_at,
             updated_at: claim.updated_at,
             evidence: detail.evidence.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+/// Predicate proposal exposed for memory-management inspection.
+#[derive(Clone, Debug, SimpleObject)]
+pub struct GraphqlPredicateProposal {
+    /// Stable proposal id.
+    pub proposal_id: String,
+    /// Human-readable proposed predicate label.
+    pub label: String,
+    /// Human-readable proposed predicate description.
+    pub description: String,
+    /// Proposed predicate catalog fields.
+    pub proposed_predicate: Json<Value>,
+    /// Claim candidate preserved alongside the proposed predicate.
+    pub proposed_claim: Json<Value>,
+    /// Proposal lifecycle status.
+    pub status: String,
+    /// Source conversation item id if available.
+    pub source_item_id: Option<String>,
+    /// Creation timestamp.
+    pub created_at: String,
+    /// Last update timestamp.
+    pub updated_at: String,
+}
+
+impl From<PredicateProposalRecord> for GraphqlPredicateProposal {
+    fn from(proposal: PredicateProposalRecord) -> Self {
+        Self {
+            proposal_id: proposal.proposal_id,
+            label: proposal.label,
+            description: proposal.description,
+            proposed_predicate: Json(proposal.proposed_predicate),
+            proposed_claim: Json(proposal.proposed_claim),
+            status: proposal.status,
+            source_item_id: proposal.source_item_id,
+            created_at: proposal.created_at,
+            updated_at: proposal.updated_at,
         }
     }
 }

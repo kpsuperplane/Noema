@@ -707,6 +707,43 @@ mod tests {
     }
 
     #[test]
+    fn parses_memory_predicate_proposals_subcommand() {
+        let args = Args::try_parse_from([
+            "noema",
+            "memory",
+            "predicate-proposals",
+            "--limit",
+            "9",
+            "--status",
+            "candidate",
+        ])
+        .expect("args");
+
+        assert!(matches!(
+            args.command,
+            Some(CommandKind::Memory {
+                command: MemoryCommand::PredicateProposals {
+                    limit: 9,
+                    status: Some(status),
+                }
+            }) if status == "candidate"
+        ));
+    }
+
+    #[test]
+    fn parses_memory_predicate_proposal_subcommand() {
+        let args = Args::try_parse_from(["noema", "memory", "predicate-proposal", "proposal_123"])
+            .expect("args");
+
+        assert!(matches!(
+            args.command,
+            Some(CommandKind::Memory {
+                command: MemoryCommand::PredicateProposal { proposal_id }
+            }) if proposal_id == "proposal_123"
+        ));
+    }
+
+    #[test]
     fn parses_context_graph_subcommand() {
         let args = Args::try_parse_from(["noema", "context", "graph"]).expect("args");
 

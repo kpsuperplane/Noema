@@ -73,3 +73,60 @@ fn graph_claim_detail_includes_unredacted_evidence() {
     assert!(output.contains("explicit_human_statement"));
     assert!(output.contains("Kevin likes trains."));
 }
+
+#[test]
+fn predicate_proposal_list_shows_compact_columns() {
+    let proposal = GraphqlPredicateProposal {
+        proposal_id: "predicate_proposal_1".to_string(),
+        label: "collects".to_string(),
+        description: "The subject collects the object.".to_string(),
+        proposed_predicate: serde_json::json!({ "label": "collects" }),
+        proposed_claim: serde_json::json!({ "fact": "Kevin collects model trains." }),
+        status: "candidate".to_string(),
+        source_item_id: Some("item_1".to_string()),
+        created_at: "2026-06-29T12:00:00Z".to_string(),
+        updated_at: "2026-06-29T12:00:00Z".to_string(),
+    };
+    let mut output = Vec::new();
+
+    write_predicate_proposal_list(&mut output, &[proposal]).expect("write list");
+    let output = String::from_utf8(output).expect("utf8");
+
+    assert!(output.contains("predicate_proposal_1"));
+    assert!(output.contains("candidate"));
+    assert!(output.contains("collects"));
+    assert!(output.contains("The subject collects the object."));
+}
+
+#[test]
+fn predicate_proposal_detail_includes_pretty_json() {
+    let proposal = GraphqlPredicateProposal {
+        proposal_id: "predicate_proposal_1".to_string(),
+        label: "collects".to_string(),
+        description: "The subject collects the object.".to_string(),
+        proposed_predicate: serde_json::json!({
+            "label": "collects",
+            "allowed_use_modes": ["answer", "personalize"]
+        }),
+        proposed_claim: serde_json::json!({
+            "fact": "Kevin collects model trains.",
+            "subject": "human:local"
+        }),
+        status: "candidate".to_string(),
+        source_item_id: Some("item_1".to_string()),
+        created_at: "2026-06-29T12:00:00Z".to_string(),
+        updated_at: "2026-06-29T12:01:00Z".to_string(),
+    };
+    let mut output = Vec::new();
+
+    write_predicate_proposal_detail(&mut output, &proposal).expect("write detail");
+    let output = String::from_utf8(output).expect("utf8");
+
+    assert!(output.contains("ID: predicate_proposal_1"));
+    assert!(output.contains("Source: item_1"));
+    assert!(output.contains("Proposed predicate"));
+    assert!(output.contains("\"allowed_use_modes\": ["));
+    assert!(output.contains("\"answer\""));
+    assert!(output.contains("Proposed claim"));
+    assert!(output.contains("\"fact\": \"Kevin collects model trains.\""));
+}

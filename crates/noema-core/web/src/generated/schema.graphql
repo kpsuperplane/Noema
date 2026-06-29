@@ -666,6 +666,48 @@ enum GraphqlOnboardingStepStatus {
 }
 
 """
+Predicate proposal exposed for memory-management inspection.
+"""
+type GraphqlPredicateProposal {
+	"""
+	Stable proposal id.
+	"""
+	proposalId: String!
+	"""
+	Human-readable proposed predicate label.
+	"""
+	label: String!
+	"""
+	Human-readable proposed predicate description.
+	"""
+	description: String!
+	"""
+	Proposed predicate catalog fields.
+	"""
+	proposedPredicate: JSON!
+	"""
+	Claim candidate preserved alongside the proposed predicate.
+	"""
+	proposedClaim: JSON!
+	"""
+	Proposal lifecycle status.
+	"""
+	status: String!
+	"""
+	Source conversation item id if available.
+	"""
+	sourceItemId: String
+	"""
+	Creation timestamp.
+	"""
+	createdAt: String!
+	"""
+	Last update timestamp.
+	"""
+	updatedAt: String!
+}
+
+"""
 Provider account status exposed through GraphQL.
 """
 enum GraphqlProviderAccountStatus {
@@ -937,6 +979,14 @@ type QueryRoot {
 	Return one graph-memory claim for memory-management inspection.
 	"""
 	memoryClaim(claimId: String!): GraphqlMemoryClaimDetail
+	"""
+	List predicate proposals for memory-management inspection.
+	"""
+	memoryPredicateProposals(status: String, limit: Int): [GraphqlPredicateProposal!]!
+	"""
+	Return one predicate proposal for memory-management inspection.
+	"""
+	memoryPredicateProposal(proposalId: String!): GraphqlPredicateProposal
 	"""
 	Return a bounded graph-memory projection for local memory-management inspection.
 	"""
