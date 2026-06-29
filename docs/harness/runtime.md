@@ -28,26 +28,26 @@ features can grow into:
 - `noema start` runs the same initialization path when the Noema directory or
   default config is missing.
 - The daemon owns live coordination state for active turns. Durable
-  conversation identity and transcript history live in Postgres.
+  conversation identity and transcript history live in embedded SurrealDB.
 - The daemon calls Codex through Noema-owned OAuth tokens and the direct Codex
   Responses API. It does not start the Codex CLI or use a `CODEX_HOME`.
 - The local web chat connects to the daemon, loads
   `human:local.primary_conversation_id`, and appends turns to that durable
   Noema conversation.
 - `noema chat` can still create explicit daemon conversations for CLI use, but
-  conversation continuity is a Noema/Postgres concept rather than a provider
-  runtime mapping.
+  conversation continuity is a Noema structured-store concept rather than a
+  provider runtime mapping.
 - If `noema chat` cannot reach a daemon, it starts a temporary daemon for that
   chat session and shuts it down when chat exits.
 
-This slice creates durable conversation rows, turns, transcript items, memory
-records, chat-turn provenance, and Postgres-backed context graph inspection. It
+This slice creates durable conversation rows, turns, transcript items, graph
+claims, chat-turn provenance, and GraphQL-backed memory inspection. It
 does not yet create durable run envelopes, event ledger entries, approvals,
 tools, or durable capability state. Provider runtime ids are adapter internals,
 not product continuity state.
 
 The daemon intentionally owns conversation continuity itself. For each turn it
-assembles recent durable transcript context from Postgres, sends a single
+assembles recent durable transcript context from SurrealDB, sends a single
 Responses request to Codex, persists provider output items, executes Noema-local
 tools such as `search_memory`, and sends a second Responses request only when a
 local tool result needs continuation. Codex credentials are stored as Noema-owned
@@ -715,7 +715,7 @@ A practical first runtime slice:
 
 - Conversation-triggered runs.
 - One local worker.
-- Postgres-backed run records and events.
+- SurrealDB-backed run records and events.
 - Basic context packet assembly.
 - Memory retrieval request and memory-use recording.
 - Capability registry with a small local/internal set.

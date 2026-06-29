@@ -1,5 +1,4 @@
 use super::*;
-use crate::NOEMA_DATABASE_URL_ENV;
 use serde_json::{Number, Value};
 use tempfile::NamedTempFile;
 
@@ -354,7 +353,7 @@ provider: codex
         Some(file.path().to_path_buf()),
         CliOverrides::default(),
         None,
-        &[("NOEMA_DATABASE_URL", "postgres://ignored/env")],
+        &[("NOEMA_LEGACY_DATABASE_URL", "ignored")],
     )
     .expect("daemon config should use embedded store");
 
@@ -363,9 +362,12 @@ provider: codex
 }
 
 #[test]
-fn production_env_normalization_ignores_flat_database_url() {
-    assert_eq!(normalize_env_key(NOEMA_DATABASE_URL_ENV), None);
-    assert_eq!(normalize_config_env_key("DATABASE_URL").as_deref(), None);
+fn production_env_normalization_ignores_unknown_flat_keys() {
+    assert_eq!(normalize_env_key("NOEMA_LEGACY_DATABASE_URL"), None);
+    assert_eq!(
+        normalize_config_env_key("LEGACY_DATABASE_URL").as_deref(),
+        None
+    );
 }
 
 #[test]

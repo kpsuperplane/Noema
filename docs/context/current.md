@@ -4,7 +4,7 @@ This file is the durable working brief for Codex sessions. Keep it concise and u
 
 ## Active Direction
 
-Noema is an always-on, self-hosted personal agent operating system. The approved storage direction is to replace Postgres with embedded SurrealDB as the canonical structured store, opened only by the Noema server process at `NOEMA_HOME/db`. The current implementation still contains Postgres-backed persistence until that replacement lands.
+Noema is an always-on, self-hosted personal agent operating system. Embedded SurrealDB is the canonical structured store, opened only by the Noema server process at `NOEMA_HOME/db`.
 
 The next storage slice should stay small and concrete:
 
@@ -118,13 +118,9 @@ The next storage slice should stay small and concrete:
 
 ## Open Loops
 
-- Replace Postgres persistence with embedded SurrealDB-backed repositories and
-  strict graph memory.
-- Retire stale SQLite/Postgres storage wording from docs after the SurrealDB
-  implementation lands.
 - Add richer web drill-ins for memory details, predicate review, provenance,
   and graph inspection.
-- Add `noema context graph` and richer graph neighborhood inspection.
+- Add richer graph neighborhood inspection for CLI, GraphQL, and web.
 - Continue aligning docs, schema, CLI inspection commands, and frontend IA.
 - Decide which export formats ship first and how export preview/redaction should work.
 - Revisit migrations only when the project needs persisted user data compatibility.

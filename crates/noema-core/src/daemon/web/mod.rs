@@ -14,12 +14,12 @@ use tokio::{
 
 use crate::{
     NoemaStore, TurnActivityStatus, TurnTranscriptItem, WebConfig,
-    memory_persistence::{ConversationItemKind, ConversationItemRecord, ReplayMode},
     provider_auth::{
         CodexDeviceAuthRequest, ProviderAuthAttemptStatus, ProviderAuthAttemptView,
         ProviderAuthManager,
     },
     providers::codex_oauth::{CodexOAuthConfig, CodexTokenStore},
+    {ConversationItemKind, ConversationItemRecord, ReplayMode},
 };
 
 use super::{protocol::DaemonError, runtime::CodexRuntimeHandle};
@@ -1234,10 +1234,8 @@ mod tests {
     use super::*;
     use crate::providers::codex_oauth::CodexOAuthTokens;
     use crate::{
-        memory_persistence::{
-            ConversationItemKind, ConversationItemRecord, ConversationItemStatus,
-        },
         provider_auth::ProviderAuthAttemptView,
+        {ConversationItemKind, ConversationItemRecord, ConversationItemStatus},
     };
     use serde_json::json;
 

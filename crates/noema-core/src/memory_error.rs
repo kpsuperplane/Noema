@@ -1,7 +1,4 @@
-use crate::{
-    database::DatabaseConfigError,
-    memory::{MemoryId, MemoryStoreError},
-};
+use crate::memory::{MemoryId, MemoryStoreError};
 use thiserror::Error;
 
 /// Errors produced by durable memory persistence.
@@ -77,11 +74,7 @@ pub enum MemoryPersistenceError {
     #[error(transparent)]
     MemoryStore(#[from] MemoryStoreError),
 
-    /// Database configuration failed.
-    #[error("memory database configuration failed: {0}")]
-    DatabaseConfig(#[from] DatabaseConfigError),
-
-    /// Database operation failed.
-    #[error("memory database operation failed: {0}")]
-    Database(#[from] sqlx::Error),
+    /// Structured store operation failed.
+    #[error(transparent)]
+    Store(#[from] crate::StoreError),
 }

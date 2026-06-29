@@ -5,8 +5,7 @@ use super::MemoryPersistenceError;
 macro_rules! persistence_id {
     ($name:ident, $doc:literal) => {
         #[doc = $doc]
-        #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, sqlx::Type)]
-        #[sqlx(transparent)]
+        #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
         pub struct $name(String);
 
         impl $name {

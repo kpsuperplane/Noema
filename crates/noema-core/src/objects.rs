@@ -1,6 +1,6 @@
 use std::{fmt, str::FromStr};
 
-use super::{ActorId, MemoryPersistenceError, ObjectId};
+use crate::{ActorId, MemoryPersistenceError, ObjectId};
 
 /// Closed set of concrete object types that can be referenced polymorphically.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -272,54 +272,5 @@ impl fmt::Display for ObjectRef {
             self.object_type.as_str(),
             self.object_id
         )
-    }
-}
-
-pub(super) async fn validate_object_ref_for_pool(
-    pool: &sqlx::PgPool,
-    object_ref: &ObjectRef,
-) -> Result<(), MemoryPersistenceError> {
-    let sql = format!(
-        "SELECT 1 FROM {} WHERE {} = $1 LIMIT 1",
-        object_ref.object_type.table_name(),
-        object_ref.object_type.id_column()
-    );
-    let exists = sqlx::query_scalar::<_, i32>(&sql)
-        .bind(object_ref.object_id.as_str())
-        .fetch_optional(pool)
-        .await
-        .map_err(MemoryPersistenceError::Database)?
-        .is_some();
-    if exists {
-        Ok(())
-    } else {
-        Err(MemoryPersistenceError::ObjectRefNotFound {
-            object_type: object_ref.object_type.as_str().to_string(),
-            object_id: object_ref.object_id.to_string(),
-        })
-    }
-}
-
-#[allow(dead_code)]
-pub(crate) async fn validate_actor_ref_for_pool(
-    pool: &sqlx::PgPool,
-    actor_ref: &ActorRef,
-) -> Result<(), MemoryPersistenceError> {
-    let exists = sqlx::query_scalar::<_, i32>(
-        "SELECT 1 FROM actors WHERE actor_id = $1 AND actor_kind = $2 LIMIT 1",
-    )
-    .bind(actor_ref.actor_id.as_str())
-    .bind(actor_ref.actor_kind.as_str())
-    .fetch_optional(pool)
-    .await
-    .map_err(MemoryPersistenceError::Database)?
-    .is_some();
-    if exists {
-        Ok(())
-    } else {
-        Err(MemoryPersistenceError::ObjectRefNotFound {
-            object_type: actor_ref.actor_kind.as_str().to_string(),
-            object_id: actor_ref.actor_id.to_string(),
-        })
     }
 }

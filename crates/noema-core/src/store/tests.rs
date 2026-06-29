@@ -5,9 +5,8 @@ mod claims;
 
 use super::{NoemaStore, StoreConfig, schema::STORE_SCHEMA_SQL};
 use crate::{
-    ActorRef, ConversationItemKind, ConversationItemStatus, NewConversationItem,
+    ActorRef, ConversationItemKind, ConversationItemStatus, NewConversation, NewConversationItem,
     NewConversationTurn, ObjectRef, ProviderAccountStatus, ReplayMode, StoreError,
-    memory_persistence::NewConversation,
 };
 
 #[tokio::test]

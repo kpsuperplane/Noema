@@ -19,7 +19,6 @@ ring.workspace = true
 reqwest = { workspace = true, features = ["stream"] }
 serde.workspace = true
 serde_json.workspace = true
-sqlx.workspace = true
 surrealdb.workspace = true
 thiserror.workspace = true
 tokio.workspace = true

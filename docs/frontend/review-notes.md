@@ -41,8 +41,8 @@ Original issue:
 - The current slice navigation listed runs, approvals, tools, and context graph as first-class
   active destinations.
 - Current Rust backs setup/config, daemon chat, memory persistence, and memory
-  graph inspection, but not durable run envelopes, approvals, tool registry, or
-  task execution.
+  list/detail inspection through graph claims, but not durable run envelopes,
+  approvals, tool registry, rich context graph inspection, or task execution.
 
 Resolution:
 
@@ -81,7 +81,10 @@ Original issue:
 
 Resolution:
 
-- Context graph is owner/admin-only.
+- Rich context graph inspection is future owner/admin-only. Current backed
+  inspection is memory list/detail through `noema memory list/show` and
+  GraphQL `memoryClaims`/`memoryClaim`; the retired `noema context graph`
+  command remains unavailable.
 - It is redacted by default in normal views.
 - Private, sensitive, or secret node/edge existence, aliases, source names,
   denial reasons, and counts require authorized reveal.
@@ -151,7 +154,7 @@ Resolution:
 
 Original issue:
 
-- The target Postgres doc includes surfaces that current Rust bootstrap/runtime
+- The target storage docs include surfaces that current Rust bootstrap/runtime
   does not fully create or use.
 - Context packet tables exist, but chat turns do not yet persist context
   packets consistently.

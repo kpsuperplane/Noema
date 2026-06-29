@@ -43,7 +43,7 @@ Related core docs:
 
 - [Project overview](project.md)
 - [Memory system plan](memory.md)
-- [Canonical Postgres schema](postgres.md)
+- [Retired Postgres schema](postgres.md)
 
 ## Architectural thesis
 
@@ -366,7 +366,7 @@ events.
 
 ### Persistence layer
 
-Canonical structured state lives in Postgres. Durable files live under
+Canonical structured state lives in embedded SurrealDB. Durable files live under
 the object-owned filesystem hierarchy. Derived state lives under `system/`.
 
 The harness should persist:
@@ -379,10 +379,10 @@ The harness should persist:
 - Memory-use records.
 - Policy decisions and explanations where needed for auditability.
 
-The current [Canonical Postgres schema](postgres.md) establishes the base object
-model. Harness-specific tables should extend that schema without changing its
-source-of-truth split. During the pre-stable phase, the bootstrap schema may be
-rewritten directly; migrations should wait for a stable compatibility policy.
+The current embedded SurrealDB schema establishes the first base object and
+graph-memory model. Harness-specific tables should extend that source-of-truth
+split. During the pre-stable phase, bootstrap schema may be rewritten directly;
+migrations should wait for a stable compatibility policy.
 
 ## Egress protection as the primary safety model
 
@@ -542,7 +542,7 @@ The first implementation can be modest:
 
 - One primary human.
 - One primary agent.
-- Postgres structured state.
+- Embedded SurrealDB structured state.
 - Local filesystem.
 - Local worker loop.
 - A small capability registry.

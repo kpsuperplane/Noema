@@ -4,7 +4,7 @@ use std::{
 };
 
 use crate::{
-    NoemaPathError, NoemaPaths, StoreError, WebConfig, memory_persistence::MemoryPersistenceError,
+    MemoryPersistenceError, NoemaPathError, NoemaPaths, StoreError, WebConfig,
     provider::ProviderError, providers::codex_responses::CodexProviderConfig,
 };
 use serde::{Deserialize, Serialize};
@@ -127,18 +127,18 @@ pub enum AgentStatus {
     Error,
 }
 
-impl From<crate::memory_persistence::AgentStatus> for AgentStatus {
-    fn from(status: crate::memory_persistence::AgentStatus) -> Self {
+impl From<crate::PersistedAgentStatus> for AgentStatus {
+    fn from(status: crate::PersistedAgentStatus) -> Self {
         match status {
-            crate::memory_persistence::AgentStatus::Idle => Self::Idle,
-            crate::memory_persistence::AgentStatus::InputReceived => Self::InputReceived,
-            crate::memory_persistence::AgentStatus::Thinking => Self::Thinking,
-            crate::memory_persistence::AgentStatus::ToolRunning => Self::ToolRunning,
-            crate::memory_persistence::AgentStatus::WaitingForPreviousTurnCompletion => {
+            crate::PersistedAgentStatus::Idle => Self::Idle,
+            crate::PersistedAgentStatus::InputReceived => Self::InputReceived,
+            crate::PersistedAgentStatus::Thinking => Self::Thinking,
+            crate::PersistedAgentStatus::ToolRunning => Self::ToolRunning,
+            crate::PersistedAgentStatus::WaitingForPreviousTurnCompletion => {
                 Self::WaitingForPreviousTurnCompletion
             }
-            crate::memory_persistence::AgentStatus::Interrupting => Self::Interrupting,
-            crate::memory_persistence::AgentStatus::Error => Self::Error,
+            crate::PersistedAgentStatus::Interrupting => Self::Interrupting,
+            crate::PersistedAgentStatus::Error => Self::Error,
         }
     }
 }

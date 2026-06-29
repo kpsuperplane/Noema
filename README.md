@@ -22,7 +22,6 @@ Two providers are currently supported:
 - Bun for frontend development
 - `NOEMA_OPENAI__API_KEY` in the environment when using `provider: openai`
 - Codex CLI installed and authenticated when using `provider: codex`
-- Postgres available through `NOEMA_DATABASE_URL` for durable structured state
 
 ## Usage
 
@@ -102,7 +101,6 @@ CLI flags > environment variables > $NOEMA_HOME/config.yaml or ~/.noema/config.y
 Supported environment variables:
 
 - `NOEMA_HOME`
-- `NOEMA_DATABASE_URL`
 - `NOEMA_PROVIDER`
 - `NOEMA_MODEL`
 - `NOEMA_OPENAI__API_KEY`
@@ -156,7 +154,7 @@ pretending that a ChatGPT/Codex subscription is an OpenAI API key. Daemon chat
 uses `codex app-server --listen stdio://`, creates one Noema conversation per
 `noema chat` session, and maps each conversation to one Codex thread. Explicit
 `remember this:` and `/remember` chat messages are persisted to
-Postgres and can be inspected with `noema memory list` and
+the embedded store and can be inspected with `noema memory list` and
 `noema memory show <id>`.
 
 The web chat uses Noema's first-party GraphQL API at `/graphql` with live
@@ -177,10 +175,10 @@ Start the auto-reloading local development stack:
 docker compose up dev
 ```
 
-The `dev` service starts Postgres, the Rust daemon watcher, and the core web
-asset watcher. The web chat is available at <http://localhost:3737/>. Postgres
-is available on the host at `postgres://noema:noema@localhost:5432/noema`, with
-physical database files stored under `${NOEMA_HOME:-$HOME/.noema}/db/postgres`.
+The `dev` service starts the Rust daemon watcher and the core web asset
+watcher. The web chat is available at <http://localhost:3737/>. Embedded
+SurrealDB structured state is stored under
+`${NOEMA_HOME:-$HOME/.noema}/db`.
 
 On first launch, the web UI checks backend onboarding readiness before opening
 chat. Chat stays blocked until an active provider account is authenticated.
@@ -204,13 +202,6 @@ To run the one-shot server container without file watching:
 
 ```bash
 docker compose --profile server up noema-server
-```
-
-Create the test database before running database-backed repository tests:
-
-```bash
-docker compose exec postgres createdb -U noema noema_test
-NOEMA_TEST_DATABASE_URL=postgres://noema:noema@localhost:5432/noema_test cargo test -p noema-core memory_persistence::postgres_tests -- --nocapture
 ```
 
 General Rust validation:
@@ -243,16 +234,11 @@ asset watcher:
 
 ```bash
 cargo install cargo-watch --locked
-docker compose up -d postgres
-NOEMA_HOME=.noema-dev \
-NOEMA_DATABASE_URL=postgres://noema:noema@localhost:5432/noema \
-cargo dev-daemon
+NOEMA_HOME=.noema-dev cargo dev-daemon
 ```
 
 Then connect from another terminal:
 
 ```bash
-NOEMA_HOME=.noema-dev \
-NOEMA_DATABASE_URL=postgres://noema:noema@localhost:5432/noema \
-cargo run -p noema-cli -- chat
+NOEMA_HOME=.noema-dev cargo run -p noema-cli -- chat
 ```

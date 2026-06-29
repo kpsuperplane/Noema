@@ -135,7 +135,8 @@ Memory management pages include:
 - Provenance, participants, subjects, grants, retrieval policy, versions, and
   usage history.
 - Access preview.
-- Owner/admin context graph only behind explicit reveal.
+- Future owner/admin graph-neighborhood inspection only behind explicit reveal;
+  current backed inspection is memory list/detail.
 
 Primary actions:
 
@@ -601,11 +602,11 @@ addressability and backing, not what the first shell emphasizes.
 | `/setup` | Setup | local folder, assistant connection, local service checks | create/update setup through guided setup flow | Current |
 | `/chat` | Chat | local service stream | live chat, transcript activity, inline memory extraction rows | Current |
 | `/chat/:id` | Chat detail | active daemon conversation; persisted `conversation_items` where available | live while daemon conversation exists; durable chat history after acknowledged turns | Current limited |
-| `/memory` | Memory settings | Postgres memory repository | secondary list and supported filters with redacted metadata; full FTS search waits for backend support | Current |
-| `/memory/:id` | Memory detail | Postgres memory repository | opened from chat line or memory settings; inspect, reveal when authorized, limited lifecycle actions as backend supports | Current |
+| `/memory` | Memory settings | GraphQL memory read model | secondary list and supported filters with redacted metadata; richer search waits for backend support | Current |
+| `/memory/:id` | Memory detail | GraphQL memory read model | opened from chat line or memory settings; inspect, reveal when authorized, limited lifecycle actions as backend supports | Current |
 | `/memory/review` | Review memory | persisted candidates/active extracted memories | opened from review-required chat lines or settings; keep/edit/reject once mutation endpoints exist | Current limited |
 | `/inspect` | Advanced inspection | CLI-equivalent read models | owner/admin inspection hub; not primary navigation during onboarding or normal beginner use | Current |
-| `/inspect/context-graph` | Context graph | persisted graph tables and `noema context graph` semantics | owner/admin-only, redacted by default | Current |
+| `/inspect/context-graph` | Context graph | future graph neighborhood read model | owner/admin-only, redacted by default | Future |
 | `/inspect/context-packets` | Context packets | context packet tables if populated | inspect when rows exist; unavailable state otherwise | Current limited |
 | `/settings` | Settings | config, paths, local service health | local setup, maintenance, memory management entry points, advanced drill-ins | Current |
 

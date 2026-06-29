@@ -2,7 +2,8 @@
 
 This directory defines the frontend information architecture for Noema. It is
 grounded in the current repository state and in the product architecture in
-`docs/project.md`, `docs/memory.md`, `docs/postgres.md`, and `docs/harness/`.
+`docs/project.md`, `docs/memory.md`, the retired Postgres schema in
+`docs/postgres.md`, and `docs/harness/`.
 
 Noema should not open as an admin dashboard. The primary user-facing
 experience is a quiet chat workspace: one person talking to Noema, with memory,
@@ -101,7 +102,7 @@ single chat pane. As work accumulates, the interface grows in place:
 
 Canonical state remains outside the frontend:
 
-- Structured source of truth lives in Postgres.
+- Structured source of truth lives in embedded SurrealDB.
 - Durable object-owned files live under the owning object directory.
 - `system/` state is derived and rebuildable.
 - The frontend displays projections, explains decisions, and submits actions.
@@ -181,8 +182,10 @@ The current repository implements only a narrow slice:
 - One-shot prompts can use the configured provider.
 - Explicit `remember this:` and `/remember` messages are persisted.
 - Ordinary chat memory extraction can produce persisted candidates.
-- `noema memory list`, `noema memory show <id>`, and
-  `noema context graph --limit N` provide owner/admin inspection.
+- `noema memory list` and `noema memory show <id>` provide current
+  owner/admin memory inspection through the daemon GraphQL `memoryClaims` and
+  `memoryClaim` fields. The retired `noema context graph` command remains
+  unavailable.
 - The daemon protocol already has transcript activity notices and an `A2uiCard`
   placeholder for future structured UI cards.
 - The first implemented frontend shell is the core-hosted React chat in
@@ -201,11 +204,11 @@ from chat/work context rather than pretending they already exist.
 | Transcript activity | Current Rust-backed | Assistant text, activity notices, errors, turn completion, future `A2uiCard` payloads |
 | Persisted chat history | Current Rust-backed | Durable chat history is reconstructed from `conversation_items`; live turn coordination comes from GraphQL subscriptions and `agent_status` |
 | Explicit memory save | Current Rust-backed | `remember this:` and `/remember` persist memory with provenance |
-| Memory list/detail | Current Rust-backed | Postgres repository and CLI inspection exist; UI should open from inline events first |
-| Context graph inspection | Current Rust-backed, owner/admin-only | Backed by persisted memory graph tables; redacted by default outside privileged inspection |
-| Context packets | Table-backed, not chat-wired | Tables and repository method exist, but chat turns do not yet persist packets in production flow |
+| Memory list/detail | Current Rust-backed | GraphQL memory read models and CLI inspection exist; UI should open from inline events first |
+| Context graph inspection | Future graph inspection | Rich graph neighborhood inspection is not yet active; memory claim list/detail is current |
+| Context packets | Store-backed, not fully chat-wired | Retrieval packet records exist where populated, but chat turns do not yet persist all packet details in production flow |
 | Runs, approvals, capabilities, task system | Harness-doc target | Architecture exists in docs; durable runtime/schema paths are not implemented as active product controls |
-| Memory versions, proactive rules, tombstones, FTS | Schema-doc target | Defined in `docs/postgres.md`; not all are created by the current Rust bootstrap schema |
+| Memory versions, proactive rules, tombstones, richer search | Future store target | Not all are created by the current embedded store schema |
 
 ## Current Frontend Slice
 
@@ -225,8 +228,9 @@ first practical frontend slice should keep proving the chat-led mental model:
    management drill-in.
 7. Memory review queue for active/candidate memories, opened from chat or
    settings when review is needed.
-8. Owner/admin-only graph inspector backed by `noema context graph` semantics,
-   redacted by default in normal views.
+8. Owner/admin-only graph inspector as a future drill-in; the current backed
+   inspection surface is memory list/detail parity with `noema memory
+   list/show` and GraphQL `memoryClaims`/`memoryClaim`.
 9. Memory-only access preview using the existing deterministic retrieval
    engine, presented first as a `Why?` or `What did Noema use?` explanation.
 10. Settings for assistant connection, local paths, backups, rebuildable state,

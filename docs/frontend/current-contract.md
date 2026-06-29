@@ -1,7 +1,7 @@
 # Current Frontend Contract
 
 This contract keeps the first frontend aligned with the current Rust runtime.
-It should be updated whenever the daemon protocol, Postgres bootstrap schema, or
+It should be updated whenever the daemon protocol, embedded store schema, or
 inspection commands change.
 
 For the current slice, routes may exist for memory, settings, and inspection,
@@ -13,7 +13,7 @@ explicit owner/admin entry points.
 
 | Status | Meaning |
 | --- | --- |
-| Current | Backed by current Rust code or a small bounded read model over current Postgres state |
+| Current | Backed by current Rust code or a small bounded read model over current embedded store state |
 | Current limited | Partly backed; must show unavailable/inspect-only states for missing behavior |
 | Future | Do not expose as an active control until backend/runtime support exists |
 | Owner/admin-only | Local privileged inspection; redacted or hidden for normal views |
@@ -26,10 +26,10 @@ explicit owner/admin entry points.
 | Daemon web server | Local React shell, GraphQL HTTP, and GraphQL WebSocket subscription endpoints |
 | `A2uiCard` payloads | Future structured cards inside the chat stream |
 | `config.yaml` and environment-derived config | Provider/model/default setup state; secrets remain environment-only |
-| `NoemaPaths` and database config | Noema home, run directory, socket path, and Postgres connection/readiness state |
-| Postgres memory tables | Concrete object rows, conversations, conversation_turns, conversation_items, memory items, entities, relationships, object provenance, grants, context graph inspection |
-| `PostgresMemoryRepository` | Memory list/detail, durable conversation item replay, memory candidates, context graph read model, deterministic retrieval |
-| CLI inspection commands | Reference behavior for memory and context graph display/redaction |
+| `NoemaPaths` and store config | Noema home, run directory, socket path, and embedded store location |
+| Embedded SurrealDB store | Concrete object rows, conversations, conversation_turns, conversation_items, graph claims, evidence, provider accounts, predicates, and retrieval packets |
+| GraphQL memory read model | Memory list/detail, durable conversation item replay, graph-claim retrieval, and redaction |
+| CLI inspection commands | Reference behavior for memory display/redaction |
 
 ## Default Current Identities
 
@@ -56,9 +56,9 @@ primary navigation priority.
 | `/memory` | Memory settings | memory list read model | secondary memory management opened from chat or settings; redacted list, filters, review entry points | Current |
 | `/memory/:id` | Memory detail | memory detail read model | opened from inline memory event or memory settings; inspect content/provenance/policy with reveal rules | Current |
 | `/memory/review` | Review memory | memory candidates and active extracted memories | opened from review-required chat events or settings; inspect now; mutation only where repository/API supports it | Current limited |
-| `/inspect` | Advanced inspection | read models over current Postgres state | owner/admin inspection hub; never required for ordinary chat success | Current |
-| `/inspect/context-graph` | Context graph | context graph read model | owner/admin-only graph inspection, redacted by default | Current |
-| `/inspect/context-packets` | Context packets | context packet tables if populated | inspect when rows exist; unavailable state otherwise | Current limited |
+| `/inspect` | Advanced inspection | embedded store read models | owner/admin inspection hub; never required for ordinary chat success | Current limited |
+| `/inspect/context-graph` | Context graph | future graph neighborhood read model | owner/admin-only graph inspection, redacted by default | Future |
+| `/inspect/context-packets` | Context packets | retrieval packet tables when populated | inspect when rows exist; unavailable state otherwise | Current limited |
 | `/settings` | Settings | paths/config/local service/assistant connection/database health | local maintenance, memory-management entry points, advanced drill-ins | Current |
 
 Future route groups:
@@ -135,7 +135,7 @@ Show:
   owner/admin reveal.
 - Config file existence and assistant connection status.
 - Whether config was initialized by defaults.
-- Postgres connection/readiness state.
+- Embedded store availability/readiness state.
 - Local service reachable/unreachable.
 - Provider readiness in beginner language: connected, not connected, timed out,
   or error.
@@ -193,7 +193,7 @@ Current behavior:
   updates.
 - Durable chat history is reconstructed from `conversation_items`.
 - Daemon runtime state is live coordination state only. After restart, Noema
-  reactivates the durable conversation and assembles context from Postgres.
+  reactivates the durable conversation and assembles context from SurrealDB.
 - Provider runtime ids are not part of the current product contract.
 - `agent_status` is live coordination state and is not replayed as transcript
   history.
@@ -202,7 +202,7 @@ Current behavior:
 
 Unavailable state:
 
-- If a user opens a persisted conversation while Postgres replay is
+- If a user opens a persisted conversation while embedded-store replay is
   unavailable, show an unavailable state for durable history and avoid falling
   back to provider runtime resume assumptions.
 
@@ -366,11 +366,16 @@ Bulk rules:
 
 ## Context Graph Inspector
 
-Status: current owner/admin-only.
+Status: future owner/admin-only graph inspection. Current memory graph
+inspection is limited to claim list/detail surfaces.
 
 Backed by:
 
-- The same persisted graph read model used by `noema context graph`.
+- Current: daemon GraphQL `memoryClaims`/`memoryClaim`, consumed by `noema
+  memory list` and `noema memory show <id>`.
+- Future: richer graph neighborhood inspection. The retired `noema context
+  graph` command is intentionally unavailable and is not a current backing
+  surface.
 
 Sections:
 

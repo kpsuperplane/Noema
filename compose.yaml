@@ -1,21 +1,4 @@
 services:
-  postgres:
-    image: postgres:17
-    environment:
-      POSTGRES_USER: noema
-      POSTGRES_PASSWORD: noema
-      POSTGRES_DB: noema
-      PGDATA: /noema/db/postgres
-    ports:
-      - "127.0.0.1:5432:5432"
-    volumes:
-      - ${NOEMA_HOME:-${HOME}/.noema}:/noema
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U noema -d noema"]
-      interval: 2s
-      timeout: 3s
-      retries: 20
-
   noema-server:
     profiles:
       - server
@@ -26,7 +9,6 @@ services:
     working_dir: /workspace
     command: ["cargo", "run", "-p", "noema-cli", "--", "start"]
     environment:
-      NOEMA_DATABASE_URL: postgres://noema:noema@postgres:5432/noema
       NOEMA_HOME: /noema
       NOEMA_OPENAI__API_KEY: ${NOEMA_OPENAI__API_KEY:-}
       NOEMA_WEB__HOST: 0.0.0.0
@@ -39,10 +21,6 @@ services:
       - noema-run:/noema/run
     ports:
       - "127.0.0.1:3737:3737"
-    depends_on:
-      postgres:
-        condition: service_healthy
-
   dev:
     profiles:
       - dev
@@ -55,7 +33,6 @@ services:
       - -c
       - cd crates/noema-core/web && bun install && cd /workspace && cargo dev-daemon
     environment:
-      NOEMA_DATABASE_URL: postgres://noema:noema@postgres:5432/noema
       NOEMA_HOME: /noema
       NOEMA_OPENAI__API_KEY: ${NOEMA_OPENAI__API_KEY:-}
       NOEMA_WEB__HOST: 0.0.0.0
@@ -69,10 +46,6 @@ services:
       - web-node-modules:/workspace/crates/noema-core/web/node_modules
     ports:
       - "127.0.0.1:3737:3737"
-    depends_on:
-      postgres:
-        condition: service_healthy
-
   web:
     profiles:
       - web

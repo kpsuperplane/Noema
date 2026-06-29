@@ -216,7 +216,8 @@ summaries, and broad entity labels. They are useful for finding candidates, but
 they are not authority-bearing. A topic such as `health`, `doctor`, or
 `appointment` must never unlock sensitive memory by itself.
 
-Retrieval policy is typed, versioned, and auditable. It includes:
+Target-state retrieval policy should be typed, versioned, and auditable. It
+includes:
 
 - `retrieval_policy_status`: `valid`, `stale`, `invalid`, or `needs_review`.
 - `retrieval_policy_version`.
@@ -232,6 +233,12 @@ Retrieval policy is typed, versioned, and auditable. It includes:
   conversations, calendar events, documents, artifacts, tools, or sources. These
   links include the trusted relation and, when relevant, the actor that
   authorized the link.
+
+Current SurrealDB graph-claim retrieval is narrower. It enforces claim status,
+sensitivity/context gates, predicate `use_mode`, and redacted omission counts.
+Policy fingerprints, extractor/version/validated-at metadata, participant
+visibility, egress rules, purpose rules, trusted object links, and retrieval
+packet writes remain future durable-graph work.
 
 Invalid, missing, stale, or unreviewed retrieval policy must fail closed for
 private, sensitive, and secret memories. Hints may still help retrieve normal
@@ -408,7 +415,7 @@ The memory dashboard should support:
 
 ## Storage
 
-Canonical memory state lives in Postgres.
+Canonical memory state lives in embedded SurrealDB.
 
 Object-owned documents and artifacts live under the relevant object folder.
 
@@ -419,21 +426,20 @@ Rebuildable retrieval state lives under `system/`.
 The initial slice should include graph-shaped memory primitives in the core, but not a
 separate graph engine.
 
-The Noema context graph is a policy-aware view over canonical Postgres state:
+The Noema context graph is a policy-aware view over canonical SurrealDB state:
 
 ```text
 conversation_items -> provenance-bearing source stream for chat and agent work
 entities -> graph nodes
-relationships -> graph claim edges
-memory_items -> durable claims, preferences, decisions, procedures, and notes
-memory_subjects -> what a memory is about
-memory_participants -> who was in scope when the memory formed
-object_provenance_edges -> why Noema believes or derived an object
-retrieval policy -> whether it may be used
+predicates -> promoted relationship vocabulary
+claims -> durable facts, preferences, decisions, procedures, and notes
+claim_evidence -> why Noema believes or derived a claim
+retrieval packets -> what was considered, included, and omitted
+retrieval policy -> whether a claim may be used
 ```
 
-Postgres remains the source of truth. Postgres full-text search is the only
-required retrieval index in the initial slice. Embeddings, external graph
+SurrealDB remains the source of truth. Current retrieval uses deterministic
+graph-claim reads with strict policy gates; embeddings, external graph
 databases, Graphiti adapters, learned ontology as authority, and autonomous
 multi-hop graph reasoning are future-slice work.
 
@@ -480,18 +486,11 @@ Initial retrieval should stay deliberately small:
 Two-hop traversal and graph-derived action reasoning are future-slice features
 after adversarial retrieval tests pass.
 
-The current durable retrieval bridge is
-`PostgresMemoryRepository::retrieve_memories`. It loads canonical Postgres memory
-items, subjects, participants, purpose rules, trusted object links, access
-grants, provenance, and relationship claim edges into the shared deterministic
-policy engine before evaluating the request. Postgres full-text search supplies
-rebuildable public-hint candidates. Structured scope, participant, grant,
-trusted object link, and graph-expansion paths continue to come from canonical
-rows. Retrieval recomputes `valid` policy
-fingerprints from the canonical rows and treats mismatches as stale, so changed
-content, subjects, participants, object links, purpose rules, egress policy, or
-provenance cannot continue to unlock private or stronger memory until the
-policy is refreshed.
+The current durable retrieval bridge reads SurrealDB graph claims. It filters
+active or confirmed claims by simple fact/hint matching, applies predicate
+`use_mode` plus sensitivity/context policy gates, and reports redacted omission
+counts. Richer graph expansion, policy fingerprints, and retrieval packet
+writes remain future work.
 
 ### Initial extraction flow
 
@@ -527,36 +526,27 @@ Initial inspection should expose:
 The first CLI inspection surface is:
 
 ```bash
-noema context graph --limit 50
-noema context graph --run-id run_01...
-noema context graph --packet-id ctx_01...
-noema context graph --format mermaid
+noema memory list
+noema memory show <claim_id>
 ```
 
-It renders the persisted context graph view from the canonical Postgres tables:
-memory nodes with unredacted title/content and stored/effective
-retrieval-policy status, entity nodes, subject edges, participant edges,
-provenance edges, trusted object-link policy edges, purpose rules, access grants
-that affect the inspected memories or their home scopes, context packet
-manifests, context-packet memory and omission edges, typed memory-use records,
-memory events, and relationship claim edges.
-During active development, schema changes update the canonical schema directly;
-local development databases can be recreated rather than migrated.
+It renders bounded owner/admin graph-claim inspection through GraphQL. Lists
+redact non-public fact text and content-bearing display names; detail
+inspection shows full fact and evidence. Richer context graph neighborhood and
+retrieval packet inspection are future work.
 
-Use `--run-id` or `--packet-id` when debugging a specific context packet. Use
-`--format mermaid` to render a Mermaid `flowchart TD` view of the same graph
-projection. The targeted view scopes memory nodes, policy edges, packet
-omissions, memory-use records, and relationship edges to the selected packet
-records instead of showing only the most recent rows.
-
-This CLI graph is privileged local owner/admin debug output. Agent-visible
-context packets and omissions must continue to use redacted model-facing
-surfaces rather than this inspection view.
+This CLI inspection surface is privileged local owner/admin debug output.
+Agent-visible context packets and omissions must continue to use redacted
+model-facing surfaces rather than this inspection view.
 
 This is enough to debug why a graph claim was retrieved without making graph
 state opaque or globally authoritative.
 
 ## Storage examples
+
+These examples describe the target memory object shape. Current SurrealDB graph
+claims store a leaner fact/evidence/predicate shape until durable retrieval
+policy metadata lands.
 
 Conversation-local preference, reusable later because Kevin participated:
 

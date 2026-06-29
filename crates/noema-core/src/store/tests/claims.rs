@@ -4,9 +4,8 @@ use super::test_store;
 use crate::{
     ActorRef, ClaimStatus, ClaimWriteOutcome, ConversationItemKind, ConversationItemStatus,
     EntityCandidate, EntityType, EvidenceAuthority, EvidenceCandidate, NewClaimCandidate,
-    NewConversationItem, NewConversationTurn, NoemaStore, StoreError,
+    NewConversation, NewConversationItem, NewConversationTurn, NoemaStore, StoreError,
     memory::{ClaimRetrievalRequest, Sensitivity, UseMode},
-    memory_persistence::NewConversation,
 };
 
 #[tokio::test]

@@ -36,7 +36,7 @@ Noema at another directory with `NOEMA_HOME`.
   config.yaml
 
   db/
-    postgres/             # Postgres physical files in container/dev config
+    surrealdb/            # embedded canonical structured store
 
   humans/
     [human_id]/
@@ -80,7 +80,7 @@ tables.
 
 | Data | Source of truth |
 | --- | --- |
-| Postgres structured state: humans, agents, tools, conversations, conversation_turns, conversation_items, memory_items, entities, relationships, object provenance, grants, tasks, permissions, context packets, memory-use records, and audit events | Postgres |
+| Structured state: humans, agents, tools, conversations, transcript items, graph claims, provenance, grants, tasks, permissions, retrieval packets, and audit events | Embedded SurrealDB |
 | Human-authored docs, imported files, attachments, and durable artifacts | filesystem |
 | Indexes, caches, temporary files, and derived search/vector state | `system/` |
 | Introspection into database-backed state | chat/work drill-ins, advanced inspection, and explicit export tools |
@@ -117,7 +117,7 @@ Context Runtime
         │
         ▼
 Canonical Store
-  Postgres + durable object-owned files
+  Embedded SurrealDB + durable object-owned files
         │
         └── System State
               indexes, caches, vectors, temp files
@@ -246,10 +246,10 @@ tasks
 memory
 ```
 
-Use Postgres as the canonical structured store. Use the filesystem for durable object-owned documents and artifacts. Use chat/work drill-ins, advanced inspection, and explicit export tools for introspection into database-backed state.
+Use embedded SurrealDB as the canonical structured store. Use the filesystem for durable object-owned documents and artifacts. Use chat/work drill-ins, advanced inspection, and explicit export tools for introspection into database-backed state.
 
 [Memory System Plan](memory.md)
 
 [Runtime Harness Architecture](harness.md)
 
-[Canonical Postgres Schema](postgres.md)
+[Retired Postgres Schema](postgres.md)

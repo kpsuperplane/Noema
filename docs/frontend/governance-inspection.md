@@ -30,10 +30,13 @@ Noema needs separate inspection modes:
 | Owner/admin inspection | Privileged local debugging and audit | More detail, but still explicit reveal for sensitive/secret data |
 | Export view | Portable record with chosen redaction mode | Manifested, scoped, and sensitivity-aware |
 
-The current CLI context graph is privileged local owner/admin debug output. The
-frontend should not reuse that exact level of detail as agent-visible context.
-Private, sensitive, or secret graph node existence, edge existence, aliases,
-source names, denial reasons, and exact counts require authorized reveal.
+The current CLI-backed memory inspection surface is `noema memory list/show`,
+fed by daemon GraphQL `memoryClaims`/`memoryClaim`. The retired `noema context
+graph` command remains unavailable, so any richer context graph inspector is a
+future owner/admin drill-in rather than current CLI parity. The frontend should
+not reuse owner/admin detail as agent-visible context. Private, sensitive, or
+secret graph node existence, edge existence, aliases, source names, denial
+reasons, and exact counts require authorized reveal.
 
 Current reveal rule: owner/admin inspection means a local interactive user
 explicitly enters Inspect or clicks Reveal for a specific object/session.
@@ -643,14 +646,15 @@ The current slice should ship with narrow but honest inspection:
 - Inline memory rows for saved/proposed/used/omitted memories in chat.
 - Expanded memory details in chat before full memory settings.
 - Memory list/show UI parity with CLI behavior as a secondary drill-in.
-- Owner/admin-only context graph inspector backed by `noema context graph`
-  semantics, redacted by default in normal views.
+- Owner/admin-only graph inspection remains future-oriented; the current backed
+  inspection surface is memory list/show parity through GraphQL
+  `memoryClaims`/`memoryClaim`, redacted by default in normal views.
 - Chat page showing transcript items and memory extraction activity.
 - Memory review queue for active/candidate extracted memories.
 - Access preview backed by deterministic memory retrieval, entered first
   through `Why?` or `What did Noema use?`.
 - Setup and health views for local folder, config, local service, assistant
-  connection, and Postgres.
+  connection, and embedded store readiness.
 
 Do not surface full harness, approval, task, or capability controls as active
 product features until the underlying durable schema and runtime paths exist.

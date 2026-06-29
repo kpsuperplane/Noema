@@ -162,7 +162,7 @@ fn spawn_dev_process(
 /// `cargo dev-daemon` runs us via `cargo run`, which exports `CARGO_MANIFEST_DIR`
 /// and friends. If those leak into the watched `cargo run -- start`, cargo sees a
 /// changed build-script environment and rebuilds every dependency with a
-/// `build.rs` (ring, rustls, sqlx, ...) on each invocation.
+/// `build.rs` (ring, rustls, and similar crates) on each invocation.
 fn strip_cargo_run_env(command: &mut Command) {
     for (key, _) in env::vars_os() {
         if let Some(key) = key.to_str()
@@ -318,7 +318,7 @@ mod tests {
         // Must keep cargo's own location and the user's real environment.
         assert!(!is_cargo_run_injected_env("CARGO"));
         assert!(!is_cargo_run_injected_env("CARGO_HOME"));
-        assert!(!is_cargo_run_injected_env("NOEMA_DATABASE_URL"));
+        assert!(!is_cargo_run_injected_env("NOEMA_HOME"));
         assert!(!is_cargo_run_injected_env("PATH"));
     }
 

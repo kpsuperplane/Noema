@@ -38,9 +38,9 @@ multi-agent work.
 
 | Status | Meaning | Objects/surfaces |
 | --- | --- | --- |
-| Current Rust-backed | Current code can serve or inspect this with bounded frontend work | Setup/config, daemon health, live chat stream, chat transcript persistence through `conversation_items`, memory list/detail, context graph inspection |
-| Table-backed, not flow-wired | Tables and repository methods exist, but normal chat/runtime flows do not populate them consistently yet | Context packets, packet omissions, memory-use records |
-| Schema-doc target | Defined in `docs/postgres.md`, but not fully created or exercised by current Rust bootstrap/runtime | Memory versions, proactive rules, deletion tombstones, FTS search |
+| Current Rust-backed | Current code can serve or inspect this with bounded frontend work | Setup/config, daemon health, live chat stream, chat transcript persistence through `conversation_items`, memory list/detail through GraphQL `memoryClaims`/`memoryClaim` and `noema memory list/show` |
+| Store-backed, not flow-wired | Store records and repository methods exist, but normal chat/runtime flows do not populate them consistently yet | Context packets, packet omissions, memory-use records |
+| Future store target | Not fully created or exercised by current Rust bootstrap/runtime | Memory versions, proactive rules, deletion tombstones, richer search |
 | Harness-doc target | Designed in harness architecture docs, not available as active durable product controls yet | Runs, approvals, capability registry, policy decisions, event ledger, replay/recovery |
 | Future product | Product goal with no current runtime contract | Full workspaces/projects/tasks, multi-human roles, agent handoff graph, connector marketplace |
 

@@ -502,8 +502,8 @@ mod tests {
     async fn memory_claim_query_returns_seeded_detail() {
         use crate::{
             ActorRef, ClaimStatus, ConversationItemKind, ConversationItemStatus, EntityCandidate,
-            EvidenceAuthority, EvidenceCandidate, NewClaimCandidate, NewConversationItem,
-            NewConversationTurn, memory::Sensitivity, memory_persistence::NewConversation,
+            EvidenceAuthority, EvidenceCandidate, NewClaimCandidate, NewConversation,
+            NewConversationItem, NewConversationTurn, memory::Sensitivity,
             store::tests::test_store,
         };
 
@@ -594,8 +594,8 @@ mod tests {
     async fn memory_claims_list_redacts_non_public_facts() {
         use crate::{
             ActorRef, ClaimStatus, ConversationItemKind, ConversationItemStatus, EntityCandidate,
-            EvidenceAuthority, EvidenceCandidate, NewClaimCandidate, NewConversationItem,
-            NewConversationTurn, memory::Sensitivity, memory_persistence::NewConversation,
+            EvidenceAuthority, EvidenceCandidate, NewClaimCandidate, NewConversation,
+            NewConversationItem, NewConversationTurn, memory::Sensitivity,
             store::tests::test_store,
         };
 

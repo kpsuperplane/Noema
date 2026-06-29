@@ -1,12 +1,12 @@
 use std::path::Path;
 
 use crate::{
+    MemoryType,
     memory::{MemoryStatus, Sensitivity},
     memory_extraction::{
         MemoryExtractionSubject, MemoryExtractionSubjectKind, ValidatedMemoryProposal,
         infer_memory_text_sensitivity, memory_extraction_subject_implies_local_human,
     },
-    memory_persistence::MemoryType,
     store::{
         ClaimStatus, EntityCandidate, EntityType, EvidenceAuthority, EvidenceCandidate,
         NewClaimCandidate,

@@ -9,10 +9,10 @@ use inspection::{ContextCommand, MemoryCommand, run_context, run_memory};
 use noema_cli::collect_prompt;
 use noema_core::{
     CliOverrides, CodexResponsesProvider, Config, DaemonClient, DaemonError, DaemonServerConfig,
-    GenerateInput, GenerateOptions, GenerateRequest, ModelProvider, NoemaHomeError,
-    NoemaHomeInitOptions, NoemaPathError, NoemaPaths, OpenAiProvider, ProviderConfig,
-    ProviderError, TurnActivityStatus, TurnTranscriptItem, default_socket_path, init_noema_home,
-    is_connection_refused, memory_persistence::MemoryPersistenceError, run_daemon,
+    GenerateInput, GenerateOptions, GenerateRequest, MemoryPersistenceError, ModelProvider,
+    NoemaHomeError, NoemaHomeInitOptions, NoemaPathError, NoemaPaths, OpenAiProvider,
+    ProviderConfig, ProviderError, TurnActivityStatus, TurnTranscriptItem, default_socket_path,
+    init_noema_home, is_connection_refused, run_daemon,
 };
 use std::{
     env,
@@ -708,18 +708,12 @@ mod tests {
 
     #[test]
     fn parses_context_graph_subcommand() {
-        let args =
-            Args::try_parse_from(["noema", "context", "graph", "--limit", "9"]).expect("args");
+        let args = Args::try_parse_from(["noema", "context", "graph"]).expect("args");
 
         assert!(matches!(
             args.command,
             Some(CommandKind::Context {
-                command: ContextCommand::Graph {
-                    limit: 9,
-                    run_id: None,
-                    context_packet_id: None,
-                    ..
-                }
+                command: ContextCommand::Graph
             })
         ));
     }
@@ -733,50 +727,8 @@ mod tests {
         assert!(matches!(
             args.command,
             Some(CommandKind::Context {
-                command: ContextCommand::Graph { .. }
+                command: ContextCommand::Graph
             })
-        ));
-    }
-
-    #[test]
-    fn parses_context_graph_mermaid_format() {
-        let args = Args::try_parse_from(["noema", "context", "graph", "--format", "mermaid"])
-            .expect("args");
-
-        assert!(matches!(
-            args.command,
-            Some(CommandKind::Context {
-                command: ContextCommand::Graph {
-                    format: inspection::ContextGraphFormat::Mermaid,
-                    ..
-                }
-            })
-        ));
-    }
-
-    #[test]
-    fn parses_context_graph_filters() {
-        let args = Args::try_parse_from([
-            "noema",
-            "context",
-            "graph",
-            "--run-id",
-            "run:packet",
-            "--packet-id",
-            "ctx_packet",
-        ])
-        .expect("args");
-
-        assert!(matches!(
-            args.command,
-            Some(CommandKind::Context {
-                command: ContextCommand::Graph {
-                    run_id,
-                    context_packet_id,
-                    ..
-                }
-            }) if run_id.as_deref() == Some("run:packet")
-                && context_packet_id.as_deref() == Some("ctx_packet")
         ));
     }
 

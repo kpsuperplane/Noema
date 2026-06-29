@@ -3,8 +3,8 @@ use serde_json::Value;
 
 use crate::{
     ConversationItemKind, ConversationItemRecord, ConversationItemStatus, ConversationRecord,
-    ConversationTurnRecord, NewConversation, NewConversationItem, NewConversationTurn, ReplayMode,
-    memory_persistence::AgentStatus,
+    ConversationTurnRecord, NewConversation, NewConversationItem, NewConversationTurn,
+    PersistedAgentStatus as AgentStatus, ReplayMode,
 };
 
 use super::{

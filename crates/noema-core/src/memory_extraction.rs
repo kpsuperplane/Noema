@@ -5,8 +5,8 @@
 //! risk boundaries, and makes the deterministic initial status decision.
 
 use crate::{
+    MemoryType,
     memory::{MemoryStatus, Sensitivity},
-    memory_persistence::MemoryType,
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;

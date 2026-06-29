@@ -43,7 +43,7 @@ Adapter types may include:
 
 - Internal Noema service.
 - Local filesystem adapter.
-- Postgres adapter.
+- Structured store adapter.
 - MCP adapter.
 - HTTP API adapter.
 - CLI adapter.

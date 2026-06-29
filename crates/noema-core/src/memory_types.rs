@@ -1,7 +1,7 @@
 use crate::memory::{MemoryId, MemoryStatus, ParticipantRole, ScopeId, Sensitivity, SubjectRole};
 use serde_json::{Value, json};
 
-use super::objects::{ActorRef, ObjectRef};
+use crate::{ActorRef, ObjectRef};
 
 /// Memory type stored in `memory_items.memory_type`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -91,22 +91,6 @@ pub enum MemoryAuthorityLevel {
     SystemRule,
 }
 
-impl MemoryAuthorityLevel {
-    pub(super) const fn as_str(self) -> &'static str {
-        match self {
-            Self::HumanCorrection => "human_correction",
-            Self::ExplicitHumanStatement => "explicit_human_statement",
-            Self::WorkspacePolicy => "workspace_policy",
-            Self::ProjectDecision => "project_decision",
-            Self::DocumentSource => "document_source",
-            Self::RepeatedObservation => "repeated_observation",
-            Self::AgentInference => "agent_inference",
-            Self::WeakInference => "weak_inference",
-            Self::SystemRule => "system_rule",
-        }
-    }
-}
-
 /// Extraction method attached to a created memory candidate.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MemoryExtractionMethod {
@@ -124,20 +108,6 @@ pub enum MemoryExtractionMethod {
     AgentSummary,
     /// System-generated memory.
     SystemGenerated,
-}
-
-impl MemoryExtractionMethod {
-    pub(super) const fn as_str(self) -> &'static str {
-        match self {
-            Self::ExplicitHuman => "explicit_human",
-            Self::LlmExtracted => "llm_extracted",
-            Self::DeterministicRule => "deterministic_rule",
-            Self::Imported => "imported",
-            Self::HumanEdited => "human_edited",
-            Self::AgentSummary => "agent_summary",
-            Self::SystemGenerated => "system_generated",
-        }
-    }
 }
 
 /// Source information for a memory candidate backed by a concrete object.

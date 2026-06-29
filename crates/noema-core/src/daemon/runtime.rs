@@ -7,16 +7,15 @@ use crate::{
         ExtractorMemoryProposal, ExtractorMemoryResponse, ValidatedMemoryProposal,
         validate_memory_extraction_response_with_assistant_items,
     },
-    memory_persistence::{
-        ActorRef, AgentStatus as PersistedAgentStatus, ConversationItemKind,
-        ConversationItemRecord, ConversationItemStatus, NewConversation, NewConversationItem,
-        NewConversationTurn,
-    },
     provider::{
         GenerateInput, GenerateOptions, GenerateOutputItem, GenerateRequest, GenerateResponse,
         GenerateStreamEvent, ModelProvider, ProviderError,
     },
     providers::codex_responses::{CodexProviderConfig, CodexResponsesProvider},
+    {
+        ActorRef, ConversationItemKind, ConversationItemRecord, ConversationItemStatus,
+        NewConversation, NewConversationItem, NewConversationTurn, PersistedAgentStatus,
+    },
 };
 use serde_json::{Value, json};
 use tokio::sync::{mpsc, oneshot};
@@ -37,18 +36,6 @@ use super::{
 };
 
 pub(crate) trait RuntimeModelProvider: std::fmt::Debug + Send + Sync {
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "non-streaming generation is only used by staged memory consolidation"
-        )
-    )]
-    fn generate<'a>(
-        &'a self,
-        request: GenerateRequest,
-    ) -> Pin<Box<dyn Future<Output = Result<GenerateResponse, ProviderError>> + Send + 'a>>;
-
     fn generate_streaming<'a>(
         &'a self,
         request: GenerateRequest,
@@ -60,13 +47,6 @@ impl<T> RuntimeModelProvider for T
 where
     T: ModelProvider + std::fmt::Debug + Send + Sync,
 {
-    fn generate<'a>(
-        &'a self,
-        request: GenerateRequest,
-    ) -> Pin<Box<dyn Future<Output = Result<GenerateResponse, ProviderError>> + Send + 'a>> {
-        Box::pin(async move { ModelProvider::generate(self, request).await })
-    }
-
     fn generate_streaming<'a>(
         &'a self,
         request: GenerateRequest,
@@ -1181,7 +1161,7 @@ impl CodexRuntimeActor {
         let failed_proposal_count = failed_proposals.len();
         let saved_claim_count = claim_ids.len();
         let (status, title, persisted_summary) =
-            provider_memory_persistence_activity(saved_claim_count, failed_proposal_count);
+            provider_memory_claim_activity(saved_claim_count, failed_proposal_count);
         let activity = memory_activity(
             &activity_id,
             status,
@@ -1660,7 +1640,7 @@ fn build_local_tool_result_continuation_system_prompt(
     prompt
 }
 
-fn provider_memory_persistence_activity(
+fn provider_memory_claim_activity(
     saved_count: usize,
     failed_count: usize,
 ) -> (TurnActivityStatus, &'static str, String) {
@@ -1668,7 +1648,7 @@ fn provider_memory_persistence_activity(
         return (
             TurnActivityStatus::Completed,
             "Memory persisted",
-            provider_memory_persistence_summary(saved_count, failed_count),
+            provider_memory_claim_summary(saved_count, failed_count),
         );
     }
 
@@ -1676,7 +1656,7 @@ fn provider_memory_persistence_activity(
         let summary = if failed_count == 1 {
             "graph claim write failed".to_string()
         } else {
-            provider_memory_persistence_summary(saved_count, failed_count)
+            provider_memory_claim_summary(saved_count, failed_count)
         };
         return (
             TurnActivityStatus::Failed,
@@ -1688,11 +1668,11 @@ fn provider_memory_persistence_activity(
     (
         TurnActivityStatus::Failed,
         "Memory persistence partially failed",
-        provider_memory_persistence_summary(saved_count, failed_count),
+        provider_memory_claim_summary(saved_count, failed_count),
     )
 }
 
-fn provider_memory_persistence_summary(saved_count: usize, failed_count: usize) -> String {
+fn provider_memory_claim_summary(saved_count: usize, failed_count: usize) -> String {
     match (saved_count, failed_count) {
         (1, 0) => "saved 1 graph claim".to_string(),
         (count, 0) => format!("saved {count} graph claims"),

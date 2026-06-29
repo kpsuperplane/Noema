@@ -5,4 +5,4 @@
 //! aliases local to `store` gives future graph-memory code a stable import path
 //! without introducing a second object-reference model.
 
-pub use crate::memory_persistence::{ActorRef, ObjectRef};
+pub use crate::{ActorRef, ObjectRef};

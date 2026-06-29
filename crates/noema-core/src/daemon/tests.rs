@@ -9,26 +9,22 @@ use super::{
     server::bind_listener,
 };
 use crate::{
-    DatabaseConfig, EntityType,
+    EntityType,
     memory::{ClaimRetrievalRequest, MemoryStatus, Sensitivity, UseMode},
-    memory_persistence::{
-        ConversationItemKind, ConversationItemStatus, PostgresMemoryRepository, ReplayMode,
-    },
     provider::{
         GenerateInput, GenerateOutputItem, GenerateRequest, GenerateResponse, GenerateStreamEvent,
         ProviderError,
     },
+    {ConversationItemKind, ConversationItemStatus, ReplayMode},
 };
 use serde::Deserialize;
 use serde_json::json;
 use std::{future::Future, path::PathBuf, pin::Pin, process::Command, sync::Arc};
 use tokio::sync::mpsc;
 
-const TEST_DATABASE_URL_ENV: &str = "NOEMA_TEST_DATABASE_URL";
 const RESTART_CONTEXT_TEST_PHASE_ENV: &str = "NOEMA_RESTART_CONTEXT_TEST_PHASE";
 const RESTART_CONTEXT_TEST_HOME_ENV: &str = "NOEMA_RESTART_CONTEXT_TEST_HOME";
 const RESTART_CONTEXT_TEST_CONVERSATION_FILE: &str = "restart_context_conversation_id";
-static DAEMON_POSTGRES_TEST_SCHEMA_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 #[test]
 fn protocol_round_trips_requests_and_responses() {
@@ -103,61 +99,6 @@ fn socket_path_is_under_noema_run_directory() {
     );
 }
 
-struct RuntimeTestDatabase {
-    url: String,
-    _schema_guard: tokio::sync::MutexGuard<'static, ()>,
-}
-
-async fn test_database() -> Option<RuntimeTestDatabase> {
-    let Ok(url) = std::env::var(TEST_DATABASE_URL_ENV) else {
-        eprintln!("skipping daemon Postgres test; {TEST_DATABASE_URL_ENV} is unset");
-        return None;
-    };
-    assert_test_database_url(&url);
-    let schema_guard = DAEMON_POSTGRES_TEST_SCHEMA_LOCK.lock().await;
-    let database = DatabaseConfig::new(url.clone()).expect("database config");
-    let pool = database.connect().await.expect("connect test database");
-    sqlx::raw_sql("DROP SCHEMA public CASCADE; CREATE SCHEMA public;")
-        .execute(&pool)
-        .await
-        .expect("reset test schema");
-    Some(RuntimeTestDatabase {
-        url,
-        _schema_guard: schema_guard,
-    })
-}
-
-fn assert_test_database_url(database_url: &str) {
-    assert!(
-        is_test_database_url(database_url),
-        "{TEST_DATABASE_URL_ENV} must name an explicit test database"
-    );
-}
-
-fn is_test_database_url(database_url: &str) -> bool {
-    test_database_name(database_url).is_some_and(is_explicit_test_database_name)
-}
-
-fn is_explicit_test_database_name(database_name: &str) -> bool {
-    let database_name = database_name.to_ascii_lowercase();
-    database_name == "test"
-        || database_name.starts_with("test_")
-        || database_name.ends_with("_test")
-        || database_name.starts_with("noema_test")
-}
-
-fn test_database_name(database_url: &str) -> Option<&str> {
-    let after_scheme = database_url
-        .split_once("://")
-        .map_or(database_url, |(_, rest)| rest);
-    let path = after_scheme.split_once('/')?.1;
-    let name_with_query = path.rsplit('/').next()?.trim();
-    let database_name = name_with_query
-        .split_once('?')
-        .map_or(name_with_query, |(name, _)| name);
-    (!database_name.is_empty()).then_some(database_name)
-}
-
 fn answer_claim_request() -> ClaimRetrievalRequest {
     ClaimRetrievalRequest {
         requesting_agent_id: "agent:primary".to_string(),
@@ -170,13 +111,6 @@ fn answer_claim_request() -> ClaimRetrievalRequest {
     }
 }
 
-async fn postgres_repo(database: &RuntimeTestDatabase) -> PostgresMemoryRepository {
-    let config = DatabaseConfig::new(database.url.clone()).expect("database config");
-    PostgresMemoryRepository::connect(&config)
-        .await
-        .expect("repo")
-}
-
 #[tokio::test]
 async fn second_listener_on_same_socket_is_rejected() {
     let dir = tempfile::tempdir().expect("temp dir");
@@ -186,20 +120,6 @@ async fn second_listener_on_same_socket_is_rejected() {
     let error = bind_listener(&socket_path).await.unwrap_err();
 
     assert!(matches!(error, DaemonError::AlreadyRunning { .. }));
-}
-
-#[test]
-fn daemon_test_database_guard_rejects_non_test_database_names() {
-    assert_test_database_url("postgres://noema:noema@localhost:5432/noema_test");
-    assert_test_database_url("postgres://noema:noema@localhost:5432/test");
-    assert_test_database_url("postgres://noema:noema@localhost:5432/noema_test?sslmode=disable");
-
-    assert!(!is_test_database_url(
-        "postgres://noema:noema@localhost:5432/noema"
-    ));
-    assert!(!is_test_database_url(
-        "postgres://noema:noema@localhost:5432/postgres"
-    ));
 }
 
 #[tokio::test]
@@ -1189,88 +1109,6 @@ async fn provider_memory_graph_write_failure_persists_failed_activity() {
 }
 
 #[tokio::test]
-#[ignore = "legacy Postgres memory consolidation awaits graph-claim store replacement"]
-async fn legacy_runtime_actor_reinforces_semantic_memory_repeat_in_postgres() {
-    let Some(database) = test_database().await else {
-        return;
-    };
-    let handle = test_runtime_handle(fake_codex_provider_with_memory_extraction()).await;
-
-    let conversation = handle
-        .start_conversation(None, None)
-        .await
-        .expect("conversation");
-    let conversation_id = conversation.conversation_id.clone();
-
-    collect_turn(
-        &handle,
-        conversation_id.clone(),
-        "I like ice cream.".to_string(),
-    )
-    .await
-    .expect("first turn");
-    collect_turn(
-        &handle,
-        conversation_id,
-        "Ice cream is one of my favorite desserts.".to_string(),
-    )
-    .await
-    .expect("second turn");
-    handle.shutdown().await;
-
-    let repo = postgres_repo(&database).await;
-    let memories = repo.list_recent_memories(Some(10)).await.expect("memories");
-    assert_eq!(memories.len(), 1);
-    assert_eq!(memories[0].content, "Kevin likes ice cream.");
-
-    let reinforced_count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM object_events WHERE event_type = 'memory_reinforced'",
-    )
-    .fetch_one(repo.pool())
-    .await
-    .expect("reinforced count");
-    assert_eq!(reinforced_count, 1);
-}
-
-#[tokio::test]
-#[ignore = "legacy Postgres memory consolidation awaits graph-claim store replacement"]
-async fn legacy_runtime_actor_creates_disputed_memory_for_semantic_conflict_in_postgres() {
-    let Some(database) = test_database().await else {
-        return;
-    };
-    let handle = test_runtime_handle(fake_codex_provider_with_memory_extraction()).await;
-
-    let conversation = handle
-        .start_conversation(None, None)
-        .await
-        .expect("conversation");
-    let conversation_id = conversation.conversation_id.clone();
-
-    collect_turn(
-        &handle,
-        conversation_id.clone(),
-        "I like ice cream.".to_string(),
-    )
-    .await
-    .expect("first turn");
-    collect_turn(&handle, conversation_id, "I hate ice cream.".to_string())
-        .await
-        .expect("second turn");
-    handle.shutdown().await;
-
-    let repo = postgres_repo(&database).await;
-    let memories = repo.list_recent_memories(Some(10)).await.expect("memories");
-    assert_eq!(memories.len(), 2);
-    assert!(
-        memories
-            .iter()
-            .any(|memory| memory.content == "Kevin hates ice cream."
-                && memory.status == MemoryStatus::Disputed),
-        "expected disputed hate-ice-cream memory, got {memories:?}"
-    );
-}
-
-#[tokio::test]
 async fn runtime_actor_persists_provider_memory_proposals_as_graph_claims() {
     let (handle, store) =
         test_runtime_handle_with_store(fake_codex_provider_with_memory_extraction()).await;
@@ -1677,52 +1515,6 @@ async fn provider_memory_partial_write_reports_partial_failure() {
     );
     assert_eq!(claims.included[0].fact, "Kevin likes partial write trains.");
     handle.shutdown().await;
-}
-
-#[tokio::test]
-#[ignore = "legacy Postgres subject scoping awaits graph-claim store replacement"]
-async fn legacy_runtime_actor_keeps_third_party_subject_conversation_scoped_in_postgres() {
-    let Some(database) = test_database().await else {
-        return;
-    };
-    let handle = test_runtime_handle(fake_codex_provider_with_memory_extraction()).await;
-
-    let conversation = handle
-        .start_conversation(None, None)
-        .await
-        .expect("conversation");
-    let conversation_id = conversation.conversation_id.clone();
-    let items = collect_turn(
-        &handle,
-        conversation_id.clone(),
-        "Alice prefers decaf.".to_string(),
-    )
-    .await
-    .expect("turn");
-    assert_eq!(assistant_text(&items), "fake answer");
-    handle.shutdown().await;
-
-    let repo = postgres_repo(&database).await;
-    let memories = repo.list_recent_memories(Some(10)).await.expect("memories");
-    assert_eq!(memories.len(), 1);
-    assert_eq!(memories[0].content, "Alice prefers decaf.");
-    assert_eq!(memories[0].status, crate::memory::MemoryStatus::Candidate);
-    assert_eq!(
-        memories[0].home_scope_id,
-        format!("conversation:{conversation_id}")
-    );
-
-    let (linked_object_type, linked_object_id) = sqlx::query_as::<
-        _,
-        (Option<String>, Option<String>),
-    >(
-        "SELECT linked_object_type, linked_object_id FROM entities WHERE entity_id = 'human:alice'",
-    )
-    .fetch_one(repo.pool())
-    .await
-    .expect("Alice entity");
-    assert_eq!(linked_object_type, None);
-    assert_eq!(linked_object_id, None);
 }
 
 #[tokio::test]
@@ -2671,13 +2463,6 @@ impl FakeCodexProvider {
 }
 
 impl super::runtime::RuntimeModelProvider for FakeCodexProvider {
-    fn generate<'a>(
-        &'a self,
-        request: GenerateRequest,
-    ) -> Pin<Box<dyn Future<Output = Result<GenerateResponse, ProviderError>> + Send + 'a>> {
-        Box::pin(async move { self.generate_response(request) })
-    }
-
     fn generate_streaming<'a>(
         &'a self,
         request: GenerateRequest,
