@@ -1,7 +1,9 @@
 //! Development workflow helpers.
 
 use std::{
-    env, io,
+    env,
+    future::Future,
+    io,
     path::{Path, PathBuf},
     process::{ExitStatus, Stdio},
 };
@@ -41,6 +43,9 @@ pub(crate) enum DevDaemonError {
 
     #[error("failed to generate GraphQL schema: {source}")]
     GenerateSchema { source: io::Error },
+
+    #[error("failed to install dev-daemon shutdown signal handler: {source}")]
+    ShutdownSignal { source: io::Error },
 }
 
 /// `package.json` script that watches and rebuilds web assets without invoking
@@ -64,16 +69,65 @@ pub(crate) async fn run_dev_daemon(options: DevDaemonOptions) -> Result<(), DevD
     eprintln!("web assets: bun run dev");
     eprintln!("daemon: cargo watch -x {}", daemon_start_command(options));
 
+    supervise_dev_processes(&mut web, &mut daemon, shutdown_signal()).await
+}
+
+async fn supervise_dev_processes<S>(
+    web: &mut Child,
+    daemon: &mut Child,
+    shutdown_signal: S,
+) -> Result<(), DevDaemonError>
+where
+    S: Future<Output = Result<&'static str, DevDaemonError>>,
+{
     tokio::select! {
-        result = wait_for_child("web asset watcher", &mut web) => {
-            stop_child(&mut daemon).await;
+        result = wait_for_child("web asset watcher", web) => {
+            stop_child(daemon).await;
             result
         }
-        result = wait_for_child("daemon watcher", &mut daemon) => {
-            stop_child(&mut web).await;
+        result = wait_for_child("daemon watcher", daemon) => {
+            stop_child(web).await;
+            result
+        }
+        result = shutdown_signal => {
+            let result = match result {
+                Ok(signal) => {
+                    eprintln!("received {signal}; stopping noema dev daemon");
+                    Ok(())
+                }
+                Err(error) => Err(error),
+            };
+            stop_child(web).await;
+            stop_child(daemon).await;
             result
         }
     }
+}
+
+#[cfg(unix)]
+async fn shutdown_signal() -> Result<&'static str, DevDaemonError> {
+    use tokio::signal::unix::{SignalKind, signal};
+
+    let mut interrupt = signal(SignalKind::interrupt())
+        .map_err(|source| DevDaemonError::ShutdownSignal { source })?;
+    let mut terminate = signal(SignalKind::terminate())
+        .map_err(|source| DevDaemonError::ShutdownSignal { source })?;
+    let mut hangup =
+        signal(SignalKind::hangup()).map_err(|source| DevDaemonError::ShutdownSignal { source })?;
+
+    tokio::select! {
+        _ = interrupt.recv() => Ok("SIGINT"),
+        _ = terminate.recv() => Ok("SIGTERM"),
+        _ = hangup.recv() => Ok("SIGHUP"),
+    }
+}
+
+#[cfg(not(unix))]
+async fn shutdown_signal() -> Result<&'static str, DevDaemonError> {
+    tokio::signal::ctrl_c()
+        .await
+        .map_err(|source| DevDaemonError::ShutdownSignal { source })?;
+    Ok("Ctrl-C")
 }
 
 fn spawn_web_watcher(web_dir: &Path) -> Result<Child, DevDaemonError> {
@@ -366,5 +420,39 @@ mod tests {
             command,
             "run -p noema-cli -- --provider codex --model 'gpt test' --base-url http://localhost:1234 --config '/tmp/noema config.yaml' start"
         );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn supervisor_stops_both_watchers_when_shutdown_signal_arrives() {
+        let mut web = spawn_test_watcher();
+        let mut daemon = spawn_test_watcher();
+
+        let result = supervise_dev_processes(&mut web, &mut daemon, async { Ok("SIGINT") }).await;
+
+        assert!(result.is_ok());
+        assert_child_exited(&mut web).await;
+        assert_child_exited(&mut daemon).await;
+    }
+
+    #[cfg(unix)]
+    fn spawn_test_watcher() -> Child {
+        let mut command = Command::new("sh");
+        command
+            .arg("-c")
+            .arg("trap 'exit 0' TERM; while :; do sleep 1; done")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .process_group(0);
+        command.spawn().expect("spawn test watcher")
+    }
+
+    #[cfg(unix)]
+    async fn assert_child_exited(child: &mut Child) {
+        tokio::time::timeout(Duration::from_secs(2), child.wait())
+            .await
+            .expect("child should exit before timeout")
+            .expect("wait for child");
     }
 }

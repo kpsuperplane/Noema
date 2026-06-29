@@ -30,6 +30,9 @@ The next storage slice should stay small and concrete:
 - Docker/Compose development infrastructure has been retired after the embedded
   SurrealDB migration; local development uses host Rust, Bun, the Codex CLI, and
   the `cargo dev-daemon` alias.
+- `dev-daemon` traps normal terminal/process shutdown signals and stops both
+  watcher process groups so interrupted dev sessions do not leave orphaned
+  daemon processes behind.
 - First-run web onboarding is derived from backend readiness checks and blocks
   chat until an active provider account is authenticated.
 - Provider credential/session material lives under
