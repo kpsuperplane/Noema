@@ -3,14 +3,17 @@ use std::path::Path;
 use crate::{
     MemoryType,
     memory::{MemoryStatus, Sensitivity},
-    memory_consolidation::{MemoryWriteProposal, MemoryWriteSourceKind},
+    memory_consolidation::{
+        CanonicalClaimCandidate, CanonicalClaimStatus, MemoryWriteProposal, MemoryWriteSourceKind,
+        PredicateResolution,
+    },
     memory_extraction::{
         MemoryExtractionSubject, MemoryExtractionSubjectKind, ValidatedMemoryProposal,
         infer_memory_text_sensitivity, memory_extraction_subject_implies_local_human,
     },
     store::{
         ClaimStatus, EntityCandidate, EntityType, EvidenceAuthority, EvidenceCandidate,
-        NewClaimCandidate,
+        NewClaimCandidate, PredicateProposalCandidate,
     },
 };
 use serde_json::json;
@@ -218,6 +221,68 @@ pub(super) fn deterministic_canonical_claim(
         },
         metadata: proposal.metadata.clone(),
     }
+}
+
+pub(super) fn new_claim_from_canonical(
+    candidate: &CanonicalClaimCandidate,
+    proposal: &MemoryWriteProposal,
+    authority: EvidenceAuthority,
+) -> Option<NewClaimCandidate> {
+    let PredicateResolution::PromotedPredicate { predicate_id } = &candidate.predicate else {
+        return None;
+    };
+    Some(NewClaimCandidate {
+        subject: EntityCandidate {
+            entity_id: candidate.subject.entity_id.clone(),
+            entity_type: entity_type_from_canonical(&candidate.subject.entity_type),
+            canonical_name: candidate.subject.canonical_name.clone(),
+        },
+        object: EntityCandidate {
+            entity_id: candidate.object.entity_id.clone(),
+            entity_type: entity_type_from_canonical(&candidate.object.entity_type),
+            canonical_name: candidate.object.canonical_name.clone(),
+        },
+        predicate_id: predicate_id.clone(),
+        fact: candidate.fact.clone(),
+        sensitivity: candidate.sensitivity,
+        status: claim_status_from_canonical(candidate.status),
+        confidence: Some(candidate.confidence),
+        evidence: EvidenceCandidate {
+            source_item_id: proposal.source_item_id.clone(),
+            authority,
+            excerpt: Some(proposal.source_excerpt.clone()),
+        },
+        retrieval_hints: candidate.retrieval_hints.clone(),
+        metadata: proposal.metadata.clone(),
+    })
+}
+
+pub(super) fn predicate_proposal_candidate_from_canonical(
+    candidate: &CanonicalClaimCandidate,
+    proposal: &MemoryWriteProposal,
+) -> Option<PredicateProposalCandidate> {
+    let PredicateResolution::PredicateProposal {
+        proposal: predicate,
+    } = &candidate.predicate
+    else {
+        return None;
+    };
+    Some(PredicateProposalCandidate {
+        label: predicate.label.clone(),
+        description: predicate.description.clone(),
+        proposed_predicate: serde_json::to_value(predicate).expect("predicate proposal value"),
+        source_item_id: Some(proposal.source_item_id.clone()),
+        proposed_claim: json!({
+            "subject": candidate.subject,
+            "object": candidate.object,
+            "fact": candidate.fact,
+            "sensitivity": canonical_sensitivity_label(candidate.sensitivity),
+            "status": "candidate",
+            "confidence": candidate.confidence,
+            "retrieval_hints": candidate.retrieval_hints,
+            "rationale": candidate.rationale,
+        }),
+    })
 }
 
 struct ParsedExplicitClaim {
@@ -589,6 +654,10 @@ fn entity_type_for_subject_kind(kind: MemoryExtractionSubjectKind) -> EntityType
     }
 }
 
+fn entity_type_from_canonical(entity_type: &str) -> EntityType {
+    entity_type_from_label(entity_type).unwrap_or(EntityType::Other)
+}
+
 pub(super) fn claim_status_from_memory_status(status: MemoryStatus) -> ClaimStatus {
     match status {
         MemoryStatus::Candidate => ClaimStatus::Candidate,
@@ -598,6 +667,24 @@ pub(super) fn claim_status_from_memory_status(status: MemoryStatus) -> ClaimStat
         MemoryStatus::Superseded => ClaimStatus::Superseded,
         MemoryStatus::Stale | MemoryStatus::Archived => ClaimStatus::Archived,
         MemoryStatus::Deleted => ClaimStatus::Deleted,
+    }
+}
+
+fn claim_status_from_canonical(status: CanonicalClaimStatus) -> ClaimStatus {
+    match status {
+        CanonicalClaimStatus::Candidate => ClaimStatus::Candidate,
+        CanonicalClaimStatus::Active => ClaimStatus::Active,
+        CanonicalClaimStatus::Confirmed => ClaimStatus::Confirmed,
+    }
+}
+
+fn canonical_sensitivity_label(sensitivity: Sensitivity) -> &'static str {
+    match sensitivity {
+        Sensitivity::Public => "public",
+        Sensitivity::Normal => "normal",
+        Sensitivity::Private => "private",
+        Sensitivity::Sensitive => "sensitive",
+        Sensitivity::Secret => "secret",
     }
 }
 

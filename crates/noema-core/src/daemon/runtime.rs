@@ -3,6 +3,10 @@ use std::{collections::HashMap, future::Future, pin::Pin, sync::Arc};
 use crate::{
     ClaimWriteOutcome, NoemaStore,
     memory::Sensitivity,
+    memory_consolidation::{
+        CanonicalClaimCandidate, MemoryWriteProposal, PredicateResolution,
+        build_claim_canonicalization_prompt, parse_canonicalization_response,
+    },
     memory_extraction::{
         ExtractorMemoryProposal, ExtractorMemoryResponse, ValidatedMemoryProposal,
         validate_memory_extraction_response_with_assistant_items,
@@ -24,7 +28,8 @@ use super::{
     memory_pipeline::{
         AssistantEvidenceItem, ConversationMemoryContext, claim_status_from_memory_status,
         deterministic_canonical_claim, explicit_memory_content, explicit_memory_write_proposal,
-        memory_activity, memory_activity_failed, project_scope_from_cwd,
+        memory_activity, memory_activity_failed, new_claim_from_canonical,
+        predicate_proposal_candidate_from_canonical, project_scope_from_cwd,
         provider_memory_write_proposal, typed_memory_activity,
     },
     memory_tool::{
@@ -1059,6 +1064,28 @@ impl CodexRuntimeActor {
             .await
     }
 
+    async fn canonicalize_memory_write(
+        &self,
+        proposal: &MemoryWriteProposal,
+    ) -> Result<Vec<CanonicalClaimCandidate>, DaemonError> {
+        let predicates = self.store.predicate_catalog().await?;
+        let catalog_json = serde_json::to_value(predicates).map_err(|error| {
+            DaemonError::Protocol(format!("predicate catalog serialization failed: {error}"))
+        })?;
+        let prompt = build_claim_canonicalization_prompt(proposal, &catalog_json);
+        let mut ignored_events = |_| {};
+        let response = self
+            .provider
+            .generate_streaming(GenerateRequest::text(prompt), &mut ignored_events)
+            .await
+            .map_err(DaemonError::Provider)?;
+        let parsed =
+            parse_canonicalization_response(&response.assistant_text()).map_err(|error| {
+                DaemonError::Protocol(format!("memory canonicalization failed: {error}"))
+            })?;
+        Ok(parsed.candidates)
+    }
+
     async fn persist_provider_memory_proposals(
         &mut self,
         batches: Vec<ProviderMemoryProposalBatch>,
@@ -1135,6 +1162,7 @@ impl CodexRuntimeActor {
         let mut claim_outcomes = Vec::with_capacity(proposal_count);
         let mut created_claim_count = 0usize;
         let mut reinforced_claim_count = 0usize;
+        let mut predicate_proposal_count = 0usize;
         let mut failed_proposals = Vec::new();
         for proposal in validated_proposals {
             let proposal_index = proposal.proposal_index;
@@ -1144,26 +1172,116 @@ impl CodexRuntimeActor {
                 proposal_index,
                 "ordinary_chat",
             );
-            let candidate = deterministic_canonical_claim(
-                &write_proposal,
-                claim_status_from_memory_status(proposal.proposal.status),
-                Some(f64::from(proposal.proposal.proposal.confidence)),
-                crate::EvidenceAuthority::AgentInference,
-            );
-            match self.store.create_or_reinforce_claim(candidate).await {
-                Ok(summary) => {
-                    match summary.write_outcome {
-                        ClaimWriteOutcome::Created => created_claim_count += 1,
-                        ClaimWriteOutcome::Reinforced => reinforced_claim_count += 1,
+
+            let canonical_candidates = self
+                .canonicalize_memory_write(&write_proposal)
+                .await
+                .unwrap_or_default();
+            let mut usable_candidate_seen = false;
+            for canonical in canonical_candidates {
+                match &canonical.predicate {
+                    PredicateResolution::PromotedPredicate { .. } => {
+                        let Some(candidate) = new_claim_from_canonical(
+                            &canonical,
+                            &write_proposal,
+                            crate::EvidenceAuthority::AgentInference,
+                        ) else {
+                            continue;
+                        };
+                        usable_candidate_seen = true;
+                        match self.store.create_or_reinforce_claim(candidate).await {
+                            Ok(summary) => {
+                                match summary.write_outcome {
+                                    ClaimWriteOutcome::Created => created_claim_count += 1,
+                                    ClaimWriteOutcome::Reinforced => reinforced_claim_count += 1,
+                                }
+                                claim_outcomes.push(claim_outcome_json(&summary));
+                                claim_ids.push(summary.claim_id);
+                            }
+                            Err(error) => {
+                                failed_proposals.push(json!({
+                                    "proposal_index": proposal_index,
+                                    "error": error.to_string(),
+                                }));
+                            }
+                        }
                     }
-                    claim_outcomes.push(claim_outcome_json(&summary));
-                    claim_ids.push(summary.claim_id);
+                    PredicateResolution::PredicateProposal { .. } => {
+                        let Some(candidate) = predicate_proposal_candidate_from_canonical(
+                            &canonical,
+                            &write_proposal,
+                        ) else {
+                            continue;
+                        };
+                        usable_candidate_seen = true;
+                        match self.store.create_predicate_proposal(candidate).await {
+                            Ok(record) => {
+                                predicate_proposal_count += 1;
+                                claim_outcomes.push(json!({
+                                    "outcome": "needs_review",
+                                    "predicate_proposal_id": record.proposal_id,
+                                    "fact_preview": fact_preview(&canonical.fact),
+                                    "sensitivity": sensitivity_label(canonical.sensitivity),
+                                }));
+                            }
+                            Err(error) => {
+                                failed_proposals.push(json!({
+                                    "proposal_index": proposal_index,
+                                    "error": error.to_string(),
+                                }));
+                            }
+                        }
+                    }
+                    PredicateResolution::FallbackNote => {
+                        usable_candidate_seen = true;
+                        let candidate = deterministic_canonical_claim(
+                            &write_proposal,
+                            claim_status_from_memory_status(proposal.proposal.status),
+                            Some(f64::from(proposal.proposal.proposal.confidence)),
+                            crate::EvidenceAuthority::AgentInference,
+                        );
+                        match self.store.create_or_reinforce_claim(candidate).await {
+                            Ok(summary) => {
+                                match summary.write_outcome {
+                                    ClaimWriteOutcome::Created => created_claim_count += 1,
+                                    ClaimWriteOutcome::Reinforced => reinforced_claim_count += 1,
+                                }
+                                claim_outcomes.push(claim_outcome_json(&summary));
+                                claim_ids.push(summary.claim_id);
+                            }
+                            Err(error) => {
+                                failed_proposals.push(json!({
+                                    "proposal_index": proposal_index,
+                                    "error": error.to_string(),
+                                }));
+                            }
+                        }
+                    }
                 }
-                Err(error) => {
-                    failed_proposals.push(json!({
-                        "proposal_index": proposal_index,
-                        "error": error.to_string(),
-                    }));
+            }
+
+            if !usable_candidate_seen {
+                let candidate = deterministic_canonical_claim(
+                    &write_proposal,
+                    claim_status_from_memory_status(proposal.proposal.status),
+                    Some(f64::from(proposal.proposal.proposal.confidence)),
+                    crate::EvidenceAuthority::AgentInference,
+                );
+                match self.store.create_or_reinforce_claim(candidate).await {
+                    Ok(summary) => {
+                        match summary.write_outcome {
+                            ClaimWriteOutcome::Created => created_claim_count += 1,
+                            ClaimWriteOutcome::Reinforced => reinforced_claim_count += 1,
+                        }
+                        claim_outcomes.push(claim_outcome_json(&summary));
+                        claim_ids.push(summary.claim_id);
+                    }
+                    Err(error) => {
+                        failed_proposals.push(json!({
+                            "proposal_index": proposal_index,
+                            "error": error.to_string(),
+                        }));
+                    }
                 }
             }
         }
@@ -1171,7 +1289,19 @@ impl CodexRuntimeActor {
         let failed_proposal_count = failed_proposals.len();
         let saved_claim_count = claim_ids.len();
         let (status, title, persisted_summary) =
-            provider_memory_claim_activity(saved_claim_count, failed_proposal_count);
+            if predicate_proposal_count > 0 && saved_claim_count == 0 {
+                (
+                    if failed_proposal_count == 0 {
+                        TurnActivityStatus::Completed
+                    } else {
+                        TurnActivityStatus::Failed
+                    },
+                    "Memory needs review",
+                    provider_memory_review_summary(predicate_proposal_count, failed_proposal_count),
+                )
+            } else {
+                provider_memory_claim_activity(saved_claim_count, failed_proposal_count)
+            };
         let activity = memory_activity(
             &activity_id,
             status,
@@ -1185,6 +1315,7 @@ impl CodexRuntimeActor {
                 "claim_outcomes": claim_outcomes,
                 "created_claim_count": created_claim_count,
                 "reinforced_claim_count": reinforced_claim_count,
+                "predicate_proposal_count": predicate_proposal_count,
                 "failed_proposal_count": failed_proposal_count,
                 "failed_proposals": failed_proposals,
                 "cwd_project_hint": project_scope_from_cwd(activity_context.cwd.as_deref()),
@@ -1753,6 +1884,23 @@ fn provider_memory_claim_summary(saved_count: usize, failed_count: usize) -> Str
         (1, failed) => format!("saved 1 graph claim; {failed} proposals failed"),
         (saved, 1) => format!("saved {saved} graph claims; 1 proposal failed"),
         (saved, failed) => format!("saved {saved} graph claims; {failed} proposals failed"),
+    }
+}
+
+fn provider_memory_review_summary(predicate_proposal_count: usize, failed_count: usize) -> String {
+    match (predicate_proposal_count, failed_count) {
+        (1, 0) => "stored 1 predicate proposal for review".to_string(),
+        (count, 0) => format!("stored {count} predicate proposals for review"),
+        (1, 1) => "stored 1 predicate proposal for review; 1 proposal failed".to_string(),
+        (1, failed) => {
+            format!("stored 1 predicate proposal for review; {failed} proposals failed")
+        }
+        (count, 1) => {
+            format!("stored {count} predicate proposals for review; 1 proposal failed")
+        }
+        (count, failed) => {
+            format!("stored {count} predicate proposals for review; {failed} proposals failed")
+        }
     }
 }
 

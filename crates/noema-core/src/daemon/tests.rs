@@ -1507,6 +1507,59 @@ async fn provider_user_loves_planes_canonicalizes_to_likes_claim() {
 }
 
 #[tokio::test]
+async fn unknown_memory_relationship_creates_predicate_proposal() {
+    let (handle, store) =
+        test_runtime_handle_with_store(fake_codex_provider_with_memory_extraction()).await;
+
+    let conversation = handle
+        .start_conversation(None, None)
+        .await
+        .expect("conversation");
+    let items = collect_turn(
+        &handle,
+        conversation.conversation_id,
+        "I collect model aircraft.".to_string(),
+    )
+    .await
+    .expect("turn");
+
+    assert!(items.iter().any(|item| {
+        matches!(
+            item,
+            TurnTranscriptItem::Activity {
+                activity_kind,
+                status: TurnActivityStatus::Completed,
+                title,
+                metadata,
+                ..
+            } if activity_kind == "memory_extraction"
+                && title == "Memory needs review"
+                && metadata["predicate_proposal_count"] == 1
+        )
+    }));
+
+    let proposals = store
+        .list_predicate_proposals(crate::store::PredicateProposalFilter {
+            status: Some("candidate".to_string()),
+            limit: Some(10),
+        })
+        .await
+        .expect("predicate proposals");
+    assert_eq!(proposals.len(), 1);
+    assert_eq!(proposals[0].label, "collects");
+
+    let claims = store
+        .retrieve_claims(&answer_claim_request(), "model aircraft", 8)
+        .await
+        .expect("retrieve claims");
+    assert!(
+        claims.included.is_empty(),
+        "unpromoted predicate should not retrieve: {claims:?}"
+    );
+    handle.shutdown().await;
+}
+
+#[tokio::test]
 async fn provider_first_person_local_name_memory_persists_without_explicit_seed() {
     let (handle, store) =
         test_runtime_handle_with_store(fake_codex_provider_with_memory_extraction()).await;
@@ -2849,6 +2902,88 @@ fn memory_extraction_output(input: &str) -> Vec<GenerateOutputItem> {
         }];
     }
 
+    if input.contains("Noema's memory claim canonicalizer") {
+        let response = if input.contains("Kevin collects model aircraft.") {
+            json!({
+                "candidates": [{
+                    "subject": {"entity_id": "human:local", "entity_type": "human", "canonical_name": "Local human"},
+                    "object": {"entity_id": "concept:model_aircraft", "entity_type": "concept", "canonical_name": "model aircraft"},
+                    "predicate": {
+                        "kind": "predicate_proposal",
+                        "proposal": {
+                            "label": "collects",
+                            "description": "The subject collects the object.",
+                            "allowed_subject_types": ["human", "person"],
+                            "allowed_object_types": ["concept", "other"],
+                            "allowed_use_modes": ["answer", "personalize"],
+                            "default_sensitivity": "normal",
+                            "conflict_policy": "allow_many",
+                            "review_policy": "auto_candidate",
+                            "inverse_behavior": "none",
+                            "inverse_predicate_id": null,
+                            "proactivity_default": 1,
+                            "merge_hints": {"strategy": "object_identity"},
+                            "synonym_hints": ["keeps a collection of"],
+                            "extraction_hints": {"examples": ["I collect model aircraft"]},
+                            "rationale": "No promoted predicate represents collecting."
+                        }
+                    },
+                    "fact": "Kevin collects model aircraft.",
+                    "sensitivity": "normal",
+                    "status": "candidate",
+                    "confidence": 0.9,
+                    "retrieval_hints": {"keywords": ["model aircraft"], "summary": "Kevin collects model aircraft."},
+                    "rationale": "The source states a durable collecting relationship."
+                }]
+            })
+        } else if input.contains("Kevin enjoys ice cream desserts.") {
+            json!({
+                "candidates": [{
+                    "subject": {"entity_id": "human:local", "entity_type": "human", "canonical_name": "Local human"},
+                    "object": {"entity_id": "concept:claim_object_likes_ice_cream", "entity_type": "concept", "canonical_name": "ice cream"},
+                    "predicate": {"kind": "promoted_predicate", "predicate_id": "likes"},
+                    "fact": "Kevin likes ice cream.",
+                    "sensitivity": "normal",
+                    "status": "active",
+                    "confidence": 0.9,
+                    "retrieval_hints": {"keywords": ["ice cream"], "summary": "Kevin likes ice cream."},
+                    "rationale": "The dessert statement restates the durable ice cream preference."
+                }]
+            })
+        } else if input.contains("Kevin hates ice cream.") {
+            json!({
+                "candidates": [{
+                    "subject": {"entity_id": "human:local", "entity_type": "human", "canonical_name": "Local human"},
+                    "object": {"entity_id": "concept:claim_object_dislikes_ice_cream", "entity_type": "concept", "canonical_name": "ice cream"},
+                    "predicate": {"kind": "promoted_predicate", "predicate_id": "dislikes"},
+                    "fact": "Kevin dislikes ice cream.",
+                    "sensitivity": "normal",
+                    "status": "candidate",
+                    "confidence": 0.91,
+                    "retrieval_hints": {"keywords": ["ice cream"], "summary": "Kevin dislikes ice cream."},
+                    "rationale": "The source directly states a dislike that may conflict with an existing like."
+                }]
+            })
+        } else {
+            json!({
+                "candidates": [{
+                    "subject": {"entity_id": "human:local", "entity_type": "human", "canonical_name": "Local human"},
+                    "object": {"entity_id": "concept:canonicalizer_fallback", "entity_type": "concept", "canonical_name": "canonicalizer fallback"},
+                    "predicate": {"kind": "fallback_note"},
+                    "fact": "Canonicalizer fallback note.",
+                    "sensitivity": "normal",
+                    "status": "candidate",
+                    "confidence": 0.5,
+                    "retrieval_hints": {"keywords": ["canonicalizer fallback"], "summary": "Canonicalizer fallback note."},
+                    "rationale": "Fake provider fallback for tests."
+                }]
+            })
+        };
+        return vec![GenerateOutputItem::AssistantText {
+            text: serde_json::to_string(&response).expect("canonicalizer json"),
+        }];
+    }
+
     if input.contains("ordinary-chat memory proposal extractor") {
         let proposal = if input.contains("Alice prefers decaf.") {
             proposal(json!({
@@ -2992,6 +3127,28 @@ fn memory_extraction_output(input: &str) -> Vec<GenerateOutputItem> {
                     "retrieval_hints": {"topics": ["aviation"], "keywords": ["planes"], "summary": "The user loves planes."},
                     "risk_flags": [],
                     "evidence_excerpt": "I love planes."
+                }))],
+            },
+        ];
+    }
+
+    if input.contains("I collect model aircraft.") && !input.contains("memory claim canonicalizer")
+    {
+        return vec![
+            GenerateOutputItem::AssistantText {
+                text: "fake answer".to_string(),
+            },
+            GenerateOutputItem::MemoryProposals {
+                proposals: vec![proposal(json!({
+                    "content": "Kevin collects model aircraft.",
+                    "memory_type": "preference",
+                    "title": "Model aircraft collection",
+                    "confidence": 0.91,
+                    "sensitivity": "normal",
+                    "subjects": [{"id": "human:local", "kind": "human", "name": "Kevin", "role": "about"}],
+                    "retrieval_hints": {"topics": ["hobbies"], "keywords": ["model aircraft"], "summary": "Kevin collects model aircraft."},
+                    "risk_flags": [],
+                    "evidence_excerpt": "I collect model aircraft."
                 }))],
             },
         ];
