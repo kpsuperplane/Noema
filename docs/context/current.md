@@ -24,6 +24,9 @@ The next storage slice should stay small and concrete:
 - The Noema server process is the only process that opens the embedded database;
   clients, CLI, desktop, web, and future mobile use Noema APIs.
 - Embedded database files live directly under `${NOEMA_HOME:-$HOME/.noema}/db`.
+- The embedded store uses the stable SurrealDB v3 Rust SDK with `kv-rocksdb`;
+  pre-stable local development databases created by v2 may be deleted and
+  rebuilt instead of migrated.
 - Docker/Compose development infrastructure has been retired after the embedded
   SurrealDB migration; local development uses host Rust, Bun, the Codex CLI, and
   the `cargo dev-daemon` alias.
