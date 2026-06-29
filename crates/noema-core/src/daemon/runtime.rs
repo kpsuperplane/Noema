@@ -1162,6 +1162,7 @@ impl CodexRuntimeActor {
         let mut claim_outcomes = Vec::with_capacity(proposal_count);
         let mut created_claim_count = 0usize;
         let mut reinforced_claim_count = 0usize;
+        let mut active_saved_claim_count = 0usize;
         let mut predicate_proposal_count = 0usize;
         let mut failed_proposals = Vec::new();
         for proposal in validated_proposals {
@@ -1194,6 +1195,9 @@ impl CodexRuntimeActor {
                                 match summary.write_outcome {
                                     ClaimWriteOutcome::Created => created_claim_count += 1,
                                     ClaimWriteOutcome::Reinforced => reinforced_claim_count += 1,
+                                }
+                                if saved_claim_counts_as_active(summary.status) {
+                                    active_saved_claim_count += 1;
                                 }
                                 claim_outcomes.push(claim_outcome_json(&summary));
                                 claim_ids.push(summary.claim_id);
@@ -1246,6 +1250,9 @@ impl CodexRuntimeActor {
                                     ClaimWriteOutcome::Created => created_claim_count += 1,
                                     ClaimWriteOutcome::Reinforced => reinforced_claim_count += 1,
                                 }
+                                if saved_claim_counts_as_active(summary.status) {
+                                    active_saved_claim_count += 1;
+                                }
                                 claim_outcomes.push(claim_outcome_json(&summary));
                                 claim_ids.push(summary.claim_id);
                             }
@@ -1273,6 +1280,9 @@ impl CodexRuntimeActor {
                             ClaimWriteOutcome::Created => created_claim_count += 1,
                             ClaimWriteOutcome::Reinforced => reinforced_claim_count += 1,
                         }
+                        if saved_claim_counts_as_active(summary.status) {
+                            active_saved_claim_count += 1;
+                        }
                         claim_outcomes.push(claim_outcome_json(&summary));
                         claim_ids.push(summary.claim_id);
                     }
@@ -1289,7 +1299,7 @@ impl CodexRuntimeActor {
         let failed_proposal_count = failed_proposals.len();
         let saved_claim_count = claim_ids.len();
         let (status, title, persisted_summary) =
-            if predicate_proposal_count > 0 && saved_claim_count == 0 {
+            if predicate_proposal_count > 0 && active_saved_claim_count == 0 {
                 (
                     if failed_proposal_count == 0 {
                         TurnActivityStatus::Completed
@@ -1315,6 +1325,7 @@ impl CodexRuntimeActor {
                 "claim_outcomes": claim_outcomes,
                 "created_claim_count": created_claim_count,
                 "reinforced_claim_count": reinforced_claim_count,
+                "active_saved_claim_count": active_saved_claim_count,
                 "predicate_proposal_count": predicate_proposal_count,
                 "failed_proposal_count": failed_proposal_count,
                 "failed_proposals": failed_proposals,
@@ -1872,6 +1883,13 @@ fn fact_preview(fact: &str) -> String {
         .take(MAX_PREVIEW_CHARS - 3)
         .collect::<String>();
     format!("{preview}...")
+}
+
+const fn saved_claim_counts_as_active(status: crate::ClaimStatus) -> bool {
+    matches!(
+        status,
+        crate::ClaimStatus::Active | crate::ClaimStatus::Confirmed
+    )
 }
 
 fn provider_memory_claim_summary(saved_count: usize, failed_count: usize) -> String {
