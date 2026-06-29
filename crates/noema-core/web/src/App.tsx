@@ -22,6 +22,7 @@ import {
   PROVIDER_AUTH_POLL_INTERVAL_MS
 } from "./components/Onboarding";
 import { Transcript } from "./components/Transcript";
+import { MemoryGraphPage } from "./pages/MemoryGraphPage";
 import { MemoryHomePage } from "./pages/MemoryHomePage";
 import { useBrowserRoute } from "./routes";
 import { entriesFromReplay, handleConversationEvent, pushTranscript } from "./transcript";
@@ -312,11 +313,20 @@ export function App() {
     );
   }
 
-  if (route.kind === "memory_home" || route.kind === "memory_graph") {
+  if (route.kind === "memory_home") {
     return (
       <main className="grid h-dvh min-h-screen grid-rows-[auto_minmax(0,1fr)] overflow-hidden bg-background">
         <AppHeader status={status} socketState={socketState} agentStatus={agentStatus} />
         <MemoryHomePage onOpenGraph={() => navigate({ kind: "memory_graph" })} />
+      </main>
+    );
+  }
+
+  if (route.kind === "memory_graph") {
+    return (
+      <main className="grid h-dvh min-h-screen grid-rows-[auto_minmax(0,1fr)] overflow-hidden bg-background">
+        <AppHeader status={status} socketState={socketState} agentStatus={agentStatus} />
+        <MemoryGraphPage />
       </main>
     );
   }
