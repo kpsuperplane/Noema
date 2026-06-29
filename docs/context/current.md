@@ -93,6 +93,10 @@ The next storage slice should stay small and concrete:
   Noema colors applied through local CSS tokens. Noema-owned shell and domain
   components remain responsible for chat, memory, provenance, approvals, tools,
   runs, and object detail semantics.
+- Noema-owned React product components should live one component per file.
+  Pure helper/model logic belongs in `.ts` files, and `components/ui`
+  primitive wrappers may remain grouped when they mirror upstream compound
+  APIs.
 - `crates/noema-core/web/tests` has been removed; web validation should use
   `bun run lint`, `bun run build`, and local browser smoke checks.
 - Agent memory reads start as an explicit `search_memory` tool-only slice:

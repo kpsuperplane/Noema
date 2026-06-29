@@ -32,6 +32,15 @@ explicit owner/admin entry points.
 | Predicate proposal inspection | Current Rust-backed GraphQL `memoryPredicateProposals` and `memoryPredicateProposal`; CLI mirrors these for owner/admin inspection. Proposals are review-gated and do not unlock ordinary retrieval until promoted or merged. |
 | CLI inspection commands | Reference behavior for memory display/redaction |
 
+## Frontend Code Organization
+
+Noema-owned React product components should live one component per file.
+Component folders may contain pure `.ts` helpers, shared type files, and
+nearby tests. Design-system or shadcn-style compound primitive wrappers under
+`components/ui` may remain grouped when they mirror an upstream primitive API,
+but new Noema-owned product components should follow the one-component-per-file
+rule.
+
 ## Default Current Identities
 
 | UI label | Internal identity | Notes |
