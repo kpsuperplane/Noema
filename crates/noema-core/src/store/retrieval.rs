@@ -14,6 +14,8 @@ use super::{NoemaStore, StoreError};
 const RAW_CONTENT_MATCH_SCORE: i64 = 100;
 const CONTENT_TERM_MATCH_BASE_SCORE: i64 = 70;
 const HINT_MATCH_BASE_SCORE: i64 = 50;
+const MAX_CONTENT_TERM_BONUS_BELOW_RAW: usize =
+    (RAW_CONTENT_MATCH_SCORE - CONTENT_TERM_MATCH_BASE_SCORE - 1) as usize;
 const MAX_HINT_TERM_BONUS_BELOW_CONTENT: usize = 19;
 
 /// Claim selected for graph-memory retrieval.
@@ -280,34 +282,53 @@ fn deterministic_match_score(
         haystack.push(object_name.as_str());
     }
     let joined = haystack.join(" ").to_lowercase();
+    let content_tokens = tokenize_match_text(&joined);
 
-    if joined.contains(&query.raw) {
+    if text_matches_raw_query(&joined, &content_tokens, query) {
         return Some(RAW_CONTENT_MATCH_SCORE);
     }
 
     let content_terms = query
         .terms
         .iter()
-        .filter(|term| joined.contains(term.as_str()))
+        .filter(|term| content_tokens.contains(&term.as_str()))
         .count();
     if content_terms > 0 {
-        return Some(CONTENT_TERM_MATCH_BASE_SCORE + i64::try_from(content_terms).unwrap_or(0));
+        return Some(
+            CONTENT_TERM_MATCH_BASE_SCORE
+                + i64::try_from(content_terms.min(MAX_CONTENT_TERM_BONUS_BELOW_RAW)).unwrap_or(0),
+        );
     }
 
     let hints = row.retrieval_hints.to_string().to_lowercase();
-    if hints.contains(&query.raw) {
+    let hint_tokens = tokenize_match_text(&hints);
+    if text_matches_raw_query(&hints, &hint_tokens, query) {
         return Some(HINT_MATCH_BASE_SCORE);
     }
 
     let hint_terms = query
         .terms
         .iter()
-        .filter(|term| hints.contains(term.as_str()))
+        .filter(|term| hint_tokens.contains(&term.as_str()))
         .count();
     (hint_terms > 0).then_some(
         HINT_MATCH_BASE_SCORE
             + i64::try_from(hint_terms.min(MAX_HINT_TERM_BONUS_BELOW_CONTENT)).unwrap_or(0),
     )
+}
+
+fn tokenize_match_text(text: &str) -> Vec<&str> {
+    text.split(|ch: char| !ch.is_ascii_alphanumeric())
+        .filter(|token| !token.is_empty())
+        .collect()
+}
+
+fn text_matches_raw_query(text: &str, tokens: &[&str], query: &QueryTerms) -> bool {
+    if query.terms.len() == 1 {
+        return tokens.contains(&query.raw.as_str());
+    }
+
+    text.contains(&query.raw)
 }
 
 fn parse_use_mode(value: &str) -> Result<UseMode, StoreError> {

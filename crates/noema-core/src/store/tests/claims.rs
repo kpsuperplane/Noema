@@ -555,6 +555,67 @@ async fn retrieval_term_ranking_keeps_content_matches_over_hint_only_matches() {
 }
 
 #[tokio::test]
+async fn retrieval_short_terms_match_tokens_not_substrings() {
+    let store = test_store().await;
+    let source_item = create_source_item(&store, "Kevin likes trains.").await;
+    store
+        .create_or_reinforce_claim(train_claim(source_item.item_id))
+        .await
+        .expect("create train claim");
+
+    let result = store
+        .retrieve_claims(&personalize_request(), "ai", 8)
+        .await
+        .expect("retrieve claims");
+
+    assert_eq!(result.redacted_omission_count, 0);
+    assert!(result.included.is_empty());
+}
+
+#[tokio::test]
+async fn retrieval_long_content_token_query_cannot_outrank_exact_content_match() {
+    let store = test_store().await;
+    let exact_item = create_source_item(&store, "Kevin likes exact ranked terms.").await;
+    let token_item = create_source_item(&store, "Kevin likes scattered ranked terms.").await;
+    let terms = (0..40)
+        .map(|index| format!("topic{index}"))
+        .collect::<Vec<_>>();
+    let query = terms.join(" ");
+    let exact_summary = store
+        .create_or_reinforce_claim({
+            let mut claim = train_claim(exact_item.item_id);
+            claim.object = EntityCandidate::concept("exact-ranked-terms", "exact ranked terms");
+            claim.fact = format!("Kevin remembers {query}.");
+            claim
+        })
+        .await
+        .expect("create exact content claim");
+    store
+        .create_or_reinforce_claim({
+            let mut claim = train_claim(token_item.item_id);
+            claim.object =
+                EntityCandidate::concept("scattered-ranked-terms", "scattered ranked terms");
+            claim.fact = format!(
+                "Kevin remembers scattered terms: {}.",
+                terms.into_iter().rev().collect::<Vec<_>>().join(" ")
+            );
+            claim
+        })
+        .await
+        .expect("create content-token claim");
+
+    let result = store
+        .retrieve_claims(&personalize_request(), &query, 1)
+        .await
+        .expect("retrieve claims");
+
+    assert_eq!(result.redacted_omission_count, 0);
+    assert_eq!(result.included.len(), 1);
+    assert_eq!(result.included[0].claim_id, exact_summary.claim_id);
+    assert_eq!(result.included[0].rank_score, 100);
+}
+
+#[tokio::test]
 async fn retrieval_limit_zero_returns_empty_result() {
     let store = test_store().await;
     let source_item = create_source_item(&store, "Kevin likes trains.").await;
