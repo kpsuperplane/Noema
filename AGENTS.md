@@ -22,6 +22,7 @@
 
 ## Review And Subagents
 - Use subagents only for distinct, well-scoped work.
+- Default coding subagents to `5.5-medium` and all other subagents to `5.5-high`.
 - For implementation work, assign disjoint ownership by file/module area.
 - For adversarial review, reviewers should inspect and report findings without editing files.
 - The main agent owns final integration, validation, and the user-facing summary.
