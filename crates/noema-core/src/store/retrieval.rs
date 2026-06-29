@@ -16,7 +16,8 @@ const CONTENT_TERM_MATCH_BASE_SCORE: i64 = 70;
 const HINT_MATCH_BASE_SCORE: i64 = 50;
 const MAX_CONTENT_TERM_BONUS_BELOW_RAW: usize =
     (RAW_CONTENT_MATCH_SCORE - CONTENT_TERM_MATCH_BASE_SCORE - 1) as usize;
-const MAX_HINT_TERM_BONUS_BELOW_CONTENT: usize = 19;
+const MAX_HINT_TERM_BONUS_BELOW_CONTENT: usize =
+    (CONTENT_TERM_MATCH_BASE_SCORE - HINT_MATCH_BASE_SCORE - 1) as usize;
 
 /// Claim selected for graph-memory retrieval.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -227,19 +228,29 @@ struct RetrievalEntityNameRow {
 
 struct QueryTerms {
     raw: String,
+    raw_tokens: Vec<String>,
     terms: Vec<String>,
 }
 
 impl QueryTerms {
     fn from_query(query: &str) -> Self {
         let raw = query.trim().to_lowercase();
-        let terms = raw
+        let raw_tokens = raw
             .split(|ch: char| !ch.is_ascii_alphanumeric())
             .map(str::trim)
-            .filter(|term| term.len() > 1)
+            .filter(|term| !term.is_empty())
             .map(ToString::to_string)
+            .collect::<Vec<_>>();
+        let terms = raw_tokens
+            .iter()
+            .filter(|term| term.len() > 1)
+            .cloned()
             .collect();
-        Self { raw, terms }
+        Self {
+            raw,
+            raw_tokens,
+            terms,
+        }
     }
 
     fn is_empty(&self) -> bool {
@@ -324,8 +335,8 @@ fn tokenize_match_text(text: &str) -> Vec<&str> {
 }
 
 fn text_matches_raw_query(text: &str, tokens: &[&str], query: &QueryTerms) -> bool {
-    if query.terms.len() == 1 {
-        return tokens.contains(&query.raw.as_str());
+    if query.raw_tokens.len() == 1 {
+        return tokens.contains(&query.raw_tokens[0].as_str());
     }
 
     text.contains(&query.raw)

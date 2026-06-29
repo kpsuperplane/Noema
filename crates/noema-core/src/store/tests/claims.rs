@@ -573,6 +573,24 @@ async fn retrieval_short_terms_match_tokens_not_substrings() {
 }
 
 #[tokio::test]
+async fn retrieval_one_character_query_does_not_match_substrings() {
+    let store = test_store().await;
+    let source_item = create_source_item(&store, "Kevin likes trains.").await;
+    store
+        .create_or_reinforce_claim(train_claim(source_item.item_id))
+        .await
+        .expect("create train claim");
+
+    let result = store
+        .retrieve_claims(&personalize_request(), "i", 8)
+        .await
+        .expect("retrieve claims");
+
+    assert_eq!(result.redacted_omission_count, 0);
+    assert!(result.included.is_empty());
+}
+
+#[tokio::test]
 async fn retrieval_long_content_token_query_cannot_outrank_exact_content_match() {
     let store = test_store().await;
     let exact_item = create_source_item(&store, "Kevin likes exact ranked terms.").await;
