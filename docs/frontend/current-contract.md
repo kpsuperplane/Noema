@@ -29,6 +29,7 @@ explicit owner/admin entry points.
 | `NoemaPaths` and store config | Noema home, run directory, socket path, and embedded store location |
 | Embedded SurrealDB store | Concrete object rows, conversations, conversation_turns, conversation_items, graph claims, evidence, provider accounts, predicates, and retrieval packets |
 | GraphQL memory read model | Memory list/detail, durable conversation item replay, graph-claim retrieval, and redaction |
+| Predicate proposal inspection | Current Rust-backed GraphQL `memoryPredicateProposals` and `memoryPredicateProposal`; CLI mirrors these for owner/admin inspection. Proposals are review-gated and do not unlock ordinary retrieval until promoted or merged. |
 | CLI inspection commands | Reference behavior for memory display/redaction |
 
 ## Default Current Identities
@@ -376,8 +377,10 @@ inspection is limited to claim list/detail surfaces.
 
 Backed by:
 
-- Current: daemon GraphQL `memoryClaims`/`memoryClaim`, consumed by `noema
-  memory list` and `noema memory show <id>`.
+- Current: daemon GraphQL `memoryClaims`/`memoryClaim` and
+  `memoryPredicateProposals`/`memoryPredicateProposal`, consumed by `noema
+  memory list`, `noema memory show <id>`, `noema memory predicate-proposals`,
+  and `noema memory predicate-proposal <id>`.
 - Future: richer graph neighborhood inspection. The retired `noema context
   graph` command is intentionally unavailable and is not a current backing
   surface.
