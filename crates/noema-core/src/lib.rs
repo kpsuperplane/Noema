@@ -107,5 +107,5 @@ pub use store::{
     MemoryClaimRecord, MemoryGraph, MemoryGraphEdge, MemoryGraphFilter, MemoryGraphNode,
     MemoryGraphSummary, NewAgent, NewClaimCandidate, NoemaStore, PredicateProposalCandidate,
     PredicateProposalFilter, PredicateProposalRecord, PredicateRecord, RelatedClaimCandidate,
-    RelatedClaimRecord, RetrievedClaim, StoreConfig, StoreError,
+    RelatedClaimRecord, RetrievedClaim, StoreConfig, StoreError, SupersedeClaimCandidate,
 };

@@ -6,6 +6,7 @@ use crate::{
     ActorRef, ClaimStatus, ClaimWriteOutcome, ConversationItemKind, ConversationItemStatus,
     EntityCandidate, EntityType, EvidenceAuthority, EvidenceCandidate, NewClaimCandidate,
     NewConversation, NewConversationItem, NewConversationTurn, NoemaStore, StoreError,
+    SupersedeClaimCandidate,
     memory::{ClaimRetrievalRequest, Sensitivity, UseMode},
 };
 
@@ -66,6 +67,71 @@ async fn reinforcing_existing_claim_adds_evidence() {
     assert_eq!(second.write_outcome, ClaimWriteOutcome::Reinforced);
     assert_eq!(second.evidence_count, 2);
     assert_eq!(claim_count(&store).await, 1);
+}
+
+#[tokio::test]
+async fn reinforcing_claim_by_id_accepts_semantic_fact_variant_without_duplicate() {
+    let store = test_store().await;
+    let first_item = create_source_item(&store, "Kevin likes ice cream.").await;
+    let second_item =
+        create_source_item(&store, "Ice cream is one of Kevin's favorite desserts.").await;
+
+    let first = store
+        .create_or_reinforce_claim(ice_cream_claim(
+            first_item.item_id,
+            "Kevin likes ice cream.",
+        ))
+        .await
+        .expect("first claim");
+    let second = store
+        .reinforce_claim_by_id(
+            &first.claim_id,
+            ice_cream_claim(
+                second_item.item_id,
+                "Ice cream is one of Kevin's favorite desserts.",
+            ),
+        )
+        .await
+        .expect("targeted reinforce");
+
+    assert_eq!(first.claim_id, second.claim_id);
+    assert_eq!(second.write_outcome, ClaimWriteOutcome::Reinforced);
+    assert_eq!(second.evidence_count, 2);
+    assert_eq!(claim_count(&store).await, 1);
+}
+
+#[tokio::test]
+async fn supersede_claim_marks_old_claim_and_links_replacement() {
+    let store = test_store().await;
+    let old_item = create_source_item(&store, "Kevin likes ice cream.").await;
+    let new_item = create_source_item(&store, "Kevin dislikes ice cream now.").await;
+
+    let old = store
+        .create_or_reinforce_claim(ice_cream_claim(old_item.item_id, "Kevin likes ice cream."))
+        .await
+        .expect("old claim");
+    let mut replacement = ice_cream_claim(new_item.item_id, "Kevin dislikes ice cream now.");
+    replacement.predicate_id = "dislikes".to_string();
+    replacement.status = ClaimStatus::Active;
+    let new_summary = store
+        .supersede_claim(SupersedeClaimCandidate {
+            replacement,
+            superseded_claim_id: old.claim_id.clone(),
+            metadata: json!({"rationale": "preference changed"}),
+        })
+        .await
+        .expect("supersede claim");
+
+    assert_ne!(old.claim_id, new_summary.claim_id);
+    assert_eq!(
+        claim_status(&store, &old.claim_id).await,
+        ClaimStatus::Superseded
+    );
+    assert_eq!(new_summary.status, ClaimStatus::Active);
+    assert_eq!(
+        supersedes_count(&store, &new_summary.claim_id, &old.claim_id).await,
+        1
+    );
 }
 
 #[tokio::test]
@@ -1560,6 +1626,25 @@ fn train_claim(source_item_id: String) -> NewClaimCandidate {
     }
 }
 
+fn ice_cream_claim(source_item_id: String, fact: &str) -> NewClaimCandidate {
+    NewClaimCandidate {
+        subject: EntityCandidate::local_human(),
+        object: EntityCandidate::concept("ice_cream", "ice cream"),
+        predicate_id: "likes".to_string(),
+        fact: fact.to_string(),
+        sensitivity: Sensitivity::Normal,
+        status: ClaimStatus::Active,
+        confidence: Some(0.9),
+        evidence: EvidenceCandidate {
+            source_item_id,
+            authority: EvidenceAuthority::ExplicitHumanStatement,
+            excerpt: Some(fact.to_string()),
+        },
+        retrieval_hints: json!({}),
+        metadata: json!({}),
+    }
+}
+
 fn note_claim(
     source_item_id: String,
     object_entity_id: String,
@@ -1683,6 +1768,64 @@ async fn claim_confidence(store: &NoemaStore, claim_id: &str) -> Option<f64> {
         .expect("select claim confidence");
     let rows: Vec<ConfidenceRow> = response.take(0).expect("confidence rows");
     rows.into_iter().next().and_then(|row| row.confidence)
+}
+
+async fn claim_status(store: &NoemaStore, claim_id: &str) -> ClaimStatus {
+    #[derive(Debug, serde::Deserialize, SurrealValue)]
+    struct StatusRow {
+        status: String,
+    }
+
+    let mut response = store
+        .db()
+        .query(
+            r#"
+            SELECT status
+            FROM claims
+            WHERE claim_id = $claim_id
+            LIMIT 1;
+            "#,
+        )
+        .bind(("claim_id", claim_id.to_string()))
+        .await
+        .expect("select claim status");
+    let rows: Vec<StatusRow> = response.take(0).expect("status rows");
+    let status = rows.into_iter().next().expect("claim status row").status;
+    match status.as_str() {
+        "candidate" => ClaimStatus::Candidate,
+        "active" => ClaimStatus::Active,
+        "confirmed" => ClaimStatus::Confirmed,
+        "disputed" => ClaimStatus::Disputed,
+        "superseded" => ClaimStatus::Superseded,
+        "archived" => ClaimStatus::Archived,
+        "deleted" => ClaimStatus::Deleted,
+        _ => panic!("unexpected status {status}"),
+    }
+}
+
+async fn supersedes_count(store: &NoemaStore, claim_id: &str, superseded_claim_id: &str) -> i64 {
+    #[derive(Debug, serde::Deserialize, SurrealValue)]
+    struct CountRow {
+        count: i64,
+    }
+
+    let mut response = store
+        .db()
+        .query(
+            r#"
+            SELECT count() AS count
+            FROM supersedes
+            WHERE claim_id = $claim_id
+              AND superseded_claim_id = $superseded_claim_id
+            GROUP ALL;
+            "#,
+        )
+        .bind(("claim_id", claim_id.to_string()))
+        .bind(("superseded_claim_id", superseded_claim_id.to_string()))
+        .await
+        .expect("count supersedes rows");
+    let rows: Vec<CountRow> = response.take(0).expect("supersedes count rows");
+    rows.first().map_or(0, |row| row.count)
 }
 
 async fn set_claim_status(store: &NoemaStore, claim_id: &str, status: ClaimStatus) {

@@ -21,7 +21,7 @@ pub use claims::{
     EvidenceAuthority, EvidenceCandidate, MemoryClaimDetail, MemoryClaimEvidence,
     MemoryClaimFilter, MemoryClaimRecord, MemoryGraph, MemoryGraphEdge, MemoryGraphFilter,
     MemoryGraphNode, MemoryGraphSummary, NewClaimCandidate, RelatedClaimCandidate,
-    RelatedClaimRecord,
+    RelatedClaimRecord, SupersedeClaimCandidate,
 };
 pub use error::StoreError;
 pub use ontology::{

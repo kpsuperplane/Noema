@@ -18,7 +18,10 @@ use crate::{
         GenerateStreamEvent, ModelProvider, ProviderError,
     },
     providers::codex_responses::{CodexProviderConfig, CodexResponsesProvider},
-    store::{ClaimStatus, ConsolidationMatchRequest, NewClaimCandidate, RelatedClaimCandidate},
+    store::{
+        ClaimStatus, ConsolidationMatchRequest, NewClaimCandidate, RelatedClaimCandidate,
+        SupersedeClaimCandidate,
+    },
     {
         ActorRef, ConversationItemKind, ConversationItemRecord, ConversationItemStatus,
         NewConversation, NewConversationItem, NewConversationTurn, PersistedAgentStatus,
@@ -1182,6 +1185,7 @@ impl CodexRuntimeActor {
         let mut disputed_claim_count = 0usize;
         let mut related_claim_count = 0usize;
         let mut needs_review_claim_count = 0usize;
+        let mut superseded_claim_count = 0usize;
         let mut active_saved_claim_count = 0usize;
         let mut predicate_proposal_count = 0usize;
         let mut failed_proposals = Vec::new();
@@ -1229,6 +1233,7 @@ impl CodexRuntimeActor {
                                     "reinforced" => reinforced_claim_count += 1,
                                     "disputed" => disputed_claim_count += 1,
                                     "related" => related_claim_count += 1,
+                                    "superseded" => superseded_claim_count += 1,
                                     "needs_review" => needs_review_claim_count += 1,
                                     _ => {}
                                 }
@@ -1339,7 +1344,8 @@ impl CodexRuntimeActor {
 
         let failed_proposal_count = failed_proposals.len();
         let saved_claim_count = claim_ids.len();
-        let review_claim_count = disputed_claim_count + needs_review_claim_count;
+        let review_claim_count =
+            disputed_claim_count + needs_review_claim_count + superseded_claim_count;
         let (status, title, persisted_summary) =
             if predicate_proposal_count > 0 || review_claim_count > 0 {
                 (
@@ -1373,6 +1379,7 @@ impl CodexRuntimeActor {
                 "reinforced_claim_count": reinforced_claim_count,
                 "disputed_claim_count": disputed_claim_count,
                 "related_claim_count": related_claim_count,
+                "superseded_claim_count": superseded_claim_count,
                 "needs_review_claim_count": needs_review_claim_count,
                 "active_saved_claim_count": active_saved_claim_count,
                 "predicate_proposal_count": predicate_proposal_count,
@@ -1453,8 +1460,20 @@ impl CodexRuntimeActor {
         decision: ConsolidationDecision,
     ) -> Result<PersistedMemoryOutcome, DaemonError> {
         match decision.decision {
-            ConsolidationDecisionKind::Create | ConsolidationDecisionKind::Reinforce => {
+            ConsolidationDecisionKind::Create => {
                 let summary = self.store.create_or_reinforce_claim(candidate).await?;
+                Ok(PersistedMemoryOutcome::from_claim_summary(summary))
+            }
+            ConsolidationDecisionKind::Reinforce => {
+                let existing_claim_id = decision.existing_claim_id.clone().ok_or_else(|| {
+                    DaemonError::Protocol(
+                        "reinforce decision missing existing claim id".to_string(),
+                    )
+                })?;
+                let summary = self
+                    .store
+                    .reinforce_claim_by_id(&existing_claim_id, candidate)
+                    .await?;
                 Ok(PersistedMemoryOutcome::from_claim_summary(summary))
             }
             ConsolidationDecisionKind::Dispute => {
@@ -1489,7 +1508,33 @@ impl CodexRuntimeActor {
                     status: summary.status,
                 })
             }
-            ConsolidationDecisionKind::Supersede | ConsolidationDecisionKind::NeedsReview => {
+            ConsolidationDecisionKind::Supersede => {
+                let existing_claim_id = decision.existing_claim_id.clone().ok_or_else(|| {
+                    DaemonError::Protocol(
+                        "supersede decision missing existing claim id".to_string(),
+                    )
+                })?;
+                let metadata = json!({
+                    "rationale": decision.rationale,
+                    "confidence": decision.confidence,
+                });
+                let summary = self
+                    .store
+                    .supersede_claim(SupersedeClaimCandidate {
+                        replacement: candidate,
+                        superseded_claim_id: existing_claim_id,
+                        metadata,
+                    })
+                    .await?;
+                Ok(PersistedMemoryOutcome {
+                    claim_id: Some(summary.claim_id),
+                    outcome: "superseded",
+                    fact_preview: fact_preview(&summary.fact),
+                    sensitivity: sensitivity_label(summary.sensitivity).to_string(),
+                    status: summary.status,
+                })
+            }
+            ConsolidationDecisionKind::NeedsReview => {
                 candidate.status = ClaimStatus::Candidate;
                 let summary = self.store.create_or_reinforce_claim(candidate).await?;
                 Ok(PersistedMemoryOutcome {

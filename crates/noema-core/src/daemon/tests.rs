@@ -1666,6 +1666,49 @@ async fn semantic_repeat_reinforces_existing_claim() {
 }
 
 #[tokio::test]
+async fn semantic_repeat_reinforces_existing_claim_by_id_without_duplicate() {
+    let (handle, store) =
+        test_runtime_handle_with_store(fake_codex_provider_with_memory_extraction()).await;
+    let conversation = handle
+        .start_conversation(None, None)
+        .await
+        .expect("conversation");
+    let conversation_id = conversation.conversation_id.clone();
+
+    collect_turn(
+        &handle,
+        conversation_id.clone(),
+        "I like ice cream.".to_string(),
+    )
+    .await
+    .expect("seed turn");
+    collect_turn(
+        &handle,
+        conversation_id,
+        "Ice cream is one of my favorite desserts.".to_string(),
+    )
+    .await
+    .expect("semantic repeat turn");
+
+    let claims = store
+        .list_claims(crate::MemoryClaimFilter {
+            query: Some("ice cream".to_string()),
+            status: Some(crate::ClaimStatus::Active),
+            predicate_id: Some("likes".to_string()),
+            limit: Some(10),
+        })
+        .await
+        .expect("ice cream claims");
+    assert_eq!(
+        claims.len(),
+        1,
+        "semantic reinforce should not create a fingerprint duplicate: {claims:?}"
+    );
+    assert_eq!(claims[0].evidence_count, 2);
+    handle.shutdown().await;
+}
+
+#[tokio::test]
 async fn contradiction_becomes_reviewable_dispute() {
     let (handle, store) =
         test_runtime_handle_with_store(fake_codex_provider_with_memory_extraction()).await;

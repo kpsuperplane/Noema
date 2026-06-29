@@ -162,6 +162,17 @@ pub struct ClaimSummary {
     pub write_outcome: ClaimWriteOutcome,
 }
 
+/// Candidate describing a replacement claim superseding an existing claim.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SupersedeClaimCandidate {
+    /// Replacement claim candidate to create or reinforce.
+    pub replacement: NewClaimCandidate,
+    /// Existing claim id that is being superseded.
+    pub superseded_claim_id: String,
+    /// Optional machine-readable metadata for the supersession edge.
+    pub metadata: Value,
+}
+
 /// Read-only filters for memory-management claim inspection.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct MemoryClaimFilter {
@@ -1084,6 +1095,57 @@ impl NoemaStore {
         self.claim_summary(&claim_id, write_outcome).await
     }
 
+    /// Reinforce a specific existing non-deleted claim by id.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when the target claim is missing, deleted, or
+    /// incompatible with the incoming candidate, or when validation/write fails.
+    pub async fn reinforce_claim_by_id(
+        &self,
+        claim_id: &str,
+        candidate: NewClaimCandidate,
+    ) -> Result<ClaimSummary, StoreError> {
+        let _claim_write_guard = self.claim_write_lock.lock().await;
+        self.require_predicate(&candidate.predicate_id).await?;
+        self.require_source_item(&candidate.evidence.source_item_id)
+            .await?;
+        self.upsert_entity(&candidate.subject).await?;
+        self.upsert_entity(&candidate.object).await?;
+        self.require_compatible_reinforcement_target(claim_id, &candidate)
+            .await?;
+        self.merge_reinforced_claim(claim_id, &candidate).await?;
+        self.insert_support_evidence(claim_id, &candidate.evidence)
+            .await?;
+        self.claim_summary(claim_id, ClaimWriteOutcome::Reinforced)
+            .await
+    }
+
+    /// Create or reinforce a replacement claim, mark the old claim superseded,
+    /// and record a supersedes edge from replacement to old claim.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when either claim is missing/deleted, when the
+    /// replacement resolves to the same claim, or when validation/write fails.
+    pub async fn supersede_claim(
+        &self,
+        candidate: SupersedeClaimCandidate,
+    ) -> Result<ClaimSummary, StoreError> {
+        self.require_non_deleted_claim(&candidate.superseded_claim_id)
+            .await?;
+        let summary = self
+            .create_or_reinforce_claim(candidate.replacement)
+            .await?;
+        self.insert_supersedes_relation(
+            &summary.claim_id,
+            &candidate.superseded_claim_id,
+            candidate.metadata,
+        )
+        .await?;
+        Ok(summary)
+    }
+
     async fn merge_reinforced_claim(
         &self,
         claim_id: &str,
@@ -1145,6 +1207,58 @@ impl NoemaStore {
             status: ClaimStatus::parse(&row.status)?,
             sensitivity: parse_sensitivity(&row.sensitivity)?,
             confidence: row.confidence,
+        })
+    }
+
+    async fn require_compatible_reinforcement_target(
+        &self,
+        claim_id: &str,
+        candidate: &NewClaimCandidate,
+    ) -> Result<(), StoreError> {
+        let existing = self.claim_identity_for_reinforcement(claim_id).await?;
+        if existing.status == ClaimStatus::Deleted {
+            return Err(StoreError::Schema(format!(
+                "deleted claim cannot be reinforced: {claim_id}"
+            )));
+        }
+        let object_matches =
+            existing.object_entity_id.as_deref() == Some(candidate.object.entity_id.as_str());
+        if existing.subject_entity_id != candidate.subject.entity_id
+            || existing.predicate_id != candidate.predicate_id
+            || !object_matches
+        {
+            return Err(StoreError::Schema(format!(
+                "claim reinforcement target is incompatible: {claim_id}"
+            )));
+        }
+        Ok(())
+    }
+
+    async fn claim_identity_for_reinforcement(
+        &self,
+        claim_id: &str,
+    ) -> Result<ClaimIdentityRow, StoreError> {
+        let mut response = self
+            .db
+            .query(
+                r#"
+                SELECT claim_id, subject_entity_id, object_entity_id, predicate_id, status
+                FROM claims
+                WHERE claim_id = $claim_id
+                LIMIT 1;
+                "#,
+            )
+            .bind(("claim_id", claim_id.to_string()))
+            .await?;
+        let rows: Vec<ClaimIdentityRecord> = response.take(0)?;
+        let row = rows.into_iter().next().ok_or_else(|| {
+            StoreError::Schema(format!("missing claim for reinforcement: {claim_id}"))
+        })?;
+        Ok(ClaimIdentityRow {
+            subject_entity_id: row.subject_entity_id,
+            object_entity_id: row.object_entity_id,
+            predicate_id: row.predicate_id,
+            status: ClaimStatus::parse(&row.status)?,
         })
     }
 
@@ -1383,6 +1497,89 @@ impl NoemaStore {
         Ok(())
     }
 
+    async fn insert_supersedes_relation(
+        &self,
+        claim_id: &str,
+        superseded_claim_id: &str,
+        metadata: Value,
+    ) -> Result<(), StoreError> {
+        if claim_id == superseded_claim_id {
+            return Err(StoreError::Schema(format!(
+                "claim cannot supersede itself: {claim_id}"
+            )));
+        }
+        self.require_non_deleted_claim(claim_id).await?;
+        self.require_non_deleted_claim(superseded_claim_id).await?;
+        if self
+            .supersedes_relation_exists(claim_id, superseded_claim_id)
+            .await?
+        {
+            self.mark_claim_superseded(superseded_claim_id).await?;
+            return Ok(());
+        }
+
+        let relation_id = allocate_id("supersedes");
+        self.db
+            .query(
+                r#"
+                CREATE type::record('supersedes', $record_id) SET
+                  relation_id = $relation_id,
+                  claim_id = $claim_id,
+                  superseded_claim_id = $superseded_claim_id,
+                  metadata = $metadata;
+                "#,
+            )
+            .bind(("record_id", record_fragment(&relation_id)))
+            .bind(("relation_id", relation_id))
+            .bind(("claim_id", claim_id.to_string()))
+            .bind(("superseded_claim_id", superseded_claim_id.to_string()))
+            .bind(("metadata", metadata))
+            .await?
+            .check()?;
+        self.mark_claim_superseded(superseded_claim_id).await?;
+        Ok(())
+    }
+
+    async fn supersedes_relation_exists(
+        &self,
+        claim_id: &str,
+        superseded_claim_id: &str,
+    ) -> Result<bool, StoreError> {
+        let mut response = self
+            .db
+            .query(
+                r#"
+                SELECT relation_id
+                FROM supersedes
+                WHERE claim_id = $claim_id
+                  AND superseded_claim_id = $superseded_claim_id
+                LIMIT 1;
+                "#,
+            )
+            .bind(("claim_id", claim_id.to_string()))
+            .bind(("superseded_claim_id", superseded_claim_id.to_string()))
+            .await?;
+        let rows: Vec<RelationIdRow> = response.take(0)?;
+        Ok(!rows.is_empty())
+    }
+
+    async fn mark_claim_superseded(&self, claim_id: &str) -> Result<(), StoreError> {
+        self.db
+            .query(
+                r#"
+                UPDATE claims SET
+                  status = 'superseded',
+                  updated_at = time::now()
+                WHERE claim_id = $claim_id
+                  AND status != 'deleted';
+                "#,
+            )
+            .bind(("claim_id", claim_id.to_string()))
+            .await?
+            .check()?;
+        Ok(())
+    }
+
     async fn claim_summary(
         &self,
         claim_id: &str,
@@ -1546,6 +1743,30 @@ struct RelatedClaimRow {
 struct ClaimStatusRow {
     #[allow(dead_code)]
     claim_id: String,
+    status: String,
+}
+
+#[derive(Debug, Deserialize, SurrealValue)]
+struct RelationIdRow {
+    #[allow(dead_code)]
+    relation_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ClaimIdentityRow {
+    subject_entity_id: String,
+    object_entity_id: Option<String>,
+    predicate_id: String,
+    status: ClaimStatus,
+}
+
+#[derive(Debug, Deserialize, SurrealValue)]
+struct ClaimIdentityRecord {
+    #[allow(dead_code)]
+    claim_id: String,
+    subject_entity_id: String,
+    object_entity_id: Option<String>,
+    predicate_id: String,
     status: String,
 }
 
