@@ -18,6 +18,14 @@ export function MemoryGraphControls({
   onQueryChange: (value: string) => void
   onStatusesChange: (value: string[]) => void
 }) {
+  function handleStatusClick(status: string) {
+    const nextStatuses = toggleStatus(statuses, status)
+
+    if (nextStatuses.length > 0) {
+      onStatusesChange(nextStatuses)
+    }
+  }
+
   return (
     <section
       className="grid gap-3 border-b border-[var(--border-subtle)] bg-white px-5 py-4"
@@ -28,6 +36,7 @@ export function MemoryGraphControls({
         <input
           className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
           value={query}
+          aria-label="Search memories"
           placeholder="Search memories"
           onChange={(event) => onQueryChange(event.target.value)}
         />
@@ -44,7 +53,7 @@ export function MemoryGraphControls({
               variant={active ? "secondary" : "outline"}
               size="sm"
               aria-pressed={active}
-              onClick={() => onStatusesChange(toggleStatus(statuses, status.value))}
+              onClick={() => handleStatusClick(status.value)}
             >
               {status.label}
             </Button>

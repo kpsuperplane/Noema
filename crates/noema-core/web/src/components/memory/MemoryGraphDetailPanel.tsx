@@ -20,6 +20,7 @@ export function MemoryGraphDetailPanel({ selectedEdge }: { selectedEdge: Normali
   }
 
   const claim = detail.data?.memoryClaim
+  const claimUnavailable = !detail.loading && !detail.error && detail.data && !claim
 
   return (
     <aside className="grid content-start gap-4 border-l border-[var(--border-subtle)] bg-white p-5">
@@ -46,14 +47,19 @@ export function MemoryGraphDetailPanel({ selectedEdge }: { selectedEdge: Normali
 
       {detail.loading ? <p className="m-0 text-sm text-muted-foreground">Loading evidence...</p> : null}
       {detail.error ? <p className="m-0 text-sm text-destructive">{detail.error.message}</p> : null}
+      {claimUnavailable ? (
+        <p className="m-0 text-sm text-muted-foreground">
+          Claim detail is unavailable. The graph edge summary remains visible.
+        </p>
+      ) : null}
 
       {claim?.evidence.length ? (
         <div className="grid gap-2">
           <h3 className="m-0 text-sm font-semibold">Evidence</h3>
-          {claim.evidence.map((evidence) => {
+          {claim.evidence.map((evidence, index) => {
             const key =
               evidence.evidenceId ??
-              `${evidence.sourceItemId ?? "source"}:${evidence.observedAt ?? evidence.createdAt}`
+              `${evidence.sourceItemId ?? "source"}:${evidence.observedAt ?? evidence.createdAt}:${index}`
 
             return (
               <article key={key} className="rounded-md border border-[var(--border-subtle)] p-3">

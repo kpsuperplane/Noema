@@ -40,16 +40,29 @@ function MemoryClaimEdge({
   id,
   label,
   selected,
+  source,
   sourceX,
   sourceY,
+  target,
   targetX,
   targetY,
 }: EdgeProps<Edge<MemoryGraphEdgeData>>) {
-  const edgePath = `M ${sourceX} ${sourceY} L ${targetX} ${targetY}`
+  const selfEdge = source === target
+  const edgePath = selfEdge
+    ? `M ${sourceX} ${sourceY} C ${sourceX + 120} ${sourceY - 120}, ${targetX + 120} ${targetY + 120}, ${targetX} ${targetY}`
+    : `M ${sourceX} ${sourceY} L ${targetX} ${targetY}`
   const stroke = selected ? "var(--pine-500)" : "rgba(23, 22, 15, 0.32)"
 
   return (
     <g>
+      <path
+        className="react-flow__edge-interaction"
+        d={edgePath}
+        stroke="transparent"
+        strokeWidth={18}
+        fill="none"
+        pointerEvents="stroke"
+      />
       <path
         id={id}
         className="react-flow__edge-path"
