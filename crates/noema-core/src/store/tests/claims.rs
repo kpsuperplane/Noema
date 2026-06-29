@@ -411,6 +411,77 @@ async fn bounded_consolidation_match_search_finds_same_subject_predicate_claims(
 }
 
 #[tokio::test]
+async fn consolidation_match_search_finds_compatible_dislikes_likes_claim() {
+    let store = test_store().await;
+    let source_item = create_source_item(&store, "Kevin likes trains.").await;
+    let summary = store
+        .create_or_reinforce_claim(train_claim(source_item.item_id))
+        .await
+        .expect("seed claim");
+
+    let matches = store
+        .find_consolidation_matches(crate::store::ConsolidationMatchRequest {
+            subject_entity_id: "human:local".to_string(),
+            predicate_id: "dislikes".to_string(),
+            object_entity_id: Some("concept:trains".to_string()),
+            query_terms: vec!["trains".to_string()],
+            sensitivity: Sensitivity::Normal,
+            limit: 12,
+        })
+        .await
+        .expect("matches");
+
+    assert_eq!(matches.len(), 1);
+    assert_eq!(matches[0].claim_id, summary.claim_id);
+    assert_eq!(matches[0].predicate_id, "likes");
+}
+
+#[tokio::test]
+async fn consolidation_match_search_scans_past_newer_irrelevant_candidates() {
+    let store = test_store().await;
+    let target_item = create_source_item(&store, "Kevin likes trains.").await;
+    let target = store
+        .create_or_reinforce_claim(train_claim(target_item.item_id))
+        .await
+        .expect("target claim");
+
+    for index in 0..25 {
+        let fact = format!("Kevin likes unrelated topic {index}.");
+        let source_item = create_source_item(&store, &fact).await;
+        let mut candidate = train_claim(source_item.item_id);
+        let object_id = format!("unrelated-topic-{index}");
+        let object_name = format!("unrelated topic {index}");
+        candidate.object = EntityCandidate::concept(&object_id, &object_name);
+        candidate.fact = fact;
+        candidate.retrieval_hints = json!({ "keywords": [format!("unrelated topic {index}")] });
+        store
+            .create_or_reinforce_claim(candidate)
+            .await
+            .expect("irrelevant claim");
+    }
+
+    let matches = store
+        .find_consolidation_matches(crate::store::ConsolidationMatchRequest {
+            subject_entity_id: "human:local".to_string(),
+            predicate_id: "likes".to_string(),
+            object_entity_id: Some("concept:trains".to_string()),
+            query_terms: vec!["trains".to_string()],
+            sensitivity: Sensitivity::Normal,
+            limit: 3,
+        })
+        .await
+        .expect("matches");
+
+    assert!(
+        matches
+            .iter()
+            .any(|claim| claim.claim_id == target.claim_id),
+        "older exact-object match should not be hidden by newer irrelevant rows: {matches:?}"
+    );
+    assert!(matches.len() <= 3);
+}
+
+#[tokio::test]
 async fn related_claim_relation_can_be_persisted() {
     let store = test_store().await;
     let train_item = create_source_item(&store, "Kevin likes trains.").await;
@@ -447,6 +518,98 @@ async fn related_claim_relation_can_be_persisted() {
     assert_eq!(relations.len(), 1);
     assert_eq!(relations[0].related_claim_id, train.claim_id);
     assert_eq!(relations[0].relation_kind, "related_preference");
+}
+
+#[tokio::test]
+async fn related_claim_relation_rejects_self_and_missing_claims() {
+    let store = test_store().await;
+    let train_item = create_source_item(&store, "Kevin likes trains.").await;
+    let train = store
+        .create_or_reinforce_claim(train_claim(train_item.item_id))
+        .await
+        .expect("train claim");
+
+    let self_error = store
+        .relate_claims(crate::store::RelatedClaimCandidate {
+            claim_id: train.claim_id.clone(),
+            related_claim_id: train.claim_id.clone(),
+            relation_kind: "related_preference".to_string(),
+            rationale: "A claim cannot be related to itself.".to_string(),
+        })
+        .await
+        .expect_err("self relation should be rejected");
+    assert!(matches!(self_error, StoreError::Schema(message) if message.contains("self")));
+
+    let missing_error = store
+        .relate_claims(crate::store::RelatedClaimCandidate {
+            claim_id: train.claim_id.clone(),
+            related_claim_id: "claim:missing".to_string(),
+            relation_kind: "related_preference".to_string(),
+            rationale: "Missing related claim.".to_string(),
+        })
+        .await
+        .expect_err("missing related claim should be rejected");
+    assert!(matches!(missing_error, StoreError::Schema(message) if message.contains("missing")));
+
+    set_claim_status(&store, &train.claim_id, ClaimStatus::Deleted).await;
+    let deleted_error = store
+        .relate_claims(crate::store::RelatedClaimCandidate {
+            claim_id: train.claim_id.clone(),
+            related_claim_id: "claim:missing".to_string(),
+            relation_kind: "related_preference".to_string(),
+            rationale: "Deleted primary claim.".to_string(),
+        })
+        .await
+        .expect_err("deleted primary claim should be rejected");
+    assert!(matches!(deleted_error, StoreError::Schema(message) if message.contains("deleted")));
+}
+
+#[tokio::test]
+async fn duplicate_related_claim_relation_returns_existing_record() {
+    let store = test_store().await;
+    let train_item = create_source_item(&store, "Kevin likes trains.").await;
+    let aviation_item = create_source_item(&store, "Kevin likes commercial aviation.").await;
+    let train = store
+        .create_or_reinforce_claim(train_claim(train_item.item_id))
+        .await
+        .expect("train claim");
+    let mut aviation = train_claim(aviation_item.item_id);
+    aviation.object = EntityCandidate::concept(
+        "claim_object:likes:commercial aviation",
+        "commercial aviation",
+    );
+    aviation.fact = "Kevin likes commercial aviation.".to_string();
+    let aviation = store
+        .create_or_reinforce_claim(aviation)
+        .await
+        .expect("aviation claim");
+
+    let first = store
+        .relate_claims(crate::store::RelatedClaimCandidate {
+            claim_id: aviation.claim_id.clone(),
+            related_claim_id: train.claim_id.clone(),
+            relation_kind: "related_preference".to_string(),
+            rationale: "Both claims describe aviation-related preferences.".to_string(),
+        })
+        .await
+        .expect("first relation");
+    let second = store
+        .relate_claims(crate::store::RelatedClaimCandidate {
+            claim_id: aviation.claim_id.clone(),
+            related_claim_id: train.claim_id.clone(),
+            relation_kind: "related_preference".to_string(),
+            rationale: "Duplicate relation should be idempotent.".to_string(),
+        })
+        .await
+        .expect("duplicate relation");
+
+    assert_eq!(second.relation_id, first.relation_id);
+    assert_eq!(second.rationale, first.rationale);
+    let relations = store
+        .related_claims(&aviation.claim_id)
+        .await
+        .expect("relations");
+    assert_eq!(relations.len(), 1);
 }
 
 #[tokio::test]

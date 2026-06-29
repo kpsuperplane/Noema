@@ -403,6 +403,7 @@ impl NoemaStore {
         request: ConsolidationMatchRequest,
     ) -> Result<Vec<ConsolidationMatch>, StoreError> {
         let limit = request.limit.clamp(1, 20);
+        let candidate_limit = 100.max(limit * 5);
         let query_terms = request
             .query_terms
             .iter()
@@ -433,7 +434,7 @@ impl NoemaStore {
                 "allowed_sensitivities",
                 allowed_match_sensitivities(request.sensitivity),
             ))
-            .bind(("limit", limit))
+            .bind(("limit", candidate_limit))
             .await?;
         let rows: Vec<ConsolidationMatchRow> = response.take(0)?;
         rows.into_iter()
@@ -443,12 +444,16 @@ impl NoemaStore {
                 {
                     return true;
                 }
+                if request.object_entity_id.is_some() && query_terms.is_empty() {
+                    return false;
+                }
                 query_terms.is_empty()
                     || query_terms
                         .iter()
                         .any(|term| row.fact.to_ascii_lowercase().contains(term))
             })
             .map(consolidation_match)
+            .take(limit)
             .collect()
     }
 
@@ -461,6 +466,26 @@ impl NoemaStore {
         &self,
         candidate: RelatedClaimCandidate,
     ) -> Result<RelatedClaimRecord, StoreError> {
+        if candidate.claim_id == candidate.related_claim_id {
+            return Err(StoreError::Schema(format!(
+                "related claim relation cannot reference itself: {}",
+                candidate.claim_id
+            )));
+        }
+        self.require_non_deleted_claim(&candidate.claim_id).await?;
+        self.require_non_deleted_claim(&candidate.related_claim_id)
+            .await?;
+        if let Some(existing) = self
+            .related_claim_by_pair(
+                &candidate.claim_id,
+                &candidate.related_claim_id,
+                &candidate.relation_kind,
+            )
+            .await?
+        {
+            return Ok(existing);
+        }
+
         let relation_id = allocate_id("related_claim");
         self.db
             .query(
@@ -532,6 +557,35 @@ impl NoemaStore {
                 "#,
             )
             .bind(("relation_id", relation_id.to_string()))
+            .await?;
+        let rows: Vec<RelatedClaimRow> = response.take(0)?;
+        rows.into_iter()
+            .next()
+            .map(related_claim_record)
+            .transpose()
+    }
+
+    async fn related_claim_by_pair(
+        &self,
+        claim_id: &str,
+        related_claim_id: &str,
+        relation_kind: &str,
+    ) -> Result<Option<RelatedClaimRecord>, StoreError> {
+        let mut response = self
+            .db
+            .query(
+                r#"
+                SELECT relation_id, claim_id, related_claim_id, relation_kind, rationale, created_at
+                FROM related_to
+                WHERE claim_id = $claim_id
+                  AND related_claim_id = $related_claim_id
+                  AND relation_kind = $relation_kind
+                LIMIT 1;
+                "#,
+            )
+            .bind(("claim_id", claim_id.to_string()))
+            .bind(("related_claim_id", related_claim_id.to_string()))
+            .bind(("relation_kind", relation_kind.to_string()))
             .await?;
         let rows: Vec<RelatedClaimRow> = response.take(0)?;
         rows.into_iter()
@@ -1128,6 +1182,33 @@ impl NoemaStore {
         }
     }
 
+    async fn require_non_deleted_claim(&self, claim_id: &str) -> Result<(), StoreError> {
+        let mut response = self
+            .db
+            .query(
+                r#"
+                SELECT claim_id, status
+                FROM claims
+                WHERE claim_id = $claim_id
+                LIMIT 1;
+                "#,
+            )
+            .bind(("claim_id", claim_id.to_string()))
+            .await?;
+        let rows: Vec<ClaimStatusRow> = response.take(0)?;
+        let Some(row) = rows.into_iter().next() else {
+            return Err(StoreError::Schema(format!(
+                "missing claim for relation: {claim_id}"
+            )));
+        };
+        if ClaimStatus::parse(&row.status)? == ClaimStatus::Deleted {
+            return Err(StoreError::Schema(format!(
+                "deleted claim for relation: {claim_id}"
+            )));
+        }
+        Ok(())
+    }
+
     async fn existing_claim_id(&self, fingerprint: &str) -> Result<Option<String>, StoreError> {
         let mut response = self
             .db
@@ -1402,6 +1483,13 @@ struct RelatedClaimRow {
     relation_kind: String,
     rationale: String,
     created_at: Datetime,
+}
+
+#[derive(Debug, Deserialize, SurrealValue)]
+struct ClaimStatusRow {
+    #[allow(dead_code)]
+    claim_id: String,
+    status: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
