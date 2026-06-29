@@ -183,7 +183,11 @@ fn explicit_candidate_name(candidate: &str) -> Option<&str> {
         return None;
     }
 
-    let trimmed = candidate.strip_suffix('.').unwrap_or(candidate).trim_end();
+    let trimmed = candidate
+        .split_once('.')
+        .map(|(name, _)| name)
+        .unwrap_or(candidate)
+        .trim_end();
     if trimmed.is_empty() {
         None
     } else {
@@ -268,6 +272,7 @@ mod tests {
             ("I want to call you Tess.", "Tess"),
             ("I'll call you Mira.", "Mira"),
             ("I’ll call you Mira.", "Mira"),
+            ("Your name is Mira. Please say hi.", "Mira"),
         ];
 
         for (input, name) in examples {
@@ -318,6 +323,7 @@ mod tests {
             ("Your name is Mira.", "Mira!!!"),
             ("Your name is Mira.", "Mira."),
             ("Your name is Mira?", "Mira"),
+            ("Your name is Mira. Please say hi.", "Mira. Please say hi"),
         ];
 
         for (input, name) in examples {
