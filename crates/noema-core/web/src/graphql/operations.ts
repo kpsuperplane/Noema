@@ -6,6 +6,7 @@ export const LocalStatusDocument = gql`
       localService
       assistantConnection
       memoryStorage
+      primaryAgentDisplayName
     }
   }
 `;

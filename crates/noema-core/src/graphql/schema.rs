@@ -85,6 +85,17 @@ impl GraphqlState {
 
         Ok(self.web_state()?.store())
     }
+
+    fn optional_store(&self) -> Option<&crate::NoemaStore> {
+        #[cfg(test)]
+        if let Some(store) = &self.test_store {
+            return Some(store);
+        }
+
+        self.web_state
+            .as_ref()
+            .map(crate::daemon::web::WebState::store)
+    }
 }
 
 /// Build the Noema GraphQL schema.
@@ -101,13 +112,22 @@ pub struct QueryRoot;
 #[Object]
 impl QueryRoot {
     /// Return local Noema status.
-    async fn local_status(&self, ctx: &Context<'_>) -> GraphqlLocalStatus {
+    async fn local_status(&self, ctx: &Context<'_>) -> Result<GraphqlLocalStatus> {
         let state = ctx.data_unchecked::<GraphqlState>();
-        GraphqlLocalStatus {
+        let primary_agent_display_name = match state.optional_store() {
+            Some(store) => store
+                .get_agent("agent:primary")
+                .await
+                .map_err(graphql_error)?
+                .and_then(|agent| agent.display_name),
+            None => None,
+        };
+        Ok(GraphqlLocalStatus {
             local_service: GraphqlLocalServiceStatus::Running,
             assistant_connection: GraphqlAssistantConnection::Codex,
             memory_storage: state.memory_storage,
-        }
+            primary_agent_display_name,
+        })
     }
 
     /// Return onboarding status.

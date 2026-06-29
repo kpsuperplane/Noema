@@ -46,6 +46,48 @@ export function canSendMessage(readiness: SendMessageReadiness): readiness is Se
   return Boolean(text.trim() && conversationId && socketState === "ready");
 }
 
+export function composerPlaceholder({
+  ready,
+  agentName
+}: {
+  ready: boolean;
+  agentName: string | null | undefined;
+}) {
+  if (!ready) {
+    return "Starting Noema chat...";
+  }
+
+  const trimmedName = agentName?.trim();
+  return trimmedName ? `Message ${trimmedName}` : "Send a message";
+}
+
+export function shouldRefreshLocalStatusForConversationEvent(event: unknown) {
+  if (!isRecord(event) || event.__typename !== "GraphqlConversationItemEvent") {
+    return false;
+  }
+
+  const item = event.item;
+  if (!isRecord(item) || item.__typename !== "GraphqlActivity") {
+    return false;
+  }
+
+  if (item.activityKind !== "tool_result") {
+    return false;
+  }
+
+  const metadata = item.metadata;
+  const action = isRecord(metadata) ? metadata.action : null;
+  return (
+    isRecord(action) &&
+    action.name === "update_own_name" &&
+    action.success === true
+  );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 export function App() {
   const { route, navigate } = useBrowserRoute();
   const apolloClient = useApolloClient();
@@ -68,6 +110,7 @@ export function App() {
 
   const onboarding = onboardingStatus.data?.onboardingStatus ?? null;
   const status = localStatus.data?.localStatus ?? null;
+  const agentName = status?.primaryAgentDisplayName ?? null;
   const onboarded = onboarding?.isUserOnboarded ?? false;
   const chatRoute = route.kind === "chat";
   const displayedOnboardingError = onboardingError ?? onboardingStatus.error?.message ?? null;
@@ -138,7 +181,10 @@ export function App() {
       setPending,
       setAgentStatus
     });
-  }, [conversationEvents.data]);
+    if (shouldRefreshLocalStatusForConversationEvent(event)) {
+      void localStatus.refetch();
+    }
+  }, [conversationEvents.data, localStatus]);
 
   async function connectProvider() {
     const step = onboarding?.steps.find((candidate) => candidate.id === "connect_provider_account");
@@ -296,7 +342,7 @@ export function App() {
         value={draft}
         ready={ready}
         pending={pending}
-        placeholder={ready ? "Message Noema" : "Starting Noema chat..."}
+        placeholder={composerPlaceholder({ ready, agentName })}
         onChange={setDraft}
         onSubmit={() => void sendMessage(draft)}
       />

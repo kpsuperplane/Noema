@@ -46,6 +46,8 @@ pub struct GraphqlLocalStatus {
     pub assistant_connection: GraphqlAssistantConnection,
     /// Memory storage status.
     pub memory_storage: GraphqlMemoryStorageStatus,
+    /// Current primary agent display name, if the agent has been named.
+    pub primary_agent_display_name: Option<String>,
 }
 
 /// Graph-memory claim exposed for memory-management inspection.

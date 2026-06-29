@@ -247,6 +247,10 @@ type GraphqlLocalStatus {
 	Memory storage status.
 	"""
 	memoryStorage: GraphqlMemoryStorageStatus!
+	"""
+	Current primary agent display name, if the agent has been named.
+	"""
+	primaryAgentDisplayName: String
 }
 
 """

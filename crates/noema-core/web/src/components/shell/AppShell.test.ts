@@ -10,7 +10,8 @@ import {
 const healthyStatus = {
   localService: "RUNNING",
   assistantConnection: "CODEX",
-  memoryStorage: "READY"
+  memoryStorage: "READY",
+  primaryAgentDisplayName: null
 } as const;
 
 describe("shell navigation helpers", () => {
@@ -110,7 +111,8 @@ describe("shell attention helper", () => {
         status: {
           localService: "RUNNING",
           assistantConnection: "CODEX",
-          memoryStorage: "UNAVAILABLE"
+          memoryStorage: "UNAVAILABLE",
+          primaryAgentDisplayName: null
         },
         socketState: "closed",
         providerBlocked: false,
@@ -146,7 +148,8 @@ describe("shell attention helper", () => {
         status: {
           localService: "RUNNING",
           assistantConnection: "CODEX",
-          memoryStorage: "UNAVAILABLE"
+          memoryStorage: "UNAVAILABLE",
+          primaryAgentDisplayName: null
         },
         socketState: "ready",
         providerBlocked: false,
@@ -167,7 +170,8 @@ describe("shell attention helper", () => {
         status: {
           localService: "RUNNING",
           assistantConnection: "CODEX",
-          memoryStorage: "UNAVAILABLE"
+          memoryStorage: "UNAVAILABLE",
+          primaryAgentDisplayName: null
         },
         socketState: "ready",
         providerBlocked: false,
