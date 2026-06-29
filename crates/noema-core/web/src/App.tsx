@@ -12,6 +12,7 @@ import {
   type StartProviderAuthAttemptMutation
 } from "./generated/graphql";
 import { AppHeader } from "@/components/shell/AppHeader";
+import { Button } from "@/components/ui/button";
 import { Composer } from "./components/Composer";
 import { EmptyState } from "./components/EmptyState";
 import { ErrorMarker } from "./components/ErrorMarker";
@@ -21,6 +22,8 @@ import {
   PROVIDER_AUTH_POLL_INTERVAL_MS
 } from "./components/Onboarding";
 import { Transcript } from "./components/Transcript";
+import { MemoryHomePage } from "./pages/MemoryHomePage";
+import { useBrowserRoute } from "./routes";
 import { entriesFromReplay, handleConversationEvent, pushTranscript } from "./transcript";
 import type { ConversationAgentStatus, SocketState, TranscriptEntry } from "./types";
 
@@ -43,6 +46,7 @@ export function canSendMessage(readiness: SendMessageReadiness): readiness is Se
 }
 
 export function App() {
+  const { route, navigate } = useBrowserRoute();
   const apolloClient = useApolloClient();
   const localStatus = useQuery(LocalStatusDocument);
   const onboardingStatus = useQuery(OnboardingStatusDocument);
@@ -64,6 +68,7 @@ export function App() {
   const onboarding = onboardingStatus.data?.onboardingStatus ?? null;
   const status = localStatus.data?.localStatus ?? null;
   const onboarded = onboarding?.isUserOnboarded ?? false;
+  const chatRoute = route.kind === "chat";
   const displayedOnboardingError = onboardingError ?? onboardingStatus.error?.message ?? null;
   const authAttemptId = authAttempt?.attemptId;
   const authAttemptStatus = authAttempt?.status;
@@ -87,7 +92,7 @@ export function App() {
   });
 
   React.useEffect(() => {
-    if (!onboarded || conversationId || startingConversationRef.current) {
+    if (!chatRoute || !onboarded || conversationId || startingConversationRef.current) {
       return;
     }
 
@@ -120,7 +125,7 @@ export function App() {
       .finally(() => {
         startingConversationRef.current = false;
       });
-  }, [conversationId, onboarded, startPrimaryConversation]);
+  }, [chatRoute, conversationId, onboarded, startPrimaryConversation]);
 
   React.useEffect(() => {
     const event = conversationEvents.data?.conversationEvents;
@@ -259,7 +264,8 @@ export function App() {
 
   const ready = socketState === "ready" && conversationId !== null;
   const waitingForOnboardingDecision = !onboarding && !displayedOnboardingError;
-  const waitingForConversationDecision = onboarding?.isUserOnboarded === true && !conversationId && transcript.length === 0;
+  const waitingForConversationDecision =
+    chatRoute && onboarding?.isUserOnboarded === true && !conversationId && transcript.length === 0;
 
   if (waitingForOnboardingDecision || waitingForConversationDecision) {
     return null;
@@ -302,6 +308,37 @@ export function App() {
             setOnboardingError(null);
           }}
         />
+      </main>
+    );
+  }
+
+  if (route.kind === "memory_home" || route.kind === "memory_graph") {
+    return (
+      <main className="grid h-dvh min-h-screen grid-rows-[auto_minmax(0,1fr)] overflow-hidden bg-background">
+        <AppHeader status={status} socketState={socketState} agentStatus={agentStatus} />
+        <MemoryHomePage onOpenGraph={() => navigate({ kind: "memory_graph" })} />
+      </main>
+    );
+  }
+
+  if (route.kind === "not_found") {
+    return (
+      <main className="grid h-dvh min-h-screen grid-rows-[auto_minmax(0,1fr)] overflow-hidden bg-background">
+        <AppHeader status={status} socketState={socketState} agentStatus={agentStatus} />
+        <section className="mx-auto grid min-h-0 w-[min(760px,100%)] content-start gap-3 px-6 py-7 max-[760px]:px-5">
+          <p className="m-0 font-mono text-[11px] tracking-[0.12em] text-[var(--text-accent)] uppercase">
+            Not found
+          </p>
+          <h1 className="m-0 font-heading text-[32px] leading-[1.1] tracking-normal text-foreground">
+            Page not found
+          </h1>
+          <p className="m-0 max-w-[560px] text-sm text-muted-foreground">
+            Noema does not have a route for {route.path}.
+          </p>
+          <Button type="button" className="w-fit" onClick={() => navigate({ kind: "memory_home" })}>
+            Open memory
+          </Button>
+        </section>
       </main>
     );
   }
