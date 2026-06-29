@@ -89,6 +89,12 @@ The next storage slice should stay small and concrete:
   Noema validates arguments, builds the trusted retrieval envelope, records a
   context packet, returns approved memories plus generic omissions as a normal
   tool result, and does not inject memories automatically before turns.
+- The primary agent starts unnamed. Prompt construction includes an
+  `onboarding_prompt` asking the model to ask the user for a name while the
+  agent has no display name. The local `update_own_name` tool persists later
+  naming or renaming only when the current user explicitly names or renames the
+  agent, and the runtime feeds successful local tool results back into the same
+  turn plus subsequent prompts.
 - The local `search_memory` tool supports validated concrete `scope_ids`.
   Empty `query` is allowed only for scoped reads, and `query` narrows within
   scope rather than broadening it. Memory write activities expose canonical
@@ -149,11 +155,6 @@ The next storage slice should stay small and concrete:
 - Plan and implement the long-term future-write memory consolidation pipeline
   from `docs/superpowers/specs/2026-06-29-memory-consolidation-pipeline-design.md`
   in one cohesive pass with slice boundaries for validation and commits.
-- Plan and implement agent naming onboarding from
-  `docs/superpowers/specs/2026-06-29-agent-naming-onboarding-design.md`:
-  agents start unnamed, prompt construction emits a missing-name
-  `onboarding_prompt`, and `update_own_name` only applies explicit user naming
-  or renaming instructions.
 - Continue aligning docs, schema, CLI inspection commands, and frontend IA.
 - Decide which export formats ship first and how export preview/redaction should work.
 - Revisit migrations only when the project needs persisted user data compatibility.
