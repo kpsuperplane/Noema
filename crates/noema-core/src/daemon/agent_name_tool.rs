@@ -164,13 +164,7 @@ fn candidate_name_matches(candidate: &str, name: &str) -> bool {
 }
 
 fn payload_name_has_safe_punctuation(name: &str) -> bool {
-    if name.ends_with(['.', '!', '?']) {
-        return false;
-    }
-
-    name.split(". ")
-        .skip(1)
-        .all(|part| part.split_whitespace().count() == 1)
+    !name.contains(['.', '!', '?'])
 }
 
 fn matching_prefix_end(value: &str, prefix: &str) -> Option<usize> {
@@ -196,11 +190,13 @@ fn remaining_after_explicit_name_is_safe(remaining: &str) -> bool {
         return true;
     }
 
-    if let Some(after_period) = remaining.strip_prefix('.') {
-        let after_period = after_period.trim_start();
-        return after_period.is_empty()
-            || (starts_with_uppercase(after_period)
-                && after_period.split_whitespace().count() > 1);
+    if let Some(after_sentence_punctuation) =
+        remaining.strip_prefix(|ch| matches!(ch, '.' | '!' | '?'))
+    {
+        let after_sentence_punctuation = after_sentence_punctuation.trim_start();
+        return after_sentence_punctuation.is_empty()
+            || (starts_with_uppercase(after_sentence_punctuation)
+                && after_sentence_punctuation.split_whitespace().count() > 1);
     }
 
     false
@@ -288,7 +284,10 @@ mod tests {
             ("I'll call you Mira.", "Mira"),
             ("I’ll call you Mira.", "Mira"),
             ("Your name is Mira. Please say hi.", "Mira"),
-            ("Your name is Dr. Nova.", "Dr. Nova"),
+            ("Your name is Mira!", "Mira"),
+            ("Your name is Mira?", "Mira"),
+            ("Your name is Mira! Please say hi.", "Mira"),
+            ("Your name is Mira? Please say hi.", "Mira"),
         ];
 
         for (input, name) in examples {
@@ -338,9 +337,12 @@ mod tests {
             ("Your name is C.", "C++"),
             ("Your name is Mira.", "Mira!!!"),
             ("Your name is Mira.", "Mira."),
-            ("Your name is Mira?", "Mira"),
             ("Your name is Mira. Please say hi.", "Mira. Please say hi"),
+            ("Your name is Mira! Please say hi.", "Mira! Please say hi"),
+            ("Your name is Mira? Please say hi.", "Mira? Please say hi"),
+            // Fail closed for now: stored names may not contain sentence punctuation.
             ("Your name is Dr. Nova.", "Dr"),
+            ("Your name is Dr. Nova.", "Dr. Nova"),
         ];
 
         for (input, name) in examples {
