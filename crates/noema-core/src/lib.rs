@@ -36,9 +36,10 @@ pub mod runtime_host;
 pub mod store;
 
 pub use capability::{
-    CapabilityAxis, CapabilityDecisionOutcome, CapabilityPolicyDecision, CapabilityPolicyInput,
-    OwnerTrust, ReadExaminationDecision, ReadExaminationInput, ReadExaminationOutcome,
-    ResolvedOwner, evaluate_capability_policy, examine_read_result, resolve_owner_from_json,
+    CapabilityAxis, CapabilityDecisionOutcome, CapabilityGateway, CapabilityPolicyDecision,
+    CapabilityPolicyInput, GatewayToolProposal, GatewayToolResult, OwnerTrust,
+    ReadExaminationDecision, ReadExaminationInput, ReadExaminationOutcome, ResolvedOwner,
+    evaluate_capability_policy, examine_read_result, resolve_owner_from_json,
 };
 pub use config::{
     CliOverrides, Config, ConfigError, DaemonResolvedConfig, ProviderConfig, ProviderKind,
