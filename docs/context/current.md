@@ -97,6 +97,10 @@ The next storage slice should stay small and concrete:
   ground layer sits under the route content deck. Expanded desktop keeps the
   sidebar visible; collapsed desktop and mobile reveal navigation by moving the
   deck aside rather than rendering a separate drawer/sidebar copy.
+- Routed web surfaces learn shell-owned deck state through
+  `ShellSurfaceContext` visibility (`visible`, `hiding`, `hidden`, `showing`).
+  Surfaces should run focus and other visible-only side effects only when
+  visibility is `visible`; the shell owns transition settling.
 - Noema-owned React product components should live one component per file.
   Pure helper/model logic belongs in `.ts` files, shared type files/types and
   nearby tests may live in component folders, and `components/ui` primitive
