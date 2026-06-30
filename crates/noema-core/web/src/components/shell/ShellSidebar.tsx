@@ -26,12 +26,10 @@ export function ShellSidebar({
   onNavigate: (route: AppRoute) => void;
 }) {
   return (
-    <div className="grid h-full min-h-0 grid-rows-[auto_auto_minmax(0,1fr)] gap-4">
+    <div className="grid h-full min-h-0 grid-rows-[auto_auto_minmax(0,1fr)] gap-1">
       <div className="flex min-w-0 items-center gap-2.5 px-2">
-        <img src="/assets/noema-mark.svg" width="32" height="32" alt="" />
         <div className="min-w-0">
           <strong className="block truncate font-heading text-base tracking-normal">Noema</strong>
-          <span className="block truncate text-xs text-muted-foreground">Local agent OS</span>
         </div>
       </div>
 
@@ -47,9 +45,9 @@ export function ShellSidebar({
               type="button"
               variant="ghost"
               className={cn(
-                "h-9 justify-start rounded-md px-2.5 text-sm text-muted-foreground",
+                "justify-start rounded-md px-2.5 text-sm text-[var(--pine-700)] bg-[var(--pine-700)]/0 hover:bg-[var(--pine-700)]/10",
                 active &&
-                  "bg-[var(--pine-50)] text-[var(--pine-700)] hover:bg-[var(--pine-50)] hover:text-[var(--pine-700)]"
+                  "bg-[var(--pine-700)]/10"
               )}
               aria-current={active ? "page" : undefined}
               onClick={() => onNavigate(item.route)}

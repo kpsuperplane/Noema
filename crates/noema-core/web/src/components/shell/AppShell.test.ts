@@ -5,7 +5,9 @@ import { renderToStaticMarkup } from "react-dom/server";
 import {
   AppShell,
   activeShellDestination,
+  shellDesktopSidebarWidth,
   shellContentDeckClassName,
+  shellRootStyle,
   shellRouteContentClassName,
   shellSidebarGroundClassName,
   shellAttentionForState,
@@ -218,6 +220,8 @@ describe("AppShell layered deck markup", () => {
     assert.match(markup, /data-surface-visibility="visible"/);
     assert.match(markup, /data-sidebar-collapsed="false"/);
     assert.match(markup, /data-nav-open="false"/);
+    assert.equal(shellRootStyle["--shell-sidebar-width"], shellDesktopSidebarWidth);
+    assert.match(markup, /style="--shell-sidebar-width:216px"/);
   });
 
   test("renders accessible deck controls and current destination label", () => {
@@ -230,7 +234,6 @@ describe("AppShell layered deck markup", () => {
     assert.match(markup, /data-slot="shell-deck-collapse-button"/);
     assert.doesNotMatch(markup, /data-slot="shell-sidebar-collapse-button"/);
     assert.match(markup, />Memory</);
-    assert.match(markup, />Memory management</);
   });
 
   test("uses the collapse toggle as the only wide header affordance", () => {
@@ -277,6 +280,26 @@ describe("AppShell layered deck markup", () => {
     assert.match(className, /max-\[760px\]:left-\[min\(252px,72vw\)\]/);
     assert.match(className, /max-\[760px\]:right-\[calc\(min\(252px,72vw\)\*-1\)\]/);
     assert.match(className, /max-\[760px\]:translate-x-0/);
+  });
+
+  test("derives desktop deck geometry from one sidebar width variable", () => {
+    const closedSidebarClassName = shellSidebarGroundClassName(initialDeckNavigationState);
+    const expandedDeckClassName = shellContentDeckClassName(initialDeckNavigationState);
+    const revealedDeckClassName = shellContentDeckClassName({
+      navOpen: true,
+      sidebarCollapsed: true,
+      surfaceVisibility: "visible"
+    });
+
+    assert.match(closedSidebarClassName, /w-\[var\(--shell-sidebar-width\)\]/);
+    assert.match(expandedDeckClassName, /left-\[calc\(var\(--shell-sidebar-width\)\+28px\)\]/);
+    assert.match(
+      revealedDeckClassName,
+      /translate-x-\[min\(calc\(var\(--shell-sidebar-width\)\+20px\),68vw\)\]/
+    );
+    assert.doesNotMatch(closedSidebarClassName, /w-\[216px\]/);
+    assert.doesNotMatch(expandedDeckClassName, /left-\[244px\]/);
+    assert.doesNotMatch(revealedDeckClassName, /translate-x-\[min\(236px,68vw\)\]/);
   });
 
   test("keeps the content deck shadow on mobile", () => {

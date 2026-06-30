@@ -40,6 +40,14 @@ export const shellNavItems: ShellNavItem[] = [
   { destination: "memory", label: "Memory", route: { kind: "memory_home" } }
 ];
 
+export const shellDesktopSidebarWidth = "216px";
+
+type ShellRootStyle = React.CSSProperties & Record<"--shell-sidebar-width", string>;
+
+export const shellRootStyle: ShellRootStyle = {
+  "--shell-sidebar-width": shellDesktopSidebarWidth
+} as ShellRootStyle;
+
 export function activeShellDestination(route: AppRoute): ShellDestination {
   if (route.kind === "memory_home" || route.kind === "memory_graph") {
     return "memory";
@@ -92,16 +100,16 @@ export function shellContentDeckClassName(deckNavigation: DeckNavigationState) {
     "motion-reduce:transition-none",
     deckNavigation.sidebarCollapsed
       ? "inset-2 rounded-xl"
-      : "inset-y-2 right-2 left-[244px] rounded-xl",
+      : "inset-y-2 right-2 left-[calc(var(--shell-sidebar-width)+28px)] rounded-xl",
     "max-[760px]:inset-0 max-[760px]:rounded-none max-[760px]:border-0 data-[nav-open=true]:max-[760px]:rounded-xl",
     deckNavigation.navOpen &&
-      "translate-x-[min(236px,68vw)] min-[761px]:scale-[0.97] max-[760px]:left-[min(252px,72vw)] max-[760px]:right-[calc(min(252px,72vw)*-1)] max-[760px]:translate-x-0 pointer-events-none"
+      "translate-x-[min(calc(var(--shell-sidebar-width)+20px),68vw)] min-[761px]:scale-[0.97] max-[760px]:left-[min(252px,72vw)] max-[760px]:right-[calc(min(252px,72vw)*-1)] max-[760px]:translate-x-0 pointer-events-none"
   );
 }
 
 export function shellSidebarGroundClassName(deckNavigation: DeckNavigationState) {
   return cn(
-    "absolute inset-y-0 left-0 z-10 grid min-h-0 w-[236px] px-3.5 py-4",
+    "absolute inset-y-0 left-0 z-10 grid min-h-0 w-[var(--shell-sidebar-width)] px-3.5 py-4",
     "max-[760px]:w-[min(286px,78vw)] max-[760px]:pb-[max(1rem,env(safe-area-inset-bottom))]",
     deckNavigation.navOpen && "z-[25]"
   );
@@ -155,6 +163,7 @@ export function AppShell({
       data-slot="shell-root"
       data-nav-open={deckNavigation.navOpen}
       data-sidebar-collapsed={deckNavigation.sidebarCollapsed}
+      style={shellRootStyle}
       className="relative h-dvh min-h-screen overflow-hidden bg-[var(--pine-50)] text-foreground"
     >
       <aside
@@ -197,7 +206,7 @@ export function AppShell({
       >
         <header
           data-slot="shell-deck-header"
-          className="flex min-h-[56px] items-center gap-3 border-b border-[var(--border-subtle)] bg-white/95 px-4"
+          className="flex py-1 items-center gap-3 border-b border-[var(--border-subtle)] bg-white/95 px-4"
         >
           <Button
             ref={menuButtonRef}
@@ -232,9 +241,6 @@ export function AppShell({
             <strong className="block truncate font-heading text-base tracking-normal">
               {activeLabel}
             </strong>
-            <span className="block truncate text-xs text-muted-foreground">
-              {activeDestination === "home" ? "Primary conversation" : "Memory management"}
-            </span>
           </div>
         </header>
 
