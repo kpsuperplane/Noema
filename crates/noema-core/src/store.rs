@@ -26,9 +26,10 @@ pub use claims::{
 };
 pub use error::StoreError;
 pub use mcp::{
-    McpServerAuthStatus, McpServerHealthStatus, McpServerRecord, McpToolRecord, NewMcpServer,
-    NewMcpTool, NewToolCalibration, NewTrustedIdentitySelector, ToolCalibrationRecord,
-    TrustedIdentitySelectorEffect, TrustedIdentitySelectorRecord,
+    McpApprovalRequestRecord, McpServerAuthStatus, McpServerHealthStatus, McpServerRecord,
+    McpToolRecord, NewMcpApprovalRequest, NewMcpServer, NewMcpTool, NewToolCalibration,
+    NewTrustedIdentitySelector, ToolCalibrationRecord, TrustedIdentitySelectorEffect,
+    TrustedIdentitySelectorRecord,
 };
 pub use ontology::{
     EntityCandidate, EntityType, PredicateProposalCandidate, PredicateProposalFilter,

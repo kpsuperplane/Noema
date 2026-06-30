@@ -1,10 +1,11 @@
-use async_graphql::{InputObject, Result, SimpleObject};
+use async_graphql::{InputObject, Json, Result, SimpleObject};
+use serde_json::Value;
 
 use crate::{
-    McpCalibrationStatus, McpServerAuthStatus, McpServerHealthStatus, McpServerRecord,
-    McpTrustClassification, NewToolCalibration, OwnerExtractor, OwnerExtractorSource,
-    ToolCalibrationRecord, TrustedIdentitySelectorEffect, TrustedIdentitySelectorKind,
-    TrustedIdentitySelectorRecord,
+    McpApprovalRequestRecord, McpCalibrationStatus, McpServerAuthStatus, McpServerHealthStatus,
+    McpServerRecord, McpTrustClassification, NewToolCalibration, OwnerExtractor,
+    OwnerExtractorSource, ToolCalibrationRecord, TrustedIdentitySelectorEffect,
+    TrustedIdentitySelectorKind, TrustedIdentitySelectorRecord,
 };
 
 use super::{errors::graphql_error, schema::GraphqlState};
@@ -140,6 +141,51 @@ impl From<TrustedIdentitySelectorRecord> for GraphqlTrustedIdentitySelector {
     }
 }
 
+/// MCP approval request metadata safe to show in Settings.
+#[derive(Clone, Debug, SimpleObject)]
+pub struct GraphqlMcpApprovalRequest {
+    /// Durable approval request id.
+    pub approval_id: String,
+    /// Safe human-readable action summary.
+    pub action_summary: String,
+    /// Related MCP server id, when available.
+    pub mcp_server_id: Option<String>,
+    /// Related MCP tool id, when available.
+    pub mcp_tool_id: Option<String>,
+    /// Actor requesting approval.
+    pub requester_actor_id: String,
+    /// Governable owner scope for the approval.
+    pub owner_scope_id: String,
+    /// Safe payload preview for review surfaces.
+    pub payload_preview: Json<Value>,
+    /// Current approval status.
+    pub status: String,
+    /// Actor who decided the request, when decided.
+    pub decision_actor_id: Option<String>,
+    /// Safe decision comment, when available.
+    pub decision_comment: Option<String>,
+    /// Decision timestamp string, when decided.
+    pub decided_at: Option<String>,
+}
+
+impl From<McpApprovalRequestRecord> for GraphqlMcpApprovalRequest {
+    fn from(approval: McpApprovalRequestRecord) -> Self {
+        Self {
+            approval_id: approval.approval_id,
+            action_summary: approval.action_summary,
+            mcp_server_id: approval.mcp_server_id,
+            mcp_tool_id: approval.mcp_tool_id,
+            requester_actor_id: approval.requester_actor_id,
+            owner_scope_id: approval.owner_scope_id,
+            payload_preview: Json(approval.payload_preview),
+            status: approval.status,
+            decision_actor_id: approval.decision_actor_id,
+            decision_comment: approval.decision_comment,
+            decided_at: approval.decided_at,
+        }
+    }
+}
+
 const fn health_status_label(status: McpServerHealthStatus) -> &'static str {
     match status {
         McpServerHealthStatus::Unknown => "unknown",
@@ -180,6 +226,18 @@ pub(super) async fn trusted_identity_selectors(
         .await
         .map_err(graphql_error)?;
     Ok(selectors.into_iter().map(Into::into).collect())
+}
+
+pub(super) async fn mcp_approval_requests(
+    state: &GraphqlState,
+    status: Option<String>,
+) -> Result<Vec<GraphqlMcpApprovalRequest>> {
+    let store = state.store()?;
+    let approvals = store
+        .list_mcp_approval_requests(status.as_deref())
+        .await
+        .map_err(graphql_error)?;
+    Ok(approvals.into_iter().map(Into::into).collect())
 }
 
 pub(super) async fn save_tool_calibration(

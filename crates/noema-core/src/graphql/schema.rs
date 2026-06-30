@@ -10,8 +10,8 @@ use super::{
     },
     local_status::{self, GraphqlLocalStatus, GraphqlMemoryStorageStatus},
     mcp::{
-        self, GraphqlMcpServer, GraphqlSaveToolCalibrationInput, GraphqlToolCalibration,
-        GraphqlTrustedIdentitySelector,
+        self, GraphqlMcpApprovalRequest, GraphqlMcpServer, GraphqlSaveToolCalibrationInput,
+        GraphqlToolCalibration, GraphqlTrustedIdentitySelector,
     },
     memory::{
         self, GraphqlMemoryClaim, GraphqlMemoryClaimDetail, GraphqlMemoryGraph,
@@ -149,6 +149,16 @@ impl QueryRoot {
     ) -> Result<Vec<GraphqlTrustedIdentitySelector>> {
         let state = ctx.data_unchecked::<GraphqlState>();
         mcp::trusted_identity_selectors(state, owner_scope_id).await
+    }
+
+    /// List MCP approval requests safe to show in Settings.
+    async fn mcp_approval_requests(
+        &self,
+        ctx: &Context<'_>,
+        status: Option<String>,
+    ) -> Result<Vec<GraphqlMcpApprovalRequest>> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        mcp::mcp_approval_requests(state, status).await
     }
 
     /// List graph-memory claims for memory-management inspection.
@@ -310,6 +320,8 @@ mod tests {
         assert!(sdl.contains("type GraphqlMcpServer"));
         assert!(sdl.contains("trustedIdentitySelectors"));
         assert!(sdl.contains("type GraphqlTrustedIdentitySelector"));
+        assert!(sdl.contains("mcpApprovalRequests"));
+        assert!(sdl.contains("type GraphqlMcpApprovalRequest"));
         assert!(sdl.contains("type GraphqlMemoryClaim"));
         assert!(sdl.contains("type GraphqlMemoryClaimEvidence"));
         assert!(sdl.contains("type GraphqlPredicateProposal"));
@@ -524,6 +536,76 @@ mod tests {
         assert_eq!(selector["selectorKind"], "email");
         assert_eq!(selector["normalizedValue"], "kevin@noema.example");
         assert_eq!(selector["effect"], "trust");
+    }
+
+    #[tokio::test]
+    async fn mcp_approval_requests_query_filters_by_status() {
+        use crate::{NewMcpApprovalRequest, store::tests::test_store};
+
+        let store = test_store().await;
+        store
+            .create_mcp_approval_request(NewMcpApprovalRequest {
+                approval_id: "approval:mcp:pending".to_string(),
+                action_summary: "Share Google Doc".to_string(),
+                mcp_server_id: Some("mcp_server:google".to_string()),
+                mcp_tool_id: Some("mcp_tool:google:share_doc".to_string()),
+                requester_actor_id: "agent:primary".to_string(),
+                owner_scope_id: "human:local".to_string(),
+                payload_preview: json!({"recipient": "person@example.com"}),
+                status: "pending".to_string(),
+            })
+            .await
+            .expect("create pending approval");
+        store
+            .create_mcp_approval_request(NewMcpApprovalRequest {
+                approval_id: "approval:mcp:denied".to_string(),
+                action_summary: "Publish note".to_string(),
+                mcp_server_id: Some("mcp_server:publish".to_string()),
+                mcp_tool_id: Some("mcp_tool:publish:post".to_string()),
+                requester_actor_id: "agent:primary".to_string(),
+                owner_scope_id: "human:local".to_string(),
+                payload_preview: json!({"destination": "example.com"}),
+                status: "denied".to_string(),
+            })
+            .await
+            .expect("create denied approval");
+
+        let schema = build_schema(GraphqlState::for_tests_with_store(store));
+        let response = schema
+            .execute(async_graphql::Request::new(
+                r#"
+                query ApprovalSettings {
+                  mcpApprovalRequests(status: "pending") {
+                    approvalId
+                    actionSummary
+                    mcpServerId
+                    mcpToolId
+                    requesterActorId
+                    ownerScopeId
+                    payloadPreview
+                    status
+                  }
+                }
+                "#,
+            ))
+            .await;
+
+        assert!(response.errors.is_empty(), "{:?}", response.errors);
+        let data = response.data.into_json().expect("json");
+        let approvals = data["mcpApprovalRequests"].as_array().expect("approvals");
+        assert_eq!(approvals.len(), 1);
+        let approval = &approvals[0];
+        assert_eq!(approval["approvalId"], "approval:mcp:pending");
+        assert_eq!(approval["actionSummary"], "Share Google Doc");
+        assert_eq!(approval["mcpServerId"], "mcp_server:google");
+        assert_eq!(approval["mcpToolId"], "mcp_tool:google:share_doc");
+        assert_eq!(approval["requesterActorId"], "agent:primary");
+        assert_eq!(approval["ownerScopeId"], "human:local");
+        assert_eq!(
+            approval["payloadPreview"]["recipient"],
+            "person@example.com"
+        );
+        assert_eq!(approval["status"], "pending");
     }
 
     #[tokio::test]

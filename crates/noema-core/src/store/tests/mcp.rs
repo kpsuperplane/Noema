@@ -3,7 +3,7 @@ use serde_json::json;
 use super::test_store;
 use crate::{
     McpCalibrationStatus, McpServerAuthStatus, McpServerHealthStatus, McpTransportKind,
-    McpTrustClassification, NewMcpServer, NewMcpTool, NewToolCalibration,
+    McpTrustClassification, NewMcpApprovalRequest, NewMcpServer, NewMcpTool, NewToolCalibration,
     NewTrustedIdentitySelector, OwnerExtractor, OwnerExtractorSource, StoreError,
     TrustedIdentitySelectorEffect, TrustedIdentitySelectorKind, normalize_trusted_identity_value,
 };
@@ -196,6 +196,46 @@ async fn mcp_control_plane_tables_bootstrap() {
         .expect("mcp schema bootstrap query")
         .check()
         .expect("mcp control-plane tables should accept valid rows");
+}
+
+#[tokio::test]
+async fn export_decision_creates_manual_approval_request() {
+    let store = test_store().await;
+
+    let approval = store
+        .create_mcp_approval_request(NewMcpApprovalRequest {
+            approval_id: "approval:mcp:1".to_string(),
+            action_summary: "Share Google Doc".to_string(),
+            mcp_server_id: Some("mcp_server:google".to_string()),
+            mcp_tool_id: Some("mcp_tool:google:share_doc".to_string()),
+            requester_actor_id: "agent:primary".to_string(),
+            owner_scope_id: "human:local".to_string(),
+            payload_preview: json!({"recipient": "person@example.com"}),
+            status: "pending".to_string(),
+        })
+        .await
+        .expect("approval");
+
+    assert_eq!(approval.approval_id, "approval:mcp:1");
+    assert_eq!(approval.action_summary, "Share Google Doc");
+    assert_eq!(approval.mcp_server_id.as_deref(), Some("mcp_server:google"));
+    assert_eq!(
+        approval.mcp_tool_id.as_deref(),
+        Some("mcp_tool:google:share_doc")
+    );
+    assert_eq!(approval.requester_actor_id, "agent:primary");
+    assert_eq!(approval.owner_scope_id, "human:local");
+    assert_eq!(
+        approval.payload_preview,
+        json!({"recipient": "person@example.com"})
+    );
+    assert_eq!(approval.status, "pending");
+
+    let pending = store
+        .list_mcp_approval_requests(Some("pending"))
+        .await
+        .expect("pending approvals");
+    assert_eq!(pending, vec![approval]);
 }
 
 #[tokio::test]

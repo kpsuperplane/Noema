@@ -210,6 +210,54 @@ pub struct TrustedIdentitySelectorRecord {
     pub revoked_at: Option<String>,
 }
 
+/// Input for creating a durable MCP approval request.
+#[derive(Debug, Clone, PartialEq)]
+pub struct NewMcpApprovalRequest {
+    /// Durable approval request id.
+    pub approval_id: String,
+    /// Safe human-readable action summary.
+    pub action_summary: String,
+    /// Related MCP server id, when available.
+    pub mcp_server_id: Option<String>,
+    /// Related MCP tool id, when available.
+    pub mcp_tool_id: Option<String>,
+    /// Actor requesting approval.
+    pub requester_actor_id: String,
+    /// Governable owner scope for the approval.
+    pub owner_scope_id: String,
+    /// Safe payload preview for review surfaces.
+    pub payload_preview: Value,
+    /// Current approval status.
+    pub status: String,
+}
+
+/// Durable MCP approval request metadata safe to show in Settings.
+#[derive(Debug, Clone, PartialEq)]
+pub struct McpApprovalRequestRecord {
+    /// Durable approval request id.
+    pub approval_id: String,
+    /// Safe human-readable action summary.
+    pub action_summary: String,
+    /// Related MCP server id, when available.
+    pub mcp_server_id: Option<String>,
+    /// Related MCP tool id, when available.
+    pub mcp_tool_id: Option<String>,
+    /// Actor requesting approval.
+    pub requester_actor_id: String,
+    /// Governable owner scope for the approval.
+    pub owner_scope_id: String,
+    /// Safe payload preview for review surfaces.
+    pub payload_preview: Value,
+    /// Current approval status.
+    pub status: String,
+    /// Actor who decided the request, when decided.
+    pub decision_actor_id: Option<String>,
+    /// Safe decision comment, when available.
+    pub decision_comment: Option<String>,
+    /// Decision timestamp string, when decided.
+    pub decided_at: Option<String>,
+}
+
 impl NoemaStore {
     /// Create one MCP server metadata row.
     ///
@@ -762,6 +810,107 @@ impl NoemaStore {
         });
         Ok(selectors)
     }
+
+    /// Create one durable MCP approval request.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when the embedded store write or read fails.
+    pub async fn create_mcp_approval_request(
+        &self,
+        approval: NewMcpApprovalRequest,
+    ) -> Result<McpApprovalRequestRecord, StoreError> {
+        self.db
+            .query(
+                r#"
+                CREATE type::record('approval_requests', $record_id) SET
+                  approval_id = $approval_id,
+                  action_summary = $action_summary,
+                  mcp_server_id = $mcp_server_id,
+                  mcp_tool_id = $mcp_tool_id,
+                  requester_actor_id = $requester_actor_id,
+                  owner_scope_id = $owner_scope_id,
+                  payload_preview = $payload_preview,
+                  status = $status,
+                  decision_actor_id = NONE,
+                  decision_comment = NONE,
+                  decided_at = NONE,
+                  updated_at = time::now();
+                "#,
+            )
+            .bind(("record_id", mcp_record_fragment(&approval.approval_id)))
+            .bind(("approval_id", approval.approval_id.clone()))
+            .bind(("action_summary", approval.action_summary))
+            .bind(("mcp_server_id", approval.mcp_server_id))
+            .bind(("mcp_tool_id", approval.mcp_tool_id))
+            .bind(("requester_actor_id", approval.requester_actor_id))
+            .bind(("owner_scope_id", approval.owner_scope_id))
+            .bind(("payload_preview", approval.payload_preview))
+            .bind(("status", approval.status))
+            .await?
+            .check()?;
+        self.get_mcp_approval_request(&approval.approval_id)
+            .await?
+            .ok_or_else(|| {
+                StoreError::Schema(format!(
+                    "missing MCP approval request after create: {}",
+                    approval.approval_id
+                ))
+            })
+    }
+
+    /// List durable MCP approval requests, optionally filtered by status.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when the embedded store read fails.
+    pub async fn list_mcp_approval_requests(
+        &self,
+        status: Option<&str>,
+    ) -> Result<Vec<McpApprovalRequestRecord>, StoreError> {
+        let mut response = self
+            .db
+            .query(
+                r#"
+                SELECT approval_id, action_summary, mcp_server_id, mcp_tool_id,
+                  requester_actor_id, owner_scope_id, payload_preview, status,
+                  decision_actor_id, decision_comment, decided_at
+                FROM approval_requests
+                WHERE $status = NONE OR status = $status;
+                "#,
+            )
+            .bind(("status", status.map(str::to_string)))
+            .await?;
+        let rows: Vec<McpApprovalRequestRow> = response.take(0)?;
+        let mut approvals: Vec<McpApprovalRequestRecord> = rows
+            .into_iter()
+            .map(mcp_approval_request_from_row)
+            .collect();
+        approvals.sort_by(|left, right| left.approval_id.cmp(&right.approval_id));
+        Ok(approvals)
+    }
+
+    async fn get_mcp_approval_request(
+        &self,
+        approval_id: &str,
+    ) -> Result<Option<McpApprovalRequestRecord>, StoreError> {
+        let mut response = self
+            .db
+            .query(
+                r#"
+                SELECT approval_id, action_summary, mcp_server_id, mcp_tool_id,
+                  requester_actor_id, owner_scope_id, payload_preview, status,
+                  decision_actor_id, decision_comment, decided_at
+                FROM approval_requests
+                WHERE approval_id = $approval_id
+                LIMIT 1;
+                "#,
+            )
+            .bind(("approval_id", approval_id.to_string()))
+            .await?;
+        let rows: Vec<McpApprovalRequestRow> = response.take(0)?;
+        Ok(rows.into_iter().next().map(mcp_approval_request_from_row))
+    }
 }
 
 #[derive(Debug, Deserialize, SurrealValue)]
@@ -813,6 +962,21 @@ struct TrustedIdentitySelectorRow {
     effect: String,
     issuer_actor_id: String,
     revoked_at: Option<String>,
+}
+
+#[derive(Debug, Deserialize, SurrealValue)]
+struct McpApprovalRequestRow {
+    approval_id: String,
+    action_summary: String,
+    mcp_server_id: Option<String>,
+    mcp_tool_id: Option<String>,
+    requester_actor_id: String,
+    owner_scope_id: String,
+    payload_preview: Value,
+    status: String,
+    decision_actor_id: Option<String>,
+    decision_comment: Option<String>,
+    decided_at: Option<String>,
 }
 
 fn mcp_server_from_row(row: McpServerRow) -> Result<McpServerRecord, StoreError> {
@@ -875,6 +1039,22 @@ fn trusted_identity_selector_from_row(
         issuer_actor_id: row.issuer_actor_id,
         revoked_at: row.revoked_at,
     })
+}
+
+fn mcp_approval_request_from_row(row: McpApprovalRequestRow) -> McpApprovalRequestRecord {
+    McpApprovalRequestRecord {
+        approval_id: row.approval_id,
+        action_summary: row.action_summary,
+        mcp_server_id: row.mcp_server_id,
+        mcp_tool_id: row.mcp_tool_id,
+        requester_actor_id: row.requester_actor_id,
+        owner_scope_id: row.owner_scope_id,
+        payload_preview: row.payload_preview,
+        status: row.status,
+        decision_actor_id: row.decision_actor_id,
+        decision_comment: row.decision_comment,
+        decided_at: row.decided_at,
+    }
 }
 
 fn parse_mcp_transport_kind(value: &str) -> Result<McpTransportKind, StoreError> {

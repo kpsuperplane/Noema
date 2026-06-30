@@ -272,6 +272,56 @@ type GraphqlLocalStatus {
 }
 
 """
+MCP approval request metadata safe to show in Settings.
+"""
+type GraphqlMcpApprovalRequest {
+	"""
+	Durable approval request id.
+	"""
+	approvalId: String!
+	"""
+	Safe human-readable action summary.
+	"""
+	actionSummary: String!
+	"""
+	Related MCP server id, when available.
+	"""
+	mcpServerId: String
+	"""
+	Related MCP tool id, when available.
+	"""
+	mcpToolId: String
+	"""
+	Actor requesting approval.
+	"""
+	requesterActorId: String!
+	"""
+	Governable owner scope for the approval.
+	"""
+	ownerScopeId: String!
+	"""
+	Safe payload preview for review surfaces.
+	"""
+	payloadPreview: JSON!
+	"""
+	Current approval status.
+	"""
+	status: String!
+	"""
+	Actor who decided the request, when decided.
+	"""
+	decisionActorId: String
+	"""
+	Safe decision comment, when available.
+	"""
+	decisionComment: String
+	"""
+	Decision timestamp string, when decided.
+	"""
+	decidedAt: String
+}
+
+"""
 MCP server metadata safe to show in Settings.
 """
 type GraphqlMcpServer {
@@ -1225,6 +1275,10 @@ type QueryRoot {
 	List trusted identity selectors for one owner scope.
 	"""
 	trustedIdentitySelectors(ownerScopeId: String!): [GraphqlTrustedIdentitySelector!]!
+	"""
+	List MCP approval requests safe to show in Settings.
+	"""
+	mcpApprovalRequests(status: String): [GraphqlMcpApprovalRequest!]!
 	"""
 	List graph-memory claims for memory-management inspection.
 	"""

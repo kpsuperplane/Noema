@@ -84,6 +84,21 @@ export const TrustedIdentitySettingsDocument = gql`
   }
 `;
 
+export const McpApprovalSettingsDocument = gql`
+  query McpApprovalSettings($status: String) {
+    mcpApprovalRequests(status: $status) {
+      approvalId
+      actionSummary
+      mcpServerId
+      mcpToolId
+      requesterActorId
+      ownerScopeId
+      payloadPreview
+      status
+    }
+  }
+`;
+
 export const SaveToolCalibrationDocument = gql`
   mutation SaveToolCalibration($input: GraphqlSaveToolCalibrationInput!) {
     saveToolCalibration(input: $input) {
