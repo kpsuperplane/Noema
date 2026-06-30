@@ -69,7 +69,8 @@ primary navigation priority.
 | `/inspect` | Advanced inspection | embedded store read models | owner/admin inspection hub; never required for ordinary chat success | Current limited |
 | `/inspect/context-graph` | Context graph | future graph neighborhood read model | owner/admin-only graph inspection, redacted by default | Future |
 | `/inspect/context-packets` | Context packets | retrieval packet tables when populated | inspect when rows exist; unavailable state otherwise | Current limited |
-| `/settings` | Settings / Providers | provider account metadata from GraphQL, gated by onboarding | temporary full-screen utility takeover opened from the sidebar cog; Providers tab with only non-secret account metadata | Current |
+| `/settings` | Settings default | provider account metadata from GraphQL, gated by onboarding | temporary full-screen utility takeover opened from the sidebar cog; defaults to Providers | Current |
+| `/settings/providers` | Settings / Providers | provider account metadata from GraphQL, gated by onboarding | Providers tab with only non-secret account metadata | Current |
 | `/settings/agents` | Settings / Agents | agent metadata from GraphQL, gated by onboarding | read-only registered-agent list with safe local technical metadata such as agent ids; no prompts, memory, runtime state, credentials, conversations, or management actions | Current |
 
 Future route groups:

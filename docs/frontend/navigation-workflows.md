@@ -254,8 +254,9 @@ activity, memory, handoff rules, and proactivity limits.
 
 Settings is a secondary utility surface, not the main experience.
 It renders as a full-screen utility takeover opened from the sidebar cog. The
-current backed tabs are `Providers` and `Agents`: `/settings` opens Providers,
-and `/settings/agents` opens Agents.
+current backed tabs are `Providers` and `Agents`: `/settings` defaults to
+Providers, `/settings/providers` opens Providers directly, and
+`/settings/agents` opens Agents.
 
 Include:
 
@@ -627,7 +628,8 @@ addressability and backing, not what the first shell emphasizes.
 | `/inspect` | Advanced inspection | CLI-equivalent read models | owner/admin inspection hub; not primary navigation during onboarding or normal beginner use | Current |
 | `/inspect/context-graph` | Context graph | future graph neighborhood read model | owner/admin-only, redacted by default | Future |
 | `/inspect/context-packets` | Context packets | context packet tables if populated | inspect when rows exist; unavailable state otherwise | Current limited |
-| `/settings` | Settings / Providers | provider account metadata from GraphQL, gated by onboarding | temporary full-screen utility takeover opened from the sidebar cog; Providers tab with only non-secret account metadata | Current |
+| `/settings` | Settings default | provider account metadata from GraphQL, gated by onboarding | temporary full-screen utility takeover opened from the sidebar cog; defaults to Providers | Current |
+| `/settings/providers` | Settings / Providers | provider account metadata from GraphQL, gated by onboarding | Providers tab with only non-secret account metadata | Current |
 | `/settings/agents` | Settings / Agents | agent metadata from GraphQL, gated by onboarding | read-only registered-agent list with safe local technical metadata such as agent ids | Current |
 
 Future route groups:

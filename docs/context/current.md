@@ -103,10 +103,11 @@ The next storage slice should stay small and concrete:
   deck aside rather than rendering a separate drawer/sidebar copy.
 - The web shell exposes Settings as a bottom-left sidebar cog, not as a primary
   navigation destination. `/settings` renders as a full-screen utility takeover
-  after onboarding. Settings now contains read-only Providers and Agents tabs:
-  Providers shows non-secret provider account metadata, while Agents is backed
-  by a dedicated GraphQL `agents` read model and shows safe registered-agent
-  metadata such as agent ids. Agent management actions are not exposed yet.
+  after onboarding and defaults to `/settings/providers`. Settings now contains
+  read-only Providers and Agents tabs: Providers shows non-secret provider
+  account metadata, while Agents is backed by a dedicated GraphQL `agents` read
+  model and shows safe registered-agent metadata such as agent ids. Agent
+  management actions are not exposed yet.
 - Routed web surfaces learn shell-owned deck state through
   `ShellSurfaceContext` visibility (`visible`, `hiding`, `hidden`, `showing`).
   Surfaces should run focus and other visible-only side effects only when

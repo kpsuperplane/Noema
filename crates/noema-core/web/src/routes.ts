@@ -17,7 +17,7 @@ export function routeFromPathname(pathname: string): AppRoute {
   if (pathname === "/memory/graph") {
     return { kind: "memory_graph" };
   }
-  if (pathname === "/settings") {
+  if (pathname === "/settings" || pathname === "/settings/providers") {
     return { kind: "settings", section: "providers" };
   }
   if (pathname === "/settings/agents") {
@@ -34,7 +34,7 @@ export function pathForRoute(route: AppRoute): string {
     return "/memory/graph";
   }
   if (route.kind === "settings") {
-    return route.section === "agents" ? "/settings/agents" : "/settings";
+    return route.section === "agents" ? "/settings/agents" : "/settings/providers";
   }
   return "/";
 }
