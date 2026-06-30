@@ -111,6 +111,56 @@ DEFINE FIELD OVERWRITE updated_at ON TABLE trusted_identity_selectors TYPE datet
 DEFINE INDEX IF NOT EXISTS trusted_identity_selectors_selector_id ON TABLE trusted_identity_selectors COLUMNS selector_id UNIQUE;
 DEFINE INDEX IF NOT EXISTS trusted_identity_selectors_owner_value ON TABLE trusted_identity_selectors COLUMNS owner_scope_id, selector_kind, normalized_value UNIQUE;
 
+DEFINE TABLE IF NOT EXISTS tool_invocations SCHEMAFULL;
+DEFINE FIELD OVERWRITE tool_invocation_id ON TABLE tool_invocations TYPE string ASSERT $value != '';
+DEFINE FIELD OVERWRITE mcp_server_id ON TABLE tool_invocations TYPE option<string>;
+DEFINE FIELD OVERWRITE mcp_tool_id ON TABLE tool_invocations TYPE option<string>;
+DEFINE FIELD OVERWRITE conversation_id ON TABLE tool_invocations TYPE option<string>;
+DEFINE FIELD OVERWRITE turn_id ON TABLE tool_invocations TYPE option<string>;
+DEFINE FIELD OVERWRITE requesting_actor_id ON TABLE tool_invocations TYPE string ASSERT $value != '';
+DEFINE FIELD OVERWRITE status ON TABLE tool_invocations TYPE string ASSERT $value INSIDE ['proposed', 'denied', 'approval_required', 'invoked', 'completed', 'failed'];
+DEFINE FIELD OVERWRITE policy_decision ON TABLE tool_invocations TYPE object FLEXIBLE DEFAULT {};
+DEFINE FIELD OVERWRITE proposal_payload ON TABLE tool_invocations TYPE object FLEXIBLE DEFAULT {};
+DEFINE FIELD OVERWRITE result_summary ON TABLE tool_invocations TYPE object FLEXIBLE DEFAULT {};
+DEFINE FIELD OVERWRITE created_at ON TABLE tool_invocations TYPE datetime DEFAULT time::now();
+DEFINE FIELD OVERWRITE updated_at ON TABLE tool_invocations TYPE datetime DEFAULT time::now();
+DEFINE INDEX IF NOT EXISTS tool_invocations_invocation_id ON TABLE tool_invocations COLUMNS tool_invocation_id UNIQUE;
+DEFINE INDEX IF NOT EXISTS tool_invocations_mcp_tool_id ON TABLE tool_invocations COLUMNS mcp_tool_id;
+DEFINE INDEX IF NOT EXISTS tool_invocations_conversation_turn ON TABLE tool_invocations COLUMNS conversation_id, turn_id;
+
+DEFINE TABLE IF NOT EXISTS quarantined_tool_results SCHEMAFULL;
+DEFINE FIELD OVERWRITE quarantine_id ON TABLE quarantined_tool_results TYPE string ASSERT $value != '';
+DEFINE FIELD OVERWRITE tool_invocation_id ON TABLE quarantined_tool_results TYPE string ASSERT $value != '';
+DEFINE FIELD OVERWRITE validation_status ON TABLE quarantined_tool_results TYPE string ASSERT $value INSIDE ['pending', 'valid', 'invalid'];
+DEFINE FIELD OVERWRITE owner_trust ON TABLE quarantined_tool_results TYPE string ASSERT $value INSIDE ['trusted', 'untrusted', 'mixed', 'unresolved'];
+DEFINE FIELD OVERWRITE release_status ON TABLE quarantined_tool_results TYPE string ASSERT $value INSIDE ['quarantined', 'released', 'released_sanitized', 'denied'];
+DEFINE FIELD OVERWRITE owner_evidence ON TABLE quarantined_tool_results TYPE object FLEXIBLE DEFAULT {};
+DEFINE FIELD OVERWRITE scan_summary ON TABLE quarantined_tool_results TYPE object FLEXIBLE DEFAULT {};
+DEFINE FIELD OVERWRITE raw_result_ref ON TABLE quarantined_tool_results TYPE option<string>;
+DEFINE FIELD OVERWRITE released_payload ON TABLE quarantined_tool_results TYPE object FLEXIBLE DEFAULT {};
+DEFINE FIELD OVERWRITE created_at ON TABLE quarantined_tool_results TYPE datetime DEFAULT time::now();
+DEFINE FIELD OVERWRITE updated_at ON TABLE quarantined_tool_results TYPE datetime DEFAULT time::now();
+DEFINE INDEX IF NOT EXISTS quarantined_tool_results_quarantine_id ON TABLE quarantined_tool_results COLUMNS quarantine_id UNIQUE;
+DEFINE INDEX IF NOT EXISTS quarantined_tool_results_invocation_id ON TABLE quarantined_tool_results COLUMNS tool_invocation_id;
+
+DEFINE TABLE IF NOT EXISTS approval_requests SCHEMAFULL;
+DEFINE FIELD OVERWRITE approval_id ON TABLE approval_requests TYPE string ASSERT $value != '';
+DEFINE FIELD OVERWRITE action_summary ON TABLE approval_requests TYPE string ASSERT $value != '';
+DEFINE FIELD OVERWRITE mcp_server_id ON TABLE approval_requests TYPE option<string>;
+DEFINE FIELD OVERWRITE mcp_tool_id ON TABLE approval_requests TYPE option<string>;
+DEFINE FIELD OVERWRITE requester_actor_id ON TABLE approval_requests TYPE string ASSERT $value != '';
+DEFINE FIELD OVERWRITE owner_scope_id ON TABLE approval_requests TYPE string ASSERT $value != '';
+DEFINE FIELD OVERWRITE payload_preview ON TABLE approval_requests TYPE object FLEXIBLE DEFAULT {};
+DEFINE FIELD OVERWRITE status ON TABLE approval_requests TYPE string ASSERT $value INSIDE ['pending', 'approved', 'denied', 'cancelled'];
+DEFINE FIELD OVERWRITE decision_actor_id ON TABLE approval_requests TYPE option<string>;
+DEFINE FIELD OVERWRITE decision_comment ON TABLE approval_requests TYPE option<string>;
+DEFINE FIELD OVERWRITE decided_at ON TABLE approval_requests TYPE option<string>;
+DEFINE FIELD OVERWRITE created_at ON TABLE approval_requests TYPE datetime DEFAULT time::now();
+DEFINE FIELD OVERWRITE updated_at ON TABLE approval_requests TYPE datetime DEFAULT time::now();
+DEFINE INDEX IF NOT EXISTS approval_requests_approval_id ON TABLE approval_requests COLUMNS approval_id UNIQUE;
+DEFINE INDEX IF NOT EXISTS approval_requests_status ON TABLE approval_requests COLUMNS status;
+DEFINE INDEX IF NOT EXISTS approval_requests_owner_scope_id ON TABLE approval_requests COLUMNS owner_scope_id;
+
 DEFINE TABLE IF NOT EXISTS conversations SCHEMAFULL;
 DEFINE FIELD OVERWRITE conversation_id ON TABLE conversations TYPE string;
 DEFINE FIELD OVERWRITE title ON TABLE conversations TYPE option<string>;
