@@ -88,7 +88,7 @@ export function shellAttentionForState(input: ShellAttentionInput): ShellAttenti
 
 export function shellContentDeckClassName(deckNavigation: DeckNavigationState) {
   return cn(
-    "absolute z-30 grid min-h-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden border border-[var(--border-subtle)] bg-background shadow-[0_24px_70px_rgba(31,38,30,0.18)] transition-[inset,left,right,transform,border-radius,box-shadow] duration-300 ease-out",
+    "absolute z-30 grid min-h-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden border border-[var(--border-subtle)] bg-background shadow-[0_24px_70px_rgba(31,38,30,0.18)] transition-[inset,left,right,transform,translate,scale,border-radius,box-shadow] duration-300 ease-out",
     "motion-reduce:transition-none",
     deckNavigation.sidebarCollapsed
       ? "inset-2 rounded-xl"

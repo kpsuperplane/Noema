@@ -269,7 +269,7 @@ describe("AppShell layered deck markup", () => {
 
     assert.match(
       className,
-      /transition-\[inset,left,right,transform,border-radius,box-shadow\]/
+      /transition-\[inset,left,right,transform,translate,scale,border-radius,box-shadow\]/
     );
     assert.match(className, /min-\[761px\]:scale-\[0\.97\]/);
     assert.doesNotMatch(className, /(^|\s)scale-\[0\.97\](\s|$)/);
