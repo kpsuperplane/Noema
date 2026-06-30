@@ -712,6 +712,56 @@ type GraphqlPredicateProposal {
 }
 
 """
+Provider account metadata safe to show in Settings.
+"""
+type GraphqlProviderAccount {
+	"""
+	Provider family, such as `codex`.
+	"""
+	providerKind: String!
+	"""
+	Provider-local account key.
+	"""
+	accountKey: String!
+	"""
+	Human-readable account name.
+	"""
+	displayName: String!
+	"""
+	Authentication method used for this account.
+	"""
+	authMethod: String!
+	"""
+	Last known account readiness status.
+	"""
+	status: GraphqlProviderAccountStatus!
+	"""
+	Whether the account may be selected.
+	"""
+	isActive: Boolean!
+	"""
+	Whether the account is the default account for its provider.
+	"""
+	isDefault: Boolean!
+	"""
+	Last time Noema checked the account status.
+	"""
+	lastCheckedAt: String
+	"""
+	Last time Noema observed successful authentication.
+	"""
+	lastAuthenticatedAt: String
+	"""
+	Last non-secret provider error code.
+	"""
+	lastErrorCode: String
+	"""
+	Last non-secret provider error message.
+	"""
+	lastErrorMessage: String
+}
+
+"""
 Provider account status exposed through GraphQL.
 """
 enum GraphqlProviderAccountStatus {
@@ -975,6 +1025,10 @@ type QueryRoot {
 	Return a short-lived provider auth attempt.
 	"""
 	providerAuthAttempt(attemptId: String!): GraphqlProviderAuthAttempt
+	"""
+	List provider account metadata safe to show in Settings.
+	"""
+	providerAccounts: [GraphqlProviderAccount!]!
 	"""
 	List graph-memory claims for memory-management inspection.
 	"""

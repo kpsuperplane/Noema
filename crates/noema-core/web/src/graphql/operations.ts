@@ -29,6 +29,24 @@ export const OnboardingStatusDocument = gql`
   }
 `;
 
+export const ProviderAccountsDocument = gql`
+  query ProviderAccounts {
+    providerAccounts {
+      providerKind
+      accountKey
+      displayName
+      authMethod
+      status
+      isActive
+      isDefault
+      lastCheckedAt
+      lastAuthenticatedAt
+      lastErrorCode
+      lastErrorMessage
+    }
+  }
+`;
+
 export const ProviderAuthAttemptDocument = gql`
   query ProviderAuthAttempt($attemptId: String!) {
     providerAuthAttempt(attemptId: $attemptId) {
