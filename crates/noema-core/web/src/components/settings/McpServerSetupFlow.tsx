@@ -18,7 +18,7 @@ export function McpServerSetupFlow({
   setupError: string | null;
   onCreateServer: (input: McpSetupFormSubmission) => void;
 }) {
-  const [transportKind, setTransportKind] = React.useState<"stdio" | "http_sse">("stdio");
+  const [transportKind, setTransportKind] = React.useState<"stdio" | "http_sse">("http_sse");
   const [formError, setFormError] = React.useState<string | null>(null);
   const [displayName, setDisplayName] = React.useState("");
   const [command, setCommand] = React.useState("");
@@ -96,12 +96,6 @@ export function McpServerSetupFlow({
 
   return (
     <section className="grid gap-4">
-      {setupSubmitting ? (
-        <div className="flex justify-end">
-          <Loader2 className="size-5 animate-spin text-muted-foreground" />
-        </div>
-      ) : null}
-
       <form className="grid gap-3" onSubmit={submitCreate}>
         <label className="grid gap-1 text-sm font-medium">
           Display name
@@ -116,9 +110,32 @@ export function McpServerSetupFlow({
           onValueChange={(value) => setTransportKind(value as "stdio" | "http_sse")}
         >
           <TabsList aria-label="Transport">
-            <TabsTrigger value="stdio">stdio</TabsTrigger>
             <TabsTrigger value="http_sse">http_sse</TabsTrigger>
+            <TabsTrigger value="stdio">stdio</TabsTrigger>
           </TabsList>
+          <TabsContent value="http_sse">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="sm:col-span-2">
+                <TextField label="URL" value={url} onChange={setUrl} />
+              </div>
+              <div className="sm:col-span-2">
+                <KeyValueEditor
+                  label="Non-secret headers"
+                  rows={headers}
+                  emptyText="No non-secret headers configured."
+                  onChange={setHeaders}
+                />
+              </div>
+              <div className="sm:col-span-2">
+                <KeyValueEditor
+                  label="Secret headers"
+                  rows={secretHeaders}
+                  emptyText="No secret headers configured."
+                  onChange={setSecretHeaders}
+                />
+              </div>
+            </div>
+          </TabsContent>
           <TabsContent value="stdio">
             <div className="grid gap-3 sm:grid-cols-2">
               <TextField label="Command" value={command} onChange={setCommand} />
@@ -150,42 +167,26 @@ export function McpServerSetupFlow({
               </div>
             </div>
           </TabsContent>
-          <TabsContent value="http_sse">
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="sm:col-span-2">
-                <TextField label="URL" value={url} onChange={setUrl} />
-              </div>
-              <div className="sm:col-span-2">
-                <KeyValueEditor
-                  label="Non-secret headers"
-                  rows={headers}
-                  emptyText="No non-secret headers configured."
-                  onChange={setHeaders}
-                />
-              </div>
-              <div className="sm:col-span-2">
-                <KeyValueEditor
-                  label="Secret headers"
-                  rows={secretHeaders}
-                  emptyText="No secret headers configured."
-                  onChange={setSecretHeaders}
-                />
-              </div>
-            </div>
-          </TabsContent>
         </Tabs>
 
         {visibleError ? <p className="m-0 text-sm text-destructive">{visibleError}</p> : null}
         <div className="flex justify-end">
           <Button type="submit" className="w-fit" disabled={setupSubmitting}>
-            <Plus className="size-4" aria-hidden="true" />
+            {setupSubmitting ? (
+              <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+            ) : (
+              <Plus className="size-4" aria-hidden="true" />
+            )}
             Save and verify
           </Button>
         </div>
       </form>
 
       {setupResult?.setupStatus === "needs_auth" ? (
-        <form className="grid gap-3 border-t border-[var(--border-subtle)] pt-4" onSubmit={submitRetry}>
+        <form
+          className="grid gap-3 border-t border-[var(--border-subtle)] pt-4"
+          onSubmit={submitRetry}
+        >
           <div className="flex items-center gap-2 text-sm font-medium">
             <KeyRound className="size-4" aria-hidden="true" />
             Authentication required
@@ -210,6 +211,9 @@ export function McpServerSetupFlow({
           </div>
           <div className="flex justify-end">
             <Button type="submit" className="w-fit" disabled={setupSubmitting}>
+              {setupSubmitting ? (
+                <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+              ) : null}
               Retry setup
             </Button>
           </div>
