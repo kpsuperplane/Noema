@@ -316,19 +316,22 @@ function renderShell({
 }: {
   route?: Parameters<typeof AppShell>[0]["route"];
 } = {}) {
+  const routeContent = React.createElement(
+    "section",
+    { "data-testid": "route-content" },
+    "Route content"
+  );
+
   return renderToStaticMarkup(
-    React.createElement(
-      AppShell,
-      {
-        route,
-        status: healthyStatus,
-        socketState: "ready",
-        providerBlocked: false,
-        setupBlocked: false,
-        onNavigate: () => undefined
-      },
-      React.createElement("section", { "data-testid": "route-content" }, "Route content")
-    )
+    React.createElement(AppShell, {
+      route,
+      status: healthyStatus,
+      socketState: "ready",
+      providerBlocked: false,
+      setupBlocked: false,
+      onNavigate: () => undefined,
+      children: routeContent
+    })
   );
 }
 
