@@ -28,6 +28,36 @@ const providerAccount = {
   lastErrorMessage: null
 } as const;
 
+const trustedIdentitySelectors = [
+  {
+    __typename: "GraphqlTrustedIdentitySelector" as const,
+    selectorId: "trusted_identity_selector:email",
+    ownerScopeId: "human:local",
+    selectorKind: "email",
+    normalizedValue: "kevin@example.com",
+    effect: "trust",
+    issuerActorId: "human:local"
+  },
+  {
+    __typename: "GraphqlTrustedIdentitySelector" as const,
+    selectorId: "trusted_identity_selector:phone",
+    ownerScopeId: "human:local",
+    selectorKind: "phone",
+    normalizedValue: "+14155550100",
+    effect: "trust",
+    issuerActorId: "human:local"
+  },
+  {
+    __typename: "GraphqlTrustedIdentitySelector" as const,
+    selectorId: "trusted_identity_selector:domain",
+    ownerScopeId: "human:local",
+    selectorKind: "domain",
+    normalizedValue: "example.org",
+    effect: "trust",
+    issuerActorId: "human:local"
+  }
+] as const;
+
 describe("SettingsPage", () => {
   test("renders a full-screen settings takeover with Providers selected", () => {
     const markup = renderToStaticMarkup(
@@ -67,7 +97,7 @@ describe("SettingsPage", () => {
     assert.match(markup, /Loading MCP servers/);
   });
 
-  test("renders placeholder sections", () => {
+  test("renders governance sections", () => {
     assert.match(
       renderToStaticMarkup(
         <ApolloProvider client={testApolloClient()}>
@@ -78,7 +108,7 @@ describe("SettingsPage", () => {
           />
         </ApolloProvider>
       ),
-      /Trusted identity management is not configured yet/
+      /Loading trusted identities/
     );
 
     assert.match(
@@ -216,12 +246,70 @@ describe("McpSettingsPaneContent", () => {
   });
 });
 
-describe("placeholder settings pane content", () => {
-  test("renders concise placeholder states", () => {
-    assert.match(
-      renderToStaticMarkup(<TrustedIdentitiesSettingsPaneContent />),
-      /Trusted identity management is not configured yet/
+describe("TrustedIdentitiesSettingsPaneContent", () => {
+  test("renders email, phone, and domain selector rows", () => {
+    const markup = renderToStaticMarkup(
+      <TrustedIdentitiesSettingsPaneContent
+        selectors={trustedIdentitySelectors}
+        loading={false}
+        error={null}
+        onRetry={() => {}}
+      />
     );
+
+    assert.match(markup, /email/);
+    assert.match(markup, /kevin@example\.com/);
+    assert.match(markup, /phone/);
+    assert.match(markup, /\+14155550100/);
+    assert.match(markup, /domain/);
+    assert.match(markup, /example\.org/);
+    assert.match(markup, /Owner scope/);
+    assert.match(markup, /human:local/);
+    assert.match(markup, /Issuer/);
+    assert.match(markup, /trust/);
+  });
+
+  test("renders loading, error, and empty states", () => {
+    assert.match(
+      renderToStaticMarkup(
+        <TrustedIdentitiesSettingsPaneContent
+          selectors={[]}
+          loading
+          error={null}
+          onRetry={() => {}}
+        />
+      ),
+      /Loading trusted identities/
+    );
+
+    assert.match(
+      renderToStaticMarkup(
+        <TrustedIdentitiesSettingsPaneContent
+          selectors={[]}
+          loading={false}
+          error="Could not load trusted identities"
+          onRetry={() => {}}
+        />
+      ),
+      /Trusted identity selectors could not be loaded/
+    );
+
+    assert.match(
+      renderToStaticMarkup(
+        <TrustedIdentitiesSettingsPaneContent
+          selectors={[]}
+          loading={false}
+          error={null}
+          onRetry={() => {}}
+        />
+      ),
+      /No trusted identity selectors are configured/
+    );
+  });
+});
+
+describe("Governance placeholder pane content", () => {
+  test("renders concise empty states", () => {
     assert.match(
       renderToStaticMarkup(<ApprovalsSettingsPaneContent />),
       /No MCP approvals are pending/

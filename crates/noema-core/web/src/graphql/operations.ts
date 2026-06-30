@@ -71,6 +71,19 @@ export const McpSettingsDocument = gql`
   }
 `;
 
+export const TrustedIdentitySettingsDocument = gql`
+  query TrustedIdentitySettings($ownerScopeId: String!) {
+    trustedIdentitySelectors(ownerScopeId: $ownerScopeId) {
+      selectorId
+      ownerScopeId
+      selectorKind
+      normalizedValue
+      effect
+      issuerActorId
+    }
+  }
+`;
+
 export const ProviderAuthAttemptDocument = gql`
   query ProviderAuthAttempt($attemptId: String!) {
     providerAuthAttempt(attemptId: $attemptId) {
