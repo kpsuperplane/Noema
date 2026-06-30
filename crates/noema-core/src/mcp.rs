@@ -164,7 +164,7 @@ fn normalize_email_value(trimmed: &str) -> Option<String> {
     }
 
     let (local, domain) = trimmed.split_once('@')?;
-    if local.is_empty() || domain.contains('@') {
+    if !is_valid_email_local_part(local) || domain.contains('@') {
         return None;
     }
 
@@ -174,6 +174,16 @@ fn normalize_email_value(trimmed: &str) -> Option<String> {
         local.to_ascii_lowercase(),
         normalized_domain
     ))
+}
+
+fn is_valid_email_local_part(local: &str) -> bool {
+    !local.is_empty()
+        && !local.starts_with('.')
+        && !local.ends_with('.')
+        && !local.contains("..")
+        && local
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '_' | '%' | '+' | '-'))
 }
 
 fn normalize_domain_value(trimmed: &str) -> Option<String> {

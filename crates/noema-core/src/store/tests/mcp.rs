@@ -8,6 +8,13 @@ fn trusted_identity_selectors_normalize_email_phone_and_domain() {
         Some("kevin@example.com".to_string())
     );
     assert_eq!(
+        normalize_trusted_identity_value(
+            TrustedIdentitySelectorKind::Email,
+            " Kevin+Noema_1@Example.COM "
+        ),
+        Some("kevin+noema_1@example.com".to_string())
+    );
+    assert_eq!(
         normalize_trusted_identity_value(TrustedIdentitySelectorKind::Domain, " Example.COM "),
         Some("example.com".to_string())
     );
@@ -49,6 +56,21 @@ fn trusted_identity_selectors_normalize_email_phone_and_domain() {
     );
     assert_eq!(
         normalize_trusted_identity_value(TrustedIdentitySelectorKind::Email, "kevin@example"),
+        None
+    );
+    assert_eq!(
+        normalize_trusted_identity_value(TrustedIdentitySelectorKind::Email, ".kevin@example.com"),
+        None
+    );
+    assert_eq!(
+        normalize_trusted_identity_value(
+            TrustedIdentitySelectorKind::Email,
+            "kevin..x@example.com"
+        ),
+        None
+    );
+    assert_eq!(
+        normalize_trusted_identity_value(TrustedIdentitySelectorKind::Email, "bad()@example.com"),
         None
     );
     assert_eq!(
