@@ -114,7 +114,10 @@ impl GraphqlState {
         self.runtime_state.memory_storage()
     }
 
-    pub(crate) fn mcp_setup_transport(&self) -> GraphqlMcpSetupTransport {
+    pub(crate) fn mcp_setup_transport(
+        &self,
+        server: &crate::McpServerRecord,
+    ) -> GraphqlMcpSetupTransport {
         #[cfg(test)]
         if let Some(outcomes) = &self.mcp_setup_outcomes {
             let outcome = outcomes
@@ -125,13 +128,35 @@ impl GraphqlState {
             return GraphqlMcpSetupTransport::Test(outcome);
         }
 
-        let _ = self;
-        GraphqlMcpSetupTransport::Unavailable
+        let paths = match self.paths() {
+            Ok(paths) => paths,
+            Err(error) => {
+                return GraphqlMcpSetupTransport::Unavailable(format!("{error:?}"));
+            }
+        };
+        let secrets_path = paths.mcp_server_home(&server.mcp_server_id);
+        let secrets = crate::mcp::secrets::read_mcp_secrets(&secrets_path).unwrap_or_default();
+        match server.transport_kind {
+            crate::McpTransportKind::Stdio => {
+                match crate::mcp::StdioMcpTransport::from_server_config(server, &secrets) {
+                    Ok(transport) => GraphqlMcpSetupTransport::Stdio(Box::new(transport)),
+                    Err(message) => GraphqlMcpSetupTransport::Unavailable(message),
+                }
+            }
+            crate::McpTransportKind::HttpSse => {
+                match crate::mcp::HttpSseMcpTransport::from_server_config(server, &secrets) {
+                    Ok(transport) => GraphqlMcpSetupTransport::HttpSse(Box::new(transport)),
+                    Err(message) => GraphqlMcpSetupTransport::Unavailable(message),
+                }
+            }
+        }
     }
 }
 
 pub(crate) enum GraphqlMcpSetupTransport {
-    Unavailable,
+    Unavailable(String),
+    HttpSse(Box<crate::mcp::HttpSseMcpTransport>),
+    Stdio(Box<crate::mcp::StdioMcpTransport>),
     #[cfg(test)]
     Test(TestMcpSetupOutcome),
 }
@@ -146,9 +171,11 @@ pub(crate) enum TestMcpSetupOutcome {
 impl crate::mcp::McpTransport for GraphqlMcpSetupTransport {
     async fn initialize(&mut self) -> std::result::Result<(), crate::mcp::McpClientError> {
         match self {
-            Self::Unavailable => Err(crate::mcp::McpClientError::Transport(
-                "MCP runtime transport is not wired yet".to_string(),
-            )),
+            Self::Unavailable(message) => {
+                Err(crate::mcp::McpClientError::Transport(message.clone()))
+            }
+            Self::HttpSse(transport) => transport.initialize().await,
+            Self::Stdio(transport) => transport.initialize().await,
             #[cfg(test)]
             Self::Test(TestMcpSetupOutcome::Ok(_)) => Ok(()),
             #[cfg(test)]
@@ -162,9 +189,11 @@ impl crate::mcp::McpTransport for GraphqlMcpSetupTransport {
         &mut self,
     ) -> std::result::Result<Vec<crate::mcp::DiscoveredMcpTool>, crate::mcp::McpClientError> {
         match self {
-            Self::Unavailable => Err(crate::mcp::McpClientError::Transport(
-                "MCP runtime transport is not wired yet".to_string(),
-            )),
+            Self::Unavailable(message) => {
+                Err(crate::mcp::McpClientError::Transport(message.clone()))
+            }
+            Self::HttpSse(transport) => transport.list_tools().await,
+            Self::Stdio(transport) => transport.list_tools().await,
             #[cfg(test)]
             Self::Test(TestMcpSetupOutcome::Ok(tools)) => Ok(tools.clone()),
             #[cfg(test)]

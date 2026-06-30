@@ -1,12 +1,18 @@
 //! Third-party MCP control-plane domain types.
 
 pub mod client;
+/// HTTP/SSE MCP metadata transport.
+pub mod http_sse;
 /// Disk-backed MCP secret storage.
 pub mod secrets;
 /// Guided MCP server setup orchestration.
 pub mod setup;
+/// Stdio MCP metadata transport.
+pub mod stdio;
 
 pub use client::{DiscoveredMcpTool, McpClientError, McpClientRuntime, McpTransport};
+pub use http_sse::HttpSseMcpTransport;
+pub use stdio::StdioMcpTransport;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

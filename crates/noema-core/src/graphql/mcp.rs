@@ -337,9 +337,11 @@ pub(super) async fn create_mcp_server(
     let store = state.store()?;
     let paths = state.paths()?;
     let setup_input = parse_create_mcp_server_input(input)?;
-    let result = create_setup_service(store, paths, setup_input, |_| state.mcp_setup_transport())
-        .await
-        .map_err(graphql_error)?;
+    let result = create_setup_service(store, paths, setup_input, |server| {
+        state.mcp_setup_transport(server)
+    })
+    .await
+    .map_err(graphql_error)?;
     Ok(result.into())
 }
 
@@ -359,7 +361,7 @@ pub(super) async fn continue_mcp_server_setup(
                 headers: json_string_map(input.secret_headers, "secretHeaders")?,
             },
         },
-        |_| state.mcp_setup_transport(),
+        |server| state.mcp_setup_transport(server),
     )
     .await
     .map_err(graphql_error)?;

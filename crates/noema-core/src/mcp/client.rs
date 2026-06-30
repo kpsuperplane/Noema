@@ -1,6 +1,6 @@
 //! Metadata-only MCP client runtime.
 
-use serde_json::Value;
+use serde_json::{Map, Value, json};
 use thiserror::Error;
 
 /// MCP tool metadata discovered during setup.
@@ -16,6 +16,14 @@ pub struct DiscoveredMcpTool {
     pub output_schema: Option<Value>,
     /// MCP tool annotations captured as non-authoritative setup hints.
     pub annotations: Value,
+}
+
+/// One parsed `tools/list` result page.
+pub(crate) struct DiscoveredMcpToolsPage {
+    /// Discovered tools in the page.
+    pub(crate) tools: Vec<DiscoveredMcpTool>,
+    /// Cursor for the next page, when present.
+    pub(crate) next_cursor: Option<String>,
 }
 
 /// Errors returned by metadata-only MCP client discovery.
@@ -74,6 +82,93 @@ where
     }
 }
 
+/// Parse an MCP `tools/list` result object into normalized discovery records.
+pub(crate) fn parse_tools_list_result(
+    result: Value,
+) -> Result<DiscoveredMcpToolsPage, McpClientError> {
+    let object = result.as_object().ok_or_else(|| {
+        McpClientError::Malformed("tools/list result must be an object".to_string())
+    })?;
+    let tools = object
+        .get("tools")
+        .and_then(Value::as_array)
+        .ok_or_else(|| {
+            McpClientError::Malformed("tools/list result must include tools array".to_string())
+        })?
+        .iter()
+        .map(parse_tool)
+        .collect::<Result<Vec<_>, _>>()?;
+    let next_cursor = match object.get("nextCursor") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(value)) => Some(value.clone()),
+        Some(_) => {
+            return Err(McpClientError::Malformed(
+                "tools/list nextCursor must be a string".to_string(),
+            ));
+        }
+    };
+    Ok(DiscoveredMcpToolsPage { tools, next_cursor })
+}
+
+fn parse_tool(value: &Value) -> Result<DiscoveredMcpTool, McpClientError> {
+    let object = value
+        .as_object()
+        .ok_or_else(|| McpClientError::Malformed("MCP tool must be an object".to_string()))?;
+    let name = string_field(object, "name").map_err(McpClientError::Malformed)?;
+    let description = match object.get("description") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(value)) => Some(value.clone()),
+        Some(_) => {
+            return Err(McpClientError::Malformed(
+                "MCP tool description must be a string".to_string(),
+            ));
+        }
+    };
+    let input_schema = object
+        .get("inputSchema")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    if !input_schema.is_object() {
+        return Err(McpClientError::Malformed(
+            "MCP tool inputSchema must be an object".to_string(),
+        ));
+    }
+    let output_schema = match object.get("outputSchema") {
+        None | Some(Value::Null) => None,
+        Some(value) if value.is_object() => Some(value.clone()),
+        Some(_) => {
+            return Err(McpClientError::Malformed(
+                "MCP tool outputSchema must be an object".to_string(),
+            ));
+        }
+    };
+    let annotations = object
+        .get("annotations")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    if !annotations.is_object() {
+        return Err(McpClientError::Malformed(
+            "MCP tool annotations must be an object".to_string(),
+        ));
+    }
+
+    Ok(DiscoveredMcpTool {
+        name,
+        description,
+        input_schema,
+        output_schema,
+        annotations,
+    })
+}
+
+fn string_field(object: &Map<String, Value>, field: &'static str) -> Result<String, String> {
+    object
+        .get(field)
+        .and_then(Value::as_str)
+        .map(ToString::to_string)
+        .ok_or_else(|| format!("MCP config field {field} must be a string"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -120,6 +215,35 @@ mod tests {
         assert_eq!(transport.initialize_count(), 1);
         assert_eq!(transport.list_tools_count(), 1);
         assert_eq!(transport.call_count(), 0);
+    }
+
+    #[test]
+    fn tools_list_parser_accepts_schema_and_annotations() {
+        let page = parse_tools_list_result(json!({
+            "tools": [{
+                "name": "read_doc",
+                "description": "Read a document",
+                "inputSchema": { "type": "object" },
+                "outputSchema": { "type": "object" },
+                "annotations": { "readOnlyHint": true }
+            }],
+            "nextCursor": "next"
+        }))
+        .expect("page");
+
+        assert_eq!(page.tools.len(), 1);
+        assert_eq!(page.tools[0].name, "read_doc");
+        assert_eq!(
+            page.tools[0].description.as_deref(),
+            Some("Read a document")
+        );
+        assert_eq!(page.tools[0].input_schema, json!({ "type": "object" }));
+        assert_eq!(
+            page.tools[0].output_schema,
+            Some(json!({ "type": "object" }))
+        );
+        assert_eq!(page.tools[0].annotations, json!({ "readOnlyHint": true }));
+        assert_eq!(page.next_cursor.as_deref(), Some("next"));
     }
 
     #[tokio::test]
