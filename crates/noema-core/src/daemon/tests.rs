@@ -1391,13 +1391,14 @@ async fn provider_memory_validation_rejection_is_discarded_without_failure_activ
         .start_conversation(None, None)
         .await
         .expect("conversation");
-    let items = collect_turn(
+    let (result, events) = collect_turn_events(
         &handle,
         conversation.conversation_id,
         "Please produce an invalid memory proposal.".to_string(),
     )
-    .await
-    .expect("turn should complete despite rejected memory proposal");
+    .await;
+    result.expect("turn should complete despite rejected memory proposal");
+    let items = transcript_items_from_events(events);
 
     assert_eq!(assistant_text(&items), "fake answer");
     assert!(
@@ -1406,11 +1407,12 @@ async fn provider_memory_validation_rejection_is_discarded_without_failure_activ
                 item,
                 TurnTranscriptItem::Activity {
                     activity_kind,
+                    status: TurnActivityStatus::Completed | TurnActivityStatus::Failed,
                     ..
                 } if activity_kind == "memory_extraction"
             )
         }),
-        "fully rejected provider memory proposals should not create a user-facing memory activity: {items:?}"
+        "fully rejected provider memory proposals should not create a terminal memory activity: {items:?}"
     );
     handle.shutdown().await;
 }
@@ -2498,10 +2500,14 @@ async fn provider_memory_proposal_discards_assistant_evidence_spanning_items() {
         !items.iter().any(|item| {
             matches!(
                 item,
-                TurnTranscriptItem::Activity { activity_kind, .. } if activity_kind == "memory_extraction"
+                TurnTranscriptItem::Activity {
+                    activity_kind,
+                    status: TurnActivityStatus::Completed | TurnActivityStatus::Failed,
+                    ..
+                } if activity_kind == "memory_extraction"
             )
         }),
-        "invalid assistant evidence should be discarded without user-facing memory activity: {items:?}"
+        "invalid assistant evidence should be discarded without terminal memory activity: {items:?}"
     );
     let claims = store
         .retrieve_claims(&answer_claim_request(), "split assistant note", 8)
@@ -3263,7 +3269,10 @@ fn memory_proposals_card_event_index(events: &[TurnStreamEvent]) -> Option<usize
     })
 }
 
-fn assistant_text_item_event_index(events: &[TurnStreamEvent], expected_text: &str) -> Option<usize> {
+fn assistant_text_item_event_index(
+    events: &[TurnStreamEvent],
+    expected_text: &str,
+) -> Option<usize> {
     events.iter().position(|event| {
         matches!(
             event,
