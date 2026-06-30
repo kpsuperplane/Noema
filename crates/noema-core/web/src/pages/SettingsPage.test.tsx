@@ -289,9 +289,10 @@ describe("McpSettingsPaneContent", () => {
       />
     );
 
-    assert.match(markup, /Add MCP server/);
+    assert.match(markup, /Display name/);
     assert.match(markup, /Authentication required/);
     assert.match(markup, /server has not been saved yet/);
+    assert.doesNotMatch(markup, /Verify server/);
   });
 });
 

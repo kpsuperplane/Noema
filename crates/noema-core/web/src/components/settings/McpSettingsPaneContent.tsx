@@ -282,7 +282,6 @@ function McpSetupDialog({
             setupSubmitting={setupSubmitting}
             setupError={setupError}
             onCreateServer={onCreateServer}
-            onCancel={() => onOpenChange(false)}
           />
         </DialogBody>
       </DialogContent>

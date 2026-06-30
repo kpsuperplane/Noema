@@ -1,21 +1,8 @@
 import * as React from "react";
-import {
-  AlertTriangle,
-  CheckCircle2,
-  Circle,
-  KeyRound,
-  Loader2,
-  Plus,
-  ShieldCheck
-} from "lucide-react";
+import { KeyRound, Loader2, Plus, ShieldCheck, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
 import type { CreateMcpServerMutation } from "@/generated/graphql";
-import {
-  parseArgsLines,
-  parseKeyValueLines,
-  type McpSetupFormSubmission
-} from "./mcpSetupForm";
+import type { McpSetupFormSubmission } from "./mcpSetupForm";
 
 export type McpServerSetupResult = CreateMcpServerMutation["createMcpServer"];
 
@@ -23,45 +10,39 @@ export function McpServerSetupFlow({
   setupResult,
   setupSubmitting,
   setupError,
-  onCreateServer,
-  onCancel
+  onCreateServer
 }: {
   setupResult: McpServerSetupResult | null;
   setupSubmitting: boolean;
   setupError: string | null;
   onCreateServer: (input: McpSetupFormSubmission) => void;
-  onCancel?: () => void;
 }) {
   const [transportKind, setTransportKind] = React.useState<"stdio" | "http_sse">("stdio");
   const [formError, setFormError] = React.useState<string | null>(null);
   const [displayName, setDisplayName] = React.useState("");
   const [command, setCommand] = React.useState("");
-  const [args, setArgs] = React.useState("");
   const [cwd, setCwd] = React.useState("");
-  const [env, setEnv] = React.useState("");
-  const [secretEnv, setSecretEnv] = React.useState("");
+  const [args, setArgs] = React.useState<RowDraft[]>([]);
+  const [env, setEnv] = React.useState<KeyValueDraft[]>([]);
+  const [secretEnv, setSecretEnv] = React.useState<KeyValueDraft[]>([]);
   const [url, setUrl] = React.useState("");
-  const [headers, setHeaders] = React.useState("");
-  const [secretHeaders, setSecretHeaders] = React.useState("");
-  const [retrySecretEnv, setRetrySecretEnv] = React.useState("");
-  const [retrySecretHeaders, setRetrySecretHeaders] = React.useState("");
+  const [headers, setHeaders] = React.useState<KeyValueDraft[]>([]);
+  const [secretHeaders, setSecretHeaders] = React.useState<KeyValueDraft[]>([]);
+  const [retrySecretEnv, setRetrySecretEnv] = React.useState<KeyValueDraft[]>([]);
+  const [retrySecretHeaders, setRetrySecretHeaders] = React.useState<KeyValueDraft[]>([]);
   const [lastSubmission, setLastSubmission] = React.useState<McpSetupFormSubmission | null>(null);
 
   function submitCreate(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const safeEnv = parseKeyValueLines(env);
-    const hiddenEnv = parseKeyValueLines(secretEnv);
-    const safeHeaders = parseKeyValueLines(headers);
-    const hiddenHeaders = parseKeyValueLines(secretHeaders);
+    const safeEnv = keyValueRowsToRecord(env, "Non-secret env");
+    const hiddenEnv = keyValueRowsToRecord(secretEnv, "Secret env");
+    const safeHeaders = keyValueRowsToRecord(headers, "Non-secret headers");
+    const hiddenHeaders = keyValueRowsToRecord(secretHeaders, "Secret headers");
     const parseError = safeEnv.error ?? hiddenEnv.error ?? safeHeaders.error ?? hiddenHeaders.error;
     if (parseError) {
       setFormError(parseError);
       return;
     }
-    const safeEnvValue = parsedKeyValue(safeEnv);
-    const hiddenEnvValue = parsedKeyValue(hiddenEnv);
-    const safeHeadersValue = parsedKeyValue(safeHeaders);
-    const hiddenHeadersValue = parsedKeyValue(hiddenHeaders);
     setFormError(null);
     if (transportKind === "stdio") {
       const submission = {
@@ -69,10 +50,10 @@ export function McpServerSetupFlow({
         transportKind,
         stdio: {
           command,
-          args: parseArgsLines(args),
+          args: rowDraftsToValues(args),
           cwd: cwd.trim() ? cwd.trim() : null,
-          env: safeEnvValue,
-          secretEnv: hiddenEnvValue
+          env: safeEnv.value,
+          secretEnv: hiddenEnv.value
         },
         httpSse: null
       } satisfies McpSetupFormSubmission;
@@ -86,8 +67,8 @@ export function McpServerSetupFlow({
       stdio: null,
       httpSse: {
         url,
-        headers: safeHeadersValue,
-        secretHeaders: hiddenHeadersValue
+        headers: safeHeaders.value,
+        secretHeaders: hiddenHeaders.value
       }
     } satisfies McpSetupFormSubmission;
     setLastSubmission(submission);
@@ -97,50 +78,28 @@ export function McpServerSetupFlow({
   function submitRetry(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!lastSubmission) return;
-    const parsedEnv = parseKeyValueLines(retrySecretEnv);
-    const parsedHeaders = parseKeyValueLines(retrySecretHeaders);
+    const parsedEnv = keyValueRowsToRecord(retrySecretEnv, "Secret env");
+    const parsedHeaders = keyValueRowsToRecord(retrySecretHeaders, "Secret headers");
     const parseError = parsedEnv.error ?? parsedHeaders.error;
     if (parseError) {
       setFormError(parseError);
       return;
     }
-    const parsedEnvValue = parsedKeyValue(parsedEnv);
-    const parsedHeadersValue = parsedKeyValue(parsedHeaders);
     setFormError(null);
-    const submission = mergeRetrySecrets(lastSubmission, parsedEnvValue, parsedHeadersValue);
+    const submission = mergeRetrySecrets(lastSubmission, parsedEnv.value, parsedHeaders.value);
     setLastSubmission(submission);
     onCreateServer(submission);
   }
 
   const visibleError = formError ?? setupError ?? setupResult?.setupError ?? null;
-  const stepStates = setupStepStates(setupResult?.setupStatus ?? null, setupSubmitting);
-  const closeLabel = setupResult?.setupStatus === "needs_auth" ? "Close and keep draft" : "Close";
 
   return (
     <section className="grid gap-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="grid gap-1">
-          <h2 className="m-0 font-heading text-xl leading-tight tracking-normal">
-            Add MCP server
-          </h2>
-          <p className="m-0 text-sm text-muted-foreground">
-            Noema verifies the server, fetches tool schemas, then keeps tools disabled until
-            calibration.
-          </p>
+      {setupSubmitting ? (
+        <div className="flex justify-end">
+          <Loader2 className="size-5 animate-spin text-muted-foreground" />
         </div>
-        {setupSubmitting ? <Loader2 className="size-5 animate-spin text-muted-foreground" /> : null}
-      </div>
-
-      <ol className="grid gap-2 text-sm text-muted-foreground sm:grid-cols-4">
-        {stepStates.map((step) => (
-          <li key={step.label} className="flex items-center gap-2">
-            <SetupStepIcon state={step.state} />
-            <span className={step.state === "current" ? "font-medium text-foreground" : ""}>
-              {step.label}
-            </span>
-          </li>
-        ))}
-      </ol>
+      ) : null}
 
       <form className="grid gap-3" onSubmit={submitCreate}>
         <label className="grid gap-1 text-sm font-medium">
@@ -172,27 +131,61 @@ export function McpServerSetupFlow({
           <div className="grid gap-3 sm:grid-cols-2">
             <TextField label="Command" value={command} onChange={setCommand} />
             <TextField label="Working directory" value={cwd} onChange={setCwd} />
-            <TextAreaField label="Args" value={args} onChange={setArgs} />
-            <TextAreaField label="Non-secret env" value={env} onChange={setEnv} />
-            <TextAreaField label="Secret env" value={secretEnv} onChange={setSecretEnv} />
+            <div className="sm:col-span-2">
+              <StringListEditor
+                label="Args"
+                values={args}
+                emptyText="No arguments configured."
+                addLabel="Add argument"
+                onChange={setArgs}
+              />
+            </div>
+            <div className="sm:col-span-2">
+              <KeyValueEditor
+                label="Non-secret env"
+                rows={env}
+                emptyText="No non-secret environment variables configured."
+                onChange={setEnv}
+              />
+            </div>
+            <div className="sm:col-span-2">
+              <KeyValueEditor
+                label="Secret env"
+                rows={secretEnv}
+                emptyText="No secret environment variables configured."
+                onChange={setSecretEnv}
+              />
+            </div>
           </div>
         ) : (
           <div className="grid gap-3 sm:grid-cols-2">
             <TextField label="URL" value={url} onChange={setUrl} />
-            <TextAreaField label="Non-secret headers" value={headers} onChange={setHeaders} />
-            <TextAreaField
-              label="Secret headers"
-              value={secretHeaders}
-              onChange={setSecretHeaders}
-            />
+            <div className="sm:col-span-2">
+              <KeyValueEditor
+                label="Non-secret headers"
+                rows={headers}
+                emptyText="No non-secret headers configured."
+                onChange={setHeaders}
+              />
+            </div>
+            <div className="sm:col-span-2">
+              <KeyValueEditor
+                label="Secret headers"
+                rows={secretHeaders}
+                emptyText="No secret headers configured."
+                onChange={setSecretHeaders}
+              />
+            </div>
           </div>
         )}
 
         {visibleError ? <p className="m-0 text-sm text-destructive">{visibleError}</p> : null}
-        <Button type="submit" className="w-fit" disabled={setupSubmitting}>
-          <Plus className="size-4" aria-hidden="true" />
-          Save and verify
-        </Button>
+        <div className="flex justify-end">
+          <Button type="submit" className="w-fit" disabled={setupSubmitting}>
+            <Plus className="size-4" aria-hidden="true" />
+            Save and verify
+          </Button>
+        </div>
       </form>
 
       {setupResult?.setupStatus === "needs_auth" ? (
@@ -206,16 +199,24 @@ export function McpServerSetupFlow({
             MCP server expects, then retry setup to verify and list tools.
           </p>
           <div className="grid gap-3 sm:grid-cols-2">
-            <TextAreaField label="Secret env" value={retrySecretEnv} onChange={setRetrySecretEnv} />
-            <TextAreaField
+            <KeyValueEditor
+              label="Secret env"
+              rows={retrySecretEnv}
+              emptyText="No secret environment variables configured."
+              onChange={setRetrySecretEnv}
+            />
+            <KeyValueEditor
               label="Secret headers"
-              value={retrySecretHeaders}
+              rows={retrySecretHeaders}
+              emptyText="No secret headers configured."
               onChange={setRetrySecretHeaders}
             />
           </div>
-          <Button type="submit" className="w-fit" disabled={setupSubmitting}>
-            Retry setup
-          </Button>
+          <div className="flex justify-end">
+            <Button type="submit" className="w-fit" disabled={setupSubmitting}>
+              Retry setup
+            </Button>
+          </div>
         </form>
       ) : null}
 
@@ -231,72 +232,8 @@ export function McpServerSetupFlow({
           </p>
         </div>
       ) : null}
-      {onCancel ? (
-        <Button type="button" variant="ghost" className="w-fit" onClick={onCancel}>
-          {closeLabel}
-        </Button>
-      ) : null}
     </section>
   );
-}
-
-type SetupStepState = "pending" | "current" | "complete" | "blocked";
-
-function setupStepStates(
-  setupStatus: string | null,
-  submitting: boolean
-): { label: string; state: SetupStepState }[] {
-  if (setupStatus === "ready_for_calibration") {
-    return [
-      { label: "Verify server", state: "complete" },
-      { label: "Authenticate if needed", state: "complete" },
-      { label: "Fetch tools", state: "complete" },
-      { label: "Configure tools", state: "current" }
-    ];
-  }
-  if (setupStatus === "needs_auth") {
-    return [
-      { label: "Verify server", state: "complete" },
-      { label: "Authenticate if needed", state: "current" },
-      { label: "Fetch tools", state: "pending" },
-      { label: "Configure tools", state: "pending" }
-    ];
-  }
-  if (setupStatus === "unavailable" || setupStatus === "malformed") {
-    return [
-      { label: "Verify server", state: "blocked" },
-      { label: "Authenticate if needed", state: "pending" },
-      { label: "Fetch tools", state: "pending" },
-      { label: "Configure tools", state: "pending" }
-    ];
-  }
-  if (submitting) {
-    return [
-      { label: "Verify server", state: "current" },
-      { label: "Authenticate if needed", state: "pending" },
-      { label: "Fetch tools", state: "pending" },
-      { label: "Configure tools", state: "pending" }
-    ];
-  }
-  return [
-    { label: "Verify server", state: "pending" },
-    { label: "Authenticate if needed", state: "pending" },
-    { label: "Fetch tools", state: "pending" },
-    { label: "Configure tools", state: "pending" }
-  ];
-}
-
-function SetupStepIcon({ state }: { state: SetupStepState }) {
-  if (state === "complete") {
-    return <CheckCircle2 className="size-4 text-[var(--pine-700)]" aria-hidden="true" />;
-  }
-  if (state === "current") {
-    return <Circle className="size-4 text-[var(--pine-700)]" aria-hidden="true" />;
-  }
-  if (state === "blocked") {
-    return <AlertTriangle className="size-4 text-destructive" aria-hidden="true" />;
-  }
-  return <Circle className="size-4 text-muted-foreground" aria-hidden="true" />;
 }
 
 function mergeRetrySecrets(
@@ -331,8 +268,48 @@ function mergeRetrySecrets(
   return submission;
 }
 
-function parsedKeyValue(result: ReturnType<typeof parseKeyValueLines>): Record<string, string> {
-  return result.value ?? {};
+type KeyValueRowsResult =
+  | { value: Record<string, string>; error: null }
+  | { value: Record<string, string>; error: string };
+
+type RowDraft = {
+  id: string;
+  value: string;
+};
+
+type KeyValueDraft = {
+  id: string;
+  key: string;
+  value: string;
+};
+
+function rowDraftsToValues(rows: readonly RowDraft[]) {
+  return rows.map((row) => row.value.trim()).filter(Boolean);
+}
+
+function keyValueRowsToRecord(rows: readonly KeyValueDraft[], label: string): KeyValueRowsResult {
+  const value: Record<string, string> = {};
+  for (const [index, row] of rows.entries()) {
+    const key = row.key.trim();
+    const parsedValue = row.value.trim();
+    if (!key && !parsedValue) continue;
+    if (!key) {
+      return { value: {}, error: `${label} row ${index + 1} must include a key.` };
+    }
+    if (Object.prototype.hasOwnProperty.call(value, key)) {
+      return { value: {}, error: `${label} has a duplicate key: ${key}` };
+    }
+    value[key] = parsedValue;
+  }
+  return { value, error: null };
+}
+
+function newRowDraft(): RowDraft {
+  return { id: crypto.randomUUID(), value: "" };
+}
+
+function newKeyValueDraft(): KeyValueDraft {
+  return { id: crypto.randomUUID(), key: "", value: "" };
 }
 
 function TextField({
@@ -356,19 +333,135 @@ function TextField({
   );
 }
 
-function TextAreaField({
+function StringListEditor({
   label,
-  value,
+  values,
+  emptyText,
+  addLabel,
   onChange
 }: {
   label: string;
-  value: string;
-  onChange: (value: string) => void;
+  values: readonly RowDraft[];
+  emptyText: string;
+  addLabel: string;
+  onChange: React.Dispatch<React.SetStateAction<RowDraft[]>>;
 }) {
   return (
-    <label className="grid gap-1 text-sm font-medium">
-      {label}
-      <Textarea rows={3} value={value} onChange={(event) => onChange(event.currentTarget.value)} />
-    </label>
+    <section className="grid gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="m-0 text-sm font-medium">{label}</h3>
+        <Button
+          type="button"
+          variant="outline"
+          className="w-fit"
+          onClick={() => onChange((current) => [...current, newRowDraft()])}
+        >
+          <Plus className="size-4" aria-hidden="true" />
+          {addLabel}
+        </Button>
+      </div>
+      {values.length === 0 ? <p className="m-0 text-sm text-muted-foreground">{emptyText}</p> : null}
+      <div className="grid gap-2">
+        {values.map((row, index) => (
+          <div key={row.id} className="grid gap-2 sm:grid-cols-[auto_1fr_auto]">
+            <span className="self-center font-mono text-xs text-muted-foreground">
+              {index + 1}
+            </span>
+            <input
+              aria-label={`${label} ${index + 1}`}
+              className="h-9 rounded-md border border-[var(--border-subtle)] px-3 text-sm"
+              value={row.value}
+              onChange={(event) =>
+                onChange((current) =>
+                  current.map((item) =>
+                    item.id === row.id ? { ...item, value: event.currentTarget.value } : item
+                  )
+                )
+              }
+            />
+            <Button
+              type="button"
+              variant="ghost"
+              aria-label={`Remove ${label} ${index + 1}`}
+              onClick={() => onChange((current) => current.filter((item) => item.id !== row.id))}
+            >
+              <Trash2 className="size-4" aria-hidden="true" />
+            </Button>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function KeyValueEditor({
+  label,
+  rows,
+  emptyText,
+  onChange
+}: {
+  label: string;
+  rows: readonly KeyValueDraft[];
+  emptyText: string;
+  onChange: React.Dispatch<React.SetStateAction<KeyValueDraft[]>>;
+}) {
+  return (
+    <section className="grid gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="m-0 text-sm font-medium">{label}</h3>
+        <Button
+          type="button"
+          variant="outline"
+          className="w-fit"
+          onClick={() => onChange((current) => [...current, newKeyValueDraft()])}
+        >
+          <Plus className="size-4" aria-hidden="true" />
+          Add row
+        </Button>
+      </div>
+      {rows.length === 0 ? <p className="m-0 text-sm text-muted-foreground">{emptyText}</p> : null}
+      <div className="grid gap-2">
+        {rows.map((row, index) => (
+          <div key={row.id} className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+            <input
+              aria-label={`${label} key ${index + 1}`}
+              placeholder="Key"
+              className="h-9 rounded-md border border-[var(--border-subtle)] px-3 text-sm"
+              value={row.key}
+              onChange={(event) =>
+                updateKeyValueRow(onChange, row.id, { key: event.currentTarget.value })
+              }
+            />
+            <input
+              aria-label={`${label} value ${index + 1}`}
+              placeholder="Value"
+              className="h-9 rounded-md border border-[var(--border-subtle)] px-3 text-sm"
+              value={row.value}
+              onChange={(event) =>
+                updateKeyValueRow(onChange, row.id, { value: event.currentTarget.value })
+              }
+            />
+            <Button
+              type="button"
+              variant="ghost"
+              aria-label={`Remove ${label} row ${index + 1}`}
+              onClick={() => onChange((current) => current.filter((item) => item.id !== row.id))}
+            >
+              <Trash2 className="size-4" aria-hidden="true" />
+            </Button>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function updateKeyValueRow(
+  onChange: React.Dispatch<React.SetStateAction<KeyValueDraft[]>>,
+  id: string,
+  patch: Partial<Omit<KeyValueDraft, "id">>
+) {
+  onChange((current) =>
+    current.map((row) => (row.id === id ? { ...row, ...patch } : row))
   );
 }
