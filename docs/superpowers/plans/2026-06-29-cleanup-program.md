@@ -789,31 +789,31 @@ Expected: provider parser extraction commit.
 - Modify: `crates/noema-cli/src/inspection.rs`
 - Modify tests under `crates/noema-cli/src`
 
-- [ ] **Step 1: Move command implementations** *(in progress)*
+- [x] **Step 1: Move command implementations**
 
 Move `run_start`, `run_config`, `run_chat`, `run_memory_graphql`, `run_interactive_chat`, `print_chat_turn_graphql`, and one-shot provider code into focused command modules.
 
-- [ ] **Step 2: Keep `main.rs` thin**
+- [x] **Step 2: Keep `main.rs` thin**
 
 `main.rs` should retain argument definitions, `CliError`, `main`, `run`, and top-level dispatch only.
 
-- [ ] **Step 3: Split GraphQL HTTP transport**
+- [x] **Step 3: Split GraphQL HTTP transport**
 
 Move request/response structs and `execute` into `graphql/http.rs`.
 
-- [ ] **Step 4: Split GraphQL WebSocket transport**
+- [x] **Step 4: Split GraphQL WebSocket transport**
 
 Move WebSocket URL construction, connection setup, subscription readiness, JSON write/read helpers, and subscription stream setup into `graphql/ws.rs`.
 
-- [ ] **Step 5: Split transcript event decoding**
+- [x] **Step 5: Split transcript event decoding**
 
 Move `graphql_turn_event`, event matching, transcript item decoding, and activity status parsing into `graphql/transcript.rs`.
 
-- [ ] **Step 6: Preserve CLI public behavior**
+- [x] **Step 6: Preserve CLI public behavior**
 
 Run existing CLI argument tests and inspection tests without changing expected output unless tests explicitly require path updates.
 
-- [ ] **Step 7: Run CLI tests**
+- [x] **Step 7: Run CLI tests**
 
 Run:
 
@@ -824,7 +824,7 @@ cargo test -p noema-cli --no-fail-fast
 
 Expected: CLI tests pass.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 Run:
 
@@ -845,7 +845,7 @@ Expected: CLI boundary split commit.
 - Modify: `docs/context/current.md`
 - Optional modify: `docs/frontend/current-contract.md`
 
-- [ ] **Step 1: Run full frontend validation**
+- [ ] **Step 1: Run full frontend validation** *(in progress)*
 
 Run from `crates/noema-core/web`:
 
