@@ -16,23 +16,24 @@ fn noema_desktop_main() {
     tauri::Builder::default()
         .manage(desktop_state::DesktopState::new())
         .setup(|app| {
-            let handle = app.handle().clone();
-            tauri::async_runtime::spawn(async move {
-                let state = handle.state::<desktop_state::DesktopState>();
-                let codex =
-                    noema_core::Config::load_daemon(None, noema_core::CliOverrides::default())
-                        .map(|config| config.codex)
-                        .unwrap_or_default();
-                if let Err(error) = state.initialize(codex).await {
-                    eprintln!("{} {}", error.user_message(), error.technical_details());
-                }
-            });
+            let state = app.state::<desktop_state::DesktopState>();
+            let codex = noema_core::Config::load_daemon(None, noema_core::CliOverrides::default())
+                .map(|config| config.codex)
+                .unwrap_or_default();
+            tauri::async_runtime::block_on(state.initialize(codex)).map_err(|error| {
+                std::io::Error::other(format!(
+                    "{} {}",
+                    error.user_message(),
+                    error.technical_details()
+                ))
+            })?;
             Ok(())
         })
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {
-                let state = window.state::<desktop_state::DesktopState>();
-                tauri::async_runtime::block_on(async move {
+                let handle = window.app_handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    let state = handle.state::<desktop_state::DesktopState>();
                     state.shutdown().await;
                 });
             }

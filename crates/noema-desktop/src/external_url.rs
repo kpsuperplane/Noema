@@ -9,6 +9,7 @@
 #[tauri::command]
 pub async fn open_external_url(url: String) -> Result<(), String> {
     validate_external_url(&url).map_err(|error| error.to_string())?;
+    open::that_detached(&url).map_err(|_| ExternalUrlError::OpenFailed.to_string())?;
     Ok(())
 }
 
@@ -23,6 +24,7 @@ fn validate_external_url(url: &str) -> Result<(), ExternalUrlError> {
 #[derive(Debug, PartialEq, Eq)]
 enum ExternalUrlError {
     InvalidUrl,
+    OpenFailed,
     UnsupportedScheme,
 }
 
