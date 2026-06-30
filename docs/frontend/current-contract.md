@@ -69,7 +69,7 @@ primary navigation priority.
 | `/inspect` | Advanced inspection | embedded store read models | owner/admin inspection hub; never required for ordinary chat success | Current limited |
 | `/inspect/context-graph` | Context graph | future graph neighborhood read model | owner/admin-only graph inspection, redacted by default | Future |
 | `/inspect/context-packets` | Context packets | retrieval packet tables when populated | inspect when rows exist; unavailable state otherwise | Current limited |
-| `/settings` | Settings | paths/config/local service/assistant connection/database health | local maintenance, memory-management entry points, advanced drill-ins | Current |
+| `/settings` | Settings | provider account metadata from GraphQL, gated by onboarding | temporary full-screen utility takeover opened from the sidebar cog; initial section is Providers and shows only non-secret account metadata | Current |
 
 Future route groups:
 
@@ -92,7 +92,8 @@ a feature is unavailable. Disabled rows must not present mutation controls.
 Current shell note: after onboarding, the web UI uses a sidebar-first shell.
 `Home` is the visible label for the durable primary conversation, not a
 dashboard. `Memory` is the only other primary sidebar destination in the
-current slice. Unknown browser paths fall back to `Home`.
+current slice. A bottom-left cog opens Settings as a secondary utility
+takeover. Unknown browser paths fall back to `Home`.
 
 ## First Shell Assumption
 

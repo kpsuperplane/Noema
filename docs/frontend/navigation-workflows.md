@@ -53,7 +53,8 @@ ground-layer sidebar visible; collapsed desktop and mobile move the deck aside
 to reveal the same single sidebar instance. Healthy setup, service, chat,
 provider, and memory state are silent in the shell. The shell shows a single
 compact attention item only when state is degraded or action-worthy; the active
-page owns detailed recovery UI.
+page owns detailed recovery UI. A bottom-left cog opens Settings as a
+temporary full-screen takeover rather than a primary navigation destination.
 
 ## Chat
 
@@ -617,7 +618,7 @@ addressability and backing, not what the first shell emphasizes.
 | `/inspect` | Advanced inspection | CLI-equivalent read models | owner/admin inspection hub; not primary navigation during onboarding or normal beginner use | Current |
 | `/inspect/context-graph` | Context graph | future graph neighborhood read model | owner/admin-only, redacted by default | Future |
 | `/inspect/context-packets` | Context packets | context packet tables if populated | inspect when rows exist; unavailable state otherwise | Current limited |
-| `/settings` | Settings | config, paths, local service health | local setup, maintenance, memory management entry points, advanced drill-ins | Current |
+| `/settings` | Settings | provider account metadata from GraphQL, gated by onboarding | temporary full-screen utility takeover opened from the sidebar cog; initial section is Providers and shows only non-secret account metadata | Current |
 
 Future route groups:
 

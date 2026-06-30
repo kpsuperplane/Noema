@@ -101,6 +101,10 @@ The next storage slice should stay small and concrete:
   ground layer sits under the route content deck. Expanded desktop keeps the
   sidebar visible; collapsed desktop and mobile reveal navigation by moving the
   deck aside rather than rendering a separate drawer/sidebar copy.
+- The web shell exposes Settings as a bottom-left sidebar cog, not as a primary
+  navigation destination. `/settings` renders as a full-screen utility takeover
+  after onboarding and initially contains only the Providers section with
+  non-secret provider account metadata.
 - Routed web surfaces learn shell-owned deck state through
   `ShellSurfaceContext` visibility (`visible`, `hiding`, `hidden`, `showing`).
   Surfaces should run focus and other visible-only side effects only when
