@@ -16,6 +16,8 @@ pub mod graphql;
 pub mod home;
 /// Neutral typed object ids.
 pub mod ids;
+/// Third-party MCP control-plane types.
+pub mod mcp;
 /// Memory storage and retrieval policy model.
 pub mod memory;
 /// Neutral concrete object and actor references.
@@ -51,6 +53,10 @@ pub use home::{
 };
 pub use ids::{
     ActorId, ContextPacketId, ConversationId, ConversationItemId, MemoryItemId, ObjectId,
+};
+pub use mcp::{
+    McpCalibrationStatus, McpToolSchema, McpTransportKind, McpTrustClassification, OwnerExtractor,
+    OwnerExtractorSource, TrustedIdentitySelectorKind, normalize_trusted_identity_value,
 };
 pub use memory::consolidation::{
     CanonicalClaimCandidate, CanonicalClaimStatus, CanonicalEntity, ConsolidationDecision,

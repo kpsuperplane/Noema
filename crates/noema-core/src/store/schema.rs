@@ -49,6 +49,65 @@ DEFINE FIELD OVERWRITE updated_at ON TABLE provider_accounts TYPE datetime DEFAU
 DEFINE INDEX IF NOT EXISTS provider_accounts_account_id ON TABLE provider_accounts COLUMNS provider_account_id UNIQUE;
 DEFINE INDEX IF NOT EXISTS provider_accounts_kind_key ON TABLE provider_accounts COLUMNS provider_kind, account_key UNIQUE;
 
+DEFINE TABLE IF NOT EXISTS mcp_servers SCHEMAFULL;
+DEFINE FIELD OVERWRITE mcp_server_id ON TABLE mcp_servers TYPE string;
+DEFINE FIELD OVERWRITE display_name ON TABLE mcp_servers TYPE string;
+DEFINE FIELD OVERWRITE transport_kind ON TABLE mcp_servers TYPE string ASSERT $value INSIDE ['stdio', 'http_sse'];
+DEFINE FIELD OVERWRITE safe_config ON TABLE mcp_servers TYPE object FLEXIBLE DEFAULT {};
+DEFINE FIELD OVERWRITE auth_status ON TABLE mcp_servers TYPE string ASSERT $value INSIDE ['none', 'needs_auth', 'authenticated', 'unavailable'];
+DEFINE FIELD OVERWRITE health_status ON TABLE mcp_servers TYPE string ASSERT $value INSIDE ['unknown', 'healthy', 'unavailable'];
+DEFINE FIELD OVERWRITE enabled ON TABLE mcp_servers TYPE bool DEFAULT false;
+DEFINE FIELD OVERWRITE metadata_fingerprint ON TABLE mcp_servers TYPE option<string>;
+DEFINE FIELD OVERWRITE last_discovered_at ON TABLE mcp_servers TYPE option<string>;
+DEFINE FIELD OVERWRITE created_at ON TABLE mcp_servers TYPE datetime DEFAULT time::now();
+DEFINE FIELD OVERWRITE updated_at ON TABLE mcp_servers TYPE datetime DEFAULT time::now();
+DEFINE INDEX IF NOT EXISTS mcp_servers_server_id ON TABLE mcp_servers COLUMNS mcp_server_id UNIQUE;
+
+DEFINE TABLE IF NOT EXISTS mcp_tools SCHEMAFULL;
+DEFINE FIELD OVERWRITE mcp_tool_id ON TABLE mcp_tools TYPE string;
+DEFINE FIELD OVERWRITE mcp_server_id ON TABLE mcp_tools TYPE string;
+DEFINE FIELD OVERWRITE name ON TABLE mcp_tools TYPE string;
+DEFINE FIELD OVERWRITE description ON TABLE mcp_tools TYPE option<string>;
+DEFINE FIELD OVERWRITE input_schema ON TABLE mcp_tools TYPE object FLEXIBLE DEFAULT {};
+DEFINE FIELD OVERWRITE output_schema ON TABLE mcp_tools TYPE option<object>;
+DEFINE FIELD OVERWRITE annotations ON TABLE mcp_tools TYPE object FLEXIBLE DEFAULT {};
+DEFINE FIELD OVERWRITE metadata_fingerprint ON TABLE mcp_tools TYPE string;
+DEFINE FIELD OVERWRITE discovered_at ON TABLE mcp_tools TYPE string;
+DEFINE FIELD OVERWRITE created_at ON TABLE mcp_tools TYPE datetime DEFAULT time::now();
+DEFINE FIELD OVERWRITE updated_at ON TABLE mcp_tools TYPE datetime DEFAULT time::now();
+DEFINE INDEX IF NOT EXISTS mcp_tools_tool_id ON TABLE mcp_tools COLUMNS mcp_tool_id UNIQUE;
+DEFINE INDEX IF NOT EXISTS mcp_tools_server_name ON TABLE mcp_tools COLUMNS mcp_server_id, name UNIQUE;
+
+DEFINE TABLE IF NOT EXISTS tool_calibrations SCHEMAFULL;
+DEFINE FIELD OVERWRITE calibration_id ON TABLE tool_calibrations TYPE string;
+DEFINE FIELD OVERWRITE mcp_tool_id ON TABLE tool_calibrations TYPE string;
+DEFINE FIELD OVERWRITE read_classification ON TABLE tool_calibrations TYPE string ASSERT $value INSIDE ['none', 'trusted', 'untrusted', 'mixed'];
+DEFINE FIELD OVERWRITE write_classification ON TABLE tool_calibrations TYPE string ASSERT $value INSIDE ['none', 'trusted', 'untrusted', 'mixed'];
+DEFINE FIELD OVERWRITE export_classification ON TABLE tool_calibrations TYPE string ASSERT $value INSIDE ['none', 'trusted', 'untrusted', 'mixed'];
+DEFINE FIELD OVERWRITE owner_extractors ON TABLE tool_calibrations TYPE array<object> DEFAULT [];
+DEFINE FIELD OVERWRITE enabled_agent_ids ON TABLE tool_calibrations TYPE array<string> DEFAULT [];
+DEFINE FIELD OVERWRITE enabled_scope_ids ON TABLE tool_calibrations TYPE array<string> DEFAULT [];
+DEFINE FIELD OVERWRITE status ON TABLE tool_calibrations TYPE string ASSERT $value INSIDE ['needs_review', 'blocked_unresolved_ownership', 'ready', 'disabled'];
+DEFINE FIELD OVERWRITE reviewed_by ON TABLE tool_calibrations TYPE option<string>;
+DEFINE FIELD OVERWRITE reviewed_metadata_fingerprint ON TABLE tool_calibrations TYPE option<string>;
+DEFINE FIELD OVERWRITE created_at ON TABLE tool_calibrations TYPE datetime DEFAULT time::now();
+DEFINE FIELD OVERWRITE updated_at ON TABLE tool_calibrations TYPE datetime DEFAULT time::now();
+DEFINE INDEX IF NOT EXISTS tool_calibrations_calibration_id ON TABLE tool_calibrations COLUMNS calibration_id UNIQUE;
+DEFINE INDEX IF NOT EXISTS tool_calibrations_tool_id ON TABLE tool_calibrations COLUMNS mcp_tool_id UNIQUE;
+
+DEFINE TABLE IF NOT EXISTS trusted_identity_selectors SCHEMAFULL;
+DEFINE FIELD OVERWRITE selector_id ON TABLE trusted_identity_selectors TYPE string;
+DEFINE FIELD OVERWRITE owner_scope_id ON TABLE trusted_identity_selectors TYPE string;
+DEFINE FIELD OVERWRITE selector_kind ON TABLE trusted_identity_selectors TYPE string ASSERT $value INSIDE ['email', 'phone', 'domain'];
+DEFINE FIELD OVERWRITE normalized_value ON TABLE trusted_identity_selectors TYPE string;
+DEFINE FIELD OVERWRITE effect ON TABLE trusted_identity_selectors TYPE string ASSERT $value INSIDE ['trust', 'restrict'];
+DEFINE FIELD OVERWRITE issuer_actor_id ON TABLE trusted_identity_selectors TYPE string;
+DEFINE FIELD OVERWRITE revoked_at ON TABLE trusted_identity_selectors TYPE option<string>;
+DEFINE FIELD OVERWRITE created_at ON TABLE trusted_identity_selectors TYPE datetime DEFAULT time::now();
+DEFINE FIELD OVERWRITE updated_at ON TABLE trusted_identity_selectors TYPE datetime DEFAULT time::now();
+DEFINE INDEX IF NOT EXISTS trusted_identity_selectors_selector_id ON TABLE trusted_identity_selectors COLUMNS selector_id UNIQUE;
+DEFINE INDEX IF NOT EXISTS trusted_identity_selectors_owner_value ON TABLE trusted_identity_selectors COLUMNS owner_scope_id, selector_kind, normalized_value UNIQUE;
+
 DEFINE TABLE IF NOT EXISTS conversations SCHEMAFULL;
 DEFINE FIELD OVERWRITE conversation_id ON TABLE conversations TYPE string;
 DEFINE FIELD OVERWRITE title ON TABLE conversations TYPE option<string>;

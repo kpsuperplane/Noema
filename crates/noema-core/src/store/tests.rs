@@ -3,6 +3,7 @@ use surrealdb::types::SurrealValue;
 use tempfile::TempDir;
 
 mod claims;
+mod mcp;
 
 use super::{NoemaStore, StoreConfig, schema::STORE_SCHEMA_SQL};
 use crate::{
