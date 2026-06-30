@@ -11,6 +11,7 @@ workspace = true
 
 [dependencies]
 async-graphql.workspace = true
+futures-util.workspace = true
 noema-core = { path = "../noema-core" }
 open = "5"
 serde = { workspace = true, features = ["derive"] }

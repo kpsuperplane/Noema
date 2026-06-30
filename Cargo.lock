@@ -3736,6 +3736,7 @@ name = "noema-desktop"
 version = "0.1.0"
 dependencies = [
  "async-graphql",
+ "futures-util",
  "noema-core",
  "open",
  "serde",
