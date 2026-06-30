@@ -2,15 +2,15 @@ use std::path::Path;
 
 use crate::{
     MemoryType,
-    memory::{MemoryStatus, Sensitivity},
-    memory_consolidation::{
+    memory::consolidation::{
         CanonicalClaimCandidate, CanonicalClaimStatus, MemoryWriteProposal, MemoryWriteSourceKind,
         PredicateResolution,
     },
-    memory_extraction::{
+    memory::extraction::{
         MemoryExtractionSubject, MemoryExtractionSubjectKind, ValidatedMemoryProposal,
         infer_memory_text_sensitivity, memory_extraction_subject_implies_local_human,
     },
+    memory::{MemoryStatus, Sensitivity},
     store::{
         ClaimStatus, EntityCandidate, EntityType, EvidenceAuthority, EvidenceCandidate,
         NewClaimCandidate, PredicateProposalCandidate,
@@ -624,7 +624,7 @@ fn retrieval_hints_have_useful_content(value: &serde_json::Value) -> bool {
 }
 
 fn stable_risk_flag_label(
-    flag: &crate::memory_extraction::MemoryExtractionRiskFlag,
+    flag: &crate::memory::extraction::MemoryExtractionRiskFlag,
 ) -> Option<String> {
     serde_json::to_value(flag)
         .ok()

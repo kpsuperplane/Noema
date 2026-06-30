@@ -1,6 +1,11 @@
 //! Provider-neutral generation contract.
 
-use crate::memory_extraction::ExtractorMemoryProposal;
+/// Neutral provider account metadata types.
+pub mod accounts;
+/// Provider authentication support.
+pub mod auth;
+
+use crate::memory::extraction::ExtractorMemoryProposal;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::future::Future;

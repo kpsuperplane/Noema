@@ -2,7 +2,7 @@ use async_graphql::{Enum, InputObject, Result, SimpleObject};
 
 use crate::{
     OnboardingStatus, ProviderAccountStatus, ProviderAuthMethod,
-    provider_auth::{ProviderAuthAttemptStatus, ProviderAuthAttemptView},
+    provider::auth::{ProviderAuthAttemptStatus, ProviderAuthAttemptView},
 };
 
 use super::{errors::graphql_error, schema::GraphqlState};

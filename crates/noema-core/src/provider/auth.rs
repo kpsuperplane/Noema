@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::{Mutex, oneshot};
 use ts_rs::TS;
 
+use super::accounts::ProviderAuthMethod;
 use crate::{ProviderError, providers::codex_oauth::CodexOAuthConfig};
 
 /// Default maximum lifetime for a provider auth attempt.
@@ -63,7 +64,7 @@ pub struct ProviderAuthAttemptView {
     /// Stable provider account id.
     pub provider_account_id: String,
     /// Provider account auth method.
-    pub method: crate::ProviderAuthMethod,
+    pub method: ProviderAuthMethod,
     /// Current attempt status.
     pub status: ProviderAuthAttemptStatus,
     /// Typed verification URL parsed from provider output.

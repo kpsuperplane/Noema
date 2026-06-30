@@ -45,7 +45,7 @@ impl CodexRuntimeHandle {
     ) -> Result<Self, DaemonError> {
         let paths = crate::NoemaPaths::from_process_env()?;
         let account_home = paths.provider_account_home("codex", "default");
-        crate::provider_auth::ensure_provider_account_home(&account_home)?;
+        crate::provider::auth::ensure_provider_account_home(&account_home)?;
         apply_provider_account_home(&mut codex_config, &account_home);
 
         let provider = Arc::new(CodexResponsesProvider::new(codex_config)?);

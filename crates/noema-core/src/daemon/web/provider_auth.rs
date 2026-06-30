@@ -2,7 +2,7 @@ use std::{future::Future, pin::Pin, time::Duration};
 
 use crate::{
     NoemaStore,
-    provider_auth::{
+    provider::auth::{
         CodexDeviceAuthRequest, ProviderAuthAttemptStatus, ProviderAuthAttemptView,
         ProviderAuthManager,
     },

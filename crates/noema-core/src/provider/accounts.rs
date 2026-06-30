@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use ts_rs::TS;
 
-use crate::MemoryPersistenceError;
+use crate::memory::error::MemoryPersistenceError;
 
 /// Supported provider account authentication methods.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]

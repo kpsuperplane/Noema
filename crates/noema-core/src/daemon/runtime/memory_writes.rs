@@ -1,13 +1,13 @@
 use crate::{
     ClaimWriteOutcome,
     memory::Sensitivity,
-    memory_consolidation::{
+    memory::consolidation::{
         CanonicalClaimCandidate, ConsolidationDecision, ConsolidationDecisionKind,
         MemoryConsolidationError, MemoryWriteProposal, PredicateResolution,
         build_claim_canonicalization_prompt, build_consolidation_prompt,
         parse_canonicalization_response, parse_consolidation_decision,
     },
-    memory_extraction::{
+    memory::extraction::{
         ExtractorMemoryResponse, partition_memory_extraction_response_with_assistant_items,
     },
     provider::GenerateRequest,

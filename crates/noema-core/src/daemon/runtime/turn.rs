@@ -1,7 +1,7 @@
 use crate::{
     ActorRef, ConversationItemKind, ConversationItemStatus, NewConversation, NewConversationItem,
     NewConversationTurn, PersistedAgentStatus, ReplayMode,
-    memory_extraction::{ExtractorMemoryProposal, ValidatedMemoryProposal},
+    memory::extraction::{ExtractorMemoryProposal, ValidatedMemoryProposal},
     provider::{
         GenerateInput, GenerateOptions, GenerateOutputItem, GenerateRequest, GenerateResponse,
         GenerateStreamEvent, ProviderError,

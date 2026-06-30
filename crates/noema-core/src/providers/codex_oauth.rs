@@ -14,7 +14,7 @@ use tokio::{sync::oneshot, time};
 
 use crate::{
     ProviderAuthMethod, ProviderError,
-    provider_auth::{
+    provider::auth::{
         CodexDeviceAuthRequest, DEFAULT_PROVIDER_AUTH_ATTEMPT_TIMEOUT, ProviderAuthAttemptRuntime,
         ProviderAuthAttemptStatus, ProviderAuthAttemptView, ProviderAuthManager,
         ensure_provider_account_home, is_terminal_status,

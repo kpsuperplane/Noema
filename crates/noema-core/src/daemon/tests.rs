@@ -551,7 +551,7 @@ fn explicit_claim_candidate_canonicalizes_dislikes() {
 fn explicit_and_provider_dislikes_share_claim_shape() {
     let explicit = explicit_memory_claim_candidate("I hate ice cream", "item:explicit".to_string());
     let provider = provider_memory_claim_candidate(
-        &crate::memory_extraction::ValidatedMemoryProposal {
+        &crate::memory::extraction::ValidatedMemoryProposal {
             proposal: proposal(json!({
                 "content": "I hate ice cream",
                 "memory_type": "preference",
@@ -590,7 +590,7 @@ fn provider_note_fallback_uses_content_for_object_identity() {
     let explicit =
         explicit_memory_claim_candidate("Garage keypad code is 1234.", "item:explicit".to_string());
     let provider = provider_memory_claim_candidate(
-        &crate::memory_extraction::ValidatedMemoryProposal {
+        &crate::memory::extraction::ValidatedMemoryProposal {
             proposal: proposal(json!({
                 "content": "Garage keypad code is 1234.",
                 "memory_type": "note",
@@ -653,7 +653,7 @@ fn note_fallback_object_id_uses_opaque_content_fingerprint() {
 #[test]
 fn third_party_same_name_provider_subject_stays_non_local() {
     let provider = provider_memory_claim_candidate(
-        &crate::memory_extraction::ValidatedMemoryProposal {
+        &crate::memory::extraction::ValidatedMemoryProposal {
             proposal: proposal(json!({
                 "content": "Kevin prefers decaf.",
                 "memory_type": "preference",
@@ -688,7 +688,7 @@ fn third_party_same_name_provider_subject_stays_non_local() {
 #[test]
 fn named_same_name_provider_subject_stays_non_local() {
     let provider = provider_memory_claim_candidate(
-        &crate::memory_extraction::ValidatedMemoryProposal {
+        &crate::memory::extraction::ValidatedMemoryProposal {
             proposal: proposal(json!({
                 "content": "Kevin prefers decaf.",
                 "memory_type": "preference",
@@ -723,7 +723,7 @@ fn named_same_name_provider_subject_stays_non_local() {
 #[test]
 fn literal_local_human_provider_subject_maps_to_local() {
     let provider = provider_memory_claim_candidate(
-        &crate::memory_extraction::ValidatedMemoryProposal {
+        &crate::memory::extraction::ValidatedMemoryProposal {
             proposal: proposal(json!({
                 "content": "The local human prefers local models.",
                 "memory_type": "preference",
@@ -757,7 +757,7 @@ fn literal_local_human_provider_subject_maps_to_local() {
 #[test]
 fn provider_subject_uses_first_subject_without_local_participant_override() {
     let provider = provider_memory_claim_candidate(
-        &crate::memory_extraction::ValidatedMemoryProposal {
+        &crate::memory::extraction::ValidatedMemoryProposal {
             proposal: proposal(json!({
                 "content": "Noema uses graph memory.",
                 "memory_type": "project",
@@ -795,7 +795,7 @@ fn provider_subject_uses_first_subject_without_local_participant_override() {
 #[test]
 fn provider_empty_retrieval_hints_fall_back_to_deterministic_hints() {
     let provider = provider_memory_claim_candidate(
-        &crate::memory_extraction::ValidatedMemoryProposal {
+        &crate::memory::extraction::ValidatedMemoryProposal {
             proposal: proposal(json!({
                 "content": "The user loves planes.",
                 "memory_type": "preference",
@@ -833,7 +833,7 @@ fn provider_empty_retrieval_hints_fall_back_to_deterministic_hints() {
 #[test]
 fn provider_write_proposal_risk_flags_use_stable_snake_case_labels() {
     let write_proposal = provider_memory_write_proposal(
-        &crate::memory_extraction::ValidatedMemoryProposal {
+        &crate::memory::extraction::ValidatedMemoryProposal {
             proposal: proposal(json!({
                 "content": "The user has a temporary secret.",
                 "memory_type": "note",

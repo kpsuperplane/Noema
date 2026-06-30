@@ -9,7 +9,7 @@ mod replay;
 
 use tokio::net::{TcpListener, TcpStream};
 
-use crate::{NoemaStore, WebConfig, provider_auth::ProviderAuthManager};
+use crate::{NoemaStore, WebConfig, provider::auth::ProviderAuthManager};
 
 use self::{
     assets::embedded_asset,
@@ -200,7 +200,7 @@ mod tests {
     use crate::providers::codex_oauth::{CodexOAuthTokens, CodexTokenStore};
     use crate::{
         TurnTranscriptItem,
-        provider_auth::{CodexDeviceAuthRequest, ProviderAuthAttemptView},
+        provider::auth::{CodexDeviceAuthRequest, ProviderAuthAttemptView},
         {ConversationItemKind, ConversationItemRecord, ConversationItemStatus},
     };
     use serde_json::json;
@@ -479,7 +479,7 @@ mod tests {
     #[test]
     fn provider_auth_attempt_status_maps_to_safe_account_status() {
         let mut attempt = test_provider_auth_attempt();
-        attempt.status = crate::provider_auth::ProviderAuthAttemptStatus::Completed;
+        attempt.status = crate::provider::auth::ProviderAuthAttemptStatus::Completed;
         assert_eq!(
             provider_account_status_update_from_attempt(&attempt),
             Some(ProviderAccountStatusUpdate {
@@ -489,7 +489,7 @@ mod tests {
             })
         );
 
-        attempt.status = crate::provider_auth::ProviderAuthAttemptStatus::Failed;
+        attempt.status = crate::provider::auth::ProviderAuthAttemptStatus::Failed;
         attempt.error_code = Some("codex_login_failed".to_string());
         attempt.error_message = Some("codex auth failed".to_string());
         assert_eq!(
@@ -501,7 +501,7 @@ mod tests {
             })
         );
 
-        attempt.status = crate::provider_auth::ProviderAuthAttemptStatus::WaitingForUser;
+        attempt.status = crate::provider::auth::ProviderAuthAttemptStatus::WaitingForUser;
         assert_eq!(provider_account_status_update_from_attempt(&attempt), None);
     }
 
@@ -509,7 +509,7 @@ mod tests {
     async fn start_auth_returned_completed_attempt_persists_authenticated_status() {
         let store = RecordingProviderAccountStatusStore::default();
         let mut attempt = test_provider_auth_attempt();
-        attempt.status = crate::provider_auth::ProviderAuthAttemptStatus::Completed;
+        attempt.status = crate::provider::auth::ProviderAuthAttemptStatus::Completed;
         let starter = RecordingCodexDeviceAuthStarter { attempt };
         let paths =
             crate::NoemaPaths::from_noema_home(tempfile::tempdir().expect("temp dir").path())
@@ -560,9 +560,9 @@ mod tests {
     async fn auth_terminal_watcher_persists_completed_attempt_without_http_poll() {
         let store = RecordingProviderAccountStatusStore::default();
         let mut waiting = test_provider_auth_attempt();
-        waiting.status = crate::provider_auth::ProviderAuthAttemptStatus::WaitingForUser;
+        waiting.status = crate::provider::auth::ProviderAuthAttemptStatus::WaitingForUser;
         let mut completed = waiting.clone();
-        completed.status = crate::provider_auth::ProviderAuthAttemptStatus::Completed;
+        completed.status = crate::provider::auth::ProviderAuthAttemptStatus::Completed;
         let poller = RecordingProviderAuthAttemptPoller::new(vec![waiting, completed]);
 
         persist_provider_auth_attempt_terminal_status(
@@ -677,7 +677,7 @@ mod tests {
             provider_kind: "codex".to_string(),
             provider_account_id: "provider_account:codex:default".to_string(),
             method: crate::ProviderAuthMethod::OauthDeviceCode,
-            status: crate::provider_auth::ProviderAuthAttemptStatus::Starting,
+            status: crate::provider::auth::ProviderAuthAttemptStatus::Starting,
             verification_url: None,
             user_code: None,
             instructions: None,

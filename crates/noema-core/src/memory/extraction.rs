@@ -4,10 +4,7 @@
 //! prompt, parses the model's JSON proposal response, validates provenance and
 //! risk boundaries, and makes the deterministic initial status decision.
 
-use crate::{
-    MemoryType,
-    memory::{MemoryStatus, Sensitivity},
-};
+use super::{MemoryStatus, Sensitivity, types::MemoryType};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
