@@ -11,17 +11,15 @@ import {
   type ProviderAuthAttemptQuery,
   type StartProviderAuthAttemptMutation
 } from "./generated/graphql";
+import { ChatSurface } from "./components/ChatSurface";
 import { AppShell } from "@/components/shell/AppShell";
 import { SetupFrame } from "@/components/shell/SetupFrame";
-import { Composer } from "./components/Composer";
-import { EmptyState } from "./components/EmptyState";
 import { ErrorMarker } from "./components/ErrorMarker";
 import {
   isProviderAuthAttemptPending,
   Onboarding,
   PROVIDER_AUTH_POLL_INTERVAL_MS
 } from "./components/Onboarding";
-import { Transcript } from "./components/Transcript";
 import { MemoryGraphPage } from "./pages/MemoryGraphPage";
 import { MemoryHomePage } from "./pages/MemoryHomePage";
 import { useBrowserRoute } from "./routes";
@@ -44,21 +42,6 @@ export function canSendMessage(readiness: SendMessageReadiness): readiness is Se
 } {
   const { text, conversationId, socketState } = readiness;
   return Boolean(text.trim() && conversationId && socketState === "ready");
-}
-
-export function composerPlaceholder({
-  ready,
-  agentName
-}: {
-  ready: boolean;
-  agentName: string | null | undefined;
-}) {
-  if (!ready) {
-    return "Starting Noema chat...";
-  }
-
-  const trimmedName = agentName?.trim();
-  return trimmedName ? `Message ${trimmedName}` : "Send a message";
 }
 
 export function shouldRefreshLocalStatusForConversationEvent(event: unknown) {
@@ -313,40 +296,28 @@ export function App() {
   const waitingForConversationDecision =
     chatRoute && onboarding?.isUserOnboarded === true && !conversationId && transcript.length === 0;
   const chatView = (
-    <section
-      className="grid h-full min-h-0 w-full grid-rows-[minmax(0,1fr)_auto] overflow-hidden pb-[22px] [--chat-column-width:min(860px,calc(100%_-_48px))] max-[760px]:pb-[18px] max-[760px]:[--chat-column-width:calc(100%_-_40px)]"
-      aria-label="Noema chat"
-    >
-      {transcript.length === 0 ? (
-        <EmptyState onPick={(starter) => setDraft(starter)} />
-      ) : (
-        <Transcript
-          entries={transcript}
-          pending={pending}
-          expandedActivities={expandedActivities}
-          onToggleActivity={(id) =>
-            setExpandedActivities((current) => {
-              const next = new Set(current);
-              if (next.has(id)) {
-                next.delete(id);
-              } else {
-                next.add(id);
-              }
-              return next;
-            })
+    <ChatSurface
+      transcript={transcript}
+      pending={pending}
+      expandedActivities={expandedActivities}
+      draft={draft}
+      ready={ready}
+      agentName={agentName}
+      onPickStarter={(starter) => setDraft(starter)}
+      onToggleActivity={(id) =>
+        setExpandedActivities((current) => {
+          const next = new Set(current);
+          if (next.has(id)) {
+            next.delete(id);
+          } else {
+            next.add(id);
           }
-        />
-      )}
-
-      <Composer
-        value={draft}
-        ready={ready}
-        pending={pending}
-        placeholder={composerPlaceholder({ ready, agentName })}
-        onChange={setDraft}
-        onSubmit={() => void sendMessage(draft)}
-      />
-    </section>
+          return next;
+        })
+      }
+      onDraftChange={setDraft}
+      onSubmit={() => void sendMessage(draft)}
+    />
   );
 
   if (waitingForConversationDecision) {
