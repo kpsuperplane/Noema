@@ -1,0 +1,35 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Noema",
+  "version": "0.1.0",
+  "identifier": "dev.noema.app",
+  "build": {
+    "beforeDevCommand": "cd ../noema-core/web && bun run dev:tauri",
+    "beforeBuildCommand": "cd ../noema-core/web && bun run build:tauri",
+    "devUrl": "http://127.0.0.1:5173",
+    "frontendDist": "../noema-core/web/dist-tauri"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Noema",
+        "width": 1180,
+        "height": 820,
+        "minWidth": 860,
+        "minHeight": 640
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "icon": ["icons/icon.png"],
+    "targets": ["app", "dmg"],
+    "macOS": {
+      "signingIdentity": null
+    }
+  }
+}
