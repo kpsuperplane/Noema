@@ -67,6 +67,17 @@ export function settingsFallbackRoute(route: NonSettingsAppRoute | null): NonSet
   return route ?? { kind: "chat" };
 }
 
+export type SettingsBackNavigation =
+  | { kind: "history-back" }
+  | { kind: "navigate"; route: NonSettingsAppRoute };
+
+export function settingsBackNavigation(canUseBrowserHistory: boolean): SettingsBackNavigation {
+  if (canUseBrowserHistory) {
+    return { kind: "history-back" };
+  }
+  return { kind: "navigate", route: { kind: "chat" } };
+}
+
 export function useBrowserRoute() {
   const [route, setRoute] = React.useState(() => routeFromPathname(window.location.pathname));
   const previousAppRouteRef = React.useRef<NonSettingsAppRoute>(

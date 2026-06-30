@@ -3,6 +3,7 @@ import { describe, test } from "node:test";
 import {
   pathForRoute,
   routeFromPathname,
+  settingsBackNavigation,
   settingsFallbackRoute,
   shouldRememberAsPreviousAppRoute
 } from "./routes";
@@ -84,5 +85,13 @@ describe("settings route helpers", () => {
   test("falls back from settings to home when no previous route exists", () => {
     assert.deepEqual(settingsFallbackRoute(null), { kind: "chat" });
     assert.deepEqual(settingsFallbackRoute({ kind: "memory_home" }), { kind: "memory_home" });
+  });
+
+  test("uses browser history for in-session Settings entry and Home for direct loads", () => {
+    assert.deepEqual(settingsBackNavigation(true), { kind: "history-back" });
+    assert.deepEqual(settingsBackNavigation(false), {
+      kind: "navigate",
+      route: { kind: "chat" }
+    });
   });
 });
