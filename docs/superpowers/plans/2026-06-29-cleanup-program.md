@@ -642,7 +642,7 @@ Expected: runtime module split commit.
 - Create: `crates/noema-core/src/store/claims/labels.rs`
 - Modify tests under `crates/noema-core/src/store/tests`
 
-- [ ] **Step 1: Convert `claims.rs` into module root** *(in progress)*
+- [x] **Step 1: Convert `claims.rs` into module root**
 
 Create `store/claims/` and leave `store/claims.rs` as:
 
@@ -667,35 +667,35 @@ pub use model::{
 
 Adjust exported names to the final moved types.
 
-- [ ] **Step 2: Move public types into `model.rs`**
+- [x] **Step 2: Move public types into `model.rs`**
 
 Move public claim status, candidate, summary, inspection, consolidation, relation, and graph projection structs/enums into `model.rs`.
 
-- [ ] **Step 3: Move row DTOs into `rows.rs`**
+- [x] **Step 3: Move row DTOs into `rows.rs`**
 
 Move SurrealDB `Deserialize` row structs into `rows.rs`. Keep fields crate-visible only where another child module needs them.
 
-- [ ] **Step 4: Move label and parsing helpers**
+- [x] **Step 4: Move label and parsing helpers**
 
 Move sensitivity parsing, status parsing, label helpers, datetime formatting, and entity record id helpers into `labels.rs` if shared by multiple child modules.
 
-- [ ] **Step 5: Move write path**
+- [x] **Step 5: Move write path**
 
 Move claim create/reinforce/supersede/relation write methods and write helpers into `write.rs`.
 
-- [ ] **Step 6: Move consolidation matching**
+- [x] **Step 6: Move consolidation matching**
 
 Move `find_consolidation_matches` and relevance/match helper functions into `consolidation.rs`.
 
-- [ ] **Step 7: Move inspection read models**
+- [x] **Step 7: Move inspection read models**
 
 Move `list_claims`, `get_claim_detail`, and inspection lookup helpers into `inspection.rs`.
 
-- [ ] **Step 8: Move graph projection**
+- [x] **Step 8: Move graph projection**
 
 Move `memory_graph` and graph node/edge construction helpers into `graph.rs`.
 
-- [ ] **Step 9: Run graph store tests**
+- [x] **Step 9: Run graph store tests**
 
 Run:
 
@@ -706,7 +706,7 @@ cargo test -p noema-core store::tests::claims --no-fail-fast
 
 Expected: graph claim tests pass.
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 Run:
 
@@ -730,7 +730,7 @@ Expected: graph claim store split commit.
 - Create: `crates/noema-core/src/providers/sse.rs`
 - Create: `crates/noema-core/src/providers/noema_response_stream.rs`
 
-- [ ] **Step 1: Extract SSE accumulator**
+- [ ] **Step 1: Extract SSE accumulator** *(in progress)*
 
 Move `SseAccumulator`, `SseEvent`, `parse_sse_event`, `parse_sse_event_bytes`, `sse_events`, `next_sse_event_boundary`, `collect_terminal_response_metadata`, and stream error formatting into `providers/sse.rs`.
 
