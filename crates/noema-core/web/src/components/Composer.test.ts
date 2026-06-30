@@ -43,6 +43,7 @@ describe("composer textarea presentation", () => {
 
     assert.equal(props.rows, 1);
     assert.match(props.className, /min-h-9/);
+    assert.match(props.className, /resize-none/);
     assert.match(props.className, /overflow-y-hidden/);
     assert.doesNotMatch(props.className, /max-h-/);
     assert.doesNotMatch(props.className, /overflow-y-auto/);

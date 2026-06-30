@@ -38,7 +38,7 @@ export function composerTextareaProps() {
   return {
     rows: 1,
     className:
-      "min-h-9 min-w-0 w-full overflow-y-hidden border-transparent bg-transparent px-2.5 py-1.5 leading-6 text-primary-foreground placeholder:text-primary-foreground/70 focus-visible:border-transparent focus-visible:ring-0 disabled:opacity-70"
+      "min-h-9 min-w-0 w-full resize-none overflow-y-hidden border-transparent bg-transparent px-2.5 py-1.5 leading-6 text-primary-foreground placeholder:text-primary-foreground/70 focus-visible:border-transparent focus-visible:ring-0 disabled:opacity-70"
   };
 }
 
