@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
+import * as React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import {
+  AppShell,
   activeShellDestination,
   shellAttentionForState,
   shellNavItems,
@@ -108,6 +111,30 @@ describe("deck navigation behavior", () => {
       menu: "Close navigation",
       collapse: "Expand sidebar"
     });
+  });
+});
+
+describe("AppShell layered deck markup", () => {
+  test("renders a single navigation ground layer and content deck", () => {
+    const markup = renderShell();
+
+    assert.equal(countMatches(markup, /aria-label="Primary"/g), 1);
+    assert.match(markup, /data-slot="shell-root"/);
+    assert.match(markup, /data-slot="shell-sidebar-ground"/);
+    assert.match(markup, /data-slot="shell-content-deck"/);
+    assert.match(markup, /data-sidebar-collapsed="false"/);
+    assert.match(markup, /data-nav-open="false"/);
+  });
+
+  test("renders accessible deck controls and current destination label", () => {
+    const markup = renderShell({ route: { kind: "memory_graph" } });
+
+    assert.match(markup, /aria-label="Open navigation"/);
+    assert.match(markup, /aria-expanded="false"/);
+    assert.match(markup, /aria-controls="noema-shell-sidebar"/);
+    assert.match(markup, /aria-label="Collapse sidebar"/);
+    assert.match(markup, />Memory</);
+    assert.match(markup, />Memory management</);
   });
 });
 
@@ -274,3 +301,28 @@ describe("shell attention helper", () => {
     );
   });
 });
+
+function renderShell({
+  route = { kind: "chat" } as const
+}: {
+  route?: Parameters<typeof AppShell>[0]["route"];
+} = {}) {
+  return renderToStaticMarkup(
+    React.createElement(
+      AppShell,
+      {
+        route,
+        status: healthyStatus,
+        socketState: "ready",
+        providerBlocked: false,
+        setupBlocked: false,
+        onNavigate: () => undefined
+      },
+      React.createElement("section", { "data-testid": "route-content" }, "Route content")
+    )
+  );
+}
+
+function countMatches(value: string, pattern: RegExp) {
+  return value.match(pattern)?.length ?? 0;
+}

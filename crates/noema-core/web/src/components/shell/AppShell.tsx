@@ -1,17 +1,11 @@
 import React from "react";
-import { Menu } from "lucide-react";
+import { Menu, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger
-} from "@/components/ui/sheet";
 import type { LocalStatusQuery } from "@/generated/graphql";
+import { cn } from "@/lib/utils";
 import type { AppRoute } from "@/routes";
 import type { SocketState } from "@/types";
+import { useDeckNavigation } from "./deckNavigation";
 import { ShellSidebar } from "./ShellSidebar";
 
 export type ShellDestination = "home" | "memory";
@@ -104,7 +98,6 @@ export function AppShell({
   onNavigate: (route: AppRoute) => void;
   children: React.ReactNode;
 }) {
-  const [drawerOpen, setDrawerOpen] = React.useState(false);
   const activeDestination = activeShellDestination(route);
   const activeLabel =
     shellNavItems.find((item) => item.destination === activeDestination)?.label ?? "Home";
@@ -116,17 +109,32 @@ export function AppShell({
     setupBlocked
   });
 
-  const navigateFromShell = React.useCallback(
-    (nextRoute: AppRoute) => {
-      onNavigate(nextRoute);
-      setDrawerOpen(false);
-    },
-    [onNavigate]
-  );
+  const {
+    state: deckNavigation,
+    labels,
+    menuButtonRef,
+    openNav,
+    closeNav,
+    toggleSidebarCollapsed,
+    navigateFromShell
+  } = useDeckNavigation(onNavigate);
 
   return (
-    <main className="grid h-dvh min-h-screen grid-cols-[236px_minmax(0,1fr)] overflow-hidden bg-background max-[760px]:grid-cols-1 max-[760px]:grid-rows-[auto_minmax(0,1fr)]">
-      <aside className="grid min-h-0 border-r border-[var(--border-subtle)] px-3.5 py-4 max-[760px]:hidden">
+    <main
+      data-slot="shell-root"
+      data-nav-open={deckNavigation.navOpen}
+      data-sidebar-collapsed={deckNavigation.sidebarCollapsed}
+      className="relative h-dvh min-h-screen overflow-hidden bg-[var(--pine-50)] text-foreground"
+    >
+      <aside
+        id="noema-shell-sidebar"
+        data-slot="shell-sidebar-ground"
+        aria-label="Noema navigation"
+        className={cn(
+          "absolute inset-y-0 left-0 z-10 grid min-h-0 w-[236px] px-3.5 py-4",
+          "max-[760px]:w-[min(286px,78vw)] max-[760px]:pb-[max(1rem,env(safe-area-inset-bottom))]"
+        )}
+      >
         <ShellSidebar
           activeDestination={activeDestination}
           attention={attention}
@@ -135,43 +143,78 @@ export function AppShell({
         />
       </aside>
 
-      <div className="hidden min-h-[56px] items-center gap-3 border-b border-[var(--border-subtle)] bg-white/95 px-4 max-[760px]:flex">
-        <Sheet open={drawerOpen} onOpenChange={setDrawerOpen}>
-          <SheetTrigger
-            render={
-              <Button type="button" variant="ghost" size="icon" aria-label="Open navigation" />
-            }
+      {deckNavigation.navOpen ? (
+        <button
+          type="button"
+          data-slot="shell-nav-backdrop"
+          aria-label="Close navigation"
+          className="absolute inset-0 z-20 cursor-default bg-transparent"
+          onClick={closeNav}
+        />
+      ) : null}
+
+      <section
+        data-slot="shell-content-deck"
+        data-nav-open={deckNavigation.navOpen}
+        aria-label={activeLabel}
+        className={cn(
+          "absolute z-30 grid min-h-0 overflow-hidden border border-[var(--border-subtle)] bg-background shadow-[0_24px_70px_rgba(31,38,30,0.18)] transition-[inset,transform,border-radius,box-shadow] duration-300 ease-out",
+          "motion-reduce:transition-none",
+          deckNavigation.sidebarCollapsed
+            ? "inset-2 rounded-xl"
+            : "inset-y-2 right-2 left-[244px] rounded-xl",
+          deckNavigation.navOpen &&
+            "translate-x-[min(236px,68vw)] scale-[0.97] pointer-events-none max-[760px]:translate-x-[min(252px,72vw)]",
+          "max-[760px]:inset-0 max-[760px]:rounded-none max-[760px]:border-0 max-[760px]:shadow-none data-[nav-open=true]:max-[760px]:rounded-xl"
+        )}
+      >
+        <header
+          data-slot="shell-deck-header"
+          className="flex min-h-[56px] items-center gap-3 border-b border-[var(--border-subtle)] bg-white/95 px-4"
+        >
+          <Button
+            ref={menuButtonRef}
+            type="button"
+            variant="ghost"
+            size="icon"
+            aria-label={labels.menu}
+            aria-controls="noema-shell-sidebar"
+            aria-expanded={deckNavigation.navOpen}
+            onClick={deckNavigation.navOpen ? closeNav : openNav}
           >
             <Menu aria-hidden="true" />
-          </SheetTrigger>
-          <SheetContent
-            side="left"
-            className="w-[min(320px,86vw)] p-0"
-            showCloseButton={false}
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            aria-label={labels.collapse}
+            className="max-[760px]:hidden"
+            onClick={toggleSidebarCollapsed}
           >
-            <SheetHeader className="sr-only">
-              <SheetTitle>Noema navigation</SheetTitle>
-              <SheetDescription>Choose Home or Memory.</SheetDescription>
-            </SheetHeader>
-            <div className="grid h-full p-3.5">
-              <ShellSidebar
-                activeDestination={activeDestination}
-                attention={attention}
-                navItems={shellNavItems}
-                onNavigate={navigateFromShell}
-              />
-            </div>
-          </SheetContent>
-        </Sheet>
-        <div className="min-w-0">
-          <strong className="block truncate font-heading text-base tracking-normal">{activeLabel}</strong>
-          <span className="block truncate text-xs text-muted-foreground">
-            {activeDestination === "home" ? "Primary conversation" : "Memory management"}
-          </span>
-        </div>
-      </div>
+            {deckNavigation.sidebarCollapsed ? (
+              <PanelLeftOpen aria-hidden="true" />
+            ) : (
+              <PanelLeftClose aria-hidden="true" />
+            )}
+          </Button>
+          <div className="min-w-0">
+            <strong className="block truncate font-heading text-base tracking-normal">
+              {activeLabel}
+            </strong>
+            <span className="block truncate text-xs text-muted-foreground">
+              {activeDestination === "home" ? "Primary conversation" : "Memory management"}
+            </span>
+          </div>
+        </header>
 
-      <div className="min-h-0 overflow-hidden">{children}</div>
+        <div
+          data-slot="shell-route-content"
+          className={cn("min-h-0 overflow-hidden", deckNavigation.navOpen && "pointer-events-none")}
+        >
+          {children}
+        </div>
+      </section>
     </main>
   );
 }
