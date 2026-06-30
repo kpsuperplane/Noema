@@ -135,6 +135,7 @@ export function Composer({
   onSubmit: () => void;
 }) {
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
+  const previousReadyRef = React.useRef(ready);
 
   function submit() {
     onSubmit();
@@ -182,6 +183,14 @@ export function Composer({
     );
   }, [placeholder, sizeKey, value]);
 
+  useBrowserLayoutEffect(() => {
+    const wasReady = previousReadyRef.current;
+    previousReadyRef.current = ready;
+    if (!wasReady && ready) {
+      textareaRef.current?.focus();
+    }
+  }, [ready]);
+
   const textareaStyle = composerTextareaStyle();
   const textareaWrapStyle = composerTextareaWrapStyle({
     value,
@@ -206,7 +215,6 @@ export function Composer({
           <Textarea
             ref={textareaRef}
             value={value}
-            autoFocus={ready}
             disabled={isComposerTextareaDisabled({ ready })}
             placeholder={placeholder}
             rows={textareaProps.rows}

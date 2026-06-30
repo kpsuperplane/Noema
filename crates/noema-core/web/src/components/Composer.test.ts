@@ -46,10 +46,10 @@ describe("composer textarea presentation", () => {
     assert.doesNotMatch(props.className, /overflow-y-auto/);
   });
 
-  test("requests focus once the chat composer is ready", () => {
+  test("does not request native focus when mounted already ready", () => {
     const markup = renderComposer({ ready: true });
 
-    assert.match(markup, /<textarea[^>]*autofocus=""/);
+    assert.doesNotMatch(markup, /<textarea[^>]*autofocus=""/);
   });
 
   test("does not request focus while chat is still opening", () => {

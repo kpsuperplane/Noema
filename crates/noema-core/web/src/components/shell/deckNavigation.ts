@@ -19,20 +19,6 @@ export const initialDeckNavigationState: DeckNavigationState = {
   sidebarCollapsed: false
 };
 
-export const DECK_NAVIGATION_ROUTE_DEFER_MS = 300;
-
-export function deckNavigationRouteTiming(state: DeckNavigationState) {
-  return state.navOpen
-    ? {
-        deferRouteChange: true,
-        delayMs: DECK_NAVIGATION_ROUTE_DEFER_MS
-      }
-    : {
-        deferRouteChange: false,
-        delayMs: 0
-      };
-}
-
 export function deckNavigationReducer(
   state: DeckNavigationState,
   action: DeckNavigationAction
@@ -63,7 +49,6 @@ export function deckNavigationControlLabels(state: DeckNavigationState) {
 export function useDeckNavigation(onNavigate: (route: AppRoute) => void) {
   const [state, dispatch] = React.useReducer(deckNavigationReducer, initialDeckNavigationState);
   const menuButtonRef = React.useRef<HTMLButtonElement>(null);
-  const routeChangeTimeoutRef = React.useRef<number | null>(null);
 
   const openNav = React.useCallback(() => {
     dispatch({ type: "openNav" });
@@ -80,34 +65,11 @@ export function useDeckNavigation(onNavigate: (route: AppRoute) => void) {
 
   const navigateFromShell = React.useCallback(
     (nextRoute: AppRoute) => {
-      const routeTiming = deckNavigationRouteTiming(state);
+      onNavigate(nextRoute);
       dispatch({ type: "navigate" });
-
-      if (routeChangeTimeoutRef.current !== null) {
-        window.clearTimeout(routeChangeTimeoutRef.current);
-        routeChangeTimeoutRef.current = null;
-      }
-
-      if (!routeTiming.deferRouteChange) {
-        onNavigate(nextRoute);
-        return;
-      }
-
-      routeChangeTimeoutRef.current = window.setTimeout(() => {
-        routeChangeTimeoutRef.current = null;
-        onNavigate(nextRoute);
-      }, routeTiming.delayMs);
     },
-    [onNavigate, state]
+    [onNavigate]
   );
-
-  React.useEffect(() => {
-    return () => {
-      if (routeChangeTimeoutRef.current !== null) {
-        window.clearTimeout(routeChangeTimeoutRef.current);
-      }
-    };
-  }, []);
 
   React.useEffect(() => {
     if (!state.navOpen) {

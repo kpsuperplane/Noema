@@ -12,9 +12,7 @@ import {
   type ShellAttentionInput
 } from "./AppShell";
 import {
-  DECK_NAVIGATION_ROUTE_DEFER_MS,
   deckNavigationControlLabels,
-  deckNavigationRouteTiming,
   deckNavigationReducer,
   initialDeckNavigationState,
   type DeckNavigationState
@@ -90,24 +88,6 @@ describe("deck navigation behavior", () => {
     assert.deepEqual(deckNavigationReducer(state, { type: "syncWideViewport" }), {
       navOpen: false,
       sidebarCollapsed: true
-    });
-  });
-
-  test("defers route swaps until the revealed deck has closed", () => {
-    assert.deepEqual(
-      deckNavigationRouteTiming({
-        navOpen: true,
-        sidebarCollapsed: false
-      }),
-      {
-        deferRouteChange: true,
-        delayMs: DECK_NAVIGATION_ROUTE_DEFER_MS
-      }
-    );
-
-    assert.deepEqual(deckNavigationRouteTiming(initialDeckNavigationState), {
-      deferRouteChange: false,
-      delayMs: 0
     });
   });
 
