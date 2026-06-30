@@ -20,4 +20,5 @@ pub use protocol::{
     DaemonServerConfig, StartedConversation, TurnActivityStatus, TurnTranscriptItem,
     default_socket_path, is_connection_refused, socket_path_for_home,
 };
+pub(crate) use runtime::CodexRuntimeHandle;
 pub use server::run_daemon;
