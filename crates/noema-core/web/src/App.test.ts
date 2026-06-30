@@ -3,7 +3,8 @@ import { describe, test } from "node:test";
 import { composerPlaceholder } from "./components/ChatSurface";
 import {
   canSendMessage,
-  shouldRefreshLocalStatusForConversationEvent
+  shouldRefreshLocalStatusForConversationEvent,
+  shouldRenderSettingsRoute
 } from "./App";
 
 describe("canSendMessage", () => {
@@ -37,6 +38,32 @@ describe("composerPlaceholder", () => {
     assert.equal(
       composerPlaceholder({ ready: false, agentName: "Fred" }),
       "Starting Noema chat..."
+    );
+  });
+});
+
+describe("shouldRenderSettingsRoute", () => {
+  test("renders settings only after onboarding", () => {
+    assert.equal(
+      shouldRenderSettingsRoute({
+        route: { kind: "settings", section: "providers" },
+        onboarded: true
+      }),
+      true
+    );
+    assert.equal(
+      shouldRenderSettingsRoute({
+        route: { kind: "settings", section: "providers" },
+        onboarded: false
+      }),
+      false
+    );
+    assert.equal(
+      shouldRenderSettingsRoute({
+        route: { kind: "memory_home" },
+        onboarded: true
+      }),
+      false
     );
   });
 });

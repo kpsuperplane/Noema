@@ -22,7 +22,8 @@ import {
 } from "./components/Onboarding";
 import { MemoryGraphPage } from "./pages/MemoryGraphPage";
 import { MemoryHomePage } from "./pages/MemoryHomePage";
-import { useBrowserRoute } from "./routes";
+import { SettingsPage } from "./pages/SettingsPage";
+import { useBrowserRoute, type AppRoute } from "./routes";
 import { entriesFromReplay, handleConversationEvent, pushTranscript } from "./transcript";
 import type { ConversationAgentStatus, SocketState, TranscriptEntry } from "./types";
 
@@ -67,12 +68,22 @@ export function shouldRefreshLocalStatusForConversationEvent(event: unknown) {
   );
 }
 
+export function shouldRenderSettingsRoute({
+  route,
+  onboarded
+}: {
+  route: AppRoute;
+  onboarded: boolean;
+}) {
+  return onboarded && route.kind === "settings";
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 export function App() {
-  const { route, navigate } = useBrowserRoute();
+  const { route, navigate, closeSettings } = useBrowserRoute();
   const apolloClient = useApolloClient();
   const localStatus = useQuery(LocalStatusDocument);
   const onboardingStatus = useQuery(OnboardingStatusDocument);
@@ -361,6 +372,10 @@ export function App() {
         />
       </SetupFrame>
     );
+  }
+
+  if (shouldRenderSettingsRoute({ route, onboarded })) {
+    return <SettingsPage onClose={closeSettings} />;
   }
 
   if (route.kind === "memory_home") {
