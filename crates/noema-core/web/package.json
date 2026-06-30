@@ -8,7 +8,7 @@
     "gen:types": "bun run gen:schema && bun run gen:operations",
     "dev": "bun run gen:types && vite build --watch",
     "dev:assets": "bun run gen:operations && vite build --watch",
-    "dev:tauri": "bun run gen:types && vite --host 127.0.0.1",
+    "dev:tauri": "bun run gen:types && vite --host 127.0.0.1 --port 5173 --strictPort",
     "build": "bun run gen:types && vite build",
     "build:tauri": "bun run gen:types && vite build --config vite.desktop.config.ts",
     "lint": "bun run gen:types && tsc --noEmit && eslint src --max-warnings=0"
