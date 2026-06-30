@@ -117,7 +117,7 @@ describe("SettingsPage", () => {
           <SettingsPage section="approvals" onNavigate={() => {}} onClose={() => {}} />
         </ApolloProvider>
       ),
-      /No MCP approvals are pending/
+      /Loading MCP approvals/
     );
 
     assert.match(
@@ -243,6 +243,41 @@ describe("McpSettingsPaneContent", () => {
       ),
       /No MCP servers are configured/
     );
+  });
+
+  test("renders guided MCP setup and calibration states", () => {
+    const markup = renderToStaticMarkup(
+      <McpSettingsPaneContent
+        servers={[]}
+        loading={false}
+        error={null}
+        setupResult={{
+          setupStatus: "needs_auth",
+          discoveryStatus: "needs_auth",
+          discoveredToolCount: 0,
+          setupError: "missing authorization",
+          server: {
+            mcpServerId: "mcp:github",
+            displayName: "GitHub",
+            transportKind: "stdio",
+            enabled: false,
+            healthStatus: "unavailable",
+            authStatus: "needs_auth",
+            toolCount: 0
+          }
+        }}
+        setupSubmitting={false}
+        setupError={null}
+        onCreateServer={() => {}}
+        onContinueSetup={() => {}}
+        onRetry={() => {}}
+      />
+    );
+
+    assert.match(markup, /Add MCP server/);
+    assert.match(markup, /Noema verifies the server/);
+    assert.match(markup, /Configure tools/);
+    assert.match(markup, /Authentication required/);
   });
 });
 

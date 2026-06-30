@@ -1,3 +1,4 @@
+import * as React from "react";
 import { RefreshCw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -6,18 +7,35 @@ import {
   mcpMetadataRows,
   type McpSettingsServer
 } from "./mcpMetadata";
+import {
+  McpServerSetupFlow,
+  type McpServerSetupResult
+} from "./McpServerSetupFlow";
+import type { McpSetupContinueSubmission, McpSetupFormSubmission } from "./mcpSetupForm";
 
 export function McpSettingsPaneContent({
   servers,
   loading,
   error,
+  setupResult = null,
+  setupSubmitting = false,
+  setupError = null,
+  onCreateServer = () => {},
+  onContinueSetup = () => {},
   onRetry
 }: {
   servers: readonly McpSettingsServer[];
   loading: boolean;
   error: string | null;
+  setupResult?: McpServerSetupResult | null;
+  setupSubmitting?: boolean;
+  setupError?: string | null;
+  onCreateServer?: (input: McpSetupFormSubmission) => void;
+  onContinueSetup?: (input: McpSetupContinueSubmission) => void;
   onRetry: () => void;
 }) {
+  const [setupOpen, setSetupOpen] = React.useState(false);
+
   if (loading) {
     return <p className="m-0 text-sm text-muted-foreground">Loading MCP servers...</p>;
   }
@@ -38,14 +56,38 @@ export function McpSettingsPaneContent({
 
   if (servers.length === 0) {
     return (
-      <div className="rounded-md border border-[var(--border-subtle)] bg-white p-4">
-        <p className="m-0 text-sm text-muted-foreground">No MCP servers are configured.</p>
+      <div className="grid gap-4">
+        <McpServerSetupFlow
+          setupResult={setupResult}
+          setupSubmitting={setupSubmitting}
+          setupError={setupError}
+          onCreateServer={onCreateServer}
+          onContinueSetup={onContinueSetup}
+        />
+        <div className="rounded-md border border-[var(--border-subtle)] bg-white p-4">
+          <p className="m-0 text-sm text-muted-foreground">No MCP servers are configured.</p>
+        </div>
       </div>
     );
   }
 
   return (
     <div className="grid gap-3">
+      {setupResult || setupOpen ? (
+        <McpServerSetupFlow
+          setupResult={setupResult}
+          setupSubmitting={setupSubmitting}
+          setupError={setupError}
+          onCreateServer={onCreateServer}
+          onContinueSetup={onContinueSetup}
+        />
+      ) : (
+        <div className="rounded-md border border-[var(--border-subtle)] bg-white p-4">
+          <Button type="button" variant="outline" onClick={() => setSetupOpen(true)}>
+            Add MCP server
+          </Button>
+        </div>
+      )}
       {servers.map((server) => {
         const rows = mcpMetadataRows(server);
         return (

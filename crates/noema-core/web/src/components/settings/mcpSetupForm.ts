@@ -2,6 +2,29 @@ export type KeyValueParseResult =
   | { value: Record<string, string>; error: null }
   | { value: null; error: string };
 
+export type McpSetupFormSubmission = {
+  displayName: string;
+  transportKind: "stdio" | "http_sse";
+  stdio?: {
+    command: string;
+    args: string[];
+    cwd?: string | null;
+    env: Record<string, string>;
+    secretEnv: Record<string, string>;
+  } | null;
+  httpSse?: {
+    url: string;
+    headers: Record<string, string>;
+    secretHeaders: Record<string, string>;
+  } | null;
+};
+
+export type McpSetupContinueSubmission = {
+  mcpServerId: string;
+  secretEnv: Record<string, string>;
+  secretHeaders: Record<string, string>;
+};
+
 export function parseKeyValueLines(input: string): KeyValueParseResult {
   const value: Record<string, string> = {};
   const lines = input.split(/\r?\n/);
@@ -23,4 +46,11 @@ export function parseKeyValueLines(input: string): KeyValueParseResult {
     value[key] = parsedValue;
   }
   return { value, error: null };
+}
+
+export function parseArgsLines(input: string): string[] {
+  return input
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
 }
