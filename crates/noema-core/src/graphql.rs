@@ -9,6 +9,7 @@ mod errors;
 mod local_status;
 mod memory;
 mod onboarding;
+mod provider_accounts;
 mod resolvers;
 mod runtime_state;
 mod schema;

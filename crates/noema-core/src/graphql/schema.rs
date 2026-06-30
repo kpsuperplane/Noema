@@ -16,6 +16,7 @@ use super::{
         self, GraphqlOnboardingStatus, GraphqlProviderAuthAttempt,
         GraphqlStartProviderAuthAttemptInput,
     },
+    provider_accounts::{self, GraphqlProviderAccount},
 };
 
 /// Concrete GraphQL schema type used by the web server.
@@ -115,6 +116,12 @@ impl QueryRoot {
     ) -> Result<Option<GraphqlProviderAuthAttempt>> {
         let state = ctx.data_unchecked::<GraphqlState>();
         onboarding::provider_auth_attempt(state, attempt_id).await
+    }
+
+    /// List provider account metadata safe to show in Settings.
+    async fn provider_accounts(&self, ctx: &Context<'_>) -> Result<Vec<GraphqlProviderAccount>> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        provider_accounts::provider_accounts(state).await
     }
 
     /// List graph-memory claims for memory-management inspection.
@@ -252,6 +259,8 @@ mod tests {
         assert!(sdl.contains("memoryPredicateProposals"));
         assert!(sdl.contains("memoryPredicateProposal"));
         assert!(sdl.contains("memoryGraph"));
+        assert!(sdl.contains("providerAccounts"));
+        assert!(sdl.contains("type GraphqlProviderAccount"));
         assert!(sdl.contains("type GraphqlMemoryClaim"));
         assert!(sdl.contains("type GraphqlMemoryClaimEvidence"));
         assert!(sdl.contains("type GraphqlPredicateProposal"));
@@ -267,6 +276,72 @@ mod tests {
             state.memory_storage(),
             crate::graphql::local_status::GraphqlMemoryStorageStatus::Ready
         );
+    }
+
+    #[tokio::test]
+    async fn provider_accounts_query_returns_safe_metadata() {
+        use crate::{ProviderAccountStatus, store::tests::test_store};
+
+        let store = test_store().await;
+        let account = store
+            .ensure_default_provider_account()
+            .await
+            .expect("provider account");
+        store
+            .update_provider_account_status(
+                &account.provider_account_id,
+                ProviderAccountStatus::Authenticated,
+                Some("codex_ok"),
+                Some("Codex credentials are usable"),
+            )
+            .await
+            .expect("status update");
+
+        let schema = build_schema(GraphqlState::for_tests_with_store(store));
+        let response = schema
+            .execute(async_graphql::Request::new(
+                r#"
+                {
+                  providerAccounts {
+                    providerKind
+                    accountKey
+                    displayName
+                    authMethod
+                    status
+                    isActive
+                    isDefault
+                    lastCheckedAt
+                    lastAuthenticatedAt
+                    lastErrorCode
+                    lastErrorMessage
+                  }
+                }
+                "#,
+            ))
+            .await;
+
+        assert!(response.errors.is_empty(), "{:?}", response.errors);
+        let data = response.data.into_json().expect("json");
+        let account = &data["providerAccounts"][0];
+        assert_eq!(account["providerKind"], "codex");
+        assert_eq!(account["accountKey"], "default");
+        assert_eq!(account["displayName"], "Codex");
+        assert_eq!(account["authMethod"], "oauth_device_code");
+        assert_eq!(account["status"], "AUTHENTICATED");
+        assert_eq!(account["isActive"], true);
+        assert_eq!(account["isDefault"], true);
+        assert_eq!(account["lastErrorCode"], "codex_ok");
+        assert_eq!(
+            account["lastErrorMessage"],
+            "Codex credentials are usable"
+        );
+
+        let json_text = serde_json::to_string(&data).expect("provider json");
+        assert!(!json_text.contains("provider_account:codex:default"));
+        assert!(!json_text.contains("auth.json"));
+        assert!(!json_text.contains("codex_tokens.json"));
+        assert!(!json_text.contains("api_key"));
+        assert!(!json_text.contains("token"));
     }
 
     #[tokio::test]
