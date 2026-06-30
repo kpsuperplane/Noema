@@ -42,8 +42,8 @@ impl McpSetupStatus {
 /// Result of guided MCP setup.
 #[derive(Debug, Clone, PartialEq)]
 pub struct McpServerSetupResult {
-    /// Server metadata row safe to return to clients.
-    pub server: McpServerRecord,
+    /// Server metadata row safe to return to clients, when persisted.
+    pub server: Option<McpServerRecord>,
     /// High-level setup status.
     pub setup_status: McpSetupStatus,
     /// Metadata discovery status, when discovery was attempted.
@@ -85,7 +85,7 @@ pub async fn create_mcp_server_setup<T>(
     store: &NoemaStore,
     paths: &NoemaPaths,
     input: NewMcpServerSetup,
-    make_transport: impl Fn(&McpServerRecord) -> T,
+    make_transport: impl Fn(&McpServerRecord, &McpSecretMaterial) -> T,
 ) -> Result<McpServerSetupResult, StoreError>
 where
     T: McpTransport,
@@ -94,6 +94,18 @@ where
     let mcp_server_id = next_server_id(store, &display_name).await?;
     let safe_config =
         normalize_safe_config(input.transport_kind, input.safe_config, &input.secrets)?;
+    let preview = preview_mcp_server(
+        mcp_server_id.clone(),
+        display_name.clone(),
+        input.transport_kind,
+        safe_config.clone(),
+    );
+    let mut runtime = McpClientRuntime::new(make_transport(&preview, &input.secrets));
+    let tools = match runtime.discover_tools().await {
+        Ok(tools) => tools,
+        Err(error) => return Ok(unpersisted_setup_result_from_error(error)),
+    };
+
     let server_home = paths.mcp_server_home(&mcp_server_id);
     write_mcp_secrets(&server_home, &input.secrets)
         .map_err(|error| StoreError::Schema(format!("failed to write MCP secrets: {error}")))?;
@@ -105,7 +117,7 @@ where
             safe_config,
         })
         .await?;
-    discover_and_persist_tools(store, server, make_transport).await
+    persist_discovered_tools(store, server, tools).await
 }
 
 /// Update secrets for an existing MCP server and retry metadata discovery.
@@ -117,7 +129,7 @@ pub async fn continue_mcp_server_setup<T>(
     store: &NoemaStore,
     paths: &NoemaPaths,
     input: ContinueMcpServerSetup,
-    make_transport: impl Fn(&McpServerRecord) -> T,
+    make_transport: impl Fn(&McpServerRecord, &McpSecretMaterial) -> T,
 ) -> Result<McpServerSetupResult, StoreError>
 where
     T: McpTransport,
@@ -142,43 +154,50 @@ where
         .ok_or_else(|| {
             StoreError::Schema(format!("missing MCP server: {}", input.mcp_server_id))
         })?;
-    discover_and_persist_tools(store, server, make_transport).await
+    discover_and_persist_tools(store, server, &secrets, make_transport).await
 }
 
 async fn discover_and_persist_tools<T>(
     store: &NoemaStore,
     server: McpServerRecord,
-    make_transport: impl Fn(&McpServerRecord) -> T,
+    secrets: &McpSecretMaterial,
+    make_transport: impl Fn(&McpServerRecord, &McpSecretMaterial) -> T,
 ) -> Result<McpServerSetupResult, StoreError>
 where
     T: McpTransport,
 {
-    let mut runtime = McpClientRuntime::new(make_transport(&server));
+    let mut runtime = McpClientRuntime::new(make_transport(&server, secrets));
     match runtime.discover_tools().await {
-        Ok(tools) => {
-            let count = tools.len();
-            for tool in tools {
-                store
-                    .upsert_discovered_mcp_tool(new_mcp_tool(&server, tool))
-                    .await?;
-            }
-            let server = store
-                .update_mcp_server_setup_status(
-                    &server.mcp_server_id,
-                    McpServerHealthStatus::Healthy,
-                    McpServerAuthStatus::None,
-                )
-                .await?;
-            Ok(McpServerSetupResult {
-                server,
-                setup_status: McpSetupStatus::ReadyForCalibration,
-                discovery_status: Some("discovered".to_string()),
-                discovered_tool_count: count,
-                setup_error: None,
-            })
-        }
+        Ok(tools) => persist_discovered_tools(store, server, tools).await,
         Err(error) => setup_result_from_error(store, &server.mcp_server_id, error).await,
     }
+}
+
+async fn persist_discovered_tools(
+    store: &NoemaStore,
+    server: McpServerRecord,
+    tools: Vec<DiscoveredMcpTool>,
+) -> Result<McpServerSetupResult, StoreError> {
+    let count = tools.len();
+    for tool in tools {
+        store
+            .upsert_discovered_mcp_tool(new_mcp_tool(&server, tool))
+            .await?;
+    }
+    let server = store
+        .update_mcp_server_setup_status(
+            &server.mcp_server_id,
+            McpServerHealthStatus::Healthy,
+            McpServerAuthStatus::None,
+        )
+        .await?;
+    Ok(McpServerSetupResult {
+        server: Some(server),
+        setup_status: McpSetupStatus::ReadyForCalibration,
+        discovery_status: Some("discovered".to_string()),
+        discovered_tool_count: count,
+        setup_error: None,
+    })
 }
 
 async fn setup_result_from_error(
@@ -213,12 +232,51 @@ async fn setup_result_from_error(
         .update_mcp_server_setup_status(mcp_server_id, health_status, auth_status)
         .await?;
     Ok(McpServerSetupResult {
-        server,
+        server: Some(server),
         setup_status,
         discovery_status: Some(discovery_status.to_string()),
         discovered_tool_count: 0,
         setup_error,
     })
+}
+
+fn unpersisted_setup_result_from_error(error: McpClientError) -> McpServerSetupResult {
+    let (setup_status, discovery_status, setup_error) = match error {
+        McpClientError::AuthRequired(message) => {
+            (McpSetupStatus::NeedsAuth, "needs_auth", Some(message))
+        }
+        McpClientError::Transport(message) => {
+            (McpSetupStatus::Unavailable, "unavailable", Some(message))
+        }
+        McpClientError::Malformed(message) => {
+            (McpSetupStatus::Malformed, "malformed", Some(message))
+        }
+    };
+    McpServerSetupResult {
+        server: None,
+        setup_status,
+        discovery_status: Some(discovery_status.to_string()),
+        discovered_tool_count: 0,
+        setup_error,
+    }
+}
+
+fn preview_mcp_server(
+    mcp_server_id: String,
+    display_name: String,
+    transport_kind: McpTransportKind,
+    safe_config: Value,
+) -> McpServerRecord {
+    McpServerRecord {
+        mcp_server_id,
+        display_name,
+        transport_kind,
+        safe_config,
+        enabled: false,
+        health_status: McpServerHealthStatus::Unknown,
+        auth_status: McpServerAuthStatus::None,
+        tool_count: 0,
+    }
 }
 
 fn new_mcp_tool(server: &McpServerRecord, tool: DiscoveredMcpTool) -> NewMcpTool {
@@ -562,18 +620,19 @@ mod tests {
                     headers: BTreeMap::new(),
                 },
             },
-            |_| FakeMcpTransport::ok(vec![fake_tool("list_repos")]),
+            |_, _| FakeMcpTransport::ok(vec![fake_tool("list_repos")]),
         )
         .await
         .expect("setup");
+        let server = result.server.as_ref().expect("persisted server");
 
         assert_eq!(result.setup_status, McpSetupStatus::ReadyForCalibration);
         assert_eq!(result.discovered_tool_count, 1);
-        assert_eq!(result.server.mcp_server_id, "mcp:github");
-        assert_eq!(result.server.health_status, McpServerHealthStatus::Healthy);
-        assert_eq!(result.server.auth_status, McpServerAuthStatus::None);
+        assert_eq!(server.mcp_server_id, "mcp:github");
+        assert_eq!(server.health_status, McpServerHealthStatus::Healthy);
+        assert_eq!(server.auth_status, McpServerAuthStatus::None);
         assert_eq!(
-            result.server.safe_config,
+            server.safe_config,
             json!({
                 "command": "npx",
                 "args": ["-y", "server"],
@@ -617,27 +676,22 @@ mod tests {
                     headers: map_from_pairs([("Authorization", "Bearer secret")]),
                 },
             },
-            |_| FakeMcpTransport::ok(vec![fake_tool("search")]),
+            |_, _| FakeMcpTransport::ok(vec![fake_tool("search")]),
         )
         .await
         .expect("setup");
+        let server = result.server.as_ref().expect("persisted server");
 
         assert_eq!(result.setup_status, McpSetupStatus::ReadyForCalibration);
         assert_eq!(
-            result.server.safe_config,
+            server.safe_config,
             json!({
                 "url": "https://example.com/mcp",
                 "headers": { "X-Team": "infra" },
                 "secret_refs": { "headers": ["Authorization"] }
             })
         );
-        assert!(
-            !result
-                .server
-                .safe_config
-                .to_string()
-                .contains("Bearer secret")
-        );
+        assert!(!server.safe_config.to_string().contains("Bearer secret"));
         let tools = fixture
             .store
             .list_mcp_tools_for_server("mcp:remote")
@@ -661,14 +715,29 @@ mod tests {
                     headers: BTreeMap::new(),
                 },
             },
-            |_| FakeMcpTransport::auth_required("missing authorization"),
+            |_, _| FakeMcpTransport::auth_required("missing authorization"),
         )
         .await
         .expect("setup");
 
         assert_eq!(result.setup_status, McpSetupStatus::NeedsAuth);
         assert_eq!(result.setup_error.as_deref(), Some("missing authorization"));
-        assert_eq!(result.server.auth_status, McpServerAuthStatus::NeedsAuth);
+        assert!(result.server.is_none());
+        assert!(
+            fixture
+                .store
+                .get_mcp_server("mcp:github")
+                .await
+                .expect("get server")
+                .is_none()
+        );
+        assert!(
+            !fixture
+                .paths
+                .mcp_server_home("mcp:github")
+                .join("secrets.json")
+                .exists()
+        );
         assert!(!format!("{result:?}").contains("\"secret\""));
     }
 
@@ -677,6 +746,7 @@ mod tests {
         let fixture = TestFixture::new().await;
         let outcomes = Arc::new(Mutex::new(VecDeque::from([
             FakeMcpOutcome::AuthRequired("missing authorization".to_string()),
+            FakeMcpOutcome::Ok(vec![fake_tool("retry_tool")]),
             FakeMcpOutcome::Ok(vec![fake_tool("retry_tool")]),
         ])));
         let create_outcomes = outcomes.clone();
@@ -689,11 +759,34 @@ mod tests {
                 safe_config: json!({ "url": "https://example.com/mcp" }),
                 secrets: McpSecretMaterial::default(),
             },
-            move |_| FakeMcpTransport::from_queue(create_outcomes.clone()),
+            move |_, _| FakeMcpTransport::from_queue(create_outcomes.clone()),
         )
         .await
         .expect("initial");
         assert_eq!(initial.setup_status, McpSetupStatus::NeedsAuth);
+        assert!(initial.server.is_none());
+
+        let retry_create_outcomes = outcomes.clone();
+        let result = create_mcp_server_setup(
+            &fixture.store,
+            &fixture.paths,
+            NewMcpServerSetup {
+                display_name: "Remote".to_string(),
+                transport_kind: McpTransportKind::HttpSse,
+                safe_config: json!({ "url": "https://example.com/mcp" }),
+                secrets: McpSecretMaterial {
+                    env: BTreeMap::new(),
+                    headers: map_from_pairs([("Authorization", "Bearer retry")]),
+                },
+            },
+            move |_, _| FakeMcpTransport::from_queue(retry_create_outcomes.clone()),
+        )
+        .await
+        .expect("retry create");
+
+        assert_eq!(result.setup_status, McpSetupStatus::ReadyForCalibration);
+        let server = result.server.as_ref().expect("persisted server");
+        assert_eq!(server.mcp_server_id, "mcp:remote");
 
         let retry_outcomes = outcomes.clone();
         let result = continue_mcp_server_setup(
@@ -706,12 +799,13 @@ mod tests {
                     headers: map_from_pairs([("Authorization", "Bearer retry")]),
                 },
             },
-            move |_| FakeMcpTransport::from_queue(retry_outcomes.clone()),
+            move |_, _| FakeMcpTransport::from_queue(retry_outcomes.clone()),
         )
         .await
         .expect("retry");
 
         assert_eq!(result.setup_status, McpSetupStatus::ReadyForCalibration);
+        let server = result.server.as_ref().expect("persisted server");
         assert_eq!(
             read_mcp_secrets(&fixture.paths.mcp_server_home("mcp:remote"))
                 .expect("secrets")
@@ -720,13 +814,7 @@ mod tests {
                 .map(String::as_str),
             Some("Bearer retry")
         );
-        assert!(
-            !result
-                .server
-                .safe_config
-                .to_string()
-                .contains("Bearer retry")
-        );
+        assert!(!server.safe_config.to_string().contains("Bearer retry"));
     }
 
     #[tokio::test]
@@ -747,7 +835,7 @@ mod tests {
                     headers: BTreeMap::new(),
                 },
             },
-            |_| FakeMcpTransport::ok(Vec::new()),
+            |_, _| FakeMcpTransport::ok(Vec::new()),
         )
         .await
         .expect_err("unsafe safe config should fail");

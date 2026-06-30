@@ -7,6 +7,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { AgentsSettingsPaneContent } from "@/components/settings/AgentsSettingsPane";
 import { ApprovalsSettingsPaneContent } from "@/components/settings/ApprovalsSettingsPane";
 import { AuditSettingsPaneContent } from "@/components/settings/AuditSettingsPane";
+import { McpServerSetupFlow } from "@/components/settings/McpServerSetupFlow";
 import { McpSettingsPaneContent } from "@/components/settings/McpSettingsPane";
 import { ProvidersSettingsPaneContent } from "@/components/settings/ProvidersSettingsPane";
 import { SettingsSidebar } from "@/components/settings/SettingsSidebar";
@@ -245,38 +246,38 @@ describe("McpSettingsPaneContent", () => {
     );
   });
 
-  test("renders guided MCP setup and calibration states", () => {
+  test("renders MCP list actions", () => {
     const markup = renderToStaticMarkup(
       <McpSettingsPaneContent
-        servers={[]}
+        servers={servers}
         loading={false}
         error={null}
-        setupResult={{
-          setupStatus: "needs_auth",
-          discoveryStatus: "needs_auth",
-          discoveredToolCount: 0,
-          setupError: "missing authorization",
-          server: {
-            mcpServerId: "mcp:github",
-            displayName: "GitHub",
-            transportKind: "stdio",
-            enabled: false,
-            healthStatus: "unavailable",
-            authStatus: "needs_auth",
-            toolCount: 0
-          }
-        }}
-        setupSubmitting={false}
-        setupError={null}
-        onCreateServer={() => {}}
-        onContinueSetup={() => {}}
         onRetry={() => {}}
       />
     );
 
     assert.match(markup, /Add MCP server/);
-    assert.match(markup, /Noema verifies the server/);
     assert.match(markup, /Configure tools/);
+    assert.match(markup, /Delete/);
+  });
+
+  test("renders guided MCP setup authentication state", () => {
+    const markup = renderToStaticMarkup(
+      <McpServerSetupFlow
+        setupResult={{
+          setupStatus: "needs_auth",
+          discoveryStatus: "needs_auth",
+          discoveredToolCount: 0,
+          setupError: "missing authorization",
+          server: null
+        }}
+        setupSubmitting={false}
+        setupError={null}
+        onCreateServer={() => {}}
+      />
+    );
+
+    assert.match(markup, /Add MCP server/);
     assert.match(markup, /Authentication required/);
   });
 });

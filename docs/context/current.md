@@ -116,13 +116,15 @@ The next storage slice should stay small and concrete:
   extractors and trusted identity selectors; unresolved ownership blocks agent
   use; read results are quarantined before model-visible release; and V1
   exports always require manual approval. Web Settings can now add MCP servers
-  through a guided setup flow that stores secrets under `${NOEMA_HOME}/mcp/`,
-  verifies metadata-only connectivity through concrete stdio and HTTP/SSE MCP
-  transports, handles auth-required retry, fetches tool schemas, and
-  immediately prompts calibration while keeping discovered tools disabled and
-  agent-invisible. Web Settings also exposes MCPs, Trusted Identities,
-  Approvals, and Audit surfaces backed by GraphQL read models where live data
-  exists.
+  through a guided modal setup flow that does not persist the server until
+  authentication is complete and metadata discovery succeeds. Successful setup
+  stores secrets under `${NOEMA_HOME}/mcp/`, verifies metadata-only
+  connectivity through concrete stdio and HTTP/SSE MCP transports, fetches tool
+  schemas, and automatically opens a separate tool-permissions modal while
+  keeping discovered tools disabled and agent-invisible. Existing MCP rows can
+  reopen the permissions modal or delete the server plus stored setup secrets.
+  Web Settings also exposes MCPs, Trusted Identities, Approvals, and Audit
+  surfaces backed by GraphQL read models where live data exists.
 - Routed web surfaces learn shell-owned deck state through
   `ShellSurfaceContext` visibility (`visible`, `hiding`, `hidden`, `showing`).
   Surfaces should run focus and other visible-only side effects only when

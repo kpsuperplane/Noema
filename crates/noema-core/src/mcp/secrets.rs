@@ -42,6 +42,19 @@ pub fn read_mcp_secrets(server_home: &Path) -> io::Result<McpSecretMaterial> {
     serde_json::from_slice(&bytes).map_err(io::Error::other)
 }
 
+/// Remove one MCP server's private secret/configuration directory if present.
+///
+/// # Errors
+///
+/// Returns an I/O error when an existing directory cannot be removed.
+pub fn remove_mcp_secrets_dir(server_home: &Path) -> io::Result<()> {
+    match fs::remove_dir_all(server_home) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error),
+    }
+}
+
 #[cfg(unix)]
 fn create_private_dir_all(path: &Path) -> io::Result<()> {
     use std::os::unix::fs::PermissionsExt;
@@ -123,6 +136,20 @@ mod tests {
                 & 0o777,
             0o600
         );
+    }
+
+    #[test]
+    fn remove_secret_home_ignores_missing_directory_and_removes_existing_one() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let home = temp.path().join("mcp_server");
+
+        remove_mcp_secrets_dir(&home).expect("missing ok");
+        write_mcp_secrets(&home, &McpSecretMaterial::default()).expect("write secrets");
+        assert!(home.exists());
+
+        remove_mcp_secrets_dir(&home).expect("remove secrets");
+
+        assert!(!home.exists());
     }
 
     fn map_from_pairs<const N: usize>(

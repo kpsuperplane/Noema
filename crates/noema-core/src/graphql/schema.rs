@@ -16,7 +16,7 @@ use super::{
     local_status::{self, GraphqlLocalStatus, GraphqlMemoryStorageStatus},
     mcp::{
         self, GraphqlContinueMcpServerSetupInput, GraphqlCreateMcpServerInput,
-        GraphqlMcpApprovalRequest, GraphqlMcpServer, GraphqlMcpServerSetupResult,
+        GraphqlMcpApprovalRequest, GraphqlMcpServer, GraphqlMcpServerSetupResult, GraphqlMcpTool,
         GraphqlSaveToolCalibrationInput, GraphqlToolCalibration, GraphqlTrustedIdentitySelector,
     },
     memory::{
@@ -117,6 +117,7 @@ impl GraphqlState {
     pub(crate) fn mcp_setup_transport(
         &self,
         server: &crate::McpServerRecord,
+        secrets_override: Option<&crate::mcp::secrets::McpSecretMaterial>,
     ) -> GraphqlMcpSetupTransport {
         #[cfg(test)]
         if let Some(outcomes) = &self.mcp_setup_outcomes {
@@ -135,16 +136,24 @@ impl GraphqlState {
             }
         };
         let secrets_path = paths.mcp_server_home(&server.mcp_server_id);
-        let secrets = crate::mcp::secrets::read_mcp_secrets(&secrets_path).unwrap_or_default();
+        let disk_secrets;
+        let secrets = match secrets_override {
+            Some(secrets) => secrets,
+            None => {
+                disk_secrets =
+                    crate::mcp::secrets::read_mcp_secrets(&secrets_path).unwrap_or_default();
+                &disk_secrets
+            }
+        };
         match server.transport_kind {
             crate::McpTransportKind::Stdio => {
-                match crate::mcp::StdioMcpTransport::from_server_config(server, &secrets) {
+                match crate::mcp::StdioMcpTransport::from_server_config(server, secrets) {
                     Ok(transport) => GraphqlMcpSetupTransport::Stdio(Box::new(transport)),
                     Err(message) => GraphqlMcpSetupTransport::Unavailable(message),
                 }
             }
             crate::McpTransportKind::HttpSse => {
-                match crate::mcp::HttpSseMcpTransport::from_server_config(server, &secrets) {
+                match crate::mcp::HttpSseMcpTransport::from_server_config(server, secrets) {
                     Ok(transport) => GraphqlMcpSetupTransport::HttpSse(Box::new(transport)),
                     Err(message) => GraphqlMcpSetupTransport::Unavailable(message),
                 }
@@ -255,6 +264,16 @@ impl QueryRoot {
     async fn mcp_servers(&self, ctx: &Context<'_>) -> Result<Vec<GraphqlMcpServer>> {
         let state = ctx.data_unchecked::<GraphqlState>();
         mcp::mcp_servers(state).await
+    }
+
+    /// List MCP tools discovered for one server.
+    async fn mcp_tools(
+        &self,
+        ctx: &Context<'_>,
+        mcp_server_id: String,
+    ) -> Result<Vec<GraphqlMcpTool>> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        mcp::mcp_tools(state, mcp_server_id).await
     }
 
     /// List trusted identity selectors for one owner scope.
@@ -397,6 +416,12 @@ impl MutationRoot {
         let state = ctx.data_unchecked::<GraphqlState>();
         mcp::continue_mcp_server_setup(state, input).await
     }
+
+    /// Delete an MCP server and its setup secrets.
+    async fn delete_mcp_server(&self, ctx: &Context<'_>, mcp_server_id: String) -> Result<bool> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        mcp::delete_mcp_server(state, mcp_server_id).await
+    }
 }
 
 /// Root GraphQL subscription object.
@@ -457,6 +482,8 @@ mod tests {
         assert!(sdl.contains("isPrimary"));
         assert!(sdl.contains("mcpServers"));
         assert!(sdl.contains("type GraphqlMcpServer"));
+        assert!(sdl.contains("mcpTools"));
+        assert!(sdl.contains("type GraphqlMcpTool"));
         assert!(sdl.contains("trustedIdentitySelectors"));
         assert!(sdl.contains("type GraphqlTrustedIdentitySelector"));
         assert!(sdl.contains("mcpApprovalRequests"));
@@ -766,7 +793,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn continue_mcp_server_setup_mutation_returns_needs_auth_or_ready_status() {
+    async fn create_mcp_server_mutation_does_not_persist_until_auth_and_discovery_succeed() {
         let fixture = GraphqlMcpSetupFixture::new(vec![
             TestMcpSetupOutcome::AuthRequired("missing authorization".to_string()),
             TestMcpSetupOutcome::Ok(vec![crate::mcp::DiscoveredMcpTool {
@@ -779,6 +806,7 @@ mod tests {
         ])
         .await;
         let schema = build_schema(fixture.state);
+        let store = fixture.store.clone();
         let create = schema
             .execute(async_graphql::Request::new(
                 r#"
@@ -789,6 +817,7 @@ mod tests {
                     httpSse: { url: "https://example.com/mcp" }
                   }) {
                     setupStatus
+                    setupError
                     server { mcpServerId authStatus }
                   }
                 }
@@ -799,17 +828,28 @@ mod tests {
         let create_data = create.data.into_json().expect("create json");
         assert_eq!(create_data["createMcpServer"]["setupStatus"], "needs_auth");
         assert_eq!(
-            create_data["createMcpServer"]["server"]["authStatus"],
-            "needs_auth"
+            create_data["createMcpServer"]["server"],
+            serde_json::Value::Null
+        );
+        assert!(
+            store
+                .get_mcp_server("mcp:remote")
+                .await
+                .expect("get server")
+                .is_none()
         );
 
         let retry = schema
             .execute(async_graphql::Request::new(
                 r#"
                 mutation {
-                  continueMcpServerSetup(input: {
-                    mcpServerId: "mcp:remote"
-                    secretHeaders: { Authorization: "Bearer retry" }
+                  createMcpServer(input: {
+                    displayName: "Remote"
+                    transportKind: "http_sse"
+                    httpSse: {
+                      url: "https://example.com/mcp"
+                      secretHeaders: { Authorization: "Bearer retry" }
+                    }
                   }) {
                     setupStatus
                     discoveredToolCount
@@ -823,17 +863,11 @@ mod tests {
         assert!(retry.errors.is_empty(), "{:?}", retry.errors);
         let retry_data = retry.data.into_json().expect("retry json");
         assert_eq!(
-            retry_data["continueMcpServerSetup"]["setupStatus"],
+            retry_data["createMcpServer"]["setupStatus"],
             "ready_for_calibration"
         );
-        assert_eq!(
-            retry_data["continueMcpServerSetup"]["discoveredToolCount"],
-            1
-        );
-        assert_eq!(
-            retry_data["continueMcpServerSetup"]["server"]["toolCount"],
-            1
-        );
+        assert_eq!(retry_data["createMcpServer"]["discoveredToolCount"], 1);
+        assert_eq!(retry_data["createMcpServer"]["server"]["toolCount"], 1);
         assert!(
             !serde_json::to_string(&retry_data)
                 .expect("retry json")
@@ -841,8 +875,111 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn mcp_tools_query_and_delete_mutation_use_persisted_setup_state() {
+        let fixture = GraphqlMcpSetupFixture::new(vec![TestMcpSetupOutcome::Ok(vec![
+            crate::mcp::DiscoveredMcpTool {
+                name: "read_doc".to_string(),
+                description: Some("Read a document".to_string()),
+                input_schema: json!({"type": "object"}),
+                output_schema: None,
+                annotations: json!({"readOnlyHint": true}),
+            },
+        ])])
+        .await;
+        let schema = build_schema(fixture.state);
+
+        let create = schema
+            .execute(async_graphql::Request::new(
+                r#"
+                mutation {
+                  createMcpServer(input: {
+                    displayName: "Docs"
+                    transportKind: "stdio"
+                    stdio: {
+                      command: "docs-mcp"
+                      args: []
+                      secretEnv: { DOCS_TOKEN: "secret" }
+                    }
+                  }) {
+                    setupStatus
+                    server { mcpServerId toolCount }
+                  }
+                }
+                "#,
+            ))
+            .await;
+        assert!(create.errors.is_empty(), "{:?}", create.errors);
+        assert!(
+            fixture
+                .paths
+                .mcp_server_home("mcp:docs")
+                .join("secrets.json")
+                .exists()
+        );
+
+        let tools = schema
+            .execute(async_graphql::Request::new(
+                r#"
+                query {
+                  mcpTools(mcpServerId: "mcp:docs") {
+                    mcpToolId
+                    mcpServerId
+                    name
+                    description
+                    inputSchema
+                    annotations
+                    metadataFingerprint
+                    calibration { status }
+                  }
+                }
+                "#,
+            ))
+            .await;
+        assert!(tools.errors.is_empty(), "{:?}", tools.errors);
+        let tools_data = tools.data.into_json().expect("tools json");
+        let tool = &tools_data["mcpTools"][0];
+        assert_eq!(tool["mcpServerId"], "mcp:docs");
+        assert_eq!(tool["name"], "read_doc");
+        assert_eq!(tool["description"], "Read a document");
+        assert_eq!(tool["inputSchema"], json!({"type": "object"}));
+        assert_eq!(tool["calibration"], serde_json::Value::Null);
+
+        let delete = schema
+            .execute(async_graphql::Request::new(
+                r#"
+                mutation {
+                  deleteMcpServer(mcpServerId: "mcp:docs")
+                }
+                "#,
+            ))
+            .await;
+        assert!(delete.errors.is_empty(), "{:?}", delete.errors);
+        let delete_data = delete.data.into_json().expect("delete json");
+        assert_eq!(delete_data["deleteMcpServer"], true);
+        assert!(
+            fixture
+                .store
+                .get_mcp_server("mcp:docs")
+                .await
+                .expect("server")
+                .is_none()
+        );
+        assert!(
+            fixture
+                .store
+                .list_mcp_tools_for_server("mcp:docs")
+                .await
+                .expect("tools")
+                .is_empty()
+        );
+        assert!(!fixture.paths.mcp_server_home("mcp:docs").exists());
+    }
+
     struct GraphqlMcpSetupFixture {
         state: GraphqlState,
+        store: crate::NoemaStore,
+        paths: crate::NoemaPaths,
         _home: TempDir,
     }
 
@@ -852,9 +989,17 @@ mod tests {
             let paths = crate::NoemaPaths::from_noema_home(home.path()).expect("paths");
             let config = crate::StoreConfig::from_paths(&paths);
             let store = crate::NoemaStore::open(&config).await.expect("open store");
-            let state =
-                GraphqlState::for_tests_with_store_paths_and_mcp_setup(store, paths, outcomes);
-            Self { state, _home: home }
+            let state = GraphqlState::for_tests_with_store_paths_and_mcp_setup(
+                store.clone(),
+                paths.clone(),
+                outcomes,
+            );
+            Self {
+                state,
+                store,
+                paths,
+                _home: home,
+            }
         }
     }
 

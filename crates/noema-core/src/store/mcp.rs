@@ -392,6 +392,44 @@ impl NoemaStore {
         Ok(servers)
     }
 
+    /// Delete one MCP server plus discovered tool and calibration rows.
+    ///
+    /// Historical approval and audit rows are intentionally retained as audit
+    /// records even after the server configuration is removed.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when the embedded store read or delete fails.
+    pub async fn delete_mcp_server(&self, mcp_server_id: &str) -> Result<bool, StoreError> {
+        if self.get_mcp_server(mcp_server_id).await?.is_none() {
+            return Ok(false);
+        }
+
+        let tools = self.list_mcp_tools_for_server(mcp_server_id).await?;
+        for tool in tools {
+            self.db
+                .query(
+                    r#"
+                    DELETE tool_calibrations WHERE mcp_tool_id = $mcp_tool_id;
+                    DELETE mcp_tools WHERE mcp_tool_id = $mcp_tool_id;
+                    "#,
+                )
+                .bind(("mcp_tool_id", tool.mcp_tool_id))
+                .await?
+                .check()?;
+        }
+        self.db
+            .query(
+                r#"
+                DELETE mcp_servers WHERE mcp_server_id = $mcp_server_id;
+                "#,
+            )
+            .bind(("mcp_server_id", mcp_server_id.to_string()))
+            .await?
+            .check()?;
+        Ok(true)
+    }
+
     /// Update MCP server setup health/auth status after metadata discovery.
     ///
     /// # Errors

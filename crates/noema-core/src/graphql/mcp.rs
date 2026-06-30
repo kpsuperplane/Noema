@@ -5,8 +5,8 @@ use serde_json::Value;
 
 use crate::{
     McpApprovalRequestRecord, McpCalibrationStatus, McpServerAuthStatus, McpServerHealthStatus,
-    McpServerRecord, McpTransportKind, McpTrustClassification, NewToolCalibration, OwnerExtractor,
-    OwnerExtractorSource, ToolCalibrationRecord, TrustedIdentitySelectorEffect,
+    McpServerRecord, McpToolRecord, McpTransportKind, McpTrustClassification, NewToolCalibration,
+    OwnerExtractor, OwnerExtractorSource, ToolCalibrationRecord, TrustedIdentitySelectorEffect,
     TrustedIdentitySelectorKind, TrustedIdentitySelectorRecord,
     mcp::{
         secrets::McpSecretMaterial,
@@ -93,7 +93,7 @@ pub struct GraphqlContinueMcpServerSetupInput {
 #[derive(Clone, Debug, SimpleObject)]
 pub struct GraphqlMcpServerSetupResult {
     /// Server metadata safe to show in Settings.
-    pub server: GraphqlMcpServer,
+    pub server: Option<GraphqlMcpServer>,
     /// Setup status.
     pub setup_status: String,
     /// Metadata discovery status.
@@ -107,11 +107,50 @@ pub struct GraphqlMcpServerSetupResult {
 impl From<McpServerSetupResult> for GraphqlMcpServerSetupResult {
     fn from(result: McpServerSetupResult) -> Self {
         Self {
-            server: result.server.into(),
+            server: result.server.map(Into::into),
             setup_status: result.setup_status.as_str().to_string(),
             discovery_status: result.discovery_status,
             discovered_tool_count: result.discovered_tool_count,
             setup_error: result.setup_error,
+        }
+    }
+}
+
+/// MCP tool metadata and current calibration safe to show in Settings.
+#[derive(Clone, Debug, SimpleObject)]
+pub struct GraphqlMcpTool {
+    /// Durable MCP tool id.
+    pub mcp_tool_id: String,
+    /// Owning MCP server id.
+    pub mcp_server_id: String,
+    /// MCP tool name.
+    pub name: String,
+    /// Optional human-readable MCP tool description.
+    pub description: Option<String>,
+    /// MCP input schema.
+    pub input_schema: Json<Value>,
+    /// Optional MCP output schema.
+    pub output_schema: Option<Json<Value>>,
+    /// MCP annotations captured as non-authoritative setup hints.
+    pub annotations: Json<Value>,
+    /// Fingerprint of the metadata snapshot.
+    pub metadata_fingerprint: String,
+    /// Current calibration, when configured.
+    pub calibration: Option<GraphqlToolCalibration>,
+}
+
+impl GraphqlMcpTool {
+    fn from_records(tool: McpToolRecord, calibration: Option<ToolCalibrationRecord>) -> Self {
+        Self {
+            mcp_tool_id: tool.mcp_tool_id,
+            mcp_server_id: tool.mcp_server_id,
+            name: tool.name,
+            description: tool.description,
+            input_schema: Json(tool.input_schema),
+            output_schema: tool.output_schema.map(Json),
+            annotations: Json(tool.annotations),
+            metadata_fingerprint: tool.metadata_fingerprint,
+            calibration: calibration.map(Into::into),
         }
     }
 }
@@ -330,6 +369,26 @@ pub(super) async fn mcp_servers(state: &GraphqlState) -> Result<Vec<GraphqlMcpSe
     Ok(servers.into_iter().map(Into::into).collect())
 }
 
+pub(super) async fn mcp_tools(
+    state: &GraphqlState,
+    mcp_server_id: String,
+) -> Result<Vec<GraphqlMcpTool>> {
+    let store = state.store()?;
+    let tools = store
+        .list_mcp_tools_for_server(&mcp_server_id)
+        .await
+        .map_err(graphql_error)?;
+    let mut graphql_tools = Vec::with_capacity(tools.len());
+    for tool in tools {
+        let calibration = store
+            .get_tool_calibration(&tool.mcp_tool_id)
+            .await
+            .map_err(graphql_error)?;
+        graphql_tools.push(GraphqlMcpTool::from_records(tool, calibration));
+    }
+    Ok(graphql_tools)
+}
+
 pub(super) async fn create_mcp_server(
     state: &GraphqlState,
     input: GraphqlCreateMcpServerInput,
@@ -337,8 +396,8 @@ pub(super) async fn create_mcp_server(
     let store = state.store()?;
     let paths = state.paths()?;
     let setup_input = parse_create_mcp_server_input(input)?;
-    let result = create_setup_service(store, paths, setup_input, |server| {
-        state.mcp_setup_transport(server)
+    let result = create_setup_service(store, paths, setup_input, |server, secrets| {
+        state.mcp_setup_transport(server, Some(secrets))
     })
     .await
     .map_err(graphql_error)?;
@@ -361,11 +420,25 @@ pub(super) async fn continue_mcp_server_setup(
                 headers: json_string_map(input.secret_headers, "secretHeaders")?,
             },
         },
-        |server| state.mcp_setup_transport(server),
+        |server, secrets| state.mcp_setup_transport(server, Some(secrets)),
     )
     .await
     .map_err(graphql_error)?;
     Ok(result.into())
+}
+
+pub(super) async fn delete_mcp_server(state: &GraphqlState, mcp_server_id: String) -> Result<bool> {
+    let store = state.store()?;
+    let paths = state.paths()?;
+    let deleted = store
+        .delete_mcp_server(&mcp_server_id)
+        .await
+        .map_err(graphql_error)?;
+    if deleted {
+        crate::mcp::secrets::remove_mcp_secrets_dir(&paths.mcp_server_home(&mcp_server_id))
+            .map_err(graphql_error)?;
+    }
+    Ok(deleted)
 }
 
 pub(super) async fn trusted_identity_selectors(

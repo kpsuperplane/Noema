@@ -1,16 +1,16 @@
 import * as React from "react";
 import { useMutation, useQuery } from "@apollo/client/react";
 import {
-  ContinueMcpServerSetupDocument,
   CreateMcpServerDocument,
+  DeleteMcpServerDocument,
   McpSettingsDocument,
-  type ContinueMcpServerSetupMutation,
   type CreateMcpServerMutation,
+  type DeleteMcpServerMutation,
   type McpSettingsQuery
 } from "@/generated/graphql";
 import { McpSettingsPaneContent } from "./McpSettingsPaneContent";
 import type { McpServerSetupResult } from "./McpServerSetupFlow";
-import type { McpSetupContinueSubmission, McpSetupFormSubmission } from "./mcpSetupForm";
+import type { McpSetupFormSubmission } from "./mcpSetupForm";
 
 export { McpSettingsPaneContent } from "./McpSettingsPaneContent";
 
@@ -20,35 +20,43 @@ export function McpSettingsPane() {
   });
   const [setupResult, setSetupResult] = React.useState<McpServerSetupResult | null>(null);
   const [setupError, setSetupError] = React.useState<string | null>(null);
+  const [setupOpen, setSetupOpen] = React.useState(false);
+  const [permissionsServerId, setPermissionsServerId] = React.useState<string | null>(null);
   const [createMcpServer, createState] =
     useMutation<CreateMcpServerMutation>(CreateMcpServerDocument);
-  const [continueMcpServerSetup, continueState] =
-    useMutation<ContinueMcpServerSetupMutation>(ContinueMcpServerSetupDocument);
+  const [deleteMcpServer, deleteState] =
+    useMutation<DeleteMcpServerMutation>(DeleteMcpServerDocument);
 
   async function handleCreateServer(input: McpSetupFormSubmission) {
     setSetupError(null);
     try {
       const response = await createMcpServer({ variables: { input } });
       if (response.data?.createMcpServer) {
-        setSetupResult(response.data.createMcpServer);
-        void result.refetch();
+        const setup = response.data.createMcpServer;
+        setSetupResult(setup);
+        await result.refetch();
+        if (setup.setupStatus === "ready_for_calibration" && setup.server) {
+          setSetupOpen(false);
+          setPermissionsServerId(setup.server.mcpServerId);
+        }
       }
     } catch (error) {
       setSetupError(error instanceof Error ? error.message : "MCP setup failed");
     }
   }
 
-  async function handleContinueSetup(input: McpSetupContinueSubmission) {
-    setSetupError(null);
-    try {
-      const response = await continueMcpServerSetup({ variables: { input } });
-      if (response.data?.continueMcpServerSetup) {
-        setSetupResult(response.data.continueMcpServerSetup);
-        void result.refetch();
-      }
-    } catch (error) {
-      setSetupError(error instanceof Error ? error.message : "MCP setup retry failed");
+  async function handleDeleteServer(mcpServerId: string) {
+    if (
+      typeof window !== "undefined" &&
+      !window.confirm("Delete this MCP server and its stored secrets?")
+    ) {
+      return;
     }
+    await deleteMcpServer({ variables: { mcpServerId } });
+    if (permissionsServerId === mcpServerId) {
+      setPermissionsServerId(null);
+    }
+    await result.refetch();
   }
 
   return (
@@ -57,10 +65,21 @@ export function McpSettingsPane() {
       loading={result.loading && !result.data}
       error={result.error?.message ?? null}
       setupResult={setupResult}
-      setupSubmitting={createState.loading || continueState.loading}
+      setupOpen={setupOpen}
+      setupSubmitting={createState.loading}
       setupError={setupError}
+      permissionsServerId={permissionsServerId}
+      deleteSubmitting={deleteState.loading}
+      onOpenSetup={() => {
+        setSetupResult(null);
+        setSetupError(null);
+        setSetupOpen(true);
+      }}
+      onCloseSetup={() => setSetupOpen(false)}
       onCreateServer={(input) => void handleCreateServer(input)}
-      onContinueSetup={(input) => void handleContinueSetup(input)}
+      onOpenPermissions={setPermissionsServerId}
+      onClosePermissions={() => setPermissionsServerId(null)}
+      onDeleteServer={(mcpServerId) => void handleDeleteServer(mcpServerId)}
       onRetry={() => void result.refetch()}
     />
   );

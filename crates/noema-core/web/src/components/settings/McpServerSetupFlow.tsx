@@ -6,7 +6,6 @@ import type { CreateMcpServerMutation } from "@/generated/graphql";
 import {
   parseArgsLines,
   parseKeyValueLines,
-  type McpSetupContinueSubmission,
   type McpSetupFormSubmission
 } from "./mcpSetupForm";
 
@@ -17,13 +16,13 @@ export function McpServerSetupFlow({
   setupSubmitting,
   setupError,
   onCreateServer,
-  onContinueSetup
+  onCancel
 }: {
   setupResult: McpServerSetupResult | null;
   setupSubmitting: boolean;
   setupError: string | null;
   onCreateServer: (input: McpSetupFormSubmission) => void;
-  onContinueSetup: (input: McpSetupContinueSubmission) => void;
+  onCancel?: () => void;
 }) {
   const [transportKind, setTransportKind] = React.useState<"stdio" | "http_sse">("stdio");
   const [formError, setFormError] = React.useState<string | null>(null);
@@ -38,6 +37,7 @@ export function McpServerSetupFlow({
   const [secretHeaders, setSecretHeaders] = React.useState("");
   const [retrySecretEnv, setRetrySecretEnv] = React.useState("");
   const [retrySecretHeaders, setRetrySecretHeaders] = React.useState("");
+  const [lastSubmission, setLastSubmission] = React.useState<McpSetupFormSubmission | null>(null);
 
   function submitCreate(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -56,7 +56,7 @@ export function McpServerSetupFlow({
     const hiddenHeadersValue = parsedKeyValue(hiddenHeaders);
     setFormError(null);
     if (transportKind === "stdio") {
-      onCreateServer({
+      const submission = {
         displayName,
         transportKind,
         stdio: {
@@ -67,10 +67,12 @@ export function McpServerSetupFlow({
           secretEnv: hiddenEnvValue
         },
         httpSse: null
-      });
+      } satisfies McpSetupFormSubmission;
+      setLastSubmission(submission);
+      onCreateServer(submission);
       return;
     }
-    onCreateServer({
+    const submission = {
       displayName,
       transportKind,
       stdio: null,
@@ -79,12 +81,14 @@ export function McpServerSetupFlow({
         headers: safeHeadersValue,
         secretHeaders: hiddenHeadersValue
       }
-    });
+    } satisfies McpSetupFormSubmission;
+    setLastSubmission(submission);
+    onCreateServer(submission);
   }
 
-  function submitContinue(event: React.FormEvent<HTMLFormElement>) {
+  function submitRetry(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!setupResult) return;
+    if (!lastSubmission) return;
     const parsedEnv = parseKeyValueLines(retrySecretEnv);
     const parsedHeaders = parseKeyValueLines(retrySecretHeaders);
     const parseError = parsedEnv.error ?? parsedHeaders.error;
@@ -95,17 +99,15 @@ export function McpServerSetupFlow({
     const parsedEnvValue = parsedKeyValue(parsedEnv);
     const parsedHeadersValue = parsedKeyValue(parsedHeaders);
     setFormError(null);
-    onContinueSetup({
-      mcpServerId: setupResult.server.mcpServerId,
-      secretEnv: parsedEnvValue,
-      secretHeaders: parsedHeadersValue
-    });
+    const submission = mergeRetrySecrets(lastSubmission, parsedEnvValue, parsedHeadersValue);
+    setLastSubmission(submission);
+    onCreateServer(submission);
   }
 
   const visibleError = formError ?? setupError ?? setupResult?.setupError ?? null;
 
   return (
-    <section className="grid gap-4 rounded-md border border-[var(--border-subtle)] bg-white p-4">
+    <section className="grid gap-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="grid gap-1">
           <h2 className="m-0 font-heading text-xl leading-tight tracking-normal">
@@ -184,7 +186,7 @@ export function McpServerSetupFlow({
       </form>
 
       {setupResult?.setupStatus === "needs_auth" ? (
-        <form className="grid gap-3 border-t border-[var(--border-subtle)] pt-4" onSubmit={submitContinue}>
+        <form className="grid gap-3 border-t border-[var(--border-subtle)] pt-4" onSubmit={submitRetry}>
           <div className="flex items-center gap-2 text-sm font-medium">
             <KeyRound className="size-4" aria-hidden="true" />
             Authentication required
@@ -215,8 +217,45 @@ export function McpServerSetupFlow({
           </p>
         </div>
       ) : null}
+      {onCancel ? (
+        <Button type="button" variant="ghost" className="w-fit" onClick={onCancel}>
+          Close
+        </Button>
+      ) : null}
     </section>
   );
+}
+
+function mergeRetrySecrets(
+  submission: McpSetupFormSubmission,
+  secretEnv: Record<string, string>,
+  secretHeaders: Record<string, string>
+): McpSetupFormSubmission {
+  if (submission.transportKind === "stdio" && submission.stdio) {
+    return {
+      ...submission,
+      stdio: {
+        ...submission.stdio,
+        secretEnv: {
+          ...submission.stdio.secretEnv,
+          ...secretEnv
+        }
+      }
+    };
+  }
+  if (submission.transportKind === "http_sse" && submission.httpSse) {
+    return {
+      ...submission,
+      httpSse: {
+        ...submission.httpSse,
+        secretHeaders: {
+          ...submission.httpSse.secretHeaders,
+          ...secretHeaders
+        }
+      }
+    };
+  }
+  return submission;
 }
 
 function parsedKeyValue(result: ReturnType<typeof parseKeyValueLines>): Record<string, string> {

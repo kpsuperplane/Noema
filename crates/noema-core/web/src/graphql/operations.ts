@@ -71,6 +71,29 @@ export const McpSettingsDocument = gql`
   }
 `;
 
+export const McpToolsDocument = gql`
+  query McpTools($mcpServerId: String!) {
+    mcpTools(mcpServerId: $mcpServerId) {
+      mcpToolId
+      mcpServerId
+      name
+      description
+      inputSchema
+      outputSchema
+      annotations
+      metadataFingerprint
+      calibration {
+        calibrationId
+        mcpToolId
+        status
+        readClassification
+        writeClassification
+        exportClassification
+      }
+    }
+  }
+`;
+
 export const TrustedIdentitySettingsDocument = gql`
   query TrustedIdentitySettings($ownerScopeId: String!) {
     trustedIdentitySelectors(ownerScopeId: $ownerScopeId) {
@@ -158,6 +181,12 @@ export const ContinueMcpServerSetupDocument = gql`
         toolCount
       }
     }
+  }
+`;
+
+export const DeleteMcpServerDocument = gql`
+  mutation DeleteMcpServer($mcpServerId: String!) {
+    deleteMcpServer(mcpServerId: $mcpServerId)
   }
 `;
 

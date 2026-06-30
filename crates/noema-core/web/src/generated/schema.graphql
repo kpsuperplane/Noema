@@ -456,7 +456,7 @@ type GraphqlMcpServerSetupResult {
 	"""
 	Server metadata safe to show in Settings.
 	"""
-	server: GraphqlMcpServer!
+	server: GraphqlMcpServer
 	"""
 	Setup status.
 	"""
@@ -499,6 +499,48 @@ input GraphqlMcpStdioConfigInput {
 	Secret environment variables stored on disk.
 	"""
 	secretEnv: JSON
+}
+
+"""
+MCP tool metadata and current calibration safe to show in Settings.
+"""
+type GraphqlMcpTool {
+	"""
+	Durable MCP tool id.
+	"""
+	mcpToolId: String!
+	"""
+	Owning MCP server id.
+	"""
+	mcpServerId: String!
+	"""
+	MCP tool name.
+	"""
+	name: String!
+	"""
+	Optional human-readable MCP tool description.
+	"""
+	description: String
+	"""
+	MCP input schema.
+	"""
+	inputSchema: JSON!
+	"""
+	Optional MCP output schema.
+	"""
+	outputSchema: JSON
+	"""
+	MCP annotations captured as non-authoritative setup hints.
+	"""
+	annotations: JSON!
+	"""
+	Fingerprint of the metadata snapshot.
+	"""
+	metadataFingerprint: String!
+	"""
+	Current calibration, when configured.
+	"""
+	calibration: GraphqlToolCalibration
 }
 
 """
@@ -1398,6 +1440,10 @@ type MutationRoot {
 	Continue MCP server setup after adding authentication material.
 	"""
 	continueMcpServerSetup(input: GraphqlContinueMcpServerSetupInput!): GraphqlMcpServerSetupResult!
+	"""
+	Delete an MCP server and its setup secrets.
+	"""
+	deleteMcpServer(mcpServerId: String!): Boolean!
 }
 
 type QueryRoot {
@@ -1425,6 +1471,10 @@ type QueryRoot {
 	List MCP server metadata safe to show in Settings.
 	"""
 	mcpServers: [GraphqlMcpServer!]!
+	"""
+	List MCP tools discovered for one server.
+	"""
+	mcpTools(mcpServerId: String!): [GraphqlMcpTool!]!
 	"""
 	List trusted identity selectors for one owner scope.
 	"""

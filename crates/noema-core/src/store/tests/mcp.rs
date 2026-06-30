@@ -367,6 +367,49 @@ async fn mcp_server_status_can_be_updated_after_setup() {
 }
 
 #[tokio::test]
+async fn delete_mcp_server_removes_server_tools_and_calibrations() {
+    let store = test_store_with_mcp_tool().await;
+    store
+        .save_tool_calibration(ready_mixed_calibration("fingerprint_1"))
+        .await
+        .expect("save calibration");
+
+    let deleted = store
+        .delete_mcp_server("mcp_server:google")
+        .await
+        .expect("delete server");
+
+    assert!(deleted);
+    assert!(
+        store
+            .get_mcp_server("mcp_server:google")
+            .await
+            .expect("get server")
+            .is_none()
+    );
+    assert!(
+        store
+            .list_mcp_tools_for_server("mcp_server:google")
+            .await
+            .expect("list tools")
+            .is_empty()
+    );
+    assert!(
+        store
+            .get_tool_calibration("mcp_tool:google:read_doc")
+            .await
+            .expect("get calibration")
+            .is_none()
+    );
+    assert!(
+        !store
+            .delete_mcp_server("mcp_server:google")
+            .await
+            .expect("delete missing")
+    );
+}
+
+#[tokio::test]
 async fn calibration_blocks_unresolved_ownership_until_reviewed() {
     let store = test_store().await;
     store

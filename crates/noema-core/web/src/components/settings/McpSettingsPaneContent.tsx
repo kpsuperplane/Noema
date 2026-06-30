@@ -1,7 +1,15 @@
 import * as React from "react";
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, Settings2, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle
+} from "@/components/ui/dialog";
 import {
   mcpEnabledLabel,
   mcpMetadataRows,
@@ -11,30 +19,46 @@ import {
   McpServerSetupFlow,
   type McpServerSetupResult
 } from "./McpServerSetupFlow";
-import type { McpSetupContinueSubmission, McpSetupFormSubmission } from "./mcpSetupForm";
+import { McpToolPermissionsModal } from "./McpToolPermissionsModal";
+import type { McpSetupFormSubmission } from "./mcpSetupForm";
 
 export function McpSettingsPaneContent({
   servers,
   loading,
   error,
   setupResult = null,
+  setupOpen = false,
   setupSubmitting = false,
   setupError = null,
+  permissionsServerId = null,
+  deleteSubmitting = false,
+  onOpenSetup = () => {},
+  onCloseSetup = () => {},
   onCreateServer = () => {},
-  onContinueSetup = () => {},
+  onOpenPermissions = () => {},
+  onClosePermissions = () => {},
+  onDeleteServer = () => {},
   onRetry
 }: {
   servers: readonly McpSettingsServer[];
   loading: boolean;
   error: string | null;
   setupResult?: McpServerSetupResult | null;
+  setupOpen?: boolean;
   setupSubmitting?: boolean;
   setupError?: string | null;
+  permissionsServerId?: string | null;
+  deleteSubmitting?: boolean;
+  onOpenSetup?: () => void;
+  onCloseSetup?: () => void;
   onCreateServer?: (input: McpSetupFormSubmission) => void;
-  onContinueSetup?: (input: McpSetupContinueSubmission) => void;
+  onOpenPermissions?: (mcpServerId: string) => void;
+  onClosePermissions?: () => void;
+  onDeleteServer?: (mcpServerId: string) => void;
   onRetry: () => void;
 }) {
-  const [setupOpen, setSetupOpen] = React.useState(false);
+  const selectedPermissionsServer =
+    servers.find((server) => server.mcpServerId === permissionsServerId) ?? null;
 
   if (loading) {
     return <p className="m-0 text-sm text-muted-foreground">Loading MCP servers...</p>;
@@ -57,37 +81,33 @@ export function McpSettingsPaneContent({
   if (servers.length === 0) {
     return (
       <div className="grid gap-4">
-        <McpServerSetupFlow
-          setupResult={setupResult}
-          setupSubmitting={setupSubmitting}
-          setupError={setupError}
-          onCreateServer={onCreateServer}
-          onContinueSetup={onContinueSetup}
-        />
+        <Button type="button" variant="outline" className="w-fit" onClick={onOpenSetup}>
+          Add MCP server
+        </Button>
         <div className="rounded-md border border-[var(--border-subtle)] bg-white p-4">
           <p className="m-0 text-sm text-muted-foreground">No MCP servers are configured.</p>
         </div>
+        <McpSetupDialog
+          open={setupOpen}
+          setupResult={setupResult}
+          setupSubmitting={setupSubmitting}
+          setupError={setupError}
+          onOpenChange={(open) => {
+            if (!open) onCloseSetup();
+          }}
+          onCreateServer={onCreateServer}
+        />
       </div>
     );
   }
 
   return (
     <div className="grid gap-3">
-      {setupResult || setupOpen ? (
-        <McpServerSetupFlow
-          setupResult={setupResult}
-          setupSubmitting={setupSubmitting}
-          setupError={setupError}
-          onCreateServer={onCreateServer}
-          onContinueSetup={onContinueSetup}
-        />
-      ) : (
-        <div className="rounded-md border border-[var(--border-subtle)] bg-white p-4">
-          <Button type="button" variant="outline" onClick={() => setSetupOpen(true)}>
-            Add MCP server
-          </Button>
-        </div>
-      )}
+      <div className="rounded-md border border-[var(--border-subtle)] bg-white p-4">
+        <Button type="button" variant="outline" onClick={onOpenSetup}>
+          Add MCP server
+        </Button>
+      </div>
       {servers.map((server) => {
         const rows = mcpMetadataRows(server);
         return (
@@ -100,6 +120,21 @@ export function McpSettingsPaneContent({
                 {server.displayName}
               </h2>
               <Badge variant="outline">{mcpEnabledLabel(server)}</Badge>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" variant="outline" onClick={() => onOpenPermissions(server.mcpServerId)}>
+                <Settings2 className="size-4" aria-hidden="true" />
+                Configure tools
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                disabled={deleteSubmitting}
+                onClick={() => onDeleteServer(server.mcpServerId)}
+              >
+                <Trash2 className="size-4" aria-hidden="true" />
+                Delete
+              </Button>
             </div>
             <dl className="m-0 grid gap-2">
               {rows.map((row) => (
@@ -117,6 +152,62 @@ export function McpSettingsPaneContent({
           </article>
         );
       })}
+      <McpSetupDialog
+        open={setupOpen}
+        setupResult={setupResult}
+        setupSubmitting={setupSubmitting}
+        setupError={setupError}
+        onOpenChange={(open) => {
+          if (!open) onCloseSetup();
+        }}
+        onCreateServer={onCreateServer}
+      />
+      {permissionsServerId ? (
+        <McpToolPermissionsModal
+          open
+          serverId={permissionsServerId}
+          serverName={selectedPermissionsServer?.displayName ?? null}
+          onOpenChange={(open) => {
+            if (!open) onClosePermissions();
+          }}
+        />
+      ) : null}
     </div>
+  );
+}
+
+function McpSetupDialog({
+  open,
+  setupResult,
+  setupSubmitting,
+  setupError,
+  onOpenChange,
+  onCreateServer
+}: {
+  open: boolean;
+  setupResult: McpServerSetupResult | null;
+  setupSubmitting: boolean;
+  setupError: string | null;
+  onOpenChange: (open: boolean) => void;
+  onCreateServer: (input: McpSetupFormSubmission) => void;
+}) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Add MCP server</DialogTitle>
+          <DialogDescription>Verify connection and discover tools.</DialogDescription>
+        </DialogHeader>
+        <DialogBody>
+          <McpServerSetupFlow
+            setupResult={setupResult}
+            setupSubmitting={setupSubmitting}
+            setupError={setupError}
+            onCreateServer={onCreateServer}
+            onCancel={() => onOpenChange(false)}
+          />
+        </DialogBody>
+      </DialogContent>
+    </Dialog>
   );
 }
