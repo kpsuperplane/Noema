@@ -13,11 +13,8 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
       <section className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden">
         <header className="flex items-center justify-between gap-3 border-b border-[var(--border-subtle)] bg-white/95 px-5 py-3">
           <div className="min-w-0">
-            <p className="m-0 font-mono text-[11px] tracking-[0.12em] text-[var(--text-accent)] uppercase">
-              Providers
-            </p>
             <strong className="block truncate font-heading text-base tracking-normal">
-              Provider account
+              Providers
             </strong>
           </div>
           <Button
@@ -33,9 +30,6 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
         <div className="min-h-0 overflow-auto px-6 py-6 max-[760px]:px-5">
           <div className="grid max-w-3xl gap-5">
             <div className="grid gap-2">
-              <h2 className="m-0 font-heading text-[32px] leading-[1.1] tracking-normal text-foreground">
-                Providers
-              </h2>
               <p className="m-0 max-w-[620px] text-sm text-muted-foreground">
                 Review the provider account Noema uses for chat. Secret credential material stays
                 outside the UI.

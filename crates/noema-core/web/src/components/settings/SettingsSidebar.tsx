@@ -9,9 +9,6 @@ export function SettingsSidebar() {
     >
       <div className="grid content-start gap-4">
         <div>
-          <p className="m-0 font-mono text-[11px] tracking-[0.12em] text-[var(--text-accent)] uppercase">
-            Settings
-          </p>
           <h1 className="m-0 font-heading text-2xl leading-tight tracking-normal text-foreground">
             Settings
           </h1>
