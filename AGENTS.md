@@ -36,6 +36,7 @@
   - `cargo test --workspace --no-fail-fast`
 - Run unit tests only. Do not run smoke tests or fixture tests unless explicitly requested.
 - Noema daemon/OpenAI provider tests may bind Unix/TCP sockets. If sandboxed tests fail with local socket `PermissionDenied`, rerun the same test command with socket permissions and report that distinction.
+- Do not write tests for UI/frontend work unless explicitly requested.
 - For frontend or UI work, do not inspect with browser tools unless explicitly requested.
 
 ## Ship Checklist
