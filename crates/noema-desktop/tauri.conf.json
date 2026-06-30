@@ -4,8 +4,8 @@
   "version": "0.1.0",
   "identifier": "dev.noema.app",
   "build": {
-    "beforeDevCommand": "cd crates/noema-core/web && bun run dev:tauri",
-    "beforeBuildCommand": "cd crates/noema-core/web && bun run build:tauri",
+    "beforeDevCommand": "cd \"$(git rev-parse --show-toplevel)/crates/noema-core/web\" && bun run dev:tauri",
+    "beforeBuildCommand": "cd \"$(git rev-parse --show-toplevel)/crates/noema-core/web\" && bun run build:tauri",
     "devUrl": "http://127.0.0.1:5173",
     "frontendDist": "../noema-core/web/dist-tauri"
   },
