@@ -14,6 +14,7 @@ import {
 import {
   deckNavigationControlLabels,
   deckNavigationReducer,
+  deckTransitionPropertyCanSettleSurfaceVisibility,
   initialDeckNavigationState,
   type DeckNavigationState
 } from "./deckNavigation";
@@ -46,48 +47,56 @@ describe("deck navigation behavior", () => {
 
     assert.deepEqual(openState, {
       navOpen: true,
-      sidebarCollapsed: false
+      sidebarCollapsed: false,
+      surfaceVisibility: "hiding"
     });
 
-    assert.deepEqual(deckNavigationReducer(openState, { type: "closeNav" }), {
+    assert.deepEqual(deckNavigationReducer(openState, { type: "closeNav", animated: true }), {
       navOpen: false,
-      sidebarCollapsed: false
+      sidebarCollapsed: false,
+      surfaceVisibility: "showing"
     });
   });
 
   test("closes revealed navigation after route navigation", () => {
     const state: DeckNavigationState = {
       navOpen: true,
-      sidebarCollapsed: true
+      sidebarCollapsed: true,
+      surfaceVisibility: "visible"
     };
 
     assert.deepEqual(deckNavigationReducer(state, { type: "navigate" }), {
       navOpen: false,
-      sidebarCollapsed: true
+      sidebarCollapsed: true,
+      surfaceVisibility: "showing"
     });
   });
 
   test("escape closes revealed navigation without changing collapse state", () => {
     const state: DeckNavigationState = {
       navOpen: true,
-      sidebarCollapsed: true
+      sidebarCollapsed: true,
+      surfaceVisibility: "visible"
     };
 
     assert.deepEqual(deckNavigationReducer(state, { type: "escape" }), {
       navOpen: false,
-      sidebarCollapsed: true
+      sidebarCollapsed: true,
+      surfaceVisibility: "showing"
     });
   });
 
   test("wide viewport sync closes mobile reveal without changing collapse state", () => {
     const state: DeckNavigationState = {
       navOpen: true,
-      sidebarCollapsed: true
+      sidebarCollapsed: true,
+      surfaceVisibility: "visible"
     };
 
     assert.deepEqual(deckNavigationReducer(state, { type: "syncWideViewport" }), {
       navOpen: false,
-      sidebarCollapsed: true
+      sidebarCollapsed: true,
+      surfaceVisibility: "visible"
     });
   });
 
@@ -98,21 +107,80 @@ describe("deck navigation behavior", () => {
 
     assert.deepEqual(collapsed, {
       navOpen: false,
-      sidebarCollapsed: true
+      sidebarCollapsed: true,
+      surfaceVisibility: "visible"
     });
 
     assert.deepEqual(
       deckNavigationReducer(
-        { navOpen: true, sidebarCollapsed: true },
+        { navOpen: true, sidebarCollapsed: true, surfaceVisibility: "visible" },
         {
           type: "toggleSidebarCollapsed"
         }
       ),
       {
         navOpen: false,
-        sidebarCollapsed: false
+        sidebarCollapsed: false,
+        surfaceVisibility: "visible"
       }
     );
+  });
+
+  test("settles surface visibility after deck transitions", () => {
+    assert.deepEqual(
+      deckNavigationReducer(
+        { navOpen: true, sidebarCollapsed: false, surfaceVisibility: "hiding" },
+        { type: "settleSurfaceVisibility" }
+      ),
+      {
+        navOpen: true,
+        sidebarCollapsed: false,
+        surfaceVisibility: "hidden"
+      }
+    );
+
+    assert.deepEqual(
+      deckNavigationReducer(
+        { navOpen: false, sidebarCollapsed: false, surfaceVisibility: "showing" },
+        { type: "settleSurfaceVisibility" }
+      ),
+      {
+        navOpen: false,
+        sidebarCollapsed: false,
+        surfaceVisibility: "visible"
+      }
+    );
+  });
+
+  test("settles synchronously when deck movement is not animated", () => {
+    assert.deepEqual(
+      deckNavigationReducer(initialDeckNavigationState, { type: "openNav", animated: false }),
+      {
+        navOpen: true,
+        sidebarCollapsed: false,
+        surfaceVisibility: "hidden"
+      }
+    );
+
+    assert.deepEqual(
+      deckNavigationReducer(
+        { navOpen: true, sidebarCollapsed: true, surfaceVisibility: "hidden" },
+        { type: "closeNav", animated: false }
+      ),
+      {
+        navOpen: false,
+        sidebarCollapsed: true,
+        surfaceVisibility: "visible"
+      }
+    );
+  });
+
+  test("filters transition properties that can settle surface visibility", () => {
+    assert.equal(deckTransitionPropertyCanSettleSurfaceVisibility("left"), true);
+    assert.equal(deckTransitionPropertyCanSettleSurfaceVisibility("right"), true);
+    assert.equal(deckTransitionPropertyCanSettleSurfaceVisibility("transform"), true);
+    assert.equal(deckTransitionPropertyCanSettleSurfaceVisibility("box-shadow"), false);
+    assert.equal(deckTransitionPropertyCanSettleSurfaceVisibility("opacity"), false);
   });
 
   test("returns accessible labels for the next shell action", () => {
@@ -121,10 +189,17 @@ describe("deck navigation behavior", () => {
       collapse: "Collapse sidebar"
     });
 
-    assert.deepEqual(deckNavigationControlLabels({ navOpen: true, sidebarCollapsed: true }), {
-      menu: "Close navigation",
-      collapse: "Expand sidebar"
-    });
+    assert.deepEqual(
+      deckNavigationControlLabels({
+        navOpen: true,
+        sidebarCollapsed: true,
+        surfaceVisibility: "visible"
+      }),
+      {
+        menu: "Close navigation",
+        collapse: "Expand sidebar"
+      }
+    );
   });
 });
 
@@ -171,7 +246,8 @@ describe("AppShell layered deck markup", () => {
   test("reveals mobile navigation without shrinking the deck vertically", () => {
     const className = shellContentDeckClassName({
       navOpen: true,
-      sidebarCollapsed: true
+      sidebarCollapsed: true,
+      surfaceVisibility: "visible"
     });
 
     assert.match(
@@ -197,7 +273,8 @@ describe("AppShell layered deck markup", () => {
     const closedClassName = shellSidebarGroundClassName(initialDeckNavigationState);
     const openClassName = shellSidebarGroundClassName({
       navOpen: true,
-      sidebarCollapsed: true
+      sidebarCollapsed: true,
+      surfaceVisibility: "visible"
     });
 
     assert.match(closedClassName, /\bz-10\b/);
