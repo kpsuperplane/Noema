@@ -16,8 +16,16 @@ fn trusted_identity_selectors_normalize_email_phone_and_domain() {
         Some("+14155550100".to_string())
     );
     assert_eq!(
+        normalize_trusted_identity_value(TrustedIdentitySelectorKind::Phone, "+1-415-555-0100"),
+        Some("+14155550100".to_string())
+    );
+    assert_eq!(
         normalize_trusted_identity_value(TrustedIdentitySelectorKind::Phone, "415.555.0100"),
-        Some("4155550100".to_string())
+        None
+    );
+    assert_eq!(
+        normalize_trusted_identity_value(TrustedIdentitySelectorKind::Phone, "1-415-555-0100"),
+        None
     );
     assert_eq!(
         normalize_trusted_identity_value(TrustedIdentitySelectorKind::Phone, " ext. "),
@@ -25,6 +33,29 @@ fn trusted_identity_selectors_normalize_email_phone_and_domain() {
     );
     assert_eq!(
         normalize_trusted_identity_value(TrustedIdentitySelectorKind::Email, " "),
+        None
+    );
+    assert_eq!(
+        normalize_trusted_identity_value(TrustedIdentitySelectorKind::Email, "kevin@@example.com"),
+        None
+    );
+    assert_eq!(
+        normalize_trusted_identity_value(TrustedIdentitySelectorKind::Email, "kevin@example"),
+        None
+    );
+    assert_eq!(
+        normalize_trusted_identity_value(
+            TrustedIdentitySelectorKind::Domain,
+            "https://example.com"
+        ),
+        None
+    );
+    assert_eq!(
+        normalize_trusted_identity_value(TrustedIdentitySelectorKind::Domain, "bad-.example.com"),
+        None
+    );
+    assert_eq!(
+        normalize_trusted_identity_value(TrustedIdentitySelectorKind::Domain, "example com"),
         None
     );
 }
@@ -66,7 +97,13 @@ async fn mcp_control_plane_tables_bootstrap() {
               read_classification = 'trusted',
               write_classification = 'none',
               export_classification = 'none',
-              owner_extractors = [],
+              owner_extractors = [
+                {
+                  source: 'arguments',
+                  selector_kind: 'email',
+                  path: '/owner/email'
+                }
+              ],
               enabled_agent_ids = [],
               enabled_scope_ids = [],
               status = 'needs_review',
@@ -114,6 +151,73 @@ async fn mcp_control_plane_schema_rejects_invalid_enum_values() {
 
     assert!(
         error.to_string().contains("transport_kind") || error.to_string().contains("websocket"),
+        "unexpected error: {error}"
+    );
+}
+
+#[tokio::test]
+async fn trusted_identity_schema_rejects_empty_identity_fields() {
+    let store = test_store().await;
+
+    let error = store
+        .db()
+        .query(
+            r#"
+            CREATE type::record('trusted_identity_selectors', 'empty_value') SET
+              selector_id = 'trusted_identity:empty-value',
+              owner_scope_id = 'human:local',
+              selector_kind = 'email',
+              normalized_value = '',
+              effect = 'trust',
+              issuer_actor_id = 'human:local',
+              updated_at = time::now();
+            "#,
+        )
+        .await
+        .expect("empty trusted identity query")
+        .check()
+        .expect_err("empty normalized identity value should be rejected");
+
+    assert!(
+        error.to_string().contains("normalized_value"),
+        "unexpected error: {error}"
+    );
+}
+
+#[tokio::test]
+async fn tool_calibration_schema_rejects_malformed_owner_extractors() {
+    let store = test_store().await;
+
+    let error = store
+        .db()
+        .query(
+            r#"
+            CREATE type::record('tool_calibrations', 'malformed_extractor') SET
+              calibration_id = 'tool_calibration:malformed-extractor',
+              mcp_tool_id = 'mcp_tool:malformed-extractor',
+              read_classification = 'mixed',
+              write_classification = 'none',
+              export_classification = 'none',
+              owner_extractors = [
+                {
+                  source: 'arguments',
+                  selector_kind: 'email',
+                  path: ''
+                }
+              ],
+              enabled_agent_ids = [],
+              enabled_scope_ids = [],
+              status = 'ready',
+              updated_at = time::now();
+            "#,
+        )
+        .await
+        .expect("malformed extractor query")
+        .check()
+        .expect_err("malformed owner extractor should be rejected");
+
+    assert!(
+        error.to_string().contains("owner_extractors"),
         "unexpected error: {error}"
     );
 }

@@ -3,9 +3,9 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+/// Effective trust classification for an MCP tool policy axis.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-/// Effective trust classification for an MCP tool policy axis.
 pub enum McpTrustClassification {
     /// The tool does not exercise this policy axis.
     None,
@@ -30,9 +30,9 @@ impl McpTrustClassification {
     }
 }
 
+/// Trusted identity selector type used for deterministic ownership matching.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-/// Trusted identity selector type used for deterministic ownership matching.
 pub enum TrustedIdentitySelectorKind {
     /// Email address selector.
     Email,
@@ -54,9 +54,9 @@ impl TrustedIdentitySelectorKind {
     }
 }
 
+/// Transport used to connect to an MCP server.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-/// Transport used to connect to an MCP server.
 pub enum McpTransportKind {
     /// Local stdio MCP transport.
     Stdio,
@@ -75,9 +75,9 @@ impl McpTransportKind {
     }
 }
 
+/// Review status for a calibrated MCP tool.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-/// Review status for a calibrated MCP tool.
 pub enum McpCalibrationStatus {
     /// The tool metadata exists but needs human or admin review.
     NeedsReview,
@@ -102,8 +102,8 @@ impl McpCalibrationStatus {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 /// Deterministic owner extractor used during MCP ownership resolution.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OwnerExtractor {
     /// Source document or field family to inspect.
     pub source: OwnerExtractorSource,
@@ -113,9 +113,9 @@ pub struct OwnerExtractor {
     pub path: String,
 }
 
+/// Source for a deterministic MCP owner extractor.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-/// Source for a deterministic MCP owner extractor.
 pub enum OwnerExtractorSource {
     /// Extract from MCP tool arguments.
     Arguments,
@@ -129,8 +129,8 @@ pub enum OwnerExtractorSource {
     BuiltInAdapter,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 /// MCP tool schema metadata captured during discovery.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct McpToolSchema {
     /// MCP input schema used for argument validation.
     pub input_schema: Value,
@@ -152,25 +152,65 @@ pub fn normalize_trusted_identity_value(
     }
 
     match kind {
-        TrustedIdentitySelectorKind::Email | TrustedIdentitySelectorKind::Domain => {
-            Some(trimmed.to_ascii_lowercase())
-        }
+        TrustedIdentitySelectorKind::Email => normalize_email_value(trimmed),
+        TrustedIdentitySelectorKind::Domain => normalize_domain_value(trimmed),
         TrustedIdentitySelectorKind::Phone => normalize_phone_value(trimmed),
     }
 }
 
-fn normalize_phone_value(trimmed: &str) -> Option<String> {
-    let mut normalized = String::new();
-    let mut has_digit = false;
-
-    for (index, ch) in trimmed.chars().enumerate() {
-        if ch == '+' && index == 0 {
-            normalized.push(ch);
-        } else if ch.is_ascii_digit() {
-            normalized.push(ch);
-            has_digit = true;
-        }
+fn normalize_email_value(trimmed: &str) -> Option<String> {
+    if trimmed.chars().any(char::is_whitespace) {
+        return None;
     }
 
-    has_digit.then_some(normalized)
+    let (local, domain) = trimmed.split_once('@')?;
+    if local.is_empty() || domain.contains('@') {
+        return None;
+    }
+
+    let normalized_domain = normalize_domain_value(domain)?;
+    Some(format!(
+        "{}@{}",
+        local.to_ascii_lowercase(),
+        normalized_domain
+    ))
+}
+
+fn normalize_domain_value(trimmed: &str) -> Option<String> {
+    if trimmed.contains("://")
+        || trimmed.contains('/')
+        || trimmed.chars().any(char::is_whitespace)
+        || !trimmed.contains('.')
+    {
+        return None;
+    }
+
+    let normalized = trimmed.to_ascii_lowercase();
+    let labels_are_valid = normalized.split('.').all(is_valid_domain_label);
+
+    labels_are_valid.then_some(normalized)
+}
+
+fn is_valid_domain_label(label: &str) -> bool {
+    !label.is_empty()
+        && !label.starts_with('-')
+        && !label.ends_with('-')
+        && label
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '-')
+}
+
+fn normalize_phone_value(trimmed: &str) -> Option<String> {
+    if !trimmed.starts_with('+') {
+        return None;
+    }
+
+    let digits: String = trimmed.chars().filter(char::is_ascii_digit).collect();
+    let digit_count = digits.len();
+
+    if (8..=15).contains(&digit_count) && !digits.starts_with('0') {
+        Some(format!("+{digits}"))
+    } else {
+        None
+    }
 }

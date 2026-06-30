@@ -84,7 +84,10 @@ DEFINE FIELD OVERWRITE mcp_tool_id ON TABLE tool_calibrations TYPE string;
 DEFINE FIELD OVERWRITE read_classification ON TABLE tool_calibrations TYPE string ASSERT $value INSIDE ['none', 'trusted', 'untrusted', 'mixed'];
 DEFINE FIELD OVERWRITE write_classification ON TABLE tool_calibrations TYPE string ASSERT $value INSIDE ['none', 'trusted', 'untrusted', 'mixed'];
 DEFINE FIELD OVERWRITE export_classification ON TABLE tool_calibrations TYPE string ASSERT $value INSIDE ['none', 'trusted', 'untrusted', 'mixed'];
-DEFINE FIELD OVERWRITE owner_extractors ON TABLE tool_calibrations TYPE array<object> DEFAULT [];
+DEFINE FIELD OVERWRITE owner_extractors ON TABLE tool_calibrations TYPE array<object> DEFAULT [] ASSERT array::all($value, |$extractor| $extractor.source INSIDE ['arguments', 'structured_content', 'metadata', 'resource_uri', 'built_in_adapter'] AND $extractor.selector_kind INSIDE ['email', 'phone', 'domain'] AND $extractor.path != NONE AND $extractor.path != '');
+DEFINE FIELD OVERWRITE owner_extractors[*].source ON TABLE tool_calibrations TYPE string;
+DEFINE FIELD OVERWRITE owner_extractors[*].selector_kind ON TABLE tool_calibrations TYPE string;
+DEFINE FIELD OVERWRITE owner_extractors[*].path ON TABLE tool_calibrations TYPE string;
 DEFINE FIELD OVERWRITE enabled_agent_ids ON TABLE tool_calibrations TYPE array<string> DEFAULT [];
 DEFINE FIELD OVERWRITE enabled_scope_ids ON TABLE tool_calibrations TYPE array<string> DEFAULT [];
 DEFINE FIELD OVERWRITE status ON TABLE tool_calibrations TYPE string ASSERT $value INSIDE ['needs_review', 'blocked_unresolved_ownership', 'ready', 'disabled'];
@@ -96,12 +99,12 @@ DEFINE INDEX IF NOT EXISTS tool_calibrations_calibration_id ON TABLE tool_calibr
 DEFINE INDEX IF NOT EXISTS tool_calibrations_tool_id ON TABLE tool_calibrations COLUMNS mcp_tool_id UNIQUE;
 
 DEFINE TABLE IF NOT EXISTS trusted_identity_selectors SCHEMAFULL;
-DEFINE FIELD OVERWRITE selector_id ON TABLE trusted_identity_selectors TYPE string;
-DEFINE FIELD OVERWRITE owner_scope_id ON TABLE trusted_identity_selectors TYPE string;
+DEFINE FIELD OVERWRITE selector_id ON TABLE trusted_identity_selectors TYPE string ASSERT $value != '';
+DEFINE FIELD OVERWRITE owner_scope_id ON TABLE trusted_identity_selectors TYPE string ASSERT $value != '';
 DEFINE FIELD OVERWRITE selector_kind ON TABLE trusted_identity_selectors TYPE string ASSERT $value INSIDE ['email', 'phone', 'domain'];
-DEFINE FIELD OVERWRITE normalized_value ON TABLE trusted_identity_selectors TYPE string;
+DEFINE FIELD OVERWRITE normalized_value ON TABLE trusted_identity_selectors TYPE string ASSERT $value != '';
 DEFINE FIELD OVERWRITE effect ON TABLE trusted_identity_selectors TYPE string ASSERT $value INSIDE ['trust', 'restrict'];
-DEFINE FIELD OVERWRITE issuer_actor_id ON TABLE trusted_identity_selectors TYPE string;
+DEFINE FIELD OVERWRITE issuer_actor_id ON TABLE trusted_identity_selectors TYPE string ASSERT $value != '';
 DEFINE FIELD OVERWRITE revoked_at ON TABLE trusted_identity_selectors TYPE option<string>;
 DEFINE FIELD OVERWRITE created_at ON TABLE trusted_identity_selectors TYPE datetime DEFAULT time::now();
 DEFINE FIELD OVERWRITE updated_at ON TABLE trusted_identity_selectors TYPE datetime DEFAULT time::now();
