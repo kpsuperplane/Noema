@@ -281,7 +281,7 @@ export function AppShell({
           data-tauri-drag-region
           className={shellDeckHeaderClassName()}
         >
-          <div className={cn("transition-transform duration-300 ease-out", deckNavigation.sidebarCollapsed && "min-[761px]:translate-x-[calc(1.5rem+var(--shell-desktop-chrome-offset))]")}>
+          <div className={cn("transition-transform duration-300", deckNavigation.sidebarCollapsed && "min-[761px]:translate-x-[calc(1.5rem+var(--shell-desktop-chrome-offset))]")}>
             <Button
               ref={menuButtonRef}
               data-slot="shell-menu-button"
