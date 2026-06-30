@@ -110,6 +110,12 @@ body {
   background: var(--surface-page);
 }
 
+html[data-tauri-runtime="true"],
+html[data-tauri-runtime="true"] body,
+html[data-tauri-runtime="true"] #root {
+  background: transparent;
+}
+
 .message-word-fade {
   animation: message-word-fade-in 180ms ease-out both;
 }

@@ -2,6 +2,7 @@ import React from "react";
 import { Menu, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { LocalStatusQuery } from "@/generated/graphql";
+import { isTauriRuntime } from "@/graphql/transportMode";
 import { cn } from "@/lib/utils";
 import type { AppRoute } from "@/routes";
 import type { SocketState } from "@/types";
@@ -41,12 +42,35 @@ export const shellNavItems: ShellNavItem[] = [
 ];
 
 export const shellDesktopSidebarWidth = "216px";
+export const shellBrowserDesktopChromeOffset = "0px";
+export const shellTauriDesktopChromeOffset = "72px";
 
-type ShellRootStyle = React.CSSProperties & Record<"--shell-sidebar-width", string>;
+type ShellRootStyle = React.CSSProperties &
+  Record<"--shell-sidebar-width" | "--shell-desktop-chrome-offset", string>;
 
-export const shellRootStyle: ShellRootStyle = {
-  "--shell-sidebar-width": shellDesktopSidebarWidth
-} as ShellRootStyle;
+export function shellDesktopChromeOffsetForRuntime(isDesktop = isTauriRuntime()) {
+  return isDesktop ? shellTauriDesktopChromeOffset : shellBrowserDesktopChromeOffset;
+}
+
+export function shellRootStyle({
+  desktopChromeOffset = shellBrowserDesktopChromeOffset
+}: {
+  desktopChromeOffset?: string;
+} = {}): ShellRootStyle {
+  return {
+    "--shell-sidebar-width": shellDesktopSidebarWidth,
+    "--shell-desktop-chrome-offset": desktopChromeOffset
+  } as ShellRootStyle;
+}
+
+export function shellRootClassName(isDesktopRuntime = isTauriRuntime()) {
+  return cn(
+    "relative h-dvh min-h-screen overflow-hidden text-foreground",
+    isDesktopRuntime
+      ? "bg-[rgba(233,242,236,0.4)]"
+      : "bg-[var(--pine-50)]"
+  );
+}
 
 export function activeShellDestination(route: AppRoute): ShellDestination {
   if (route.kind === "memory_home" || route.kind === "memory_graph") {
@@ -107,16 +131,15 @@ export function shellContentDeckClassName(deckNavigation: DeckNavigationState) {
   );
 }
 
-export function shellDeckHeaderClassName(deckNavigation: DeckNavigationState) {
+export function shellDeckHeaderClassName() {
   return cn(
-    "flex py-1 items-center gap-3 border-b border-[var(--border-subtle)] bg-white/95 px-4",
-    deckNavigation.sidebarCollapsed && "min-[761px]:pl-14"
+    "flex py-1 items-center gap-3 border-b border-[var(--border-subtle)] bg-white/95 px-4"
   );
 }
 
 export function shellSidebarCollapseButtonClassName() {
   return cn(
-    "absolute top-2 left-2 z-40 max-[760px]:hidden"
+    "absolute top-3 left-[calc(0.75rem+var(--shell-desktop-chrome-offset))] z-40 max-[760px]:hidden"
   );
 }
 
@@ -159,6 +182,25 @@ export function AppShell({
     providerBlocked,
     setupBlocked
   });
+  const isDesktopRuntime = isTauriRuntime();
+  const rootStyle = shellRootStyle({
+    desktopChromeOffset: shellDesktopChromeOffsetForRuntime(isDesktopRuntime)
+  });
+
+  React.useEffect(() => {
+    if (typeof document === "undefined") {
+      return;
+    }
+
+    if (isDesktopRuntime) {
+      document.documentElement.dataset.tauriRuntime = "true";
+      return () => {
+        delete document.documentElement.dataset.tauriRuntime;
+      };
+    }
+
+    delete document.documentElement.dataset.tauriRuntime;
+  }, [isDesktopRuntime]);
 
   const {
     state: deckNavigation,
@@ -176,8 +218,9 @@ export function AppShell({
       data-slot="shell-root"
       data-nav-open={deckNavigation.navOpen}
       data-sidebar-collapsed={deckNavigation.sidebarCollapsed}
-      style={shellRootStyle}
-      className="relative h-dvh min-h-screen overflow-hidden bg-[var(--pine-50)] text-foreground"
+      data-tauri-runtime={isDesktopRuntime}
+      style={rootStyle}
+      className={shellRootClassName(isDesktopRuntime)}
     >
       <aside
         id="noema-shell-sidebar"
@@ -235,26 +278,29 @@ export function AppShell({
       >
         <header
           data-slot="shell-deck-header"
-          className={shellDeckHeaderClassName(deckNavigation)}
+          data-tauri-drag-region
+          className={shellDeckHeaderClassName()}
         >
-          <Button
-            ref={menuButtonRef}
-            data-slot="shell-menu-button"
-            type="button"
-            variant="ghost"
-            size="icon"
-            aria-label={labels.menu}
-            aria-controls="noema-shell-sidebar"
-            aria-expanded={deckNavigation.navOpen}
-            className="min-[761px]:!hidden"
-            onClick={deckNavigation.navOpen ? closeNav : openNav}
-          >
-            <Menu aria-hidden="true" />
-          </Button>
-          <div className="min-w-0">
-            <strong className="block truncate font-heading text-base tracking-normal">
-              {activeLabel}
-            </strong>
+          <div className={cn("transition-transform duration-300 ease-out", deckNavigation.sidebarCollapsed && "min-[761px]:translate-x-[calc(1.5rem+var(--shell-desktop-chrome-offset))]")}>
+            <Button
+              ref={menuButtonRef}
+              data-slot="shell-menu-button"
+              type="button"
+              variant="ghost"
+              size="icon"
+              aria-label={labels.menu}
+              aria-controls="noema-shell-sidebar"
+              aria-expanded={deckNavigation.navOpen}
+              className="min-[761px]:!hidden"
+              onClick={deckNavigation.navOpen ? closeNav : openNav}
+            >
+              <Menu aria-hidden="true" />
+            </Button>
+            <div className="min-w-0 py-[0.2rem]">
+              <strong className="block truncate font-heading text-base tracking-normal">
+                {activeLabel}
+              </strong>
+            </div>
           </div>
         </header>
 

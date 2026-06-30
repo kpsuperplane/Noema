@@ -5,6 +5,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import {
   AppShell,
   activeShellDestination,
+  shellBrowserDesktopChromeOffset,
+  shellDesktopChromeOffsetForRuntime,
   shellDesktopSidebarWidth,
   shellContentDeckClassName,
   shellDeckHeaderClassName,
@@ -13,6 +15,7 @@ import {
   shellSidebarCollapseButtonClassName,
   shellSidebarGroundClassName,
   shellAttentionForState,
+  shellTauriDesktopChromeOffset,
   shellNavItems,
   type ShellAttentionInput
 } from "./AppShell";
@@ -222,8 +225,41 @@ describe("AppShell layered deck markup", () => {
     assert.match(markup, /data-surface-visibility="visible"/);
     assert.match(markup, /data-sidebar-collapsed="false"/);
     assert.match(markup, /data-nav-open="false"/);
-    assert.equal(shellRootStyle["--shell-sidebar-width"], shellDesktopSidebarWidth);
-    assert.match(markup, /style="--shell-sidebar-width:216px"/);
+    assert.equal(shellRootStyle()["--shell-sidebar-width"], shellDesktopSidebarWidth);
+    assert.equal(
+      shellRootStyle()["--shell-desktop-chrome-offset"],
+      shellBrowserDesktopChromeOffset
+    );
+    assert.match(
+      markup,
+      /style="--shell-sidebar-width:216px;--shell-desktop-chrome-offset:0px"/
+    );
+  });
+
+  test("sets a desktop chrome offset only for Tauri runtime", () => {
+    assert.equal(shellDesktopChromeOffsetForRuntime(false), shellBrowserDesktopChromeOffset);
+    assert.equal(shellDesktopChromeOffsetForRuntime(true), shellTauriDesktopChromeOffset);
+    assert.equal(
+      shellRootStyle({ desktopChromeOffset: shellTauriDesktopChromeOffset })[
+        "--shell-desktop-chrome-offset"
+      ],
+      "72px"
+    );
+  });
+
+  test("uses a frosted outer shell substrate only in Tauri", () => {
+    const browserRootClassName = dataSlotClassName(renderShell(), "shell-root");
+    assert.match(browserRootClassName, /bg-\[var\(--pine-50\)\]/);
+    assert.doesNotMatch(browserRootClassName, /\bbg-transparent\b/);
+
+    withTauriRuntime(() => {
+      const tauriMarkup = renderShell();
+      const tauriRootClassName = dataSlotClassName(tauriMarkup, "shell-root");
+
+      assert.match(tauriMarkup, /data-tauri-runtime="true"/);
+      assert.match(tauriRootClassName, /bg-\[rgba\(233,242,236,0\.24\)\]/);
+      assert.doesNotMatch(tauriRootClassName, /backdrop-blur/);
+    });
   });
 
   test("renders accessible deck controls and current destination label", () => {
@@ -245,27 +281,22 @@ describe("AppShell layered deck markup", () => {
 
     assert.match(menuClassName, /min-\[761px\]:!hidden/);
     assert.match(collapseClassName, /max-\[760px\]:hidden/);
-    assert.match(collapseClassName, /\bleft-2\b/);
+    assert.match(collapseClassName, /left-\[calc\(0\.75rem\+var\(--shell-desktop-chrome-offset\)\)\]/);
     assert.match(collapseClassName, /\bz-40\b/);
     assert.doesNotMatch(markup, /data-slot="shell-deck-collapse-button"/);
+  });
+
+  test("keeps sidebar navigation hover states translucent", () => {
+    const markup = renderShell();
+
+    assert.match(markup, /hover:!bg-\[color-mix\(in_srgb,var\(--pine-700\)_10%,transparent\)\]/);
+    assert.match(markup, /aria-expanded:!bg-\[color-mix\(in_srgb,var\(--pine-700\)_10%,transparent\)\]/);
   });
 
   test("keeps the shell header row compact above short pages", () => {
     const className = shellContentDeckClassName(initialDeckNavigationState);
 
     assert.match(className, /grid-rows-\[auto_minmax\(0,1fr\)\]/);
-  });
-
-  test("reserves header leading space only when the desktop sidebar is collapsed", () => {
-    assert.doesNotMatch(shellDeckHeaderClassName(initialDeckNavigationState), /min-\[761px\]:pl-14/);
-    assert.match(
-      shellDeckHeaderClassName({
-        navOpen: false,
-        sidebarCollapsed: true,
-        surfaceVisibility: "visible"
-      }),
-      /min-\[761px\]:pl-14/
-    );
   });
 
   test("leaves visible route content interactive", () => {
@@ -344,8 +375,8 @@ describe("AppShell layered deck markup", () => {
     const className = shellSidebarCollapseButtonClassName();
 
     assert.match(className, /\babsolute\b/);
-    assert.match(className, /\btop-2\b/);
-    assert.match(className, /\bleft-2\b/);
+    assert.match(className, /\btop-3\b/);
+    assert.match(className, /left-\[calc\(0\.75rem\+var\(--shell-desktop-chrome-offset\)\)\]/);
     assert.match(className, /\bz-40\b/);
     assert.match(className, /max-\[760px\]:hidden/);
     assert.doesNotMatch(className, /translate-x/);
@@ -558,4 +589,26 @@ function dataSlotClassName(markup: string, slot: string) {
   const match = markup.match(new RegExp(`data-slot="${slot}"[^>]*class="([^"]*)"`));
   assert.ok(match, `expected markup to include data-slot="${slot}" class`);
   return match[1];
+}
+
+function withTauriRuntime(callback: () => void) {
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, "window");
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: {
+      __TAURI_INTERNALS__: {
+        invoke: () => undefined
+      }
+    }
+  });
+
+  try {
+    callback();
+  } finally {
+    if (descriptor) {
+      Object.defineProperty(globalThis, "window", descriptor);
+    } else {
+      Reflect.deleteProperty(globalThis, "window");
+    }
+  }
 }

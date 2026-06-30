@@ -27,6 +27,7 @@ export function ShellSidebar({
 }) {
   return (
     <div className="grid h-full min-h-0 grid-rows-[auto_auto_minmax(0,1fr)] gap-1">
+      <div className="h-8" data-tauri-drag-region />
       {attention ? <ShellAttentionItem attention={attention} /> : <div aria-hidden="true" />}
 
       <nav className="grid content-start gap-1" aria-label="Primary">
@@ -39,9 +40,9 @@ export function ShellSidebar({
               type="button"
               variant="ghost"
               className={cn(
-                "justify-start rounded-md px-2.5 text-sm text-[var(--pine-700)] bg-[var(--pine-700)]/0 hover:bg-[var(--pine-700)]/10",
+                "justify-start rounded-md px-2.5 text-sm text-[var(--pine-700)] !bg-transparent hover:!bg-[color-mix(in_srgb,var(--pine-700)_10%,transparent)] aria-expanded:!bg-[color-mix(in_srgb,var(--pine-700)_10%,transparent)]",
                 active &&
-                  "bg-[var(--pine-700)]/10"
+                  "!bg-[color-mix(in_srgb,var(--pine-700)_10%,transparent)]"
               )}
               aria-current={active ? "page" : undefined}
               onClick={() => onNavigate(item.route)}

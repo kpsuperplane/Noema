@@ -17,12 +17,35 @@
         "width": 1180,
         "height": 820,
         "minWidth": 860,
-        "minHeight": 640
+        "minHeight": 640,
+        "titleBarStyle": "Overlay",
+        "transparent": true,
+        "windowEffects": {
+          "effects": ["hudWindow"],
+          "state": "followsWindowActiveState"
+        },
+        "hiddenTitle": true,
+        "trafficLightPosition": {
+          "x": 20,
+          "y": 30
+        }
       }
     ],
     "security": {
-      "csp": null
-    }
+      "csp": null,
+      "capabilities": [
+        {
+          "identifier": "draggable-window",
+          "windows": [
+            "*"
+          ],
+          "permissions": [
+            "core:window:allow-start-dragging"
+          ]
+        }
+      ]
+    },
+    "macOSPrivateApi": true
   },
   "bundle": {
     "active": true,
