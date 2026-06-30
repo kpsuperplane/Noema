@@ -57,6 +57,10 @@ describe("composer textarea presentation", () => {
 
     assert.doesNotMatch(markup, /<textarea[^>]*autofocus=""/);
   });
+
+  test("exposes textarea focus through a forwarded ref", () => {
+    assert.equal((Composer as { $$typeof?: symbol }).$$typeof, Symbol.for("react.forward_ref"));
+  });
 });
 
 describe("composer human bubble presentation", () => {

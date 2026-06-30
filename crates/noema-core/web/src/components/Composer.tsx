@@ -119,23 +119,42 @@ export function refocusComposerTextarea(
   });
 }
 
-export function Composer({
-  value,
-  ready,
-  pending,
-  placeholder,
-  onChange,
-  onSubmit
-}: {
+export type ComposerProps = {
   value: string;
   ready: boolean;
   pending: boolean;
   placeholder: string;
   onChange: (value: string) => void;
   onSubmit: () => void;
-}) {
+};
+
+export const Composer = React.forwardRef<HTMLTextAreaElement, ComposerProps>(function Composer(
+  {
+    value,
+    ready,
+    pending,
+    placeholder,
+    onChange,
+    onSubmit
+  },
+  forwardedRef
+) {
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
-  const previousReadyRef = React.useRef(ready);
+  const setTextareaRef = React.useCallback(
+    (textarea: HTMLTextAreaElement | null) => {
+      textareaRef.current = textarea;
+
+      if (typeof forwardedRef === "function") {
+        forwardedRef(textarea);
+        return;
+      }
+
+      if (forwardedRef) {
+        forwardedRef.current = textarea;
+      }
+    },
+    [forwardedRef]
+  );
 
   function submit() {
     onSubmit();
@@ -183,14 +202,6 @@ export function Composer({
     );
   }, [placeholder, sizeKey, value]);
 
-  useBrowserLayoutEffect(() => {
-    const wasReady = previousReadyRef.current;
-    previousReadyRef.current = ready;
-    if (!wasReady && ready) {
-      textareaRef.current?.focus();
-    }
-  }, [ready]);
-
   const textareaStyle = composerTextareaStyle();
   const textareaWrapStyle = composerTextareaWrapStyle({
     value,
@@ -213,7 +224,7 @@ export function Composer({
       >
         <div data-slot="composer-textarea-wrap" className="min-w-0" style={textareaWrapStyle}>
           <Textarea
-            ref={textareaRef}
+            ref={setTextareaRef}
             value={value}
             disabled={isComposerTextareaDisabled({ ready })}
             placeholder={placeholder}
@@ -241,4 +252,4 @@ export function Composer({
       </div>
     </form>
   );
-}
+});
