@@ -89,10 +89,19 @@ export const McpApprovalSettingsDocument = gql`
     mcpApprovalRequests(status: $status) {
       approvalId
       actionSummary
+      toolInvocationId
       mcpServerId
       mcpToolId
       requesterActorId
       ownerScopeId
+      activeScopeId
+      destinationSummary
+      dataSourceSummary
+      sourceOwnerIdentity
+      sourceOwnerTrust
+      destinationOwnerIdentity
+      destinationOwnerTrust
+      exportSummary
       payloadPreview
       status
     }

@@ -1,5 +1,5 @@
 use serde::Deserialize;
-use serde_json::Value;
+use serde_json::{Map, Value};
 use surrealdb::types::SurrealValue;
 
 use crate::{
@@ -217,6 +217,8 @@ pub struct NewMcpApprovalRequest {
     pub approval_id: String,
     /// Safe human-readable action summary.
     pub action_summary: String,
+    /// Related tool invocation id, when available.
+    pub tool_invocation_id: Option<String>,
     /// Related MCP server id, when available.
     pub mcp_server_id: Option<String>,
     /// Related MCP tool id, when available.
@@ -225,10 +227,24 @@ pub struct NewMcpApprovalRequest {
     pub requester_actor_id: String,
     /// Governable owner scope for the approval.
     pub owner_scope_id: String,
+    /// Active governable scope for the approval.
+    pub active_scope_id: String,
+    /// Destination or recipient summary.
+    pub destination_summary: String,
+    /// Data source summary.
+    pub data_source_summary: String,
+    /// Source owner identity label.
+    pub source_owner_identity: String,
+    /// Source owner trust label.
+    pub source_owner_trust: String,
+    /// Destination owner identity label.
+    pub destination_owner_identity: String,
+    /// Destination owner trust label.
+    pub destination_owner_trust: String,
+    /// What leaves the MCP destination trust boundary.
+    pub export_summary: String,
     /// Safe payload preview for review surfaces.
     pub payload_preview: Value,
-    /// Current approval status.
-    pub status: String,
 }
 
 /// Durable MCP approval request metadata safe to show in Settings.
@@ -238,6 +254,8 @@ pub struct McpApprovalRequestRecord {
     pub approval_id: String,
     /// Safe human-readable action summary.
     pub action_summary: String,
+    /// Related tool invocation id, when available.
+    pub tool_invocation_id: Option<String>,
     /// Related MCP server id, when available.
     pub mcp_server_id: Option<String>,
     /// Related MCP tool id, when available.
@@ -246,6 +264,22 @@ pub struct McpApprovalRequestRecord {
     pub requester_actor_id: String,
     /// Governable owner scope for the approval.
     pub owner_scope_id: String,
+    /// Active governable scope for the approval.
+    pub active_scope_id: String,
+    /// Destination or recipient summary.
+    pub destination_summary: String,
+    /// Data source summary.
+    pub data_source_summary: String,
+    /// Source owner identity label.
+    pub source_owner_identity: String,
+    /// Source owner trust label.
+    pub source_owner_trust: String,
+    /// Destination owner identity label.
+    pub destination_owner_identity: String,
+    /// Destination owner trust label.
+    pub destination_owner_trust: String,
+    /// What leaves the MCP destination trust boundary.
+    pub export_summary: String,
     /// Safe payload preview for review surfaces.
     pub payload_preview: Value,
     /// Current approval status.
@@ -820,18 +854,28 @@ impl NoemaStore {
         &self,
         approval: NewMcpApprovalRequest,
     ) -> Result<McpApprovalRequestRecord, StoreError> {
+        let payload_preview = sanitize_approval_payload_preview(approval.payload_preview);
         self.db
             .query(
                 r#"
                 CREATE type::record('approval_requests', $record_id) SET
                   approval_id = $approval_id,
                   action_summary = $action_summary,
+                  tool_invocation_id = $tool_invocation_id,
                   mcp_server_id = $mcp_server_id,
                   mcp_tool_id = $mcp_tool_id,
                   requester_actor_id = $requester_actor_id,
                   owner_scope_id = $owner_scope_id,
+                  active_scope_id = $active_scope_id,
+                  destination_summary = $destination_summary,
+                  data_source_summary = $data_source_summary,
+                  source_owner_identity = $source_owner_identity,
+                  source_owner_trust = $source_owner_trust,
+                  destination_owner_identity = $destination_owner_identity,
+                  destination_owner_trust = $destination_owner_trust,
+                  export_summary = $export_summary,
                   payload_preview = $payload_preview,
-                  status = $status,
+                  status = 'pending',
                   decision_actor_id = NONE,
                   decision_comment = NONE,
                   decided_at = NONE,
@@ -841,12 +885,23 @@ impl NoemaStore {
             .bind(("record_id", mcp_record_fragment(&approval.approval_id)))
             .bind(("approval_id", approval.approval_id.clone()))
             .bind(("action_summary", approval.action_summary))
+            .bind(("tool_invocation_id", approval.tool_invocation_id))
             .bind(("mcp_server_id", approval.mcp_server_id))
             .bind(("mcp_tool_id", approval.mcp_tool_id))
             .bind(("requester_actor_id", approval.requester_actor_id))
             .bind(("owner_scope_id", approval.owner_scope_id))
-            .bind(("payload_preview", approval.payload_preview))
-            .bind(("status", approval.status))
+            .bind(("active_scope_id", approval.active_scope_id))
+            .bind(("destination_summary", approval.destination_summary))
+            .bind(("data_source_summary", approval.data_source_summary))
+            .bind(("source_owner_identity", approval.source_owner_identity))
+            .bind(("source_owner_trust", approval.source_owner_trust))
+            .bind((
+                "destination_owner_identity",
+                approval.destination_owner_identity,
+            ))
+            .bind(("destination_owner_trust", approval.destination_owner_trust))
+            .bind(("export_summary", approval.export_summary))
+            .bind(("payload_preview", payload_preview))
             .await?
             .check()?;
         self.get_mcp_approval_request(&approval.approval_id)
@@ -872,9 +927,12 @@ impl NoemaStore {
             .db
             .query(
                 r#"
-                SELECT approval_id, action_summary, mcp_server_id, mcp_tool_id,
-                  requester_actor_id, owner_scope_id, payload_preview, status,
-                  decision_actor_id, decision_comment, decided_at
+                SELECT approval_id, action_summary, tool_invocation_id, mcp_server_id,
+                  mcp_tool_id, requester_actor_id, owner_scope_id, active_scope_id,
+                  destination_summary, data_source_summary, source_owner_identity,
+                  source_owner_trust, destination_owner_identity, destination_owner_trust,
+                  export_summary, payload_preview, status, decision_actor_id,
+                  decision_comment, decided_at
                 FROM approval_requests
                 WHERE $status = NONE OR status = $status;
                 "#,
@@ -898,9 +956,12 @@ impl NoemaStore {
             .db
             .query(
                 r#"
-                SELECT approval_id, action_summary, mcp_server_id, mcp_tool_id,
-                  requester_actor_id, owner_scope_id, payload_preview, status,
-                  decision_actor_id, decision_comment, decided_at
+                SELECT approval_id, action_summary, tool_invocation_id, mcp_server_id,
+                  mcp_tool_id, requester_actor_id, owner_scope_id, active_scope_id,
+                  destination_summary, data_source_summary, source_owner_identity,
+                  source_owner_trust, destination_owner_identity, destination_owner_trust,
+                  export_summary, payload_preview, status, decision_actor_id,
+                  decision_comment, decided_at
                 FROM approval_requests
                 WHERE approval_id = $approval_id
                 LIMIT 1;
@@ -968,10 +1029,19 @@ struct TrustedIdentitySelectorRow {
 struct McpApprovalRequestRow {
     approval_id: String,
     action_summary: String,
+    tool_invocation_id: Option<String>,
     mcp_server_id: Option<String>,
     mcp_tool_id: Option<String>,
     requester_actor_id: String,
     owner_scope_id: String,
+    active_scope_id: String,
+    destination_summary: String,
+    data_source_summary: String,
+    source_owner_identity: String,
+    source_owner_trust: String,
+    destination_owner_identity: String,
+    destination_owner_trust: String,
+    export_summary: String,
     payload_preview: Value,
     status: String,
     decision_actor_id: Option<String>,
@@ -1045,16 +1115,81 @@ fn mcp_approval_request_from_row(row: McpApprovalRequestRow) -> McpApprovalReque
     McpApprovalRequestRecord {
         approval_id: row.approval_id,
         action_summary: row.action_summary,
+        tool_invocation_id: row.tool_invocation_id,
         mcp_server_id: row.mcp_server_id,
         mcp_tool_id: row.mcp_tool_id,
         requester_actor_id: row.requester_actor_id,
         owner_scope_id: row.owner_scope_id,
+        active_scope_id: row.active_scope_id,
+        destination_summary: row.destination_summary,
+        data_source_summary: row.data_source_summary,
+        source_owner_identity: row.source_owner_identity,
+        source_owner_trust: row.source_owner_trust,
+        destination_owner_identity: row.destination_owner_identity,
+        destination_owner_trust: row.destination_owner_trust,
+        export_summary: row.export_summary,
         payload_preview: row.payload_preview,
         status: row.status,
         decision_actor_id: row.decision_actor_id,
         decision_comment: row.decision_comment,
         decided_at: row.decided_at,
     }
+}
+
+fn sanitize_approval_payload_preview(value: Value) -> Value {
+    match value {
+        Value::Object(object) => Value::Object(sanitize_preview_object(object)),
+        Value::Array(values) => Value::Array(
+            values
+                .into_iter()
+                .take(10)
+                .map(sanitize_approval_payload_preview)
+                .collect(),
+        ),
+        Value::String(value) => Value::String(truncate_preview_string(value)),
+        other => other,
+    }
+}
+
+fn sanitize_preview_object(object: Map<String, Value>) -> Map<String, Value> {
+    object
+        .into_iter()
+        .take(20)
+        .map(|(key, value)| {
+            let sanitized_value = if approval_preview_key_is_sensitive(&key) {
+                Value::String("[redacted]".to_string())
+            } else {
+                sanitize_approval_payload_preview(value)
+            };
+            (key, sanitized_value)
+        })
+        .collect()
+}
+
+fn approval_preview_key_is_sensitive(key: &str) -> bool {
+    let lower = key.to_ascii_lowercase();
+    [
+        "secret",
+        "token",
+        "password",
+        "credential",
+        "api_key",
+        "apikey",
+        "private_key",
+    ]
+    .iter()
+    .any(|marker| lower.contains(marker))
+}
+
+fn truncate_preview_string(value: String) -> String {
+    const MAX_PREVIEW_CHARS: usize = 240;
+    if value.chars().count() <= MAX_PREVIEW_CHARS {
+        return value;
+    }
+
+    let mut truncated = value.chars().take(MAX_PREVIEW_CHARS).collect::<String>();
+    truncated.push_str("...");
+    truncated
 }
 
 fn parse_mcp_transport_kind(value: &str) -> Result<McpTransportKind, StoreError> {

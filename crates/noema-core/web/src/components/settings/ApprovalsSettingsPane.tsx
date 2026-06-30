@@ -12,7 +12,7 @@ export function ApprovalsSettingsPane() {
   const result = useQuery<McpApprovalSettingsQuery, McpApprovalSettingsQueryVariables>(
     McpApprovalSettingsDocument,
     {
-      variables: { status: null },
+      variables: { status: "pending" },
       fetchPolicy: "cache-and-network"
     }
   );

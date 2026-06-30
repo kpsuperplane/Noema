@@ -547,28 +547,55 @@ mod tests {
             .create_mcp_approval_request(NewMcpApprovalRequest {
                 approval_id: "approval:mcp:pending".to_string(),
                 action_summary: "Share Google Doc".to_string(),
+                tool_invocation_id: Some("tool_invocation:mcp:pending".to_string()),
                 mcp_server_id: Some("mcp_server:google".to_string()),
                 mcp_tool_id: Some("mcp_tool:google:share_doc".to_string()),
                 requester_actor_id: "agent:primary".to_string(),
                 owner_scope_id: "human:local".to_string(),
+                active_scope_id: "human:local".to_string(),
+                destination_summary: "person@example.com".to_string(),
+                data_source_summary: "Google Doc: Project plan".to_string(),
+                source_owner_identity: "kevin@example.com".to_string(),
+                source_owner_trust: "trusted".to_string(),
+                destination_owner_identity: "person@example.com".to_string(),
+                destination_owner_trust: "untrusted".to_string(),
+                export_summary: "Document title and share permission".to_string(),
                 payload_preview: json!({"recipient": "person@example.com"}),
-                status: "pending".to_string(),
             })
             .await
             .expect("create pending approval");
         store
-            .create_mcp_approval_request(NewMcpApprovalRequest {
-                approval_id: "approval:mcp:denied".to_string(),
-                action_summary: "Publish note".to_string(),
-                mcp_server_id: Some("mcp_server:publish".to_string()),
-                mcp_tool_id: Some("mcp_tool:publish:post".to_string()),
-                requester_actor_id: "agent:primary".to_string(),
-                owner_scope_id: "human:local".to_string(),
-                payload_preview: json!({"destination": "example.com"}),
-                status: "denied".to_string(),
-            })
+            .db()
+            .query(
+                r#"
+                CREATE type::record('approval_requests', 'denied_test') SET
+                  approval_id = 'approval:mcp:denied',
+                  action_summary = 'Publish note',
+                  tool_invocation_id = 'tool_invocation:mcp:denied',
+                  mcp_server_id = 'mcp_server:publish',
+                  mcp_tool_id = 'mcp_tool:publish:post',
+                  requester_actor_id = 'agent:primary',
+                  owner_scope_id = 'human:local',
+                  active_scope_id = 'human:local',
+                  destination_summary = 'example.com',
+                  data_source_summary = 'Draft note',
+                  source_owner_identity = 'kevin@example.com',
+                  source_owner_trust = 'trusted',
+                  destination_owner_identity = 'example.com',
+                  destination_owner_trust = 'untrusted',
+                  export_summary = 'Draft note content',
+                  payload_preview = { destination: 'example.com' },
+                  status = 'denied',
+                  decision_actor_id = 'human:local',
+                  decision_comment = 'No',
+                  decided_at = '2026-06-30T00:00:00Z',
+                  updated_at = time::now();
+                "#,
+            )
             .await
-            .expect("create denied approval");
+            .expect("create denied approval")
+            .check()
+            .expect("denied approval row");
 
         let schema = build_schema(GraphqlState::for_tests_with_store(store));
         let response = schema
@@ -582,6 +609,14 @@ mod tests {
                     mcpToolId
                     requesterActorId
                     ownerScopeId
+                    activeScopeId
+                    destinationSummary
+                    dataSourceSummary
+                    sourceOwnerIdentity
+                    sourceOwnerTrust
+                    destinationOwnerIdentity
+                    destinationOwnerTrust
+                    exportSummary
                     payloadPreview
                     status
                   }
@@ -601,6 +636,17 @@ mod tests {
         assert_eq!(approval["mcpToolId"], "mcp_tool:google:share_doc");
         assert_eq!(approval["requesterActorId"], "agent:primary");
         assert_eq!(approval["ownerScopeId"], "human:local");
+        assert_eq!(approval["activeScopeId"], "human:local");
+        assert_eq!(approval["destinationSummary"], "person@example.com");
+        assert_eq!(approval["dataSourceSummary"], "Google Doc: Project plan");
+        assert_eq!(approval["sourceOwnerIdentity"], "kevin@example.com");
+        assert_eq!(approval["sourceOwnerTrust"], "trusted");
+        assert_eq!(approval["destinationOwnerIdentity"], "person@example.com");
+        assert_eq!(approval["destinationOwnerTrust"], "untrusted");
+        assert_eq!(
+            approval["exportSummary"],
+            "Document title and share permission"
+        );
         assert_eq!(
             approval["payloadPreview"]["recipient"],
             "person@example.com"

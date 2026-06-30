@@ -148,6 +148,8 @@ pub struct GraphqlMcpApprovalRequest {
     pub approval_id: String,
     /// Safe human-readable action summary.
     pub action_summary: String,
+    /// Related tool invocation id, when available.
+    pub tool_invocation_id: Option<String>,
     /// Related MCP server id, when available.
     pub mcp_server_id: Option<String>,
     /// Related MCP tool id, when available.
@@ -156,6 +158,22 @@ pub struct GraphqlMcpApprovalRequest {
     pub requester_actor_id: String,
     /// Governable owner scope for the approval.
     pub owner_scope_id: String,
+    /// Active governable scope for the approval.
+    pub active_scope_id: String,
+    /// Destination or recipient summary.
+    pub destination_summary: String,
+    /// Data source summary.
+    pub data_source_summary: String,
+    /// Source owner identity label.
+    pub source_owner_identity: String,
+    /// Source owner trust label.
+    pub source_owner_trust: String,
+    /// Destination owner identity label.
+    pub destination_owner_identity: String,
+    /// Destination owner trust label.
+    pub destination_owner_trust: String,
+    /// What leaves the MCP destination trust boundary.
+    pub export_summary: String,
     /// Safe payload preview for review surfaces.
     pub payload_preview: Json<Value>,
     /// Current approval status.
@@ -173,10 +191,19 @@ impl From<McpApprovalRequestRecord> for GraphqlMcpApprovalRequest {
         Self {
             approval_id: approval.approval_id,
             action_summary: approval.action_summary,
+            tool_invocation_id: approval.tool_invocation_id,
             mcp_server_id: approval.mcp_server_id,
             mcp_tool_id: approval.mcp_tool_id,
             requester_actor_id: approval.requester_actor_id,
             owner_scope_id: approval.owner_scope_id,
+            active_scope_id: approval.active_scope_id,
+            destination_summary: approval.destination_summary,
+            data_source_summary: approval.data_source_summary,
+            source_owner_identity: approval.source_owner_identity,
+            source_owner_trust: approval.source_owner_trust,
+            destination_owner_identity: approval.destination_owner_identity,
+            destination_owner_trust: approval.destination_owner_trust,
+            export_summary: approval.export_summary,
             payload_preview: Json(approval.payload_preview),
             status: approval.status,
             decision_actor_id: approval.decision_actor_id,

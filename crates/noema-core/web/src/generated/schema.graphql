@@ -284,6 +284,10 @@ type GraphqlMcpApprovalRequest {
 	"""
 	actionSummary: String!
 	"""
+	Related tool invocation id, when available.
+	"""
+	toolInvocationId: String
+	"""
 	Related MCP server id, when available.
 	"""
 	mcpServerId: String
@@ -299,6 +303,38 @@ type GraphqlMcpApprovalRequest {
 	Governable owner scope for the approval.
 	"""
 	ownerScopeId: String!
+	"""
+	Active governable scope for the approval.
+	"""
+	activeScopeId: String!
+	"""
+	Destination or recipient summary.
+	"""
+	destinationSummary: String!
+	"""
+	Data source summary.
+	"""
+	dataSourceSummary: String!
+	"""
+	Source owner identity label.
+	"""
+	sourceOwnerIdentity: String!
+	"""
+	Source owner trust label.
+	"""
+	sourceOwnerTrust: String!
+	"""
+	Destination owner identity label.
+	"""
+	destinationOwnerIdentity: String!
+	"""
+	Destination owner trust label.
+	"""
+	destinationOwnerTrust: String!
+	"""
+	What leaves the MCP destination trust boundary.
+	"""
+	exportSummary: String!
 	"""
 	Safe payload preview for review surfaces.
 	"""

@@ -77,10 +77,23 @@ export function ApprovalsSettingsPaneContent({
 
 function approvalRows(approval: McpApprovalRequest): { label: string; value: string }[] {
   return [
+    { label: "Destination", value: approval.destinationSummary },
+    { label: "Data source", value: approval.dataSourceSummary },
+    { label: "Export", value: approval.exportSummary },
+    {
+      label: "Source owner",
+      value: `${approval.sourceOwnerIdentity} (${approval.sourceOwnerTrust})`
+    },
+    {
+      label: "Destination owner",
+      value: `${approval.destinationOwnerIdentity} (${approval.destinationOwnerTrust})`
+    },
+    { label: "Scope", value: approval.activeScopeId },
+    { label: "Requester", value: approval.requesterActorId },
+    { label: "Owner scope", value: approval.ownerScopeId },
+    { label: "Invocation", value: approval.toolInvocationId ?? "Unlinked" },
     { label: "Tool", value: approval.mcpToolId ?? "Unknown tool" },
     { label: "Server", value: approval.mcpServerId ?? "Unknown server" },
-    { label: "Requester", value: approval.requesterActorId },
-    { label: "Owner", value: approval.ownerScopeId },
     { label: "Payload", value: formatPayloadPreview(approval.payloadPreview) }
   ];
 }

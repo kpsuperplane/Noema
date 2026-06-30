@@ -183,10 +183,19 @@ async fn mcp_control_plane_tables_bootstrap() {
             CREATE type::record('approval_requests', 'local_test_approval') SET
               approval_id = 'approval:local-test',
               action_summary = 'Approve local test MCP call',
+              tool_invocation_id = 'tool_invocation:local-test',
               mcp_server_id = 'mcp_server:local-test',
               mcp_tool_id = 'mcp_tool:local-test:read',
               requester_actor_id = 'agent:primary',
               owner_scope_id = 'human:local',
+              active_scope_id = 'human:local',
+              destination_summary = 'Local test recipient',
+              data_source_summary = 'Local test MCP result',
+              source_owner_identity = 'kevin@example.com',
+              source_owner_trust = 'trusted',
+              destination_owner_identity = 'person@example.com',
+              destination_owner_trust = 'untrusted',
+              export_summary = 'Local test data leaves the MCP boundary',
               payload_preview = {},
               status = 'pending',
               updated_at = time::now();
@@ -206,18 +215,33 @@ async fn export_decision_creates_manual_approval_request() {
         .create_mcp_approval_request(NewMcpApprovalRequest {
             approval_id: "approval:mcp:1".to_string(),
             action_summary: "Share Google Doc".to_string(),
+            tool_invocation_id: Some("tool_invocation:mcp:1".to_string()),
             mcp_server_id: Some("mcp_server:google".to_string()),
             mcp_tool_id: Some("mcp_tool:google:share_doc".to_string()),
             requester_actor_id: "agent:primary".to_string(),
             owner_scope_id: "human:local".to_string(),
-            payload_preview: json!({"recipient": "person@example.com"}),
-            status: "pending".to_string(),
+            active_scope_id: "human:local".to_string(),
+            destination_summary: "person@example.com".to_string(),
+            data_source_summary: "Google Doc: Project plan".to_string(),
+            source_owner_identity: "kevin@example.com".to_string(),
+            source_owner_trust: "trusted".to_string(),
+            destination_owner_identity: "person@example.com".to_string(),
+            destination_owner_trust: "untrusted".to_string(),
+            export_summary: "Document title and share permission".to_string(),
+            payload_preview: json!({
+                "recipient": "person@example.com",
+                "api_token": "secret-token"
+            }),
         })
         .await
         .expect("approval");
 
     assert_eq!(approval.approval_id, "approval:mcp:1");
     assert_eq!(approval.action_summary, "Share Google Doc");
+    assert_eq!(
+        approval.tool_invocation_id.as_deref(),
+        Some("tool_invocation:mcp:1")
+    );
     assert_eq!(approval.mcp_server_id.as_deref(), Some("mcp_server:google"));
     assert_eq!(
         approval.mcp_tool_id.as_deref(),
@@ -225,9 +249,20 @@ async fn export_decision_creates_manual_approval_request() {
     );
     assert_eq!(approval.requester_actor_id, "agent:primary");
     assert_eq!(approval.owner_scope_id, "human:local");
+    assert_eq!(approval.active_scope_id, "human:local");
+    assert_eq!(approval.destination_summary, "person@example.com");
+    assert_eq!(approval.data_source_summary, "Google Doc: Project plan");
+    assert_eq!(approval.source_owner_identity, "kevin@example.com");
+    assert_eq!(approval.source_owner_trust, "trusted");
+    assert_eq!(approval.destination_owner_identity, "person@example.com");
+    assert_eq!(approval.destination_owner_trust, "untrusted");
+    assert_eq!(
+        approval.export_summary,
+        "Document title and share permission"
+    );
     assert_eq!(
         approval.payload_preview,
-        json!({"recipient": "person@example.com"})
+        json!({"recipient": "person@example.com", "api_token": "[redacted]"})
     );
     assert_eq!(approval.status, "pending");
 
@@ -847,6 +882,14 @@ async fn approval_request_schema_rejects_invalid_status() {
               action_summary = 'Invalid approval status test',
               requester_actor_id = 'agent:primary',
               owner_scope_id = 'human:local',
+              active_scope_id = 'human:local',
+              destination_summary = 'Destination',
+              data_source_summary = 'Data source',
+              source_owner_identity = 'kevin@example.com',
+              source_owner_trust = 'trusted',
+              destination_owner_identity = 'person@example.com',
+              destination_owner_trust = 'untrusted',
+              export_summary = 'Exported data',
               payload_preview = {},
               status = 'deferred',
               updated_at = time::now();
