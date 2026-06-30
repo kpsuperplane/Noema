@@ -108,15 +108,16 @@ The next storage slice should stay small and concrete:
   account metadata, while Agents is backed by a dedicated GraphQL `agents` read
   model and shows safe registered-agent metadata such as agent ids. Agent
   management actions are not exposed yet.
-- Third-party MCP support should route through a Noema-owned Capability Gateway,
-  not raw model tool handles. MCP setup is a mandatory metadata-only
-  calibration flow: tools get reviewed `read`/`write`/`export` classifications
-  of `none`, `trusted`, `untrusted`, or `mixed`, ownership is resolved through
-  deterministic extractors and trusted identity selectors, unresolved ownership
-  blocks agent use, read results are quarantined before model-visible release,
-  and V1 exports always require manual approval. The web Settings IA should add
-  MCPs, Trusted Identities, Approvals, and Audit surfaces around this control
-  plane.
+- The first third-party MCP control-plane slice has landed. Third-party MCPs
+  route through a Noema-owned Capability Gateway rather than raw model tool
+  handles. MCP setup is a mandatory metadata-only calibration flow: tools get
+  reviewed `read`/`write`/`export` classifications of `none`, `trusted`,
+  `untrusted`, or `mixed`; ownership is resolved through deterministic
+  extractors and trusted identity selectors; unresolved ownership blocks agent
+  use; read results are quarantined before model-visible release; and V1
+  exports always require manual approval. Web Settings now exposes MCPs, Trusted
+  Identities, Approvals, and Audit surfaces backed by GraphQL read models where
+  live data exists.
 - Routed web surfaces learn shell-owned deck state through
   `ShellSurfaceContext` visibility (`visible`, `hiding`, `hidden`, `showing`).
   Surfaces should run focus and other visible-only side effects only when
@@ -213,10 +214,10 @@ The next storage slice should stay small and concrete:
 - Add richer graph neighborhood inspection for CLI, GraphQL, and web.
 - Continue aligning docs, schema, CLI inspection commands, and frontend IA.
 - Decide which export formats ship first and how export preview/redaction should work.
-- Implement the third-party MCP control plane from
-  `docs/superpowers/specs/2026-06-30-third-party-mcp-control-plane-design.md`,
-  including Settings surfaces for MCP calibration, trusted identities,
-  approvals, and audit.
+- Continue the third-party MCP control plane after the first landed slice:
+  implement actual third-party server installation/auth management, approval
+  decision mutations, richer audit event persistence, and any future
+  auto-approval model hooks.
 - Add signing, notarization, update, and production distribution for the Tauri
   macOS app after the unsigned developer build is stable.
 - Revisit migrations only when the project needs persisted user data compatibility.

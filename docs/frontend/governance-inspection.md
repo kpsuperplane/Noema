@@ -450,6 +450,29 @@ requires approval before seeing adapter schemas or registry internals.
 The management drill-in should be presented through a capability registry
 model.
 
+Current Settings MCP slice:
+
+- `/settings/mcps` shows configured third-party MCP server metadata, discovered
+  tools, health/auth state, and reviewed calibration classifications. It is
+  metadata-only and does not invoke MCP tools during setup.
+- `/settings/trusted-identities` lists trusted identity selectors for emails,
+  phone numbers, and domains. These selectors are the user-owned trust anchors
+  for ownership extraction.
+- `/settings/approvals` lists pending MCP approval requests with structured
+  decision evidence: requested action, source and destination summaries, source
+  and destination owner identity/trust, export summary, active scope, requester,
+  linked invocation id, server/tool ids, and a sanitized payload preview.
+- `/settings/audit` is present as the global MCP audit drill-in placeholder.
+  Mediated calls already record invocation/quarantine/approval state in the
+  store, but the full audit stream UI still needs event persistence and
+  filtering.
+
+The approval surface intentionally treats every row as decision material, not
+model prose. Approval requests must be linked to a tool invocation, terminal
+states require actor/time decision evidence, and persisted payload previews are
+redacted before storage for secret, token, password, credential, API key,
+private-key, authorization, auth, cookie, session, and set-cookie shaped keys.
+
 ### Capability Detail
 
 Show:
