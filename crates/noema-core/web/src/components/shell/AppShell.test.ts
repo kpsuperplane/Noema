@@ -79,6 +79,18 @@ describe("deck navigation behavior", () => {
     });
   });
 
+  test("wide viewport sync closes mobile reveal without changing collapse state", () => {
+    const state: DeckNavigationState = {
+      navOpen: true,
+      sidebarCollapsed: true
+    };
+
+    assert.deepEqual(deckNavigationReducer(state, { type: "syncWideViewport" }), {
+      navOpen: false,
+      sidebarCollapsed: true
+    });
+  });
+
   test("toggles desktop collapse and closes revealed navigation", () => {
     const collapsed = deckNavigationReducer(initialDeckNavigationState, {
       type: "toggleSidebarCollapsed"

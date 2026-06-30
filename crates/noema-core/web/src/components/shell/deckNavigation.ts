@@ -11,6 +11,7 @@ export type DeckNavigationAction =
   | { type: "closeNav" }
   | { type: "escape" }
   | { type: "navigate" }
+  | { type: "syncWideViewport" }
   | { type: "toggleSidebarCollapsed" };
 
 export const initialDeckNavigationState: DeckNavigationState = {
@@ -28,6 +29,7 @@ export function deckNavigationReducer(
     case "closeNav":
     case "escape":
     case "navigate":
+    case "syncWideViewport":
       return { ...state, navOpen: false };
     case "toggleSidebarCollapsed":
       return {
@@ -85,6 +87,23 @@ export function useDeckNavigation(onNavigate: (route: AppRoute) => void) {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [state.navOpen]);
+
+  React.useEffect(() => {
+    if (typeof window.matchMedia !== "function") {
+      return;
+    }
+
+    const wideViewportQuery = window.matchMedia("(min-width: 761px)");
+    const syncWideViewport = (query: Pick<MediaQueryList, "matches">) => {
+      if (query.matches) {
+        dispatch({ type: "syncWideViewport" });
+      }
+    };
+
+    syncWideViewport(wideViewportQuery);
+    wideViewportQuery.addEventListener("change", syncWideViewport);
+    return () => wideViewportQuery.removeEventListener("change", syncWideViewport);
+  }, []);
 
   return {
     state,
