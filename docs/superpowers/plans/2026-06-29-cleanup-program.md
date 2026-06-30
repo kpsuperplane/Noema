@@ -557,7 +557,7 @@ Expected: daemon web module split commit.
 - Create: `crates/noema-core/src/daemon/runtime/local_tools.rs`
 - Create: `crates/noema-core/src/daemon/runtime/memory_writes.rs`
 
-- [ ] **Step 1: Convert runtime file into a module root** *(in progress)*
+- [x] **Step 1: Convert runtime file into a module root**
 
 Move current `runtime.rs` contents into child modules, leaving `runtime.rs` as:
 
@@ -574,35 +574,35 @@ pub(crate) use handle::CodexRuntimeHandle;
 
 Add additional `pub(super)` or `pub(crate)` exports only where needed.
 
-- [ ] **Step 2: Move handle and command types**
+- [x] **Step 2: Move handle and command types**
 
 Move `RuntimeModelProvider`, `CodexRuntimeHandle`, `apply_provider_account_home`, and `CodexRuntimeCommand` into `runtime/handle.rs`.
 
-- [ ] **Step 3: Move actor state**
+- [x] **Step 3: Move actor state**
 
 Move `CodexRuntimeActor`, `ActiveConversation`, and command dispatch loop into `runtime/actor.rs`.
 
-- [ ] **Step 4: Move turn orchestration**
+- [x] **Step 4: Move turn orchestration**
 
 Move `start_conversation`, `start_primary_conversation`, onboarding turn handling, and `turn` orchestration into `runtime/turn.rs` as impl blocks for `CodexRuntimeActor`.
 
-- [ ] **Step 5: Move transcript persistence**
+- [x] **Step 5: Move transcript persistence**
 
 Move `send_conversation_item`, `send_transient_turn_item`, stream event helpers, `persist_provider_response_output_item`, `persist_provider_action_output_item`, `persist_provider_action_output`, `persist_and_send_turn_item`, and `persist_turn_item` into `runtime/transcript_persistence.rs`.
 
-- [ ] **Step 6: Move local tool handling**
+- [x] **Step 6: Move local tool handling**
 
 Move `LocalToolResult`, `execute_local_tools`, `agent_identity_after_local_tools`, and local tool result conversion helpers into `runtime/local_tools.rs`.
 
-- [ ] **Step 7: Move memory write orchestration**
+- [x] **Step 7: Move memory write orchestration**
 
 Move canonicalization, provider memory proposal persistence, consolidation decision persistence, explicit memory claim persistence, memory activity summary helpers, and `PersistedMemoryOutcome` into `runtime/memory_writes.rs`.
 
-- [ ] **Step 8: Remove or implement `MemoryExtractionWorker`**
+- [x] **Step 8: Remove or implement `MemoryExtractionWorker`**
 
 If no caller uses it for real work, remove `MemoryExtractionWorkerHandle`, `MemoryExtractionWorkerCommand`, and `MemoryExtractionWorker`, and remove the actor field. Runtime shutdown should remain graceful without it.
 
-- [ ] **Step 9: Run daemon runtime tests**
+- [x] **Step 9: Run daemon runtime tests**
 
 Run:
 
@@ -613,7 +613,7 @@ cargo test -p noema-core daemon --no-fail-fast
 
 Expected: daemon tests pass or report sandbox socket permission distinction.
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 Run:
 
@@ -642,7 +642,7 @@ Expected: runtime module split commit.
 - Create: `crates/noema-core/src/store/claims/labels.rs`
 - Modify tests under `crates/noema-core/src/store/tests`
 
-- [ ] **Step 1: Convert `claims.rs` into module root**
+- [ ] **Step 1: Convert `claims.rs` into module root** *(in progress)*
 
 Create `store/claims/` and leave `store/claims.rs` as:
 
