@@ -35,6 +35,30 @@ describe("handleConversationEvent", () => {
     assert.equal(entry.itemId, "item-done");
     assert.equal(entry.item.status, "COMPLETED");
   });
+
+  test("removes stale started memory extraction when turn completes", () => {
+    let transcript: TranscriptEntry[] = [];
+    let pending = true;
+    let agentStatus: ConversationAgentStatus = "THINKING";
+    const setters = {
+      setTranscript: (next: SetStateAction<TranscriptEntry[]>) => {
+        transcript = typeof next === "function" ? next(transcript) : next;
+      },
+      setPending: (next: SetStateAction<boolean>) => {
+        pending = typeof next === "function" ? next(pending) : next;
+      },
+      setAgentStatus: (next: SetStateAction<ConversationAgentStatus>) => {
+        agentStatus = typeof next === "function" ? next(agentStatus) : next;
+      }
+    };
+
+    handleConversationEvent(memoryExtractionEvent("item-start", "STARTED", "Memory proposed"), setters);
+    handleConversationEvent(turnCompletedEvent(), setters);
+
+    assert.deepEqual(transcript, []);
+    assert.equal(pending, false);
+    assert.equal(agentStatus, "IDLE");
+  });
 });
 
 function memoryExtractionEvent(itemId: string, status: "STARTED" | "COMPLETED", title: string): ConversationEvent {
@@ -54,5 +78,13 @@ function memoryExtractionEvent(itemId: string, status: "STARTED" | "COMPLETED", 
       summary: null,
       metadata: null
     }
+  } as ConversationEvent;
+}
+
+function turnCompletedEvent(): ConversationEvent {
+  return {
+    __typename: "GraphqlTurnCompletedEvent",
+    conversationId: "conversation_1",
+    clientMessageId: null
   } as ConversationEvent;
 }

@@ -1489,22 +1489,39 @@ async fn provider_memory_discards_local_human_preference_from_assistant_status_c
         .start_conversation(None, None)
         .await
         .expect("conversation");
-    let items = collect_turn(&handle, conversation.conversation_id, "Nice".to_string())
-        .await
-        .expect("turn should complete despite rejected status-chatter memory proposal");
+    let (result, events) =
+        collect_turn_events(&handle, conversation.conversation_id, "Nice".to_string()).await;
+    result.expect("turn should complete despite rejected status-chatter memory proposal");
+    let items = transcript_items_from_events(events.clone());
 
     assert_eq!(
         assistant_text(&items),
         "Tiny but important onboarding victory. Fred has a plane-shaped sticky note now."
     );
+    let proposed_index =
+        memory_extraction_event_index(&events, TurnActivityStatus::Started, "Memory proposed")
+            .expect("streamed memory proposal marker");
+    let assistant_item_index = assistant_text_item_event_index(
+        &events,
+        "Tiny but important onboarding victory. Fred has a plane-shaped sticky note now.",
+    )
+    .expect("persisted assistant text item");
+    assert!(
+        proposed_index < assistant_item_index,
+        "streamed proposal marker should not wait for provider response persistence: {events:?}"
+    );
     assert!(
         !items.iter().any(|item| {
             matches!(
                 item,
-                TurnTranscriptItem::Activity { activity_kind, .. } if activity_kind == "memory_extraction"
+                TurnTranscriptItem::Activity {
+                    activity_kind,
+                    status: TurnActivityStatus::Completed | TurnActivityStatus::Failed,
+                    ..
+                } if activity_kind == "memory_extraction"
             )
         }),
-        "assistant status chatter should not create a user-facing memory activity: {items:?}"
+        "assistant status chatter should not create a terminal memory activity: {items:?}"
     );
 
     let claims = store
@@ -1597,6 +1614,12 @@ async fn runtime_actor_persists_provider_memory_proposals_as_graph_claims() {
     let proposed_index =
         memory_extraction_event_index(&events, TurnActivityStatus::Started, "Memory proposed")
             .expect("started memory proposal activity");
+    let assistant_item_index =
+        assistant_text_item_event_index(&events, "fake answer").expect("persisted assistant text");
+    assert!(
+        proposed_index < assistant_item_index,
+        "proposal marker should stream before provider response persistence: {events:?}"
+    );
     assert!(
         memory_proposals_card_event_index(&events).is_none(),
         "provider proposal card should stay suppressed for graph-claim writes"
@@ -3235,6 +3258,19 @@ fn memory_proposals_card_event_index(events: &[TurnStreamEvent]) -> Option<usize
                 if matches!(
                     item.as_ref(),
                     TurnTranscriptItem::A2uiCard { schema, .. } if schema == "memory_proposals"
+                )
+        )
+    })
+}
+
+fn assistant_text_item_event_index(events: &[TurnStreamEvent], expected_text: &str) -> Option<usize> {
+    events.iter().position(|event| {
+        matches!(
+            event,
+            TurnStreamEvent::ConversationItem { item, .. }
+                if matches!(
+                    item.as_ref(),
+                    TurnTranscriptItem::AssistantText { text } if text == expected_text
                 )
         )
     })

@@ -542,7 +542,9 @@ pub(super) fn handle_provider_stream_event(
             stream_id,
             delta,
         ),
-        GenerateStreamEvent::MemoryProposalsStarted => {}
+        GenerateStreamEvent::MemoryProposalsStarted => {
+            send_memory_proposals_started_transient(context, item_tx);
+        }
         GenerateStreamEvent::ToolCallStarted { output_index, name } => {
             send_tool_call_started_transient(
                 context,
@@ -552,6 +554,28 @@ pub(super) fn handle_provider_stream_event(
             );
         }
     }
+}
+
+fn send_memory_proposals_started_transient(
+    context: &ConversationMemoryContext,
+    item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
+) {
+    let activity_id = format!(
+        "memory_extraction:{}:{}",
+        context.conversation_id, context.turn_index
+    );
+    let activity = typed_memory_activity(
+        &activity_id,
+        "memory_extraction",
+        TurnActivityStatus::Started,
+        "Memory proposed",
+        Some("memory proposal is streaming"),
+        json!({
+            "turn_index": context.turn_index,
+            "source": "provider_stream",
+        }),
+    );
+    send_transient_turn_item(context, activity, item_tx);
 }
 
 fn send_tool_call_started_transient(

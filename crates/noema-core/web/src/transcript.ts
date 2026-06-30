@@ -22,6 +22,7 @@ export function handleConversationEvent(
   }
 ) {
   if (event.__typename === "GraphqlTurnCompletedEvent") {
+    setters.setTranscript((current) => removeStaleStartedMemoryExtractions(current));
     setters.setPending(false);
     setters.setAgentStatus("IDLE");
     return;
@@ -113,6 +114,17 @@ function upsertTranscriptEntryValue(current: TranscriptEntry[], entry: Transcrip
   }
 
   return [...current, entry];
+}
+
+function removeStaleStartedMemoryExtractions(current: TranscriptEntry[]): TranscriptEntry[] {
+  return current.filter(
+    (entry) =>
+      !(
+        entry.type === "activity" &&
+        entry.item.activity_kind === "memory_extraction" &&
+        entry.item.status === "STARTED"
+      )
+  );
 }
 
 function transcriptEntryItemId(entry: TranscriptEntry): string | undefined {
