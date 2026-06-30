@@ -3,6 +3,7 @@
 node_modules/
 .noema-dev/
 .local/
+.superpowers/
 .env
 .env.*
 !.env.example
