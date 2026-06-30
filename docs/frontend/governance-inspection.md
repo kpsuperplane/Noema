@@ -454,7 +454,9 @@ Current Settings MCP slice:
 
 - `/settings/mcps` shows configured third-party MCP server metadata, discovered
   tools, health/auth state, and reviewed calibration classifications. It is
-  metadata-only and does not invoke MCP tools during setup.
+  metadata-only and does not invoke MCP tools during setup. Add-server setup
+  follows: input details -> verify server -> authenticate if needed -> fetch
+  tools/schema -> configure tools.
 - `/settings/trusted-identities` lists trusted identity selectors for emails,
   phone numbers, and domains. These selectors are the user-owned trust anchors
   for ownership extraction.

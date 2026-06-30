@@ -115,7 +115,11 @@ The next storage slice should stay small and concrete:
   `untrusted`, or `mixed`; ownership is resolved through deterministic
   extractors and trusted identity selectors; unresolved ownership blocks agent
   use; read results are quarantined before model-visible release; and V1
-  exports always require manual approval. Web Settings now exposes MCPs, Trusted
+  exports always require manual approval. Web Settings can now add MCP servers
+  through a guided setup flow that stores secrets under `${NOEMA_HOME}/mcp/`,
+  verifies metadata-only connectivity, handles auth-required retry, fetches
+  tool schemas, and immediately prompts calibration while keeping discovered
+  tools disabled and agent-invisible. Web Settings also exposes MCPs, Trusted
   Identities, Approvals, and Audit surfaces backed by GraphQL read models where
   live data exists.
 - Routed web surfaces learn shell-owned deck state through
