@@ -9,10 +9,9 @@ use noema_core::{
     CliOverrides, DaemonError, MemoryPersistenceError, NoemaHomeError, NoemaPathError,
     ProviderError,
 };
-use std::{
-    io,
-    path::{Path, PathBuf},
-};
+#[cfg(test)]
+use std::path::Path;
+use std::{io, path::PathBuf};
 use thiserror::Error;
 
 mod commands;
