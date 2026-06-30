@@ -182,8 +182,18 @@ pub struct GraphqlToolCalibration {
     pub write_classification: String,
     /// Effective export classification.
     pub export_classification: String,
+    /// Deterministic owner extractors configured for this tool.
+    pub owner_extractors: Vec<GraphqlOwnerExtractor>,
+    /// Agents allowed to see/use this calibration.
+    pub enabled_agent_ids: Vec<String>,
+    /// Governable scopes where this calibration is enabled.
+    pub enabled_scope_ids: Vec<String>,
     /// Review/gateway readiness status.
     pub status: String,
+    /// Actor who reviewed the calibration, when reviewed.
+    pub reviewed_by: Option<String>,
+    /// Tool metadata fingerprint reviewed by the actor.
+    pub reviewed_metadata_fingerprint: Option<String>,
 }
 
 impl From<ToolCalibrationRecord> for GraphqlToolCalibration {
@@ -194,7 +204,37 @@ impl From<ToolCalibrationRecord> for GraphqlToolCalibration {
             read_classification: calibration.read_classification.as_str().to_string(),
             write_classification: calibration.write_classification.as_str().to_string(),
             export_classification: calibration.export_classification.as_str().to_string(),
+            owner_extractors: calibration
+                .owner_extractors
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+            enabled_agent_ids: calibration.enabled_agent_ids,
+            enabled_scope_ids: calibration.enabled_scope_ids,
             status: calibration.status.as_str().to_string(),
+            reviewed_by: calibration.reviewed_by,
+            reviewed_metadata_fingerprint: calibration.reviewed_metadata_fingerprint,
+        }
+    }
+}
+
+/// Deterministic owner extractor safe to show in Settings.
+#[derive(Clone, Debug, SimpleObject)]
+pub struct GraphqlOwnerExtractor {
+    /// Source document or field family to inspect.
+    pub source: String,
+    /// Type of trusted identity this extractor returns.
+    pub selector_kind: String,
+    /// JSON pointer, JSONPath-style path, URI pattern, or adapter key.
+    pub path: String,
+}
+
+impl From<OwnerExtractor> for GraphqlOwnerExtractor {
+    fn from(extractor: OwnerExtractor) -> Self {
+        Self {
+            source: owner_extractor_source_label(extractor.source).to_string(),
+            selector_kind: extractor.selector_kind.as_str().to_string(),
+            path: extractor.path,
         }
     }
 }
@@ -360,6 +400,16 @@ const fn selector_effect_label(effect: TrustedIdentitySelectorEffect) -> &'stati
     match effect {
         TrustedIdentitySelectorEffect::Trust => "trust",
         TrustedIdentitySelectorEffect::Restrict => "restrict",
+    }
+}
+
+const fn owner_extractor_source_label(source: OwnerExtractorSource) -> &'static str {
+    match source {
+        OwnerExtractorSource::Arguments => "arguments",
+        OwnerExtractorSource::StructuredContent => "structured_content",
+        OwnerExtractorSource::Metadata => "metadata",
+        OwnerExtractorSource::ResourceUri => "resource_uri",
+        OwnerExtractorSource::BuiltInAdapter => "built_in_adapter",
     }
 }
 

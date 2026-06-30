@@ -17,6 +17,14 @@ pub struct McpSecretMaterial {
     pub headers: BTreeMap<String, String>,
 }
 
+impl McpSecretMaterial {
+    /// Whether this setup material contains any configured secret.
+    #[must_use]
+    pub fn has_secret_material(&self) -> bool {
+        !self.env.is_empty() || !self.headers.is_empty()
+    }
+}
+
 /// Write MCP secrets under one server's private home directory.
 ///
 /// # Errors

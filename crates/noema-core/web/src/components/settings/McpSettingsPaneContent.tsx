@@ -1,5 +1,5 @@
 import * as React from "react";
-import { RefreshCw, Settings2, Trash2 } from "lucide-react";
+import { AlertTriangle, RefreshCw, Settings2, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -13,6 +13,7 @@ import {
 import {
   mcpEnabledLabel,
   mcpMetadataRows,
+  mcpToolCountLabel,
   type McpSettingsServer
 } from "./mcpMetadata";
 import {
@@ -32,12 +33,13 @@ export function McpSettingsPaneContent({
   setupError = null,
   permissionsServerId = null,
   deleteSubmitting = false,
+  deleteError = null,
   onOpenSetup = () => {},
   onCloseSetup = () => {},
   onCreateServer = () => {},
   onOpenPermissions = () => {},
   onClosePermissions = () => {},
-  onDeleteServer = () => {},
+  onDeleteServer = async () => false,
   onRetry
 }: {
   servers: readonly McpSettingsServer[];
@@ -49,16 +51,19 @@ export function McpSettingsPaneContent({
   setupError?: string | null;
   permissionsServerId?: string | null;
   deleteSubmitting?: boolean;
+  deleteError?: string | null;
   onOpenSetup?: () => void;
   onCloseSetup?: () => void;
   onCreateServer?: (input: McpSetupFormSubmission) => void;
   onOpenPermissions?: (mcpServerId: string) => void;
   onClosePermissions?: () => void;
-  onDeleteServer?: (mcpServerId: string) => void;
+  onDeleteServer?: (mcpServerId: string) => Promise<boolean>;
   onRetry: () => void;
 }) {
+  const [deleteTargetId, setDeleteTargetId] = React.useState<string | null>(null);
   const selectedPermissionsServer =
     servers.find((server) => server.mcpServerId === permissionsServerId) ?? null;
+  const deleteTarget = servers.find((server) => server.mcpServerId === deleteTargetId) ?? null;
 
   if (loading) {
     return <p className="m-0 text-sm text-muted-foreground">Loading MCP servers...</p>;
@@ -130,7 +135,7 @@ export function McpSettingsPaneContent({
                 type="button"
                 variant="destructive"
                 disabled={deleteSubmitting}
-                onClick={() => onDeleteServer(server.mcpServerId)}
+                onClick={() => setDeleteTargetId(server.mcpServerId)}
               >
                 <Trash2 className="size-4" aria-hidden="true" />
                 Delete
@@ -172,7 +177,80 @@ export function McpSettingsPaneContent({
           }}
         />
       ) : null}
+      <DeleteMcpServerDialog
+        server={deleteTarget}
+        open={deleteTarget !== null}
+        submitting={deleteSubmitting}
+        error={deleteError}
+        onOpenChange={(open) => {
+          if (!open && !deleteSubmitting) setDeleteTargetId(null);
+        }}
+        onConfirm={async () => {
+          if (!deleteTarget) return;
+          const deleted = await onDeleteServer(deleteTarget.mcpServerId);
+          if (deleted) setDeleteTargetId(null);
+        }}
+      />
     </div>
+  );
+}
+
+function DeleteMcpServerDialog({
+  server,
+  open,
+  submitting,
+  error,
+  onOpenChange,
+  onConfirm
+}: {
+  server: McpSettingsServer | null;
+  open: boolean;
+  submitting: boolean;
+  error: string | null;
+  onOpenChange: (open: boolean) => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Delete MCP server</DialogTitle>
+          <DialogDescription>
+            {server
+              ? `Delete ${server.displayName}, its stored secrets, ${mcpToolCountLabel(
+                  server.toolCount
+                )}, and any saved tool calibration.`
+              : "Delete this MCP server and its stored secrets."}
+          </DialogDescription>
+        </DialogHeader>
+        <DialogBody className="grid gap-3">
+          <p className="m-0 flex items-start gap-2 text-sm text-muted-foreground">
+            <AlertTriangle className="mt-0.5 size-4 text-destructive" aria-hidden="true" />
+            This cannot be undone from Settings. Historical approval and audit records are kept.
+          </p>
+          {error ? <p className="m-0 text-sm text-destructive">{error}</p> : null}
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={submitting}
+              onClick={onConfirm}
+            >
+              <Trash2 className="size-4" aria-hidden="true" />
+              Delete server
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={submitting}
+              onClick={() => onOpenChange(false)}
+            >
+              Cancel
+            </Button>
+          </div>
+        </DialogBody>
+      </DialogContent>
+    </Dialog>
   );
 }
 

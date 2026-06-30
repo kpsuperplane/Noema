@@ -7,8 +7,15 @@ export type McpMetadataRow = {
   value: string;
 };
 
-export function mcpEnabledLabel(server: Pick<McpSettingsServer, "enabled">) {
-  return server.enabled ? "Enabled" : "Disabled";
+export function mcpEnabledLabel(
+  server: Pick<McpSettingsServer, "enabled" | "healthStatus" | "toolCount">
+) {
+  if (server.enabled) return "Enabled";
+  if (server.healthStatus === "healthy" && server.toolCount > 0) {
+    return "Needs tool calibration";
+  }
+  if (server.healthStatus === "unavailable") return "Setup unavailable";
+  return "Disabled";
 }
 
 export function mcpToolCountLabel(toolCount: number) {
@@ -16,6 +23,7 @@ export function mcpToolCountLabel(toolCount: number) {
 }
 
 export function mcpStatusLabel(status: string) {
+  if (status === "none") return "Not required";
   return titleCaseStatus(status);
 }
 

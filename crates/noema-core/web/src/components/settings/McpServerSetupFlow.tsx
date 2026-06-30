@@ -1,5 +1,13 @@
 import * as React from "react";
-import { CheckCircle2, KeyRound, Loader2, Plus, ShieldCheck } from "lucide-react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Circle,
+  KeyRound,
+  Loader2,
+  Plus,
+  ShieldCheck
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import type { CreateMcpServerMutation } from "@/generated/graphql";
@@ -105,6 +113,8 @@ export function McpServerSetupFlow({
   }
 
   const visibleError = formError ?? setupError ?? setupResult?.setupError ?? null;
+  const stepStates = setupStepStates(setupResult?.setupStatus ?? null, setupSubmitting);
+  const closeLabel = setupResult?.setupStatus === "needs_auth" ? "Close and keep draft" : "Close";
 
   return (
     <section className="grid gap-4">
@@ -122,14 +132,14 @@ export function McpServerSetupFlow({
       </div>
 
       <ol className="grid gap-2 text-sm text-muted-foreground sm:grid-cols-4">
-        {["Verifying server", "Authentication required", "Fetching tools", "Configure tools"].map(
-          (label) => (
-            <li key={label} className="flex items-center gap-2">
-              <CheckCircle2 className="size-4 text-[var(--pine-700)]" aria-hidden="true" />
-              {label}
-            </li>
-          )
-        )}
+        {stepStates.map((step) => (
+          <li key={step.label} className="flex items-center gap-2">
+            <SetupStepIcon state={step.state} />
+            <span className={step.state === "current" ? "font-medium text-foreground" : ""}>
+              {step.label}
+            </span>
+          </li>
+        ))}
       </ol>
 
       <form className="grid gap-3" onSubmit={submitCreate}>
@@ -191,6 +201,10 @@ export function McpServerSetupFlow({
             <KeyRound className="size-4" aria-hidden="true" />
             Authentication required
           </div>
+          <p className="m-0 text-sm text-muted-foreground">
+            The server has not been saved yet. Add the secret environment variables or headers this
+            MCP server expects, then retry setup to verify and list tools.
+          </p>
           <div className="grid gap-3 sm:grid-cols-2">
             <TextAreaField label="Secret env" value={retrySecretEnv} onChange={setRetrySecretEnv} />
             <TextAreaField
@@ -219,11 +233,70 @@ export function McpServerSetupFlow({
       ) : null}
       {onCancel ? (
         <Button type="button" variant="ghost" className="w-fit" onClick={onCancel}>
-          Close
+          {closeLabel}
         </Button>
       ) : null}
     </section>
   );
+}
+
+type SetupStepState = "pending" | "current" | "complete" | "blocked";
+
+function setupStepStates(
+  setupStatus: string | null,
+  submitting: boolean
+): { label: string; state: SetupStepState }[] {
+  if (setupStatus === "ready_for_calibration") {
+    return [
+      { label: "Verify server", state: "complete" },
+      { label: "Authenticate if needed", state: "complete" },
+      { label: "Fetch tools", state: "complete" },
+      { label: "Configure tools", state: "current" }
+    ];
+  }
+  if (setupStatus === "needs_auth") {
+    return [
+      { label: "Verify server", state: "complete" },
+      { label: "Authenticate if needed", state: "current" },
+      { label: "Fetch tools", state: "pending" },
+      { label: "Configure tools", state: "pending" }
+    ];
+  }
+  if (setupStatus === "unavailable" || setupStatus === "malformed") {
+    return [
+      { label: "Verify server", state: "blocked" },
+      { label: "Authenticate if needed", state: "pending" },
+      { label: "Fetch tools", state: "pending" },
+      { label: "Configure tools", state: "pending" }
+    ];
+  }
+  if (submitting) {
+    return [
+      { label: "Verify server", state: "current" },
+      { label: "Authenticate if needed", state: "pending" },
+      { label: "Fetch tools", state: "pending" },
+      { label: "Configure tools", state: "pending" }
+    ];
+  }
+  return [
+    { label: "Verify server", state: "pending" },
+    { label: "Authenticate if needed", state: "pending" },
+    { label: "Fetch tools", state: "pending" },
+    { label: "Configure tools", state: "pending" }
+  ];
+}
+
+function SetupStepIcon({ state }: { state: SetupStepState }) {
+  if (state === "complete") {
+    return <CheckCircle2 className="size-4 text-[var(--pine-700)]" aria-hidden="true" />;
+  }
+  if (state === "current") {
+    return <Circle className="size-4 text-[var(--pine-700)]" aria-hidden="true" />;
+  }
+  if (state === "blocked") {
+    return <AlertTriangle className="size-4 text-destructive" aria-hidden="true" />;
+  }
+  return <Circle className="size-4 text-muted-foreground" aria-hidden="true" />;
 }
 
 function mergeRetrySecrets(

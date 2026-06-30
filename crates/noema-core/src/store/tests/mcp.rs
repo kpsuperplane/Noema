@@ -502,6 +502,27 @@ async fn ready_mixed_calibration_requires_owner_extractor() {
 }
 
 #[tokio::test]
+async fn ready_calibration_requires_agent_and_scope_visibility() {
+    let store = test_store_with_mcp_tool().await;
+
+    let mut missing_agent = ready_mixed_calibration("fingerprint_1");
+    missing_agent.enabled_agent_ids.clear();
+    let error = store
+        .save_tool_calibration(missing_agent)
+        .await
+        .expect_err("ready calibration without agent visibility should fail");
+    assert!(error.to_string().contains("enabled agent"));
+
+    let mut missing_scope = ready_mixed_calibration("fingerprint_1");
+    missing_scope.enabled_scope_ids.clear();
+    let error = store
+        .save_tool_calibration(missing_scope)
+        .await
+        .expect_err("ready calibration without scope visibility should fail");
+    assert!(error.to_string().contains("enabled scope"));
+}
+
+#[tokio::test]
 async fn ready_calibration_requires_current_metadata_fingerprint() {
     let store = test_store_with_mcp_tool().await;
 

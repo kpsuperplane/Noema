@@ -89,6 +89,15 @@ export const McpToolsDocument = gql`
         readClassification
         writeClassification
         exportClassification
+        ownerExtractors {
+          source
+          selectorKind
+          path
+        }
+        enabledAgentIds
+        enabledScopeIds
+        reviewedBy
+        reviewedMetadataFingerprint
       }
     }
   }

@@ -117,7 +117,8 @@ where
             safe_config,
         })
         .await?;
-    persist_discovered_tools(store, server, tools).await
+    let auth_status = auth_status_for_verified_secrets(&input.secrets);
+    persist_discovered_tools(store, server, tools, auth_status).await
 }
 
 /// Update secrets for an existing MCP server and retry metadata discovery.
@@ -168,7 +169,10 @@ where
 {
     let mut runtime = McpClientRuntime::new(make_transport(&server, secrets));
     match runtime.discover_tools().await {
-        Ok(tools) => persist_discovered_tools(store, server, tools).await,
+        Ok(tools) => {
+            let auth_status = auth_status_for_verified_secrets(secrets);
+            persist_discovered_tools(store, server, tools, auth_status).await
+        }
         Err(error) => setup_result_from_error(store, &server.mcp_server_id, error).await,
     }
 }
@@ -177,6 +181,7 @@ async fn persist_discovered_tools(
     store: &NoemaStore,
     server: McpServerRecord,
     tools: Vec<DiscoveredMcpTool>,
+    auth_status: McpServerAuthStatus,
 ) -> Result<McpServerSetupResult, StoreError> {
     let count = tools.len();
     for tool in tools {
@@ -188,7 +193,7 @@ async fn persist_discovered_tools(
         .update_mcp_server_setup_status(
             &server.mcp_server_id,
             McpServerHealthStatus::Healthy,
-            McpServerAuthStatus::None,
+            auth_status,
         )
         .await?;
     Ok(McpServerSetupResult {
@@ -206,26 +211,26 @@ async fn setup_result_from_error(
     error: McpClientError,
 ) -> Result<McpServerSetupResult, StoreError> {
     let (setup_status, discovery_status, health_status, auth_status, setup_error) = match error {
-        McpClientError::AuthRequired(message) => (
+        McpClientError::AuthRequired(_) => (
             McpSetupStatus::NeedsAuth,
             "needs_auth",
             McpServerHealthStatus::Unavailable,
             McpServerAuthStatus::NeedsAuth,
-            Some(message),
+            Some(safe_setup_error_text(McpSetupStatus::NeedsAuth)),
         ),
-        McpClientError::Transport(message) => (
+        McpClientError::Transport(_) => (
             McpSetupStatus::Unavailable,
             "unavailable",
             McpServerHealthStatus::Unavailable,
             McpServerAuthStatus::Unavailable,
-            Some(message),
+            Some(safe_setup_error_text(McpSetupStatus::Unavailable)),
         ),
-        McpClientError::Malformed(message) => (
+        McpClientError::Malformed(_) => (
             McpSetupStatus::Malformed,
             "malformed",
             McpServerHealthStatus::Unavailable,
             McpServerAuthStatus::Unavailable,
-            Some(message),
+            Some(safe_setup_error_text(McpSetupStatus::Malformed)),
         ),
     };
     let server = store
@@ -242,15 +247,21 @@ async fn setup_result_from_error(
 
 fn unpersisted_setup_result_from_error(error: McpClientError) -> McpServerSetupResult {
     let (setup_status, discovery_status, setup_error) = match error {
-        McpClientError::AuthRequired(message) => {
-            (McpSetupStatus::NeedsAuth, "needs_auth", Some(message))
-        }
-        McpClientError::Transport(message) => {
-            (McpSetupStatus::Unavailable, "unavailable", Some(message))
-        }
-        McpClientError::Malformed(message) => {
-            (McpSetupStatus::Malformed, "malformed", Some(message))
-        }
+        McpClientError::AuthRequired(_) => (
+            McpSetupStatus::NeedsAuth,
+            "needs_auth",
+            Some(safe_setup_error_text(McpSetupStatus::NeedsAuth)),
+        ),
+        McpClientError::Transport(_) => (
+            McpSetupStatus::Unavailable,
+            "unavailable",
+            Some(safe_setup_error_text(McpSetupStatus::Unavailable)),
+        ),
+        McpClientError::Malformed(_) => (
+            McpSetupStatus::Malformed,
+            "malformed",
+            Some(safe_setup_error_text(McpSetupStatus::Malformed)),
+        ),
     };
     McpServerSetupResult {
         server: None,
@@ -258,6 +269,30 @@ fn unpersisted_setup_result_from_error(error: McpClientError) -> McpServerSetupR
         discovery_status: Some(discovery_status.to_string()),
         discovered_tool_count: 0,
         setup_error,
+    }
+}
+
+fn auth_status_for_verified_secrets(secrets: &McpSecretMaterial) -> McpServerAuthStatus {
+    if secrets.has_secret_material() {
+        McpServerAuthStatus::Authenticated
+    } else {
+        McpServerAuthStatus::None
+    }
+}
+
+fn safe_setup_error_text(status: McpSetupStatus) -> String {
+    match status {
+        McpSetupStatus::NeedsAuth => {
+            "This MCP server requires authentication before Noema can list tools.".to_string()
+        }
+        McpSetupStatus::Unavailable => {
+            "Noema could not connect to this MCP server. Check the transport details and try again."
+                .to_string()
+        }
+        McpSetupStatus::Malformed => {
+            "Noema connected, but the server returned unsupported tool metadata.".to_string()
+        }
+        McpSetupStatus::ReadyForCalibration => "MCP setup completed.".to_string(),
     }
 }
 
@@ -630,7 +665,7 @@ mod tests {
         assert_eq!(result.discovered_tool_count, 1);
         assert_eq!(server.mcp_server_id, "mcp:github");
         assert_eq!(server.health_status, McpServerHealthStatus::Healthy);
-        assert_eq!(server.auth_status, McpServerAuthStatus::None);
+        assert_eq!(server.auth_status, McpServerAuthStatus::Authenticated);
         assert_eq!(
             server.safe_config,
             json!({
@@ -692,6 +727,7 @@ mod tests {
             })
         );
         assert!(!server.safe_config.to_string().contains("Bearer secret"));
+        assert_eq!(server.auth_status, McpServerAuthStatus::Authenticated);
         let tools = fixture
             .store
             .list_mcp_tools_for_server("mcp:remote")
@@ -721,7 +757,10 @@ mod tests {
         .expect("setup");
 
         assert_eq!(result.setup_status, McpSetupStatus::NeedsAuth);
-        assert_eq!(result.setup_error.as_deref(), Some("missing authorization"));
+        assert_eq!(
+            result.setup_error.as_deref(),
+            Some("This MCP server requires authentication before Noema can list tools.")
+        );
         assert!(result.server.is_none());
         assert!(
             fixture
@@ -787,6 +826,7 @@ mod tests {
         assert_eq!(result.setup_status, McpSetupStatus::ReadyForCalibration);
         let server = result.server.as_ref().expect("persisted server");
         assert_eq!(server.mcp_server_id, "mcp:remote");
+        assert_eq!(server.auth_status, McpServerAuthStatus::Authenticated);
 
         let retry_outcomes = outcomes.clone();
         let result = continue_mcp_server_setup(

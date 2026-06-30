@@ -22,6 +22,7 @@ export function McpSettingsPane() {
   const [setupError, setSetupError] = React.useState<string | null>(null);
   const [setupOpen, setSetupOpen] = React.useState(false);
   const [permissionsServerId, setPermissionsServerId] = React.useState<string | null>(null);
+  const [deleteError, setDeleteError] = React.useState<string | null>(null);
   const [createMcpServer, createState] =
     useMutation<CreateMcpServerMutation>(CreateMcpServerDocument);
   const [deleteMcpServer, deleteState] =
@@ -36,6 +37,7 @@ export function McpSettingsPane() {
         setSetupResult(setup);
         await result.refetch();
         if (setup.setupStatus === "ready_for_calibration" && setup.server) {
+          setSetupResult(null);
           setSetupOpen(false);
           setPermissionsServerId(setup.server.mcpServerId);
         }
@@ -46,17 +48,22 @@ export function McpSettingsPane() {
   }
 
   async function handleDeleteServer(mcpServerId: string) {
-    if (
-      typeof window !== "undefined" &&
-      !window.confirm("Delete this MCP server and its stored secrets?")
-    ) {
-      return;
+    setDeleteError(null);
+    try {
+      const response = await deleteMcpServer({ variables: { mcpServerId } });
+      if (!response.data?.deleteMcpServer) {
+        setDeleteError("Noema could not find that MCP server.");
+        return false;
+      }
+      if (permissionsServerId === mcpServerId) {
+        setPermissionsServerId(null);
+      }
+      await result.refetch();
+      return true;
+    } catch {
+      setDeleteError("Noema could not delete this MCP server. Try again from Settings.");
+      return false;
     }
-    await deleteMcpServer({ variables: { mcpServerId } });
-    if (permissionsServerId === mcpServerId) {
-      setPermissionsServerId(null);
-    }
-    await result.refetch();
   }
 
   return (
@@ -70,8 +77,11 @@ export function McpSettingsPane() {
       setupError={setupError}
       permissionsServerId={permissionsServerId}
       deleteSubmitting={deleteState.loading}
+      deleteError={deleteError}
       onOpenSetup={() => {
-        setSetupResult(null);
+        if (setupResult?.setupStatus !== "needs_auth") {
+          setSetupResult(null);
+        }
         setSetupError(null);
         setSetupOpen(true);
       }}
@@ -79,7 +89,7 @@ export function McpSettingsPane() {
       onCreateServer={(input) => void handleCreateServer(input)}
       onOpenPermissions={setPermissionsServerId}
       onClosePermissions={() => setPermissionsServerId(null)}
-      onDeleteServer={(mcpServerId) => void handleDeleteServer(mcpServerId)}
+      onDeleteServer={handleDeleteServer}
       onRetry={() => void result.refetch()}
     />
   );

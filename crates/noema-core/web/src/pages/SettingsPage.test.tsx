@@ -179,8 +179,18 @@ describe("McpSettingsPaneContent", () => {
       transportKind: "http",
       enabled: false,
       healthStatus: "unknown",
-      authStatus: "not_required",
+      authStatus: "none",
       toolCount: 0
+    },
+    {
+      __typename: "GraphqlMcpServer" as const,
+      mcpServerId: "mcp:notion",
+      displayName: "Notion",
+      transportKind: "http_sse",
+      enabled: false,
+      healthStatus: "healthy",
+      authStatus: "authenticated",
+      toolCount: 2
     }
   ];
 
@@ -196,13 +206,15 @@ describe("McpSettingsPaneContent", () => {
 
     assert.match(markup, /Filesystem/);
     assert.match(markup, /Archive/);
+    assert.match(markup, /Notion/);
     assert.match(markup, /Enabled/);
     assert.match(markup, /Disabled/);
+    assert.match(markup, /Needs tool calibration/);
     assert.match(markup, /stdio/);
     assert.match(markup, /3 tools/);
     assert.match(markup, /Healthy/);
     assert.match(markup, /Authenticated/);
-    assert.match(markup, /Not Required/);
+    assert.match(markup, /Not required/);
     assert.doesNotMatch(markup, /safe_config/);
     assert.doesNotMatch(markup, /raw/);
     assert.doesNotMatch(markup, /schema/);
@@ -268,7 +280,7 @@ describe("McpSettingsPaneContent", () => {
           setupStatus: "needs_auth",
           discoveryStatus: "needs_auth",
           discoveredToolCount: 0,
-          setupError: "missing authorization",
+          setupError: "This MCP server requires authentication before Noema can list tools.",
           server: null
         }}
         setupSubmitting={false}
@@ -279,6 +291,7 @@ describe("McpSettingsPaneContent", () => {
 
     assert.match(markup, /Add MCP server/);
     assert.match(markup, /Authentication required/);
+    assert.match(markup, /server has not been saved yet/);
   });
 });
 

@@ -716,6 +716,22 @@ impl NoemaStore {
                     calibration.mcp_tool_id
                 )));
             }
+            if calibration.status == McpCalibrationStatus::Ready
+                && calibration.enabled_agent_ids.is_empty()
+            {
+                return Err(StoreError::Schema(format!(
+                    "ready MCP tool calibration requires at least one enabled agent: {}",
+                    calibration.mcp_tool_id
+                )));
+            }
+            if calibration.status == McpCalibrationStatus::Ready
+                && calibration.enabled_scope_ids.is_empty()
+            {
+                return Err(StoreError::Schema(format!(
+                    "ready MCP tool calibration requires at least one enabled scope: {}",
+                    calibration.mcp_tool_id
+                )));
+            }
         }
 
         Ok(())

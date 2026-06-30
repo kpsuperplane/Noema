@@ -97,6 +97,11 @@ The next storage slice should stay small and concrete:
   Noema colors applied through local CSS tokens. Noema-owned shell and domain
   components remain responsible for chat, memory, provenance, approvals, tools,
   runs, and object detail semantics.
+- Next frontend shell slice: implement the approved route-derived L0 to L1
+  Settings navigation from
+  `docs/superpowers/specs/2026-06-30-route-derived-shell-settings-design.md`
+  and
+  `docs/superpowers/plans/2026-06-30-route-derived-shell-settings.md`.
 - The web shell uses a layered sidebar deck: one persistent `ShellSidebar`
   ground layer sits under the route content deck. Expanded desktop keeps the
   sidebar visible; collapsed desktop and mobile reveal navigation by moving the
@@ -121,8 +126,13 @@ The next storage slice should stay small and concrete:
   stores secrets under `${NOEMA_HOME}/mcp/`, verifies metadata-only
   connectivity through concrete stdio and HTTP/SSE MCP transports, fetches tool
   schemas, and automatically opens a separate tool-permissions modal while
-  keeping discovered tools disabled and agent-invisible. Existing MCP rows can
-  reopen the permissions modal or delete the server plus stored setup secrets.
+  keeping discovered tools disabled and agent-invisible. The permissions modal
+  now shows discovered schemas, owner extractor setup, agent visibility, and
+  scope visibility, and blocks impossible `ready` saves before they hit the
+  backend. Existing MCP rows can reopen the permissions modal or delete the
+  server plus stored setup secrets through an in-app destructive confirmation.
+  User-facing setup errors are sanitized while raw transport details stay out of
+  the web form.
   Web Settings also exposes MCPs, Trusted Identities, Approvals, and Audit
   surfaces backed by GraphQL read models where live data exists.
 - Routed web surfaces learn shell-owned deck state through
