@@ -7,8 +7,10 @@ import {
   activeShellDestination,
   shellDesktopSidebarWidth,
   shellContentDeckClassName,
+  shellDeckHeaderClassName,
   shellRootStyle,
   shellRouteContentClassName,
+  shellSidebarCollapseButtonClassName,
   shellSidebarGroundClassName,
   shellAttentionForState,
   shellNavItems,
@@ -231,24 +233,39 @@ describe("AppShell layered deck markup", () => {
     assert.match(markup, /aria-expanded="false"/);
     assert.match(markup, /aria-controls="noema-shell-sidebar"/);
     assert.match(markup, /aria-label="Collapse sidebar"/);
-    assert.match(markup, /data-slot="shell-deck-collapse-button"/);
-    assert.doesNotMatch(markup, /data-slot="shell-sidebar-collapse-button"/);
+    assert.match(markup, /data-slot="shell-sidebar-collapse-button"/);
+    assert.doesNotMatch(markup, /data-slot="shell-deck-collapse-button"/);
     assert.match(markup, />Memory</);
   });
 
-  test("uses the collapse toggle as the only wide header affordance", () => {
+  test("keeps the desktop collapse toggle out of the header", () => {
     const markup = renderShell();
     const menuClassName = dataSlotClassName(markup, "shell-menu-button");
-    const collapseClassName = dataSlotClassName(markup, "shell-deck-collapse-button");
+    const collapseClassName = dataSlotClassName(markup, "shell-sidebar-collapse-button");
 
     assert.match(menuClassName, /min-\[761px\]:!hidden/);
     assert.match(collapseClassName, /max-\[760px\]:hidden/);
+    assert.match(collapseClassName, /\bleft-2\b/);
+    assert.match(collapseClassName, /\bz-40\b/);
+    assert.doesNotMatch(markup, /data-slot="shell-deck-collapse-button"/);
   });
 
   test("keeps the shell header row compact above short pages", () => {
     const className = shellContentDeckClassName(initialDeckNavigationState);
 
     assert.match(className, /grid-rows-\[auto_minmax\(0,1fr\)\]/);
+  });
+
+  test("reserves header leading space only when the desktop sidebar is collapsed", () => {
+    assert.doesNotMatch(shellDeckHeaderClassName(initialDeckNavigationState), /min-\[761px\]:pl-14/);
+    assert.match(
+      shellDeckHeaderClassName({
+        navOpen: false,
+        sidebarCollapsed: true,
+        surfaceVisibility: "visible"
+      }),
+      /min-\[761px\]:pl-14/
+    );
   });
 
   test("leaves visible route content interactive", () => {
@@ -292,7 +309,7 @@ describe("AppShell layered deck markup", () => {
     });
 
     assert.match(closedSidebarClassName, /w-\[var\(--shell-sidebar-width\)\]/);
-    assert.match(expandedDeckClassName, /left-\[calc\(var\(--shell-sidebar-width\)\+28px\)\]/);
+    assert.match(expandedDeckClassName, /left-\[calc\(var\(--shell-sidebar-width\)\)\]/);
     assert.match(
       revealedDeckClassName,
       /translate-x-\[min\(calc\(var\(--shell-sidebar-width\)\+20px\),68vw\)\]/
@@ -321,6 +338,18 @@ describe("AppShell layered deck markup", () => {
     assert.doesNotMatch(closedClassName, /z-\[25\]/);
     assert.match(openClassName, /z-\[25\]/);
     assert.doesNotMatch(openClassName, /\bz-30\b/);
+  });
+
+  test("anchors the desktop collapse affordance to the sidebar left edge", () => {
+    const className = shellSidebarCollapseButtonClassName();
+
+    assert.match(className, /\babsolute\b/);
+    assert.match(className, /\btop-2\b/);
+    assert.match(className, /\bleft-2\b/);
+    assert.match(className, /\bz-40\b/);
+    assert.match(className, /max-\[760px\]:hidden/);
+    assert.doesNotMatch(className, /translate-x/);
+    assert.doesNotMatch(className, /right-/);
   });
 
   test("does not render sheet markup and includes reduced-motion deck handling", () => {

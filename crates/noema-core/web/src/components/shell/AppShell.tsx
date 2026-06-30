@@ -107,6 +107,19 @@ export function shellContentDeckClassName(deckNavigation: DeckNavigationState) {
   );
 }
 
+export function shellDeckHeaderClassName(deckNavigation: DeckNavigationState) {
+  return cn(
+    "flex py-1 items-center gap-3 border-b border-[var(--border-subtle)] bg-white/95 px-4",
+    deckNavigation.sidebarCollapsed && "min-[761px]:pl-14"
+  );
+}
+
+export function shellSidebarCollapseButtonClassName() {
+  return cn(
+    "absolute top-2 left-2 z-40 max-[760px]:hidden"
+  );
+}
+
 export function shellSidebarGroundClassName(deckNavigation: DeckNavigationState) {
   return cn(
     "absolute inset-y-0 left-0 z-10 grid min-h-0 w-[var(--shell-sidebar-width)] px-3.5 py-4",
@@ -180,6 +193,22 @@ export function AppShell({
         />
       </aside>
 
+      <Button
+        data-slot="shell-sidebar-collapse-button"
+        type="button"
+        variant="ghost"
+        size="icon"
+        aria-label={labels.collapse}
+        className={shellSidebarCollapseButtonClassName()}
+        onClick={toggleSidebarCollapsed}
+      >
+        {deckNavigation.sidebarCollapsed ? (
+          <PanelLeftOpen aria-hidden="true" />
+        ) : (
+          <PanelLeftClose aria-hidden="true" />
+        )}
+      </Button>
+
       {deckNavigation.navOpen ? (
         <button
           type="button"
@@ -206,7 +235,7 @@ export function AppShell({
       >
         <header
           data-slot="shell-deck-header"
-          className="flex py-1 items-center gap-3 border-b border-[var(--border-subtle)] bg-white/95 px-4"
+          className={shellDeckHeaderClassName(deckNavigation)}
         >
           <Button
             ref={menuButtonRef}
@@ -221,21 +250,6 @@ export function AppShell({
             onClick={deckNavigation.navOpen ? closeNav : openNav}
           >
             <Menu aria-hidden="true" />
-          </Button>
-          <Button
-            data-slot="shell-deck-collapse-button"
-            type="button"
-            variant="ghost"
-            size="icon"
-            aria-label={labels.collapse}
-            className="max-[760px]:hidden"
-            onClick={toggleSidebarCollapsed}
-          >
-            {deckNavigation.sidebarCollapsed ? (
-              <PanelLeftOpen aria-hidden="true" />
-            ) : (
-              <PanelLeftClose aria-hidden="true" />
-            )}
           </Button>
           <div className="min-w-0">
             <strong className="block truncate font-heading text-base tracking-normal">
