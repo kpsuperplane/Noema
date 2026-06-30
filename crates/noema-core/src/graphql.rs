@@ -8,6 +8,7 @@ mod agents;
 mod chat;
 mod errors;
 mod local_status;
+mod mcp;
 mod memory;
 mod onboarding;
 mod provider_accounts;

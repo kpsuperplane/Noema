@@ -9,6 +9,7 @@ use super::{
         GraphqlSendConversationTurnInput, GraphqlTurnAccepted,
     },
     local_status::{self, GraphqlLocalStatus, GraphqlMemoryStorageStatus},
+    mcp::{self, GraphqlMcpServer, GraphqlTrustedIdentitySelector},
     memory::{
         self, GraphqlMemoryClaim, GraphqlMemoryClaimDetail, GraphqlMemoryGraph,
         GraphqlMemoryGraphInput, GraphqlPredicateProposal,
@@ -129,6 +130,22 @@ impl QueryRoot {
     async fn agents(&self, ctx: &Context<'_>) -> Result<Vec<GraphqlAgent>> {
         let state = ctx.data_unchecked::<GraphqlState>();
         agents::agents(state).await
+    }
+
+    /// List MCP server metadata safe to show in Settings.
+    async fn mcp_servers(&self, ctx: &Context<'_>) -> Result<Vec<GraphqlMcpServer>> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        mcp::mcp_servers(state).await
+    }
+
+    /// List trusted identity selectors for one owner scope.
+    async fn trusted_identity_selectors(
+        &self,
+        ctx: &Context<'_>,
+        owner_scope_id: String,
+    ) -> Result<Vec<GraphqlTrustedIdentitySelector>> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        mcp::trusted_identity_selectors(state, owner_scope_id).await
     }
 
     /// List graph-memory claims for memory-management inspection.
@@ -273,6 +290,10 @@ mod tests {
         assert!(sdl.contains("agentId"));
         assert!(sdl.contains("displayName"));
         assert!(sdl.contains("isPrimary"));
+        assert!(sdl.contains("mcpServers"));
+        assert!(sdl.contains("type GraphqlMcpServer"));
+        assert!(sdl.contains("trustedIdentitySelectors"));
+        assert!(sdl.contains("type GraphqlTrustedIdentitySelector"));
         assert!(sdl.contains("type GraphqlMemoryClaim"));
         assert!(sdl.contains("type GraphqlMemoryClaimEvidence"));
         assert!(sdl.contains("type GraphqlPredicateProposal"));
@@ -402,6 +423,91 @@ mod tests {
         assert!(!json_text.contains("runtime"));
         assert!(!json_text.contains("credential"));
         assert!(!json_text.contains("conversation"));
+    }
+
+    #[tokio::test]
+    async fn mcp_settings_query_returns_servers_and_trusted_identity_selectors() {
+        use crate::{
+            McpTransportKind, NewMcpServer, NewMcpTool, NewTrustedIdentitySelector,
+            TrustedIdentitySelectorEffect, TrustedIdentitySelectorKind, store::tests::test_store,
+        };
+
+        let store = test_store().await;
+        store
+            .create_mcp_server(NewMcpServer {
+                mcp_server_id: "mcp_server:local-test".to_string(),
+                display_name: "Local Test".to_string(),
+                transport_kind: McpTransportKind::Stdio,
+                safe_config: json!({"command": "test-mcp"}),
+            })
+            .await
+            .expect("create server");
+        store
+            .upsert_discovered_mcp_tool(NewMcpTool {
+                mcp_tool_id: "mcp_tool:local-test:read".to_string(),
+                mcp_server_id: "mcp_server:local-test".to_string(),
+                name: "read".to_string(),
+                description: Some("Read metadata".to_string()),
+                input_schema: json!({"type": "object"}),
+                output_schema: Some(json!({"type": "object"})),
+                annotations: json!({"readOnlyHint": true}),
+                metadata_fingerprint: "fingerprint:local-test:read:v1".to_string(),
+            })
+            .await
+            .expect("upsert tool");
+        store
+            .create_trusted_identity_selector(NewTrustedIdentitySelector {
+                selector_id: "trusted_identity:human-local:email".to_string(),
+                owner_scope_id: "human:local".to_string(),
+                selector_kind: TrustedIdentitySelectorKind::Email,
+                raw_value: "Kevin@Noema.Example".to_string(),
+                effect: TrustedIdentitySelectorEffect::Trust,
+                issuer_actor_id: "human:local".to_string(),
+            })
+            .await
+            .expect("create selector");
+
+        let schema = build_schema(GraphqlState::for_tests_with_store(store));
+        let response = schema
+            .execute(async_graphql::Request::new(
+                r#"
+                query McpSettings {
+                  mcpServers {
+                    mcpServerId
+                    displayName
+                    transportKind
+                    enabled
+                    healthStatus
+                    toolCount
+                  }
+                  trustedIdentitySelectors(ownerScopeId: "human:local") {
+                    selectorId
+                    ownerScopeId
+                    selectorKind
+                    normalizedValue
+                    effect
+                  }
+                }
+                "#,
+            ))
+            .await;
+
+        assert!(response.errors.is_empty(), "{:?}", response.errors);
+        let data = response.data.into_json().expect("json");
+        let server = &data["mcpServers"][0];
+        assert_eq!(server["mcpServerId"], "mcp_server:local-test");
+        assert_eq!(server["displayName"], "Local Test");
+        assert_eq!(server["transportKind"], "stdio");
+        assert_eq!(server["enabled"], false);
+        assert_eq!(server["healthStatus"], "unknown");
+        assert_eq!(server["toolCount"], 1);
+
+        let selector = &data["trustedIdentitySelectors"][0];
+        assert_eq!(selector["selectorId"], "trusted_identity:human-local:email");
+        assert_eq!(selector["ownerScopeId"], "human:local");
+        assert_eq!(selector["selectorKind"], "email");
+        assert_eq!(selector["normalizedValue"], "kevin@noema.example");
+        assert_eq!(selector["effect"], "trust");
     }
 
     #[tokio::test]
