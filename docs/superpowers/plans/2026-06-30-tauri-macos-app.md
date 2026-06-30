@@ -23,6 +23,7 @@ Create:
 - `crates/noema-core/web/src/graphql/transportMode.ts` - runtime Tauri/browser detection.
 - `crates/noema-core/web/src/graphql/desktopTransport.test.ts` - desktop transport unit tests.
 - `crates/noema-core/web/src/graphql/externalUrls.test.ts` - URL-opening behavior tests.
+- `crates/noema-core/web/vite.desktop.config.ts` - desktop bundle Vite config with relative asset paths.
 - `crates/noema-desktop/Cargo.toml` - desktop crate manifest.
 - `crates/noema-desktop/build.rs` - Tauri build script.
 - `crates/noema-desktop/src/main.rs` - Tauri app entrypoint.
@@ -44,7 +45,7 @@ Modify:
 - `crates/noema-core/src/daemon/web/mod.rs` - reduce `WebState` to web transport state or remove runtime/store duplication if no longer needed.
 - `crates/noema-core/web/src/graphql/client.ts` - select browser or desktop Apollo transport.
 - `crates/noema-core/web/src/components/onboarding/AuthAttempt.tsx` - call the desktop URL opener for provider auth URLs.
-- `crates/noema-core/web/package.json` - add the Tauri Vite dev-server script.
+- `crates/noema-core/web/package.json` - add Tauri Vite dev/build scripts.
 - `docs/context/current.md` - record the settled desktop direction after implementation is complete.
 
 Keep under watch:
@@ -191,7 +192,7 @@ impl NoemaRuntimeHost {
     }
 
     /// Conversation subscription registry.
-    pub fn subscriptions(&self) -> &crate::graphql::ConversationSubscriptionRegistry {
+    pub(crate) fn subscriptions(&self) -> &crate::graphql::ConversationSubscriptionRegistry {
         &self.subscriptions
     }
 
@@ -992,13 +993,14 @@ import { openExternalUrlForAuth } from "./externalUrls";
 describe("openExternalUrlForAuth", () => {
   test("uses desktop command in Tauri mode", async () => {
     const calls: Array<{ command: string; args?: Record<string, unknown> }> = [];
-    await openExternalUrlForAuth("https://example.com/login", {
+    const handled = await openExternalUrlForAuth("https://example.com/login", {
       isDesktop: true,
       invoke: async (command, args) => {
         calls.push({ command, args });
       }
     });
 
+    assert.equal(handled, true);
     assert.deepEqual(calls, [
       {
         command: "open_external_url",
@@ -1009,13 +1011,14 @@ describe("openExternalUrlForAuth", () => {
 
   test("does not invoke desktop command outside Tauri mode", async () => {
     const calls: string[] = [];
-    await openExternalUrlForAuth("https://example.com/login", {
+    const handled = await openExternalUrlForAuth("https://example.com/login", {
       isDesktop: false,
       invoke: async (command) => {
         calls.push(command);
       }
     });
 
+    assert.equal(handled, false);
     assert.deepEqual(calls, []);
   });
 });
@@ -1048,11 +1051,12 @@ type OpenExternalUrlOptions = {
 export async function openExternalUrlForAuth(url: string, options: OpenExternalUrlOptions = {}) {
   const isDesktop = options.isDesktop ?? isTauriRuntime();
   if (!isDesktop) {
-    return;
+    return false;
   }
 
   const invoke = options.invoke ?? invokeDesktop;
   await invoke("open_external_url", { url });
+  return true;
 }
 ```
 
@@ -1064,6 +1068,7 @@ Modify `crates/noema-core/web/src/components/onboarding/AuthAttempt.tsx`:
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { openExternalUrlForAuth } from "@/graphql/externalUrls";
+import { isTauriRuntime } from "@/graphql/transportMode";
 import type { ProviderAuthAttemptView } from "./types";
 
 export function AuthAttempt({ attempt }: { attempt: ProviderAuthAttemptView }) {
@@ -1071,9 +1076,12 @@ export function AuthAttempt({ attempt }: { attempt: ProviderAuthAttemptView }) {
     if (!attempt.verificationUrl) {
       return;
     }
-    await openExternalUrlForAuth(attempt.verificationUrl);
-    if (event.defaultPrevented) {
-      return;
+    if (isTauriRuntime()) {
+      event.preventDefault();
+    }
+    const handled = await openExternalUrlForAuth(attempt.verificationUrl);
+    if (!handled && event.defaultPrevented) {
+      window.open(attempt.verificationUrl, "_blank", "noopener,noreferrer");
     }
   }
 
@@ -1140,6 +1148,8 @@ git commit -m "feat(web): open auth urls through desktop shell"
 
 **Files:**
 - Create: `crates/noema-desktop/Cargo.toml`
+- Create: `crates/noema-desktop/tauri.conf.json`
+- Create: `crates/noema-desktop/capabilities/default.json`
 - Create: `crates/noema-desktop/src/main.rs`
 - Create: `crates/noema-desktop/src/desktop_state.rs`
 - Create: `crates/noema-desktop/src/graphql_ipc.rs`
@@ -1184,13 +1194,66 @@ url.workspace = true
 tauri-build = { version = "2", features = [] }
 ```
 
-- [ ] **Step 2: Create build script and module shell**
+- [ ] **Step 2: Create build script, Tauri config, and module shell**
 
 Create `crates/noema-desktop/build.rs`:
 
 ```rust
 fn main() {
     tauri_build::build();
+}
+```
+
+Create `crates/noema-desktop/tauri.conf.json`:
+
+```json
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Noema",
+  "version": "0.1.0",
+  "identifier": "dev.noema.app",
+  "build": {
+    "beforeDevCommand": "cd ../noema-core/web && bun run dev:tauri",
+    "beforeBuildCommand": "cd ../noema-core/web && bun run build:tauri",
+    "devUrl": "http://127.0.0.1:5173",
+    "frontendDist": "../noema-core/web/dist-tauri"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Noema",
+        "width": 1180,
+        "height": 820,
+        "minWidth": 860,
+        "minHeight": 640
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["app", "dmg"],
+    "macOS": {
+      "signingIdentity": null
+    }
+  }
+}
+```
+
+Create `crates/noema-desktop/capabilities/default.json`:
+
+```json
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Noema desktop IPC permissions",
+  "windows": ["main"],
+  "permissions": [
+    "core:default"
+  ]
 }
 ```
 
@@ -1433,85 +1496,79 @@ fn noema_desktop_main() {
 Run:
 
 ```bash
-git add Cargo.toml crates/noema-desktop/Cargo.toml crates/noema-desktop/build.rs crates/noema-desktop/src/main.rs crates/noema-desktop/src/desktop_state.rs crates/noema-desktop/src/graphql_ipc.rs crates/noema-desktop/src/external_url.rs
+git add Cargo.toml crates/noema-desktop/Cargo.toml crates/noema-desktop/build.rs crates/noema-desktop/tauri.conf.json crates/noema-desktop/capabilities/default.json crates/noema-desktop/src/main.rs crates/noema-desktop/src/desktop_state.rs crates/noema-desktop/src/graphql_ipc.rs crates/noema-desktop/src/external_url.rs
 git commit -m "feat(desktop): add tauri ipc shell"
 ```
 
 ---
 
-### Task 6: Add Tauri Config, Capabilities, And Build Scripts
+### Task 6: Add Desktop Vite Build Scripts
 
 **Files:**
-- Create: `crates/noema-desktop/tauri.conf.json`
-- Create: `crates/noema-desktop/capabilities/default.json`
+- Create: `crates/noema-core/web/vite.desktop.config.ts`
 - Modify: `crates/noema-core/web/package.json`
 
-- [ ] **Step 1: Add Tauri config**
+- [ ] **Step 1: Add desktop Vite config**
 
-Create `crates/noema-desktop/tauri.conf.json`:
+Create `crates/noema-core/web/vite.desktop.config.ts`:
 
-```json
-{
-  "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Noema",
-  "version": "0.1.0",
-  "identifier": "dev.noema.app",
-  "build": {
-    "beforeDevCommand": "cd ../noema-core/web && bun run dev:tauri",
-    "beforeBuildCommand": "cd ../noema-core/web && bun run build",
-    "devUrl": "http://127.0.0.1:5173",
-    "frontendDist": "../noema-core/src/daemon/web/assets"
-  },
-  "app": {
-    "windows": [
-      {
-        "label": "main",
-        "title": "Noema",
-        "width": 1180,
-        "height": 820,
-        "minWidth": 860,
-        "minHeight": 640
-      }
-    ],
-    "security": {
-      "csp": null
+```ts
+import path from "node:path";
+import tailwindcss from "@tailwindcss/vite";
+import react from "@vitejs/plugin-react";
+import { defineConfig } from "vite";
+
+export default defineConfig({
+  plugins: [react(), tailwindcss()],
+  base: "./",
+  publicDir: "public",
+  resolve: {
+    alias: {
+      "@": path.resolve(__dirname, "./src")
     }
   },
-  "bundle": {
-    "active": true,
-    "targets": ["app", "dmg"],
-    "macOS": {
-      "signingIdentity": null
+  build: {
+    outDir: "dist-tauri",
+    emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        entryFileNames: "assets/app.js",
+        chunkFileNames: "assets/[name].js",
+        assetFileNames: (assetInfo) => {
+          if (assetInfo.names.some((name) => name.endsWith(".css"))) {
+            return "assets/styles.css";
+          }
+          return "assets/[name][extname]";
+        }
+      }
     }
   }
-}
+});
 ```
 
-- [ ] **Step 2: Add narrow capabilities**
+This desktop build deliberately uses `base: "./"` and a separate `dist-tauri`
+folder so the Tauri bundle does not reuse daemon web assets whose `index.html`
+points at `/assets/...`.
 
-Create `crates/noema-desktop/capabilities/default.json`:
+- [ ] **Step 2: Add Tauri frontend scripts**
+
+Add Tauri-specific frontend scripts to `crates/noema-core/web/package.json`:
 
 ```json
-{
-  "$schema": "../gen/schemas/desktop-schema.json",
-  "identifier": "default",
-  "description": "Noema desktop IPC permissions",
-  "windows": ["main"],
-  "permissions": [
-    "core:default"
-  ]
-}
+"dev:tauri": "bun run gen:types && vite --host 127.0.0.1",
+"build:tauri": "bun run gen:types && vite build --config vite.desktop.config.ts"
 ```
 
-Custom commands registered through `generate_handler!` are app commands; do not add shell, filesystem, process, or broad network permissions.
+- [ ] **Step 3: Run frontend desktop build**
 
-- [ ] **Step 3: Add a Tauri frontend dev script**
+Run:
 
-Add a Tauri-specific frontend dev-server script to `crates/noema-core/web/package.json`:
-
-```json
-"dev:tauri": "bun run gen:types && vite --host 127.0.0.1"
+```bash
+cd crates/noema-core/web
+bun run build:tauri
 ```
+
+Expected: PASS and `crates/noema-core/web/dist-tauri/index.html` references relative `./assets/...` files.
 
 - [ ] **Step 4: Run manifest checks**
 
@@ -1528,8 +1585,8 @@ Expected: PASS, or fail only on missing downloaded dependencies in an offline en
 Run:
 
 ```bash
-git add crates/noema-core/web/package.json crates/noema-desktop/tauri.conf.json crates/noema-desktop/capabilities/default.json
-git commit -m "build(desktop): configure tauri macos app"
+git add crates/noema-core/web/package.json crates/noema-core/web/vite.desktop.config.ts
+git commit -m "build(web): add tauri frontend build"
 ```
 
 ---
