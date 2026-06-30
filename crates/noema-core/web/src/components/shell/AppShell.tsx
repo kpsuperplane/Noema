@@ -156,7 +156,7 @@ export function shellDeckHeaderClassName() {
 
 export function shellSidebarCollapseButtonClassName() {
   return cn(
-    "absolute top-3 left-[calc(0.75rem+var(--shell-desktop-chrome-offset))] z-40 max-[760px]:hidden"
+    "absolute top-3 left-[calc(0.75rem+var(--shell-desktop-chrome-offset))] z-40 max-[760px]:hidden hover:bg-black/5"
   );
 }
 
