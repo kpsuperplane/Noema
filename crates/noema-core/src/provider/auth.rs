@@ -11,8 +11,11 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::{Mutex, oneshot};
 use ts_rs::TS;
 
-use super::accounts::ProviderAuthMethod;
-use crate::{ProviderError, providers::codex_oauth::CodexOAuthConfig};
+use super::{
+    accounts::ProviderAuthMethod,
+    adapters::codex_oauth::{self, CodexOAuthConfig},
+};
+use crate::ProviderError;
 
 /// Default maximum lifetime for a provider auth attempt.
 pub const DEFAULT_PROVIDER_AUTH_ATTEMPT_TIMEOUT: std::time::Duration =
@@ -127,7 +130,7 @@ impl ProviderAuthManager {
         &self,
         request: CodexDeviceAuthRequest,
     ) -> Result<ProviderAuthAttemptView, ProviderError> {
-        crate::providers::codex_oauth::start_codex_device_auth(self.clone(), request).await
+        codex_oauth::start_codex_device_auth(self.clone(), request).await
     }
 
     /// Return a safe auth attempt view, if it is still known.

@@ -5,19 +5,17 @@ use std::{path::PathBuf, time::Duration};
 use reqwest::header::HeaderMap;
 use serde::Serialize;
 
-use crate::{
-    provider::{
-        GenerateInput, GenerateRequest, GenerateResponse, GenerateStreamEvent, ModelProvider,
-        ProviderError, output_items_from_text, required_output_items_from_text,
+use super::{
+    codex_oauth::{
+        CODEX_ACCESS_TOKEN_REFRESH_SKEW_SECONDS, CodexOAuthClient, CodexOAuthConfig,
+        CodexTokenStore, DEFAULT_CODEX_BASE_URL,
     },
-    providers::{
-        codex_oauth::{
-            CODEX_ACCESS_TOKEN_REFRESH_SKEW_SECONDS, CodexOAuthClient, CodexOAuthConfig,
-            CodexTokenStore, DEFAULT_CODEX_BASE_URL,
-        },
-        noema_response_stream::NoemaAssistantTextDeltaExtractor,
-        responses::{ResponsesTransport, normalize_base_url},
-    },
+    noema_response_stream::NoemaAssistantTextDeltaExtractor,
+    responses::{ResponsesTransport, normalize_base_url},
+};
+use crate::provider::{
+    GenerateInput, GenerateRequest, GenerateResponse, GenerateStreamEvent, ModelProvider,
+    ProviderError, output_items_from_text, required_output_items_from_text,
 };
 
 /// Default Codex Responses model used when no override is supplied.
@@ -285,7 +283,8 @@ impl ModelProvider for CodexResponsesProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{provider::GenerateOptions, providers::codex_oauth::CodexOAuthTokens};
+    use crate::provider::GenerateOptions;
+    use crate::provider::adapters::codex_oauth::CodexOAuthTokens;
     use serde_json::Value;
     use std::collections::HashMap;
     use tempfile::TempDir;

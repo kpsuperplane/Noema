@@ -1,6 +1,6 @@
 //! Configuration loading and provider selection.
 
-use crate::providers::{
+use crate::provider::adapters::{
     codex_oauth::DEFAULT_CODEX_BASE_URL,
     codex_responses::{CodexProviderConfig, DEFAULT_CODEX_MODEL, DEFAULT_CODEX_TIMEOUT_SECONDS},
     openai::{DEFAULT_OPENAI_TIMEOUT_SECONDS, OpenAiProviderConfig},

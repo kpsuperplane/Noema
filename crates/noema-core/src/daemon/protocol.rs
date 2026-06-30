@@ -5,7 +5,7 @@ use std::{
 
 use crate::{
     MemoryPersistenceError, NoemaPathError, NoemaPaths, StoreError, WebConfig,
-    provider::ProviderError, providers::codex_responses::CodexProviderConfig,
+    provider::ProviderError, provider::adapters::codex_responses::CodexProviderConfig,
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;

@@ -24,10 +24,8 @@ pub mod objects;
 pub mod onboarding;
 /// Filesystem path resolution for Noema state.
 pub mod paths;
-/// Provider-neutral generation request and response types.
+/// Provider contracts, account/auth support, and concrete adapters.
 pub mod provider;
-/// Concrete model provider adapters.
-pub mod providers;
 /// Shared runtime host for daemon and desktop client surfaces.
 pub mod runtime_host;
 /// Embedded canonical structured store.
@@ -82,13 +80,13 @@ pub use provider::accounts::{
     ProviderAccountRecord, ProviderAccountStatus, ProviderAuthMethod, parse_account_status,
     parse_auth_method,
 };
+pub use provider::adapters::{
+    codex_responses::{CodexProviderConfig, CodexResponsesProvider},
+    openai::{OpenAiProvider, OpenAiProviderConfig},
+};
 pub use provider::{
     GenerateInput, GenerateOptions, GenerateOutputItem, GenerateRequest, GenerateResponse,
     ModelProvider, ProviderError, TokenUsage,
-};
-pub use providers::{
-    codex_responses::{CodexProviderConfig, CodexResponsesProvider},
-    openai::{OpenAiProvider, OpenAiProviderConfig},
 };
 pub use runtime_host::{NoemaRuntimeHost, RuntimeHostError};
 pub use store::{

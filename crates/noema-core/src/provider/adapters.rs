@@ -1,4 +1,4 @@
-//! Concrete provider adapters.
+//! Concrete provider adapters and transport helpers.
 
 /// Codex OAuth token storage and device-code authentication.
 pub mod codex_oauth;

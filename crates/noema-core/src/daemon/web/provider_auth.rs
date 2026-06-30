@@ -2,11 +2,11 @@ use std::{future::Future, pin::Pin, time::Duration};
 
 use crate::{
     NoemaStore,
+    provider::adapters::codex_oauth::{CodexOAuthConfig, CodexTokenStore},
     provider::auth::{
         CodexDeviceAuthRequest, ProviderAuthAttemptStatus, ProviderAuthAttemptView,
         ProviderAuthManager,
     },
-    providers::codex_oauth::{CodexOAuthConfig, CodexTokenStore},
 };
 
 use super::{DaemonError, WebState, http::HttpRequestError};

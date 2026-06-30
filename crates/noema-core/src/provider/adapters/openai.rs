@@ -1,13 +1,9 @@
 //! Provider adapter for the OpenAI Responses API.
 
-use crate::{
-    provider::{
-        GenerateInput, GenerateRequest, GenerateResponse, ModelProvider, ProviderError,
-        output_items_from_text, required_output_items_from_text,
-    },
-    providers::responses::{
-        ResponsesRequest, ResponsesTransport, header_value, normalize_base_url,
-    },
+use super::responses::{ResponsesRequest, ResponsesTransport, header_value, normalize_base_url};
+use crate::provider::{
+    GenerateInput, GenerateRequest, GenerateResponse, ModelProvider, ProviderError,
+    output_items_from_text, required_output_items_from_text,
 };
 use reqwest::header::{HeaderMap, HeaderName};
 use std::time::Duration;

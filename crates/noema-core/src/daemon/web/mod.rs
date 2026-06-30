@@ -197,7 +197,7 @@ mod tests {
     use super::*;
     use std::{collections::HashMap, future::Future, pin::Pin, time::Duration};
 
-    use crate::providers::codex_oauth::{CodexOAuthTokens, CodexTokenStore};
+    use crate::provider::adapters::codex_oauth::{CodexOAuthTokens, CodexTokenStore};
     use crate::{
         TurnTranscriptItem,
         provider::auth::{CodexDeviceAuthRequest, ProviderAuthAttemptView},

@@ -107,8 +107,10 @@ The next storage slice should stay small and concrete:
   streaming parsers, and CLI command/GraphQL client code are split into focused
   modules while preserving existing behavior.
 - Memory extraction, consolidation, errors, and shared memory types now live
-  under the `memory` module tree. Provider account/auth support now lives under
-  the `provider` module tree, while concrete adapters remain under `providers`.
+  under the `memory` module tree. Provider-neutral contracts, account metadata,
+  and auth support live under `provider`, while concrete adapters and response
+  stream helpers live under `provider::adapters`; the old top-level `providers`
+  module has been retired.
 - `crates/noema-core/web/tests` has been removed; web validation should use
   `bun run lint`, `bun run build`, and local browser smoke checks.
 - Agent memory reads start as an explicit `search_memory` tool-only slice:

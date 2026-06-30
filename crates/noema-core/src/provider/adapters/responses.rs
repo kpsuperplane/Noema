@@ -1,9 +1,7 @@
 //! Shared transport and parser for OpenAI-compatible Responses API calls.
 
-use crate::{
-    provider::{GenerateStreamEvent, ProviderError, TokenUsage},
-    providers::sse::SseAccumulator,
-};
+use super::sse::SseAccumulator;
+use crate::provider::{GenerateStreamEvent, ProviderError, TokenUsage};
 use futures_util::StreamExt;
 use reqwest::{
     StatusCode,

@@ -2,10 +2,10 @@ use std::{future::Future, pin::Pin, sync::Arc};
 
 use crate::{
     NoemaStore,
+    provider::adapters::codex_responses::{CodexProviderConfig, CodexResponsesProvider},
     provider::{
         GenerateRequest, GenerateResponse, GenerateStreamEvent, ModelProvider, ProviderError,
     },
-    providers::codex_responses::{CodexProviderConfig, CodexResponsesProvider},
 };
 use tokio::sync::{mpsc, oneshot};
 

@@ -1,9 +1,7 @@
 //! Server-Sent Events parser for Responses-compatible streams.
 
-use crate::{
-    provider::{GenerateStreamEvent, ProviderError},
-    providers::responses::{ResponsesResponse, ResponsesUsage},
-};
+use super::responses::{ResponsesResponse, ResponsesUsage};
+use crate::provider::{GenerateStreamEvent, ProviderError};
 use serde_json::Value;
 
 #[derive(Default)]
