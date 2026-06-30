@@ -79,6 +79,23 @@ export function activeShellDestination(route: AppRoute): ShellDestination {
   return "home";
 }
 
+function primaryAgentNameForStatus(status: LocalStatusQuery["localStatus"] | null) {
+  return status?.primaryAgentDisplayName?.trim() ?? "";
+}
+
+export function shellNavItemsForStatus(
+  status: LocalStatusQuery["localStatus"] | null
+): ShellNavItem[] {
+  const primaryAgentName = primaryAgentNameForStatus(status);
+  if (!primaryAgentName) {
+    return shellNavItems;
+  }
+
+  return shellNavItems.map((item) =>
+    item.destination === "home" ? { ...item, label: primaryAgentName } : item
+  );
+}
+
 export function shellAttentionForState(input: ShellAttentionInput): ShellAttention | null {
   if (input.setupBlocked) {
     return {
@@ -173,8 +190,10 @@ export function AppShell({
   children: React.ReactNode;
 }) {
   const activeDestination = activeShellDestination(route);
+  const primaryAgentName = primaryAgentNameForStatus(status);
+  const navItems = shellNavItemsForStatus(status);
   const activeLabel =
-    shellNavItems.find((item) => item.destination === activeDestination)?.label ?? "Home";
+    navItems.find((item) => item.destination === activeDestination)?.label ?? "Home";
   const attention = shellAttentionForState({
     route,
     status,
@@ -231,7 +250,8 @@ export function AppShell({
         <ShellSidebar
           activeDestination={activeDestination}
           attention={attention}
-          navItems={shellNavItems}
+          navItems={navItems}
+          primaryAgentNamed={Boolean(primaryAgentName)}
           onNavigate={navigateFromShell}
         />
       </aside>

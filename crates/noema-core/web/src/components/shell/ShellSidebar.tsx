@@ -3,6 +3,7 @@ import type { ComponentType } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { AppRoute } from "@/routes";
+import { IdentityAvatar, LOCAL_AGENT_AVATAR_ID } from "../IdentityAvatar";
 import type { ShellAttention, ShellDestination, ShellNavItem } from "./AppShell";
 import { ShellAttentionItem } from "./ShellAttentionItem";
 
@@ -18,11 +19,13 @@ export function ShellSidebar({
   activeDestination,
   attention,
   navItems,
+  primaryAgentNamed,
   onNavigate
 }: {
   activeDestination: ShellDestination;
   attention: ShellAttention | null;
   navItems: ShellNavItem[];
+  primaryAgentNamed: boolean;
   onNavigate: (route: AppRoute) => void;
 }) {
   return (
@@ -33,6 +36,7 @@ export function ShellSidebar({
       <nav className="grid content-start gap-1" aria-label="Primary">
         {navItems.map((item) => {
           const Icon = navIcon[item.destination];
+          const showPrimaryAgentAvatar = item.destination === "home" && primaryAgentNamed;
           const active = item.destination === activeDestination;
           return (
             <Button
@@ -47,7 +51,22 @@ export function ShellSidebar({
               aria-current={active ? "page" : undefined}
               onClick={() => onNavigate(item.route)}
             >
-              <Icon className="size-4" aria-hidden />
+              {showPrimaryAgentAvatar ? (
+                <span
+                  data-slot="shell-primary-agent-avatar"
+                  aria-hidden="true"
+                  className="grid size-4 shrink-0 place-items-center [&_[data-slot=avatar]]:!size-4"
+                >
+                  <IdentityAvatar
+                    actorId={LOCAL_AGENT_AVATAR_ID}
+                    actorType="agent"
+                    className="!size-4"
+                    size="sm"
+                  />
+                </span>
+              ) : (
+                <Icon className="size-4" aria-hidden />
+              )}
               {item.label}
             </Button>
           );

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { avatarSeedForActorId, LOCAL_AGENT_AVATAR_ID } from "../IdentityAvatar";
 import {
   AppShell,
   activeShellDestination,
@@ -9,13 +10,13 @@ import {
   shellDesktopChromeOffsetForRuntime,
   shellDesktopSidebarWidth,
   shellContentDeckClassName,
-  shellDeckHeaderClassName,
   shellRootStyle,
   shellRouteContentClassName,
   shellSidebarCollapseButtonClassName,
   shellSidebarGroundClassName,
   shellAttentionForState,
   shellTauriDesktopChromeOffset,
+  shellNavItemsForStatus,
   shellNavItems,
   type ShellAttentionInput
 } from "./AppShell";
@@ -40,6 +41,21 @@ describe("shell navigation helpers", () => {
       { destination: "home", label: "Home", route: { kind: "chat" } },
       { destination: "memory", label: "Memory", route: { kind: "memory_home" } }
     ]);
+  });
+
+  test("labels the primary chat surface with the agent name when available", () => {
+    const status = { ...healthyStatus, primaryAgentDisplayName: "Aster" };
+
+    assert.deepEqual(shellNavItemsForStatus(status), [
+      { destination: "home", label: "Aster", route: { kind: "chat" } },
+      { destination: "memory", label: "Memory", route: { kind: "memory_home" } }
+    ]);
+
+    assert.deepEqual(shellNavItemsForStatus(null), shellNavItems);
+    assert.deepEqual(
+      shellNavItemsForStatus({ ...healthyStatus, primaryAgentDisplayName: "   " }),
+      shellNavItems
+    );
   });
 
   test("marks chat routes as Home and memory routes as Memory", () => {
@@ -272,6 +288,19 @@ describe("AppShell layered deck markup", () => {
     assert.match(markup, /data-slot="shell-sidebar-collapse-button"/);
     assert.doesNotMatch(markup, /data-slot="shell-deck-collapse-button"/);
     assert.match(markup, />Memory</);
+  });
+
+  test("renders the named primary agent in the sidebar and chat header", () => {
+    const markup = renderShell({
+      status: { ...healthyStatus, primaryAgentDisplayName: "Aster" }
+    });
+
+    assert.equal(countMatches(markup, />Aster</g), 2);
+    assert.match(markup, new RegExp(`data-avatar-seed="${avatarSeedForActorId(LOCAL_AGENT_AVATAR_ID)}"`));
+    assert.match(markup, /data-avatar-variant="beam"/);
+    assert.match(markup, /data-slot="shell-primary-agent-avatar"[^>]*class="[^"]*\bsize-4\b/);
+    assert.doesNotMatch(markup, /lucide-house/);
+    assert.doesNotMatch(markup, />Home</);
   });
 
   test("keeps the desktop collapse toggle out of the header", () => {
@@ -558,9 +587,11 @@ describe("shell attention helper", () => {
 });
 
 function renderShell({
-  route = { kind: "chat" } as const
+  route = { kind: "chat" } as const,
+  status = healthyStatus
 }: {
   route?: Parameters<typeof AppShell>[0]["route"];
+  status?: Parameters<typeof AppShell>[0]["status"];
 } = {}) {
   const routeContent = React.createElement(
     "section",
@@ -571,7 +602,7 @@ function renderShell({
   return renderToStaticMarkup(
     React.createElement(AppShell, {
       route,
-      status: healthyStatus,
+      status,
       socketState: "ready",
       providerBlocked: false,
       setupBlocked: false,
