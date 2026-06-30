@@ -16,6 +16,7 @@
     "@base-ui/react": "^1.6.0",
     "@shadcn/react": "^0.1.0",
     "@tailwindcss/vite": "^4.3.1",
+    "@tauri-apps/api": "^2.0.0",
     "@xyflow/react": "^12.11.1",
     "boring-avatars": "^2.0.4",
     "class-variance-authority": "^0.7.1",
