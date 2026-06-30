@@ -256,6 +256,7 @@ async fn trusted_identity_schema_rejects_invalid_normalized_shapes() {
     let cases = [
         ("email_missing_at", "email", "kevin.example.com"),
         ("email_whitespace", "email", "kevin @example.com"),
+        ("email_uppercase", "email", "Kevin@Example.COM"),
         ("domain_missing_dot", "domain", "example"),
         ("domain_with_slash", "domain", "example.com/path"),
         ("domain_bad_label", "domain", "bad-.example.com"),
