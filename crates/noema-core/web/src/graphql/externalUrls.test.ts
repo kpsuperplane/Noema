@@ -33,4 +33,15 @@ describe("openExternalUrlForAuth", () => {
     assert.equal(handled, false);
     assert.deepEqual(calls, []);
   });
+
+  test("returns false when desktop command rejects", async () => {
+    const handled = await openExternalUrlForAuth("https://example.com/login", {
+      isDesktop: true,
+      invoke: async () => {
+        throw new Error("open command unavailable");
+      }
+    });
+
+    assert.equal(handled, false);
+  });
 });

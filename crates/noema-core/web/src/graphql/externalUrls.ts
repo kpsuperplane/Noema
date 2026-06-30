@@ -13,6 +13,10 @@ export async function openExternalUrlForAuth(url: string, options: OpenExternalU
   }
 
   const invoke = options.invoke ?? invokeDesktop;
-  await invoke("open_external_url", { url });
-  return true;
+  try {
+    await invoke("open_external_url", { url });
+    return true;
+  } catch {
+    return false;
+  }
 }
