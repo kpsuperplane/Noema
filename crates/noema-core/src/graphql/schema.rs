@@ -547,7 +547,7 @@ mod tests {
             .create_mcp_approval_request(NewMcpApprovalRequest {
                 approval_id: "approval:mcp:pending".to_string(),
                 action_summary: "Share Google Doc".to_string(),
-                tool_invocation_id: Some("tool_invocation:mcp:pending".to_string()),
+                tool_invocation_id: "tool_invocation:mcp:pending".to_string(),
                 mcp_server_id: Some("mcp_server:google".to_string()),
                 mcp_tool_id: Some("mcp_tool:google:share_doc".to_string()),
                 requester_actor_id: "agent:primary".to_string(),

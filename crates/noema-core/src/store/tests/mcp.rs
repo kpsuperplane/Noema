@@ -215,7 +215,7 @@ async fn export_decision_creates_manual_approval_request() {
         .create_mcp_approval_request(NewMcpApprovalRequest {
             approval_id: "approval:mcp:1".to_string(),
             action_summary: "Share Google Doc".to_string(),
-            tool_invocation_id: Some("tool_invocation:mcp:1".to_string()),
+            tool_invocation_id: "tool_invocation:mcp:1".to_string(),
             mcp_server_id: Some("mcp_server:google".to_string()),
             mcp_tool_id: Some("mcp_tool:google:share_doc".to_string()),
             requester_actor_id: "agent:primary".to_string(),
@@ -230,7 +230,11 @@ async fn export_decision_creates_manual_approval_request() {
             export_summary: "Document title and share permission".to_string(),
             payload_preview: json!({
                 "recipient": "person@example.com",
-                "api_token": "secret-token"
+                "api_token": "secret-token",
+                "headers": {
+                    "Authorization": "Bearer secret",
+                    "cookie": "session=secret"
+                }
             }),
         })
         .await
@@ -238,10 +242,7 @@ async fn export_decision_creates_manual_approval_request() {
 
     assert_eq!(approval.approval_id, "approval:mcp:1");
     assert_eq!(approval.action_summary, "Share Google Doc");
-    assert_eq!(
-        approval.tool_invocation_id.as_deref(),
-        Some("tool_invocation:mcp:1")
-    );
+    assert_eq!(approval.tool_invocation_id, "tool_invocation:mcp:1");
     assert_eq!(approval.mcp_server_id.as_deref(), Some("mcp_server:google"));
     assert_eq!(
         approval.mcp_tool_id.as_deref(),
@@ -262,7 +263,14 @@ async fn export_decision_creates_manual_approval_request() {
     );
     assert_eq!(
         approval.payload_preview,
-        json!({"recipient": "person@example.com", "api_token": "[redacted]"})
+        json!({
+            "recipient": "person@example.com",
+            "api_token": "[redacted]",
+            "headers": {
+                "Authorization": "[redacted]",
+                "cookie": "[redacted]"
+            }
+        })
     );
     assert_eq!(approval.status, "pending");
 
@@ -880,6 +888,7 @@ async fn approval_request_schema_rejects_invalid_status() {
             CREATE type::record('approval_requests', 'invalid_status') SET
               approval_id = 'approval:invalid-status',
               action_summary = 'Invalid approval status test',
+              tool_invocation_id = 'tool_invocation:invalid-status',
               requester_actor_id = 'agent:primary',
               owner_scope_id = 'human:local',
               active_scope_id = 'human:local',
@@ -902,6 +911,48 @@ async fn approval_request_schema_rejects_invalid_status() {
 
     assert!(
         error.to_string().contains("status") || error.to_string().contains("deferred"),
+        "unexpected error: {error}"
+    );
+}
+
+#[tokio::test]
+async fn terminal_approval_request_requires_decision_evidence() {
+    let store = test_store().await;
+
+    let error = store
+        .db()
+        .query(
+            r#"
+            CREATE type::record('approval_requests', 'approved_without_decision') SET
+              approval_id = 'approval:approved-without-decision',
+              action_summary = 'Approved approval decision evidence test',
+              tool_invocation_id = 'tool_invocation:approved-without-decision',
+              requester_actor_id = 'agent:primary',
+              owner_scope_id = 'human:local',
+              active_scope_id = 'human:local',
+              destination_summary = 'Destination',
+              data_source_summary = 'Data source',
+              source_owner_identity = 'kevin@example.com',
+              source_owner_trust = 'trusted',
+              destination_owner_identity = 'person@example.com',
+              destination_owner_trust = 'untrusted',
+              export_summary = 'Exported data',
+              payload_preview = {},
+              status = 'approved',
+              decision_actor_id = NONE,
+              decided_at = NONE,
+              updated_at = time::now();
+            "#,
+        )
+        .await
+        .expect("terminal approval query")
+        .check()
+        .expect_err("terminal approval without decision evidence should be rejected");
+
+    assert!(
+        error.to_string().contains("decision_actor_id")
+            || error.to_string().contains("decided_at")
+            || error.to_string().contains("approved"),
         "unexpected error: {error}"
     );
 }

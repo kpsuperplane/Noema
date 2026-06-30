@@ -148,8 +148,8 @@ pub struct GraphqlMcpApprovalRequest {
     pub approval_id: String,
     /// Safe human-readable action summary.
     pub action_summary: String,
-    /// Related tool invocation id, when available.
-    pub tool_invocation_id: Option<String>,
+    /// Related tool invocation id.
+    pub tool_invocation_id: String,
     /// Related MCP server id, when available.
     pub mcp_server_id: Option<String>,
     /// Related MCP tool id, when available.

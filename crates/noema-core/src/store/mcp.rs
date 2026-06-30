@@ -217,8 +217,8 @@ pub struct NewMcpApprovalRequest {
     pub approval_id: String,
     /// Safe human-readable action summary.
     pub action_summary: String,
-    /// Related tool invocation id, when available.
-    pub tool_invocation_id: Option<String>,
+    /// Related tool invocation id.
+    pub tool_invocation_id: String,
     /// Related MCP server id, when available.
     pub mcp_server_id: Option<String>,
     /// Related MCP tool id, when available.
@@ -254,8 +254,8 @@ pub struct McpApprovalRequestRecord {
     pub approval_id: String,
     /// Safe human-readable action summary.
     pub action_summary: String,
-    /// Related tool invocation id, when available.
-    pub tool_invocation_id: Option<String>,
+    /// Related tool invocation id.
+    pub tool_invocation_id: String,
     /// Related MCP server id, when available.
     pub mcp_server_id: Option<String>,
     /// Related MCP tool id, when available.
@@ -1029,7 +1029,7 @@ struct TrustedIdentitySelectorRow {
 struct McpApprovalRequestRow {
     approval_id: String,
     action_summary: String,
-    tool_invocation_id: Option<String>,
+    tool_invocation_id: String,
     mcp_server_id: Option<String>,
     mcp_tool_id: Option<String>,
     requester_actor_id: String,
@@ -1176,6 +1176,11 @@ fn approval_preview_key_is_sensitive(key: &str) -> bool {
         "api_key",
         "apikey",
         "private_key",
+        "authorization",
+        "auth",
+        "cookie",
+        "session",
+        "set-cookie",
     ]
     .iter()
     .any(|marker| lower.contains(marker))

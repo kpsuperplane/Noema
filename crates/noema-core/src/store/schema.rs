@@ -146,7 +146,7 @@ DEFINE INDEX IF NOT EXISTS quarantined_tool_results_invocation_id ON TABLE quara
 DEFINE TABLE IF NOT EXISTS approval_requests SCHEMAFULL;
 DEFINE FIELD OVERWRITE approval_id ON TABLE approval_requests TYPE string ASSERT $value != '';
 DEFINE FIELD OVERWRITE action_summary ON TABLE approval_requests TYPE string ASSERT $value != '';
-DEFINE FIELD OVERWRITE tool_invocation_id ON TABLE approval_requests TYPE option<string>;
+DEFINE FIELD OVERWRITE tool_invocation_id ON TABLE approval_requests TYPE string ASSERT $value != '';
 DEFINE FIELD OVERWRITE mcp_server_id ON TABLE approval_requests TYPE option<string>;
 DEFINE FIELD OVERWRITE mcp_tool_id ON TABLE approval_requests TYPE option<string>;
 DEFINE FIELD OVERWRITE requester_actor_id ON TABLE approval_requests TYPE string ASSERT $value != '';
@@ -160,13 +160,14 @@ DEFINE FIELD OVERWRITE destination_owner_identity ON TABLE approval_requests TYP
 DEFINE FIELD OVERWRITE destination_owner_trust ON TABLE approval_requests TYPE string ASSERT $value INSIDE ['trusted', 'untrusted', 'mixed', 'unresolved'];
 DEFINE FIELD OVERWRITE export_summary ON TABLE approval_requests TYPE string ASSERT $value != '';
 DEFINE FIELD OVERWRITE payload_preview ON TABLE approval_requests TYPE object FLEXIBLE DEFAULT {};
-DEFINE FIELD OVERWRITE status ON TABLE approval_requests TYPE string ASSERT $value INSIDE ['pending', 'approved', 'denied', 'cancelled'];
-DEFINE FIELD OVERWRITE decision_actor_id ON TABLE approval_requests TYPE option<string>;
+DEFINE FIELD OVERWRITE status ON TABLE approval_requests TYPE string ASSERT $value INSIDE ['pending', 'approved', 'denied', 'cancelled'] AND ($value = 'pending' OR (decision_actor_id != NONE AND decision_actor_id != '' AND decided_at != NONE AND decided_at != ''));
+DEFINE FIELD OVERWRITE decision_actor_id ON TABLE approval_requests TYPE option<string> ASSERT status = 'pending' OR ($value != NONE AND $value != '');
 DEFINE FIELD OVERWRITE decision_comment ON TABLE approval_requests TYPE option<string>;
-DEFINE FIELD OVERWRITE decided_at ON TABLE approval_requests TYPE option<string>;
+DEFINE FIELD OVERWRITE decided_at ON TABLE approval_requests TYPE option<string> ASSERT status = 'pending' OR ($value != NONE AND $value != '');
 DEFINE FIELD OVERWRITE created_at ON TABLE approval_requests TYPE datetime DEFAULT time::now();
 DEFINE FIELD OVERWRITE updated_at ON TABLE approval_requests TYPE datetime DEFAULT time::now();
 DEFINE INDEX IF NOT EXISTS approval_requests_approval_id ON TABLE approval_requests COLUMNS approval_id UNIQUE;
+DEFINE INDEX IF NOT EXISTS approval_requests_tool_invocation_id ON TABLE approval_requests COLUMNS tool_invocation_id;
 DEFINE INDEX IF NOT EXISTS approval_requests_status ON TABLE approval_requests COLUMNS status;
 DEFINE INDEX IF NOT EXISTS approval_requests_owner_scope_id ON TABLE approval_requests COLUMNS owner_scope_id;
 

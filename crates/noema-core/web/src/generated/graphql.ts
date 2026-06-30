@@ -201,7 +201,7 @@ export type McpApprovalSettingsQueryVariables = Exact<{
 }>;
 
 
-export type McpApprovalSettingsQuery = { mcpApprovalRequests: Array<{ approvalId: string, actionSummary: string, toolInvocationId: string | null, mcpServerId: string | null, mcpToolId: string | null, requesterActorId: string, ownerScopeId: string, activeScopeId: string, destinationSummary: string, dataSourceSummary: string, sourceOwnerIdentity: string, sourceOwnerTrust: string, destinationOwnerIdentity: string, destinationOwnerTrust: string, exportSummary: string, payloadPreview: unknown, status: string }> };
+export type McpApprovalSettingsQuery = { mcpApprovalRequests: Array<{ approvalId: string, actionSummary: string, toolInvocationId: string, mcpServerId: string | null, mcpToolId: string | null, requesterActorId: string, ownerScopeId: string, activeScopeId: string, destinationSummary: string, dataSourceSummary: string, sourceOwnerIdentity: string, sourceOwnerTrust: string, destinationOwnerIdentity: string, destinationOwnerTrust: string, exportSummary: string, payloadPreview: unknown, status: string }> };
 
 export type SaveToolCalibrationMutationVariables = Exact<{
   input: GraphqlSaveToolCalibrationInput;

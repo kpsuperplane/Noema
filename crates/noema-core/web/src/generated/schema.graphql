@@ -284,9 +284,9 @@ type GraphqlMcpApprovalRequest {
 	"""
 	actionSummary: String!
 	"""
-	Related tool invocation id, when available.
+	Related tool invocation id.
 	"""
-	toolInvocationId: String
+	toolInvocationId: String!
 	"""
 	Related MCP server id, when available.
 	"""

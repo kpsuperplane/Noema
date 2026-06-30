@@ -91,7 +91,7 @@ function approvalRows(approval: McpApprovalRequest): { label: string; value: str
     { label: "Scope", value: approval.activeScopeId },
     { label: "Requester", value: approval.requesterActorId },
     { label: "Owner scope", value: approval.ownerScopeId },
-    { label: "Invocation", value: approval.toolInvocationId ?? "Unlinked" },
+    { label: "Invocation", value: approval.toolInvocationId },
     { label: "Tool", value: approval.mcpToolId ?? "Unknown tool" },
     { label: "Server", value: approval.mcpServerId ?? "Unknown server" },
     { label: "Payload", value: formatPayloadPreview(approval.payloadPreview) }
