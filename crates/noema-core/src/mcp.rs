@@ -205,7 +205,13 @@ fn normalize_phone_value(trimmed: &str) -> Option<String> {
         return None;
     }
 
-    let digits: String = trimmed.chars().filter(char::is_ascii_digit).collect();
+    let mut chars = trimmed.chars();
+    chars.next();
+    if !chars.all(is_allowed_phone_format_char) || trimmed[1..].contains('+') {
+        return None;
+    }
+
+    let digits: String = trimmed[1..].chars().filter(char::is_ascii_digit).collect();
     let digit_count = digits.len();
 
     if (8..=15).contains(&digit_count) && !digits.starts_with('0') {
@@ -213,4 +219,8 @@ fn normalize_phone_value(trimmed: &str) -> Option<String> {
     } else {
         None
     }
+}
+
+fn is_allowed_phone_format_char(ch: char) -> bool {
+    ch.is_ascii_digit() || matches!(ch, ' ' | '-' | '.' | '(' | ')')
 }

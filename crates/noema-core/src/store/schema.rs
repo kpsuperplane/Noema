@@ -102,7 +102,7 @@ DEFINE TABLE IF NOT EXISTS trusted_identity_selectors SCHEMAFULL;
 DEFINE FIELD OVERWRITE selector_id ON TABLE trusted_identity_selectors TYPE string ASSERT $value != '';
 DEFINE FIELD OVERWRITE owner_scope_id ON TABLE trusted_identity_selectors TYPE string ASSERT $value != '';
 DEFINE FIELD OVERWRITE selector_kind ON TABLE trusted_identity_selectors TYPE string ASSERT $value INSIDE ['email', 'phone', 'domain'];
-DEFINE FIELD OVERWRITE normalized_value ON TABLE trusted_identity_selectors TYPE string ASSERT $value != '';
+DEFINE FIELD OVERWRITE normalized_value ON TABLE trusted_identity_selectors TYPE string ASSERT $value != '' AND ((selector_kind = 'email' AND string::is_email($value) AND string::matches($value, /\s/) = false) OR (selector_kind = 'domain' AND string::matches($value, /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/)) OR (selector_kind = 'phone' AND string::matches($value, /^\+[0-9]{8,15}$/)));
 DEFINE FIELD OVERWRITE effect ON TABLE trusted_identity_selectors TYPE string ASSERT $value INSIDE ['trust', 'restrict'];
 DEFINE FIELD OVERWRITE issuer_actor_id ON TABLE trusted_identity_selectors TYPE string ASSERT $value != '';
 DEFINE FIELD OVERWRITE revoked_at ON TABLE trusted_identity_selectors TYPE option<string>;

@@ -20,6 +20,14 @@ fn trusted_identity_selectors_normalize_email_phone_and_domain() {
         Some("+14155550100".to_string())
     );
     assert_eq!(
+        normalize_trusted_identity_value(TrustedIdentitySelectorKind::Phone, "+1-415-555-0100abc"),
+        None
+    );
+    assert_eq!(
+        normalize_trusted_identity_value(TrustedIdentitySelectorKind::Phone, "+1+4155550100"),
+        None
+    );
+    assert_eq!(
         normalize_trusted_identity_value(TrustedIdentitySelectorKind::Phone, "415.555.0100"),
         None
     );
@@ -218,6 +226,49 @@ async fn trusted_identity_schema_rejects_empty_identity_fields() {
         error.to_string().contains("normalized_value"),
         "unexpected error: {error}"
     );
+}
+
+#[tokio::test]
+async fn trusted_identity_schema_rejects_invalid_normalized_shapes() {
+    let store = test_store().await;
+    let cases = [
+        ("email_missing_at", "email", "kevin.example.com"),
+        ("email_whitespace", "email", "kevin @example.com"),
+        ("domain_missing_dot", "domain", "example"),
+        ("domain_with_slash", "domain", "example.com/path"),
+        ("domain_bad_label", "domain", "bad-.example.com"),
+        ("phone_without_plus", "phone", "14155550100"),
+        ("phone_with_space", "phone", "+1415 5550100"),
+    ];
+
+    for (record_id, selector_kind, normalized_value) in cases {
+        let query = format!(
+            r#"
+            CREATE type::record('trusted_identity_selectors', '{record_id}') SET
+              selector_id = 'trusted_identity:{record_id}',
+              owner_scope_id = 'human:local',
+              selector_kind = '{selector_kind}',
+              normalized_value = '{normalized_value}',
+              effect = 'trust',
+              issuer_actor_id = 'human:local',
+              updated_at = time::now();
+            "#
+        );
+
+        let error = store
+            .db()
+            .query(query.as_str())
+            .await
+            .expect("invalid trusted identity query")
+            .check()
+            .expect_err("invalid trusted identity shape should be rejected");
+
+        assert!(
+            error.to_string().contains("normalized_value")
+                || error.to_string().contains(normalized_value),
+            "unexpected error for {record_id}: {error}"
+        );
+    }
 }
 
 #[tokio::test]
