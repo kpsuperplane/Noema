@@ -1,5 +1,9 @@
 //! Third-party MCP control-plane domain types.
 
+pub mod client;
+
+pub use client::{DiscoveredMcpTool, McpClientError, McpClientRuntime, McpTransport};
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
