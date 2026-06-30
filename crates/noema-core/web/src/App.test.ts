@@ -4,7 +4,7 @@ import { composerPlaceholder } from "./components/ChatSurface";
 import {
   canSendMessage,
   shouldRefreshLocalStatusForConversationEvent,
-  shouldRenderSettingsRoute
+  shouldRouteThroughAppShell
 } from "./App";
 
 describe("canSendMessage", () => {
@@ -42,43 +42,32 @@ describe("composerPlaceholder", () => {
   });
 });
 
-describe("shouldRenderSettingsRoute", () => {
-  test("renders settings only after onboarding", () => {
+describe("shouldRouteThroughAppShell", () => {
+  test("routes every onboarded product surface through the shell", () => {
+    assert.equal(shouldRouteThroughAppShell({ route: { kind: "chat" }, onboarded: true }), true);
     assert.equal(
-      shouldRenderSettingsRoute({
+      shouldRouteThroughAppShell({ route: { kind: "memory_home" }, onboarded: true }),
+      true
+    );
+    assert.equal(
+      shouldRouteThroughAppShell({ route: { kind: "memory_graph" }, onboarded: true }),
+      true
+    );
+    assert.equal(
+      shouldRouteThroughAppShell({
         route: { kind: "settings", section: "providers" },
         onboarded: true
       }),
       true
     );
     assert.equal(
-      shouldRenderSettingsRoute({
-        route: { kind: "settings", section: "providers" },
-        onboarded: false
-      }),
-      false
-    );
-    assert.equal(
-      shouldRenderSettingsRoute({
-        route: { kind: "settings", section: "agents" },
+      shouldRouteThroughAppShell({
+        route: { kind: "settings", section: "mcps" },
         onboarded: true
       }),
       true
     );
-    assert.equal(
-      shouldRenderSettingsRoute({
-        route: { kind: "settings", section: "agents" },
-        onboarded: false
-      }),
-      false
-    );
-    assert.equal(
-      shouldRenderSettingsRoute({
-        route: { kind: "memory_home" },
-        onboarded: true
-      }),
-      false
-    );
+    assert.equal(shouldRouteThroughAppShell({ route: { kind: "chat" }, onboarded: false }), false);
   });
 });
 

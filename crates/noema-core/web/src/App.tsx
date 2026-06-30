@@ -22,7 +22,7 @@ import {
 } from "./components/Onboarding";
 import { MemoryGraphPage } from "./pages/MemoryGraphPage";
 import { MemoryHomePage } from "./pages/MemoryHomePage";
-import { SettingsPage } from "./pages/SettingsPage";
+import { SettingsSurface } from "./pages/SettingsPage";
 import { useBrowserRoute, type AppRoute } from "./routes";
 import { entriesFromReplay, handleConversationEvent, pushTranscript } from "./transcript";
 import type { ConversationAgentStatus, SocketState, TranscriptEntry } from "./types";
@@ -68,14 +68,14 @@ export function shouldRefreshLocalStatusForConversationEvent(event: unknown) {
   );
 }
 
-export function shouldRenderSettingsRoute({
+export function shouldRouteThroughAppShell({
   route,
   onboarded
 }: {
   route: AppRoute;
   onboarded: boolean;
 }) {
-  return onboarded && route.kind === "settings";
+  return onboarded && Boolean(route);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -83,7 +83,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 export function App() {
-  const { route, navigate, closeSettings } = useBrowserRoute();
+  const { route, navigate, goBackFromSettings } = useBrowserRoute();
   const apolloClient = useApolloClient();
   const localStatus = useQuery(LocalStatusDocument);
   const onboardingStatus = useQuery(OnboardingStatusDocument);
@@ -374,13 +374,15 @@ export function App() {
     );
   }
 
-  if (route.kind === "settings" && shouldRenderSettingsRoute({ route, onboarded })) {
-    return <SettingsPage section={route.section} onNavigate={navigate} onClose={closeSettings} />;
-  }
-
   if (route.kind === "memory_home") {
     return (
-      <AppShell route={route} status={status} socketState={socketState} onNavigate={navigate}>
+      <AppShell
+        route={route}
+        status={status}
+        socketState={socketState}
+        onNavigate={navigate}
+        goBackFromSettings={goBackFromSettings}
+      >
         <MemoryHomePage onOpenGraph={() => navigate({ kind: "memory_graph" })} />
       </AppShell>
     );
@@ -388,14 +390,40 @@ export function App() {
 
   if (route.kind === "memory_graph") {
     return (
-      <AppShell route={route} status={status} socketState={socketState} onNavigate={navigate}>
+      <AppShell
+        route={route}
+        status={status}
+        socketState={socketState}
+        onNavigate={navigate}
+        goBackFromSettings={goBackFromSettings}
+      >
         <MemoryGraphPage />
       </AppShell>
     );
   }
 
+  if (route.kind === "settings") {
+    return (
+      <AppShell
+        route={route}
+        status={status}
+        socketState={socketState}
+        onNavigate={navigate}
+        goBackFromSettings={goBackFromSettings}
+      >
+        <SettingsSurface section={route.section} />
+      </AppShell>
+    );
+  }
+
   return (
-    <AppShell route={route} status={status} socketState={socketState} onNavigate={navigate}>
+    <AppShell
+      route={route}
+      status={status}
+      socketState={socketState}
+      onNavigate={navigate}
+      goBackFromSettings={goBackFromSettings}
+    >
       {chatView}
     </AppShell>
   );
