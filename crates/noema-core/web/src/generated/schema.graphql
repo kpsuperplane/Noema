@@ -272,6 +272,40 @@ type GraphqlLocalStatus {
 }
 
 """
+MCP server metadata safe to show in Settings.
+"""
+type GraphqlMcpServer {
+	"""
+	Durable MCP server id.
+	"""
+	mcpServerId: String!
+	"""
+	Human-visible server name.
+	"""
+	displayName: String!
+	"""
+	Transport used to connect to the server.
+	"""
+	transportKind: String!
+	"""
+	Whether this server is enabled.
+	"""
+	enabled: Boolean!
+	"""
+	Last known server health.
+	"""
+	healthStatus: String!
+	"""
+	Last known server authentication state.
+	"""
+	authStatus: String!
+	"""
+	Number of discovered tools for this server.
+	"""
+	toolCount: Int!
+}
+
+"""
 Graph-memory claim exposed for memory-management inspection.
 """
 type GraphqlMemoryClaim {
@@ -955,6 +989,36 @@ Transcript item union.
 union GraphqlTranscriptItem = GraphqlUserText | GraphqlAssistantText | GraphqlActivity | GraphqlA2UiCard | GraphqlErrorNotice
 
 """
+Trusted identity selector metadata safe to show in Settings.
+"""
+type GraphqlTrustedIdentitySelector {
+	"""
+	Durable selector id.
+	"""
+	selectorId: String!
+	"""
+	Governable owner scope the selector belongs to.
+	"""
+	ownerScopeId: String!
+	"""
+	Selector type.
+	"""
+	selectorKind: String!
+	"""
+	Normalized selector value.
+	"""
+	normalizedValue: String!
+	"""
+	Selector effect.
+	"""
+	effect: String!
+	"""
+	Actor that issued this selector.
+	"""
+	issuerActorId: String!
+}
+
+"""
 Acceptance response for a queued conversation turn.
 """
 type GraphqlTurnAccepted {
@@ -1051,6 +1115,14 @@ type QueryRoot {
 	List agent metadata safe to show in Settings.
 	"""
 	agents: [GraphqlAgent!]!
+	"""
+	List MCP server metadata safe to show in Settings.
+	"""
+	mcpServers: [GraphqlMcpServer!]!
+	"""
+	List trusted identity selectors for one owner scope.
+	"""
+	trustedIdentitySelectors(ownerScopeId: String!): [GraphqlTrustedIdentitySelector!]!
 	"""
 	List graph-memory claims for memory-management inspection.
 	"""
