@@ -1,19 +1,20 @@
 use async_graphql::{Context, Object, Result, Schema, Subscription};
 use futures_util::Stream;
 
-use crate::daemon::TurnStreamEvent;
-
 use super::{
-    ConversationLiveEvent, ConversationSubscriptionRegistry,
-    types::{
-        GraphqlAgentStatusEvent, GraphqlAssistantConnection, GraphqlAssistantTextDeltaEvent,
-        GraphqlConversationEvent, GraphqlConversationItem, GraphqlConversationItemEvent,
-        GraphqlConversationStarted, GraphqlLocalServiceStatus, GraphqlLocalStatus,
-        GraphqlMemoryClaim, GraphqlMemoryClaimDetail, GraphqlMemoryGraph, GraphqlMemoryGraphInput,
-        GraphqlMemoryStorageStatus, GraphqlOnboardingStatus, GraphqlPredicateProposal,
-        GraphqlProviderAuthAttempt, GraphqlSendConversationTurnInput,
-        GraphqlStartProviderAuthAttemptInput, GraphqlSubscriptionReadyEvent, GraphqlTurnAccepted,
-        GraphqlTurnCompletedEvent,
+    ConversationSubscriptionRegistry,
+    chat::{
+        self, GraphqlConversationEvent, GraphqlConversationStarted,
+        GraphqlSendConversationTurnInput, GraphqlTurnAccepted,
+    },
+    local_status::{self, GraphqlLocalStatus, GraphqlMemoryStorageStatus},
+    memory::{
+        self, GraphqlMemoryClaim, GraphqlMemoryClaimDetail, GraphqlMemoryGraph,
+        GraphqlMemoryGraphInput, GraphqlPredicateProposal,
+    },
+    onboarding::{
+        self, GraphqlOnboardingStatus, GraphqlProviderAuthAttempt,
+        GraphqlStartProviderAuthAttemptInput,
     },
 };
 
@@ -77,7 +78,7 @@ impl GraphqlState {
         &self.subscriptions
     }
 
-    fn store(&self) -> Result<&crate::NoemaStore> {
+    pub(super) fn store(&self) -> Result<&crate::NoemaStore> {
         #[cfg(test)]
         if let Some(store) = &self.test_store {
             return Ok(store);
@@ -86,7 +87,7 @@ impl GraphqlState {
         Ok(self.web_state()?.store())
     }
 
-    fn optional_store(&self) -> Option<&crate::NoemaStore> {
+    pub(super) fn optional_store(&self) -> Option<&crate::NoemaStore> {
         #[cfg(test)]
         if let Some(store) = &self.test_store {
             return Some(store);
@@ -95,6 +96,10 @@ impl GraphqlState {
         self.web_state
             .as_ref()
             .map(crate::daemon::web::WebState::store)
+    }
+
+    pub(super) fn memory_storage(&self) -> GraphqlMemoryStorageStatus {
+        self.memory_storage
     }
 }
 
@@ -114,40 +119,13 @@ impl QueryRoot {
     /// Return local Noema status.
     async fn local_status(&self, ctx: &Context<'_>) -> Result<GraphqlLocalStatus> {
         let state = ctx.data_unchecked::<GraphqlState>();
-        let primary_agent_display_name = match state.optional_store() {
-            Some(store) => store
-                .get_agent("agent:primary")
-                .await
-                .map_err(graphql_error)?
-                .and_then(|agent| agent.display_name),
-            None => None,
-        };
-        Ok(GraphqlLocalStatus {
-            local_service: GraphqlLocalServiceStatus::Running,
-            assistant_connection: GraphqlAssistantConnection::Codex,
-            memory_storage: state.memory_storage,
-            primary_agent_display_name,
-        })
+        local_status::local_status(state).await
     }
 
     /// Return onboarding status.
     async fn onboarding_status(&self, ctx: &Context<'_>) -> Result<GraphqlOnboardingStatus> {
         let state = ctx.data_unchecked::<GraphqlState>();
-        let web = state.web_state()?;
-        let account = web
-            .store()
-            .active_provider_account("codex")
-            .await
-            .map_err(graphql_error)?;
-        let account = crate::daemon::web::reconcile_onboarding_provider_account(
-            web.store(),
-            web.paths(),
-            account,
-        )
-        .await
-        .map_err(graphql_error)?;
-
-        Ok(crate::onboarding_status_from_account(account).into())
+        onboarding::onboarding_status(state).await
     }
 
     /// Return a short-lived provider auth attempt.
@@ -157,18 +135,7 @@ impl QueryRoot {
         attempt_id: String,
     ) -> Result<Option<GraphqlProviderAuthAttempt>> {
         let state = ctx.data_unchecked::<GraphqlState>();
-        let web = state.web_state()?;
-        let attempt = web
-            .provider_auth()
-            .poll_attempt(&attempt_id)
-            .await
-            .map_err(graphql_error)?;
-        if let Some(attempt) = &attempt {
-            crate::daemon::web::persist_provider_account_status_from_attempt(web.store(), attempt)
-                .await
-                .map_err(graphql_error)?;
-        }
-        Ok(attempt.map(Into::into))
+        onboarding::provider_auth_attempt(state, attempt_id).await
     }
 
     /// List graph-memory claims for memory-management inspection.
@@ -180,35 +147,8 @@ impl QueryRoot {
         predicate_id: Option<String>,
         limit: Option<i32>,
     ) -> Result<Vec<GraphqlMemoryClaim>> {
-        let limit = match limit {
-            Some(value) if value < 1 => {
-                return Err(async_graphql::Error::new(
-                    "memoryClaims limit must be at least 1",
-                ));
-            }
-            Some(value) => Some(
-                usize::try_from(value)
-                    .map_err(|_| async_graphql::Error::new("memoryClaims limit is too large"))?,
-            ),
-            None => None,
-        };
         let state = ctx.data_unchecked::<GraphqlState>();
-        let status = status
-            .as_deref()
-            .map(parse_graphql_claim_status)
-            .transpose()?;
-        let claims = state
-            .store()?
-            .list_claims(crate::MemoryClaimFilter {
-                query,
-                status,
-                predicate_id,
-                limit,
-            })
-            .await
-            .map_err(graphql_error)?;
-
-        Ok(claims.into_iter().map(Into::into).collect())
+        memory::memory_claims(state, query, status, predicate_id, limit).await
     }
 
     /// Return one graph-memory claim for memory-management inspection.
@@ -218,12 +158,7 @@ impl QueryRoot {
         claim_id: String,
     ) -> Result<Option<GraphqlMemoryClaimDetail>> {
         let state = ctx.data_unchecked::<GraphqlState>();
-        let detail = state
-            .store()?
-            .get_claim_detail(&claim_id)
-            .await
-            .map_err(graphql_error)?;
-        Ok(detail.map(Into::into))
+        memory::memory_claim(state, claim_id).await
     }
 
     /// List predicate proposals for memory-management inspection.
@@ -233,25 +168,8 @@ impl QueryRoot {
         status: Option<String>,
         limit: Option<i32>,
     ) -> Result<Vec<GraphqlPredicateProposal>> {
-        let limit = match limit {
-            Some(value) if value < 1 => {
-                return Err(async_graphql::Error::new(
-                    "memoryPredicateProposals limit must be at least 1",
-                ));
-            }
-            Some(value) => Some(usize::try_from(value).map_err(|_| {
-                async_graphql::Error::new("memoryPredicateProposals limit is too large")
-            })?),
-            None => None,
-        };
         let state = ctx.data_unchecked::<GraphqlState>();
-        let proposals = state
-            .store()?
-            .list_predicate_proposals(crate::PredicateProposalFilter { status, limit })
-            .await
-            .map_err(graphql_error)?;
-
-        Ok(proposals.into_iter().map(Into::into).collect())
+        memory::memory_predicate_proposals(state, status, limit).await
     }
 
     /// Return one predicate proposal for memory-management inspection.
@@ -261,12 +179,7 @@ impl QueryRoot {
         proposal_id: String,
     ) -> Result<Option<GraphqlPredicateProposal>> {
         let state = ctx.data_unchecked::<GraphqlState>();
-        let proposal = state
-            .store()?
-            .get_predicate_proposal(&proposal_id)
-            .await
-            .map_err(graphql_error)?;
-        Ok(proposal.map(Into::into))
+        memory::memory_predicate_proposal(state, proposal_id).await
     }
 
     /// Return a bounded graph-memory projection for local memory-management inspection.
@@ -275,41 +188,8 @@ impl QueryRoot {
         ctx: &Context<'_>,
         input: Option<GraphqlMemoryGraphInput>,
     ) -> Result<GraphqlMemoryGraph> {
-        let input = input.unwrap_or_default();
-        let limit = parse_memory_graph_limit(input.limit)?;
-        let statuses = input
-            .statuses
-            .map(|statuses| {
-                if statuses.is_empty() {
-                    return Err(async_graphql::Error::new(
-                        "memoryGraph statuses must not be empty",
-                    ));
-                }
-                statuses
-                    .iter()
-                    .map(|status| parse_graphql_claim_status(status))
-                    .collect::<Result<Vec<_>>>()
-            })
-            .transpose()?;
-        let sensitivity = input
-            .sensitivity
-            .as_deref()
-            .map(parse_graphql_sensitivity)
-            .transpose()?;
         let state = ctx.data_unchecked::<GraphqlState>();
-        let graph = state
-            .store()?
-            .memory_graph(crate::MemoryGraphFilter {
-                query: input.query,
-                statuses,
-                predicate_id: input.predicate_id,
-                sensitivity,
-                limit,
-            })
-            .await
-            .map_err(graphql_error)?;
-
-        Ok(graph.into())
+        memory::memory_graph(state, input).await
     }
 }
 
@@ -325,16 +205,7 @@ impl MutationRoot {
         input: GraphqlStartProviderAuthAttemptInput,
     ) -> Result<GraphqlProviderAuthAttempt> {
         let state = ctx.data_unchecked::<GraphqlState>();
-        let web = state.web_state()?;
-        let request = crate::daemon::web::ProviderAuthStartRequest {
-            provider_kind: input.provider_kind,
-            provider_account_id: input.provider_account_id,
-            method: input.method.into(),
-        };
-        let attempt = crate::daemon::web::start_provider_auth_attempt_view(web, request)
-            .await
-            .map_err(|error| async_graphql::Error::new(error.message()))?;
-        Ok(attempt.into())
+        onboarding::start_provider_auth_attempt(state, input).await
     }
 
     /// Start or resume the primary conversation.
@@ -345,41 +216,7 @@ impl MutationRoot {
         cwd: Option<String>,
     ) -> Result<GraphqlConversationStarted> {
         let state = ctx.data_unchecked::<GraphqlState>();
-        let web = state.web_state()?;
-        let account = web
-            .store()
-            .active_provider_account("codex")
-            .await
-            .map_err(graphql_error)?;
-        if !crate::daemon::web::is_user_onboarded_for_chat(account) {
-            return Err(async_graphql::Error::new(
-                "Noema onboarding is incomplete. Connect a provider account before starting chat.",
-            ));
-        }
-
-        let started = web
-            .runtime()
-            .start_primary_conversation(model, cwd)
-            .await
-            .map_err(graphql_error)?;
-        let replay_records =
-            crate::daemon::web::visible_conversation_replay(web.store(), &started.conversation_id)
-                .await
-                .map_err(graphql_error)?;
-        let mut replay = Vec::new();
-        for record in replay_records {
-            if let Some(item) = crate::daemon::web::web_conversation_item_from_record(record)
-                .map_err(graphql_error)?
-            {
-                replay.push(GraphqlConversationItem::from(item));
-            }
-        }
-
-        Ok(GraphqlConversationStarted {
-            conversation_id: started.conversation_id,
-            provider: "codex".to_string(),
-            replay,
-        })
+        chat::start_primary_conversation(state, model, cwd).await
     }
 
     /// Send a conversation turn.
@@ -389,50 +226,7 @@ impl MutationRoot {
         input: GraphqlSendConversationTurnInput,
     ) -> Result<GraphqlTurnAccepted> {
         let state = ctx.data_unchecked::<GraphqlState>();
-        let web = state.web_state()?;
-        let runtime = web.runtime().clone();
-        let subscriptions = state.subscriptions().clone();
-        let (item_tx, mut item_rx) = tokio::sync::mpsc::unbounded_channel();
-        let conversation_id = input.conversation_id.clone();
-        let client_message_id = input.client_message_id.clone();
-        let published_client_message_id = client_message_id.clone();
-        let input_text = input.input;
-        let completion_conversation_id = conversation_id.clone();
-
-        tokio::spawn(async move {
-            let completion = runtime.turn(completion_conversation_id, input_text, item_tx);
-            tokio::pin!(completion);
-            loop {
-                tokio::select! {
-                    Some(event) = item_rx.recv() => {
-                        subscriptions.publish(ConversationLiveEvent::Turn {
-                            client_message_id: published_client_message_id.clone(),
-                            event: Box::new(event),
-                        });
-                    }
-                    result = &mut completion => {
-                        while let Ok(event) = item_rx.try_recv() {
-                            subscriptions.publish(ConversationLiveEvent::Turn {
-                                client_message_id: published_client_message_id.clone(),
-                                event: Box::new(event),
-                            });
-                        }
-                        publish_turn_terminal_events(
-                            &subscriptions,
-                            conversation_id,
-                            published_client_message_id,
-                            result,
-                        );
-                        break;
-                    }
-                }
-            }
-        });
-
-        Ok(GraphqlTurnAccepted {
-            conversation_id: input.conversation_id,
-            client_message_id,
-        })
+        chat::send_conversation_turn(state, input).await
     }
 }
 
@@ -448,167 +242,14 @@ impl SubscriptionRoot {
         conversation_id: String,
     ) -> impl Stream<Item = GraphqlConversationEvent> {
         let state = ctx.data_unchecked::<GraphqlState>();
-        let mut rx = state.subscriptions().subscribe(&conversation_id);
-
-        async_stream::stream! {
-            yield GraphqlConversationEvent::SubscriptionReady(
-                GraphqlSubscriptionReadyEvent {
-                    conversation_id: conversation_id.clone(),
-                },
-            );
-
-            while let Ok(event) = rx.recv().await {
-                match event {
-                    ConversationLiveEvent::Turn {
-                        client_message_id,
-                        event,
-                    } => match *event {
-                        crate::daemon::TurnStreamEvent::ConversationItem {
-                                conversation_id,
-                                item_id,
-                                turn_id,
-                                metadata,
-                                item,
-                            } => {
-                        yield GraphqlConversationEvent::ConversationItem(
-                            Box::new(GraphqlConversationItemEvent {
-                                conversation_id,
-                                client_message_id,
-                                item_id,
-                                turn_id,
-                                metadata: async_graphql::Json(metadata),
-                                item: (*item).into(),
-                            }),
-                        );
-                    }
-                        crate::daemon::TurnStreamEvent::AgentStatusChanged {
-                                conversation_id,
-                                status,
-                            } => {
-                        yield GraphqlConversationEvent::AgentStatusChanged(
-                            GraphqlAgentStatusEvent {
-                                conversation_id,
-                                status: status.into(),
-                            },
-                        );
-                    }
-                        crate::daemon::TurnStreamEvent::AssistantTextDelta {
-                                conversation_id,
-                                turn_id,
-                                stream_id,
-                                delta,
-                            } => {
-                        yield GraphqlConversationEvent::AssistantTextDelta(
-                            GraphqlAssistantTextDeltaEvent {
-                                conversation_id,
-                                turn_id,
-                                stream_id,
-                                delta,
-                            },
-                        );
-                    }
-                    },
-                    ConversationLiveEvent::Completed {
-                        conversation_id,
-                        client_message_id,
-                    } => {
-                        yield GraphqlConversationEvent::TurnCompleted(
-                            GraphqlTurnCompletedEvent {
-                                conversation_id,
-                                client_message_id,
-                            },
-                        );
-                    }
-                }
-            }
-        }
+        chat::conversation_events(state.subscriptions().clone(), conversation_id)
     }
-}
-
-fn graphql_error(error: impl std::fmt::Display) -> async_graphql::Error {
-    async_graphql::Error::new(error.to_string())
-}
-
-fn parse_graphql_claim_status(value: &str) -> Result<crate::ClaimStatus> {
-    match value {
-        "candidate" => Ok(crate::ClaimStatus::Candidate),
-        "active" => Ok(crate::ClaimStatus::Active),
-        "confirmed" => Ok(crate::ClaimStatus::Confirmed),
-        "disputed" => Ok(crate::ClaimStatus::Disputed),
-        "superseded" => Ok(crate::ClaimStatus::Superseded),
-        "archived" => Ok(crate::ClaimStatus::Archived),
-        "deleted" => Ok(crate::ClaimStatus::Deleted),
-        _ => Err(async_graphql::Error::new(format!(
-            "unknown memory claim status: {value}"
-        ))),
-    }
-}
-
-fn parse_graphql_sensitivity(value: &str) -> Result<crate::memory::Sensitivity> {
-    match value {
-        "public" => Ok(crate::memory::Sensitivity::Public),
-        "normal" => Ok(crate::memory::Sensitivity::Normal),
-        "private" => Ok(crate::memory::Sensitivity::Private),
-        "sensitive" => Ok(crate::memory::Sensitivity::Sensitive),
-        "secret" => Ok(crate::memory::Sensitivity::Secret),
-        _ => Err(async_graphql::Error::new(format!(
-            "unknown memory sensitivity: {value}"
-        ))),
-    }
-}
-
-fn parse_memory_graph_limit(limit: Option<i32>) -> Result<Option<usize>> {
-    match limit {
-        Some(value) if value < 1 => Err(async_graphql::Error::new(
-            "memoryGraph limit must be at least 1",
-        )),
-        Some(value) if value > 500 => Err(async_graphql::Error::new(
-            "memoryGraph limit must be at most 500",
-        )),
-        Some(value) => Ok(Some(usize::try_from(value).map_err(|_| {
-            async_graphql::Error::new("memoryGraph limit is too large")
-        })?)),
-        None => Ok(None),
-    }
-}
-
-fn publish_turn_terminal_events(
-    subscriptions: &ConversationSubscriptionRegistry,
-    conversation_id: String,
-    client_message_id: Option<String>,
-    result: std::result::Result<(), crate::DaemonError>,
-) {
-    if let Err(error) = result {
-        let error_item_id = client_message_id.as_ref().map_or_else(
-            || format!("graphql_runtime_error:{conversation_id}:uncorrelated"),
-            |client_message_id| {
-                format!("graphql_runtime_error:{conversation_id}:{client_message_id}")
-            },
-        );
-        subscriptions.publish(ConversationLiveEvent::Turn {
-            client_message_id: client_message_id.clone(),
-            event: Box::new(TurnStreamEvent::ConversationItem {
-                conversation_id: conversation_id.clone(),
-                item_id: error_item_id,
-                turn_id: None,
-                metadata: serde_json::json!({}),
-                item: Box::new(crate::TurnTranscriptItem::ErrorNotice {
-                    message: error.to_string(),
-                    recoverable: false,
-                }),
-            }),
-        });
-    }
-
-    subscriptions.publish(ConversationLiveEvent::Completed {
-        conversation_id,
-        client_message_id,
-    });
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{daemon::TurnStreamEvent, graphql::subscriptions::ConversationLiveEvent};
     use futures_util::StreamExt;
     use serde_json::json;
 
@@ -1290,62 +931,6 @@ mod tests {
             "{:?}",
             response.errors
         );
-    }
-
-    #[tokio::test]
-    async fn runtime_turn_error_publishes_error_notice_and_completion() {
-        let subscriptions = ConversationSubscriptionRegistry::default();
-        let mut rx = subscriptions.subscribe("conversation_1");
-
-        publish_turn_terminal_events(
-            &subscriptions,
-            "conversation_1".to_string(),
-            Some("client_1".to_string()),
-            Err(crate::DaemonError::Remote("provider failed".to_string())),
-        );
-
-        let event = rx.recv().await.expect("error notice event");
-        let ConversationLiveEvent::Turn {
-            client_message_id,
-            event,
-        } = event
-        else {
-            panic!("expected turn event");
-        };
-        assert_eq!(client_message_id.as_deref(), Some("client_1"));
-        let crate::daemon::TurnStreamEvent::ConversationItem {
-            conversation_id,
-            item_id,
-            metadata,
-            item,
-            ..
-        } = *event
-        else {
-            panic!("expected conversation item");
-        };
-        assert_eq!(conversation_id, "conversation_1");
-        assert_eq!(item_id, "graphql_runtime_error:conversation_1:client_1");
-        assert_eq!(metadata, json!({}));
-        let crate::TurnTranscriptItem::ErrorNotice {
-            message,
-            recoverable,
-        } = *item
-        else {
-            panic!("expected error notice");
-        };
-        assert!(message.contains("provider failed"));
-        assert!(!recoverable);
-
-        let event = rx.recv().await.expect("completion event");
-        let ConversationLiveEvent::Completed {
-            conversation_id,
-            client_message_id,
-        } = event
-        else {
-            panic!("expected completion event");
-        };
-        assert_eq!(conversation_id, "conversation_1");
-        assert_eq!(client_message_id.as_deref(), Some("client_1"));
     }
 
     #[tokio::test]

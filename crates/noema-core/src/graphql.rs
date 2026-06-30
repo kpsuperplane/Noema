@@ -4,6 +4,11 @@
 //! they call Noema read models, command/runtime paths, provider auth, and
 //! repository methods instead of owning product behavior.
 
+mod chat;
+mod errors;
+mod local_status;
+mod memory;
+mod onboarding;
 mod resolvers;
 mod schema;
 mod subscriptions;
