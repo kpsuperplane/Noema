@@ -37,7 +37,8 @@ pub mod store;
 
 pub use capability::{
     CapabilityAxis, CapabilityDecisionOutcome, CapabilityPolicyDecision, CapabilityPolicyInput,
-    OwnerTrust, evaluate_capability_policy,
+    OwnerTrust, ReadExaminationInput, ResolvedOwner, contains_prompt_injection_marker,
+    evaluate_capability_policy, examine_read_result, resolve_owner_from_json,
 };
 pub use config::{
     CliOverrides, Config, ConfigError, DaemonResolvedConfig, ProviderConfig, ProviderKind,

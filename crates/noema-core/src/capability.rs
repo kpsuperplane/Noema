@@ -1,6 +1,14 @@
 //! Capability Gateway policy core.
 
+pub mod examination;
+pub mod ownership;
+
 use crate::McpTrustClassification;
+
+pub use examination::{
+    ReadExaminationInput, contains_prompt_injection_marker, examine_read_result,
+};
+pub use ownership::{ResolvedOwner, resolve_owner_from_json};
 
 /// MCP capability axis being evaluated for a proposed operation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
