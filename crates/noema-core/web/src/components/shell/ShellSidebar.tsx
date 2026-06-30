@@ -27,12 +27,6 @@ export function ShellSidebar({
 }) {
   return (
     <div className="grid h-full min-h-0 grid-rows-[auto_auto_minmax(0,1fr)] gap-1">
-      <div className="flex min-w-0 items-center gap-2.5 px-2">
-        <div className="min-w-0">
-          <strong className="block truncate font-heading text-base tracking-normal">Noema</strong>
-        </div>
-      </div>
-
       {attention ? <ShellAttentionItem attention={attention} /> : <div aria-hidden="true" />}
 
       <nav className="grid content-start gap-1" aria-label="Primary">
