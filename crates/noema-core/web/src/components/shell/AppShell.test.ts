@@ -5,7 +5,6 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { avatarSeedForActorId, LOCAL_AGENT_AVATAR_ID } from "../IdentityAvatar";
 import {
   AppShell,
-  activeShellDestination,
   shellBrowserDesktopChromeOffset,
   shellDesktopChromeOffsetForRuntime,
   shellDesktopSidebarWidth,
@@ -16,8 +15,6 @@ import {
   shellSidebarGroundClassName,
   shellAttentionForState,
   shellTauriDesktopChromeOffset,
-  shellNavItemsForStatus,
-  shellNavItems,
   type ShellAttentionInput
 } from "./AppShell";
 import {
@@ -34,36 +31,6 @@ const healthyStatus = {
   memoryStorage: "READY",
   primaryAgentDisplayName: null
 } as const;
-
-describe("shell navigation helpers", () => {
-  test("defines the primary shell navigation contract without settings", () => {
-    assert.deepEqual(shellNavItems, [
-      { destination: "home", label: "Home", route: { kind: "chat" } },
-      { destination: "memory", label: "Memory", route: { kind: "memory_home" } }
-    ]);
-  });
-
-  test("labels the primary chat surface with the agent name when available", () => {
-    const status = { ...healthyStatus, primaryAgentDisplayName: "Aster" };
-
-    assert.deepEqual(shellNavItemsForStatus(status), [
-      { destination: "home", label: "Aster", route: { kind: "chat" } },
-      { destination: "memory", label: "Memory", route: { kind: "memory_home" } }
-    ]);
-
-    assert.deepEqual(shellNavItemsForStatus(null), shellNavItems);
-    assert.deepEqual(
-      shellNavItemsForStatus({ ...healthyStatus, primaryAgentDisplayName: "   " }),
-      shellNavItems
-    );
-  });
-
-  test("marks chat routes as Home and memory routes as Memory", () => {
-    assert.equal(activeShellDestination({ kind: "chat" }), "home");
-    assert.equal(activeShellDestination({ kind: "memory_home" }), "memory");
-    assert.equal(activeShellDestination({ kind: "memory_graph" }), "memory");
-  });
-});
 
 describe("deck navigation behavior", () => {
   test("opens and closes the navigation reveal state", () => {
@@ -290,13 +257,43 @@ describe("AppShell layered deck markup", () => {
     assert.match(markup, />Memory</);
   });
 
-  test("renders settings as one bottom utility button", () => {
+  test("renders Settings as a full bottom L0 menu item", () => {
     const markup = renderShell();
 
     assert.equal(countMatches(markup, /aria-label="Primary"/g), 1);
-    assert.equal(countMatches(markup, /Open settings/g), 1);
-    assert.match(markup, /data-slot="shell-settings-button"/);
-    assert.doesNotMatch(markup, />Settings<\/button>/);
+    assert.equal(countMatches(markup, />Settings</g), 1);
+    assert.match(markup, /data-slot="shell-menu-bottom-item"/);
+    assert.doesNotMatch(markup, /data-slot="shell-settings-button"/);
+    assert.doesNotMatch(markup, /aria-label="Open settings"/);
+  });
+
+  test("renders Settings L1 menu and quiet breadcrumb for settings routes", () => {
+    const markup = renderShell({ route: { kind: "settings", section: "mcps" } });
+
+    assert.match(markup, /aria-label="Settings"/);
+    assert.match(markup, />Providers</);
+    assert.match(markup, />Agents</);
+    assert.match(markup, />MCPs</);
+    assert.match(markup, />Trusted identities</);
+    assert.match(markup, />Approvals</);
+    assert.match(markup, />Audit</);
+    assert.match(markup, />Go back</);
+    assert.match(markup, /data-slot="shell-breadcrumb"/);
+    assert.match(markup, /data-slot="shell-breadcrumb-parent"[^>]*>Settings</);
+    assert.match(markup, /data-slot="shell-breadcrumb-current"[^>]*>MCPs</);
+    assert.match(markup, /data-shell-menu-item="settings\.mcps"[^>]*aria-current="page"/);
+  });
+
+  test("keeps the Tauri header offset wrapper around breadcrumbs", () => {
+    const markup = renderShell({ route: { kind: "settings", section: "agents" } });
+    const headerOffsetClassName = dataSlotClassName(markup, "shell-header-offset");
+
+    assert.match(headerOffsetClassName, /transition-transform/);
+    assert.match(
+      headerOffsetClassName,
+      /translate-x-\[calc\(1\.5rem\+var\(--shell-desktop-chrome-offset\)\)\]/
+    );
+    assert.match(markup, /data-slot="shell-breadcrumb"/);
   });
 
   test("renders the named primary agent in the sidebar and chat header", () => {
@@ -304,12 +301,12 @@ describe("AppShell layered deck markup", () => {
       status: { ...healthyStatus, primaryAgentDisplayName: "Aster" }
     });
 
-    assert.equal(countMatches(markup, />Aster</g), 2);
+    assert.equal(countMatches(markup, />Aster</g), 1);
     assert.match(markup, new RegExp(`data-avatar-seed="${avatarSeedForActorId(LOCAL_AGENT_AVATAR_ID)}"`));
     assert.match(markup, /data-avatar-variant="beam"/);
     assert.match(markup, /data-slot="shell-primary-agent-avatar"[^>]*class="[^"]*\bsize-4\b/);
     assert.doesNotMatch(markup, /lucide-house/);
-    assert.doesNotMatch(markup, />Home</);
+    assert.match(markup, />Home</);
   });
 
   test("keeps the desktop collapse toggle out of the header", () => {
@@ -391,7 +388,10 @@ describe("AppShell layered deck markup", () => {
   test("keeps the content deck shadow on mobile", () => {
     const className = shellContentDeckClassName(initialDeckNavigationState);
 
-    assert.match(className, /shadow-\[0_24px_70px_rgba\(31,38,30,0\.18\)\]/);
+    assert.match(
+      className,
+      /shadow-\[0_0_24px_color-mix\(in_srgb,var\(--pine-700\),transparent_80%\)\]/
+    );
     assert.doesNotMatch(className, /max-\[760px\]:shadow-none/);
   });
 
@@ -428,6 +428,25 @@ describe("AppShell layered deck markup", () => {
     assert.doesNotMatch(markup, /data-slot="sheet"/);
     assert.doesNotMatch(markup, /data-slot="sheet-content"/);
     assert.match(deckClassName, /\bmotion-reduce:transition-none\b/);
+  });
+
+  test("renders only one interactive sidebar menu level at a time", () => {
+    const primaryMarkup = renderShell({ route: { kind: "chat" } });
+    const settingsMarkup = renderShell({ route: { kind: "settings", section: "providers" } });
+
+    assert.equal(countMatches(primaryMarkup, /data-slot="shell-sidebar-menu-level"/g), 1);
+    assert.equal(countMatches(settingsMarkup, /data-slot="shell-sidebar-menu-level"/g), 1);
+    assert.match(primaryMarkup, /data-shell-menu-level="l0"/);
+    assert.match(settingsMarkup, /data-shell-menu-level="settings"/);
+    assert.doesNotMatch(settingsMarkup, /data-shell-menu-item="home"/);
+  });
+
+  test("labels bottom menu actions accessibly", () => {
+    assert.match(renderShell({ route: { kind: "chat" } }), />Settings</);
+    assert.match(
+      renderShell({ route: { kind: "settings", section: "providers" } }),
+      />Go back</
+    );
   });
 });
 
@@ -616,6 +635,7 @@ function renderShell({
       providerBlocked: false,
       setupBlocked: false,
       onNavigate: () => undefined,
+      goBackFromSettings: () => undefined,
       children: routeContent
     })
   );

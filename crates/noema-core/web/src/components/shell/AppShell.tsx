@@ -13,14 +13,13 @@ import {
 } from "./deckNavigation";
 import { ShellSidebar } from "./ShellSidebar";
 import { ShellSurfaceProvider, type ShellSurfaceVisibility } from "./ShellSurfaceContext";
-
-export type ShellDestination = "home" | "memory";
-
-export type ShellNavItem = {
-  destination: ShellDestination;
-  label: string;
-  route: AppRoute;
-};
+import {
+  breadcrumbForRoute,
+  shellMenuLevelForRoute,
+  shellMenuSelectionBehavior,
+  type ShellBreadcrumb,
+  type ShellMenuItem
+} from "./shellNavigation";
 
 export type ShellAttention = {
   tone: "warning";
@@ -35,11 +34,6 @@ export type ShellAttentionInput = {
   providerBlocked: boolean;
   setupBlocked: boolean;
 };
-
-export const shellNavItems: ShellNavItem[] = [
-  { destination: "home", label: "Home", route: { kind: "chat" } },
-  { destination: "memory", label: "Memory", route: { kind: "memory_home" } }
-];
 
 export const shellDesktopSidebarWidth = "216px";
 export const shellBrowserDesktopChromeOffset = "0px";
@@ -72,28 +66,8 @@ export function shellRootClassName(isDesktopRuntime = isTauriRuntime()) {
   );
 }
 
-export function activeShellDestination(route: AppRoute): ShellDestination {
-  if (route.kind === "memory_home" || route.kind === "memory_graph") {
-    return "memory";
-  }
-  return "home";
-}
-
 function primaryAgentNameForStatus(status: LocalStatusQuery["localStatus"] | null) {
   return status?.primaryAgentDisplayName?.trim() ?? "";
-}
-
-export function shellNavItemsForStatus(
-  status: LocalStatusQuery["localStatus"] | null
-): ShellNavItem[] {
-  const primaryAgentName = primaryAgentNameForStatus(status);
-  if (!primaryAgentName) {
-    return shellNavItems;
-  }
-
-  return shellNavItems.map((item) =>
-    item.destination === "home" ? { ...item, label: primaryAgentName } : item
-  );
 }
 
 export function shellAttentionForState(input: ShellAttentionInput): ShellAttention | null {
@@ -137,7 +111,7 @@ export function shellAttentionForState(input: ShellAttentionInput): ShellAttenti
 
 export function shellContentDeckClassName(deckNavigation: DeckNavigationState) {
   return cn(
-    "absolute z-30 grid min-h-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden border border-[var(--border-subtle)] bg-background shadow-[0_24px_70px_rgba(31,38,30,0.18)] transition-[inset,left,right,transform,translate,scale,border-radius,box-shadow] duration-300 ease-out",
+    "absolute z-30 grid min-h-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden border border-[var(--border-subtle)] bg-background shadow-[0_0_24px_color-mix(in_srgb,var(--pine-700),transparent_80%)] transition-[inset,left,right,transform,translate,scale,border-radius,box-shadow] duration-300 ease-out",
     "motion-reduce:transition-none",
     deckNavigation.sidebarCollapsed
       ? "inset-2 rounded-xl"
@@ -172,6 +146,40 @@ export function shellRouteContentClassName(visibility: ShellSurfaceVisibility) {
   return cn("min-h-0 overflow-hidden", visibility !== "visible" && "pointer-events-none");
 }
 
+function shellHeaderLabelForBreadcrumb(breadcrumb: ShellBreadcrumb) {
+  return breadcrumb.parent ? `${breadcrumb.parent} / ${breadcrumb.current}` : breadcrumb.current;
+}
+
+function ShellBreadcrumbLabel({ breadcrumb }: { breadcrumb: ShellBreadcrumb }) {
+  if (!breadcrumb.parent) {
+    return (
+      <strong className="block truncate font-heading text-base tracking-normal">
+        {breadcrumb.current}
+      </strong>
+    );
+  }
+
+  return (
+    <div data-slot="shell-breadcrumb" className="flex min-w-0 items-center gap-2">
+      <span
+        data-slot="shell-breadcrumb-parent"
+        className="truncate text-sm text-muted-foreground"
+      >
+        {breadcrumb.parent}
+      </span>
+      <span className="text-muted-foreground/70" aria-hidden="true">
+        /
+      </span>
+      <strong
+        data-slot="shell-breadcrumb-current"
+        className="truncate font-heading text-base tracking-normal"
+      >
+        {breadcrumb.current}
+      </strong>
+    </div>
+  );
+}
+
 export function AppShell({
   route,
   status,
@@ -179,6 +187,7 @@ export function AppShell({
   providerBlocked = false,
   setupBlocked = false,
   onNavigate,
+  goBackFromSettings,
   children
 }: {
   route: AppRoute;
@@ -187,13 +196,13 @@ export function AppShell({
   providerBlocked?: boolean;
   setupBlocked?: boolean;
   onNavigate: (route: AppRoute) => void;
+  goBackFromSettings: () => void;
   children: React.ReactNode;
 }) {
-  const activeDestination = activeShellDestination(route);
+  const menuLevel = shellMenuLevelForRoute(route);
+  const breadcrumb = breadcrumbForRoute(route);
   const primaryAgentName = primaryAgentNameForStatus(status);
-  const navItems = shellNavItemsForStatus(status);
-  const activeLabel =
-    navItems.find((item) => item.destination === activeDestination)?.label ?? "Home";
+  const activeLabel = shellHeaderLabelForBreadcrumb(breadcrumb);
   const attention = shellAttentionForState({
     route,
     status,
@@ -228,9 +237,28 @@ export function AppShell({
     openNav,
     closeNav,
     toggleSidebarCollapsed,
-    navigateFromShell,
     settleSurfaceVisibility
   } = useDeckNavigation(onNavigate);
+
+  const selectShellMenuItem = React.useCallback(
+    (item: ShellMenuItem) => {
+      if (item.action === "goBackFromSettings") {
+        goBackFromSettings();
+        closeNav();
+        return;
+      }
+
+      if (!item.route) {
+        return;
+      }
+
+      onNavigate(item.route);
+      if (shellMenuSelectionBehavior(item.itemId) === "close-reveal") {
+        closeNav();
+      }
+    },
+    [closeNav, goBackFromSettings, onNavigate]
+  );
 
   return (
     <main
@@ -248,11 +276,11 @@ export function AppShell({
         className={shellSidebarGroundClassName(deckNavigation)}
       >
         <ShellSidebar
-          activeDestination={activeDestination}
+          menuLevel={menuLevel}
           attention={attention}
-          navItems={navItems}
           primaryAgentNamed={Boolean(primaryAgentName)}
-          onNavigate={navigateFromShell}
+          primaryAgentLabel={primaryAgentName || "Home"}
+          onSelectItem={selectShellMenuItem}
         />
       </aside>
 
@@ -301,7 +329,14 @@ export function AppShell({
           data-tauri-drag-region
           className={shellDeckHeaderClassName()}
         >
-          <div className={cn("transition-transform duration-300", deckNavigation.sidebarCollapsed && "min-[761px]:translate-x-[calc(1.5rem+var(--shell-desktop-chrome-offset))]")}>
+          <div
+            data-slot="shell-header-offset"
+            data-sidebar-collapsed={deckNavigation.sidebarCollapsed}
+            className={cn(
+              "transition-transform duration-300",
+              "data-[sidebar-collapsed=true]:min-[761px]:translate-x-[calc(1.5rem+var(--shell-desktop-chrome-offset))]"
+            )}
+          >
             <Button
               ref={menuButtonRef}
               data-slot="shell-menu-button"
@@ -317,9 +352,7 @@ export function AppShell({
               <Menu aria-hidden="true" />
             </Button>
             <div className="min-w-0 py-[0.2rem]">
-              <strong className="block truncate font-heading text-base tracking-normal">
-                {activeLabel}
-              </strong>
+              <ShellBreadcrumbLabel breadcrumb={breadcrumb} />
             </div>
           </div>
         </header>
