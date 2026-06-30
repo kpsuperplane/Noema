@@ -1,4 +1,7 @@
-use crate::provider::GenerateOutputItem;
+use crate::{
+    capability::{CapabilityGateway, GatewayToolProposal, GatewayToolResult},
+    provider::GenerateOutputItem,
+};
 use serde_json::{Value, json};
 
 use super::{actor::CodexRuntimeActor, turn::SuccessfulProviderTurn};
@@ -20,6 +23,8 @@ impl CodexRuntimeActor {
         agent_identity: &AgentPromptIdentity,
     ) -> Vec<LocalToolResult> {
         let mut results = Vec::new();
+        let gateway = CapabilityGateway { store: &self.store };
+        let scope_ids = vec![turn.conversation_id.clone()];
         for (index, output) in turn.response.output.iter().enumerate() {
             let GenerateOutputItem::ToolCall { id, name, payload } = output else {
                 continue;
@@ -43,6 +48,18 @@ impl CodexRuntimeActor {
                 results.push(LocalToolResult::AgentName(
                     execute_update_own_name(&self.store, &context, id.clone(), payload).await,
                 ));
+            } else {
+                let proposal = GatewayToolProposal {
+                    name,
+                    payload,
+                    agent_id: &agent_identity.agent_id,
+                    scope_ids: &scope_ids,
+                };
+                results.push(LocalToolResult::Gateway {
+                    call_id: id.clone(),
+                    name: name.clone(),
+                    result: gateway.execute_tool_proposal(proposal).await,
+                });
             }
         }
         results
@@ -53,6 +70,11 @@ impl CodexRuntimeActor {
 pub(super) enum LocalToolResult {
     Memory(MemoryToolResult),
     AgentName(AgentNameToolResult),
+    Gateway {
+        call_id: Option<String>,
+        name: String,
+        result: GatewayToolResult,
+    },
 }
 
 impl LocalToolResult {
@@ -60,6 +82,7 @@ impl LocalToolResult {
         match self {
             Self::Memory(result) => result.call_id.as_ref(),
             Self::AgentName(result) => result.call_id.as_ref(),
+            Self::Gateway { call_id, .. } => call_id.as_ref(),
         }
     }
 
@@ -67,6 +90,7 @@ impl LocalToolResult {
         match self {
             Self::Memory(result) => &result.name,
             Self::AgentName(result) => &result.name,
+            Self::Gateway { name, .. } => name,
         }
     }
 
@@ -74,6 +98,7 @@ impl LocalToolResult {
         match self {
             Self::Memory(result) => result.success,
             Self::AgentName(result) => result.success,
+            Self::Gateway { result, .. } => result.success,
         }
     }
 
@@ -81,11 +106,16 @@ impl LocalToolResult {
         match self {
             Self::Memory(result) => &result.payload,
             Self::AgentName(result) => &result.payload,
+            Self::Gateway { result, .. } => &result.payload,
         }
     }
 
     pub(super) fn requires_provider_continuation(&self) -> bool {
-        matches!(self, Self::Memory(_))
+        match self {
+            Self::Memory(_) => true,
+            Self::AgentName(_) => false,
+            Self::Gateway { result, .. } => result.requires_provider_continuation,
+        }
     }
 }
 

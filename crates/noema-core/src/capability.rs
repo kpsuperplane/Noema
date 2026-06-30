@@ -1,12 +1,16 @@
 //! Capability Gateway policy core.
 
 pub mod examination;
+pub mod gateway;
 pub mod ownership;
 
 use crate::McpTrustClassification;
 
 pub use examination::{
     ReadExaminationDecision, ReadExaminationInput, ReadExaminationOutcome, examine_read_result,
+};
+pub use gateway::{
+    CapabilityGateway, GatewayToolProposal, GatewayToolResult, is_mcp_shaped_tool_name,
 };
 pub use ownership::{ResolvedOwner, resolve_owner_from_json};
 

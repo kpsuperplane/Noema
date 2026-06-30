@@ -3165,6 +3165,37 @@ async fn search_memory_tool_invalid_arguments_are_failed_tool_result() {
     assert_eq!(payload["error"], "unsupported purpose: dump_everything");
 }
 
+#[tokio::test]
+async fn uncalibrated_mcp_tool_call_returns_failed_tool_result() {
+    let (handle, store) =
+        test_runtime_handle_with_store(fake_codex_provider_with_mcp_tool_call()).await;
+
+    let conversation_id = handle
+        .start_conversation(None, None)
+        .await
+        .expect("conversation")
+        .conversation_id;
+    collect_turn(&handle, conversation_id.clone(), "read my doc".to_string())
+        .await
+        .expect("turn");
+    handle.shutdown().await;
+
+    let items = store
+        .list_conversation_items(&conversation_id, ReplayMode::Visible)
+        .await
+        .expect("conversation items");
+    assert!(
+        items.iter().any(|item| {
+            item.kind == ConversationItemKind::ToolResult
+                && item.status == ConversationItemStatus::Failed
+                && item.payload_json["metadata"]["action"]["name"] == "mcp.docs.read"
+                && item.payload_json["metadata"]["action"]["payload"]["error"]
+                    == "mcp_tool_not_calibrated"
+        }),
+        "expected failed uncalibrated MCP tool result, got {items:?}"
+    );
+}
+
 async fn collect_turn(
     handle: &CodexRuntimeHandle,
     conversation_id: String,
@@ -3471,6 +3502,7 @@ enum FakeCodexScenario {
     TurnError,
     ToolItem,
     ToolItemThenFailure,
+    UncalibratedMcpToolCall,
     InvalidSearchMemory,
     SearchMemoryContinuation,
     SearchMemoryProfileContinuation,
@@ -3599,6 +3631,14 @@ impl FakeCodexProvider {
                     )],
                 });
             }
+            FakeCodexScenario::UncalibratedMcpToolCall => vec![
+                mcp_tool_call(
+                    "call_mcp_1",
+                    "mcp.docs.read",
+                    json!({"arguments": {"document_id": "doc_1"}}),
+                ),
+                GenerateOutputItem::MemoryProposals { proposals: vec![] },
+            ],
             FakeCodexScenario::InvalidSearchMemory => {
                 if input.contains("NOEMA_LOCAL_TOOL_RESULT") {
                     assistant_with_no_memories("invalid tool result received")
@@ -4115,6 +4155,14 @@ fn update_own_name_tool_call(id: &str, payload: serde_json::Value) -> GenerateOu
     GenerateOutputItem::ToolCall {
         id: Some(id.to_string()),
         name: "update_own_name".to_string(),
+        payload,
+    }
+}
+
+fn mcp_tool_call(id: &str, name: &str, payload: serde_json::Value) -> GenerateOutputItem {
+    GenerateOutputItem::ToolCall {
+        id: Some(id.to_string()),
+        name: name.to_string(),
         payload,
     }
 }
@@ -4804,6 +4852,10 @@ fn fake_codex_provider_with_tool_item() -> FakeCodexProvider {
 
 fn fake_codex_provider_with_tool_item_then_failure() -> FakeCodexProvider {
     FakeCodexProvider::new(FakeCodexScenario::ToolItemThenFailure)
+}
+
+fn fake_codex_provider_with_mcp_tool_call() -> FakeCodexProvider {
+    FakeCodexProvider::new(FakeCodexScenario::UncalibratedMcpToolCall)
 }
 
 fn fake_codex_provider_with_invalid_search_memory_tool_item() -> FakeCodexProvider {
