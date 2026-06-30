@@ -5,8 +5,13 @@ import type { LocalStatusQuery } from "@/generated/graphql";
 import { cn } from "@/lib/utils";
 import type { AppRoute } from "@/routes";
 import type { SocketState } from "@/types";
-import { type DeckNavigationState, useDeckNavigation } from "./deckNavigation";
+import {
+  deckTransitionPropertyCanSettleSurfaceVisibility,
+  type DeckNavigationState,
+  useDeckNavigation
+} from "./deckNavigation";
 import { ShellSidebar } from "./ShellSidebar";
+import { ShellSurfaceProvider, type ShellSurfaceVisibility } from "./ShellSurfaceContext";
 
 export type ShellDestination = "home" | "memory";
 
@@ -102,6 +107,10 @@ export function shellSidebarGroundClassName(deckNavigation: DeckNavigationState)
   );
 }
 
+export function shellRouteContentClassName(visibility: ShellSurfaceVisibility) {
+  return cn("min-h-0 overflow-hidden", visibility !== "visible" && "pointer-events-none");
+}
+
 export function AppShell({
   route,
   status,
@@ -137,7 +146,8 @@ export function AppShell({
     openNav,
     closeNav,
     toggleSidebarCollapsed,
-    navigateFromShell
+    navigateFromShell,
+    settleSurfaceVisibility
   } = useDeckNavigation(onNavigate);
 
   return (
@@ -176,6 +186,14 @@ export function AppShell({
         data-nav-open={deckNavigation.navOpen}
         aria-label={activeLabel}
         className={shellContentDeckClassName(deckNavigation)}
+        onTransitionEnd={(event) => {
+          if (
+            event.currentTarget === event.target &&
+            deckTransitionPropertyCanSettleSurfaceVisibility(event.propertyName)
+          ) {
+            settleSurfaceVisibility();
+          }
+        }}
       >
         <header
           data-slot="shell-deck-header"
@@ -220,12 +238,15 @@ export function AppShell({
           </div>
         </header>
 
-        <div
-          data-slot="shell-route-content"
-          className={cn("min-h-0 overflow-hidden", deckNavigation.navOpen && "pointer-events-none")}
-        >
-          {children}
-        </div>
+        <ShellSurfaceProvider value={{ visibility: deckNavigation.surfaceVisibility }}>
+          <div
+            data-slot="shell-route-content"
+            data-surface-visibility={deckNavigation.surfaceVisibility}
+            className={shellRouteContentClassName(deckNavigation.surfaceVisibility)}
+          >
+            {children}
+          </div>
+        </ShellSurfaceProvider>
       </section>
     </main>
   );

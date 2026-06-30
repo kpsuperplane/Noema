@@ -6,6 +6,7 @@ import {
   AppShell,
   activeShellDestination,
   shellContentDeckClassName,
+  shellRouteContentClassName,
   shellSidebarGroundClassName,
   shellAttentionForState,
   shellNavItems,
@@ -211,6 +212,8 @@ describe("AppShell layered deck markup", () => {
     assert.match(markup, /data-slot="shell-root"/);
     assert.match(markup, /data-slot="shell-sidebar-ground"/);
     assert.match(markup, /data-slot="shell-content-deck"/);
+    assert.match(markup, /data-slot="shell-route-content"/);
+    assert.match(markup, /data-surface-visibility="visible"/);
     assert.match(markup, /data-sidebar-collapsed="false"/);
     assert.match(markup, /data-nav-open="false"/);
   });
@@ -241,6 +244,18 @@ describe("AppShell layered deck markup", () => {
     const className = shellContentDeckClassName(initialDeckNavigationState);
 
     assert.match(className, /grid-rows-\[auto_minmax\(0,1fr\)\]/);
+  });
+
+  test("leaves visible route content interactive", () => {
+    const className = shellRouteContentClassName("visible");
+
+    assert.doesNotMatch(className, /pointer-events-none/);
+  });
+
+  test("disables route content pointer events while surface visibility is transitional or hidden", () => {
+    assert.match(shellRouteContentClassName("hiding"), /pointer-events-none/);
+    assert.match(shellRouteContentClassName("hidden"), /pointer-events-none/);
+    assert.match(shellRouteContentClassName("showing"), /pointer-events-none/);
   });
 
   test("reveals mobile navigation without shrinking the deck vertically", () => {
