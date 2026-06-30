@@ -1,5 +1,11 @@
+use serde_json::json;
+
 use super::test_store;
-use crate::{TrustedIdentitySelectorKind, normalize_trusted_identity_value};
+use crate::{
+    McpServerAuthStatus, McpServerHealthStatus, McpTransportKind, NewMcpServer, NewMcpTool,
+    NewTrustedIdentitySelector, StoreError, TrustedIdentitySelectorEffect,
+    TrustedIdentitySelectorKind, normalize_trusted_identity_value,
+};
 
 #[test]
 fn trusted_identity_selectors_normalize_email_phone_and_domain() {
@@ -189,6 +195,176 @@ async fn mcp_control_plane_tables_bootstrap() {
         .expect("mcp schema bootstrap query")
         .check()
         .expect("mcp control-plane tables should accept valid rows");
+}
+
+#[tokio::test]
+async fn creates_and_lists_mcp_server_with_discovered_tool() {
+    let store = test_store().await;
+
+    let server = store
+        .create_mcp_server(NewMcpServer {
+            mcp_server_id: "mcp_server:local-test".to_string(),
+            display_name: "Local Test".to_string(),
+            transport_kind: McpTransportKind::Stdio,
+            safe_config: json!({"command": "test-mcp"}),
+        })
+        .await
+        .expect("create server");
+
+    assert_eq!(server.mcp_server_id, "mcp_server:local-test");
+    assert_eq!(server.display_name, "Local Test");
+    assert_eq!(server.transport_kind, McpTransportKind::Stdio);
+    assert_eq!(server.safe_config, json!({"command": "test-mcp"}));
+    assert!(!server.enabled);
+    assert_eq!(server.health_status, McpServerHealthStatus::Unknown);
+    assert_eq!(server.auth_status, McpServerAuthStatus::None);
+    assert_eq!(server.tool_count, 0);
+
+    let tool = store
+        .upsert_discovered_mcp_tool(NewMcpTool {
+            mcp_tool_id: "mcp_tool:local-test:read".to_string(),
+            mcp_server_id: "mcp_server:local-test".to_string(),
+            name: "read".to_string(),
+            description: Some("Read metadata".to_string()),
+            input_schema: json!({"type": "object"}),
+            output_schema: Some(json!({"type": "object"})),
+            annotations: json!({"readOnlyHint": true}),
+            metadata_fingerprint: "fingerprint:local-test:read:v1".to_string(),
+        })
+        .await
+        .expect("upsert tool");
+
+    assert_eq!(tool.mcp_tool_id, "mcp_tool:local-test:read");
+    assert_eq!(tool.mcp_server_id, "mcp_server:local-test");
+    assert_eq!(tool.name, "read");
+    assert_eq!(tool.description.as_deref(), Some("Read metadata"));
+    assert_eq!(tool.input_schema, json!({"type": "object"}));
+    assert_eq!(tool.output_schema, Some(json!({"type": "object"})));
+    assert_eq!(tool.annotations, json!({"readOnlyHint": true}));
+    assert_eq!(tool.metadata_fingerprint, "fingerprint:local-test:read:v1");
+    assert!(!tool.discovered_at.is_empty());
+
+    let servers = store.list_mcp_servers().await.expect("list servers");
+    assert_eq!(servers.len(), 1);
+    assert_eq!(servers[0].mcp_server_id, "mcp_server:local-test");
+    assert_eq!(servers[0].tool_count, 1);
+
+    let tools = store
+        .list_mcp_tools_for_server("mcp_server:local-test")
+        .await
+        .expect("list tools");
+    assert_eq!(tools, vec![tool]);
+}
+
+#[tokio::test]
+async fn stores_trusted_identity_selector_normalized() {
+    let store = test_store().await;
+
+    let selector = store
+        .create_trusted_identity_selector(NewTrustedIdentitySelector {
+            selector_id: "trusted_identity:human-local:email".to_string(),
+            owner_scope_id: "human:local".to_string(),
+            selector_kind: TrustedIdentitySelectorKind::Email,
+            raw_value: "Kevin+Noema_1@Example.COM".to_string(),
+            effect: TrustedIdentitySelectorEffect::Trust,
+            issuer_actor_id: "human:local".to_string(),
+        })
+        .await
+        .expect("create selector");
+
+    assert_eq!(selector.selector_id, "trusted_identity:human-local:email");
+    assert_eq!(selector.owner_scope_id, "human:local");
+    assert_eq!(selector.selector_kind, TrustedIdentitySelectorKind::Email);
+    assert_eq!(selector.normalized_value, "kevin+noema_1@example.com");
+    assert_eq!(selector.effect, TrustedIdentitySelectorEffect::Trust);
+    assert_eq!(selector.issuer_actor_id, "human:local");
+    assert_eq!(selector.revoked_at, None);
+
+    let selectors = store
+        .list_trusted_identity_selectors("human:local")
+        .await
+        .expect("list selectors");
+    assert_eq!(selectors, vec![selector]);
+}
+
+#[tokio::test]
+async fn create_trusted_identity_selector_rejects_invalid_raw_value() {
+    let store = test_store().await;
+
+    let error = store
+        .create_trusted_identity_selector(NewTrustedIdentitySelector {
+            selector_id: "trusted_identity:human-local:phone".to_string(),
+            owner_scope_id: "human:local".to_string(),
+            selector_kind: TrustedIdentitySelectorKind::Phone,
+            raw_value: "14155550100".to_string(),
+            effect: TrustedIdentitySelectorEffect::Trust,
+            issuer_actor_id: "human:local".to_string(),
+        })
+        .await
+        .expect_err("invalid raw phone should be rejected before insert");
+
+    assert!(
+        matches!(error, StoreError::Schema(message) if message.contains("invalid trusted identity selector value"))
+    );
+    assert!(
+        store
+            .get_trusted_identity_selector("trusted_identity:human-local:phone")
+            .await
+            .expect("get selector")
+            .is_none()
+    );
+}
+
+#[tokio::test]
+async fn mcp_tool_upsert_replaces_discovered_metadata() {
+    let store = test_store().await;
+    store
+        .create_mcp_server(NewMcpServer {
+            mcp_server_id: "mcp_server:local-test".to_string(),
+            display_name: "Local Test".to_string(),
+            transport_kind: McpTransportKind::Stdio,
+            safe_config: json!({}),
+        })
+        .await
+        .expect("create server");
+
+    store
+        .upsert_discovered_mcp_tool(NewMcpTool {
+            mcp_tool_id: "mcp_tool:local-test:read".to_string(),
+            mcp_server_id: "mcp_server:local-test".to_string(),
+            name: "read".to_string(),
+            description: Some("Old description".to_string()),
+            input_schema: json!({"type": "object"}),
+            output_schema: None,
+            annotations: json!({}),
+            metadata_fingerprint: "fingerprint:v1".to_string(),
+        })
+        .await
+        .expect("upsert old tool");
+
+    let updated = store
+        .upsert_discovered_mcp_tool(NewMcpTool {
+            mcp_tool_id: "mcp_tool:local-test:read".to_string(),
+            mcp_server_id: "mcp_server:local-test".to_string(),
+            name: "read".to_string(),
+            description: Some("New description".to_string()),
+            input_schema: json!({"type": "object"}),
+            output_schema: None,
+            annotations: json!({"destructiveHint": false}),
+            metadata_fingerprint: "fingerprint:v2".to_string(),
+        })
+        .await
+        .expect("upsert replacement tool");
+
+    assert_eq!(updated.description.as_deref(), Some("New description"));
+    assert_eq!(updated.metadata_fingerprint, "fingerprint:v2");
+    assert_eq!(updated.annotations, json!({"destructiveHint": false}));
+    let tools = store
+        .list_mcp_tools_for_server("mcp_server:local-test")
+        .await
+        .expect("list tools");
+    assert_eq!(tools.len(), 1);
+    assert_eq!(tools[0], updated);
 }
 
 #[tokio::test]

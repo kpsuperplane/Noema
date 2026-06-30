@@ -69,7 +69,7 @@ DEFINE FIELD OVERWRITE mcp_server_id ON TABLE mcp_tools TYPE string;
 DEFINE FIELD OVERWRITE name ON TABLE mcp_tools TYPE string;
 DEFINE FIELD OVERWRITE description ON TABLE mcp_tools TYPE option<string>;
 DEFINE FIELD OVERWRITE input_schema ON TABLE mcp_tools TYPE object FLEXIBLE DEFAULT {};
-DEFINE FIELD OVERWRITE output_schema ON TABLE mcp_tools TYPE option<object>;
+DEFINE FIELD OVERWRITE output_schema ON TABLE mcp_tools TYPE option<object> FLEXIBLE;
 DEFINE FIELD OVERWRITE annotations ON TABLE mcp_tools TYPE object FLEXIBLE DEFAULT {};
 DEFINE FIELD OVERWRITE metadata_fingerprint ON TABLE mcp_tools TYPE string;
 DEFINE FIELD OVERWRITE discovered_at ON TABLE mcp_tools TYPE string;

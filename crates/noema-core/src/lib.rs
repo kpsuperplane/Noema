@@ -98,9 +98,11 @@ pub use runtime_host::{NoemaRuntimeHost, RuntimeHostError};
 pub use store::{
     AgentRecord, ClaimRetrievalResult, ClaimStatus, ClaimSummary, ClaimWriteOutcome,
     ConsolidationMatch, ConsolidationMatchRequest, EntityCandidate, EntityType, EvidenceAuthority,
-    EvidenceCandidate, MemoryClaimDetail, MemoryClaimEvidence, MemoryClaimFilter,
-    MemoryClaimRecord, MemoryGraph, MemoryGraphEdge, MemoryGraphFilter, MemoryGraphNode,
-    MemoryGraphSummary, NewAgent, NewClaimCandidate, NoemaStore, PredicateProposalCandidate,
-    PredicateProposalFilter, PredicateProposalRecord, PredicateRecord, RelatedClaimCandidate,
-    RelatedClaimRecord, RetrievedClaim, StoreConfig, StoreError, SupersedeClaimCandidate,
+    EvidenceCandidate, McpServerAuthStatus, McpServerHealthStatus, McpServerRecord, McpToolRecord,
+    MemoryClaimDetail, MemoryClaimEvidence, MemoryClaimFilter, MemoryClaimRecord, MemoryGraph,
+    MemoryGraphEdge, MemoryGraphFilter, MemoryGraphNode, MemoryGraphSummary, NewAgent,
+    NewClaimCandidate, NewMcpServer, NewMcpTool, NewTrustedIdentitySelector, NoemaStore,
+    PredicateProposalCandidate, PredicateProposalFilter, PredicateProposalRecord, PredicateRecord,
+    RelatedClaimCandidate, RelatedClaimRecord, RetrievedClaim, StoreConfig, StoreError,
+    SupersedeClaimCandidate, TrustedIdentitySelectorEffect, TrustedIdentitySelectorRecord,
 };

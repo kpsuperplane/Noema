@@ -5,6 +5,7 @@ mod claims;
 mod conversations;
 mod error;
 mod ids;
+mod mcp;
 pub mod objects;
 mod ontology;
 mod provider_accounts;
@@ -24,6 +25,11 @@ pub use claims::{
     RelatedClaimRecord, SupersedeClaimCandidate,
 };
 pub use error::StoreError;
+pub use mcp::{
+    McpServerAuthStatus, McpServerHealthStatus, McpServerRecord, McpToolRecord, NewMcpServer,
+    NewMcpTool, NewTrustedIdentitySelector, TrustedIdentitySelectorEffect,
+    TrustedIdentitySelectorRecord,
+};
 pub use ontology::{
     EntityCandidate, EntityType, PredicateProposalCandidate, PredicateProposalFilter,
     PredicateProposalRecord, PredicateRecord,
