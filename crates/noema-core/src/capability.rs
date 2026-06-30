@@ -31,8 +31,8 @@ pub enum OwnerTrust {
 pub enum CapabilityDecisionOutcome {
     /// Permit the operation or release.
     Allow,
-    /// Permit only a sanitized read result release.
-    AllowSanitized,
+    /// Run examination before deciding whether to release or proceed.
+    RequireExamination,
     /// Require manual approval before proceeding.
     RequireApproval,
     /// Deny the operation or release.
@@ -69,17 +69,17 @@ pub fn evaluate_capability_policy(input: CapabilityPolicyInput) -> CapabilityPol
         };
     }
 
-    if input.axis == CapabilityAxis::Export {
-        return CapabilityPolicyDecision {
-            outcome: CapabilityDecisionOutcome::RequireApproval,
-            reason: "v1_export_requires_manual_approval",
-        };
-    }
-
     if input.owner_trust == OwnerTrust::Unresolved {
         return CapabilityPolicyDecision {
             outcome: CapabilityDecisionOutcome::Deny,
             reason: "ownership_unresolved",
+        };
+    }
+
+    if input.axis == CapabilityAxis::Export {
+        return CapabilityPolicyDecision {
+            outcome: CapabilityDecisionOutcome::RequireApproval,
+            reason: "v1_export_requires_manual_approval",
         };
     }
 
@@ -89,7 +89,7 @@ pub fn evaluate_capability_policy(input: CapabilityPolicyInput) -> CapabilityPol
             reason: "trusted_owner",
         },
         (CapabilityAxis::Read, _, _) => CapabilityPolicyDecision {
-            outcome: CapabilityDecisionOutcome::AllowSanitized,
+            outcome: CapabilityDecisionOutcome::RequireExamination,
             reason: "read_requires_examination",
         },
         (CapabilityAxis::Write, _, _) => CapabilityPolicyDecision {
@@ -155,14 +155,17 @@ mod tests {
     }
 
     #[test]
-    fn untrusted_read_requires_sanitized_release() {
+    fn untrusted_read_requires_examination() {
         let decision = evaluate_capability_policy(CapabilityPolicyInput {
             axis: CapabilityAxis::Read,
             classification: McpTrustClassification::Untrusted,
             owner_trust: OwnerTrust::Untrusted,
         });
 
-        assert_eq!(decision.outcome, CapabilityDecisionOutcome::AllowSanitized);
+        assert_eq!(
+            decision.outcome,
+            CapabilityDecisionOutcome::RequireExamination
+        );
         assert_eq!(decision.reason, "read_requires_examination");
     }
 
@@ -176,5 +179,139 @@ mod tests {
 
         assert_eq!(decision.outcome, CapabilityDecisionOutcome::RequireApproval);
         assert_eq!(decision.reason, "write_requires_examination");
+    }
+
+    #[test]
+    fn unresolved_export_denies_before_approval() {
+        let decision = evaluate_capability_policy(CapabilityPolicyInput {
+            axis: CapabilityAxis::Export,
+            classification: McpTrustClassification::Trusted,
+            owner_trust: OwnerTrust::Unresolved,
+        });
+
+        assert_eq!(decision.outcome, CapabilityDecisionOutcome::Deny);
+        assert_eq!(decision.reason, "ownership_unresolved");
+    }
+
+    #[test]
+    fn v1_policy_matrix_is_explicit() {
+        let cases = [
+            (
+                CapabilityAxis::Read,
+                McpTrustClassification::Trusted,
+                OwnerTrust::Trusted,
+                CapabilityDecisionOutcome::Allow,
+                "trusted_owner",
+            ),
+            (
+                CapabilityAxis::Read,
+                McpTrustClassification::Trusted,
+                OwnerTrust::Untrusted,
+                CapabilityDecisionOutcome::RequireExamination,
+                "read_requires_examination",
+            ),
+            (
+                CapabilityAxis::Read,
+                McpTrustClassification::Untrusted,
+                OwnerTrust::Untrusted,
+                CapabilityDecisionOutcome::RequireExamination,
+                "read_requires_examination",
+            ),
+            (
+                CapabilityAxis::Read,
+                McpTrustClassification::Mixed,
+                OwnerTrust::Mixed,
+                CapabilityDecisionOutcome::RequireExamination,
+                "read_requires_examination",
+            ),
+            (
+                CapabilityAxis::Read,
+                McpTrustClassification::Mixed,
+                OwnerTrust::Unresolved,
+                CapabilityDecisionOutcome::Deny,
+                "ownership_unresolved",
+            ),
+            (
+                CapabilityAxis::Write,
+                McpTrustClassification::Trusted,
+                OwnerTrust::Trusted,
+                CapabilityDecisionOutcome::Allow,
+                "trusted_owner",
+            ),
+            (
+                CapabilityAxis::Write,
+                McpTrustClassification::Trusted,
+                OwnerTrust::Untrusted,
+                CapabilityDecisionOutcome::RequireApproval,
+                "write_requires_examination",
+            ),
+            (
+                CapabilityAxis::Write,
+                McpTrustClassification::Untrusted,
+                OwnerTrust::Untrusted,
+                CapabilityDecisionOutcome::RequireApproval,
+                "write_requires_examination",
+            ),
+            (
+                CapabilityAxis::Write,
+                McpTrustClassification::Mixed,
+                OwnerTrust::Mixed,
+                CapabilityDecisionOutcome::RequireApproval,
+                "write_requires_examination",
+            ),
+            (
+                CapabilityAxis::Write,
+                McpTrustClassification::Mixed,
+                OwnerTrust::Unresolved,
+                CapabilityDecisionOutcome::Deny,
+                "ownership_unresolved",
+            ),
+            (
+                CapabilityAxis::Export,
+                McpTrustClassification::Trusted,
+                OwnerTrust::Trusted,
+                CapabilityDecisionOutcome::RequireApproval,
+                "v1_export_requires_manual_approval",
+            ),
+            (
+                CapabilityAxis::Export,
+                McpTrustClassification::Untrusted,
+                OwnerTrust::Untrusted,
+                CapabilityDecisionOutcome::RequireApproval,
+                "v1_export_requires_manual_approval",
+            ),
+            (
+                CapabilityAxis::Export,
+                McpTrustClassification::Mixed,
+                OwnerTrust::Mixed,
+                CapabilityDecisionOutcome::RequireApproval,
+                "v1_export_requires_manual_approval",
+            ),
+            (
+                CapabilityAxis::Export,
+                McpTrustClassification::Mixed,
+                OwnerTrust::Unresolved,
+                CapabilityDecisionOutcome::Deny,
+                "ownership_unresolved",
+            ),
+            (
+                CapabilityAxis::Export,
+                McpTrustClassification::None,
+                OwnerTrust::Trusted,
+                CapabilityDecisionOutcome::Deny,
+                "axis_not_supported",
+            ),
+        ];
+
+        for (axis, classification, owner_trust, expected_outcome, expected_reason) in cases {
+            let decision = evaluate_capability_policy(CapabilityPolicyInput {
+                axis,
+                classification,
+                owner_trust,
+            });
+
+            assert_eq!(decision.outcome, expected_outcome);
+            assert_eq!(decision.reason, expected_reason);
+        }
     }
 }
