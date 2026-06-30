@@ -3,7 +3,7 @@
   "identifier": "default",
   "description": "Noema desktop IPC permissions",
   "remote": {
-    "urls": ["http://127.0.0.1:5173"]
+    "urls": ["http://127.0.0.1:5173/*", "http://localhost:5173/*"]
   },
   "windows": ["main"],
   "permissions": ["core:default", "core:event:default"]
