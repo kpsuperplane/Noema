@@ -8,7 +8,6 @@ use crate::{
 use thiserror::Error;
 
 /// Shared host state for Noema client surfaces.
-#[derive(Clone)]
 pub struct NoemaRuntimeHost {
     runtime: CodexRuntimeHandle,
     store: NoemaStore,
@@ -104,7 +103,7 @@ impl NoemaRuntimeHost {
     }
 
     /// Shut down runtime-owned work.
-    pub async fn shutdown(&self) {
+    pub async fn shutdown(self) {
         self.runtime.shutdown().await;
     }
 }
