@@ -1,11 +1,34 @@
 import { ApolloLink, HttpLink } from "@apollo/client";
 import { GraphQLWsLink } from "@apollo/client/link/subscriptions";
 import { OperationTypeNode } from "graphql";
-import { createClient } from "graphql-ws";
+import { createClient, type ClientOptions } from "graphql-ws";
 
-function graphqlWsUrl() {
-  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  return `${protocol}//${window.location.host}/graphql/ws`;
+const GRAPHQL_WS_INITIAL_RETRY_DELAY_MS = 500;
+const GRAPHQL_WS_MAX_RETRY_DELAY_MS = 5_000;
+
+type BrowserGraphqlWsLocation = Pick<Location, "protocol" | "host">;
+
+export function browserGraphqlWsRetryDelayMs(retryAttempt: number) {
+  return Math.min(
+    GRAPHQL_WS_INITIAL_RETRY_DELAY_MS * 2 ** retryAttempt,
+    GRAPHQL_WS_MAX_RETRY_DELAY_MS
+  );
+}
+
+export function createBrowserGraphqlWsClientOptions(
+  location: BrowserGraphqlWsLocation = window.location
+): ClientOptions {
+  const protocol = location.protocol === "https:" ? "wss:" : "ws:";
+  return {
+    url: `${protocol}//${location.host}/graphql/ws`,
+    lazy: true,
+    retryAttempts: Number.POSITIVE_INFINITY,
+    retryWait: async (retryAttempt) => {
+      await new Promise((resolve) => {
+        window.setTimeout(resolve, browserGraphqlWsRetryDelayMs(retryAttempt));
+      });
+    }
+  };
 }
 
 export function createBrowserGraphqlLink() {
@@ -14,11 +37,7 @@ export function createBrowserGraphqlLink() {
   });
 
   const wsLink = new GraphQLWsLink(
-    createClient({
-      url: graphqlWsUrl(),
-      lazy: true,
-      retryAttempts: 5
-    })
+    createClient(createBrowserGraphqlWsClientOptions())
   );
 
   return ApolloLink.split(
