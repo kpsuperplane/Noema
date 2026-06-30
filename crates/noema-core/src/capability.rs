@@ -6,7 +6,7 @@ pub mod ownership;
 use crate::McpTrustClassification;
 
 pub use examination::{
-    ReadExaminationInput, contains_prompt_injection_marker, examine_read_result,
+    ReadExaminationDecision, ReadExaminationInput, ReadExaminationOutcome, examine_read_result,
 };
 pub use ownership::{ResolvedOwner, resolve_owner_from_json};
 
