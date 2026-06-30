@@ -83,7 +83,6 @@ export function useBrowserRoute() {
   return {
     route,
     navigate,
-    closeSettings,
-    previousAppRoute: previousAppRouteRef.current
+    closeSettings
   };
 }
