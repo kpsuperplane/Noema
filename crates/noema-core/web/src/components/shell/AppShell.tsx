@@ -83,7 +83,7 @@ export function shellAttentionForState(input: ShellAttentionInput): ShellAttenti
 
 export function shellContentDeckClassName(deckNavigation: DeckNavigationState) {
   return cn(
-    "absolute z-30 grid min-h-0 overflow-hidden border border-[var(--border-subtle)] bg-background shadow-[0_24px_70px_rgba(31,38,30,0.18)] transition-[inset,left,right,transform,border-radius,box-shadow] duration-300 ease-out",
+    "absolute z-30 grid min-h-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden border border-[var(--border-subtle)] bg-background shadow-[0_24px_70px_rgba(31,38,30,0.18)] transition-[inset,left,right,transform,border-radius,box-shadow] duration-300 ease-out",
     "motion-reduce:transition-none",
     deckNavigation.sidebarCollapsed
       ? "inset-2 rounded-xl"
@@ -91,6 +91,14 @@ export function shellContentDeckClassName(deckNavigation: DeckNavigationState) {
     "max-[760px]:inset-0 max-[760px]:rounded-none max-[760px]:border-0 data-[nav-open=true]:max-[760px]:rounded-xl",
     deckNavigation.navOpen &&
       "translate-x-[min(236px,68vw)] min-[761px]:scale-[0.97] max-[760px]:left-[min(252px,72vw)] max-[760px]:right-[calc(min(252px,72vw)*-1)] max-[760px]:translate-x-0 pointer-events-none"
+  );
+}
+
+export function shellSidebarGroundClassName(deckNavigation: DeckNavigationState) {
+  return cn(
+    "absolute inset-y-0 left-0 z-10 grid min-h-0 w-[236px] px-3.5 py-4",
+    "max-[760px]:w-[min(286px,78vw)] max-[760px]:pb-[max(1rem,env(safe-area-inset-bottom))]",
+    deckNavigation.navOpen && "z-[25]"
   );
 }
 
@@ -143,10 +151,7 @@ export function AppShell({
         id="noema-shell-sidebar"
         data-slot="shell-sidebar-ground"
         aria-label="Noema navigation"
-        className={cn(
-          "absolute inset-y-0 left-0 z-10 grid min-h-0 w-[236px] px-3.5 py-4",
-          "max-[760px]:w-[min(286px,78vw)] max-[760px]:pb-[max(1rem,env(safe-area-inset-bottom))]"
-        )}
+        className={shellSidebarGroundClassName(deckNavigation)}
       >
         <ShellSidebar
           activeDestination={activeDestination}

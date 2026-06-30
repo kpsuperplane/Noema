@@ -6,6 +6,7 @@ import {
   AppShell,
   activeShellDestination,
   shellContentDeckClassName,
+  shellSidebarGroundClassName,
   shellAttentionForState,
   shellNavItems,
   type ShellAttentionInput
@@ -149,6 +150,12 @@ describe("AppShell layered deck markup", () => {
     assert.match(collapseClassName, /max-\[760px\]:hidden/);
   });
 
+  test("keeps the shell header row compact above short pages", () => {
+    const className = shellContentDeckClassName(initialDeckNavigationState);
+
+    assert.match(className, /grid-rows-\[auto_minmax\(0,1fr\)\]/);
+  });
+
   test("reveals mobile navigation without shrinking the deck vertically", () => {
     const className = shellContentDeckClassName({
       navOpen: true,
@@ -172,6 +179,19 @@ describe("AppShell layered deck markup", () => {
 
     assert.match(className, /shadow-\[0_24px_70px_rgba\(31,38,30,0\.18\)\]/);
     assert.doesNotMatch(className, /max-\[760px\]:shadow-none/);
+  });
+
+  test("keeps revealed sidebar clickable above the dismissal backdrop", () => {
+    const closedClassName = shellSidebarGroundClassName(initialDeckNavigationState);
+    const openClassName = shellSidebarGroundClassName({
+      navOpen: true,
+      sidebarCollapsed: true
+    });
+
+    assert.match(closedClassName, /\bz-10\b/);
+    assert.doesNotMatch(closedClassName, /z-\[25\]/);
+    assert.match(openClassName, /z-\[25\]/);
+    assert.doesNotMatch(openClassName, /\bz-30\b/);
   });
 
   test("does not render sheet markup and includes reduced-motion deck handling", () => {
