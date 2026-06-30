@@ -982,7 +982,7 @@ input GraphqlSaveToolCalibrationInput {
 	"""
 	Deterministic owner extractors configured for this tool.
 	"""
-	ownerExtractors: [GraphqlOwnerExtractorInput!]
+	ownerExtractors: [GraphqlOwnerExtractorInput!]!
 	"""
 	Agents allowed to see/use this calibration.
 	"""

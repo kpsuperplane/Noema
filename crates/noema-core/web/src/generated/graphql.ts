@@ -122,7 +122,7 @@ export type GraphqlSaveToolCalibrationInput = {
   /** Calibrated MCP tool id. */
   mcpToolId: string;
   /** Deterministic owner extractors configured for this tool. */
-  ownerExtractors?: Array<GraphqlOwnerExtractorInput> | null | undefined;
+  ownerExtractors: Array<GraphqlOwnerExtractorInput>;
   /** Effective read classification. */
   readClassification: string;
   /** Actor who reviewed the calibration, when reviewed. */

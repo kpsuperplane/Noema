@@ -320,6 +320,10 @@ impl NoemaStore {
         tool: NewMcpTool,
     ) -> Result<McpToolRecord, StoreError> {
         let discovered_at = now_string();
+        let previous = self.get_mcp_tool(&tool.mcp_tool_id).await?;
+        let metadata_changed = previous
+            .as_ref()
+            .is_some_and(|existing| existing.metadata_fingerprint != tool.metadata_fingerprint);
         self.db
             .query(
                 r#"
@@ -348,6 +352,10 @@ impl NoemaStore {
             .bind(("discovered_at", discovered_at))
             .await?
             .check()?;
+        if metadata_changed {
+            self.invalidate_tool_calibration_review(&tool.mcp_tool_id)
+                .await?;
+        }
         self.get_mcp_tool(&tool.mcp_tool_id).await?.ok_or_else(|| {
             StoreError::Schema(format!(
                 "missing MCP tool after upsert: {}",
@@ -423,6 +431,7 @@ impl NoemaStore {
         &self,
         calibration: NewToolCalibration,
     ) -> Result<ToolCalibrationRecord, StoreError> {
+        self.validate_tool_calibration(&calibration).await?;
         let owner_extractors =
             serde_json::to_value(&calibration.owner_extractors).map_err(|error| {
                 StoreError::Schema(format!("invalid owner extractor serialization: {error}"))
@@ -482,6 +491,127 @@ impl NoemaStore {
                     calibration.mcp_tool_id
                 ))
             })
+    }
+
+    async fn validate_tool_calibration(
+        &self,
+        calibration: &NewToolCalibration,
+    ) -> Result<(), StoreError> {
+        let tool = self
+            .get_mcp_tool(&calibration.mcp_tool_id)
+            .await?
+            .ok_or_else(|| {
+                StoreError::Schema(format!(
+                    "cannot calibrate missing MCP tool: {}",
+                    calibration.mcp_tool_id
+                ))
+            })?;
+
+        if let Some(existing) = self
+            .get_tool_calibration_by_calibration_id(&calibration.calibration_id)
+            .await?
+            && existing.mcp_tool_id != calibration.mcp_tool_id
+        {
+            return Err(StoreError::Schema(format!(
+                "tool calibration {} already belongs to {}",
+                calibration.calibration_id, existing.mcp_tool_id
+            )));
+        }
+
+        if let Some(existing) = self.get_tool_calibration(&calibration.mcp_tool_id).await?
+            && existing.calibration_id != calibration.calibration_id
+        {
+            return Err(StoreError::Schema(format!(
+                "MCP tool {} already has calibration {}",
+                calibration.mcp_tool_id, existing.calibration_id
+            )));
+        }
+
+        if calibration.status.requires_reviewed_metadata() {
+            calibration
+                .reviewed_by
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| {
+                    StoreError::Schema(
+                        "reviewed MCP tool calibration requires reviewed_by".to_string(),
+                    )
+                })?;
+            let reviewed_fingerprint = calibration
+                .reviewed_metadata_fingerprint
+                .as_deref()
+                .ok_or_else(|| {
+                    StoreError::Schema(
+                        "reviewed MCP tool calibration requires reviewed_metadata_fingerprint"
+                            .to_string(),
+                    )
+                })?;
+            if reviewed_fingerprint != tool.metadata_fingerprint {
+                return Err(StoreError::Schema(format!(
+                    "reviewed metadata fingerprint does not match current MCP tool metadata for {}",
+                    calibration.mcp_tool_id
+                )));
+            }
+            if calibration.status == McpCalibrationStatus::Ready
+                && calibration.has_mixed_classification()
+                && calibration.owner_extractors.is_empty()
+            {
+                return Err(StoreError::Schema(format!(
+                    "ready mixed MCP tool calibration requires an owner extractor: {}",
+                    calibration.mcp_tool_id
+                )));
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn get_tool_calibration_by_calibration_id(
+        &self,
+        calibration_id: &str,
+    ) -> Result<Option<ToolCalibrationRecord>, StoreError> {
+        let mut response = self
+            .db
+            .query(
+                r#"
+                SELECT calibration_id, mcp_tool_id, read_classification,
+                  write_classification, export_classification, owner_extractors,
+                  enabled_agent_ids, enabled_scope_ids, status, reviewed_by,
+                  reviewed_metadata_fingerprint
+                FROM tool_calibrations
+                WHERE calibration_id = $calibration_id
+                LIMIT 1;
+                "#,
+            )
+            .bind(("calibration_id", calibration_id.to_string()))
+            .await?;
+        let rows: Vec<ToolCalibrationRow> = response.take(0)?;
+        rows.into_iter()
+            .next()
+            .map(tool_calibration_from_row)
+            .transpose()
+    }
+
+    async fn invalidate_tool_calibration_review(
+        &self,
+        mcp_tool_id: &str,
+    ) -> Result<(), StoreError> {
+        self.db
+            .query(
+                r#"
+                UPDATE tool_calibrations SET
+                  status = 'needs_review',
+                  reviewed_by = NONE,
+                  reviewed_metadata_fingerprint = NONE,
+                  updated_at = time::now()
+                WHERE mcp_tool_id = $mcp_tool_id;
+                "#,
+            )
+            .bind(("mcp_tool_id", mcp_tool_id.to_string()))
+            .await?
+            .check()?;
+        Ok(())
     }
 
     /// Return reviewed calibration for one MCP tool id.
@@ -821,6 +951,23 @@ impl TrustedIdentitySelectorEffect {
             Self::Trust => "trust",
             Self::Restrict => "restrict",
         }
+    }
+}
+
+impl McpCalibrationStatus {
+    const fn requires_reviewed_metadata(self) -> bool {
+        matches!(self, Self::BlockedUnresolvedOwnership | Self::Ready)
+    }
+}
+
+impl NewToolCalibration {
+    fn has_mixed_classification(&self) -> bool {
+        [
+            self.read_classification,
+            self.write_classification,
+            self.export_classification,
+        ]
+        .contains(&McpTrustClassification::Mixed)
     }
 }
 

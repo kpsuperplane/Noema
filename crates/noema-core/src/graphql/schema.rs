@@ -568,6 +568,7 @@ mod tests {
                     readClassification: "mixed"
                     writeClassification: "none"
                     exportClassification: "none"
+                    ownerExtractors: []
                     enabledAgentIds: ["agent:primary"]
                     enabledScopeIds: ["human:local"]
                     status: "blocked_unresolved_ownership"
@@ -651,6 +652,7 @@ mod tests {
                     readClassification: "Mixed"
                     writeClassification: "none"
                     exportClassification: "none"
+                    ownerExtractors: []
                     enabledAgentIds: ["agent:primary"]
                     enabledScopeIds: ["human:local"]
                     status: "blocked_unresolved_ownership"

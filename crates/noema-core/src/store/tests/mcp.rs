@@ -4,8 +4,8 @@ use super::test_store;
 use crate::{
     McpCalibrationStatus, McpServerAuthStatus, McpServerHealthStatus, McpTransportKind,
     McpTrustClassification, NewMcpServer, NewMcpTool, NewToolCalibration,
-    NewTrustedIdentitySelector, StoreError, TrustedIdentitySelectorEffect,
-    TrustedIdentitySelectorKind, normalize_trusted_identity_value,
+    NewTrustedIdentitySelector, OwnerExtractor, OwnerExtractorSource, StoreError,
+    TrustedIdentitySelectorEffect, TrustedIdentitySelectorKind, normalize_trusted_identity_value,
 };
 
 #[test]
@@ -326,6 +326,116 @@ async fn calibration_blocks_unresolved_ownership_until_reviewed() {
 }
 
 #[tokio::test]
+async fn ready_mixed_calibration_requires_owner_extractor() {
+    let store = test_store_with_mcp_tool().await;
+
+    let error = store
+        .save_tool_calibration(NewToolCalibration {
+            calibration_id: "tool_calibration:read_doc".to_string(),
+            mcp_tool_id: "mcp_tool:google:read_doc".to_string(),
+            read_classification: McpTrustClassification::Mixed,
+            write_classification: McpTrustClassification::None,
+            export_classification: McpTrustClassification::None,
+            owner_extractors: Vec::new(),
+            enabled_agent_ids: vec!["agent:primary".to_string()],
+            enabled_scope_ids: vec!["human:local".to_string()],
+            status: McpCalibrationStatus::Ready,
+            reviewed_by: Some("human:local".to_string()),
+            reviewed_metadata_fingerprint: Some("fingerprint_1".to_string()),
+        })
+        .await
+        .expect_err("ready mixed calibration without extractor should fail");
+
+    assert!(error.to_string().contains("requires an owner extractor"));
+}
+
+#[tokio::test]
+async fn ready_calibration_requires_current_metadata_fingerprint() {
+    let store = test_store_with_mcp_tool().await;
+
+    let error = store
+        .save_tool_calibration(ready_mixed_calibration("fingerprint_2"))
+        .await
+        .expect_err("stale reviewed fingerprint should fail");
+
+    assert!(error.to_string().contains("does not match current"));
+}
+
+#[tokio::test]
+async fn calibration_id_cannot_move_between_tools() {
+    let store = test_store_with_mcp_tool().await;
+    store
+        .upsert_discovered_mcp_tool(NewMcpTool {
+            mcp_tool_id: "mcp_tool:google:write_doc".to_string(),
+            mcp_server_id: "mcp_server:google".to_string(),
+            name: "write_doc".to_string(),
+            description: Some("Write a document".to_string()),
+            input_schema: json!({"type": "object"}),
+            output_schema: None,
+            annotations: json!({"destructiveHint": true}),
+            metadata_fingerprint: "fingerprint_write".to_string(),
+        })
+        .await
+        .expect("upsert second tool");
+
+    store
+        .save_tool_calibration(ready_mixed_calibration("fingerprint_1"))
+        .await
+        .expect("save first calibration");
+
+    let error = store
+        .save_tool_calibration(NewToolCalibration {
+            calibration_id: "tool_calibration:read_doc".to_string(),
+            mcp_tool_id: "mcp_tool:google:write_doc".to_string(),
+            read_classification: McpTrustClassification::None,
+            write_classification: McpTrustClassification::Trusted,
+            export_classification: McpTrustClassification::None,
+            owner_extractors: Vec::new(),
+            enabled_agent_ids: vec!["agent:primary".to_string()],
+            enabled_scope_ids: vec!["human:local".to_string()],
+            status: McpCalibrationStatus::Ready,
+            reviewed_by: Some("human:local".to_string()),
+            reviewed_metadata_fingerprint: Some("fingerprint_write".to_string()),
+        })
+        .await
+        .expect_err("calibration id cannot move to another tool");
+
+    assert!(error.to_string().contains("already belongs"));
+}
+
+#[tokio::test]
+async fn rediscovered_tool_metadata_invalidates_reviewed_calibration() {
+    let store = test_store_with_mcp_tool().await;
+    store
+        .save_tool_calibration(ready_mixed_calibration("fingerprint_1"))
+        .await
+        .expect("save calibration");
+
+    store
+        .upsert_discovered_mcp_tool(NewMcpTool {
+            mcp_tool_id: "mcp_tool:google:read_doc".to_string(),
+            mcp_server_id: "mcp_server:google".to_string(),
+            name: "read_doc".to_string(),
+            description: Some("Read a document".to_string()),
+            input_schema: json!({"type": "object", "properties": {"id": {"type": "string"}}}),
+            output_schema: None,
+            annotations: json!({"readOnlyHint": true}),
+            metadata_fingerprint: "fingerprint_2".to_string(),
+        })
+        .await
+        .expect("refresh tool metadata");
+
+    let calibration = store
+        .get_tool_calibration("mcp_tool:google:read_doc")
+        .await
+        .expect("get calibration")
+        .expect("calibration exists");
+    assert_eq!(calibration.status, McpCalibrationStatus::NeedsReview);
+    assert_eq!(calibration.reviewed_by, None);
+    assert_eq!(calibration.reviewed_metadata_fingerprint, None);
+}
+
+#[tokio::test]
 async fn stores_trusted_identity_selector_normalized() {
     let store = test_store().await;
 
@@ -354,6 +464,53 @@ async fn stores_trusted_identity_selector_normalized() {
         .await
         .expect("list selectors");
     assert_eq!(selectors, vec![selector]);
+}
+
+async fn test_store_with_mcp_tool() -> crate::NoemaStore {
+    let store = test_store().await;
+    store
+        .create_mcp_server(NewMcpServer {
+            mcp_server_id: "mcp_server:google".to_string(),
+            display_name: "Google".to_string(),
+            transport_kind: McpTransportKind::Stdio,
+            safe_config: json!({}),
+        })
+        .await
+        .expect("create server");
+    store
+        .upsert_discovered_mcp_tool(NewMcpTool {
+            mcp_tool_id: "mcp_tool:google:read_doc".to_string(),
+            mcp_server_id: "mcp_server:google".to_string(),
+            name: "read_doc".to_string(),
+            description: Some("Read a document".to_string()),
+            input_schema: json!({"type": "object"}),
+            output_schema: None,
+            annotations: json!({"readOnlyHint": true}),
+            metadata_fingerprint: "fingerprint_1".to_string(),
+        })
+        .await
+        .expect("upsert tool");
+    store
+}
+
+fn ready_mixed_calibration(reviewed_metadata_fingerprint: &str) -> NewToolCalibration {
+    NewToolCalibration {
+        calibration_id: "tool_calibration:read_doc".to_string(),
+        mcp_tool_id: "mcp_tool:google:read_doc".to_string(),
+        read_classification: McpTrustClassification::Mixed,
+        write_classification: McpTrustClassification::None,
+        export_classification: McpTrustClassification::None,
+        owner_extractors: vec![OwnerExtractor {
+            source: OwnerExtractorSource::Arguments,
+            selector_kind: TrustedIdentitySelectorKind::Email,
+            path: "/owner/email".to_string(),
+        }],
+        enabled_agent_ids: vec!["agent:primary".to_string()],
+        enabled_scope_ids: vec!["human:local".to_string()],
+        status: McpCalibrationStatus::Ready,
+        reviewed_by: Some("human:local".to_string()),
+        reviewed_metadata_fingerprint: Some(reviewed_metadata_fingerprint.to_string()),
+    }
 }
 
 #[tokio::test]

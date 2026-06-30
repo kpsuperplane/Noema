@@ -86,7 +86,7 @@ pub struct GraphqlSaveToolCalibrationInput {
     /// Effective export classification.
     pub export_classification: String,
     /// Deterministic owner extractors configured for this tool.
-    pub owner_extractors: Option<Vec<GraphqlOwnerExtractorInput>>,
+    pub owner_extractors: Vec<GraphqlOwnerExtractorInput>,
     /// Agents allowed to see/use this calibration.
     pub enabled_agent_ids: Vec<String>,
     /// Governable scopes where this calibration is enabled.
@@ -195,7 +195,6 @@ pub(super) async fn save_tool_calibration(
     let status = parse_graphql_calibration_status(&input.status)?;
     let owner_extractors = input
         .owner_extractors
-        .unwrap_or_default()
         .into_iter()
         .map(parse_graphql_owner_extractor)
         .collect::<Result<Vec<_>>>()?;
