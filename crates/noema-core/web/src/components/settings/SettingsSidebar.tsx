@@ -1,4 +1,5 @@
-import { Bot, ServerCog } from "lucide-react";
+import { Bot, CheckSquare, Fingerprint, History, PlugZap, ServerCog } from "lucide-react";
+import type { ComponentType } from "react";
 import type { SettingsSection } from "@/routes";
 import { cn } from "@/lib/utils";
 
@@ -8,6 +9,15 @@ type SettingsSidebarProps = {
 };
 
 export function SettingsSidebar({ activeSection, onSelectSection }: SettingsSidebarProps) {
+  const sections: SettingsSidebarItem[] = [
+    { section: "providers", label: "Providers", icon: ServerCog },
+    { section: "agents", label: "Agents", icon: Bot },
+    { section: "mcps", label: "MCPs", icon: PlugZap },
+    { section: "trusted-identities", label: "Trusted identities", icon: Fingerprint },
+    { section: "approvals", label: "Approvals", icon: CheckSquare },
+    { section: "audit", label: "Audit", icon: History }
+  ];
+
   return (
     <aside
       data-slot="settings-sidebar"
@@ -21,29 +31,32 @@ export function SettingsSidebar({ activeSection, onSelectSection }: SettingsSide
           </h1>
         </div>
         <nav aria-label="Settings" className="grid gap-1">
-          <button
-            type="button"
-            aria-current={activeSection === "providers" ? "page" : undefined}
-            className={sectionButtonClass(activeSection === "providers")}
-            onClick={() => onSelectSection("providers")}
-          >
-            <ServerCog className="size-4" aria-hidden="true" />
-            Providers
-          </button>
-          <button
-            type="button"
-            aria-current={activeSection === "agents" ? "page" : undefined}
-            className={sectionButtonClass(activeSection === "agents")}
-            onClick={() => onSelectSection("agents")}
-          >
-            <Bot className="size-4" aria-hidden="true" />
-            Agents
-          </button>
+          {sections.map((item) => {
+            const Icon = item.icon;
+            return (
+              <button
+                key={item.section}
+                type="button"
+                aria-current={activeSection === item.section ? "page" : undefined}
+                className={sectionButtonClass(activeSection === item.section)}
+                onClick={() => onSelectSection(item.section)}
+              >
+                <Icon className="size-4 shrink-0" aria-hidden="true" />
+                <span className="truncate">{item.label}</span>
+              </button>
+            );
+          })}
         </nav>
       </div>
     </aside>
   );
 }
+
+type SettingsSidebarItem = {
+  section: SettingsSection;
+  label: string;
+  icon: ComponentType<{ className?: string; "aria-hidden"?: "true" }>;
+};
 
 function sectionButtonClass(isActive: boolean) {
   return cn(

@@ -5,8 +5,12 @@ import { ApolloProvider } from "@apollo/client/react";
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { AgentsSettingsPaneContent } from "@/components/settings/AgentsSettingsPane";
+import { ApprovalsSettingsPaneContent } from "@/components/settings/ApprovalsSettingsPane";
+import { AuditSettingsPaneContent } from "@/components/settings/AuditSettingsPane";
+import { McpSettingsPaneContent } from "@/components/settings/McpSettingsPane";
 import { ProvidersSettingsPaneContent } from "@/components/settings/ProvidersSettingsPane";
 import { SettingsSidebar } from "@/components/settings/SettingsSidebar";
+import { TrustedIdentitiesSettingsPaneContent } from "@/components/settings/TrustedIdentitiesSettingsPane";
 import type { AppRoute } from "@/routes";
 import { SettingsPage } from "./SettingsPage";
 
@@ -51,6 +55,51 @@ describe("SettingsPage", () => {
     assert.match(markup, /Loading agents/);
   });
 
+  test("renders the MCP section title and loading state", () => {
+    const markup = renderToStaticMarkup(
+      <ApolloProvider client={testApolloClient()}>
+        <SettingsPage section="mcps" onNavigate={() => {}} onClose={() => {}} />
+      </ApolloProvider>
+    );
+
+    assert.match(markup, /MCPs/);
+    assert.match(markup, /capability gateway/);
+    assert.match(markup, /Loading MCP servers/);
+  });
+
+  test("renders placeholder sections", () => {
+    assert.match(
+      renderToStaticMarkup(
+        <ApolloProvider client={testApolloClient()}>
+          <SettingsPage
+            section="trusted-identities"
+            onNavigate={() => {}}
+            onClose={() => {}}
+          />
+        </ApolloProvider>
+      ),
+      /Trusted identity management is not configured yet/
+    );
+
+    assert.match(
+      renderToStaticMarkup(
+        <ApolloProvider client={testApolloClient()}>
+          <SettingsPage section="approvals" onNavigate={() => {}} onClose={() => {}} />
+        </ApolloProvider>
+      ),
+      /No MCP approvals are pending/
+    );
+
+    assert.match(
+      renderToStaticMarkup(
+        <ApolloProvider client={testApolloClient()}>
+          <SettingsPage section="audit" onNavigate={() => {}} onClose={() => {}} />
+        </ApolloProvider>
+      ),
+      /MCP audit records will appear here/
+    );
+  });
+
   test("routes Settings tab selections through navigation", () => {
     const routes: AppRoute[] = [];
     const providersSidebar = SettingsSidebar({
@@ -59,6 +108,17 @@ describe("SettingsPage", () => {
     });
     findButtonByText(providersSidebar, "Agents").props.onClick();
     assert.deepEqual(routes.pop(), { kind: "settings", section: "agents" });
+    findButtonByText(providersSidebar, "MCPs").props.onClick();
+    assert.deepEqual(routes.pop(), { kind: "settings", section: "mcps" });
+    findButtonByText(providersSidebar, "Trusted identities").props.onClick();
+    assert.deepEqual(routes.pop(), {
+      kind: "settings",
+      section: "trusted-identities"
+    });
+    findButtonByText(providersSidebar, "Approvals").props.onClick();
+    assert.deepEqual(routes.pop(), { kind: "settings", section: "approvals" });
+    findButtonByText(providersSidebar, "Audit").props.onClick();
+    assert.deepEqual(routes.pop(), { kind: "settings", section: "audit" });
 
     const agentsSidebar = SettingsSidebar({
       activeSection: "agents",
@@ -66,6 +126,110 @@ describe("SettingsPage", () => {
     });
     findButtonByText(agentsSidebar, "Providers").props.onClick();
     assert.deepEqual(routes.pop(), { kind: "settings", section: "providers" });
+  });
+});
+
+describe("McpSettingsPaneContent", () => {
+  const servers = [
+    {
+      __typename: "GraphqlMcpServer" as const,
+      mcpServerId: "mcp:filesystem",
+      displayName: "Filesystem",
+      transportKind: "stdio",
+      enabled: true,
+      healthStatus: "healthy",
+      authStatus: "authenticated",
+      toolCount: 3
+    },
+    {
+      __typename: "GraphqlMcpServer" as const,
+      mcpServerId: "mcp:archive",
+      displayName: "Archive",
+      transportKind: "http",
+      enabled: false,
+      healthStatus: "unknown",
+      authStatus: "not_required",
+      toolCount: 0
+    }
+  ];
+
+  test("renders MCP server metadata without unsafe internals", () => {
+    const markup = renderToStaticMarkup(
+      <McpSettingsPaneContent
+        servers={servers}
+        loading={false}
+        error={null}
+        onRetry={() => {}}
+      />
+    );
+
+    assert.match(markup, /Filesystem/);
+    assert.match(markup, /Archive/);
+    assert.match(markup, /Enabled/);
+    assert.match(markup, /Disabled/);
+    assert.match(markup, /stdio/);
+    assert.match(markup, /3 tools/);
+    assert.match(markup, /Healthy/);
+    assert.match(markup, /Authenticated/);
+    assert.match(markup, /Not Required/);
+    assert.doesNotMatch(markup, /safe_config/);
+    assert.doesNotMatch(markup, /raw/);
+    assert.doesNotMatch(markup, /schema/);
+  });
+
+  test("renders loading, error, and empty states", () => {
+    assert.match(
+      renderToStaticMarkup(
+        <McpSettingsPaneContent
+          servers={[]}
+          loading
+          error={null}
+          onRetry={() => {}}
+        />
+      ),
+      /Loading MCP servers/
+    );
+
+    assert.match(
+      renderToStaticMarkup(
+        <McpSettingsPaneContent
+          servers={[]}
+          loading={false}
+          error="Could not load MCP servers"
+          onRetry={() => {}}
+        />
+      ),
+      /MCP server metadata could not be loaded/
+    );
+
+    assert.match(
+      renderToStaticMarkup(
+        <McpSettingsPaneContent
+          servers={[]}
+          loading={false}
+          error={null}
+          onRetry={() => {}}
+        />
+      ),
+      /No MCP servers are configured/
+    );
+  });
+});
+
+describe("placeholder settings pane content", () => {
+  test("renders concise placeholder states", () => {
+    assert.match(
+      renderToStaticMarkup(<TrustedIdentitiesSettingsPaneContent />),
+      /Trusted identity management is not configured yet/
+    );
+    assert.match(
+      renderToStaticMarkup(<ApprovalsSettingsPaneContent />),
+      /No MCP approvals are pending/
+    );
+    assert.match(
+      renderToStaticMarkup(<AuditSettingsPaneContent />),
+      /MCP audit records will appear here/
+    );
   });
 });
 

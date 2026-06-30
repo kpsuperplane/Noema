@@ -57,6 +57,20 @@ export const AgentsDocument = gql`
   }
 `;
 
+export const McpSettingsDocument = gql`
+  query McpSettings {
+    mcpServers {
+      mcpServerId
+      displayName
+      transportKind
+      enabled
+      healthStatus
+      authStatus
+      toolCount
+    }
+  }
+`;
+
 export const ProviderAuthAttemptDocument = gql`
   query ProviderAuthAttempt($attemptId: String!) {
     providerAuthAttempt(attemptId: $attemptId) {

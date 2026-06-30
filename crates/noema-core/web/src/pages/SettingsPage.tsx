@@ -1,7 +1,11 @@
 import { X } from "lucide-react";
 import { AgentsSettingsPane } from "@/components/settings/AgentsSettingsPane";
+import { ApprovalsSettingsPane } from "@/components/settings/ApprovalsSettingsPane";
+import { AuditSettingsPane } from "@/components/settings/AuditSettingsPane";
+import { McpSettingsPane } from "@/components/settings/McpSettingsPane";
 import { ProvidersSettingsPane } from "@/components/settings/ProvidersSettingsPane";
 import { SettingsSidebar } from "@/components/settings/SettingsSidebar";
+import { TrustedIdentitiesSettingsPane } from "@/components/settings/TrustedIdentitiesSettingsPane";
 import { Button } from "@/components/ui/button";
 import type { AppRoute, SettingsSection } from "@/routes";
 
@@ -20,6 +24,22 @@ const settingsSectionCopy: Record<SettingsSection, { title: string; description:
   agents: {
     title: "Agents",
     description: "Review the agents currently registered in Noema. This tab is read-only for now."
+  },
+  mcps: {
+    title: "MCPs",
+    description: "Review third-party MCP servers mediated by the Noema capability gateway."
+  },
+  "trusted-identities": {
+    title: "Trusted identities",
+    description: "Review identity selectors used to resolve tool-result ownership."
+  },
+  approvals: {
+    title: "Approvals",
+    description: "Review pending MCP approval checkpoints."
+  },
+  audit: {
+    title: "Audit",
+    description: "Review mediated MCP activity records."
   }
 };
 
@@ -59,10 +79,27 @@ export function SettingsPage({ section, onNavigate, onClose }: SettingsPageProps
                 {copy.description}
               </p>
             </div>
-            {section === "agents" ? <AgentsSettingsPane /> : <ProvidersSettingsPane />}
+            <SettingsSectionPane section={section} />
           </div>
         </div>
       </section>
     </main>
   );
+}
+
+function SettingsSectionPane({ section }: { section: SettingsSection }) {
+  switch (section) {
+    case "agents":
+      return <AgentsSettingsPane />;
+    case "mcps":
+      return <McpSettingsPane />;
+    case "trusted-identities":
+      return <TrustedIdentitiesSettingsPane />;
+    case "approvals":
+      return <ApprovalsSettingsPane />;
+    case "audit":
+      return <AuditSettingsPane />;
+    case "providers":
+      return <ProvidersSettingsPane />;
+  }
 }

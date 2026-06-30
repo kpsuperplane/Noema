@@ -1,6 +1,12 @@
 import React from "react";
 
-export type SettingsSection = "providers" | "agents";
+export type SettingsSection =
+  | "providers"
+  | "agents"
+  | "mcps"
+  | "trusted-identities"
+  | "approvals"
+  | "audit";
 
 export type AppRoute =
   | { kind: "chat" }
@@ -23,6 +29,18 @@ export function routeFromPathname(pathname: string): AppRoute {
   if (pathname === "/settings/agents") {
     return { kind: "settings", section: "agents" };
   }
+  if (pathname === "/settings/mcps") {
+    return { kind: "settings", section: "mcps" };
+  }
+  if (pathname === "/settings/trusted-identities") {
+    return { kind: "settings", section: "trusted-identities" };
+  }
+  if (pathname === "/settings/approvals") {
+    return { kind: "settings", section: "approvals" };
+  }
+  if (pathname === "/settings/audit") {
+    return { kind: "settings", section: "audit" };
+  }
   return { kind: "chat" };
 }
 
@@ -34,7 +52,7 @@ export function pathForRoute(route: AppRoute): string {
     return "/memory/graph";
   }
   if (route.kind === "settings") {
-    return route.section === "agents" ? "/settings/agents" : "/settings/providers";
+    return `/settings/${route.section}`;
   }
   return "/";
 }

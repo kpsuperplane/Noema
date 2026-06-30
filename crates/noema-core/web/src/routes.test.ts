@@ -25,6 +25,22 @@ describe("routeFromPathname", () => {
       kind: "settings",
       section: "agents"
     });
+    assert.deepEqual(routeFromPathname("/settings/mcps"), {
+      kind: "settings",
+      section: "mcps"
+    });
+    assert.deepEqual(routeFromPathname("/settings/trusted-identities"), {
+      kind: "settings",
+      section: "trusted-identities"
+    });
+    assert.deepEqual(routeFromPathname("/settings/approvals"), {
+      kind: "settings",
+      section: "approvals"
+    });
+    assert.deepEqual(routeFromPathname("/settings/audit"), {
+      kind: "settings",
+      section: "audit"
+    });
   });
 
   test("falls back to chat for unknown routes", () => {
@@ -41,6 +57,16 @@ describe("pathForRoute", () => {
     assert.equal(pathForRoute({ kind: "memory_graph" }), "/memory/graph");
     assert.equal(pathForRoute({ kind: "settings", section: "providers" }), "/settings/providers");
     assert.equal(pathForRoute({ kind: "settings", section: "agents" }), "/settings/agents");
+    assert.equal(pathForRoute({ kind: "settings", section: "mcps" }), "/settings/mcps");
+    assert.equal(
+      pathForRoute({ kind: "settings", section: "trusted-identities" }),
+      "/settings/trusted-identities"
+    );
+    assert.equal(
+      pathForRoute({ kind: "settings", section: "approvals" }),
+      "/settings/approvals"
+    );
+    assert.equal(pathForRoute({ kind: "settings", section: "audit" }), "/settings/audit");
   });
 });
 
