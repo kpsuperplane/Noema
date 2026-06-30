@@ -3,6 +3,8 @@
 pub mod client;
 /// Disk-backed MCP secret storage.
 pub mod secrets;
+/// Guided MCP server setup orchestration.
+pub mod setup;
 
 pub use client::{DiscoveredMcpTool, McpClientError, McpClientRuntime, McpTransport};
 
