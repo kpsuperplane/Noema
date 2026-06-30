@@ -72,6 +72,40 @@ impl NoemaStore {
         Ok(rows.into_iter().next().map(agent_from_row))
     }
 
+    /// List durable agents in deterministic Settings display order.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when the embedded store read fails.
+    pub async fn list_agents(&self) -> Result<Vec<AgentRecord>, StoreError> {
+        let mut response = self
+            .db
+            .query(
+                r#"
+                SELECT agent_id, display_name
+                FROM agents;
+                "#,
+            )
+            .await?;
+        let rows: Vec<AgentRow> = response.take(0)?;
+        let mut agents: Vec<AgentRecord> = rows.into_iter().map(agent_from_row).collect();
+        agents.sort_by(|left, right| {
+            let left_primary = left.agent_id == "agent:primary";
+            let right_primary = right.agent_id == "agent:primary";
+
+            right_primary
+                .cmp(&left_primary)
+                .then_with(|| {
+                    left.display_name
+                        .is_none()
+                        .cmp(&right.display_name.is_none())
+                })
+                .then_with(|| left.display_name.cmp(&right.display_name))
+                .then_with(|| left.agent_id.cmp(&right.agent_id))
+        });
+        Ok(agents)
+    }
+
     /// Update one agent's canonical display name.
     ///
     /// # Errors

@@ -17,11 +17,16 @@ describe("routeFromPathname", () => {
       kind: "settings",
       section: "providers"
     });
+    assert.deepEqual(routeFromPathname("/settings/agents"), {
+      kind: "settings",
+      section: "agents"
+    });
   });
 
   test("falls back to chat for unknown routes", () => {
     assert.deepEqual(routeFromPathname("/memory/nope"), { kind: "chat" });
     assert.deepEqual(routeFromPathname("/settings/providers"), { kind: "chat" });
+    assert.deepEqual(routeFromPathname("/settings/unknown"), { kind: "chat" });
     assert.deepEqual(routeFromPathname("/not-a-real-route"), { kind: "chat" });
   });
 });
@@ -32,6 +37,7 @@ describe("pathForRoute", () => {
     assert.equal(pathForRoute({ kind: "memory_home" }), "/memory");
     assert.equal(pathForRoute({ kind: "memory_graph" }), "/memory/graph");
     assert.equal(pathForRoute({ kind: "settings", section: "providers" }), "/settings");
+    assert.equal(pathForRoute({ kind: "settings", section: "agents" }), "/settings/agents");
   });
 });
 

@@ -60,6 +60,20 @@ describe("shouldRenderSettingsRoute", () => {
     );
     assert.equal(
       shouldRenderSettingsRoute({
+        route: { kind: "settings", section: "agents" },
+        onboarded: true
+      }),
+      true
+    );
+    assert.equal(
+      shouldRenderSettingsRoute({
+        route: { kind: "settings", section: "agents" },
+        onboarded: false
+      }),
+      false
+    );
+    assert.equal(
+      shouldRenderSettingsRoute({
         route: { kind: "memory_home" },
         onboarded: true
       }),

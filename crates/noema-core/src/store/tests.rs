@@ -571,6 +571,77 @@ async fn ensure_default_actors_reuses_primary_agent_created_through_store_api() 
 }
 
 #[tokio::test]
+async fn list_agents_returns_primary_first() {
+    let store = test_store().await;
+    store.ensure_default_actors().await.expect("default actors");
+    store
+        .create_agent(crate::NewAgent {
+            agent_id: "agent:zeta".to_string(),
+            display_name: Some("Zeta".to_string()),
+        })
+        .await
+        .expect("zeta agent");
+    store
+        .create_agent(crate::NewAgent {
+            agent_id: "agent:alpha".to_string(),
+            display_name: Some("Alpha".to_string()),
+        })
+        .await
+        .expect("alpha agent");
+
+    let agents = store.list_agents().await.expect("agents");
+
+    let ids = agents
+        .iter()
+        .map(|agent| agent.agent_id.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(ids, vec!["agent:primary", "agent:alpha", "agent:zeta"]);
+}
+
+#[tokio::test]
+async fn list_agents_sorts_unnamed_agents_by_id_after_named_agents() {
+    let store = test_store().await;
+    store.ensure_default_actors().await.expect("default actors");
+    store
+        .create_agent(crate::NewAgent {
+            agent_id: "agent:unnamed-b".to_string(),
+            display_name: None,
+        })
+        .await
+        .expect("unnamed b");
+    store
+        .create_agent(crate::NewAgent {
+            agent_id: "agent:named".to_string(),
+            display_name: Some("Named".to_string()),
+        })
+        .await
+        .expect("named");
+    store
+        .create_agent(crate::NewAgent {
+            agent_id: "agent:unnamed-a".to_string(),
+            display_name: None,
+        })
+        .await
+        .expect("unnamed a");
+
+    let agents = store.list_agents().await.expect("agents");
+
+    let ids = agents
+        .iter()
+        .map(|agent| agent.agent_id.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        ids,
+        vec![
+            "agent:primary",
+            "agent:named",
+            "agent:unnamed-a",
+            "agent:unnamed-b"
+        ]
+    );
+}
+
+#[tokio::test]
 async fn agent_display_name_updates_trim_and_preserve_casing() {
     let store = test_store().await;
 

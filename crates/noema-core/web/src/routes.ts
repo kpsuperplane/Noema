@@ -1,10 +1,12 @@
 import React from "react";
 
+export type SettingsSection = "providers" | "agents";
+
 export type AppRoute =
   | { kind: "chat" }
   | { kind: "memory_home" }
   | { kind: "memory_graph" }
-  | { kind: "settings"; section: "providers" };
+  | { kind: "settings"; section: SettingsSection };
 
 export type NonSettingsAppRoute = Exclude<AppRoute, { kind: "settings" }>;
 
@@ -18,6 +20,9 @@ export function routeFromPathname(pathname: string): AppRoute {
   if (pathname === "/settings") {
     return { kind: "settings", section: "providers" };
   }
+  if (pathname === "/settings/agents") {
+    return { kind: "settings", section: "agents" };
+  }
   return { kind: "chat" };
 }
 
@@ -29,7 +34,7 @@ export function pathForRoute(route: AppRoute): string {
     return "/memory/graph";
   }
   if (route.kind === "settings") {
-    return "/settings";
+    return route.section === "agents" ? "/settings/agents" : "/settings";
   }
   return "/";
 }

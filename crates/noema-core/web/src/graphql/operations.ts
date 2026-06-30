@@ -47,6 +47,16 @@ export const ProviderAccountsDocument = gql`
   }
 `;
 
+export const AgentsDocument = gql`
+  query Agents {
+    agents {
+      agentId
+      displayName
+      isPrimary
+    }
+  }
+`;
+
 export const ProviderAuthAttemptDocument = gql`
   query ProviderAuthAttempt($attemptId: String!) {
     providerAuthAttempt(attemptId: $attemptId) {

@@ -374,8 +374,8 @@ export function App() {
     );
   }
 
-  if (shouldRenderSettingsRoute({ route, onboarded })) {
-    return <SettingsPage onClose={closeSettings} />;
+  if (route.kind === "settings" && shouldRenderSettingsRoute({ route, onboarded })) {
+    return <SettingsPage section={route.section} onNavigate={navigate} onClose={closeSettings} />;
   }
 
   if (route.kind === "memory_home") {

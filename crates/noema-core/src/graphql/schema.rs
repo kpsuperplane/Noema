@@ -3,6 +3,7 @@ use futures_util::Stream;
 
 use super::{
     ConversationSubscriptionRegistry, GraphqlRuntimeState,
+    agents::{self, GraphqlAgent},
     chat::{
         self, GraphqlConversationEvent, GraphqlConversationStarted,
         GraphqlSendConversationTurnInput, GraphqlTurnAccepted,
@@ -122,6 +123,12 @@ impl QueryRoot {
     async fn provider_accounts(&self, ctx: &Context<'_>) -> Result<Vec<GraphqlProviderAccount>> {
         let state = ctx.data_unchecked::<GraphqlState>();
         provider_accounts::provider_accounts(state).await
+    }
+
+    /// List agent metadata safe to show in Settings.
+    async fn agents(&self, ctx: &Context<'_>) -> Result<Vec<GraphqlAgent>> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        agents::agents(state).await
     }
 
     /// List graph-memory claims for memory-management inspection.
@@ -261,6 +268,11 @@ mod tests {
         assert!(sdl.contains("memoryGraph"));
         assert!(sdl.contains("providerAccounts"));
         assert!(sdl.contains("type GraphqlProviderAccount"));
+        assert!(sdl.contains("agents"));
+        assert!(sdl.contains("type GraphqlAgent"));
+        assert!(sdl.contains("agentId"));
+        assert!(sdl.contains("displayName"));
+        assert!(sdl.contains("isPrimary"));
         assert!(sdl.contains("type GraphqlMemoryClaim"));
         assert!(sdl.contains("type GraphqlMemoryClaimEvidence"));
         assert!(sdl.contains("type GraphqlPredicateProposal"));
@@ -339,6 +351,57 @@ mod tests {
         assert!(!json_text.contains("codex_tokens.json"));
         assert!(!json_text.contains("api_key"));
         assert!(!json_text.contains("token"));
+    }
+
+    #[tokio::test]
+    async fn agents_query_returns_safe_agent_metadata() {
+        use crate::{NewAgent, store::tests::test_store};
+
+        let store = test_store().await;
+        store.ensure_default_actors().await.expect("default actors");
+        store
+            .update_agent_display_name("agent:primary", "Noema")
+            .await
+            .expect("name primary");
+        store
+            .create_agent(NewAgent {
+                agent_id: "agent:unnamed".to_string(),
+                display_name: None,
+            })
+            .await
+            .expect("unnamed agent");
+
+        let schema = build_schema(GraphqlState::for_tests_with_store(store));
+        let response = schema
+            .execute(async_graphql::Request::new(
+                r#"
+                {
+                  agents {
+                    agentId
+                    displayName
+                    isPrimary
+                  }
+                }
+                "#,
+            ))
+            .await;
+
+        assert!(response.errors.is_empty(), "{:?}", response.errors);
+        let data = response.data.into_json().expect("json");
+        let agents = data["agents"].as_array().expect("agents array");
+        assert_eq!(agents[0]["agentId"], "agent:primary");
+        assert_eq!(agents[0]["displayName"], "Noema");
+        assert_eq!(agents[0]["isPrimary"], true);
+        assert_eq!(agents[1]["agentId"], "agent:unnamed");
+        assert_eq!(agents[1]["displayName"], serde_json::Value::Null);
+        assert_eq!(agents[1]["isPrimary"], false);
+
+        let json_text = serde_json::to_string(&data).expect("agent json");
+        assert!(!json_text.contains("prompt"));
+        assert!(!json_text.contains("memory"));
+        assert!(!json_text.contains("runtime"));
+        assert!(!json_text.contains("credential"));
+        assert!(!json_text.contains("conversation"));
     }
 
     #[tokio::test]

@@ -1,6 +1,13 @@
-import { ServerCog } from "lucide-react";
+import { Bot, ServerCog } from "lucide-react";
+import type { SettingsSection } from "@/routes";
+import { cn } from "@/lib/utils";
 
-export function SettingsSidebar() {
+type SettingsSidebarProps = {
+  activeSection: SettingsSection;
+  onSelectSection: (section: SettingsSection) => void;
+};
+
+export function SettingsSidebar({ activeSection, onSelectSection }: SettingsSidebarProps) {
   return (
     <aside
       data-slot="settings-sidebar"
@@ -16,14 +23,33 @@ export function SettingsSidebar() {
         <nav aria-label="Settings" className="grid gap-1">
           <button
             type="button"
-            aria-current="page"
-            className="flex items-center gap-2 rounded-md bg-[color-mix(in_srgb,var(--pine-700)_10%,transparent)] px-2.5 py-2 text-left text-sm font-medium text-[var(--pine-700)]"
+            aria-current={activeSection === "providers" ? "page" : undefined}
+            className={sectionButtonClass(activeSection === "providers")}
+            onClick={() => onSelectSection("providers")}
           >
             <ServerCog className="size-4" aria-hidden="true" />
             Providers
           </button>
+          <button
+            type="button"
+            aria-current={activeSection === "agents" ? "page" : undefined}
+            className={sectionButtonClass(activeSection === "agents")}
+            onClick={() => onSelectSection("agents")}
+          >
+            <Bot className="size-4" aria-hidden="true" />
+            Agents
+          </button>
         </nav>
       </div>
     </aside>
+  );
+}
+
+function sectionButtonClass(isActive: boolean) {
+  return cn(
+    "flex h-9 items-center gap-2 rounded-md px-3 text-left text-sm font-medium tracking-normal",
+    isActive
+      ? "bg-[color-mix(in_srgb,var(--pine-700)_10%,transparent)] text-[var(--pine-700)]"
+      : "text-muted-foreground hover:bg-[color-mix(in_srgb,var(--pine-700)_7%,transparent)] hover:text-foreground"
   );
 }

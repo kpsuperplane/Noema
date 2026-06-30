@@ -253,9 +253,14 @@ activity, memory, handoff rules, and proactivity limits.
 ## Settings
 
 Settings is a secondary utility surface, not the main experience.
+It renders as a full-screen utility takeover opened from the sidebar cog. The
+current backed tabs are `Providers` and `Agents`: `/settings` opens Providers,
+and `/settings/agents` opens Agents.
 
 Include:
 
+- Providers tab with non-secret provider account metadata.
+- Agents tab with read-only registered-agent metadata.
 - Back to chat.
 - Local folder path.
 - Config file status.
@@ -267,6 +272,10 @@ Include:
 - Disabled export/restore entry points that explain the missing governed
   export pipeline.
 - Advanced inspection entry points for owner/admin users.
+
+The current Agents tab is read-only. It shows safe local technical metadata,
+including agent ids, and does not expose prompts, memory, runtime state,
+credentials, conversations, or agent management actions.
 
 Primary actions:
 
@@ -618,7 +627,8 @@ addressability and backing, not what the first shell emphasizes.
 | `/inspect` | Advanced inspection | CLI-equivalent read models | owner/admin inspection hub; not primary navigation during onboarding or normal beginner use | Current |
 | `/inspect/context-graph` | Context graph | future graph neighborhood read model | owner/admin-only, redacted by default | Future |
 | `/inspect/context-packets` | Context packets | context packet tables if populated | inspect when rows exist; unavailable state otherwise | Current limited |
-| `/settings` | Settings | provider account metadata from GraphQL, gated by onboarding | temporary full-screen utility takeover opened from the sidebar cog; initial section is Providers and shows only non-secret account metadata | Current |
+| `/settings` | Settings / Providers | provider account metadata from GraphQL, gated by onboarding | temporary full-screen utility takeover opened from the sidebar cog; Providers tab with only non-secret account metadata | Current |
+| `/settings/agents` | Settings / Agents | agent metadata from GraphQL, gated by onboarding | read-only registered-agent list with safe local technical metadata such as agent ids | Current |
 
 Future route groups:
 

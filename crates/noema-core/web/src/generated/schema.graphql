@@ -47,6 +47,24 @@ type GraphqlActivity {
 }
 
 """
+Agent metadata safe to expose in read-only Settings.
+"""
+type GraphqlAgent {
+	"""
+	Durable concrete agent id.
+	"""
+	agentId: String!
+	"""
+	Optional human-visible agent name.
+	"""
+	displayName: String
+	"""
+	Whether this is Noema's built-in primary agent.
+	"""
+	isPrimary: Boolean!
+}
+
+"""
 Agent status exposed through GraphQL.
 """
 enum GraphqlAgentStatus {
@@ -1029,6 +1047,10 @@ type QueryRoot {
 	List provider account metadata safe to show in Settings.
 	"""
 	providerAccounts: [GraphqlProviderAccount!]!
+	"""
+	List agent metadata safe to show in Settings.
+	"""
+	agents: [GraphqlAgent!]!
 	"""
 	List graph-memory claims for memory-management inspection.
 	"""
