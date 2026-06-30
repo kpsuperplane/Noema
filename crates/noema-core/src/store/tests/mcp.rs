@@ -341,6 +341,32 @@ async fn creates_and_lists_mcp_server_with_discovered_tool() {
 }
 
 #[tokio::test]
+async fn mcp_server_status_can_be_updated_after_setup() {
+    let store = test_store().await;
+    store
+        .create_mcp_server(NewMcpServer {
+            mcp_server_id: "mcp:setup".to_string(),
+            display_name: "Setup".to_string(),
+            transport_kind: McpTransportKind::Stdio,
+            safe_config: json!({ "command": "test-mcp" }),
+        })
+        .await
+        .expect("server");
+
+    let updated = store
+        .update_mcp_server_setup_status(
+            "mcp:setup",
+            McpServerHealthStatus::Healthy,
+            McpServerAuthStatus::NeedsAuth,
+        )
+        .await
+        .expect("updated server");
+
+    assert_eq!(updated.health_status, McpServerHealthStatus::Healthy);
+    assert_eq!(updated.auth_status, McpServerAuthStatus::NeedsAuth);
+}
+
+#[tokio::test]
 async fn calibration_blocks_unresolved_ownership_until_reviewed() {
     let store = test_store().await;
     store

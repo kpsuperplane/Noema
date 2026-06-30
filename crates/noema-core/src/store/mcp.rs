@@ -392,6 +392,40 @@ impl NoemaStore {
         Ok(servers)
     }
 
+    /// Update MCP server setup health/auth status after metadata discovery.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when the server is missing or the embedded store write fails.
+    pub async fn update_mcp_server_setup_status(
+        &self,
+        mcp_server_id: &str,
+        health_status: McpServerHealthStatus,
+        auth_status: McpServerAuthStatus,
+    ) -> Result<McpServerRecord, StoreError> {
+        self.db
+            .query(
+                r#"
+                UPDATE mcp_servers SET
+                  health_status = $health_status,
+                  auth_status = $auth_status,
+                  updated_at = time::now()
+                WHERE mcp_server_id = $mcp_server_id;
+                "#,
+            )
+            .bind(("mcp_server_id", mcp_server_id.to_string()))
+            .bind(("health_status", health_status.as_str().to_string()))
+            .bind(("auth_status", auth_status.as_str().to_string()))
+            .await?
+            .check()?;
+
+        self.get_mcp_server(mcp_server_id).await?.ok_or_else(|| {
+            StoreError::Schema(format!(
+                "missing MCP server after status update: {mcp_server_id}"
+            ))
+        })
+    }
+
     /// Create or refresh one discovered MCP tool metadata row.
     ///
     /// # Errors
@@ -1221,6 +1255,27 @@ fn parse_mcp_auth_status(value: &str) -> Result<McpServerAuthStatus, StoreError>
         "authenticated" => Ok(McpServerAuthStatus::Authenticated),
         "unavailable" => Ok(McpServerAuthStatus::Unavailable),
         _ => invalid_enum("mcp_server_auth_status", value),
+    }
+}
+
+impl McpServerHealthStatus {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Unknown => "unknown",
+            Self::Healthy => "healthy",
+            Self::Unavailable => "unavailable",
+        }
+    }
+}
+
+impl McpServerAuthStatus {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::NeedsAuth => "needs_auth",
+            Self::Authenticated => "authenticated",
+            Self::Unavailable => "unavailable",
+        }
     }
 }
 

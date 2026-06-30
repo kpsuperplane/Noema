@@ -21,6 +21,9 @@ pub struct DiscoveredMcpTool {
 /// Errors returned by metadata-only MCP client discovery.
 #[derive(Debug, Error)]
 pub enum McpClientError {
+    /// The MCP server requires credentials before metadata can be listed.
+    #[error("MCP authentication required: {0}")]
+    AuthRequired(String),
     /// The underlying transport failed.
     #[error("MCP transport failed: {0}")]
     Transport(String),
@@ -119,6 +122,19 @@ mod tests {
         assert_eq!(transport.call_count(), 0);
     }
 
+    #[tokio::test]
+    async fn metadata_discovery_returns_auth_required_from_initialize() {
+        let transport = FakeMcpTransport::auth_required("missing token");
+        let mut client = McpClientRuntime::new(transport);
+
+        let error = client
+            .discover_tools()
+            .await
+            .expect_err("auth required should propagate");
+
+        assert!(matches!(error, McpClientError::AuthRequired(message) if message == "missing token"));
+    }
+
     #[derive(Clone)]
     struct FakeMcpTransport {
         state: Arc<FakeMcpTransportState>,
@@ -126,6 +142,7 @@ mod tests {
 
     struct FakeMcpTransportState {
         tools: Vec<DiscoveredMcpTool>,
+        initialize_error: Option<String>,
         initialize_count: AtomicUsize,
         list_tools_count: AtomicUsize,
         call_count: AtomicUsize,
@@ -136,6 +153,19 @@ mod tests {
             Self {
                 state: Arc::new(FakeMcpTransportState {
                     tools,
+                    initialize_error: None,
+                    initialize_count: AtomicUsize::new(0),
+                    list_tools_count: AtomicUsize::new(0),
+                    call_count: AtomicUsize::new(0),
+                }),
+            }
+        }
+
+        fn auth_required(message: &str) -> Self {
+            Self {
+                state: Arc::new(FakeMcpTransportState {
+                    tools: Vec::new(),
+                    initialize_error: Some(message.to_string()),
                     initialize_count: AtomicUsize::new(0),
                     list_tools_count: AtomicUsize::new(0),
                     call_count: AtomicUsize::new(0),
@@ -165,6 +195,9 @@ mod tests {
     impl McpTransport for FakeMcpTransport {
         async fn initialize(&mut self) -> Result<(), McpClientError> {
             self.state.initialize_count.fetch_add(1, Ordering::SeqCst);
+            if let Some(message) = &self.state.initialize_error {
+                return Err(McpClientError::AuthRequired(message.clone()));
+            }
             Ok(())
         }
 
