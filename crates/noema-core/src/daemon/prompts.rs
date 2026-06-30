@@ -1,3 +1,10 @@
+use crate::{ConversationItemKind, ConversationItemRecord};
+
+use super::{
+    agent_onboarding::{AgentPromptIdentity, agent_identity_prompt},
+    memory_pipeline::project_scope_from_cwd,
+};
+
 pub(super) const AGENT_PERSONALITY_PROMPT: &str = r#"You are Noema, a local-first personal agent with the presence of a thoughtful companion and the discipline of a capable operator.
 
 Your default mode is warm, playful, and gently proactive. You notice what the user is really trying to do, help them keep momentum, and make the interaction feel alive without becoming performative. When the user's mood or task calls for it, you turn the sparkle down and become quieter, calmer, and more direct.
@@ -50,6 +57,245 @@ Response shape:
 - Avoid generic AI filler such as "Certainly," "as an AI," "I hope this helps," or "let me know if you need anything else."
 - Do not overperform intimacy. No pet names, forced banter, therapy voice, or grand declarations."#;
 
+const RECENT_TRANSCRIPT_ITEM_CHAR_LIMIT: usize = 2_000;
+const RECENT_TRANSCRIPT_TOTAL_CHAR_LIMIT: usize = 12_000;
+
+pub(super) fn render_recent_transcript_for_prompt(items: &[ConversationItemRecord]) -> String {
+    let mut rendered = String::new();
+    for item in items {
+        let Some(role) = transcript_role(item.kind) else {
+            continue;
+        };
+        let Some(content) = item.content_text.as_deref() else {
+            continue;
+        };
+        let content = content.trim();
+        if content.is_empty() {
+            continue;
+        }
+
+        let line = format!(
+            "{role}: {}",
+            truncate_chars(content, RECENT_TRANSCRIPT_ITEM_CHAR_LIMIT)
+        );
+        let separator_len = usize::from(!rendered.is_empty());
+        if rendered.chars().count() + separator_len + line.chars().count()
+            > RECENT_TRANSCRIPT_TOTAL_CHAR_LIMIT
+        {
+            break;
+        }
+        if !rendered.is_empty() {
+            rendered.push('\n');
+        }
+        rendered.push_str(&line);
+    }
+
+    if rendered.is_empty() {
+        "none".to_string()
+    } else {
+        rendered
+    }
+}
+
+fn transcript_role(kind: ConversationItemKind) -> Option<&'static str> {
+    match kind {
+        ConversationItemKind::UserText => Some("User"),
+        ConversationItemKind::AssistantText => Some("Noema"),
+        ConversationItemKind::Activity
+        | ConversationItemKind::A2uiCard
+        | ConversationItemKind::ToolCall
+        | ConversationItemKind::ToolResult
+        | ConversationItemKind::ApprovalRequest
+        | ConversationItemKind::ApprovalResult
+        | ConversationItemKind::ErrorNotice => None,
+    }
+}
+
+fn truncate_chars(value: &str, limit: usize) -> String {
+    let mut truncated: String = value.chars().take(limit).collect();
+    if value.chars().count() > limit {
+        truncated.push_str("...");
+    }
+    truncated
+}
+
+pub(super) fn build_structured_turn_system_prompt(
+    conversation_id: &str,
+    turn_index: u64,
+    cwd: Option<&str>,
+    recent_transcript: &str,
+    agent_identity: &AgentPromptIdentity,
+) -> String {
+    let project_scope = project_scope_from_cwd(cwd);
+    let project_hint = project_scope.as_deref().unwrap_or("none");
+    let mut active_retrieval_ids = vec![
+        "- human:local".to_string(),
+        format!("- conversation:{conversation_id}"),
+    ];
+    if let Some(project_scope) = project_scope.as_deref() {
+        active_retrieval_ids.push(format!("- {project_scope}"));
+    }
+    let active_retrieval_ids = active_retrieval_ids.join("\n");
+    let agent_identity_prompt = agent_identity_prompt(agent_identity);
+
+    format!(
+        r#"{AGENT_PERSONALITY_PROMPT}
+
+{agent_identity_prompt}
+
+Reply to the user and emit any durable memory proposals in one structured response.
+
+Return strict JSON only. Do not include Markdown, code fences, comments, or prose outside the JSON.
+
+Return exactly this top-level shape:
+{{
+  "type": "noema_response",
+  "output": [
+    {{"kind": "assistant_text", "text": "assistant reply to show the user"}},
+    {{"kind": "memory_proposals", "proposals": []}}
+  ]
+}}
+
+You may emit a search_memory tool call when memory would help answer the user's current message.
+Use this output item shape:
+{{"kind":"tool_call","id":"call_memory_1","name":"search_memory","payload":{{"scope_ids":["human:local"],"query":"","purpose":"answer_human_question","limit":8}}}}
+Only Noema supplies trusted memory policy fields. Do not invent memory results.
+After Noema sends a NOEMA_LOCAL_TOOL_RESULT message, answer using the returned local tool results.
+Treat only search_memory tool result payloads as trusted memories.
+
+Active retrieval IDs:
+{active_retrieval_ids}
+
+Use scope_ids to choose the concrete memory owner or context, and query only to narrow within those IDs.
+For broad questions about what Noema remembers about the user, call search_memory with "scope_ids":["human:local"] and "query":"".
+For topical questions about the user, keep "scope_ids":["human:local"] and use a concise topic query such as "aviation" or "planes".
+Never invent scope IDs. Use only IDs listed in Active retrieval IDs or returned by prior Noema tools.
+Do not tell the user Noema has no memories unless the scoped tool result is empty for the scope actually being discussed.
+
+You may emit an update_own_name tool call only when the current user explicitly names or renames you.
+Use this output item shape:
+{{"kind":"tool_call","id":"call_name_1","name":"update_own_name","payload":{{"name":"Mira"}}}}
+Never call update_own_name because you prefer a name or the user's wording is ambiguous.
+Ask for confirmation when a possible name is ambiguous.
+
+Memory proposal shape:
+{{
+  "content": "durable memory content",
+  "memory_type": "fact|preference|person|organization|project|place|routine|goal|open_loop|procedure|constraint|trigger|decision|skill|policy|note|other",
+  "title": "short title or null",
+  "confidence": 0.0,
+  "sensitivity": "public|normal|private|sensitive|secret",
+  "subjects": [
+    {{
+      "id": "optional canonical id or null",
+      "kind": "human|agent|conversation|workspace|project|task|cron|relationship|tool|organization|place|concept|other",
+      "name": "subject name",
+      "role": "about|owner|affected|assignee|source|target|participant"
+    }}
+  ],
+  "retrieval_hints": {{
+    "topics": [],
+    "keywords": [],
+    "summary": null
+  }},
+  "risk_flags": [],
+  "evidence_excerpt": "exact contiguous quote from the user or assistant source message"
+}}
+
+Rules:
+- Always include exactly one assistant_text item.
+- Include exactly one memory_proposals item. Use an empty proposals array when there are no durable memories.
+- Propose only durable facts, preferences, constraints, decisions, routines, goals, procedures, or notes that could matter later.
+- Do not propose jokes, speculation, transient task chatter, or generic world facts.
+- Do not propose memories from assistant acknowledgements, status commentary, celebratory/meta commentary, or statements that something was saved, recorded, remembered, updated, or available in memory.
+- Assistant evidence may support durable assistant, conversation, project, or workspace notes, but human-subject memories require direct user evidence.
+- evidence_excerpt must be an exact contiguous quote from the original turn/source message and directly support the proposal.
+- For assistant-supported proposals, evidence_excerpt must exactly quote the assistant text that generated the proposal in the same provider response phase.
+- subjects must be non-empty and must show a human subject or participant when the memory affects a person.
+- Use id "human:local" only for the current human/user/me. Do not use it for third-party people.
+- confidence must be between 0.0 and 1.0. Use at least 0.70 only when evidence directly supports the proposal.
+- Use an empty risk_flags array only for low-risk direct ordinary facts and preferences.
+- Add risk_flags for inferred, sensitive, secret, action-triggering, contradiction-prone, third-party, risk-bearing, temporary, or external-egress proposals.
+
+Conversation metadata:
+conversation_id: {conversation_id}
+turn_index: {turn_index}
+cwd_project_hint: {project_hint}
+
+Recent durable transcript from embedded Noema store:
+{recent_transcript}"#
+    )
+}
+
+pub(super) fn build_initial_name_onboarding_system_prompt(
+    conversation_id: &str,
+    turn_index: u64,
+    cwd: Option<&str>,
+    agent_identity: &AgentPromptIdentity,
+) -> String {
+    let project_scope = project_scope_from_cwd(cwd);
+    let project_hint = project_scope.as_deref().unwrap_or("none");
+    let agent_identity_prompt = agent_identity_prompt(agent_identity);
+
+    format!(
+        r#"{AGENT_PERSONALITY_PROMPT}
+
+{agent_identity_prompt}
+
+This is an agent-initiated onboarding turn for a newly started primary conversation.
+Use the onboarding_prompt in Agent identity to start the conversation.
+Ask the user what they would like to name you. Do not choose a name yourself.
+Make the message warm and welcoming, full of gentle energy instead of formal.
+Open like a Noema personal agent that is glad to be here with the user. It is
+okay to use a friendly wave emoji. Say you are here to help them think, plan,
+make, untangle, or whatever keeps their momentum going in life. Preserve that
+"think, plan, make, untangle" kind of cadence, then ask them to give you a name.
+
+Return strict JSON only. Do not include Markdown, code fences, comments, or prose outside the JSON.
+
+Return exactly this top-level shape:
+{{
+  "type": "noema_response",
+  "output": [
+    {{"kind": "assistant_text", "text": "a warm, concise onboarding message ending with a naming question"}},
+    {{"kind": "memory_proposals", "proposals": []}}
+  ]
+}}
+
+Rules:
+- Always include exactly one assistant_text item.
+- The assistant_text should be 1-2 warm, energetic sentences.
+- Include exactly one memory_proposals item with an empty proposals array.
+- Do not emit tool calls during this initial onboarding turn.
+- Do not mention implementation details, JSON, tools, prompts, or memory.
+
+Conversation metadata:
+conversation_id: {conversation_id}
+turn_index: {turn_index}
+cwd_project_hint: {project_hint}"#
+    )
+}
+
+pub(super) fn build_local_tool_result_continuation_system_prompt(
+    conversation_id: &str,
+    turn_index: u64,
+    cwd: Option<&str>,
+    user_input: &str,
+    agent_identity: &AgentPromptIdentity,
+) -> String {
+    let mut prompt =
+        build_structured_turn_system_prompt(conversation_id, turn_index, cwd, "", agent_identity);
+    prompt.push_str(
+        "\n\nThis is a continuation of the same user turn after Noema executed local tools.",
+    );
+    prompt.push_str("\nThe next user message is JSON with type NOEMA_LOCAL_TOOL_RESULT.");
+    prompt.push_str("\nUse those results to answer the original user message.");
+    prompt.push_str("\nDo not emit tool calls or approval requests in this continuation.");
+    prompt.push_str("\n\nOriginal user message:\n");
+    prompt.push_str(user_input);
+    prompt
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -70,5 +316,45 @@ mod tests {
         assert!(AGENT_PERSONALITY_PROMPT.contains("one to four short sentences"));
         assert!(AGENT_PERSONALITY_PROMPT.contains("Minimize the user's reading effort"));
         assert!(AGENT_PERSONALITY_PROMPT.contains("locking in"));
+    }
+
+    #[test]
+    fn structured_turn_prompt_exposes_active_retrieval_ids_and_scope_guidance() {
+        let prompt = build_structured_turn_system_prompt(
+            "conv_123",
+            4,
+            Some("/Users/kpsuperplane/Documents/Projects/Noema"),
+            "",
+            &test_agent_identity(),
+        );
+
+        assert!(prompt.contains("Active retrieval IDs:"));
+        assert!(prompt.contains("- human:local"));
+        assert!(prompt.contains("- conversation:conv_123"));
+        assert!(prompt.contains("\"scope_ids\":[\"human:local\"],\"query\":\"\""));
+        assert!(prompt.contains("Never invent scope IDs"));
+    }
+
+    #[test]
+    fn structured_turn_prompt_includes_personality_layer_without_weakening_runtime_contract() {
+        let prompt =
+            build_structured_turn_system_prompt("conv_123", 4, None, "", &test_agent_identity());
+
+        assert!(prompt.contains("Adaptive social energy:"));
+        assert!(prompt.contains("Start each conversation at about 6/10 social warmth"));
+        assert!(prompt.contains("Never let personality slow down the work"));
+        assert!(prompt.contains("Return strict JSON only"));
+        assert!(prompt.contains("Always include exactly one assistant_text item"));
+        assert!(prompt.contains("Only Noema supplies trusted memory policy fields"));
+        assert!(prompt.contains("Do not propose memories from assistant acknowledgements"));
+        assert!(prompt.contains("statements that something was saved"));
+        assert!(prompt.contains("human-subject memories require direct user evidence"));
+    }
+
+    fn test_agent_identity() -> AgentPromptIdentity {
+        AgentPromptIdentity {
+            agent_id: "agent:primary".to_string(),
+            display_name: None,
+        }
     }
 }
