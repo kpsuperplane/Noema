@@ -9,7 +9,7 @@ use crate::{
     },
 };
 
-use super::{DaemonError, WebState, http::HttpRequestError};
+use super::{DaemonError, http::HttpRequestError};
 
 const PROVIDER_AUTH_TERMINAL_PERSIST_INTERVAL: Duration = Duration::from_millis(250);
 
@@ -57,8 +57,10 @@ pub(crate) struct ProviderAuthStartRequest {
     pub(crate) method: crate::ProviderAuthMethod,
 }
 
-pub(crate) async fn start_provider_auth_attempt_view(
-    state: &WebState,
+pub(crate) async fn start_provider_auth_attempt_view_from_parts(
+    provider_auth: &ProviderAuthManager,
+    store: &NoemaStore,
+    paths: &crate::NoemaPaths,
     body: ProviderAuthStartRequest,
 ) -> Result<ProviderAuthAttemptView, WebApiError> {
     if body.provider_kind != "codex" {
@@ -69,8 +71,7 @@ pub(crate) async fn start_provider_auth_attempt_view(
         return Err(WebApiError::bad_request("unsupported provider auth method"));
     }
 
-    let Some(account) = state
-        .store
+    let Some(account) = store
         .get_provider_account(&body.provider_account_id)
         .await
         .map_err(|_| WebApiError::internal("provider auth status unavailable"))?
@@ -82,19 +83,12 @@ pub(crate) async fn start_provider_auth_attempt_view(
         return Err(error.into());
     }
 
-    match start_codex_provider_auth_attempt(
-        &state.provider_auth,
-        &state.store,
-        &state.paths,
-        &account,
-    )
-    .await
-    {
+    match start_codex_provider_auth_attempt(provider_auth, store, paths, &account).await {
         Ok(attempt) => {
             if !should_persist_provider_auth_attempt_status(&attempt) {
                 spawn_provider_auth_terminal_persistence(
-                    state.provider_auth.clone(),
-                    state.store.clone(),
+                    provider_auth.clone(),
+                    store.clone(),
                     attempt.attempt_id.clone(),
                 );
             }

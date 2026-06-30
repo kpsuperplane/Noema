@@ -25,17 +25,13 @@ pub async fn run_daemon(config: DaemonServerConfig) -> Result<(), DaemonError> {
         .await
         .map_err(|source| DaemonError::Protocol(source.to_string()))?;
     let runtime = host.runtime().clone();
+    let graphql_state = crate::graphql::GraphqlState::from_runtime_host(&host);
     let (shutdown_tx, mut shutdown_rx) = watch::channel(false);
     let state = Arc::new(DaemonState {
         runtime: runtime.clone(),
         shutdown_tx,
     });
-    let web_state = WebState::new(
-        runtime,
-        host.store().clone(),
-        host.provider_auth().clone(),
-        host.paths().clone(),
-    );
+    let web_state = WebState::new(graphql_state);
 
     loop {
         tokio::select! {

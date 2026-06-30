@@ -298,9 +298,9 @@ pub(super) async fn start_primary_conversation(
     model: Option<String>,
     cwd: Option<String>,
 ) -> Result<GraphqlConversationStarted> {
-    let web = state.web_state()?;
-    let account = web
-        .store()
+    let store = state.store()?;
+    let runtime = state.runtime()?;
+    let account = store
         .active_provider_account("codex")
         .await
         .map_err(graphql_error)?;
@@ -310,13 +310,12 @@ pub(super) async fn start_primary_conversation(
         ));
     }
 
-    let started = web
-        .runtime()
+    let started = runtime
         .start_primary_conversation(model, cwd)
         .await
         .map_err(graphql_error)?;
     let replay_records =
-        crate::daemon::web::visible_conversation_replay(web.store(), &started.conversation_id)
+        crate::daemon::web::visible_conversation_replay(store, &started.conversation_id)
             .await
             .map_err(graphql_error)?;
     let mut replay = Vec::new();
@@ -339,8 +338,7 @@ pub(super) async fn send_conversation_turn(
     state: &GraphqlState,
     input: GraphqlSendConversationTurnInput,
 ) -> Result<GraphqlTurnAccepted> {
-    let web = state.web_state()?;
-    let runtime = web.runtime().clone();
+    let runtime = state.runtime()?.clone();
     let subscriptions = state.subscriptions().clone();
     let (item_tx, mut item_rx) = tokio::sync::mpsc::unbounded_channel();
     let conversation_id = input.conversation_id.clone();

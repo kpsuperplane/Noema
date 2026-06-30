@@ -51,7 +51,7 @@ pub(super) async fn handle_graphql_websocket(
     mut stream: TcpStream,
     state: WebState,
 ) -> Result<(), DaemonError> {
-    let schema = crate::graphql::build_schema(crate::graphql::GraphqlState::from_web_state(state));
+    let schema = crate::graphql::build_schema(state.graphql_state().clone());
     loop {
         let Some(frame) = WebSocketFrame::read_from(&mut stream).await? else {
             return Ok(());

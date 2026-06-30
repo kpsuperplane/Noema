@@ -9,7 +9,7 @@ mod replay;
 
 use tokio::net::{TcpListener, TcpStream};
 
-use crate::{NoemaStore, WebConfig, provider::auth::ProviderAuthManager};
+use crate::WebConfig;
 
 use self::{
     assets::embedded_asset,
@@ -22,61 +22,30 @@ pub(crate) use self::{
     provider_auth::{
         ProviderAuthStartRequest, is_user_onboarded_for_chat,
         persist_provider_account_status_from_attempt, reconcile_onboarding_provider_account,
-        start_provider_auth_attempt_view,
+        start_provider_auth_attempt_view_from_parts,
     },
     replay::{
         ConversationReplayItem, visible_conversation_replay, web_conversation_item_from_record,
     },
 };
 
-use super::{protocol::DaemonError, runtime::CodexRuntimeHandle};
+use super::protocol::DaemonError;
 
 /// State shared by local web UI connections.
 #[derive(Clone)]
 pub(crate) struct WebState {
-    runtime: CodexRuntimeHandle,
-    store: NoemaStore,
-    provider_auth: ProviderAuthManager,
-    paths: crate::NoemaPaths,
-    subscriptions: crate::graphql::ConversationSubscriptionRegistry,
+    graphql_state: crate::graphql::GraphqlState,
 }
 
 impl WebState {
     /// Build shared web UI state.
     #[must_use]
-    pub(super) fn new(
-        runtime: CodexRuntimeHandle,
-        store: NoemaStore,
-        provider_auth: ProviderAuthManager,
-        paths: crate::NoemaPaths,
-    ) -> Self {
-        Self {
-            runtime,
-            store,
-            provider_auth,
-            paths,
-            subscriptions: crate::graphql::ConversationSubscriptionRegistry::default(),
-        }
+    pub(super) fn new(graphql_state: crate::graphql::GraphqlState) -> Self {
+        Self { graphql_state }
     }
 
-    pub(crate) fn runtime(&self) -> &CodexRuntimeHandle {
-        &self.runtime
-    }
-
-    pub(crate) fn store(&self) -> &NoemaStore {
-        &self.store
-    }
-
-    pub(crate) fn provider_auth(&self) -> &ProviderAuthManager {
-        &self.provider_auth
-    }
-
-    pub(crate) fn paths(&self) -> &crate::NoemaPaths {
-        &self.paths
-    }
-
-    pub(crate) fn subscriptions(&self) -> &crate::graphql::ConversationSubscriptionRegistry {
-        &self.subscriptions
+    pub(crate) fn graphql_state(&self) -> &crate::graphql::GraphqlState {
+        &self.graphql_state
     }
 }
 
@@ -111,8 +80,7 @@ pub(super) async fn handle_connection(
     }
 
     if is_graphql_schema_route(&request.method, &request.path) {
-        let schema =
-            crate::graphql::build_schema(crate::graphql::GraphqlState::from_web_state(state));
+        let schema = crate::graphql::build_schema(state.graphql_state().clone());
         write_response(
             &mut stream,
             "200 OK",
@@ -187,7 +155,7 @@ async fn handle_graphql_http(
             return Ok(());
         }
     };
-    let schema = crate::graphql::build_schema(crate::graphql::GraphqlState::from_web_state(state));
+    let schema = crate::graphql::build_schema(state.graphql_state().clone());
     let response = schema.execute(graphql_request).await;
     write_json(stream, "200 OK", &response).await
 }

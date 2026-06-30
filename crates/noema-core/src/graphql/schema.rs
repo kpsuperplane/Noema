@@ -2,7 +2,7 @@ use async_graphql::{Context, Object, Result, Schema, Subscription};
 use futures_util::Stream;
 
 use super::{
-    ConversationSubscriptionRegistry,
+    ConversationSubscriptionRegistry, GraphqlRuntimeState,
     chat::{
         self, GraphqlConversationEvent, GraphqlConversationStarted,
         GraphqlSendConversationTurnInput, GraphqlTurnAccepted,
@@ -24,11 +24,7 @@ pub type GraphqlSchema = Schema<QueryRoot, MutationRoot, SubscriptionRoot>;
 /// Shared state available to GraphQL resolvers.
 #[derive(Clone)]
 pub struct GraphqlState {
-    web_state: Option<crate::daemon::web::WebState>,
-    #[cfg(test)]
-    test_store: Option<crate::NoemaStore>,
-    subscriptions: ConversationSubscriptionRegistry,
-    memory_storage: GraphqlMemoryStorageStatus,
+    runtime_state: GraphqlRuntimeState,
 }
 
 impl GraphqlState {
@@ -36,11 +32,7 @@ impl GraphqlState {
     #[must_use]
     pub fn for_tests() -> Self {
         Self {
-            web_state: None,
-            #[cfg(test)]
-            test_store: None,
-            subscriptions: ConversationSubscriptionRegistry::default(),
-            memory_storage: GraphqlMemoryStorageStatus::Ready,
+            runtime_state: GraphqlRuntimeState::for_tests(),
         }
     }
 
@@ -49,57 +41,44 @@ impl GraphqlState {
     #[must_use]
     pub fn for_tests_with_store(store: crate::NoemaStore) -> Self {
         Self {
-            web_state: None,
-            test_store: Some(store),
-            subscriptions: ConversationSubscriptionRegistry::default(),
-            memory_storage: GraphqlMemoryStorageStatus::Ready,
+            runtime_state: GraphqlRuntimeState::for_tests_with_store(store),
         }
     }
 
-    /// Build state backed by the local web server runtime.
+    /// Build state backed by the shared Noema runtime host.
     #[must_use]
-    pub(crate) fn from_web_state(web_state: crate::daemon::web::WebState) -> Self {
+    pub fn from_runtime_host(host: &crate::NoemaRuntimeHost) -> Self {
         Self {
-            subscriptions: web_state.subscriptions().clone(),
-            web_state: Some(web_state),
-            #[cfg(test)]
-            test_store: None,
-            memory_storage: GraphqlMemoryStorageStatus::Ready,
+            runtime_state: GraphqlRuntimeState::from_host(host),
         }
     }
 
-    pub(crate) fn web_state(&self) -> Result<&crate::daemon::web::WebState> {
-        self.web_state
-            .as_ref()
-            .ok_or_else(|| async_graphql::Error::new("Noema web state is unavailable"))
+    pub(crate) fn runtime(&self) -> Result<&crate::daemon::CodexRuntimeHandle> {
+        self.runtime_state.runtime()
+    }
+
+    pub(crate) fn store(&self) -> Result<&crate::NoemaStore> {
+        self.runtime_state.store()
+    }
+
+    pub(crate) fn optional_store(&self) -> Option<&crate::NoemaStore> {
+        self.runtime_state.optional_store()
+    }
+
+    pub(crate) fn provider_auth(&self) -> Result<&crate::provider::auth::ProviderAuthManager> {
+        self.runtime_state.provider_auth()
+    }
+
+    pub(crate) fn paths(&self) -> Result<&crate::NoemaPaths> {
+        self.runtime_state.paths()
     }
 
     pub(crate) fn subscriptions(&self) -> &ConversationSubscriptionRegistry {
-        &self.subscriptions
+        self.runtime_state.subscriptions()
     }
 
-    pub(super) fn store(&self) -> Result<&crate::NoemaStore> {
-        #[cfg(test)]
-        if let Some(store) = &self.test_store {
-            return Ok(store);
-        }
-
-        Ok(self.web_state()?.store())
-    }
-
-    pub(super) fn optional_store(&self) -> Option<&crate::NoemaStore> {
-        #[cfg(test)]
-        if let Some(store) = &self.test_store {
-            return Some(store);
-        }
-
-        self.web_state
-            .as_ref()
-            .map(crate::daemon::web::WebState::store)
-    }
-
-    pub(super) fn memory_storage(&self) -> GraphqlMemoryStorageStatus {
-        self.memory_storage
+    pub(crate) fn memory_storage(&self) -> GraphqlMemoryStorageStatus {
+        self.runtime_state.memory_storage()
     }
 }
 
@@ -278,6 +257,16 @@ mod tests {
         assert!(sdl.contains("type GraphqlPredicateProposal"));
         assert!(sdl.contains("GraphqlMemoryGraph"));
         assert!(sdl.contains("GraphqlMemoryGraphInput"));
+    }
+
+    #[test]
+    fn graphql_state_for_tests_has_runtime_state_accessors() {
+        let state = GraphqlState::for_tests();
+        assert!(state.optional_store().is_none());
+        assert_eq!(
+            state.memory_storage(),
+            crate::graphql::local_status::GraphqlMemoryStorageStatus::Ready
+        );
     }
 
     #[tokio::test]

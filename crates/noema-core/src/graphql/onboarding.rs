@@ -221,19 +221,15 @@ impl From<ProviderAuthAttemptView> for GraphqlProviderAuthAttempt {
 }
 
 pub(super) async fn onboarding_status(state: &GraphqlState) -> Result<GraphqlOnboardingStatus> {
-    let web = state.web_state()?;
-    let account = web
-        .store()
+    let store = state.store()?;
+    let paths = state.paths()?;
+    let account = store
         .active_provider_account("codex")
         .await
         .map_err(graphql_error)?;
-    let account = crate::daemon::web::reconcile_onboarding_provider_account(
-        web.store(),
-        web.paths(),
-        account,
-    )
-    .await
-    .map_err(graphql_error)?;
+    let account = crate::daemon::web::reconcile_onboarding_provider_account(store, paths, account)
+        .await
+        .map_err(graphql_error)?;
 
     Ok(crate::onboarding_status_from_account(account).into())
 }
@@ -242,14 +238,14 @@ pub(super) async fn provider_auth_attempt(
     state: &GraphqlState,
     attempt_id: String,
 ) -> Result<Option<GraphqlProviderAuthAttempt>> {
-    let web = state.web_state()?;
-    let attempt = web
-        .provider_auth()
+    let store = state.store()?;
+    let provider_auth = state.provider_auth()?;
+    let attempt = provider_auth
         .poll_attempt(&attempt_id)
         .await
         .map_err(graphql_error)?;
     if let Some(attempt) = &attempt {
-        crate::daemon::web::persist_provider_account_status_from_attempt(web.store(), attempt)
+        crate::daemon::web::persist_provider_account_status_from_attempt(store, attempt)
             .await
             .map_err(graphql_error)?;
     }
@@ -260,14 +256,21 @@ pub(super) async fn start_provider_auth_attempt(
     state: &GraphqlState,
     input: GraphqlStartProviderAuthAttemptInput,
 ) -> Result<GraphqlProviderAuthAttempt> {
-    let web = state.web_state()?;
+    let store = state.store()?;
+    let paths = state.paths()?;
+    let provider_auth = state.provider_auth()?;
     let request = crate::daemon::web::ProviderAuthStartRequest {
         provider_kind: input.provider_kind,
         provider_account_id: input.provider_account_id,
         method: input.method.into(),
     };
-    let attempt = crate::daemon::web::start_provider_auth_attempt_view(web, request)
-        .await
-        .map_err(|error| async_graphql::Error::new(error.message()))?;
+    let attempt = crate::daemon::web::start_provider_auth_attempt_view_from_parts(
+        provider_auth,
+        store,
+        paths,
+        request,
+    )
+    .await
+    .map_err(|error| async_graphql::Error::new(error.message()))?;
     Ok(attempt.into())
 }

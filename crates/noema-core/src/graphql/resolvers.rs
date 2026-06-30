@@ -30,6 +30,30 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn local_status_still_works_without_daemon_web_state() {
+        let schema = build_schema(GraphqlState::for_tests());
+        let response = schema
+            .execute(Request::new(
+                "{ localStatus { localService assistantConnection memoryStorage } }",
+            ))
+            .await
+            .into_result()
+            .expect("query should succeed");
+
+        assert_eq!(
+            response.data,
+            Value::from_json(serde_json::json!({
+                "localStatus": {
+                    "localService": "RUNNING",
+                    "assistantConnection": "CODEX",
+                    "memoryStorage": "READY"
+                }
+            }))
+            .expect("valid json")
+        );
+    }
+
+    #[tokio::test]
     async fn local_status_query_returns_primary_agent_display_name() {
         let store = crate::store::tests::test_store().await;
         store.ensure_default_actors().await.expect("actors");

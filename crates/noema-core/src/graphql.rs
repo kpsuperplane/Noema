@@ -10,9 +10,11 @@ mod local_status;
 mod memory;
 mod onboarding;
 mod resolvers;
+mod runtime_state;
 mod schema;
 mod subscriptions;
 mod types;
 
+pub(crate) use runtime_state::GraphqlRuntimeState;
 pub use schema::{GraphqlSchema, GraphqlState, build_schema};
 pub(crate) use subscriptions::{ConversationLiveEvent, ConversationSubscriptionRegistry};
