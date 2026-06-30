@@ -4,6 +4,8 @@
 //! protocol support, home-directory setup, path resolution, and the memory
 //! retrieval model.
 
+/// Capability Gateway policy core.
+pub mod capability;
 /// Configuration loading and provider selection.
 pub mod config;
 /// Neutral conversation domain types.
@@ -33,6 +35,10 @@ pub mod runtime_host;
 /// Embedded canonical structured store.
 pub mod store;
 
+pub use capability::{
+    CapabilityAxis, CapabilityDecisionOutcome, CapabilityPolicyDecision, CapabilityPolicyInput,
+    OwnerTrust, evaluate_capability_policy,
+};
 pub use config::{
     CliOverrides, Config, ConfigError, DaemonResolvedConfig, ProviderConfig, ProviderKind,
     ResolvedConfig, WebConfig,
