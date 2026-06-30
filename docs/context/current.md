@@ -77,6 +77,10 @@ The next storage slice should stay small and concrete:
   runtime, repository, policy, provenance, audit, and event interfaces directly.
 - The current web UI consumes GraphQL over `/graphql` plus
   `graphql-transport-ws` subscriptions over `/graphql/ws`.
+- The first macOS desktop app direction is a Tauri app in
+  `crates/noema-desktop` that starts a Noema runtime host inside the app
+  process, loads the existing React UI from bundled assets, and uses Tauri
+  IPC/events for GraphQL instead of exposing a local HTTP/WebSocket server.
 - The CLI chat path now uses GraphQL for `startPrimaryConversation` and
   `sendConversationTurn` streaming. It still uses the daemon Unix-socket
   protocol only for local lifecycle cleanup such as connection setup,
@@ -193,6 +197,8 @@ The next storage slice should stay small and concrete:
 - Add richer graph neighborhood inspection for CLI, GraphQL, and web.
 - Continue aligning docs, schema, CLI inspection commands, and frontend IA.
 - Decide which export formats ship first and how export preview/redaction should work.
+- Add signing, notarization, update, and production distribution for the Tauri
+  macOS app after the unsigned developer build is stable.
 - Revisit migrations only when the project needs persisted user data compatibility.
 
 ## Codex Preferences
