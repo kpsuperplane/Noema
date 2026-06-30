@@ -10,10 +10,8 @@ import { AuditSettingsPaneContent } from "@/components/settings/AuditSettingsPan
 import { McpServerSetupFlow } from "@/components/settings/McpServerSetupFlow";
 import { McpSettingsPaneContent } from "@/components/settings/McpSettingsPane";
 import { ProvidersSettingsPaneContent } from "@/components/settings/ProvidersSettingsPane";
-import { SettingsSidebar } from "@/components/settings/SettingsSidebar";
 import { TrustedIdentitiesSettingsPaneContent } from "@/components/settings/TrustedIdentitiesSettingsPane";
-import type { AppRoute } from "@/routes";
-import { SettingsPage } from "./SettingsPage";
+import { SettingsSurface } from "./SettingsPage";
 
 const providerAccount = {
   providerKind: "codex",
@@ -60,24 +58,25 @@ const trustedIdentitySelectors = [
 ] as const;
 
 describe("SettingsPage", () => {
-  test("renders a full-screen settings takeover with Providers selected", () => {
+  test("renders a shell-contained settings surface with Providers selected", () => {
     const markup = renderToStaticMarkup(
       <ApolloProvider client={testApolloClient()}>
-        <SettingsPage section="providers" onNavigate={() => {}} onClose={() => {}} />
+        <SettingsSurface section="providers" />
       </ApolloProvider>
     );
 
-    assert.match(markup, /data-slot="settings-page"/);
-    assert.match(markup, /data-slot="settings-sidebar"/);
-    assert.match(markup, /Settings/);
+    assert.match(markup, /data-slot="settings-surface"/);
+    assert.doesNotMatch(markup, /data-slot="settings-page"/);
+    assert.doesNotMatch(markup, /data-slot="settings-sidebar"/);
+    assert.doesNotMatch(markup, /aria-label="Close settings"/);
     assert.match(markup, /Providers/);
-    assert.match(markup, /aria-label="Close settings"/);
+    assert.match(markup, /Secret credential material stays outside the UI/);
   });
 
   test("renders the Agents section title and copy", () => {
     const markup = renderToStaticMarkup(
       <ApolloProvider client={testApolloClient()}>
-        <SettingsPage section="agents" onNavigate={() => {}} onClose={() => {}} />
+        <SettingsSurface section="agents" />
       </ApolloProvider>
     );
 
@@ -89,7 +88,7 @@ describe("SettingsPage", () => {
   test("renders the MCP section title and loading state", () => {
     const markup = renderToStaticMarkup(
       <ApolloProvider client={testApolloClient()}>
-        <SettingsPage section="mcps" onNavigate={() => {}} onClose={() => {}} />
+        <SettingsSurface section="mcps" />
       </ApolloProvider>
     );
 
@@ -102,11 +101,7 @@ describe("SettingsPage", () => {
     assert.match(
       renderToStaticMarkup(
         <ApolloProvider client={testApolloClient()}>
-          <SettingsPage
-            section="trusted-identities"
-            onNavigate={() => {}}
-            onClose={() => {}}
-          />
+          <SettingsSurface section="trusted-identities" />
         </ApolloProvider>
       ),
       /Loading trusted identities/
@@ -115,7 +110,7 @@ describe("SettingsPage", () => {
     assert.match(
       renderToStaticMarkup(
         <ApolloProvider client={testApolloClient()}>
-          <SettingsPage section="approvals" onNavigate={() => {}} onClose={() => {}} />
+          <SettingsSurface section="approvals" />
         </ApolloProvider>
       ),
       /Loading MCP approvals/
@@ -124,39 +119,11 @@ describe("SettingsPage", () => {
     assert.match(
       renderToStaticMarkup(
         <ApolloProvider client={testApolloClient()}>
-          <SettingsPage section="audit" onNavigate={() => {}} onClose={() => {}} />
+          <SettingsSurface section="audit" />
         </ApolloProvider>
       ),
       /MCP audit records will appear here/
     );
-  });
-
-  test("routes Settings tab selections through navigation", () => {
-    const routes: AppRoute[] = [];
-    const providersSidebar = SettingsSidebar({
-      activeSection: "providers",
-      onSelectSection: (section) => routes.push({ kind: "settings", section })
-    });
-    findButtonByText(providersSidebar, "Agents").props.onClick();
-    assert.deepEqual(routes.pop(), { kind: "settings", section: "agents" });
-    findButtonByText(providersSidebar, "MCPs").props.onClick();
-    assert.deepEqual(routes.pop(), { kind: "settings", section: "mcps" });
-    findButtonByText(providersSidebar, "Trusted identities").props.onClick();
-    assert.deepEqual(routes.pop(), {
-      kind: "settings",
-      section: "trusted-identities"
-    });
-    findButtonByText(providersSidebar, "Approvals").props.onClick();
-    assert.deepEqual(routes.pop(), { kind: "settings", section: "approvals" });
-    findButtonByText(providersSidebar, "Audit").props.onClick();
-    assert.deepEqual(routes.pop(), { kind: "settings", section: "audit" });
-
-    const agentsSidebar = SettingsSidebar({
-      activeSection: "agents",
-      onSelectSection: (section) => routes.push({ kind: "settings", section })
-    });
-    findButtonByText(agentsSidebar, "Providers").props.onClick();
-    assert.deepEqual(routes.pop(), { kind: "settings", section: "providers" });
   });
 });
 
@@ -497,40 +464,4 @@ function testApolloClient() {
     cache: new InMemoryCache(),
     link: new ApolloLink(() => new Observable(() => undefined))
   });
-}
-
-function findButtonByText(
-  node: React.ReactNode,
-  text: string
-): React.ReactElement<{ children?: React.ReactNode; onClick: () => void }> {
-  if (!React.isValidElement(node)) {
-    throw new Error(`Button ${text} not found`);
-  }
-  const element = node as React.ReactElement<{ children?: React.ReactNode; onClick?: () => void }>;
-  if (element.type === "button" && textContent(element.props.children).includes(text)) {
-    return element as React.ReactElement<{ children?: React.ReactNode; onClick: () => void }>;
-  }
-  for (const child of React.Children.toArray(element.props.children)) {
-    try {
-      return findButtonByText(child, text);
-    } catch (error) {
-      if (!(error instanceof Error) || !error.message.includes(`Button ${text} not found`)) {
-        throw error;
-      }
-    }
-  }
-  throw new Error(`Button ${text} not found`);
-}
-
-function textContent(node: React.ReactNode): string {
-  if (typeof node === "string" || typeof node === "number") {
-    return String(node);
-  }
-  if (Array.isArray(node)) {
-    return node.map(textContent).join("");
-  }
-  if (React.isValidElement(node)) {
-    return textContent((node as React.ReactElement<{ children?: React.ReactNode }>).props.children);
-  }
-  return "";
 }
