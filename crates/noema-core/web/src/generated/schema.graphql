@@ -155,6 +155,24 @@ type GraphqlAssistantTextDeltaEvent {
 }
 
 """
+Continue setup after adding authentication material.
+"""
+input GraphqlContinueMcpServerSetupInput {
+	"""
+	Durable MCP server id.
+	"""
+	mcpServerId: String!
+	"""
+	Secret environment variables stored on disk.
+	"""
+	secretEnv: JSON
+	"""
+	Secret headers stored on disk.
+	"""
+	secretHeaders: JSON
+}
+
+"""
 Conversation subscription event union.
 """
 union GraphqlConversationEvent = GraphqlSubscriptionReadyEvent | GraphqlConversationItemEvent | GraphqlAssistantTextDeltaEvent | GraphqlAgentStatusEvent | GraphqlTurnCompletedEvent
@@ -223,6 +241,28 @@ type GraphqlConversationStarted {
 	Visible replay items.
 	"""
 	replay: [GraphqlConversationItem!]!
+}
+
+"""
+Add and verify an MCP server.
+"""
+input GraphqlCreateMcpServerInput {
+	"""
+	Human-visible server name.
+	"""
+	displayName: String!
+	"""
+	MCP transport kind: `stdio` or `http_sse`.
+	"""
+	transportKind: String!
+	"""
+	Stdio transport config, when `transport_kind` is `stdio`.
+	"""
+	stdio: GraphqlMcpStdioConfigInput
+	"""
+	HTTP/SSE transport config, when `transport_kind` is `http_sse`.
+	"""
+	httpSse: GraphqlMcpHttpSseConfigInput
 }
 
 """
@@ -358,6 +398,24 @@ type GraphqlMcpApprovalRequest {
 }
 
 """
+HTTP/SSE MCP setup config.
+"""
+input GraphqlMcpHttpSseConfigInput {
+	"""
+	MCP endpoint URL.
+	"""
+	url: String!
+	"""
+	Non-secret request headers.
+	"""
+	headers: JSON
+	"""
+	Secret request headers stored on disk.
+	"""
+	secretHeaders: JSON
+}
+
+"""
 MCP server metadata safe to show in Settings.
 """
 type GraphqlMcpServer {
@@ -389,6 +447,58 @@ type GraphqlMcpServer {
 	Number of discovered tools for this server.
 	"""
 	toolCount: Int!
+}
+
+"""
+Guided MCP setup result.
+"""
+type GraphqlMcpServerSetupResult {
+	"""
+	Server metadata safe to show in Settings.
+	"""
+	server: GraphqlMcpServer!
+	"""
+	Setup status.
+	"""
+	setupStatus: String!
+	"""
+	Metadata discovery status.
+	"""
+	discoveryStatus: String
+	"""
+	Number of discovered tools.
+	"""
+	discoveredToolCount: Int!
+	"""
+	Non-secret setup error, when present.
+	"""
+	setupError: String
+}
+
+"""
+Stdio MCP setup config.
+"""
+input GraphqlMcpStdioConfigInput {
+	"""
+	Command to launch.
+	"""
+	command: String!
+	"""
+	Command arguments.
+	"""
+	args: [String!]!
+	"""
+	Optional working directory.
+	"""
+	cwd: String
+	"""
+	Non-secret environment variables.
+	"""
+	env: JSON
+	"""
+	Secret environment variables stored on disk.
+	"""
+	secretEnv: JSON
 }
 
 """
@@ -1280,6 +1390,14 @@ type MutationRoot {
 	Save reviewed MCP tool calibration.
 	"""
 	saveToolCalibration(input: GraphqlSaveToolCalibrationInput!): GraphqlToolCalibration!
+	"""
+	Add and verify an MCP server.
+	"""
+	createMcpServer(input: GraphqlCreateMcpServerInput!): GraphqlMcpServerSetupResult!
+	"""
+	Continue MCP server setup after adding authentication material.
+	"""
+	continueMcpServerSetup(input: GraphqlContinueMcpServerSetupInput!): GraphqlMcpServerSetupResult!
 }
 
 type QueryRoot {

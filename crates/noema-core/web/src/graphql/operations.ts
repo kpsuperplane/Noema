@@ -121,6 +121,46 @@ export const SaveToolCalibrationDocument = gql`
   }
 `;
 
+export const CreateMcpServerDocument = gql`
+  mutation CreateMcpServer($input: GraphqlCreateMcpServerInput!) {
+    createMcpServer(input: $input) {
+      setupStatus
+      discoveryStatus
+      discoveredToolCount
+      setupError
+      server {
+        mcpServerId
+        displayName
+        transportKind
+        enabled
+        healthStatus
+        authStatus
+        toolCount
+      }
+    }
+  }
+`;
+
+export const ContinueMcpServerSetupDocument = gql`
+  mutation ContinueMcpServerSetup($input: GraphqlContinueMcpServerSetupInput!) {
+    continueMcpServerSetup(input: $input) {
+      setupStatus
+      discoveryStatus
+      discoveredToolCount
+      setupError
+      server {
+        mcpServerId
+        displayName
+        transportKind
+        enabled
+        healthStatus
+        authStatus
+        toolCount
+      }
+    }
+  }
+`;
+
 export const ProviderAuthAttemptDocument = gql`
   query ProviderAuthAttempt($attemptId: String!) {
     providerAuthAttempt(attemptId: $attemptId) {

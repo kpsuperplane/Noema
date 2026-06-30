@@ -25,10 +25,56 @@ export type GraphqlAssistantConnection =
   /** The daemon is using Codex for chat. */
   | 'CODEX';
 
+/** Continue setup after adding authentication material. */
+export type GraphqlContinueMcpServerSetupInput = {
+  /** Durable MCP server id. */
+  mcpServerId: string;
+  /** Secret environment variables stored on disk. */
+  secretEnv?: unknown;
+  /** Secret headers stored on disk. */
+  secretHeaders?: unknown;
+};
+
+/** Add and verify an MCP server. */
+export type GraphqlCreateMcpServerInput = {
+  /** Human-visible server name. */
+  displayName: string;
+  /** HTTP/SSE transport config, when `transport_kind` is `http_sse`. */
+  httpSse?: GraphqlMcpHttpSseConfigInput | null | undefined;
+  /** Stdio transport config, when `transport_kind` is `stdio`. */
+  stdio?: GraphqlMcpStdioConfigInput | null | undefined;
+  /** MCP transport kind: `stdio` or `http_sse`. */
+  transportKind: string;
+};
+
 /** Local service status shown by clients. */
 export type GraphqlLocalServiceStatus =
   /** The local Noema service is running. */
   | 'RUNNING';
+
+/** HTTP/SSE MCP setup config. */
+export type GraphqlMcpHttpSseConfigInput = {
+  /** Non-secret request headers. */
+  headers?: unknown;
+  /** Secret request headers stored on disk. */
+  secretHeaders?: unknown;
+  /** MCP endpoint URL. */
+  url: string;
+};
+
+/** Stdio MCP setup config. */
+export type GraphqlMcpStdioConfigInput = {
+  /** Command arguments. */
+  args: Array<string>;
+  /** Command to launch. */
+  command: string;
+  /** Optional working directory. */
+  cwd?: string | null | undefined;
+  /** Non-secret environment variables. */
+  env?: unknown;
+  /** Secret environment variables stored on disk. */
+  secretEnv?: unknown;
+};
 
 /** Input filters for bounded graph-memory inspection. */
 export type GraphqlMemoryGraphInput = {
@@ -210,6 +256,20 @@ export type SaveToolCalibrationMutationVariables = Exact<{
 
 export type SaveToolCalibrationMutation = { saveToolCalibration: { calibrationId: string, mcpToolId: string, status: string, readClassification: string, writeClassification: string, exportClassification: string } };
 
+export type CreateMcpServerMutationVariables = Exact<{
+  input: GraphqlCreateMcpServerInput;
+}>;
+
+
+export type CreateMcpServerMutation = { createMcpServer: { setupStatus: string, discoveryStatus: string | null, discoveredToolCount: number, setupError: string | null, server: { mcpServerId: string, displayName: string, transportKind: string, enabled: boolean, healthStatus: string, authStatus: string, toolCount: number } } };
+
+export type ContinueMcpServerSetupMutationVariables = Exact<{
+  input: GraphqlContinueMcpServerSetupInput;
+}>;
+
+
+export type ContinueMcpServerSetupMutation = { continueMcpServerSetup: { setupStatus: string, discoveryStatus: string | null, discoveredToolCount: number, setupError: string | null, server: { mcpServerId: string, displayName: string, transportKind: string, enabled: boolean, healthStatus: string, authStatus: string, toolCount: number } } };
+
 export type ProviderAuthAttemptQueryVariables = Exact<{
   attemptId: string;
 }>;
@@ -284,6 +344,8 @@ export const McpSettingsDocument = {"kind":"Document","definitions":[{"kind":"Op
 export const TrustedIdentitySettingsDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"TrustedIdentitySettings"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"ownerScopeId"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"String"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"trustedIdentitySelectors"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"ownerScopeId"},"value":{"kind":"Variable","name":{"kind":"Name","value":"ownerScopeId"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"selectorId"}},{"kind":"Field","name":{"kind":"Name","value":"ownerScopeId"}},{"kind":"Field","name":{"kind":"Name","value":"selectorKind"}},{"kind":"Field","name":{"kind":"Name","value":"normalizedValue"}},{"kind":"Field","name":{"kind":"Name","value":"effect"}},{"kind":"Field","name":{"kind":"Name","value":"issuerActorId"}}]}}]}}]} as unknown as DocumentNode<TrustedIdentitySettingsQuery, TrustedIdentitySettingsQueryVariables>;
 export const McpApprovalSettingsDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"McpApprovalSettings"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"status"}},"type":{"kind":"NamedType","name":{"kind":"Name","value":"String"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"mcpApprovalRequests"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"status"},"value":{"kind":"Variable","name":{"kind":"Name","value":"status"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"approvalId"}},{"kind":"Field","name":{"kind":"Name","value":"actionSummary"}},{"kind":"Field","name":{"kind":"Name","value":"toolInvocationId"}},{"kind":"Field","name":{"kind":"Name","value":"mcpServerId"}},{"kind":"Field","name":{"kind":"Name","value":"mcpToolId"}},{"kind":"Field","name":{"kind":"Name","value":"requesterActorId"}},{"kind":"Field","name":{"kind":"Name","value":"ownerScopeId"}},{"kind":"Field","name":{"kind":"Name","value":"activeScopeId"}},{"kind":"Field","name":{"kind":"Name","value":"destinationSummary"}},{"kind":"Field","name":{"kind":"Name","value":"dataSourceSummary"}},{"kind":"Field","name":{"kind":"Name","value":"sourceOwnerIdentity"}},{"kind":"Field","name":{"kind":"Name","value":"sourceOwnerTrust"}},{"kind":"Field","name":{"kind":"Name","value":"destinationOwnerIdentity"}},{"kind":"Field","name":{"kind":"Name","value":"destinationOwnerTrust"}},{"kind":"Field","name":{"kind":"Name","value":"exportSummary"}},{"kind":"Field","name":{"kind":"Name","value":"payloadPreview"}},{"kind":"Field","name":{"kind":"Name","value":"status"}}]}}]}}]} as unknown as DocumentNode<McpApprovalSettingsQuery, McpApprovalSettingsQueryVariables>;
 export const SaveToolCalibrationDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"SaveToolCalibration"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"input"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"GraphqlSaveToolCalibrationInput"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"saveToolCalibration"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"input"},"value":{"kind":"Variable","name":{"kind":"Name","value":"input"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"calibrationId"}},{"kind":"Field","name":{"kind":"Name","value":"mcpToolId"}},{"kind":"Field","name":{"kind":"Name","value":"status"}},{"kind":"Field","name":{"kind":"Name","value":"readClassification"}},{"kind":"Field","name":{"kind":"Name","value":"writeClassification"}},{"kind":"Field","name":{"kind":"Name","value":"exportClassification"}}]}}]}}]} as unknown as DocumentNode<SaveToolCalibrationMutation, SaveToolCalibrationMutationVariables>;
+export const CreateMcpServerDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"CreateMcpServer"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"input"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"GraphqlCreateMcpServerInput"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"createMcpServer"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"input"},"value":{"kind":"Variable","name":{"kind":"Name","value":"input"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"setupStatus"}},{"kind":"Field","name":{"kind":"Name","value":"discoveryStatus"}},{"kind":"Field","name":{"kind":"Name","value":"discoveredToolCount"}},{"kind":"Field","name":{"kind":"Name","value":"setupError"}},{"kind":"Field","name":{"kind":"Name","value":"server"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"mcpServerId"}},{"kind":"Field","name":{"kind":"Name","value":"displayName"}},{"kind":"Field","name":{"kind":"Name","value":"transportKind"}},{"kind":"Field","name":{"kind":"Name","value":"enabled"}},{"kind":"Field","name":{"kind":"Name","value":"healthStatus"}},{"kind":"Field","name":{"kind":"Name","value":"authStatus"}},{"kind":"Field","name":{"kind":"Name","value":"toolCount"}}]}}]}}]}}]} as unknown as DocumentNode<CreateMcpServerMutation, CreateMcpServerMutationVariables>;
+export const ContinueMcpServerSetupDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"ContinueMcpServerSetup"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"input"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"GraphqlContinueMcpServerSetupInput"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"continueMcpServerSetup"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"input"},"value":{"kind":"Variable","name":{"kind":"Name","value":"input"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"setupStatus"}},{"kind":"Field","name":{"kind":"Name","value":"discoveryStatus"}},{"kind":"Field","name":{"kind":"Name","value":"discoveredToolCount"}},{"kind":"Field","name":{"kind":"Name","value":"setupError"}},{"kind":"Field","name":{"kind":"Name","value":"server"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"mcpServerId"}},{"kind":"Field","name":{"kind":"Name","value":"displayName"}},{"kind":"Field","name":{"kind":"Name","value":"transportKind"}},{"kind":"Field","name":{"kind":"Name","value":"enabled"}},{"kind":"Field","name":{"kind":"Name","value":"healthStatus"}},{"kind":"Field","name":{"kind":"Name","value":"authStatus"}},{"kind":"Field","name":{"kind":"Name","value":"toolCount"}}]}}]}}]}}]} as unknown as DocumentNode<ContinueMcpServerSetupMutation, ContinueMcpServerSetupMutationVariables>;
 export const ProviderAuthAttemptDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"ProviderAuthAttempt"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"attemptId"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"String"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"providerAuthAttempt"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"attemptId"},"value":{"kind":"Variable","name":{"kind":"Name","value":"attemptId"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"attemptId"}},{"kind":"Field","name":{"kind":"Name","value":"providerKind"}},{"kind":"Field","name":{"kind":"Name","value":"providerAccountId"}},{"kind":"Field","name":{"kind":"Name","value":"method"}},{"kind":"Field","name":{"kind":"Name","value":"status"}},{"kind":"Field","name":{"kind":"Name","value":"verificationUrl"}},{"kind":"Field","name":{"kind":"Name","value":"userCode"}},{"kind":"Field","name":{"kind":"Name","value":"instructions"}},{"kind":"Field","name":{"kind":"Name","value":"errorCode"}},{"kind":"Field","name":{"kind":"Name","value":"errorMessage"}}]}}]}}]} as unknown as DocumentNode<ProviderAuthAttemptQuery, ProviderAuthAttemptQueryVariables>;
 export const MemoryGraphDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"MemoryGraph"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"input"}},"type":{"kind":"NamedType","name":{"kind":"Name","value":"GraphqlMemoryGraphInput"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"memoryGraph"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"input"},"value":{"kind":"Variable","name":{"kind":"Name","value":"input"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"nodes"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"nodeId"}},{"kind":"Field","name":{"kind":"Name","value":"entityId"}},{"kind":"Field","name":{"kind":"Name","value":"label"}},{"kind":"Field","name":{"kind":"Name","value":"entityType"}},{"kind":"Field","name":{"kind":"Name","value":"redacted"}},{"kind":"Field","name":{"kind":"Name","value":"claimCount"}}]}},{"kind":"Field","name":{"kind":"Name","value":"edges"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"claimId"}},{"kind":"Field","name":{"kind":"Name","value":"sourceNodeId"}},{"kind":"Field","name":{"kind":"Name","value":"targetNodeId"}},{"kind":"Field","name":{"kind":"Name","value":"predicateId"}},{"kind":"Field","name":{"kind":"Name","value":"predicateLabel"}},{"kind":"Field","name":{"kind":"Name","value":"fact"}},{"kind":"Field","name":{"kind":"Name","value":"factRedacted"}},{"kind":"Field","name":{"kind":"Name","value":"status"}},{"kind":"Field","name":{"kind":"Name","value":"sensitivity"}},{"kind":"Field","name":{"kind":"Name","value":"confidence"}},{"kind":"Field","name":{"kind":"Name","value":"evidenceCount"}},{"kind":"Field","name":{"kind":"Name","value":"createdAt"}},{"kind":"Field","name":{"kind":"Name","value":"updatedAt"}}]}},{"kind":"Field","name":{"kind":"Name","value":"summary"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"returnedClaimCount"}},{"kind":"Field","name":{"kind":"Name","value":"returnedNodeCount"}},{"kind":"Field","name":{"kind":"Name","value":"limit"}},{"kind":"Field","name":{"kind":"Name","value":"truncated"}}]}}]}}]}}]} as unknown as DocumentNode<MemoryGraphQuery, MemoryGraphQueryVariables>;
 export const MemoryGraphClaimDetailDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"MemoryGraphClaimDetail"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"claimId"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"String"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"memoryClaim"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"claimId"},"value":{"kind":"Variable","name":{"kind":"Name","value":"claimId"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"claimId"}},{"kind":"Field","name":{"kind":"Name","value":"fact"}},{"kind":"Field","name":{"kind":"Name","value":"predicateId"}},{"kind":"Field","name":{"kind":"Name","value":"predicateLabel"}},{"kind":"Field","name":{"kind":"Name","value":"subjectEntityId"}},{"kind":"Field","name":{"kind":"Name","value":"subjectEntityName"}},{"kind":"Field","name":{"kind":"Name","value":"subjectEntityType"}},{"kind":"Field","name":{"kind":"Name","value":"objectEntityId"}},{"kind":"Field","name":{"kind":"Name","value":"objectEntityName"}},{"kind":"Field","name":{"kind":"Name","value":"objectEntityType"}},{"kind":"Field","name":{"kind":"Name","value":"status"}},{"kind":"Field","name":{"kind":"Name","value":"sensitivity"}},{"kind":"Field","name":{"kind":"Name","value":"confidence"}},{"kind":"Field","name":{"kind":"Name","value":"evidenceCount"}},{"kind":"Field","name":{"kind":"Name","value":"createdAt"}},{"kind":"Field","name":{"kind":"Name","value":"updatedAt"}},{"kind":"Field","name":{"kind":"Name","value":"evidence"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"evidenceId"}},{"kind":"Field","name":{"kind":"Name","value":"sourceItemId"}},{"kind":"Field","name":{"kind":"Name","value":"authority"}},{"kind":"Field","name":{"kind":"Name","value":"excerpt"}},{"kind":"Field","name":{"kind":"Name","value":"observedAt"}},{"kind":"Field","name":{"kind":"Name","value":"createdAt"}}]}}]}}]}}]} as unknown as DocumentNode<MemoryGraphClaimDetailQuery, MemoryGraphClaimDetailQueryVariables>;
