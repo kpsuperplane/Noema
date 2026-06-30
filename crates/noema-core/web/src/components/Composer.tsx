@@ -119,6 +119,20 @@ export function refocusComposerTextarea(
   });
 }
 
+export function assignComposerTextareaRef(
+  forwardedRef: React.ForwardedRef<HTMLTextAreaElement>,
+  textarea: HTMLTextAreaElement | null
+) {
+  if (typeof forwardedRef === "function") {
+    forwardedRef(textarea);
+    return;
+  }
+
+  if (forwardedRef) {
+    forwardedRef.current = textarea;
+  }
+}
+
 export type ComposerProps = {
   value: string;
   ready: boolean;
@@ -143,15 +157,7 @@ export const Composer = React.forwardRef<HTMLTextAreaElement, ComposerProps>(fun
   const setTextareaRef = React.useCallback(
     (textarea: HTMLTextAreaElement | null) => {
       textareaRef.current = textarea;
-
-      if (typeof forwardedRef === "function") {
-        forwardedRef(textarea);
-        return;
-      }
-
-      if (forwardedRef) {
-        forwardedRef.current = textarea;
-      }
+      assignComposerTextareaRef(forwardedRef, textarea);
     },
     [forwardedRef]
   );

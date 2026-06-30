@@ -3,6 +3,7 @@ import { describe, test } from "node:test";
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
+  assignComposerTextareaRef,
   Composer,
   composerDraftInlineSize,
   composerMeasuredWidthBuffer,
@@ -60,6 +61,32 @@ describe("composer textarea presentation", () => {
 
   test("exposes textarea focus through a forwarded ref", () => {
     assert.equal((Composer as { $$typeof?: symbol }).$$typeof, Symbol.for("react.forward_ref"));
+  });
+
+  test("assigns object refs to the textarea and clears them on unmount", () => {
+    let focused = false;
+    const textarea = { focus: () => (focused = true) } as HTMLTextAreaElement;
+    const ref = React.createRef<HTMLTextAreaElement>();
+
+    assignComposerTextareaRef(ref, textarea);
+
+    assert.equal(ref.current, textarea);
+    ref.current?.focus();
+    assert.equal(focused, true);
+
+    assignComposerTextareaRef(ref, null);
+
+    assert.equal(ref.current, null);
+  });
+
+  test("assigns callback refs to the textarea and sends null on detach", () => {
+    const textarea = { focus: () => {} } as HTMLTextAreaElement;
+    const assigned: Array<HTMLTextAreaElement | null> = [];
+
+    assignComposerTextareaRef((node) => assigned.push(node), textarea);
+    assignComposerTextareaRef((node) => assigned.push(node), null);
+
+    assert.deepEqual(assigned, [textarea, null]);
   });
 });
 
