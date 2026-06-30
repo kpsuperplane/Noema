@@ -3,10 +3,11 @@
 ## Summary
 
 The first MCP Settings page shows MCP server metadata, but it does not let a
-user add a server. Noema should add a real "Add MCP server" flow that stores
-connection configuration now, including secrets, fetches the MCP tool
-list/schema during create, and preserves the existing control-plane rule that
-tools remain disabled until calibration is completed.
+user add a server. Noema should add a guided "Add MCP server" flow: the user
+enters connection details, Noema verifies the MCP server, the user
+authenticates when required, Noema fetches the MCP tool list/schema, and the UI
+immediately moves into tool calibration. The existing control-plane rule still
+holds: discovered tools remain disabled until calibration is completed.
 
 The structured store remains the source of truth for non-secret MCP server
 metadata. Secret material is stored on disk under the Noema home, similar to
@@ -23,14 +24,17 @@ provider-owned Codex token storage, and is never returned through GraphQL.
   metadata, including input/output schemas where available.
 - Persist discovered tools immediately, but keep newly added servers and tools
   disabled until calibration is complete.
-- Keep tool invocation, setup probe calls, auth flows, and tool calibration as
-  follow-on actions, not implicit side effects of saving config.
+- Prompt the user for authentication when verification or metadata discovery
+  reports missing credentials.
+- Move directly from successful discovery into tool calibration.
+- Keep tool invocation and setup probe calls out of the setup flow.
 
 ## Non-Goals
 
 - Do not invoke MCP tools or perform setup probe calls.
 - Do not execute a stdio MCP beyond initialize and metadata-only `tools/list`.
-- Do not implement OAuth or browser auth for remote MCPs in this slice.
+- Do not implement provider-specific OAuth flows beyond generic MCP
+  authentication prompts and secret entry in this slice.
 - Do not expose saved secret values back to the browser.
 - Do not add backwards-compatible migrations for pre-V1 state.
 
@@ -102,6 +106,30 @@ The initial file format is JSON with `env` and `headers` objects. Empty secret
 objects are allowed so the runtime can distinguish "no secrets configured" from
 "secret storage missing".
 
+## Setup Flow
+
+The Settings flow is a single guided setup, not a detached create form:
+
+1. **Input MCP server details.** The user enters display name, transport,
+   non-secret config, and any known secrets.
+2. **Verify MCP server.** The backend saves validated config, initializes the
+   MCP connection, and verifies that the endpoint speaks MCP.
+3. **Authenticate if necessary.** If initialization or metadata discovery
+   reports missing credentials, the UI stays in setup and asks the user to add
+   or update the required secrets. After saving those secrets, the backend
+   retries verification and metadata discovery.
+4. **Fetch tool list/schema.** The backend calls metadata-only `tools/list` and
+   persists tool names, descriptions, input schemas, optional output schemas,
+   annotations, and metadata fingerprints.
+5. **Configure tools immediately.** When discovery succeeds, Settings moves
+   directly into the calibration checklist for the discovered tools. The user
+   should not have to find the server in a list and start a second workflow.
+
+If verification fails for network, command, protocol, or malformed-response
+reasons, the server config remains saved with unavailable or malformed status
+and the setup view shows a retry action. The failure message must not include
+secret values.
+
 ## GraphQL API
 
 Add
@@ -147,22 +175,41 @@ prefix and collision suffix. Users do not type durable ids in the basic UI.
 `GraphqlMcpServerSetupResult`:
 
 - `server: GraphqlMcpServer!`
-- `discoveryStatus: String!`
+- `setupStatus: String!`
+- `discoveryStatus: String`
 - `discoveredToolCount: Int!`
-- `discoveryError: String`
+- `setupError: String`
 
-`discoveryStatus` values:
+`setupStatus` values:
 
-- `discovered`: initialize and `tools/list` succeeded, and discovered tool
-  metadata was persisted.
-- `unavailable`: config was saved, but the metadata-only MCP connection failed.
+- `needs_auth`: config was saved, but verification or metadata discovery needs
+  credentials before tools can be listed.
+- `ready_for_calibration`: verification and `tools/list` succeeded, discovered
+  tool metadata was persisted, and the UI should show tool calibration.
+- `unavailable`: config was saved, but the metadata-only MCP connection failed
+  for a transport, command, network, or endpoint reason.
 - `malformed`: config was saved, but the MCP metadata response could not be
   parsed or validated.
+
+`discoveryStatus` is present only after metadata discovery is attempted and may
+be `discovered`, `needs_auth`, `unavailable`, or `malformed`.
+
+Add
+`continueMcpServerSetup(input: GraphqlContinueMcpServerSetupInput!): GraphqlMcpServerSetupResult`.
+
+Input fields:
+
+- `mcpServerId: String!`
+- `secretEnv: JSON`
+- `secretHeaders: JSON`
+
+This mutation updates disk-backed secrets for an already saved server, then
+retries verification and metadata discovery. It never returns secret values.
 
 Create returns a result instead of failing the whole mutation for transport or
 metadata errors after local validation and secret writes succeed. That keeps
 the user's entered config durable and lets Settings show the server with a
-clear discovery status. Validation errors still fail before persistence.
+clear setup status. Validation errors still fail before persistence.
 
 ## Metadata Discovery On Create
 
@@ -175,8 +222,10 @@ discovery:
 3. Persist each discovered tool name, description, input schema, optional
    output schema, annotations, and metadata fingerprint in `mcp_tools`.
 4. Mark the server health `healthy` when discovery succeeds.
-5. Mark the server health `unavailable` when connection fails.
-6. Leave existing or newly discovered tools uncalibrated and agent-invisible.
+5. Mark the server auth status `needs_auth` when the MCP server requires
+   credentials before metadata can be listed.
+6. Mark the server health `unavailable` when connection fails.
+7. Leave existing or newly discovered tools uncalibrated and agent-invisible.
 
 The create flow must not call any MCP tool. It also must not infer effective
 policy from server-provided metadata. Schemas and annotations are setup
@@ -185,9 +234,9 @@ material for calibration only.
 ## Settings UX
 
 `/settings/mcps` gets an Add button above the list and in the empty state. The
-form appears inline at the top of the pane so users keep context.
+setup flow appears inline at the top of the pane so users keep context.
 
-Fields:
+Step 1 fields:
 
 - Display name.
 - Transport segmented control or select: `stdio`, `http_sse`.
@@ -203,15 +252,42 @@ The form copy should be concise:
 
 - Non-secret fields are stored in the database.
 - Secret fields are stored on disk and are not shown again.
-- Saving config fetches the MCP tool list/schema but does not enable tools;
-  calibration is still required.
+- Noema verifies the server and fetches tool schemas before calibration.
+- Saving config does not enable tools; calibration is still required.
 
-On success, the form clears and `McpSettings` refetches. On failure, the form
-shows the GraphQL validation error in place. If local validation succeeds but
-metadata discovery fails, the form clears, the server appears with unavailable
-health, and Settings shows the discovery error as a non-secret status message.
-Existing server cards remain metadata-only and must not show raw config or
-secret values.
+After submit, the UI shows setup progress:
+
+- `Verifying server`
+- `Authentication required`
+- `Fetching tools`
+- `Configure tools`
+
+If `setupStatus = needs_auth`, the setup flow shows only the missing
+authentication step: secret env/header fields plus a retry action backed by
+`continueMcpServerSetup`. If `setupStatus = unavailable` or `malformed`, the
+setup flow shows the non-secret error and a retry action. If `setupStatus =
+ready_for_calibration`, the setup flow immediately displays the discovered
+tools and calibration controls.
+
+On success through calibration entry, `McpSettings` refetches but keeps the
+setup flow focused on the newly added server. Existing server cards remain
+metadata-only and must not show raw config or secret values.
+
+### Immediate Tool Calibration
+
+The calibration step uses discovered metadata as setup material and asks the
+user to configure each tool before it can become agent-visible:
+
+- Tool name and description.
+- Input schema and output schema summary.
+- Read/write/export classification controls.
+- Owner resolution requirement and extractor controls when needed.
+- Enabled agents and scopes.
+- Reviewed metadata fingerprint.
+
+The initial create flow can land the user on this checklist even if calibration
+save actions are implemented by the existing `saveToolCalibration` mutation.
+No tool is enabled merely because it appears in the checklist.
 
 ## Runtime Boundary
 
@@ -221,7 +297,8 @@ agents. The created server starts as:
 - `enabled = false`
 - `health_status = healthy` when metadata discovery succeeds, otherwise
   `unavailable`
-- `auth_status = none`
+- `auth_status = none` unless the MCP server requires credentials, then
+  `needs_auth`
 - `tool_count = <discovered tool count>`
 
 Calibration remains mandatory before the Capability Gateway allows any
@@ -236,10 +313,14 @@ Backend tests:
 - Creating an `http_sse` server persists safe config and writes secret header
   keys to disk.
 - Creating a server initializes the MCP connection, calls `tools/list`, persists
-  input/output schemas and annotations, and returns `discoveryStatus =
-  discovered` when metadata discovery succeeds.
-- Metadata discovery failure returns a setup result with `discoveryStatus =
-  unavailable` or `malformed` without exposing secrets.
+  input/output schemas and annotations, and returns `setupStatus =
+  ready_for_calibration` when metadata discovery succeeds.
+- Metadata discovery authentication failure returns `setupStatus = needs_auth`
+  and does not expose secrets.
+- Metadata discovery transport or parse failure returns a setup result with
+  `setupStatus = unavailable` or `malformed` without exposing secrets.
+- `continueMcpServerSetup` updates disk-backed secrets and retries
+  verification plus metadata discovery for a saved server.
 - GraphQL rejects invalid transport strings, mismatched transport configs,
   empty commands, invalid URLs, non-string env/header maps, and secret-shaped
   keys in safe config.
@@ -250,8 +331,11 @@ Frontend tests:
 - The MCP empty state includes an Add action.
 - The form renders the correct fields for `stdio` and `http_sse`.
 - `KEY=value` parsing rejects duplicate and malformed lines.
-- Submit calls `createMcpServer`, refetches settings on success, and shows
-  metadata discovery status when discovery fails after config persistence.
+- Submit calls `createMcpServer` and shows setup progress.
+- `needs_auth` shows the authentication step and retries through
+  `continueMcpServerSetup`.
+- `ready_for_calibration` immediately shows discovered tools and calibration
+  controls.
 
 Validation:
 
