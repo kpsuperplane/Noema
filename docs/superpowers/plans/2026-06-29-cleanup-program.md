@@ -845,7 +845,7 @@ Expected: CLI boundary split commit.
 - Modify: `docs/context/current.md`
 - Optional modify: `docs/frontend/current-contract.md`
 
-- [ ] **Step 1: Run full frontend validation** *(in progress)*
+- [x] **Step 1: Run full frontend validation**
 
 Run from `crates/noema-core/web`:
 
@@ -857,7 +857,7 @@ bun run build
 
 Expected: all commands pass.
 
-- [ ] **Step 2: Run full Rust validation**
+- [x] **Step 2: Run full Rust validation**
 
 Run from repo root:
 
@@ -870,7 +870,7 @@ cargo test --workspace --no-fail-fast
 
 Expected: all commands pass, except socket-permission failures should be rerun with appropriate permissions and reported.
 
-- [ ] **Step 3: Record durable context**
+- [x] **Step 3: Record durable context**
 
 Update `docs/context/current.md` with concise bullets summarizing the completed cleanup boundaries:
 
@@ -884,7 +884,7 @@ Update `docs/context/current.md` with concise bullets summarizing the completed 
 
 Only include bullets for phases actually completed.
 
-- [ ] **Step 4: Commit context update**
+- [x] **Step 4: Commit context update**
 
 Run:
 
