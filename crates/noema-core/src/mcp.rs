@@ -1,6 +1,8 @@
 //! Third-party MCP control-plane domain types.
 
 pub mod client;
+/// Disk-backed MCP secret storage.
+pub mod secrets;
 
 pub use client::{DiscoveredMcpTool, McpClientError, McpClientRuntime, McpTransport};
 

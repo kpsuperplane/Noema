@@ -103,6 +103,18 @@ impl NoemaPaths {
         self.root.join("providers")
     }
 
+    /// Path to the MCP server configuration root.
+    #[must_use]
+    pub fn mcp_dir(&self) -> PathBuf {
+        self.root.join("mcp")
+    }
+
+    /// Path to one MCP server's private configuration home.
+    #[must_use]
+    pub fn mcp_server_home(&self, mcp_server_id: &str) -> PathBuf {
+        self.mcp_dir().join(sanitize_path_segment(mcp_server_id))
+    }
+
     /// Path to one provider account's credential home.
     #[must_use]
     pub fn provider_account_home(&self, provider_kind: &str, account_key: &str) -> PathBuf {
@@ -217,6 +229,17 @@ mod tests {
         assert_eq!(
             paths.provider_account_home("codex", "default"),
             PathBuf::from("/tmp/noema/providers/codex/default")
+        );
+    }
+
+    #[test]
+    fn mcp_server_home_is_under_noema_mcp_dir() {
+        let paths = NoemaPaths::from_noema_home("/tmp/noema").expect("paths");
+
+        assert_eq!(paths.mcp_dir(), PathBuf::from("/tmp/noema/mcp"));
+        assert_eq!(
+            paths.mcp_server_home("mcp:GitHub/Default"),
+            PathBuf::from("/tmp/noema/mcp/mcp_GitHub_Default")
         );
     }
 
