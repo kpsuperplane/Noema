@@ -93,7 +93,7 @@ pub fn evaluate_capability_policy(input: CapabilityPolicyInput) -> CapabilityPol
             reason: "read_requires_examination",
         },
         (CapabilityAxis::Write, _, _) => CapabilityPolicyDecision {
-            outcome: CapabilityDecisionOutcome::RequireApproval,
+            outcome: CapabilityDecisionOutcome::RequireExamination,
             reason: "write_requires_examination",
         },
         _ => CapabilityPolicyDecision {
@@ -170,14 +170,17 @@ mod tests {
     }
 
     #[test]
-    fn mixed_write_requires_approval() {
+    fn mixed_write_requires_examination() {
         let decision = evaluate_capability_policy(CapabilityPolicyInput {
             axis: CapabilityAxis::Write,
             classification: McpTrustClassification::Mixed,
             owner_trust: OwnerTrust::Mixed,
         });
 
-        assert_eq!(decision.outcome, CapabilityDecisionOutcome::RequireApproval);
+        assert_eq!(
+            decision.outcome,
+            CapabilityDecisionOutcome::RequireExamination
+        );
         assert_eq!(decision.reason, "write_requires_examination");
     }
 
@@ -242,21 +245,21 @@ mod tests {
                 CapabilityAxis::Write,
                 McpTrustClassification::Trusted,
                 OwnerTrust::Untrusted,
-                CapabilityDecisionOutcome::RequireApproval,
+                CapabilityDecisionOutcome::RequireExamination,
                 "write_requires_examination",
             ),
             (
                 CapabilityAxis::Write,
                 McpTrustClassification::Untrusted,
                 OwnerTrust::Untrusted,
-                CapabilityDecisionOutcome::RequireApproval,
+                CapabilityDecisionOutcome::RequireExamination,
                 "write_requires_examination",
             ),
             (
                 CapabilityAxis::Write,
                 McpTrustClassification::Mixed,
                 OwnerTrust::Mixed,
-                CapabilityDecisionOutcome::RequireApproval,
+                CapabilityDecisionOutcome::RequireExamination,
                 "write_requires_examination",
             ),
             (
