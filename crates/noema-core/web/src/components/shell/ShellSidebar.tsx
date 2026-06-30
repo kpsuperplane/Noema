@@ -1,4 +1,4 @@
-import { Brain, House } from "lucide-react";
+import { Brain, House, Settings } from "lucide-react";
 import type { ComponentType } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -29,7 +29,7 @@ export function ShellSidebar({
   onNavigate: (route: AppRoute) => void;
 }) {
   return (
-    <div className="grid h-full min-h-0 grid-rows-[auto_auto_minmax(0,1fr)] gap-1">
+    <div className="grid h-full min-h-0 grid-rows-[auto_auto_minmax(0,1fr)_auto] gap-1">
       <div className="h-8" data-tauri-drag-region />
       {attention ? <ShellAttentionItem attention={attention} /> : <div aria-hidden="true" />}
 
@@ -72,6 +72,20 @@ export function ShellSidebar({
           );
         })}
       </nav>
+
+      <div className="flex items-end">
+        <Button
+          data-slot="shell-settings-button"
+          type="button"
+          variant="ghost"
+          size="icon"
+          aria-label="Open settings"
+          className="rounded-md text-[var(--pine-700)] !bg-transparent hover:!bg-[color-mix(in_srgb,var(--pine-700)_10%,transparent)]"
+          onClick={() => onNavigate({ kind: "settings", section: "providers" })}
+        >
+          <Settings className="size-4" aria-hidden="true" />
+        </Button>
+      </div>
     </div>
   );
 }

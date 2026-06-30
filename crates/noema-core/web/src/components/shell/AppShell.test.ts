@@ -36,7 +36,7 @@ const healthyStatus = {
 } as const;
 
 describe("shell navigation helpers", () => {
-  test("defines the primary shell navigation contract", () => {
+  test("defines the primary shell navigation contract without settings", () => {
     assert.deepEqual(shellNavItems, [
       { destination: "home", label: "Home", route: { kind: "chat" } },
       { destination: "memory", label: "Memory", route: { kind: "memory_home" } }
@@ -273,7 +273,7 @@ describe("AppShell layered deck markup", () => {
       const tauriRootClassName = dataSlotClassName(tauriMarkup, "shell-root");
 
       assert.match(tauriMarkup, /data-tauri-runtime="true"/);
-      assert.match(tauriRootClassName, /bg-\[rgba\(233,242,236,0\.24\)\]/);
+      assert.match(tauriRootClassName, /bg-\[rgba\(233,242,236,0\.6\)\]/);
       assert.doesNotMatch(tauriRootClassName, /backdrop-blur/);
     });
   });
@@ -288,6 +288,15 @@ describe("AppShell layered deck markup", () => {
     assert.match(markup, /data-slot="shell-sidebar-collapse-button"/);
     assert.doesNotMatch(markup, /data-slot="shell-deck-collapse-button"/);
     assert.match(markup, />Memory</);
+  });
+
+  test("renders settings as one bottom utility button", () => {
+    const markup = renderShell();
+
+    assert.equal(countMatches(markup, /aria-label="Primary"/g), 1);
+    assert.equal(countMatches(markup, /Open settings/g), 1);
+    assert.match(markup, /data-slot="shell-settings-button"/);
+    assert.doesNotMatch(markup, />Settings<\/button>/);
   });
 
   test("renders the named primary agent in the sidebar and chat header", () => {
