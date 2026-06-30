@@ -730,23 +730,23 @@ Expected: graph claim store split commit.
 - Create: `crates/noema-core/src/providers/sse.rs`
 - Create: `crates/noema-core/src/providers/noema_response_stream.rs`
 
-- [ ] **Step 1: Extract SSE accumulator** *(in progress)*
+- [x] **Step 1: Extract SSE accumulator**
 
 Move `SseAccumulator`, `SseEvent`, `parse_sse_event`, `parse_sse_event_bytes`, `sse_events`, `next_sse_event_boundary`, `collect_terminal_response_metadata`, and stream error formatting into `providers/sse.rs`.
 
-- [ ] **Step 2: Keep Responses transport API stable**
+- [x] **Step 2: Keep Responses transport API stable**
 
 Update `ResponsesTransport::send_streaming` to use `providers::sse::SseAccumulator` with the same callback behavior.
 
-- [ ] **Step 3: Extract Noema response JSON stream parser**
+- [x] **Step 3: Extract Noema response JSON stream parser**
 
 Move `NoemaAssistantTextDeltaExtractor`, `JsonContext`, `JsonObjectContext`, `OutputItemState`, `JsonStringReader`, and related enums into `providers/noema_response_stream.rs`.
 
-- [ ] **Step 4: Keep Codex provider API stable**
+- [x] **Step 4: Keep Codex provider API stable**
 
 Update `CodexResponsesProvider` to instantiate the extracted stream parser without changing `ModelProvider` behavior.
 
-- [ ] **Step 5: Run provider tests**
+- [x] **Step 5: Run provider tests**
 
 Run:
 
@@ -757,7 +757,7 @@ cargo test -p noema-core providers --no-fail-fast
 
 Expected: provider tests pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 Run:
 
@@ -789,7 +789,7 @@ Expected: provider parser extraction commit.
 - Modify: `crates/noema-cli/src/inspection.rs`
 - Modify tests under `crates/noema-cli/src`
 
-- [ ] **Step 1: Move command implementations**
+- [ ] **Step 1: Move command implementations** *(in progress)*
 
 Move `run_start`, `run_config`, `run_chat`, `run_memory_graphql`, `run_interactive_chat`, `print_chat_turn_graphql`, and one-shot provider code into focused command modules.
 
