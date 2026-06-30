@@ -67,7 +67,7 @@ export function shellRootClassName(isDesktopRuntime = isTauriRuntime()) {
   return cn(
     "relative h-dvh min-h-screen overflow-hidden text-foreground",
     isDesktopRuntime
-      ? "bg-[rgba(233,242,236,0.4)] backdrop-brightness-105"
+      ? "bg-[rgba(233,242,236,0.6)] backdrop-brightness-105"
       : "bg-[var(--pine-50)]"
   );
 }
