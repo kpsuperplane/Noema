@@ -151,7 +151,7 @@ describe("Transcript layout", () => {
   });
 
   test("does not clip the arrival frame while row height animates", () => {
-    const source = readFileSync(new URL("./Transcript.tsx", import.meta.url), "utf8");
+    const source = readFileSync(new URL("./transcript/RenderedTranscriptEntryFrame.tsx", import.meta.url), "utf8");
 
     assert.match(source, /data-slot="message-arrival-inner"/);
     assert.match(source, /className="min-h-0"/);
@@ -451,16 +451,17 @@ describe("message arrival styles", () => {
   });
 
   test("keeps the transcript pinned to bottom while arrival height animates", () => {
-    const source = readFileSync(new URL("./Transcript.tsx", import.meta.url), "utf8");
+    const transcriptSource = readFileSync(new URL("./transcript/Transcript.tsx", import.meta.url), "utf8");
+    const followerSource = readFileSync(new URL("./transcript/TranscriptBottomFollower.tsx", import.meta.url), "utf8");
 
-    assert.match(source, /arrivalScrollKey=\{arrivalScrollKey\}/);
-    assert.match(source, /ARRIVAL_SCROLL_FOLLOW_DURATION_MS/);
-    assert.match(source, /window\.requestAnimationFrame/);
-    assert.match(source, /elapsedMs < ARRIVAL_SCROLL_FOLLOW_DURATION_MS/);
+    assert.match(transcriptSource, /arrivalScrollKey=\{arrivalScrollKey\}/);
+    assert.match(followerSource, /ARRIVAL_SCROLL_FOLLOW_DURATION_MS/);
+    assert.match(followerSource, /window\.requestAnimationFrame/);
+    assert.match(followerSource, /elapsedMs < ARRIVAL_SCROLL_FOLLOW_DURATION_MS/);
   });
 
   test("starts arrival animation only after the mounted view has seen its baseline rows", () => {
-    const transcriptSource = readFileSync(new URL("./Transcript.tsx", import.meta.url), "utf8");
+    const transcriptSource = readFileSync(new URL("./transcript/Transcript.tsx", import.meta.url), "utf8");
     const renderModelSource = readFileSync(new URL("./transcript/renderModel.ts", import.meta.url), "utf8");
     const scrollModelSource = readFileSync(new URL("./transcript/scrollModel.ts", import.meta.url), "utf8");
 
