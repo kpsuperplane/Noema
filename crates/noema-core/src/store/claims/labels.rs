@@ -1,0 +1,85 @@
+use surrealdb::types::Datetime;
+
+use crate::memory::Sensitivity;
+
+use super::model::ClaimStatus;
+use crate::store::StoreError;
+
+pub(super) fn sensitivity_to_store(sensitivity: Sensitivity) -> &'static str {
+    match sensitivity {
+        Sensitivity::Public => "public",
+        Sensitivity::Normal => "normal",
+        Sensitivity::Private => "private",
+        Sensitivity::Sensitive => "sensitive",
+        Sensitivity::Secret => "secret",
+    }
+}
+
+pub(super) fn parse_sensitivity(value: &str) -> Result<Sensitivity, StoreError> {
+    match value {
+        "public" => Ok(Sensitivity::Public),
+        "normal" => Ok(Sensitivity::Normal),
+        "private" => Ok(Sensitivity::Private),
+        "sensitive" => Ok(Sensitivity::Sensitive),
+        "secret" => Ok(Sensitivity::Secret),
+        _ => Err(StoreError::InvalidEnum {
+            kind: "sensitivity",
+            value: value.to_string(),
+        }),
+    }
+}
+
+pub(super) fn allowed_match_sensitivities(sensitivity: Sensitivity) -> Vec<String> {
+    match sensitivity {
+        Sensitivity::Public => vec!["public".to_string()],
+        Sensitivity::Normal => vec!["public".to_string(), "normal".to_string()],
+        Sensitivity::Private | Sensitivity::Sensitive | Sensitivity::Secret => {
+            vec![sensitivity_to_store(sensitivity).to_string()]
+        }
+    }
+}
+
+pub(super) fn exact_match_only_sensitivity(sensitivity: Sensitivity) -> bool {
+    matches!(
+        sensitivity,
+        Sensitivity::Private | Sensitivity::Sensitive | Sensitivity::Secret
+    )
+}
+
+pub(super) fn compatible_match_predicates(predicate_id: &str) -> Vec<String> {
+    match predicate_id {
+        "likes" => vec!["likes".to_string(), "dislikes".to_string()],
+        "dislikes" => vec!["dislikes".to_string(), "likes".to_string()],
+        other => vec![other.to_string()],
+    }
+}
+
+pub(super) fn contains_case_folded(value: &str, query: &str) -> bool {
+    value.to_ascii_lowercase().contains(query)
+}
+
+pub(super) fn default_memory_graph_statuses() -> Vec<ClaimStatus> {
+    vec![
+        ClaimStatus::Candidate,
+        ClaimStatus::Active,
+        ClaimStatus::Confirmed,
+    ]
+}
+
+pub(in crate::store) fn format_datetime(value: Datetime) -> String {
+    value.to_string()
+}
+
+pub(super) fn entity_record_id(entity_id: &str) -> String {
+    let mut encoded = String::with_capacity("entity_".len() + entity_id.len().saturating_mul(2));
+    encoded.push_str("entity_");
+    for byte in entity_id.as_bytes() {
+        encoded.push(HEX_CHARS[usize::from(byte >> 4)]);
+        encoded.push(HEX_CHARS[usize::from(byte & 0x0f)]);
+    }
+    encoded
+}
+
+const HEX_CHARS: [char; 16] = [
+    '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f',
+];
