@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { describe, test } from "node:test";
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -65,7 +66,11 @@ describe("composer textarea presentation", () => {
 
   test("assigns object refs to the textarea and clears them on unmount", () => {
     let focused = false;
-    const textarea = { focus: () => (focused = true) } as HTMLTextAreaElement;
+    const textarea = {
+      focus: () => {
+        focused = true;
+      }
+    } as HTMLTextAreaElement;
     const ref = React.createRef<HTMLTextAreaElement>();
 
     assignComposerTextareaRef(ref, textarea);
@@ -87,6 +92,12 @@ describe("composer textarea presentation", () => {
     assignComposerTextareaRef((node) => assigned.push(node), null);
 
     assert.deepEqual(assigned, [textarea, null]);
+  });
+
+  test("wires the composed ref to the rendered textarea", () => {
+    const source = readFileSync(new URL("./Composer.tsx", import.meta.url), "utf8");
+
+    assert.match(source, /<Textarea\s+ref=\{setTextareaRef\}/);
   });
 });
 
