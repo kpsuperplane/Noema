@@ -1,11 +1,22 @@
+use std::collections::BTreeMap;
+
 use async_graphql::{InputObject, Json, Result, SimpleObject};
 use serde_json::Value;
 
 use crate::{
+    McpTransportKind,
     McpApprovalRequestRecord, McpCalibrationStatus, McpServerAuthStatus, McpServerHealthStatus,
     McpServerRecord, McpTrustClassification, NewToolCalibration, OwnerExtractor,
     OwnerExtractorSource, ToolCalibrationRecord, TrustedIdentitySelectorEffect,
     TrustedIdentitySelectorKind, TrustedIdentitySelectorRecord,
+    mcp::{
+        secrets::McpSecretMaterial,
+        setup::{
+            ContinueMcpServerSetup, McpServerSetupResult, NewMcpServerSetup,
+            continue_mcp_server_setup as continue_setup_service,
+            create_mcp_server_setup as create_setup_service,
+        },
+    },
 };
 
 use super::{errors::graphql_error, schema::GraphqlState};
@@ -27,6 +38,83 @@ pub struct GraphqlMcpServer {
     pub auth_status: String,
     /// Number of discovered tools for this server.
     pub tool_count: usize,
+}
+
+/// Add and verify an MCP server.
+#[derive(Clone, Debug, InputObject)]
+pub struct GraphqlCreateMcpServerInput {
+    /// Human-visible server name.
+    pub display_name: String,
+    /// MCP transport kind: `stdio` or `http_sse`.
+    pub transport_kind: String,
+    /// Stdio transport config, when `transport_kind` is `stdio`.
+    pub stdio: Option<GraphqlMcpStdioConfigInput>,
+    /// HTTP/SSE transport config, when `transport_kind` is `http_sse`.
+    pub http_sse: Option<GraphqlMcpHttpSseConfigInput>,
+}
+
+/// Stdio MCP setup config.
+#[derive(Clone, Debug, InputObject)]
+pub struct GraphqlMcpStdioConfigInput {
+    /// Command to launch.
+    pub command: String,
+    /// Command arguments.
+    pub args: Vec<String>,
+    /// Optional working directory.
+    pub cwd: Option<String>,
+    /// Non-secret environment variables.
+    pub env: Option<Json<Value>>,
+    /// Secret environment variables stored on disk.
+    pub secret_env: Option<Json<Value>>,
+}
+
+/// HTTP/SSE MCP setup config.
+#[derive(Clone, Debug, InputObject)]
+pub struct GraphqlMcpHttpSseConfigInput {
+    /// MCP endpoint URL.
+    pub url: String,
+    /// Non-secret request headers.
+    pub headers: Option<Json<Value>>,
+    /// Secret request headers stored on disk.
+    pub secret_headers: Option<Json<Value>>,
+}
+
+/// Continue setup after adding authentication material.
+#[derive(Clone, Debug, InputObject)]
+pub struct GraphqlContinueMcpServerSetupInput {
+    /// Durable MCP server id.
+    pub mcp_server_id: String,
+    /// Secret environment variables stored on disk.
+    pub secret_env: Option<Json<Value>>,
+    /// Secret headers stored on disk.
+    pub secret_headers: Option<Json<Value>>,
+}
+
+/// Guided MCP setup result.
+#[derive(Clone, Debug, SimpleObject)]
+pub struct GraphqlMcpServerSetupResult {
+    /// Server metadata safe to show in Settings.
+    pub server: GraphqlMcpServer,
+    /// Setup status.
+    pub setup_status: String,
+    /// Metadata discovery status.
+    pub discovery_status: Option<String>,
+    /// Number of discovered tools.
+    pub discovered_tool_count: usize,
+    /// Non-secret setup error, when present.
+    pub setup_error: Option<String>,
+}
+
+impl From<McpServerSetupResult> for GraphqlMcpServerSetupResult {
+    fn from(result: McpServerSetupResult) -> Self {
+        Self {
+            server: result.server.into(),
+            setup_status: result.setup_status.as_str().to_string(),
+            discovery_status: result.discovery_status,
+            discovered_tool_count: result.discovered_tool_count,
+            setup_error: result.setup_error,
+        }
+    }
 }
 
 impl From<McpServerRecord> for GraphqlMcpServer {
@@ -243,6 +331,42 @@ pub(super) async fn mcp_servers(state: &GraphqlState) -> Result<Vec<GraphqlMcpSe
     Ok(servers.into_iter().map(Into::into).collect())
 }
 
+pub(super) async fn create_mcp_server(
+    state: &GraphqlState,
+    input: GraphqlCreateMcpServerInput,
+) -> Result<GraphqlMcpServerSetupResult> {
+    let store = state.store()?;
+    let paths = state.paths()?;
+    let setup_input = parse_create_mcp_server_input(input)?;
+    let result = create_setup_service(store, paths, setup_input, |_| state.mcp_setup_transport())
+        .await
+        .map_err(graphql_error)?;
+    Ok(result.into())
+}
+
+pub(super) async fn continue_mcp_server_setup(
+    state: &GraphqlState,
+    input: GraphqlContinueMcpServerSetupInput,
+) -> Result<GraphqlMcpServerSetupResult> {
+    let store = state.store()?;
+    let paths = state.paths()?;
+    let result = continue_setup_service(
+        store,
+        paths,
+        ContinueMcpServerSetup {
+            mcp_server_id: input.mcp_server_id,
+            secrets: McpSecretMaterial {
+                env: json_string_map(input.secret_env, "secretEnv")?,
+                headers: json_string_map(input.secret_headers, "secretHeaders")?,
+            },
+        },
+        |_| state.mcp_setup_transport(),
+    )
+    .await
+    .map_err(graphql_error)?;
+    Ok(result.into())
+}
+
 pub(super) async fn trusted_identity_selectors(
     state: &GraphqlState,
     owner_scope_id: String,
@@ -317,6 +441,101 @@ fn parse_graphql_trust_classification(
             "invalid {field_name}: expected one of none, trusted, untrusted, mixed"
         ))),
     }
+}
+
+fn parse_create_mcp_server_input(
+    input: GraphqlCreateMcpServerInput,
+) -> Result<NewMcpServerSetup> {
+    let transport_kind = parse_graphql_transport_kind(&input.transport_kind)?;
+    match transport_kind {
+        McpTransportKind::Stdio => {
+            if input.http_sse.is_some() {
+                return Err(graphql_error(
+                    "invalid MCP setup input: httpSse cannot be set for stdio transport",
+                ));
+            }
+            let stdio = input.stdio.ok_or_else(|| {
+                graphql_error("invalid MCP setup input: stdio config is required")
+            })?;
+            let env = json_string_map(stdio.env, "env")?;
+            let secret_env = json_string_map(stdio.secret_env, "secretEnv")?;
+            Ok(NewMcpServerSetup {
+                display_name: input.display_name,
+                transport_kind,
+                safe_config: serde_json::json!({
+                    "command": stdio.command,
+                    "args": stdio.args,
+                    "cwd": stdio.cwd,
+                    "env": env
+                }),
+                secrets: McpSecretMaterial {
+                    env: secret_env,
+                    headers: BTreeMap::new(),
+                },
+            })
+        }
+        McpTransportKind::HttpSse => {
+            if input.stdio.is_some() {
+                return Err(graphql_error(
+                    "invalid MCP setup input: stdio cannot be set for http_sse transport",
+                ));
+            }
+            let http_sse = input.http_sse.ok_or_else(|| {
+                graphql_error("invalid MCP setup input: httpSse config is required")
+            })?;
+            let headers = json_string_map(http_sse.headers, "headers")?;
+            let secret_headers = json_string_map(http_sse.secret_headers, "secretHeaders")?;
+            Ok(NewMcpServerSetup {
+                display_name: input.display_name,
+                transport_kind,
+                safe_config: serde_json::json!({
+                    "url": http_sse.url,
+                    "headers": headers
+                }),
+                secrets: McpSecretMaterial {
+                    env: BTreeMap::new(),
+                    headers: secret_headers,
+                },
+            })
+        }
+    }
+}
+
+fn parse_graphql_transport_kind(value: &str) -> Result<McpTransportKind> {
+    match value {
+        "stdio" => Ok(McpTransportKind::Stdio),
+        "http_sse" => Ok(McpTransportKind::HttpSse),
+        _ => Err(graphql_error(
+            "invalid transportKind: expected one of stdio, http_sse",
+        )),
+    }
+}
+
+fn json_string_map(
+    value: Option<Json<Value>>,
+    field_name: &'static str,
+) -> Result<BTreeMap<String, String>> {
+    let Some(Json(value)) = value else {
+        return Ok(BTreeMap::new());
+    };
+    let object = value.as_object().ok_or_else(|| {
+        graphql_error(format!(
+            "invalid MCP {field_name} map: expected object with string values"
+        ))
+    })?;
+    object
+        .iter()
+        .map(|(key, value)| {
+            value
+                .as_str()
+                .map(|string| (key.clone(), string.to_string()))
+                .ok_or_else(|| {
+                    graphql_error(format!(
+                        "invalid MCP {field_name} map: expected object with string values"
+                    ))
+                })
+        })
+        .collect()
 }
 
 fn parse_graphql_calibration_status(value: &str) -> Result<McpCalibrationStatus> {

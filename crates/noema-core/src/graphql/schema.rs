@@ -1,5 +1,10 @@
 use async_graphql::{Context, Object, Result, Schema, Subscription};
 use futures_util::Stream;
+#[cfg(test)]
+use std::{
+    collections::VecDeque,
+    sync::{Arc, Mutex},
+};
 
 use super::{
     ConversationSubscriptionRegistry, GraphqlRuntimeState,
@@ -10,8 +15,9 @@ use super::{
     },
     local_status::{self, GraphqlLocalStatus, GraphqlMemoryStorageStatus},
     mcp::{
-        self, GraphqlMcpApprovalRequest, GraphqlMcpServer, GraphqlSaveToolCalibrationInput,
-        GraphqlToolCalibration, GraphqlTrustedIdentitySelector,
+        self, GraphqlContinueMcpServerSetupInput, GraphqlCreateMcpServerInput,
+        GraphqlMcpApprovalRequest, GraphqlMcpServer, GraphqlMcpServerSetupResult,
+        GraphqlSaveToolCalibrationInput, GraphqlToolCalibration, GraphqlTrustedIdentitySelector,
     },
     memory::{
         self, GraphqlMemoryClaim, GraphqlMemoryClaimDetail, GraphqlMemoryGraph,
@@ -31,6 +37,8 @@ pub type GraphqlSchema = Schema<QueryRoot, MutationRoot, SubscriptionRoot>;
 #[derive(Clone)]
 pub struct GraphqlState {
     runtime_state: GraphqlRuntimeState,
+    #[cfg(test)]
+    mcp_setup_outcomes: Option<Arc<Mutex<VecDeque<TestMcpSetupOutcome>>>>,
 }
 
 impl GraphqlState {
@@ -39,6 +47,8 @@ impl GraphqlState {
     pub fn for_tests() -> Self {
         Self {
             runtime_state: GraphqlRuntimeState::for_tests(),
+            #[cfg(test)]
+            mcp_setup_outcomes: None,
         }
     }
 
@@ -48,6 +58,21 @@ impl GraphqlState {
     pub fn for_tests_with_store(store: crate::NoemaStore) -> Self {
         Self {
             runtime_state: GraphqlRuntimeState::for_tests_with_store(store),
+            mcp_setup_outcomes: None,
+        }
+    }
+
+    /// Build test state with store, paths, and fake MCP setup outcomes.
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) fn for_tests_with_store_paths_and_mcp_setup(
+        store: crate::NoemaStore,
+        paths: crate::NoemaPaths,
+        outcomes: Vec<TestMcpSetupOutcome>,
+    ) -> Self {
+        Self {
+            runtime_state: GraphqlRuntimeState::for_tests_with_store_and_paths(store, paths),
+            mcp_setup_outcomes: Some(Arc::new(Mutex::new(VecDeque::from(outcomes)))),
         }
     }
 
@@ -56,6 +81,8 @@ impl GraphqlState {
     pub fn from_runtime_host(host: &crate::NoemaRuntimeHost) -> Self {
         Self {
             runtime_state: GraphqlRuntimeState::from_host(host),
+            #[cfg(test)]
+            mcp_setup_outcomes: None,
         }
     }
 
@@ -85,6 +112,65 @@ impl GraphqlState {
 
     pub(crate) fn memory_storage(&self) -> GraphqlMemoryStorageStatus {
         self.runtime_state.memory_storage()
+    }
+
+    pub(crate) fn mcp_setup_transport(&self) -> GraphqlMcpSetupTransport {
+        #[cfg(test)]
+        if let Some(outcomes) = &self.mcp_setup_outcomes {
+            let outcome = outcomes
+                .lock()
+                .expect("MCP setup outcomes lock")
+                .pop_front()
+                .unwrap_or_else(|| TestMcpSetupOutcome::Ok(Vec::new()));
+            return GraphqlMcpSetupTransport::Test(outcome);
+        }
+
+        GraphqlMcpSetupTransport::Unavailable
+    }
+}
+
+pub(crate) enum GraphqlMcpSetupTransport {
+    Unavailable,
+    #[cfg(test)]
+    Test(TestMcpSetupOutcome),
+}
+
+#[cfg(test)]
+#[derive(Clone)]
+pub(crate) enum TestMcpSetupOutcome {
+    Ok(Vec<crate::mcp::DiscoveredMcpTool>),
+    AuthRequired(String),
+}
+
+impl crate::mcp::McpTransport for GraphqlMcpSetupTransport {
+    async fn initialize(&mut self) -> std::result::Result<(), crate::mcp::McpClientError> {
+        match self {
+            Self::Unavailable => Err(crate::mcp::McpClientError::Transport(
+                "MCP runtime transport is not wired yet".to_string(),
+            )),
+            #[cfg(test)]
+            Self::Test(TestMcpSetupOutcome::Ok(_)) => Ok(()),
+            #[cfg(test)]
+            Self::Test(TestMcpSetupOutcome::AuthRequired(message)) => {
+                Err(crate::mcp::McpClientError::AuthRequired(message.clone()))
+            }
+        }
+    }
+
+    async fn list_tools(
+        &mut self,
+    ) -> std::result::Result<Vec<crate::mcp::DiscoveredMcpTool>, crate::mcp::McpClientError> {
+        match self {
+            Self::Unavailable => Err(crate::mcp::McpClientError::Transport(
+                "MCP runtime transport is not wired yet".to_string(),
+            )),
+            #[cfg(test)]
+            Self::Test(TestMcpSetupOutcome::Ok(tools)) => Ok(tools.clone()),
+            #[cfg(test)]
+            Self::Test(TestMcpSetupOutcome::AuthRequired(message)) => {
+                Err(crate::mcp::McpClientError::AuthRequired(message.clone()))
+            }
+        }
     }
 }
 
@@ -261,6 +347,26 @@ impl MutationRoot {
         let state = ctx.data_unchecked::<GraphqlState>();
         mcp::save_tool_calibration(state, input).await
     }
+
+    /// Add and verify an MCP server.
+    async fn create_mcp_server(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlCreateMcpServerInput,
+    ) -> Result<GraphqlMcpServerSetupResult> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        mcp::create_mcp_server(state, input).await
+    }
+
+    /// Continue MCP server setup after adding authentication material.
+    async fn continue_mcp_server_setup(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlContinueMcpServerSetupInput,
+    ) -> Result<GraphqlMcpServerSetupResult> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        mcp::continue_mcp_server_setup(state, input).await
+    }
 }
 
 /// Root GraphQL subscription object.
@@ -285,6 +391,7 @@ mod tests {
     use crate::{daemon::TurnStreamEvent, graphql::subscriptions::ConversationLiveEvent};
     use futures_util::StreamExt;
     use serde_json::json;
+    use tempfile::TempDir;
 
     #[test]
     fn schema_sdl_exposes_initial_noema_fields() {
@@ -299,6 +406,8 @@ mod tests {
         assert!(sdl.contains("startPrimaryConversation"));
         assert!(sdl.contains("sendConversationTurn"));
         assert!(sdl.contains("saveToolCalibration"));
+        assert!(sdl.contains("createMcpServer"));
+        assert!(sdl.contains("continueMcpServerSetup"));
         assert!(sdl.contains("GraphqlSaveToolCalibrationInput"));
         assert!(sdl.contains("type GraphqlToolCalibration"));
         assert!(sdl.contains("type Subscription"));
@@ -536,6 +645,173 @@ mod tests {
         assert_eq!(selector["selectorKind"], "email");
         assert_eq!(selector["normalizedValue"], "kevin@noema.example");
         assert_eq!(selector["effect"], "trust");
+    }
+
+    #[tokio::test]
+    async fn create_mcp_server_mutation_returns_ready_for_calibration_without_secrets() {
+        let fixture = GraphqlMcpSetupFixture::new(vec![TestMcpSetupOutcome::Ok(vec![
+            crate::mcp::DiscoveredMcpTool {
+                name: "list_repos".to_string(),
+                description: Some("List repositories".to_string()),
+                input_schema: json!({"type": "object"}),
+                output_schema: Some(json!({"type": "object"})),
+                annotations: json!({"readOnlyHint": true}),
+            },
+        ])])
+        .await;
+        let schema = build_schema(fixture.state);
+        let response = schema
+            .execute(async_graphql::Request::new(
+                r#"
+                mutation {
+                  createMcpServer(input: {
+                    displayName: "GitHub"
+                    transportKind: "stdio"
+                    stdio: {
+                      command: "npx"
+                      args: ["-y", "server"]
+                      env: { GITHUB_OWNER: "example" }
+                      secretEnv: { GITHUB_TOKEN: "top-secret" }
+                    }
+                  }) {
+                    setupStatus
+                    discoveryStatus
+                    discoveredToolCount
+                    setupError
+                    server {
+                      mcpServerId
+                      displayName
+                      transportKind
+                      enabled
+                      healthStatus
+                      authStatus
+                      toolCount
+                    }
+                  }
+                }
+                "#,
+            ))
+            .await;
+
+        assert!(response.errors.is_empty(), "{:?}", response.errors);
+        let data = response.data.into_json().expect("json");
+        let result = &data["createMcpServer"];
+        assert_eq!(result["setupStatus"], "ready_for_calibration");
+        assert_eq!(result["discoveryStatus"], "discovered");
+        assert_eq!(result["discoveredToolCount"], 1);
+        assert_eq!(result["server"]["mcpServerId"], "mcp:github");
+        assert_eq!(result["server"]["toolCount"], 1);
+        assert!(!serde_json::to_string(&data).expect("response json").contains("top-secret"));
+    }
+
+    #[tokio::test]
+    async fn create_mcp_server_mutation_rejects_secret_shaped_safe_keys() {
+        let fixture = GraphqlMcpSetupFixture::new(Vec::new()).await;
+        let schema = build_schema(fixture.state);
+        let response = schema
+            .execute(async_graphql::Request::new(
+                r#"
+                mutation {
+                  createMcpServer(input: {
+                    displayName: "Unsafe"
+                    transportKind: "http_sse"
+                    httpSse: {
+                      url: "https://example.com/mcp"
+                      headers: { Authorization: "Bearer unsafe" }
+                    }
+                  }) {
+                    setupStatus
+                  }
+                }
+                "#,
+            ))
+            .await;
+
+        assert_eq!(response.errors.len(), 1, "{:?}", response.errors);
+        assert!(response.errors[0].message.contains("Authorization"));
+    }
+
+    #[tokio::test]
+    async fn continue_mcp_server_setup_mutation_returns_needs_auth_or_ready_status() {
+        let fixture = GraphqlMcpSetupFixture::new(vec![
+            TestMcpSetupOutcome::AuthRequired("missing authorization".to_string()),
+            TestMcpSetupOutcome::Ok(vec![crate::mcp::DiscoveredMcpTool {
+                name: "retry_tool".to_string(),
+                description: Some("Retry tool".to_string()),
+                input_schema: json!({"type": "object"}),
+                output_schema: None,
+                annotations: json!({}),
+            }]),
+        ])
+        .await;
+        let schema = build_schema(fixture.state);
+        let create = schema
+            .execute(async_graphql::Request::new(
+                r#"
+                mutation {
+                  createMcpServer(input: {
+                    displayName: "Remote"
+                    transportKind: "http_sse"
+                    httpSse: { url: "https://example.com/mcp" }
+                  }) {
+                    setupStatus
+                    server { mcpServerId authStatus }
+                  }
+                }
+                "#,
+            ))
+            .await;
+        assert!(create.errors.is_empty(), "{:?}", create.errors);
+        let create_data = create.data.into_json().expect("create json");
+        assert_eq!(create_data["createMcpServer"]["setupStatus"], "needs_auth");
+        assert_eq!(
+            create_data["createMcpServer"]["server"]["authStatus"],
+            "needs_auth"
+        );
+
+        let retry = schema
+            .execute(async_graphql::Request::new(
+                r#"
+                mutation {
+                  continueMcpServerSetup(input: {
+                    mcpServerId: "mcp:remote"
+                    secretHeaders: { Authorization: "Bearer retry" }
+                  }) {
+                    setupStatus
+                    discoveredToolCount
+                    server { mcpServerId authStatus toolCount }
+                  }
+                }
+                "#,
+            ))
+            .await;
+
+        assert!(retry.errors.is_empty(), "{:?}", retry.errors);
+        let retry_data = retry.data.into_json().expect("retry json");
+        assert_eq!(
+            retry_data["continueMcpServerSetup"]["setupStatus"],
+            "ready_for_calibration"
+        );
+        assert_eq!(retry_data["continueMcpServerSetup"]["discoveredToolCount"], 1);
+        assert_eq!(retry_data["continueMcpServerSetup"]["server"]["toolCount"], 1);
+        assert!(!serde_json::to_string(&retry_data).expect("retry json").contains("Bearer retry"));
+    }
+
+    struct GraphqlMcpSetupFixture {
+        state: GraphqlState,
+        _home: TempDir,
+    }
+
+    impl GraphqlMcpSetupFixture {
+        async fn new(outcomes: Vec<TestMcpSetupOutcome>) -> Self {
+            let home = TempDir::new().expect("temp noema home");
+            let paths = crate::NoemaPaths::from_noema_home(home.path()).expect("paths");
+            let config = crate::StoreConfig::from_paths(&paths);
+            let store = crate::NoemaStore::open(&config).await.expect("open store");
+            let state =
+                GraphqlState::for_tests_with_store_paths_and_mcp_setup(store, paths, outcomes);
+            Self { state, _home: home }
+        }
     }
 
     #[tokio::test]
