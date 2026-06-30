@@ -93,6 +93,10 @@ The next storage slice should stay small and concrete:
   Noema colors applied through local CSS tokens. Noema-owned shell and domain
   components remain responsible for chat, memory, provenance, approvals, tools,
   runs, and object detail semantics.
+- The web shell uses a layered sidebar deck: one persistent `ShellSidebar`
+  ground layer sits under the route content deck. Expanded desktop keeps the
+  sidebar visible; collapsed desktop and mobile reveal navigation by moving the
+  deck aside rather than rendering a separate drawer/sidebar copy.
 - Noema-owned React product components should live one component per file.
   Pure helper/model logic belongs in `.ts` files, shared type files/types and
   nearby tests may live in component folders, and `components/ui` primitive

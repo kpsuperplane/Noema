@@ -47,11 +47,13 @@ the user has a reason to inspect them.
 | Owner/admin inspection | User explicitly asks for exact internals | Redacted privileged inspection |
 | Future attention view | Later, when there is enough activity to summarize | Optional overview once enough durable state exists |
 
-Current shell behavior: desktop shows a persistent left sidebar, while narrow
-screens use a drawer opened from a compact top bar. Healthy setup, service,
-chat, provider, and memory state are silent in the shell. The shell shows a
-single compact attention item only when state is degraded or action-worthy; the
-active page owns detailed recovery UI.
+Current shell behavior: the sidebar is a persistent navigation ground layer,
+and route content sits above it as the active deck. Expanded desktop keeps the
+ground-layer sidebar visible; collapsed desktop and mobile move the deck aside
+to reveal the same single sidebar instance. Healthy setup, service, chat,
+provider, and memory state are silent in the shell. The shell shows a single
+compact attention item only when state is degraded or action-worthy; the active
+page owns detailed recovery UI.
 
 ## Chat
 

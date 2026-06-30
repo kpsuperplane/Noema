@@ -136,6 +136,15 @@ describe("AppShell layered deck markup", () => {
     assert.match(markup, />Memory</);
     assert.match(markup, />Memory management</);
   });
+
+  test("does not render sheet markup and includes reduced-motion deck handling", () => {
+    const markup = renderShell();
+    const deckClassName = dataSlotClassName(markup, "shell-content-deck");
+
+    assert.doesNotMatch(markup, /data-slot="sheet"/);
+    assert.doesNotMatch(markup, /data-slot="sheet-content"/);
+    assert.match(deckClassName, /\bmotion-reduce:transition-none\b/);
+  });
 });
 
 describe("shell attention helper", () => {
@@ -325,4 +334,10 @@ function renderShell({
 
 function countMatches(value: string, pattern: RegExp) {
   return value.match(pattern)?.length ?? 0;
+}
+
+function dataSlotClassName(markup: string, slot: string) {
+  const match = markup.match(new RegExp(`data-slot="${slot}"[^>]*class="([^"]*)"`));
+  assert.ok(match, `expected markup to include data-slot="${slot}" class`);
+  return match[1];
 }
