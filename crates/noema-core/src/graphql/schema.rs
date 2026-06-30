@@ -331,10 +331,7 @@ mod tests {
         assert_eq!(account["isActive"], true);
         assert_eq!(account["isDefault"], true);
         assert_eq!(account["lastErrorCode"], "codex_ok");
-        assert_eq!(
-            account["lastErrorMessage"],
-            "Codex credentials are usable"
-        );
+        assert_eq!(account["lastErrorMessage"], "Codex credentials are usable");
 
         let json_text = serde_json::to_string(&data).expect("provider json");
         assert!(!json_text.contains("provider_account:codex:default"));

@@ -2,7 +2,9 @@ use async_graphql::{Result, SimpleObject};
 
 use crate::{ProviderAccountRecord, ProviderAuthMethod};
 
-use super::{errors::graphql_error, onboarding::GraphqlProviderAccountStatus, schema::GraphqlState};
+use super::{
+    errors::graphql_error, onboarding::GraphqlProviderAccountStatus, schema::GraphqlState,
+};
 
 /// Provider account metadata safe to show in Settings.
 #[derive(Clone, Debug, SimpleObject)]
@@ -53,9 +55,7 @@ const fn auth_method_label(method: ProviderAuthMethod) -> &'static str {
     method.as_str()
 }
 
-pub(super) async fn provider_accounts(
-    state: &GraphqlState,
-) -> Result<Vec<GraphqlProviderAccount>> {
+pub(super) async fn provider_accounts(state: &GraphqlState) -> Result<Vec<GraphqlProviderAccount>> {
     let store = state.store()?;
     let account = store
         .active_provider_account("codex")
