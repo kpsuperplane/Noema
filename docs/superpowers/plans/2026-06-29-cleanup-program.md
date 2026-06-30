@@ -487,19 +487,19 @@ Expected: GraphQL domain split commit. If generated files did not change, they s
 - Create: `crates/noema-core/src/daemon/web/graphql_ws.rs`
 - Create: `crates/noema-core/src/daemon/web/replay.rs`
 
-- [ ] **Step 1: Extract HTTP request/response code**
+- [x] **Step 1: Extract HTTP request/response code**
 
 Move `HttpRequest`, `HttpRequestError`, `content_length`, `normalized_path`, `write_response`, `write_json`, and `write_json_error` into `web/http.rs`.
 
-- [ ] **Step 2: Extract assets**
+- [x] **Step 2: Extract assets**
 
 Move `EmbeddedAsset`, `embedded_asset`, `is_spa_entry_path`, and `asset_body` into `web/assets.rs`.
 
-- [ ] **Step 3: Extract origin checks**
+- [x] **Step 3: Extract origin checks**
 
 Move `validate_json_post_request`, `validate_mutation_request`, `origin_matches_host`, `origin_authority`, `local_authorities_match`, `split_authority`, and `is_local_host` into `web/origin.rs`.
 
-- [ ] **Step 4: Extract provider auth web orchestration**
+- [x] **Step 4: Extract provider auth web orchestration**
 
 Move provider-auth web traits and helpers into `web/provider_auth.rs`, preserving the existing public functions used by GraphQL:
 
@@ -508,19 +508,19 @@ Move provider-auth web traits and helpers into `web/provider_auth.rs`, preservin
 - `reconcile_onboarding_provider_account`
 - `is_user_onboarded_for_chat`
 
-- [ ] **Step 5: Extract GraphQL WebSocket handling**
+- [x] **Step 5: Extract GraphQL WebSocket handling**
 
 Move `upgrade_graphql_websocket`, `handle_graphql_websocket`, WebSocket frame structs, frame read/write helpers, and protocol constants into `web/graphql_ws.rs`.
 
-- [ ] **Step 6: Extract replay conversion**
+- [x] **Step 6: Extract replay conversion**
 
 Move `visible_conversation_replay`, `ConversationReplayItem`, `web_conversation_item_from_record`, and replay payload structs into `web/replay.rs`.
 
-- [ ] **Step 7: Keep `mod.rs` as route dispatch**
+- [x] **Step 7: Keep `mod.rs` as route dispatch**
 
 Leave `WebState`, `bind_listener`, `handle_connection`, and `handle_graphql_http` in `mod.rs`, importing helpers from child modules.
 
-- [ ] **Step 8: Run focused daemon web tests**
+- [x] **Step 8: Run focused daemon web tests**
 
 Run:
 
@@ -530,7 +530,7 @@ cargo test -p noema-core daemon::web --no-fail-fast
 
 Expected: daemon web tests pass. If socket permissions fail in sandbox, rerun with the required permissions and report it.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 Run:
 
@@ -557,7 +557,7 @@ Expected: daemon web module split commit.
 - Create: `crates/noema-core/src/daemon/runtime/local_tools.rs`
 - Create: `crates/noema-core/src/daemon/runtime/memory_writes.rs`
 
-- [ ] **Step 1: Convert runtime file into a module root**
+- [ ] **Step 1: Convert runtime file into a module root** *(in progress)*
 
 Move current `runtime.rs` contents into child modules, leaving `runtime.rs` as:
 
