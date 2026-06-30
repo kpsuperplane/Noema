@@ -39,7 +39,7 @@ impl DesktopState {
         *inner = Some(DesktopRuntime {
             host,
             schema,
-            subscriptions: HashMap::new(),
+            subscriptions: SubscriptionTasks::default(),
         });
         Ok(())
     }
@@ -68,24 +68,28 @@ impl DesktopState {
         &self,
         id: String,
         handle: JoinHandle<()>,
-    ) -> Result<(), String> {
+    ) -> Result<u64, String> {
         let mut inner = self.inner.lock().await;
-        let runtime = inner
-            .as_mut()
-            .ok_or_else(|| "Noema lost connection to its local app service.".to_string())?;
-        if let Some(previous) = runtime.subscriptions.insert(id, handle) {
-            previous.abort();
+        let Some(runtime) = inner.as_mut() else {
+            handle.abort();
+            return Err("Noema lost connection to its local app service.".to_string());
+        };
+        Ok(runtime.subscriptions.insert(id, handle))
+    }
+
+    /// Remove a finished GraphQL subscription task if it still owns the id.
+    pub async fn remove_finished_subscription(&self, id: &str, generation: u64) {
+        let mut inner = self.inner.lock().await;
+        if let Some(runtime) = inner.as_mut() {
+            runtime.subscriptions.remove_finished(id, generation);
         }
-        Ok(())
     }
 
     /// Remove and abort an active GraphQL subscription task.
     pub async fn remove_subscription(&self, id: &str) {
         let mut inner = self.inner.lock().await;
-        if let Some(runtime) = inner.as_mut()
-            && let Some(handle) = runtime.subscriptions.remove(id)
-        {
-            handle.abort();
+        if let Some(runtime) = inner.as_mut() {
+            runtime.subscriptions.remove(id);
         }
     }
 
@@ -96,9 +100,7 @@ impl DesktopState {
             inner.take()
         };
         if let Some(runtime) = runtime {
-            for (_, handle) in runtime.subscriptions {
-                handle.abort();
-            }
+            runtime.subscriptions.abort_all();
             runtime.host.shutdown().await;
         }
     }
@@ -107,5 +109,101 @@ impl DesktopState {
 struct DesktopRuntime {
     host: NoemaRuntimeHost,
     schema: GraphqlSchema,
-    subscriptions: HashMap<String, JoinHandle<()>>,
+    subscriptions: SubscriptionTasks,
+}
+
+#[derive(Default)]
+struct SubscriptionTasks {
+    next_generation: u64,
+    entries: HashMap<String, SubscriptionTask>,
+}
+
+impl SubscriptionTasks {
+    fn insert(&mut self, id: String, handle: JoinHandle<()>) -> u64 {
+        self.next_generation = self
+            .next_generation
+            .checked_add(1)
+            .expect("subscription generation counter exhausted");
+        let generation = self.next_generation;
+        if let Some(previous) = self
+            .entries
+            .insert(id, SubscriptionTask { generation, handle })
+        {
+            previous.handle.abort();
+        }
+        generation
+    }
+
+    fn remove(&mut self, id: &str) {
+        if let Some(entry) = self.entries.remove(id) {
+            entry.handle.abort();
+        }
+    }
+
+    fn remove_finished(&mut self, id: &str, generation: u64) -> bool {
+        let should_remove = self
+            .entries
+            .get(id)
+            .is_some_and(|entry| entry.generation == generation);
+        if should_remove {
+            self.entries.remove(id);
+        }
+        should_remove
+    }
+
+    fn abort_all(self) {
+        for (_, entry) in self.entries {
+            entry.handle.abort();
+        }
+    }
+
+    #[cfg(test)]
+    fn contains(&self, id: &str) -> bool {
+        self.entries.contains_key(id)
+    }
+
+    #[cfg(test)]
+    fn generation(&self, id: &str) -> Option<u64> {
+        self.entries.get(id).map(|entry| entry.generation)
+    }
+}
+
+struct SubscriptionTask {
+    generation: u64,
+    handle: JoinHandle<()>,
+}
+
+#[cfg(test)]
+mod tests {
+    use std::future;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn finished_subscription_cleanup_removes_matching_generation() {
+        let mut subscriptions = SubscriptionTasks::default();
+        let generation = subscriptions.insert("sub_1".to_string(), pending_handle());
+
+        assert!(subscriptions.remove_finished("sub_1", generation));
+        assert!(!subscriptions.contains("sub_1"));
+    }
+
+    #[tokio::test]
+    async fn finished_subscription_cleanup_preserves_newer_replacement() {
+        let mut subscriptions = SubscriptionTasks::default();
+        let old_generation = subscriptions.insert("sub_1".to_string(), pending_handle());
+        let new_generation = subscriptions.insert("sub_1".to_string(), pending_handle());
+
+        assert_ne!(old_generation, new_generation);
+        assert!(!subscriptions.remove_finished("sub_1", old_generation));
+        assert_eq!(subscriptions.generation("sub_1"), Some(new_generation));
+
+        subscriptions.remove("sub_1");
+    }
+
+    fn pending_handle() -> JoinHandle<()> {
+        tauri::async_runtime::spawn(async {
+            future::pending::<()>().await;
+        })
+    }
 }

@@ -4,7 +4,8 @@ use async_graphql::{Request, Response};
 use futures_util::StreamExt;
 use serde::Serialize;
 use serde_json::Value;
-use tauri::{Emitter, State, Window};
+use tauri::{Emitter, Manager, State, Window};
+use tokio::sync::oneshot;
 
 use crate::desktop_state::DesktopState;
 
@@ -48,8 +49,14 @@ pub async fn graphql_subscribe(
     let request: Request = serde_json::from_value(request_json)
         .map_err(|_| "Noema lost connection to its local app service.".to_string())?;
     let schema = state.schema().await?;
-    let stream_id = subscription_id.clone();
+    let (generation_tx, generation_rx) = oneshot::channel();
+    let event_id = subscription_id.clone();
+    let task_cleanup_id = subscription_id.clone();
+    let registration_cleanup_id = subscription_id.clone();
     let handle = tauri::async_runtime::spawn(async move {
+        let Ok(generation) = generation_rx.await else {
+            return;
+        };
         let mut stream = schema.execute_stream(request);
         while let Some(response) = stream.next().await {
             let response_json = match serde_json::to_value(response) {
@@ -57,15 +64,25 @@ pub async fn graphql_subscribe(
                 Err(_) => break,
             };
             let payload = SubscriptionEventPayload {
-                subscription_id: stream_id.clone(),
+                subscription_id: event_id.clone(),
                 response: response_json,
             };
             if window.emit("graphql_subscription_event", payload).is_err() {
                 break;
             }
         }
+        window
+            .state::<DesktopState>()
+            .remove_finished_subscription(&task_cleanup_id, generation)
+            .await;
     });
-    state.insert_subscription(subscription_id, handle).await
+    let generation = state.insert_subscription(subscription_id, handle).await?;
+    if generation_tx.send(generation).is_err() {
+        state
+            .remove_finished_subscription(&registration_cleanup_id, generation)
+            .await;
+    }
+    Ok(())
 }
 
 /// Stop a GraphQL subscription stream.
