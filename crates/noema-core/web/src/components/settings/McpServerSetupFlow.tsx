@@ -1,6 +1,7 @@
 import * as React from "react";
 import { KeyRound, Loader2, Plus, ShieldCheck, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { CreateMcpServerMutation } from "@/generated/graphql";
 import type { McpSetupFormSubmission } from "./mcpSetupForm";
 
@@ -110,74 +111,69 @@ export function McpServerSetupFlow({
             onChange={(event) => setDisplayName(event.currentTarget.value)}
           />
         </label>
-        <div className="flex flex-wrap gap-2" aria-label="Transport">
-          <Button
-            type="button"
-            variant={transportKind === "stdio" ? "default" : "outline"}
-            onClick={() => setTransportKind("stdio")}
-          >
-            stdio
-          </Button>
-          <Button
-            type="button"
-            variant={transportKind === "http_sse" ? "default" : "outline"}
-            onClick={() => setTransportKind("http_sse")}
-          >
-            http_sse
-          </Button>
-        </div>
-
-        {transportKind === "stdio" ? (
-          <div className="grid gap-3 sm:grid-cols-2">
-            <TextField label="Command" value={command} onChange={setCommand} />
-            <TextField label="Working directory" value={cwd} onChange={setCwd} />
-            <div className="sm:col-span-2">
-              <StringListEditor
-                label="Args"
-                values={args}
-                emptyText="No arguments configured."
-                addLabel="Add argument"
-                onChange={setArgs}
-              />
+        <Tabs
+          value={transportKind}
+          onValueChange={(value) => setTransportKind(value as "stdio" | "http_sse")}
+        >
+          <TabsList aria-label="Transport">
+            <TabsTrigger value="stdio">stdio</TabsTrigger>
+            <TabsTrigger value="http_sse">http_sse</TabsTrigger>
+          </TabsList>
+          <TabsContent value="stdio">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <TextField label="Command" value={command} onChange={setCommand} />
+              <TextField label="Working directory" value={cwd} onChange={setCwd} />
+              <div className="sm:col-span-2">
+                <StringListEditor
+                  label="Args"
+                  values={args}
+                  emptyText="No arguments configured."
+                  addLabel="Add argument"
+                  onChange={setArgs}
+                />
+              </div>
+              <div className="sm:col-span-2">
+                <KeyValueEditor
+                  label="Non-secret env"
+                  rows={env}
+                  emptyText="No non-secret environment variables configured."
+                  onChange={setEnv}
+                />
+              </div>
+              <div className="sm:col-span-2">
+                <KeyValueEditor
+                  label="Secret env"
+                  rows={secretEnv}
+                  emptyText="No secret environment variables configured."
+                  onChange={setSecretEnv}
+                />
+              </div>
             </div>
-            <div className="sm:col-span-2">
-              <KeyValueEditor
-                label="Non-secret env"
-                rows={env}
-                emptyText="No non-secret environment variables configured."
-                onChange={setEnv}
-              />
+          </TabsContent>
+          <TabsContent value="http_sse">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="sm:col-span-2">
+                <TextField label="URL" value={url} onChange={setUrl} />
+              </div>
+              <div className="sm:col-span-2">
+                <KeyValueEditor
+                  label="Non-secret headers"
+                  rows={headers}
+                  emptyText="No non-secret headers configured."
+                  onChange={setHeaders}
+                />
+              </div>
+              <div className="sm:col-span-2">
+                <KeyValueEditor
+                  label="Secret headers"
+                  rows={secretHeaders}
+                  emptyText="No secret headers configured."
+                  onChange={setSecretHeaders}
+                />
+              </div>
             </div>
-            <div className="sm:col-span-2">
-              <KeyValueEditor
-                label="Secret env"
-                rows={secretEnv}
-                emptyText="No secret environment variables configured."
-                onChange={setSecretEnv}
-              />
-            </div>
-          </div>
-        ) : (
-          <div className="grid gap-3 sm:grid-cols-2">
-            <TextField label="URL" value={url} onChange={setUrl} />
-            <div className="sm:col-span-2">
-              <KeyValueEditor
-                label="Non-secret headers"
-                rows={headers}
-                emptyText="No non-secret headers configured."
-                onChange={setHeaders}
-              />
-            </div>
-            <div className="sm:col-span-2">
-              <KeyValueEditor
-                label="Secret headers"
-                rows={secretHeaders}
-                emptyText="No secret headers configured."
-                onChange={setSecretHeaders}
-              />
-            </div>
-          </div>
-        )}
+          </TabsContent>
+        </Tabs>
 
         {visibleError ? <p className="m-0 text-sm text-destructive">{visibleError}</p> : null}
         <div className="flex justify-end">
