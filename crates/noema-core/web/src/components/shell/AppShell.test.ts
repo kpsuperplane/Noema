@@ -134,15 +134,19 @@ describe("AppShell layered deck markup", () => {
     assert.match(markup, /aria-expanded="false"/);
     assert.match(markup, /aria-controls="noema-shell-sidebar"/);
     assert.match(markup, /aria-label="Collapse sidebar"/);
+    assert.match(markup, /data-slot="shell-deck-collapse-button"/);
+    assert.doesNotMatch(markup, /data-slot="shell-sidebar-collapse-button"/);
     assert.match(markup, />Memory</);
     assert.match(markup, />Memory management</);
   });
 
-  test("hides the menu trigger on expanded desktop where navigation is already visible", () => {
+  test("uses the collapse toggle as the only wide header affordance", () => {
     const markup = renderShell();
     const menuClassName = dataSlotClassName(markup, "shell-menu-button");
+    const collapseClassName = dataSlotClassName(markup, "shell-deck-collapse-button");
 
-    assert.match(menuClassName, /min-\[761px\]:hidden/);
+    assert.match(menuClassName, /min-\[761px\]:!hidden/);
+    assert.match(collapseClassName, /max-\[760px\]:hidden/);
   });
 
   test("reveals mobile navigation without shrinking the deck vertically", () => {
@@ -161,6 +165,13 @@ describe("AppShell layered deck markup", () => {
     assert.match(className, /max-\[760px\]:left-\[min\(252px,72vw\)\]/);
     assert.match(className, /max-\[760px\]:right-\[calc\(min\(252px,72vw\)\*-1\)\]/);
     assert.match(className, /max-\[760px\]:translate-x-0/);
+  });
+
+  test("keeps the content deck shadow on mobile", () => {
+    const className = shellContentDeckClassName(initialDeckNavigationState);
+
+    assert.match(className, /shadow-\[0_24px_70px_rgba\(31,38,30,0\.18\)\]/);
+    assert.doesNotMatch(className, /max-\[760px\]:shadow-none/);
   });
 
   test("does not render sheet markup and includes reduced-motion deck handling", () => {

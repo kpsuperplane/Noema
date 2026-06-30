@@ -88,7 +88,7 @@ export function shellContentDeckClassName(deckNavigation: DeckNavigationState) {
     deckNavigation.sidebarCollapsed
       ? "inset-2 rounded-xl"
       : "inset-y-2 right-2 left-[244px] rounded-xl",
-    "max-[760px]:inset-0 max-[760px]:rounded-none max-[760px]:border-0 max-[760px]:shadow-none data-[nav-open=true]:max-[760px]:rounded-xl",
+    "max-[760px]:inset-0 max-[760px]:rounded-none max-[760px]:border-0 data-[nav-open=true]:max-[760px]:rounded-xl",
     deckNavigation.navOpen &&
       "translate-x-[min(236px,68vw)] min-[761px]:scale-[0.97] max-[760px]:left-[min(252px,72vw)] max-[760px]:right-[calc(min(252px,72vw)*-1)] max-[760px]:translate-x-0 pointer-events-none"
   );
@@ -185,12 +185,13 @@ export function AppShell({
             aria-label={labels.menu}
             aria-controls="noema-shell-sidebar"
             aria-expanded={deckNavigation.navOpen}
-            className={!deckNavigation.sidebarCollapsed ? "min-[761px]:hidden" : undefined}
+            className="min-[761px]:!hidden"
             onClick={deckNavigation.navOpen ? closeNav : openNav}
           >
             <Menu aria-hidden="true" />
           </Button>
           <Button
+            data-slot="shell-deck-collapse-button"
             type="button"
             variant="ghost"
             size="icon"
