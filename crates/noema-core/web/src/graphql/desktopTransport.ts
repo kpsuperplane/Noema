@@ -36,7 +36,16 @@ export function createDesktopGraphqlLink(dependencies = defaultDependencies) {
         const subscriptionId = dependencies.createSubscriptionId();
         let disposed = false;
         let unlisten: (() => void) | null = null;
-        let subscribeStarted = false;
+        let subscribeAccepted = false;
+        let unsubscribeSent = false;
+
+        function unsubscribeOnce() {
+          if (unsubscribeSent) {
+            return;
+          }
+          unsubscribeSent = true;
+          void dependencies.invokeDesktop("graphql_unsubscribe", { subscriptionId });
+        }
 
         void dependencies
           .listenDesktop<DesktopSubscriptionPayload>("graphql_subscription_event", (payload) => {
@@ -51,11 +60,16 @@ export function createDesktopGraphqlLink(dependencies = defaultDependencies) {
               unlisten();
               return;
             }
-            subscribeStarted = true;
             void dependencies
               .invokeDesktop("graphql_subscribe", {
                 subscriptionId,
                 requestJson: requestJson(operation)
+              })
+              .then(() => {
+                subscribeAccepted = true;
+                if (disposed) {
+                  unsubscribeOnce();
+                }
               })
               .catch((error: unknown) => {
                 if (!disposed) {
@@ -72,8 +86,8 @@ export function createDesktopGraphqlLink(dependencies = defaultDependencies) {
         return () => {
           disposed = true;
           unlisten?.();
-          if (subscribeStarted) {
-            void dependencies.invokeDesktop("graphql_unsubscribe", { subscriptionId });
+          if (subscribeAccepted) {
+            unsubscribeOnce();
           }
         };
       });
