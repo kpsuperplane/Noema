@@ -180,6 +180,8 @@ describe("deck navigation behavior", () => {
     assert.equal(deckTransitionPropertyCanSettleSurfaceVisibility("left"), true);
     assert.equal(deckTransitionPropertyCanSettleSurfaceVisibility("right"), true);
     assert.equal(deckTransitionPropertyCanSettleSurfaceVisibility("transform"), true);
+    assert.equal(deckTransitionPropertyCanSettleSurfaceVisibility("translate"), true);
+    assert.equal(deckTransitionPropertyCanSettleSurfaceVisibility("scale"), true);
     assert.equal(deckTransitionPropertyCanSettleSurfaceVisibility("box-shadow"), false);
     assert.equal(deckTransitionPropertyCanSettleSurfaceVisibility("opacity"), false);
   });
