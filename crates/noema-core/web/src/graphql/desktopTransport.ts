@@ -9,6 +9,18 @@ type DesktopSubscriptionPayload = {
   response: DesktopGraphqlResponse;
 };
 
+type DesktopTransportDependencies = {
+  createSubscriptionId(): string;
+  invokeDesktop<T>(command: string, args?: Record<string, unknown>): Promise<T>;
+  listenDesktop<T>(eventName: string, handler: (payload: T) => void): Promise<() => void>;
+};
+
+const defaultDependencies: DesktopTransportDependencies = {
+  createSubscriptionId: () => crypto.randomUUID(),
+  invokeDesktop,
+  listenDesktop
+};
+
 function requestJson(operation: Operation) {
   return {
     query: print(operation.query),
@@ -17,47 +29,59 @@ function requestJson(operation: Operation) {
   };
 }
 
-export function createDesktopGraphqlLink() {
+export function createDesktopGraphqlLink(dependencies = defaultDependencies) {
   return new ApolloLink((operation) => {
     if (operation.operationType === "subscription") {
       return new Observable<FetchResult>((observer) => {
-        const subscriptionId = crypto.randomUUID();
+        const subscriptionId = dependencies.createSubscriptionId();
         let disposed = false;
         let unlisten: (() => void) | null = null;
+        let subscribeStarted = false;
 
-        void listenDesktop<DesktopSubscriptionPayload>("graphql_subscription_event", (payload) => {
-          if (payload.subscriptionId !== subscriptionId) {
-            return;
-          }
-          observer.next(payload.response);
-        })
+        void dependencies
+          .listenDesktop<DesktopSubscriptionPayload>("graphql_subscription_event", (payload) => {
+            if (payload.subscriptionId !== subscriptionId) {
+              return;
+            }
+            observer.next(payload.response);
+          })
           .then((nextUnlisten) => {
             unlisten = nextUnlisten;
             if (disposed) {
               unlisten();
+              return;
             }
+            subscribeStarted = true;
+            void dependencies
+              .invokeDesktop("graphql_subscribe", {
+                subscriptionId,
+                requestJson: requestJson(operation)
+              })
+              .catch((error: unknown) => {
+                if (!disposed) {
+                  observer.error(error);
+                }
+              });
           })
           .catch((error: unknown) => {
-            observer.error(error);
+            if (!disposed) {
+              observer.error(error);
+            }
           });
-
-        void invokeDesktop("graphql_subscribe", {
-          subscriptionId,
-          requestJson: requestJson(operation)
-        }).catch((error: unknown) => {
-          observer.error(error);
-        });
 
         return () => {
           disposed = true;
           unlisten?.();
-          void invokeDesktop("graphql_unsubscribe", { subscriptionId });
+          if (subscribeStarted) {
+            void dependencies.invokeDesktop("graphql_unsubscribe", { subscriptionId });
+          }
         };
       });
     }
 
     return new Observable<FetchResult>((observer) => {
-      void invokeDesktop<DesktopGraphqlResponse>("graphql_execute", {
+      void dependencies
+        .invokeDesktop<DesktopGraphqlResponse>("graphql_execute", {
         requestJson: requestJson(operation)
       })
         .then((response) => {
