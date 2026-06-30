@@ -5,7 +5,7 @@ import type { LocalStatusQuery } from "@/generated/graphql";
 import { cn } from "@/lib/utils";
 import type { AppRoute } from "@/routes";
 import type { SocketState } from "@/types";
-import { useDeckNavigation } from "./deckNavigation";
+import { type DeckNavigationState, useDeckNavigation } from "./deckNavigation";
 import { ShellSidebar } from "./ShellSidebar";
 
 export type ShellDestination = "home" | "memory";
@@ -79,6 +79,19 @@ export function shellAttentionForState(input: ShellAttentionInput): ShellAttenti
   }
 
   return null;
+}
+
+export function shellContentDeckClassName(deckNavigation: DeckNavigationState) {
+  return cn(
+    "absolute z-30 grid min-h-0 overflow-hidden border border-[var(--border-subtle)] bg-background shadow-[0_24px_70px_rgba(31,38,30,0.18)] transition-[inset,left,right,transform,border-radius,box-shadow] duration-300 ease-out",
+    "motion-reduce:transition-none",
+    deckNavigation.sidebarCollapsed
+      ? "inset-2 rounded-xl"
+      : "inset-y-2 right-2 left-[244px] rounded-xl",
+    "max-[760px]:inset-0 max-[760px]:rounded-none max-[760px]:border-0 max-[760px]:shadow-none data-[nav-open=true]:max-[760px]:rounded-xl",
+    deckNavigation.navOpen &&
+      "translate-x-[min(236px,68vw)] min-[761px]:scale-[0.97] max-[760px]:left-[min(252px,72vw)] max-[760px]:right-[calc(min(252px,72vw)*-1)] max-[760px]:translate-x-0 pointer-events-none"
+  );
 }
 
 export function AppShell({
@@ -157,16 +170,7 @@ export function AppShell({
         data-slot="shell-content-deck"
         data-nav-open={deckNavigation.navOpen}
         aria-label={activeLabel}
-        className={cn(
-          "absolute z-30 grid min-h-0 overflow-hidden border border-[var(--border-subtle)] bg-background shadow-[0_24px_70px_rgba(31,38,30,0.18)] transition-[inset,transform,border-radius,box-shadow] duration-300 ease-out",
-          "motion-reduce:transition-none",
-          deckNavigation.sidebarCollapsed
-            ? "inset-2 rounded-xl"
-            : "inset-y-2 right-2 left-[244px] rounded-xl",
-          deckNavigation.navOpen &&
-            "translate-x-[min(236px,68vw)] scale-[0.97] pointer-events-none max-[760px]:translate-x-[min(252px,72vw)]",
-          "max-[760px]:inset-0 max-[760px]:rounded-none max-[760px]:border-0 max-[760px]:shadow-none data-[nav-open=true]:max-[760px]:rounded-xl"
-        )}
+        className={shellContentDeckClassName(deckNavigation)}
       >
         <header
           data-slot="shell-deck-header"
@@ -174,12 +178,14 @@ export function AppShell({
         >
           <Button
             ref={menuButtonRef}
+            data-slot="shell-menu-button"
             type="button"
             variant="ghost"
             size="icon"
             aria-label={labels.menu}
             aria-controls="noema-shell-sidebar"
             aria-expanded={deckNavigation.navOpen}
+            className={!deckNavigation.sidebarCollapsed ? "min-[761px]:hidden" : undefined}
             onClick={deckNavigation.navOpen ? closeNav : openNav}
           >
             <Menu aria-hidden="true" />

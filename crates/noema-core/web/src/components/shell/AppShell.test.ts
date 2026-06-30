@@ -5,6 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import {
   AppShell,
   activeShellDestination,
+  shellContentDeckClassName,
   shellAttentionForState,
   shellNavItems,
   type ShellAttentionInput
@@ -135,6 +136,31 @@ describe("AppShell layered deck markup", () => {
     assert.match(markup, /aria-label="Collapse sidebar"/);
     assert.match(markup, />Memory</);
     assert.match(markup, />Memory management</);
+  });
+
+  test("hides the menu trigger on expanded desktop where navigation is already visible", () => {
+    const markup = renderShell();
+    const menuClassName = dataSlotClassName(markup, "shell-menu-button");
+
+    assert.match(menuClassName, /min-\[761px\]:hidden/);
+  });
+
+  test("reveals mobile navigation without shrinking the deck vertically", () => {
+    const className = shellContentDeckClassName({
+      navOpen: true,
+      sidebarCollapsed: true
+    });
+
+    assert.match(
+      className,
+      /transition-\[inset,left,right,transform,border-radius,box-shadow\]/
+    );
+    assert.match(className, /min-\[761px\]:scale-\[0\.97\]/);
+    assert.doesNotMatch(className, /(^|\s)scale-\[0\.97\](\s|$)/);
+    assert.doesNotMatch(className, /max-\[760px\]:translate-x-\[min\(252px,72vw\)\]/);
+    assert.match(className, /max-\[760px\]:left-\[min\(252px,72vw\)\]/);
+    assert.match(className, /max-\[760px\]:right-\[calc\(min\(252px,72vw\)\*-1\)\]/);
+    assert.match(className, /max-\[760px\]:translate-x-0/);
   });
 
   test("does not render sheet markup and includes reduced-motion deck handling", () => {
