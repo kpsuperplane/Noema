@@ -3,7 +3,10 @@ import React from "react";
 export type AppRoute =
   | { kind: "chat" }
   | { kind: "memory_home" }
-  | { kind: "memory_graph" };
+  | { kind: "memory_graph" }
+  | { kind: "settings"; section: "providers" };
+
+export type NonSettingsAppRoute = Exclude<AppRoute, { kind: "settings" }>;
 
 export function routeFromPathname(pathname: string): AppRoute {
   if (pathname === "/memory") {
@@ -11,6 +14,9 @@ export function routeFromPathname(pathname: string): AppRoute {
   }
   if (pathname === "/memory/graph") {
     return { kind: "memory_graph" };
+  }
+  if (pathname === "/settings") {
+    return { kind: "settings", section: "providers" };
   }
   return { kind: "chat" };
 }
@@ -22,23 +28,62 @@ export function pathForRoute(route: AppRoute): string {
   if (route.kind === "memory_graph") {
     return "/memory/graph";
   }
+  if (route.kind === "settings") {
+    return "/settings";
+  }
   return "/";
+}
+
+export function shouldRememberAsPreviousAppRoute(
+  route: AppRoute
+): route is NonSettingsAppRoute {
+  return route.kind !== "settings";
+}
+
+export function settingsFallbackRoute(route: NonSettingsAppRoute | null): NonSettingsAppRoute {
+  return route ?? { kind: "chat" };
 }
 
 export function useBrowserRoute() {
   const [route, setRoute] = React.useState(() => routeFromPathname(window.location.pathname));
+  const previousAppRouteRef = React.useRef<NonSettingsAppRoute>(
+    shouldRememberAsPreviousAppRoute(route) ? route : { kind: "chat" }
+  );
 
   React.useEffect(() => {
-    const onPopState = () => setRoute(routeFromPathname(window.location.pathname));
+    const onPopState = () => {
+      const nextRoute = routeFromPathname(window.location.pathname);
+      if (shouldRememberAsPreviousAppRoute(nextRoute)) {
+        previousAppRouteRef.current = nextRoute;
+      }
+      setRoute(nextRoute);
+    };
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
   }, []);
 
   const navigate = React.useCallback((nextRoute: AppRoute) => {
+    setRoute((currentRoute) => {
+      if (shouldRememberAsPreviousAppRoute(currentRoute)) {
+        previousAppRouteRef.current = currentRoute;
+      }
+      const nextPath = pathForRoute(nextRoute);
+      window.history.pushState({}, "", nextPath);
+      return routeFromPathname(nextPath);
+    });
+  }, []);
+
+  const closeSettings = React.useCallback(() => {
+    const nextRoute = settingsFallbackRoute(previousAppRouteRef.current);
     const nextPath = pathForRoute(nextRoute);
     window.history.pushState({}, "", nextPath);
     setRoute(routeFromPathname(nextPath));
   }, []);
 
-  return { route, navigate };
+  return {
+    route,
+    navigate,
+    closeSettings,
+    previousAppRoute: previousAppRouteRef.current
+  };
 }
