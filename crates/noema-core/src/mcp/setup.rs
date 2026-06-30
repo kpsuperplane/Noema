@@ -92,7 +92,8 @@ where
 {
     let display_name = validate_display_name(&input.display_name)?;
     let mcp_server_id = next_server_id(store, &display_name).await?;
-    let safe_config = normalize_safe_config(input.transport_kind, input.safe_config, &input.secrets)?;
+    let safe_config =
+        normalize_safe_config(input.transport_kind, input.safe_config, &input.secrets)?;
     let server_home = paths.mcp_server_home(&mcp_server_id);
     write_mcp_secrets(&server_home, &input.secrets)
         .map_err(|error| StoreError::Schema(format!("failed to write MCP secrets: {error}")))?;
@@ -124,7 +125,9 @@ where
     let mut server = store
         .get_mcp_server(&input.mcp_server_id)
         .await?
-        .ok_or_else(|| StoreError::Schema(format!("missing MCP server: {}", input.mcp_server_id)))?;
+        .ok_or_else(|| {
+            StoreError::Schema(format!("missing MCP server: {}", input.mcp_server_id))
+        })?;
     let server_home = paths.mcp_server_home(&input.mcp_server_id);
     let mut secrets = read_mcp_secrets(&server_home).unwrap_or_default();
     secrets.env.extend(input.secrets.env);
@@ -136,7 +139,9 @@ where
     let server = store
         .get_mcp_server(&input.mcp_server_id)
         .await?
-        .ok_or_else(|| StoreError::Schema(format!("missing MCP server: {}", input.mcp_server_id)))?;
+        .ok_or_else(|| {
+            StoreError::Schema(format!("missing MCP server: {}", input.mcp_server_id))
+        })?;
     discover_and_persist_tools(store, server, make_transport).await
 }
 
@@ -153,7 +158,9 @@ where
         Ok(tools) => {
             let count = tools.len();
             for tool in tools {
-                store.upsert_discovered_mcp_tool(new_mcp_tool(&server, tool)).await?;
+                store
+                    .upsert_discovered_mcp_tool(new_mcp_tool(&server, tool))
+                    .await?;
             }
             let server = store
                 .update_mcp_server_setup_status(
@@ -301,9 +308,9 @@ fn normalize_safe_config(
     safe_config: Value,
     secrets: &McpSecretMaterial,
 ) -> Result<Value, StoreError> {
-    let object = safe_config.as_object().ok_or_else(|| {
-        StoreError::Schema("MCP safe config must be a JSON object".to_string())
-    })?;
+    let object = safe_config
+        .as_object()
+        .ok_or_else(|| StoreError::Schema("MCP safe config must be a JSON object".to_string()))?;
     match transport_kind {
         McpTransportKind::Stdio => {
             let command = string_field(object, "command")?;
@@ -350,9 +357,9 @@ fn safe_config_with_secret_refs(
     mut safe_config: Value,
     secrets: &McpSecretMaterial,
 ) -> Result<Value, StoreError> {
-    let object = safe_config.as_object_mut().ok_or_else(|| {
-        StoreError::Schema("MCP safe config must be a JSON object".to_string())
-    })?;
+    let object = safe_config
+        .as_object_mut()
+        .ok_or_else(|| StoreError::Schema("MCP safe config must be a JSON object".to_string()))?;
     let mut secret_refs = serde_json::Map::new();
     if !secrets.env.is_empty() {
         secret_refs.insert(
@@ -526,8 +533,8 @@ mod tests {
     use crate::{
         McpServerAuthStatus, McpServerHealthStatus, McpTransportKind, NoemaPaths, NoemaStore,
         StoreConfig,
-        mcp::{DiscoveredMcpTool, McpClientError, McpTransport},
         mcp::secrets::{McpSecretMaterial, read_mcp_secrets},
+        mcp::{DiscoveredMcpTool, McpClientError, McpTransport},
     };
     use serde_json::json;
     use std::{
@@ -624,7 +631,13 @@ mod tests {
                 "secret_refs": { "headers": ["Authorization"] }
             })
         );
-        assert!(!result.server.safe_config.to_string().contains("Bearer secret"));
+        assert!(
+            !result
+                .server
+                .safe_config
+                .to_string()
+                .contains("Bearer secret")
+        );
         let tools = fixture
             .store
             .list_mcp_tools_for_server("mcp:remote")
@@ -707,7 +720,13 @@ mod tests {
                 .map(String::as_str),
             Some("Bearer retry")
         );
-        assert!(!result.server.safe_config.to_string().contains("Bearer retry"));
+        assert!(
+            !result
+                .server
+                .safe_config
+                .to_string()
+                .contains("Bearer retry")
+        );
     }
 
     #[tokio::test]

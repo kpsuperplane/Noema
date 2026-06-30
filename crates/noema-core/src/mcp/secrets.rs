@@ -108,7 +108,11 @@ mod tests {
         write_mcp_secrets(&home, &McpSecretMaterial::default()).expect("write secrets");
 
         assert_eq!(
-            std::fs::metadata(&home).expect("home metadata").permissions().mode() & 0o777,
+            std::fs::metadata(&home)
+                .expect("home metadata")
+                .permissions()
+                .mode()
+                & 0o777,
             0o700
         );
         assert_eq!(

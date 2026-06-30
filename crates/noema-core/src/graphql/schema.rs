@@ -125,6 +125,7 @@ impl GraphqlState {
             return GraphqlMcpSetupTransport::Test(outcome);
         }
 
+        let _ = self;
         GraphqlMcpSetupTransport::Unavailable
     }
 }
@@ -701,7 +702,11 @@ mod tests {
         assert_eq!(result["discoveredToolCount"], 1);
         assert_eq!(result["server"]["mcpServerId"], "mcp:github");
         assert_eq!(result["server"]["toolCount"], 1);
-        assert!(!serde_json::to_string(&data).expect("response json").contains("top-secret"));
+        assert!(
+            !serde_json::to_string(&data)
+                .expect("response json")
+                .contains("top-secret")
+        );
     }
 
     #[tokio::test]
@@ -792,9 +797,19 @@ mod tests {
             retry_data["continueMcpServerSetup"]["setupStatus"],
             "ready_for_calibration"
         );
-        assert_eq!(retry_data["continueMcpServerSetup"]["discoveredToolCount"], 1);
-        assert_eq!(retry_data["continueMcpServerSetup"]["server"]["toolCount"], 1);
-        assert!(!serde_json::to_string(&retry_data).expect("retry json").contains("Bearer retry"));
+        assert_eq!(
+            retry_data["continueMcpServerSetup"]["discoveredToolCount"],
+            1
+        );
+        assert_eq!(
+            retry_data["continueMcpServerSetup"]["server"]["toolCount"],
+            1
+        );
+        assert!(
+            !serde_json::to_string(&retry_data)
+                .expect("retry json")
+                .contains("Bearer retry")
+        );
     }
 
     struct GraphqlMcpSetupFixture {

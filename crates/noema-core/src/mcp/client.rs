@@ -132,7 +132,9 @@ mod tests {
             .await
             .expect_err("auth required should propagate");
 
-        assert!(matches!(error, McpClientError::AuthRequired(message) if message == "missing token"));
+        assert!(
+            matches!(error, McpClientError::AuthRequired(message) if message == "missing token")
+        );
     }
 
     #[derive(Clone)]

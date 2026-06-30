@@ -4,9 +4,8 @@ use async_graphql::{InputObject, Json, Result, SimpleObject};
 use serde_json::Value;
 
 use crate::{
-    McpTransportKind,
     McpApprovalRequestRecord, McpCalibrationStatus, McpServerAuthStatus, McpServerHealthStatus,
-    McpServerRecord, McpTrustClassification, NewToolCalibration, OwnerExtractor,
+    McpServerRecord, McpTransportKind, McpTrustClassification, NewToolCalibration, OwnerExtractor,
     OwnerExtractorSource, ToolCalibrationRecord, TrustedIdentitySelectorEffect,
     TrustedIdentitySelectorKind, TrustedIdentitySelectorRecord,
     mcp::{
@@ -443,9 +442,7 @@ fn parse_graphql_trust_classification(
     }
 }
 
-fn parse_create_mcp_server_input(
-    input: GraphqlCreateMcpServerInput,
-) -> Result<NewMcpServerSetup> {
+fn parse_create_mcp_server_input(input: GraphqlCreateMcpServerInput) -> Result<NewMcpServerSetup> {
     let transport_kind = parse_graphql_transport_kind(&input.transport_kind)?;
     match transport_kind {
         McpTransportKind::Stdio => {
