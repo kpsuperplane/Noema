@@ -100,7 +100,7 @@ export function shellContentDeckClassName(deckNavigation: DeckNavigationState) {
     "motion-reduce:transition-none",
     deckNavigation.sidebarCollapsed
       ? "inset-2 rounded-xl"
-      : "inset-y-2 right-2 left-[calc(var(--shell-sidebar-width)+28px)] rounded-xl",
+      : "inset-y-2 right-2 left-[calc(var(--shell-sidebar-width))] rounded-xl",
     "max-[760px]:inset-0 max-[760px]:rounded-none max-[760px]:border-0 data-[nav-open=true]:max-[760px]:rounded-xl",
     deckNavigation.navOpen &&
       "translate-x-[min(calc(var(--shell-sidebar-width)+20px),68vw)] min-[761px]:scale-[0.97] max-[760px]:left-[min(252px,72vw)] max-[760px]:right-[calc(min(252px,72vw)*-1)] max-[760px]:translate-x-0 pointer-events-none"
