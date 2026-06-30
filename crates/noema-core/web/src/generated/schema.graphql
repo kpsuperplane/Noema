@@ -722,6 +722,24 @@ enum GraphqlOnboardingStepStatus {
 }
 
 """
+Deterministic owner extractor input for MCP ownership resolution.
+"""
+input GraphqlOwnerExtractorInput {
+	"""
+	Source document or field family to inspect.
+	"""
+	source: String!
+	"""
+	Type of trusted identity this extractor returns.
+	"""
+	selectorKind: String!
+	"""
+	JSON pointer, JSONPath-style path, URI pattern, or adapter key.
+	"""
+	path: String!
+}
+
+"""
 Predicate proposal exposed for memory-management inspection.
 """
 type GraphqlPredicateProposal {
@@ -938,6 +956,56 @@ enum GraphqlProviderAuthMethod {
 }
 
 """
+Save reviewed MCP tool calibration.
+"""
+input GraphqlSaveToolCalibrationInput {
+	"""
+	Durable calibration id.
+	"""
+	calibrationId: String!
+	"""
+	Calibrated MCP tool id.
+	"""
+	mcpToolId: String!
+	"""
+	Effective read classification.
+	"""
+	readClassification: String!
+	"""
+	Effective write classification.
+	"""
+	writeClassification: String!
+	"""
+	Effective export classification.
+	"""
+	exportClassification: String!
+	"""
+	Deterministic owner extractors configured for this tool.
+	"""
+	ownerExtractors: [GraphqlOwnerExtractorInput!]
+	"""
+	Agents allowed to see/use this calibration.
+	"""
+	enabledAgentIds: [String!]!
+	"""
+	Governable scopes where this calibration is enabled.
+	"""
+	enabledScopeIds: [String!]!
+	"""
+	Review/gateway readiness status.
+	"""
+	status: String!
+	"""
+	Actor who reviewed the calibration, when reviewed.
+	"""
+	reviewedBy: String
+	"""
+	Tool metadata fingerprint reviewed by the actor.
+	"""
+	reviewedMetadataFingerprint: String
+}
+
+"""
 Input for sending a conversation turn.
 """
 input GraphqlSendConversationTurnInput {
@@ -981,6 +1049,36 @@ type GraphqlSubscriptionReadyEvent {
 	Durable Noema conversation id.
 	"""
 	conversationId: String!
+}
+
+"""
+MCP tool calibration safe to show in Settings.
+"""
+type GraphqlToolCalibration {
+	"""
+	Durable calibration id.
+	"""
+	calibrationId: String!
+	"""
+	Calibrated MCP tool id.
+	"""
+	mcpToolId: String!
+	"""
+	Effective read classification.
+	"""
+	readClassification: String!
+	"""
+	Effective write classification.
+	"""
+	writeClassification: String!
+	"""
+	Effective export classification.
+	"""
+	exportClassification: String!
+	"""
+	Review/gateway readiness status.
+	"""
+	status: String!
 }
 
 """
@@ -1092,6 +1190,10 @@ type MutationRoot {
 	Send a conversation turn.
 	"""
 	sendConversationTurn(input: GraphqlSendConversationTurnInput!): GraphqlTurnAccepted!
+	"""
+	Save reviewed MCP tool calibration.
+	"""
+	saveToolCalibration(input: GraphqlSaveToolCalibrationInput!): GraphqlToolCalibration!
 }
 
 type QueryRoot {

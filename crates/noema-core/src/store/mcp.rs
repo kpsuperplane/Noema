@@ -2,7 +2,10 @@ use serde::Deserialize;
 use serde_json::Value;
 use surrealdb::types::SurrealValue;
 
-use crate::{McpTransportKind, TrustedIdentitySelectorKind, normalize_trusted_identity_value};
+use crate::{
+    McpCalibrationStatus, McpTransportKind, McpTrustClassification, OwnerExtractor,
+    TrustedIdentitySelectorKind, normalize_trusted_identity_value,
+};
 
 use super::{NoemaStore, StoreError, ids::now_string};
 
@@ -106,6 +109,60 @@ pub struct McpToolRecord {
     pub metadata_fingerprint: String,
     /// Discovery timestamp string.
     pub discovered_at: String,
+}
+
+/// Input for saving reviewed MCP tool calibration.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NewToolCalibration {
+    /// Durable calibration id.
+    pub calibration_id: String,
+    /// Calibrated MCP tool id.
+    pub mcp_tool_id: String,
+    /// Effective read classification.
+    pub read_classification: McpTrustClassification,
+    /// Effective write classification.
+    pub write_classification: McpTrustClassification,
+    /// Effective export classification.
+    pub export_classification: McpTrustClassification,
+    /// Deterministic owner extractors configured for this tool.
+    pub owner_extractors: Vec<OwnerExtractor>,
+    /// Agents allowed to see/use this calibration.
+    pub enabled_agent_ids: Vec<String>,
+    /// Governable scopes where this calibration is enabled.
+    pub enabled_scope_ids: Vec<String>,
+    /// Review/gateway readiness status.
+    pub status: McpCalibrationStatus,
+    /// Actor who reviewed the calibration, when reviewed.
+    pub reviewed_by: Option<String>,
+    /// Tool metadata fingerprint reviewed by the actor.
+    pub reviewed_metadata_fingerprint: Option<String>,
+}
+
+/// Persisted MCP tool calibration read model.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ToolCalibrationRecord {
+    /// Durable calibration id.
+    pub calibration_id: String,
+    /// Calibrated MCP tool id.
+    pub mcp_tool_id: String,
+    /// Effective read classification.
+    pub read_classification: McpTrustClassification,
+    /// Effective write classification.
+    pub write_classification: McpTrustClassification,
+    /// Effective export classification.
+    pub export_classification: McpTrustClassification,
+    /// Deterministic owner extractors configured for this tool.
+    pub owner_extractors: Vec<OwnerExtractor>,
+    /// Agents allowed to see/use this calibration.
+    pub enabled_agent_ids: Vec<String>,
+    /// Governable scopes where this calibration is enabled.
+    pub enabled_scope_ids: Vec<String>,
+    /// Review/gateway readiness status.
+    pub status: McpCalibrationStatus,
+    /// Actor who reviewed the calibration, when reviewed.
+    pub reviewed_by: Option<String>,
+    /// Tool metadata fingerprint reviewed by the actor.
+    pub reviewed_metadata_fingerprint: Option<String>,
 }
 
 /// Input for creating a trusted identity selector.
@@ -356,6 +413,109 @@ impl NoemaStore {
         Ok(tools)
     }
 
+    /// Save reviewed calibration for one MCP tool.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when the embedded store write or read fails, or
+    /// when a stored enum is invalid.
+    pub async fn save_tool_calibration(
+        &self,
+        calibration: NewToolCalibration,
+    ) -> Result<ToolCalibrationRecord, StoreError> {
+        let owner_extractors =
+            serde_json::to_value(&calibration.owner_extractors).map_err(|error| {
+                StoreError::Schema(format!("invalid owner extractor serialization: {error}"))
+            })?;
+        self.db
+            .query(
+                r#"
+                UPSERT type::record('tool_calibrations', $record_id) SET
+                  calibration_id = $calibration_id,
+                  mcp_tool_id = $mcp_tool_id,
+                  read_classification = $read_classification,
+                  write_classification = $write_classification,
+                  export_classification = $export_classification,
+                  owner_extractors = $owner_extractors,
+                  enabled_agent_ids = $enabled_agent_ids,
+                  enabled_scope_ids = $enabled_scope_ids,
+                  status = $status,
+                  reviewed_by = $reviewed_by,
+                  reviewed_metadata_fingerprint = $reviewed_metadata_fingerprint,
+                  updated_at = time::now();
+                "#,
+            )
+            .bind((
+                "record_id",
+                mcp_record_fragment(&calibration.calibration_id),
+            ))
+            .bind(("calibration_id", calibration.calibration_id.clone()))
+            .bind(("mcp_tool_id", calibration.mcp_tool_id.clone()))
+            .bind((
+                "read_classification",
+                calibration.read_classification.as_str().to_string(),
+            ))
+            .bind((
+                "write_classification",
+                calibration.write_classification.as_str().to_string(),
+            ))
+            .bind((
+                "export_classification",
+                calibration.export_classification.as_str().to_string(),
+            ))
+            .bind(("owner_extractors", owner_extractors))
+            .bind(("enabled_agent_ids", calibration.enabled_agent_ids))
+            .bind(("enabled_scope_ids", calibration.enabled_scope_ids))
+            .bind(("status", calibration.status.as_str().to_string()))
+            .bind(("reviewed_by", calibration.reviewed_by))
+            .bind((
+                "reviewed_metadata_fingerprint",
+                calibration.reviewed_metadata_fingerprint,
+            ))
+            .await?
+            .check()?;
+        self.get_tool_calibration(&calibration.mcp_tool_id)
+            .await?
+            .ok_or_else(|| {
+                StoreError::Schema(format!(
+                    "missing tool calibration after save: {}",
+                    calibration.mcp_tool_id
+                ))
+            })
+    }
+
+    /// Return reviewed calibration for one MCP tool id.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when the embedded store read fails or a stored
+    /// enum is invalid.
+    pub async fn get_tool_calibration(
+        &self,
+        mcp_tool_id: &str,
+    ) -> Result<Option<ToolCalibrationRecord>, StoreError> {
+        let mut response = self
+            .db
+            .query(
+                r#"
+                SELECT calibration_id, mcp_tool_id, read_classification,
+                  write_classification, export_classification, owner_extractors,
+                  enabled_agent_ids, enabled_scope_ids, status, reviewed_by,
+                  reviewed_metadata_fingerprint
+                FROM tool_calibrations
+                WHERE mcp_tool_id = $mcp_tool_id
+                LIMIT 1;
+                "#,
+            )
+            .bind(("mcp_tool_id", mcp_tool_id.to_string()))
+            .await?;
+        let rows: Vec<ToolCalibrationRow> = response.take(0)?;
+        rows.into_iter()
+            .next()
+            .map(tool_calibration_from_row)
+            .transpose()
+    }
+
     /// Create one trusted identity selector after normalizing the raw value.
     ///
     /// # Errors
@@ -500,6 +660,21 @@ struct McpToolRow {
 }
 
 #[derive(Debug, Deserialize, SurrealValue)]
+struct ToolCalibrationRow {
+    calibration_id: String,
+    mcp_tool_id: String,
+    read_classification: String,
+    write_classification: String,
+    export_classification: String,
+    owner_extractors: Value,
+    enabled_agent_ids: Vec<String>,
+    enabled_scope_ids: Vec<String>,
+    status: String,
+    reviewed_by: Option<String>,
+    reviewed_metadata_fingerprint: Option<String>,
+}
+
+#[derive(Debug, Deserialize, SurrealValue)]
 struct TrustedIdentitySelectorRow {
     selector_id: String,
     owner_scope_id: String,
@@ -535,6 +710,27 @@ fn mcp_tool_from_row(row: McpToolRow) -> McpToolRecord {
         metadata_fingerprint: row.metadata_fingerprint,
         discovered_at: row.discovered_at,
     }
+}
+
+fn tool_calibration_from_row(row: ToolCalibrationRow) -> Result<ToolCalibrationRecord, StoreError> {
+    let owner_extractors = serde_json::from_value(row.owner_extractors).map_err(|error| {
+        StoreError::Schema(format!(
+            "invalid owner extractors in embedded store: {error}"
+        ))
+    })?;
+    Ok(ToolCalibrationRecord {
+        calibration_id: row.calibration_id,
+        mcp_tool_id: row.mcp_tool_id,
+        read_classification: parse_mcp_trust_classification(&row.read_classification)?,
+        write_classification: parse_mcp_trust_classification(&row.write_classification)?,
+        export_classification: parse_mcp_trust_classification(&row.export_classification)?,
+        owner_extractors,
+        enabled_agent_ids: row.enabled_agent_ids,
+        enabled_scope_ids: row.enabled_scope_ids,
+        status: parse_mcp_calibration_status(&row.status)?,
+        reviewed_by: row.reviewed_by,
+        reviewed_metadata_fingerprint: row.reviewed_metadata_fingerprint,
+    })
 }
 
 fn trusted_identity_selector_from_row(
@@ -575,6 +771,26 @@ fn parse_mcp_auth_status(value: &str) -> Result<McpServerAuthStatus, StoreError>
         "authenticated" => Ok(McpServerAuthStatus::Authenticated),
         "unavailable" => Ok(McpServerAuthStatus::Unavailable),
         _ => invalid_enum("mcp_server_auth_status", value),
+    }
+}
+
+fn parse_mcp_trust_classification(value: &str) -> Result<McpTrustClassification, StoreError> {
+    match value {
+        "none" => Ok(McpTrustClassification::None),
+        "trusted" => Ok(McpTrustClassification::Trusted),
+        "untrusted" => Ok(McpTrustClassification::Untrusted),
+        "mixed" => Ok(McpTrustClassification::Mixed),
+        _ => invalid_enum("mcp_trust_classification", value),
+    }
+}
+
+fn parse_mcp_calibration_status(value: &str) -> Result<McpCalibrationStatus, StoreError> {
+    match value {
+        "needs_review" => Ok(McpCalibrationStatus::NeedsReview),
+        "blocked_unresolved_ownership" => Ok(McpCalibrationStatus::BlockedUnresolvedOwnership),
+        "ready" => Ok(McpCalibrationStatus::Ready),
+        "disabled" => Ok(McpCalibrationStatus::Disabled),
+        _ => invalid_enum("mcp_calibration_status", value),
     }
 }
 

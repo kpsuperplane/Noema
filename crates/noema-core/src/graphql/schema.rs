@@ -9,7 +9,10 @@ use super::{
         GraphqlSendConversationTurnInput, GraphqlTurnAccepted,
     },
     local_status::{self, GraphqlLocalStatus, GraphqlMemoryStorageStatus},
-    mcp::{self, GraphqlMcpServer, GraphqlTrustedIdentitySelector},
+    mcp::{
+        self, GraphqlMcpServer, GraphqlSaveToolCalibrationInput, GraphqlToolCalibration,
+        GraphqlTrustedIdentitySelector,
+    },
     memory::{
         self, GraphqlMemoryClaim, GraphqlMemoryClaimDetail, GraphqlMemoryGraph,
         GraphqlMemoryGraphInput, GraphqlPredicateProposal,
@@ -238,6 +241,16 @@ impl MutationRoot {
         let state = ctx.data_unchecked::<GraphqlState>();
         chat::send_conversation_turn(state, input).await
     }
+
+    /// Save reviewed MCP tool calibration.
+    async fn save_tool_calibration(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlSaveToolCalibrationInput,
+    ) -> Result<GraphqlToolCalibration> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        mcp::save_tool_calibration(state, input).await
+    }
 }
 
 /// Root GraphQL subscription object.
@@ -275,6 +288,9 @@ mod tests {
         assert!(sdl.contains("startProviderAuthAttempt"));
         assert!(sdl.contains("startPrimaryConversation"));
         assert!(sdl.contains("sendConversationTurn"));
+        assert!(sdl.contains("saveToolCalibration"));
+        assert!(sdl.contains("GraphqlSaveToolCalibrationInput"));
+        assert!(sdl.contains("type GraphqlToolCalibration"));
         assert!(sdl.contains("type Subscription"));
         assert!(sdl.contains("conversationEvents"));
         assert!(sdl.contains("GraphqlAssistantTextDeltaEvent"));
@@ -508,6 +524,159 @@ mod tests {
         assert_eq!(selector["selectorKind"], "email");
         assert_eq!(selector["normalizedValue"], "kevin@noema.example");
         assert_eq!(selector["effect"], "trust");
+    }
+
+    #[tokio::test]
+    async fn save_tool_calibration_mutation_persists_reviewed_policy() {
+        use crate::{
+            McpCalibrationStatus, McpTransportKind, NewMcpServer, NewMcpTool,
+            store::tests::test_store,
+        };
+
+        let store = test_store().await;
+        store
+            .create_mcp_server(NewMcpServer {
+                mcp_server_id: "mcp_server:google".to_string(),
+                display_name: "Google".to_string(),
+                transport_kind: McpTransportKind::Stdio,
+                safe_config: json!({}),
+            })
+            .await
+            .expect("create server");
+        store
+            .upsert_discovered_mcp_tool(NewMcpTool {
+                mcp_tool_id: "mcp_tool:google:read_doc".to_string(),
+                mcp_server_id: "mcp_server:google".to_string(),
+                name: "read_doc".to_string(),
+                description: Some("Read a document".to_string()),
+                input_schema: json!({"type": "object"}),
+                output_schema: None,
+                annotations: json!({"readOnlyHint": true}),
+                metadata_fingerprint: "fingerprint_1".to_string(),
+            })
+            .await
+            .expect("upsert tool");
+
+        let schema = build_schema(GraphqlState::for_tests_with_store(store.clone()));
+        let response = schema
+            .execute(async_graphql::Request::new(
+                r#"
+                mutation {
+                  saveToolCalibration(input: {
+                    calibrationId: "tool_calibration:read_doc"
+                    mcpToolId: "mcp_tool:google:read_doc"
+                    readClassification: "mixed"
+                    writeClassification: "none"
+                    exportClassification: "none"
+                    enabledAgentIds: ["agent:primary"]
+                    enabledScopeIds: ["human:local"]
+                    status: "blocked_unresolved_ownership"
+                    reviewedBy: "human:local"
+                    reviewedMetadataFingerprint: "fingerprint_1"
+                  }) {
+                    calibrationId
+                    mcpToolId
+                    status
+                    readClassification
+                    writeClassification
+                    exportClassification
+                  }
+                }
+                "#,
+            ))
+            .await;
+
+        assert!(response.errors.is_empty(), "{:?}", response.errors);
+        let data = response.data.into_json().expect("json");
+        let calibration = &data["saveToolCalibration"];
+        assert_eq!(calibration["calibrationId"], "tool_calibration:read_doc");
+        assert_eq!(calibration["mcpToolId"], "mcp_tool:google:read_doc");
+        assert_eq!(calibration["status"], "blocked_unresolved_ownership");
+        assert_eq!(calibration["readClassification"], "mixed");
+        assert_eq!(calibration["writeClassification"], "none");
+        assert_eq!(calibration["exportClassification"], "none");
+
+        let persisted = store
+            .get_tool_calibration("mcp_tool:google:read_doc")
+            .await
+            .expect("get calibration")
+            .expect("calibration exists");
+        assert_eq!(
+            persisted.status,
+            McpCalibrationStatus::BlockedUnresolvedOwnership
+        );
+        assert_eq!(persisted.reviewed_by.as_deref(), Some("human:local"));
+        assert_eq!(
+            persisted.reviewed_metadata_fingerprint.as_deref(),
+            Some("fingerprint_1")
+        );
+    }
+
+    #[tokio::test]
+    async fn save_tool_calibration_mutation_rejects_invalid_enum_strings() {
+        use crate::{McpTransportKind, NewMcpServer, NewMcpTool, store::tests::test_store};
+
+        let store = test_store().await;
+        store
+            .create_mcp_server(NewMcpServer {
+                mcp_server_id: "mcp_server:google".to_string(),
+                display_name: "Google".to_string(),
+                transport_kind: McpTransportKind::Stdio,
+                safe_config: json!({}),
+            })
+            .await
+            .expect("create server");
+        store
+            .upsert_discovered_mcp_tool(NewMcpTool {
+                mcp_tool_id: "mcp_tool:google:read_doc".to_string(),
+                mcp_server_id: "mcp_server:google".to_string(),
+                name: "read_doc".to_string(),
+                description: None,
+                input_schema: json!({"type": "object"}),
+                output_schema: None,
+                annotations: json!({}),
+                metadata_fingerprint: "fingerprint_1".to_string(),
+            })
+            .await
+            .expect("upsert tool");
+
+        let schema = build_schema(GraphqlState::for_tests_with_store(store.clone()));
+        let response = schema
+            .execute(async_graphql::Request::new(
+                r#"
+                mutation {
+                  saveToolCalibration(input: {
+                    calibrationId: "tool_calibration:read_doc"
+                    mcpToolId: "mcp_tool:google:read_doc"
+                    readClassification: "Mixed"
+                    writeClassification: "none"
+                    exportClassification: "none"
+                    enabledAgentIds: ["agent:primary"]
+                    enabledScopeIds: ["human:local"]
+                    status: "blocked_unresolved_ownership"
+                  }) {
+                    calibrationId
+                  }
+                }
+                "#,
+            ))
+            .await;
+
+        assert!(!response.errors.is_empty());
+        assert!(
+            response.errors[0]
+                .message
+                .contains("invalid readClassification"),
+            "{:?}",
+            response.errors
+        );
+        assert!(
+            store
+                .get_tool_calibration("mcp_tool:google:read_doc")
+                .await
+                .expect("get calibration")
+                .is_none()
+        );
     }
 
     #[tokio::test]

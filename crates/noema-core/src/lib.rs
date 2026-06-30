@@ -101,8 +101,9 @@ pub use store::{
     EvidenceCandidate, McpServerAuthStatus, McpServerHealthStatus, McpServerRecord, McpToolRecord,
     MemoryClaimDetail, MemoryClaimEvidence, MemoryClaimFilter, MemoryClaimRecord, MemoryGraph,
     MemoryGraphEdge, MemoryGraphFilter, MemoryGraphNode, MemoryGraphSummary, NewAgent,
-    NewClaimCandidate, NewMcpServer, NewMcpTool, NewTrustedIdentitySelector, NoemaStore,
-    PredicateProposalCandidate, PredicateProposalFilter, PredicateProposalRecord, PredicateRecord,
-    RelatedClaimCandidate, RelatedClaimRecord, RetrievedClaim, StoreConfig, StoreError,
-    SupersedeClaimCandidate, TrustedIdentitySelectorEffect, TrustedIdentitySelectorRecord,
+    NewClaimCandidate, NewMcpServer, NewMcpTool, NewToolCalibration, NewTrustedIdentitySelector,
+    NoemaStore, PredicateProposalCandidate, PredicateProposalFilter, PredicateProposalRecord,
+    PredicateRecord, RelatedClaimCandidate, RelatedClaimRecord, RetrievedClaim, StoreConfig,
+    StoreError, SupersedeClaimCandidate, ToolCalibrationRecord, TrustedIdentitySelectorEffect,
+    TrustedIdentitySelectorRecord,
 };

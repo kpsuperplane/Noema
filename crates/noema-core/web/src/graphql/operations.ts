@@ -84,6 +84,19 @@ export const TrustedIdentitySettingsDocument = gql`
   }
 `;
 
+export const SaveToolCalibrationDocument = gql`
+  mutation SaveToolCalibration($input: GraphqlSaveToolCalibrationInput!) {
+    saveToolCalibration(input: $input) {
+      calibrationId
+      mcpToolId
+      status
+      readClassification
+      writeClassification
+      exportClassification
+    }
+  }
+`;
+
 export const ProviderAuthAttemptDocument = gql`
   query ProviderAuthAttempt($attemptId: String!) {
     providerAuthAttempt(attemptId: $attemptId) {

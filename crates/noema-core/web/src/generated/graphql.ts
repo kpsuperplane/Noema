@@ -60,6 +60,16 @@ export type GraphqlOnboardingStepStatus =
   /** Step is complete. */
   | 'COMPLETE';
 
+/** Deterministic owner extractor input for MCP ownership resolution. */
+export type GraphqlOwnerExtractorInput = {
+  /** JSON pointer, JSONPath-style path, URI pattern, or adapter key. */
+  path: string;
+  /** Type of trusted identity this extractor returns. */
+  selectorKind: string;
+  /** Source document or field family to inspect. */
+  source: string;
+};
+
 /** Provider account status exposed through GraphQL. */
 export type GraphqlProviderAccountStatus =
   /** Account is authenticated. */
@@ -98,6 +108,32 @@ export type GraphqlProviderAuthMethod =
   | 'OAUTH_DEVICE_CODE'
   /** Secret input flow. */
   | 'SECRET_INPUT';
+
+/** Save reviewed MCP tool calibration. */
+export type GraphqlSaveToolCalibrationInput = {
+  /** Durable calibration id. */
+  calibrationId: string;
+  /** Agents allowed to see/use this calibration. */
+  enabledAgentIds: Array<string>;
+  /** Governable scopes where this calibration is enabled. */
+  enabledScopeIds: Array<string>;
+  /** Effective export classification. */
+  exportClassification: string;
+  /** Calibrated MCP tool id. */
+  mcpToolId: string;
+  /** Deterministic owner extractors configured for this tool. */
+  ownerExtractors?: Array<GraphqlOwnerExtractorInput> | null | undefined;
+  /** Effective read classification. */
+  readClassification: string;
+  /** Actor who reviewed the calibration, when reviewed. */
+  reviewedBy?: string | null | undefined;
+  /** Tool metadata fingerprint reviewed by the actor. */
+  reviewedMetadataFingerprint?: string | null | undefined;
+  /** Review/gateway readiness status. */
+  status: string;
+  /** Effective write classification. */
+  writeClassification: string;
+};
 
 /** Input for sending a conversation turn. */
 export type GraphqlSendConversationTurnInput = {
@@ -159,6 +195,13 @@ export type TrustedIdentitySettingsQueryVariables = Exact<{
 
 
 export type TrustedIdentitySettingsQuery = { trustedIdentitySelectors: Array<{ selectorId: string, ownerScopeId: string, selectorKind: string, normalizedValue: string, effect: string, issuerActorId: string }> };
+
+export type SaveToolCalibrationMutationVariables = Exact<{
+  input: GraphqlSaveToolCalibrationInput;
+}>;
+
+
+export type SaveToolCalibrationMutation = { saveToolCalibration: { calibrationId: string, mcpToolId: string, status: string, readClassification: string, writeClassification: string, exportClassification: string } };
 
 export type ProviderAuthAttemptQueryVariables = Exact<{
   attemptId: string;
@@ -232,6 +275,7 @@ export const ProviderAccountsDocument = {"kind":"Document","definitions":[{"kind
 export const AgentsDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"Agents"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"agents"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"agentId"}},{"kind":"Field","name":{"kind":"Name","value":"displayName"}},{"kind":"Field","name":{"kind":"Name","value":"isPrimary"}}]}}]}}]} as unknown as DocumentNode<AgentsQuery, AgentsQueryVariables>;
 export const McpSettingsDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"McpSettings"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"mcpServers"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"mcpServerId"}},{"kind":"Field","name":{"kind":"Name","value":"displayName"}},{"kind":"Field","name":{"kind":"Name","value":"transportKind"}},{"kind":"Field","name":{"kind":"Name","value":"enabled"}},{"kind":"Field","name":{"kind":"Name","value":"healthStatus"}},{"kind":"Field","name":{"kind":"Name","value":"authStatus"}},{"kind":"Field","name":{"kind":"Name","value":"toolCount"}}]}}]}}]} as unknown as DocumentNode<McpSettingsQuery, McpSettingsQueryVariables>;
 export const TrustedIdentitySettingsDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"TrustedIdentitySettings"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"ownerScopeId"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"String"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"trustedIdentitySelectors"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"ownerScopeId"},"value":{"kind":"Variable","name":{"kind":"Name","value":"ownerScopeId"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"selectorId"}},{"kind":"Field","name":{"kind":"Name","value":"ownerScopeId"}},{"kind":"Field","name":{"kind":"Name","value":"selectorKind"}},{"kind":"Field","name":{"kind":"Name","value":"normalizedValue"}},{"kind":"Field","name":{"kind":"Name","value":"effect"}},{"kind":"Field","name":{"kind":"Name","value":"issuerActorId"}}]}}]}}]} as unknown as DocumentNode<TrustedIdentitySettingsQuery, TrustedIdentitySettingsQueryVariables>;
+export const SaveToolCalibrationDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"SaveToolCalibration"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"input"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"GraphqlSaveToolCalibrationInput"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"saveToolCalibration"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"input"},"value":{"kind":"Variable","name":{"kind":"Name","value":"input"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"calibrationId"}},{"kind":"Field","name":{"kind":"Name","value":"mcpToolId"}},{"kind":"Field","name":{"kind":"Name","value":"status"}},{"kind":"Field","name":{"kind":"Name","value":"readClassification"}},{"kind":"Field","name":{"kind":"Name","value":"writeClassification"}},{"kind":"Field","name":{"kind":"Name","value":"exportClassification"}}]}}]}}]} as unknown as DocumentNode<SaveToolCalibrationMutation, SaveToolCalibrationMutationVariables>;
 export const ProviderAuthAttemptDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"ProviderAuthAttempt"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"attemptId"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"String"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"providerAuthAttempt"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"attemptId"},"value":{"kind":"Variable","name":{"kind":"Name","value":"attemptId"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"attemptId"}},{"kind":"Field","name":{"kind":"Name","value":"providerKind"}},{"kind":"Field","name":{"kind":"Name","value":"providerAccountId"}},{"kind":"Field","name":{"kind":"Name","value":"method"}},{"kind":"Field","name":{"kind":"Name","value":"status"}},{"kind":"Field","name":{"kind":"Name","value":"verificationUrl"}},{"kind":"Field","name":{"kind":"Name","value":"userCode"}},{"kind":"Field","name":{"kind":"Name","value":"instructions"}},{"kind":"Field","name":{"kind":"Name","value":"errorCode"}},{"kind":"Field","name":{"kind":"Name","value":"errorMessage"}}]}}]}}]} as unknown as DocumentNode<ProviderAuthAttemptQuery, ProviderAuthAttemptQueryVariables>;
 export const MemoryGraphDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"MemoryGraph"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"input"}},"type":{"kind":"NamedType","name":{"kind":"Name","value":"GraphqlMemoryGraphInput"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"memoryGraph"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"input"},"value":{"kind":"Variable","name":{"kind":"Name","value":"input"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"nodes"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"nodeId"}},{"kind":"Field","name":{"kind":"Name","value":"entityId"}},{"kind":"Field","name":{"kind":"Name","value":"label"}},{"kind":"Field","name":{"kind":"Name","value":"entityType"}},{"kind":"Field","name":{"kind":"Name","value":"redacted"}},{"kind":"Field","name":{"kind":"Name","value":"claimCount"}}]}},{"kind":"Field","name":{"kind":"Name","value":"edges"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"claimId"}},{"kind":"Field","name":{"kind":"Name","value":"sourceNodeId"}},{"kind":"Field","name":{"kind":"Name","value":"targetNodeId"}},{"kind":"Field","name":{"kind":"Name","value":"predicateId"}},{"kind":"Field","name":{"kind":"Name","value":"predicateLabel"}},{"kind":"Field","name":{"kind":"Name","value":"fact"}},{"kind":"Field","name":{"kind":"Name","value":"factRedacted"}},{"kind":"Field","name":{"kind":"Name","value":"status"}},{"kind":"Field","name":{"kind":"Name","value":"sensitivity"}},{"kind":"Field","name":{"kind":"Name","value":"confidence"}},{"kind":"Field","name":{"kind":"Name","value":"evidenceCount"}},{"kind":"Field","name":{"kind":"Name","value":"createdAt"}},{"kind":"Field","name":{"kind":"Name","value":"updatedAt"}}]}},{"kind":"Field","name":{"kind":"Name","value":"summary"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"returnedClaimCount"}},{"kind":"Field","name":{"kind":"Name","value":"returnedNodeCount"}},{"kind":"Field","name":{"kind":"Name","value":"limit"}},{"kind":"Field","name":{"kind":"Name","value":"truncated"}}]}}]}}]}}]} as unknown as DocumentNode<MemoryGraphQuery, MemoryGraphQueryVariables>;
 export const MemoryGraphClaimDetailDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"MemoryGraphClaimDetail"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"claimId"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"String"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"memoryClaim"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"claimId"},"value":{"kind":"Variable","name":{"kind":"Name","value":"claimId"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"claimId"}},{"kind":"Field","name":{"kind":"Name","value":"fact"}},{"kind":"Field","name":{"kind":"Name","value":"predicateId"}},{"kind":"Field","name":{"kind":"Name","value":"predicateLabel"}},{"kind":"Field","name":{"kind":"Name","value":"subjectEntityId"}},{"kind":"Field","name":{"kind":"Name","value":"subjectEntityName"}},{"kind":"Field","name":{"kind":"Name","value":"subjectEntityType"}},{"kind":"Field","name":{"kind":"Name","value":"objectEntityId"}},{"kind":"Field","name":{"kind":"Name","value":"objectEntityName"}},{"kind":"Field","name":{"kind":"Name","value":"objectEntityType"}},{"kind":"Field","name":{"kind":"Name","value":"status"}},{"kind":"Field","name":{"kind":"Name","value":"sensitivity"}},{"kind":"Field","name":{"kind":"Name","value":"confidence"}},{"kind":"Field","name":{"kind":"Name","value":"evidenceCount"}},{"kind":"Field","name":{"kind":"Name","value":"createdAt"}},{"kind":"Field","name":{"kind":"Name","value":"updatedAt"}},{"kind":"Field","name":{"kind":"Name","value":"evidence"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"evidenceId"}},{"kind":"Field","name":{"kind":"Name","value":"sourceItemId"}},{"kind":"Field","name":{"kind":"Name","value":"authority"}},{"kind":"Field","name":{"kind":"Name","value":"excerpt"}},{"kind":"Field","name":{"kind":"Name","value":"observedAt"}},{"kind":"Field","name":{"kind":"Name","value":"createdAt"}}]}}]}}]}}]} as unknown as DocumentNode<MemoryGraphClaimDetailQuery, MemoryGraphClaimDetailQueryVariables>;

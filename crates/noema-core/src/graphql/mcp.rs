@@ -1,7 +1,9 @@
-use async_graphql::{Result, SimpleObject};
+use async_graphql::{InputObject, Result, SimpleObject};
 
 use crate::{
-    McpServerAuthStatus, McpServerHealthStatus, McpServerRecord, TrustedIdentitySelectorEffect,
+    McpCalibrationStatus, McpServerAuthStatus, McpServerHealthStatus, McpServerRecord,
+    McpTrustClassification, NewToolCalibration, OwnerExtractor, OwnerExtractorSource,
+    ToolCalibrationRecord, TrustedIdentitySelectorEffect, TrustedIdentitySelectorKind,
     TrustedIdentitySelectorRecord,
 };
 
@@ -38,6 +40,74 @@ impl From<McpServerRecord> for GraphqlMcpServer {
             tool_count: server.tool_count,
         }
     }
+}
+
+/// MCP tool calibration safe to show in Settings.
+#[derive(Clone, Debug, SimpleObject)]
+pub struct GraphqlToolCalibration {
+    /// Durable calibration id.
+    pub calibration_id: String,
+    /// Calibrated MCP tool id.
+    pub mcp_tool_id: String,
+    /// Effective read classification.
+    pub read_classification: String,
+    /// Effective write classification.
+    pub write_classification: String,
+    /// Effective export classification.
+    pub export_classification: String,
+    /// Review/gateway readiness status.
+    pub status: String,
+}
+
+impl From<ToolCalibrationRecord> for GraphqlToolCalibration {
+    fn from(calibration: ToolCalibrationRecord) -> Self {
+        Self {
+            calibration_id: calibration.calibration_id,
+            mcp_tool_id: calibration.mcp_tool_id,
+            read_classification: calibration.read_classification.as_str().to_string(),
+            write_classification: calibration.write_classification.as_str().to_string(),
+            export_classification: calibration.export_classification.as_str().to_string(),
+            status: calibration.status.as_str().to_string(),
+        }
+    }
+}
+
+/// Save reviewed MCP tool calibration.
+#[derive(Clone, Debug, InputObject)]
+pub struct GraphqlSaveToolCalibrationInput {
+    /// Durable calibration id.
+    pub calibration_id: String,
+    /// Calibrated MCP tool id.
+    pub mcp_tool_id: String,
+    /// Effective read classification.
+    pub read_classification: String,
+    /// Effective write classification.
+    pub write_classification: String,
+    /// Effective export classification.
+    pub export_classification: String,
+    /// Deterministic owner extractors configured for this tool.
+    pub owner_extractors: Option<Vec<GraphqlOwnerExtractorInput>>,
+    /// Agents allowed to see/use this calibration.
+    pub enabled_agent_ids: Vec<String>,
+    /// Governable scopes where this calibration is enabled.
+    pub enabled_scope_ids: Vec<String>,
+    /// Review/gateway readiness status.
+    pub status: String,
+    /// Actor who reviewed the calibration, when reviewed.
+    pub reviewed_by: Option<String>,
+    /// Tool metadata fingerprint reviewed by the actor.
+    pub reviewed_metadata_fingerprint: Option<String>,
+}
+
+/// Deterministic owner extractor input for MCP ownership resolution.
+#[derive(Clone, Debug, InputObject)]
+pub struct GraphqlOwnerExtractorInput {
+    /// Source document or field family to inspect.
+    pub source: String,
+    /// Type of trusted identity this extractor returns.
+    pub selector_kind: String,
+    /// JSON pointer, JSONPath-style path, URI pattern, or adapter key.
+    pub path: String,
 }
 
 /// Trusted identity selector metadata safe to show in Settings.
@@ -110,4 +180,107 @@ pub(super) async fn trusted_identity_selectors(
         .await
         .map_err(graphql_error)?;
     Ok(selectors.into_iter().map(Into::into).collect())
+}
+
+pub(super) async fn save_tool_calibration(
+    state: &GraphqlState,
+    input: GraphqlSaveToolCalibrationInput,
+) -> Result<GraphqlToolCalibration> {
+    let read_classification =
+        parse_graphql_trust_classification(&input.read_classification, "readClassification")?;
+    let write_classification =
+        parse_graphql_trust_classification(&input.write_classification, "writeClassification")?;
+    let export_classification =
+        parse_graphql_trust_classification(&input.export_classification, "exportClassification")?;
+    let status = parse_graphql_calibration_status(&input.status)?;
+    let owner_extractors = input
+        .owner_extractors
+        .unwrap_or_default()
+        .into_iter()
+        .map(parse_graphql_owner_extractor)
+        .collect::<Result<Vec<_>>>()?;
+
+    let store = state.store()?;
+    let calibration = store
+        .save_tool_calibration(NewToolCalibration {
+            calibration_id: input.calibration_id,
+            mcp_tool_id: input.mcp_tool_id,
+            read_classification,
+            write_classification,
+            export_classification,
+            owner_extractors,
+            enabled_agent_ids: input.enabled_agent_ids,
+            enabled_scope_ids: input.enabled_scope_ids,
+            status,
+            reviewed_by: input.reviewed_by,
+            reviewed_metadata_fingerprint: input.reviewed_metadata_fingerprint,
+        })
+        .await
+        .map_err(graphql_error)?;
+    Ok(calibration.into())
+}
+
+fn parse_graphql_trust_classification(
+    value: &str,
+    field_name: &'static str,
+) -> Result<McpTrustClassification> {
+    match value {
+        "none" => Ok(McpTrustClassification::None),
+        "trusted" => Ok(McpTrustClassification::Trusted),
+        "untrusted" => Ok(McpTrustClassification::Untrusted),
+        "mixed" => Ok(McpTrustClassification::Mixed),
+        _ => Err(graphql_error(format!(
+            "invalid {field_name}: expected one of none, trusted, untrusted, mixed"
+        ))),
+    }
+}
+
+fn parse_graphql_calibration_status(value: &str) -> Result<McpCalibrationStatus> {
+    match value {
+        "needs_review" => Ok(McpCalibrationStatus::NeedsReview),
+        "blocked_unresolved_ownership" => Ok(McpCalibrationStatus::BlockedUnresolvedOwnership),
+        "ready" => Ok(McpCalibrationStatus::Ready),
+        "disabled" => Ok(McpCalibrationStatus::Disabled),
+        _ => Err(graphql_error(
+            "invalid status: expected one of needs_review, blocked_unresolved_ownership, ready, disabled",
+        )),
+    }
+}
+
+fn parse_graphql_owner_extractor(input: GraphqlOwnerExtractorInput) -> Result<OwnerExtractor> {
+    if input.path.is_empty() {
+        return Err(graphql_error(
+            "invalid owner extractor path: cannot be empty",
+        ));
+    }
+
+    Ok(OwnerExtractor {
+        source: parse_graphql_owner_extractor_source(&input.source)?,
+        selector_kind: parse_graphql_selector_kind(&input.selector_kind)?,
+        path: input.path,
+    })
+}
+
+fn parse_graphql_owner_extractor_source(value: &str) -> Result<OwnerExtractorSource> {
+    match value {
+        "arguments" => Ok(OwnerExtractorSource::Arguments),
+        "structured_content" => Ok(OwnerExtractorSource::StructuredContent),
+        "metadata" => Ok(OwnerExtractorSource::Metadata),
+        "resource_uri" => Ok(OwnerExtractorSource::ResourceUri),
+        "built_in_adapter" => Ok(OwnerExtractorSource::BuiltInAdapter),
+        _ => Err(graphql_error(
+            "invalid owner extractor source: expected one of arguments, structured_content, metadata, resource_uri, built_in_adapter",
+        )),
+    }
+}
+
+fn parse_graphql_selector_kind(value: &str) -> Result<TrustedIdentitySelectorKind> {
+    match value {
+        "email" => Ok(TrustedIdentitySelectorKind::Email),
+        "phone" => Ok(TrustedIdentitySelectorKind::Phone),
+        "domain" => Ok(TrustedIdentitySelectorKind::Domain),
+        _ => Err(graphql_error(
+            "invalid owner extractor selectorKind: expected one of email, phone, domain",
+        )),
+    }
 }
