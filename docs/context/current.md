@@ -275,7 +275,12 @@ The next storage slice should stay small and concrete:
   Noema. Primary chat continuity is owned by Noema's human primary conversation
   and no longer forks when the agent switches providers. A live GraphQL probe
   against the dev daemon on July 1, 2026 returned an assistant response through
-  `foundation_local`.
+  `foundation_local`. The next context-window slice is planned in
+  `docs/superpowers/specs/2026-07-01-context-compaction-design.md` and
+  `docs/superpowers/plans/2026-07-01-context-compaction.md`: use durable,
+  inspectable rolling compaction checkpoints so small-context providers such as
+  Foundation Local can resume without constantly trimming transcript text and
+  breaking prompt caching.
 
 ## Open Loops
 
