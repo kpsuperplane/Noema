@@ -101,7 +101,7 @@ pub use provider::adapters::{
 };
 pub use provider::{
     GenerateInput, GenerateOptions, GenerateOutputItem, GenerateRequest, GenerateResponse,
-    ModelProvider, ProviderError, TokenUsage,
+    ModelProvider, ProviderContextMetadata, ProviderError, TokenUsage,
 };
 pub use runtime_host::{NoemaRuntimeHost, RuntimeHostError};
 pub use store::{

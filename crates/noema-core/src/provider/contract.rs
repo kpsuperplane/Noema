@@ -30,6 +30,25 @@ pub trait ModelProvider: Send + Sync {
         Some(DEFAULT_TOOL_CLASSIFICATION_MODEL.to_string())
     }
 
+    /// Return provider/model context-window metadata used for prompt planning.
+    fn context_metadata(&self, _model: Option<&str>) -> ProviderContextMetadata {
+        ProviderContextMetadata::default()
+    }
+
+    /// Count request tokens when the provider has an authoritative tokenizer.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ProviderError`] when provider token counting fails.
+    fn count_tokens(
+        &self,
+        _instructions: Option<&str>,
+        _input: &str,
+        _model: Option<&str>,
+    ) -> impl Future<Output = Result<Option<u32>, ProviderError>> + Send {
+        async { Ok(None) }
+    }
+
     /// Generate a response while optionally emitting ephemeral stream events.
     fn generate_streaming<'a>(
         &'a self,
@@ -41,6 +60,17 @@ pub trait ModelProvider: Send + Sync {
             self.generate(request).await
         }
     }
+}
+
+/// Provider/model context-window metadata for prompt planning.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ProviderContextMetadata {
+    /// Maximum context window in tokens, if known.
+    pub context_window_tokens: Option<u32>,
+    /// Default output reserve for requests to this model.
+    pub default_output_reserve_tokens: Option<u32>,
+    /// Target summary size for compaction prompts.
+    pub compact_summary_target_tokens: Option<u32>,
 }
 
 /// Input and options for a provider generation call.
@@ -525,6 +555,19 @@ mod tests {
 
         assert_eq!(response.assistant_text(), "hello stream");
         assert_eq!(events, Vec::<GenerateStreamEvent>::new());
+    }
+
+    #[test]
+    fn default_provider_context_metadata_is_unknown() {
+        let provider = EchoProvider;
+
+        assert_eq!(provider.context_metadata(None).context_window_tokens, None);
+        assert_eq!(
+            provider
+                .context_metadata(Some("mock"))
+                .default_output_reserve_tokens,
+            None
+        );
     }
 
     #[test]

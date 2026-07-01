@@ -6,7 +6,8 @@ use crate::{
     config::DEFAULT_FOUNDATION_LOCAL_PROFILE,
     provider::adapters::codex_responses::{CodexProviderConfig, CodexResponsesProvider},
     provider::{
-        GenerateRequest, GenerateResponse, GenerateStreamEvent, ModelProvider, ProviderError,
+        GenerateRequest, GenerateResponse, GenerateStreamEvent, ModelProvider,
+        ProviderContextMetadata, ProviderError,
     },
 };
 use tokio::sync::{mpsc, oneshot};
@@ -17,6 +18,20 @@ use crate::daemon::protocol::{DaemonError, StartedConversation, TurnStreamEvent}
 pub(crate) trait RuntimeModelProvider: std::fmt::Debug + Send + Sync {
     fn default_tool_classification_model(&self) -> Option<String> {
         None
+    }
+
+    fn context_metadata(&self, _model: Option<&str>) -> ProviderContextMetadata {
+        ProviderContextMetadata::default()
+    }
+
+    fn count_tokens<'a>(
+        &'a self,
+        instructions: Option<&'a str>,
+        input: &'a str,
+        model: Option<&'a str>,
+    ) -> Pin<Box<dyn Future<Output = Result<Option<u32>, ProviderError>> + Send + 'a>> {
+        let _ = (instructions, input, model);
+        Box::pin(async { Ok(None) })
     }
 
     fn generate_streaming<'a>(
@@ -32,6 +47,19 @@ where
 {
     fn default_tool_classification_model(&self) -> Option<String> {
         ModelProvider::default_tool_classification_model(self)
+    }
+
+    fn context_metadata(&self, model: Option<&str>) -> ProviderContextMetadata {
+        ModelProvider::context_metadata(self, model)
+    }
+
+    fn count_tokens<'a>(
+        &'a self,
+        instructions: Option<&'a str>,
+        input: &'a str,
+        model: Option<&'a str>,
+    ) -> Pin<Box<dyn Future<Output = Result<Option<u32>, ProviderError>> + Send + 'a>> {
+        Box::pin(async move { ModelProvider::count_tokens(self, instructions, input, model).await })
     }
 
     fn generate_streaming<'a>(

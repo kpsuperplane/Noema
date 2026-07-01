@@ -125,12 +125,41 @@ impl FoundationBridgeProcess {
         model_profile: String,
         instructions: Option<String>,
         input: String,
+        max_output_tokens: Option<u32>,
         on_delta: &mut (dyn FnMut(String) + Send),
     ) -> Result<String, FoundationBridgeError> {
         let session_id = self
             .create_session(conversation_id, model_profile, instructions)
             .await?;
-        self.generate_in_session(session_id, input, on_delta).await
+        self.generate_in_session(session_id, input, max_output_tokens, on_delta)
+            .await
+    }
+
+    /// Count prompt tokens through the bridge.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`FoundationBridgeError`] when token counting fails.
+    pub async fn count_tokens(
+        &mut self,
+        instructions: Option<String>,
+        input: String,
+    ) -> Result<u32, FoundationBridgeError> {
+        let response = self
+            .send_request(BridgeRequest {
+                id: "count_tokens".to_string(),
+                payload: BridgeRequestPayload::CountTokens {
+                    instructions,
+                    input,
+                },
+            })
+            .await?;
+        match response.payload {
+            BridgeResponsePayload::TokenCount { tokens } => Ok(tokens),
+            payload => Err(FoundationBridgeError::BridgeProtocol(format!(
+                "unexpected token count response {payload:?}"
+            ))),
+        }
     }
 
     async fn handshake(&mut self) -> Result<(), FoundationBridgeError> {
@@ -212,12 +241,17 @@ impl FoundationBridgeProcess {
         &mut self,
         session_id: String,
         input: String,
+        max_output_tokens: Option<u32>,
         on_delta: &mut (dyn FnMut(String) + Send),
     ) -> Result<String, FoundationBridgeError> {
         let request_id = "generate".to_string();
         let request = BridgeRequest {
             id: request_id.clone(),
-            payload: BridgeRequestPayload::Generate { session_id, input },
+            payload: BridgeRequestPayload::Generate {
+                session_id,
+                input,
+                max_output_tokens,
+            },
         };
         self.write_request(&request).await?;
 
@@ -454,6 +488,7 @@ done
                 "default".to_string(),
                 Some("be concise".to_string()),
                 "hello".to_string(),
+                None,
                 &mut |delta| deltas.push(delta),
             )
             .await
@@ -492,6 +527,7 @@ done
                 "default".to_string(),
                 None,
                 "hello".to_string(),
+                None,
                 &mut |_| {},
             )
             .await

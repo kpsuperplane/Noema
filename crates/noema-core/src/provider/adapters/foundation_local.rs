@@ -5,7 +5,7 @@ use crate::{
     FoundationLocalProviderConfig,
     provider::{
         GenerateInput, GenerateRequest, GenerateResponse, GenerateStreamEvent, ModelProvider,
-        ProviderError,
+        ProviderContextMetadata, ProviderError,
     },
 };
 
@@ -15,6 +15,12 @@ use super::foundation_bridge_process::{
 
 /// Provider identifier for Apple Foundation Models.
 pub const FOUNDATION_LOCAL_PROVIDER: &str = "foundation_local";
+/// Apple Foundation Models system context window.
+pub const FOUNDATION_LOCAL_CONTEXT_WINDOW_TOKENS: u32 = 4_096;
+/// Default response reserve for Foundation Local prompts.
+pub const FOUNDATION_LOCAL_DEFAULT_OUTPUT_RESERVE_TOKENS: u32 = 512;
+/// Default compact summary target for Foundation Local.
+pub const FOUNDATION_LOCAL_COMPACT_SUMMARY_TARGET_TOKENS: u32 = 512;
 
 /// Apple Foundation Models provider facade.
 #[derive(Debug, Clone)]
@@ -126,6 +132,31 @@ impl ModelProvider for FoundationLocalProvider {
         self.generate_streaming(request, &mut ignore_event).await
     }
 
+    fn context_metadata(&self, _model: Option<&str>) -> ProviderContextMetadata {
+        ProviderContextMetadata {
+            context_window_tokens: Some(FOUNDATION_LOCAL_CONTEXT_WINDOW_TOKENS),
+            default_output_reserve_tokens: Some(FOUNDATION_LOCAL_DEFAULT_OUTPUT_RESERVE_TOKENS),
+            compact_summary_target_tokens: Some(FOUNDATION_LOCAL_COMPACT_SUMMARY_TARGET_TOKENS),
+        }
+    }
+
+    async fn count_tokens(
+        &self,
+        instructions: Option<&str>,
+        input: &str,
+        _model: Option<&str>,
+    ) -> Result<Option<u32>, ProviderError> {
+        let mut bridge = self.start_bridge().await?;
+        let tokens = bridge
+            .count_tokens(instructions.map(str::to_string), input.to_string())
+            .await
+            .map_err(|error| ProviderError::ProviderUnavailable {
+                provider: FOUNDATION_LOCAL_PROVIDER.to_string(),
+                message: format!("Apple Foundation Models bridge token count failed: {error}"),
+            })?;
+        Ok(Some(tokens))
+    }
+
     async fn generate_streaming<'a>(
         &'a self,
         request: GenerateRequest,
@@ -144,6 +175,7 @@ impl ModelProvider for FoundationLocalProvider {
                 model.clone(),
                 request.instructions,
                 text,
+                request.options.max_output_tokens,
                 &mut relay_delta,
             )
             .await
@@ -195,6 +227,20 @@ mod tests {
             !message.contains("bridge path is not configured"),
             "provider should report bridge launch/materialization errors directly: {message}"
         );
+    }
+
+    #[test]
+    fn foundation_local_advertises_context_window_metadata() {
+        let provider = FoundationLocalProvider::new(FoundationLocalProviderConfig {
+            default_profile: "default".to_string(),
+            bridge_path: None,
+        })
+        .expect("provider");
+
+        let metadata = provider.context_metadata(Some("default"));
+
+        assert_eq!(metadata.context_window_tokens, Some(4_096));
+        assert_eq!(metadata.default_output_reserve_tokens, Some(512));
     }
 
     #[test]

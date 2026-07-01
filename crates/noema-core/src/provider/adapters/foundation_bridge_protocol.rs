@@ -45,6 +45,16 @@ pub enum BridgeRequestPayload {
         session_id: String,
         /// User input text.
         input: String,
+        /// Optional maximum response tokens.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max_output_tokens: Option<u32>,
+    },
+    /// Count tokens for instructions and input.
+    CountTokens {
+        /// Optional instructions.
+        instructions: Option<String>,
+        /// User input text.
+        input: String,
     },
     /// Cancel an in-flight request.
     Cancel {
@@ -123,6 +133,11 @@ pub enum BridgeResponsePayload {
         /// Complete text.
         text: String,
     },
+    /// Token count completed.
+    TokenCount {
+        /// Total tokens counted by the bridge.
+        tokens: u32,
+    },
     /// Request failed.
     Error {
         /// Stable safe error code.
@@ -163,6 +178,58 @@ mod tests {
             value["payload"]["protocol_version"],
             BRIDGE_PROTOCOL_VERSION
         );
+    }
+
+    #[test]
+    fn count_tokens_request_serializes() {
+        let message = BridgeRequest {
+            id: "request-count".to_string(),
+            payload: BridgeRequestPayload::CountTokens {
+                instructions: Some("system".to_string()),
+                input: "hello".to_string(),
+            },
+        };
+
+        let value = serde_json::to_value(&message).expect("json");
+
+        assert_eq!(value["payload"]["type"], "count_tokens");
+        assert_eq!(value["payload"]["instructions"], "system");
+        assert_eq!(value["payload"]["input"], "hello");
+    }
+
+    #[test]
+    fn generate_request_includes_optional_max_output_tokens() {
+        let message = BridgeRequest {
+            id: "request-generate".to_string(),
+            payload: BridgeRequestPayload::Generate {
+                session_id: "session:1".to_string(),
+                input: "hello".to_string(),
+                max_output_tokens: Some(256),
+            },
+        };
+
+        let value = serde_json::to_value(&message).expect("json");
+
+        assert_eq!(value["payload"]["type"], "generate");
+        assert_eq!(value["payload"]["max_output_tokens"], 256);
+    }
+
+    #[test]
+    fn token_count_response_parses() {
+        let value = json!({
+            "id": "request-count",
+            "payload": {
+                "type": "token_count",
+                "tokens": 42
+            }
+        });
+
+        let response: BridgeResponse = serde_json::from_value(value).expect("response");
+
+        assert!(matches!(
+            response.payload,
+            BridgeResponsePayload::TokenCount { tokens } if tokens == 42
+        ));
     }
 
     #[test]
