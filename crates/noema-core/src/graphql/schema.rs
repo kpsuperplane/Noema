@@ -773,10 +773,25 @@ mod tests {
 
         let store = test_store().await;
         store.ensure_default_actors().await.expect("actors");
-        store
+        let codex = store
             .ensure_default_provider_account()
             .await
             .expect("codex account");
+        store
+            .update_provider_account_metadata(
+                &codex.provider_account_id,
+                serde_json::json!({
+                    "profiles": [
+                        { "id": "gpt-5.5", "label": "GPT-5.5" },
+                        { "id": "gpt-5.4", "label": "GPT-5.4" },
+                        { "id": "gpt-5.4-mini", "label": "GPT-5.4-Mini" },
+                        { "id": "gpt-5.3-codex-spark", "label": "GPT-5.3-Codex-Spark" }
+                    ],
+                    "models_source": "codex_models_endpoint"
+                }),
+            )
+            .await
+            .expect("codex metadata");
         let foundation = store
             .ensure_default_foundation_local_provider_account()
             .await
@@ -831,11 +846,59 @@ mod tests {
             .iter()
             .map(|profile| profile["id"].as_str().expect("profile id"))
             .collect();
-        assert_eq!(codex_profile_ids, ["gpt-5.5", "gpt-5.4-mini"]);
+        assert_eq!(
+            codex_profile_ids,
+            ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex-spark"]
+        );
         assert_eq!(agent["modelOptions"][1]["providerKind"], "foundation_local");
         assert_eq!(
             agent["modelOptions"][1]["profiles"][0]["label"],
             "Default on-device"
+        );
+    }
+
+    #[tokio::test]
+    async fn agents_query_does_not_invent_remote_model_profiles() {
+        use crate::store::tests::test_store;
+
+        let store = test_store().await;
+        store.ensure_default_actors().await.expect("actors");
+        store
+            .ensure_default_provider_account()
+            .await
+            .expect("codex account");
+
+        let schema = build_schema(GraphqlState::for_tests_with_store(store));
+        let response = schema
+            .execute(async_graphql::Request::new(
+                r#"
+                {
+                  agents {
+                    modelOptions {
+                      providerKind
+                      profiles {
+                        id
+                      }
+                    }
+                  }
+                }
+                "#,
+            ))
+            .await;
+
+        assert!(response.errors.is_empty(), "{:?}", response.errors);
+        let data = response.data.into_json().expect("json");
+        let codex_option = data["agents"][0]["modelOptions"]
+            .as_array()
+            .expect("options")
+            .iter()
+            .find(|option| option["providerKind"] == "codex")
+            .expect("codex option");
+        assert!(
+            codex_option["profiles"]
+                .as_array()
+                .expect("codex profiles")
+                .is_empty()
         );
     }
 
@@ -849,6 +912,15 @@ mod tests {
             .ensure_default_foundation_local_provider_account()
             .await
             .expect("foundation account");
+        store
+            .update_provider_account_status(
+                &foundation.provider_account_id,
+                crate::ProviderAccountStatus::Authenticated,
+                None,
+                None,
+            )
+            .await
+            .expect("foundation available");
 
         let schema = build_schema(GraphqlState::for_tests_with_store(store.clone()));
         let response = schema
@@ -1020,6 +1092,96 @@ mod tests {
             !serde_json::to_string(foundation_option)
                 .expect("json text")
                 .contains("abc123")
+        );
+    }
+
+    #[tokio::test]
+    async fn agents_query_disables_unknown_foundation_local_provider() {
+        use crate::store::tests::test_store;
+
+        let store = test_store().await;
+        store.ensure_default_actors().await.expect("actors");
+        store
+            .ensure_default_provider_account()
+            .await
+            .expect("codex account");
+        store
+            .ensure_default_foundation_local_provider_account()
+            .await
+            .expect("foundation account");
+
+        let schema = build_schema(GraphqlState::for_tests_with_store(store));
+        let response = schema
+            .execute(async_graphql::Request::new(
+                r#"
+                {
+                  agents {
+                    modelOptions {
+                      providerKind
+                      disabledReason
+                      profiles {
+                        id
+                        disabledReason
+                      }
+                    }
+                  }
+                }
+                "#,
+            ))
+            .await;
+
+        assert!(response.errors.is_empty(), "{:?}", response.errors);
+        let data = response.data.into_json().expect("json");
+        let foundation_option = data["agents"][0]["modelOptions"]
+            .as_array()
+            .expect("options")
+            .iter()
+            .find(|option| option["providerKind"] == "foundation_local")
+            .expect("foundation option");
+        assert_eq!(
+            foundation_option["disabledReason"],
+            "Apple Foundation Models availability has not been checked."
+        );
+        assert_eq!(
+            foundation_option["profiles"][0]["disabledReason"],
+            "Apple Foundation Models availability has not been checked."
+        );
+    }
+
+    #[tokio::test]
+    async fn save_agent_model_preference_rejects_unknown_foundation_local_provider() {
+        use crate::store::tests::test_store;
+
+        let store = test_store().await;
+        store.ensure_default_actors().await.expect("actors");
+        let foundation = store
+            .ensure_default_foundation_local_provider_account()
+            .await
+            .expect("foundation account");
+
+        let schema = build_schema(GraphqlState::for_tests_with_store(store));
+        let response = schema
+            .execute(async_graphql::Request::new(format!(
+                r#"
+                mutation {{
+                  saveAgentModelPreference(input: {{
+                    agentId: "agent:primary"
+                    providerAccountId: "{}"
+                    modelProfile: "default"
+                  }}) {{
+                    providerKind
+                  }}
+                }}
+                "#,
+                foundation.provider_account_id
+            )))
+            .await;
+
+        assert!(
+            response.errors.iter().any(|error| error.message
+                == "Apple Foundation Models availability has not been checked."),
+            "{:?}",
+            response.errors
         );
     }
 

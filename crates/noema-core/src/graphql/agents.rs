@@ -3,9 +3,7 @@ use serde_json::Value;
 
 use crate::{
     AgentRecord, AgentRuntimePreferenceRecord, NewAgentRuntimePreference, ProviderAccountRecord,
-    ProviderAccountStatus,
-    config::DEFAULT_OPENAI_MODEL,
-    provider::{DEFAULT_TOOL_CLASSIFICATION_MODEL, adapters::codex_responses::DEFAULT_CODEX_MODEL},
+    ProviderAccountStatus, provider::model_catalog::refresh_provider_model_profiles,
 };
 
 use super::{errors::graphql_error, schema::GraphqlState};
@@ -104,7 +102,12 @@ impl GraphqlAgent {
 pub(super) async fn agents(state: &GraphqlState) -> Result<Vec<GraphqlAgent>> {
     let store = state.store()?;
     let agents = store.list_agents().await.map_err(graphql_error)?;
-    let accounts = store
+    let mut accounts = store
+        .active_default_provider_accounts()
+        .await
+        .map_err(graphql_error)?;
+    refresh_missing_model_profiles(state, store, &accounts).await;
+    accounts = store
         .active_default_provider_accounts()
         .await
         .map_err(graphql_error)?;
@@ -117,6 +120,19 @@ pub(super) async fn agents(state: &GraphqlState) -> Result<Vec<GraphqlAgent>> {
         output.push(GraphqlAgent::from_parts(agent, preference, &accounts));
     }
     Ok(output)
+}
+
+async fn refresh_missing_model_profiles(
+    state: &GraphqlState,
+    store: &crate::NoemaStore,
+    accounts: &[ProviderAccountRecord],
+) {
+    let Ok(paths) = state.paths() else {
+        return;
+    };
+    for account in accounts {
+        let _ = refresh_provider_model_profiles(store, paths, account).await;
+    }
 }
 
 pub(super) async fn save_agent_model_preference(
@@ -177,7 +193,9 @@ fn option_from_account(account: &ProviderAccountRecord) -> GraphqlAgentModelProv
 fn provider_disabled_reason(account: &ProviderAccountRecord) -> Option<String> {
     match account.status {
         ProviderAccountStatus::Authenticated => None,
-        ProviderAccountStatus::Unknown if account.provider_kind == "foundation_local" => None,
+        ProviderAccountStatus::Unknown if account.provider_kind == "foundation_local" => {
+            Some("Apple Foundation Models availability has not been checked.".to_string())
+        }
         ProviderAccountStatus::Unknown => Some("Provider status has not been checked.".to_string()),
         ProviderAccountStatus::Checking => Some("Provider status is still checking.".to_string()),
         ProviderAccountStatus::Unauthenticated => {
@@ -209,26 +227,6 @@ fn profiles_from_account(
     }
     match account.provider_kind.as_str() {
         "foundation_local" => profile_options(&[("default", "Default on-device")], disabled_reason),
-        "codex" => profile_options(
-            &[
-                (DEFAULT_CODEX_MODEL, DEFAULT_CODEX_MODEL),
-                (
-                    DEFAULT_TOOL_CLASSIFICATION_MODEL,
-                    DEFAULT_TOOL_CLASSIFICATION_MODEL,
-                ),
-            ],
-            disabled_reason,
-        ),
-        "openai" => profile_options(
-            &[
-                (DEFAULT_OPENAI_MODEL, DEFAULT_OPENAI_MODEL),
-                (
-                    DEFAULT_TOOL_CLASSIFICATION_MODEL,
-                    DEFAULT_TOOL_CLASSIFICATION_MODEL,
-                ),
-            ],
-            disabled_reason,
-        ),
         _ => Vec::new(),
     }
 }

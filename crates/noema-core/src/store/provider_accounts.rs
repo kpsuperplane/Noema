@@ -253,6 +253,42 @@ impl NoemaStore {
             .check()?;
         Ok(())
     }
+
+    /// Replace safe non-secret provider account metadata.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when the account is missing or the embedded store
+    /// write fails.
+    pub async fn update_provider_account_metadata(
+        &self,
+        provider_account_id: &str,
+        metadata: Value,
+    ) -> Result<(), StoreError> {
+        if self
+            .get_provider_account(provider_account_id)
+            .await?
+            .is_none()
+        {
+            return Err(StoreError::ProviderAccountNotFound {
+                provider_account_id: provider_account_id.to_string(),
+            });
+        }
+        self.db
+            .query(
+                r#"
+                UPDATE provider_accounts SET
+                  metadata = $metadata,
+                  updated_at = time::now()
+                WHERE provider_account_id = $provider_account_id;
+                "#,
+            )
+            .bind(("provider_account_id", provider_account_id.to_string()))
+            .bind(("metadata", metadata))
+            .await?
+            .check()?;
+        Ok(())
+    }
 }
 
 #[derive(Debug, Deserialize, SurrealValue)]

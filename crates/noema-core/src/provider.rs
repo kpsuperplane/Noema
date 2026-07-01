@@ -12,6 +12,8 @@ pub mod adapters;
 pub mod auth;
 /// Provider-neutral generation request and response types.
 pub mod contract;
+/// Provider model/profile catalog refresh helpers.
+pub mod model_catalog;
 
 pub use contract::{
     DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateInput, GenerateOptions, GenerateOutputItem,
