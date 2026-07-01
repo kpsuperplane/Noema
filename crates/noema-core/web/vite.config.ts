@@ -3,8 +3,28 @@ import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
+const stylexPlugin = [
+  "@stylexjs/babel-plugin",
+  {
+    dev: process.env.NODE_ENV !== "production",
+    runtimeInjection: true,
+    treeshakeCompensation: true,
+    unstable_moduleResolution: {
+      type: "commonJS",
+      rootDir: __dirname
+    }
+  }
+];
+
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [
+    react({
+      babel: {
+        plugins: [stylexPlugin]
+      }
+    }),
+    tailwindcss()
+  ],
   base: "/assets/",
   publicDir: "public",
   resolve: {

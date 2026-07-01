@@ -1,6 +1,10 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
+@import "@astryxdesign/core/reset.css";
+@import "@astryxdesign/core/astryx.css";
+@import "@astryxdesign/theme-neutral/theme.css";
+@import "./theme/noema-neutral.css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -32,66 +36,6 @@
   --radius-2xl: calc(var(--radius) * 1.8);
   --radius-3xl: calc(var(--radius) * 2.2);
   --radius-4xl: calc(var(--radius) * 2.6);
-}
-
-:root {
-  --paper-50: #fcfaf5;
-  --paper-100: #f7f2e8;
-  --paper-200: #efe7d7;
-  --ink-900: #17160f;
-  --ink-600: #5e5a4b;
-  --ink-500: #827d6b;
-  --ink-400: #a8a38e;
-  --pure-white: #ffffff;
-  --pine-50: #e9f2ec;
-  --pine-100: #c9e4d6;
-  --pine-500: #1f7a57;
-  --pine-600: #176046;
-  --pine-700: #114a37;
-  --clay-50: #fbede3;
-  --clay-600: #bc4e2b;
-  --red-100: #f8dbd3;
-  --red-700: #8f2a1c;
-  --blue-100: #d7e8ef;
-  --blue-700: #1d4a60;
-  --surface-page: #ffffff;
-  --surface-card: #ffffff;
-  --surface-sunken: var(--paper-100);
-  --surface-hover: rgba(23, 22, 15, 0.04);
-  --border-subtle: rgba(23, 22, 15, 0.08);
-  --border-default: rgba(23, 22, 15, 0.14);
-  --text-primary: var(--ink-900);
-  --text-secondary: var(--ink-600);
-  --text-muted: var(--ink-500);
-  --text-faint: var(--ink-400);
-  --text-accent: var(--clay-600);
-  --radius: 0.625rem;
-  --background: var(--surface-page);
-  --foreground: var(--text-primary);
-  --card: var(--surface-card);
-  --card-foreground: var(--text-primary);
-  --popover: var(--surface-card);
-  --popover-foreground: var(--text-primary);
-  --primary: var(--pine-500);
-  --primary-foreground: var(--paper-50);
-  --secondary: var(--paper-100);
-  --secondary-foreground: var(--text-primary);
-  --muted: var(--paper-100);
-  --muted-foreground: var(--text-muted);
-  --accent: var(--paper-100);
-  --accent-foreground: var(--text-primary);
-  --destructive: var(--red-700);
-  --border: var(--border-default);
-  --input: var(--paper-100);
-  --ring: var(--pine-500);
-  --font-display: "Bricolage Grotesque", "Hanken Grotesk", system-ui, sans-serif;
-  --font-body: "Hanken Grotesk", system-ui, -apple-system, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
-  color: var(--text-primary);
-  background: var(--surface-page);
-  font-family: var(--font-body);
-  font-size: 16px;
-  line-height: 1.5;
 }
 
 * {
