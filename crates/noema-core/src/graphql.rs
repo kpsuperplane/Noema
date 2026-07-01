@@ -18,6 +18,7 @@ mod schema;
 mod subscriptions;
 mod types;
 
+pub use mcp::complete_mcp_server_oauth_setup;
 pub(crate) use runtime_state::GraphqlRuntimeState;
 pub use schema::{GraphqlSchema, GraphqlState, build_schema};
 pub(crate) use subscriptions::{ConversationLiveEvent, ConversationSubscriptionRegistry};

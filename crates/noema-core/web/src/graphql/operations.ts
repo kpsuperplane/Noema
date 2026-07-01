@@ -162,6 +162,7 @@ export const CreateMcpServerDocument = gql`
       setupError
       auth {
         oauthClientCredentialsSupported
+        oauthAuthorizationSupported
         scopes
       }
       server {
@@ -186,6 +187,7 @@ export const ContinueMcpServerSetupDocument = gql`
       setupError
       auth {
         oauthClientCredentialsSupported
+        oauthAuthorizationSupported
         scopes
       }
       server {
@@ -196,6 +198,68 @@ export const ContinueMcpServerSetupDocument = gql`
         healthStatus
         authStatus
         toolCount
+      }
+    }
+  }
+`;
+
+export const StartMcpServerOauthSetupDocument = gql`
+  mutation StartMcpServerOauthSetup($input: GraphqlStartMcpServerOAuthSetupInput!) {
+    startMcpServerOauthSetup(input: $input) {
+      attemptId
+      status
+      authorizationUrl
+      errorMessage
+      setupResult {
+        setupStatus
+        discoveryStatus
+        discoveredToolCount
+        setupError
+        auth {
+          oauthClientCredentialsSupported
+          oauthAuthorizationSupported
+          scopes
+        }
+        server {
+          mcpServerId
+          displayName
+          transportKind
+          enabled
+          healthStatus
+          authStatus
+          toolCount
+        }
+      }
+    }
+  }
+`;
+
+export const McpOauthSetupAttemptDocument = gql`
+  query McpOauthSetupAttempt($attemptId: String!) {
+    mcpOauthSetupAttempt(attemptId: $attemptId) {
+      attemptId
+      status
+      authorizationUrl
+      errorMessage
+      setupResult {
+        setupStatus
+        discoveryStatus
+        discoveredToolCount
+        setupError
+        auth {
+          oauthClientCredentialsSupported
+          oauthAuthorizationSupported
+          scopes
+        }
+        server {
+          mcpServerId
+          displayName
+          transportKind
+          enabled
+          healthStatus
+          authStatus
+          toolCount
+        }
       }
     }
   }

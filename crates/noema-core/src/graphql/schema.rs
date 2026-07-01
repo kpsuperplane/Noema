@@ -16,8 +16,10 @@ use super::{
     local_status::{self, GraphqlLocalStatus, GraphqlMemoryStorageStatus},
     mcp::{
         self, GraphqlContinueMcpServerSetupInput, GraphqlCreateMcpServerInput,
-        GraphqlMcpApprovalRequest, GraphqlMcpServer, GraphqlMcpServerSetupResult, GraphqlMcpTool,
-        GraphqlSaveToolCalibrationInput, GraphqlToolCalibration, GraphqlTrustedIdentitySelector,
+        GraphqlMcpApprovalRequest, GraphqlMcpOAuthSetupAttempt, GraphqlMcpServer,
+        GraphqlMcpServerSetupResult, GraphqlMcpTool, GraphqlSaveToolCalibrationInput,
+        GraphqlStartMcpServerOAuthSetupInput, GraphqlToolCalibration,
+        GraphqlTrustedIdentitySelector,
     },
     memory::{
         self, GraphqlMemoryClaim, GraphqlMemoryClaimDetail, GraphqlMemoryGraph,
@@ -100,6 +102,10 @@ impl GraphqlState {
 
     pub(crate) fn provider_auth(&self) -> Result<&crate::provider::auth::ProviderAuthManager> {
         self.runtime_state.provider_auth()
+    }
+
+    pub(crate) fn mcp_oauth(&self) -> Result<&crate::mcp::McpOAuthSetupManager> {
+        self.runtime_state.mcp_oauth()
     }
 
     pub(crate) fn paths(&self) -> Result<&crate::NoemaPaths> {
@@ -285,6 +291,16 @@ impl QueryRoot {
         mcp::mcp_tools(state, mcp_server_id).await
     }
 
+    /// Return a short-lived MCP OAuth setup attempt.
+    async fn mcp_oauth_setup_attempt(
+        &self,
+        ctx: &Context<'_>,
+        attempt_id: String,
+    ) -> Result<Option<GraphqlMcpOAuthSetupAttempt>> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        mcp::mcp_oauth_setup_attempt(state, attempt_id).await
+    }
+
     /// List trusted identity selectors for one owner scope.
     async fn trusted_identity_selectors(
         &self,
@@ -414,6 +430,16 @@ impl MutationRoot {
     ) -> Result<GraphqlMcpServerSetupResult> {
         let state = ctx.data_unchecked::<GraphqlState>();
         mcp::create_mcp_server(state, input).await
+    }
+
+    /// Start browser OAuth setup for a hosted MCP server.
+    async fn start_mcp_server_oauth_setup(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlStartMcpServerOAuthSetupInput,
+    ) -> Result<GraphqlMcpOAuthSetupAttempt> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        mcp::start_mcp_server_oauth_setup(state, input).await
     }
 
     /// Continue MCP server setup after adding authentication material.

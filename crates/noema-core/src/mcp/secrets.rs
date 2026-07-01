@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 const MCP_SECRET_FILE: &str = "secrets.json";
 
 /// Secret MCP setup material stored outside the canonical structured store.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct McpSecretMaterial {
     /// Secret environment variables for stdio MCP servers.
     #[serde(default)]
@@ -18,13 +18,19 @@ pub struct McpSecretMaterial {
     /// OAuth client-credentials material for HTTP-based MCP servers.
     #[serde(default)]
     pub oauth_client_credentials: Option<McpOAuthClientCredentials>,
+    /// OAuth authorization-code credentials for hosted HTTP-based MCP servers.
+    #[serde(default)]
+    pub oauth_credentials: Option<McpOAuthStoredCredentials>,
 }
 
 impl McpSecretMaterial {
     /// Whether this setup material contains any configured secret.
     #[must_use]
     pub fn has_secret_material(&self) -> bool {
-        !self.env.is_empty() || !self.headers.is_empty() || self.oauth_client_credentials.is_some()
+        !self.env.is_empty()
+            || !self.headers.is_empty()
+            || self.oauth_client_credentials.is_some()
+            || self.oauth_credentials.is_some()
     }
 }
 
@@ -38,6 +44,15 @@ pub struct McpOAuthClientCredentials {
     /// Requested OAuth scopes.
     #[serde(default)]
     pub scopes: Vec<String>,
+}
+
+/// OAuth 2.0 authorization-code credentials for hosted MCP OAuth flows.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct McpOAuthStoredCredentials {
+    /// OAuth client id registered during the browser authorization flow.
+    pub client_id: String,
+    /// Serialized OAuth token response returned by the MCP OAuth server.
+    pub token_response: serde_json::Value,
 }
 
 /// Write MCP secrets under one server's private home directory.
@@ -116,6 +131,7 @@ mod tests {
             env: map_from_pairs([("GITHUB_TOKEN", "secret")]),
             headers: map_from_pairs([("Authorization", "Bearer secret")]),
             oauth_client_credentials: None,
+            oauth_credentials: None,
         };
 
         write_mcp_secrets(&home, &secrets).expect("write secrets");
@@ -130,7 +146,8 @@ mod tests {
             json!({
                 "env": { "GITHUB_TOKEN": "secret" },
                 "headers": { "Authorization": "Bearer secret" },
-                "oauth_client_credentials": null
+                "oauth_client_credentials": null,
+                "oauth_credentials": null
             })
         );
     }

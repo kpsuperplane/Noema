@@ -7,6 +7,7 @@ use tauri::Manager;
 mod desktop_state;
 mod external_url;
 mod graphql_ipc;
+mod mcp_oauth_callback;
 
 fn main() {
     noema_desktop_main();
@@ -43,7 +44,15 @@ fn noema_desktop_main() {
             graphql_ipc::graphql_subscribe,
             graphql_ipc::graphql_unsubscribe,
             external_url::open_external_url,
+            mcp_oauth_callback_url,
         ])
         .run(tauri::generate_context!())
         .expect("failed to run Noema desktop app");
+}
+
+#[tauri::command]
+async fn mcp_oauth_callback_url(
+    state: tauri::State<'_, desktop_state::DesktopState>,
+) -> Result<String, String> {
+    state.mcp_oauth_callback_url().await
 }

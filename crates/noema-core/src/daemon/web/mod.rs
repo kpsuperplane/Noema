@@ -106,6 +106,11 @@ pub(super) async fn handle_connection(
         return Ok(());
     }
 
+    if is_mcp_oauth_callback_route(&request.method, &request.path) {
+        handle_mcp_oauth_callback(&mut stream, state, &request).await?;
+        return Ok(());
+    }
+
     if is_graphql_http_route(&request.method, &request.path) {
         handle_graphql_http(&mut stream, state, &request).await?;
         return Ok(());
@@ -150,12 +155,106 @@ fn is_graphql_ws_route(method: &str, path: &str) -> bool {
     method == "GET" && path == "/graphql/ws"
 }
 
+fn is_mcp_oauth_callback_route(method: &str, path: &str) -> bool {
+    method == "GET" && path == "/mcp/oauth/callback"
+}
+
 #[cfg(test)]
 fn is_supported_product_route(method: &str, path: &str) -> bool {
     is_graphiql_route(method, path)
         || is_graphql_http_route(method, path)
         || is_graphql_schema_route(method, path)
         || is_graphql_ws_route(method, path)
+        || is_mcp_oauth_callback_route(method, path)
+}
+
+async fn handle_mcp_oauth_callback(
+    stream: &mut TcpStream,
+    state: WebState,
+    request: &HttpRequest,
+) -> Result<(), DaemonError> {
+    let Some(query) = request.query.as_deref() else {
+        write_response(
+            stream,
+            "400 Bad Request",
+            "text/plain; charset=utf-8",
+            b"missing OAuth callback query",
+        )
+        .await?;
+        return Ok(());
+    };
+    let Some(attempt_id) = query_value(query, "attemptId") else {
+        write_response(
+            stream,
+            "400 Bad Request",
+            "text/plain; charset=utf-8",
+            b"missing MCP OAuth attempt id",
+        )
+        .await?;
+        return Ok(());
+    };
+    let Some(callback_url) = callback_url_from_request(request) else {
+        write_response(
+            stream,
+            "400 Bad Request",
+            "text/plain; charset=utf-8",
+            b"invalid MCP OAuth callback",
+        )
+        .await?;
+        return Ok(());
+    };
+    let response = crate::graphql::complete_mcp_server_oauth_setup(
+        state.graphql_state(),
+        &attempt_id,
+        &callback_url,
+    )
+    .await;
+    match response {
+        Ok(attempt) if attempt.status == "completed" => {
+            write_response(
+                stream,
+                "200 OK",
+                "text/html; charset=utf-8",
+                b"<!doctype html><title>Noema MCP OAuth</title><p>Authentication completed. You can return to Noema.</p>",
+            )
+            .await?;
+        }
+        Ok(_) => {
+            write_response(
+                stream,
+                "200 OK",
+                "text/html; charset=utf-8",
+                b"<!doctype html><title>Noema MCP OAuth</title><p>Authentication finished, but Noema could not list tools. Return to Noema to retry.</p>",
+            )
+            .await?;
+        }
+        Err(_) => {
+            write_response(
+                stream,
+                "400 Bad Request",
+                "text/html; charset=utf-8",
+                b"<!doctype html><title>Noema MCP OAuth</title><p>Noema could not complete this MCP OAuth setup attempt.</p>",
+            )
+            .await?;
+        }
+    }
+    Ok(())
+}
+
+fn query_value(query: &str, key: &str) -> Option<String> {
+    url::form_urlencoded::parse(query.as_bytes())
+        .find(|(name, _value)| name == key)
+        .map(|(_name, value)| value.into_owned())
+}
+
+fn callback_url_from_request(request: &HttpRequest) -> Option<String> {
+    let host = request.header("host")?;
+    let mut url = format!("http://{host}{}", request.path);
+    if let Some(query) = &request.query {
+        url.push('?');
+        url.push_str(query);
+    }
+    Some(url)
 }
 
 async fn handle_graphql_http(
@@ -308,6 +407,7 @@ mod tests {
         let request = server.await.expect("server task");
         assert_eq!(request.method, "POST");
         assert_eq!(request.path, "/graphql");
+        assert_eq!(request.query.as_deref(), Some("ignore=true"));
         assert_eq!(request.body, br#"{"hello":"from-body"}"#);
     }
 
@@ -642,6 +742,7 @@ mod tests {
         HttpRequest {
             method: method.to_string(),
             path: path.to_string(),
+            query: None,
             headers: HashMap::new(),
             body: Vec::new(),
         }

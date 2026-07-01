@@ -442,6 +442,32 @@ input GraphqlMcpOAuthClientCredentialsInput {
 }
 
 """
+Safe browser OAuth setup attempt state.
+"""
+type GraphqlMcpOAuthSetupAttempt {
+	"""
+	Short-lived attempt id.
+	"""
+	attemptId: String!
+	"""
+	Current attempt status.
+	"""
+	status: String!
+	"""
+	Authorization URL to open in the user's browser.
+	"""
+	authorizationUrl: String
+	"""
+	Final setup result after OAuth callback and tool discovery.
+	"""
+	setupResult: GraphqlMcpServerSetupResult
+	"""
+	Non-secret UI-safe failure message.
+	"""
+	errorMessage: String
+}
+
+"""
 MCP server metadata safe to show in Settings.
 """
 type GraphqlMcpServer {
@@ -513,6 +539,10 @@ type GraphqlMcpSetupAuthDetails {
 	Whether OAuth client-secret credentials can be attempted.
 	"""
 	oauthClientCredentialsSupported: Boolean!
+	"""
+	Whether browser OAuth authorization can be attempted from the server URL.
+	"""
+	oauthAuthorizationSupported: Boolean!
 	"""
 	Suggested OAuth scopes, when known.
 	"""
@@ -1324,6 +1354,20 @@ input GraphqlSendConversationTurnInput {
 }
 
 """
+Start a browser OAuth setup attempt for a hosted MCP server.
+"""
+input GraphqlStartMcpServerOAuthSetupInput {
+	"""
+	Pending MCP server setup input.
+	"""
+	server: GraphqlCreateMcpServerInput!
+	"""
+	Absolute local callback URI owned by Noema web.
+	"""
+	redirectUri: String!
+}
+
+"""
 Input for starting a provider auth attempt.
 """
 input GraphqlStartProviderAuthAttemptInput {
@@ -1519,6 +1563,10 @@ type MutationRoot {
 	"""
 	createMcpServer(input: GraphqlCreateMcpServerInput!): GraphqlMcpServerSetupResult!
 	"""
+	Start browser OAuth setup for a hosted MCP server.
+	"""
+	startMcpServerOauthSetup(input: GraphqlStartMcpServerOAuthSetupInput!): GraphqlMcpOAuthSetupAttempt!
+	"""
 	Continue MCP server setup after adding authentication material.
 	"""
 	continueMcpServerSetup(input: GraphqlContinueMcpServerSetupInput!): GraphqlMcpServerSetupResult!
@@ -1557,6 +1605,10 @@ type QueryRoot {
 	List MCP tools discovered for one server.
 	"""
 	mcpTools(mcpServerId: String!): [GraphqlMcpTool!]!
+	"""
+	Return a short-lived MCP OAuth setup attempt.
+	"""
+	mcpOauthSetupAttempt(attemptId: String!): GraphqlMcpOAuthSetupAttempt
 	"""
 	List trusted identity selectors for one owner scope.
 	"""

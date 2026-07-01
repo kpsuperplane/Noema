@@ -3,6 +3,8 @@
 pub mod client;
 /// HTTP MCP metadata transports.
 pub mod http;
+/// Hosted MCP OAuth setup attempts.
+pub mod oauth;
 /// Disk-backed MCP secret storage.
 pub mod secrets;
 /// Guided MCP server setup orchestration.
@@ -12,6 +14,10 @@ pub mod stdio;
 
 pub use client::{DiscoveredMcpTool, McpClientError, McpClientRuntime, McpTransport};
 pub use http::{SseMcpTransport, StreamableHttpMcpTransport};
+pub use oauth::{
+    McpOAuthSetupAttemptStatus, McpOAuthSetupAttemptView, McpOAuthSetupManager,
+    StartMcpOAuthSetupRequest,
+};
 pub use stdio::StdioMcpTransport;
 
 use serde::{Deserialize, Serialize};

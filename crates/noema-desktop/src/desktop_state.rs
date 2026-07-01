@@ -34,11 +34,18 @@ impl DesktopState {
         codex: noema_core::CodexProviderConfig,
     ) -> Result<(), RuntimeHostError> {
         let host = NoemaRuntimeHost::start(codex).await?;
-        let schema = graphql::build_schema(graphql::GraphqlState::from_runtime_host(&host));
+        let graphql_state = graphql::GraphqlState::from_runtime_host(&host);
+        let schema = graphql::build_schema(graphql_state.clone());
+        let (mcp_oauth_callback_url, mcp_oauth_callback_server) =
+            crate::mcp_oauth_callback::start(graphql_state)
+                .await
+                .map_err(RuntimeHostError::Runtime)?;
         let mut inner = self.inner.lock().await;
         *inner = Some(DesktopRuntime {
             host,
             schema,
+            mcp_oauth_callback_url,
+            mcp_oauth_callback_server,
             subscriptions: SubscriptionTasks::default(),
         });
         Ok(())
@@ -54,6 +61,19 @@ impl DesktopState {
         inner
             .as_ref()
             .map(|runtime| runtime.schema.clone())
+            .ok_or_else(|| "Noema lost connection to its local app service.".to_string())
+    }
+
+    /// Return the desktop-local MCP OAuth callback URL.
+    ///
+    /// # Errors
+    ///
+    /// Returns a user-facing error while the desktop runtime is unavailable.
+    pub async fn mcp_oauth_callback_url(&self) -> Result<String, String> {
+        let inner = self.inner.lock().await;
+        inner
+            .as_ref()
+            .map(|runtime| runtime.mcp_oauth_callback_url.clone())
             .ok_or_else(|| "Noema lost connection to its local app service.".to_string())
     }
 
@@ -100,6 +120,7 @@ impl DesktopState {
             inner.take()
         };
         if let Some(runtime) = runtime {
+            runtime.mcp_oauth_callback_server.abort();
             runtime.subscriptions.abort_all();
             runtime.host.shutdown().await;
         }
@@ -109,6 +130,8 @@ impl DesktopState {
 struct DesktopRuntime {
     host: NoemaRuntimeHost,
     schema: GraphqlSchema,
+    mcp_oauth_callback_url: String,
+    mcp_oauth_callback_server: JoinHandle<()>,
     subscriptions: SubscriptionTasks,
 }
 

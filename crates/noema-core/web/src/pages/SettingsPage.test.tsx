@@ -250,13 +250,16 @@ describe("McpSettingsPaneContent", () => {
           setupError: "This MCP server requires authentication before Noema can list tools.",
           auth: {
             oauthClientCredentialsSupported: true,
+            oauthAuthorizationSupported: true,
             scopes: []
           },
           server: null
         }}
         setupSubmitting={false}
+        oauthSubmitting={false}
         setupError={null}
         onCreateServer={() => {}}
+        onStartOAuth={() => {}}
       />
     );
 

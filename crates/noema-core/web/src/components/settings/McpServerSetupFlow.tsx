@@ -1,5 +1,5 @@
 import * as React from "react";
-import { ArrowLeft, KeyRound, Loader2, Plus, ShieldCheck, Trash2 } from "lucide-react";
+import { ArrowLeft, ExternalLink, KeyRound, Loader2, Plus, ShieldCheck, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { CreateMcpServerMutation } from "@/generated/graphql";
@@ -7,19 +7,25 @@ import type { McpSetupFormSubmission } from "./mcpSetupForm";
 
 export type McpServerSetupResult = CreateMcpServerMutation["createMcpServer"];
 type TransportKind = "stdio" | "sse" | "streamable_http";
+type AuthMode = "browser" | "secrets";
 
 export function McpServerSetupFlow({
   setupResult,
   setupSubmitting,
+  oauthSubmitting,
   setupError,
-  onCreateServer
+  onCreateServer,
+  onStartOAuth
 }: {
   setupResult: McpServerSetupResult | null;
   setupSubmitting: boolean;
+  oauthSubmitting: boolean;
   setupError: string | null;
   onCreateServer: (input: McpSetupFormSubmission) => void;
+  onStartOAuth: (input: McpSetupFormSubmission) => void;
 }) {
   const [transportKind, setTransportKind] = React.useState<TransportKind>("streamable_http");
+  const [authMode, setAuthMode] = React.useState<AuthMode>("browser");
   const [showAuthScreen, setShowAuthScreen] = React.useState(true);
   const [formError, setFormError] = React.useState<string | null>(null);
   const [displayName, setDisplayName] = React.useState("");
@@ -33,9 +39,6 @@ export function McpServerSetupFlow({
   const [secretHeaders, setSecretHeaders] = React.useState<KeyValueDraft[]>([]);
   const [retrySecretEnv, setRetrySecretEnv] = React.useState<KeyValueDraft[]>([]);
   const [retrySecretHeaders, setRetrySecretHeaders] = React.useState<KeyValueDraft[]>([]);
-  const [retryOAuthClientId, setRetryOAuthClientId] = React.useState("");
-  const [retryOAuthClientSecret, setRetryOAuthClientSecret] = React.useState("");
-  const [retryOAuthScopes, setRetryOAuthScopes] = React.useState<RowDraft[]>([]);
   const [lastSubmission, setLastSubmission] = React.useState<McpSetupFormSubmission | null>(null);
 
   function submitCreate(event: React.FormEvent<HTMLFormElement>) {
@@ -64,6 +67,7 @@ export function McpServerSetupFlow({
         http: null
       } satisfies McpSetupFormSubmission;
       setLastSubmission(submission);
+      setAuthMode("browser");
       setShowAuthScreen(true);
       onCreateServer(submission);
       return;
@@ -80,6 +84,7 @@ export function McpServerSetupFlow({
       }
     } satisfies McpSetupFormSubmission;
     setLastSubmission(submission);
+    setAuthMode("browser");
     setShowAuthScreen(true);
     onCreateServer(submission);
   }
@@ -89,18 +94,9 @@ export function McpServerSetupFlow({
     if (!lastSubmission) return;
     const parsedEnv = keyValueRowsToRecord(retrySecretEnv, "Secret env");
     const parsedHeaders = keyValueRowsToRecord(retrySecretHeaders, "Secret headers");
-    const parsedOAuth = oauthClientCredentialsFromState(
-      retryOAuthClientId,
-      retryOAuthClientSecret,
-      retryOAuthScopes
-    );
     const parseError = parsedEnv.error ?? parsedHeaders.error;
     if (parseError) {
       setFormError(parseError);
-      return;
-    }
-    if (parsedOAuth.error) {
-      setFormError(parsedOAuth.error);
       return;
     }
     setFormError(null);
@@ -108,7 +104,7 @@ export function McpServerSetupFlow({
       lastSubmission,
       parsedEnv.value,
       parsedHeaders.value,
-      parsedOAuth.value
+      null
     );
     setLastSubmission(submission);
     setShowAuthScreen(true);
@@ -119,6 +115,9 @@ export function McpServerSetupFlow({
   const setupScreen = authRequired && showAuthScreen ? "auth" : "details";
   const oauthClientCredentialsSupported =
     setupResult?.auth?.oauthClientCredentialsSupported ?? false;
+  const oauthAuthorizationSupported =
+    setupResult?.auth?.oauthAuthorizationSupported ?? false;
+  const activeAuthMode = oauthAuthorizationSupported ? authMode : "secrets";
   const visibleError =
     formError ?? setupError ?? (setupScreen === "auth" ? setupResult?.setupError : null) ?? null;
 
@@ -224,72 +223,84 @@ export function McpServerSetupFlow({
             <KeyRound className="size-4" aria-hidden="true" />
             Authentication required
           </div>
-          <p className="m-0 text-sm text-muted-foreground">
-            The server has not been saved yet. Add the secret environment variables or headers this
-            MCP server expects, then retry setup to verify and list tools.
-          </p>
-          <div className="grid gap-3 sm:grid-cols-2">
-            {oauthClientCredentialsSupported ? (
-              <section className="grid gap-3 sm:col-span-2 sm:grid-cols-2">
-                <h3 className="m-0 text-sm font-medium sm:col-span-2">
-                  OAuth client credentials
-                </h3>
-                <TextField
-                  label="Client ID"
-                  value={retryOAuthClientId}
-                  onChange={setRetryOAuthClientId}
-                />
-                <TextField
-                  label="Client secret"
-                  type="password"
-                  value={retryOAuthClientSecret}
-                  onChange={setRetryOAuthClientSecret}
-                />
-                <div className="sm:col-span-2">
-                  <StringListEditor
-                    label="Scopes"
-                    values={retryOAuthScopes}
-                    emptyText="No scopes configured."
-                    addLabel="Add scope"
-                    onChange={setRetryOAuthScopes}
+          <Tabs value={activeAuthMode} onValueChange={(value) => setAuthMode(value as AuthMode)}>
+            <TabsList aria-label="Authentication method">
+              {oauthAuthorizationSupported ? (
+                <TabsTrigger value="browser">Browser</TabsTrigger>
+              ) : null}
+              <TabsTrigger value="secrets">Secrets</TabsTrigger>
+            </TabsList>
+            {oauthAuthorizationSupported ? (
+              <TabsContent value="browser">
+                <div className="grid gap-3">
+                  {visibleError ? (
+                    <p className="m-0 text-sm text-destructive">{visibleError}</p>
+                  ) : null}
+                  <div className="flex items-center justify-between gap-2">
+                    <BackButton
+                      onClick={() => {
+                        setFormError(null);
+                        setShowAuthScreen(false);
+                      }}
+                    />
+                    {lastSubmission ? (
+                      <Button
+                        type="button"
+                        className="w-fit"
+                        disabled={oauthSubmitting}
+                        onClick={() => onStartOAuth(lastSubmission)}
+                      >
+                        {oauthSubmitting ? (
+                          <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+                        ) : (
+                          <ExternalLink className="size-4" aria-hidden="true" />
+                        )}
+                        Continue with OAuth
+                      </Button>
+                    ) : null}
+                  </div>
+                </div>
+              </TabsContent>
+            ) : null}
+            <TabsContent value="secrets">
+              <div className="grid gap-3">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <KeyValueEditor
+                    label="Secret env"
+                    rows={retrySecretEnv}
+                    emptyText="No secret environment variables configured."
+                    onChange={setRetrySecretEnv}
+                  />
+                  <KeyValueEditor
+                    label="Secret headers"
+                    rows={retrySecretHeaders}
+                    emptyText="No secret headers configured."
+                    onChange={setRetrySecretHeaders}
                   />
                 </div>
-              </section>
-            ) : null}
-            <KeyValueEditor
-              label="Secret env"
-              rows={retrySecretEnv}
-              emptyText="No secret environment variables configured."
-              onChange={setRetrySecretEnv}
-            />
-            <KeyValueEditor
-              label="Secret headers"
-              rows={retrySecretHeaders}
-              emptyText="No secret headers configured."
-              onChange={setRetrySecretHeaders}
-            />
-          </div>
-          {visibleError ? <p className="m-0 text-sm text-destructive">{visibleError}</p> : null}
-          <div className="flex items-center justify-between gap-2">
-            <Button
-              type="button"
-              variant="ghost"
-              className="w-fit"
-              onClick={() => {
-                setFormError(null);
-                setShowAuthScreen(false);
-              }}
-            >
-              <ArrowLeft className="size-4" aria-hidden="true" />
-              Back
-            </Button>
-            <Button type="submit" className="w-fit" disabled={setupSubmitting}>
-              {setupSubmitting ? (
-                <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-              ) : null}
-              Retry setup
-            </Button>
-          </div>
+                {visibleError ? <p className="m-0 text-sm text-destructive">{visibleError}</p> : null}
+                <div className="flex items-center justify-between gap-2">
+                  <BackButton
+                    onClick={() => {
+                      setFormError(null);
+                      setShowAuthScreen(false);
+                    }}
+                  />
+                  <Button type="submit" className="w-fit" disabled={setupSubmitting}>
+                    {setupSubmitting ? (
+                      <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+                    ) : null}
+                    Retry setup
+                  </Button>
+                </div>
+              </div>
+            </TabsContent>
+          </Tabs>
+          {oauthClientCredentialsSupported && !oauthAuthorizationSupported ? (
+            <p className="m-0 text-xs text-muted-foreground">
+              This server may also support OAuth client credentials through backend configuration.
+            </p>
+          ) : null}
         </form>
       ) : null}
 
@@ -306,6 +317,15 @@ export function McpServerSetupFlow({
         </div>
       ) : null}
     </section>
+  );
+}
+
+function BackButton({ onClick }: { onClick: () => void }) {
+  return (
+    <Button type="button" variant="ghost" className="w-fit" onClick={onClick}>
+      <ArrowLeft className="size-4" aria-hidden="true" />
+      Back
+    </Button>
   );
 }
 
@@ -415,40 +435,6 @@ function TextField({
       />
     </label>
   );
-}
-
-function oauthClientCredentialsFromState(
-  clientId: string,
-  clientSecret: string,
-  scopes: readonly RowDraft[]
-):
-  | {
-      value: NonNullable<
-        NonNullable<McpSetupFormSubmission["http"]>["oauthClientCredentials"]
-      > | null;
-      error: null;
-    }
-  | { value: null; error: string } {
-  const trimmedClientId = clientId.trim();
-  const trimmedClientSecret = clientSecret.trim();
-  const parsedScopes = rowDraftsToValues(scopes);
-  if (!trimmedClientId && !trimmedClientSecret && parsedScopes.length === 0) {
-    return { value: null, error: null };
-  }
-  if (!trimmedClientId || !trimmedClientSecret) {
-    return {
-      value: null,
-      error: "OAuth client credentials require both Client ID and Client secret."
-    };
-  }
-  return {
-    value: {
-      clientId: trimmedClientId,
-      clientSecret: trimmedClientSecret,
-      scopes: parsedScopes
-    },
-    error: null
-  };
 }
 
 function StringListEditor({

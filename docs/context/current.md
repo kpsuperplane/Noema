@@ -136,8 +136,12 @@ The next storage slice should stay small and concrete:
   not stack. HTTP auth-required setup can now offer OAuth client-secret
   credentials; the backend exchanges them through the MCP Rust SDK OAuth flow,
   injects a bearer token for metadata discovery, and stores the OAuth credential
-  material only under the MCP secret directory. User-facing setup errors are
-  sanitized while raw transport details stay out of the web form.
+  material only under the MCP secret directory. Hosted MCP OAuth without client
+  credentials uses browser authorization through an in-memory setup attempt; the
+  web daemon handles same-origin callbacks, while the Tauri desktop app exposes
+  a runtime-owned localhost callback URL so redirects do not land on the Vite
+  asset server. User-facing setup errors are sanitized while raw transport
+  details stay out of the web form.
   Web Settings also exposes MCPs, Trusted Identities, Approvals, and Audit
   surfaces backed by GraphQL read models where live data exists.
 - Routed web surfaces learn shell-owned deck state through

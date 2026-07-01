@@ -9,6 +9,8 @@ use crate::{
     OwnerExtractor, OwnerExtractorSource, ToolCalibrationRecord, TrustedIdentitySelectorEffect,
     TrustedIdentitySelectorKind, TrustedIdentitySelectorRecord,
     mcp::{
+        McpOAuthSetupAttemptView, StartMcpOAuthSetupRequest,
+        oauth::oauth_secret_material,
         secrets::{McpOAuthClientCredentials, McpSecretMaterial},
         setup::{
             ContinueMcpServerSetup, McpServerSetupResult, McpSetupAuthDetails, NewMcpServerSetup,
@@ -126,8 +128,34 @@ pub struct GraphqlMcpServerSetupResult {
 pub struct GraphqlMcpSetupAuthDetails {
     /// Whether OAuth client-secret credentials can be attempted.
     pub oauth_client_credentials_supported: bool,
+    /// Whether browser OAuth authorization can be attempted from the server URL.
+    pub oauth_authorization_supported: bool,
     /// Suggested OAuth scopes, when known.
     pub scopes: Vec<String>,
+}
+
+/// Start a browser OAuth setup attempt for a hosted MCP server.
+#[derive(Clone, Debug, InputObject)]
+pub struct GraphqlStartMcpServerOAuthSetupInput {
+    /// Pending MCP server setup input.
+    pub server: GraphqlCreateMcpServerInput,
+    /// Absolute local callback URI owned by Noema web.
+    pub redirect_uri: String,
+}
+
+/// Safe browser OAuth setup attempt state.
+#[derive(Clone, Debug, SimpleObject)]
+pub struct GraphqlMcpOAuthSetupAttempt {
+    /// Short-lived attempt id.
+    pub attempt_id: String,
+    /// Current attempt status.
+    pub status: String,
+    /// Authorization URL to open in the user's browser.
+    pub authorization_url: Option<String>,
+    /// Final setup result after OAuth callback and tool discovery.
+    pub setup_result: Option<GraphqlMcpServerSetupResult>,
+    /// Non-secret UI-safe failure message.
+    pub error_message: Option<String>,
 }
 
 impl From<McpServerSetupResult> for GraphqlMcpServerSetupResult {
@@ -147,7 +175,20 @@ impl From<McpSetupAuthDetails> for GraphqlMcpSetupAuthDetails {
     fn from(auth: McpSetupAuthDetails) -> Self {
         Self {
             oauth_client_credentials_supported: auth.oauth_client_credentials_supported,
+            oauth_authorization_supported: auth.oauth_authorization_supported,
             scopes: auth.scopes,
+        }
+    }
+}
+
+impl From<McpOAuthSetupAttemptView> for GraphqlMcpOAuthSetupAttempt {
+    fn from(attempt: McpOAuthSetupAttemptView) -> Self {
+        Self {
+            attempt_id: attempt.attempt_id,
+            status: attempt.status.as_str().to_string(),
+            authorization_url: attempt.authorization_url,
+            setup_result: attempt.setup_result.map(Into::into),
+            error_message: attempt.error_message,
         }
     }
 }
@@ -475,6 +516,18 @@ pub(super) async fn mcp_tools(
     Ok(graphql_tools)
 }
 
+pub(super) async fn mcp_oauth_setup_attempt(
+    state: &GraphqlState,
+    attempt_id: String,
+) -> Result<Option<GraphqlMcpOAuthSetupAttempt>> {
+    let attempt = state
+        .mcp_oauth()?
+        .attempt(&attempt_id)
+        .await
+        .map(Into::into);
+    Ok(attempt)
+}
+
 pub(super) async fn create_mcp_server(
     state: &GraphqlState,
     input: GraphqlCreateMcpServerInput,
@@ -488,6 +541,88 @@ pub(super) async fn create_mcp_server(
     .await
     .map_err(graphql_error)?;
     Ok(result.into())
+}
+
+pub(super) async fn start_mcp_server_oauth_setup(
+    state: &GraphqlState,
+    input: GraphqlStartMcpServerOAuthSetupInput,
+) -> Result<GraphqlMcpOAuthSetupAttempt> {
+    let setup = parse_create_mcp_server_input(input.server)?;
+    let attempt = state
+        .mcp_oauth()?
+        .start_attempt(StartMcpOAuthSetupRequest {
+            setup,
+            redirect_uri: input.redirect_uri,
+        })
+        .await
+        .map_err(graphql_error)?;
+    Ok(attempt.into())
+}
+
+/// Complete a pending MCP OAuth setup attempt from an authorization callback URL.
+///
+/// This is used by both the daemon web callback route and the desktop
+/// loopback callback listener.
+///
+/// # Errors
+///
+/// Returns a GraphQL error if the attempt no longer exists, if OAuth callback
+/// handling fails, if credentials cannot be stored, or if MCP tool discovery
+/// does not reach the calibration step.
+pub async fn complete_mcp_server_oauth_setup(
+    state: &GraphqlState,
+    attempt_id: &str,
+    callback_url: &str,
+) -> Result<GraphqlMcpOAuthSetupAttempt> {
+    let manager = state.mcp_oauth()?;
+    let Some(mut runtime) = manager.take_runtime(attempt_id).await else {
+        return Err(graphql_error("MCP OAuth setup attempt was not found"));
+    };
+    if let Err(error) = runtime.oauth_state.handle_callback_url(callback_url).await {
+        let attempt = manager
+            .fail_attempt(
+                attempt_id,
+                "Noema could not complete MCP OAuth authorization.",
+            )
+            .await;
+        return attempt
+            .map(Into::into)
+            .ok_or_else(|| graphql_error(format!("MCP OAuth setup attempt failed: {error}")));
+    }
+    let secrets = match oauth_secret_material(&runtime.oauth_state, runtime.setup.secrets).await {
+        Ok(secrets) => secrets,
+        Err(error) => {
+            let attempt = manager
+                .fail_attempt(attempt_id, "Noema could not store MCP OAuth credentials.")
+                .await;
+            return attempt.map(Into::into).ok_or_else(|| graphql_error(error));
+        }
+    };
+    runtime.setup.secrets = secrets;
+    let store = state.store()?;
+    let paths = state.paths()?;
+    let setup_result = create_setup_service(store, paths, runtime.setup, |server, secrets| {
+        state.mcp_setup_transport(server, Some(secrets))
+    })
+    .await
+    .map_err(graphql_error)?;
+    let status = setup_result.setup_status;
+    let attempt = if matches!(
+        status,
+        crate::mcp::setup::McpSetupStatus::ReadyForCalibration
+    ) {
+        manager.complete_attempt(attempt_id, setup_result).await
+    } else {
+        manager
+            .fail_attempt(
+                attempt_id,
+                "Noema completed OAuth, but could not list tools from this MCP server.",
+            )
+            .await
+    };
+    attempt
+        .map(Into::into)
+        .ok_or_else(|| graphql_error("MCP OAuth setup attempt was not found"))
 }
 
 pub(super) async fn continue_mcp_server_setup(
@@ -507,6 +642,7 @@ pub(super) async fn continue_mcp_server_setup(
                 oauth_client_credentials: parse_oauth_client_credentials(
                     input.oauth_client_credentials,
                 )?,
+                oauth_credentials: None,
             },
         },
         |server, secrets| state.mcp_setup_transport(server, Some(secrets)),
@@ -633,6 +769,7 @@ fn parse_create_mcp_server_input(input: GraphqlCreateMcpServerInput) -> Result<N
                     env: secret_env,
                     headers: BTreeMap::new(),
                     oauth_client_credentials: None,
+                    oauth_credentials: None,
                 },
             })
         }
@@ -660,6 +797,7 @@ fn parse_create_mcp_server_input(input: GraphqlCreateMcpServerInput) -> Result<N
                     env: BTreeMap::new(),
                     headers: secret_headers,
                     oauth_client_credentials,
+                    oauth_credentials: None,
                 },
             })
         }

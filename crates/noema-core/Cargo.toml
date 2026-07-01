@@ -26,6 +26,7 @@ surrealdb.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 ts-rs.workspace = true
+url.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

@@ -2,7 +2,8 @@
 
 use crate::{
     CodexProviderConfig, DaemonError, NoemaHomeInitOptions, NoemaPathError, NoemaPaths, NoemaStore,
-    StoreConfig, daemon::CodexRuntimeHandle, provider::auth::ProviderAuthManager,
+    StoreConfig, daemon::CodexRuntimeHandle, mcp::McpOAuthSetupManager,
+    provider::auth::ProviderAuthManager,
 };
 
 use thiserror::Error;
@@ -12,6 +13,7 @@ pub struct NoemaRuntimeHost {
     runtime: CodexRuntimeHandle,
     store: NoemaStore,
     provider_auth: ProviderAuthManager,
+    mcp_oauth: McpOAuthSetupManager,
     paths: NoemaPaths,
     #[allow(dead_code)]
     subscriptions: crate::graphql::ConversationSubscriptionRegistry,
@@ -52,6 +54,7 @@ impl NoemaRuntimeHost {
             runtime,
             store,
             provider_auth: ProviderAuthManager::new(),
+            mcp_oauth: McpOAuthSetupManager::new(),
             paths,
             subscriptions: crate::graphql::ConversationSubscriptionRegistry::default(),
         })
@@ -68,6 +71,7 @@ impl NoemaRuntimeHost {
             runtime,
             store,
             provider_auth: ProviderAuthManager::new(),
+            mcp_oauth: McpOAuthSetupManager::new(),
             paths: NoemaPaths::from_process_env().expect("test paths"),
             subscriptions: crate::graphql::ConversationSubscriptionRegistry::default(),
         }
@@ -88,6 +92,12 @@ impl NoemaRuntimeHost {
     #[must_use]
     pub fn provider_auth(&self) -> &ProviderAuthManager {
         &self.provider_auth
+    }
+
+    /// MCP OAuth setup manager.
+    #[must_use]
+    pub fn mcp_oauth(&self) -> &McpOAuthSetupManager {
+        &self.mcp_oauth
     }
 
     /// Resolved Noema paths.

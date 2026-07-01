@@ -61,6 +61,8 @@ pub struct McpServerSetupResult {
 pub struct McpSetupAuthDetails {
     /// Whether OAuth client-secret credentials can be attempted for this server.
     pub oauth_client_credentials_supported: bool,
+    /// Whether browser OAuth authorization can be attempted from the server URL.
+    pub oauth_authorization_supported: bool,
     /// OAuth scopes Noema should suggest, when known.
     pub scopes: Vec<String>,
 }
@@ -161,6 +163,12 @@ where
     let mut secrets = read_mcp_secrets(&server_home).unwrap_or_default();
     secrets.env.extend(input.secrets.env);
     secrets.headers.extend(input.secrets.headers);
+    if input.secrets.oauth_client_credentials.is_some() {
+        secrets.oauth_client_credentials = input.secrets.oauth_client_credentials;
+    }
+    if input.secrets.oauth_credentials.is_some() {
+        secrets.oauth_credentials = input.secrets.oauth_credentials;
+    }
     write_mcp_secrets(&server_home, &secrets)
         .map_err(|error| StoreError::Schema(format!("failed to write MCP secrets: {error}")))?;
     server.safe_config = safe_config_with_secret_refs(server.safe_config, &secrets)?;
@@ -309,6 +317,7 @@ fn auth_details_for_transport(transport_kind: McpTransportKind) -> Option<McpSet
     match transport_kind {
         McpTransportKind::Sse | McpTransportKind::StreamableHttp => Some(McpSetupAuthDetails {
             oauth_client_credentials_supported: true,
+            oauth_authorization_supported: true,
             scopes: Vec::new(),
         }),
         McpTransportKind::Stdio => None,
@@ -512,6 +521,9 @@ fn safe_config_with_secret_refs(
     if secrets.oauth_client_credentials.is_some() {
         secret_refs.insert("oauth_client_credentials".to_string(), Value::Bool(true));
     }
+    if secrets.oauth_credentials.is_some() {
+        secret_refs.insert("oauth_credentials".to_string(), Value::Bool(true));
+    }
     if secret_refs.is_empty() {
         object.remove("secret_refs");
     } else {
@@ -700,6 +712,7 @@ mod tests {
                     env: map_from_pairs([("GITHUB_TOKEN", "secret")]),
                     headers: BTreeMap::new(),
                     oauth_client_credentials: None,
+                    oauth_credentials: None,
                 },
             },
             |_, _| FakeMcpTransport::ok(vec![fake_tool("list_repos")]),
@@ -761,6 +774,7 @@ mod tests {
                         client_secret: "oauth-secret".to_string(),
                         scopes: vec!["tools.read".to_string()],
                     }),
+                    oauth_credentials: None,
                 },
             },
             |_, _| FakeMcpTransport::ok(vec![fake_tool("search")]),
@@ -806,6 +820,7 @@ mod tests {
                     env: map_from_pairs([("GITHUB_TOKEN", "secret")]),
                     headers: BTreeMap::new(),
                     oauth_client_credentials: None,
+                    oauth_credentials: None,
                 },
             },
             |_, _| FakeMcpTransport::auth_required("missing authorization"),
@@ -874,6 +889,7 @@ mod tests {
                     env: BTreeMap::new(),
                     headers: map_from_pairs([("Authorization", "Bearer retry")]),
                     oauth_client_credentials: None,
+                    oauth_credentials: None,
                 },
             },
             move |_, _| FakeMcpTransport::from_queue(retry_create_outcomes.clone()),
@@ -896,6 +912,7 @@ mod tests {
                     env: BTreeMap::new(),
                     headers: map_from_pairs([("Authorization", "Bearer retry")]),
                     oauth_client_credentials: None,
+                    oauth_credentials: None,
                 },
             },
             move |_, _| FakeMcpTransport::from_queue(retry_outcomes.clone()),
@@ -933,6 +950,7 @@ mod tests {
                     env: map_from_pairs([("GITHUB_TOKEN", "secret")]),
                     headers: BTreeMap::new(),
                     oauth_client_credentials: None,
+                    oauth_credentials: None,
                 },
             },
             |_, _| FakeMcpTransport::ok(Vec::new()),

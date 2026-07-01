@@ -30,6 +30,7 @@ export function McpSettingsPaneContent({
   setupResult = null,
   setupOpen = false,
   setupSubmitting = false,
+  oauthSubmitting = false,
   setupError = null,
   permissionsServerId = null,
   deleteSubmitting = false,
@@ -37,6 +38,7 @@ export function McpSettingsPaneContent({
   onOpenSetup = () => {},
   onCloseSetup = () => {},
   onCreateServer = () => {},
+  onStartOAuth = () => {},
   onOpenPermissions = () => {},
   onClosePermissions = () => {},
   onDeleteServer = async () => false,
@@ -48,6 +50,7 @@ export function McpSettingsPaneContent({
   setupResult?: McpServerSetupResult | null;
   setupOpen?: boolean;
   setupSubmitting?: boolean;
+  oauthSubmitting?: boolean;
   setupError?: string | null;
   permissionsServerId?: string | null;
   deleteSubmitting?: boolean;
@@ -55,6 +58,7 @@ export function McpSettingsPaneContent({
   onOpenSetup?: () => void;
   onCloseSetup?: () => void;
   onCreateServer?: (input: McpSetupFormSubmission) => void;
+  onStartOAuth?: (input: McpSetupFormSubmission) => void;
   onOpenPermissions?: (mcpServerId: string) => void;
   onClosePermissions?: () => void;
   onDeleteServer?: (mcpServerId: string) => Promise<boolean>;
@@ -96,11 +100,13 @@ export function McpSettingsPaneContent({
           open={setupOpen}
           setupResult={setupResult}
           setupSubmitting={setupSubmitting}
+          oauthSubmitting={oauthSubmitting}
           setupError={setupError}
           onOpenChange={(open) => {
             if (!open) onCloseSetup();
           }}
           onCreateServer={onCreateServer}
+          onStartOAuth={onStartOAuth}
         />
       </div>
     );
@@ -161,11 +167,13 @@ export function McpSettingsPaneContent({
         open={setupOpen}
         setupResult={setupResult}
         setupSubmitting={setupSubmitting}
+        oauthSubmitting={oauthSubmitting}
         setupError={setupError}
         onOpenChange={(open) => {
           if (!open) onCloseSetup();
         }}
         onCreateServer={onCreateServer}
+        onStartOAuth={onStartOAuth}
       />
       {permissionsServerId ? (
         <McpToolPermissionsModal
@@ -258,16 +266,20 @@ function McpSetupDialog({
   open,
   setupResult,
   setupSubmitting,
+  oauthSubmitting,
   setupError,
   onOpenChange,
-  onCreateServer
+  onCreateServer,
+  onStartOAuth
 }: {
   open: boolean;
   setupResult: McpServerSetupResult | null;
   setupSubmitting: boolean;
+  oauthSubmitting: boolean;
   setupError: string | null;
   onOpenChange: (open: boolean) => void;
   onCreateServer: (input: McpSetupFormSubmission) => void;
+  onStartOAuth: (input: McpSetupFormSubmission) => void;
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -280,8 +292,10 @@ function McpSetupDialog({
           <McpServerSetupFlow
             setupResult={setupResult}
             setupSubmitting={setupSubmitting}
+            oauthSubmitting={oauthSubmitting}
             setupError={setupError}
             onCreateServer={onCreateServer}
+            onStartOAuth={onStartOAuth}
           />
         </DialogBody>
       </DialogContent>

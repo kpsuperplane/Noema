@@ -16,6 +16,7 @@ const HTTP_BODY_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_mi
 pub(super) struct HttpRequest {
     pub(super) method: String,
     pub(super) path: String,
+    pub(super) query: Option<String>,
     pub(super) headers: HashMap<String, String>,
     pub(super) body: Vec<u8>,
 }
@@ -98,6 +99,7 @@ impl HttpRequest {
         Ok(Self {
             method: method.to_string(),
             path: normalized_path(path),
+            query: path.split_once('?').map(|(_path, query)| query.to_string()),
             headers,
             body,
         })

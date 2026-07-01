@@ -1,6 +1,6 @@
 use crate::{
     NoemaPaths, NoemaRuntimeHost, NoemaStore, daemon::CodexRuntimeHandle,
-    provider::auth::ProviderAuthManager,
+    mcp::McpOAuthSetupManager, provider::auth::ProviderAuthManager,
 };
 
 use super::{ConversationSubscriptionRegistry, local_status::GraphqlMemoryStorageStatus};
@@ -11,6 +11,7 @@ pub struct GraphqlRuntimeState {
     runtime: Option<CodexRuntimeHandle>,
     store: Option<NoemaStore>,
     provider_auth: Option<ProviderAuthManager>,
+    mcp_oauth: Option<McpOAuthSetupManager>,
     paths: Option<NoemaPaths>,
     subscriptions: ConversationSubscriptionRegistry,
     memory_storage: GraphqlMemoryStorageStatus,
@@ -24,6 +25,7 @@ impl GraphqlRuntimeState {
             runtime: Some(host.runtime().clone()),
             store: Some(host.store().clone()),
             provider_auth: Some(host.provider_auth().clone()),
+            mcp_oauth: Some(host.mcp_oauth().clone()),
             paths: Some(host.paths().clone()),
             subscriptions: host.subscriptions().clone(),
             memory_storage: GraphqlMemoryStorageStatus::Ready,
@@ -37,6 +39,7 @@ impl GraphqlRuntimeState {
             runtime: None,
             store: None,
             provider_auth: None,
+            mcp_oauth: Some(McpOAuthSetupManager::new()),
             paths: None,
             subscriptions: ConversationSubscriptionRegistry::default(),
             memory_storage: GraphqlMemoryStorageStatus::Ready,
@@ -84,6 +87,12 @@ impl GraphqlRuntimeState {
         self.provider_auth
             .as_ref()
             .ok_or_else(|| async_graphql::Error::new("Noema provider auth is unavailable"))
+    }
+
+    pub(crate) fn mcp_oauth(&self) -> async_graphql::Result<&McpOAuthSetupManager> {
+        self.mcp_oauth
+            .as_ref()
+            .ok_or_else(|| async_graphql::Error::new("Noema MCP OAuth setup is unavailable"))
     }
 
     pub(crate) fn paths(&self) -> async_graphql::Result<&NoemaPaths> {
