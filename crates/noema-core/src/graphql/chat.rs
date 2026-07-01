@@ -381,9 +381,13 @@ pub(super) async fn send_conversation_turn(
     tokio::spawn(async move {
         let completion = runtime.turn(completion_conversation_id, input_text, item_tx);
         tokio::pin!(completion);
+        let mut published_error_notice = false;
         loop {
             tokio::select! {
                 Some(event) = item_rx.recv() => {
+                    if turn_event_is_error_notice(&event) {
+                        published_error_notice = true;
+                    }
                     subscriptions.publish(ConversationLiveEvent::Turn {
                         client_message_id: published_client_message_id.clone(),
                         event: Box::new(event),
@@ -391,6 +395,9 @@ pub(super) async fn send_conversation_turn(
                 }
                 result = &mut completion => {
                     while let Ok(event) = item_rx.try_recv() {
+                        if turn_event_is_error_notice(&event) {
+                            published_error_notice = true;
+                        }
                         subscriptions.publish(ConversationLiveEvent::Turn {
                             client_message_id: published_client_message_id.clone(),
                             event: Box::new(event),
@@ -400,6 +407,7 @@ pub(super) async fn send_conversation_turn(
                         &subscriptions,
                         conversation_id,
                         published_client_message_id,
+                        published_error_notice,
                         result,
                     );
                     break;
@@ -498,9 +506,12 @@ fn publish_turn_terminal_events(
     subscriptions: &ConversationSubscriptionRegistry,
     conversation_id: String,
     client_message_id: Option<String>,
+    published_error_notice: bool,
     result: std::result::Result<(), crate::DaemonError>,
 ) {
-    if let Err(error) = result {
+    if let Err(error) = result
+        && !published_error_notice
+    {
         let error_item_id = client_message_id.as_ref().map_or_else(
             || format!("graphql_runtime_error:{conversation_id}:uncorrelated"),
             |client_message_id| {
@@ -526,6 +537,16 @@ fn publish_turn_terminal_events(
         conversation_id,
         client_message_id,
     });
+}
+
+fn turn_event_is_error_notice(event: &TurnStreamEvent) -> bool {
+    matches!(
+        event,
+        TurnStreamEvent::ConversationItem {
+            item,
+            ..
+        } if matches!(item.as_ref(), crate::TurnTranscriptItem::ErrorNotice { .. })
+    )
 }
 
 #[cfg(test)]
@@ -571,6 +592,7 @@ mod tests {
             &subscriptions,
             "conversation_1".to_string(),
             Some("client_1".to_string()),
+            false,
             Err(crate::DaemonError::Remote("provider failed".to_string())),
         );
 
@@ -616,5 +638,59 @@ mod tests {
         };
         assert_eq!(conversation_id, "conversation_1");
         assert_eq!(client_message_id.as_deref(), Some("client_1"));
+    }
+
+    #[tokio::test]
+    async fn runtime_turn_error_does_not_duplicate_published_error_notice() {
+        let subscriptions = ConversationSubscriptionRegistry::default();
+        let mut rx = subscriptions.subscribe("conversation_1");
+        subscriptions.publish(ConversationLiveEvent::Turn {
+            client_message_id: Some("client_1".to_string()),
+            event: Box::new(TurnStreamEvent::ConversationItem {
+                conversation_id: "conversation_1".to_string(),
+                item_id: "item:persisted_error".to_string(),
+                turn_id: Some("turn_1".to_string()),
+                metadata: json!({}),
+                item: Box::new(crate::TurnTranscriptItem::ErrorNotice {
+                    message: "provider failed".to_string(),
+                    recoverable: false,
+                }),
+            }),
+        });
+
+        publish_turn_terminal_events(
+            &subscriptions,
+            "conversation_1".to_string(),
+            Some("client_1".to_string()),
+            true,
+            Err(crate::DaemonError::Remote("provider failed".to_string())),
+        );
+
+        let mut error_notice_count = 0;
+        let mut completion_count = 0;
+        while let Ok(event) = rx.try_recv() {
+            match event {
+                ConversationLiveEvent::Turn { event, .. } => {
+                    if matches!(
+                        *event,
+                        TurnStreamEvent::ConversationItem {
+                            item,
+                            ..
+                        } if matches!(
+                            item.as_ref(),
+                            crate::TurnTranscriptItem::ErrorNotice { .. }
+                        )
+                    ) {
+                        error_notice_count += 1;
+                    }
+                }
+                ConversationLiveEvent::Completed { .. } => {
+                    completion_count += 1;
+                }
+            }
+        }
+
+        assert_eq!(error_notice_count, 1);
+        assert_eq!(completion_count, 1);
     }
 }
