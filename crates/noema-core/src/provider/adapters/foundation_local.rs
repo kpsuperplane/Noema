@@ -1,5 +1,11 @@
-use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::{
+    collections::HashMap,
+    path::PathBuf,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
+};
 
 use crate::{
     FoundationLocalProviderConfig,
@@ -10,8 +16,10 @@ use crate::{
 };
 
 use super::foundation_bridge_process::{
-    FoundationBridgeBuildConfig, FoundationBridgeConfig, FoundationBridgeProcess,
+    FoundationBridgeBuildConfig, FoundationBridgeConfig, FoundationBridgeError,
+    FoundationBridgeProcess,
 };
+use tokio::sync::Mutex;
 
 /// Provider identifier for Apple Foundation Models.
 pub const FOUNDATION_LOCAL_PROVIDER: &str = "foundation_local";
@@ -26,6 +34,20 @@ pub const FOUNDATION_LOCAL_COMPACT_SUMMARY_TARGET_TOKENS: u32 = 512;
 #[derive(Debug, Clone)]
 pub struct FoundationLocalProvider {
     config: FoundationLocalProviderConfig,
+    bridge_runtime: Arc<Mutex<Option<FoundationBridgeRuntime>>>,
+}
+
+#[derive(Debug)]
+struct FoundationBridgeRuntime {
+    process: FoundationBridgeProcess,
+    sessions: HashMap<FoundationSessionKey, String>,
+}
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+struct FoundationSessionKey {
+    conversation_id: String,
+    model_profile: String,
+    instructions: Option<String>,
 }
 
 impl FoundationLocalProvider {
@@ -40,23 +62,18 @@ impl FoundationLocalProvider {
                 message: "foundation local default profile cannot be empty".to_string(),
             });
         }
-        Ok(Self { config })
+        Ok(Self {
+            config,
+            bridge_runtime: Arc::new(Mutex::new(None)),
+        })
     }
 
     async fn start_bridge(&self) -> Result<FoundationBridgeProcess, ProviderError> {
-        if !cfg!(target_os = "macos") {
-            return Err(ProviderError::ProviderUnavailable {
-                provider: FOUNDATION_LOCAL_PROVIDER.to_string(),
-                message: "Apple Foundation Models are only available on macOS.".to_string(),
-            });
-        }
-
         let config = self.bridge_config();
         let diagnostic_path = config.bridge_path.clone();
 
-        FoundationBridgeProcess::start(config)
-            .await
-            .map_err(|error| ProviderError::ProviderUnavailable {
+        self.start_bridge_process(config).await.map_err(|error| {
+            ProviderError::ProviderUnavailable {
                 provider: FOUNDATION_LOCAL_PROVIDER.to_string(),
                 message: format!(
                     "Apple Foundation Models bridge unavailable: {} ({}) at {}",
@@ -64,7 +81,19 @@ impl FoundationLocalProvider {
                     error,
                     diagnostic_path.display()
                 ),
-            })
+            }
+        })
+    }
+
+    async fn start_bridge_process(
+        &self,
+        config: FoundationBridgeConfig,
+    ) -> Result<FoundationBridgeProcess, FoundationBridgeError> {
+        if !cfg!(target_os = "macos") {
+            return Err(FoundationBridgeError::UnsupportedPlatform);
+        }
+
+        FoundationBridgeProcess::start(config).await
     }
 
     fn bridge_config(&self) -> FoundationBridgeConfig {
@@ -83,6 +112,55 @@ impl FoundationLocalProvider {
             None
         };
         FoundationBridgeConfig { bridge_path, build }
+    }
+
+    async fn ensure_bridge_runtime(
+        &self,
+        runtime: &mut Option<FoundationBridgeRuntime>,
+    ) -> Result<(), ProviderError> {
+        if runtime.is_none() {
+            *runtime = Some(FoundationBridgeRuntime {
+                process: self.start_bridge().await?,
+                sessions: HashMap::new(),
+            });
+        }
+        Ok(())
+    }
+
+    async fn session_for_request(
+        &self,
+        runtime: &mut FoundationBridgeRuntime,
+        key: FoundationSessionKey,
+    ) -> Result<String, ProviderError> {
+        if let Some(session_id) = runtime.sessions.get(&key) {
+            return Ok(session_id.clone());
+        }
+        let session_id = runtime
+            .process
+            .create_session(
+                key.conversation_id.clone(),
+                key.model_profile.clone(),
+                key.instructions.clone(),
+            )
+            .await
+            .map_err(|error| ProviderError::ProviderUnavailable {
+                provider: FOUNDATION_LOCAL_PROVIDER.to_string(),
+                message: format!("Apple Foundation Models bridge session failed: {error}"),
+            })?;
+        runtime.sessions.insert(key, session_id.clone());
+        Ok(session_id)
+    }
+
+    /// Check whether the local Foundation Models bridge can be launched and is healthy.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`FoundationBridgeError`] when the platform, bridge, or
+    /// Foundation Models runtime is unavailable.
+    pub async fn check_availability(&self) -> Result<(), FoundationBridgeError> {
+        let bridge = self.start_bridge_process(self.bridge_config()).await?;
+        drop(bridge);
+        Ok(())
     }
 }
 
@@ -146,8 +224,11 @@ impl ModelProvider for FoundationLocalProvider {
         input: &str,
         _model: Option<&str>,
     ) -> Result<Option<u32>, ProviderError> {
-        let mut bridge = self.start_bridge().await?;
-        let tokens = bridge
+        let mut guard = self.bridge_runtime.lock().await;
+        self.ensure_bridge_runtime(&mut guard).await?;
+        let runtime = guard.as_mut().expect("bridge runtime initialized");
+        let tokens = runtime
+            .process
             .count_tokens(instructions.map(str::to_string), input.to_string())
             .await
             .map_err(|error| ProviderError::ProviderUnavailable {
@@ -162,18 +243,30 @@ impl ModelProvider for FoundationLocalProvider {
         request: GenerateRequest,
         on_event: &'a mut (dyn FnMut(GenerateStreamEvent) + Send),
     ) -> Result<GenerateResponse, ProviderError> {
-        let mut bridge = self.start_bridge().await?;
+        let conversation_id = request
+            .conversation_id
+            .clone()
+            .unwrap_or_else(transient_conversation_id);
         let model = request
             .model
+            .clone()
             .filter(|model| !model.trim().is_empty())
             .unwrap_or_else(|| self.config.default_profile.clone());
         let GenerateInput::Text(text) = request.input;
         let mut relay_delta = |delta| on_event(GenerateStreamEvent::AssistantTextDelta { delta });
-        let output_text = bridge
-            .generate(
-                transient_conversation_id(),
-                model.clone(),
-                request.instructions,
+        let key = FoundationSessionKey {
+            conversation_id,
+            model_profile: model.clone(),
+            instructions: request.instructions.clone(),
+        };
+        let mut guard = self.bridge_runtime.lock().await;
+        self.ensure_bridge_runtime(&mut guard).await?;
+        let runtime = guard.as_mut().expect("bridge runtime initialized");
+        let session_id = self.session_for_request(runtime, key).await?;
+        let output_text = runtime
+            .process
+            .generate_in_session(
+                session_id,
                 text,
                 request.options.max_output_tokens,
                 &mut relay_delta,
@@ -351,6 +444,7 @@ done
 
         let response = provider
             .generate(GenerateRequest {
+                conversation_id: None,
                 model: None,
                 input: GenerateInput::Text("prompt text".to_string()),
                 instructions: None,
@@ -371,6 +465,53 @@ done
                 GenerateOutputItem::MemoryProposals { proposals: vec![] }
             ]
         );
+    }
+
+    #[cfg(all(unix, target_os = "macos"))]
+    #[tokio::test]
+    async fn generate_reuses_bridge_session_for_same_conversation() {
+        let log = tempfile::NamedTempFile::new().expect("log");
+        let log_path = log.path().to_string_lossy().to_string();
+        let (_dir, bridge_path) = bridge_script(&format!(
+            r#"#!/bin/sh
+LOG_PATH="{}"
+while IFS= read -r line; do
+  case "$line" in
+    *'"id":"handshake"'*) printf '%s\n' '{{"id":"handshake","payload":{{"type":"handshake_ok","protocol_version":1}}}}' ;;
+    *'"id":"health"'*) printf '%s\n' '{{"id":"health","payload":{{"type":"health","available":true,"profiles":[{{"id":"default","label":"Default"}}],"unavailable_reason":null}}}}' ;;
+    *'"id":"create_session"'*) printf '%s\n' "create_session" >> "$LOG_PATH"; printf '%s\n' '{{"id":"create_session","payload":{{"type":"session_created","session_id":"session-1"}}}}' ;;
+    *'"id":"generate"'*) printf '%s\n' '{{"id":"generate","payload":{{"type":"generate_complete","text":"bridge answer"}}}}' ;;
+    *) printf '%s\n' '{{"id":"unknown","payload":{{"type":"error","code":"unsupported_request","message":"Unsupported request."}}}}' ;;
+  esac
+done
+"#,
+            log_path
+        ));
+        let provider = FoundationLocalProvider::new(FoundationLocalProviderConfig {
+            default_profile: "default".to_string(),
+            bridge_path: Some(bridge_path),
+        })
+        .expect("provider");
+
+        for input in ["first", "second"] {
+            provider
+                .generate(GenerateRequest {
+                    conversation_id: Some("conversation:stable".to_string()),
+                    model: Some("default".to_string()),
+                    input: GenerateInput::Text(input.to_string()),
+                    instructions: Some("be concise".to_string()),
+                    options: crate::GenerateOptions::default(),
+                })
+                .await
+                .expect("generate");
+        }
+
+        let create_session_count = std::fs::read_to_string(log.path())
+            .expect("log read")
+            .lines()
+            .filter(|line| *line == "create_session")
+            .count();
+        assert_eq!(create_session_count, 1);
     }
 
     #[cfg(all(unix, target_os = "macos"))]

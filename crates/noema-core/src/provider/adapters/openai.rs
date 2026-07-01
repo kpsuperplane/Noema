@@ -244,6 +244,7 @@ mod tests {
 
         let response = provider
             .generate(GenerateRequest {
+                conversation_id: None,
                 model: Some("gpt-test".to_string()),
                 input: GenerateInput::Text("Hello?".to_string()),
                 instructions: Some("Be brief.".to_string()),

@@ -76,6 +76,8 @@ pub struct ProviderContextMetadata {
 /// Input and options for a provider generation call.
 #[derive(Debug, Clone, PartialEq)]
 pub struct GenerateRequest {
+    /// Noema conversation id when the request belongs to a durable conversation.
+    pub conversation_id: Option<String>,
     /// Optional model override for this request.
     pub model: Option<String>,
     /// User-visible input to send to the provider.
@@ -91,6 +93,7 @@ impl GenerateRequest {
     #[must_use]
     pub fn text(input: impl Into<String>) -> Self {
         Self {
+            conversation_id: None,
             model: None,
             input: GenerateInput::Text(input.into()),
             instructions: None,

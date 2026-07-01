@@ -7,7 +7,7 @@ use tokio::{
 };
 
 use super::foundation_bridge_protocol::{
-    BRIDGE_PROTOCOL_VERSION, BridgeRequest, BridgeRequestPayload, BridgeResponse,
+    BRIDGE_PROTOCOL_VERSION, BridgeReplayTurn, BridgeRequest, BridgeRequestPayload, BridgeResponse,
     BridgeResponsePayload,
 };
 
@@ -46,6 +46,9 @@ pub enum FoundationBridgeError {
     /// Bridge binary is missing.
     #[error("bridge binary is missing")]
     BridgeMissing,
+    /// Current platform cannot run Apple Foundation Models.
+    #[error("unsupported platform")]
+    UnsupportedPlatform,
     /// Bridge launch failed.
     #[error("bridge launch failed: {0}")]
     BridgeLaunchFailed(String),
@@ -66,6 +69,7 @@ impl FoundationBridgeError {
     pub const fn code(&self) -> &'static str {
         match self {
             Self::BridgeMissing => "bridge_missing",
+            Self::UnsupportedPlatform => "unsupported_platform",
             Self::BridgeLaunchFailed(_) => "bridge_launch_failed",
             Self::BridgeBuildFailed(_) => "bridge_build_failed",
             Self::BridgeProtocol(_) => "bridge_protocol_error",
@@ -213,7 +217,7 @@ impl FoundationBridgeProcess {
         }
     }
 
-    async fn create_session(
+    pub(crate) async fn create_session(
         &mut self,
         conversation_id: String,
         model_profile: String,
@@ -237,7 +241,56 @@ impl FoundationBridgeProcess {
         }
     }
 
-    async fn generate_in_session(
+    /// Replay prior transcript turns into an existing bridge session.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`FoundationBridgeError`] when the bridge rejects replay or
+    /// returns an unexpected response.
+    pub async fn replay_turns(
+        &mut self,
+        session_id: String,
+        turns: Vec<BridgeReplayTurn>,
+    ) -> Result<(), FoundationBridgeError> {
+        let response = self
+            .send_request(BridgeRequest {
+                id: "replay_turns".to_string(),
+                payload: BridgeRequestPayload::ReplayTurns { session_id, turns },
+            })
+            .await?;
+        match response.payload {
+            BridgeResponsePayload::ReplayComplete => Ok(()),
+            payload => Err(FoundationBridgeError::BridgeProtocol(format!(
+                "unexpected replay_turns response {payload:?}"
+            ))),
+        }
+    }
+
+    /// Ask the bridge to cancel an in-flight request.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`FoundationBridgeError`] when cancellation is unsupported,
+    /// rejected, or the bridge returns an unexpected response.
+    pub async fn cancel_request(
+        &mut self,
+        request_id: String,
+    ) -> Result<(), FoundationBridgeError> {
+        let response = self
+            .send_request(BridgeRequest {
+                id: "cancel".to_string(),
+                payload: BridgeRequestPayload::Cancel { request_id },
+            })
+            .await?;
+        match response.payload {
+            BridgeResponsePayload::CancelComplete => Ok(()),
+            payload => Err(FoundationBridgeError::BridgeProtocol(format!(
+                "unexpected cancel response {payload:?}"
+            ))),
+        }
+    }
+
+    pub(crate) async fn generate_in_session(
         &mut self,
         session_id: String,
         input: String,
@@ -392,6 +445,7 @@ fn summarize_build_output(output: &std::process::Output) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::provider::adapters::foundation_bridge_protocol::{BridgeReplayTurn, BridgeRole};
     use std::path::PathBuf;
 
     #[tokio::test]
@@ -534,6 +588,68 @@ done
             .expect("generate should wait beyond control timeout");
 
         assert_eq!(text, "slow bridge answer");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn bridge_replay_turns_sends_replay_request() {
+        let (_dir, bridge_path) = bridge_script(
+            r#"#!/bin/sh
+while IFS= read -r line; do
+  case "$line" in
+    *'"id":"handshake"'*) printf '%s\n' '{"id":"handshake","payload":{"type":"handshake_ok","protocol_version":1}}' ;;
+    *'"id":"health"'*) printf '%s\n' '{"id":"health","payload":{"type":"health","available":true,"profiles":[{"id":"default","label":"Default"}],"unavailable_reason":null}}' ;;
+    *'"id":"replay_turns"'*'"role":"user"'*'"text":"hello"'*) printf '%s\n' '{"id":"replay_turns","payload":{"type":"replay_complete"}}' ;;
+    *) printf '%s\n' '{"id":"unknown","payload":{"type":"error","code":"unsupported_request","message":"Unsupported request."}}' ;;
+  esac
+done
+"#,
+        );
+        let mut process = FoundationBridgeProcess::start(FoundationBridgeConfig {
+            bridge_path,
+            build: None,
+        })
+        .await
+        .expect("bridge should start");
+
+        process
+            .replay_turns(
+                "session-1".to_string(),
+                vec![BridgeReplayTurn {
+                    role: BridgeRole::User,
+                    text: "hello".to_string(),
+                }],
+            )
+            .await
+            .expect("replay should complete");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn bridge_cancel_request_accepts_cancel_complete() {
+        let (_dir, bridge_path) = bridge_script(
+            r#"#!/bin/sh
+while IFS= read -r line; do
+  case "$line" in
+    *'"id":"handshake"'*) printf '%s\n' '{"id":"handshake","payload":{"type":"handshake_ok","protocol_version":1}}' ;;
+    *'"id":"health"'*) printf '%s\n' '{"id":"health","payload":{"type":"health","available":true,"profiles":[{"id":"default","label":"Default"}],"unavailable_reason":null}}' ;;
+    *'"id":"cancel"'*'"request_id":"generate"'*) printf '%s\n' '{"id":"cancel","payload":{"type":"cancel_complete"}}' ;;
+    *) printf '%s\n' '{"id":"unknown","payload":{"type":"error","code":"unsupported_request","message":"Unsupported request."}}' ;;
+  esac
+done
+"#,
+        );
+        let mut process = FoundationBridgeProcess::start(FoundationBridgeConfig {
+            bridge_path,
+            build: None,
+        })
+        .await
+        .expect("bridge should start");
+
+        process
+            .cancel_request("generate".to_string())
+            .await
+            .expect("cancel should complete");
     }
 
     #[cfg(unix)]

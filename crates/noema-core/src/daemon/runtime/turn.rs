@@ -156,6 +156,7 @@ impl CodexRuntimeActor {
         let response = match provider
             .generate_streaming(
                 GenerateRequest {
+                    conversation_id: Some(conversation_id.to_string()),
                     model: conversation.model.clone(),
                     input: GenerateInput::Text("NOEMA_INITIAL_NAME_ONBOARDING".to_string()),
                     instructions: Some(instructions),
@@ -438,6 +439,7 @@ impl CodexRuntimeActor {
         match provider
             .generate_streaming(
                 GenerateRequest {
+                    conversation_id: Some(conversation_id.clone()),
                     model: conversation.model.clone(),
                     input: GenerateInput::Text(input.clone()),
                     instructions: Some(planned_context.instructions),
@@ -656,6 +658,7 @@ impl CodexRuntimeActor {
             let continuation_response = provider
                 .generate_streaming(
                     GenerateRequest {
+                        conversation_id: Some(turn.conversation_id.clone()),
                         model: turn.model.clone(),
                         input: GenerateInput::Text(continuation_input.to_string()),
                         instructions: Some(continuation_instructions),

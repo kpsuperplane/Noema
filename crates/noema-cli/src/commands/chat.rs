@@ -129,6 +129,7 @@ pub(crate) async fn run_one_shot(args: Args) -> Result<(), CliError> {
             let provider = OpenAiProvider::new(openai_config)?;
             let response = provider
                 .generate(GenerateRequest {
+                    conversation_id: None,
                     model: Some(model),
                     input: GenerateInput::Text(prompt),
                     instructions: None,
@@ -145,6 +146,7 @@ pub(crate) async fn run_one_shot(args: Args) -> Result<(), CliError> {
             let provider = CodexResponsesProvider::new(codex_config)?;
             let response = provider
                 .generate(GenerateRequest {
+                    conversation_id: None,
                     model,
                     input: GenerateInput::Text(prompt),
                     instructions: None,
@@ -159,6 +161,7 @@ pub(crate) async fn run_one_shot(args: Args) -> Result<(), CliError> {
             let provider = FoundationLocalProvider::new(foundation_config)?;
             let response = provider
                 .generate(GenerateRequest {
+                    conversation_id: None,
                     model: Some(model),
                     input: GenerateInput::Text(prompt),
                     instructions: None,

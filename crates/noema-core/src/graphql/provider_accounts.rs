@@ -1,6 +1,10 @@
 use async_graphql::{Result, SimpleObject};
 
-use crate::{ProviderAccountRecord, ProviderAuthMethod};
+use crate::{
+    FoundationLocalProvider, FoundationLocalProviderConfig, ProviderAccountRecord,
+    ProviderAccountStatus, ProviderAuthMethod, config::DEFAULT_FOUNDATION_LOCAL_PROFILE,
+    provider::adapters::foundation_bridge_process::FoundationBridgeError,
+};
 
 use super::{
     errors::graphql_error, onboarding::GraphqlProviderAccountStatus, schema::GraphqlState,
@@ -57,10 +61,72 @@ const fn auth_method_label(method: ProviderAuthMethod) -> &'static str {
 }
 
 pub(super) async fn provider_accounts(state: &GraphqlState) -> Result<Vec<GraphqlProviderAccount>> {
+    refresh_foundation_local_availability(state).await;
     let store = state.store()?;
     let accounts = store
         .active_default_provider_accounts()
         .await
         .map_err(graphql_error)?;
     Ok(accounts.into_iter().map(Into::into).collect())
+}
+
+pub(super) async fn refresh_foundation_local_availability(state: &GraphqlState) {
+    if state.paths().is_err() {
+        return;
+    }
+    let Ok(store) = state.store() else {
+        return;
+    };
+    let Ok(accounts) = store.active_default_provider_accounts().await else {
+        return;
+    };
+    for account in accounts {
+        if account.provider_kind != "foundation_local"
+            || !account.is_active
+            || !account.is_default
+            || account.status == ProviderAccountStatus::Authenticated
+        {
+            continue;
+        }
+        let provider = match FoundationLocalProvider::new(FoundationLocalProviderConfig {
+            default_profile: DEFAULT_FOUNDATION_LOCAL_PROFILE.to_string(),
+            bridge_path: None,
+        }) {
+            Ok(provider) => provider,
+            Err(error) => {
+                let _ = store
+                    .update_provider_account_status(
+                        &account.provider_account_id,
+                        ProviderAccountStatus::Unavailable,
+                        Some("invalid_foundation_config"),
+                        Some(&error.to_string()),
+                    )
+                    .await;
+                continue;
+            }
+        };
+        let update = match provider.check_availability().await {
+            Ok(()) => (ProviderAccountStatus::Authenticated, None, None),
+            Err(error) => (
+                ProviderAccountStatus::Unavailable,
+                Some(foundation_availability_error_code(&error).to_string()),
+                Some(error.to_string()),
+            ),
+        };
+        let _ = store
+            .update_provider_account_status(
+                &account.provider_account_id,
+                update.0,
+                update.1.as_deref(),
+                update.2.as_deref(),
+            )
+            .await;
+    }
+}
+
+fn foundation_availability_error_code(error: &FoundationBridgeError) -> &'static str {
+    match error.code() {
+        "foundation_unavailable" => "foundation_models_unavailable",
+        code => code,
+    }
 }

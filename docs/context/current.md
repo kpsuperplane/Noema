@@ -286,9 +286,18 @@ The next storage slice should stay small and concrete:
   existing chat `ErrorNotice` path. Foundation Local forwards max output token
   limits to the Swift bridge and parses required Noema response envelopes for
   normal chat turns. Backend review follow-ups that remain intentionally separate:
-  refresh Foundation provider availability before exposing selectable models on
-  unsupported/missing-bridge setups, and implement longer-lived Swift bridge
-  replay/cancel session semantics beyond the current one-shot generation bridge.
+  The remaining bridge follow-ups have landed: GraphQL Providers and Agents
+  opportunistically refresh Foundation Local availability in real runtime-host
+  state before rendering model options, keep unknown/unavailable Foundation
+  accounts visible but disabled in the dashboard, and reject saving a
+  Foundation model preference until the account is actually available. The Rust
+  provider contract now carries an optional Noema conversation id, normal chat
+  turns pass it through, and `foundation_local` keeps a daemon-owned bridge
+  process with live sessions reused by conversation/model/instructions while
+  one-shot compaction and CLI requests stay transient. The bridge protocol now
+  exposes Rust replay/cancel request methods, and the Swift bridge decodes
+  replay/cancel, replays prior turns by rebuilding the session transcript when
+  supported, and returns an explicit unsupported-cancellation error for now.
 
 ## Open Loops
 

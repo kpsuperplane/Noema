@@ -123,6 +123,8 @@ pub enum BridgeResponsePayload {
     },
     /// Replay completed.
     ReplayComplete,
+    /// Cancellation completed.
+    CancelComplete,
     /// Assistant text delta.
     AssistantTextDelta {
         /// Delta text.

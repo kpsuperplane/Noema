@@ -1029,6 +1029,43 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn runtime_turn_passes_conversation_id_to_provider_request() {
+        use crate::store::tests::test_store;
+
+        let store = test_store().await;
+        store.ensure_default_actors().await.expect("actors");
+        let (requests, runtime) =
+            test_autofill_runtime_with_requests(store, "captured", None).await;
+        let started = runtime
+            .start_conversation(None, None)
+            .await
+            .expect("conversation");
+        let (item_tx, _item_rx) = tokio::sync::mpsc::unbounded_channel::<TurnStreamEvent>();
+
+        runtime
+            .turn(
+                started.conversation_id.clone(),
+                "hello from durable chat".to_string(),
+                item_tx,
+            )
+            .await
+            .expect("turn");
+
+        let requests = requests.lock().expect("requests");
+        assert!(
+            requests.iter().any(|request| {
+                request.conversation_id.as_deref() == Some(started.conversation_id.as_str())
+                    && matches!(
+                        &request.input,
+                        crate::provider::GenerateInput::Text(text)
+                            if text == "hello from durable chat"
+                    )
+            }),
+            "captured requests: {requests:?}"
+        );
+    }
+
+    #[tokio::test]
     async fn agents_query_sanitizes_unavailable_provider_errors() {
         use crate::store::tests::test_store;
 

@@ -250,6 +250,7 @@ async fn generate_compaction_summary(
     provider
         .generate_streaming(
             GenerateRequest {
+                conversation_id: None,
                 model: model_profile.map(str::to_string),
                 input: GenerateInput::Text(input),
                 instructions: Some(instructions),

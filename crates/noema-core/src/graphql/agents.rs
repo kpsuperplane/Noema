@@ -102,6 +102,7 @@ impl GraphqlAgent {
 pub(super) async fn agents(state: &GraphqlState) -> Result<Vec<GraphqlAgent>> {
     let store = state.store()?;
     let agents = store.list_agents().await.map_err(graphql_error)?;
+    super::provider_accounts::refresh_foundation_local_availability(state).await;
     let mut accounts = store
         .active_default_provider_accounts()
         .await
