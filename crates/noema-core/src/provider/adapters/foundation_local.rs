@@ -19,6 +19,7 @@ use super::foundation_bridge_process::{
     FoundationBridgeBuildConfig, FoundationBridgeConfig, FoundationBridgeError,
     FoundationBridgeProcess,
 };
+use super::noema_response_stream::NoemaAssistantTextDeltaExtractor;
 use tokio::sync::Mutex;
 
 /// Provider identifier for Apple Foundation Models.
@@ -252,8 +253,16 @@ impl ModelProvider for FoundationLocalProvider {
             .clone()
             .filter(|model| !model.trim().is_empty())
             .unwrap_or_else(|| self.config.default_profile.clone());
+        let require_noema_response = request.options.require_noema_response;
         let GenerateInput::Text(text) = request.input;
-        let mut relay_delta = |delta| on_event(GenerateStreamEvent::AssistantTextDelta { delta });
+        let mut noema_delta_extractor = NoemaAssistantTextDeltaExtractor::default();
+        let mut relay_delta = |delta: String| {
+            if require_noema_response {
+                noema_delta_extractor.push_delta(&delta, on_event);
+            } else {
+                on_event(GenerateStreamEvent::AssistantTextDelta { delta });
+            }
+        };
         let key = FoundationSessionKey {
             conversation_id,
             model_profile: model.clone(),
@@ -276,7 +285,7 @@ impl ModelProvider for FoundationLocalProvider {
                 provider: FOUNDATION_LOCAL_PROVIDER.to_string(),
                 message: format!("Apple Foundation Models bridge generation failed: {error}"),
             })?;
-        let output = if request.options.require_noema_response {
+        let output = if require_noema_response {
             required_output_items_from_text(output_text)?
         } else {
             vec![crate::GenerateOutputItem::AssistantText { text: output_text }]
@@ -464,6 +473,63 @@ done
                 },
                 GenerateOutputItem::MemoryProposals { proposals: vec![] }
             ]
+        );
+    }
+
+    #[cfg(all(unix, target_os = "macos"))]
+    #[tokio::test]
+    async fn generate_required_noema_response_streams_only_assistant_text_from_envelope() {
+        let (_dir, bridge_path) = bridge_script(
+            r#"#!/bin/sh
+while IFS= read -r line; do
+  case "$line" in
+    *'"id":"handshake"'*) printf '%s\n' '{"id":"handshake","payload":{"type":"handshake_ok","protocol_version":1}}' ;;
+    *'"id":"health"'*) printf '%s\n' '{"id":"health","payload":{"type":"health","available":true,"profiles":[{"id":"default","label":"Default"}],"unavailable_reason":null}}' ;;
+    *'"id":"create_session"'*) printf '%s\n' '{"id":"create_session","payload":{"type":"session_created","session_id":"session-1"}}' ;;
+    *'"id":"generate"'*) printf '%s\n' '{"id":"generate","payload":{"type":"assistant_text_delta","delta":"{\"type\":\"noema_response\",\"output\":[{\"kind\":\"assistant_text\",\"text\":\"bridge answer\"},{\"kind\":\"memory_proposals\",\"proposals\":[]}]}"}}'; printf '%s\n' '{"id":"generate","payload":{"type":"generate_complete","text":"{\"type\":\"noema_response\",\"output\":[{\"kind\":\"assistant_text\",\"text\":\"bridge answer\"},{\"kind\":\"memory_proposals\",\"proposals\":[]}]}"}}' ;;
+    *) printf '%s\n' '{"id":"unknown","payload":{"type":"error","code":"unsupported_request","message":"Unsupported request."}}' ;;
+  esac
+done
+"#,
+        );
+        let provider = FoundationLocalProvider::new(FoundationLocalProviderConfig {
+            default_profile: "default".to_string(),
+            bridge_path: Some(bridge_path),
+        })
+        .expect("provider");
+        let mut events = Vec::new();
+
+        let response = provider
+            .generate_streaming(
+                GenerateRequest {
+                    conversation_id: None,
+                    model: None,
+                    input: GenerateInput::Text("prompt text".to_string()),
+                    instructions: None,
+                    options: crate::GenerateOptions {
+                        require_noema_response: true,
+                        ..crate::GenerateOptions::default()
+                    },
+                },
+                &mut |event| events.push(event),
+            )
+            .await
+            .expect("generate");
+
+        assert_eq!(
+            response.output,
+            vec![
+                GenerateOutputItem::AssistantText {
+                    text: "bridge answer".to_string(),
+                },
+                GenerateOutputItem::MemoryProposals { proposals: vec![] }
+            ]
+        );
+        assert_eq!(
+            events,
+            vec![GenerateStreamEvent::AssistantTextDelta {
+                delta: "bridge answer".to_string(),
+            }]
         );
     }
 
