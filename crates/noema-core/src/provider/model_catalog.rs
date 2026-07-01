@@ -33,7 +33,7 @@ pub async fn refresh_provider_model_profiles(
     paths: &NoemaPaths,
     account: &ProviderAccountRecord,
 ) -> Result<(), ProviderError> {
-    if account.status != ProviderAccountStatus::Authenticated || has_metadata_profiles(account) {
+    if has_metadata_profiles(account) || !should_refresh_model_profiles(account) {
         return Ok(());
     }
 
@@ -63,7 +63,33 @@ pub async fn refresh_provider_model_profiles(
         .map_err(|source| ProviderError::ProviderUnavailable {
             provider: account.provider_kind.clone(),
             message: format!("failed to persist model catalog metadata: {source}"),
-        })
+        })?;
+
+    if account.status != ProviderAccountStatus::Authenticated {
+        store
+            .update_provider_account_status(
+                &account.provider_account_id,
+                ProviderAccountStatus::Authenticated,
+                None,
+                None,
+            )
+            .await
+            .map_err(|source| ProviderError::ProviderUnavailable {
+                provider: account.provider_kind.clone(),
+                message: format!("failed to persist provider account status: {source}"),
+            })?;
+    }
+
+    Ok(())
+}
+
+fn should_refresh_model_profiles(account: &ProviderAccountRecord) -> bool {
+    match account.provider_kind.as_str() {
+        // Codex OAuth credentials live in Noema's provider account home. A
+        // successful catalog read is the authoritative auth check for Settings.
+        "codex" => true,
+        _ => account.status == ProviderAccountStatus::Authenticated,
+    }
 }
 
 fn has_metadata_profiles(account: &ProviderAccountRecord) -> bool {
@@ -238,7 +264,15 @@ fn now_string() -> String {
 
 #[cfg(test)]
 mod tests {
+    use tempfile::TempDir;
+    use tokio::{
+        io::{AsyncReadExt, AsyncWriteExt},
+        net::TcpListener,
+        sync::oneshot,
+    };
+
     use super::*;
+    use crate::{provider::adapters::codex_oauth::CodexOAuthTokens, store::StoreConfig};
 
     #[test]
     fn extracts_visible_profiles_from_codex_model_list() {
@@ -273,5 +307,136 @@ mod tests {
         assert_eq!(profiles[0]["label"], "GPT-5.5");
         assert_eq!(profiles[0]["default_reasoning_effort"], "medium");
         assert_eq!(profiles[0]["input_modalities"], json!(["text", "image"]));
+    }
+
+    #[tokio::test]
+    async fn codex_catalog_refresh_with_tokens_marks_unknown_account_authenticated() {
+        let home = TempDir::new().expect("temp noema home");
+        let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
+        let store = NoemaStore::open(&StoreConfig::from_paths(&paths))
+            .await
+            .expect("open store");
+        let (base_url, request_rx) = spawn_server(
+            200,
+            json!({
+                "data": [
+                    {
+                        "id": "gpt-live",
+                        "model": "gpt-live",
+                        "displayName": "GPT Live"
+                    }
+                ]
+            })
+            .to_string(),
+        )
+        .await;
+        let created = store
+            .ensure_default_provider_account()
+            .await
+            .expect("default account");
+        store
+            .update_provider_account_metadata(
+                &created.provider_account_id,
+                json!({
+                    "base_url": base_url
+                }),
+            )
+            .await
+            .expect("set catalog base url");
+        CodexTokenStore::new(paths.provider_account_home("codex", "default"))
+            .write(&CodexOAuthTokens {
+                access_token: "access-token".to_string(),
+                refresh_token: "refresh-token".to_string(),
+                last_refresh: 123,
+            })
+            .expect("write tokens");
+        let account = store
+            .get_provider_account(&created.provider_account_id)
+            .await
+            .expect("get account")
+            .expect("account exists");
+
+        refresh_provider_model_profiles(&store, &paths, &account)
+            .await
+            .expect("refresh profiles");
+
+        let request = request_rx.await.expect("captured request");
+        assert_eq!(request.path, "/models");
+        assert_eq!(
+            request.headers.get("authorization").map(String::as_str),
+            Some("Bearer access-token")
+        );
+        let updated = store
+            .get_provider_account(&created.provider_account_id)
+            .await
+            .expect("get updated account")
+            .expect("updated account exists");
+        assert_eq!(updated.status, ProviderAccountStatus::Authenticated);
+        assert_eq!(updated.metadata["profiles"][0]["id"], "gpt-live");
+        assert_eq!(updated.metadata["profiles"][0]["label"], "GPT Live");
+    }
+
+    #[derive(Debug)]
+    struct CapturedRequest {
+        path: String,
+        headers: std::collections::HashMap<String, String>,
+    }
+
+    async fn spawn_server(
+        status: u16,
+        response_body: String,
+    ) -> (String, oneshot::Receiver<CapturedRequest>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let addr = listener.local_addr().expect("local addr");
+        let (request_tx, request_rx) = oneshot::channel();
+
+        tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.expect("accept");
+            let request = read_request(&mut socket).await;
+            let _ = request_tx.send(request);
+            let reason = match status {
+                200 => "OK",
+                401 => "Unauthorized",
+                429 => "Too Many Requests",
+                _ => "Error",
+            };
+            let response = format!(
+                "HTTP/1.1 {status} {reason}\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n{}",
+                response_body.len(),
+                response_body
+            );
+            socket
+                .write_all(response.as_bytes())
+                .await
+                .expect("write response");
+        });
+
+        (format!("http://{addr}"), request_rx)
+    }
+
+    async fn read_request(socket: &mut tokio::net::TcpStream) -> CapturedRequest {
+        let mut bytes = Vec::new();
+        let mut buffer = [0_u8; 1024];
+        loop {
+            let read = socket.read(&mut buffer).await.expect("read request");
+            assert_ne!(read, 0, "client closed before complete request");
+            bytes.extend_from_slice(&buffer[..read]);
+            if bytes.windows(4).any(|window| window == b"\r\n\r\n") {
+                break;
+            }
+        }
+        let text = String::from_utf8_lossy(&bytes);
+        let mut lines = text.lines();
+        let path = lines
+            .next()
+            .and_then(|line| line.split_whitespace().nth(1))
+            .unwrap_or_default()
+            .to_string();
+        let headers = lines
+            .take_while(|line| !line.is_empty())
+            .filter_map(|line| line.split_once(':'))
+            .map(|(name, value)| (name.to_ascii_lowercase(), value.trim().to_string()))
+            .collect();
+        CapturedRequest { path, headers }
     }
 }
