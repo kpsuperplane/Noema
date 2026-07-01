@@ -1,4 +1,4 @@
-import type { TranscriptEntry, TurnTranscriptItem } from "../../types";
+import type { ConversationAgentStatus, TranscriptEntry, TurnTranscriptItem } from "../../types";
 
 type ActivityTranscriptItem = Extract<TurnTranscriptItem, { kind: "activity" }>;
 type ActivityTranscriptEntry = Extract<TranscriptEntry, { type: "activity" }>;
@@ -41,7 +41,11 @@ type RenderTranscriptLaneCandidate =
   | { kind: "memory_marker" }
   | { kind: "tool_marker" };
 
-export function renderableTranscriptEntries(entries: TranscriptEntry[], pending: boolean): RenderTranscriptEntry[] {
+export function renderableTranscriptEntries(
+  entries: TranscriptEntry[],
+  pending: boolean,
+  agentStatus: ConversationAgentStatus
+): RenderTranscriptEntry[] {
   const typingContinuationRenderIds = typingContinuationAssistantRenderIds(entries);
   const renderedEntries = groupTranscriptMarkers(entries).map((entry): RenderTranscriptEntry => {
     if (entry.kind !== "entry" || !typingContinuationRenderIds.has(transcriptEntryRenderId(entry.entry))) {
@@ -49,7 +53,7 @@ export function renderableTranscriptEntries(entries: TranscriptEntry[], pending:
     }
     return { ...entry, suppressArrival: true };
   });
-  if (shouldShowTypingIndicator(entries, pending)) {
+  if (shouldShowTypingIndicator(entries, pending, agentStatus)) {
     renderedEntries.push({ kind: "typing", id: "typing-indicator" });
   }
   return renderedEntries;
@@ -133,19 +137,28 @@ export function shouldCompactMarkerClusterSpacing(
   );
 }
 
-export function shouldShowTypingIndicator(entries: TranscriptEntry[], pending: boolean): boolean {
-  if (!pending) {
-    return false;
-  }
-
+export function shouldShowTypingIndicator(
+  entries: TranscriptEntry[],
+  pending: boolean,
+  agentStatus: ConversationAgentStatus
+): boolean {
   const lastUserIndex = latestUserEntryIndex(entries);
   if (lastUserIndex === -1) {
     return false;
   }
 
-  return !entries
+  const hasAssistantAfterLastUser = entries
     .slice(lastUserIndex + 1)
     .some((entry) => entry.type === "assistant" || entry.type === "assistant_stream");
+  if (hasAssistantAfterLastUser) {
+    return false;
+  }
+
+  if (pending || agentStatus === "THINKING" || agentStatus === "TOOL_RUNNING") {
+    return true;
+  }
+
+  return entries.slice(lastUserIndex + 1).some((entry) => entry.type === "activity");
 }
 
 function sameTurn(left: TranscriptEntry, right: TranscriptEntry) {

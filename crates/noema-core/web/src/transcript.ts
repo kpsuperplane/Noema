@@ -144,6 +144,19 @@ function appendAssistantTextDelta(
 ) {
   void event.conversationId;
   setTranscript((current) => {
+    const completedIndex = current.findIndex((candidate) => {
+      if (candidate.type !== "assistant") {
+        return false;
+      }
+      if (candidate.streamId === event.streamId) {
+        return true;
+      }
+      return candidate.turnId === event.turnId;
+    });
+    if (completedIndex !== -1) {
+      return current;
+    }
+
     const index = current.findIndex(
       (candidate) => candidate.type === "assistant_stream" && candidate.streamId === event.streamId
     );

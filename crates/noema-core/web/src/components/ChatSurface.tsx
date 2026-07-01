@@ -6,7 +6,7 @@ import {
   type ShellSurfaceVisibility,
   useShellSurface
 } from "./shell/ShellSurfaceContext";
-import type { TranscriptEntry } from "../types";
+import type { ConversationAgentStatus, TranscriptEntry } from "../types";
 
 export function shouldFocusChatComposer({
   ready,
@@ -36,6 +36,8 @@ export function composerPlaceholder({
 export type ChatSurfaceProps = {
   transcript: TranscriptEntry[];
   pending: boolean;
+  agentStatus: ConversationAgentStatus;
+  awaitingAssistantTurn: boolean;
   expandedActivities: Set<string>;
   draft: string;
   ready: boolean;
@@ -49,6 +51,8 @@ export type ChatSurfaceProps = {
 export function ChatSurface({
   transcript,
   pending,
+  agentStatus,
+  awaitingAssistantTurn,
   expandedActivities,
   draft,
   ready,
@@ -78,6 +82,8 @@ export function ChatSurface({
         <Transcript
           entries={transcript}
           pending={pending}
+          agentStatus={agentStatus}
+          awaitingAssistantTurn={awaitingAssistantTurn}
           expandedActivities={expandedActivities}
           onToggleActivity={onToggleActivity}
         />

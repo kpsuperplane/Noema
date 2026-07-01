@@ -93,12 +93,13 @@ export function App() {
 
   const [socketState, setSocketState] = React.useState<SocketState>("closed");
   const [conversationId, setConversationId] = React.useState<string | null>(null);
-  const [, setAgentStatus] = React.useState<ConversationAgentStatus>("closed");
+  const [agentStatus, setAgentStatus] = React.useState<ConversationAgentStatus>("closed");
   const [authAttempt, setAuthAttempt] = React.useState<ProviderAuthAttemptView | null>(null);
   const [onboardingError, setOnboardingError] = React.useState<string | null>(null);
   const [transcript, setTranscript] = React.useState<TranscriptEntry[]>([]);
   const [draft, setDraft] = React.useState("");
   const [pending, setPending] = React.useState(false);
+  const [awaitingAssistantTurn, setAwaitingAssistantTurn] = React.useState(false);
   const [expandedActivities, setExpandedActivities] = React.useState<Set<string>>(new Set());
   const startingConversationRef = React.useRef(false);
 
@@ -115,6 +116,7 @@ export function App() {
     setSocketState("closed");
     setAgentStatus("closed");
     setPending(false);
+    setAwaitingAssistantTurn(false);
     pushTranscript(setTranscript, {
       id: crypto.randomUUID(),
       type: "error",
@@ -146,6 +148,7 @@ export function App() {
         setConversationId(started.conversationId);
         setTranscript(entriesFromReplay(started.replay));
         setPending(false);
+        setAwaitingAssistantTurn(false);
         setSocketState("ready");
         setAgentStatus("IDLE");
       })
@@ -153,6 +156,7 @@ export function App() {
         setSocketState("closed");
         setAgentStatus("closed");
         setPending(false);
+        setAwaitingAssistantTurn(false);
         pushTranscript(setTranscript, {
           id: crypto.randomUUID(),
           type: "error",
@@ -173,7 +177,8 @@ export function App() {
     handleConversationEvent(event, {
       setTranscript,
       setPending,
-      setAgentStatus
+      setAgentStatus,
+      setAwaitingAssistantTurn
     });
     if (shouldRefreshLocalStatusForConversationEvent(event)) {
       void localStatus.refetch();
@@ -279,6 +284,7 @@ export function App() {
     const clientMessageId = crypto.randomUUID();
     setDraft("");
     setPending(true);
+    setAwaitingAssistantTurn(false);
     setAgentStatus("INPUT_RECEIVED");
     pushTranscript(setTranscript, { id: clientMessageId, type: "user", text: input });
 
@@ -310,6 +316,8 @@ export function App() {
     <ChatSurface
       transcript={transcript}
       pending={pending}
+      agentStatus={agentStatus}
+      awaitingAssistantTurn={awaitingAssistantTurn}
       expandedActivities={expandedActivities}
       draft={draft}
       ready={ready}

@@ -37,19 +37,22 @@ import { ToolMarker } from "./ToolMarker";
 import { TranscriptBottomFollower, ARRIVAL_SCROLL_FOLLOW_DURATION_MS } from "./TranscriptBottomFollower";
 import { TranscriptRow } from "./TranscriptRow";
 import { TypingMessage } from "./TypingMessage";
+import type { ConversationAgentStatus } from "../../types";
 
 export function Transcript({
   entries,
   pending,
+  agentStatus,
   expandedActivities,
   onToggleActivity
 }: {
   entries: TranscriptEntry[];
   pending: boolean;
+  agentStatus: ConversationAgentStatus;
   expandedActivities: Set<string>;
   onToggleActivity: (id: string) => void;
 }) {
-  const renderedEntries = renderableTranscriptEntries(entries, pending);
+  const renderedEntries = renderableTranscriptEntries(entries, pending, agentStatus);
   const [seenArrivalMessageIds, setSeenArrivalMessageIds] = React.useState<ReadonlySet<string>>(() =>
     initialSeenArrivalMessageIds(renderedEntries)
   );
