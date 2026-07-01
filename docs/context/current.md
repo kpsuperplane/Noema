@@ -275,12 +275,20 @@ The next storage slice should stay small and concrete:
   Noema. Primary chat continuity is owned by Noema's human primary conversation
   and no longer forks when the agent switches providers. A live GraphQL probe
   against the dev daemon on July 1, 2026 returned an assistant response through
-  `foundation_local`. The next context-window slice is planned in
+  `foundation_local`. The context-window slice from
   `docs/superpowers/specs/2026-07-01-context-compaction-design.md` and
-  `docs/superpowers/plans/2026-07-01-context-compaction.md`: use durable,
-  inspectable rolling compaction checkpoints so small-context providers such as
-  Foundation Local can resume without constantly trimming transcript text and
-  breaking prompt caching.
+  `docs/superpowers/plans/2026-07-01-context-compaction.md` is implemented:
+  Noema now persists durable `conversation_context_summaries`, advertises
+  provider context metadata, counts or estimates prompt tokens, assembles prompts
+  from the latest active summary plus all post-checkpoint text items, performs
+  foreground compaction before over-limit turns, schedules background compaction
+  after large turns, and reports foreground compaction failures through the
+  existing chat `ErrorNotice` path. Foundation Local forwards max output token
+  limits to the Swift bridge and parses required Noema response envelopes for
+  normal chat turns. Backend review follow-ups that remain intentionally separate:
+  refresh Foundation provider availability before exposing selectable models on
+  unsupported/missing-bridge setups, and implement longer-lived Swift bridge
+  replay/cancel session semantics beyond the current one-shot generation bridge.
 
 ## Open Loops
 
