@@ -281,6 +281,49 @@ async fn runtime_turn_streams_durable_assistant_item_and_idle_status() {
 }
 
 #[tokio::test]
+async fn primary_agent_runtime_preference_supplies_turn_model() {
+    let store = crate::store::tests::test_store().await;
+    store.ensure_default_actors().await.expect("actors");
+    let account = store
+        .ensure_default_foundation_local_provider_account()
+        .await
+        .expect("foundation account");
+    store
+        .upsert_agent_runtime_preference(crate::NewAgentRuntimePreference {
+            agent_id: "agent:primary".to_string(),
+            provider_kind: "foundation_local".to_string(),
+            provider_account_id: account.provider_account_id,
+            model_profile: "default".to_string(),
+        })
+        .await
+        .expect("preference");
+
+    let provider = Arc::new(CapturingProvider::default());
+    let runtime = CodexRuntimeHandle::spawn_with_provider(provider.clone(), store)
+        .await
+        .expect("runtime");
+
+    let started = runtime
+        .start_primary_conversation(None, None)
+        .await
+        .expect("conversation");
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    runtime
+        .turn(started.conversation_id, "hello".to_string(), tx)
+        .await
+        .expect("turn");
+
+    while rx.recv().await.is_some() {}
+    runtime.shutdown().await;
+
+    let requests = provider.requests.lock().expect("requests");
+    assert_eq!(
+        requests.last().and_then(|request| request.model.as_deref()),
+        Some("default")
+    );
+}
+
+#[tokio::test]
 async fn runtime_turn_streams_assistant_text_deltas_before_durable_item() {
     let (handle, store) = test_runtime_handle_with_store(fake_codex_provider()).await;
     let conversation = handle
@@ -3587,6 +3630,11 @@ struct FakeCodexProvider {
     invalid_consolidation_target_id: Arc<Mutex<Option<String>>>,
 }
 
+#[derive(Debug, Default)]
+struct CapturingProvider {
+    requests: Mutex<Vec<GenerateRequest>>,
+}
+
 #[derive(Debug)]
 struct BlockingOnceProvider {
     started: Mutex<Option<oneshot::Sender<()>>>,
@@ -4230,6 +4278,28 @@ impl super::runtime::RuntimeModelProvider for FakeCodexProvider {
                 }
             }
             Ok(response)
+        })
+    }
+}
+
+impl super::runtime::RuntimeModelProvider for CapturingProvider {
+    fn generate_streaming<'a>(
+        &'a self,
+        request: GenerateRequest,
+        _on_event: &'a mut (dyn FnMut(GenerateStreamEvent) + Send),
+    ) -> Pin<Box<dyn Future<Output = Result<GenerateResponse, ProviderError>> + Send + 'a>> {
+        Box::pin(async move {
+            self.requests
+                .lock()
+                .expect("requests")
+                .push(request.clone());
+            Ok(GenerateResponse {
+                output: assistant_with_no_memories("fake answer"),
+                provider: "test".to_string(),
+                model: request.model.unwrap_or_else(|| "fake-model".to_string()),
+                response_id: None,
+                usage: None,
+            })
         })
     }
 }

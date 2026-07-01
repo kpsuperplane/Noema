@@ -9,8 +9,9 @@ use crate::{
 };
 use noema_cli::collect_prompt;
 use noema_core::{
-    CodexResponsesProvider, Config, GenerateInput, GenerateOptions, GenerateRequest, ModelProvider,
-    NoemaPaths, OpenAiProvider, ProviderConfig, TurnActivityStatus, TurnTranscriptItem,
+    CodexResponsesProvider, Config, FoundationLocalProvider, GenerateInput, GenerateOptions,
+    GenerateRequest, ModelProvider, NoemaPaths, OpenAiProvider, ProviderConfig, TurnActivityStatus,
+    TurnTranscriptItem,
 };
 use std::env;
 use std::io::{self, IsTerminal, Read, Write};
@@ -145,6 +146,20 @@ pub(crate) async fn run_one_shot(args: Args) -> Result<(), CliError> {
             let response = provider
                 .generate(GenerateRequest {
                     model,
+                    input: GenerateInput::Text(prompt),
+                    instructions: None,
+                    options: GenerateOptions::default(),
+                })
+                .await?;
+
+            print_response(&response.assistant_text())?;
+        }
+        ProviderConfig::FoundationLocal(foundation_config) => {
+            let model = foundation_config.default_profile.clone();
+            let provider = FoundationLocalProvider::new(foundation_config)?;
+            let response = provider
+                .generate(GenerateRequest {
+                    model: Some(model),
                     input: GenerateInput::Text(prompt),
                     instructions: None,
                     options: GenerateOptions::default(),

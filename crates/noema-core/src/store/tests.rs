@@ -517,6 +517,105 @@ async fn default_provider_account_round_trips_status() {
 }
 
 #[tokio::test]
+async fn default_foundation_local_provider_account_is_available_metadata() {
+    let store = test_store().await;
+
+    let account = store
+        .ensure_default_foundation_local_provider_account()
+        .await
+        .expect("foundation provider account");
+
+    assert_eq!(
+        account.provider_account_id,
+        "provider_account:foundation_local:default"
+    );
+    assert_eq!(account.provider_kind, "foundation_local");
+    assert_eq!(account.account_key, "default");
+    assert_eq!(account.display_name, "Apple Foundation Models");
+    assert_eq!(account.auth_method, crate::ProviderAuthMethod::None);
+    assert_eq!(account.status, ProviderAccountStatus::Unknown);
+}
+
+#[tokio::test]
+async fn active_default_provider_accounts_lists_codex_and_foundation() {
+    let store = test_store().await;
+    store
+        .ensure_default_provider_account()
+        .await
+        .expect("codex account");
+    store
+        .ensure_default_foundation_local_provider_account()
+        .await
+        .expect("foundation account");
+
+    let accounts = store
+        .active_default_provider_accounts()
+        .await
+        .expect("provider accounts");
+
+    let kinds = accounts
+        .iter()
+        .map(|account| account.provider_kind.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(kinds, vec!["codex", "foundation_local"]);
+}
+
+#[tokio::test]
+async fn agent_runtime_preference_round_trips() {
+    let store = test_store().await;
+    store.ensure_default_actors().await.expect("default actors");
+    let account = store
+        .ensure_default_foundation_local_provider_account()
+        .await
+        .expect("foundation account");
+
+    let saved = store
+        .upsert_agent_runtime_preference(crate::NewAgentRuntimePreference {
+            agent_id: "agent:primary".to_string(),
+            provider_kind: "foundation_local".to_string(),
+            provider_account_id: account.provider_account_id.clone(),
+            model_profile: "default".to_string(),
+        })
+        .await
+        .expect("save preference");
+
+    assert_eq!(saved.agent_id, "agent:primary");
+    assert_eq!(saved.provider_kind, "foundation_local");
+    assert_eq!(saved.provider_account_id, account.provider_account_id);
+    assert_eq!(saved.model_profile, "default");
+
+    let loaded = store
+        .get_agent_runtime_preference("agent:primary")
+        .await
+        .expect("load preference")
+        .expect("preference exists");
+
+    assert_eq!(loaded, saved);
+}
+
+#[tokio::test]
+async fn agent_runtime_preference_rejects_unknown_provider_account() {
+    let store = test_store().await;
+    store.ensure_default_actors().await.expect("default actors");
+
+    let error = store
+        .upsert_agent_runtime_preference(crate::NewAgentRuntimePreference {
+            agent_id: "agent:primary".to_string(),
+            provider_kind: "foundation_local".to_string(),
+            provider_account_id: "provider_account:foundation_local:missing".to_string(),
+            model_profile: "default".to_string(),
+        })
+        .await
+        .expect_err("unknown provider account should fail");
+
+    assert!(matches!(
+        error,
+        StoreError::ProviderAccountNotFound { provider_account_id }
+            if provider_account_id == "provider_account:foundation_local:missing"
+    ));
+}
+
+#[tokio::test]
 async fn default_primary_agent_starts_unnamed() {
     let store = test_store().await;
 

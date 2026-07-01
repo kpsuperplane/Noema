@@ -13,7 +13,7 @@ pub(crate) async fn run_start(args: &Args) -> Result<(), CliError> {
     eprintln!("noema web chat available at {}", daemon_config.web.url());
     run_daemon(DaemonServerConfig::new(
         socket_path,
-        daemon_config.codex,
+        daemon_config.provider,
         daemon_config.web,
     ))
     .await?;

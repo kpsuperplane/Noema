@@ -30,9 +30,18 @@ DEFINE FIELD OVERWRITE created_at ON TABLE agents TYPE datetime DEFAULT time::no
 DEFINE FIELD OVERWRITE updated_at ON TABLE agents TYPE datetime DEFAULT time::now();
 DEFINE INDEX IF NOT EXISTS agents_agent_id ON TABLE agents COLUMNS agent_id UNIQUE;
 
+DEFINE TABLE IF NOT EXISTS agent_runtime_preferences SCHEMAFULL;
+DEFINE FIELD OVERWRITE agent_id ON TABLE agent_runtime_preferences TYPE string;
+DEFINE FIELD OVERWRITE provider_kind ON TABLE agent_runtime_preferences TYPE string ASSERT $value INSIDE ['codex', 'openai', 'foundation_local'];
+DEFINE FIELD OVERWRITE provider_account_id ON TABLE agent_runtime_preferences TYPE string;
+DEFINE FIELD OVERWRITE model_profile ON TABLE agent_runtime_preferences TYPE string ASSERT $value != '';
+DEFINE FIELD OVERWRITE created_at ON TABLE agent_runtime_preferences TYPE datetime DEFAULT time::now();
+DEFINE FIELD OVERWRITE updated_at ON TABLE agent_runtime_preferences TYPE datetime DEFAULT time::now();
+DEFINE INDEX IF NOT EXISTS agent_runtime_preferences_agent_id ON TABLE agent_runtime_preferences COLUMNS agent_id UNIQUE;
+
 DEFINE TABLE IF NOT EXISTS provider_accounts SCHEMAFULL;
 DEFINE FIELD OVERWRITE provider_account_id ON TABLE provider_accounts TYPE string;
-DEFINE FIELD OVERWRITE provider_kind ON TABLE provider_accounts TYPE string ASSERT $value INSIDE ['codex'];
+DEFINE FIELD OVERWRITE provider_kind ON TABLE provider_accounts TYPE string ASSERT $value INSIDE ['codex', 'openai', 'foundation_local'];
 DEFINE FIELD OVERWRITE account_key ON TABLE provider_accounts TYPE string;
 DEFINE FIELD OVERWRITE display_name ON TABLE provider_accounts TYPE string;
 DEFINE FIELD OVERWRITE auth_method ON TABLE provider_accounts TYPE string ASSERT $value INSIDE ['oauth_device_code', 'secret_input', 'external_manual', 'none'];
@@ -176,7 +185,7 @@ DEFINE FIELD OVERWRITE owner_object_type ON TABLE conversations TYPE string ASSE
 DEFINE FIELD OVERWRITE owner_object_id ON TABLE conversations TYPE string;
 DEFINE FIELD OVERWRITE primary_human_id ON TABLE conversations TYPE option<string>;
 DEFINE FIELD OVERWRITE primary_agent_id ON TABLE conversations TYPE option<string>;
-DEFINE FIELD OVERWRITE provider ON TABLE conversations TYPE string ASSERT $value INSIDE ['codex'];
+DEFINE FIELD OVERWRITE provider ON TABLE conversations TYPE string ASSERT $value INSIDE ['codex', 'openai', 'foundation_local'];
 DEFINE FIELD OVERWRITE model ON TABLE conversations TYPE option<string>;
 DEFINE FIELD OVERWRITE cwd ON TABLE conversations TYPE option<string>;
 DEFINE FIELD OVERWRITE lifecycle_status ON TABLE conversations TYPE string DEFAULT 'active' ASSERT $value INSIDE ['active', 'archived'];

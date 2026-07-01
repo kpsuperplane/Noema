@@ -24,6 +24,8 @@ pub const DEFAULT_PROVIDER: &str = "openai";
 pub const DEFAULT_OPENAI_MODEL: &str = "gpt-5.5";
 /// Default `OpenAI` API base URL.
 pub const DEFAULT_OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
+/// Default profile id for Apple Foundation Models.
+pub const DEFAULT_FOUNDATION_LOCAL_PROFILE: &str = "default";
 /// Default host for the local web UI.
 pub const DEFAULT_WEB_HOST: &str = "127.0.0.1";
 /// Default port for the local web UI.
@@ -45,6 +47,8 @@ const CONFIG_ENV_KEYS: &[&str] = &[
     "codex.tool_classification_model",
     "codex.base_url",
     "codex.timeout_seconds",
+    "foundation_local.default_profile",
+    "foundation_local.bridge_path",
     "web.host",
     "web.port",
 ];
@@ -135,6 +139,8 @@ pub enum ProviderKind {
     Codex,
     /// `OpenAI` Responses API provider.
     OpenAi,
+    /// Local Apple Foundation Models provider.
+    FoundationLocal,
 }
 
 impl ProviderKind {
@@ -144,6 +150,7 @@ impl ProviderKind {
         match self {
             Self::Codex => "codex",
             Self::OpenAi => "openai",
+            Self::FoundationLocal => "foundation_local",
         }
     }
 }
@@ -155,9 +162,19 @@ impl FromStr for ProviderKind {
         match value.trim().to_ascii_lowercase().as_str() {
             "codex" => Ok(Self::Codex),
             "openai" => Ok(Self::OpenAi),
+            "foundation_local" => Ok(Self::FoundationLocal),
             other => Err(other.to_string()),
         }
     }
+}
+
+/// Apple Foundation Models provider configuration.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FoundationLocalProviderConfig {
+    /// Default user-facing profile id when an agent has no preference.
+    pub default_profile: String,
+    /// Optional path to a manually built Swift bridge executable.
+    pub bridge_path: Option<PathBuf>,
 }
 
 /// Concrete configuration for the selected provider.
@@ -167,6 +184,8 @@ pub enum ProviderConfig {
     Codex(CodexProviderConfig),
     /// `OpenAI` provider configuration.
     OpenAi(OpenAiProviderConfig),
+    /// Apple Foundation Models local provider configuration.
+    FoundationLocal(FoundationLocalProviderConfig),
 }
 
 impl ProviderConfig {
@@ -176,6 +195,7 @@ impl ProviderConfig {
         match self {
             Self::Codex(_) => ProviderKind::Codex,
             Self::OpenAi(_) => ProviderKind::OpenAi,
+            Self::FoundationLocal(_) => ProviderKind::FoundationLocal,
         }
     }
 
@@ -185,6 +205,7 @@ impl ProviderConfig {
         match self {
             Self::Codex(config) => config.default_model.as_deref(),
             Self::OpenAi(config) => Some(config.default_model.as_str()),
+            Self::FoundationLocal(config) => Some(config.default_profile.as_str()),
         }
     }
 }
@@ -242,8 +263,8 @@ impl Config {
 /// Fully resolved configuration needed by the local daemon.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DaemonResolvedConfig {
-    /// Codex provider configuration used for daemon conversations.
-    pub codex: CodexProviderConfig,
+    /// Provider configuration used for daemon conversations.
+    pub provider: ProviderConfig,
     /// Local web UI configuration.
     pub web: WebConfig,
 }
@@ -256,6 +277,7 @@ struct RawConfig {
     tool_classification_model: Option<String>,
     openai: RawOpenAiConfig,
     codex: RawCodexConfig,
+    foundation_local: RawFoundationLocalConfig,
     web: WebConfig,
 }
 
@@ -267,6 +289,7 @@ impl Default for RawConfig {
             tool_classification_model: None,
             openai: RawOpenAiConfig::default(),
             codex: RawCodexConfig::default(),
+            foundation_local: RawFoundationLocalConfig::default(),
             web: WebConfig::default(),
         }
     }
@@ -283,6 +306,9 @@ impl RawConfig {
         let provider = match provider {
             ProviderKind::OpenAi => ProviderConfig::OpenAi(self.resolve_openai_config()?),
             ProviderKind::Codex => ProviderConfig::Codex(self.resolve_codex_config()?),
+            ProviderKind::FoundationLocal => {
+                ProviderConfig::FoundationLocal(self.resolve_foundation_local_config())
+            }
         };
 
         Ok(ResolvedConfig {
@@ -292,11 +318,11 @@ impl RawConfig {
     }
 
     fn resolve_daemon_config(self) -> Result<DaemonResolvedConfig, ConfigError> {
-        let codex = self.resolve_codex_config()?;
+        let resolved = self.resolve()?;
 
         Ok(DaemonResolvedConfig {
-            codex,
-            web: self.web,
+            provider: resolved.provider,
+            web: resolved.web,
         })
     }
 
@@ -354,6 +380,17 @@ impl RawConfig {
             oauth: Default::default(),
         })
     }
+
+    fn resolve_foundation_local_config(&self) -> FoundationLocalProviderConfig {
+        let default_profile =
+            non_empty_option(Some(self.foundation_local.default_profile.as_str()))
+                .unwrap_or(DEFAULT_FOUNDATION_LOCAL_PROFILE)
+                .to_string();
+        FoundationLocalProviderConfig {
+            default_profile,
+            bridge_path: self.foundation_local.bridge_path.clone(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -400,6 +437,22 @@ impl Default for RawCodexConfig {
     }
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
+struct RawFoundationLocalConfig {
+    default_profile: String,
+    bridge_path: Option<PathBuf>,
+}
+
+impl Default for RawFoundationLocalConfig {
+    fn default() -> Self {
+        Self {
+            default_profile: DEFAULT_FOUNDATION_LOCAL_PROFILE.to_string(),
+            bridge_path: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 struct FileConfig {
@@ -408,6 +461,7 @@ struct FileConfig {
     tool_classification_model: Option<String>,
     openai: FileOpenAiConfig,
     codex: FileCodexConfig,
+    foundation_local: FileFoundationLocalConfig,
     web: FileWebConfig,
 }
 
@@ -428,6 +482,13 @@ struct FileCodexConfig {
     model: Option<String>,
     tool_classification_model: Option<String>,
     timeout_seconds: Option<u64>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct FileFoundationLocalConfig {
+    default_profile: Option<String>,
+    bridge_path: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]

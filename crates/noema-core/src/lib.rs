@@ -42,8 +42,8 @@ pub use capability::{
     evaluate_capability_policy, examine_read_result, resolve_owner_from_json,
 };
 pub use config::{
-    CliOverrides, Config, ConfigError, DaemonResolvedConfig, ProviderConfig, ProviderKind,
-    ResolvedConfig, WebConfig,
+    CliOverrides, Config, ConfigError, DaemonResolvedConfig, FoundationLocalProviderConfig,
+    ProviderConfig, ProviderKind, ResolvedConfig, WebConfig,
 };
 pub use conversation::{
     AgentStatus as PersistedAgentStatus, ConversationItemKind, ConversationItemRecord,
@@ -96,6 +96,7 @@ pub use provider::accounts::{
 };
 pub use provider::adapters::{
     codex_responses::{CodexProviderConfig, CodexResponsesProvider},
+    foundation_local::FoundationLocalProvider,
     openai::{OpenAiProvider, OpenAiProviderConfig},
 };
 pub use provider::{
@@ -104,15 +105,15 @@ pub use provider::{
 };
 pub use runtime_host::{NoemaRuntimeHost, RuntimeHostError};
 pub use store::{
-    AgentRecord, ClaimRetrievalResult, ClaimStatus, ClaimSummary, ClaimWriteOutcome,
-    ConsolidationMatch, ConsolidationMatchRequest, EntityCandidate, EntityType, EvidenceAuthority,
-    EvidenceCandidate, McpApprovalRequestRecord, McpServerAuthStatus, McpServerHealthStatus,
-    McpServerRecord, McpToolRecord, MemoryClaimDetail, MemoryClaimEvidence, MemoryClaimFilter,
-    MemoryClaimRecord, MemoryGraph, MemoryGraphEdge, MemoryGraphFilter, MemoryGraphNode,
-    MemoryGraphSummary, NewAgent, NewClaimCandidate, NewMcpApprovalRequest, NewMcpServer,
-    NewMcpTool, NewToolCalibration, NewTrustedIdentitySelector, NoemaStore,
-    PredicateProposalCandidate, PredicateProposalFilter, PredicateProposalRecord, PredicateRecord,
-    RelatedClaimCandidate, RelatedClaimRecord, RetrievedClaim, StoreConfig, StoreError,
-    SupersedeClaimCandidate, ToolCalibrationRecord, TrustedIdentitySelectorEffect,
-    TrustedIdentitySelectorRecord,
+    AgentRecord, AgentRuntimePreferenceRecord, ClaimRetrievalResult, ClaimStatus, ClaimSummary,
+    ClaimWriteOutcome, ConsolidationMatch, ConsolidationMatchRequest, EntityCandidate, EntityType,
+    EvidenceAuthority, EvidenceCandidate, McpApprovalRequestRecord, McpServerAuthStatus,
+    McpServerHealthStatus, McpServerRecord, McpToolRecord, MemoryClaimDetail, MemoryClaimEvidence,
+    MemoryClaimFilter, MemoryClaimRecord, MemoryGraph, MemoryGraphEdge, MemoryGraphFilter,
+    MemoryGraphNode, MemoryGraphSummary, NewAgent, NewAgentRuntimePreference, NewClaimCandidate,
+    NewMcpApprovalRequest, NewMcpServer, NewMcpTool, NewToolCalibration,
+    NewTrustedIdentitySelector, NoemaStore, PredicateProposalCandidate, PredicateProposalFilter,
+    PredicateProposalRecord, PredicateRecord, RelatedClaimCandidate, RelatedClaimRecord,
+    RetrievedClaim, StoreConfig, StoreError, SupersedeClaimCandidate, ToolCalibrationRecord,
+    TrustedIdentitySelectorEffect, TrustedIdentitySelectorRecord,
 };

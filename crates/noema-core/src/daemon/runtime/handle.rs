@@ -1,7 +1,7 @@
 use std::{future::Future, pin::Pin, sync::Arc};
 
 use crate::{
-    NoemaStore,
+    FoundationLocalProvider, NoemaStore, OpenAiProvider, ProviderConfig,
     provider::adapters::codex_responses::{CodexProviderConfig, CodexResponsesProvider},
     provider::{
         GenerateRequest, GenerateResponse, GenerateStreamEvent, ModelProvider, ProviderError,
@@ -48,6 +48,23 @@ pub(crate) struct CodexRuntimeHandle {
 }
 
 impl CodexRuntimeHandle {
+    pub(crate) async fn spawn_from_config(
+        provider_config: ProviderConfig,
+        store: NoemaStore,
+    ) -> Result<Self, DaemonError> {
+        match provider_config {
+            ProviderConfig::Codex(codex_config) => Self::spawn(codex_config, store).await,
+            ProviderConfig::OpenAi(openai_config) => {
+                let provider = Arc::new(OpenAiProvider::new(openai_config)?);
+                Self::spawn_with_provider(provider, store).await
+            }
+            ProviderConfig::FoundationLocal(config) => {
+                let provider = Arc::new(FoundationLocalProvider::new(config)?);
+                Self::spawn_with_provider(provider, store).await
+            }
+        }
+    }
+
     pub(crate) async fn spawn(
         mut codex_config: CodexProviderConfig,
         store: NoemaStore,

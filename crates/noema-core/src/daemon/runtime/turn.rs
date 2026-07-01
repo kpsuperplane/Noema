@@ -43,6 +43,7 @@ impl CodexRuntimeActor {
         cwd: Option<String>,
     ) -> Result<StartedConversation, DaemonError> {
         self.store.ensure_default_actors().await?;
+        let model = model_for_conversation(&self.store, model).await;
         let new_conversation = NewConversation::local_chat(model.clone(), cwd.clone());
         let durable_conversation = self.store.create_conversation(new_conversation).await?;
         let conversation_id = durable_conversation.conversation_id;
@@ -65,6 +66,7 @@ impl CodexRuntimeActor {
         cwd: Option<String>,
     ) -> Result<StartedConversation, DaemonError> {
         self.store.ensure_default_actors().await?;
+        let model = model_for_conversation(&self.store, model).await;
         let durable_conversation = self
             .store
             .get_or_create_primary_conversation("human:local", model.clone(), cwd.clone())
@@ -687,6 +689,24 @@ fn stable_hash(value: &str) -> u64 {
     let mut hasher = DefaultHasher::new();
     value.hash(&mut hasher);
     hasher.finish()
+}
+
+async fn model_for_conversation(
+    store: &crate::NoemaStore,
+    conversation_model: Option<String>,
+) -> Option<String> {
+    if conversation_model
+        .as_ref()
+        .is_some_and(|model| !model.trim().is_empty())
+    {
+        return conversation_model;
+    }
+    store
+        .get_agent_runtime_preference("agent:primary")
+        .await
+        .ok()
+        .flatten()
+        .map(|preference| preference.model_profile)
 }
 
 #[derive(Debug)]

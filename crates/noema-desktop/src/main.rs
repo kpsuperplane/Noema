@@ -18,10 +18,15 @@ fn noema_desktop_main() {
         .manage(desktop_state::DesktopState::new())
         .setup(|app| {
             let state = app.state::<desktop_state::DesktopState>();
-            let codex = noema_core::Config::load_daemon(None, noema_core::CliOverrides::default())
-                .map(|config| config.codex)
-                .unwrap_or_default();
-            tauri::async_runtime::block_on(state.initialize(codex)).map_err(|error| {
+            let provider = noema_core::Config::load_daemon(
+                None,
+                noema_core::CliOverrides::default(),
+            )
+            .map(|config| config.provider)
+            .unwrap_or_else(|_| {
+                noema_core::ProviderConfig::Codex(noema_core::CodexProviderConfig::default())
+            });
+            tauri::async_runtime::block_on(state.initialize(provider)).map_err(|error| {
                 std::io::Error::other(format!(
                     "{} {}",
                     error.user_message(),

@@ -31,9 +31,9 @@ impl DesktopState {
     /// or runtime provider.
     pub async fn initialize(
         &self,
-        codex: noema_core::CodexProviderConfig,
+        provider: noema_core::ProviderConfig,
     ) -> Result<(), RuntimeHostError> {
-        let host = NoemaRuntimeHost::start(codex).await?;
+        let host = NoemaRuntimeHost::start(provider).await?;
         let graphql_state = graphql::GraphqlState::from_runtime_host(&host);
         let schema = graphql::build_schema(graphql_state.clone());
         let (mcp_oauth_callback_url, mcp_oauth_callback_server) =

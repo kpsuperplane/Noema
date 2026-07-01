@@ -8,7 +8,9 @@ use std::{
 
 use super::{
     ConversationSubscriptionRegistry, GraphqlRuntimeState,
-    agents::{self, GraphqlAgent},
+    agents::{
+        self, GraphqlAgent, GraphqlAgentModelPreference, GraphqlSaveAgentModelPreferenceInput,
+    },
     chat::{
         self, GraphqlConversationEvent, GraphqlConversationStarted,
         GraphqlSendConversationTurnInput, GraphqlTurnAccepted,
@@ -423,6 +425,16 @@ impl MutationRoot {
         onboarding::start_provider_auth_attempt(state, input).await
     }
 
+    /// Save one agent's model/provider preference.
+    async fn save_agent_model_preference(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlSaveAgentModelPreferenceInput,
+    ) -> Result<GraphqlAgentModelPreference> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        agents::save_agent_model_preference(state, input).await
+    }
+
     /// Start or resume the primary conversation.
     async fn start_primary_conversation(
         &self,
@@ -567,6 +579,10 @@ mod tests {
         assert!(sdl.contains("type GraphqlProviderAccount"));
         assert!(sdl.contains("agents"));
         assert!(sdl.contains("type GraphqlAgent"));
+        assert!(sdl.contains("saveAgentModelPreference"));
+        assert!(sdl.contains("type GraphqlAgentModelPreference"));
+        assert!(sdl.contains("type GraphqlAgentModelProviderOption"));
+        assert!(sdl.contains("type GraphqlAgentModelProfileOption"));
         assert!(sdl.contains("agentId"));
         assert!(sdl.contains("displayName"));
         assert!(sdl.contains("isPrimary"));
@@ -659,6 +675,47 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn provider_accounts_query_returns_all_active_default_accounts() {
+        use crate::store::tests::test_store;
+
+        let store = test_store().await;
+        store
+            .ensure_default_provider_account()
+            .await
+            .expect("codex account");
+        store
+            .ensure_default_foundation_local_provider_account()
+            .await
+            .expect("foundation account");
+
+        let schema = build_schema(GraphqlState::for_tests_with_store(store));
+        let response = schema
+            .execute(async_graphql::Request::new(
+                r#"
+                {
+                  providerAccounts {
+                    providerKind
+                    accountKey
+                    displayName
+                    authMethod
+                  }
+                }
+                "#,
+            ))
+            .await;
+
+        assert!(response.errors.is_empty(), "{:?}", response.errors);
+        let accounts = response.data.into_json().expect("json")["providerAccounts"]
+            .as_array()
+            .expect("accounts")
+            .clone();
+        assert_eq!(accounts.len(), 2);
+        assert_eq!(accounts[0]["providerKind"], "codex");
+        assert_eq!(accounts[1]["providerKind"], "foundation_local");
+        assert_eq!(accounts[1]["authMethod"], "none");
+    }
+
+    #[tokio::test]
     async fn agents_query_returns_safe_agent_metadata() {
         use crate::{NewAgent, store::tests::test_store};
 
@@ -707,6 +764,111 @@ mod tests {
         assert!(!json_text.contains("runtime"));
         assert!(!json_text.contains("credential"));
         assert!(!json_text.contains("conversation"));
+    }
+
+    #[tokio::test]
+    async fn agents_query_exposes_model_preference_options() {
+        use crate::store::tests::test_store;
+
+        let store = test_store().await;
+        store.ensure_default_actors().await.expect("actors");
+        store
+            .ensure_default_provider_account()
+            .await
+            .expect("codex account");
+        let foundation = store
+            .ensure_default_foundation_local_provider_account()
+            .await
+            .expect("foundation account");
+        store
+            .upsert_agent_runtime_preference(crate::NewAgentRuntimePreference {
+                agent_id: "agent:primary".to_string(),
+                provider_kind: "foundation_local".to_string(),
+                provider_account_id: foundation.provider_account_id,
+                model_profile: "default".to_string(),
+            })
+            .await
+            .expect("preference");
+
+        let schema = build_schema(GraphqlState::for_tests_with_store(store));
+        let response = schema
+            .execute(async_graphql::Request::new(
+                r#"
+                {
+                  agents {
+                    agentId
+                    modelPreference {
+                      providerKind
+                      providerAccountId
+                      modelProfile
+                    }
+                    modelOptions {
+                      providerKind
+                      providerAccountId
+                      providerDisplayName
+                      status
+                      profiles {
+                        id
+                        label
+                        disabledReason
+                      }
+                    }
+                  }
+                }
+                "#,
+            ))
+            .await;
+
+        assert!(response.errors.is_empty(), "{:?}", response.errors);
+        let agent = &response.data.into_json().expect("json")["agents"][0];
+        assert_eq!(agent["modelPreference"]["providerKind"], "foundation_local");
+        assert_eq!(agent["modelPreference"]["modelProfile"], "default");
+        assert_eq!(agent["modelOptions"][1]["providerKind"], "foundation_local");
+        assert_eq!(
+            agent["modelOptions"][1]["profiles"][0]["label"],
+            "Default on-device"
+        );
+    }
+
+    #[tokio::test]
+    async fn save_agent_model_preference_mutation_persists_valid_profile() {
+        use crate::store::tests::test_store;
+
+        let store = test_store().await;
+        store.ensure_default_actors().await.expect("actors");
+        let foundation = store
+            .ensure_default_foundation_local_provider_account()
+            .await
+            .expect("foundation account");
+
+        let schema = build_schema(GraphqlState::for_tests_with_store(store.clone()));
+        let response = schema
+            .execute(async_graphql::Request::new(format!(
+                r#"
+                mutation {{
+                  saveAgentModelPreference(input: {{
+                    agentId: "agent:primary"
+                    providerAccountId: "{}"
+                    modelProfile: "default"
+                  }}) {{
+                    providerKind
+                    providerAccountId
+                    modelProfile
+                  }}
+                }}
+                "#,
+                foundation.provider_account_id
+            )))
+            .await;
+
+        assert!(response.errors.is_empty(), "{:?}", response.errors);
+        let saved = store
+            .get_agent_runtime_preference("agent:primary")
+            .await
+            .expect("preference read")
+            .expect("preference saved");
+        assert_eq!(saved.provider_kind, "foundation_local");
+        assert_eq!(saved.model_profile, "default");
     }
 
     #[tokio::test]

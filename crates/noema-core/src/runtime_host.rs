@@ -1,7 +1,7 @@
 //! Shared Noema runtime host used by daemon and desktop shells.
 
 use crate::{
-    CodexProviderConfig, DaemonError, NoemaHomeInitOptions, NoemaPathError, NoemaPaths, NoemaStore,
+    DaemonError, NoemaHomeInitOptions, NoemaPathError, NoemaPaths, NoemaStore, ProviderConfig,
     StoreConfig, daemon::CodexRuntimeHandle, mcp::McpOAuthSetupManager,
     provider::auth::ProviderAuthManager,
 };
@@ -26,7 +26,7 @@ impl NoemaRuntimeHost {
     ///
     /// Returns [`RuntimeHostError`] when path setup, store startup, or runtime
     /// startup fails.
-    pub async fn start(codex: CodexProviderConfig) -> Result<Self, RuntimeHostError> {
+    pub async fn start(provider: ProviderConfig) -> Result<Self, RuntimeHostError> {
         let paths = NoemaPaths::from_process_env()
             .map_err(|source| RuntimeHostError::DataFolder(source.to_string()))?;
         crate::init_noema_home(
@@ -45,8 +45,12 @@ impl NoemaRuntimeHost {
             .ensure_default_provider_account()
             .await
             .map_err(|source| RuntimeHostError::Store(source.to_string()))?;
+        store
+            .ensure_default_foundation_local_provider_account()
+            .await
+            .map_err(|source| RuntimeHostError::Store(source.to_string()))?;
 
-        let runtime = CodexRuntimeHandle::spawn(codex, store.clone())
+        let runtime = CodexRuntimeHandle::spawn_from_config(provider, store.clone())
             .await
             .map_err(|source| RuntimeHostError::Runtime(source.to_string()))?;
 

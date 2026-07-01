@@ -57,9 +57,9 @@ const fn auth_method_label(method: ProviderAuthMethod) -> &'static str {
 
 pub(super) async fn provider_accounts(state: &GraphqlState) -> Result<Vec<GraphqlProviderAccount>> {
     let store = state.store()?;
-    let account = store
-        .active_provider_account("codex")
+    let accounts = store
+        .active_default_provider_accounts()
         .await
         .map_err(graphql_error)?;
-    Ok(account.into_iter().map(Into::into).collect())
+    Ok(accounts.into_iter().map(Into::into).collect())
 }

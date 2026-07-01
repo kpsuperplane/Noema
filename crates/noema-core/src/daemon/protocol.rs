@@ -4,8 +4,8 @@ use std::{
 };
 
 use crate::{
-    MemoryPersistenceError, NoemaPathError, NoemaPaths, StoreError, WebConfig,
-    provider::ProviderError, provider::adapters::codex_responses::CodexProviderConfig,
+    MemoryPersistenceError, NoemaPathError, NoemaPaths, ProviderConfig, StoreError, WebConfig,
+    provider::ProviderError,
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -213,8 +213,8 @@ pub enum TurnActivityStatus {
 pub struct DaemonServerConfig {
     /// Unix socket path to bind.
     pub socket_path: PathBuf,
-    /// Codex provider configuration used by daemon conversations.
-    pub codex: CodexProviderConfig,
+    /// Provider configuration used by daemon conversations.
+    pub provider: ProviderConfig,
     /// Local web UI configuration.
     pub web: WebConfig,
 }
@@ -222,10 +222,10 @@ pub struct DaemonServerConfig {
 impl DaemonServerConfig {
     /// Create daemon server configuration.
     #[must_use]
-    pub fn new(socket_path: PathBuf, codex: CodexProviderConfig, web: WebConfig) -> Self {
+    pub fn new(socket_path: PathBuf, provider: ProviderConfig, web: WebConfig) -> Self {
         Self {
             socket_path,
-            codex,
+            provider,
             web,
         }
     }
@@ -241,7 +241,7 @@ mod tests {
         let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
         let config = DaemonServerConfig::new(
             paths.socket_path(),
-            CodexProviderConfig::default(),
+            ProviderConfig::Codex(crate::CodexProviderConfig::default()),
             WebConfig::default(),
         );
 

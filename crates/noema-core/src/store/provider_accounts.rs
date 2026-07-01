@@ -73,6 +73,44 @@ impl NoemaStore {
             })
     }
 
+    /// Create or return the default Apple Foundation Models provider account metadata.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when the embedded store write or read fails.
+    pub async fn ensure_default_foundation_local_provider_account(
+        &self,
+    ) -> Result<ProviderAccountRecord, StoreError> {
+        const ACCOUNT_ID: &str = "provider_account:foundation_local:default";
+        if let Some(account) = self.get_provider_account(ACCOUNT_ID).await? {
+            return Ok(account);
+        }
+
+        self.db
+            .query(
+                r#"
+                UPSERT type::record('provider_accounts', 'foundation_local_default') SET
+                  provider_account_id = 'provider_account:foundation_local:default',
+                  provider_kind = 'foundation_local',
+                  account_key = 'default',
+                  display_name = 'Apple Foundation Models',
+                  auth_method = 'none',
+                  is_active = true,
+                  is_default = true,
+                  status = 'unknown',
+                  metadata = { profiles: [{ id: 'default', label: 'Default on-device' }] },
+                  updated_at = time::now();
+                "#,
+            )
+            .await?
+            .check()?;
+        self.get_provider_account(ACCOUNT_ID).await?.ok_or_else(|| {
+            StoreError::ProviderAccountNotFound {
+                provider_account_id: ACCOUNT_ID.to_string(),
+            }
+        })
+    }
+
     /// Return the active default account for one provider.
     ///
     /// # Errors
@@ -104,6 +142,37 @@ impl NoemaStore {
             .next()
             .map(provider_account_from_row)
             .transpose()
+    }
+
+    /// Return all active default provider accounts in stable Settings order.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when the embedded store read fails or a stored
+    /// enum is invalid.
+    pub async fn active_default_provider_accounts(
+        &self,
+    ) -> Result<Vec<ProviderAccountRecord>, StoreError> {
+        let mut response = self
+            .db
+            .query(
+                r#"
+                SELECT provider_account_id, provider_kind, account_key, display_name,
+                  auth_method, is_active, is_default, status, last_checked_at,
+                  last_authenticated_at, last_error_code, last_error_message, metadata
+                FROM provider_accounts
+                WHERE is_active = true
+                  AND is_default = true;
+                "#,
+            )
+            .await?;
+        let rows: Vec<ProviderAccountRow> = response.take(0)?;
+        let mut accounts = rows
+            .into_iter()
+            .map(provider_account_from_row)
+            .collect::<Result<Vec<_>, _>>()?;
+        accounts.sort_by(|left, right| left.provider_kind.cmp(&right.provider_kind));
+        Ok(accounts)
     }
 
     /// Return one provider account by id.

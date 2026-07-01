@@ -1,5 +1,6 @@
 //! Embedded SurrealDB-backed canonical Noema store.
 
+mod agent_runtime_preferences;
 mod agents;
 mod claims;
 mod conversations;
@@ -16,6 +17,7 @@ mod schema;
 #[cfg(test)]
 pub(crate) mod tests;
 
+pub use agent_runtime_preferences::{AgentRuntimePreferenceRecord, NewAgentRuntimePreference};
 pub use agents::{AgentRecord, NewAgent};
 pub use claims::{
     ClaimStatus, ClaimSummary, ClaimWriteOutcome, ConsolidationMatch, ConsolidationMatchRequest,

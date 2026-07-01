@@ -270,6 +270,62 @@ fn codex_provider_does_not_require_openai_api_key() {
 }
 
 #[test]
+fn foundation_local_config_does_not_require_openai_or_codex_credentials() {
+    let resolved = load_resolved(
+        None,
+        CliOverrides::new(Some("foundation_local".to_string()), None, None),
+        None,
+        &[],
+    )
+    .expect("foundation local config should resolve without credentials");
+
+    assert_eq!(resolved.provider.kind(), ProviderKind::FoundationLocal);
+
+    let ProviderConfig::FoundationLocal(config) = resolved.provider else {
+        panic!("expected foundation local config");
+    };
+
+    assert_eq!(config.default_profile, "default");
+    assert_eq!(config.bridge_path, None);
+}
+
+#[test]
+fn foundation_local_config_reads_yaml_and_env_overrides() {
+    let file = write_config(
+        r"
+provider: foundation_local
+foundation_local:
+  default_profile: compact
+  bridge_path: /tmp/noema-foundation-bridge
+",
+    );
+
+    let resolved = load_resolved(
+        Some(file.path().to_path_buf()),
+        CliOverrides::default(),
+        None,
+        &[
+            ("NOEMA_FOUNDATION_LOCAL__DEFAULT_PROFILE", "default"),
+            (
+                "NOEMA_FOUNDATION_LOCAL__BRIDGE_PATH",
+                "/tmp/env-noema-foundation-bridge",
+            ),
+        ],
+    )
+    .expect("foundation local config should resolve");
+
+    let ProviderConfig::FoundationLocal(config) = resolved.provider else {
+        panic!("expected foundation local config");
+    };
+
+    assert_eq!(config.default_profile, "default");
+    assert_eq!(
+        config.bridge_path.as_deref(),
+        Some(std::path::Path::new("/tmp/env-noema-foundation-bridge"))
+    );
+}
+
+#[test]
 fn provider_config_does_not_require_database_url() {
     let resolved = load_resolved(
         None,
@@ -342,7 +398,10 @@ fn daemon_config_resolves_codex_and_web_without_openai_credentials() {
     )
     .expect("daemon config");
 
-    assert_eq!(config.codex.base_url, DEFAULT_CODEX_BASE_URL);
+    let ProviderConfig::Codex(codex) = config.provider else {
+        panic!("expected codex provider config");
+    };
+    assert_eq!(codex.base_url, DEFAULT_CODEX_BASE_URL);
     assert_eq!(config.web.port, DEFAULT_WEB_PORT);
 }
 
@@ -362,7 +421,10 @@ provider: codex
     )
     .expect("daemon config should use embedded store");
 
-    assert_eq!(config.codex.base_url, DEFAULT_CODEX_BASE_URL);
+    let ProviderConfig::Codex(codex) = config.provider else {
+        panic!("expected codex provider config");
+    };
+    assert_eq!(codex.base_url, DEFAULT_CODEX_BASE_URL);
     assert_eq!(config.web, WebConfig::default());
 }
 

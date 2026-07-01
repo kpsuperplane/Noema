@@ -21,7 +21,7 @@ use super::{
 pub async fn run_daemon(config: DaemonServerConfig) -> Result<(), DaemonError> {
     let listener = bind_listener(&config.socket_path).await?;
     let web_listener = web::bind_listener(&config.web).await?;
-    let host = crate::NoemaRuntimeHost::start(config.codex)
+    let host = crate::NoemaRuntimeHost::start(config.provider)
         .await
         .map_err(|source| DaemonError::Protocol(source.to_string()))?;
     let runtime = host.runtime().clone();
