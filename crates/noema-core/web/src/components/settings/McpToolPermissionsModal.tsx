@@ -207,6 +207,7 @@ function ToolPermissionItem({
       <ItemContent>
         <div className="flex min-w-0 flex-wrap items-center gap-2">
           <ItemTitle>{tool.name}</ItemTitle>
+          <ToolStatusBadge disabled={draft.disabled} />
           {attention ? <Badge variant="destructive">{attention}</Badge> : null}
         </div>
         <ToolPermissionSummary draft={draft} />
@@ -235,10 +236,27 @@ function ToolPermissionSummary({ draft }: { draft: ToolPermissionDraft }) {
       <ClassificationBadge label="Read" value={draft.readClassification} />
       <ClassificationBadge label="Write" value={draft.writeClassification} />
       <ClassificationBadge label="Export" value={draft.exportClassification} />
-      <Badge variant={draft.disabled ? "outline" : "secondary"}>
-        {draft.disabled ? "Disabled" : "Enabled"}
-      </Badge>
     </div>
+  );
+}
+
+function ToolStatusBadge({ disabled }: { disabled: boolean }) {
+  const style = disabled
+    ? {
+        backgroundColor: "var(--red-100)",
+        borderColor: "var(--red-700)",
+        color: "var(--red-700)"
+      }
+    : {
+        backgroundColor: "var(--pine-50)",
+        borderColor: "var(--pine-500)",
+        color: "var(--pine-700)"
+      };
+
+  return (
+    <Badge variant="outline" style={style}>
+      {disabled ? "Disabled" : "Enabled"}
+    </Badge>
   );
 }
 
