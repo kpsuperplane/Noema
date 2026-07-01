@@ -1146,6 +1146,37 @@ async fn context_summary_lifecycle_supersedes_previous_active_checkpoint() {
         first_reloaded.status,
         crate::ConversationContextSummaryStatus::Superseded
     );
+
+    let stale = store
+        .insert_conversation_context_summary(crate::NewConversationContextSummary {
+            conversation_id: conversation.conversation_id.clone(),
+            provider_kind: "foundation_local".to_string(),
+            model_profile: Some("default".to_string()),
+            summary_text: "stale background summary".to_string(),
+            covered_item_start_sequence: 1,
+            covered_item_end_sequence: 6,
+            source_item_ids: vec!["item:1".to_string(), "item:6".to_string()],
+            input_token_estimate: 1_200,
+            summary_token_estimate: 72,
+            compaction_provider_kind: "foundation_local".to_string(),
+            compaction_model_profile: Some("default".to_string()),
+            status: crate::ConversationContextSummaryStatus::Active,
+            error_code: None,
+            error_message: None,
+        })
+        .await
+        .expect("stale summary insert");
+    let active_after_stale = store
+        .latest_active_context_summary(
+            &conversation.conversation_id,
+            "foundation_local",
+            Some("default"),
+        )
+        .await
+        .expect("active after stale")
+        .expect("active summary exists");
+    assert_eq!(stale.summary_id, second.summary_id);
+    assert_eq!(active_after_stale.summary_id, second.summary_id);
 }
 
 #[tokio::test]

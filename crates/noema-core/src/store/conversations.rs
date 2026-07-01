@@ -332,6 +332,38 @@ impl NoemaStore {
         rows.into_iter().map(conversation_item_from_row).collect()
     }
 
+    /// Return all text transcript items after a compacted context checkpoint.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when the conversation is missing, the embedded
+    /// store read fails, or stored enums are invalid.
+    pub async fn list_all_conversation_items_after_sequence_for_context(
+        &self,
+        conversation_id: &str,
+        after_sequence_index: i64,
+    ) -> Result<Vec<ConversationItemRecord>, StoreError> {
+        self.require_conversation(conversation_id).await?;
+        let mut response = self
+            .db
+            .query(
+                r#"
+                SELECT item_id, conversation_id, turn_id, kind, status, content_text, payload_json, sequence_index
+                FROM conversation_items
+                WHERE conversation_id = $conversation_id
+                  AND deleted_at = NONE
+                  AND sequence_index > $after_sequence_index
+                  AND kind IN ['user_text', 'assistant_text']
+                ORDER BY sequence_index ASC;
+                "#,
+            )
+            .bind(("conversation_id", conversation_id.to_string()))
+            .bind(("after_sequence_index", after_sequence_index))
+            .await?;
+        let rows: Vec<ConversationItemRow> = response.take(0)?;
+        rows.into_iter().map(conversation_item_from_row).collect()
+    }
+
     /// Mark a durable conversation turn completed.
     ///
     /// # Errors

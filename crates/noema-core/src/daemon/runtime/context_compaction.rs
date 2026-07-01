@@ -73,6 +73,72 @@ pub(super) async fn compact_context_with_retry(
     }
 }
 
+pub(super) async fn compact_active_summary_smaller(
+    request: CompactionRequest<'_>,
+) -> Result<ConversationContextSummaryRecord, DaemonError> {
+    let Some(active_summary) = request
+        .store
+        .latest_active_context_summary(
+            request.conversation_id,
+            request.provider_kind,
+            request.model_profile,
+        )
+        .await?
+    else {
+        return Err(ProviderError::InvalidRequest {
+            message: "context compaction retry requested without an active summary".to_string(),
+        }
+        .into());
+    };
+    let target_tokens =
+        retry_summary_target(request.budget).unwrap_or(MIN_RETRY_SUMMARY_TARGET_TOKENS);
+    let instructions = compaction_instructions(target_tokens);
+    let input = format!(
+        "Previous compacted context to shorten:\n{}",
+        active_summary.summary_text
+    );
+    let input_token_estimate = count_tokens_or_estimate(
+        request.provider,
+        Some(&instructions),
+        &input,
+        request.model_profile,
+    )
+    .await;
+    let response = generate_compaction_summary(
+        request.provider,
+        request.model_profile,
+        instructions,
+        input,
+        target_tokens,
+    )
+    .await?;
+    let summary_text = parse_compaction_summary(response)?;
+    let summary_token_estimate =
+        count_tokens_or_estimate(request.provider, None, &summary_text, request.model_profile)
+            .await;
+
+    request
+        .store
+        .insert_conversation_context_summary(NewConversationContextSummary {
+            conversation_id: request.conversation_id.to_string(),
+            provider_kind: request.provider_kind.to_string(),
+            model_profile: request.model_profile.map(str::to_string),
+            summary_text,
+            covered_item_start_sequence: active_summary.covered_item_start_sequence,
+            covered_item_end_sequence: active_summary.covered_item_end_sequence,
+            source_item_ids: active_summary.source_item_ids,
+            input_token_estimate: u64::from(input_token_estimate),
+            summary_token_estimate: u64::from(summary_token_estimate),
+            compaction_provider_kind: request.provider_kind.to_string(),
+            compaction_model_profile: request.model_profile.map(str::to_string),
+            status: ConversationContextSummaryStatus::Active,
+            error_code: None,
+            error_message: None,
+        })
+        .await
+        .map_err(Into::into)
+}
+
 pub(super) async fn record_failed_background_compaction(
     store: &NoemaStore,
     conversation_id: &str,
@@ -131,11 +197,13 @@ async fn compact_context_with_target(
         summary_seed.previous_summary.as_ref(),
         &summary_seed.transcript_items,
     );
-    let input_token_estimate = request
-        .provider
-        .count_tokens(Some(&instructions), &input, request.model_profile)
-        .await?
-        .unwrap_or_else(|| estimate_text_tokens(&instructions) + estimate_text_tokens(&input));
+    let input_token_estimate = count_tokens_or_estimate(
+        request.provider,
+        Some(&instructions),
+        &input,
+        request.model_profile,
+    )
+    .await;
     let response = generate_compaction_summary(
         request.provider,
         request.model_profile,
@@ -145,11 +213,9 @@ async fn compact_context_with_target(
     )
     .await?;
     let summary_text = parse_compaction_summary(response)?;
-    let summary_token_estimate = request
-        .provider
-        .count_tokens(None, &summary_text, request.model_profile)
-        .await?
-        .unwrap_or_else(|| estimate_text_tokens(&summary_text));
+    let summary_token_estimate =
+        count_tokens_or_estimate(request.provider, None, &summary_text, request.model_profile)
+            .await;
 
     let summary = request
         .store
@@ -236,7 +302,7 @@ async fn load_summary_seed(
         .as_ref()
         .map_or(0, |summary| summary.covered_item_end_sequence);
     let transcript_items = store
-        .list_conversation_items_after_sequence_for_context(conversation_id, after_sequence, 80)
+        .list_all_conversation_items_after_sequence_for_context(conversation_id, after_sequence)
         .await?;
     if transcript_items.is_empty() {
         return Ok(None);
@@ -249,7 +315,8 @@ async fn load_summary_seed(
     let last_sequence = transcript_items
         .last()
         .map_or(first_sequence, |item| item.sequence_index);
-    let source_item_ids = bounded_source_item_ids(&transcript_items);
+    let source_item_ids =
+        bounded_combined_source_item_ids(previous_summary.as_ref(), &transcript_items);
     Ok(Some(SummarySeed {
         previous_summary,
         transcript_items,
@@ -314,20 +381,47 @@ fn retry_summary_target(budget: ContextBudget) -> Option<u32> {
     Some((target / 2).max(MIN_RETRY_SUMMARY_TARGET_TOKENS))
 }
 
-fn bounded_source_item_ids(items: &[ConversationItemRecord]) -> Vec<String> {
-    const MAX_SOURCE_IDS: usize = 64;
-    if items.len() <= MAX_SOURCE_IDS {
-        return items.iter().map(|item| item.item_id.clone()).collect();
+async fn count_tokens_or_estimate(
+    provider: &dyn RuntimeModelProvider,
+    instructions: Option<&str>,
+    input: &str,
+    model_profile: Option<&str>,
+) -> u32 {
+    match provider
+        .count_tokens(instructions, input, model_profile)
+        .await
+    {
+        Ok(Some(tokens)) => tokens,
+        Ok(None) | Err(_) => {
+            instructions.map_or(0, estimate_text_tokens) + estimate_text_tokens(input)
+        }
     }
-    let head = items.iter().take(MAX_SOURCE_IDS / 2);
-    let tail = items
+}
+
+fn bounded_combined_source_item_ids(
+    previous_summary: Option<&ConversationContextSummaryRecord>,
+    items: &[ConversationItemRecord],
+) -> Vec<String> {
+    let mut source_item_ids = previous_summary
+        .map(|summary| summary.source_item_ids.clone())
+        .unwrap_or_default();
+    source_item_ids.extend(items.iter().map(|item| item.item_id.clone()));
+    bounded_source_item_ids_from_strings(source_item_ids)
+}
+
+fn bounded_source_item_ids_from_strings(source_item_ids: Vec<String>) -> Vec<String> {
+    const MAX_SOURCE_IDS: usize = 64;
+    if source_item_ids.len() <= MAX_SOURCE_IDS {
+        return source_item_ids;
+    }
+    let head = source_item_ids.iter().take(MAX_SOURCE_IDS / 2).cloned();
+    let tail = source_item_ids
         .iter()
         .rev()
         .take(MAX_SOURCE_IDS / 2)
+        .cloned()
         .collect::<Vec<_>>();
-    head.map(|item| item.item_id.clone())
-        .chain(tail.into_iter().rev().map(|item| item.item_id.clone()))
-        .collect()
+    head.chain(tail.into_iter().rev()).collect()
 }
 
 #[derive(Debug)]
@@ -392,5 +486,48 @@ mod tests {
         ]);
 
         assert_eq!(transcript, "[1] User: hello\n[2] Noema: hi");
+    }
+
+    #[test]
+    fn combined_source_ids_include_previous_summary_provenance() {
+        let previous_summary = ConversationContextSummaryRecord {
+            summary_id: "context-summary:1".to_string(),
+            conversation_id: "conversation:1".to_string(),
+            provider_kind: "foundation_local".to_string(),
+            model_profile: Some("default".to_string()),
+            summary_text: "previous".to_string(),
+            covered_item_start_sequence: 1,
+            covered_item_end_sequence: 10,
+            source_item_ids: vec!["item:1".to_string(), "item:10".to_string()],
+            input_token_estimate: 100,
+            summary_token_estimate: 20,
+            compaction_provider_kind: "foundation_local".to_string(),
+            compaction_model_profile: Some("default".to_string()),
+            status: ConversationContextSummaryStatus::Active,
+            error_code: None,
+            error_message: None,
+        };
+        let source_item_ids = bounded_combined_source_item_ids(
+            Some(&previous_summary),
+            &[ConversationItemRecord {
+                item_id: "item:11".to_string(),
+                conversation_id: "conversation:1".to_string(),
+                turn_id: None,
+                sequence_index: 11,
+                kind: ConversationItemKind::UserText,
+                status: ConversationItemStatus::Completed,
+                content_text: Some("next".to_string()),
+                payload_json: serde_json::json!({}),
+            }],
+        );
+
+        assert_eq!(
+            source_item_ids,
+            vec![
+                "item:1".to_string(),
+                "item:10".to_string(),
+                "item:11".to_string()
+            ]
+        );
     }
 }

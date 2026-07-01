@@ -30,7 +30,32 @@ pub(super) struct PlannedPromptContext {
     pub(super) fits: bool,
 }
 
-pub(super) async fn load_prompt_context(
+pub(super) struct PromptPlanRequest<'a> {
+    pub(super) store: &'a NoemaStore,
+    pub(super) provider: &'a dyn RuntimeModelProvider,
+    pub(super) conversation_id: &'a str,
+    pub(super) provider_kind: &'a str,
+    pub(super) model_profile: Option<&'a str>,
+    pub(super) turn_index: u64,
+    pub(super) cwd: Option<&'a str>,
+    pub(super) agent_identity: &'a AgentPromptIdentity,
+    pub(super) rendered_tools: &'a str,
+    pub(super) current_input: &'a str,
+}
+
+struct LoadedPromptPlanRequest<'a> {
+    provider: &'a dyn RuntimeModelProvider,
+    conversation_id: &'a str,
+    model_profile: Option<&'a str>,
+    turn_index: u64,
+    cwd: Option<&'a str>,
+    agent_identity: &'a AgentPromptIdentity,
+    rendered_tools: &'a str,
+    current_input: &'a str,
+    context: PromptContext,
+}
+
+async fn load_prompt_context(
     store: &NoemaStore,
     conversation_id: &str,
     provider_kind: &str,
@@ -43,7 +68,7 @@ pub(super) async fn load_prompt_context(
         .as_ref()
         .map_or(0, |summary| summary.covered_item_end_sequence);
     let transcript_items = store
-        .list_conversation_items_after_sequence_for_context(conversation_id, after_sequence, 40)
+        .list_all_conversation_items_after_sequence_for_context(conversation_id, after_sequence)
         .await?;
     let rendered_context = render_prompt_context(active_summary.as_ref(), &transcript_items);
     Ok(PromptContext {
@@ -54,67 +79,74 @@ pub(super) async fn load_prompt_context(
 }
 
 pub(super) async fn plan_prompt_context(
-    store: &NoemaStore,
-    provider: &dyn RuntimeModelProvider,
-    conversation_id: &str,
-    provider_kind: &str,
-    model_profile: Option<&str>,
-    turn_index: u64,
-    cwd: Option<&str>,
-    agent_identity: &AgentPromptIdentity,
-    rendered_tools: &str,
-    current_input: &str,
+    request: PromptPlanRequest<'_>,
 ) -> Result<PlannedPromptContext, DaemonError> {
-    let context = load_prompt_context(store, conversation_id, provider_kind, model_profile).await?;
-    plan_loaded_prompt_context(
-        provider,
-        conversation_id,
-        model_profile,
-        turn_index,
-        cwd,
-        agent_identity,
-        rendered_tools,
-        current_input,
-        context,
+    let context = load_prompt_context(
+        request.store,
+        request.conversation_id,
+        request.provider_kind,
+        request.model_profile,
     )
+    .await?;
+    plan_loaded_prompt_context(LoadedPromptPlanRequest {
+        provider: request.provider,
+        conversation_id: request.conversation_id,
+        model_profile: request.model_profile,
+        turn_index: request.turn_index,
+        cwd: request.cwd,
+        agent_identity: request.agent_identity,
+        rendered_tools: request.rendered_tools,
+        current_input: request.current_input,
+        context,
+    })
     .await
 }
 
-pub(super) async fn plan_loaded_prompt_context(
-    provider: &dyn RuntimeModelProvider,
-    conversation_id: &str,
-    model_profile: Option<&str>,
-    turn_index: u64,
-    cwd: Option<&str>,
-    agent_identity: &AgentPromptIdentity,
-    rendered_tools: &str,
-    current_input: &str,
-    context: PromptContext,
+async fn plan_loaded_prompt_context(
+    request: LoadedPromptPlanRequest<'_>,
 ) -> Result<PlannedPromptContext, DaemonError> {
     let instructions = build_structured_turn_system_prompt(
-        conversation_id,
-        turn_index,
-        cwd,
-        &context.rendered_context,
-        agent_identity,
-        rendered_tools,
+        request.conversation_id,
+        request.turn_index,
+        request.cwd,
+        &request.context.rendered_context,
+        request.agent_identity,
+        request.rendered_tools,
     );
-    let metadata = provider.context_metadata(model_profile);
+    let metadata = request.provider.context_metadata(request.model_profile);
     let budget = ContextBudget::from_metadata(metadata);
-    let estimated_input_tokens = provider
-        .count_tokens(Some(&instructions), current_input, model_profile)
-        .await?
-        .unwrap_or_else(|| {
-            estimate_text_tokens(&instructions) + estimate_text_tokens(current_input)
-        });
+    let estimated_input_tokens = count_tokens_or_estimate(
+        request.provider,
+        Some(&instructions),
+        request.current_input,
+        request.model_profile,
+    )
+    .await;
     let fits = budget.fits(estimated_input_tokens);
     Ok(PlannedPromptContext {
-        context,
+        context: request.context,
         instructions,
         estimated_input_tokens,
         budget,
         fits,
     })
+}
+
+async fn count_tokens_or_estimate(
+    provider: &dyn RuntimeModelProvider,
+    instructions: Option<&str>,
+    input: &str,
+    model_profile: Option<&str>,
+) -> u32 {
+    match provider
+        .count_tokens(instructions, input, model_profile)
+        .await
+    {
+        Ok(Some(tokens)) => tokens,
+        Ok(None) | Err(_) => {
+            instructions.map_or(0, estimate_text_tokens) + estimate_text_tokens(input)
+        }
+    }
 }
 
 fn render_prompt_context(

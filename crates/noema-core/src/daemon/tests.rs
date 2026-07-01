@@ -385,6 +385,94 @@ async fn prompt_context_uses_active_summary_and_post_checkpoint_items() {
 }
 
 #[tokio::test]
+async fn prompt_context_keeps_all_post_checkpoint_items_for_budgeting() {
+    let store = crate::store::tests::test_store().await;
+    store.ensure_default_actors().await.expect("actors");
+    let provider = Arc::new(MetadataCapturingProvider {
+        context_window_tokens: 20_000,
+        fail_compaction: false,
+        fail_token_count: false,
+        requests: Mutex::new(Vec::new()),
+    });
+    let runtime = CodexRuntimeHandle::spawn_with_provider_kind(
+        provider.clone(),
+        store.clone(),
+        "foundation_local",
+    )
+    .await
+    .expect("runtime");
+    let started = runtime
+        .start_conversation(Some("default".to_string()), None)
+        .await
+        .expect("conversation");
+
+    for index in 1..=45 {
+        append_test_text_item(
+            &store,
+            &started.conversation_id,
+            &format!("post checkpoint item {index}"),
+        )
+        .await;
+    }
+
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    runtime
+        .turn(started.conversation_id, "current turn".to_string(), tx)
+        .await
+        .expect("turn");
+    while rx.recv().await.is_some() {}
+    runtime.shutdown().await;
+
+    let requests = provider.requests.lock().expect("requests");
+    let instructions = requests
+        .iter()
+        .find(|request| request.options.require_noema_response)
+        .and_then(|request| request.instructions.as_deref())
+        .expect("instructions");
+    assert!(instructions.contains("post checkpoint item 1"));
+    assert!(instructions.contains("post checkpoint item 45"));
+}
+
+#[tokio::test]
+async fn prompt_context_falls_back_to_estimates_when_token_count_fails() {
+    let store = crate::store::tests::test_store().await;
+    store.ensure_default_actors().await.expect("actors");
+    let provider = Arc::new(MetadataCapturingProvider {
+        context_window_tokens: 20_000,
+        fail_compaction: false,
+        fail_token_count: true,
+        requests: Mutex::new(Vec::new()),
+    });
+    let runtime = CodexRuntimeHandle::spawn_with_provider_kind(
+        provider.clone(),
+        store.clone(),
+        "foundation_local",
+    )
+    .await
+    .expect("runtime");
+    let started = runtime
+        .start_conversation(Some("default".to_string()), None)
+        .await
+        .expect("conversation");
+
+    let (result, _events) = collect_turn_events(
+        &runtime,
+        started.conversation_id.clone(),
+        "hello".to_string(),
+    )
+    .await;
+    result.expect("turn should use fallback token estimate");
+    runtime.shutdown().await;
+
+    let requests = provider.requests.lock().expect("requests");
+    assert!(
+        requests
+            .iter()
+            .any(|request| request.options.require_noema_response)
+    );
+}
+
+#[tokio::test]
 async fn foreground_context_compaction_runs_before_over_limit_turn() {
     let store = crate::store::tests::test_store().await;
     store.ensure_default_actors().await.expect("actors");
@@ -416,16 +504,18 @@ async fn foreground_context_compaction_runs_before_over_limit_turn() {
     result.expect("turn");
     runtime.shutdown().await;
 
-    let requests = provider.requests.lock().expect("requests");
-    let compaction_index = requests
-        .iter()
-        .position(|request| !request.options.require_noema_response)
-        .expect("compaction request");
-    let agent_index = requests
-        .iter()
-        .position(|request| request.options.require_noema_response)
-        .expect("agent request");
-    assert!(compaction_index < agent_index);
+    {
+        let requests = provider.requests.lock().expect("requests");
+        let compaction_index = requests
+            .iter()
+            .position(|request| !request.options.require_noema_response)
+            .expect("compaction request");
+        let agent_index = requests
+            .iter()
+            .position(|request| request.options.require_noema_response)
+            .expect("agent request");
+        assert!(compaction_index < agent_index);
+    }
     let summaries = store
         .list_context_summaries_for_conversation(&started.conversation_id)
         .await
@@ -445,6 +535,7 @@ async fn background_context_compaction_creates_checkpoint_after_large_turn() {
     let provider = Arc::new(MetadataCapturingProvider {
         context_window_tokens: 5_500,
         fail_compaction: false,
+        fail_token_count: false,
         requests: Mutex::new(Vec::new()),
     });
     let runtime = CodexRuntimeHandle::spawn_with_provider_kind(
@@ -475,16 +566,18 @@ async fn background_context_compaction_creates_checkpoint_after_large_turn() {
     wait_for_context_summary_count(&store, &started.conversation_id, 1).await;
     runtime.shutdown().await;
 
-    let requests = provider.requests.lock().expect("requests");
-    let agent_index = requests
-        .iter()
-        .position(|request| request.options.require_noema_response)
-        .expect("agent request");
-    let compaction_index = requests
-        .iter()
-        .position(|request| !request.options.require_noema_response)
-        .expect("background compaction request");
-    assert!(agent_index < compaction_index);
+    {
+        let requests = provider.requests.lock().expect("requests");
+        let agent_index = requests
+            .iter()
+            .position(|request| request.options.require_noema_response)
+            .expect("agent request");
+        let compaction_index = requests
+            .iter()
+            .position(|request| !request.options.require_noema_response)
+            .expect("background compaction request");
+        assert!(agent_index < compaction_index);
+    }
     let active = store
         .latest_active_context_summary(
             &started.conversation_id,
@@ -504,6 +597,7 @@ async fn foreground_context_compaction_failure_blocks_turn_with_recoverable_noti
     let provider = Arc::new(MetadataCapturingProvider {
         context_window_tokens: 4_096,
         fail_compaction: true,
+        fail_token_count: false,
         requests: Mutex::new(Vec::new()),
     });
     let runtime = CodexRuntimeHandle::spawn_with_provider_kind(
@@ -3982,6 +4076,7 @@ struct CapturingProvider {
 struct MetadataCapturingProvider {
     context_window_tokens: u32,
     fail_compaction: bool,
+    fail_token_count: bool,
     requests: Mutex<Vec<GenerateRequest>>,
 }
 
@@ -3990,6 +4085,7 @@ impl Default for MetadataCapturingProvider {
         Self {
             context_window_tokens: 4_096,
             fail_compaction: false,
+            fail_token_count: false,
             requests: Mutex::new(Vec::new()),
         }
     }
@@ -4680,6 +4776,12 @@ impl super::runtime::RuntimeModelProvider for MetadataCapturingProvider {
         _model: Option<&'a str>,
     ) -> Pin<Box<dyn Future<Output = Result<Option<u32>, ProviderError>> + Send + 'a>> {
         Box::pin(async move {
+            if self.fail_token_count {
+                return Err(ProviderError::ProviderUnavailable {
+                    provider: "test".to_string(),
+                    message: "token count unavailable".to_string(),
+                });
+            }
             let instruction_tokens = instructions.map_or(0, estimated_test_tokens);
             Ok(Some(instruction_tokens + estimated_test_tokens(input)))
         })

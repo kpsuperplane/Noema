@@ -89,6 +89,17 @@ impl NoemaStore {
     ) -> Result<ConversationContextSummaryRecord, StoreError> {
         self.require_conversation(&summary.conversation_id).await?;
         if summary.status == ConversationContextSummaryStatus::Active {
+            if let Some(active) = self
+                .latest_active_context_summary(
+                    &summary.conversation_id,
+                    &summary.provider_kind,
+                    summary.model_profile.as_deref(),
+                )
+                .await?
+                && active.covered_item_end_sequence > summary.covered_item_end_sequence
+            {
+                return Ok(active);
+            }
             self.supersede_active_context_summaries(
                 &summary.conversation_id,
                 &summary.provider_kind,

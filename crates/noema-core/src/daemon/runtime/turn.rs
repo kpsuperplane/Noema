@@ -278,19 +278,20 @@ impl CodexRuntimeActor {
             &item_tx,
         )
         .await?;
-        let mut planned_context = super::prompt_context::plan_prompt_context(
-            &self.store,
-            provider.as_ref(),
-            &conversation_id,
-            &conversation.provider_kind,
-            conversation.model.as_deref(),
-            turn_index,
-            conversation.cwd.as_deref(),
-            &agent_identity,
-            &tool_snapshot.rendered_tools,
-            &input,
-        )
-        .await?;
+        let mut planned_context =
+            super::prompt_context::plan_prompt_context(super::prompt_context::PromptPlanRequest {
+                store: &self.store,
+                provider: provider.as_ref(),
+                conversation_id: &conversation_id,
+                provider_kind: &conversation.provider_kind,
+                model_profile: conversation.model.as_deref(),
+                turn_index,
+                cwd: conversation.cwd.as_deref(),
+                agent_identity: &agent_identity,
+                rendered_tools: &tool_snapshot.rendered_tools,
+                current_input: &input,
+            })
+            .await?;
         if super::context_compaction::should_compact_foreground(&planned_context) {
             let compaction_result = super::context_compaction::compact_context_with_retry(
                 super::context_compaction::CompactionRequest {
@@ -326,18 +327,70 @@ impl CodexRuntimeActor {
                 return Err(error);
             }
             planned_context = super::prompt_context::plan_prompt_context(
-                &self.store,
-                provider.as_ref(),
-                &conversation_id,
-                &conversation.provider_kind,
-                conversation.model.as_deref(),
-                turn_index,
-                conversation.cwd.as_deref(),
-                &agent_identity,
-                &tool_snapshot.rendered_tools,
-                &input,
+                super::prompt_context::PromptPlanRequest {
+                    store: &self.store,
+                    provider: provider.as_ref(),
+                    conversation_id: &conversation_id,
+                    provider_kind: &conversation.provider_kind,
+                    model_profile: conversation.model.as_deref(),
+                    turn_index,
+                    cwd: conversation.cwd.as_deref(),
+                    agent_identity: &agent_identity,
+                    rendered_tools: &tool_snapshot.rendered_tools,
+                    current_input: &input,
+                },
             )
             .await?;
+            if !planned_context.fits {
+                let smaller_compaction = super::context_compaction::compact_active_summary_smaller(
+                    super::context_compaction::CompactionRequest {
+                        store: &self.store,
+                        provider: provider.as_ref(),
+                        conversation_id: &conversation_id,
+                        provider_kind: &conversation.provider_kind,
+                        model_profile: conversation.model.as_deref(),
+                        budget: planned_context.budget,
+                        mode: super::context_compaction::CompactionMode::Foreground,
+                    },
+                )
+                .await;
+                if let Err(error) = smaller_compaction {
+                    let error_context = ConversationMemoryContext {
+                        turn_index,
+                        conversation_id: conversation_id.clone(),
+                        turn_id: turn.turn_id.clone(),
+                        user_item_id: user_item_id.clone(),
+                        assistant_item_id: None,
+                        assistant_items: Vec::new(),
+                        user_content: input.clone(),
+                        cwd: conversation.cwd.clone(),
+                    };
+                    self.record_turn_failure_notice(
+                        &error_context,
+                        format!("Context compaction failed before this turn could run: {error}"),
+                        true,
+                        &item_tx,
+                    )
+                    .await?;
+                    self.conversations.remove(&conversation_id);
+                    return Err(error);
+                }
+                planned_context = super::prompt_context::plan_prompt_context(
+                    super::prompt_context::PromptPlanRequest {
+                        store: &self.store,
+                        provider: provider.as_ref(),
+                        conversation_id: &conversation_id,
+                        provider_kind: &conversation.provider_kind,
+                        model_profile: conversation.model.as_deref(),
+                        turn_index,
+                        cwd: conversation.cwd.as_deref(),
+                        agent_identity: &agent_identity,
+                        rendered_tools: &tool_snapshot.rendered_tools,
+                        current_input: &input,
+                    },
+                )
+                .await?;
+            }
             if !planned_context.fits {
                 let error = ProviderError::InvalidRequest {
                     message: "context could not be compacted enough for the selected model"
@@ -434,15 +487,15 @@ impl CodexRuntimeActor {
                     self.conversations.remove(&conversation_id);
                     return Err(error);
                 }
-                self.schedule_background_context_compaction(
-                    conversation_id.clone(),
-                    conversation.provider_kind.clone(),
-                    conversation.model.clone(),
-                    turn_index.saturating_add(1),
-                    conversation.cwd.clone(),
-                    agent_identity_for_background,
-                    tool_snapshot.rendered_tools.clone(),
-                );
+                self.schedule_background_context_compaction(BackgroundContextCompactionSchedule {
+                    conversation_id: conversation_id.clone(),
+                    provider_kind: conversation.provider_kind.clone(),
+                    model_profile: conversation.model.clone(),
+                    next_turn_index: turn_index.saturating_add(1),
+                    cwd: conversation.cwd.clone(),
+                    agent_identity: agent_identity_for_background,
+                    rendered_tools: tool_snapshot.rendered_tools.clone(),
+                });
 
                 Ok(())
             }
@@ -780,30 +833,35 @@ impl CodexRuntimeActor {
 
     fn schedule_background_context_compaction(
         &self,
-        conversation_id: String,
-        provider_kind: String,
-        model_profile: Option<String>,
-        next_turn_index: u64,
-        cwd: Option<String>,
-        agent_identity: AgentPromptIdentity,
-        rendered_tools: String,
+        schedule: BackgroundContextCompactionSchedule,
     ) {
         let store = self.store.clone();
-        let Ok(provider) = self.provider_for_kind(&provider_kind) else {
+        let Ok(provider) = self.provider_for_kind(&schedule.provider_kind) else {
             return;
         };
         tokio::spawn(async move {
-            let plan = super::prompt_context::plan_prompt_context(
-                &store,
-                provider.as_ref(),
-                &conversation_id,
-                &provider_kind,
-                model_profile.as_deref(),
+            let BackgroundContextCompactionSchedule {
+                conversation_id,
+                provider_kind,
+                model_profile,
                 next_turn_index,
-                cwd.as_deref(),
-                &agent_identity,
-                &rendered_tools,
-                "",
+                cwd,
+                agent_identity,
+                rendered_tools,
+            } = schedule;
+            let plan = super::prompt_context::plan_prompt_context(
+                super::prompt_context::PromptPlanRequest {
+                    store: &store,
+                    provider: provider.as_ref(),
+                    conversation_id: &conversation_id,
+                    provider_kind: &provider_kind,
+                    model_profile: model_profile.as_deref(),
+                    turn_index: next_turn_index,
+                    cwd: cwd.as_deref(),
+                    agent_identity: &agent_identity,
+                    rendered_tools: &rendered_tools,
+                    current_input: "",
+                },
             )
             .await;
             let Ok(plan) = plan else {
@@ -874,6 +932,17 @@ async fn provider_selection_for_conversation(
 struct ConversationProviderSelection {
     provider_kind: String,
     model: Option<String>,
+}
+
+#[derive(Debug)]
+struct BackgroundContextCompactionSchedule {
+    conversation_id: String,
+    provider_kind: String,
+    model_profile: Option<String>,
+    next_turn_index: u64,
+    cwd: Option<String>,
+    agent_identity: AgentPromptIdentity,
+    rendered_tools: String,
 }
 
 #[derive(Debug)]
