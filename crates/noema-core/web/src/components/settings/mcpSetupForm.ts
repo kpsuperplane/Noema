@@ -4,7 +4,7 @@ export type KeyValueParseResult =
 
 export type McpSetupFormSubmission = {
   displayName: string;
-  transportKind: "stdio" | "http_sse";
+  transportKind: "stdio" | "sse" | "streamable_http";
   stdio?: {
     command: string;
     args: string[];
@@ -12,7 +12,7 @@ export type McpSetupFormSubmission = {
     env: Record<string, string>;
     secretEnv: Record<string, string>;
   } | null;
-  httpSse?: {
+  http?: {
     url: string;
     headers: Record<string, string>;
     secretHeaders: Record<string, string>;

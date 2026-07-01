@@ -12,7 +12,7 @@ pub struct McpSecretMaterial {
     /// Secret environment variables for stdio MCP servers.
     #[serde(default)]
     pub env: BTreeMap<String, String>,
-    /// Secret headers for HTTP/SSE MCP servers.
+    /// Secret headers for HTTP-based MCP servers.
     #[serde(default)]
     pub headers: BTreeMap<String, String>,
 }

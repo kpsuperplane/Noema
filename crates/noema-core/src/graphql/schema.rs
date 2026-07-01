@@ -152,9 +152,15 @@ impl GraphqlState {
                     Err(message) => GraphqlMcpSetupTransport::Unavailable(message),
                 }
             }
-            crate::McpTransportKind::HttpSse => {
-                match crate::mcp::HttpSseMcpTransport::from_server_config(server, secrets) {
-                    Ok(transport) => GraphqlMcpSetupTransport::HttpSse(Box::new(transport)),
+            crate::McpTransportKind::Sse => {
+                match crate::mcp::SseMcpTransport::from_server_config(server, secrets) {
+                    Ok(transport) => GraphqlMcpSetupTransport::Sse(Box::new(transport)),
+                    Err(message) => GraphqlMcpSetupTransport::Unavailable(message),
+                }
+            }
+            crate::McpTransportKind::StreamableHttp => {
+                match crate::mcp::StreamableHttpMcpTransport::from_server_config(server, secrets) {
+                    Ok(transport) => GraphqlMcpSetupTransport::StreamableHttp(Box::new(transport)),
                     Err(message) => GraphqlMcpSetupTransport::Unavailable(message),
                 }
             }
@@ -164,7 +170,8 @@ impl GraphqlState {
 
 pub(crate) enum GraphqlMcpSetupTransport {
     Unavailable(String),
-    HttpSse(Box<crate::mcp::HttpSseMcpTransport>),
+    Sse(Box<crate::mcp::SseMcpTransport>),
+    StreamableHttp(Box<crate::mcp::StreamableHttpMcpTransport>),
     Stdio(Box<crate::mcp::StdioMcpTransport>),
     #[cfg(test)]
     Test(TestMcpSetupOutcome),
@@ -183,7 +190,8 @@ impl crate::mcp::McpTransport for GraphqlMcpSetupTransport {
             Self::Unavailable(message) => {
                 Err(crate::mcp::McpClientError::Transport(message.clone()))
             }
-            Self::HttpSse(transport) => transport.initialize().await,
+            Self::Sse(transport) => transport.initialize().await,
+            Self::StreamableHttp(transport) => transport.initialize().await,
             Self::Stdio(transport) => transport.initialize().await,
             #[cfg(test)]
             Self::Test(TestMcpSetupOutcome::Ok(_)) => Ok(()),
@@ -201,7 +209,8 @@ impl crate::mcp::McpTransport for GraphqlMcpSetupTransport {
             Self::Unavailable(message) => {
                 Err(crate::mcp::McpClientError::Transport(message.clone()))
             }
-            Self::HttpSse(transport) => transport.list_tools().await,
+            Self::Sse(transport) => transport.list_tools().await,
+            Self::StreamableHttp(transport) => transport.list_tools().await,
             Self::Stdio(transport) => transport.list_tools().await,
             #[cfg(test)]
             Self::Test(TestMcpSetupOutcome::Ok(tools)) => Ok(tools.clone()),
@@ -775,8 +784,8 @@ mod tests {
                 mutation {
                   createMcpServer(input: {
                     displayName: "Unsafe"
-                    transportKind: "http_sse"
-                    httpSse: {
+                    transportKind: "streamable_http"
+                    http: {
                       url: "https://example.com/mcp"
                       headers: { Authorization: "Bearer unsafe" }
                     }
@@ -813,8 +822,8 @@ mod tests {
                 mutation {
                   createMcpServer(input: {
                     displayName: "Remote"
-                    transportKind: "http_sse"
-                    httpSse: { url: "https://example.com/mcp" }
+                    transportKind: "streamable_http"
+                    http: { url: "https://example.com/mcp" }
                   }) {
                     setupStatus
                     setupError
@@ -845,8 +854,8 @@ mod tests {
                 mutation {
                   createMcpServer(input: {
                     displayName: "Remote"
-                    transportKind: "http_sse"
-                    httpSse: {
+                    transportKind: "streamable_http"
+                    http: {
                       url: "https://example.com/mcp"
                       secretHeaders: { Authorization: "Bearer retry" }
                     }

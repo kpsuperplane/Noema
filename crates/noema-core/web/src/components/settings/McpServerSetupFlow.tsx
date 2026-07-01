@@ -6,6 +6,7 @@ import type { CreateMcpServerMutation } from "@/generated/graphql";
 import type { McpSetupFormSubmission } from "./mcpSetupForm";
 
 export type McpServerSetupResult = CreateMcpServerMutation["createMcpServer"];
+type TransportKind = "stdio" | "sse" | "streamable_http";
 
 export function McpServerSetupFlow({
   setupResult,
@@ -18,7 +19,7 @@ export function McpServerSetupFlow({
   setupError: string | null;
   onCreateServer: (input: McpSetupFormSubmission) => void;
 }) {
-  const [transportKind, setTransportKind] = React.useState<"stdio" | "http_sse">("http_sse");
+  const [transportKind, setTransportKind] = React.useState<TransportKind>("streamable_http");
   const [formError, setFormError] = React.useState<string | null>(null);
   const [displayName, setDisplayName] = React.useState("");
   const [command, setCommand] = React.useState("");
@@ -56,7 +57,7 @@ export function McpServerSetupFlow({
           env: safeEnv.value,
           secretEnv: hiddenEnv.value
         },
-        httpSse: null
+        http: null
       } satisfies McpSetupFormSubmission;
       setLastSubmission(submission);
       onCreateServer(submission);
@@ -66,7 +67,7 @@ export function McpServerSetupFlow({
       displayName,
       transportKind,
       stdio: null,
-      httpSse: {
+      http: {
         url,
         headers: safeHeaders.value,
         secretHeaders: hiddenHeaders.value
@@ -94,6 +95,32 @@ export function McpServerSetupFlow({
 
   const visibleError = formError ?? setupError ?? setupResult?.setupError ?? null;
 
+  function renderHttpTransportFields() {
+    return (
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="sm:col-span-2">
+          <TextField label="URL" value={url} onChange={setUrl} />
+        </div>
+        <div className="sm:col-span-2">
+          <KeyValueEditor
+            label="Non-secret headers"
+            rows={headers}
+            emptyText="No non-secret headers configured."
+            onChange={setHeaders}
+          />
+        </div>
+        <div className="sm:col-span-2">
+          <KeyValueEditor
+            label="Secret headers"
+            rows={secretHeaders}
+            emptyText="No secret headers configured."
+            onChange={setSecretHeaders}
+          />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <section className="grid gap-4">
       <form className="grid gap-3" onSubmit={submitCreate}>
@@ -107,35 +134,15 @@ export function McpServerSetupFlow({
         </label>
         <Tabs
           value={transportKind}
-          onValueChange={(value) => setTransportKind(value as "stdio" | "http_sse")}
+          onValueChange={(value) => setTransportKind(value as TransportKind)}
         >
           <TabsList aria-label="Transport">
-            <TabsTrigger value="http_sse">http_sse</TabsTrigger>
+            <TabsTrigger value="streamable_http">Streamable HTTP</TabsTrigger>
+            <TabsTrigger value="sse">SSE</TabsTrigger>
             <TabsTrigger value="stdio">stdio</TabsTrigger>
           </TabsList>
-          <TabsContent value="http_sse">
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="sm:col-span-2">
-                <TextField label="URL" value={url} onChange={setUrl} />
-              </div>
-              <div className="sm:col-span-2">
-                <KeyValueEditor
-                  label="Non-secret headers"
-                  rows={headers}
-                  emptyText="No non-secret headers configured."
-                  onChange={setHeaders}
-                />
-              </div>
-              <div className="sm:col-span-2">
-                <KeyValueEditor
-                  label="Secret headers"
-                  rows={secretHeaders}
-                  emptyText="No secret headers configured."
-                  onChange={setSecretHeaders}
-                />
-              </div>
-            </div>
-          </TabsContent>
+          <TabsContent value="streamable_http">{renderHttpTransportFields()}</TabsContent>
+          <TabsContent value="sse">{renderHttpTransportFields()}</TabsContent>
           <TabsContent value="stdio">
             <div className="grid gap-3 sm:grid-cols-2">
               <TextField label="Command" value={command} onChange={setCommand} />
@@ -253,13 +260,16 @@ function mergeRetrySecrets(
       }
     };
   }
-  if (submission.transportKind === "http_sse" && submission.httpSse) {
+  if (
+    (submission.transportKind === "sse" || submission.transportKind === "streamable_http") &&
+    submission.http
+  ) {
     return {
       ...submission,
-      httpSse: {
-        ...submission.httpSse,
+      http: {
+        ...submission.http,
         secretHeaders: {
-          ...submission.httpSse.secretHeaders,
+          ...submission.http.secretHeaders,
           ...secretHeaders
         }
       }

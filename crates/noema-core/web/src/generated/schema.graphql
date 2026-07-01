@@ -252,7 +252,7 @@ input GraphqlCreateMcpServerInput {
 	"""
 	displayName: String!
 	"""
-	MCP transport kind: `stdio` or `http_sse`.
+	MCP transport kind: `stdio`, `sse`, or `streamable_http`.
 	"""
 	transportKind: String!
 	"""
@@ -260,9 +260,9 @@ input GraphqlCreateMcpServerInput {
 	"""
 	stdio: GraphqlMcpStdioConfigInput
 	"""
-	HTTP/SSE transport config, when `transport_kind` is `http_sse`.
+	HTTP transport config, when `transport_kind` is `sse` or `streamable_http`.
 	"""
-	httpSse: GraphqlMcpHttpSseConfigInput
+	http: GraphqlMcpHttpConfigInput
 }
 
 """
@@ -398,9 +398,9 @@ type GraphqlMcpApprovalRequest {
 }
 
 """
-HTTP/SSE MCP setup config.
+HTTP MCP setup config.
 """
-input GraphqlMcpHttpSseConfigInput {
+input GraphqlMcpHttpConfigInput {
 	"""
 	MCP endpoint URL.
 	"""

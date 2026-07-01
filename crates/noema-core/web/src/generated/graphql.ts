@@ -39,11 +39,11 @@ export type GraphqlContinueMcpServerSetupInput = {
 export type GraphqlCreateMcpServerInput = {
   /** Human-visible server name. */
   displayName: string;
-  /** HTTP/SSE transport config, when `transport_kind` is `http_sse`. */
-  httpSse?: GraphqlMcpHttpSseConfigInput | null | undefined;
+  /** HTTP transport config, when `transport_kind` is `sse` or `streamable_http`. */
+  http?: GraphqlMcpHttpConfigInput | null | undefined;
   /** Stdio transport config, when `transport_kind` is `stdio`. */
   stdio?: GraphqlMcpStdioConfigInput | null | undefined;
-  /** MCP transport kind: `stdio` or `http_sse`. */
+  /** MCP transport kind: `stdio`, `sse`, or `streamable_http`. */
   transportKind: string;
 };
 
@@ -52,8 +52,8 @@ export type GraphqlLocalServiceStatus =
   /** The local Noema service is running. */
   | 'RUNNING';
 
-/** HTTP/SSE MCP setup config. */
-export type GraphqlMcpHttpSseConfigInput = {
+/** HTTP MCP setup config. */
+export type GraphqlMcpHttpConfigInput = {
   /** Non-secret request headers. */
   headers?: unknown;
   /** Secret request headers stored on disk. */

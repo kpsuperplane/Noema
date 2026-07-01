@@ -44,12 +44,12 @@ pub struct GraphqlMcpServer {
 pub struct GraphqlCreateMcpServerInput {
     /// Human-visible server name.
     pub display_name: String,
-    /// MCP transport kind: `stdio` or `http_sse`.
+    /// MCP transport kind: `stdio`, `sse`, or `streamable_http`.
     pub transport_kind: String,
     /// Stdio transport config, when `transport_kind` is `stdio`.
     pub stdio: Option<GraphqlMcpStdioConfigInput>,
-    /// HTTP/SSE transport config, when `transport_kind` is `http_sse`.
-    pub http_sse: Option<GraphqlMcpHttpSseConfigInput>,
+    /// HTTP transport config, when `transport_kind` is `sse` or `streamable_http`.
+    pub http: Option<GraphqlMcpHttpConfigInput>,
 }
 
 /// Stdio MCP setup config.
@@ -67,9 +67,9 @@ pub struct GraphqlMcpStdioConfigInput {
     pub secret_env: Option<Json<Value>>,
 }
 
-/// HTTP/SSE MCP setup config.
+/// HTTP MCP setup config.
 #[derive(Clone, Debug, InputObject)]
-pub struct GraphqlMcpHttpSseConfigInput {
+pub struct GraphqlMcpHttpConfigInput {
     /// MCP endpoint URL.
     pub url: String,
     /// Non-secret request headers.
@@ -571,9 +571,9 @@ fn parse_create_mcp_server_input(input: GraphqlCreateMcpServerInput) -> Result<N
     let transport_kind = parse_graphql_transport_kind(&input.transport_kind)?;
     match transport_kind {
         McpTransportKind::Stdio => {
-            if input.http_sse.is_some() {
+            if input.http.is_some() {
                 return Err(graphql_error(
-                    "invalid MCP setup input: httpSse cannot be set for stdio transport",
+                    "invalid MCP setup input: http cannot be set for stdio transport",
                 ));
             }
             let stdio = input.stdio.ok_or_else(|| {
@@ -596,22 +596,22 @@ fn parse_create_mcp_server_input(input: GraphqlCreateMcpServerInput) -> Result<N
                 },
             })
         }
-        McpTransportKind::HttpSse => {
+        McpTransportKind::Sse | McpTransportKind::StreamableHttp => {
             if input.stdio.is_some() {
                 return Err(graphql_error(
-                    "invalid MCP setup input: stdio cannot be set for http_sse transport",
+                    "invalid MCP setup input: stdio cannot be set for HTTP transport",
                 ));
             }
-            let http_sse = input.http_sse.ok_or_else(|| {
-                graphql_error("invalid MCP setup input: httpSse config is required")
-            })?;
-            let headers = json_string_map(http_sse.headers, "headers")?;
-            let secret_headers = json_string_map(http_sse.secret_headers, "secretHeaders")?;
+            let http = input
+                .http
+                .ok_or_else(|| graphql_error("invalid MCP setup input: http config is required"))?;
+            let headers = json_string_map(http.headers, "headers")?;
+            let secret_headers = json_string_map(http.secret_headers, "secretHeaders")?;
             Ok(NewMcpServerSetup {
                 display_name: input.display_name,
                 transport_kind,
                 safe_config: serde_json::json!({
-                    "url": http_sse.url,
+                    "url": http.url,
                     "headers": headers
                 }),
                 secrets: McpSecretMaterial {
@@ -626,9 +626,10 @@ fn parse_create_mcp_server_input(input: GraphqlCreateMcpServerInput) -> Result<N
 fn parse_graphql_transport_kind(value: &str) -> Result<McpTransportKind> {
     match value {
         "stdio" => Ok(McpTransportKind::Stdio),
-        "http_sse" => Ok(McpTransportKind::HttpSse),
+        "sse" => Ok(McpTransportKind::Sse),
+        "streamable_http" => Ok(McpTransportKind::StreamableHttp),
         _ => Err(graphql_error(
-            "invalid transportKind: expected one of stdio, http_sse",
+            "invalid transportKind: expected one of stdio, sse, streamable_http",
         )),
     }
 }

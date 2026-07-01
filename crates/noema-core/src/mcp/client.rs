@@ -110,6 +110,29 @@ pub(crate) fn parse_tools_list_result(
     Ok(DiscoveredMcpToolsPage { tools, next_cursor })
 }
 
+/// Normalize an SDK-discovered MCP tool into Noema's setup metadata shape.
+pub(crate) fn discovered_tool_from_rmcp(
+    tool: rmcp::model::Tool,
+) -> Result<DiscoveredMcpTool, McpClientError> {
+    let input_schema = Value::Object((*tool.input_schema).clone());
+    let output_schema = tool
+        .output_schema
+        .map(|schema| Value::Object((*schema).clone()));
+    let annotations = match tool.annotations {
+        Some(annotations) => serde_json::to_value(annotations).map_err(|error| {
+            McpClientError::Malformed(format!("invalid MCP tool annotations: {error}"))
+        })?,
+        None => json!({}),
+    };
+    Ok(DiscoveredMcpTool {
+        name: tool.name.into_owned(),
+        description: tool.description.map(std::borrow::Cow::into_owned),
+        input_schema,
+        output_schema,
+        annotations,
+    })
+}
+
 fn parse_tool(value: &Value) -> Result<DiscoveredMcpTool, McpClientError> {
     let object = value
         .as_object()

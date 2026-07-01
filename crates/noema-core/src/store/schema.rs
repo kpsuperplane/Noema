@@ -52,7 +52,7 @@ DEFINE INDEX IF NOT EXISTS provider_accounts_kind_key ON TABLE provider_accounts
 DEFINE TABLE IF NOT EXISTS mcp_servers SCHEMAFULL;
 DEFINE FIELD OVERWRITE mcp_server_id ON TABLE mcp_servers TYPE string;
 DEFINE FIELD OVERWRITE display_name ON TABLE mcp_servers TYPE string;
-DEFINE FIELD OVERWRITE transport_kind ON TABLE mcp_servers TYPE string ASSERT $value INSIDE ['stdio', 'http_sse'];
+DEFINE FIELD OVERWRITE transport_kind ON TABLE mcp_servers TYPE string ASSERT $value INSIDE ['stdio', 'sse', 'streamable_http'];
 DEFINE FIELD OVERWRITE safe_config ON TABLE mcp_servers TYPE object FLEXIBLE DEFAULT {};
 DEFINE FIELD OVERWRITE auth_status ON TABLE mcp_servers TYPE string ASSERT $value INSIDE ['none', 'needs_auth', 'authenticated', 'unavailable'];
 DEFINE FIELD OVERWRITE health_status ON TABLE mcp_servers TYPE string ASSERT $value INSIDE ['unknown', 'healthy', 'unavailable'];

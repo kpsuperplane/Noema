@@ -426,11 +426,11 @@ fn normalize_safe_config(
                 secrets,
             )?)
         }
-        McpTransportKind::HttpSse => {
+        McpTransportKind::Sse | McpTransportKind::StreamableHttp => {
             let url = string_field(object, "url")?;
             if !(url.starts_with("http://") || url.starts_with("https://")) {
                 return Err(StoreError::Schema(
-                    "MCP http_sse url must start with http:// or https://".to_string(),
+                    "MCP HTTP url must start with http:// or https://".to_string(),
                 ));
             }
             let headers = string_map_field(object, "headers")?;
@@ -694,14 +694,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn create_http_sse_setup_writes_secret_headers_and_discovers_tools() {
+    async fn create_streamable_http_setup_writes_secret_headers_and_discovers_tools() {
         let fixture = TestFixture::new().await;
         let result = create_mcp_server_setup(
             &fixture.store,
             &fixture.paths,
             NewMcpServerSetup {
                 display_name: "Remote".to_string(),
-                transport_kind: McpTransportKind::HttpSse,
+                transport_kind: McpTransportKind::StreamableHttp,
                 safe_config: json!({
                     "url": "https://example.com/mcp",
                     "headers": { "X-Team": "infra" }
@@ -794,7 +794,7 @@ mod tests {
             &fixture.paths,
             NewMcpServerSetup {
                 display_name: "Remote".to_string(),
-                transport_kind: McpTransportKind::HttpSse,
+                transport_kind: McpTransportKind::StreamableHttp,
                 safe_config: json!({ "url": "https://example.com/mcp" }),
                 secrets: McpSecretMaterial::default(),
             },
@@ -811,7 +811,7 @@ mod tests {
             &fixture.paths,
             NewMcpServerSetup {
                 display_name: "Remote".to_string(),
-                transport_kind: McpTransportKind::HttpSse,
+                transport_kind: McpTransportKind::StreamableHttp,
                 safe_config: json!({ "url": "https://example.com/mcp" }),
                 secrets: McpSecretMaterial {
                     env: BTreeMap::new(),
@@ -865,7 +865,7 @@ mod tests {
             &fixture.paths,
             NewMcpServerSetup {
                 display_name: "Unsafe".to_string(),
-                transport_kind: McpTransportKind::HttpSse,
+                transport_kind: McpTransportKind::StreamableHttp,
                 safe_config: json!({
                     "url": "https://example.com/mcp",
                     "headers": { "Authorization": "not-safe" }

@@ -123,8 +123,9 @@ The next storage slice should stay small and concrete:
   through a guided modal setup flow that does not persist the server until
   authentication is complete and metadata discovery succeeds. Successful setup
   stores secrets under `${NOEMA_HOME}/mcp/`, verifies metadata-only
-  connectivity through concrete stdio and HTTP/SSE MCP transports, fetches tool
-  schemas, and automatically opens a separate tool-permissions modal while
+  connectivity through concrete stdio, Streamable HTTP, and legacy SSE MCP
+  transports, fetches tool schemas, and automatically opens a separate
+  tool-permissions modal while
   keeping discovered tools disabled and agent-invisible. The permissions modal
   now shows discovered schemas, owner extractor setup, agent visibility, and
   scope visibility, and blocks impossible `ready` saves before they hit the

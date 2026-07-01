@@ -1,8 +1,8 @@
 //! Third-party MCP control-plane domain types.
 
 pub mod client;
-/// HTTP/SSE MCP metadata transport.
-pub mod http_sse;
+/// HTTP MCP metadata transports.
+pub mod http;
 /// Disk-backed MCP secret storage.
 pub mod secrets;
 /// Guided MCP server setup orchestration.
@@ -11,7 +11,7 @@ pub mod setup;
 pub mod stdio;
 
 pub use client::{DiscoveredMcpTool, McpClientError, McpClientRuntime, McpTransport};
-pub use http_sse::HttpSseMcpTransport;
+pub use http::{SseMcpTransport, StreamableHttpMcpTransport};
 pub use stdio::StdioMcpTransport;
 
 use serde::{Deserialize, Serialize};
@@ -74,8 +74,10 @@ impl TrustedIdentitySelectorKind {
 pub enum McpTransportKind {
     /// Local stdio MCP transport.
     Stdio,
-    /// Remote HTTP/SSE MCP transport.
-    HttpSse,
+    /// Legacy remote HTTP+SSE MCP transport.
+    Sse,
+    /// Remote Streamable HTTP MCP transport.
+    StreamableHttp,
 }
 
 impl McpTransportKind {
@@ -84,7 +86,8 @@ impl McpTransportKind {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Stdio => "stdio",
-            Self::HttpSse => "http_sse",
+            Self::Sse => "sse",
+            Self::StreamableHttp => "streamable_http",
         }
     }
 }

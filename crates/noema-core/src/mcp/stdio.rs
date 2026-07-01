@@ -1,24 +1,18 @@
 //! Stdio MCP metadata transport.
 
-use std::{collections::BTreeMap, process::Stdio, time::Duration};
+use std::{collections::BTreeMap, process::Stdio};
 
-use serde_json::{Map, Value, json};
-use tokio::{
-    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
-    process::{Child, ChildStdin, ChildStdout, Command},
-    time,
-};
+use rmcp::{ServiceExt, transport::TokioChildProcess};
+use serde_json::{Map, Value};
+use tokio::process::Command;
 
 use crate::{
     McpServerRecord,
     mcp::{
-        client::{DiscoveredMcpTool, McpClientError, McpTransport, parse_tools_list_result},
+        client::{DiscoveredMcpTool, McpClientError, McpTransport, discovered_tool_from_rmcp},
         secrets::McpSecretMaterial,
     },
 };
-
-const MCP_PROTOCOL_VERSION: &str = "2025-06-18";
-const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Metadata-only MCP transport over stdio.
 pub struct StdioMcpTransport {
@@ -26,11 +20,7 @@ pub struct StdioMcpTransport {
     args: Vec<String>,
     cwd: Option<String>,
     env: BTreeMap<String, String>,
-    timeout: Duration,
-    child: Option<Child>,
-    stdin: Option<ChildStdin>,
-    stdout: Option<BufReader<ChildStdout>>,
-    next_id: u64,
+    discovered_tools: Option<Vec<DiscoveredMcpTool>>,
 }
 
 impl StdioMcpTransport {
@@ -47,11 +37,7 @@ impl StdioMcpTransport {
             args,
             cwd,
             env,
-            timeout: DEFAULT_TIMEOUT,
-            child: None,
-            stdin: None,
-            stdout: None,
-            next_id: 1,
+            discovered_tools: None,
         }
     }
 
@@ -76,180 +62,48 @@ impl StdioMcpTransport {
         env.extend(secrets.env.clone());
         Ok(Self::new(command, args, cwd, env))
     }
-
-    fn next_request_id(&mut self) -> u64 {
-        let id = self.next_id;
-        self.next_id += 1;
-        id
-    }
-
-    fn ensure_started(&mut self) -> Result<(), McpClientError> {
-        if self.child.is_some() {
-            return Ok(());
-        }
-
-        let mut command = Command::new(&self.command);
-        command
-            .args(&self.args)
-            .envs(&self.env)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .kill_on_drop(true);
-        if let Some(cwd) = &self.cwd {
-            command.current_dir(cwd);
-        }
-
-        let mut child = command.spawn().map_err(|error| {
-            McpClientError::Transport(format!("failed to start MCP stdio command: {error}"))
-        })?;
-        let stdin = child.stdin.take().ok_or_else(|| {
-            McpClientError::Transport("MCP stdio command did not expose stdin".to_string())
-        })?;
-        let stdout = child.stdout.take().ok_or_else(|| {
-            McpClientError::Transport("MCP stdio command did not expose stdout".to_string())
-        })?;
-
-        self.stdin = Some(stdin);
-        self.stdout = Some(BufReader::new(stdout));
-        self.child = Some(child);
-        Ok(())
-    }
-
-    async fn send_message(&mut self, message: Value) -> Result<(), McpClientError> {
-        let stdin = self.stdin.as_mut().ok_or_else(|| {
-            McpClientError::Transport("MCP stdio command is not started".to_string())
-        })?;
-        let mut bytes = serde_json::to_vec(&message).map_err(|error| {
-            McpClientError::Malformed(format!("failed to encode MCP request: {error}"))
-        })?;
-        bytes.push(b'\n');
-        time::timeout(self.timeout, stdin.write_all(&bytes))
-            .await
-            .map_err(|_| McpClientError::Transport("timed out writing MCP request".to_string()))?
-            .map_err(|error| {
-                McpClientError::Transport(format!("failed to write MCP request: {error}"))
-            })?;
-        time::timeout(self.timeout, stdin.flush())
-            .await
-            .map_err(|_| McpClientError::Transport("timed out flushing MCP request".to_string()))?
-            .map_err(|error| {
-                McpClientError::Transport(format!("failed to flush MCP request: {error}"))
-            })?;
-        Ok(())
-    }
-
-    async fn read_response(&mut self, id: u64, method: &str) -> Result<Value, McpClientError> {
-        loop {
-            let stdout = self.stdout.as_mut().ok_or_else(|| {
-                McpClientError::Transport("MCP stdio command is not started".to_string())
-            })?;
-            let mut line = String::new();
-            let bytes_read = time::timeout(self.timeout, stdout.read_line(&mut line))
-                .await
-                .map_err(|_| {
-                    McpClientError::Transport(format!("timed out waiting for MCP {method}"))
-                })?
-                .map_err(|error| {
-                    McpClientError::Transport(format!("failed to read MCP response: {error}"))
-                })?;
-            if bytes_read == 0 {
-                return Err(McpClientError::Transport(format!(
-                    "MCP server closed stdout while waiting for {method}"
-                )));
-            }
-
-            let response: Value = serde_json::from_str(&line).map_err(|error| {
-                McpClientError::Malformed(format!("invalid MCP JSON-RPC response: {error}"))
-            })?;
-            let Some(response_id) = response.get("id").and_then(Value::as_u64) else {
-                continue;
-            };
-            if response_id != id {
-                continue;
-            }
-
-            if let Some(error) = response.get("error") {
-                return Err(McpClientError::Transport(format!(
-                    "MCP {method} failed: {}",
-                    json_rpc_error_message(error)
-                )));
-            }
-
-            return response.get("result").cloned().ok_or_else(|| {
-                McpClientError::Malformed(format!("MCP {method} response missing result"))
-            });
-        }
-    }
 }
 
 impl McpTransport for StdioMcpTransport {
     async fn initialize(&mut self) -> Result<(), McpClientError> {
-        self.ensure_started()?;
-        let id = self.next_request_id();
-        self.send_message(json!({
-            "jsonrpc": "2.0",
-            "id": id,
-            "method": "initialize",
-            "params": {
-                "protocolVersion": MCP_PROTOCOL_VERSION,
-                "capabilities": {},
-                "clientInfo": {
-                    "name": "noema",
-                    "version": env!("CARGO_PKG_VERSION")
-                }
-            }
-        }))
-        .await?;
-        let _result = self.read_response(id, "initialize").await?;
-        self.send_message(json!({
-            "jsonrpc": "2.0",
-            "method": "notifications/initialized",
-            "params": {}
-        }))
-        .await?;
+        let mut command = Command::new(&self.command);
+        command.args(&self.args).envs(&self.env);
+        if let Some(cwd) = &self.cwd {
+            command.current_dir(cwd);
+        }
+        let (transport, _stderr) = TokioChildProcess::builder(command)
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|error| {
+                McpClientError::Transport(format!("failed to start MCP stdio command: {error}"))
+            })?;
+        let mut service = ().serve(transport).await.map_err(rmcp_initialize_error)?;
+        let tools = service
+            .peer()
+            .list_all_tools()
+            .await
+            .map_err(|error| McpClientError::Transport(format!("MCP tools/list failed: {error}")))?
+            .into_iter()
+            .map(discovered_tool_from_rmcp)
+            .collect::<Result<Vec<_>, _>>()?;
+        let _ = service.close().await;
+        self.discovered_tools = Some(tools);
         Ok(())
     }
 
     async fn list_tools(&mut self) -> Result<Vec<DiscoveredMcpTool>, McpClientError> {
-        let mut tools = Vec::new();
-        let mut cursor = None;
-        loop {
-            let id = self.next_request_id();
-            let params = match &cursor {
-                Some(cursor) => json!({ "cursor": cursor }),
-                None => json!({}),
-            };
-            self.send_message(json!({
-                "jsonrpc": "2.0",
-                "id": id,
-                "method": "tools/list",
-                "params": params
-            }))
-            .await?;
-            let result = self.read_response(id, "tools/list").await?;
-            let page = parse_tools_list_result(result)?;
-            tools.extend(page.tools);
-            match page.next_cursor {
-                Some(next_cursor) => cursor = Some(next_cursor),
-                None => return Ok(tools),
-            }
-        }
+        self.discovered_tools.clone().ok_or_else(|| {
+            McpClientError::Transport("MCP stdio transport is not initialized".to_string())
+        })
     }
 }
 
-fn json_rpc_error_message(error: &Value) -> String {
-    let Some(object) = error.as_object() else {
-        return error.to_string();
-    };
-    let code = object.get("code").and_then(Value::as_i64);
-    let message = object
-        .get("message")
-        .and_then(Value::as_str)
-        .unwrap_or("unknown JSON-RPC error");
-    match code {
-        Some(code) => format!("{code}: {message}"),
-        None => message.to_string(),
+fn rmcp_initialize_error(error: rmcp::service::ClientInitializeError) -> McpClientError {
+    let message = error.to_string();
+    if message.contains("AuthRequired") || message.contains("Auth required") {
+        McpClientError::AuthRequired("MCP stdio server requires authentication".to_string())
+    } else {
+        McpClientError::Transport(format!("MCP stdio initialize failed: {message}"))
     }
 }
 
@@ -322,10 +176,10 @@ mod tests {
 while IFS= read -r line; do
   case "$line" in
     *tools/list*)
-      printf '%s\n' '{"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"read_doc","description":"Read a document","inputSchema":{"type":"object"},"outputSchema":{"type":"object"},"annotations":{"readOnlyHint":true}}]}}'
+      printf '%s\n' '{"jsonrpc":"2.0","id":1,"result":{"tools":[{"name":"read_doc","description":"Read a document","inputSchema":{"type":"object"},"outputSchema":{"type":"object"},"annotations":{"readOnlyHint":true}}]}}'
       ;;
     *initialize*)
-      printf '%s\n' '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-06-18","capabilities":{},"serverInfo":{"name":"fake","version":"1"}}}'
+      printf '%s\n' '{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":"2025-06-18","capabilities":{},"serverInfo":{"name":"fake","version":"1"}}}'
       ;;
   esac
 done

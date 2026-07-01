@@ -1288,7 +1288,8 @@ fn truncate_preview_string(value: String) -> String {
 fn parse_mcp_transport_kind(value: &str) -> Result<McpTransportKind, StoreError> {
     match value {
         "stdio" => Ok(McpTransportKind::Stdio),
-        "http_sse" => Ok(McpTransportKind::HttpSse),
+        "sse" => Ok(McpTransportKind::Sse),
+        "streamable_http" => Ok(McpTransportKind::StreamableHttp),
         _ => invalid_enum("mcp_transport_kind", value),
     }
 }
