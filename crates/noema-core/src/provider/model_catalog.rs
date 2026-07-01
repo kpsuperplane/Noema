@@ -17,6 +17,7 @@ use crate::{
 };
 
 const MODEL_CATALOG_TIMEOUT_SECONDS: u64 = 20;
+const CODEX_MODELS_CLIENT_VERSION: &str = "0.142.3";
 
 /// Best-effort refresh of provider model profiles for Settings.
 ///
@@ -121,7 +122,7 @@ async fn fetch_codex_model_profiles(
     let access_token = token_store
         .access_token(&oauth_client, CODEX_ACCESS_TOKEN_REFRESH_SKEW_SECONDS)
         .await?;
-    let models_url = format!("{base_url}/models");
+    let models_url = format!("{base_url}/models?client_version={CODEX_MODELS_CLIENT_VERSION}");
 
     match fetch_model_list(&client, &models_url, &access_token).await {
         Ok(value) => Ok(profile_values_from_model_list(&value)),
@@ -178,7 +179,7 @@ async fn fetch_model_list(
 
 fn profile_values_from_model_list(value: &Value) -> Vec<Value> {
     value
-        .get("data")
+        .get("models")
         .and_then(Value::as_array)
         .into_iter()
         .flatten()
@@ -188,49 +189,28 @@ fn profile_values_from_model_list(value: &Value) -> Vec<Value> {
 }
 
 fn model_is_visible(model: &Value) -> bool {
-    if model
-        .get("hidden")
-        .and_then(Value::as_bool)
-        .unwrap_or(false)
-    {
-        return false;
-    }
-    if model
-        .get("show_in_picker")
-        .and_then(Value::as_bool)
-        .is_some_and(|show| !show)
-    {
-        return false;
-    }
-    true
+    model
+        .get("visibility")
+        .and_then(Value::as_str)
+        .is_some_and(|visibility| visibility == "list")
 }
 
 fn profile_value_from_model(model: &Value) -> Option<Value> {
-    let id = string_field(model, &["id", "model"])?.trim();
+    let id = string_field(model, &["slug"])?.trim();
     if id.is_empty() {
         return None;
     }
-    let label = string_field(model, &["displayName", "display_name", "name"]).unwrap_or(id);
+    let label = string_field(model, &["display_name"]).unwrap_or(id);
     let mut object = Map::new();
     object.insert("id".to_string(), Value::String(id.to_string()));
     object.insert("label".to_string(), Value::String(label.to_string()));
-    if let Some(model_id) = string_field(model, &["model"]) {
-        object.insert("model".to_string(), Value::String(model_id.to_string()));
-    }
-    if let Some(default_reasoning_effort) = string_field(
-        model,
-        &["defaultReasoningEffort", "default_reasoning_effort"],
-    ) {
+    if let Some(default_reasoning_effort) = string_field(model, &["default_reasoning_level"]) {
         object.insert(
             "default_reasoning_effort".to_string(),
             Value::String(default_reasoning_effort.to_string()),
         );
     }
-    if let Some(input_modalities) = model
-        .get("inputModalities")
-        .or_else(|| model.get("input_modalities"))
-        .and_then(Value::as_array)
-    {
+    if let Some(input_modalities) = model.get("input_modalities").and_then(Value::as_array) {
         object.insert(
             "input_modalities".to_string(),
             Value::Array(input_modalities.clone()),
@@ -277,25 +257,18 @@ mod tests {
     #[test]
     fn extracts_visible_profiles_from_codex_model_list() {
         let value = json!({
-            "data": [
+            "models": [
                 {
-                    "id": "gpt-5.5",
-                    "model": "gpt-5.5",
-                    "displayName": "GPT-5.5",
-                    "hidden": false,
-                    "defaultReasoningEffort": "medium",
-                    "inputModalities": ["text", "image"]
+                    "slug": "gpt-5.5",
+                    "display_name": "GPT-5.5",
+                    "visibility": "list",
+                    "default_reasoning_level": "medium",
+                    "input_modalities": ["text", "image"]
                 },
                 {
-                    "id": "codex-auto-review",
-                    "model": "codex-auto-review",
-                    "displayName": "Codex Auto Review",
-                    "hidden": true
-                },
-                {
-                    "id": "legacy-hidden",
-                    "display_name": "Legacy Hidden",
-                    "show_in_picker": false
+                    "slug": "codex-auto-review",
+                    "display_name": "Codex Auto Review",
+                    "visibility": "hide"
                 }
             ]
         });
@@ -319,11 +292,11 @@ mod tests {
         let (base_url, request_rx) = spawn_server(
             200,
             json!({
-                "data": [
+                "models": [
                     {
-                        "id": "gpt-live",
-                        "model": "gpt-live",
-                        "displayName": "GPT Live"
+                        "slug": "gpt-live",
+                        "display_name": "GPT Live",
+                        "visibility": "list"
                     }
                 ]
             })
@@ -361,7 +334,10 @@ mod tests {
             .expect("refresh profiles");
 
         let request = request_rx.await.expect("captured request");
-        assert_eq!(request.path, "/models");
+        assert_eq!(
+            request.path,
+            format!("/models?client_version={CODEX_MODELS_CLIENT_VERSION}")
+        );
         assert_eq!(
             request.headers.get("authorization").map(String::as_str),
             Some("Bearer access-token")
