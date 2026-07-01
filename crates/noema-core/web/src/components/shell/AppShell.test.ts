@@ -24,6 +24,7 @@ import {
   initialDeckNavigationState,
   type DeckNavigationState
 } from "./deckNavigation";
+import { shellSidebarTransitionDirection } from "./ShellSidebar";
 
 const healthyStatus = {
   localService: "RUNNING",
@@ -434,11 +435,27 @@ describe("AppShell layered deck markup", () => {
     const primaryMarkup = renderShell({ route: { kind: "chat" } });
     const settingsMarkup = renderShell({ route: { kind: "settings", section: "providers" } });
 
-    assert.equal(countMatches(primaryMarkup, /data-slot="shell-sidebar-menu-level"/g), 1);
-    assert.equal(countMatches(settingsMarkup, /data-slot="shell-sidebar-menu-level"/g), 1);
+    assert.equal(countMatches(primaryMarkup, /data-slot="shell-sidebar-menu-level-frame"/g), 1);
+    assert.equal(countMatches(settingsMarkup, /data-slot="shell-sidebar-menu-level-frame"/g), 1);
     assert.match(primaryMarkup, /data-shell-menu-level="l0"/);
     assert.match(settingsMarkup, /data-shell-menu-level="settings"/);
+    assert.match(primaryMarkup, /data-shell-menu-frame-state="current"/);
+    assert.match(settingsMarkup, /data-shell-menu-frame-state="current"/);
     assert.doesNotMatch(settingsMarkup, /data-shell-menu-item="home"/);
+  });
+
+  test("renders sidebar menu levels inside an animated viewport", () => {
+    const markup = renderShell({ route: { kind: "chat" } });
+
+    assert.match(markup, /data-slot="shell-sidebar-menu-viewport"/);
+    assert.match(markup, /data-slot="shell-sidebar-menu-level-frame"/);
+    assert.match(markup, /data-shell-menu-frame-state="current"/);
+  });
+
+  test("defines sidebar menu transition directions between route levels", () => {
+    assert.equal(shellSidebarTransitionDirection("l0", "settings"), "forward");
+    assert.equal(shellSidebarTransitionDirection("settings", "l0"), "backward");
+    assert.equal(shellSidebarTransitionDirection("settings", "settings"), "forward");
   });
 
   test("labels bottom menu actions accessibly", () => {

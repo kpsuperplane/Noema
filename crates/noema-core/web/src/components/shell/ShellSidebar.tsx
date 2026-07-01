@@ -1,9 +1,29 @@
+import React from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { IdentityAvatar, LOCAL_AGENT_AVATAR_ID } from "../IdentityAvatar";
 import type { ShellAttention } from "./AppShell";
 import { ShellAttentionItem } from "./ShellAttentionItem";
-import type { ShellMenuItem, ShellMenuLevel } from "./shellNavigation";
+import type { ShellMenuItem, ShellMenuLevel, ShellMenuLevelId } from "./shellNavigation";
+
+const shellSidebarMenuTransitionMs = 300;
+
+type ShellSidebarTransitionDirection = "forward" | "backward";
+type ShellSidebarMenuFrameState = "current" | "entering" | "exiting";
+
+const shellSidebarMenuLevelOrder: Record<ShellMenuLevelId, number> = {
+  l0: 0,
+  settings: 1
+};
+
+export function shellSidebarTransitionDirection(
+  fromLevelId: ShellMenuLevelId,
+  toLevelId: ShellMenuLevelId
+): ShellSidebarTransitionDirection {
+  return shellSidebarMenuLevelOrder[toLevelId] >= shellSidebarMenuLevelOrder[fromLevelId]
+    ? "forward"
+    : "backward";
+}
 
 export function ShellSidebar({
   menuLevel,
@@ -18,6 +38,89 @@ export function ShellSidebar({
   primaryAgentLabel: string;
   onSelectItem: (item: ShellMenuItem) => void;
 }) {
+  const [settledMenuLevel, setSettledMenuLevel] = React.useState(menuLevel);
+  const latestMenuLevelRef = React.useRef(menuLevel);
+  latestMenuLevelRef.current = menuLevel;
+
+  const transitioning = settledMenuLevel.levelId !== menuLevel.levelId;
+  const transitionDirection = transitioning
+    ? shellSidebarTransitionDirection(settledMenuLevel.levelId, menuLevel.levelId)
+    : "forward";
+
+  React.useEffect(() => {
+    if (!transitioning) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setSettledMenuLevel(latestMenuLevelRef.current);
+    }, shellSidebarMenuTransitionMs);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [transitioning, menuLevel.levelId]);
+
+  const frames = transitioning
+    ? [
+        {
+          menuLevel: settledMenuLevel,
+          frameState: "exiting" as const,
+          interactive: false
+        },
+        {
+          menuLevel,
+          frameState: "entering" as const,
+          interactive: true
+        }
+      ]
+    : [
+        {
+          menuLevel,
+          frameState: "current" as const,
+          interactive: true
+        }
+      ];
+
+  return (
+    <div
+      data-slot="shell-sidebar-menu-viewport"
+      className="relative h-full min-h-0 overflow-hidden"
+    >
+      {frames.map((frame) => (
+        <ShellSidebarMenuFrame
+          key={`${frame.menuLevel.levelId}-${frame.frameState}`}
+          menuLevel={frame.menuLevel}
+          attention={attention}
+          primaryAgentNamed={primaryAgentNamed}
+          primaryAgentLabel={primaryAgentLabel}
+          frameState={frame.frameState}
+          transitionDirection={transitionDirection}
+          interactive={frame.interactive}
+          onSelectItem={onSelectItem}
+        />
+      ))}
+    </div>
+  );
+}
+
+function ShellSidebarMenuFrame({
+  menuLevel,
+  attention,
+  primaryAgentNamed,
+  primaryAgentLabel,
+  frameState,
+  transitionDirection,
+  interactive,
+  onSelectItem
+}: {
+  menuLevel: ShellMenuLevel;
+  attention: ShellAttention | null;
+  primaryAgentNamed: boolean;
+  primaryAgentLabel: string;
+  frameState: ShellSidebarMenuFrameState;
+  transitionDirection: ShellSidebarTransitionDirection;
+  interactive: boolean;
+  onSelectItem: (item: ShellMenuItem) => void;
+}) {
   const visibleAttention =
     menuLevel.supportsAttention && attention ? (
       <ShellAttentionItem attention={attention} />
@@ -27,9 +130,15 @@ export function ShellSidebar({
 
   return (
     <div
-      data-slot="shell-sidebar-menu-level"
+      data-slot="shell-sidebar-menu-level-frame"
       data-shell-menu-level={menuLevel.levelId}
-      className="grid h-full min-h-0 grid-rows-[auto_auto_minmax(0,1fr)_auto] gap-1 overflow-hidden transition-transform duration-300 ease-out motion-reduce:transition-none"
+      data-shell-menu-frame-state={frameState}
+      data-shell-menu-transition-direction={transitionDirection}
+      aria-hidden={interactive ? undefined : "true"}
+      className={cn(
+        "absolute inset-0 grid h-full min-h-0 grid-rows-[auto_auto_minmax(0,1fr)_auto] gap-1",
+        !interactive && "pointer-events-none"
+      )}
     >
       <div className="h-8" data-tauri-drag-region />
       {visibleAttention}
@@ -42,6 +151,7 @@ export function ShellSidebar({
             active={item.itemId === menuLevel.activeItemId}
             primaryAgentNamed={primaryAgentNamed}
             primaryAgentLabel={primaryAgentLabel}
+            interactive={interactive}
             onSelectItem={onSelectItem}
           />
         ))}
@@ -53,6 +163,7 @@ export function ShellSidebar({
           active={menuLevel.bottomItem.itemId === menuLevel.activeItemId}
           primaryAgentNamed={false}
           primaryAgentLabel={primaryAgentLabel}
+          interactive={interactive}
           bottom
           onSelectItem={onSelectItem}
         />
@@ -66,6 +177,7 @@ function ShellMenuButton({
   active,
   primaryAgentNamed,
   primaryAgentLabel,
+  interactive,
   bottom = false,
   onSelectItem
 }: {
@@ -73,6 +185,7 @@ function ShellMenuButton({
   active: boolean;
   primaryAgentNamed: boolean;
   primaryAgentLabel: string;
+  interactive: boolean;
   bottom?: boolean;
   onSelectItem: (item: ShellMenuItem) => void;
 }) {
@@ -91,6 +204,7 @@ function ShellMenuButton({
         active && "!bg-[color-mix(in_srgb,var(--pine-700)_10%,transparent)]"
       )}
       aria-current={active ? "page" : undefined}
+      disabled={!interactive}
       onClick={() => onSelectItem(item)}
     >
       {showPrimaryAgentAvatar ? (
