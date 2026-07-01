@@ -1,6 +1,6 @@
 import * as React from "react";
 import { useMutation, useQuery } from "@apollo/client/react";
-import { Loader2, Pencil, Plus, Save, Trash2 } from "lucide-react";
+import { ArrowLeft, Loader2, Pencil, Plus, Save, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -105,66 +105,74 @@ export function McpToolPermissionsModal({
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="grid-rows-[auto_minmax(0,1fr)_auto]">
-        <DialogHeader>
-          <DialogTitle>Configure tool permissions</DialogTitle>
-          <DialogDescription>
-            {serverName ?? serverId ?? "MCP server"} tools stay unavailable until each ready tool has
-            reviewed permissions and owner resolution where needed.
-          </DialogDescription>
-        </DialogHeader>
-        <DialogBody className="grid gap-3 overflow-y-auto">
-          {result.loading && !result.data ? (
-            <p className="m-0 flex items-center gap-2 text-sm text-muted-foreground">
-              <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-              Loading tools...
-            </p>
-          ) : null}
-          {result.error ? (
-            <p className="m-0 text-sm text-destructive">Tool metadata could not be loaded.</p>
-          ) : null}
-          {!result.loading && !result.error && tools.length === 0 ? (
-            <p className="m-0 text-sm text-muted-foreground">No tools were discovered.</p>
-          ) : null}
-          {tools.map((tool) => {
-            const draft = draftOverrides[tool.mcpToolId] ?? draftFromTool(tool);
-            return (
-              <ToolPermissionItem
-                key={tool.mcpToolId}
-                tool={tool}
-                draft={draft}
-                onEdit={() => setEditingToolId(tool.mcpToolId)}
+        {editingTool && editingDraft ? (
+          <>
+            <DialogHeader>
+              <DialogTitle>{editingTool.name}</DialogTitle>
+              <DialogDescription>
+                Configure this tool. Use Save to persist all tool permission changes.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogBody className="grid gap-3 overflow-y-auto">
+              <ToolPermissionEditor
+                tool={editingTool}
+                draft={editingDraft}
+                onDraftChange={(updater) => updateDraft(editingTool, updater)}
               />
-            );
-          })}
-          {saveError ? <p className="m-0 text-sm text-destructive">{saveError}</p> : null}
-        </DialogBody>
-        <div className="flex justify-end border-t border-[var(--border-subtle)] px-6 py-4">
-          <Button
-            type="button"
-            className="w-fit"
-            disabled={saveState.loading || result.loading || tools.length === 0}
-            onClick={() => void handleSaveAll()}
-          >
-            {saveState.loading ? (
-              <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-            ) : (
-              <Save className="size-4" aria-hidden="true" />
-            )}
-            Save
-          </Button>
-        </div>
+              {saveError ? <p className="m-0 text-sm text-destructive">{saveError}</p> : null}
+            </DialogBody>
+            <ToolPermissionsFooter
+              canSave={tools.length > 0}
+              saving={saveState.loading}
+              loading={result.loading}
+              onSave={() => void handleSaveAll()}
+              onBack={() => setEditingToolId(null)}
+            />
+          </>
+        ) : (
+          <>
+            <DialogHeader>
+              <DialogTitle>Configure tool permissions</DialogTitle>
+              <DialogDescription>
+                {serverName ?? serverId ?? "MCP server"} tools stay unavailable until each ready
+                tool has reviewed permissions and owner resolution where needed.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogBody className="grid gap-3 overflow-y-auto">
+              {result.loading && !result.data ? (
+                <p className="m-0 flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+                  Loading tools...
+                </p>
+              ) : null}
+              {result.error ? (
+                <p className="m-0 text-sm text-destructive">Tool metadata could not be loaded.</p>
+              ) : null}
+              {!result.loading && !result.error && tools.length === 0 ? (
+                <p className="m-0 text-sm text-muted-foreground">No tools were discovered.</p>
+              ) : null}
+              {tools.map((tool) => {
+                const draft = draftOverrides[tool.mcpToolId] ?? draftFromTool(tool);
+                return (
+                  <ToolPermissionItem
+                    key={tool.mcpToolId}
+                    tool={tool}
+                    draft={draft}
+                    onEdit={() => setEditingToolId(tool.mcpToolId)}
+                  />
+                );
+              })}
+              {saveError ? <p className="m-0 text-sm text-destructive">{saveError}</p> : null}
+            </DialogBody>
+            <ToolPermissionsFooter
+              canSave={tools.length > 0}
+              saving={saveState.loading}
+              loading={result.loading}
+              onSave={() => void handleSaveAll()}
+            />
+          </>
+        )}
       </DialogContent>
-      {editingTool && editingDraft ? (
-        <ToolPermissionEditModal
-          open={editingToolId !== null}
-          tool={editingTool}
-          draft={editingDraft}
-          onDraftChange={(updater) => updateDraft(editingTool, updater)}
-          onOpenChange={(nextOpen) => {
-            if (!nextOpen) setEditingToolId(null);
-          }}
-        />
-      ) : null}
     </Dialog>
   );
 }
@@ -215,88 +223,106 @@ function ToolPermissionItem({
   );
 }
 
-function ToolPermissionEditModal({
-  open,
+function ToolPermissionsFooter({
+  canSave,
+  saving,
+  loading,
+  onSave,
+  onBack
+}: {
+  canSave: boolean;
+  saving: boolean;
+  loading: boolean;
+  onSave: () => void;
+  onBack?: () => void;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 border-t border-[var(--border-subtle)] px-6 py-4">
+      {onBack ? (
+        <Button type="button" variant="ghost" className="w-fit" onClick={onBack}>
+          <ArrowLeft className="size-4" aria-hidden="true" />
+          Back
+        </Button>
+      ) : (
+        <span aria-hidden="true" />
+      )}
+      <Button
+        type="button"
+        className="w-fit"
+        disabled={saving || loading || !canSave}
+        onClick={onSave}
+      >
+        {saving ? (
+          <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+        ) : (
+          <Save className="size-4" aria-hidden="true" />
+        )}
+        Save
+      </Button>
+    </div>
+  );
+}
+
+function ToolPermissionEditor({
   tool,
   draft,
-  onDraftChange,
-  onOpenChange
+  onDraftChange
 }: {
-  open: boolean;
   tool: McpTool;
   draft: ToolPermissionDraft;
   onDraftChange: (updater: (current: ToolPermissionDraft) => ToolPermissionDraft) => void;
-  onOpenChange: (open: boolean) => void;
 }) {
   const validationError = validateDraft(draft);
   const blocked = toolAttentionLabel(draft) === "Needs attention" && !validationError;
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        className="z-[61] grid-rows-[auto_minmax(0,1fr)_auto]"
-        overlayClassName="z-[60] bg-black/40"
-      >
-        <DialogHeader>
-          <DialogTitle>{tool.name}</DialogTitle>
-          <DialogDescription>
-            Configure permissions for this tool. Use the main Configure tools modal to save all changes.
-          </DialogDescription>
-        </DialogHeader>
-        <DialogBody className="grid gap-3 overflow-y-auto">
-          {tool.description ? <ToolDescription description={tool.description} /> : null}
-          <details className="rounded-md border border-[var(--border-subtle)] p-3">
-            <summary className="cursor-pointer text-sm font-medium">Review discovered schema</summary>
-            <pre className="mt-3 max-h-56 overflow-auto whitespace-pre-wrap rounded-md bg-muted p-3 text-xs">
-              {formatSchemaPreview(tool)}
-            </pre>
-          </details>
-          <div className="grid gap-2 sm:grid-cols-4">
-            <SelectField
-              label="Read"
-              value={draft.readClassification}
-              options={classificationOptions}
-              onChange={(readClassification) =>
-                onDraftChange((current) => ({ ...current, readClassification }))
-              }
-            />
-            <SelectField
-              label="Write"
-              value={draft.writeClassification}
-              options={classificationOptions}
-              onChange={(writeClassification) =>
-                onDraftChange((current) => ({ ...current, writeClassification }))
-              }
-            />
-            <SelectField
-              label="Export"
-              value={draft.exportClassification}
-              options={classificationOptions}
-              onChange={(exportClassification) =>
-                onDraftChange((current) => ({ ...current, exportClassification }))
-              }
-            />
-            <CheckboxField
-              label="Disabled"
-              checked={draft.disabled}
-              onChange={(disabled) => onDraftChange((current) => ({ ...current, disabled }))}
-            />
-          </div>
-          <OwnerExtractorsEditor draft={draft} onChange={onDraftChange} />
-          {validationError ? <p className="m-0 text-sm text-destructive">{validationError}</p> : null}
-          {blocked ? (
-            <p className="m-0 text-sm text-muted-foreground">
-              This mixed tool will stay blocked until an owner extractor is added.
-            </p>
-          ) : null}
-        </DialogBody>
-        <div className="flex justify-end border-t border-[var(--border-subtle)] px-6 py-4">
-          <Button type="button" className="w-fit" onClick={() => onOpenChange(false)}>
-            Done
-          </Button>
-        </div>
-      </DialogContent>
-    </Dialog>
+    <>
+      {tool.description ? <ToolDescription description={tool.description} /> : null}
+      <details className="rounded-md border border-[var(--border-subtle)] p-3">
+        <summary className="cursor-pointer text-sm font-medium">Review discovered schema</summary>
+        <pre className="mt-3 max-h-56 overflow-auto whitespace-pre-wrap rounded-md bg-muted p-3 text-xs">
+          {formatSchemaPreview(tool)}
+        </pre>
+      </details>
+      <div className="grid gap-2 sm:grid-cols-4">
+        <SelectField
+          label="Read"
+          value={draft.readClassification}
+          options={classificationOptions}
+          onChange={(readClassification) =>
+            onDraftChange((current) => ({ ...current, readClassification }))
+          }
+        />
+        <SelectField
+          label="Write"
+          value={draft.writeClassification}
+          options={classificationOptions}
+          onChange={(writeClassification) =>
+            onDraftChange((current) => ({ ...current, writeClassification }))
+          }
+        />
+        <SelectField
+          label="Export"
+          value={draft.exportClassification}
+          options={classificationOptions}
+          onChange={(exportClassification) =>
+            onDraftChange((current) => ({ ...current, exportClassification }))
+          }
+        />
+        <CheckboxField
+          label="Disabled"
+          checked={draft.disabled}
+          onChange={(disabled) => onDraftChange((current) => ({ ...current, disabled }))}
+        />
+      </div>
+      <OwnerExtractorsEditor draft={draft} onChange={onDraftChange} />
+      {validationError ? <p className="m-0 text-sm text-destructive">{validationError}</p> : null}
+      {blocked ? (
+        <p className="m-0 text-sm text-muted-foreground">
+          This mixed tool will stay blocked until an owner extractor is added.
+        </p>
+      ) : null}
+    </>
   );
 }
 
