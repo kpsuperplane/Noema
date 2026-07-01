@@ -1,7 +1,9 @@
-use std::{future::Future, pin::Pin, sync::Arc};
+use std::{collections::HashMap, future::Future, pin::Pin, sync::Arc};
 
 use crate::{
-    FoundationLocalProvider, NoemaStore, OpenAiProvider, ProviderConfig,
+    FoundationLocalProvider, FoundationLocalProviderConfig, NoemaStore, OpenAiProvider,
+    ProviderConfig, ProviderKind,
+    config::DEFAULT_FOUNDATION_LOCAL_PROFILE,
     provider::adapters::codex_responses::{CodexProviderConfig, CodexResponsesProvider},
     provider::{
         GenerateRequest, GenerateResponse, GenerateStreamEvent, ModelProvider, ProviderError,
@@ -44,7 +46,7 @@ where
 #[derive(Debug, Clone)]
 pub(crate) struct CodexRuntimeHandle {
     sender: mpsc::Sender<CodexRuntimeCommand>,
-    provider_kind: String,
+    default_provider_kind: String,
     tool_classification_model: Option<String>,
 }
 
@@ -53,30 +55,34 @@ impl CodexRuntimeHandle {
         provider_config: ProviderConfig,
         store: NoemaStore,
     ) -> Result<Self, DaemonError> {
-        match provider_config {
-            ProviderConfig::Codex(codex_config) => Self::spawn(codex_config, store).await,
-            ProviderConfig::OpenAi(openai_config) => {
-                let provider = Arc::new(OpenAiProvider::new(openai_config)?);
-                Self::spawn_with_provider_kind(provider, store, "openai").await
-            }
-            ProviderConfig::FoundationLocal(config) => {
-                let provider = Arc::new(FoundationLocalProvider::new(config)?);
-                Self::spawn_with_provider_kind(provider, store, "foundation_local").await
-            }
+        let (default_provider_kind, default_provider) = provider_from_config(provider_config)?;
+        let mut providers = HashMap::new();
+        providers.insert(default_provider_kind.clone(), default_provider);
+        if !providers.contains_key("codex") {
+            providers.insert(
+                "codex".to_string(),
+                Arc::new(CodexResponsesProvider::new(
+                    default_codex_provider_config()?
+                )?),
+            );
         }
+        if !providers.contains_key("foundation_local") {
+            providers.insert(
+                "foundation_local".to_string(),
+                Arc::new(FoundationLocalProvider::new(
+                    default_foundation_local_config(),
+                )?),
+            );
+        }
+        Self::spawn_with_provider_map_inner(default_provider_kind, providers, store).await
     }
 
-    pub(crate) async fn spawn(
-        mut codex_config: CodexProviderConfig,
-        store: NoemaStore,
-    ) -> Result<Self, DaemonError> {
-        let paths = crate::NoemaPaths::from_process_env()?;
-        let account_home = paths.provider_account_home("codex", "default");
-        crate::provider::auth::ensure_provider_account_home(&account_home)?;
-        apply_provider_account_home(&mut codex_config, &account_home);
+    fn configured_provider_kind(&self) -> &str {
+        &self.default_provider_kind
+    }
 
-        let provider = Arc::new(CodexResponsesProvider::new(codex_config)?);
-        Self::spawn_with_provider_kind(provider, store, "codex").await
+    pub(crate) fn provider_kind(&self) -> &str {
+        self.configured_provider_kind()
     }
 
     #[cfg(test)]
@@ -87,25 +93,58 @@ impl CodexRuntimeHandle {
         Self::spawn_with_provider_kind(provider, store, "codex").await
     }
 
+    #[cfg(test)]
     pub(crate) async fn spawn_with_provider_kind(
         provider: Arc<dyn RuntimeModelProvider>,
         store: NoemaStore,
         provider_kind: impl Into<String>,
     ) -> Result<Self, DaemonError> {
         let provider_kind = provider_kind.into();
-        let tool_classification_model = provider.default_tool_classification_model();
+        Self::spawn_with_provider_map(
+            provider_kind.clone(),
+            HashMap::from([(provider_kind, provider)]),
+            store,
+        )
+        .await
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn spawn_with_provider_map<I>(
+        default_provider_kind: impl Into<String>,
+        providers: I,
+        store: NoemaStore,
+    ) -> Result<Self, DaemonError>
+    where
+        I: IntoIterator<Item = (String, Arc<dyn RuntimeModelProvider>)>,
+    {
+        Self::spawn_with_provider_map_inner(
+            default_provider_kind.into(),
+            providers.into_iter().collect(),
+            store,
+        )
+        .await
+    }
+
+    async fn spawn_with_provider_map_inner(
+        default_provider_kind: String,
+        providers: HashMap<String, Arc<dyn RuntimeModelProvider>>,
+        store: NoemaStore,
+    ) -> Result<Self, DaemonError> {
+        let Some(default_provider) = providers.get(&default_provider_kind) else {
+            return Err(DaemonError::Provider(ProviderError::ProviderUnavailable {
+                provider: default_provider_kind,
+                message: "default provider is not available in this daemon".to_string(),
+            }));
+        };
+        let tool_classification_model = default_provider.default_tool_classification_model();
         let (sender, receiver) = mpsc::channel(16);
-        let actor = CodexRuntimeActor::new(provider, store, provider_kind.clone()).await?;
+        let actor = CodexRuntimeActor::new(default_provider_kind.clone(), providers, store).await?;
         tokio::spawn(actor.run(receiver));
         Ok(Self {
             sender,
-            provider_kind,
+            default_provider_kind,
             tool_classification_model,
         })
-    }
-
-    pub(crate) fn provider_kind(&self) -> &str {
-        &self.provider_kind
     }
 
     pub(crate) fn tool_classification_model(&self) -> Option<&str> {
@@ -201,6 +240,48 @@ impl CodexRuntimeHandle {
             .send(CodexRuntimeCommand::Shutdown { reply })
             .await;
         let _ = reply_rx.await;
+    }
+}
+
+fn provider_from_config(
+    provider_config: ProviderConfig,
+) -> Result<(String, Arc<dyn RuntimeModelProvider>), DaemonError> {
+    match provider_config {
+        ProviderConfig::Codex(codex_config) => Ok((
+            ProviderKind::Codex.as_str().to_string(),
+            Arc::new(CodexResponsesProvider::new(codex_provider_config(
+                codex_config,
+            )?)?),
+        )),
+        ProviderConfig::OpenAi(openai_config) => Ok((
+            ProviderKind::OpenAi.as_str().to_string(),
+            Arc::new(OpenAiProvider::new(openai_config)?),
+        )),
+        ProviderConfig::FoundationLocal(config) => Ok((
+            ProviderKind::FoundationLocal.as_str().to_string(),
+            Arc::new(FoundationLocalProvider::new(config)?),
+        )),
+    }
+}
+
+fn default_codex_provider_config() -> Result<CodexProviderConfig, DaemonError> {
+    codex_provider_config(CodexProviderConfig::default())
+}
+
+fn codex_provider_config(
+    mut codex_config: CodexProviderConfig,
+) -> Result<CodexProviderConfig, DaemonError> {
+    let paths = crate::NoemaPaths::from_process_env()?;
+    let account_home = paths.provider_account_home("codex", "default");
+    crate::provider::auth::ensure_provider_account_home(&account_home)?;
+    apply_provider_account_home(&mut codex_config, &account_home);
+    Ok(codex_config)
+}
+
+fn default_foundation_local_config() -> FoundationLocalProviderConfig {
+    FoundationLocalProviderConfig {
+        default_profile: DEFAULT_FOUNDATION_LOCAL_PROFILE.to_string(),
+        bridge_path: None,
     }
 }
 

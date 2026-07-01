@@ -325,7 +325,7 @@ async fn primary_agent_runtime_preference_supplies_turn_model() {
 }
 
 #[tokio::test]
-async fn primary_agent_runtime_preference_rejects_provider_mismatch() {
+async fn primary_agent_runtime_preference_selects_provider_without_restart() {
     let store = crate::store::tests::test_store().await;
     store.ensure_default_actors().await.expect("actors");
     let account = store
@@ -342,25 +342,52 @@ async fn primary_agent_runtime_preference_rejects_provider_mismatch() {
         .await
         .expect("preference");
 
-    let provider = Arc::new(CapturingProvider::default());
-    let runtime = CodexRuntimeHandle::spawn_with_provider(provider.clone(), store)
-        .await
-        .expect("runtime");
+    let codex_provider = Arc::new(CapturingProvider::default());
+    let foundation_provider = Arc::new(CapturingProvider::default());
+    let runtime = CodexRuntimeHandle::spawn_with_provider_map(
+        "codex",
+        vec![
+            (
+                "codex".to_string(),
+                codex_provider.clone() as Arc<dyn crate::daemon::runtime::RuntimeModelProvider>,
+            ),
+            (
+                "foundation_local".to_string(),
+                foundation_provider.clone()
+                    as Arc<dyn crate::daemon::runtime::RuntimeModelProvider>,
+            ),
+        ],
+        store,
+    )
+    .await
+    .expect("runtime");
 
-    let error = runtime
+    let started = runtime
         .start_primary_conversation(None, None)
         .await
-        .expect_err("provider mismatch should fail");
+        .expect("conversation");
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    runtime
+        .turn(started.conversation_id, "hello".to_string(), tx)
+        .await
+        .expect("turn");
+
+    while rx.recv().await.is_some() {}
 
     runtime.shutdown().await;
 
-    assert!(
-        error
-            .to_string()
-            .contains("configured for foundation_local")
+    let codex_requests = codex_provider.requests.lock().expect("codex requests");
+    assert!(codex_requests.is_empty());
+    let foundation_requests = foundation_provider
+        .requests
+        .lock()
+        .expect("foundation requests");
+    assert_eq!(
+        foundation_requests
+            .last()
+            .and_then(|request| request.model.as_deref()),
+        Some("default")
     );
-    let requests = provider.requests.lock().expect("requests");
-    assert!(requests.is_empty());
 }
 
 #[tokio::test]

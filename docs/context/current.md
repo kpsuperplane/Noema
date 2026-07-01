@@ -93,6 +93,8 @@ The next storage slice should stay small and concrete:
   `foundation_local` config/provider metadata, default provider-account seeding,
   agent runtime preferences, GraphQL read/write APIs, provider bridge protocol
   and lifecycle stubs, and runtime model/profile preference resolution; the
+  daemon now resolves the saved agent provider preference at conversation/turn
+  time instead of requiring a matching startup provider or daemon restart. The
   Swift bridge and web controls remain separately owned implementation lanes.
 - The CLI chat path now uses GraphQL for `startPrimaryConversation` and
   `sendConversationTurn` streaming. It still uses the daemon Unix-socket

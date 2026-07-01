@@ -8,24 +8,40 @@ use crate::daemon::protocol::DaemonError;
 
 #[derive(Debug)]
 pub(super) struct CodexRuntimeActor {
-    pub(super) provider: Arc<dyn RuntimeModelProvider>,
-    pub(super) provider_kind: String,
+    pub(super) default_provider_kind: String,
+    pub(super) providers: HashMap<String, Arc<dyn RuntimeModelProvider>>,
     pub(super) store: NoemaStore,
     pub(super) conversations: HashMap<String, ActiveConversation>,
 }
 
 impl CodexRuntimeActor {
     pub(super) async fn new(
-        provider: Arc<dyn RuntimeModelProvider>,
+        default_provider_kind: String,
+        providers: HashMap<String, Arc<dyn RuntimeModelProvider>>,
         store: NoemaStore,
-        provider_kind: String,
     ) -> Result<Self, DaemonError> {
         Ok(Self {
-            provider,
-            provider_kind,
+            default_provider_kind,
+            providers,
             store,
             conversations: HashMap::new(),
         })
+    }
+
+    pub(super) fn provider_for_kind(
+        &self,
+        provider_kind: &str,
+    ) -> Result<Arc<dyn RuntimeModelProvider>, DaemonError> {
+        self.providers.get(provider_kind).cloned().ok_or_else(|| {
+            DaemonError::Provider(crate::ProviderError::ProviderUnavailable {
+                provider: provider_kind.to_string(),
+                message: "provider is not available in this daemon".to_string(),
+            })
+        })
+    }
+
+    pub(super) fn default_provider(&self) -> Result<Arc<dyn RuntimeModelProvider>, DaemonError> {
+        self.provider_for_kind(&self.default_provider_kind)
     }
 
     pub(super) async fn run(mut self, mut receiver: mpsc::Receiver<CodexRuntimeCommand>) {
@@ -46,7 +62,13 @@ impl CodexRuntimeActor {
                     let _ = reply.send(self.turn(conversation_id, input, item_tx).await);
                 }
                 CodexRuntimeCommand::GenerateOnce { request, reply } => {
-                    let provider = Arc::clone(&self.provider);
+                    let provider = match self.default_provider() {
+                        Ok(provider) => provider,
+                        Err(error) => {
+                            let _ = reply.send(Err(error));
+                            continue;
+                        }
+                    };
                     tokio::spawn(async move {
                         let mut ignore_event = |_| {};
                         let result = provider
@@ -74,6 +96,7 @@ impl CodexRuntimeActor {
 
 #[derive(Debug, Clone)]
 pub(super) struct ActiveConversation {
+    pub(super) provider_kind: String,
     pub(super) model: Option<String>,
     pub(super) cwd: Option<String>,
     pub(super) next_turn_index: u64,

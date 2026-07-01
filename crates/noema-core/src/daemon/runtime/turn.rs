@@ -43,10 +43,12 @@ impl CodexRuntimeActor {
         cwd: Option<String>,
     ) -> Result<StartedConversation, DaemonError> {
         self.store.ensure_default_actors().await?;
-        let model = model_for_conversation(&self.store, &self.provider_kind, model).await?;
+        let selection =
+            provider_selection_for_conversation(&self.store, &self.default_provider_kind, model)
+                .await?;
         let new_conversation = NewConversation::local_chat_for_provider(
-            &self.provider_kind,
-            model.clone(),
+            &selection.provider_kind,
+            selection.model.clone(),
             cwd.clone(),
         );
         let durable_conversation = self.store.create_conversation(new_conversation).await?;
@@ -54,7 +56,8 @@ impl CodexRuntimeActor {
         self.conversations.insert(
             conversation_id.clone(),
             ActiveConversation {
-                model,
+                provider_kind: selection.provider_kind,
+                model: selection.model,
                 cwd,
                 next_turn_index: 1,
                 tool_snapshot: None,
@@ -70,13 +73,15 @@ impl CodexRuntimeActor {
         cwd: Option<String>,
     ) -> Result<StartedConversation, DaemonError> {
         self.store.ensure_default_actors().await?;
-        let model = model_for_conversation(&self.store, &self.provider_kind, model).await?;
+        let selection =
+            provider_selection_for_conversation(&self.store, &self.default_provider_kind, model)
+                .await?;
         let durable_conversation = self
             .store
             .get_or_create_primary_conversation_for_provider(
                 "human:local",
-                &self.provider_kind,
-                model.clone(),
+                &selection.provider_kind,
+                selection.model.clone(),
                 cwd.clone(),
             )
             .await?;
@@ -90,7 +95,8 @@ impl CodexRuntimeActor {
             self.conversations.insert(
                 conversation_id.clone(),
                 ActiveConversation {
-                    model,
+                    provider_kind: selection.provider_kind,
+                    model: selection.model,
                     cwd,
                     next_turn_index,
                     tool_snapshot: None,
@@ -147,8 +153,8 @@ impl CodexRuntimeActor {
             conversation.cwd.as_deref(),
             &agent_identity,
         );
-        let response = match self
-            .provider
+        let provider = self.provider_for_kind(&conversation.provider_kind)?;
+        let response = match provider
             .generate_streaming(
                 GenerateRequest {
                     model: conversation.model.clone(),
@@ -307,8 +313,8 @@ impl CodexRuntimeActor {
             );
         };
 
-        match self
-            .provider
+        let provider = self.provider_for_kind(&conversation.provider_kind)?;
+        match provider
             .generate_streaming(
                 GenerateRequest {
                     model: conversation.model.clone(),
@@ -333,6 +339,7 @@ impl CodexRuntimeActor {
                             user_item_id: user_item_id.clone(),
                             user_input: input.clone(),
                             cwd: conversation.cwd.clone(),
+                            provider_kind: conversation.provider_kind.clone(),
                             model: conversation.model.clone(),
                             initial_stream_id: initial_stream_id.clone(),
                             response,
@@ -514,8 +521,8 @@ impl CodexRuntimeActor {
                     );
                 }
             };
-            let continuation_response = self
-                .provider
+            let provider = self.provider_for_kind(&turn.provider_kind)?;
+            let continuation_response = provider
                 .generate_streaming(
                     GenerateRequest {
                         model: turn.model.clone(),
@@ -700,30 +707,36 @@ fn stable_hash(value: &str) -> u64 {
     hasher.finish()
 }
 
-async fn model_for_conversation(
+async fn provider_selection_for_conversation(
     store: &crate::NoemaStore,
-    active_provider_kind: &str,
+    default_provider_kind: &str,
     conversation_model: Option<String>,
-) -> Result<Option<String>, DaemonError> {
+) -> Result<ConversationProviderSelection, DaemonError> {
     if conversation_model
         .as_ref()
         .is_some_and(|model| !model.trim().is_empty())
     {
-        return Ok(conversation_model);
+        return Ok(ConversationProviderSelection {
+            provider_kind: default_provider_kind.to_string(),
+            model: conversation_model,
+        });
     }
     let Some(preference) = store.get_agent_runtime_preference("agent:primary").await? else {
-        return Ok(None);
+        return Ok(ConversationProviderSelection {
+            provider_kind: default_provider_kind.to_string(),
+            model: None,
+        });
     };
-    if preference.provider_kind != active_provider_kind {
-        return Err(DaemonError::Provider(ProviderError::ProviderUnavailable {
-            provider: active_provider_kind.to_string(),
-            message: format!(
-                "primary agent is configured for {}, but this daemon is using {}",
-                preference.provider_kind, active_provider_kind
-            ),
-        }));
-    }
-    Ok(Some(preference.model_profile))
+    Ok(ConversationProviderSelection {
+        provider_kind: preference.provider_kind,
+        model: Some(preference.model_profile),
+    })
+}
+
+#[derive(Debug, Clone)]
+struct ConversationProviderSelection {
+    provider_kind: String,
+    model: Option<String>,
 }
 
 #[derive(Debug)]
@@ -734,6 +747,7 @@ pub(super) struct SuccessfulProviderTurn {
     pub(super) user_item_id: String,
     pub(super) user_input: String,
     pub(super) cwd: Option<String>,
+    pub(super) provider_kind: String,
     pub(super) model: Option<String>,
     pub(super) initial_stream_id: String,
     pub(super) response: GenerateResponse,

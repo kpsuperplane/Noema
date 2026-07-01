@@ -45,8 +45,8 @@ impl CodexRuntimeActor {
         })?;
         let prompt = build_claim_canonicalization_prompt(proposal, &catalog_json);
         let mut ignored_events = |_| {};
-        let response = self
-            .provider
+        let provider = self.default_provider()?;
+        let response = provider
             .generate_streaming(GenerateRequest::text(prompt), &mut ignored_events)
             .await
             .map_err(DaemonError::Provider)?;
@@ -426,8 +426,8 @@ impl CodexRuntimeActor {
         .map_err(|error| DaemonError::Protocol(format!("match serialization failed: {error}")))?;
         let prompt = build_consolidation_prompt(canonical, &existing_json);
         let mut ignored_events = |_| {};
-        let response = self
-            .provider
+        let provider = self.default_provider()?;
+        let response = provider
             .generate_streaming(GenerateRequest::text(prompt), &mut ignored_events)
             .await
             .map_err(DaemonError::Provider)?;
