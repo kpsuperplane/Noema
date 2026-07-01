@@ -8,12 +8,24 @@ struct BridgeRequest: Decodable {
     let id: String
     let payload: Payload
 
+    struct ReplayTurn: Decodable {
+        let role: Role
+        let text: String
+    }
+
+    enum Role: String, Decodable {
+        case user
+        case assistant
+    }
+
     enum Payload: Decodable {
         case handshake(protocolVersion: Int)
         case health
         case createSession(conversationID: String, modelProfile: String, instructions: String?)
+        case replayTurns(sessionID: String, turns: [ReplayTurn])
         case generate(sessionID: String, input: String, maxOutputTokens: Int?)
         case countTokens(instructions: String?, input: String)
+        case cancel(requestID: String)
         case closeSession(sessionID: String)
         case shutdown
         case unsupported
@@ -25,8 +37,10 @@ struct BridgeRequest: Decodable {
             case modelProfile = "model_profile"
             case instructions
             case sessionID = "session_id"
+            case turns
             case input
             case maxOutputTokens = "max_output_tokens"
+            case requestID = "request_id"
         }
 
         init(from decoder: Decoder) throws {
@@ -48,6 +62,10 @@ struct BridgeRequest: Decodable {
                     modelProfile: modelProfile,
                     instructions: instructions
                 )
+            case "replay_turns":
+                let sessionID = try container.decode(String.self, forKey: .sessionID)
+                let turns = try container.decode([ReplayTurn].self, forKey: .turns)
+                self = .replayTurns(sessionID: sessionID, turns: turns)
             case "generate":
                 let sessionID = try container.decode(String.self, forKey: .sessionID)
                 let input = try container.decode(String.self, forKey: .input)
@@ -61,6 +79,9 @@ struct BridgeRequest: Decodable {
                 let instructions = try container.decodeIfPresent(String.self, forKey: .instructions)
                 let input = try container.decode(String.self, forKey: .input)
                 self = .countTokens(instructions: instructions, input: input)
+            case "cancel":
+                let requestID = try container.decode(String.self, forKey: .requestID)
+                self = .cancel(requestID: requestID)
             case "close_session":
                 let sessionID = try container.decode(String.self, forKey: .sessionID)
                 self = .closeSession(sessionID: sessionID)
@@ -80,8 +101,10 @@ protocol BridgeRequestHandling {
         modelProfile: String,
         instructions: String?
     ) -> [String: Any]
+    func replayTurns(sessionID: String, turns: [BridgeRequest.ReplayTurn]) -> [String: Any]
     func countTokens(instructions: String?, input: String) async -> [String: Any]
     func generate(sessionID: String, input: String, maxOutputTokens: Int?) async -> [[String: Any]]
+    func cancel(requestID: String) -> [String: Any]
     func closeSession(sessionID: String) -> [String: Any]
 }
 
@@ -142,12 +165,23 @@ final class UnavailableHandler: BridgeRequestHandling {
         errorPayload(code: "foundation_unavailable", message: reason)
     }
 
+    func replayTurns(sessionID: String, turns: [BridgeRequest.ReplayTurn]) -> [String: Any] {
+        errorPayload(code: "foundation_unavailable", message: reason)
+    }
+
     func countTokens(instructions: String?, input: String) async -> [String: Any] {
         errorPayload(code: "foundation_unavailable", message: reason)
     }
 
     func generate(sessionID: String, input: String, maxOutputTokens: Int?) async -> [[String: Any]] {
         [errorPayload(code: "foundation_unavailable", message: reason)]
+    }
+
+    func cancel(requestID: String) -> [String: Any] {
+        errorPayload(
+            code: "cancellation_unsupported",
+            message: "Foundation Models cancellation is unavailable because the runtime is unavailable."
+        )
     }
 
     func closeSession(sessionID: String) -> [String: Any] {
@@ -196,6 +230,31 @@ final class FoundationModelsHandler: BridgeRequestHandling {
                 message: unavailableMessage(for: reason)
             )
         }
+    }
+
+    func replayTurns(sessionID: String, turns: [BridgeRequest.ReplayTurn]) -> [String: Any] {
+        guard let session = sessions[sessionID] else {
+            return errorPayload(
+                code: "session_not_found",
+                message: "Foundation Models session was not found."
+            )
+        }
+        guard !session.isResponding else {
+            return errorPayload(
+                code: "session_busy",
+                message: "Foundation Models session is already responding."
+            )
+        }
+
+        var entries = Array(session.transcript)
+        entries.append(contentsOf: turns.map(replayEntry(for:)))
+        sessions[sessionID] = LanguageModelSession(
+            model: .default,
+            transcript: Transcript(entries: entries)
+        )
+        return [
+            "type": "replay_complete"
+        ]
     }
 
     func countTokens(instructions: String?, input: String) async -> [String: Any] {
@@ -264,11 +323,30 @@ final class FoundationModelsHandler: BridgeRequestHandling {
         }
     }
 
+    func cancel(requestID: String) -> [String: Any] {
+        errorPayload(
+            code: "cancellation_unsupported",
+            message: "Foundation Models cancellation is not supported by this bridge process yet."
+        )
+    }
+
     func closeSession(sessionID: String) -> [String: Any] {
         sessions.removeValue(forKey: sessionID)
         return [
             "type": "replay_complete"
         ]
+    }
+
+    private func replayEntry(for turn: BridgeRequest.ReplayTurn) -> Transcript.Entry {
+        let text = Transcript.TextSegment(content: turn.text)
+        let segment = Transcript.Segment.text(text)
+
+        switch turn.role {
+        case .user:
+            return .prompt(Transcript.Prompt(segments: [segment]))
+        case .assistant:
+            return .response(Transcript.Response(assetIDs: [], segments: [segment]))
+        }
     }
 
     private func unavailableMessage(
@@ -350,6 +428,8 @@ func runBridge(handler: BridgeRequestHandling) async {
                 modelProfile: modelProfile,
                 instructions: instructions
             ))
+        case .replayTurns(let sessionID, let turns):
+            emit(request.id, handler.replayTurns(sessionID: sessionID, turns: turns))
         case .countTokens(let instructions, let input):
             emit(request.id, await handler.countTokens(instructions: instructions, input: input))
         case .generate(let sessionID, let input, let maxOutputTokens):
@@ -360,6 +440,8 @@ func runBridge(handler: BridgeRequestHandling) async {
             ) {
                 emit(request.id, payload)
             }
+        case .cancel(let requestID):
+            emit(request.id, handler.cancel(requestID: requestID))
         case .closeSession(let sessionID):
             emit(request.id, handler.closeSession(sessionID: sessionID))
         case .shutdown:
