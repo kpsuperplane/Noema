@@ -21,15 +21,13 @@ export function isComposerTextareaDisabled({ ready }: { ready: boolean }) {
 
 export function composerSubmitState({
   ready,
-  value,
   pending
 }: {
   ready: boolean;
-  value: string;
   pending: boolean;
 }) {
   return {
-    disabled: !ready || !value.trim(),
+    disabled: !ready,
     label: pending ? "Sending message" : "Send message"
   };
 }
@@ -139,7 +137,7 @@ export type ComposerProps = {
   pending: boolean;
   placeholder: string;
   onChange: (value: string) => void;
-  onSubmit: () => void;
+  onSubmit: (value: string) => void;
 };
 
 export const Composer = React.forwardRef<HTMLTextAreaElement, ComposerProps>(function Composer(
@@ -163,11 +161,17 @@ export const Composer = React.forwardRef<HTMLTextAreaElement, ComposerProps>(fun
   );
 
   function submit() {
-    onSubmit();
+    const nextValue = textareaRef.current?.value ?? value;
+    if (!nextValue.trim()) {
+      refocusComposerTextarea(textareaRef.current);
+      return;
+    }
+
+    onSubmit(nextValue);
     refocusComposerTextarea(textareaRef.current);
   }
 
-  const submitState = composerSubmitState({ ready, value, pending });
+  const submitState = composerSubmitState({ ready, pending });
   const textareaProps = composerTextareaProps();
   const sizeKey = `${value}\u0000${placeholder}`;
   const fallbackInlineSize = React.useMemo(
@@ -226,7 +230,7 @@ export const Composer = React.forwardRef<HTMLTextAreaElement, ComposerProps>(fun
     >
       <div
         data-slot="composer-bubble"
-        className="relative w-fit min-w-[min(13rem,100%)] max-w-full rounded-4xl bg-primary p-1.5 pr-12 text-primary-foreground shadow-[0_8px_24px_rgba(23,22,15,0.08)] max-[760px]:pr-14"
+        className="relative w-fit min-w-[min(13rem,100%)] max-w-full rounded-4xl bg-primary p-1.5 pr-12 text-primary-foreground shadow-[0_8px_24px_rgba(23,22,15,0.08)]"
       >
         <div data-slot="composer-textarea-wrap" className="min-w-0" style={textareaWrapStyle}>
           <Textarea
@@ -234,6 +238,7 @@ export const Composer = React.forwardRef<HTMLTextAreaElement, ComposerProps>(fun
             value={value}
             disabled={isComposerTextareaDisabled({ ready })}
             placeholder={placeholder}
+            enterKeyHint="send"
             rows={textareaProps.rows}
             style={textareaStyle}
             className={textareaProps.className}
@@ -247,11 +252,13 @@ export const Composer = React.forwardRef<HTMLTextAreaElement, ComposerProps>(fun
           />
         </div>
         <Button
-          type="submit"
+          data-slot="composer-submit"
+          type="button"
           size="icon-lg"
-          className="absolute right-1.5 bottom-1.5 touch-manipulation rounded-full bg-primary-foreground text-primary hover:bg-primary-foreground/90 disabled:text-primary/70 max-[760px]:right-1 max-[760px]:bottom-1 max-[760px]:size-11"
+          className="absolute right-1.5 bottom-1.5 touch-manipulation rounded-full bg-primary-foreground text-primary hover:bg-primary-foreground/90 disabled:text-primary/70"
           aria-label={submitState.label}
           disabled={submitState.disabled}
+          onClick={submit}
         >
           <SendHorizontal aria-hidden="true" />
         </Button>

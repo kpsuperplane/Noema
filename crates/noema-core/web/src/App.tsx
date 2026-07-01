@@ -335,7 +335,7 @@ export function App() {
         })
       }
       onDraftChange={setDraft}
-      onSubmit={() => void sendMessage(draft)}
+      onSubmit={(value) => void sendMessage(value)}
     />
   );
 

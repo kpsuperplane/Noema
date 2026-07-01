@@ -110,11 +110,26 @@ body {
   background: var(--surface-page);
 }
 
-@media (pointer: coarse) {
+@media (hover: none) and (pointer: coarse) {
   input,
   select,
   textarea {
     font-size: max(16px, 1em);
+  }
+
+  [data-slot="chat-surface"] {
+    padding-bottom: max(18px, env(safe-area-inset-bottom));
+  }
+
+  [data-slot="composer-bubble"] {
+    padding-right: 3.5rem;
+  }
+
+  [data-slot="composer-submit"] {
+    right: 0.25rem;
+    bottom: 0.25rem;
+    width: 2.75rem;
+    height: 2.75rem;
   }
 }
 
