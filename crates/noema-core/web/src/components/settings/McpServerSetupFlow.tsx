@@ -200,23 +200,9 @@ export function McpServerSetupFlow({
 
       {setupScreen === "auth" && authRequired ? (
         <form className="grid gap-3" onSubmit={submitRetry}>
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <Button
-              type="button"
-              variant="ghost"
-              className="w-fit"
-              onClick={() => {
-                setFormError(null);
-                setShowAuthScreen(false);
-              }}
-            >
-              <ArrowLeft className="size-4" aria-hidden="true" />
-              Back
-            </Button>
-            <div className="flex items-center gap-2 text-sm font-medium">
-              <KeyRound className="size-4" aria-hidden="true" />
-              Authentication required
-            </div>
+          <div className="flex items-center gap-2 text-sm font-medium">
+            <KeyRound className="size-4" aria-hidden="true" />
+            Authentication required
           </div>
           <p className="m-0 text-sm text-muted-foreground">
             The server has not been saved yet. Add the secret environment variables or headers this
@@ -237,7 +223,19 @@ export function McpServerSetupFlow({
             />
           </div>
           {visibleError ? <p className="m-0 text-sm text-destructive">{visibleError}</p> : null}
-          <div className="flex justify-end">
+          <div className="flex items-center justify-between gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              className="w-fit"
+              onClick={() => {
+                setFormError(null);
+                setShowAuthScreen(false);
+              }}
+            >
+              <ArrowLeft className="size-4" aria-hidden="true" />
+              Back
+            </Button>
             <Button type="submit" className="w-fit" disabled={setupSubmitting}>
               {setupSubmitting ? (
                 <Loader2 className="size-4 animate-spin" aria-hidden="true" />
