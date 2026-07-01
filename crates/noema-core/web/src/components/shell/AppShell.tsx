@@ -333,7 +333,7 @@ export function AppShell({
             data-slot="shell-header-offset"
             data-sidebar-collapsed={deckNavigation.sidebarCollapsed}
             className={cn(
-              "transition-transform duration-300",
+              "transition-transform duration-300 flex items-center",
               "data-[sidebar-collapsed=true]:min-[761px]:translate-x-[calc(1.5rem+var(--shell-desktop-chrome-offset))]"
             )}
           >
