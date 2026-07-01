@@ -12,7 +12,8 @@ struct BridgeRequest: Decodable {
         case handshake(protocolVersion: Int)
         case health
         case createSession(conversationID: String, modelProfile: String, instructions: String?)
-        case generate(sessionID: String, input: String)
+        case generate(sessionID: String, input: String, maxOutputTokens: Int?)
+        case countTokens(instructions: String?, input: String)
         case closeSession(sessionID: String)
         case shutdown
         case unsupported
@@ -25,6 +26,7 @@ struct BridgeRequest: Decodable {
             case instructions
             case sessionID = "session_id"
             case input
+            case maxOutputTokens = "max_output_tokens"
         }
 
         init(from decoder: Decoder) throws {
@@ -49,7 +51,16 @@ struct BridgeRequest: Decodable {
             case "generate":
                 let sessionID = try container.decode(String.self, forKey: .sessionID)
                 let input = try container.decode(String.self, forKey: .input)
-                self = .generate(sessionID: sessionID, input: input)
+                let maxOutputTokens = try container.decodeIfPresent(Int.self, forKey: .maxOutputTokens)
+                self = .generate(
+                    sessionID: sessionID,
+                    input: input,
+                    maxOutputTokens: maxOutputTokens
+                )
+            case "count_tokens":
+                let instructions = try container.decodeIfPresent(String.self, forKey: .instructions)
+                let input = try container.decode(String.self, forKey: .input)
+                self = .countTokens(instructions: instructions, input: input)
             case "close_session":
                 let sessionID = try container.decode(String.self, forKey: .sessionID)
                 self = .closeSession(sessionID: sessionID)
@@ -69,7 +80,8 @@ protocol BridgeRequestHandling {
         modelProfile: String,
         instructions: String?
     ) -> [String: Any]
-    func generate(sessionID: String, input: String) async -> [[String: Any]]
+    func countTokens(instructions: String?, input: String) async -> [String: Any]
+    func generate(sessionID: String, input: String, maxOutputTokens: Int?) async -> [[String: Any]]
     func closeSession(sessionID: String) -> [String: Any]
 }
 
@@ -130,7 +142,11 @@ final class UnavailableHandler: BridgeRequestHandling {
         errorPayload(code: "foundation_unavailable", message: reason)
     }
 
-    func generate(sessionID: String, input: String) async -> [[String: Any]] {
+    func countTokens(instructions: String?, input: String) async -> [String: Any] {
+        errorPayload(code: "foundation_unavailable", message: reason)
+    }
+
+    func generate(sessionID: String, input: String, maxOutputTokens: Int?) async -> [[String: Any]] {
         [errorPayload(code: "foundation_unavailable", message: reason)]
     }
 
@@ -182,7 +198,32 @@ final class FoundationModelsHandler: BridgeRequestHandling {
         }
     }
 
-    func generate(sessionID: String, input: String) async -> [[String: Any]] {
+    func countTokens(instructions: String?, input: String) async -> [String: Any] {
+        guard #available(macOS 26.4, *) else {
+            return errorPayload(
+                code: "token_count_failed",
+                message: "Foundation Models token counting requires macOS 26.4 or newer."
+            )
+        }
+
+        do {
+            var total = try await SystemLanguageModel.default.tokenCount(for: Prompt(input))
+            if let instructions {
+                total += try await SystemLanguageModel.default.tokenCount(for: Instructions(instructions))
+            }
+            return [
+                "type": "token_count",
+                "tokens": total
+            ]
+        } catch {
+            return errorPayload(
+                code: "token_count_failed",
+                message: "Foundation Models token count failed: \(error.localizedDescription)"
+            )
+        }
+    }
+
+    func generate(sessionID: String, input: String, maxOutputTokens: Int?) async -> [[String: Any]] {
         guard let session = sessions[sessionID] else {
             return [
                 errorPayload(
@@ -201,7 +242,8 @@ final class FoundationModelsHandler: BridgeRequestHandling {
         }
 
         do {
-            let response = try await session.respond(to: input)
+            let options = GenerationOptions(maximumResponseTokens: maxOutputTokens)
+            let response = try await session.respond(to: input, options: options)
             return [
                 [
                     "type": "assistant_text_delta",
@@ -308,8 +350,14 @@ func runBridge(handler: BridgeRequestHandling) async {
                 modelProfile: modelProfile,
                 instructions: instructions
             ))
-        case .generate(let sessionID, let input):
-            for payload in await handler.generate(sessionID: sessionID, input: input) {
+        case .countTokens(let instructions, let input):
+            emit(request.id, await handler.countTokens(instructions: instructions, input: input))
+        case .generate(let sessionID, let input, let maxOutputTokens):
+            for payload in await handler.generate(
+                sessionID: sessionID,
+                input: input,
+                maxOutputTokens: maxOutputTokens
+            ) {
                 emit(request.id, payload)
             }
         case .closeSession(let sessionID):
