@@ -1,6 +1,7 @@
 import * as React from "react";
 import { useMutation, useQuery } from "@apollo/client/react";
-import { Loader2, Plus, Save, ShieldCheck, Trash2 } from "lucide-react";
+import { Loader2, Pencil, Plus, Save, Trash2 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -10,6 +11,7 @@ import {
   DialogHeader,
   DialogTitle
 } from "@/components/ui/dialog";
+import { Item, ItemActions, ItemContent, ItemDescription, ItemTitle } from "@/components/ui/item";
 import {
   McpToolsDocument,
   SaveToolCalibrationDocument,
@@ -47,46 +49,62 @@ export function McpToolPermissionsModal({
   });
   const [saveToolCalibration, saveState] =
     useMutation<SaveToolCalibrationMutation>(SaveToolCalibrationDocument);
+  const [draftOverrides, setDraftOverrides] = React.useState<Record<string, ToolPermissionDraft>>(
+    {}
+  );
+  const [editingToolId, setEditingToolId] = React.useState<string | null>(null);
   const [saveError, setSaveError] = React.useState<string | null>(null);
+  const tools = React.useMemo(() => result.data?.mcpTools ?? [], [result.data?.mcpTools]);
+  const editingTool = tools.find((tool) => tool.mcpToolId === editingToolId) ?? null;
+  const editingDraft = editingTool
+    ? draftOverrides[editingTool.mcpToolId] ?? draftFromTool(editingTool)
+    : null;
 
-  async function handleSave(tool: McpTool, draft: ToolPermissionDraft) {
-    const status = derivedCalibrationStatus(draft);
-    const ownerExtractors = draft.ownerExtractors
-      .filter((extractor) => !draft.disabled || extractor.path.trim())
-      .map(({ source, selectorKind, path }) => ({
-        source,
-        selectorKind,
-        path: path.trim()
-      }));
-    const reviewed = status === "ready" || status === "blocked_unresolved_ownership";
+  function updateDraft(
+    tool: McpTool,
+    updater: (current: ToolPermissionDraft) => ToolPermissionDraft
+  ) {
+    setDraftOverrides((current) => {
+      const draft = current[tool.mcpToolId] ?? draftFromTool(tool);
+      return { ...current, [tool.mcpToolId]: updater(draft) };
+    });
+  }
+
+  function handleOpenChange(nextOpen: boolean) {
+    if (!nextOpen) {
+      setDraftOverrides({});
+      setEditingToolId(null);
+      setSaveError(null);
+    }
+    onOpenChange(nextOpen);
+  }
+
+  async function handleSaveAll() {
     setSaveError(null);
+    for (const tool of tools) {
+      const draft = draftOverrides[tool.mcpToolId] ?? draftFromTool(tool);
+      const validationError = validateDraft(draft);
+      if (validationError) {
+        setEditingToolId(tool.mcpToolId);
+        setSaveError(`${tool.name}: ${validationError}`);
+        return;
+      }
+    }
     try {
-      await saveToolCalibration({
-        variables: {
-          input: {
-            calibrationId: tool.calibration?.calibrationId ?? calibrationIdForTool(tool.mcpToolId),
-            mcpToolId: tool.mcpToolId,
-            readClassification: draft.readClassification,
-            writeClassification: draft.writeClassification,
-            exportClassification: draft.exportClassification,
-            ownerExtractors,
-            status,
-            reviewedBy: reviewed ? "human:local" : null,
-            reviewedMetadataFingerprint: reviewed ? tool.metadataFingerprint : null
-          }
-        }
-      });
+      for (const tool of tools) {
+        const draft = draftOverrides[tool.mcpToolId] ?? draftFromTool(tool);
+        await saveToolCalibration({ variables: { input: calibrationInputForTool(tool, draft) } });
+      }
       await result.refetch();
+      setDraftOverrides({});
     } catch (error) {
       setSaveError(safeCalibrationSaveError(error));
     }
   }
 
-  const tools = result.data?.mcpTools ?? [];
-
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="grid-rows-[auto_minmax(0,1fr)]">
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogContent className="grid-rows-[auto_minmax(0,1fr)_auto]">
         <DialogHeader>
           <DialogTitle>Configure tool permissions</DialogTitle>
           <DialogDescription>
@@ -107,17 +125,46 @@ export function McpToolPermissionsModal({
           {!result.loading && !result.error && tools.length === 0 ? (
             <p className="m-0 text-sm text-muted-foreground">No tools were discovered.</p>
           ) : null}
-          {tools.map((tool) => (
-            <ToolPermissionEditor
-              key={toolPermissionEditorKey(tool)}
-              tool={tool}
-              saving={saveState.loading}
-              onSave={(draft) => void handleSave(tool, draft)}
-            />
-          ))}
+          {tools.map((tool) => {
+            const draft = draftOverrides[tool.mcpToolId] ?? draftFromTool(tool);
+            return (
+              <ToolPermissionItem
+                key={tool.mcpToolId}
+                tool={tool}
+                draft={draft}
+                onEdit={() => setEditingToolId(tool.mcpToolId)}
+              />
+            );
+          })}
           {saveError ? <p className="m-0 text-sm text-destructive">{saveError}</p> : null}
         </DialogBody>
+        <div className="flex justify-end border-t border-[var(--border-subtle)] px-6 py-4">
+          <Button
+            type="button"
+            className="w-fit"
+            disabled={saveState.loading || result.loading || tools.length === 0}
+            onClick={() => void handleSaveAll()}
+          >
+            {saveState.loading ? (
+              <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+            ) : (
+              <Save className="size-4" aria-hidden="true" />
+            )}
+            Save
+          </Button>
+        </div>
       </DialogContent>
+      {editingTool && editingDraft ? (
+        <ToolPermissionEditModal
+          open={editingToolId !== null}
+          tool={editingTool}
+          draft={editingDraft}
+          onDraftChange={(updater) => updateDraft(editingTool, updater)}
+          onOpenChange={(nextOpen) => {
+            if (!nextOpen) setEditingToolId(null);
+          }}
+        />
+      ) : null}
     </Dialog>
   );
 }
@@ -137,96 +184,119 @@ type ToolPermissionDraft = {
   disabled: boolean;
 };
 
-function ToolPermissionEditor({
+function ToolPermissionItem({
   tool,
-  saving,
-  onSave
+  draft,
+  onEdit
 }: {
   tool: McpTool;
-  saving: boolean;
-  onSave: (draft: ToolPermissionDraft) => void;
+  draft: ToolPermissionDraft;
+  onEdit: () => void;
 }) {
-  const [draft, setDraft] = React.useState<ToolPermissionDraft>(() => ({
-    readClassification: tool.calibration?.readClassification ?? "mixed",
-    writeClassification: tool.calibration?.writeClassification ?? "none",
-    exportClassification: tool.calibration?.exportClassification ?? "none",
-    ownerExtractors: (tool.calibration?.ownerExtractors ?? []).map((extractor, index) => ({
-      id: `${tool.mcpToolId}:extractor:${index}`,
-      source: extractor.source,
-      selectorKind: extractor.selectorKind,
-      path: extractor.path
-    })),
-    disabled: tool.calibration?.status === "disabled"
-  }));
-  const [localError, setLocalError] = React.useState<string | null>(null);
+  const attention = toolAttentionLabel(draft);
+  return (
+    <Item>
+      <ItemContent>
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <ItemTitle>{tool.name}</ItemTitle>
+          {attention ? <Badge variant="destructive">{attention}</Badge> : null}
+          {draft.disabled ? <Badge variant="outline">Disabled</Badge> : null}
+        </div>
+        {tool.description ? (
+          <ItemDescription className="truncate text-sm">{tool.description}</ItemDescription>
+        ) : null}
+      </ItemContent>
+      <ItemActions>
+        <Button type="button" variant="ghost" size="icon-sm" aria-label={`Edit ${tool.name}`} onClick={onEdit}>
+          <Pencil className="size-4" aria-hidden="true" />
+        </Button>
+      </ItemActions>
+    </Item>
+  );
+}
 
-  function save() {
-    const validationError = validateReadyDraft(draft);
-    if (validationError) {
-      setLocalError(validationError);
-      return;
-    }
-    setLocalError(null);
-    onSave(draft);
-  }
+function ToolPermissionEditModal({
+  open,
+  tool,
+  draft,
+  onDraftChange,
+  onOpenChange
+}: {
+  open: boolean;
+  tool: McpTool;
+  draft: ToolPermissionDraft;
+  onDraftChange: (updater: (current: ToolPermissionDraft) => ToolPermissionDraft) => void;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const validationError = validateDraft(draft);
+  const blocked = toolAttentionLabel(draft) === "Needs attention" && !validationError;
 
   return (
-    <article className="grid gap-3 rounded-md border border-[var(--border-subtle)] p-4">
-      <div className="flex min-w-0 items-start gap-2">
-        <ShieldCheck className="mt-0.5 size-4 text-[var(--pine-700)]" aria-hidden="true" />
-        <div className="grid min-w-0 gap-1">
-          <h3 className="m-0 break-words font-heading text-base leading-tight tracking-normal">
-            {tool.name}
-          </h3>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent
+        className="z-[61] grid-rows-[auto_minmax(0,1fr)_auto]"
+        overlayClassName="z-[60] bg-black/40"
+      >
+        <DialogHeader>
+          <DialogTitle>{tool.name}</DialogTitle>
+          <DialogDescription>
+            Configure permissions for this tool. Use the main Configure tools modal to save all changes.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogBody className="grid gap-3 overflow-y-auto">
           {tool.description ? <ToolDescription description={tool.description} /> : null}
+          <details className="rounded-md border border-[var(--border-subtle)] p-3">
+            <summary className="cursor-pointer text-sm font-medium">Review discovered schema</summary>
+            <pre className="mt-3 max-h-56 overflow-auto whitespace-pre-wrap rounded-md bg-muted p-3 text-xs">
+              {formatSchemaPreview(tool)}
+            </pre>
+          </details>
+          <div className="grid gap-2 sm:grid-cols-4">
+            <SelectField
+              label="Read"
+              value={draft.readClassification}
+              options={classificationOptions}
+              onChange={(readClassification) =>
+                onDraftChange((current) => ({ ...current, readClassification }))
+              }
+            />
+            <SelectField
+              label="Write"
+              value={draft.writeClassification}
+              options={classificationOptions}
+              onChange={(writeClassification) =>
+                onDraftChange((current) => ({ ...current, writeClassification }))
+              }
+            />
+            <SelectField
+              label="Export"
+              value={draft.exportClassification}
+              options={classificationOptions}
+              onChange={(exportClassification) =>
+                onDraftChange((current) => ({ ...current, exportClassification }))
+              }
+            />
+            <CheckboxField
+              label="Disabled"
+              checked={draft.disabled}
+              onChange={(disabled) => onDraftChange((current) => ({ ...current, disabled }))}
+            />
+          </div>
+          <OwnerExtractorsEditor draft={draft} onChange={onDraftChange} />
+          {validationError ? <p className="m-0 text-sm text-destructive">{validationError}</p> : null}
+          {blocked ? (
+            <p className="m-0 text-sm text-muted-foreground">
+              This mixed tool will stay blocked until an owner extractor is added.
+            </p>
+          ) : null}
+        </DialogBody>
+        <div className="flex justify-end border-t border-[var(--border-subtle)] px-6 py-4">
+          <Button type="button" className="w-fit" onClick={() => onOpenChange(false)}>
+            Done
+          </Button>
         </div>
-      </div>
-
-      <details className="rounded-md border border-[var(--border-subtle)] p-3">
-        <summary className="cursor-pointer text-sm font-medium">Review discovered schema</summary>
-        <pre className="mt-3 max-h-56 overflow-auto whitespace-pre-wrap rounded-md bg-muted p-3 text-xs">
-          {formatSchemaPreview(tool)}
-        </pre>
-      </details>
-
-      <div className="grid gap-2 sm:grid-cols-4">
-        <SelectField
-          label="Read"
-          value={draft.readClassification}
-          options={classificationOptions}
-          onChange={(readClassification) => setDraft((current) => ({ ...current, readClassification }))}
-        />
-        <SelectField
-          label="Write"
-          value={draft.writeClassification}
-          options={classificationOptions}
-          onChange={(writeClassification) =>
-            setDraft((current) => ({ ...current, writeClassification }))
-          }
-        />
-        <SelectField
-          label="Export"
-          value={draft.exportClassification}
-          options={classificationOptions}
-          onChange={(exportClassification) =>
-            setDraft((current) => ({ ...current, exportClassification }))
-          }
-        />
-        <CheckboxField
-          label="Disabled"
-          checked={draft.disabled}
-          onChange={(disabled) => setDraft((current) => ({ ...current, disabled }))}
-        />
-      </div>
-
-      <OwnerExtractorsEditor draft={draft} onChange={setDraft} />
-
-      {localError ? <p className="m-0 text-sm text-destructive">{localError}</p> : null}
-      <Button type="button" className="w-fit" disabled={saving} onClick={save}>
-        <Save className="size-4" aria-hidden="true" />
-        Save
-      </Button>
-    </article>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -257,7 +327,7 @@ function OwnerExtractorsEditor({
   onChange
 }: {
   draft: ToolPermissionDraft;
-  onChange: React.Dispatch<React.SetStateAction<ToolPermissionDraft>>;
+  onChange: (updater: (current: ToolPermissionDraft) => ToolPermissionDraft) => void;
 }) {
   return (
     <section className="grid gap-2">
@@ -297,7 +367,10 @@ function OwnerExtractorsEditor({
         </p>
       ) : null}
       {draft.ownerExtractors.map((extractor) => (
-        <div key={extractor.id} className="grid gap-2 rounded-md border border-[var(--border-subtle)] p-3 sm:grid-cols-[1fr_1fr_2fr_auto]">
+        <div
+          key={extractor.id}
+          className="grid gap-2 rounded-md border border-[var(--border-subtle)] p-3 sm:grid-cols-[1fr_1fr_2fr_auto]"
+        >
           <SelectField
             label="Source"
             value={extractor.source}
@@ -336,7 +409,7 @@ function OwnerExtractorsEditor({
 }
 
 function updateExtractor(
-  onChange: React.Dispatch<React.SetStateAction<ToolPermissionDraft>>,
+  onChange: (updater: (current: ToolPermissionDraft) => ToolPermissionDraft) => void,
   id: string,
   patch: Partial<Omit<OwnerExtractorDraft, "id">>
 ) {
@@ -348,48 +421,78 @@ function updateExtractor(
   }));
 }
 
-function validateReadyDraft(draft: ToolPermissionDraft) {
+function draftFromTool(tool: McpTool): ToolPermissionDraft {
+  return {
+    readClassification: tool.calibration?.readClassification ?? "mixed",
+    writeClassification: tool.calibration?.writeClassification ?? "none",
+    exportClassification: tool.calibration?.exportClassification ?? "none",
+    ownerExtractors: (tool.calibration?.ownerExtractors ?? []).map((extractor, index) => ({
+      id: `${tool.mcpToolId}:extractor:${index}`,
+      source: extractor.source,
+      selectorKind: extractor.selectorKind,
+      path: extractor.path
+    })),
+    disabled: tool.calibration?.status === "disabled"
+  };
+}
+
+function validateDraft(draft: ToolPermissionDraft) {
   if (draft.disabled) return null;
   const hasAnyClassification = [
     draft.readClassification,
     draft.writeClassification,
     draft.exportClassification
   ].some((classification) => classification !== "none");
-  const hasMixedClassification = [
-    draft.readClassification,
-    draft.writeClassification,
-    draft.exportClassification
-  ].includes("mixed");
   const hasBlankExtractorPath = draft.ownerExtractors.some((extractor) => !extractor.path.trim());
 
   if (hasBlankExtractorPath) return "Owner extractor paths cannot be empty.";
   if (!hasAnyClassification) return "Enabled tools need at least one non-none permission axis.";
-  if (hasMixedClassification && draft.ownerExtractors.length === 0) return null;
   return null;
+}
+
+function toolAttentionLabel(draft: ToolPermissionDraft) {
+  if (draft.disabled) return null;
+  if (validateDraft(draft)) return "Needs attention";
+  if (hasMixedClassification(draft) && draft.ownerExtractors.length === 0) return "Needs attention";
+  return null;
+}
+
+function calibrationInputForTool(tool: McpTool, draft: ToolPermissionDraft) {
+  const status = derivedCalibrationStatus(draft);
+  const reviewed = status === "ready" || status === "blocked_unresolved_ownership";
+  return {
+    calibrationId: tool.calibration?.calibrationId ?? calibrationIdForTool(tool.mcpToolId),
+    mcpToolId: tool.mcpToolId,
+    readClassification: draft.readClassification,
+    writeClassification: draft.writeClassification,
+    exportClassification: draft.exportClassification,
+    ownerExtractors: draft.ownerExtractors
+      .filter((extractor) => !draft.disabled || extractor.path.trim())
+      .map(({ source, selectorKind, path }) => ({
+        source,
+        selectorKind,
+        path: path.trim()
+      })),
+    status,
+    reviewedBy: reviewed ? "human:local" : null,
+    reviewedMetadataFingerprint: reviewed ? tool.metadataFingerprint : null
+  };
 }
 
 function derivedCalibrationStatus(draft: ToolPermissionDraft) {
   if (draft.disabled) return "disabled";
-  const hasMixedClassification = [
-    draft.readClassification,
-    draft.writeClassification,
-    draft.exportClassification
-  ].includes("mixed");
-  if (hasMixedClassification && draft.ownerExtractors.length === 0) {
+  if (hasMixedClassification(draft) && draft.ownerExtractors.length === 0) {
     return "blocked_unresolved_ownership";
   }
   return "ready";
 }
 
-function toolPermissionEditorKey(tool: McpTool) {
+function hasMixedClassification(draft: ToolPermissionDraft) {
   return [
-    tool.mcpToolId,
-    tool.calibration?.readClassification ?? "mixed",
-    tool.calibration?.writeClassification ?? "none",
-    tool.calibration?.exportClassification ?? "none",
-    tool.calibration?.status === "disabled" ? "disabled" : "enabled",
-    tool.calibration?.ownerExtractors.map((extractor) => extractor.path).join(",") ?? ""
-  ].join(":");
+    draft.readClassification,
+    draft.writeClassification,
+    draft.exportClassification
+  ].includes("mixed");
 }
 
 function SelectField<T extends readonly string[]>({
