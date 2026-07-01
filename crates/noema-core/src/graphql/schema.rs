@@ -1722,13 +1722,16 @@ mod tests {
     #[derive(Debug)]
     struct AutofillTestProvider {
         text: String,
+        tool_classification_model: Option<String>,
+        requests: Arc<Mutex<Vec<crate::provider::GenerateRequest>>>,
     }
 
     impl crate::provider::ModelProvider for AutofillTestProvider {
         async fn generate(
             &self,
-            _request: crate::provider::GenerateRequest,
+            request: crate::provider::GenerateRequest,
         ) -> Result<crate::provider::GenerateResponse, crate::provider::ProviderError> {
+            self.requests.lock().expect("requests").push(request);
             Ok(crate::provider::GenerateResponse {
                 output: vec![crate::provider::GenerateOutputItem::AssistantText {
                     text: self.text.clone(),
@@ -1739,20 +1742,77 @@ mod tests {
                 usage: None,
             })
         }
+
+        fn default_tool_classification_model(&self) -> Option<String> {
+            self.tool_classification_model.clone()
+        }
     }
 
     async fn test_autofill_runtime(
         store: crate::NoemaStore,
         text: &str,
     ) -> crate::daemon::CodexRuntimeHandle {
-        crate::daemon::CodexRuntimeHandle::spawn_with_provider(
-            Arc::new(AutofillTestProvider {
-                text: text.to_string(),
-            }),
-            store,
+        let (_runtime, runtime) =
+            test_autofill_runtime_with_requests(store, text, Some("test-tool-classifier")).await;
+        runtime
+    }
+
+    async fn test_autofill_runtime_with_requests(
+        store: crate::NoemaStore,
+        text: &str,
+        tool_classification_model: Option<&str>,
+    ) -> (
+        Arc<Mutex<Vec<crate::provider::GenerateRequest>>>,
+        crate::daemon::CodexRuntimeHandle,
+    ) {
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let provider = Arc::new(AutofillTestProvider {
+            text: text.to_string(),
+            tool_classification_model: tool_classification_model.map(str::to_string),
+            requests: requests.clone(),
+        });
+        let runtime = crate::daemon::CodexRuntimeHandle::spawn_with_provider(provider, store)
+            .await
+            .expect("runtime");
+        (requests, runtime)
+    }
+
+    #[tokio::test]
+    async fn autofill_tool_calibrations_uses_runtime_tool_classification_model() {
+        use crate::store::tests::test_store;
+
+        let store = test_store().await;
+        seed_autofill_server(&store).await;
+        let (requests, runtime) = test_autofill_runtime_with_requests(
+            store.clone(),
+            r#"{"suggestions":[{"tool":"read_doc","read":"m","write":"n","export":"n","d":false}]}"#,
+            Some("gpt-test-tool-classifier"),
         )
-        .await
-        .expect("runtime")
+        .await;
+        let schema = build_schema(GraphqlState::for_tests_with_store_and_runtime(
+            store.clone(),
+            runtime,
+        ));
+
+        let response = schema
+            .execute(async_graphql::Request::new(
+                r#"
+                mutation {
+                  autofillToolCalibrations(mcpServerId: "mcp_server:docs") {
+                    suggestions { mcpToolId }
+                  }
+                }
+                "#,
+            ))
+            .await;
+
+        assert!(response.errors.is_empty(), "{:?}", response.errors);
+        let requests = requests.lock().expect("requests");
+        assert_eq!(requests.len(), 1);
+        assert_eq!(
+            requests[0].model.as_deref(),
+            Some("gpt-test-tool-classifier")
+        );
     }
 
     #[tokio::test]

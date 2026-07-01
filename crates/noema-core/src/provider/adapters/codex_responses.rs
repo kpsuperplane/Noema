@@ -14,8 +14,9 @@ use super::{
     responses::{ResponsesTransport, normalize_base_url},
 };
 use crate::provider::{
-    GenerateInput, GenerateRequest, GenerateResponse, GenerateStreamEvent, ModelProvider,
-    ProviderError, output_items_from_text, required_output_items_from_text,
+    DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateInput, GenerateRequest, GenerateResponse,
+    GenerateStreamEvent, ModelProvider, ProviderError, output_items_from_text,
+    required_output_items_from_text,
 };
 
 /// Default Codex Responses model used when no override is supplied.
@@ -30,6 +31,8 @@ pub struct CodexProviderConfig {
     pub base_url: String,
     /// Optional default model.
     pub default_model: Option<String>,
+    /// Optional model override for metadata-only tool classification.
+    pub tool_classification_model: Option<String>,
     /// Request timeout in seconds.
     pub timeout_seconds: u64,
     /// Provider account home containing Noema-owned token state.
@@ -43,6 +46,7 @@ impl Default for CodexProviderConfig {
         Self {
             base_url: DEFAULT_CODEX_BASE_URL.to_string(),
             default_model: Some(DEFAULT_CODEX_MODEL.to_string()),
+            tool_classification_model: None,
             timeout_seconds: DEFAULT_CODEX_TIMEOUT_SECONDS,
             account_home: None,
             oauth: CodexOAuthConfig::default(),
@@ -132,6 +136,10 @@ fn normalize_config(mut config: CodexProviderConfig) -> Result<CodexProviderConf
         });
     }
     config.default_model = config.default_model.and_then(|model| {
+        let model = model.trim().to_string();
+        (!model.is_empty()).then_some(model)
+    });
+    config.tool_classification_model = config.tool_classification_model.and_then(|model| {
         let model = model.trim().to_string();
         (!model.is_empty()).then_some(model)
     });
@@ -267,6 +275,15 @@ impl CodexResponsesProvider {
 }
 
 impl ModelProvider for CodexResponsesProvider {
+    fn default_tool_classification_model(&self) -> Option<String> {
+        Some(
+            self.config
+                .tool_classification_model
+                .clone()
+                .unwrap_or_else(|| DEFAULT_TOOL_CLASSIFICATION_MODEL.to_string()),
+        )
+    }
+
     async fn generate(&self, request: GenerateRequest) -> Result<GenerateResponse, ProviderError> {
         self.generate_with_events(request, &mut |_| {}).await
     }
@@ -325,6 +342,39 @@ mod tests {
             .expect("write token");
 
         assert!(provider.token_store().has_usable_tokens());
+    }
+
+    #[test]
+    fn default_tool_classification_model_is_gpt_5_4_mini() {
+        let dir = TempDir::new().expect("temp dir");
+        let account_home = dir.path().join("providers/codex/default");
+        let provider = CodexResponsesProvider::new(CodexProviderConfig {
+            account_home: Some(account_home),
+            ..CodexProviderConfig::default()
+        })
+        .expect("provider");
+
+        assert_eq!(
+            provider.default_tool_classification_model().as_deref(),
+            Some(DEFAULT_TOOL_CLASSIFICATION_MODEL)
+        );
+    }
+
+    #[test]
+    fn configured_tool_classification_model_overrides_provider_default() {
+        let dir = TempDir::new().expect("temp dir");
+        let account_home = dir.path().join("providers/codex/default");
+        let provider = CodexResponsesProvider::new(CodexProviderConfig {
+            account_home: Some(account_home),
+            tool_classification_model: Some("custom-tool-classifier".to_string()),
+            ..CodexProviderConfig::default()
+        })
+        .expect("provider");
+
+        assert_eq!(
+            provider.default_tool_classification_model().as_deref(),
+            Some("custom-tool-classifier")
+        );
     }
 
     #[tokio::test]

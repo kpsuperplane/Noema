@@ -132,6 +132,7 @@ fn reads_yaml_config() {
         r"
 provider: openai
 model: yaml-model
+tool_classification_model: yaml-tool-classifier
 openai:
   base_url: https://yaml.example/v1
   organization_id: yaml-org
@@ -153,6 +154,10 @@ openai:
     };
 
     assert_eq!(openai.default_model, "yaml-model");
+    assert_eq!(
+        openai.tool_classification_model.as_deref(),
+        Some("yaml-tool-classifier")
+    );
     assert_eq!(openai.base_url, "https://yaml.example/v1");
     assert_eq!(openai.organization_id.as_deref(), Some("yaml-org"));
     assert_eq!(openai.project_id.as_deref(), Some("yaml-project"));
@@ -379,6 +384,7 @@ model: yaml-model
 codex:
   base_url: https://yaml.example/codex
   model: yaml-codex-model
+  tool_classification_model: yaml-codex-tool-classifier
   timeout_seconds: 120
 ",
     );
@@ -389,6 +395,10 @@ codex:
         None,
         &[
             ("NOEMA_MODEL", "env-model"),
+            (
+                "NOEMA_CODEX__TOOL_CLASSIFICATION_MODEL",
+                "env-codex-tool-classifier",
+            ),
             ("NOEMA_CODEX__BASE_URL", "https://env.example/codex/"),
             ("NOEMA_CODEX__TIMEOUT_SECONDS", "123"),
         ],
@@ -402,9 +412,38 @@ codex:
     };
 
     assert_eq!(codex.default_model.as_deref(), Some("env-model"));
+    assert_eq!(
+        codex.tool_classification_model.as_deref(),
+        Some("env-codex-tool-classifier")
+    );
     assert_eq!(codex.base_url, "https://env.example/codex");
     assert_eq!(codex.timeout_seconds, 123);
     assert_eq!(codex.account_home, None);
+}
+
+#[test]
+fn top_level_tool_classification_model_overrides_provider_specific_model() {
+    let file = write_config(
+        r"
+provider: codex
+tool_classification_model: yaml-tool-classifier
+codex:
+  tool_classification_model: yaml-codex-tool-classifier
+",
+    );
+
+    let codex = load_codex_config(
+        Some(file.path().to_path_buf()),
+        CliOverrides::default(),
+        None,
+        &[],
+    )
+    .expect("codex config should resolve");
+
+    assert_eq!(
+        codex.tool_classification_model.as_deref(),
+        Some("yaml-tool-classifier")
+    );
 }
 
 #[test]

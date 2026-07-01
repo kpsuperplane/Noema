@@ -574,12 +574,15 @@ pub(super) async fn autofill_tool_calibrations(
         .await
         .map_err(graphql_error)?;
     let prompt = crate::mcp::autofill::build_autofill_prompt(&server.display_name, &tools);
+    let runtime = state.runtime()?;
     let mut request = crate::GenerateRequest::text(prompt);
+    if let Some(model) = runtime.tool_classification_model() {
+        request.model = Some(model.to_string());
+    }
     request.instructions =
         Some("Return strict JSON only for MCP calibration suggestions.".to_string());
 
-    let response = state
-        .runtime()?
+    let response = runtime
         .generate_once(request)
         .await
         .map_err(graphql_error)?;

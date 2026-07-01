@@ -11,6 +11,8 @@ provider: codex
 codex:
   base_url: https://chatgpt.com/backend-api/codex
   model: gpt-5.5
+  # tool_classification_model defaults to gpt-5.4-mini when unset.
+  # tool_classification_model: gpt-5.4-mini
   timeout_seconds: 300
 
 # The daemon opens the embedded Noema store under this home directory.

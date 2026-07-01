@@ -13,6 +13,10 @@ use super::actor::CodexRuntimeActor;
 use crate::daemon::protocol::{DaemonError, StartedConversation, TurnStreamEvent};
 
 pub(crate) trait RuntimeModelProvider: std::fmt::Debug + Send + Sync {
+    fn default_tool_classification_model(&self) -> Option<String> {
+        None
+    }
+
     fn generate_streaming<'a>(
         &'a self,
         request: GenerateRequest,
@@ -24,6 +28,10 @@ impl<T> RuntimeModelProvider for T
 where
     T: ModelProvider + std::fmt::Debug + Send + Sync,
 {
+    fn default_tool_classification_model(&self) -> Option<String> {
+        ModelProvider::default_tool_classification_model(self)
+    }
+
     fn generate_streaming<'a>(
         &'a self,
         request: GenerateRequest,
@@ -36,6 +44,7 @@ where
 #[derive(Debug, Clone)]
 pub(crate) struct CodexRuntimeHandle {
     sender: mpsc::Sender<CodexRuntimeCommand>,
+    tool_classification_model: Option<String>,
 }
 
 impl CodexRuntimeHandle {
@@ -56,10 +65,18 @@ impl CodexRuntimeHandle {
         provider: Arc<dyn RuntimeModelProvider>,
         store: NoemaStore,
     ) -> Result<Self, DaemonError> {
+        let tool_classification_model = provider.default_tool_classification_model();
         let (sender, receiver) = mpsc::channel(16);
         let actor = CodexRuntimeActor::new(provider, store).await?;
         tokio::spawn(actor.run(receiver));
-        Ok(Self { sender })
+        Ok(Self {
+            sender,
+            tool_classification_model,
+        })
+    }
+
+    pub(crate) fn tool_classification_model(&self) -> Option<&str> {
+        self.tool_classification_model.as_deref()
     }
 
     pub(crate) async fn start_conversation(

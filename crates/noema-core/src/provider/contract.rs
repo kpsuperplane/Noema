@@ -6,6 +6,9 @@ use serde_json::Value;
 use std::future::Future;
 use thiserror::Error;
 
+/// Default model for small metadata classification tasks such as MCP tool calibration.
+pub const DEFAULT_TOOL_CLASSIFICATION_MODEL: &str = "gpt-5.4-mini";
+
 // The provider contract stays a native async trait and does not expose
 // `dyn ModelProvider`, so the public future-bound tradeoff is intentional.
 /// A model backend that can produce structured output from a generation request.
@@ -21,6 +24,11 @@ pub trait ModelProvider: Send + Sync {
         &self,
         request: GenerateRequest,
     ) -> impl Future<Output = Result<GenerateResponse, ProviderError>> + Send;
+
+    /// Return the provider's preferred model for metadata-only tool classification.
+    fn default_tool_classification_model(&self) -> Option<String> {
+        Some(DEFAULT_TOOL_CLASSIFICATION_MODEL.to_string())
+    }
 
     /// Generate a response while optionally emitting ephemeral stream events.
     fn generate_streaming<'a>(

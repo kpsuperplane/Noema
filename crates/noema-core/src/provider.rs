@@ -14,7 +14,7 @@ pub mod auth;
 pub mod contract;
 
 pub use contract::{
-    GenerateInput, GenerateOptions, GenerateOutputItem, GenerateRequest, GenerateResponse,
-    GenerateStreamEvent, ModelProvider, ProviderError, TokenUsage, output_items_from_text,
-    required_output_items_from_text,
+    DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateInput, GenerateOptions, GenerateOutputItem,
+    GenerateRequest, GenerateResponse, GenerateStreamEvent, ModelProvider, ProviderError,
+    TokenUsage, output_items_from_text, required_output_items_from_text,
 };

@@ -34,12 +34,15 @@ pub const OPENAI_API_KEY_ENV: &str = "NOEMA_OPENAI__API_KEY";
 const CONFIG_ENV_KEYS: &[&str] = &[
     "provider",
     "model",
+    "tool_classification_model",
     "openai.api_key",
     "openai.base_url",
     "openai.timeout_seconds",
     "openai.organization_id",
     "openai.project_id",
+    "openai.tool_classification_model",
     "codex.model",
+    "codex.tool_classification_model",
     "codex.base_url",
     "codex.timeout_seconds",
     "web.host",
@@ -250,6 +253,7 @@ pub struct DaemonResolvedConfig {
 struct RawConfig {
     provider: String,
     model: Option<String>,
+    tool_classification_model: Option<String>,
     openai: RawOpenAiConfig,
     codex: RawCodexConfig,
     web: WebConfig,
@@ -260,6 +264,7 @@ impl Default for RawConfig {
         Self {
             provider: DEFAULT_PROVIDER.to_string(),
             model: None,
+            tool_classification_model: None,
             openai: RawOpenAiConfig::default(),
             codex: RawCodexConfig::default(),
             web: WebConfig::default(),
@@ -320,6 +325,9 @@ impl RawConfig {
             project_id: non_empty_option(self.openai.project_id.as_deref())
                 .map(ToString::to_string),
             default_model: model,
+            tool_classification_model: non_empty_option(self.tool_classification_model.as_deref())
+                .or_else(|| non_empty_option(self.openai.tool_classification_model.as_deref()))
+                .map(ToString::to_string),
             timeout_seconds,
         })
     }
@@ -338,6 +346,9 @@ impl RawConfig {
                 .or_else(|| non_empty_option(self.codex.model.as_deref()))
                 .or(Some(DEFAULT_CODEX_MODEL))
                 .map(ToString::to_string),
+            tool_classification_model: non_empty_option(self.tool_classification_model.as_deref())
+                .or_else(|| non_empty_option(self.codex.tool_classification_model.as_deref()))
+                .map(ToString::to_string),
             timeout_seconds,
             account_home: None,
             oauth: Default::default(),
@@ -352,6 +363,7 @@ struct RawOpenAiConfig {
     base_url: String,
     organization_id: Option<String>,
     project_id: Option<String>,
+    tool_classification_model: Option<String>,
     timeout_seconds: u64,
 }
 
@@ -362,6 +374,7 @@ impl Default for RawOpenAiConfig {
             base_url: DEFAULT_OPENAI_BASE_URL.to_string(),
             organization_id: None,
             project_id: None,
+            tool_classification_model: None,
             timeout_seconds: DEFAULT_OPENAI_TIMEOUT_SECONDS,
         }
     }
@@ -372,6 +385,7 @@ impl Default for RawOpenAiConfig {
 struct RawCodexConfig {
     base_url: String,
     model: Option<String>,
+    tool_classification_model: Option<String>,
     timeout_seconds: u64,
 }
 
@@ -380,6 +394,7 @@ impl Default for RawCodexConfig {
         Self {
             base_url: DEFAULT_CODEX_BASE_URL.to_string(),
             model: Some(DEFAULT_CODEX_MODEL.to_string()),
+            tool_classification_model: None,
             timeout_seconds: DEFAULT_CODEX_TIMEOUT_SECONDS,
         }
     }
@@ -390,6 +405,7 @@ impl Default for RawCodexConfig {
 struct FileConfig {
     provider: Option<String>,
     model: Option<String>,
+    tool_classification_model: Option<String>,
     openai: FileOpenAiConfig,
     codex: FileCodexConfig,
     web: FileWebConfig,
@@ -401,6 +417,7 @@ struct FileOpenAiConfig {
     base_url: Option<String>,
     organization_id: Option<String>,
     project_id: Option<String>,
+    tool_classification_model: Option<String>,
     timeout_seconds: Option<u64>,
 }
 
@@ -409,6 +426,7 @@ struct FileOpenAiConfig {
 struct FileCodexConfig {
     base_url: Option<String>,
     model: Option<String>,
+    tool_classification_model: Option<String>,
     timeout_seconds: Option<u64>,
 }
 

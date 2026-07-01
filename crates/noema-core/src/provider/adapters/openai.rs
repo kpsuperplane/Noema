@@ -2,8 +2,8 @@
 
 use super::responses::{ResponsesRequest, ResponsesTransport, header_value, normalize_base_url};
 use crate::provider::{
-    GenerateInput, GenerateRequest, GenerateResponse, ModelProvider, ProviderError,
-    output_items_from_text, required_output_items_from_text,
+    DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateInput, GenerateRequest, GenerateResponse,
+    ModelProvider, ProviderError, output_items_from_text, required_output_items_from_text,
 };
 use reqwest::header::{HeaderMap, HeaderName};
 use std::time::Duration;
@@ -24,6 +24,8 @@ pub struct OpenAiProviderConfig {
     pub project_id: Option<String>,
     /// Default model used when a request does not override it.
     pub default_model: String,
+    /// Optional model override for metadata-only tool classification.
+    pub tool_classification_model: Option<String>,
     /// Request timeout in seconds.
     pub timeout_seconds: u64,
 }
@@ -125,10 +127,23 @@ fn normalize_config(
     }
 
     config.default_model = default_model;
+    config.tool_classification_model = config.tool_classification_model.and_then(|model| {
+        let model = model.trim().to_string();
+        (!model.is_empty()).then_some(model)
+    });
     Ok(config)
 }
 
 impl ModelProvider for OpenAiProvider {
+    fn default_tool_classification_model(&self) -> Option<String> {
+        Some(
+            self.config
+                .tool_classification_model
+                .clone()
+                .unwrap_or_else(|| DEFAULT_TOOL_CLASSIFICATION_MODEL.to_string()),
+        )
+    }
+
     async fn generate(&self, request: GenerateRequest) -> Result<GenerateResponse, ProviderError> {
         let GenerateInput::Text(input) = request.input;
         if input.trim().is_empty() {
@@ -222,6 +237,7 @@ mod tests {
             organization_id: Some("org_test".to_string()),
             project_id: Some("proj_test".to_string()),
             default_model: "default-model".to_string(),
+            tool_classification_model: None,
             timeout_seconds: DEFAULT_OPENAI_TIMEOUT_SECONDS,
         })
         .expect("provider");
@@ -375,6 +391,7 @@ mod tests {
             organization_id: None,
             project_id: None,
             default_model: "default-model".to_string(),
+            tool_classification_model: None,
             timeout_seconds: DEFAULT_OPENAI_TIMEOUT_SECONDS,
         })
         .unwrap_err();
@@ -390,11 +407,41 @@ mod tests {
             organization_id: None,
             project_id: None,
             default_model: "default-model".to_string(),
+            tool_classification_model: None,
             timeout_seconds: 0,
         })
         .unwrap_err();
 
         assert!(matches!(error, ProviderError::InvalidRequest { .. }));
+    }
+
+    #[test]
+    fn default_tool_classification_model_is_gpt_5_4_mini() {
+        let provider = test_provider("http://127.0.0.1:1".to_string());
+
+        assert_eq!(
+            provider.default_tool_classification_model().as_deref(),
+            Some(DEFAULT_TOOL_CLASSIFICATION_MODEL)
+        );
+    }
+
+    #[test]
+    fn configured_tool_classification_model_overrides_provider_default() {
+        let provider = OpenAiProvider::new(OpenAiProviderConfig {
+            api_key: "secret".to_string(),
+            base_url: "http://127.0.0.1:1".to_string(),
+            organization_id: None,
+            project_id: None,
+            default_model: "default-model".to_string(),
+            tool_classification_model: Some("custom-tool-classifier".to_string()),
+            timeout_seconds: DEFAULT_OPENAI_TIMEOUT_SECONDS,
+        })
+        .expect("provider");
+
+        assert_eq!(
+            provider.default_tool_classification_model().as_deref(),
+            Some("custom-tool-classifier")
+        );
     }
 
     fn test_provider(base_url: String) -> OpenAiProvider {
@@ -404,6 +451,7 @@ mod tests {
             organization_id: None,
             project_id: None,
             default_model: "default-model".to_string(),
+            tool_classification_model: None,
             timeout_seconds: DEFAULT_OPENAI_TIMEOUT_SECONDS,
         })
         .expect("provider")

@@ -146,8 +146,9 @@ The next storage slice should stay small and concrete:
   state only and require explicit Save before backend calibration records are
   written, with batch calibration saves, stale-value glimmers while suggestions
   are pending, compact TSV-style tool prompt rows, bounded description hints,
-  compact model-facing classification codes, and deterministic shallow owner
-  extractor discovery from argument and structured-output schemas.
+  compact model-facing classification codes, a configurable provider-default
+  tool classification model (`gpt-5.4-mini` for Codex/OpenAI), and deterministic
+  shallow owner extractor discovery from argument and structured-output schemas.
   User-facing setup errors are sanitized while raw transport details stay out of
   the web form.
   Web Settings also exposes MCPs, Trusted Identities, Approvals, and Audit
