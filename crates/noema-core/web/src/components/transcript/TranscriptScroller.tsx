@@ -156,14 +156,26 @@ export function TranscriptScroller({ children, onViewportScroll, "aria-label": a
 
   return (
     <div {...stylex.props(styles.root)}>
-      <div ref={viewportRef} {...stylex.props(styles.viewport)} aria-label={ariaLabel} onScroll={handleScroll}>
+      <div
+        ref={viewportRef}
+        {...stylex.props(styles.viewport)}
+        aria-atomic="false"
+        aria-label={ariaLabel}
+        aria-live="polite"
+        aria-relevant="additions text"
+        onScroll={handleScroll}
+        role="log"
+      >
         <div {...stylex.props(styles.content)}>{children}</div>
       </div>
       <button
         type="button"
         {...stylex.props(styles.scrollButton, stuckToBottom && styles.hidden)}
+        aria-hidden={stuckToBottom}
         data-active={stuckToBottom ? "false" : "true"}
+        disabled={stuckToBottom}
         onClick={() => scrollToEnd({ behavior: "smooth" })}
+        tabIndex={stuckToBottom ? -1 : 0}
       >
         <ArrowDownIcon aria-hidden="true" size={16} />
         <span {...stylex.props(styles.srOnly)}>Scroll to end</span>
