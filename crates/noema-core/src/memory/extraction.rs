@@ -289,16 +289,16 @@ Return exactly this JSON shape:
   "proposals": [
     {{
       "content": "durable memory content",
-      "memory_type": "fact|preference|person|organization|project|place|routine|goal|open_loop|procedure|constraint|trigger|decision|skill|policy|note|other",
+      "memory_type": "note",
       "title": "short title or null",
       "confidence": 0.0,
-      "sensitivity": "public|normal|private|sensitive|secret",
+      "sensitivity": "normal",
       "subjects": [
         {{
           "id": "optional canonical id or null",
-          "kind": "human|agent|conversation|workspace|project|task|cron|relationship|tool|organization|place|concept|other",
+          "kind": "human",
           "name": "subject name",
-          "role": "about|owner|affected|assignee|source|target|participant"
+          "role": "about"
         }}
       ],
       "retrieval_hints": {{
@@ -313,6 +313,16 @@ Return exactly this JSON shape:
 }}
 
 Rules:
+- Allowed memory_type values: fact, preference, person, organization, project,
+  place, routine, goal, open_loop, procedure, constraint, trigger, decision,
+  skill, policy, note, other. Use exactly one value.
+- Allowed sensitivity values: public, normal, private, sensitive, secret. Use
+  exactly one value.
+- Allowed subject kind values: human, agent, conversation, workspace, project,
+  task, cron, relationship, tool, organization, place, concept, other. Use
+  exactly one value.
+- Allowed subject role values: about, owner, affected, assignee, source,
+  target, participant. Use exactly one value.
 - Propose only durable facts, preferences, constraints, decisions, routines,
   goals, procedures, or notes that could matter later.
 - Do not propose jokes, speculation, transient task chatter, or generic world facts.

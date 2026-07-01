@@ -3,6 +3,19 @@ use super::*;
 const ASSISTANT_RESPONSE: &str = "Got it.";
 
 #[test]
+fn extraction_prompt_does_not_put_enum_union_placeholders_in_json_values() {
+    let prompt =
+        build_memory_extraction_prompt("Hello", "Hello. I'm here.", "conversation:test", 1, None);
+
+    assert!(!prompt.contains("\"memory_type\": \"fact|"));
+    assert!(!prompt.contains("\"sensitivity\": \"public|"));
+    assert!(!prompt.contains("\"kind\": \"human|"));
+    assert!(!prompt.contains("\"role\": \"about|"));
+    assert!(prompt.contains("Allowed memory_type values:"));
+    assert!(prompt.contains("\"memory_type\": \"note\""));
+}
+
+#[test]
 fn valid_low_risk_preference_promotes_active() {
     let user_input = "I prefer terse Rust code review summaries.";
     let extracted = r#"{
