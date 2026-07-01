@@ -1583,6 +1583,10 @@ type MutationRoot {
 	"""
 	saveToolCalibration(input: GraphqlSaveToolCalibrationInput!): GraphqlToolCalibration!
 	"""
+	Save reviewed MCP tool calibrations in one request.
+	"""
+	saveToolCalibrations(inputs: [GraphqlSaveToolCalibrationInput!]!): [GraphqlToolCalibration!]!
+	"""
 	Generate advisory MCP tool calibration suggestions from persisted metadata.
 	"""
 	autofillToolCalibrations(mcpServerId: String!): GraphqlAutofillToolCalibrationsResult!

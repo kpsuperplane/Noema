@@ -15,10 +15,10 @@ import { Item, ItemActions, ItemContent, ItemTitle } from "@/components/ui/item"
 import {
   AutofillToolCalibrationsDocument,
   McpToolsDocument,
-  SaveToolCalibrationDocument,
+  SaveToolCalibrationsDocument,
   type AutofillToolCalibrationsMutation,
   type McpToolsQuery,
-  type SaveToolCalibrationMutation
+  type SaveToolCalibrationsMutation
 } from "@/generated/graphql";
 import { ToolPermissionsFooter } from "./McpToolPermissionsFooter";
 
@@ -54,8 +54,8 @@ export function McpToolPermissionsModal({
     skip: !open || !serverId,
     fetchPolicy: "cache-and-network"
   });
-  const [saveToolCalibration, saveState] =
-    useMutation<SaveToolCalibrationMutation>(SaveToolCalibrationDocument);
+  const [saveToolCalibrations, saveState] =
+    useMutation<SaveToolCalibrationsMutation>(SaveToolCalibrationsDocument);
   const [autofillToolCalibrations, autofillState] =
     useMutation<AutofillToolCalibrationsMutation>(AutofillToolCalibrationsDocument);
   const [draftOverrides, setDraftOverrides] = React.useState<Record<string, ToolPermissionDraft>>(
@@ -152,10 +152,11 @@ export function McpToolPermissionsModal({
       }
     }
     try {
-      for (const tool of tools) {
+      const inputs = tools.map((tool) => {
         const draft = draftOverrides[tool.mcpToolId] ?? draftFromTool(tool);
-        await saveToolCalibration({ variables: { input: calibrationInputForTool(tool, draft) } });
-      }
+        return calibrationInputForTool(tool, draft);
+      });
+      await saveToolCalibrations({ variables: { inputs } });
       await result.refetch();
       setDraftOverrides({});
       setAutofillMessage(null);
@@ -176,11 +177,15 @@ export function McpToolPermissionsModal({
               </DialogDescription>
             </DialogHeader>
             <DialogBody className="grid gap-3 overflow-y-auto">
-              <ToolPermissionEditor
-                tool={editingTool}
-                draft={editingDraft}
-                onDraftChange={(updater) => updateDraft(editingTool, updater)}
-              />
+              {autofillState.loading ? (
+                <ToolPermissionEditorGlimmer toolName={editingTool.name} />
+              ) : (
+                <ToolPermissionEditor
+                  tool={editingTool}
+                  draft={editingDraft}
+                  onDraftChange={(updater) => updateDraft(editingTool, updater)}
+                />
+              )}
               {autofillMessage ? (
                 <p className="m-0 text-sm text-muted-foreground">{autofillMessage}</p>
               ) : null}
@@ -234,6 +239,7 @@ export function McpToolPermissionsModal({
                     key={tool.mcpToolId}
                     tool={tool}
                     draft={draft}
+                    autofilling={autofillState.loading}
                     onEdit={() => setEditingToolId(tool.mcpToolId)}
                   />
                 );
@@ -273,13 +279,31 @@ type ToolPermissionDraft = {
 function ToolPermissionItem({
   tool,
   draft,
+  autofilling,
   onEdit
 }: {
   tool: McpTool;
   draft: ToolPermissionDraft;
+  autofilling: boolean;
   onEdit: () => void;
 }) {
   const attention = toolAttentionLabel(draft);
+  if (autofilling) {
+    return (
+      <Item className="animate-pulse">
+        <ItemContent>
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <ItemTitle className="text-muted-foreground">{tool.name}</ItemTitle>
+            <div className="h-5 w-24 rounded bg-muted" aria-hidden="true" />
+          </div>
+          <div className="h-4 w-full max-w-[32rem] rounded bg-muted" aria-hidden="true" />
+        </ItemContent>
+        <ItemActions>
+          <div className="size-8 rounded bg-muted" aria-hidden="true" />
+        </ItemActions>
+      </Item>
+    );
+  }
   return (
     <Item>
       <ItemContent>
@@ -302,6 +326,22 @@ function ToolPermissionItem({
         </Button>
       </ItemActions>
     </Item>
+  );
+}
+
+function ToolPermissionEditorGlimmer({ toolName }: { toolName: string }) {
+  return (
+    <div className="grid gap-3 animate-pulse" aria-label={`Autofilling ${toolName}`}>
+      <div className="h-4 w-full max-w-[36rem] rounded bg-muted" aria-hidden="true" />
+      <div className="h-24 rounded-md border border-[var(--border-subtle)] bg-muted" aria-hidden="true" />
+      <div className="grid gap-2 sm:grid-cols-4">
+        <div className="h-14 rounded bg-muted" aria-hidden="true" />
+        <div className="h-14 rounded bg-muted" aria-hidden="true" />
+        <div className="h-14 rounded bg-muted" aria-hidden="true" />
+        <div className="h-14 rounded bg-muted" aria-hidden="true" />
+      </div>
+      <div className="h-20 rounded-md border border-[var(--border-subtle)] bg-muted" aria-hidden="true" />
+    </div>
   );
 }
 

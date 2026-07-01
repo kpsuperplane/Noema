@@ -635,6 +635,28 @@ impl NoemaStore {
             })
     }
 
+    /// Save reviewed calibrations for multiple MCP tools after validating the full batch.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when any calibration is invalid, when the embedded
+    /// store write or read fails, or when a stored enum is invalid. No
+    /// calibration is written when batch validation fails.
+    pub async fn save_tool_calibrations(
+        &self,
+        calibrations: Vec<NewToolCalibration>,
+    ) -> Result<Vec<ToolCalibrationRecord>, StoreError> {
+        for calibration in &calibrations {
+            self.validate_tool_calibration(calibration).await?;
+        }
+
+        let mut saved = Vec::with_capacity(calibrations.len());
+        for calibration in calibrations {
+            saved.push(self.save_tool_calibration(calibration).await?);
+        }
+        Ok(saved)
+    }
+
     async fn validate_tool_calibration(
         &self,
         calibration: &NewToolCalibration,

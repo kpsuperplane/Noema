@@ -435,6 +435,16 @@ impl MutationRoot {
         mcp::save_tool_calibration(state, input).await
     }
 
+    /// Save reviewed MCP tool calibrations in one request.
+    async fn save_tool_calibrations(
+        &self,
+        ctx: &Context<'_>,
+        inputs: Vec<GraphqlSaveToolCalibrationInput>,
+    ) -> Result<Vec<GraphqlToolCalibration>> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        mcp::save_tool_calibrations(state, inputs).await
+    }
+
     /// Generate advisory MCP tool calibration suggestions from persisted metadata.
     async fn autofill_tool_calibrations(
         &self,
@@ -1262,6 +1272,209 @@ mod tests {
         assert_eq!(
             persisted.reviewed_metadata_fingerprint.as_deref(),
             Some("fingerprint_1")
+        );
+    }
+
+    #[tokio::test]
+    async fn save_tool_calibrations_mutation_persists_multiple_policies_in_one_request() {
+        use crate::{
+            McpCalibrationStatus, McpTransportKind, McpTrustClassification, NewMcpServer,
+            NewMcpTool, store::tests::test_store,
+        };
+
+        let store = test_store().await;
+        store
+            .create_mcp_server(NewMcpServer {
+                mcp_server_id: "mcp_server:google".to_string(),
+                display_name: "Google".to_string(),
+                transport_kind: McpTransportKind::Stdio,
+                safe_config: json!({}),
+            })
+            .await
+            .expect("create server");
+        for (tool_id, name, fingerprint) in [
+            ("mcp_tool:google:read_doc", "read_doc", "fingerprint_read"),
+            (
+                "mcp_tool:google:share_doc",
+                "share_doc",
+                "fingerprint_share",
+            ),
+        ] {
+            store
+                .upsert_discovered_mcp_tool(NewMcpTool {
+                    mcp_tool_id: tool_id.to_string(),
+                    mcp_server_id: "mcp_server:google".to_string(),
+                    name: name.to_string(),
+                    description: Some(format!("Tool {name}")),
+                    input_schema: json!({"type": "object"}),
+                    output_schema: None,
+                    annotations: json!({}),
+                    metadata_fingerprint: fingerprint.to_string(),
+                })
+                .await
+                .expect("upsert tool");
+        }
+
+        let schema = build_schema(GraphqlState::for_tests_with_store(store.clone()));
+        let response = schema
+            .execute(async_graphql::Request::new(
+                r#"
+                mutation {
+                  saveToolCalibrations(inputs: [
+                    {
+                      calibrationId: "tool_calibration:read_doc"
+                      mcpToolId: "mcp_tool:google:read_doc"
+                      readClassification: "mixed"
+                      writeClassification: "none"
+                      exportClassification: "none"
+                      ownerExtractors: []
+                      status: "blocked_unresolved_ownership"
+                      reviewedBy: "human:local"
+                      reviewedMetadataFingerprint: "fingerprint_read"
+                    },
+                    {
+                      calibrationId: "tool_calibration:share_doc"
+                      mcpToolId: "mcp_tool:google:share_doc"
+                      readClassification: "none"
+                      writeClassification: "trusted"
+                      exportClassification: "untrusted"
+                      ownerExtractors: []
+                      status: "ready"
+                      reviewedBy: "human:local"
+                      reviewedMetadataFingerprint: "fingerprint_share"
+                    }
+                  ]) {
+                    mcpToolId
+                    status
+                    readClassification
+                    writeClassification
+                    exportClassification
+                  }
+                }
+                "#,
+            ))
+            .await;
+
+        assert!(response.errors.is_empty(), "{:?}", response.errors);
+        let data = response.data.into_json().expect("json");
+        let calibrations = data["saveToolCalibrations"]
+            .as_array()
+            .expect("calibrations");
+        assert_eq!(calibrations.len(), 2);
+        assert_eq!(calibrations[0]["mcpToolId"], "mcp_tool:google:read_doc");
+        assert_eq!(calibrations[1]["mcpToolId"], "mcp_tool:google:share_doc");
+
+        let read_doc = store
+            .get_tool_calibration("mcp_tool:google:read_doc")
+            .await
+            .expect("get read calibration")
+            .expect("read calibration exists");
+        let share_doc = store
+            .get_tool_calibration("mcp_tool:google:share_doc")
+            .await
+            .expect("get share calibration")
+            .expect("share calibration exists");
+        assert_eq!(
+            read_doc.status,
+            McpCalibrationStatus::BlockedUnresolvedOwnership
+        );
+        assert_eq!(
+            share_doc.write_classification,
+            McpTrustClassification::Trusted
+        );
+        assert_eq!(
+            share_doc.export_classification,
+            McpTrustClassification::Untrusted
+        );
+    }
+
+    #[tokio::test]
+    async fn save_tool_calibrations_mutation_rejects_invalid_batch_without_partial_writes() {
+        use crate::{McpTransportKind, NewMcpServer, NewMcpTool, store::tests::test_store};
+
+        let store = test_store().await;
+        store
+            .create_mcp_server(NewMcpServer {
+                mcp_server_id: "mcp_server:google".to_string(),
+                display_name: "Google".to_string(),
+                transport_kind: McpTransportKind::Stdio,
+                safe_config: json!({}),
+            })
+            .await
+            .expect("create server");
+        for (tool_id, name, fingerprint) in [
+            ("mcp_tool:google:read_doc", "read_doc", "fingerprint_read"),
+            (
+                "mcp_tool:google:share_doc",
+                "share_doc",
+                "fingerprint_share",
+            ),
+        ] {
+            store
+                .upsert_discovered_mcp_tool(NewMcpTool {
+                    mcp_tool_id: tool_id.to_string(),
+                    mcp_server_id: "mcp_server:google".to_string(),
+                    name: name.to_string(),
+                    description: Some(format!("Tool {name}")),
+                    input_schema: json!({"type": "object"}),
+                    output_schema: None,
+                    annotations: json!({}),
+                    metadata_fingerprint: fingerprint.to_string(),
+                })
+                .await
+                .expect("upsert tool");
+        }
+
+        let schema = build_schema(GraphqlState::for_tests_with_store(store.clone()));
+        let response = schema
+            .execute(async_graphql::Request::new(
+                r#"
+                mutation {
+                  saveToolCalibrations(inputs: [
+                    {
+                      calibrationId: "tool_calibration:read_doc"
+                      mcpToolId: "mcp_tool:google:read_doc"
+                      readClassification: "mixed"
+                      writeClassification: "none"
+                      exportClassification: "none"
+                      ownerExtractors: []
+                      status: "blocked_unresolved_ownership"
+                      reviewedBy: "human:local"
+                      reviewedMetadataFingerprint: "fingerprint_read"
+                    },
+                    {
+                      calibrationId: "tool_calibration:share_doc"
+                      mcpToolId: "mcp_tool:google:share_doc"
+                      readClassification: "none"
+                      writeClassification: "trusted"
+                      exportClassification: "untrusted"
+                      ownerExtractors: []
+                      status: "ready"
+                      reviewedBy: "human:local"
+                      reviewedMetadataFingerprint: "wrong_fingerprint"
+                    }
+                  ]) {
+                    mcpToolId
+                  }
+                }
+                "#,
+            ))
+            .await;
+
+        assert!(!response.errors.is_empty());
+        assert!(
+            store
+                .get_tool_calibration("mcp_tool:google:read_doc")
+                .await
+                .expect("get read calibration")
+                .is_none()
+        );
+        assert!(
+            store
+                .get_tool_calibration("mcp_tool:google:share_doc")
+                .await
+                .expect("get share calibration")
+                .is_none()
         );
     }
 

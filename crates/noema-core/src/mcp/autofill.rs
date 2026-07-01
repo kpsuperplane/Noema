@@ -1,6 +1,7 @@
 use std::collections::BTreeSet;
 
 use serde::Deserialize;
+use serde_json::Value;
 use thiserror::Error;
 
 use crate::{
@@ -90,8 +91,12 @@ pub fn build_autofill_prompt(server_name: &str, tools: &[McpToolRecord]) -> Stri
                 "mcp_tool_id": tool.mcp_tool_id,
                 "name": tool.name,
                 "description": tool.description,
-                "input_schema": tool.input_schema,
-                "output_schema": tool.output_schema,
+                "input_fields": schema_field_summaries(&tool.input_schema),
+                "output_fields": tool
+                    .output_schema
+                    .as_ref()
+                    .map(schema_field_summaries)
+                    .unwrap_or_default(),
                 "annotations": tool.annotations,
                 "metadata_fingerprint": tool.metadata_fingerprint,
             })
@@ -109,10 +114,19 @@ Definitions:
 - read means the tool can bring data from the MCP destination into Noema.
 - write means the tool can mutate state inside the MCP destination.
 - export means the tool can share information beyond the MCP destination.
-- Use none only when the axis clearly does not apply.
-- Use mixed when trust or ownership depends on runtime contents.
-- Use trusted or untrusted only when metadata makes the trust boundary clear without runtime data.
-- Suggest owner_extractors only when a deterministic field exists in the metadata shape.
+- none: the axis clearly does not apply.
+- trusted: metadata indicates the tool operates on the authenticated user's own account,
+  private workspace, local resources, or same MCP destination without arbitrary outside parties.
+- untrusted: metadata indicates public web data, arbitrary external URLs, user-supplied third
+  parties, public resources, or arbitrary recipients outside the MCP destination.
+- mixed: trust or ownership depends on runtime identifiers, resource contents, or user-provided
+  owners that are not knowable from metadata alone.
+- For owner_extractors, use JSON Pointer-style paths into arguments, structured_content, metadata,
+  or resource_uri-derived fields. Prefer fields named or described like owner, creator, author,
+  account, user, email, phone, domain, recipient, workspace, organization, tenant, file owner, or
+  resource owner.
+- Example owner paths: /owner_email, /user/email, /created_by/email, /account/domain,
+  /recipient/email, /workspace/domain.
 - If ownership cannot be resolved, return an empty owner_extractors array.
 - Include disabled only when you intentionally suggest changing or preserving disabled state.
 
@@ -122,6 +136,24 @@ Return exactly:
 Tools:
 {tool_json}"#
     )
+}
+
+fn schema_field_summaries(schema: &Value) -> Vec<Value> {
+    let Some(properties) = schema.get("properties").and_then(Value::as_object) else {
+        return Vec::new();
+    };
+    properties
+        .iter()
+        .map(|(name, value)| {
+            serde_json::json!({
+                "path": format!("/{name}"),
+                "name": name,
+                "type": value.get("type").and_then(Value::as_str),
+                "description": value.get("description").and_then(Value::as_str),
+                "format": value.get("format").and_then(Value::as_str)
+            })
+        })
+        .collect()
 }
 
 /// Parse and validate model-produced MCP calibration suggestions.
@@ -329,6 +361,19 @@ mod tests {
         assert!(prompt.contains("export means"));
         assert!(prompt.contains("metadata only"));
         assert!(prompt.contains("mcp_tool:docs:read"));
+    }
+
+    #[test]
+    fn prompt_teaches_extractor_paths_and_trust_classification_rubric() {
+        let prompt = build_autofill_prompt("Docs", &[test_tool("mcp_tool:docs:read", "read_doc")]);
+
+        assert!(prompt.contains("JSON Pointer-style paths"));
+        assert!(prompt.contains("/owner_email"));
+        assert!(prompt.contains("/user/email"));
+        assert!(prompt.contains("trusted:"));
+        assert!(prompt.contains("untrusted:"));
+        assert!(prompt.contains("public web"));
+        assert!(prompt.contains("authenticated user's own"));
     }
 
     fn test_tool(mcp_tool_id: &str, name: &str) -> McpToolRecord {

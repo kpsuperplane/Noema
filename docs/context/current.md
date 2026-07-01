@@ -144,8 +144,10 @@ The next storage slice should stay small and concrete:
   asset server. MCP tool calibration can now request LLM-generated Autofill
   suggestions from persisted tool metadata; suggestions populate frontend draft
   state only and require explicit Save before backend calibration records are
-  written. User-facing setup errors are sanitized while raw transport details
-  stay out of the web form.
+  written, with batch calibration saves, stale-value glimmers while suggestions
+  are pending, compact schema metadata, and explicit trust/extractor prompting.
+  User-facing setup errors are sanitized while raw transport details stay out of
+  the web form.
   Web Settings also exposes MCPs, Trusted Identities, Approvals, and Audit
   surfaces backed by GraphQL read models where live data exists.
 - Routed web surfaces learn shell-owned deck state through

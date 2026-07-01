@@ -151,6 +151,19 @@ export const SaveToolCalibrationDocument = gql`
   }
 `;
 
+export const SaveToolCalibrationsDocument = gql`
+  mutation SaveToolCalibrations($inputs: [GraphqlSaveToolCalibrationInput!]!) {
+    saveToolCalibrations(inputs: $inputs) {
+      calibrationId
+      mcpToolId
+      status
+      readClassification
+      writeClassification
+      exportClassification
+    }
+  }
+`;
+
 export const AutofillToolCalibrationsDocument = gql`
   mutation AutofillToolCalibrations($mcpServerId: String!) {
     autofillToolCalibrations(mcpServerId: $mcpServerId) {

@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use async_graphql::{InputObject, Json, Result, SimpleObject};
 use serde_json::Value;
@@ -758,6 +758,36 @@ pub(super) async fn save_tool_calibration(
     state: &GraphqlState,
     input: GraphqlSaveToolCalibrationInput,
 ) -> Result<GraphqlToolCalibration> {
+    let calibration = parse_save_tool_calibration_input(input)?;
+    let store = state.store()?;
+    let saved = store
+        .save_tool_calibration(calibration)
+        .await
+        .map_err(graphql_error)?;
+    Ok(saved.into())
+}
+
+pub(super) async fn save_tool_calibrations(
+    state: &GraphqlState,
+    inputs: Vec<GraphqlSaveToolCalibrationInput>,
+) -> Result<Vec<GraphqlToolCalibration>> {
+    let calibrations = inputs
+        .into_iter()
+        .map(parse_save_tool_calibration_input)
+        .collect::<Result<Vec<_>>>()?;
+    reject_duplicate_batch_calibrations(&calibrations)?;
+
+    let store = state.store()?;
+    let saved = store
+        .save_tool_calibrations(calibrations)
+        .await
+        .map_err(graphql_error)?;
+    Ok(saved.into_iter().map(Into::into).collect())
+}
+
+fn parse_save_tool_calibration_input(
+    input: GraphqlSaveToolCalibrationInput,
+) -> Result<NewToolCalibration> {
     let read_classification =
         parse_graphql_trust_classification(&input.read_classification, "readClassification")?;
     let write_classification =
@@ -771,22 +801,37 @@ pub(super) async fn save_tool_calibration(
         .map(parse_graphql_owner_extractor)
         .collect::<Result<Vec<_>>>()?;
 
-    let store = state.store()?;
-    let calibration = store
-        .save_tool_calibration(NewToolCalibration {
-            calibration_id: input.calibration_id,
-            mcp_tool_id: input.mcp_tool_id,
-            read_classification,
-            write_classification,
-            export_classification,
-            owner_extractors,
-            status,
-            reviewed_by: input.reviewed_by,
-            reviewed_metadata_fingerprint: input.reviewed_metadata_fingerprint,
-        })
-        .await
-        .map_err(graphql_error)?;
-    Ok(calibration.into())
+    Ok(NewToolCalibration {
+        calibration_id: input.calibration_id,
+        mcp_tool_id: input.mcp_tool_id,
+        read_classification,
+        write_classification,
+        export_classification,
+        owner_extractors,
+        status,
+        reviewed_by: input.reviewed_by,
+        reviewed_metadata_fingerprint: input.reviewed_metadata_fingerprint,
+    })
+}
+
+fn reject_duplicate_batch_calibrations(calibrations: &[NewToolCalibration]) -> Result<()> {
+    let mut calibration_ids = BTreeSet::new();
+    let mut tool_ids = BTreeSet::new();
+    for calibration in calibrations {
+        if !calibration_ids.insert(calibration.calibration_id.as_str()) {
+            return Err(graphql_error(format!(
+                "duplicate calibrationId in batch: {}",
+                calibration.calibration_id
+            )));
+        }
+        if !tool_ids.insert(calibration.mcp_tool_id.as_str()) {
+            return Err(graphql_error(format!(
+                "duplicate mcpToolId in batch: {}",
+                calibration.mcp_tool_id
+            )));
+        }
+    }
+    Ok(())
 }
 
 fn parse_graphql_trust_classification(
