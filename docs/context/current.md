@@ -81,6 +81,13 @@ The next storage slice should stay small and concrete:
   `crates/noema-desktop` that starts a Noema runtime host inside the app
   process, loads the existing React UI from bundled assets, and uses Tauri
   IPC/events for GraphQL instead of exposing a local HTTP/WebSocket server.
+- The first Apple Foundation Models provider direction is `foundation_local`:
+  a macOS-only Swift bridge owned by the Rust daemon process, with live
+  stateful `LanguageModelSession`s while the daemon runs and restart resume by
+  replaying Noema-owned persisted transcript state. Linux and Windows builds
+  must continue to compile and deploy without Foundation Models support, showing
+  the provider as unavailable rather than making Apple tooling a global
+  dependency.
 - The CLI chat path now uses GraphQL for `startPrimaryConversation` and
   `sendConversationTurn` streaming. It still uses the daemon Unix-socket
   protocol only for local lifecycle cleanup such as connection setup,
