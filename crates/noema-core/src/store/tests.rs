@@ -886,6 +886,33 @@ async fn primary_conversation_reuses_existing_home_conversation() {
 }
 
 #[tokio::test]
+async fn primary_conversation_reuses_existing_home_conversation_across_provider_switch() {
+    let store = test_store().await;
+    store.ensure_default_actors().await.expect("actors");
+
+    let first = store
+        .get_or_create_primary_conversation_for_provider(
+            "human:local",
+            "codex",
+            Some("gpt-test".to_string()),
+            None,
+        )
+        .await
+        .expect("first primary conversation");
+    let second = store
+        .get_or_create_primary_conversation_for_provider(
+            "human:local",
+            "foundation_local",
+            Some("default".to_string()),
+            None,
+        )
+        .await
+        .expect("second primary conversation");
+
+    assert_eq!(first.conversation_id, second.conversation_id);
+}
+
+#[tokio::test]
 async fn primary_conversation_ignores_pointer_to_other_human_conversation() {
     let store = test_store().await;
     store.ensure_default_actors().await.expect("actors");

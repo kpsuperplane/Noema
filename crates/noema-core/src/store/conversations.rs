@@ -43,7 +43,7 @@ impl NoemaStore {
             .await
     }
 
-    /// Return a human's active primary conversation for a provider, creating one when needed.
+    /// Return a human's active primary conversation, creating one for the provider when needed.
     ///
     /// # Errors
     ///
@@ -67,7 +67,7 @@ impl NoemaStore {
             .next()
             .map(|row| row.primary_conversation_id)
             && self
-                .primary_conversation_matches_human(&conversation_id, human_id, provider)
+                .primary_conversation_matches_human(&conversation_id, human_id)
                 .await?
         {
             return Ok(ConversationRecord { conversation_id });
@@ -390,7 +390,6 @@ impl NoemaStore {
         &self,
         conversation_id: &str,
         human_id: &str,
-        provider: &str,
     ) -> Result<bool, StoreError> {
         let mut response = self
             .db
@@ -402,7 +401,6 @@ impl NoemaStore {
                   AND owner_object_type = 'human'
                   AND owner_object_id = $human_id
                   AND primary_human_id = $human_id
-                  AND provider = $provider
                   AND lifecycle_status = 'active'
                   AND deleted_at = NONE
                 LIMIT 1;
@@ -410,7 +408,6 @@ impl NoemaStore {
             )
             .bind(("conversation_id", conversation_id.to_string()))
             .bind(("human_id", human_id.to_string()))
-            .bind(("provider", provider.to_string()))
             .await?;
         let rows: Vec<ConversationIdRow> = response.take(0)?;
         Ok(!rows.is_empty())

@@ -64,44 +64,49 @@ pub(crate) async fn run_dev_daemon(options: DevDaemonOptions) -> Result<(), DevD
 
     let mut web = spawn_web_watcher(&web_dir)?;
     let mut daemon = spawn_daemon_watcher(&repo_root, &options)?;
+    let mut bridge = spawn_bridge_watcher(&repo_root)?;
 
     eprintln!("noema dev daemon started");
     eprintln!("web assets: bun run dev");
     eprintln!("daemon: cargo watch -x {}", daemon_start_command(options));
+    if bridge.is_some() {
+        eprintln!("foundation bridge: cargo watch -s swift build");
+    }
 
-    supervise_dev_processes(&mut web, &mut daemon, shutdown_signal()).await
+    supervise_dev_processes(&mut web, &mut daemon, bridge.as_mut(), shutdown_signal()).await
 }
 
 async fn supervise_dev_processes<S>(
     web: &mut Child,
     daemon: &mut Child,
+    bridge: Option<&mut Child>,
     shutdown_signal: S,
 ) -> Result<(), DevDaemonError>
 where
     S: Future<Output = Result<&'static str, DevDaemonError>>,
 {
-    tokio::select! {
-        result = wait_for_child("web asset watcher", web) => {
-            stop_child(daemon).await;
-            result
-        }
-        result = wait_for_child("daemon watcher", daemon) => {
-            stop_child(web).await;
+    let mut bridge = bridge;
+    let result = tokio::select! {
+        result = wait_for_child("web asset watcher", web) => result,
+        result = wait_for_child("daemon watcher", daemon) => result,
+        result = wait_for_optional_child("foundation bridge watcher", bridge.as_deref_mut()) => {
             result
         }
         result = shutdown_signal => {
-            let result = match result {
+            match result {
                 Ok(signal) => {
                     eprintln!("received {signal}; stopping noema dev daemon");
                     Ok(())
                 }
                 Err(error) => Err(error),
-            };
-            stop_child(web).await;
-            stop_child(daemon).await;
-            result
+            }
         }
-    }
+    };
+
+    stop_child(web).await;
+    stop_child(daemon).await;
+    stop_optional_child(bridge).await;
+    result
 }
 
 #[cfg(unix)]
@@ -135,6 +140,42 @@ fn spawn_web_watcher(web_dir: &Path) -> Result<Child, DevDaemonError> {
     command.arg("run").arg(WEB_ASSET_WATCH_SCRIPT);
 
     spawn_dev_process("web asset watcher", &mut command, web_dir)
+}
+
+fn spawn_bridge_watcher(repo_root: &Path) -> Result<Option<Child>, DevDaemonError> {
+    if !foundation_bridge_watcher_enabled() {
+        return Ok(None);
+    }
+
+    let package_dir = foundation_bridge_package_dir(repo_root);
+    if !package_dir.exists() {
+        return Ok(None);
+    }
+
+    let mut command = Command::new(cargo_exe());
+    command.args(foundation_bridge_watch_args());
+
+    spawn_dev_process("foundation bridge watcher", &mut command, &package_dir).map(Some)
+}
+
+fn foundation_bridge_watcher_enabled() -> bool {
+    cfg!(target_os = "macos")
+}
+
+fn foundation_bridge_package_dir(repo_root: &Path) -> PathBuf {
+    repo_root.join("crates/noema-core/apple-foundation-bridge")
+}
+
+fn foundation_bridge_watch_args() -> [&'static str; 7] {
+    [
+        "watch",
+        "-w",
+        "Package.swift",
+        "-w",
+        "Sources",
+        "-s",
+        "swift build",
+    ]
 }
 
 fn graphql_schema_output_path(repo_root: &Path) -> PathBuf {
@@ -246,6 +287,16 @@ async fn wait_for_child(label: &'static str, child: &mut Child) -> Result<(), De
     Err(DevDaemonError::ProcessExited { label, status })
 }
 
+async fn wait_for_optional_child(
+    label: &'static str,
+    child: Option<&mut Child>,
+) -> Result<(), DevDaemonError> {
+    match child {
+        Some(child) => wait_for_child(label, child).await,
+        None => std::future::pending().await,
+    }
+}
+
 async fn stop_child(child: &mut Child) {
     if matches!(child.try_wait(), Ok(Some(_))) {
         return;
@@ -265,6 +316,12 @@ async fn stop_child(child: &mut Child) {
 
     let _ = child.start_kill();
     let _ = child.wait().await;
+}
+
+async fn stop_optional_child(child: Option<&mut Child>) {
+    if let Some(child) = child {
+        stop_child(child).await;
+    }
 }
 
 async fn wait_for_child_exit(child: &mut Child, duration: Duration) -> bool {
@@ -396,6 +453,30 @@ mod tests {
     }
 
     #[test]
+    fn foundation_bridge_watcher_uses_swift_package_sources() {
+        assert_eq!(
+            foundation_bridge_package_dir(Path::new("/workspace")),
+            PathBuf::from("/workspace/crates/noema-core/apple-foundation-bridge")
+        );
+        assert_eq!(
+            foundation_bridge_watch_args(),
+            [
+                "watch",
+                "-w",
+                "Package.swift",
+                "-w",
+                "Sources",
+                "-s",
+                "swift build",
+            ]
+        );
+        assert_eq!(
+            foundation_bridge_watcher_enabled(),
+            cfg!(target_os = "macos")
+        );
+    }
+
+    #[test]
     fn daemon_start_command_defaults_to_start() {
         let command = daemon_start_command(DevDaemonOptions {
             provider: None,
@@ -428,11 +509,30 @@ mod tests {
         let mut web = spawn_test_watcher();
         let mut daemon = spawn_test_watcher();
 
-        let result = supervise_dev_processes(&mut web, &mut daemon, async { Ok("SIGINT") }).await;
+        let result =
+            supervise_dev_processes(&mut web, &mut daemon, None, async { Ok("SIGINT") }).await;
 
         assert!(result.is_ok());
         assert_child_exited(&mut web).await;
         assert_child_exited(&mut daemon).await;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn supervisor_stops_bridge_watcher_when_shutdown_signal_arrives() {
+        let mut web = spawn_test_watcher();
+        let mut daemon = spawn_test_watcher();
+        let mut bridge = spawn_test_watcher();
+
+        let result = supervise_dev_processes(&mut web, &mut daemon, Some(&mut bridge), async {
+            Ok("SIGINT")
+        })
+        .await;
+
+        assert!(result.is_ok());
+        assert_child_exited(&mut web).await;
+        assert_child_exited(&mut daemon).await;
+        assert_child_exited(&mut bridge).await;
     }
 
     #[cfg(unix)]
