@@ -1,6 +1,10 @@
 [build]
 rustc-wrapper = ".cargo/rustc-wrapper"
 
+[env]
+CC = "sccache clang"
+CXX = "sccache clang++"
+
 [alias]
 dev-daemon = [
   "run",
