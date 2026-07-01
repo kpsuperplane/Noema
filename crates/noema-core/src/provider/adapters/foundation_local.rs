@@ -5,7 +5,7 @@ use crate::{
     FoundationLocalProviderConfig,
     provider::{
         GenerateInput, GenerateRequest, GenerateResponse, GenerateStreamEvent, ModelProvider,
-        ProviderContextMetadata, ProviderError,
+        ProviderContextMetadata, ProviderError, required_output_items_from_text,
     },
 };
 
@@ -183,8 +183,13 @@ impl ModelProvider for FoundationLocalProvider {
                 provider: FOUNDATION_LOCAL_PROVIDER.to_string(),
                 message: format!("Apple Foundation Models bridge generation failed: {error}"),
             })?;
+        let output = if request.options.require_noema_response {
+            required_output_items_from_text(output_text)?
+        } else {
+            vec![crate::GenerateOutputItem::AssistantText { text: output_text }]
+        };
         Ok(GenerateResponse {
-            output: vec![crate::GenerateOutputItem::AssistantText { text: output_text }],
+            output,
             provider: FOUNDATION_LOCAL_PROVIDER.to_string(),
             model,
             response_id: None,
@@ -319,6 +324,52 @@ done
             vec![GenerateStreamEvent::AssistantTextDelta {
                 delta: "bridge ".to_string(),
             }]
+        );
+    }
+
+    #[cfg(all(unix, target_os = "macos"))]
+    #[tokio::test]
+    async fn generate_required_noema_response_parses_bridge_envelope() {
+        let (_dir, bridge_path) = bridge_script(
+            r#"#!/bin/sh
+while IFS= read -r line; do
+  case "$line" in
+    *'"id":"handshake"'*) printf '%s\n' '{"id":"handshake","payload":{"type":"handshake_ok","protocol_version":1}}' ;;
+    *'"id":"health"'*) printf '%s\n' '{"id":"health","payload":{"type":"health","available":true,"profiles":[{"id":"default","label":"Default"}],"unavailable_reason":null}}' ;;
+    *'"id":"create_session"'*) printf '%s\n' '{"id":"create_session","payload":{"type":"session_created","session_id":"session-1"}}' ;;
+    *'"id":"generate"'*) printf '%s\n' '{"id":"generate","payload":{"type":"generate_complete","text":"{\"type\":\"noema_response\",\"output\":[{\"kind\":\"assistant_text\",\"text\":\"bridge answer\"},{\"kind\":\"memory_proposals\",\"proposals\":[]}]}"}}' ;;
+    *) printf '%s\n' '{"id":"unknown","payload":{"type":"error","code":"unsupported_request","message":"Unsupported request."}}' ;;
+  esac
+done
+"#,
+        );
+        let provider = FoundationLocalProvider::new(FoundationLocalProviderConfig {
+            default_profile: "default".to_string(),
+            bridge_path: Some(bridge_path),
+        })
+        .expect("provider");
+
+        let response = provider
+            .generate(GenerateRequest {
+                model: None,
+                input: GenerateInput::Text("prompt text".to_string()),
+                instructions: None,
+                options: crate::GenerateOptions {
+                    require_noema_response: true,
+                    ..crate::GenerateOptions::default()
+                },
+            })
+            .await
+            .expect("generate");
+
+        assert_eq!(
+            response.output,
+            vec![
+                GenerateOutputItem::AssistantText {
+                    text: "bridge answer".to_string(),
+                },
+                GenerateOutputItem::MemoryProposals { proposals: vec![] }
+            ]
         );
     }
 

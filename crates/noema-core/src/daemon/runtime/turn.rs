@@ -230,6 +230,27 @@ impl CodexRuntimeActor {
             &item_tx,
         )
         .await?;
+        let tool_snapshot = self.refresh_tool_snapshot(&conversation_id).await?;
+        self.update_conversation_agent_status(
+            &conversation_id,
+            PersistedAgentStatus::Thinking,
+            &item_tx,
+        )
+        .await?;
+        let mut planned_context =
+            super::prompt_context::plan_prompt_context(super::prompt_context::PromptPlanRequest {
+                store: &self.store,
+                provider: provider.as_ref(),
+                conversation_id: &conversation_id,
+                provider_kind: &conversation.provider_kind,
+                model_profile: conversation.model.as_deref(),
+                turn_index,
+                cwd: conversation.cwd.as_deref(),
+                agent_identity: &agent_identity,
+                rendered_tools: &tool_snapshot.rendered_tools,
+                current_input: &input,
+            })
+            .await?;
         let user_metadata = json!({ "turn_index": turn_index });
         let user_item = self
             .store
@@ -271,27 +292,6 @@ impl CodexRuntimeActor {
             } else {
                 ExplicitMemoryOutcome::None
             };
-        let tool_snapshot = self.refresh_tool_snapshot(&conversation_id).await?;
-        self.update_conversation_agent_status(
-            &conversation_id,
-            PersistedAgentStatus::Thinking,
-            &item_tx,
-        )
-        .await?;
-        let mut planned_context =
-            super::prompt_context::plan_prompt_context(super::prompt_context::PromptPlanRequest {
-                store: &self.store,
-                provider: provider.as_ref(),
-                conversation_id: &conversation_id,
-                provider_kind: &conversation.provider_kind,
-                model_profile: conversation.model.as_deref(),
-                turn_index,
-                cwd: conversation.cwd.as_deref(),
-                agent_identity: &agent_identity,
-                rendered_tools: &tool_snapshot.rendered_tools,
-                current_input: &input,
-            })
-            .await?;
         if super::context_compaction::should_compact_foreground(&planned_context) {
             let compaction_result = super::context_compaction::compact_context_with_retry(
                 super::context_compaction::CompactionRequest {

@@ -381,6 +381,7 @@ async fn prompt_context_uses_active_summary_and_post_checkpoint_items() {
     assert!(instructions.contains("Compacted conversation context:"));
     assert!(instructions.contains("rolling durable compaction"));
     assert!(instructions.contains("post checkpoint user"));
+    assert!(!instructions.contains("current turn"));
     assert!(!instructions.contains("covered user"));
 }
 
