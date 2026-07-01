@@ -1429,6 +1429,51 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn autofill_tool_calibrations_returns_null_when_disabled_is_omitted() {
+        use crate::store::tests::test_store;
+
+        let store = test_store().await;
+        seed_autofill_server(&store).await;
+        let runtime = test_autofill_runtime(
+            store.clone(),
+            r#"{"suggestions":[{"mcp_tool_id":"mcp_tool:docs:read_doc","read_classification":"mixed","write_classification":"none","export_classification":"none","owner_extractors":[]}]}"#,
+        )
+        .await;
+        let schema = build_schema(GraphqlState::for_tests_with_store_and_runtime(
+            store.clone(),
+            runtime,
+        ));
+
+        let response = schema
+            .execute(async_graphql::Request::new(
+                r#"
+                mutation {
+                  autofillToolCalibrations(mcpServerId: "mcp_server:docs") {
+                    suggestions {
+                      mcpToolId
+                      disabled
+                    }
+                  }
+                }
+                "#,
+            ))
+            .await;
+
+        assert!(response.errors.is_empty(), "{:?}", response.errors);
+        let data = response.data.into_json().expect("json");
+        let suggestion = &data["autofillToolCalibrations"]["suggestions"][0];
+        assert_eq!(suggestion["mcpToolId"], "mcp_tool:docs:read_doc");
+        assert_eq!(suggestion["disabled"], serde_json::Value::Null);
+        assert!(
+            store
+                .get_tool_calibration("mcp_tool:docs:read_doc")
+                .await
+                .expect("get calibration")
+                .is_none()
+        );
+    }
+
     async fn seed_autofill_server(store: &crate::NoemaStore) {
         use crate::{McpTransportKind, NewMcpServer, NewMcpTool};
 

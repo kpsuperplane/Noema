@@ -286,7 +286,7 @@ export type AutofillToolCalibrationsMutationVariables = Exact<{
 }>;
 
 
-export type AutofillToolCalibrationsMutation = { autofillToolCalibrations: { suggestions: Array<{ mcpToolId: string, readClassification: string, writeClassification: string, exportClassification: string, disabled: boolean, ownerExtractors: Array<{ source: string, selectorKind: string, path: string }> }> } };
+export type AutofillToolCalibrationsMutation = { autofillToolCalibrations: { suggestions: Array<{ mcpToolId: string, readClassification: string, writeClassification: string, exportClassification: string, disabled: boolean | null, ownerExtractors: Array<{ source: string, selectorKind: string, path: string }> }> } };
 
 export type CreateMcpServerMutationVariables = Exact<{
   input: GraphqlCreateMcpServerInput;

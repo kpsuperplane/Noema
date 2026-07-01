@@ -105,7 +105,12 @@ export function McpToolPermissionsModal({
       setDraftOverrides((current) => {
         const next = { ...current };
         for (const suggestion of suggestions) {
-          next[suggestion.mcpToolId] = draftFromSuggestion(suggestion);
+          const tool = tools.find((item) => item.mcpToolId === suggestion.mcpToolId);
+          if (!tool) continue;
+          next[suggestion.mcpToolId] = draftFromSuggestion(
+            suggestion,
+            current[suggestion.mcpToolId] ?? draftFromTool(tool)
+          );
         }
         return next;
       });
@@ -115,7 +120,7 @@ export function McpToolPermissionsModal({
         "Autofill could not generate suggestions. Configure tools manually or try again."
       );
     }
-  }, [autofillToolCalibrations, serverId]);
+  }, [autofillToolCalibrations, serverId, tools]);
 
   React.useEffect(() => {
     if (!open || !serverId || !autoAutofill || result.loading || result.error || tools.length === 0) {
@@ -544,7 +549,8 @@ function draftFromTool(tool: McpTool): ToolPermissionDraft {
 }
 
 function draftFromSuggestion(
-  suggestion: AutofillToolCalibrationsMutation["autofillToolCalibrations"]["suggestions"][number]
+  suggestion: AutofillToolCalibrationsMutation["autofillToolCalibrations"]["suggestions"][number],
+  currentDraft: ToolPermissionDraft
 ): ToolPermissionDraft {
   return {
     readClassification: suggestion.readClassification,
@@ -556,7 +562,7 @@ function draftFromSuggestion(
       selectorKind: extractor.selectorKind,
       path: extractor.path
     })),
-    disabled: suggestion.disabled
+    disabled: suggestion.disabled ?? currentDraft.disabled
   };
 }
 

@@ -21,8 +21,8 @@ pub struct McpToolCalibrationSuggestion {
     pub export_classification: McpTrustClassification,
     /// Suggested deterministic ownership extractors.
     pub owner_extractors: Vec<OwnerExtractor>,
-    /// Whether the tool should remain disabled in the draft.
-    pub disabled: bool,
+    /// Optional disabled-state suggestion; omitted output preserves the current draft.
+    pub disabled: Option<bool>,
 }
 
 /// Errors returned while parsing or validating MCP autofill model output.
@@ -69,8 +69,7 @@ struct RawSuggestion {
     export_classification: String,
     #[serde(default)]
     owner_extractors: Vec<RawOwnerExtractor>,
-    #[serde(default)]
-    disabled: bool,
+    disabled: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -115,6 +114,7 @@ Definitions:
 - Use trusted or untrusted only when metadata makes the trust boundary clear without runtime data.
 - Suggest owner_extractors only when a deterministic field exists in the metadata shape.
 - If ownership cannot be resolved, return an empty owner_extractors array.
+- Include disabled only when you intentionally suggest changing or preserving disabled state.
 
 Return exactly:
 {{"suggestions":[{{"mcp_tool_id":"...","read_classification":"none|trusted|untrusted|mixed","write_classification":"none|trusted|untrusted|mixed","export_classification":"none|trusted|untrusted|mixed","owner_extractors":[{{"source":"arguments|structured_content|metadata|resource_uri|built_in_adapter","selector_kind":"email|phone|domain","path":"..."}}],"disabled":false}}]}}
@@ -258,7 +258,25 @@ mod tests {
             McpTrustClassification::Mixed
         );
         assert_eq!(suggestions[0].owner_extractors[0].path, "/owner_email");
-        assert!(!suggestions[0].disabled);
+        assert_eq!(suggestions[0].disabled, Some(false));
+    }
+
+    #[test]
+    fn parses_missing_disabled_as_no_disabled_suggestion() {
+        let tools = vec![test_tool("mcp_tool:docs:read", "read_doc")];
+        let response = r#"{
+          "suggestions": [{
+            "mcp_tool_id": "mcp_tool:docs:read",
+            "read_classification": "mixed",
+            "write_classification": "none",
+            "export_classification": "none",
+            "owner_extractors": []
+          }]
+        }"#;
+
+        let suggestions = parse_autofill_response(response, &tools).expect("suggestions");
+
+        assert_eq!(suggestions[0].disabled, None);
     }
 
     #[test]

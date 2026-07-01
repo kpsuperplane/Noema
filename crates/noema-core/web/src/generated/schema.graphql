@@ -1464,9 +1464,9 @@ type GraphqlToolCalibrationSuggestion {
 	"""
 	ownerExtractors: [GraphqlOwnerExtractor!]!
 	"""
-	Whether the tool should remain disabled in the draft.
+	Optional disabled-state suggestion; null preserves the current frontend draft.
 	"""
-	disabled: Boolean!
+	disabled: Boolean
 }
 
 """

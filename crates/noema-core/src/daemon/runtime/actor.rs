@@ -43,13 +43,15 @@ impl CodexRuntimeActor {
                     let _ = reply.send(self.turn(conversation_id, input, item_tx).await);
                 }
                 CodexRuntimeCommand::GenerateOnce { request, reply } => {
-                    let mut ignore_event = |_| {};
-                    let result = self
-                        .provider
-                        .generate_streaming(request, &mut ignore_event)
-                        .await
-                        .map_err(DaemonError::Provider);
-                    let _ = reply.send(result);
+                    let provider = Arc::clone(&self.provider);
+                    tokio::spawn(async move {
+                        let mut ignore_event = |_| {};
+                        let result = provider
+                            .generate_streaming(request, &mut ignore_event)
+                            .await
+                            .map_err(DaemonError::Provider);
+                        let _ = reply.send(result);
+                    });
                 }
                 CodexRuntimeCommand::EndConversation {
                     conversation_id,

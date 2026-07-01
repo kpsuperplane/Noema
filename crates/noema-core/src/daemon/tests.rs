@@ -25,9 +25,10 @@ use std::{
     pin::Pin,
     process::Command,
     sync::{Arc, Mutex},
+    time::Duration,
 };
 use surrealdb::types::SurrealValue;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 
 const RESTART_CONTEXT_TEST_PHASE_ENV: &str = "NOEMA_RESTART_CONTEXT_TEST_PHASE";
 const RESTART_CONTEXT_TEST_HOME_ENV: &str = "NOEMA_RESTART_CONTEXT_TEST_HOME";
@@ -163,6 +164,45 @@ async fn runtime_handle_generate_once_uses_provider_without_conversation() {
     handle.shutdown().await;
 
     assert_eq!(response.assistant_text(), "fake answer");
+}
+
+#[tokio::test]
+async fn runtime_handle_generate_once_does_not_block_subsequent_commands() {
+    let (started_tx, started_rx) = oneshot::channel();
+    let (release_tx, release_rx) = oneshot::channel();
+    let provider = BlockingOnceProvider {
+        started: Mutex::new(Some(started_tx)),
+        release: Mutex::new(Some(release_rx)),
+    };
+    let store = crate::store::tests::test_store().await;
+    let handle = CodexRuntimeHandle::spawn_with_provider(Arc::new(provider), store)
+        .await
+        .expect("runtime");
+    let generate_handle = handle.clone();
+    let pending_generate = tokio::spawn(async move {
+        generate_handle
+            .generate_once(GenerateRequest::text("slow"))
+            .await
+    });
+
+    started_rx.await.expect("provider started");
+    let start_result = tokio::time::timeout(
+        Duration::from_millis(100),
+        handle.start_conversation(None, None),
+    )
+    .await;
+    let _ = release_tx.send(());
+    let generated = pending_generate
+        .await
+        .expect("generate task")
+        .expect("generate result");
+    handle.shutdown().await;
+
+    let conversation = start_result
+        .expect("start_conversation should not wait for generate_once provider completion")
+        .expect("conversation");
+    assert!(conversation.conversation_id.starts_with("conversation:"));
+    assert_eq!(generated.assistant_text(), "slow answer");
 }
 
 #[tokio::test]
@@ -3506,6 +3546,12 @@ struct FakeCodexProvider {
     invalid_consolidation_target_id: Arc<Mutex<Option<String>>>,
 }
 
+#[derive(Debug)]
+struct BlockingOnceProvider {
+    started: Mutex<Option<oneshot::Sender<()>>>,
+    release: Mutex<Option<oneshot::Receiver<()>>>,
+}
+
 #[derive(Debug, Clone, Copy)]
 enum FakeCodexScenario {
     Simple,
@@ -4143,6 +4189,39 @@ impl super::runtime::RuntimeModelProvider for FakeCodexProvider {
                 }
             }
             Ok(response)
+        })
+    }
+}
+
+impl super::runtime::RuntimeModelProvider for BlockingOnceProvider {
+    fn generate_streaming<'a>(
+        &'a self,
+        _request: GenerateRequest,
+        _on_event: &'a mut (dyn FnMut(GenerateStreamEvent) + Send),
+    ) -> Pin<Box<dyn Future<Output = Result<GenerateResponse, ProviderError>> + Send + 'a>> {
+        Box::pin(async move {
+            if let Some(started) = self.started.lock().expect("started lock").take() {
+                let _ = started.send(());
+            }
+            let release = self
+                .release
+                .lock()
+                .expect("release lock")
+                .take()
+                .expect("release receiver");
+            release
+                .await
+                .map_err(|_| ProviderError::ProviderUnavailable {
+                    provider: "test".to_string(),
+                    message: "release signal dropped".to_string(),
+                })?;
+            Ok(GenerateResponse {
+                output: assistant_with_no_memories("slow answer"),
+                provider: "test".to_string(),
+                model: "blocking-once".to_string(),
+                response_id: None,
+                usage: None,
+            })
         })
     }
 }

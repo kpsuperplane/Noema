@@ -309,8 +309,8 @@ pub struct GraphqlToolCalibrationSuggestion {
     pub export_classification: String,
     /// Suggested owner extractors.
     pub owner_extractors: Vec<GraphqlOwnerExtractor>,
-    /// Whether the tool should remain disabled in the draft.
-    pub disabled: bool,
+    /// Optional disabled-state suggestion; null preserves the current frontend draft.
+    pub disabled: Option<bool>,
 }
 
 impl From<crate::mcp::autofill::McpToolCalibrationSuggestion> for GraphqlToolCalibrationSuggestion {
