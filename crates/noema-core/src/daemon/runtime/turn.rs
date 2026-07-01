@@ -43,8 +43,12 @@ impl CodexRuntimeActor {
         cwd: Option<String>,
     ) -> Result<StartedConversation, DaemonError> {
         self.store.ensure_default_actors().await?;
-        let model = model_for_conversation(&self.store, model).await;
-        let new_conversation = NewConversation::local_chat(model.clone(), cwd.clone());
+        let model = model_for_conversation(&self.store, &self.provider_kind, model).await?;
+        let new_conversation = NewConversation::local_chat_for_provider(
+            &self.provider_kind,
+            model.clone(),
+            cwd.clone(),
+        );
         let durable_conversation = self.store.create_conversation(new_conversation).await?;
         let conversation_id = durable_conversation.conversation_id;
         self.conversations.insert(
@@ -66,10 +70,15 @@ impl CodexRuntimeActor {
         cwd: Option<String>,
     ) -> Result<StartedConversation, DaemonError> {
         self.store.ensure_default_actors().await?;
-        let model = model_for_conversation(&self.store, model).await;
+        let model = model_for_conversation(&self.store, &self.provider_kind, model).await?;
         let durable_conversation = self
             .store
-            .get_or_create_primary_conversation("human:local", model.clone(), cwd.clone())
+            .get_or_create_primary_conversation_for_provider(
+                "human:local",
+                &self.provider_kind,
+                model.clone(),
+                cwd.clone(),
+            )
             .await?;
         let conversation_id = durable_conversation.conversation_id;
 
@@ -693,20 +702,28 @@ fn stable_hash(value: &str) -> u64 {
 
 async fn model_for_conversation(
     store: &crate::NoemaStore,
+    active_provider_kind: &str,
     conversation_model: Option<String>,
-) -> Option<String> {
+) -> Result<Option<String>, DaemonError> {
     if conversation_model
         .as_ref()
         .is_some_and(|model| !model.trim().is_empty())
     {
-        return conversation_model;
+        return Ok(conversation_model);
     }
-    store
-        .get_agent_runtime_preference("agent:primary")
-        .await
-        .ok()
-        .flatten()
-        .map(|preference| preference.model_profile)
+    let Some(preference) = store.get_agent_runtime_preference("agent:primary").await? else {
+        return Ok(None);
+    };
+    if preference.provider_kind != active_provider_kind {
+        return Err(DaemonError::Provider(ProviderError::ProviderUnavailable {
+            provider: active_provider_kind.to_string(),
+            message: format!(
+                "primary agent is configured for {}, but this daemon is using {}",
+                preference.provider_kind, active_provider_kind
+            ),
+        }));
+    }
+    Ok(Some(preference.model_profile))
 }
 
 #[derive(Debug)]

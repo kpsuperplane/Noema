@@ -9,6 +9,7 @@ use crate::daemon::protocol::DaemonError;
 #[derive(Debug)]
 pub(super) struct CodexRuntimeActor {
     pub(super) provider: Arc<dyn RuntimeModelProvider>,
+    pub(super) provider_kind: String,
     pub(super) store: NoemaStore,
     pub(super) conversations: HashMap<String, ActiveConversation>,
 }
@@ -17,9 +18,11 @@ impl CodexRuntimeActor {
     pub(super) async fn new(
         provider: Arc<dyn RuntimeModelProvider>,
         store: NoemaStore,
+        provider_kind: String,
     ) -> Result<Self, DaemonError> {
         Ok(Self {
             provider,
+            provider_kind,
             store,
             conversations: HashMap::new(),
         })

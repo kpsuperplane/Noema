@@ -351,5 +351,11 @@ fn codex_account_home_has_noema_tokens(
 }
 
 pub(crate) fn is_user_onboarded_for_chat(account: Option<crate::ProviderAccountRecord>) -> bool {
-    crate::onboarding_status_from_account(account).is_user_onboarded
+    account.is_some_and(|account| {
+        account.is_active
+            && account.is_default
+            && (account.status == crate::ProviderAccountStatus::Authenticated
+                || (account.auth_method == crate::ProviderAuthMethod::None
+                    && account.status == crate::ProviderAccountStatus::Unknown))
+    })
 }

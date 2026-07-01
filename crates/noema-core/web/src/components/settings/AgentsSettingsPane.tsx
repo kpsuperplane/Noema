@@ -16,7 +16,8 @@ export function AgentsSettingsPane() {
     SaveAgentModelPreferenceMutation,
     SaveAgentModelPreferenceMutationVariables
   >(SaveAgentModelPreferenceDocument, {
-    refetchQueries: [{ query: AgentsDocument }]
+    refetchQueries: [{ query: AgentsDocument }],
+    awaitRefetchQueries: true
   });
 
   return (

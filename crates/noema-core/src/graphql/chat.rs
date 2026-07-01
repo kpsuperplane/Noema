@@ -300,8 +300,9 @@ pub(super) async fn start_primary_conversation(
 ) -> Result<GraphqlConversationStarted> {
     let store = state.store()?;
     let runtime = state.runtime()?;
+    let provider_kind = runtime.provider_kind().to_string();
     let account = store
-        .active_provider_account("codex")
+        .active_provider_account(&provider_kind)
         .await
         .map_err(graphql_error)?;
     if !crate::daemon::web::is_user_onboarded_for_chat(account) {
@@ -329,7 +330,7 @@ pub(super) async fn start_primary_conversation(
 
     Ok(GraphqlConversationStarted {
         conversation_id: started.conversation_id,
-        provider: "codex".to_string(),
+        provider: provider_kind,
         replay,
     })
 }

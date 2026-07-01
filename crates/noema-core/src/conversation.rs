@@ -250,12 +250,22 @@ impl NewConversation {
     /// Build the default local Codex chat conversation shape.
     #[must_use]
     pub fn local_chat(model: Option<String>, cwd: Option<String>) -> Self {
+        Self::local_chat_for_provider("codex", model, cwd)
+    }
+
+    /// Build the default local chat conversation shape for a runtime provider.
+    #[must_use]
+    pub fn local_chat_for_provider(
+        provider: impl Into<String>,
+        model: Option<String>,
+        cwd: Option<String>,
+    ) -> Self {
         Self {
             title: None,
             owner: ObjectRef::human("human:local"),
             primary_human_id: Some("human:local".to_string()),
             primary_agent_id: Some("agent:primary".to_string()),
-            provider: "codex".to_string(),
+            provider: provider.into(),
             model,
             cwd,
             metadata: json!({}),

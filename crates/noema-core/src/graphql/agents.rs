@@ -122,6 +122,14 @@ pub(super) async fn save_agent_model_preference(
         .await
         .map_err(graphql_error)?
         .ok_or_else(|| async_graphql::Error::new("provider account not found"))?;
+    if !account.is_active || !account.is_default {
+        return Err(async_graphql::Error::new(
+            "provider account is not selectable",
+        ));
+    }
+    if let Some(reason) = provider_disabled_reason(&account) {
+        return Err(async_graphql::Error::new(reason));
+    }
     let profiles = profiles_from_account(&account, None);
     if !profiles
         .iter()
@@ -168,11 +176,20 @@ fn provider_disabled_reason(account: &ProviderAccountRecord) -> Option<String> {
         ProviderAccountStatus::Unauthenticated => {
             Some("Provider account is not authenticated.".to_string())
         }
-        ProviderAccountStatus::Unavailable => account
-            .last_error_message
-            .clone()
-            .or_else(|| Some("Provider is unavailable on this machine.".to_string())),
+        ProviderAccountStatus::Unavailable => Some(unavailable_provider_reason(account)),
     }
+}
+
+fn unavailable_provider_reason(account: &ProviderAccountRecord) -> String {
+    match account.last_error_code.as_deref() {
+        Some("unsupported_platform") => "Provider is unavailable on this platform.",
+        Some("bridge_missing") => "Apple Foundation Models bridge is unavailable.",
+        Some("foundation_models_unavailable") => {
+            "Apple Foundation Models are unavailable on this machine."
+        }
+        _ => "Provider is unavailable on this machine.",
+    }
+    .to_string()
 }
 
 fn profiles_from_account(

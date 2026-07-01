@@ -44,6 +44,7 @@ where
 #[derive(Debug, Clone)]
 pub(crate) struct CodexRuntimeHandle {
     sender: mpsc::Sender<CodexRuntimeCommand>,
+    provider_kind: String,
     tool_classification_model: Option<String>,
 }
 
@@ -56,11 +57,11 @@ impl CodexRuntimeHandle {
             ProviderConfig::Codex(codex_config) => Self::spawn(codex_config, store).await,
             ProviderConfig::OpenAi(openai_config) => {
                 let provider = Arc::new(OpenAiProvider::new(openai_config)?);
-                Self::spawn_with_provider(provider, store).await
+                Self::spawn_with_provider_kind(provider, store, "openai").await
             }
             ProviderConfig::FoundationLocal(config) => {
                 let provider = Arc::new(FoundationLocalProvider::new(config)?);
-                Self::spawn_with_provider(provider, store).await
+                Self::spawn_with_provider_kind(provider, store, "foundation_local").await
             }
         }
     }
@@ -75,21 +76,36 @@ impl CodexRuntimeHandle {
         apply_provider_account_home(&mut codex_config, &account_home);
 
         let provider = Arc::new(CodexResponsesProvider::new(codex_config)?);
-        Self::spawn_with_provider(provider, store).await
+        Self::spawn_with_provider_kind(provider, store, "codex").await
     }
 
+    #[cfg(test)]
     pub(crate) async fn spawn_with_provider(
         provider: Arc<dyn RuntimeModelProvider>,
         store: NoemaStore,
     ) -> Result<Self, DaemonError> {
+        Self::spawn_with_provider_kind(provider, store, "codex").await
+    }
+
+    pub(crate) async fn spawn_with_provider_kind(
+        provider: Arc<dyn RuntimeModelProvider>,
+        store: NoemaStore,
+        provider_kind: impl Into<String>,
+    ) -> Result<Self, DaemonError> {
+        let provider_kind = provider_kind.into();
         let tool_classification_model = provider.default_tool_classification_model();
         let (sender, receiver) = mpsc::channel(16);
-        let actor = CodexRuntimeActor::new(provider, store).await?;
+        let actor = CodexRuntimeActor::new(provider, store, provider_kind.clone()).await?;
         tokio::spawn(actor.run(receiver));
         Ok(Self {
             sender,
+            provider_kind,
             tool_classification_model,
         })
+    }
+
+    pub(crate) fn provider_kind(&self) -> &str {
+        &self.provider_kind
     }
 
     pub(crate) fn tool_classification_model(&self) -> Option<&str> {

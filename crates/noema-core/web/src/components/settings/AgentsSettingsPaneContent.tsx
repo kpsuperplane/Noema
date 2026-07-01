@@ -89,6 +89,7 @@ export function AgentsSettingsPaneContent({
         </p>
       ) : null}
       {agents.map((agent) => {
+        const displayName = agentDisplayName(agent);
         const badgeLabel = agentBadgeLabel(agent);
         const rows = agentMetadataRows(agent);
         const warning = selectedModelWarning(agent);
@@ -101,7 +102,7 @@ export function AgentsSettingsPaneContent({
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex flex-wrap items-center gap-3">
                 <h2 className="m-0 font-heading text-xl leading-tight tracking-normal text-foreground">
-                  {agentDisplayName(agent)}
+                  {displayName}
                 </h2>
                 {badgeLabel ? <Badge variant="outline">{badgeLabel}</Badge> : null}
               </div>
@@ -109,6 +110,8 @@ export function AgentsSettingsPaneContent({
                 type="button"
                 variant="outline"
                 size="sm"
+                aria-label={`${editing ? "Close" : "Edit"} model settings for ${displayName}`}
+                aria-expanded={editing}
                 onClick={() => setEditingAgentId(editing ? null : agent.agentId)}
               >
                 <Settings2 className="size-4" aria-hidden="true" />
@@ -183,6 +186,20 @@ function AgentModelPreferenceEditor({
   const selectedProfile = profiles.find((profile) => profile.id === effectiveProfile);
   const providerDisabled = Boolean(selectedProvider?.disabledReason);
   const profileDisabled = Boolean(selectedProfile?.disabledReason);
+  const disabledMessages = useMemo(() => {
+    const messages: string[] = [];
+    for (const option of options) {
+      if (option.disabledReason) {
+        messages.push(`${option.providerDisplayName}: ${option.disabledReason}`);
+      }
+      for (const profile of option.profiles) {
+        if (profile.disabledReason && profile.disabledReason !== option.disabledReason) {
+          messages.push(`${option.providerDisplayName} / ${profile.label}: ${profile.disabledReason}`);
+        }
+      }
+    }
+    return Array.from(new Set(messages));
+  }, [options]);
   const canSave = Boolean(
     providerAccountId && effectiveProfile && !providerDisabled && !profileDisabled && !saving
   );
@@ -254,11 +271,12 @@ function AgentModelPreferenceEditor({
           </select>
         </label>
       </div>
-      {selectedProvider?.disabledReason ? (
-        <p className="m-0 text-sm text-amber-700">{selectedProvider.disabledReason}</p>
-      ) : null}
-      {selectedProfile?.disabledReason ? (
-        <p className="m-0 text-sm text-amber-700">{selectedProfile.disabledReason}</p>
+      {disabledMessages.length > 0 ? (
+        <ul className="m-0 grid gap-1 pl-4 text-sm text-amber-700">
+          {disabledMessages.map((message) => (
+            <li key={message}>{message}</li>
+          ))}
+        </ul>
       ) : null}
       <div className="flex flex-wrap justify-end gap-2">
         <Button type="button" variant="ghost" size="sm" onClick={onCancel}>

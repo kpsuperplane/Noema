@@ -299,9 +299,10 @@ async fn primary_agent_runtime_preference_supplies_turn_model() {
         .expect("preference");
 
     let provider = Arc::new(CapturingProvider::default());
-    let runtime = CodexRuntimeHandle::spawn_with_provider(provider.clone(), store)
-        .await
-        .expect("runtime");
+    let runtime =
+        CodexRuntimeHandle::spawn_with_provider_kind(provider.clone(), store, "foundation_local")
+            .await
+            .expect("runtime");
 
     let started = runtime
         .start_primary_conversation(None, None)
@@ -321,6 +322,45 @@ async fn primary_agent_runtime_preference_supplies_turn_model() {
         requests.last().and_then(|request| request.model.as_deref()),
         Some("default")
     );
+}
+
+#[tokio::test]
+async fn primary_agent_runtime_preference_rejects_provider_mismatch() {
+    let store = crate::store::tests::test_store().await;
+    store.ensure_default_actors().await.expect("actors");
+    let account = store
+        .ensure_default_foundation_local_provider_account()
+        .await
+        .expect("foundation account");
+    store
+        .upsert_agent_runtime_preference(crate::NewAgentRuntimePreference {
+            agent_id: "agent:primary".to_string(),
+            provider_kind: "foundation_local".to_string(),
+            provider_account_id: account.provider_account_id,
+            model_profile: "default".to_string(),
+        })
+        .await
+        .expect("preference");
+
+    let provider = Arc::new(CapturingProvider::default());
+    let runtime = CodexRuntimeHandle::spawn_with_provider(provider.clone(), store)
+        .await
+        .expect("runtime");
+
+    let error = runtime
+        .start_primary_conversation(None, None)
+        .await
+        .expect_err("provider mismatch should fail");
+
+    runtime.shutdown().await;
+
+    assert!(
+        error
+            .to_string()
+            .contains("configured for foundation_local")
+    );
+    let requests = provider.requests.lock().expect("requests");
+    assert!(requests.is_empty());
 }
 
 #[tokio::test]

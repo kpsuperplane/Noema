@@ -39,6 +39,22 @@ impl NoemaStore {
         model: Option<String>,
         cwd: Option<String>,
     ) -> Result<ConversationRecord, StoreError> {
+        self.get_or_create_primary_conversation_for_provider(human_id, "codex", model, cwd)
+            .await
+    }
+
+    /// Return a human's active primary conversation for a provider, creating one when needed.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when the embedded store read or write fails.
+    pub async fn get_or_create_primary_conversation_for_provider(
+        &self,
+        human_id: &str,
+        provider: &str,
+        model: Option<String>,
+        cwd: Option<String>,
+    ) -> Result<ConversationRecord, StoreError> {
         self.ensure_default_actors().await?;
         let mut response = self
             .db
@@ -51,7 +67,7 @@ impl NoemaStore {
             .next()
             .map(|row| row.primary_conversation_id)
             && self
-                .primary_conversation_matches_human(&conversation_id, human_id)
+                .primary_conversation_matches_human(&conversation_id, human_id, provider)
                 .await?
         {
             return Ok(ConversationRecord { conversation_id });
@@ -60,7 +76,7 @@ impl NoemaStore {
         let record = self
             .create_conversation_with_id(
                 allocate_id("conversation"),
-                NewConversation::local_chat(model, cwd),
+                NewConversation::local_chat_for_provider(provider, model, cwd),
             )
             .await?;
         self.db
@@ -374,6 +390,7 @@ impl NoemaStore {
         &self,
         conversation_id: &str,
         human_id: &str,
+        provider: &str,
     ) -> Result<bool, StoreError> {
         let mut response = self
             .db
@@ -385,6 +402,7 @@ impl NoemaStore {
                   AND owner_object_type = 'human'
                   AND owner_object_id = $human_id
                   AND primary_human_id = $human_id
+                  AND provider = $provider
                   AND lifecycle_status = 'active'
                   AND deleted_at = NONE
                 LIMIT 1;
@@ -392,6 +410,7 @@ impl NoemaStore {
             )
             .bind(("conversation_id", conversation_id.to_string()))
             .bind(("human_id", human_id.to_string()))
+            .bind(("provider", provider.to_string()))
             .await?;
         let rows: Vec<ConversationIdRow> = response.take(0)?;
         Ok(!rows.is_empty())

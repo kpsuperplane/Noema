@@ -256,6 +256,16 @@ The next storage slice should stay small and concrete:
   panel rather than as canvas nodes. The local graph inspection view returns
   readable labels and facts for loaded claims, while graph search matching
   still avoids non-public fact/entity text before the bounded result is loaded.
+- Apple Foundation Models local-provider implementation is in review-fix
+  shape: the Swift bridge skeleton lives under
+  `crates/noema-core/apple-foundation-bridge`, Rust provider account/runtime
+  plumbing records `foundation_local` as a provider kind, and the web
+  dashboard exposes per-agent provider/model selection. The daemon runtime now
+  owns its active provider kind and refuses to run a saved agent preference
+  through a different provider, while Settings rejects disabled/non-default
+  provider accounts and exposes only sanitized disabled reasons. Unsupported
+  Windows/Linux builds can still ship without the Swift bridge; Foundation
+  Local remains unavailable there rather than blocking the rest of Noema.
 
 ## Open Loops
 
