@@ -33,6 +33,8 @@ requires a stateful session that can resume from Noema-owned transcript state.
   by omitting Apple Foundation Models runtime support on those platforms.
 - Surface provider availability through existing provider account, onboarding,
   and Settings paths.
+- Let the user choose which provider and model/profile each agent uses from the
+  web Settings dashboard.
 - Keep Noema's structured store as the source of truth for conversations,
   transcript items, memory, and provider account metadata.
 
@@ -45,6 +47,8 @@ requires a stateful session that can resume from Noema-owned transcript state.
 - Do not add Apple-native tool calling, approvals, or memory writes in V1.
 - Do not make Swift, Xcode, or Foundation Models requirements leak into Linux or
   Windows builds.
+- Do not put agent model selection controls in Provider Settings. Provider
+  Settings remains about backend/account availability.
 - Do not add backwards compatibility layers for pre-V1 provider schema changes.
 
 ## Product Decisions
@@ -57,6 +61,12 @@ requires a stateful session that can resume from Noema-owned transcript state.
   provider, not a helper process.
 - Conversation continuity remains owned by Noema structured state. The bridge
   owns live Apple session objects only while the current daemon process runs.
+- Provider accounts answer whether a backend can be used. Agent runtime
+  preferences answer which backend and model/profile an agent uses.
+- Apple Foundation Models should expose user-facing model profiles, not raw
+  framework internals. The first profile is `default`.
+- Agent model selection belongs in Settings -> Agents, on each agent's settings
+  row or detail panel.
 - On unsupported platforms, `foundation_local` is allowed in portable metadata
   and config code, but runtime initialization returns a clean unavailable
   status.
@@ -70,6 +80,7 @@ Portable Rust owns:
 
 - provider kind parsing and config
 - provider account metadata
+- agent runtime preference storage/read models
 - GraphQL provider listing and onboarding status
 - bridge protocol types
 - transcript replay shaping
@@ -173,16 +184,20 @@ policy.
 ### Provider Config
 
 Add `foundation_local` to provider kind parsing and raw config resolution. The
-first config should include a default local model/profile field and optional
-bridge path override. It should not require secrets.
+provider-level config should include an optional bridge path override and
+default profile catalog settings. It should not require secrets.
 
 Example shape:
 
 ```yaml
 provider: foundation_local
 foundation_local:
-  profile: default
+  default_profile: default
 ```
+
+This config is a backend default, not the long-term source of per-agent model
+selection. The active provider/profile for chat should come from the selected
+agent's runtime preferences when they exist.
 
 ### Provider Accounts
 
@@ -197,6 +212,33 @@ auth_method = none
 ```
 
 The status starts as `unknown` and is refreshed by runtime readiness checks.
+
+### Agent Runtime Preferences
+
+Add an agent-owned runtime preference model so each agent can choose a provider
+account and model/profile independently of provider account setup. The minimal
+shape is:
+
+```text
+agent_id
+provider_kind
+provider_account_id
+model_profile
+updated_at
+```
+
+For OpenAI or Codex, `model_profile` can hold the model id already used by the
+provider. For `foundation_local`, `model_profile` is a stable profile id
+reported by the bridge capability handshake, starting with `default`.
+
+Runtime provider selection should resolve in this order:
+
+1. Conversation-level temporary override, when a future UI adds one.
+2. Agent runtime preference.
+3. System default provider config.
+
+The implementation should start with the primary agent but keep the data model
+agent-scoped so additional agents do not require a schema redesign.
 
 ### Runtime Adapter
 
@@ -222,13 +264,73 @@ hard-coding Codex only. Settings should show Apple Foundation Models as a local
 provider with no auth action. On unsupported platforms, Settings should show a
 clear unavailable status and a safe reason.
 
+GraphQL should also expose a Settings-focused agent model preference read/write
+surface. The read model should include each agent's current provider kind,
+provider account id, selected model/profile, available compatible provider
+accounts, available model/profile options for each provider, and availability
+state. The mutation should update only the selected agent's runtime preference
+after validating that the provider account exists and the selected model/profile
+is known or explicitly allowed for that provider.
+
+## Web Dashboard UI
+
+The web Settings dashboard should make model choice an agent setting, not a
+provider setting.
+
+### Providers
+
+The Providers section should remain an infrastructure/status surface:
+
+- list configured provider accounts
+- show provider kind, display name, auth method, status, active/default flags,
+  and safe last error metadata
+- show Apple Foundation Models as a local provider with `auth_method = none`
+- show clear unavailable states for unsupported platform, bridge missing, or
+  Foundation Models unavailable
+- do not offer a model/profile picker here
+
+### Agents
+
+The Agents section should become the user's primary model-selection surface.
+Each agent row or detail panel should show:
+
+- agent display name and id
+- current provider display name, such as `Apple Foundation Models`, `Codex`, or
+  `OpenAI`
+- current model/profile label, such as `Default on-device`
+- provider availability status
+- an edit control for provider/model selection
+
+The edit control should be a compact form inside the Agents settings surface:
+
+1. Provider/account select.
+2. Model/profile select whose options update for the selected provider.
+3. Save and Cancel actions.
+
+Expected option behavior:
+
+- Codex/OpenAI options show configured or known model ids.
+- Apple Foundation Models options show bridge-reported profile labels, starting
+  with `Default on-device`.
+- Unavailable provider accounts remain visible but disabled, with a concise
+  reason.
+- If the currently selected provider/profile becomes unavailable, the current
+  choice remains visible with a warning so the user understands why chat is
+  blocked or degraded.
+
+The Agents section should not expose provider secrets, credential paths, raw
+bridge stderr, prompt internals, memory internals, or tool grants. The UI copy
+should describe the selection as the model this agent uses for chat, while
+leaving provider setup and backend health details in Providers.
+
 ## Data Flow
 
 Fresh conversation:
 
 ```text
 Noema chat turn
-  -> runtime selects foundation_local
+  -> runtime resolves the agent's provider/model preference
+  -> selected provider is foundation_local
   -> Rust adapter starts or reuses bridge
   -> create_session
   -> generate(user turn)
@@ -240,6 +342,7 @@ Resumed conversation:
 
 ```text
 Noema chat turn after restart
+  -> runtime resolves the agent's provider/model preference
   -> load conversation transcript
   -> start bridge
   -> create_session
@@ -284,13 +387,34 @@ Portable Rust tests should cover:
 
 - `foundation_local` config parsing and provider kind round trips.
 - Provider account schema/storage accepts the new provider kind.
+- Agent runtime preference storage validates provider account and model/profile
+  selections.
 - Provider listing returns the configured active default provider accounts.
+- Agent settings GraphQL exposes current provider/model preference and allowed
+  provider/profile options.
+- Agent settings mutation updates one agent's model preference and rejects
+  unknown provider accounts or invalid profile ids.
 - Non-macOS runtime stubs return unavailable without requiring Swift.
 - Bridge protocol serialization and parsing.
 - Replay shaping from Noema transcript items.
 - Lifecycle manager startup, health, cancellation, crash, bounded restart, and
   shutdown behavior using a fake bridge process.
 - Onboarding and Settings read models for unavailable local providers.
+
+Frontend tests should cover:
+
+- Providers Settings shows Apple Foundation Models as a local provider with no
+  auth action.
+- Providers Settings does not render model/profile controls.
+- Agents Settings shows each agent's current provider and model/profile.
+- Agents Settings lets the user open an edit control with provider/account and
+  model/profile selects.
+- Changing provider updates the model/profile options.
+- Unavailable providers/profiles render disabled options or warnings.
+- Saving calls the agent model preference mutation and updates the displayed
+  current choice.
+- The UI does not render provider secrets, credential paths, raw bridge stderr,
+  prompt internals, memory internals, or tool grants.
 
 macOS-only tests should be opt-in and skipped by default:
 

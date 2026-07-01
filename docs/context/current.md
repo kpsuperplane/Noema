@@ -87,7 +87,9 @@ The next storage slice should stay small and concrete:
   replaying Noema-owned persisted transcript state. Linux and Windows builds
   must continue to compile and deploy without Foundation Models support, showing
   the provider as unavailable rather than making Apple tooling a global
-  dependency.
+  dependency. Provider Settings should show backend/account availability, while
+  the web Settings Agents surface should own per-agent provider and
+  model/profile selection.
 - The CLI chat path now uses GraphQL for `startPrimaryConversation` and
   `sendConversationTurn` streaming. It still uses the daemon Unix-socket
   protocol only for local lifecycle cleanup such as connection setup,
