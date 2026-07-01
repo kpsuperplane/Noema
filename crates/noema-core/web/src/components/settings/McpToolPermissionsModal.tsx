@@ -11,7 +11,7 @@ import {
   DialogHeader,
   DialogTitle
 } from "@/components/ui/dialog";
-import { Item, ItemActions, ItemContent, ItemDescription, ItemTitle } from "@/components/ui/item";
+import { Item, ItemActions, ItemContent, ItemTitle } from "@/components/ui/item";
 import {
   McpToolsDocument,
   SaveToolCalibrationDocument,
@@ -208,18 +208,48 @@ function ToolPermissionItem({
         <div className="flex min-w-0 flex-wrap items-center gap-2">
           <ItemTitle>{tool.name}</ItemTitle>
           {attention ? <Badge variant="destructive">{attention}</Badge> : null}
-          {draft.disabled ? <Badge variant="outline">Disabled</Badge> : null}
         </div>
-        {tool.description ? (
-          <ItemDescription className="truncate text-sm">{tool.description}</ItemDescription>
-        ) : null}
+        <ToolPermissionSummary draft={draft} />
       </ItemContent>
       <ItemActions>
-        <Button type="button" variant="ghost" size="icon-sm" aria-label={`Edit ${tool.name}`} onClick={onEdit}>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          aria-label={`Edit ${tool.name}`}
+          onClick={onEdit}
+        >
           <Pencil className="size-4" aria-hidden="true" />
         </Button>
       </ItemActions>
     </Item>
+  );
+}
+
+function ToolPermissionSummary({ draft }: { draft: ToolPermissionDraft }) {
+  return (
+    <div
+      className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5"
+      aria-label="Configured tool permissions"
+    >
+      <ClassificationBadge label="Read" value={draft.readClassification} />
+      <ClassificationBadge label="Write" value={draft.writeClassification} />
+      <ClassificationBadge label="Export" value={draft.exportClassification} />
+      <Badge variant={draft.disabled ? "outline" : "secondary"}>
+        {draft.disabled ? "Disabled" : "Enabled"}
+      </Badge>
+    </div>
+  );
+}
+
+function ClassificationBadge({ label, value }: { label: string; value: string }) {
+  return (
+    <Badge
+      variant={value === "none" ? "outline" : "secondary"}
+      className="font-mono text-xs"
+    >
+      {label}: {value}
+    </Badge>
   );
 }
 
