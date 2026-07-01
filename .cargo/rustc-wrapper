@@ -1,8 +1,9 @@
 #!/bin/sh
 set -eu
 
-if command -v sccache >/dev/null 2>&1; then
-  sccache "$@" && exit 0
+if ! command -v sccache >/dev/null 2>&1; then
+  echo "error: sccache is required for Noema builds but was not found in PATH" >&2
+  exit 127
 fi
 
-exec "$@"
+exec sccache "$@"
