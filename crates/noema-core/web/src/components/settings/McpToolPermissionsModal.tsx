@@ -24,7 +24,6 @@ type McpTool = McpToolsQuery["mcpTools"][number];
 type Agent = AgentsQuery["agents"][number];
 
 const classificationOptions = ["none", "trusted", "untrusted", "mixed"] as const;
-const statusOptions = ["needs_review", "blocked_unresolved_ownership", "ready", "disabled"] as const;
 const extractorSourceOptions = [
   "arguments",
   "structured_content",
@@ -59,6 +58,15 @@ export function McpToolPermissionsModal({
   const [saveError, setSaveError] = React.useState<string | null>(null);
 
   async function handleSave(tool: McpTool, draft: ToolPermissionDraft) {
+    const status = derivedCalibrationStatus(draft);
+    const ownerExtractors = draft.ownerExtractors
+      .filter((extractor) => !draft.disabled || extractor.path.trim())
+      .map(({ source, selectorKind, path }) => ({
+        source,
+        selectorKind,
+        path: path.trim()
+      }));
+    const reviewed = status === "ready" || status === "blocked_unresolved_ownership";
     setSaveError(null);
     try {
       await saveToolCalibration({
@@ -69,17 +77,12 @@ export function McpToolPermissionsModal({
             readClassification: draft.readClassification,
             writeClassification: draft.writeClassification,
             exportClassification: draft.exportClassification,
-            ownerExtractors: draft.ownerExtractors.map(({ source, selectorKind, path }) => ({
-              source,
-              selectorKind,
-              path
-            })),
+            ownerExtractors,
             enabledAgentIds: draft.enabledAgentIds,
             enabledScopeIds: draft.enabledScopeIds,
-            status: draft.status,
-            reviewedBy: draft.status === "needs_review" ? null : "human:local",
-            reviewedMetadataFingerprint:
-              draft.status === "needs_review" ? null : tool.metadataFingerprint
+            status,
+            reviewedBy: reviewed ? "human:local" : null,
+            reviewedMetadataFingerprint: reviewed ? tool.metadataFingerprint : null
           }
         }
       });
@@ -145,7 +148,7 @@ type ToolPermissionDraft = {
   ownerExtractors: OwnerExtractorDraft[];
   enabledAgentIds: string[];
   enabledScopeIds: string[];
-  status: string;
+  disabled: boolean;
 };
 
 function ToolPermissionEditor({
@@ -175,7 +178,7 @@ function ToolPermissionEditor({
     enabledScopeIds: tool.calibration?.enabledScopeIds.length
       ? [...tool.calibration.enabledScopeIds]
       : ["human:local"],
-    status: tool.calibration?.status ?? "needs_review"
+    disabled: tool.calibration?.status === "disabled"
   }));
   const [localError, setLocalError] = React.useState<string | null>(null);
 
@@ -231,11 +234,10 @@ function ToolPermissionEditor({
             setDraft((current) => ({ ...current, exportClassification }))
           }
         />
-        <SelectField
-          label="Status"
-          value={draft.status}
-          options={statusOptions}
-          onChange={(status) => setDraft((current) => ({ ...current, status }))}
+        <CheckboxField
+          label="Disabled"
+          checked={draft.disabled}
+          onChange={(disabled) => setDraft((current) => ({ ...current, disabled }))}
         />
       </div>
 
@@ -315,7 +317,7 @@ function OwnerExtractorsEditor({
       </div>
       {draft.ownerExtractors.length === 0 ? (
         <p className="m-0 text-sm text-muted-foreground">
-          No owner extractor configured. Save as blocked or add one before marking the tool ready.
+          No owner extractor configured. Mixed tools stay blocked until one is added.
         </p>
       ) : null}
       {draft.ownerExtractors.map((extractor) => (
@@ -434,6 +436,7 @@ function updateExtractor(
 }
 
 function validateReadyDraft(draft: ToolPermissionDraft) {
+  if (draft.disabled) return null;
   const hasAnyClassification = [
     draft.readClassification,
     draft.writeClassification,
@@ -447,18 +450,28 @@ function validateReadyDraft(draft: ToolPermissionDraft) {
   const hasBlankExtractorPath = draft.ownerExtractors.some((extractor) => !extractor.path.trim());
 
   if (hasBlankExtractorPath) return "Owner extractor paths cannot be empty.";
-  if (draft.status !== "ready") return null;
-  if (!hasAnyClassification) return "Ready tools need at least one non-none permission axis.";
-  if (hasMixedClassification && draft.ownerExtractors.length === 0) {
-    return "Mixed tools need at least one owner extractor before they can be ready.";
-  }
+  if (!hasAnyClassification) return "Enabled tools need at least one non-none permission axis.";
+  if (hasMixedClassification && draft.ownerExtractors.length === 0) return null;
   if (draft.enabledAgentIds.length === 0) {
-    return "Ready tools need at least one enabled agent.";
+    return "Enabled tools need at least one enabled agent.";
   }
   if (draft.enabledScopeIds.length === 0) {
-    return "Ready tools need at least one enabled scope.";
+    return "Enabled tools need at least one enabled scope.";
   }
   return null;
+}
+
+function derivedCalibrationStatus(draft: ToolPermissionDraft) {
+  if (draft.disabled) return "disabled";
+  const hasMixedClassification = [
+    draft.readClassification,
+    draft.writeClassification,
+    draft.exportClassification
+  ].includes("mixed");
+  if (hasMixedClassification && draft.ownerExtractors.length === 0) {
+    return "blocked_unresolved_ownership";
+  }
+  return "ready";
 }
 
 function toolPermissionEditorKey(tool: McpTool) {
@@ -467,7 +480,7 @@ function toolPermissionEditorKey(tool: McpTool) {
     tool.calibration?.readClassification ?? "mixed",
     tool.calibration?.writeClassification ?? "none",
     tool.calibration?.exportClassification ?? "none",
-    tool.calibration?.status ?? "needs_review",
+    tool.calibration?.status === "disabled" ? "disabled" : "enabled",
     tool.calibration?.ownerExtractors.map((extractor) => extractor.path).join(",") ?? "",
     tool.calibration?.enabledAgentIds.join(",") ?? "",
     tool.calibration?.enabledScopeIds.join(",") ?? ""
@@ -499,6 +512,30 @@ function SelectField<T extends readonly string[]>({
           </option>
         ))}
       </select>
+    </label>
+  );
+}
+
+function CheckboxField({
+  label,
+  checked,
+  onChange
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <label className="grid content-start gap-2 text-sm font-medium">
+      {label}
+      <span className="flex h-9 items-center rounded-md border border-[var(--border-subtle)] px-3">
+        <input
+          aria-label="Disable tool"
+          type="checkbox"
+          checked={checked}
+          onChange={(event) => onChange(event.currentTarget.checked)}
+        />
+      </span>
     </label>
   );
 }
