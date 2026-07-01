@@ -73,7 +73,7 @@ export function ChatSurface({
 
   return (
     <section
-      className="grid h-full min-h-0 w-full grid-rows-[minmax(0,1fr)_auto] overflow-hidden pb-[22px] [--chat-column-width:min(860px,calc(100%_-_48px))] max-[760px]:pb-[18px] max-[760px]:[--chat-column-width:calc(100%_-_40px)]"
+      className="grid h-full min-h-0 w-full grid-rows-[minmax(0,1fr)_auto] overflow-hidden pb-[22px] [--chat-column-width:min(860px,calc(100%_-_48px))] max-[760px]:pb-[max(18px,env(safe-area-inset-bottom))] max-[760px]:[--chat-column-width:calc(100%_-_40px)]"
       aria-label="Noema chat"
     >
       {transcript.length === 0 ? (

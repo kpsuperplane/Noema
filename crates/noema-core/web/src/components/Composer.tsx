@@ -38,7 +38,7 @@ export function composerTextareaProps() {
   return {
     rows: 1,
     className:
-      "min-h-9 min-w-0 w-full resize-none overflow-y-hidden border-transparent bg-transparent px-2.5 py-1.5 leading-6 text-primary-foreground placeholder:text-primary-foreground/70 focus-visible:border-transparent focus-visible:ring-0 disabled:opacity-70"
+      "min-h-9 min-w-0 w-full resize-none overflow-y-hidden border-transparent bg-transparent px-2.5 py-1.5 text-base leading-6 text-primary-foreground placeholder:text-primary-foreground/70 focus-visible:border-transparent focus-visible:ring-0 disabled:opacity-70"
   };
 }
 
@@ -226,7 +226,7 @@ export const Composer = React.forwardRef<HTMLTextAreaElement, ComposerProps>(fun
     >
       <div
         data-slot="composer-bubble"
-        className="relative w-fit min-w-[min(13rem,100%)] max-w-full rounded-4xl bg-primary p-1.5 pr-12 text-primary-foreground shadow-[0_8px_24px_rgba(23,22,15,0.08)]"
+        className="relative w-fit min-w-[min(13rem,100%)] max-w-full rounded-4xl bg-primary p-1.5 pr-12 text-primary-foreground shadow-[0_8px_24px_rgba(23,22,15,0.08)] max-[760px]:pr-14"
       >
         <div data-slot="composer-textarea-wrap" className="min-w-0" style={textareaWrapStyle}>
           <Textarea
@@ -249,7 +249,7 @@ export const Composer = React.forwardRef<HTMLTextAreaElement, ComposerProps>(fun
         <Button
           type="submit"
           size="icon-lg"
-          className="absolute right-1.5 bottom-1.5 rounded-full bg-primary-foreground text-primary hover:bg-primary-foreground/90 disabled:text-primary/70"
+          className="absolute right-1.5 bottom-1.5 touch-manipulation rounded-full bg-primary-foreground text-primary hover:bg-primary-foreground/90 disabled:text-primary/70 max-[760px]:right-1 max-[760px]:bottom-1 max-[760px]:size-11"
           aria-label={submitState.label}
           disabled={submitState.disabled}
         >
