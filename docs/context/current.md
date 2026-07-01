@@ -89,7 +89,11 @@ The next storage slice should stay small and concrete:
   the provider as unavailable rather than making Apple tooling a global
   dependency. Provider Settings should show backend/account availability, while
   the web Settings Agents surface should own per-agent provider and
-  model/profile selection.
+  model/profile selection. The portable Rust backend now includes
+  `foundation_local` config/provider metadata, default provider-account seeding,
+  agent runtime preferences, GraphQL read/write APIs, provider bridge protocol
+  and lifecycle stubs, and runtime model/profile preference resolution; the
+  Swift bridge and web controls remain separately owned implementation lanes.
 - The CLI chat path now uses GraphQL for `startPrimaryConversation` and
   `sendConversationTurn` streaming. It still uses the daemon Unix-socket
   protocol only for local lifecycle cleanup such as connection setup,
