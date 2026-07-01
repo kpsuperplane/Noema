@@ -1,8 +1,8 @@
-import { Marker, MarkerContent, MarkerIcon } from "@/components/ui/marker";
 import { WrenchIcon } from "lucide-react";
 import { toolMarkerLabel, toolMarkerPending, toolMarkerTone } from "./markerModel";
 import type { ToolMarkerGroup } from "./renderModel";
 import { ToolDetailAttachment } from "./ToolDetailAttachment";
+import { TranscriptMarkerFrame } from "./TranscriptMarkerFrame";
 
 export function ToolMarker({
   marker,
@@ -18,20 +18,18 @@ export function ToolMarker({
 
   return (
     <div className="grid w-full max-w-full gap-2">
-      <Marker
-        render={<button type="button" />}
-        aria-expanded={open}
-        aria-controls={`${marker.id}-details`}
-        onClick={onToggle}
+      <TranscriptMarkerFrame
         tone={tone}
         pending={pending}
-        className="w-fit rounded-lg px-2 py-1 transition-colors hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:outline-none"
+        icon={<WrenchIcon />}
+        buttonProps={{
+          "aria-expanded": open,
+          "aria-controls": `${marker.id}-details`,
+          onClick: onToggle
+        }}
       >
-        <MarkerIcon>
-          <WrenchIcon />
-        </MarkerIcon>
-        <MarkerContent>{toolMarkerLabel(marker)}</MarkerContent>
-      </Marker>
+        {toolMarkerLabel(marker)}
+      </TranscriptMarkerFrame>
       {open ? <ToolDetailAttachment id={`${marker.id}-details`} marker={marker} /> : null}
     </div>
   );

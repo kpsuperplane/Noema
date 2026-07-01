@@ -1,11 +1,45 @@
-import { cn } from "@/lib/utils";
+import * as stylex from "@stylexjs/stylex";
 import { IdentityAvatar, LOCAL_AGENT_AVATAR_ID, LOCAL_HUMAN_AVATAR_ID } from "../IdentityAvatar";
-import {
-  Message as MessagePrimitive,
-  MessageAvatar,
-  MessageContent
-} from "@/components/ui/message";
 import type { TranscriptLane } from "./renderModel";
+
+const styles = stylex.create({
+  root: {
+    position: "relative",
+    display: "flex",
+    width: "100%",
+    maxWidth: 760,
+    minWidth: 0,
+    gap: 8,
+    fontSize: 14
+  },
+  human: {
+    flexDirection: "row-reverse"
+  },
+  avatar: {
+    display: "flex",
+    width: "fit-content",
+    minWidth: 32,
+    alignItems: "center",
+    justifyContent: "center",
+    alignSelf: "flex-end",
+    flexShrink: 0,
+    overflow: "hidden"
+  },
+  hiddenAvatar: {
+    visibility: "hidden"
+  },
+  content: {
+    display: "flex",
+    width: "100%",
+    minWidth: 0,
+    flexDirection: "column",
+    gap: 10,
+    overflowWrap: "anywhere"
+  },
+  humanContent: {
+    alignItems: "flex-end"
+  }
+});
 
 export function TranscriptRow({
   lane,
@@ -20,11 +54,11 @@ export function TranscriptRow({
   const actorType = lane === "human" ? "human" : "agent";
 
   return (
-    <MessagePrimitive align={lane === "human" ? "end" : "start"} className="max-w-[760px]">
-      <MessageAvatar aria-hidden={!showAvatar} className={cn(!showAvatar && "invisible")}>
+    <div {...stylex.props(styles.root, lane === "human" && styles.human)} data-lane={lane}>
+      <div {...stylex.props(styles.avatar, !showAvatar && styles.hiddenAvatar)} aria-hidden={!showAvatar}>
         <IdentityAvatar actorId={actorId} actorType={actorType} size="sm" />
-      </MessageAvatar>
-      <MessageContent>{children}</MessageContent>
-    </MessagePrimitive>
+      </div>
+      <div {...stylex.props(styles.content, lane === "human" && styles.humanContent)}>{children}</div>
+    </div>
   );
 }

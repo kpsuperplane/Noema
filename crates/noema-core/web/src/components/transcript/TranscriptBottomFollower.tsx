@@ -1,5 +1,5 @@
-import { useMessageScroller } from "@/components/ui/message-scroller";
 import * as React from "react";
+import { useTranscriptScroller } from "./TranscriptScroller";
 
 export const ARRIVAL_SCROLL_FOLLOW_DURATION_MS = 360;
 
@@ -12,7 +12,7 @@ export function TranscriptBottomFollower({
   followBottomRef: React.MutableRefObject<boolean>;
   scrollKey: string;
 }) {
-  const { scrollToEnd } = useMessageScroller();
+  const { scrollToEnd } = useTranscriptScroller();
 
   React.useLayoutEffect(() => {
     if (followBottomRef.current) {

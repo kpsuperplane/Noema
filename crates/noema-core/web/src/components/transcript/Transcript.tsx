@@ -1,12 +1,3 @@
-import {
-  MessageScroller,
-  MessageScrollerButton,
-  MessageScrollerContent,
-  MessageScrollerItem,
-  MessageScrollerProvider,
-  MessageScrollerViewport
-} from "@/components/ui/message-scroller";
-import { cn } from "@/lib/utils";
 import * as React from "react";
 import type { TranscriptEntry } from "../../types";
 import { ActivityRow } from "./ActivityRow";
@@ -36,6 +27,7 @@ import { StructuredCard } from "./StructuredCard";
 import { ToolMarker } from "./ToolMarker";
 import { TranscriptBottomFollower, ARRIVAL_SCROLL_FOLLOW_DURATION_MS } from "./TranscriptBottomFollower";
 import { TranscriptRow } from "./TranscriptRow";
+import { TranscriptScroller, TranscriptScrollerItem, TranscriptScrollerProvider } from "./TranscriptScroller";
 import { TypingMessage } from "./TypingMessage";
 import type { ConversationAgentStatus } from "../../types";
 
@@ -102,63 +94,51 @@ export function Transcript({
   }, [arrivalScrollKey, renderedEntries, seenArrivalMessageIds, textAnimatingMessageIds]);
 
   return (
-    <MessageScrollerProvider autoScroll defaultScrollPosition="end" scrollPreviousItemPeek={56}>
-      <MessageScroller className="min-h-0 overflow-hidden">
-        <MessageScrollerViewport aria-label="Conversation transcript" onScroll={handleViewportScroll}>
-          <MessageScrollerContent className="mx-auto flex min-h-full w-[var(--chat-column-width)] flex-col justify-end gap-3 px-0.5 py-6">
-            {renderedEntries.map((entry, index) => {
-              const lane = transcriptLane(entry);
-              const previousEntry = renderedEntries[index - 1];
-              const previousLane = previousEntry ? transcriptLane(previousEntry) : null;
-              const showAvatar = previousLane !== lane;
-              const messageId = renderedEntryMessageId(entry);
-              const animateArrival = shouldAnimateRenderedEntryArrivalForSeen(
-                entry,
-                messageId,
-                seenArrivalMessageIds
-              );
-              const previousEntryMessageId = previousEntry ? renderedEntryMessageId(previousEntry) : null;
-              const previousEntryAnimateArrival =
-                previousEntry && previousEntryMessageId
-                  ? shouldAnimateRenderedEntryArrivalForSeen(previousEntry, previousEntryMessageId, seenArrivalMessageIds)
-                  : false;
-              const revealAfterArrival = shouldRevealRenderedEntryAfterArrival(entry, previousEntryAnimateArrival);
-              const animateText = shouldAnimateRenderedEntryTextForSeen(
-                entry,
-                messageId,
-                seenArrivalMessageIds,
-                textAnimatingMessageIds
-              );
+    <TranscriptScrollerProvider>
+      <TranscriptScroller aria-label="Conversation transcript" onViewportScroll={handleViewportScroll}>
+        {renderedEntries.map((entry, index) => {
+          const lane = transcriptLane(entry);
+          const previousEntry = renderedEntries[index - 1];
+          const previousLane = previousEntry ? transcriptLane(previousEntry) : null;
+          const showAvatar = previousLane !== lane;
+          const messageId = renderedEntryMessageId(entry);
+          const animateArrival = shouldAnimateRenderedEntryArrivalForSeen(entry, messageId, seenArrivalMessageIds);
+          const previousEntryMessageId = previousEntry ? renderedEntryMessageId(previousEntry) : null;
+          const previousEntryAnimateArrival =
+            previousEntry && previousEntryMessageId
+              ? shouldAnimateRenderedEntryArrivalForSeen(previousEntry, previousEntryMessageId, seenArrivalMessageIds)
+              : false;
+          const revealAfterArrival = shouldRevealRenderedEntryAfterArrival(entry, previousEntryAnimateArrival);
+          const animateText = shouldAnimateRenderedEntryTextForSeen(
+            entry,
+            messageId,
+            seenArrivalMessageIds,
+            textAnimatingMessageIds
+          );
 
-              return (
-                <MessageScrollerItem
-                  key={messageId}
-                  className={cn(
-                    "flex w-full",
-                    lane === "human" && "justify-end",
-                    shouldCompactMarkerClusterSpacing(entry, previousEntry) && "-mt-2"
-                  )}
-                  data-arrival={animateArrival ? "true" : undefined}
-                  data-reveal-after-arrival={revealAfterArrival ? "true" : undefined}
-                  messageId={messageId}
-                  scrollAnchor={shouldAnchorRenderedEntry(entry)}
-                >
-                  <RenderedTranscriptEntryFrame animateArrival={animateArrival}>
-                    {renderTranscriptRenderEntry(entry, expandedActivities, onToggleActivity, showAvatar, animateText)}
-                  </RenderedTranscriptEntryFrame>
-                </MessageScrollerItem>
-              );
-            })}
-          </MessageScrollerContent>
-        </MessageScrollerViewport>
-        <MessageScrollerButton />
-      </MessageScroller>
+          return (
+            <TranscriptScrollerItem
+              key={messageId}
+              align={lane === "human" ? "end" : "start"}
+              compact={shouldCompactMarkerClusterSpacing(entry, previousEntry)}
+              data-arrival={animateArrival ? "true" : undefined}
+              data-reveal-after-arrival={revealAfterArrival ? "true" : undefined}
+              messageId={messageId}
+              scrollAnchor={shouldAnchorRenderedEntry(entry)}
+            >
+              <RenderedTranscriptEntryFrame animateArrival={animateArrival}>
+                {renderTranscriptRenderEntry(entry, expandedActivities, onToggleActivity, showAvatar, animateText)}
+              </RenderedTranscriptEntryFrame>
+            </TranscriptScrollerItem>
+          );
+        })}
+      </TranscriptScroller>
       <TranscriptBottomFollower
         arrivalScrollKey={arrivalScrollKey}
         followBottomRef={followBottomRef}
         scrollKey={scrollKey}
       />
-    </MessageScrollerProvider>
+    </TranscriptScrollerProvider>
   );
 }
 

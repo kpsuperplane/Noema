@@ -1,4 +1,3 @@
-import { Marker, MarkerContent, MarkerIcon } from "@/components/ui/marker";
 import { BrainIcon } from "lucide-react";
 import { memoryCardsFromStructuredItem } from "../../memoryCards";
 import type { TurnTranscriptItem } from "../../types";
@@ -8,6 +7,7 @@ import {
   metadataCount
 } from "./markerModel";
 import { MemoryDetailAttachment } from "./MemoryDetailAttachment";
+import { TranscriptMarkerFrame } from "./TranscriptMarkerFrame";
 
 export function MemoryMarker({
   id,
@@ -32,20 +32,18 @@ export function MemoryMarker({
 
   return (
     <div className="grid w-full max-w-full gap-2">
-      <Marker
-        render={<button type="button" />}
-        aria-expanded={open}
-        aria-controls={`${id}-details`}
-        onClick={onToggle}
+      <TranscriptMarkerFrame
         tone={tone}
         pending={started}
-        className="w-fit rounded-lg px-2 py-1 transition-colors hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:outline-none"
+        icon={<BrainIcon />}
+        buttonProps={{
+          "aria-expanded": open,
+          "aria-controls": `${id}-details`,
+          onClick: onToggle
+        }}
       >
-        <MarkerIcon>
-          <BrainIcon />
-        </MarkerIcon>
-        <MarkerContent>{label}</MarkerContent>
-      </Marker>
+        {label}
+      </TranscriptMarkerFrame>
       {open ? (
         <MemoryDetailAttachment id={`${id}-details`} extraction={extraction} memories={memories} failed={failed} />
       ) : null}

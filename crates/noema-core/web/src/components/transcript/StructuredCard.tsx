@@ -1,13 +1,8 @@
-import {
-  Attachment,
-  AttachmentContent,
-  AttachmentDescription,
-  AttachmentTitle
-} from "@/components/ui/attachment";
 import { memoryCardsFromStructuredItem } from "../../memoryCards";
 import type { TurnTranscriptItem } from "../../types";
 import { MemoryMarker } from "./MemoryMarker";
 import { MemoryStructuredCard } from "./MemoryStructuredCard";
+import { TranscriptAttachmentCard } from "./TranscriptAttachmentCard";
 
 export function StructuredCard({
   item,
@@ -28,11 +23,6 @@ export function StructuredCard({
   }
 
   return (
-    <Attachment className="max-w-full">
-      <AttachmentContent>
-        <AttachmentTitle>{item.schema}</AttachmentTitle>
-        <AttachmentDescription>Structured card placeholder</AttachmentDescription>
-      </AttachmentContent>
-    </Attachment>
+    <TranscriptAttachmentCard title={item.schema} description="Structured card placeholder" />
   );
 }
