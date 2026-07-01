@@ -118,8 +118,7 @@ export function McpServerSetupFlow({
   const oauthAuthorizationSupported =
     setupResult?.auth?.oauthAuthorizationSupported ?? false;
   const activeAuthMode = oauthAuthorizationSupported ? authMode : "secrets";
-  const visibleError =
-    formError ?? setupError ?? (setupScreen === "auth" ? setupResult?.setupError : null) ?? null;
+  const visibleError = formError ?? setupError ?? null;
 
   function renderHttpTransportFields() {
     return (
