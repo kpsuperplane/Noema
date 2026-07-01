@@ -50,11 +50,11 @@ the task testable after each milestone:
 - `crates/noema-core/web/bun.lock`
   - Updated by `bun install`, `bun add`, and `bun remove`.
 - `crates/noema-core/web/vite.config.ts`
-  - Remove Tailwind Vite plugin. Add StyleX Babel transform through the React plugin.
+  - Add StyleX Babel transform through the React plugin. Keep the Tailwind Vite plugin until Task 9 because current JSX still relies on Tailwind utilities.
 - `crates/noema-core/web/vite.desktop.config.ts`
-  - Same StyleX/Tailwind change as browser Vite config, preserving desktop asset rewrite plugin.
+  - Same StyleX addition as browser Vite config, preserving the Tailwind plugin and desktop asset rewrite plugin until Task 9.
 - `crates/noema-core/web/src/styles.css`
-  - Replace Tailwind/shadcn imports and token aliases with Astryx imports, Noema theme import, root sizing, Tauri transparency, and global animations only.
+  - Add Astryx imports and the Noema theme while keeping Tailwind/shadcn imports and token aliases until JSX utility classes are migrated; later cleanup reduces this file to Astryx imports, root sizing, Tauri transparency, and global animations only.
 - `crates/noema-core/web/src/main.tsx`
   - Keep importing `./styles.css`; no app state changes.
 - `crates/noema-core/web/src/lib/utils.ts`
@@ -207,12 +207,13 @@ Edit `crates/noema-core/web/src/theme/noema-neutral.css`. Preserve Astryx variab
 
 Map Astryx semantic background, foreground, surface, border, primary, accent, danger, info, radius, and typography tokens to those Noema variables in the same file.
 
-- [ ] **Step 6: Replace Vite Tailwind plugin with StyleX Babel transform**
+- [ ] **Step 6: Add StyleX Babel transform while keeping Tailwind active**
 
-Edit `crates/noema-core/web/vite.config.ts` to remove `@tailwindcss/vite` and use this plugin shape:
+Edit `crates/noema-core/web/vite.config.ts` to keep `@tailwindcss/vite` and add StyleX through the React plugin:
 
 ```ts
 import path from "node:path";
+import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
@@ -235,7 +236,8 @@ export default defineConfig({
       babel: {
         plugins: [stylexPlugin]
       }
-    })
+    }),
+    tailwindcss()
   ],
   base: "/assets/",
   publicDir: "public",
@@ -265,7 +267,7 @@ export default defineConfig({
 
 - [ ] **Step 7: Apply the same StyleX transform to desktop Vite config**
 
-Edit `crates/noema-core/web/vite.desktop.config.ts` to remove Tailwind and keep the desktop asset plugin:
+Edit `crates/noema-core/web/vite.desktop.config.ts` to keep Tailwind and the desktop asset plugin while adding StyleX:
 
 ```ts
 const stylexPlugin = [
@@ -282,32 +284,58 @@ const stylexPlugin = [
 ];
 ```
 
-Use `react({ babel: { plugins: [stylexPlugin] } })` as the first plugin, followed by the existing `noema-desktop-public-assets` plugin unchanged.
+Use `react({ babel: { plugins: [stylexPlugin] } })` as the first plugin, followed by `tailwindcss()`, followed by the existing `noema-desktop-public-assets` plugin unchanged.
 
-- [ ] **Step 8: Replace global CSS imports**
+- [ ] **Step 8: Add Astryx global CSS imports without removing Tailwind yet**
 
-Edit the top of `crates/noema-core/web/src/styles.css`:
+Edit the top of `crates/noema-core/web/src/styles.css` so it keeps the existing Tailwind/shadcn imports and then imports Astryx:
 
 ```css
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
 @import "@astryxdesign/core/reset.css";
 @import "@astryxdesign/core/astryx.css";
 @import "@astryxdesign/theme-neutral/theme.css";
 @import "./theme/noema-neutral.css";
 ```
 
-Delete:
+Keep the existing Tailwind bridge until Task 9:
 
 ```css
-@import "tailwindcss";
-@import "tw-animate-css";
-@import "shadcn/tailwind.css";
 @custom-variant dark (&:is(.dark *));
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --font-heading: var(--font-display);
+  --font-sans: var(--font-body);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
 ```
 
-Also delete the whole Tailwind `@theme inline` block that maps `--color-*`,
-`--font-*`, and `--radius-*` variables.
-
-Keep root height, box sizing, Tauri transparency, and current keyframes for now.
+Keep root height, box sizing, Tauri transparency, and current keyframes for now. Remove the Tailwind imports, Tailwind Vite plugin, `@custom-variant`, and `@theme inline` only in Task 9 after JSX utility classes have been migrated.
 
 - [ ] **Step 9: Validate foundation compile**
 
@@ -319,7 +347,7 @@ bun run lint
 bun run build
 ```
 
-Expected: both commands pass before committing. Tailwind class strings may still exist in JSX because they are ordinary string props, but bundling, package imports, Astryx CSS imports, and StyleX transform setup must be valid.
+Expected: both commands pass before committing. Tailwind class strings may still exist in JSX and must continue to render because Tailwind remains active until Task 9.
 
 - [ ] **Step 10: Commit foundation**
 
