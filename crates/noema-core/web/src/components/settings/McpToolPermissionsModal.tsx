@@ -94,7 +94,7 @@ export function McpToolPermissionsModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className="grid-rows-[auto_minmax(0,1fr)]">
         <DialogHeader>
           <DialogTitle>Configure tool permissions</DialogTitle>
           <DialogDescription>
@@ -102,7 +102,7 @@ export function McpToolPermissionsModal({
             owner resolution, agent visibility, and scope visibility.
           </DialogDescription>
         </DialogHeader>
-        <DialogBody className="grid gap-3">
+        <DialogBody className="grid gap-3 overflow-y-auto">
           {result.loading && !result.data ? (
             <p className="m-0 flex items-center gap-2 text-sm text-muted-foreground">
               <Loader2 className="size-4 animate-spin" aria-hidden="true" />
@@ -197,9 +197,7 @@ function ToolPermissionEditor({
           <h3 className="m-0 break-words font-heading text-base leading-tight tracking-normal">
             {tool.name}
           </h3>
-          {tool.description ? (
-            <p className="m-0 text-sm text-muted-foreground">{tool.description}</p>
-          ) : null}
+          {tool.description ? <ToolDescription description={tool.description} /> : null}
         </div>
       </div>
 
@@ -251,6 +249,28 @@ function ToolPermissionEditor({
         Save
       </Button>
     </article>
+  );
+}
+
+function ToolDescription({ description }: { description: string }) {
+  const [expanded, setExpanded] = React.useState(false);
+
+  return (
+    <div className="min-w-0 text-sm text-muted-foreground">
+      <div className={expanded ? "grid gap-1" : "flex min-w-0 items-baseline gap-2"}>
+        <p className={expanded ? "m-0 whitespace-pre-wrap" : "m-0 min-w-0 flex-1 truncate"}>
+          {description}
+        </p>
+        <Button
+          type="button"
+          variant="link"
+          className="h-auto w-fit shrink-0 p-0 text-xs"
+          onClick={() => setExpanded((current) => !current)}
+        >
+          {expanded ? "Show less" : "Show more..."}
+        </Button>
+      </div>
+    </div>
   );
 }
 
