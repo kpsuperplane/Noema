@@ -222,6 +222,7 @@ impl NoemaStore {
             item_id,
             conversation_id: item.conversation_id,
             turn_id: item.turn_id,
+            sequence_index,
             kind: item.kind,
             status: item.status,
             content_text: item.content_text,
@@ -292,6 +293,42 @@ impl NoemaStore {
             .await?;
         let mut rows: Vec<ConversationItemRow> = response.take(0)?;
         rows.reverse();
+        rows.into_iter().map(conversation_item_from_row).collect()
+    }
+
+    /// Return text transcript items after a compacted context checkpoint.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when the conversation is missing, the embedded
+    /// store read fails, or stored enums are invalid.
+    pub async fn list_conversation_items_after_sequence_for_context(
+        &self,
+        conversation_id: &str,
+        after_sequence_index: i64,
+        limit: i64,
+    ) -> Result<Vec<ConversationItemRecord>, StoreError> {
+        self.require_conversation(conversation_id).await?;
+        let limit = limit.clamp(1, 80);
+        let mut response = self
+            .db
+            .query(
+                r#"
+                SELECT item_id, conversation_id, turn_id, kind, status, content_text, payload_json, sequence_index
+                FROM conversation_items
+                WHERE conversation_id = $conversation_id
+                  AND deleted_at = NONE
+                  AND sequence_index > $after_sequence_index
+                  AND kind IN ['user_text', 'assistant_text']
+                ORDER BY sequence_index ASC
+                LIMIT $limit;
+                "#,
+            )
+            .bind(("conversation_id", conversation_id.to_string()))
+            .bind(("after_sequence_index", after_sequence_index))
+            .bind(("limit", limit))
+            .await?;
+        let rows: Vec<ConversationItemRow> = response.take(0)?;
         rows.into_iter().map(conversation_item_from_row).collect()
     }
 
@@ -425,7 +462,10 @@ impl NoemaStore {
         Ok(!rows.is_empty())
     }
 
-    async fn require_conversation(&self, conversation_id: &str) -> Result<(), StoreError> {
+    pub(crate) async fn require_conversation(
+        &self,
+        conversation_id: &str,
+    ) -> Result<(), StoreError> {
         if self.conversation_exists(conversation_id).await? {
             Ok(())
         } else {
@@ -584,6 +624,7 @@ struct ConversationItemRow {
     item_id: String,
     conversation_id: String,
     turn_id: Option<String>,
+    sequence_index: i64,
     kind: String,
     status: String,
     content_text: Option<String>,
@@ -597,6 +638,7 @@ fn conversation_item_from_row(
         item_id: row.item_id,
         conversation_id: row.conversation_id,
         turn_id: row.turn_id,
+        sequence_index: row.sequence_index,
         kind: ConversationItemKind::parse(&row.kind).map_err(memory_enum_error)?,
         status: ConversationItemStatus::parse(&row.status).map_err(memory_enum_error)?,
         content_text: row.content_text,

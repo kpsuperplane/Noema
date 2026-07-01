@@ -227,6 +227,27 @@ DEFINE FIELD OVERWRITE updated_at ON TABLE conversation_items TYPE datetime DEFA
 DEFINE INDEX IF NOT EXISTS conversation_items_item_id ON TABLE conversation_items COLUMNS item_id UNIQUE;
 DEFINE INDEX IF NOT EXISTS conversation_items_conversation_sequence ON TABLE conversation_items COLUMNS conversation_id, sequence_index UNIQUE;
 
+DEFINE TABLE IF NOT EXISTS conversation_context_summaries SCHEMAFULL;
+DEFINE FIELD OVERWRITE summary_id ON TABLE conversation_context_summaries TYPE string;
+DEFINE FIELD OVERWRITE conversation_id ON TABLE conversation_context_summaries TYPE string;
+DEFINE FIELD OVERWRITE provider_kind ON TABLE conversation_context_summaries TYPE string ASSERT $value INSIDE ['codex', 'openai', 'foundation_local'];
+DEFINE FIELD OVERWRITE model_profile ON TABLE conversation_context_summaries TYPE option<string>;
+DEFINE FIELD OVERWRITE summary_text ON TABLE conversation_context_summaries TYPE string;
+DEFINE FIELD OVERWRITE covered_item_start_sequence ON TABLE conversation_context_summaries TYPE int;
+DEFINE FIELD OVERWRITE covered_item_end_sequence ON TABLE conversation_context_summaries TYPE int;
+DEFINE FIELD OVERWRITE source_item_ids ON TABLE conversation_context_summaries TYPE array<string> DEFAULT [];
+DEFINE FIELD OVERWRITE input_token_estimate ON TABLE conversation_context_summaries TYPE int ASSERT $value >= 0;
+DEFINE FIELD OVERWRITE summary_token_estimate ON TABLE conversation_context_summaries TYPE int ASSERT $value >= 0;
+DEFINE FIELD OVERWRITE compaction_provider_kind ON TABLE conversation_context_summaries TYPE string ASSERT $value INSIDE ['codex', 'openai', 'foundation_local'];
+DEFINE FIELD OVERWRITE compaction_model_profile ON TABLE conversation_context_summaries TYPE option<string>;
+DEFINE FIELD OVERWRITE status ON TABLE conversation_context_summaries TYPE string ASSERT $value INSIDE ['pending', 'active', 'failed', 'superseded'];
+DEFINE FIELD OVERWRITE error_code ON TABLE conversation_context_summaries TYPE option<string>;
+DEFINE FIELD OVERWRITE error_message ON TABLE conversation_context_summaries TYPE option<string>;
+DEFINE FIELD OVERWRITE created_at ON TABLE conversation_context_summaries TYPE datetime DEFAULT time::now();
+DEFINE FIELD OVERWRITE updated_at ON TABLE conversation_context_summaries TYPE datetime DEFAULT time::now();
+DEFINE INDEX IF NOT EXISTS conversation_context_summaries_summary_id ON TABLE conversation_context_summaries COLUMNS summary_id UNIQUE;
+DEFINE INDEX IF NOT EXISTS conversation_context_summaries_profile ON TABLE conversation_context_summaries COLUMNS conversation_id, provider_kind, model_profile, status, covered_item_end_sequence;
+
 DEFINE TABLE IF NOT EXISTS entities SCHEMAFULL;
 DEFINE FIELD OVERWRITE entity_id ON TABLE entities TYPE string;
 DEFINE FIELD OVERWRITE entity_type ON TABLE entities TYPE string ASSERT $value INSIDE ['human', 'agent', 'person', 'organization', 'project', 'workspace', 'conversation', 'document', 'tool', 'place', 'task', 'goal', 'concept', 'other'];

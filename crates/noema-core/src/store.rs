@@ -3,6 +3,7 @@
 mod agent_runtime_preferences;
 mod agents;
 mod claims;
+mod context_summaries;
 mod conversations;
 mod error;
 mod ids;
@@ -26,6 +27,7 @@ pub use claims::{
     MemoryGraphNode, MemoryGraphSummary, NewClaimCandidate, RelatedClaimCandidate,
     RelatedClaimRecord, SupersedeClaimCandidate,
 };
+pub use context_summaries::{ConversationContextSummaryRecord, NewConversationContextSummary};
 pub use error::StoreError;
 pub use mcp::{
     McpApprovalRequestRecord, McpServerAuthStatus, McpServerHealthStatus, McpServerRecord,

@@ -225,6 +225,47 @@ impl ConversationItemStatus {
     }
 }
 
+/// Lifecycle state for a derived conversation context summary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConversationContextSummaryStatus {
+    /// Summary creation has been requested but is not active.
+    Pending,
+    /// Summary is the active checkpoint for its context profile.
+    Active,
+    /// Summary creation failed.
+    Failed,
+    /// Summary was replaced by a newer active checkpoint.
+    Superseded,
+}
+
+impl ConversationContextSummaryStatus {
+    /// Return the stable storage string for this status.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Pending => "pending",
+            Self::Active => "active",
+            Self::Failed => "failed",
+            Self::Superseded => "superseded",
+        }
+    }
+
+    /// Parse a stored context summary status string.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MemoryPersistenceError::InvalidEnum`] for unknown values.
+    pub fn parse(value: &str) -> Result<Self, MemoryPersistenceError> {
+        match value {
+            "pending" => Ok(Self::Pending),
+            "active" => Ok(Self::Active),
+            "failed" => Ok(Self::Failed),
+            "superseded" => Ok(Self::Superseded),
+            _ => invalid_enum("conversation_context_summary_status", value),
+        }
+    }
+}
+
 /// Input for creating a durable conversation.
 #[derive(Debug, Clone, PartialEq)]
 pub struct NewConversation {
@@ -332,6 +373,8 @@ pub struct ConversationItemRecord {
     pub conversation_id: String,
     /// Optional turn that owns the item.
     pub turn_id: Option<String>,
+    /// Append-order sequence inside the conversation.
+    pub sequence_index: i64,
     /// Semantic item kind.
     pub kind: ConversationItemKind,
     /// Item execution status.

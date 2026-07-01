@@ -1014,6 +1014,141 @@ async fn conversation_items_replay_in_append_order() {
 }
 
 #[tokio::test]
+async fn conversation_items_replay_exposes_sequence_index() {
+    let store = test_store().await;
+    store.ensure_default_actors().await.expect("actors");
+    let conversation = store
+        .create_conversation(NewConversation::local_chat(None, None))
+        .await
+        .expect("conversation");
+    let turn = store
+        .create_conversation_turn(NewConversationTurn {
+            conversation_id: conversation.conversation_id.clone(),
+            trigger_item_id: None,
+            metadata: json!({ "turn_index": 1 }),
+        })
+        .await
+        .expect("turn");
+
+    let first = store
+        .append_conversation_item(NewConversationItem {
+            conversation_id: conversation.conversation_id.clone(),
+            turn_id: Some(turn.turn_id.clone()),
+            parent_item_id: None,
+            kind: ConversationItemKind::UserText,
+            status: ConversationItemStatus::Completed,
+            author: ActorRef::human("human:local"),
+            content_text: Some("first".to_string()),
+            payload_json: json!({}),
+            metadata: json!({ "turn_index": 1 }),
+        })
+        .await
+        .expect("first item");
+    let second = store
+        .append_conversation_item(NewConversationItem {
+            conversation_id: conversation.conversation_id.clone(),
+            turn_id: Some(turn.turn_id),
+            parent_item_id: Some(first.item_id.clone()),
+            kind: ConversationItemKind::AssistantText,
+            status: ConversationItemStatus::Completed,
+            author: ActorRef::agent("agent:primary"),
+            content_text: Some("second".to_string()),
+            payload_json: json!({}),
+            metadata: json!({ "turn_index": 1 }),
+        })
+        .await
+        .expect("second item");
+
+    assert_eq!(first.sequence_index, 1);
+    assert_eq!(second.sequence_index, 2);
+    let replay = store
+        .list_conversation_items(&conversation.conversation_id, ReplayMode::Visible)
+        .await
+        .expect("replay");
+    assert_eq!(
+        replay
+            .iter()
+            .map(|item| item.sequence_index)
+            .collect::<Vec<_>>(),
+        vec![1, 2]
+    );
+}
+
+#[tokio::test]
+async fn context_summary_lifecycle_supersedes_previous_active_checkpoint() {
+    let store = test_store().await;
+    store.ensure_default_actors().await.expect("actors");
+    let conversation = store
+        .create_conversation(NewConversation::local_chat_for_provider(
+            "foundation_local",
+            Some("default".to_string()),
+            None,
+        ))
+        .await
+        .expect("conversation");
+
+    let first = store
+        .insert_conversation_context_summary(crate::NewConversationContextSummary {
+            conversation_id: conversation.conversation_id.clone(),
+            provider_kind: "foundation_local".to_string(),
+            model_profile: Some("default".to_string()),
+            summary_text: "The user is exploring local model support.".to_string(),
+            covered_item_start_sequence: 1,
+            covered_item_end_sequence: 4,
+            source_item_ids: vec!["item:1".to_string(), "item:4".to_string()],
+            input_token_estimate: 900,
+            summary_token_estimate: 64,
+            compaction_provider_kind: "foundation_local".to_string(),
+            compaction_model_profile: Some("default".to_string()),
+            status: crate::ConversationContextSummaryStatus::Active,
+            error_code: None,
+            error_message: None,
+        })
+        .await
+        .expect("first summary");
+    let second = store
+        .insert_conversation_context_summary(crate::NewConversationContextSummary {
+            conversation_id: conversation.conversation_id.clone(),
+            provider_kind: "foundation_local".to_string(),
+            model_profile: Some("default".to_string()),
+            summary_text: "The user wants durable compaction checkpoints.".to_string(),
+            covered_item_start_sequence: 1,
+            covered_item_end_sequence: 8,
+            source_item_ids: vec!["item:1".to_string(), "item:8".to_string()],
+            input_token_estimate: 1_800,
+            summary_token_estimate: 82,
+            compaction_provider_kind: "foundation_local".to_string(),
+            compaction_model_profile: Some("default".to_string()),
+            status: crate::ConversationContextSummaryStatus::Active,
+            error_code: None,
+            error_message: None,
+        })
+        .await
+        .expect("second summary");
+
+    let active = store
+        .latest_active_context_summary(
+            &conversation.conversation_id,
+            "foundation_local",
+            Some("default"),
+        )
+        .await
+        .expect("active summary")
+        .expect("active summary exists");
+
+    assert_eq!(active.summary_id, second.summary_id);
+    let first_reloaded = store
+        .get_conversation_context_summary(&first.summary_id)
+        .await
+        .expect("first reload")
+        .expect("first summary exists");
+    assert_eq!(
+        first_reloaded.status,
+        crate::ConversationContextSummaryStatus::Superseded
+    );
+}
+
+#[tokio::test]
 async fn append_conversation_item_rejects_cross_conversation_turn() {
     let store = test_store().await;
     store.ensure_default_actors().await.expect("actors");
