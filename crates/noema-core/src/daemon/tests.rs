@@ -3222,6 +3222,7 @@ async fn search_memory_tool_invalid_arguments_are_failed_tool_result() {
 async fn uncalibrated_mcp_tool_call_returns_failed_tool_result() {
     let (handle, store) =
         test_runtime_handle_with_store(fake_codex_provider_with_mcp_tool_call()).await;
+    seed_enabled_uncalibrated_mcp_tool(&store).await;
 
     let conversation_id = handle
         .start_conversation(None, None)
@@ -3247,6 +3248,46 @@ async fn uncalibrated_mcp_tool_call_returns_failed_tool_result() {
         }),
         "expected failed uncalibrated MCP tool result, got {items:?}"
     );
+}
+
+async fn seed_enabled_uncalibrated_mcp_tool(store: &crate::NoemaStore) {
+    store
+        .create_mcp_server(crate::NewMcpServer {
+            mcp_server_id: "docs".to_string(),
+            display_name: "Docs".to_string(),
+            transport_kind: crate::McpTransportKind::Stdio,
+            safe_config: json!({"command": "fake-docs-mcp"}),
+        })
+        .await
+        .expect("create MCP server");
+    store
+        .update_mcp_server_setup_status(
+            "docs",
+            crate::McpServerHealthStatus::Healthy,
+            crate::McpServerAuthStatus::None,
+        )
+        .await
+        .expect("mark MCP healthy");
+    store
+        .db()
+        .query("UPDATE mcp_servers SET enabled = true WHERE mcp_server_id = 'docs';")
+        .await
+        .expect("enable query")
+        .check()
+        .expect("enable server");
+    store
+        .upsert_discovered_mcp_tool(crate::NewMcpTool {
+            mcp_tool_id: "mcp_tool:docs:read".to_string(),
+            mcp_server_id: "docs".to_string(),
+            name: "read".to_string(),
+            description: Some("Read a document".to_string()),
+            input_schema: json!({"type": "object"}),
+            output_schema: None,
+            annotations: json!({}),
+            metadata_fingerprint: "fingerprint:docs:read:v1".to_string(),
+        })
+        .await
+        .expect("upsert MCP tool");
 }
 
 async fn collect_turn(

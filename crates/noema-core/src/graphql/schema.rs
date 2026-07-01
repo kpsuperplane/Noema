@@ -239,6 +239,25 @@ impl crate::mcp::McpTransport for GraphqlMcpSetupTransport {
             }
         }
     }
+
+    async fn call_tool(
+        &mut self,
+        name: &str,
+        arguments: serde_json::Value,
+    ) -> std::result::Result<serde_json::Value, crate::mcp::McpClientError> {
+        match self {
+            Self::Unavailable(message) => {
+                Err(crate::mcp::McpClientError::Transport(message.clone()))
+            }
+            Self::Sse(transport) => transport.call_tool(name, arguments).await,
+            Self::StreamableHttp(transport) => transport.call_tool(name, arguments).await,
+            Self::Stdio(transport) => transport.call_tool(name, arguments).await,
+            #[cfg(test)]
+            Self::Test(_) => Err(crate::mcp::McpClientError::Transport(
+                "test MCP setup transport does not execute tools".to_string(),
+            )),
+        }
+    }
 }
 
 /// Build the Noema GraphQL schema.

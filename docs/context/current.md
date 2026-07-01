@@ -149,8 +149,13 @@ The next storage slice should stay small and concrete:
   compact model-facing classification codes, a configurable provider-default
   tool classification model (`gpt-5.4-mini` for Codex/OpenAI), and deterministic
   shallow owner extractor discovery from argument and structured-output schemas.
-  User-facing setup errors are sanitized while raw transport details stay out of
-  the web form.
+  Calibrated MCP tools are now advertised to the model only when their server is
+  enabled, healthy, authenticated, and their reviewed metadata fingerprint still
+  matches the discovered tool metadata; the Capability Gateway re-checks those
+  conditions at execution time and calls calibrated tools through stdio,
+  Streamable HTTP, or SSE transports. Saving at least one ready calibration
+  enables the server for agent use. User-facing setup errors are sanitized while
+  raw transport details stay out of the web form.
   Web Settings also exposes MCPs, Trusted Identities, Approvals, and Audit
   surfaces backed by GraphQL read models where live data exists.
 - Routed web surfaces learn shell-owned deck state through

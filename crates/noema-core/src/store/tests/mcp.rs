@@ -508,6 +508,30 @@ async fn ready_calibration_requires_current_metadata_fingerprint() {
 }
 
 #[tokio::test]
+async fn ready_calibration_enables_mcp_server() {
+    let store = test_store_with_mcp_tool().await;
+
+    let before = store
+        .get_mcp_server("mcp_server:google")
+        .await
+        .expect("get server")
+        .expect("server");
+    assert!(!before.enabled);
+
+    store
+        .save_tool_calibration(ready_mixed_calibration("fingerprint_1"))
+        .await
+        .expect("save ready calibration");
+
+    let after = store
+        .get_mcp_server("mcp_server:google")
+        .await
+        .expect("get server")
+        .expect("server");
+    assert!(after.enabled);
+}
+
+#[tokio::test]
 async fn calibration_id_cannot_move_between_tools() {
     let store = test_store_with_mcp_tool().await;
     store

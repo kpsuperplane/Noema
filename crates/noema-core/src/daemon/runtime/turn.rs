@@ -1,5 +1,6 @@
 use crate::{
-    ActorRef, ConversationItemKind, ConversationItemStatus, NewConversation, NewConversationItem,
+    ActorRef, ConversationItemKind, ConversationItemStatus, McpCalibrationStatus,
+    McpServerAuthStatus, McpServerHealthStatus, NewConversation, NewConversationItem,
     NewConversationTurn, PersistedAgentStatus, ReplayMode,
     memory::extraction::{ExtractorMemoryProposal, ValidatedMemoryProposal},
     provider::{
@@ -8,10 +9,12 @@ use crate::{
     },
 };
 use serde_json::json;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use tokio::sync::mpsc;
 
 use super::{
-    actor::{ActiveConversation, CodexRuntimeActor},
+    actor::{ActiveConversation, CachedToolSnapshot, CodexRuntimeActor},
     local_tools::{
         agent_identity_after_local_tools, local_tool_result_continuation_input,
         local_tool_result_output_item,
@@ -25,8 +28,8 @@ use crate::daemon::{
     memory_pipeline::{AssistantEvidenceItem, ConversationMemoryContext, explicit_memory_content},
     prompts::{
         build_initial_name_onboarding_system_prompt,
-        build_local_tool_result_continuation_system_prompt, build_structured_turn_system_prompt,
-        render_recent_transcript_for_prompt,
+        build_local_tool_result_continuation_system_prompt, build_model_available_tools_prompt,
+        build_structured_turn_system_prompt, render_recent_transcript_for_prompt,
     },
     protocol::{
         AgentStatus, DaemonError, StartedConversation, TurnStreamEvent, TurnTranscriptItem,
@@ -49,6 +52,7 @@ impl CodexRuntimeActor {
                 model,
                 cwd,
                 next_turn_index: 1,
+                tool_snapshot: None,
             },
         );
 
@@ -78,6 +82,7 @@ impl CodexRuntimeActor {
                     model,
                     cwd,
                     next_turn_index,
+                    tool_snapshot: None,
                 },
             );
         }
@@ -206,6 +211,7 @@ impl CodexRuntimeActor {
         let agent_identity = self
             .agent_identity_for_conversation(&conversation_id)
             .await?;
+        let _tool_snapshot = self.refresh_tool_snapshot(&conversation_id).await?;
         self.update_conversation_agent_status(
             &conversation_id,
             PersistedAgentStatus::InputReceived,
@@ -253,6 +259,7 @@ impl CodexRuntimeActor {
             } else {
                 ExplicitMemoryOutcome::None
             };
+        let tool_snapshot = self.refresh_tool_snapshot(&conversation_id).await?;
         self.update_conversation_agent_status(
             &conversation_id,
             PersistedAgentStatus::Thinking,
@@ -265,6 +272,7 @@ impl CodexRuntimeActor {
             conversation.cwd.as_deref(),
             &recent_transcript,
             &agent_identity,
+            &tool_snapshot.rendered_tools,
         );
 
         let initial_stream_id = assistant_stream_id(&turn.turn_id, "initial");
@@ -607,6 +615,78 @@ impl CodexRuntimeActor {
             display_name: agent.display_name,
         })
     }
+
+    async fn refresh_tool_snapshot(
+        &mut self,
+        conversation_id: &str,
+    ) -> Result<CachedToolSnapshot, DaemonError> {
+        let rendered_tools = self.render_available_tools().await?;
+        let hash = stable_hash(&rendered_tools);
+        let snapshot = CachedToolSnapshot {
+            hash,
+            rendered_tools,
+        };
+        if let Some(conversation) = self.conversations.get_mut(conversation_id) {
+            let should_replace = conversation
+                .tool_snapshot
+                .as_ref()
+                .map(|cached| cached.hash != snapshot.hash)
+                .unwrap_or(true);
+            if should_replace {
+                conversation.tool_snapshot = Some(snapshot.clone());
+            }
+        }
+        Ok(snapshot)
+    }
+
+    async fn render_available_tools(&self) -> Result<String, DaemonError> {
+        let mut rows = vec![
+            "- builtin\tsearch_memory\tNoema built-in memory retrieval".to_string(),
+            "- builtin\tupdate_own_name\tNoema built-in agent naming".to_string(),
+        ];
+        let servers = self.store.list_mcp_servers().await?;
+        for server in servers {
+            if !server.enabled
+                || server.health_status != McpServerHealthStatus::Healthy
+                || !matches!(
+                    server.auth_status,
+                    McpServerAuthStatus::None | McpServerAuthStatus::Authenticated
+                )
+            {
+                continue;
+            }
+            let tools = self
+                .store
+                .list_mcp_tools_for_server(&server.mcp_server_id)
+                .await?;
+            for tool in tools {
+                let calibration = self.store.get_tool_calibration(&tool.mcp_tool_id).await?;
+                let Some(calibration) = calibration else {
+                    continue;
+                };
+                if calibration.status != McpCalibrationStatus::Ready
+                    || calibration.reviewed_metadata_fingerprint.as_deref()
+                        != Some(tool.metadata_fingerprint.as_str())
+                {
+                    continue;
+                }
+                let hint =
+                    crate::mcp::autofill::compact_description_hint(tool.description.as_deref(), 96)
+                        .unwrap_or_else(|| "MCP tool".to_string());
+                rows.push(format!(
+                    "- mcp\tmcp.{}.{}\t{}",
+                    server.mcp_server_id, tool.name, hint
+                ));
+            }
+        }
+        Ok(build_model_available_tools_prompt(&rows))
+    }
+}
+
+fn stable_hash(value: &str) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    value.hash(&mut hasher);
+    hasher.finish()
 }
 
 #[derive(Debug)]

@@ -268,22 +268,36 @@ fn output_items_from_text_with_mode(
         });
     }
 
-    if let Ok(value) = serde_json::from_str::<Value>(trimmed)
-        && value.get("type").and_then(Value::as_str) == Some("noema_response")
-    {
-        let envelope: GenerateOutputEnvelope =
-            serde_json::from_value(value).map_err(|source| ProviderError::MalformedResponse {
-                message: format!("invalid Noema structured response: {source}"),
-            })?;
-        if envelope.output.is_empty() {
-            return Err(ProviderError::MalformedResponse {
-                message: "Noema structured response contained no output items".to_string(),
-            });
+    if let Ok(value) = serde_json::from_str::<Value>(trimmed) {
+        let is_explicit_envelope =
+            value.get("type").and_then(Value::as_str) == Some("noema_response");
+        let has_output_array = value.get("output").is_some_and(Value::is_array);
+        if is_explicit_envelope || has_output_array {
+            let envelope: GenerateOutputEnvelope = if is_explicit_envelope {
+                serde_json::from_value(value).map_err(|source| {
+                    ProviderError::MalformedResponse {
+                        message: format!("invalid Noema structured response: {source}"),
+                    }
+                })?
+            } else {
+                serde_json::from_value(serde_json::json!({
+                    "type": "noema_response",
+                    "output": value["output"].clone(),
+                }))
+                .map_err(|source| ProviderError::MalformedResponse {
+                    message: format!("invalid Noema structured response: {source}"),
+                })?
+            };
+            if envelope.output.is_empty() {
+                return Err(ProviderError::MalformedResponse {
+                    message: "Noema structured response contained no output items".to_string(),
+                });
+            }
+            if require_noema_response {
+                validate_required_noema_response_output(&envelope.output)?;
+            }
+            return Ok(envelope.output);
         }
-        if require_noema_response {
-            validate_required_noema_response_output(&envelope.output)?;
-        }
-        return Ok(envelope.output);
     }
 
     if require_noema_response {
@@ -527,6 +541,21 @@ mod tests {
                 text: "Hello".to_string()
             }]
         );
+    }
+
+    #[test]
+    fn parses_implicit_noema_structured_response_output_array() {
+        let output = output_items_from_text(
+            r#"{"output":[{"kind":"tool_call","id":"call_1","name":"search_memory","payload":{"query":"trains"}}]}"#
+                .to_string(),
+        )
+        .expect("implicit structured output");
+
+        assert!(matches!(
+            &output[0],
+            GenerateOutputItem::ToolCall { id: Some(id), name, .. }
+                if id == "call_1" && name == "search_memory"
+        ));
     }
 
     #[test]

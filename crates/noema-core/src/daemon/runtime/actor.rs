@@ -74,4 +74,11 @@ pub(super) struct ActiveConversation {
     pub(super) model: Option<String>,
     pub(super) cwd: Option<String>,
     pub(super) next_turn_index: u64,
+    pub(super) tool_snapshot: Option<CachedToolSnapshot>,
+}
+
+#[derive(Debug, Clone)]
+pub(super) struct CachedToolSnapshot {
+    pub(super) hash: u64,
+    pub(super) rendered_tools: String,
 }

@@ -15,6 +15,7 @@ use reqwest::{
 };
 use rmcp::{
     ServiceExt,
+    model::CallToolRequestParams,
     transport::{
         ClientCredentialsConfig, StreamableHttpClientTransport,
         auth::{OAuthState, OAuthTokenResponse},
@@ -118,6 +119,30 @@ impl McpTransport for StreamableHttpMcpTransport {
                 "MCP Streamable HTTP transport is not initialized".to_string(),
             )
         })
+    }
+
+    async fn call_tool(&mut self, name: &str, arguments: Value) -> Result<Value, McpClientError> {
+        let mut config = StreamableHttpClientTransportConfig::with_uri(self.url.clone())
+            .custom_headers(rmcp_headers(&self.headers)?);
+        if let Some(token) = oauth_access_token(
+            &self.url,
+            self.oauth_client_credentials.as_ref(),
+            self.oauth_credentials.as_ref(),
+        )
+        .await?
+        {
+            config = config.auth_header(token);
+        }
+        let transport = StreamableHttpClientTransport::from_config(config);
+        let mut service = ().serve(transport).await.map_err(rmcp_initialize_error)?;
+        let result = service
+            .peer()
+            .call_tool(call_tool_params(name, arguments)?)
+            .await
+            .map_err(|error| McpClientError::Transport(format!("MCP tools/call failed: {error}")))
+            .and_then(call_tool_result_value);
+        let _ = service.close().await;
+        result
     }
 }
 
@@ -376,6 +401,21 @@ impl McpTransport for SseMcpTransport {
             }
         }
     }
+
+    async fn call_tool(&mut self, name: &str, arguments: Value) -> Result<Value, McpClientError> {
+        let id = self.next_request_id();
+        self.post_message(json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "method": "tools/call",
+            "params": {
+                "name": name,
+                "arguments": call_tool_arguments(arguments)?
+            }
+        }))
+        .await?;
+        self.read_response(id, "tools/call").await
+    }
 }
 
 struct HttpConfig {
@@ -583,6 +623,29 @@ fn parse_json_rpc_response(response: Value, method: &str) -> Result<Value, McpCl
         .get("result")
         .cloned()
         .ok_or_else(|| McpClientError::Malformed(format!("MCP {method} response missing result")))
+}
+
+fn call_tool_params(name: &str, arguments: Value) -> Result<CallToolRequestParams, McpClientError> {
+    Ok(
+        CallToolRequestParams::new(name.to_string())
+            .with_arguments(call_tool_arguments(arguments)?),
+    )
+}
+
+fn call_tool_arguments(arguments: Value) -> Result<Map<String, Value>, McpClientError> {
+    match arguments {
+        Value::Object(arguments) => Ok(arguments),
+        Value::Null => Ok(Map::new()),
+        _ => Err(McpClientError::Malformed(
+            "MCP tool arguments must be an object".to_string(),
+        )),
+    }
+}
+
+fn call_tool_result_value(result: rmcp::model::CallToolResult) -> Result<Value, McpClientError> {
+    serde_json::to_value(result).map_err(|error| {
+        McpClientError::Malformed(format!("invalid MCP tools/call result: {error}"))
+    })
 }
 
 fn json_rpc_error_message(error: &Value) -> String {

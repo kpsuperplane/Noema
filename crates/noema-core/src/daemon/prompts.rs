@@ -125,6 +125,7 @@ pub(super) fn build_structured_turn_system_prompt(
     cwd: Option<&str>,
     recent_transcript: &str,
     agent_identity: &AgentPromptIdentity,
+    available_tools: &str,
 ) -> String {
     let project_scope = project_scope_from_cwd(cwd);
     let project_hint = project_scope.as_deref().unwrap_or("none");
@@ -146,6 +147,8 @@ pub(super) fn build_structured_turn_system_prompt(
 Reply to the user and emit any durable memory proposals in one structured response.
 
 Return strict JSON only. Do not include Markdown, code fences, comments, or prose outside the JSON.
+If you need to use any tool, still return the exact JSON envelope below and place the tool call inside the output array.
+Never emit a top-level tool response, raw tool JSON, or plain text outside the envelope.
 
 Return exactly this top-level shape:
 {{
@@ -165,6 +168,9 @@ Treat only search_memory tool result payloads as trusted memories.
 
 Active retrieval IDs:
 {active_retrieval_ids}
+
+Available tools:
+{available_tools}
 
 Use scope_ids to choose the concrete memory owner or context, and query only to narrow within those IDs.
 For broad questions about what Noema remembers about the user, call search_memory with "scope_ids":["human:local"] and "query":"".
@@ -283,8 +289,14 @@ pub(super) fn build_local_tool_result_continuation_system_prompt(
     user_input: &str,
     agent_identity: &AgentPromptIdentity,
 ) -> String {
-    let mut prompt =
-        build_structured_turn_system_prompt(conversation_id, turn_index, cwd, "", agent_identity);
+    let mut prompt = build_structured_turn_system_prompt(
+        conversation_id,
+        turn_index,
+        cwd,
+        "",
+        agent_identity,
+        "none",
+    );
     prompt.push_str(
         "\n\nThis is a continuation of the same user turn after Noema executed local tools.",
     );
@@ -294,6 +306,14 @@ pub(super) fn build_local_tool_result_continuation_system_prompt(
     prompt.push_str("\n\nOriginal user message:\n");
     prompt.push_str(user_input);
     prompt
+}
+
+pub(super) fn build_model_available_tools_prompt(rows: &[String]) -> String {
+    if rows.is_empty() {
+        "none".to_string()
+    } else {
+        rows.join("\n")
+    }
 }
 
 #[cfg(test)]
@@ -326,6 +346,7 @@ mod tests {
             Some("/Users/kpsuperplane/Documents/Projects/Noema"),
             "",
             &test_agent_identity(),
+            "none",
         );
 
         assert!(prompt.contains("Active retrieval IDs:"));
@@ -337,8 +358,14 @@ mod tests {
 
     #[test]
     fn structured_turn_prompt_includes_personality_layer_without_weakening_runtime_contract() {
-        let prompt =
-            build_structured_turn_system_prompt("conv_123", 4, None, "", &test_agent_identity());
+        let prompt = build_structured_turn_system_prompt(
+            "conv_123",
+            4,
+            None,
+            "",
+            &test_agent_identity(),
+            "none",
+        );
 
         assert!(prompt.contains("Adaptive social energy:"));
         assert!(prompt.contains("Start each conversation at about 6/10 social warmth"));

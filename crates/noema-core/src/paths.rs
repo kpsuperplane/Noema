@@ -154,7 +154,7 @@ pub enum NoemaPathError {
     EmptyNoemaHome,
 }
 
-fn sanitize_path_segment(value: &str) -> String {
+pub(crate) fn sanitize_path_segment(value: &str) -> String {
     let sanitized = value
         .chars()
         .map(|character| {

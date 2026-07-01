@@ -1033,6 +1033,16 @@ mod tests {
                 }
             }
         }
+
+        async fn call_tool(
+            &mut self,
+            _name: &str,
+            _arguments: serde_json::Value,
+        ) -> Result<serde_json::Value, McpClientError> {
+            Err(McpClientError::Transport(
+                "fake MCP setup transport does not execute tools".to_string(),
+            ))
+        }
     }
 
     fn fake_tool(name: &str) -> DiscoveredMcpTool {

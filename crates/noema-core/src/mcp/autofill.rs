@@ -164,7 +164,10 @@ fn sanitize_prompt_line(value: &str) -> String {
     value.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-fn compact_description_hint(description: Option<&str>, max_chars: usize) -> Option<String> {
+pub(crate) fn compact_description_hint(
+    description: Option<&str>,
+    max_chars: usize,
+) -> Option<String> {
     let description = description?;
     let cleaned = description.trim();
     if cleaned.is_empty() {

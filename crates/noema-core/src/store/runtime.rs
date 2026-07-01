@@ -17,6 +17,8 @@ use super::{
 pub struct StoreConfig {
     /// Directory used by the embedded database.
     pub path: PathBuf,
+    /// Root directory for Noema state.
+    pub noema_home: PathBuf,
 }
 
 impl StoreConfig {
@@ -25,6 +27,7 @@ impl StoreConfig {
     pub fn from_paths(paths: &crate::NoemaPaths) -> Self {
         Self {
             path: paths.db_dir(),
+            noema_home: paths.root().to_path_buf(),
         }
     }
 }
@@ -33,6 +36,7 @@ impl StoreConfig {
 #[derive(Debug, Clone)]
 pub struct NoemaStore {
     pub(super) db: Surreal<Db>,
+    pub(super) noema_home: PathBuf,
     pub(super) append_item_lock: Arc<Mutex<()>>,
     pub(super) claim_write_lock: Arc<Mutex<()>>,
 }
@@ -52,6 +56,7 @@ impl NoemaStore {
         db.query(STORE_SCHEMA_SQL).await?.check()?;
         Ok(Self {
             db,
+            noema_home: config.noema_home.clone(),
             append_item_lock: Arc::new(Mutex::new(())),
             claim_write_lock: Arc::new(Mutex::new(())),
         })
@@ -62,6 +67,14 @@ impl NoemaStore {
     #[allow(dead_code)]
     pub(crate) fn db(&self) -> &Surreal<Db> {
         &self.db
+    }
+
+    /// Return the private home directory for one MCP server.
+    #[must_use]
+    pub(crate) fn mcp_server_home(&self, mcp_server_id: &str) -> PathBuf {
+        self.noema_home
+            .join("mcp")
+            .join(crate::paths::sanitize_path_segment(mcp_server_id))
     }
 
     /// Return the current schema marker version.

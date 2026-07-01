@@ -2,7 +2,7 @@
 
 use std::{collections::BTreeMap, process::Stdio};
 
-use rmcp::{ServiceExt, transport::TokioChildProcess};
+use rmcp::{ServiceExt, model::CallToolRequestParams, transport::TokioChildProcess};
 use serde_json::{Map, Value};
 use tokio::process::Command;
 
@@ -96,6 +96,29 @@ impl McpTransport for StdioMcpTransport {
             McpClientError::Transport("MCP stdio transport is not initialized".to_string())
         })
     }
+
+    async fn call_tool(&mut self, name: &str, arguments: Value) -> Result<Value, McpClientError> {
+        let mut command = Command::new(&self.command);
+        command.args(&self.args).envs(&self.env);
+        if let Some(cwd) = &self.cwd {
+            command.current_dir(cwd);
+        }
+        let (transport, _stderr) = TokioChildProcess::builder(command)
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|error| {
+                McpClientError::Transport(format!("failed to start MCP stdio command: {error}"))
+            })?;
+        let mut service = ().serve(transport).await.map_err(rmcp_initialize_error)?;
+        let result = service
+            .peer()
+            .call_tool(call_tool_params(name, arguments)?)
+            .await
+            .map_err(|error| McpClientError::Transport(format!("MCP tools/call failed: {error}")))
+            .and_then(call_tool_result_value);
+        let _ = service.close().await;
+        result
+    }
 }
 
 fn rmcp_initialize_error(error: rmcp::service::ClientInitializeError) -> McpClientError {
@@ -105,6 +128,29 @@ fn rmcp_initialize_error(error: rmcp::service::ClientInitializeError) -> McpClie
     } else {
         McpClientError::Transport(format!("MCP stdio initialize failed: {message}"))
     }
+}
+
+fn call_tool_params(name: &str, arguments: Value) -> Result<CallToolRequestParams, McpClientError> {
+    Ok(
+        CallToolRequestParams::new(name.to_string())
+            .with_arguments(call_tool_arguments(arguments)?),
+    )
+}
+
+fn call_tool_arguments(arguments: Value) -> Result<Map<String, Value>, McpClientError> {
+    match arguments {
+        Value::Object(arguments) => Ok(arguments),
+        Value::Null => Ok(Map::new()),
+        _ => Err(McpClientError::Malformed(
+            "MCP tool arguments must be an object".to_string(),
+        )),
+    }
+}
+
+fn call_tool_result_value(result: rmcp::model::CallToolResult) -> Result<Value, McpClientError> {
+    serde_json::to_value(result).map_err(|error| {
+        McpClientError::Malformed(format!("invalid MCP tools/call result: {error}"))
+    })
 }
 
 fn string_field(object: &Map<String, Value>, field: &'static str) -> Result<String, String> {

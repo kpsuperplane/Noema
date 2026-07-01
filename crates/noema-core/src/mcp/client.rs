@@ -1,4 +1,4 @@
-//! Metadata-only MCP client runtime.
+//! MCP client runtime for metadata discovery and mediated tool calls.
 
 use serde_json::{Map, Value, json};
 use thiserror::Error;
@@ -26,7 +26,7 @@ pub(crate) struct DiscoveredMcpToolsPage {
     pub(crate) next_cursor: Option<String>,
 }
 
-/// Errors returned by metadata-only MCP client discovery.
+/// Errors returned by MCP client discovery or mediated tool calls.
 #[derive(Debug, Error)]
 pub enum McpClientError {
     /// The MCP server requires credentials before metadata can be listed.
@@ -40,7 +40,7 @@ pub enum McpClientError {
     Malformed(String),
 }
 
-/// Transport operations needed for metadata-only MCP discovery.
+/// Transport operations needed for MCP discovery and mediated tool calls.
 pub trait McpTransport: Send {
     /// Initialize the MCP connection without invoking tools.
     fn initialize(
@@ -51,9 +51,16 @@ pub trait McpTransport: Send {
     fn list_tools(
         &mut self,
     ) -> impl std::future::Future<Output = Result<Vec<DiscoveredMcpTool>, McpClientError>> + Send;
+
+    /// Call one MCP tool through the initialized transport.
+    fn call_tool(
+        &mut self,
+        name: &str,
+        arguments: Value,
+    ) -> impl std::future::Future<Output = Result<Value, McpClientError>> + Send;
 }
 
-/// Generic metadata-only MCP client runtime.
+/// Generic MCP client runtime.
 pub struct McpClientRuntime<T> {
     transport: T,
 }
@@ -79,6 +86,20 @@ where
     pub async fn discover_tools(&mut self) -> Result<Vec<DiscoveredMcpTool>, McpClientError> {
         self.transport.initialize().await?;
         self.transport.list_tools().await
+    }
+
+    /// Initialize the transport and call one MCP tool.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if initialization or the MCP tool call fails.
+    pub async fn call_tool(
+        &mut self,
+        name: &str,
+        arguments: Value,
+    ) -> Result<Value, McpClientError> {
+        self.transport.initialize().await?;
+        self.transport.call_tool(name, arguments).await
     }
 }
 
@@ -353,6 +374,15 @@ mod tests {
         async fn list_tools(&mut self) -> Result<Vec<DiscoveredMcpTool>, McpClientError> {
             self.state.list_tools_count.fetch_add(1, Ordering::SeqCst);
             Ok(self.state.tools.clone())
+        }
+
+        async fn call_tool(
+            &mut self,
+            _name: &str,
+            _arguments: Value,
+        ) -> Result<Value, McpClientError> {
+            self.state.call_count.fetch_add(1, Ordering::SeqCst);
+            Ok(json!({"content": []}))
         }
     }
 

@@ -578,6 +578,7 @@ impl NoemaStore {
         calibration: NewToolCalibration,
     ) -> Result<ToolCalibrationRecord, StoreError> {
         self.validate_tool_calibration(&calibration).await?;
+        let mcp_tool_id = calibration.mcp_tool_id.clone();
         let owner_extractors =
             serde_json::to_value(&calibration.owner_extractors).map_err(|error| {
                 StoreError::Schema(format!("invalid owner extractor serialization: {error}"))
@@ -625,14 +626,20 @@ impl NoemaStore {
             ))
             .await?
             .check()?;
-        self.get_tool_calibration(&calibration.mcp_tool_id)
+        let saved = self
+            .get_tool_calibration(&mcp_tool_id)
             .await?
             .ok_or_else(|| {
                 StoreError::Schema(format!(
                     "missing tool calibration after save: {}",
-                    calibration.mcp_tool_id
+                    mcp_tool_id
                 ))
-            })
+            })?;
+        if let Some(tool) = self.get_mcp_tool(&mcp_tool_id).await? {
+            self.update_mcp_server_enabled_from_calibrations(&tool.mcp_server_id)
+                .await?;
+        }
+        Ok(saved)
     }
 
     /// Save reviewed calibrations for multiple MCP tools after validating the full batch.
@@ -655,6 +662,38 @@ impl NoemaStore {
             saved.push(self.save_tool_calibration(calibration).await?);
         }
         Ok(saved)
+    }
+
+    async fn update_mcp_server_enabled_from_calibrations(
+        &self,
+        mcp_server_id: &str,
+    ) -> Result<(), StoreError> {
+        let tools = self.list_mcp_tools_for_server(mcp_server_id).await?;
+        let mut enabled = false;
+        for tool in tools {
+            if self
+                .get_tool_calibration(&tool.mcp_tool_id)
+                .await?
+                .is_some_and(|calibration| calibration.status == McpCalibrationStatus::Ready)
+            {
+                enabled = true;
+                break;
+            }
+        }
+        self.db
+            .query(
+                r#"
+                UPDATE mcp_servers SET
+                  enabled = $enabled,
+                  updated_at = time::now()
+                WHERE mcp_server_id = $mcp_server_id;
+                "#,
+            )
+            .bind(("mcp_server_id", mcp_server_id.to_string()))
+            .bind(("enabled", enabled))
+            .await?
+            .check()?;
+        Ok(())
     }
 
     async fn validate_tool_calibration(
