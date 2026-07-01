@@ -824,6 +824,14 @@ mod tests {
         let agent = &response.data.into_json().expect("json")["agents"][0];
         assert_eq!(agent["modelPreference"]["providerKind"], "foundation_local");
         assert_eq!(agent["modelPreference"]["modelProfile"], "default");
+        assert_eq!(agent["modelOptions"][0]["providerKind"], "codex");
+        let codex_profile_ids: Vec<_> = agent["modelOptions"][0]["profiles"]
+            .as_array()
+            .expect("codex profiles")
+            .iter()
+            .map(|profile| profile["id"].as_str().expect("profile id"))
+            .collect();
+        assert_eq!(codex_profile_ids, ["gpt-5.5", "gpt-5.4-mini"]);
         assert_eq!(agent["modelOptions"][1]["providerKind"], "foundation_local");
         assert_eq!(
             agent["modelOptions"][1]["profiles"][0]["label"],

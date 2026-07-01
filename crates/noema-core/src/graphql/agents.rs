@@ -4,6 +4,8 @@ use serde_json::Value;
 use crate::{
     AgentRecord, AgentRuntimePreferenceRecord, NewAgentRuntimePreference, ProviderAccountRecord,
     ProviderAccountStatus,
+    config::DEFAULT_OPENAI_MODEL,
+    provider::{DEFAULT_TOOL_CLASSIFICATION_MODEL, adapters::codex_responses::DEFAULT_CODEX_MODEL},
 };
 
 use super::{errors::graphql_error, schema::GraphqlState};
@@ -206,18 +208,43 @@ fn profiles_from_account(
         return metadata_profiles;
     }
     match account.provider_kind.as_str() {
-        "foundation_local" => vec![GraphqlAgentModelProfileOption {
-            id: "default".to_string(),
-            label: "Default on-device".to_string(),
-            disabled_reason: disabled_reason.map(ToString::to_string),
-        }],
-        "codex" | "openai" => vec![GraphqlAgentModelProfileOption {
-            id: "gpt-5.5".to_string(),
-            label: "gpt-5.5".to_string(),
-            disabled_reason: disabled_reason.map(ToString::to_string),
-        }],
+        "foundation_local" => profile_options(&[("default", "Default on-device")], disabled_reason),
+        "codex" => profile_options(
+            &[
+                (DEFAULT_CODEX_MODEL, DEFAULT_CODEX_MODEL),
+                (
+                    DEFAULT_TOOL_CLASSIFICATION_MODEL,
+                    DEFAULT_TOOL_CLASSIFICATION_MODEL,
+                ),
+            ],
+            disabled_reason,
+        ),
+        "openai" => profile_options(
+            &[
+                (DEFAULT_OPENAI_MODEL, DEFAULT_OPENAI_MODEL),
+                (
+                    DEFAULT_TOOL_CLASSIFICATION_MODEL,
+                    DEFAULT_TOOL_CLASSIFICATION_MODEL,
+                ),
+            ],
+            disabled_reason,
+        ),
         _ => Vec::new(),
     }
+}
+
+fn profile_options(
+    profiles: &[(&str, &str)],
+    disabled_reason: Option<&str>,
+) -> Vec<GraphqlAgentModelProfileOption> {
+    profiles
+        .iter()
+        .map(|(id, label)| GraphqlAgentModelProfileOption {
+            id: (*id).to_string(),
+            label: (*label).to_string(),
+            disabled_reason: disabled_reason.map(ToString::to_string),
+        })
+        .collect()
 }
 
 fn metadata_profiles(
