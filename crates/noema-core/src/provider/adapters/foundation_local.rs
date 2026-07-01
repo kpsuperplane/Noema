@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::{
     FoundationLocalProviderConfig,
@@ -36,7 +37,7 @@ impl FoundationLocalProvider {
         Ok(Self { config })
     }
 
-    async fn ensure_available(&self) -> Result<(), ProviderError> {
+    async fn start_bridge(&self) -> Result<FoundationBridgeProcess, ProviderError> {
         if !cfg!(target_os = "macos") {
             return Err(ProviderError::ProviderUnavailable {
                 provider: FOUNDATION_LOCAL_PROVIDER.to_string(),
@@ -49,7 +50,6 @@ impl FoundationLocalProvider {
 
         FoundationBridgeProcess::start(config)
             .await
-            .map(|_| ())
             .map_err(|error| ProviderError::ProviderUnavailable {
                 provider: FOUNDATION_LOCAL_PROVIDER.to_string(),
                 message: format!(
@@ -78,6 +78,12 @@ impl FoundationLocalProvider {
         };
         FoundationBridgeConfig { bridge_path, build }
     }
+}
+
+fn transient_conversation_id() -> String {
+    static NEXT_ID: AtomicU64 = AtomicU64::new(1);
+    let sequence = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+    format!("conversation:foundation-local-{sequence}")
 }
 
 fn default_bridge_path() -> PathBuf {
@@ -123,16 +129,30 @@ impl ModelProvider for FoundationLocalProvider {
     async fn generate_streaming<'a>(
         &'a self,
         request: GenerateRequest,
-        _on_event: &'a mut (dyn FnMut(GenerateStreamEvent) + Send),
+        on_event: &'a mut (dyn FnMut(GenerateStreamEvent) + Send),
     ) -> Result<GenerateResponse, ProviderError> {
-        self.ensure_available().await?;
+        let mut bridge = self.start_bridge().await?;
         let model = request
             .model
             .filter(|model| !model.trim().is_empty())
             .unwrap_or_else(|| self.config.default_profile.clone());
         let GenerateInput::Text(text) = request.input;
+        let mut relay_delta = |delta| on_event(GenerateStreamEvent::AssistantTextDelta { delta });
+        let output_text = bridge
+            .generate(
+                transient_conversation_id(),
+                model.clone(),
+                request.instructions,
+                text,
+                &mut relay_delta,
+            )
+            .await
+            .map_err(|error| ProviderError::ProviderUnavailable {
+                provider: FOUNDATION_LOCAL_PROVIDER.to_string(),
+                message: format!("Apple Foundation Models bridge generation failed: {error}"),
+            })?;
         Ok(GenerateResponse {
-            output: vec![crate::GenerateOutputItem::AssistantText { text }],
+            output: vec![crate::GenerateOutputItem::AssistantText { text: output_text }],
             provider: FOUNDATION_LOCAL_PROVIDER.to_string(),
             model,
             response_id: None,
@@ -144,13 +164,21 @@ impl ModelProvider for FoundationLocalProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{FoundationLocalProviderConfig, GenerateRequest, ModelProvider, ProviderError};
+    use crate::provider::GenerateStreamEvent;
+    use crate::{
+        FoundationLocalProviderConfig, GenerateOutputItem, GenerateRequest, ModelProvider,
+        ProviderError,
+    };
 
     #[tokio::test]
-    async fn unavailable_stub_fails_cleanly() {
+    async fn missing_configured_bridge_fails_without_path_configuration_error() {
+        let bridge_path = std::env::temp_dir().join(format!(
+            "missing-noema-foundation-bridge-{}",
+            std::process::id()
+        ));
         let provider = FoundationLocalProvider::new(FoundationLocalProviderConfig {
             default_profile: "default".to_string(),
-            bridge_path: None,
+            bridge_path: Some(bridge_path),
         })
         .expect("provider");
 
@@ -165,7 +193,7 @@ mod tests {
         };
         assert!(
             !message.contains("bridge path is not configured"),
-            "provider should attempt a default daemon-owned bridge path: {message}"
+            "provider should report bridge launch/materialization errors directly: {message}"
         );
     }
 
@@ -202,5 +230,62 @@ mod tests {
 
         assert_eq!(config.bridge_path, bridge_path);
         assert!(config.build.is_none());
+    }
+
+    #[cfg(all(unix, target_os = "macos"))]
+    #[tokio::test]
+    async fn generate_uses_bridge_response_instead_of_echoing_input() {
+        let (_dir, bridge_path) = bridge_script(
+            r#"#!/bin/sh
+while IFS= read -r line; do
+  case "$line" in
+    *'"id":"handshake"'*) printf '%s\n' '{"id":"handshake","payload":{"type":"handshake_ok","protocol_version":1}}' ;;
+    *'"id":"health"'*) printf '%s\n' '{"id":"health","payload":{"type":"health","available":true,"profiles":[{"id":"default","label":"Default"}],"unavailable_reason":null}}' ;;
+    *'"id":"create_session"'*) printf '%s\n' '{"id":"create_session","payload":{"type":"session_created","session_id":"session-1"}}' ;;
+    *'"id":"generate"'*) printf '%s\n' '{"id":"generate","payload":{"type":"assistant_text_delta","delta":"bridge "}}'; printf '%s\n' '{"id":"generate","payload":{"type":"generate_complete","text":"bridge answer"}}' ;;
+    *) printf '%s\n' '{"id":"unknown","payload":{"type":"error","code":"unsupported_request","message":"Unsupported request."}}' ;;
+  esac
+done
+"#,
+        );
+        let provider = FoundationLocalProvider::new(FoundationLocalProviderConfig {
+            default_profile: "default".to_string(),
+            bridge_path: Some(bridge_path),
+        })
+        .expect("provider");
+        let mut events = Vec::new();
+
+        let response = provider
+            .generate_streaming(GenerateRequest::text("prompt text"), &mut |event| {
+                events.push(event);
+            })
+            .await
+            .expect("generate");
+
+        assert_eq!(
+            response.output,
+            vec![GenerateOutputItem::AssistantText {
+                text: "bridge answer".to_string(),
+            }]
+        );
+        assert_eq!(
+            events,
+            vec![GenerateStreamEvent::AssistantTextDelta {
+                delta: "bridge ".to_string(),
+            }]
+        );
+    }
+
+    #[cfg(all(unix, target_os = "macos"))]
+    fn bridge_script(contents: &str) -> (tempfile::TempDir, PathBuf) {
+        use std::{fs, os::unix::fs::PermissionsExt};
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("bridge");
+        fs::write(&path, contents).expect("script write");
+        let mut permissions = fs::metadata(&path).expect("metadata").permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&path, permissions).expect("permissions");
+        (dir, path)
     }
 }

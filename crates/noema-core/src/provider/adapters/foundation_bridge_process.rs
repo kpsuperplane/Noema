@@ -11,6 +11,9 @@ use super::foundation_bridge_protocol::{
     BridgeResponsePayload,
 };
 
+const CONTROL_RESPONSE_TIMEOUT: Duration = Duration::from_secs(5);
+const GENERATE_RESPONSE_TIMEOUT: Duration = Duration::from_secs(120);
+
 /// Bridge process configuration.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FoundationBridgeConfig {
@@ -110,6 +113,26 @@ impl FoundationBridgeProcess {
         Ok(process)
     }
 
+    /// Generate assistant text through a bridge-backed session.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`FoundationBridgeError`] when session creation or generation
+    /// fails.
+    pub async fn generate(
+        &mut self,
+        conversation_id: String,
+        model_profile: String,
+        instructions: Option<String>,
+        input: String,
+        on_delta: &mut (dyn FnMut(String) + Send),
+    ) -> Result<String, FoundationBridgeError> {
+        let session_id = self
+            .create_session(conversation_id, model_profile, instructions)
+            .await?;
+        self.generate_in_session(session_id, input, on_delta).await
+    }
+
     async fn handshake(&mut self) -> Result<(), FoundationBridgeError> {
         let response = self
             .send_request(BridgeRequest {
@@ -161,11 +184,72 @@ impl FoundationBridgeProcess {
         }
     }
 
+    async fn create_session(
+        &mut self,
+        conversation_id: String,
+        model_profile: String,
+        instructions: Option<String>,
+    ) -> Result<String, FoundationBridgeError> {
+        let response = self
+            .send_request(BridgeRequest {
+                id: "create_session".to_string(),
+                payload: BridgeRequestPayload::CreateSession {
+                    conversation_id,
+                    model_profile,
+                    instructions,
+                },
+            })
+            .await?;
+        match response.payload {
+            BridgeResponsePayload::SessionCreated { session_id } => Ok(session_id),
+            payload => Err(FoundationBridgeError::BridgeProtocol(format!(
+                "unexpected create_session response {payload:?}"
+            ))),
+        }
+    }
+
+    async fn generate_in_session(
+        &mut self,
+        session_id: String,
+        input: String,
+        on_delta: &mut (dyn FnMut(String) + Send),
+    ) -> Result<String, FoundationBridgeError> {
+        let request_id = "generate".to_string();
+        let request = BridgeRequest {
+            id: request_id.clone(),
+            payload: BridgeRequestPayload::Generate { session_id, input },
+        };
+        self.write_request(&request).await?;
+
+        loop {
+            let response = self
+                .read_response_with_timeout(&request_id, GENERATE_RESPONSE_TIMEOUT)
+                .await?;
+            match response.payload {
+                BridgeResponsePayload::AssistantTextDelta { delta } => on_delta(delta),
+                BridgeResponsePayload::GenerateComplete { text } => return Ok(text),
+                payload => {
+                    return Err(FoundationBridgeError::BridgeProtocol(format!(
+                        "unexpected generate response {payload:?}"
+                    )));
+                }
+            }
+        }
+    }
+
     async fn send_request(
         &mut self,
         request: BridgeRequest,
     ) -> Result<BridgeResponse, FoundationBridgeError> {
         let request_id = request.id.clone();
+        self.write_request(&request).await?;
+        self.read_response(&request_id).await
+    }
+
+    async fn write_request(
+        &mut self,
+        request: &BridgeRequest,
+    ) -> Result<(), FoundationBridgeError> {
         let line = serde_json::to_string(&request)
             .map_err(|source| FoundationBridgeError::BridgeProtocol(source.to_string()))?;
         self.stdin
@@ -180,8 +264,23 @@ impl FoundationBridgeProcess {
             .flush()
             .await
             .map_err(|source| FoundationBridgeError::BridgeLaunchFailed(source.to_string()))?;
+        Ok(())
+    }
 
-        let response_line = time::timeout(Duration::from_secs(5), self.stdout.next_line())
+    async fn read_response(
+        &mut self,
+        request_id: &str,
+    ) -> Result<BridgeResponse, FoundationBridgeError> {
+        self.read_response_with_timeout(request_id, CONTROL_RESPONSE_TIMEOUT)
+            .await
+    }
+
+    async fn read_response_with_timeout(
+        &mut self,
+        request_id: &str,
+        timeout: Duration,
+    ) -> Result<BridgeResponse, FoundationBridgeError> {
+        let response_line = time::timeout(timeout, self.stdout.next_line())
             .await
             .map_err(|_| {
                 FoundationBridgeError::BridgeLaunchFailed(format!(
@@ -198,8 +297,8 @@ impl FoundationBridgeProcess {
             .map_err(|source| FoundationBridgeError::BridgeProtocol(source.to_string()))?;
         if response.id != request_id {
             return Err(FoundationBridgeError::BridgeProtocol(format!(
-                "bridge response id {} did not match request id {request_id}",
-                response.id
+                "bridge response id {} did not match request id {}",
+                response.id, request_id,
             )));
         }
         if let BridgeResponsePayload::Error { code, message } = &response.payload {
@@ -323,6 +422,82 @@ done
         .expect_err("unavailable bridge should fail health");
 
         assert_eq!(error.code(), "foundation_unavailable");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn bridge_generate_returns_session_output_and_deltas() {
+        let (_dir, bridge_path) = bridge_script(
+            r#"#!/bin/sh
+while IFS= read -r line; do
+  case "$line" in
+    *'"id":"handshake"'*) printf '%s\n' '{"id":"handshake","payload":{"type":"handshake_ok","protocol_version":1}}' ;;
+    *'"id":"health"'*) printf '%s\n' '{"id":"health","payload":{"type":"health","available":true,"profiles":[{"id":"default","label":"Default"}],"unavailable_reason":null}}' ;;
+    *'"id":"create_session"'*) printf '%s\n' '{"id":"create_session","payload":{"type":"session_created","session_id":"session-1"}}' ;;
+    *'"id":"generate"'*) printf '%s\n' '{"id":"generate","payload":{"type":"assistant_text_delta","delta":"bridge "}}'; printf '%s\n' '{"id":"generate","payload":{"type":"generate_complete","text":"bridge answer"}}' ;;
+    *) printf '%s\n' '{"id":"unknown","payload":{"type":"error","code":"unsupported_request","message":"Unsupported request."}}' ;;
+  esac
+done
+"#,
+        );
+        let mut process = FoundationBridgeProcess::start(FoundationBridgeConfig {
+            bridge_path,
+            build: None,
+        })
+        .await
+        .expect("bridge should start");
+        let mut deltas = Vec::new();
+
+        let text = process
+            .generate(
+                "conversation:test".to_string(),
+                "default".to_string(),
+                Some("be concise".to_string()),
+                "hello".to_string(),
+                &mut |delta| deltas.push(delta),
+            )
+            .await
+            .expect("generate should complete");
+
+        assert_eq!(text, "bridge answer");
+        assert_eq!(deltas, vec!["bridge ".to_string()]);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn bridge_generate_waits_longer_than_control_timeout() {
+        let (_dir, bridge_path) = bridge_script(
+            r#"#!/bin/sh
+while IFS= read -r line; do
+  case "$line" in
+    *'"id":"handshake"'*) printf '%s\n' '{"id":"handshake","payload":{"type":"handshake_ok","protocol_version":1}}' ;;
+    *'"id":"health"'*) printf '%s\n' '{"id":"health","payload":{"type":"health","available":true,"profiles":[{"id":"default","label":"Default"}],"unavailable_reason":null}}' ;;
+    *'"id":"create_session"'*) printf '%s\n' '{"id":"create_session","payload":{"type":"session_created","session_id":"session-1"}}' ;;
+    *'"id":"generate"'*) sleep 6; printf '%s\n' '{"id":"generate","payload":{"type":"generate_complete","text":"slow bridge answer"}}' ;;
+    *) printf '%s\n' '{"id":"unknown","payload":{"type":"error","code":"unsupported_request","message":"Unsupported request."}}' ;;
+  esac
+done
+"#,
+        );
+        let mut process = FoundationBridgeProcess::start(FoundationBridgeConfig {
+            bridge_path,
+            build: None,
+        })
+        .await
+        .expect("bridge should start");
+
+        let text = process
+            .generate(
+                "conversation:test".to_string(),
+                "default".to_string(),
+                None,
+                "hello".to_string(),
+                &mut |_| {},
+            )
+            .await
+            .expect("generate should wait beyond control timeout");
+
+        assert_eq!(text, "slow bridge answer");
     }
 
     #[cfg(unix)]
