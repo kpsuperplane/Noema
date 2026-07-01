@@ -39,8 +39,6 @@ export function ShellSidebar({
   onSelectItem: (item: ShellMenuItem) => void;
 }) {
   const [settledMenuLevel, setSettledMenuLevel] = React.useState(menuLevel);
-  const latestMenuLevelRef = React.useRef(menuLevel);
-  latestMenuLevelRef.current = menuLevel;
 
   const transitioning = settledMenuLevel.levelId !== menuLevel.levelId;
   const transitionDirection = transitioning
@@ -53,11 +51,11 @@ export function ShellSidebar({
     }
 
     const timeoutId = window.setTimeout(() => {
-      setSettledMenuLevel(latestMenuLevelRef.current);
+      setSettledMenuLevel(menuLevel);
     }, shellSidebarMenuTransitionMs);
 
     return () => window.clearTimeout(timeoutId);
-  }, [transitioning, menuLevel.levelId]);
+  }, [transitioning, menuLevel]);
 
   const frames = transitioning
     ? [
