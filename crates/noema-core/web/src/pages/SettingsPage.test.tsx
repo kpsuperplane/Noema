@@ -256,9 +256,11 @@ describe("McpSettingsPaneContent", () => {
       />
     );
 
-    assert.match(markup, /Display name/);
     assert.match(markup, /Authentication required/);
+    assert.match(markup, /Back/);
     assert.match(markup, /server has not been saved yet/);
+    assert.doesNotMatch(markup, /Display name/);
+    assert.doesNotMatch(markup, /Save and verify/);
     assert.doesNotMatch(markup, /Verify server/);
   });
 });

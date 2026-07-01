@@ -131,8 +131,10 @@ The next storage slice should stay small and concrete:
   scope visibility, and blocks impossible `ready` saves before they hit the
   backend. Existing MCP rows can reopen the permissions modal or delete the
   server plus stored setup secrets through an in-app destructive confirmation.
-  User-facing setup errors are sanitized while raw transport details stay out of
-  the web form.
+  Authentication-required setup results move to their own modal screen with a
+  Back affordance so the initial server-detail form and credential retry form do
+  not stack. User-facing setup errors are sanitized while raw transport details
+  stay out of the web form.
   Web Settings also exposes MCPs, Trusted Identities, Approvals, and Audit
   surfaces backed by GraphQL read models where live data exists.
 - Routed web surfaces learn shell-owned deck state through

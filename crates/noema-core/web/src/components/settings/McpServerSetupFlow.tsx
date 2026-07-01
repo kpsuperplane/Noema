@@ -1,5 +1,5 @@
 import * as React from "react";
-import { KeyRound, Loader2, Plus, ShieldCheck, Trash2 } from "lucide-react";
+import { ArrowLeft, KeyRound, Loader2, Plus, ShieldCheck, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { CreateMcpServerMutation } from "@/generated/graphql";
@@ -20,6 +20,7 @@ export function McpServerSetupFlow({
   onCreateServer: (input: McpSetupFormSubmission) => void;
 }) {
   const [transportKind, setTransportKind] = React.useState<TransportKind>("streamable_http");
+  const [showAuthScreen, setShowAuthScreen] = React.useState(true);
   const [formError, setFormError] = React.useState<string | null>(null);
   const [displayName, setDisplayName] = React.useState("");
   const [command, setCommand] = React.useState("");
@@ -60,6 +61,7 @@ export function McpServerSetupFlow({
         http: null
       } satisfies McpSetupFormSubmission;
       setLastSubmission(submission);
+      setShowAuthScreen(true);
       onCreateServer(submission);
       return;
     }
@@ -74,6 +76,7 @@ export function McpServerSetupFlow({
       }
     } satisfies McpSetupFormSubmission;
     setLastSubmission(submission);
+    setShowAuthScreen(true);
     onCreateServer(submission);
   }
 
@@ -90,10 +93,14 @@ export function McpServerSetupFlow({
     setFormError(null);
     const submission = mergeRetrySecrets(lastSubmission, parsedEnv.value, parsedHeaders.value);
     setLastSubmission(submission);
+    setShowAuthScreen(true);
     onCreateServer(submission);
   }
 
-  const visibleError = formError ?? setupError ?? setupResult?.setupError ?? null;
+  const authRequired = setupResult?.setupStatus === "needs_auth";
+  const setupScreen = authRequired && showAuthScreen ? "auth" : "details";
+  const visibleError =
+    formError ?? setupError ?? (setupScreen === "auth" ? setupResult?.setupError : null) ?? null;
 
   function renderHttpTransportFields() {
     return (
@@ -123,80 +130,93 @@ export function McpServerSetupFlow({
 
   return (
     <section className="grid gap-4">
-      <form className="grid gap-3" onSubmit={submitCreate}>
-        <label className="grid gap-1 text-sm font-medium">
-          Display name
-          <input
-            className="h-9 rounded-md border border-[var(--border-subtle)] px-3 text-sm font-normal"
-            value={displayName}
-            onChange={(event) => setDisplayName(event.currentTarget.value)}
-          />
-        </label>
-        <Tabs
-          value={transportKind}
-          onValueChange={(value) => setTransportKind(value as TransportKind)}
-        >
-          <TabsList aria-label="Transport">
-            <TabsTrigger value="streamable_http">Streamable HTTP</TabsTrigger>
-            <TabsTrigger value="sse">SSE</TabsTrigger>
-            <TabsTrigger value="stdio">stdio</TabsTrigger>
-          </TabsList>
-          <TabsContent value="streamable_http">{renderHttpTransportFields()}</TabsContent>
-          <TabsContent value="sse">{renderHttpTransportFields()}</TabsContent>
-          <TabsContent value="stdio">
-            <div className="grid gap-3 sm:grid-cols-2">
-              <TextField label="Command" value={command} onChange={setCommand} />
-              <TextField label="Working directory" value={cwd} onChange={setCwd} />
-              <div className="sm:col-span-2">
-                <StringListEditor
-                  label="Args"
-                  values={args}
-                  emptyText="No arguments configured."
-                  addLabel="Add argument"
-                  onChange={setArgs}
-                />
+      {setupScreen === "details" ? (
+        <form className="grid gap-3" onSubmit={submitCreate}>
+          <label className="grid gap-1 text-sm font-medium">
+            Display name
+            <input
+              className="h-9 rounded-md border border-[var(--border-subtle)] px-3 text-sm font-normal"
+              value={displayName}
+              onChange={(event) => setDisplayName(event.currentTarget.value)}
+            />
+          </label>
+          <Tabs
+            value={transportKind}
+            onValueChange={(value) => setTransportKind(value as TransportKind)}
+          >
+            <TabsList aria-label="Transport">
+              <TabsTrigger value="streamable_http">Streamable HTTP</TabsTrigger>
+              <TabsTrigger value="sse">SSE</TabsTrigger>
+              <TabsTrigger value="stdio">stdio</TabsTrigger>
+            </TabsList>
+            <TabsContent value="streamable_http">{renderHttpTransportFields()}</TabsContent>
+            <TabsContent value="sse">{renderHttpTransportFields()}</TabsContent>
+            <TabsContent value="stdio">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <TextField label="Command" value={command} onChange={setCommand} />
+                <TextField label="Working directory" value={cwd} onChange={setCwd} />
+                <div className="sm:col-span-2">
+                  <StringListEditor
+                    label="Args"
+                    values={args}
+                    emptyText="No arguments configured."
+                    addLabel="Add argument"
+                    onChange={setArgs}
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <KeyValueEditor
+                    label="Non-secret env"
+                    rows={env}
+                    emptyText="No non-secret environment variables configured."
+                    onChange={setEnv}
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <KeyValueEditor
+                    label="Secret env"
+                    rows={secretEnv}
+                    emptyText="No secret environment variables configured."
+                    onChange={setSecretEnv}
+                  />
+                </div>
               </div>
-              <div className="sm:col-span-2">
-                <KeyValueEditor
-                  label="Non-secret env"
-                  rows={env}
-                  emptyText="No non-secret environment variables configured."
-                  onChange={setEnv}
-                />
-              </div>
-              <div className="sm:col-span-2">
-                <KeyValueEditor
-                  label="Secret env"
-                  rows={secretEnv}
-                  emptyText="No secret environment variables configured."
-                  onChange={setSecretEnv}
-                />
-              </div>
+            </TabsContent>
+          </Tabs>
+
+          {visibleError ? <p className="m-0 text-sm text-destructive">{visibleError}</p> : null}
+          <div className="flex justify-end">
+            <Button type="submit" className="w-fit" disabled={setupSubmitting}>
+              {setupSubmitting ? (
+                <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+              ) : (
+                <Plus className="size-4" aria-hidden="true" />
+              )}
+              Save and verify
+            </Button>
+          </div>
+        </form>
+      ) : null}
+
+      {setupScreen === "auth" && authRequired ? (
+        <form className="grid gap-3" onSubmit={submitRetry}>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              className="w-fit"
+              onClick={() => {
+                setFormError(null);
+                setShowAuthScreen(false);
+              }}
+            >
+              <ArrowLeft className="size-4" aria-hidden="true" />
+              Back
+            </Button>
+            <div className="flex items-center gap-2 text-sm font-medium">
+              <KeyRound className="size-4" aria-hidden="true" />
+              Authentication required
             </div>
-          </TabsContent>
-        </Tabs>
-
-        {visibleError ? <p className="m-0 text-sm text-destructive">{visibleError}</p> : null}
-        <div className="flex justify-end">
-          <Button type="submit" className="w-fit" disabled={setupSubmitting}>
-            {setupSubmitting ? (
-              <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-            ) : (
-              <Plus className="size-4" aria-hidden="true" />
-            )}
-            Save and verify
-          </Button>
-        </div>
-      </form>
-
-      {setupResult?.setupStatus === "needs_auth" ? (
-        <form
-          className="grid gap-3 border-t border-[var(--border-subtle)] pt-4"
-          onSubmit={submitRetry}
-        >
-          <div className="flex items-center gap-2 text-sm font-medium">
-            <KeyRound className="size-4" aria-hidden="true" />
-            Authentication required
           </div>
           <p className="m-0 text-sm text-muted-foreground">
             The server has not been saved yet. Add the secret environment variables or headers this
@@ -216,6 +236,7 @@ export function McpServerSetupFlow({
               onChange={setRetrySecretHeaders}
             />
           </div>
+          {visibleError ? <p className="m-0 text-sm text-destructive">{visibleError}</p> : null}
           <div className="flex justify-end">
             <Button type="submit" className="w-fit" disabled={setupSubmitting}>
               {setupSubmitting ? (
