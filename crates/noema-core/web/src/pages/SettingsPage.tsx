@@ -44,7 +44,7 @@ export function SettingsSurface({ section }: SettingsSurfaceProps) {
   return (
     <section
       data-slot="settings-surface"
-      className="min-h-0 overflow-auto px-6 py-6 max-[760px]:px-5"
+      className="h-full min-h-0 overflow-y-auto overscroll-contain px-6 py-6 max-[760px]:px-5"
       aria-labelledby="settings-surface-title"
     >
       <div className="grid max-w-3xl gap-5">
