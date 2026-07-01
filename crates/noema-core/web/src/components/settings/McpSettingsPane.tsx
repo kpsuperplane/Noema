@@ -29,6 +29,7 @@ export function McpSettingsPane() {
   const [setupError, setSetupError] = React.useState<string | null>(null);
   const [setupOpen, setSetupOpen] = React.useState(false);
   const [permissionsServerId, setPermissionsServerId] = React.useState<string | null>(null);
+  const [autoAutofillServerId, setAutoAutofillServerId] = React.useState<string | null>(null);
   const [deleteError, setDeleteError] = React.useState<string | null>(null);
   const [oauthAttemptId, setOauthAttemptId] = React.useState<string | null>(null);
   const [createMcpServer, createState] =
@@ -50,6 +51,7 @@ export function McpSettingsPane() {
           setSetupResult(null);
           setSetupOpen(false);
           setPermissionsServerId(setup.server.mcpServerId);
+          setAutoAutofillServerId(setup.server.mcpServerId);
         }
       }
     } catch (error) {
@@ -91,6 +93,9 @@ export function McpSettingsPane() {
       if (permissionsServerId === mcpServerId) {
         setPermissionsServerId(null);
       }
+      if (autoAutofillServerId === mcpServerId) {
+        setAutoAutofillServerId(null);
+      }
       await result.refetch();
       return true;
     } catch {
@@ -130,6 +135,7 @@ export function McpSettingsPane() {
                 setSetupResult(null);
                 setSetupOpen(false);
                 setPermissionsServerId(attempt.setupResult.server.mcpServerId);
+                setAutoAutofillServerId(attempt.setupResult.server.mcpServerId);
               }
               return;
             }
@@ -167,6 +173,7 @@ export function McpSettingsPane() {
       oauthSubmitting={oauthStartState.loading || oauthAttemptId !== null}
       setupError={setupError}
       permissionsServerId={permissionsServerId}
+      autoAutofillServerId={autoAutofillServerId}
       deleteSubmitting={deleteState.loading}
       deleteError={deleteError}
       onOpenSetup={() => {
@@ -179,8 +186,15 @@ export function McpSettingsPane() {
       onCloseSetup={() => setSetupOpen(false)}
       onCreateServer={(input) => void handleCreateServer(input)}
       onStartOAuth={(input) => void handleStartOAuth(input)}
-      onOpenPermissions={setPermissionsServerId}
-      onClosePermissions={() => setPermissionsServerId(null)}
+      onOpenPermissions={(mcpServerId) => {
+        setAutoAutofillServerId(null);
+        setPermissionsServerId(mcpServerId);
+      }}
+      onClosePermissions={() => {
+        setAutoAutofillServerId(null);
+        setPermissionsServerId(null);
+      }}
+      onAutoAutofillComplete={() => setAutoAutofillServerId(null)}
       onDeleteServer={handleDeleteServer}
       onRetry={() => void result.refetch()}
     />

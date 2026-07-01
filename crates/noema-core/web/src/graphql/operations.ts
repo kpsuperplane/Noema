@@ -151,6 +151,25 @@ export const SaveToolCalibrationDocument = gql`
   }
 `;
 
+export const AutofillToolCalibrationsDocument = gql`
+  mutation AutofillToolCalibrations($mcpServerId: String!) {
+    autofillToolCalibrations(mcpServerId: $mcpServerId) {
+      suggestions {
+        mcpToolId
+        readClassification
+        writeClassification
+        exportClassification
+        disabled
+        ownerExtractors {
+          source
+          selectorKind
+          path
+        }
+      }
+    }
+  }
+`;
+
 export const CreateMcpServerDocument = gql`
   mutation CreateMcpServer($input: GraphqlCreateMcpServerInput!) {
     createMcpServer(input: $input) {

@@ -1,5 +1,7 @@
 //! Third-party MCP control-plane domain types.
 
+/// Advisory MCP tool calibration autofill prompt and parser support.
+pub mod autofill;
 pub mod client;
 /// HTTP MCP metadata transports.
 pub mod http;

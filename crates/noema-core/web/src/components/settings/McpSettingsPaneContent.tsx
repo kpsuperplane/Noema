@@ -33,6 +33,7 @@ export function McpSettingsPaneContent({
   oauthSubmitting = false,
   setupError = null,
   permissionsServerId = null,
+  autoAutofillServerId = null,
   deleteSubmitting = false,
   deleteError = null,
   onOpenSetup = () => {},
@@ -41,6 +42,7 @@ export function McpSettingsPaneContent({
   onStartOAuth = () => {},
   onOpenPermissions = () => {},
   onClosePermissions = () => {},
+  onAutoAutofillComplete = () => {},
   onDeleteServer = async () => false,
   onRetry
 }: {
@@ -53,6 +55,7 @@ export function McpSettingsPaneContent({
   oauthSubmitting?: boolean;
   setupError?: string | null;
   permissionsServerId?: string | null;
+  autoAutofillServerId?: string | null;
   deleteSubmitting?: boolean;
   deleteError?: string | null;
   onOpenSetup?: () => void;
@@ -61,6 +64,7 @@ export function McpSettingsPaneContent({
   onStartOAuth?: (input: McpSetupFormSubmission) => void;
   onOpenPermissions?: (mcpServerId: string) => void;
   onClosePermissions?: () => void;
+  onAutoAutofillComplete?: () => void;
   onDeleteServer?: (mcpServerId: string) => Promise<boolean>;
   onRetry: () => void;
 }) {
@@ -180,6 +184,8 @@ export function McpSettingsPaneContent({
           open
           serverId={permissionsServerId}
           serverName={selectedPermissionsServer?.displayName ?? null}
+          autoAutofill={permissionsServerId === autoAutofillServerId}
+          onAutoAutofillComplete={onAutoAutofillComplete}
           onOpenChange={(open) => {
             if (!open) onClosePermissions();
           }}

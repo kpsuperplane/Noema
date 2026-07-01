@@ -155,6 +155,16 @@ type GraphqlAssistantTextDeltaEvent {
 }
 
 """
+Advisory MCP tool calibration Autofill result.
+"""
+type GraphqlAutofillToolCalibrationsResult {
+	"""
+	Validated calibration suggestions keyed by MCP tool id.
+	"""
+	suggestions: [GraphqlToolCalibrationSuggestion!]!
+}
+
+"""
 Continue setup after adding authentication material.
 """
 input GraphqlContinueMcpServerSetupInput {
@@ -1430,6 +1440,36 @@ type GraphqlToolCalibration {
 }
 
 """
+Advisory calibration suggestion for one MCP tool.
+"""
+type GraphqlToolCalibrationSuggestion {
+	"""
+	Durable MCP tool id.
+	"""
+	mcpToolId: String!
+	"""
+	Suggested read classification.
+	"""
+	readClassification: String!
+	"""
+	Suggested write classification.
+	"""
+	writeClassification: String!
+	"""
+	Suggested export classification.
+	"""
+	exportClassification: String!
+	"""
+	Suggested owner extractors.
+	"""
+	ownerExtractors: [GraphqlOwnerExtractor!]!
+	"""
+	Whether the tool should remain disabled in the draft.
+	"""
+	disabled: Boolean!
+}
+
+"""
 Transcript item union.
 """
 union GraphqlTranscriptItem = GraphqlUserText | GraphqlAssistantText | GraphqlActivity | GraphqlA2UiCard | GraphqlErrorNotice
@@ -1542,6 +1582,10 @@ type MutationRoot {
 	Save reviewed MCP tool calibration.
 	"""
 	saveToolCalibration(input: GraphqlSaveToolCalibrationInput!): GraphqlToolCalibration!
+	"""
+	Generate advisory MCP tool calibration suggestions from persisted metadata.
+	"""
+	autofillToolCalibrations(mcpServerId: String!): GraphqlAutofillToolCalibrationsResult!
 	"""
 	Add and verify an MCP server.
 	"""

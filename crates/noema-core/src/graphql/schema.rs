@@ -15,11 +15,11 @@ use super::{
     },
     local_status::{self, GraphqlLocalStatus, GraphqlMemoryStorageStatus},
     mcp::{
-        self, GraphqlContinueMcpServerSetupInput, GraphqlCreateMcpServerInput,
-        GraphqlMcpApprovalRequest, GraphqlMcpOAuthSetupAttempt, GraphqlMcpServer,
-        GraphqlMcpServerSetupResult, GraphqlMcpTool, GraphqlSaveToolCalibrationInput,
-        GraphqlStartMcpServerOAuthSetupInput, GraphqlToolCalibration,
-        GraphqlTrustedIdentitySelector,
+        self, GraphqlAutofillToolCalibrationsResult, GraphqlContinueMcpServerSetupInput,
+        GraphqlCreateMcpServerInput, GraphqlMcpApprovalRequest, GraphqlMcpOAuthSetupAttempt,
+        GraphqlMcpServer, GraphqlMcpServerSetupResult, GraphqlMcpTool,
+        GraphqlSaveToolCalibrationInput, GraphqlStartMcpServerOAuthSetupInput,
+        GraphqlToolCalibration, GraphqlTrustedIdentitySelector,
     },
     memory::{
         self, GraphqlMemoryClaim, GraphqlMemoryClaimDetail, GraphqlMemoryGraph,
@@ -60,6 +60,19 @@ impl GraphqlState {
     pub fn for_tests_with_store(store: crate::NoemaStore) -> Self {
         Self {
             runtime_state: GraphqlRuntimeState::for_tests_with_store(store),
+            mcp_setup_outcomes: None,
+        }
+    }
+
+    /// Build test state backed by a store and runtime handle.
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) fn for_tests_with_store_and_runtime(
+        store: crate::NoemaStore,
+        runtime: crate::daemon::CodexRuntimeHandle,
+    ) -> Self {
+        Self {
+            runtime_state: GraphqlRuntimeState::for_tests_with_store_and_runtime(store, runtime),
             mcp_setup_outcomes: None,
         }
     }
@@ -422,6 +435,16 @@ impl MutationRoot {
         mcp::save_tool_calibration(state, input).await
     }
 
+    /// Generate advisory MCP tool calibration suggestions from persisted metadata.
+    async fn autofill_tool_calibrations(
+        &self,
+        ctx: &Context<'_>,
+        mcp_server_id: String,
+    ) -> Result<GraphqlAutofillToolCalibrationsResult> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        mcp::autofill_tool_calibrations(state, mcp_server_id).await
+    }
+
     /// Add and verify an MCP server.
     async fn create_mcp_server(
         &self,
@@ -496,6 +519,9 @@ mod tests {
         assert!(sdl.contains("startPrimaryConversation"));
         assert!(sdl.contains("sendConversationTurn"));
         assert!(sdl.contains("saveToolCalibration"));
+        assert!(sdl.contains("autofillToolCalibrations"));
+        assert!(sdl.contains("type GraphqlAutofillToolCalibrationsResult"));
+        assert!(sdl.contains("type GraphqlToolCalibrationSuggestion"));
         assert!(sdl.contains("createMcpServer"));
         assert!(sdl.contains("continueMcpServerSetup"));
         assert!(sdl.contains("GraphqlSaveToolCalibrationInput"));
@@ -1303,6 +1329,172 @@ mod tests {
                 .expect("get calibration")
                 .is_none()
         );
+    }
+
+    #[tokio::test]
+    async fn autofill_tool_calibrations_returns_validated_suggestions_without_persisting() {
+        use crate::store::tests::test_store;
+
+        let store = test_store().await;
+        seed_autofill_server(&store).await;
+        let runtime = test_autofill_runtime(
+            store.clone(),
+            r#"{"suggestions":[{"mcp_tool_id":"mcp_tool:docs:read_doc","read_classification":"mixed","write_classification":"none","export_classification":"none","owner_extractors":[{"source":"arguments","selector_kind":"email","path":"/owner_email"}],"disabled":false}]}"#,
+        )
+        .await;
+        let schema = build_schema(GraphqlState::for_tests_with_store_and_runtime(
+            store.clone(),
+            runtime,
+        ));
+
+        let response = schema
+            .execute(async_graphql::Request::new(
+                r#"
+                mutation {
+                  autofillToolCalibrations(mcpServerId: "mcp_server:docs") {
+                    suggestions {
+                      mcpToolId
+                      readClassification
+                      writeClassification
+                      exportClassification
+                      disabled
+                      ownerExtractors { source selectorKind path }
+                    }
+                  }
+                }
+                "#,
+            ))
+            .await;
+
+        assert!(response.errors.is_empty(), "{:?}", response.errors);
+        let data = response.data.into_json().expect("json");
+        let suggestion = &data["autofillToolCalibrations"]["suggestions"][0];
+        assert_eq!(suggestion["mcpToolId"], "mcp_tool:docs:read_doc");
+        assert_eq!(suggestion["readClassification"], "mixed");
+        assert_eq!(suggestion["writeClassification"], "none");
+        assert_eq!(suggestion["exportClassification"], "none");
+        assert_eq!(suggestion["ownerExtractors"][0]["source"], "arguments");
+        assert_eq!(suggestion["ownerExtractors"][0]["selectorKind"], "email");
+        assert_eq!(suggestion["ownerExtractors"][0]["path"], "/owner_email");
+        assert_eq!(suggestion["disabled"], false);
+        assert!(
+            store
+                .get_tool_calibration("mcp_tool:docs:read_doc")
+                .await
+                .expect("get calibration")
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn autofill_tool_calibrations_rejects_invalid_model_output_without_persisting() {
+        use crate::store::tests::test_store;
+
+        let store = test_store().await;
+        seed_autofill_server(&store).await;
+        let runtime = test_autofill_runtime(
+            store.clone(),
+            r#"{"suggestions":[{"mcp_tool_id":"mcp_tool:docs:missing","read_classification":"mixed","write_classification":"none","export_classification":"none","owner_extractors":[],"disabled":false}]}"#,
+        )
+        .await;
+        let schema = build_schema(GraphqlState::for_tests_with_store_and_runtime(
+            store.clone(),
+            runtime,
+        ));
+
+        let response = schema
+            .execute(async_graphql::Request::new(
+                r#"
+                mutation {
+                  autofillToolCalibrations(mcpServerId: "mcp_server:docs") {
+                    suggestions { mcpToolId }
+                  }
+                }
+                "#,
+            ))
+            .await;
+
+        assert!(!response.errors.is_empty());
+        assert!(
+            response.errors[0].message.contains("unknown MCP tool id"),
+            "{:?}",
+            response.errors
+        );
+        assert!(
+            store
+                .get_tool_calibration("mcp_tool:docs:read_doc")
+                .await
+                .expect("get calibration")
+                .is_none()
+        );
+    }
+
+    async fn seed_autofill_server(store: &crate::NoemaStore) {
+        use crate::{McpTransportKind, NewMcpServer, NewMcpTool};
+
+        store
+            .create_mcp_server(NewMcpServer {
+                mcp_server_id: "mcp_server:docs".to_string(),
+                display_name: "Docs".to_string(),
+                transport_kind: McpTransportKind::Stdio,
+                safe_config: json!({}),
+            })
+            .await
+            .expect("create server");
+        store
+            .upsert_discovered_mcp_tool(NewMcpTool {
+                mcp_tool_id: "mcp_tool:docs:read_doc".to_string(),
+                mcp_server_id: "mcp_server:docs".to_string(),
+                name: "read_doc".to_string(),
+                description: Some("Read a document by id".to_string()),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "owner_email": { "type": "string" }
+                    }
+                }),
+                output_schema: None,
+                annotations: json!({"readOnlyHint": true}),
+                metadata_fingerprint: "fingerprint_1".to_string(),
+            })
+            .await
+            .expect("upsert tool");
+    }
+
+    #[derive(Debug)]
+    struct AutofillTestProvider {
+        text: String,
+    }
+
+    impl crate::provider::ModelProvider for AutofillTestProvider {
+        async fn generate(
+            &self,
+            _request: crate::provider::GenerateRequest,
+        ) -> Result<crate::provider::GenerateResponse, crate::provider::ProviderError> {
+            Ok(crate::provider::GenerateResponse {
+                output: vec![crate::provider::GenerateOutputItem::AssistantText {
+                    text: self.text.clone(),
+                }],
+                provider: "test".to_string(),
+                model: "test-autofill".to_string(),
+                response_id: None,
+                usage: None,
+            })
+        }
+    }
+
+    async fn test_autofill_runtime(
+        store: crate::NoemaStore,
+        text: &str,
+    ) -> crate::daemon::CodexRuntimeHandle {
+        crate::daemon::CodexRuntimeHandle::spawn_with_provider(
+            Arc::new(AutofillTestProvider {
+                text: text.to_string(),
+            }),
+            store,
+        )
+        .await
+        .expect("runtime")
     }
 
     #[tokio::test]

@@ -153,6 +153,19 @@ async fn runtime_actor_allocates_distinct_conversation_ids() {
 }
 
 #[tokio::test]
+async fn runtime_handle_generate_once_uses_provider_without_conversation() {
+    let handle = test_runtime_handle(fake_codex_provider()).await;
+
+    let response = handle
+        .generate_once(GenerateRequest::text("hello"))
+        .await
+        .expect("generate once");
+    handle.shutdown().await;
+
+    assert_eq!(response.assistant_text(), "fake answer");
+}
+
+#[tokio::test]
 async fn runtime_turn_streams_durable_assistant_item_and_idle_status() {
     let (handle, store) = test_runtime_handle_with_store(fake_codex_provider()).await;
 

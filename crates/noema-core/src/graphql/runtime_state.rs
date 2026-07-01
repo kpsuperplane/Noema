@@ -56,6 +56,20 @@ impl GraphqlRuntimeState {
         }
     }
 
+    /// Build state for resolver tests with a store and runtime handle.
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) fn for_tests_with_store_and_runtime(
+        store: NoemaStore,
+        runtime: CodexRuntimeHandle,
+    ) -> Self {
+        Self {
+            runtime: Some(runtime),
+            store: Some(store),
+            ..Self::for_tests()
+        }
+    }
+
     /// Build state for resolver tests with a store and path root.
     #[cfg(test)]
     #[must_use]

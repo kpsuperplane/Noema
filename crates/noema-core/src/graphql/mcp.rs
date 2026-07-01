@@ -289,6 +289,47 @@ impl From<ToolCalibrationRecord> for GraphqlToolCalibration {
     }
 }
 
+/// Advisory MCP tool calibration Autofill result.
+#[derive(Clone, Debug, SimpleObject)]
+pub struct GraphqlAutofillToolCalibrationsResult {
+    /// Validated calibration suggestions keyed by MCP tool id.
+    pub suggestions: Vec<GraphqlToolCalibrationSuggestion>,
+}
+
+/// Advisory calibration suggestion for one MCP tool.
+#[derive(Clone, Debug, SimpleObject)]
+pub struct GraphqlToolCalibrationSuggestion {
+    /// Durable MCP tool id.
+    pub mcp_tool_id: String,
+    /// Suggested read classification.
+    pub read_classification: String,
+    /// Suggested write classification.
+    pub write_classification: String,
+    /// Suggested export classification.
+    pub export_classification: String,
+    /// Suggested owner extractors.
+    pub owner_extractors: Vec<GraphqlOwnerExtractor>,
+    /// Whether the tool should remain disabled in the draft.
+    pub disabled: bool,
+}
+
+impl From<crate::mcp::autofill::McpToolCalibrationSuggestion> for GraphqlToolCalibrationSuggestion {
+    fn from(suggestion: crate::mcp::autofill::McpToolCalibrationSuggestion) -> Self {
+        Self {
+            mcp_tool_id: suggestion.mcp_tool_id,
+            read_classification: suggestion.read_classification.as_str().to_string(),
+            write_classification: suggestion.write_classification.as_str().to_string(),
+            export_classification: suggestion.export_classification.as_str().to_string(),
+            owner_extractors: suggestion
+                .owner_extractors
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+            disabled: suggestion.disabled,
+        }
+    }
+}
+
 /// Deterministic owner extractor safe to show in Settings.
 #[derive(Clone, Debug, SimpleObject)]
 pub struct GraphqlOwnerExtractor {
@@ -516,6 +557,39 @@ pub(super) async fn mcp_oauth_setup_attempt(
         .await
         .map(Into::into);
     Ok(attempt)
+}
+
+pub(super) async fn autofill_tool_calibrations(
+    state: &GraphqlState,
+    mcp_server_id: String,
+) -> Result<GraphqlAutofillToolCalibrationsResult> {
+    let store = state.store()?;
+    let server = store
+        .get_mcp_server(&mcp_server_id)
+        .await
+        .map_err(graphql_error)?
+        .ok_or_else(|| graphql_error("MCP server was not found"))?;
+    let tools = store
+        .list_mcp_tools_for_server(&mcp_server_id)
+        .await
+        .map_err(graphql_error)?;
+    let prompt = crate::mcp::autofill::build_autofill_prompt(&server.display_name, &tools);
+    let mut request = crate::GenerateRequest::text(prompt);
+    request.instructions =
+        Some("Return strict JSON only for MCP calibration suggestions.".to_string());
+
+    let response = state
+        .runtime()?
+        .generate_once(request)
+        .await
+        .map_err(graphql_error)?;
+    let suggestions =
+        crate::mcp::autofill::parse_autofill_response(&response.assistant_text(), &tools)
+            .map_err(graphql_error)?;
+
+    Ok(GraphqlAutofillToolCalibrationsResult {
+        suggestions: suggestions.into_iter().map(Into::into).collect(),
+    })
 }
 
 pub(super) async fn create_mcp_server(

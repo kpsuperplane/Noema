@@ -113,6 +113,20 @@ impl CodexRuntimeHandle {
             .map_err(|_| DaemonError::Protocol("daemon runtime stopped".to_string()))?
     }
 
+    pub(crate) async fn generate_once(
+        &self,
+        request: GenerateRequest,
+    ) -> Result<GenerateResponse, DaemonError> {
+        let (reply, reply_rx) = oneshot::channel();
+        self.sender
+            .send(CodexRuntimeCommand::GenerateOnce { request, reply })
+            .await
+            .map_err(|_| DaemonError::Protocol("daemon runtime stopped".to_string()))?;
+        reply_rx
+            .await
+            .map_err(|_| DaemonError::Protocol("daemon runtime stopped".to_string()))?
+    }
+
     pub(crate) async fn end_conversation(
         &self,
         conversation_id: String,
@@ -164,6 +178,10 @@ pub(super) enum CodexRuntimeCommand {
         input: String,
         item_tx: mpsc::UnboundedSender<TurnStreamEvent>,
         reply: oneshot::Sender<Result<(), DaemonError>>,
+    },
+    GenerateOnce {
+        request: GenerateRequest,
+        reply: oneshot::Sender<Result<GenerateResponse, DaemonError>>,
     },
     EndConversation {
         conversation_id: String,

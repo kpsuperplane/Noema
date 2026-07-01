@@ -1,6 +1,6 @@
 import * as React from "react";
 import { useMutation, useQuery } from "@apollo/client/react";
-import { ArrowLeft, Loader2, Pencil, Plus, Save, Trash2 } from "lucide-react";
+import { Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -13,11 +13,14 @@ import {
 } from "@/components/ui/dialog";
 import { Item, ItemActions, ItemContent, ItemTitle } from "@/components/ui/item";
 import {
+  AutofillToolCalibrationsDocument,
   McpToolsDocument,
   SaveToolCalibrationDocument,
+  type AutofillToolCalibrationsMutation,
   type McpToolsQuery,
   type SaveToolCalibrationMutation
 } from "@/generated/graphql";
+import { ToolPermissionsFooter } from "./McpToolPermissionsFooter";
 
 type McpTool = McpToolsQuery["mcpTools"][number];
 
@@ -35,11 +38,15 @@ export function McpToolPermissionsModal({
   open,
   serverId,
   serverName,
+  autoAutofill = false,
+  onAutoAutofillComplete = () => {},
   onOpenChange
 }: {
   open: boolean;
   serverId: string | null;
   serverName: string | null;
+  autoAutofill?: boolean;
+  onAutoAutofillComplete?: () => void;
   onOpenChange: (open: boolean) => void;
 }) {
   const result = useQuery<McpToolsQuery>(McpToolsDocument, {
@@ -49,11 +56,16 @@ export function McpToolPermissionsModal({
   });
   const [saveToolCalibration, saveState] =
     useMutation<SaveToolCalibrationMutation>(SaveToolCalibrationDocument);
+  const [autofillToolCalibrations, autofillState] =
+    useMutation<AutofillToolCalibrationsMutation>(AutofillToolCalibrationsDocument);
   const [draftOverrides, setDraftOverrides] = React.useState<Record<string, ToolPermissionDraft>>(
     {}
   );
   const [editingToolId, setEditingToolId] = React.useState<string | null>(null);
   const [saveError, setSaveError] = React.useState<string | null>(null);
+  const [autofillMessage, setAutofillMessage] = React.useState<string | null>(null);
+  const [autofillError, setAutofillError] = React.useState<string | null>(null);
+  const autoAutofillKey = React.useRef<string | null>(null);
   const tools = React.useMemo(() => result.data?.mcpTools ?? [], [result.data?.mcpTools]);
   const editingTool = tools.find((tool) => tool.mcpToolId === editingToolId) ?? null;
   const editingDraft = editingTool
@@ -75,9 +87,53 @@ export function McpToolPermissionsModal({
       setDraftOverrides({});
       setEditingToolId(null);
       setSaveError(null);
+      setAutofillMessage(null);
+      setAutofillError(null);
     }
     onOpenChange(nextOpen);
   }
+
+  const handleAutofill = React.useCallback(async () => {
+    if (!serverId) return;
+    setAutofillMessage(null);
+    setAutofillError(null);
+    try {
+      const response = await autofillToolCalibrations({
+        variables: { mcpServerId: serverId }
+      });
+      const suggestions = response.data?.autofillToolCalibrations.suggestions ?? [];
+      setDraftOverrides((current) => {
+        const next = { ...current };
+        for (const suggestion of suggestions) {
+          next[suggestion.mcpToolId] = draftFromSuggestion(suggestion);
+        }
+        return next;
+      });
+      setAutofillMessage("Autofill suggestions applied. Review before saving.");
+    } catch {
+      setAutofillError(
+        "Autofill could not generate suggestions. Configure tools manually or try again."
+      );
+    }
+  }, [autofillToolCalibrations, serverId]);
+
+  React.useEffect(() => {
+    if (!open || !serverId || !autoAutofill || result.loading || result.error || tools.length === 0) {
+      return;
+    }
+    if (autoAutofillKey.current === serverId) return;
+    autoAutofillKey.current = serverId;
+    void handleAutofill().finally(onAutoAutofillComplete);
+  }, [
+    autoAutofill,
+    handleAutofill,
+    onAutoAutofillComplete,
+    open,
+    result.error,
+    result.loading,
+    serverId,
+    tools.length
+  ]);
 
   async function handleSaveAll() {
     setSaveError(null);
@@ -97,6 +153,7 @@ export function McpToolPermissionsModal({
       }
       await result.refetch();
       setDraftOverrides({});
+      setAutofillMessage(null);
     } catch (error) {
       setSaveError(safeCalibrationSaveError(error));
     }
@@ -119,12 +176,20 @@ export function McpToolPermissionsModal({
                 draft={editingDraft}
                 onDraftChange={(updater) => updateDraft(editingTool, updater)}
               />
+              {autofillMessage ? (
+                <p className="m-0 text-sm text-muted-foreground">{autofillMessage}</p>
+              ) : null}
+              {autofillError ? (
+                <p className="m-0 text-sm text-destructive">{autofillError}</p>
+              ) : null}
               {saveError ? <p className="m-0 text-sm text-destructive">{saveError}</p> : null}
             </DialogBody>
             <ToolPermissionsFooter
               canSave={tools.length > 0}
               saving={saveState.loading}
               loading={result.loading}
+              autofilling={autofillState.loading}
+              onAutofill={() => void handleAutofill()}
               onSave={() => void handleSaveAll()}
               onBack={() => setEditingToolId(null)}
             />
@@ -148,6 +213,12 @@ export function McpToolPermissionsModal({
               {result.error ? (
                 <p className="m-0 text-sm text-destructive">Tool metadata could not be loaded.</p>
               ) : null}
+              {autofillMessage ? (
+                <p className="m-0 text-sm text-muted-foreground">{autofillMessage}</p>
+              ) : null}
+              {autofillError ? (
+                <p className="m-0 text-sm text-destructive">{autofillError}</p>
+              ) : null}
               {!result.loading && !result.error && tools.length === 0 ? (
                 <p className="m-0 text-sm text-muted-foreground">No tools were discovered.</p>
               ) : null}
@@ -168,6 +239,8 @@ export function McpToolPermissionsModal({
               canSave={tools.length > 0}
               saving={saveState.loading}
               loading={result.loading}
+              autofilling={autofillState.loading}
+              onAutofill={() => void handleAutofill()}
               onSave={() => void handleSaveAll()}
             />
           </>
@@ -268,46 +341,6 @@ function ClassificationBadge({ label, value }: { label: string; value: string })
     >
       {label}: {value}
     </Badge>
-  );
-}
-
-function ToolPermissionsFooter({
-  canSave,
-  saving,
-  loading,
-  onSave,
-  onBack
-}: {
-  canSave: boolean;
-  saving: boolean;
-  loading: boolean;
-  onSave: () => void;
-  onBack?: () => void;
-}) {
-  return (
-    <div className="flex items-center justify-between gap-3 border-t border-[var(--border-subtle)] px-6 py-4">
-      {onBack ? (
-        <Button type="button" variant="ghost" className="w-fit" onClick={onBack}>
-          <ArrowLeft className="size-4" aria-hidden="true" />
-          Back
-        </Button>
-      ) : (
-        <span aria-hidden="true" />
-      )}
-      <Button
-        type="button"
-        className="w-fit"
-        disabled={saving || loading || !canSave}
-        onClick={onSave}
-      >
-        {saving ? (
-          <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-        ) : (
-          <Save className="size-4" aria-hidden="true" />
-        )}
-        Save
-      </Button>
-    </div>
   );
 }
 
@@ -507,6 +540,23 @@ function draftFromTool(tool: McpTool): ToolPermissionDraft {
       path: extractor.path
     })),
     disabled: tool.calibration?.status === "disabled"
+  };
+}
+
+function draftFromSuggestion(
+  suggestion: AutofillToolCalibrationsMutation["autofillToolCalibrations"]["suggestions"][number]
+): ToolPermissionDraft {
+  return {
+    readClassification: suggestion.readClassification,
+    writeClassification: suggestion.writeClassification,
+    exportClassification: suggestion.exportClassification,
+    ownerExtractors: suggestion.ownerExtractors.map((extractor, index) => ({
+      id: `${suggestion.mcpToolId}:autofill:${index}`,
+      source: extractor.source,
+      selectorKind: extractor.selectorKind,
+      path: extractor.path
+    })),
+    disabled: suggestion.disabled
   };
 }
 
