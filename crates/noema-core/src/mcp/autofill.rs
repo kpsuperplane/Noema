@@ -9,6 +9,8 @@ use crate::{
     TrustedIdentitySelectorKind,
 };
 
+const MAX_TOOL_DESCRIPTION_HINT_CHARS: usize = 96;
+
 /// Validated advisory calibration suggestion for a discovered MCP tool.
 #[derive(Clone, Debug, PartialEq)]
 pub struct McpToolCalibrationSuggestion {
@@ -44,15 +46,6 @@ pub enum McpAutofillError {
         /// Name of the invalid classification field.
         field: &'static str,
     },
-    /// Model output used an invalid owner extractor source.
-    #[error("invalid owner extractor source: {0}")]
-    InvalidExtractorSource(String),
-    /// Model output used an invalid trusted identity selector kind.
-    #[error("invalid owner extractor selector kind: {0}")]
-    InvalidSelectorKind(String),
-    /// Model output returned a blank owner extractor path.
-    #[error("owner extractor path cannot be empty")]
-    BlankExtractorPath,
 }
 
 #[derive(Debug, Deserialize)]
@@ -68,17 +61,9 @@ struct RawSuggestion {
     read_classification: String,
     write_classification: String,
     export_classification: String,
-    #[serde(default)]
-    owner_extractors: Vec<RawOwnerExtractor>,
+    #[serde(default, rename = "owner_extractors")]
+    _owner_extractors: Vec<Value>,
     disabled: Option<bool>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RawOwnerExtractor {
-    source: String,
-    selector_kind: String,
-    path: String,
 }
 
 /// Build the metadata-only prompt used to request MCP calibration suggestions.
@@ -90,7 +75,10 @@ pub fn build_autofill_prompt(server_name: &str, tools: &[McpToolRecord]) -> Stri
             serde_json::json!({
                 "mcp_tool_id": tool.mcp_tool_id,
                 "name": tool.name,
-                "description": tool.description,
+                "intent_hint": compact_description_hint(
+                    tool.description.as_deref(),
+                    MAX_TOOL_DESCRIPTION_HINT_CHARS
+                ),
                 "input_fields": schema_field_summaries(&tool.input_schema),
                 "output_fields": tool
                     .output_schema
@@ -102,8 +90,8 @@ pub fn build_autofill_prompt(server_name: &str, tools: &[McpToolRecord]) -> Stri
             })
         })
         .collect::<Vec<_>>();
-    let tool_json = serde_json::to_string_pretty(&tool_payload)
-        .expect("MCP tool metadata should serialize to JSON");
+    let tool_json =
+        serde_json::to_string(&tool_payload).expect("MCP tool metadata should serialize to JSON");
 
     format!(
         r#"You are Noema's MCP tool calibration assistant.
@@ -121,17 +109,12 @@ Definitions:
   parties, public resources, or arbitrary recipients outside the MCP destination.
 - mixed: trust or ownership depends on runtime identifiers, resource contents, or user-provided
   owners that are not knowable from metadata alone.
-- For owner_extractors, use JSON Pointer-style paths into arguments, structured_content, metadata,
-  or resource_uri-derived fields. Prefer fields named or described like owner, creator, author,
-  account, user, email, phone, domain, recipient, workspace, organization, tenant, file owner, or
-  resource owner.
-- Example owner paths: /owner_email, /user/email, /created_by/email, /account/domain,
-  /recipient/email, /workspace/domain.
-- If ownership cannot be resolved, return an empty owner_extractors array.
+- Noema fills ownership extractor paths deterministically from schemas; do not return extractor
+  fields or paths.
 - Include disabled only when you intentionally suggest changing or preserving disabled state.
 
 Return exactly:
-{{"suggestions":[{{"mcp_tool_id":"...","read_classification":"none|trusted|untrusted|mixed","write_classification":"none|trusted|untrusted|mixed","export_classification":"none|trusted|untrusted|mixed","owner_extractors":[{{"source":"arguments|structured_content|metadata|resource_uri|built_in_adapter","selector_kind":"email|phone|domain","path":"..."}}],"disabled":false}}]}}
+{{"suggestions":[{{"mcp_tool_id":"...","read_classification":"none|trusted|untrusted|mixed","write_classification":"none|trusted|untrusted|mixed","export_classification":"none|trusted|untrusted|mixed","disabled":false}}]}}
 
 Tools:
 {tool_json}"#
@@ -149,11 +132,266 @@ fn schema_field_summaries(schema: &Value) -> Vec<Value> {
                 "path": format!("/{name}"),
                 "name": name,
                 "type": value.get("type").and_then(Value::as_str),
-                "description": value.get("description").and_then(Value::as_str),
                 "format": value.get("format").and_then(Value::as_str)
             })
         })
         .collect()
+}
+
+fn compact_description_hint(description: Option<&str>, max_chars: usize) -> Option<String> {
+    let description = description?;
+    let cleaned = description.trim();
+    if cleaned.is_empty() {
+        return None;
+    }
+
+    let without_examples = cleaned
+        .split_once("<example")
+        .map_or(cleaned, |(before_examples, _)| before_examples)
+        .trim();
+    let first_line = without_examples
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .unwrap_or(without_examples);
+    let first_sentence = first_line
+        .split_once(". ")
+        .map_or(first_line, |(sentence, _)| sentence);
+    let mut hint = first_sentence.trim().to_string();
+    if first_line.len() > hint.len() && !hint.ends_with('.') {
+        hint.push('.');
+    }
+
+    Some(truncate_chars(&hint, max_chars))
+}
+
+fn truncate_chars(value: &str, max_chars: usize) -> String {
+    if value.chars().count() <= max_chars {
+        return value.to_string();
+    }
+
+    let mut truncated = value
+        .chars()
+        .take(max_chars.saturating_sub(3))
+        .collect::<String>();
+    truncated.push_str("...");
+    truncated
+}
+
+/// Discover conservative owner extractors from schema metadata.
+///
+/// The crawler only inspects scalar fields at `/field` and `/object/field`,
+/// never traverses arrays, and never infers identities from opaque ids.
+#[must_use]
+pub fn deterministic_owner_extractors(tool: &McpToolRecord) -> Vec<OwnerExtractor> {
+    let mut extractors = Vec::new();
+    collect_schema_owner_extractors(
+        OwnerExtractorSource::Arguments,
+        &tool.input_schema,
+        &mut extractors,
+    );
+    if let Some(output_schema) = &tool.output_schema {
+        collect_schema_owner_extractors(
+            OwnerExtractorSource::StructuredContent,
+            output_schema,
+            &mut extractors,
+        );
+    }
+    extractors.sort_by(|left, right| {
+        let left_source = extractor_source_sort_key(left.source);
+        let right_source = extractor_source_sort_key(right.source);
+        left_source
+            .cmp(&right_source)
+            .then_with(|| pointer_depth(&left.path).cmp(&pointer_depth(&right.path)))
+            .then_with(|| left.path.cmp(&right.path))
+            .then_with(|| {
+                left.selector_kind
+                    .as_str()
+                    .cmp(right.selector_kind.as_str())
+            })
+    });
+    extractors.dedup();
+    extractors
+}
+
+fn collect_schema_owner_extractors(
+    source: OwnerExtractorSource,
+    schema: &Value,
+    extractors: &mut Vec<OwnerExtractor>,
+) {
+    collect_schema_owner_extractors_at_path(source, schema, &[], extractors);
+}
+
+fn collect_schema_owner_extractors_at_path(
+    source: OwnerExtractorSource,
+    schema: &Value,
+    path_segments: &[&str],
+    extractors: &mut Vec<OwnerExtractor>,
+) {
+    if schema_type_is(schema, "array") {
+        return;
+    }
+
+    if !path_segments.is_empty()
+        && path_segments.len() <= 2
+        && is_scalar_schema(schema)
+        && let Some(selector_kind) = selector_kind_for_field(path_segments, schema)
+    {
+        extractors.push(OwnerExtractor {
+            source,
+            selector_kind,
+            path: json_pointer(path_segments),
+        });
+    }
+
+    if !path_segments.is_empty() && !schema_is_object_like(schema) {
+        return;
+    }
+    if path_segments.len() >= 2 {
+        return;
+    }
+
+    let Some(properties) = schema.get("properties").and_then(Value::as_object) else {
+        return;
+    };
+    for (name, property_schema) in properties {
+        let mut child_path = Vec::with_capacity(path_segments.len() + 1);
+        child_path.extend_from_slice(path_segments);
+        child_path.push(name.as_str());
+        collect_schema_owner_extractors_at_path(source, property_schema, &child_path, extractors);
+    }
+}
+
+fn is_scalar_schema(schema: &Value) -> bool {
+    !schema_type_is(schema, "array") && !schema_is_object_like(schema)
+}
+
+fn schema_is_object_like(schema: &Value) -> bool {
+    schema_type_is(schema, "object")
+        || schema
+            .get("properties")
+            .and_then(Value::as_object)
+            .is_some()
+}
+
+fn selector_kind_for_field(
+    path_segments: &[&str],
+    schema: &Value,
+) -> Option<TrustedIdentitySelectorKind> {
+    let terminal = path_segments.last()?;
+    let role_segments = &path_segments[..path_segments.len().saturating_sub(1)];
+    let format = schema.get("format").and_then(Value::as_str).unwrap_or("");
+    if format.eq_ignore_ascii_case("email") || field_name_has_token(terminal, "email") {
+        return Some(TrustedIdentitySelectorKind::Email);
+    }
+    if format.eq_ignore_ascii_case("phone") || field_name_has_any_token(terminal, &["phone", "tel"])
+    {
+        return Some(TrustedIdentitySelectorKind::Phone);
+    }
+    if (field_name_has_token(terminal, "domain") || format.eq_ignore_ascii_case("hostname"))
+        && path_has_owner_role(role_segments)
+    {
+        return Some(TrustedIdentitySelectorKind::Domain);
+    }
+    None
+}
+
+fn path_has_owner_role(path_segments: &[&str]) -> bool {
+    path_segments.is_empty()
+        || path_segments
+            .iter()
+            .any(|segment| field_name_has_any_token(segment, OWNER_ROLE_TOKENS))
+}
+
+const OWNER_ROLE_TOKENS: &[&str] = &[
+    "owner",
+    "creator",
+    "author",
+    "account",
+    "user",
+    "workspace",
+    "organization",
+    "organisation",
+    "tenant",
+    "created",
+];
+
+fn field_name_has_any_token(field_name: &str, tokens: &[&str]) -> bool {
+    tokens
+        .iter()
+        .any(|token| field_name_has_token(field_name, token))
+}
+
+fn field_name_has_token(field_name: &str, token: &str) -> bool {
+    field_name_tokens(field_name)
+        .iter()
+        .any(|part| part == &token.to_ascii_lowercase())
+}
+
+fn field_name_tokens(field_name: &str) -> Vec<String> {
+    let mut tokens = Vec::new();
+    let mut current = String::new();
+    for character in field_name.chars() {
+        if !character.is_ascii_alphanumeric() {
+            push_field_name_token(&mut tokens, &mut current);
+            continue;
+        }
+        if character.is_ascii_uppercase()
+            && current
+                .chars()
+                .last()
+                .is_some_and(|previous| previous.is_ascii_lowercase() || previous.is_ascii_digit())
+        {
+            push_field_name_token(&mut tokens, &mut current);
+        }
+        current.push(character.to_ascii_lowercase());
+    }
+    push_field_name_token(&mut tokens, &mut current);
+    tokens
+}
+
+fn push_field_name_token(tokens: &mut Vec<String>, current: &mut String) {
+    if current.is_empty() {
+        return;
+    }
+    tokens.push(std::mem::take(current));
+}
+
+fn schema_type_is(schema: &Value, expected: &str) -> bool {
+    match schema.get("type") {
+        Some(Value::String(value)) => value == expected,
+        Some(Value::Array(values)) => values.iter().any(|value| value.as_str() == Some(expected)),
+        _ => false,
+    }
+}
+
+fn json_pointer(path_segments: &[&str]) -> String {
+    let mut pointer = String::new();
+    for segment in path_segments {
+        pointer.push('/');
+        pointer.push_str(&escape_json_pointer_segment(segment));
+    }
+    pointer
+}
+
+fn escape_json_pointer_segment(segment: &str) -> String {
+    segment.replace('~', "~0").replace('/', "~1")
+}
+
+fn pointer_depth(path: &str) -> usize {
+    path.split('/')
+        .filter(|segment| !segment.is_empty())
+        .count()
+}
+
+const fn extractor_source_sort_key(source: OwnerExtractorSource) -> u8 {
+    match source {
+        OwnerExtractorSource::Arguments => 0,
+        OwnerExtractorSource::StructuredContent => 1,
+        OwnerExtractorSource::Metadata => 2,
+        OwnerExtractorSource::ResourceUri => 3,
+        OwnerExtractorSource::BuiltInAdapter => 4,
+    }
 }
 
 /// Parse and validate model-produced MCP calibration suggestions.
@@ -161,8 +399,7 @@ fn schema_field_summaries(schema: &Value) -> Vec<Value> {
 /// # Errors
 ///
 /// Returns an error when the model output is not strict JSON, references an
-/// unknown or duplicate tool id, uses invalid enum strings, or includes invalid
-/// owner extractors.
+/// unknown or duplicate tool id, or uses invalid enum strings.
 pub fn parse_autofill_response(
     text: &str,
     tools: &[McpToolRecord],
@@ -182,6 +419,8 @@ pub fn parse_autofill_response(
         if !seen_tool_ids.insert(suggestion.mcp_tool_id.clone()) {
             return Err(McpAutofillError::DuplicateToolId(suggestion.mcp_tool_id));
         }
+        let owner_extractors =
+            deterministic_owner_extractors(tool_for_suggestion(&suggestion.mcp_tool_id, tools)?);
         suggestions.push(McpToolCalibrationSuggestion {
             mcp_tool_id: suggestion.mcp_tool_id,
             read_classification: parse_classification(
@@ -196,16 +435,22 @@ pub fn parse_autofill_response(
                 &suggestion.export_classification,
                 "export_classification",
             )?,
-            owner_extractors: suggestion
-                .owner_extractors
-                .into_iter()
-                .map(parse_owner_extractor)
-                .collect::<Result<Vec<_>, _>>()?,
+            owner_extractors,
             disabled: suggestion.disabled,
         });
     }
 
     Ok(suggestions)
+}
+
+fn tool_for_suggestion<'a>(
+    mcp_tool_id: &str,
+    tools: &'a [McpToolRecord],
+) -> Result<&'a McpToolRecord, McpAutofillError> {
+    tools
+        .iter()
+        .find(|tool| tool.mcp_tool_id == mcp_tool_id)
+        .ok_or_else(|| McpAutofillError::UnknownToolId(mcp_tool_id.to_string()))
 }
 
 fn parse_classification(
@@ -221,177 +466,5 @@ fn parse_classification(
     }
 }
 
-fn parse_owner_extractor(raw: RawOwnerExtractor) -> Result<OwnerExtractor, McpAutofillError> {
-    let path = raw.path.trim().to_string();
-    if path.is_empty() {
-        return Err(McpAutofillError::BlankExtractorPath);
-    }
-
-    Ok(OwnerExtractor {
-        source: parse_extractor_source(&raw.source)?,
-        selector_kind: parse_selector_kind(&raw.selector_kind)?,
-        path,
-    })
-}
-
-fn parse_extractor_source(value: &str) -> Result<OwnerExtractorSource, McpAutofillError> {
-    match value {
-        "arguments" => Ok(OwnerExtractorSource::Arguments),
-        "structured_content" => Ok(OwnerExtractorSource::StructuredContent),
-        "metadata" => Ok(OwnerExtractorSource::Metadata),
-        "resource_uri" => Ok(OwnerExtractorSource::ResourceUri),
-        "built_in_adapter" => Ok(OwnerExtractorSource::BuiltInAdapter),
-        _ => Err(McpAutofillError::InvalidExtractorSource(value.to_string())),
-    }
-}
-
-fn parse_selector_kind(value: &str) -> Result<TrustedIdentitySelectorKind, McpAutofillError> {
-    match value {
-        "email" => Ok(TrustedIdentitySelectorKind::Email),
-        "phone" => Ok(TrustedIdentitySelectorKind::Phone),
-        "domain" => Ok(TrustedIdentitySelectorKind::Domain),
-        _ => Err(McpAutofillError::InvalidSelectorKind(value.to_string())),
-    }
-}
-
 #[cfg(test)]
-mod tests {
-    use serde_json::json;
-
-    use crate::{
-        McpToolRecord, McpTrustClassification,
-        mcp::autofill::{build_autofill_prompt, parse_autofill_response},
-    };
-
-    #[test]
-    fn parses_valid_autofill_response_for_known_tools() {
-        let tools = vec![test_tool("mcp_tool:docs:read", "read_doc")];
-        let response = r#"{
-          "suggestions": [{
-            "mcp_tool_id": "mcp_tool:docs:read",
-            "read_classification": "mixed",
-            "write_classification": "none",
-            "export_classification": "none",
-            "owner_extractors": [{
-              "source": "arguments",
-              "selector_kind": "email",
-              "path": "/owner_email"
-            }],
-            "disabled": false
-          }]
-        }"#;
-
-        let suggestions = parse_autofill_response(response, &tools).expect("suggestions");
-
-        assert_eq!(suggestions.len(), 1);
-        assert_eq!(suggestions[0].mcp_tool_id, "mcp_tool:docs:read");
-        assert_eq!(
-            suggestions[0].read_classification,
-            McpTrustClassification::Mixed
-        );
-        assert_eq!(suggestions[0].owner_extractors[0].path, "/owner_email");
-        assert_eq!(suggestions[0].disabled, Some(false));
-    }
-
-    #[test]
-    fn parses_missing_disabled_as_no_disabled_suggestion() {
-        let tools = vec![test_tool("mcp_tool:docs:read", "read_doc")];
-        let response = r#"{
-          "suggestions": [{
-            "mcp_tool_id": "mcp_tool:docs:read",
-            "read_classification": "mixed",
-            "write_classification": "none",
-            "export_classification": "none",
-            "owner_extractors": []
-          }]
-        }"#;
-
-        let suggestions = parse_autofill_response(response, &tools).expect("suggestions");
-
-        assert_eq!(suggestions[0].disabled, None);
-    }
-
-    #[test]
-    fn rejects_unknown_tool_id_without_partial_suggestions() {
-        let tools = vec![test_tool("mcp_tool:docs:read", "read_doc")];
-        let response = r#"{
-          "suggestions": [{
-            "mcp_tool_id": "mcp_tool:docs:missing",
-            "read_classification": "mixed",
-            "write_classification": "none",
-            "export_classification": "none",
-            "owner_extractors": [],
-            "disabled": false
-          }]
-        }"#;
-
-        let error = parse_autofill_response(response, &tools).expect_err("unknown tool rejected");
-
-        assert!(error.to_string().contains("unknown MCP tool id"));
-    }
-
-    #[test]
-    fn rejects_invalid_enum_and_blank_extractor_path() {
-        let tools = vec![test_tool("mcp_tool:docs:read", "read_doc")];
-        let response = r#"{
-          "suggestions": [{
-            "mcp_tool_id": "mcp_tool:docs:read",
-            "read_classification": "Mixed",
-            "write_classification": "none",
-            "export_classification": "none",
-            "owner_extractors": [{
-              "source": "arguments",
-              "selector_kind": "email",
-              "path": ""
-            }],
-            "disabled": false
-          }]
-        }"#;
-
-        let error = parse_autofill_response(response, &tools).expect_err("invalid output rejected");
-
-        assert!(error.to_string().contains("invalid read_classification"));
-    }
-
-    #[test]
-    fn prompt_names_trust_axes_and_demands_strict_json() {
-        let prompt = build_autofill_prompt("Docs", &[test_tool("mcp_tool:docs:read", "read_doc")]);
-
-        assert!(prompt.contains("Return strict JSON only"));
-        assert!(prompt.contains("export means"));
-        assert!(prompt.contains("metadata only"));
-        assert!(prompt.contains("mcp_tool:docs:read"));
-    }
-
-    #[test]
-    fn prompt_teaches_extractor_paths_and_trust_classification_rubric() {
-        let prompt = build_autofill_prompt("Docs", &[test_tool("mcp_tool:docs:read", "read_doc")]);
-
-        assert!(prompt.contains("JSON Pointer-style paths"));
-        assert!(prompt.contains("/owner_email"));
-        assert!(prompt.contains("/user/email"));
-        assert!(prompt.contains("trusted:"));
-        assert!(prompt.contains("untrusted:"));
-        assert!(prompt.contains("public web"));
-        assert!(prompt.contains("authenticated user's own"));
-    }
-
-    fn test_tool(mcp_tool_id: &str, name: &str) -> McpToolRecord {
-        McpToolRecord {
-            mcp_tool_id: mcp_tool_id.to_string(),
-            mcp_server_id: "mcp_server:docs".to_string(),
-            name: name.to_string(),
-            description: Some("Read a document".to_string()),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "owner_email": { "type": "string" }
-                }
-            }),
-            output_schema: None,
-            annotations: json!({"readOnlyHint": true}),
-            metadata_fingerprint: "fingerprint_1".to_string(),
-            discovered_at: "2026-07-01T00:00:00Z".to_string(),
-        }
-    }
-}
+mod tests;

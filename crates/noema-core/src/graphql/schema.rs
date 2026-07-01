@@ -1552,7 +1552,7 @@ mod tests {
         seed_autofill_server(&store).await;
         let runtime = test_autofill_runtime(
             store.clone(),
-            r#"{"suggestions":[{"mcp_tool_id":"mcp_tool:docs:read_doc","read_classification":"mixed","write_classification":"none","export_classification":"none","owner_extractors":[{"source":"arguments","selector_kind":"email","path":"/owner_email"}],"disabled":false}]}"#,
+            r#"{"suggestions":[{"mcp_tool_id":"mcp_tool:docs:read_doc","read_classification":"mixed","write_classification":"none","export_classification":"none","disabled":false}]}"#,
         )
         .await;
         let schema = build_schema(GraphqlState::for_tests_with_store_and_runtime(
@@ -1607,7 +1607,7 @@ mod tests {
         seed_autofill_server(&store).await;
         let runtime = test_autofill_runtime(
             store.clone(),
-            r#"{"suggestions":[{"mcp_tool_id":"mcp_tool:docs:missing","read_classification":"mixed","write_classification":"none","export_classification":"none","owner_extractors":[],"disabled":false}]}"#,
+            r#"{"suggestions":[{"mcp_tool_id":"mcp_tool:docs:missing","read_classification":"mixed","write_classification":"none","export_classification":"none","disabled":false}]}"#,
         )
         .await;
         let schema = build_schema(GraphqlState::for_tests_with_store_and_runtime(
@@ -1650,7 +1650,7 @@ mod tests {
         seed_autofill_server(&store).await;
         let runtime = test_autofill_runtime(
             store.clone(),
-            r#"{"suggestions":[{"mcp_tool_id":"mcp_tool:docs:read_doc","read_classification":"mixed","write_classification":"none","export_classification":"none","owner_extractors":[]}]}"#,
+            r#"{"suggestions":[{"mcp_tool_id":"mcp_tool:docs:read_doc","read_classification":"mixed","write_classification":"none","export_classification":"none"}]}"#,
         )
         .await;
         let schema = build_schema(GraphqlState::for_tests_with_store_and_runtime(
