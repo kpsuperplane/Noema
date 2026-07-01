@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde::Deserialize;
 use serde_json::Value;
@@ -34,12 +34,12 @@ pub enum McpAutofillError {
     /// Model output was not valid strict JSON for the expected shape.
     #[error("invalid autofill JSON: {0}")]
     Json(#[from] serde_json::Error),
-    /// Model output referenced a tool id outside the persisted metadata set.
-    #[error("unknown MCP tool id in autofill response: {0}")]
-    UnknownToolId(String),
-    /// Model output repeated a known tool id.
-    #[error("duplicate MCP tool id in autofill response: {0}")]
-    DuplicateToolId(String),
+    /// Model output referenced a tool name outside the persisted metadata set.
+    #[error("unknown MCP tool name in autofill response: {0}")]
+    UnknownToolName(String),
+    /// Model output repeated a known tool name.
+    #[error("duplicate MCP tool name in autofill response: {0}")]
+    DuplicateToolName(String),
     /// Model output used an invalid trust classification value.
     #[error("invalid {field}: expected one of none, trusted, untrusted, mixed")]
     InvalidClassification {
@@ -57,7 +57,7 @@ struct AutofillResponse {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawSuggestion {
-    mcp_tool_id: String,
+    tool: String,
     read_classification: String,
     write_classification: String,
     export_classification: String,
@@ -69,29 +69,11 @@ struct RawSuggestion {
 /// Build the metadata-only prompt used to request MCP calibration suggestions.
 #[must_use]
 pub fn build_autofill_prompt(server_name: &str, tools: &[McpToolRecord]) -> String {
-    let tool_payload = tools
+    let tool_text = tools
         .iter()
-        .map(|tool| {
-            serde_json::json!({
-                "mcp_tool_id": tool.mcp_tool_id,
-                "name": tool.name,
-                "intent_hint": compact_description_hint(
-                    tool.description.as_deref(),
-                    MAX_TOOL_DESCRIPTION_HINT_CHARS
-                ),
-                "input_fields": schema_field_summaries(&tool.input_schema),
-                "output_fields": tool
-                    .output_schema
-                    .as_ref()
-                    .map(schema_field_summaries)
-                    .unwrap_or_default(),
-                "annotations": tool.annotations,
-                "metadata_fingerprint": tool.metadata_fingerprint,
-            })
-        })
-        .collect::<Vec<_>>();
-    let tool_json =
-        serde_json::to_string(&tool_payload).expect("MCP tool metadata should serialize to JSON");
+        .map(format_tool_prompt_block)
+        .collect::<Vec<_>>()
+        .join("\n\n");
 
     format!(
         r#"You are Noema's MCP tool calibration assistant.
@@ -114,28 +96,94 @@ Definitions:
 - Include disabled only when you intentionally suggest changing or preserving disabled state.
 
 Return exactly:
-{{"suggestions":[{{"mcp_tool_id":"...","read_classification":"none|trusted|untrusted|mixed","write_classification":"none|trusted|untrusted|mixed","export_classification":"none|trusted|untrusted|mixed","disabled":false}}]}}
+{{"suggestions":[{{"tool":"...","read_classification":"none|trusted|untrusted|mixed","write_classification":"none|trusted|untrusted|mixed","export_classification":"none|trusted|untrusted|mixed","disabled":false}}]}}
 
 Tools:
-{tool_json}"#
+{tool_text}"#
     )
 }
 
-fn schema_field_summaries(schema: &Value) -> Vec<Value> {
+fn format_tool_prompt_block(tool: &McpToolRecord) -> String {
+    let hint =
+        compact_description_hint(tool.description.as_deref(), MAX_TOOL_DESCRIPTION_HINT_CHARS);
+    let mut lines = Vec::new();
+    if let Some(hint) = hint {
+        lines.push(format!(
+            "{}: {}",
+            sanitize_prompt_line(&tool.name),
+            sanitize_prompt_line(&hint)
+        ));
+    } else {
+        lines.push(sanitize_prompt_line(&tool.name));
+    }
+    lines.push(format!(
+        "Inputs: {}",
+        field_list_or_none(schema_field_names(&tool.input_schema))
+    ));
+    if let Some(output_schema) = &tool.output_schema {
+        let output_fields = schema_field_names(output_schema);
+        if !output_fields.is_empty() {
+            lines.push(format!("Outputs: {}", field_list_or_none(output_fields)));
+        }
+    }
+    if let Some(annotations) = format_annotations(&tool.annotations) {
+        lines.push(format!("Annotations: {annotations}"));
+    }
+    lines.join("\n")
+}
+
+fn schema_field_names(schema: &Value) -> Vec<String> {
     let Some(properties) = schema.get("properties").and_then(Value::as_object) else {
         return Vec::new();
     };
     properties
-        .iter()
-        .map(|(name, value)| {
-            serde_json::json!({
-                "path": format!("/{name}"),
-                "name": name,
-                "type": value.get("type").and_then(Value::as_str),
-                "format": value.get("format").and_then(Value::as_str)
-            })
-        })
+        .keys()
+        .map(|name| sanitize_prompt_line(name))
         .collect()
+}
+
+fn field_list_or_none(fields: Vec<String>) -> String {
+    if fields.is_empty() {
+        "none".to_string()
+    } else {
+        fields.join(", ")
+    }
+}
+
+fn format_annotations(annotations: &Value) -> Option<String> {
+    match annotations {
+        Value::Object(values) if values.is_empty() => None,
+        Value::Object(values) => Some(
+            values
+                .iter()
+                .map(|(key, value)| {
+                    format!(
+                        "{}={}",
+                        sanitize_prompt_line(key),
+                        sanitize_annotation_value(value)
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(", "),
+        ),
+        Value::Null => None,
+        value => Some(sanitize_annotation_value(value)),
+    }
+}
+
+fn sanitize_annotation_value(value: &Value) -> String {
+    match value {
+        Value::Bool(value) => value.to_string(),
+        Value::Number(value) => value.to_string(),
+        Value::String(value) => sanitize_prompt_line(value),
+        value => serde_json::to_string(value)
+            .map(|value| sanitize_prompt_line(&value))
+            .unwrap_or_else(|_| "unknown".to_string()),
+    }
+}
+
+fn sanitize_prompt_line(value: &str) -> String {
+    value.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 fn compact_description_hint(description: Option<&str>, max_chars: usize) -> Option<String> {
@@ -399,30 +447,29 @@ const fn extractor_source_sort_key(source: OwnerExtractorSource) -> u8 {
 /// # Errors
 ///
 /// Returns an error when the model output is not strict JSON, references an
-/// unknown or duplicate tool id, or uses invalid enum strings.
+/// unknown or duplicate tool name, or uses invalid enum strings.
 pub fn parse_autofill_response(
     text: &str,
     tools: &[McpToolRecord],
 ) -> Result<Vec<McpToolCalibrationSuggestion>, McpAutofillError> {
     let response: AutofillResponse = serde_json::from_str(text.trim())?;
-    let known_tool_ids = tools
+    let tools_by_name = tools
         .iter()
-        .map(|tool| tool.mcp_tool_id.as_str())
-        .collect::<BTreeSet<_>>();
-    let mut seen_tool_ids = BTreeSet::new();
+        .map(|tool| (tool.name.as_str(), tool))
+        .collect::<BTreeMap<_, _>>();
+    let mut seen_tool_names = BTreeSet::new();
     let mut suggestions = Vec::with_capacity(response.suggestions.len());
 
     for suggestion in response.suggestions {
-        if !known_tool_ids.contains(suggestion.mcp_tool_id.as_str()) {
-            return Err(McpAutofillError::UnknownToolId(suggestion.mcp_tool_id));
+        if !seen_tool_names.insert(suggestion.tool.clone()) {
+            return Err(McpAutofillError::DuplicateToolName(suggestion.tool));
         }
-        if !seen_tool_ids.insert(suggestion.mcp_tool_id.clone()) {
-            return Err(McpAutofillError::DuplicateToolId(suggestion.mcp_tool_id));
-        }
-        let owner_extractors =
-            deterministic_owner_extractors(tool_for_suggestion(&suggestion.mcp_tool_id, tools)?);
+        let tool = tools_by_name
+            .get(suggestion.tool.as_str())
+            .ok_or_else(|| McpAutofillError::UnknownToolName(suggestion.tool.clone()))?;
+        let owner_extractors = deterministic_owner_extractors(tool);
         suggestions.push(McpToolCalibrationSuggestion {
-            mcp_tool_id: suggestion.mcp_tool_id,
+            mcp_tool_id: tool.mcp_tool_id.clone(),
             read_classification: parse_classification(
                 &suggestion.read_classification,
                 "read_classification",
@@ -441,16 +488,6 @@ pub fn parse_autofill_response(
     }
 
     Ok(suggestions)
-}
-
-fn tool_for_suggestion<'a>(
-    mcp_tool_id: &str,
-    tools: &'a [McpToolRecord],
-) -> Result<&'a McpToolRecord, McpAutofillError> {
-    tools
-        .iter()
-        .find(|tool| tool.mcp_tool_id == mcp_tool_id)
-        .ok_or_else(|| McpAutofillError::UnknownToolId(mcp_tool_id.to_string()))
 }
 
 fn parse_classification(

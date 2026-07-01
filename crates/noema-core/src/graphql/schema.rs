@@ -1552,7 +1552,7 @@ mod tests {
         seed_autofill_server(&store).await;
         let runtime = test_autofill_runtime(
             store.clone(),
-            r#"{"suggestions":[{"mcp_tool_id":"mcp_tool:docs:read_doc","read_classification":"mixed","write_classification":"none","export_classification":"none","disabled":false}]}"#,
+            r#"{"suggestions":[{"tool":"read_doc","read_classification":"mixed","write_classification":"none","export_classification":"none","disabled":false}]}"#,
         )
         .await;
         let schema = build_schema(GraphqlState::for_tests_with_store_and_runtime(
@@ -1607,7 +1607,7 @@ mod tests {
         seed_autofill_server(&store).await;
         let runtime = test_autofill_runtime(
             store.clone(),
-            r#"{"suggestions":[{"mcp_tool_id":"mcp_tool:docs:missing","read_classification":"mixed","write_classification":"none","export_classification":"none","disabled":false}]}"#,
+            r#"{"suggestions":[{"tool":"missing_doc","read_classification":"mixed","write_classification":"none","export_classification":"none","disabled":false}]}"#,
         )
         .await;
         let schema = build_schema(GraphqlState::for_tests_with_store_and_runtime(
@@ -1629,7 +1629,7 @@ mod tests {
 
         assert!(!response.errors.is_empty());
         assert!(
-            response.errors[0].message.contains("unknown MCP tool id"),
+            response.errors[0].message.contains("unknown MCP tool name"),
             "{:?}",
             response.errors
         );
@@ -1650,7 +1650,7 @@ mod tests {
         seed_autofill_server(&store).await;
         let runtime = test_autofill_runtime(
             store.clone(),
-            r#"{"suggestions":[{"mcp_tool_id":"mcp_tool:docs:read_doc","read_classification":"mixed","write_classification":"none","export_classification":"none"}]}"#,
+            r#"{"suggestions":[{"tool":"read_doc","read_classification":"mixed","write_classification":"none","export_classification":"none"}]}"#,
         )
         .await;
         let schema = build_schema(GraphqlState::for_tests_with_store_and_runtime(

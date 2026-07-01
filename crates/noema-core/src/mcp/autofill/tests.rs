@@ -11,7 +11,7 @@ fn parses_valid_autofill_response_for_known_tools() {
     let tools = vec![test_tool("mcp_tool:docs:read", "read_doc")];
     let response = r#"{
       "suggestions": [{
-        "mcp_tool_id": "mcp_tool:docs:read",
+        "tool": "read_doc",
         "read_classification": "mixed",
         "write_classification": "none",
         "export_classification": "none",
@@ -36,7 +36,7 @@ fn parses_missing_disabled_as_no_disabled_suggestion() {
     let tools = vec![test_tool("mcp_tool:docs:read", "read_doc")];
     let response = r#"{
       "suggestions": [{
-        "mcp_tool_id": "mcp_tool:docs:read",
+        "tool": "read_doc",
         "read_classification": "mixed",
         "write_classification": "none",
         "export_classification": "none"
@@ -49,11 +49,11 @@ fn parses_missing_disabled_as_no_disabled_suggestion() {
 }
 
 #[test]
-fn rejects_unknown_tool_id_without_partial_suggestions() {
+fn rejects_unknown_tool_name_without_partial_suggestions() {
     let tools = vec![test_tool("mcp_tool:docs:read", "read_doc")];
     let response = r#"{
       "suggestions": [{
-        "mcp_tool_id": "mcp_tool:docs:missing",
+        "tool": "missing_doc",
         "read_classification": "mixed",
         "write_classification": "none",
         "export_classification": "none",
@@ -63,7 +63,29 @@ fn rejects_unknown_tool_id_without_partial_suggestions() {
 
     let error = parse_autofill_response(response, &tools).expect_err("unknown tool rejected");
 
-    assert!(error.to_string().contains("unknown MCP tool id"));
+    assert!(error.to_string().contains("unknown MCP tool name"));
+}
+
+#[test]
+fn rejects_duplicate_tool_name_without_partial_suggestions() {
+    let tools = vec![test_tool("mcp_tool:docs:read", "read_doc")];
+    let response = r#"{
+      "suggestions": [{
+        "tool": "read_doc",
+        "read_classification": "mixed",
+        "write_classification": "none",
+        "export_classification": "none"
+      }, {
+        "tool": "read_doc",
+        "read_classification": "mixed",
+        "write_classification": "none",
+        "export_classification": "none"
+      }]
+    }"#;
+
+    let error = parse_autofill_response(response, &tools).expect_err("duplicate tool rejected");
+
+    assert!(error.to_string().contains("duplicate MCP tool name"));
 }
 
 #[test]
@@ -71,7 +93,7 @@ fn rejects_invalid_enum() {
     let tools = vec![test_tool("mcp_tool:docs:read", "read_doc")];
     let response = r#"{
       "suggestions": [{
-        "mcp_tool_id": "mcp_tool:docs:read",
+        "tool": "read_doc",
         "read_classification": "Mixed",
         "write_classification": "none",
         "export_classification": "none",
@@ -91,7 +113,10 @@ fn prompt_names_trust_axes_and_demands_strict_json() {
     assert!(prompt.contains("Return strict JSON only"));
     assert!(prompt.contains("export means"));
     assert!(prompt.contains("metadata only"));
-    assert!(prompt.contains("mcp_tool:docs:read"));
+    assert!(prompt.contains("read_doc: Read a document"));
+    assert!(prompt.contains("Inputs: owner_email"));
+    assert!(prompt.contains("Annotations: readOnlyHint=true"));
+    assert!(!prompt.contains("mcp_tool:docs:read"));
 }
 
 #[test]
@@ -100,10 +125,22 @@ fn prompt_limits_model_to_trust_classification_rubric() {
 
     assert!(prompt.contains("do not return extractor"));
     assert!(!prompt.contains("owner_extractors"));
+    assert!(prompt.contains(r#""tool":"...""#));
+    assert!(!prompt.contains(r#""mcp_tool_id":"...""#));
     assert!(prompt.contains("trusted:"));
     assert!(prompt.contains("untrusted:"));
     assert!(prompt.contains("public web"));
     assert!(prompt.contains("authenticated user's own"));
+}
+
+#[test]
+fn prompt_omits_annotations_when_empty() {
+    let mut tool = test_tool("mcp_tool:docs:read", "read_doc");
+    tool.annotations = json!({});
+
+    let prompt = build_autofill_prompt("Docs", &[tool]);
+
+    assert!(!prompt.contains("Annotations:"));
 }
 
 #[test]
@@ -240,7 +277,7 @@ fn parse_ignores_model_extractors_and_uses_deterministic_extractors() {
     });
     let response = r#"{
       "suggestions": [{
-        "mcp_tool_id": "mcp_tool:notion:update",
+        "tool": "notion-update-page",
         "read_classification": "none",
         "write_classification": "mixed",
         "export_classification": "none",
@@ -292,10 +329,10 @@ fn prompt_compacts_long_tool_and_field_descriptions() {
 
     let prompt = build_autofill_prompt("Notion", &[tool]);
 
-    assert!(prompt.len() < 4_500, "prompt was {} chars", prompt.len());
+    assert!(prompt.len() < 2_000, "prompt was {} chars", prompt.len());
     assert!(prompt.contains("notion-update-page"));
     assert!(prompt.contains("Update a Notion page."));
-    assert!(prompt.contains("recipient_email"));
+    assert!(prompt.contains("Inputs: page_id, recipient_email"));
     assert!(!prompt.contains("Example payload noise"));
     assert!(!prompt.contains("Verbose examples that should not ride along"));
 }
