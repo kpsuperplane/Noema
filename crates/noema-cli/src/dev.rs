@@ -153,7 +153,7 @@ fn spawn_bridge_watcher(repo_root: &Path) -> Result<Option<Child>, DevDaemonErro
     }
 
     let mut command = Command::new(cargo_exe());
-    command.args(foundation_bridge_watch_args());
+    command.args(foundation_bridge_watch_args(&package_dir));
 
     spawn_dev_process("foundation bridge watcher", &mut command, &package_dir).map(Some)
 }
@@ -166,15 +166,17 @@ fn foundation_bridge_package_dir(repo_root: &Path) -> PathBuf {
     repo_root.join("crates/noema-core/apple-foundation-bridge")
 }
 
-fn foundation_bridge_watch_args() -> [&'static str; 7] {
-    [
-        "watch",
-        "-w",
-        "Package.swift",
-        "-w",
-        "Sources",
-        "-s",
-        "swift build",
+fn foundation_bridge_watch_args(package_dir: &Path) -> Vec<String> {
+    vec![
+        "watch".to_string(),
+        "-C".to_string(),
+        package_dir.to_string_lossy().to_string(),
+        "-w".to_string(),
+        "Package.swift".to_string(),
+        "-w".to_string(),
+        "Sources".to_string(),
+        "-s".to_string(),
+        "swift build".to_string(),
     ]
 }
 
@@ -459,9 +461,13 @@ mod tests {
             PathBuf::from("/workspace/crates/noema-core/apple-foundation-bridge")
         );
         assert_eq!(
-            foundation_bridge_watch_args(),
-            [
+            foundation_bridge_watch_args(Path::new(
+                "/workspace/crates/noema-core/apple-foundation-bridge"
+            )),
+            vec![
                 "watch",
+                "-C",
+                "/workspace/crates/noema-core/apple-foundation-bridge",
                 "-w",
                 "Package.swift",
                 "-w",
