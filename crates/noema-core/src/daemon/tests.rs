@@ -9,7 +9,7 @@ use super::{
     server::bind_listener,
 };
 use crate::{
-    EntityType,
+    ActorRef, EntityType,
     memory::{ClaimRetrievalRequest, MemoryStatus, Sensitivity, UseMode},
     provider::{
         GenerateInput, GenerateOutputItem, GenerateRequest, GenerateResponse, GenerateStreamEvent,
@@ -322,6 +322,243 @@ async fn primary_agent_runtime_preference_supplies_turn_model() {
         requests.last().and_then(|request| request.model.as_deref()),
         Some("default")
     );
+}
+
+#[tokio::test]
+async fn prompt_context_uses_active_summary_and_post_checkpoint_items() {
+    let store = crate::store::tests::test_store().await;
+    store.ensure_default_actors().await.expect("actors");
+    let provider = Arc::new(MetadataCapturingProvider::default());
+    let runtime = CodexRuntimeHandle::spawn_with_provider_kind(
+        provider.clone(),
+        store.clone(),
+        "foundation_local",
+    )
+    .await
+    .expect("runtime");
+    let started = runtime
+        .start_conversation(Some("default".to_string()), None)
+        .await
+        .expect("conversation");
+
+    append_test_text_item(&store, &started.conversation_id, "covered user").await;
+    append_test_text_item(&store, &started.conversation_id, "covered assistant").await;
+    store
+        .insert_conversation_context_summary(crate::NewConversationContextSummary {
+            conversation_id: started.conversation_id.clone(),
+            provider_kind: "foundation_local".to_string(),
+            model_profile: Some("default".to_string()),
+            summary_text: "Summary: the user approved rolling durable compaction.".to_string(),
+            covered_item_start_sequence: 1,
+            covered_item_end_sequence: 2,
+            source_item_ids: vec!["item:1".to_string(), "item:2".to_string()],
+            input_token_estimate: 400,
+            summary_token_estimate: 16,
+            compaction_provider_kind: "foundation_local".to_string(),
+            compaction_model_profile: Some("default".to_string()),
+            status: crate::ConversationContextSummaryStatus::Active,
+            error_code: None,
+            error_message: None,
+        })
+        .await
+        .expect("summary");
+    append_test_text_item(&store, &started.conversation_id, "post checkpoint user").await;
+
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    runtime
+        .turn(started.conversation_id, "current turn".to_string(), tx)
+        .await
+        .expect("turn");
+    while rx.recv().await.is_some() {}
+    runtime.shutdown().await;
+
+    let requests = provider.requests.lock().expect("requests");
+    let instructions = requests
+        .iter()
+        .find(|request| request.options.require_noema_response)
+        .and_then(|request| request.instructions.as_deref())
+        .expect("instructions");
+    assert!(instructions.contains("Compacted conversation context:"));
+    assert!(instructions.contains("rolling durable compaction"));
+    assert!(instructions.contains("post checkpoint user"));
+    assert!(!instructions.contains("covered user"));
+}
+
+#[tokio::test]
+async fn foreground_context_compaction_runs_before_over_limit_turn() {
+    let store = crate::store::tests::test_store().await;
+    store.ensure_default_actors().await.expect("actors");
+    let provider = Arc::new(MetadataCapturingProvider::default());
+    let runtime = CodexRuntimeHandle::spawn_with_provider_kind(
+        provider.clone(),
+        store.clone(),
+        "foundation_local",
+    )
+    .await
+    .expect("runtime");
+    let started = runtime
+        .start_conversation(Some("default".to_string()), None)
+        .await
+        .expect("conversation");
+    append_test_text_item(
+        &store,
+        &started.conversation_id,
+        &"older context ".repeat(1_200),
+    )
+    .await;
+
+    let (result, _events) = collect_turn_events(
+        &runtime,
+        started.conversation_id.clone(),
+        "current turn".to_string(),
+    )
+    .await;
+    result.expect("turn");
+    runtime.shutdown().await;
+
+    let requests = provider.requests.lock().expect("requests");
+    let compaction_index = requests
+        .iter()
+        .position(|request| !request.options.require_noema_response)
+        .expect("compaction request");
+    let agent_index = requests
+        .iter()
+        .position(|request| request.options.require_noema_response)
+        .expect("agent request");
+    assert!(compaction_index < agent_index);
+    let summaries = store
+        .list_context_summaries_for_conversation(&started.conversation_id)
+        .await
+        .expect("summaries");
+    assert!(summaries.iter().any(|summary| {
+        summary.provider_kind == "foundation_local"
+            && summary.model_profile.as_deref() == Some("default")
+            && summary.covered_item_end_sequence >= 2
+            && summary.summary_text == "fake answer"
+    }));
+}
+
+#[tokio::test]
+async fn background_context_compaction_creates_checkpoint_after_large_turn() {
+    let store = crate::store::tests::test_store().await;
+    store.ensure_default_actors().await.expect("actors");
+    let provider = Arc::new(MetadataCapturingProvider {
+        context_window_tokens: 5_500,
+        fail_compaction: false,
+        requests: Mutex::new(Vec::new()),
+    });
+    let runtime = CodexRuntimeHandle::spawn_with_provider_kind(
+        provider.clone(),
+        store.clone(),
+        "foundation_local",
+    )
+    .await
+    .expect("runtime");
+    let started = runtime
+        .start_conversation(Some("default".to_string()), None)
+        .await
+        .expect("conversation");
+    append_test_text_item(
+        &store,
+        &started.conversation_id,
+        &"background context ".repeat(1_000),
+    )
+    .await;
+
+    let (result, _events) = collect_turn_events(
+        &runtime,
+        started.conversation_id.clone(),
+        "current turn".to_string(),
+    )
+    .await;
+    result.expect("turn");
+    wait_for_context_summary_count(&store, &started.conversation_id, 1).await;
+    runtime.shutdown().await;
+
+    let requests = provider.requests.lock().expect("requests");
+    let agent_index = requests
+        .iter()
+        .position(|request| request.options.require_noema_response)
+        .expect("agent request");
+    let compaction_index = requests
+        .iter()
+        .position(|request| !request.options.require_noema_response)
+        .expect("background compaction request");
+    assert!(agent_index < compaction_index);
+    let active = store
+        .latest_active_context_summary(
+            &started.conversation_id,
+            "foundation_local",
+            Some("default"),
+        )
+        .await
+        .expect("active summary")
+        .expect("active summary exists");
+    assert_eq!(active.summary_text, "fake answer");
+}
+
+#[tokio::test]
+async fn foreground_context_compaction_failure_blocks_turn_with_recoverable_notice() {
+    let store = crate::store::tests::test_store().await;
+    store.ensure_default_actors().await.expect("actors");
+    let provider = Arc::new(MetadataCapturingProvider {
+        context_window_tokens: 4_096,
+        fail_compaction: true,
+        requests: Mutex::new(Vec::new()),
+    });
+    let runtime = CodexRuntimeHandle::spawn_with_provider_kind(
+        provider.clone(),
+        store.clone(),
+        "foundation_local",
+    )
+    .await
+    .expect("runtime");
+    let started = runtime
+        .start_conversation(Some("default".to_string()), None)
+        .await
+        .expect("conversation");
+    append_test_text_item(
+        &store,
+        &started.conversation_id,
+        &"older context ".repeat(1_200),
+    )
+    .await;
+
+    let (result, events) = collect_turn_events(
+        &runtime,
+        started.conversation_id.clone(),
+        "current turn".to_string(),
+    )
+    .await;
+    result.expect_err("compaction failure");
+    runtime.shutdown().await;
+
+    let requests = provider.requests.lock().expect("requests");
+    assert!(
+        requests
+            .iter()
+            .any(|request| !request.options.require_noema_response)
+    );
+    assert!(
+        !requests
+            .iter()
+            .any(|request| request.options.require_noema_response)
+    );
+    assert!(events.iter().any(|event| {
+        matches!(
+            event,
+            TurnStreamEvent::ConversationItem {
+                item,
+                ..
+            } if matches!(
+                item.as_ref(),
+                TurnTranscriptItem::ErrorNotice {
+                    message,
+                    recoverable: true,
+                } if message.contains("Context compaction failed before this turn could run")
+            )
+        )
+    }));
 }
 
 #[tokio::test]
@@ -3691,6 +3928,45 @@ async fn test_runtime_handle_with_store(
     (handle, store)
 }
 
+async fn append_test_text_item(store: &crate::NoemaStore, conversation_id: &str, text: &str) {
+    store
+        .append_conversation_item(crate::NewConversationItem {
+            conversation_id: conversation_id.to_string(),
+            turn_id: None,
+            parent_item_id: None,
+            kind: ConversationItemKind::UserText,
+            status: ConversationItemStatus::Completed,
+            author: ActorRef::human("human:local"),
+            content_text: Some(text.to_string()),
+            payload_json: json!({}),
+            metadata: json!({}),
+        })
+        .await
+        .expect("append item");
+}
+
+async fn wait_for_context_summary_count(
+    store: &crate::NoemaStore,
+    conversation_id: &str,
+    minimum_count: usize,
+) {
+    for _ in 0..50 {
+        let summaries = store
+            .list_context_summaries_for_conversation(conversation_id)
+            .await
+            .expect("summaries");
+        if summaries.len() >= minimum_count {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    panic!("timed out waiting for {minimum_count} context summaries");
+}
+
+fn estimated_test_tokens(value: &str) -> u32 {
+    value.chars().count().div_ceil(3) as u32
+}
+
 #[derive(Debug, Clone)]
 struct FakeCodexProvider {
     scenario: FakeCodexScenario,
@@ -3700,6 +3976,23 @@ struct FakeCodexProvider {
 #[derive(Debug, Default)]
 struct CapturingProvider {
     requests: Mutex<Vec<GenerateRequest>>,
+}
+
+#[derive(Debug)]
+struct MetadataCapturingProvider {
+    context_window_tokens: u32,
+    fail_compaction: bool,
+    requests: Mutex<Vec<GenerateRequest>>,
+}
+
+impl Default for MetadataCapturingProvider {
+    fn default() -> Self {
+        Self {
+            context_window_tokens: 4_096,
+            fail_compaction: false,
+            requests: Mutex::new(Vec::new()),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -4360,6 +4653,55 @@ impl super::runtime::RuntimeModelProvider for CapturingProvider {
                 .lock()
                 .expect("requests")
                 .push(request.clone());
+            Ok(GenerateResponse {
+                output: assistant_with_no_memories("fake answer"),
+                provider: "test".to_string(),
+                model: request.model.unwrap_or_else(|| "fake-model".to_string()),
+                response_id: None,
+                usage: None,
+            })
+        })
+    }
+}
+
+impl super::runtime::RuntimeModelProvider for MetadataCapturingProvider {
+    fn context_metadata(&self, _model: Option<&str>) -> crate::ProviderContextMetadata {
+        crate::ProviderContextMetadata {
+            context_window_tokens: Some(self.context_window_tokens),
+            default_output_reserve_tokens: Some(512),
+            compact_summary_target_tokens: Some(512),
+        }
+    }
+
+    fn count_tokens<'a>(
+        &'a self,
+        instructions: Option<&'a str>,
+        input: &'a str,
+        _model: Option<&'a str>,
+    ) -> Pin<Box<dyn Future<Output = Result<Option<u32>, ProviderError>> + Send + 'a>> {
+        Box::pin(async move {
+            let instruction_tokens = instructions.map_or(0, estimated_test_tokens);
+            Ok(Some(instruction_tokens + estimated_test_tokens(input)))
+        })
+    }
+
+    fn generate_streaming<'a>(
+        &'a self,
+        request: GenerateRequest,
+        _on_event: &'a mut (dyn FnMut(GenerateStreamEvent) + Send),
+    ) -> Pin<Box<dyn Future<Output = Result<GenerateResponse, ProviderError>> + Send + 'a>> {
+        Box::pin(async move {
+            self.requests
+                .lock()
+                .expect("requests")
+                .push(request.clone());
+            if self.fail_compaction && !request.options.require_noema_response {
+                return Err(ProviderError::ApiError {
+                    status: 500,
+                    message: "compaction failed".to_string(),
+                    request_id: None,
+                });
+            }
             Ok(GenerateResponse {
                 output: assistant_with_no_memories("fake answer"),
                 provider: "test".to_string(),

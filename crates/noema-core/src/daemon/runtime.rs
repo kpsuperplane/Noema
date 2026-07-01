@@ -1,7 +1,10 @@
 mod actor;
+mod context_compaction;
+mod context_window;
 mod handle;
 mod local_tools;
 mod memory_writes;
+mod prompt_context;
 mod transcript_persistence;
 mod turn;
 

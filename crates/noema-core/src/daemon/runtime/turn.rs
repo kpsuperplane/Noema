@@ -29,7 +29,6 @@ use crate::daemon::{
     prompts::{
         build_initial_name_onboarding_system_prompt,
         build_local_tool_result_continuation_system_prompt, build_model_available_tools_prompt,
-        build_structured_turn_system_prompt, render_recent_transcript_for_prompt,
     },
     protocol::{
         AgentStatus, DaemonError, StartedConversation, TurnStreamEvent, TurnTranscriptItem,
@@ -220,11 +219,7 @@ impl CodexRuntimeActor {
                 metadata: json!({ "turn_index": turn_index }),
             })
             .await?;
-        let recent_context_items = self
-            .store
-            .list_recent_conversation_items_for_context(&conversation_id, 24)
-            .await?;
-        let recent_transcript = render_recent_transcript_for_prompt(&recent_context_items);
+        let provider = self.provider_for_kind(&conversation.provider_kind)?;
         let agent_identity = self
             .agent_identity_for_conversation(&conversation_id)
             .await?;
@@ -283,14 +278,88 @@ impl CodexRuntimeActor {
             &item_tx,
         )
         .await?;
-        let structured_instructions = build_structured_turn_system_prompt(
+        let mut planned_context = super::prompt_context::plan_prompt_context(
+            &self.store,
+            provider.as_ref(),
             &conversation_id,
+            &conversation.provider_kind,
+            conversation.model.as_deref(),
             turn_index,
             conversation.cwd.as_deref(),
-            &recent_transcript,
             &agent_identity,
             &tool_snapshot.rendered_tools,
-        );
+            &input,
+        )
+        .await?;
+        if super::context_compaction::should_compact_foreground(&planned_context) {
+            let compaction_result = super::context_compaction::compact_context_with_retry(
+                super::context_compaction::CompactionRequest {
+                    store: &self.store,
+                    provider: provider.as_ref(),
+                    conversation_id: &conversation_id,
+                    provider_kind: &conversation.provider_kind,
+                    model_profile: conversation.model.as_deref(),
+                    budget: planned_context.budget,
+                    mode: super::context_compaction::CompactionMode::Foreground,
+                },
+            )
+            .await;
+            if let Err(error) = compaction_result {
+                let error_context = ConversationMemoryContext {
+                    turn_index,
+                    conversation_id: conversation_id.clone(),
+                    turn_id: turn.turn_id.clone(),
+                    user_item_id: user_item_id.clone(),
+                    assistant_item_id: None,
+                    assistant_items: Vec::new(),
+                    user_content: input.clone(),
+                    cwd: conversation.cwd.clone(),
+                };
+                self.record_turn_failure_notice(
+                    &error_context,
+                    format!("Context compaction failed before this turn could run: {error}"),
+                    true,
+                    &item_tx,
+                )
+                .await?;
+                self.conversations.remove(&conversation_id);
+                return Err(error);
+            }
+            planned_context = super::prompt_context::plan_prompt_context(
+                &self.store,
+                provider.as_ref(),
+                &conversation_id,
+                &conversation.provider_kind,
+                conversation.model.as_deref(),
+                turn_index,
+                conversation.cwd.as_deref(),
+                &agent_identity,
+                &tool_snapshot.rendered_tools,
+                &input,
+            )
+            .await?;
+            if !planned_context.fits {
+                let error = ProviderError::InvalidRequest {
+                    message: "context could not be compacted enough for the selected model"
+                        .to_string(),
+                };
+                let error_context = ConversationMemoryContext {
+                    turn_index,
+                    conversation_id: conversation_id.clone(),
+                    turn_id: turn.turn_id.clone(),
+                    user_item_id: user_item_id.clone(),
+                    assistant_item_id: None,
+                    assistant_items: Vec::new(),
+                    user_content: input.clone(),
+                    cwd: conversation.cwd.clone(),
+                };
+                self.record_turn_failure_notice(&error_context, error.to_string(), true, &item_tx)
+                    .await?;
+                self.conversations.remove(&conversation_id);
+                return Err(error.into());
+            }
+        }
+        let agent_identity_for_background = agent_identity.clone();
 
         let initial_stream_id = assistant_stream_id(&turn.turn_id, "initial");
         let initial_event_context = ConversationMemoryContext {
@@ -313,14 +382,14 @@ impl CodexRuntimeActor {
             );
         };
 
-        let provider = self.provider_for_kind(&conversation.provider_kind)?;
         match provider
             .generate_streaming(
                 GenerateRequest {
                     model: conversation.model.clone(),
                     input: GenerateInput::Text(input.clone()),
-                    instructions: Some(structured_instructions),
+                    instructions: Some(planned_context.instructions),
                     options: GenerateOptions {
+                        max_output_tokens: planned_context.budget.output_reserve_tokens(),
                         require_noema_response: true,
                         ..GenerateOptions::default()
                     },
@@ -365,6 +434,15 @@ impl CodexRuntimeActor {
                     self.conversations.remove(&conversation_id);
                     return Err(error);
                 }
+                self.schedule_background_context_compaction(
+                    conversation_id.clone(),
+                    conversation.provider_kind.clone(),
+                    conversation.model.clone(),
+                    turn_index.saturating_add(1),
+                    conversation.cwd.clone(),
+                    agent_identity_for_background,
+                    tool_snapshot.rendered_tools.clone(),
+                );
 
                 Ok(())
             }
@@ -698,6 +776,65 @@ impl CodexRuntimeActor {
             }
         }
         Ok(build_model_available_tools_prompt(&rows))
+    }
+
+    fn schedule_background_context_compaction(
+        &self,
+        conversation_id: String,
+        provider_kind: String,
+        model_profile: Option<String>,
+        next_turn_index: u64,
+        cwd: Option<String>,
+        agent_identity: AgentPromptIdentity,
+        rendered_tools: String,
+    ) {
+        let store = self.store.clone();
+        let Ok(provider) = self.provider_for_kind(&provider_kind) else {
+            return;
+        };
+        tokio::spawn(async move {
+            let plan = super::prompt_context::plan_prompt_context(
+                &store,
+                provider.as_ref(),
+                &conversation_id,
+                &provider_kind,
+                model_profile.as_deref(),
+                next_turn_index,
+                cwd.as_deref(),
+                &agent_identity,
+                &rendered_tools,
+                "",
+            )
+            .await;
+            let Ok(plan) = plan else {
+                return;
+            };
+            if !super::context_compaction::should_compact_background(&plan) {
+                return;
+            }
+            let result = super::context_compaction::compact_context(
+                super::context_compaction::CompactionRequest {
+                    store: &store,
+                    provider: provider.as_ref(),
+                    conversation_id: &conversation_id,
+                    provider_kind: &provider_kind,
+                    model_profile: model_profile.as_deref(),
+                    budget: plan.budget,
+                    mode: super::context_compaction::CompactionMode::Background,
+                },
+            )
+            .await;
+            if let Err(error) = result {
+                let _ = super::context_compaction::record_failed_background_compaction(
+                    &store,
+                    &conversation_id,
+                    &provider_kind,
+                    model_profile.as_deref(),
+                    &error,
+                )
+                .await;
+            }
+        });
     }
 }
 

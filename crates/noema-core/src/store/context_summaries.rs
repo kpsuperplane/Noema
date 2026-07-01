@@ -258,7 +258,7 @@ impl NoemaStore {
                 SELECT {CONTEXT_SUMMARY_SELECT}
                 FROM conversation_context_summaries
                 WHERE conversation_id = $conversation_id
-                ORDER BY created_at ASC;
+                ORDER BY covered_item_end_sequence ASC;
                 "#
             ))
             .bind(("conversation_id", conversation_id.to_string()))

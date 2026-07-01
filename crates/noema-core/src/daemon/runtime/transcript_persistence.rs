@@ -346,6 +346,17 @@ impl CodexRuntimeActor {
         message: String,
         item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
     ) -> Result<(), DaemonError> {
+        self.record_turn_failure_notice(context, message, false, item_tx)
+            .await
+    }
+
+    pub(super) async fn record_turn_failure_notice(
+        &mut self,
+        context: &ConversationMemoryContext,
+        message: String,
+        recoverable: bool,
+        item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
+    ) -> Result<(), DaemonError> {
         self.store.fail_conversation_turn(&context.turn_id).await?;
         self.update_conversation_agent_status(
             &context.conversation_id,
@@ -355,7 +366,7 @@ impl CodexRuntimeActor {
         .await?;
         let notice = TurnTranscriptItem::ErrorNotice {
             message,
-            recoverable: false,
+            recoverable,
         };
         self.persist_and_send_turn_item(context, notice, item_tx)
             .await
