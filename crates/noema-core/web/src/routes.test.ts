@@ -5,6 +5,7 @@ import {
   routeFromPathname,
   settingsBackNavigation,
   settingsFallbackRoute,
+  shouldReplaceHistoryEntryForNavigation,
   shouldRememberAsPreviousAppRoute
 } from "./routes";
 
@@ -93,5 +94,26 @@ describe("settings route helpers", () => {
       kind: "navigate",
       route: { kind: "chat" }
     });
+  });
+
+  test("replaces history entries when switching between Settings sections", () => {
+    assert.equal(
+      shouldReplaceHistoryEntryForNavigation(
+        { kind: "settings", section: "providers" },
+        { kind: "settings", section: "mcps" }
+      ),
+      true
+    );
+    assert.equal(
+      shouldReplaceHistoryEntryForNavigation(
+        { kind: "chat" },
+        { kind: "settings", section: "providers" }
+      ),
+      false
+    );
+    assert.equal(
+      shouldReplaceHistoryEntryForNavigation({ kind: "settings", section: "mcps" }, { kind: "chat" }),
+      false
+    );
   });
 });

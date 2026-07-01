@@ -78,6 +78,13 @@ export function settingsBackNavigation(canUseBrowserHistory: boolean): SettingsB
   return { kind: "navigate", route: { kind: "chat" } };
 }
 
+export function shouldReplaceHistoryEntryForNavigation(
+  currentRoute: AppRoute,
+  nextRoute: AppRoute
+) {
+  return currentRoute.kind === "settings" && nextRoute.kind === "settings";
+}
+
 export function useBrowserRoute() {
   const [route, setRoute] = React.useState(() => routeFromPathname(window.location.pathname));
   const previousAppRouteRef = React.useRef<NonSettingsAppRoute>(
@@ -110,7 +117,11 @@ export function useBrowserRoute() {
         canGoBackFromSettingsRef.current = false;
       }
       const nextPath = pathForRoute(nextRoute);
-      window.history.pushState({}, "", nextPath);
+      if (shouldReplaceHistoryEntryForNavigation(currentRoute, nextRoute)) {
+        window.history.replaceState({}, "", nextPath);
+      } else {
+        window.history.pushState({}, "", nextPath);
+      }
       return routeFromPathname(nextPath);
     });
   }, []);
