@@ -160,6 +160,7 @@ export function McpToolPermissionsModal({
       await result.refetch();
       setDraftOverrides({});
       setAutofillMessage(null);
+      handleOpenChange(false);
     } catch (error) {
       setSaveError(safeCalibrationSaveError(error));
     }
