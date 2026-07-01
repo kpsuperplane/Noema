@@ -136,7 +136,7 @@ export function shellSidebarCollapseButtonClassName() {
 
 export function shellSidebarGroundClassName(deckNavigation: DeckNavigationState) {
   return cn(
-    "absolute inset-y-0 left-0 z-10 grid min-h-0 w-[var(--shell-sidebar-width)] px-3.5 py-4",
+    "absolute inset-y-0 left-0 z-10 grid min-h-0 w-[var(--shell-sidebar-width)]",
     "max-[760px]:w-[min(286px,78vw)] max-[760px]:pb-[max(1rem,env(safe-area-inset-bottom))]",
     deckNavigation.navOpen && "z-[25]"
   );

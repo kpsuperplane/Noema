@@ -134,7 +134,7 @@ function ShellSidebarMenuFrame({
       data-shell-menu-transition-direction={transitionDirection}
       aria-hidden={interactive ? undefined : "true"}
       className={cn(
-        "absolute inset-0 grid h-full min-h-0 grid-rows-[auto_auto_minmax(0,1fr)_auto] gap-1",
+        "absolute inset-0 grid h-full min-h-0 grid-rows-[auto_auto_minmax(0,1fr)_auto] gap-1 px-3.5 py-4",
         !interactive && "pointer-events-none"
       )}
     >

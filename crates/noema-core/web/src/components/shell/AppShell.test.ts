@@ -452,6 +452,19 @@ describe("AppShell layered deck markup", () => {
     assert.match(markup, /data-shell-menu-frame-state="current"/);
   });
 
+  test("keeps sidebar padding inside the animated menu frame", () => {
+    const markup = renderShell({ route: { kind: "chat" } });
+    const groundClassName = dataSlotClassName(markup, "shell-sidebar-ground");
+    const viewportClassName = dataSlotClassName(markup, "shell-sidebar-menu-viewport");
+    const frameClassName = dataSlotClassName(markup, "shell-sidebar-menu-level-frame");
+
+    assert.match(viewportClassName, /\boverflow-hidden\b/);
+    assert.doesNotMatch(groundClassName, /(?:^|\s)p[xy]-/);
+    assert.doesNotMatch(viewportClassName, /(?:^|\s)p[xy]-/);
+    assert.match(frameClassName, /(?:^|\s)px-3\.5(?:\s|$)/);
+    assert.match(frameClassName, /(?:^|\s)py-4(?:\s|$)/);
+  });
+
   test("defines sidebar menu transition directions between route levels", () => {
     assert.equal(shellSidebarTransitionDirection("l0", "settings"), "forward");
     assert.equal(shellSidebarTransitionDirection("settings", "l0"), "backward");
