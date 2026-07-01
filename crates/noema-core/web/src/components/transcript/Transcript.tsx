@@ -42,16 +42,19 @@ import type { ConversationAgentStatus } from "../../types";
 export function Transcript({
   entries,
   pending,
+  awaitingAssistantTurn,
   agentStatus,
   expandedActivities,
   onToggleActivity
 }: {
   entries: TranscriptEntry[];
   pending: boolean;
+  awaitingAssistantTurn: boolean;
   agentStatus: ConversationAgentStatus;
   expandedActivities: Set<string>;
   onToggleActivity: (id: string) => void;
 }) {
+  void awaitingAssistantTurn;
   const renderedEntries = renderableTranscriptEntries(entries, pending, agentStatus);
   const [seenArrivalMessageIds, setSeenArrivalMessageIds] = React.useState<ReadonlySet<string>>(() =>
     initialSeenArrivalMessageIds(renderedEntries)

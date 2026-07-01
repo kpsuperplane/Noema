@@ -62,6 +62,80 @@ type GraphqlAgent {
 	Whether this is Noema's built-in primary agent.
 	"""
 	isPrimary: Boolean!
+	"""
+	Current model preference, when configured.
+	"""
+	modelPreference: GraphqlAgentModelPreference
+	"""
+	Provider/profile options available to this agent.
+	"""
+	modelOptions: [GraphqlAgentModelProviderOption!]!
+}
+
+"""
+Agent model preference safe to expose in Settings.
+"""
+type GraphqlAgentModelPreference {
+	"""
+	Provider kind selected for this agent.
+	"""
+	providerKind: String!
+	"""
+	Provider account id selected for this agent.
+	"""
+	providerAccountId: String!
+	"""
+	Provider-specific model id or profile id.
+	"""
+	modelProfile: String!
+}
+
+"""
+One selectable model/profile.
+"""
+type GraphqlAgentModelProfileOption {
+	"""
+	Stable profile or model id.
+	"""
+	id: String!
+	"""
+	User-facing label.
+	"""
+	label: String!
+	"""
+	Why this option is disabled, when unavailable.
+	"""
+	disabledReason: String
+}
+
+"""
+One selectable provider account and its profiles.
+"""
+type GraphqlAgentModelProviderOption {
+	"""
+	Provider kind.
+	"""
+	providerKind: String!
+	"""
+	Provider account id.
+	"""
+	providerAccountId: String!
+	"""
+	User-facing provider display name.
+	"""
+	providerDisplayName: String!
+	"""
+	Provider account status.
+	"""
+	status: GraphqlProviderAccountStatus!
+	"""
+	Available profiles or model ids.
+	"""
+	profiles: [GraphqlAgentModelProfileOption!]!
+	"""
+	Why this provider is disabled, when unavailable.
+	"""
+	disabledReason: String
 }
 
 """
@@ -1296,6 +1370,24 @@ enum GraphqlProviderAuthMethod {
 }
 
 """
+Input for saving an agent model preference.
+"""
+input GraphqlSaveAgentModelPreferenceInput {
+	"""
+	Agent to update.
+	"""
+	agentId: String!
+	"""
+	Provider account id to use.
+	"""
+	providerAccountId: String!
+	"""
+	Provider-specific model id or profile id.
+	"""
+	modelProfile: String!
+}
+
+"""
 Save reviewed MCP tool calibration.
 """
 input GraphqlSaveToolCalibrationInput {
@@ -1570,6 +1662,10 @@ type MutationRoot {
 	Start a provider auth attempt.
 	"""
 	startProviderAuthAttempt(input: GraphqlStartProviderAuthAttemptInput!): GraphqlProviderAuthAttempt!
+	"""
+	Save one agent's model/provider preference.
+	"""
+	saveAgentModelPreference(input: GraphqlSaveAgentModelPreferenceInput!): GraphqlAgentModelPreference!
 	"""
 	Start or resume the primary conversation.
 	"""

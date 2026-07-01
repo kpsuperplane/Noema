@@ -19,11 +19,13 @@ export function handleConversationEvent(
     setTranscript: Dispatch<SetStateAction<TranscriptEntry[]>>;
     setPending: Dispatch<SetStateAction<boolean>>;
     setAgentStatus: Dispatch<SetStateAction<ConversationAgentStatus>>;
+    setAwaitingAssistantTurn: Dispatch<SetStateAction<boolean>>;
   }
 ) {
   if (event.__typename === "GraphqlTurnCompletedEvent") {
     setters.setTranscript((current) => removeStaleStartedMemoryExtractions(current));
     setters.setPending(false);
+    setters.setAwaitingAssistantTurn(false);
     setters.setAgentStatus("IDLE");
     return;
   }
@@ -32,6 +34,7 @@ export function handleConversationEvent(
     return;
   }
   if (event.__typename === "GraphqlAssistantTextDeltaEvent") {
+    setters.setAwaitingAssistantTurn(false);
     appendAssistantTextDelta(setters.setTranscript, {
       conversationId: event.conversationId,
       turnId: event.deltaTurnId,

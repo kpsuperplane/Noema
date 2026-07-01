@@ -18,8 +18,6 @@ export function ProvidersSettingsPaneContent({
   error: string | null;
   onRetry: () => void;
 }) {
-  const account = accounts[0] ?? null;
-
   if (loading) {
     return <p className="m-0 text-sm text-muted-foreground">Loading provider metadata...</p>;
   }
@@ -36,7 +34,7 @@ export function ProvidersSettingsPaneContent({
     );
   }
 
-  if (!account) {
+  if (accounts.length === 0) {
     return (
       <div className="rounded-md border border-[var(--border-subtle)] bg-white p-4">
         <p className="m-0 text-sm text-muted-foreground">
@@ -47,37 +45,43 @@ export function ProvidersSettingsPaneContent({
     );
   }
 
-  const rows = providerTechnicalRows(account);
-
   return (
-    <div className="grid gap-4">
-      <div className="grid gap-2 rounded-md border border-[var(--border-subtle)] bg-white p-4">
-        <p className="m-0 text-xs font-medium uppercase tracking-[0.12em] text-[var(--text-accent)]">
-          Connected provider
-        </p>
-        <div className="flex flex-wrap items-center gap-3">
-          <h2 className="m-0 font-heading text-2xl leading-tight tracking-normal text-foreground">
-            {account.displayName}
-          </h2>
-          <Badge variant="outline">{providerStatusLabel(account.status)}</Badge>
-        </div>
-      </div>
-
-      <div className="overflow-hidden rounded-md border border-[var(--border-subtle)] bg-white">
-        <dl className="m-0 divide-y divide-[var(--border-subtle)]">
-          {rows.map((row) => (
-            <div
-              key={row.label}
-              className="grid grid-cols-[minmax(120px,220px)_1fr] gap-4 px-4 py-3 max-[760px]:grid-cols-1 max-[760px]:gap-1"
-            >
-              <dt className="text-sm font-medium text-muted-foreground">{row.label}</dt>
-              <dd className="m-0 min-w-0 break-words font-mono text-sm text-foreground">
-                {row.value}
-              </dd>
+    <div className="grid gap-3">
+      {accounts.map((account) => {
+        const rows = providerTechnicalRows(account);
+        return (
+          <article
+            key={`${account.providerKind}:${account.accountKey}`}
+            className="grid gap-3 rounded-md border border-[var(--border-subtle)] bg-white p-4"
+          >
+            <div className="flex flex-wrap items-center gap-3">
+              <h2 className="m-0 font-heading text-xl leading-tight tracking-normal text-foreground">
+                {account.displayName}
+              </h2>
+              <Badge variant="outline">{providerStatusLabel(account.status)}</Badge>
             </div>
-          ))}
-        </dl>
-      </div>
+            {account.providerKind === "foundation_local" ? (
+              <p className="m-0 text-sm text-muted-foreground">
+                Local Apple model support is managed by this machine. Choose the model for each
+                agent in Agents.
+              </p>
+            ) : null}
+            <dl className="m-0 grid gap-2">
+              {rows.map((row) => (
+                <div
+                  key={row.label}
+                  className="grid grid-cols-[minmax(120px,220px)_1fr] gap-4 max-[760px]:grid-cols-1 max-[760px]:gap-1"
+                >
+                  <dt className="text-sm font-medium text-muted-foreground">{row.label}</dt>
+                  <dd className="m-0 min-w-0 break-words font-mono text-sm text-foreground">
+                    {row.value}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          </article>
+        );
+      })}
     </div>
   );
 }

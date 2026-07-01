@@ -262,7 +262,7 @@ surface.
 Include:
 
 - Providers tab with non-secret provider account metadata.
-- Agents tab with read-only registered-agent metadata.
+- Agents tab with registered-agent metadata and per-agent provider/model selection.
 - MCPs tab with mediated third-party server metadata and setup entry points.
 - Trusted identities tab with identity selectors used for ownership resolution.
 - Approvals tab for pending MCP checkpoints.
@@ -279,9 +279,17 @@ Include:
   export pipeline.
 - Advanced inspection entry points for owner/admin users.
 
-The current Agents tab is read-only. It shows safe local technical metadata,
-including agent ids, and does not expose prompts, memory, runtime state,
-credentials, conversations, or agent management actions.
+Providers remains the account and backend availability surface. It lists
+configured provider accounts, authentication methods, readiness, active/default
+state, and safe last-error metadata. Apple Foundation Models appears there as a
+local `foundation_local` provider with `auth_method = none`, but model/profile
+selection does not live in Providers.
+
+The current Agents tab shows safe local technical metadata, including agent ids,
+plus each agent's selected provider account and model/profile. Its model edit
+control saves the per-agent runtime preference. Agents does not expose provider
+secrets, credential paths, prompts, memory internals, conversations, or tool
+grants.
 
 Primary actions:
 

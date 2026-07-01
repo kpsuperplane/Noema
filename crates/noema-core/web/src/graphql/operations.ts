@@ -53,6 +53,33 @@ export const AgentsDocument = gql`
       agentId
       displayName
       isPrimary
+      modelPreference {
+        providerKind
+        providerAccountId
+        modelProfile
+      }
+      modelOptions {
+        providerKind
+        providerAccountId
+        providerDisplayName
+        status
+        disabledReason
+        profiles {
+          id
+          label
+          disabledReason
+        }
+      }
+    }
+  }
+`;
+
+export const SaveAgentModelPreferenceDocument = gql`
+  mutation SaveAgentModelPreference($input: GraphqlSaveAgentModelPreferenceInput!) {
+    saveAgentModelPreference(input: $input) {
+      providerKind
+      providerAccountId
+      modelProfile
     }
   }
 `;

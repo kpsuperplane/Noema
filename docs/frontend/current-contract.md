@@ -70,8 +70,8 @@ primary navigation priority.
 | `/inspect/context-graph` | Context graph | future graph neighborhood read model | owner/admin-only graph inspection, redacted by default | Future |
 | `/inspect/context-packets` | Context packets | retrieval packet tables when populated | inspect when rows exist; unavailable state otherwise | Current limited |
 | `/settings` | Settings default | provider account metadata from GraphQL, gated by onboarding | temporary full-screen utility takeover opened from the sidebar cog; defaults to Providers | Current |
-| `/settings/providers` | Settings / Providers | provider account metadata from GraphQL, gated by onboarding | Providers tab with only non-secret account metadata | Current |
-| `/settings/agents` | Settings / Agents | agent metadata from GraphQL, gated by onboarding | read-only registered-agent list with safe local technical metadata such as agent ids; no prompts, memory, runtime state, credentials, conversations, or management actions | Current |
+| `/settings/providers` | Settings / Providers | provider account metadata from GraphQL, gated by onboarding | Providers tab with non-secret account metadata, auth method, readiness, and safe error state; no model/profile picker | Current |
+| `/settings/agents` | Settings / Agents | agent metadata and model preference options from GraphQL, gated by onboarding | registered-agent list with safe metadata, selected provider/model, and a compact per-agent provider/model preference editor; no prompts, memory internals, credentials, conversations, or tool grants | Current |
 
 Future route groups:
 
