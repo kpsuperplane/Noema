@@ -7,17 +7,17 @@ type WithOptionalTypename<T, Typename extends string> = T & {
 export type MemoryGraphResult = Omit<MemoryGraphQuery["memoryGraph"], "nodes" | "edges" | "summary"> & {
   nodes: MemoryGraphNodeResult[];
   edges: MemoryGraphEdgeResult[];
-  summary: WithOptionalTypename<MemoryGraphQuery["memoryGraph"]["summary"], "GraphqlMemoryGraphSummary">;
+  summary: WithOptionalTypename<MemoryGraphQuery["memoryGraph"]["summary"], "MemoryGraphSummary">;
 };
 
 export type MemoryGraphNodeResult = WithOptionalTypename<
   MemoryGraphQuery["memoryGraph"]["nodes"][number],
-  "GraphqlMemoryGraphNode"
+  "MemoryGraphNode"
 >;
 
 export type MemoryGraphEdgeResult = WithOptionalTypename<
   MemoryGraphQuery["memoryGraph"]["edges"][number],
-  "GraphqlMemoryGraphEdge"
+  "MemoryGraphEdge"
 >;
 
 export type NormalizedMemoryGraphNode = MemoryGraphNodeResult;

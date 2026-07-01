@@ -33,7 +33,7 @@ query CliLocalStatusProbe {
 "#;
 
 const SEND_CONVERSATION_TURN_MUTATION: &str = r#"
-mutation SendConversationTurn($input: GraphqlSendConversationTurnInput!) {
+mutation SendConversationTurn($input: SendConversationTurnInput!) {
   sendConversationTurn(input: $input) {
     conversationId
   }

@@ -22,18 +22,18 @@ export function handleConversationEvent(
     setAwaitingAssistantTurn: Dispatch<SetStateAction<boolean>>;
   }
 ) {
-  if (event.__typename === "GraphqlTurnCompletedEvent") {
+  if (event.__typename === "TurnCompletedEvent") {
     setters.setTranscript((current) => removeStaleStartedMemoryExtractions(current));
     setters.setPending(false);
     setters.setAwaitingAssistantTurn(false);
     setters.setAgentStatus("IDLE");
     return;
   }
-  if (event.__typename === "GraphqlAgentStatusEvent") {
+  if (event.__typename === "AgentStatusEvent") {
     setters.setAgentStatus(event.status);
     return;
   }
-  if (event.__typename === "GraphqlAssistantTextDeltaEvent") {
+  if (event.__typename === "AssistantTextDeltaEvent") {
     setters.setAwaitingAssistantTurn(false);
     appendAssistantTextDelta(setters.setTranscript, {
       conversationId: event.conversationId,
@@ -43,7 +43,7 @@ export function handleConversationEvent(
     });
     return;
   }
-  if (event.__typename !== "GraphqlConversationItemEvent") {
+  if (event.__typename !== "ConversationItemEvent") {
     return;
   }
 
@@ -242,13 +242,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function transcriptItemFromGraphql(item: GraphqlTranscriptItem): TurnTranscriptItem | null {
-  if (item.__typename === "GraphqlUserText") {
+  if (item.__typename === "UserText") {
     return { kind: "user_text", text: item.text };
   }
-  if (item.__typename === "GraphqlAssistantText") {
+  if (item.__typename === "AssistantText") {
     return { kind: "assistant_text", text: item.text };
   }
-  if (item.__typename === "GraphqlActivity") {
+  if (item.__typename === "Activity") {
     return {
       kind: "activity",
       id: item.id,
@@ -259,10 +259,10 @@ function transcriptItemFromGraphql(item: GraphqlTranscriptItem): TurnTranscriptI
       metadata: item.metadata
     };
   }
-  if (item.__typename === "GraphqlA2UiCard") {
+  if (item.__typename === "A2UiCard") {
     return { kind: "a2ui_card", id: item.id, schema: item.schema, payload: item.payload };
   }
-  if (item.__typename === "GraphqlErrorNotice") {
+  if (item.__typename === "ErrorNotice") {
     return { kind: "error_notice", message: item.message, recoverable: item.recoverable };
   }
   return null;

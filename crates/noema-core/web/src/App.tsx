@@ -46,12 +46,12 @@ export function canSendMessage(readiness: SendMessageReadiness): readiness is Se
 }
 
 export function shouldRefreshLocalStatusForConversationEvent(event: unknown) {
-  if (!isRecord(event) || event.__typename !== "GraphqlConversationItemEvent") {
+  if (!isRecord(event) || event.__typename !== "ConversationItemEvent") {
     return false;
   }
 
   const item = event.item;
-  if (!isRecord(item) || item.__typename !== "GraphqlActivity") {
+  if (!isRecord(item) || item.__typename !== "Activity") {
     return false;
   }
 

@@ -561,44 +561,45 @@ mod tests {
         assert!(sdl.contains("sendConversationTurn"));
         assert!(sdl.contains("saveToolCalibration"));
         assert!(sdl.contains("autofillToolCalibrations"));
-        assert!(sdl.contains("type GraphqlAutofillToolCalibrationsResult"));
-        assert!(sdl.contains("type GraphqlToolCalibrationSuggestion"));
+        assert!(!sdl.contains("Graphql"));
+        assert!(sdl.contains("type AutofillToolCalibrationsResult"));
+        assert!(sdl.contains("type ToolCalibrationSuggestion"));
         assert!(sdl.contains("createMcpServer"));
         assert!(sdl.contains("continueMcpServerSetup"));
-        assert!(sdl.contains("GraphqlSaveToolCalibrationInput"));
-        assert!(sdl.contains("type GraphqlToolCalibration"));
+        assert!(sdl.contains("SaveToolCalibrationInput"));
+        assert!(sdl.contains("type ToolCalibration"));
         assert!(sdl.contains("type Subscription"));
         assert!(sdl.contains("conversationEvents"));
-        assert!(sdl.contains("GraphqlAssistantTextDeltaEvent"));
+        assert!(sdl.contains("AssistantTextDeltaEvent"));
         assert!(sdl.contains("memoryClaims"));
         assert!(sdl.contains("memoryClaim"));
         assert!(sdl.contains("memoryPredicateProposals"));
         assert!(sdl.contains("memoryPredicateProposal"));
         assert!(sdl.contains("memoryGraph"));
         assert!(sdl.contains("providerAccounts"));
-        assert!(sdl.contains("type GraphqlProviderAccount"));
+        assert!(sdl.contains("type ProviderAccount"));
         assert!(sdl.contains("agents"));
-        assert!(sdl.contains("type GraphqlAgent"));
+        assert!(sdl.contains("type Agent"));
         assert!(sdl.contains("saveAgentModelPreference"));
-        assert!(sdl.contains("type GraphqlAgentModelPreference"));
-        assert!(sdl.contains("type GraphqlAgentModelProviderOption"));
-        assert!(sdl.contains("type GraphqlAgentModelProfileOption"));
+        assert!(sdl.contains("type AgentModelPreference"));
+        assert!(sdl.contains("type AgentModelProviderOption"));
+        assert!(sdl.contains("type AgentModelProfileOption"));
         assert!(sdl.contains("agentId"));
         assert!(sdl.contains("displayName"));
         assert!(sdl.contains("isPrimary"));
         assert!(sdl.contains("mcpServers"));
-        assert!(sdl.contains("type GraphqlMcpServer"));
+        assert!(sdl.contains("type McpServer"));
         assert!(sdl.contains("mcpTools"));
-        assert!(sdl.contains("type GraphqlMcpTool"));
+        assert!(sdl.contains("type McpTool"));
         assert!(sdl.contains("trustedIdentitySelectors"));
-        assert!(sdl.contains("type GraphqlTrustedIdentitySelector"));
+        assert!(sdl.contains("type TrustedIdentitySelector"));
         assert!(sdl.contains("mcpApprovalRequests"));
-        assert!(sdl.contains("type GraphqlMcpApprovalRequest"));
-        assert!(sdl.contains("type GraphqlMemoryClaim"));
-        assert!(sdl.contains("type GraphqlMemoryClaimEvidence"));
-        assert!(sdl.contains("type GraphqlPredicateProposal"));
-        assert!(sdl.contains("GraphqlMemoryGraph"));
-        assert!(sdl.contains("GraphqlMemoryGraphInput"));
+        assert!(sdl.contains("type McpApprovalRequest"));
+        assert!(sdl.contains("type MemoryClaim"));
+        assert!(sdl.contains("type MemoryClaimEvidence"));
+        assert!(sdl.contains("type PredicateProposal"));
+        assert!(sdl.contains("MemoryGraph"));
+        assert!(sdl.contains("MemoryGraphInput"));
     }
 
     #[test]
@@ -869,6 +870,82 @@ mod tests {
             .expect("preference saved");
         assert_eq!(saved.provider_kind, "foundation_local");
         assert_eq!(saved.model_profile, "default");
+    }
+
+    #[tokio::test]
+    async fn start_primary_conversation_uses_saved_agent_provider_preference() {
+        use crate::store::tests::test_store;
+
+        let store = test_store().await;
+        store.ensure_default_actors().await.expect("actors");
+        store
+            .update_agent_display_name("agent:primary", "Noema")
+            .await
+            .expect("name primary");
+        let foundation = store
+            .ensure_default_foundation_local_provider_account()
+            .await
+            .expect("foundation account");
+        store
+            .upsert_agent_runtime_preference(crate::NewAgentRuntimePreference {
+                agent_id: "agent:primary".to_string(),
+                provider_kind: "foundation_local".to_string(),
+                provider_account_id: foundation.provider_account_id,
+                model_profile: "default".to_string(),
+            })
+            .await
+            .expect("preference");
+
+        let codex_provider = Arc::new(AutofillTestProvider {
+            text: "codex".to_string(),
+            tool_classification_model: None,
+            requests: Arc::new(Mutex::new(Vec::new())),
+        });
+        let foundation_provider = Arc::new(AutofillTestProvider {
+            text: "foundation".to_string(),
+            tool_classification_model: None,
+            requests: Arc::new(Mutex::new(Vec::new())),
+        });
+        let runtime = crate::daemon::CodexRuntimeHandle::spawn_with_provider_map(
+            "codex",
+            vec![
+                (
+                    "codex".to_string(),
+                    codex_provider as Arc<dyn crate::daemon::RuntimeModelProvider>,
+                ),
+                (
+                    "foundation_local".to_string(),
+                    foundation_provider as Arc<dyn crate::daemon::RuntimeModelProvider>,
+                ),
+            ],
+            store.clone(),
+        )
+        .await
+        .expect("runtime");
+        let schema = build_schema(GraphqlState::for_tests_with_store_and_runtime(
+            store.clone(),
+            runtime,
+        ));
+
+        let response = schema
+            .execute(async_graphql::Request::new(
+                r#"
+                mutation {
+                  startPrimaryConversation {
+                    provider
+                    conversationId
+                  }
+                }
+                "#,
+            ))
+            .await;
+
+        assert!(response.errors.is_empty(), "{:?}", response.errors);
+        let data = response.data.into_json().expect("json");
+        assert_eq!(
+            data["startPrimaryConversation"]["provider"],
+            "foundation_local"
+        );
     }
 
     #[tokio::test]
@@ -2778,10 +2855,10 @@ mod tests {
             subscription {
               conversationEvents(conversationId: "conversation_1") {
                 __typename
-                ... on GraphqlSubscriptionReadyEvent {
+                ... on SubscriptionReadyEvent {
                   conversationId
                 }
-                ... on GraphqlTurnCompletedEvent {
+                ... on TurnCompletedEvent {
                   conversationId
                   clientMessageId
                 }
@@ -2795,7 +2872,7 @@ mod tests {
         assert_eq!(
             data.pointer("/conversationEvents/__typename")
                 .and_then(serde_json::Value::as_str),
-            Some("GraphqlSubscriptionReadyEvent")
+            Some("SubscriptionReadyEvent")
         );
         assert_eq!(
             data.pointer("/conversationEvents/conversationId")
@@ -2812,7 +2889,7 @@ mod tests {
         assert_eq!(
             data.pointer("/conversationEvents/__typename")
                 .and_then(serde_json::Value::as_str),
-            Some("GraphqlTurnCompletedEvent")
+            Some("TurnCompletedEvent")
         );
         assert_eq!(
             data.pointer("/conversationEvents/clientMessageId")
@@ -2831,7 +2908,7 @@ mod tests {
             subscription {
               conversationEvents(conversationId: "conversation_1") {
                 __typename
-                ... on GraphqlAssistantTextDeltaEvent {
+                ... on AssistantTextDeltaEvent {
                   conversationId
                   turnId
                   streamId
@@ -2845,7 +2922,7 @@ mod tests {
         let ready = stream.next().await.expect("ready response");
         assert_eq!(
             ready.data.into_json().expect("ready json")["conversationEvents"]["__typename"],
-            "GraphqlSubscriptionReadyEvent"
+            "SubscriptionReadyEvent"
         );
 
         subscriptions.publish(ConversationLiveEvent::Turn {
@@ -2861,7 +2938,7 @@ mod tests {
         let response = stream.next().await.expect("delta response");
         let data = response.data.into_json().expect("delta json");
         let event = &data["conversationEvents"];
-        assert_eq!(event["__typename"], "GraphqlAssistantTextDeltaEvent");
+        assert_eq!(event["__typename"], "AssistantTextDeltaEvent");
         assert_eq!(event["conversationId"], "conversation_1");
         assert_eq!(event["turnId"], "turn_1");
         assert_eq!(event["streamId"], "assistant_stream:turn_1:initial");
@@ -2878,7 +2955,7 @@ mod tests {
             subscription {
               conversationEvents(conversationId: "conversation_1") {
                 __typename
-                ... on GraphqlConversationItemEvent {
+                ... on ConversationItemEvent {
                   conversationId
                   itemId
                   metadata
@@ -2891,7 +2968,7 @@ mod tests {
         let ready = stream.next().await.expect("ready response");
         assert_eq!(
             ready.data.into_json().expect("ready json")["conversationEvents"]["__typename"],
-            "GraphqlSubscriptionReadyEvent"
+            "SubscriptionReadyEvent"
         );
 
         subscriptions.publish(ConversationLiveEvent::Turn {
@@ -2910,7 +2987,7 @@ mod tests {
         let response = stream.next().await.expect("item response");
         let data = response.data.into_json().expect("item json");
         let event = &data["conversationEvents"];
-        assert_eq!(event["__typename"], "GraphqlConversationItemEvent");
+        assert_eq!(event["__typename"], "ConversationItemEvent");
         assert_eq!(event["conversationId"], "conversation_1");
         assert_eq!(event["itemId"], "item_1");
         assert_eq!(

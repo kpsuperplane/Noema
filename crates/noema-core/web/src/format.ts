@@ -1,6 +1,6 @@
-import type { GraphqlTurnActivityStatus } from "./generated/graphql";
+import type { TurnActivityStatus } from "./generated/graphql";
 
-export function statusLabel(status: GraphqlTurnActivityStatus) {
+export function statusLabel(status: TurnActivityStatus) {
   if (status === "STARTED") {
     return "Running";
   }

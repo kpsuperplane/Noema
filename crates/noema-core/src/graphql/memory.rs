@@ -13,6 +13,7 @@ use super::{errors::graphql_error, schema::GraphqlState};
 
 /// Graph-memory claim exposed for memory-management inspection.
 #[derive(Clone, Debug, SimpleObject)]
+#[graphql(name = "MemoryClaim")]
 pub struct GraphqlMemoryClaim {
     /// Stable claim id.
     pub claim_id: String,
@@ -124,6 +125,7 @@ fn sensitivity_label(sensitivity: Sensitivity) -> &'static str {
 
 /// Supporting evidence exposed for explicit memory-management claim detail inspection.
 #[derive(Clone, Debug, SimpleObject)]
+#[graphql(name = "MemoryClaimEvidence")]
 pub struct GraphqlMemoryClaimEvidence {
     /// Stable evidence relation id if available.
     pub evidence_id: Option<String>,
@@ -154,6 +156,7 @@ impl From<MemoryClaimEvidence> for GraphqlMemoryClaimEvidence {
 
 /// Graph-memory claim detail exposed for memory-management inspection.
 #[derive(Clone, Debug, SimpleObject)]
+#[graphql(name = "MemoryClaimDetail")]
 pub struct GraphqlMemoryClaimDetail {
     /// Stable claim id.
     pub claim_id: String,
@@ -218,6 +221,7 @@ impl From<MemoryClaimDetail> for GraphqlMemoryClaimDetail {
 
 /// Predicate proposal exposed for memory-management inspection.
 #[derive(Clone, Debug, SimpleObject)]
+#[graphql(name = "PredicateProposal")]
 pub struct GraphqlPredicateProposal {
     /// Stable proposal id.
     pub proposal_id: String,
@@ -257,6 +261,7 @@ impl From<PredicateProposalRecord> for GraphqlPredicateProposal {
 
 /// Input filters for bounded graph-memory inspection.
 #[derive(Clone, Debug, Default, InputObject)]
+#[graphql(name = "MemoryGraphInput")]
 pub struct GraphqlMemoryGraphInput {
     /// Optional text query matched against predicate labels and public content.
     pub query: Option<String>,
@@ -272,6 +277,7 @@ pub struct GraphqlMemoryGraphInput {
 
 /// Bounded graph-memory projection for local memory-management inspection.
 #[derive(Clone, Debug, SimpleObject)]
+#[graphql(name = "MemoryGraph")]
 pub struct GraphqlMemoryGraph {
     /// Entity nodes incident to returned claim edges.
     pub nodes: Vec<GraphqlMemoryGraphNode>,
@@ -283,6 +289,7 @@ pub struct GraphqlMemoryGraph {
 
 /// Entity node in the graph-memory projection.
 #[derive(Clone, Debug, SimpleObject)]
+#[graphql(name = "MemoryGraphNode")]
 pub struct GraphqlMemoryGraphNode {
     /// Opaque graph node id for this response.
     pub node_id: String,
@@ -300,6 +307,7 @@ pub struct GraphqlMemoryGraphNode {
 
 /// Claim edge in the graph-memory projection.
 #[derive(Clone, Debug, SimpleObject)]
+#[graphql(name = "MemoryGraphEdge")]
 pub struct GraphqlMemoryGraphEdge {
     /// Stable claim id.
     pub claim_id: String,
@@ -331,6 +339,7 @@ pub struct GraphqlMemoryGraphEdge {
 
 /// Summary metadata for a bounded graph-memory result.
 #[derive(Clone, Debug, SimpleObject)]
+#[graphql(name = "MemoryGraphSummary")]
 pub struct GraphqlMemoryGraphSummary {
     /// Number of claim edges returned.
     pub returned_claim_count: i64,

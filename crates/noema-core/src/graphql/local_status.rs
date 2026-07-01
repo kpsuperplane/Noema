@@ -4,6 +4,7 @@ use super::{errors::graphql_error, schema::GraphqlState};
 
 /// Local service status shown by clients.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Enum)]
+#[graphql(name = "LocalServiceStatus")]
 pub enum GraphqlLocalServiceStatus {
     /// The local Noema service is running.
     Running,
@@ -11,6 +12,7 @@ pub enum GraphqlLocalServiceStatus {
 
 /// Assistant connection exposed to clients.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Enum)]
+#[graphql(name = "AssistantConnection")]
 pub enum GraphqlAssistantConnection {
     /// The daemon is using Codex for chat.
     Codex,
@@ -18,6 +20,7 @@ pub enum GraphqlAssistantConnection {
 
 /// Memory storage readiness shown by clients.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Enum)]
+#[graphql(name = "MemoryStorageStatus")]
 pub enum GraphqlMemoryStorageStatus {
     /// The canonical memory store is ready.
     Ready,
@@ -29,6 +32,7 @@ pub enum GraphqlMemoryStorageStatus {
 
 /// Local status returned by `Query.localStatus`.
 #[derive(Clone, Debug, SimpleObject)]
+#[graphql(name = "LocalStatus")]
 pub struct GraphqlLocalStatus {
     /// Local service status.
     pub local_service: GraphqlLocalServiceStatus,

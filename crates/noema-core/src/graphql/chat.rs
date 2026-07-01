@@ -11,6 +11,7 @@ use super::{
 
 /// Agent status exposed through GraphQL.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Enum)]
+#[graphql(name = "AgentStatus")]
 pub enum GraphqlAgentStatus {
     /// No agent work is active.
     Idle,
@@ -44,6 +45,7 @@ impl From<AgentStatus> for GraphqlAgentStatus {
 
 /// Turn activity status exposed through GraphQL.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Enum)]
+#[graphql(name = "TurnActivityStatus")]
 pub enum GraphqlTurnActivityStatus {
     /// Activity started.
     Started,
@@ -65,6 +67,7 @@ impl From<TurnActivityStatus> for GraphqlTurnActivityStatus {
 
 /// User text transcript item.
 #[derive(Clone, Debug, SimpleObject)]
+#[graphql(name = "UserText")]
 pub struct GraphqlUserText {
     /// Text authored by the user.
     pub text: String,
@@ -72,6 +75,7 @@ pub struct GraphqlUserText {
 
 /// Assistant text transcript item.
 #[derive(Clone, Debug, SimpleObject)]
+#[graphql(name = "AssistantText")]
 pub struct GraphqlAssistantText {
     /// Text to render as the assistant response.
     pub text: String,
@@ -79,6 +83,7 @@ pub struct GraphqlAssistantText {
 
 /// Activity transcript item.
 #[derive(Clone, Debug, SimpleObject)]
+#[graphql(name = "Activity")]
 pub struct GraphqlActivity {
     /// Stable activity id.
     pub id: String,
@@ -96,6 +101,7 @@ pub struct GraphqlActivity {
 
 /// Structured card transcript item.
 #[derive(Clone, Debug, SimpleObject)]
+#[graphql(name = "A2UiCard")]
 pub struct GraphqlA2uiCard {
     /// Stable card id.
     pub id: String,
@@ -107,6 +113,7 @@ pub struct GraphqlA2uiCard {
 
 /// Error notice transcript item.
 #[derive(Clone, Debug, SimpleObject)]
+#[graphql(name = "ErrorNotice")]
 pub struct GraphqlErrorNotice {
     /// Human-readable error message.
     pub message: String,
@@ -116,6 +123,7 @@ pub struct GraphqlErrorNotice {
 
 /// Transcript item union.
 #[derive(Clone, Debug, Union)]
+#[graphql(name = "TranscriptItem")]
 pub enum GraphqlTranscriptItem {
     /// User text.
     UserText(GraphqlUserText),
@@ -173,6 +181,7 @@ impl From<TurnTranscriptItem> for GraphqlTranscriptItem {
 
 /// Started conversation with replay payload.
 #[derive(Clone, Debug, SimpleObject)]
+#[graphql(name = "ConversationStarted")]
 pub struct GraphqlConversationStarted {
     /// Durable Noema conversation id.
     pub conversation_id: String,
@@ -184,6 +193,7 @@ pub struct GraphqlConversationStarted {
 
 /// One visible conversation item.
 #[derive(Clone, Debug, SimpleObject)]
+#[graphql(name = "ConversationItem")]
 pub struct GraphqlConversationItem {
     /// Durable conversation item id.
     pub item_id: String,
@@ -205,6 +215,7 @@ impl From<crate::daemon::web::ConversationReplayItem> for GraphqlConversationIte
 
 /// Input for sending a conversation turn.
 #[derive(Clone, Debug, InputObject)]
+#[graphql(name = "SendConversationTurnInput")]
 pub struct GraphqlSendConversationTurnInput {
     /// Durable Noema conversation id.
     pub conversation_id: String,
@@ -216,6 +227,7 @@ pub struct GraphqlSendConversationTurnInput {
 
 /// Acceptance response for a queued conversation turn.
 #[derive(Clone, Debug, SimpleObject)]
+#[graphql(name = "TurnAccepted")]
 pub struct GraphqlTurnAccepted {
     /// Durable Noema conversation id.
     pub conversation_id: String,
@@ -225,6 +237,7 @@ pub struct GraphqlTurnAccepted {
 
 /// Conversation item event delivered by subscription.
 #[derive(Clone, Debug, SimpleObject)]
+#[graphql(name = "ConversationItemEvent")]
 pub struct GraphqlConversationItemEvent {
     /// Durable Noema conversation id.
     pub conversation_id: String,
@@ -242,6 +255,7 @@ pub struct GraphqlConversationItemEvent {
 
 /// Ephemeral assistant text delta event delivered by subscription.
 #[derive(Clone, Debug, SimpleObject)]
+#[graphql(name = "AssistantTextDeltaEvent")]
 pub struct GraphqlAssistantTextDeltaEvent {
     /// Durable Noema conversation id.
     pub conversation_id: String,
@@ -255,6 +269,7 @@ pub struct GraphqlAssistantTextDeltaEvent {
 
 /// Agent status event delivered by subscription.
 #[derive(Clone, Debug, SimpleObject)]
+#[graphql(name = "AgentStatusEvent")]
 pub struct GraphqlAgentStatusEvent {
     /// Durable Noema conversation id.
     pub conversation_id: String,
@@ -264,6 +279,7 @@ pub struct GraphqlAgentStatusEvent {
 
 /// Turn completion event delivered by subscription.
 #[derive(Clone, Debug, SimpleObject)]
+#[graphql(name = "TurnCompletedEvent")]
 pub struct GraphqlTurnCompletedEvent {
     /// Durable Noema conversation id.
     pub conversation_id: String,
@@ -273,6 +289,7 @@ pub struct GraphqlTurnCompletedEvent {
 
 /// Subscription readiness event delivered before live turn events.
 #[derive(Clone, Debug, SimpleObject)]
+#[graphql(name = "SubscriptionReadyEvent")]
 pub struct GraphqlSubscriptionReadyEvent {
     /// Durable Noema conversation id.
     pub conversation_id: String,
@@ -280,6 +297,7 @@ pub struct GraphqlSubscriptionReadyEvent {
 
 /// Conversation subscription event union.
 #[derive(Clone, Debug, Union)]
+#[graphql(name = "ConversationEvent")]
 pub enum GraphqlConversationEvent {
     /// Subscription readiness event.
     SubscriptionReady(GraphqlSubscriptionReadyEvent),
@@ -300,7 +318,7 @@ pub(super) async fn start_primary_conversation(
 ) -> Result<GraphqlConversationStarted> {
     let store = state.store()?;
     let runtime = state.runtime()?;
-    let provider_kind = runtime.provider_kind().to_string();
+    let provider_kind = primary_agent_provider_kind(store, runtime.provider_kind()).await?;
     let account = store
         .active_provider_account(&provider_kind)
         .await
@@ -333,6 +351,18 @@ pub(super) async fn start_primary_conversation(
         provider: provider_kind,
         replay,
     })
+}
+
+async fn primary_agent_provider_kind(
+    store: &crate::NoemaStore,
+    default_provider_kind: &str,
+) -> Result<String> {
+    Ok(store
+        .get_agent_runtime_preference("agent:primary")
+        .await
+        .map_err(graphql_error)?
+        .map(|preference| preference.provider_kind)
+        .unwrap_or_else(|| default_provider_kind.to_string()))
 }
 
 pub(super) async fn send_conversation_turn(

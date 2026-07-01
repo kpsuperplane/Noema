@@ -17,20 +17,20 @@ const CONVERSATION_EVENTS_SUBSCRIPTION: &str = r#"
 subscription ConversationEvents($conversationId: String!) {
   conversationEvents(conversationId: $conversationId) {
     __typename
-    ... on GraphqlConversationItemEvent {
+    ... on ConversationItemEvent {
       conversationId
       clientMessageId
       itemId
       turnId
       item {
         __typename
-        ... on GraphqlUserText {
+        ... on UserText {
           text
         }
-        ... on GraphqlAssistantText {
+        ... on AssistantText {
           text
         }
-        ... on GraphqlActivity {
+        ... on Activity {
           id
           activityKind
           status
@@ -38,26 +38,26 @@ subscription ConversationEvents($conversationId: String!) {
           summary
           metadata
         }
-        ... on GraphqlA2UiCard {
+        ... on A2UiCard {
           id
           schema
           payload
         }
-        ... on GraphqlErrorNotice {
+        ... on ErrorNotice {
           message
           recoverable
         }
       }
     }
-    ... on GraphqlAgentStatusEvent {
+    ... on AgentStatusEvent {
       conversationId
       status
     }
-    ... on GraphqlTurnCompletedEvent {
+    ... on TurnCompletedEvent {
       conversationId
       clientMessageId
     }
-    ... on GraphqlSubscriptionReadyEvent {
+    ... on SubscriptionReadyEvent {
       conversationId
     }
   }

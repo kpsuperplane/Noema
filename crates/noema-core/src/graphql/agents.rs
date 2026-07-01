@@ -10,6 +10,7 @@ use super::{errors::graphql_error, schema::GraphqlState};
 
 /// Agent model preference safe to expose in Settings.
 #[derive(Clone, Debug, SimpleObject)]
+#[graphql(name = "AgentModelPreference")]
 pub struct GraphqlAgentModelPreference {
     /// Provider kind selected for this agent.
     pub provider_kind: String,
@@ -21,6 +22,7 @@ pub struct GraphqlAgentModelPreference {
 
 /// One selectable model/profile.
 #[derive(Clone, Debug, SimpleObject)]
+#[graphql(name = "AgentModelProfileOption")]
 pub struct GraphqlAgentModelProfileOption {
     /// Stable profile or model id.
     pub id: String,
@@ -32,6 +34,7 @@ pub struct GraphqlAgentModelProfileOption {
 
 /// One selectable provider account and its profiles.
 #[derive(Clone, Debug, SimpleObject)]
+#[graphql(name = "AgentModelProviderOption")]
 pub struct GraphqlAgentModelProviderOption {
     /// Provider kind.
     pub provider_kind: String,
@@ -49,6 +52,7 @@ pub struct GraphqlAgentModelProviderOption {
 
 /// Input for saving an agent model preference.
 #[derive(Clone, Debug, InputObject)]
+#[graphql(name = "SaveAgentModelPreferenceInput")]
 pub struct GraphqlSaveAgentModelPreferenceInput {
     /// Agent to update.
     pub agent_id: String,
@@ -60,6 +64,7 @@ pub struct GraphqlSaveAgentModelPreferenceInput {
 
 /// Agent metadata safe to expose in read-only Settings.
 #[derive(Clone, Debug, SimpleObject)]
+#[graphql(name = "Agent")]
 pub struct GraphqlAgent {
     /// Durable concrete agent id.
     pub agent_id: String,

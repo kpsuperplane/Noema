@@ -24,6 +24,7 @@ use super::{errors::graphql_error, schema::GraphqlState};
 
 /// MCP server metadata safe to show in Settings.
 #[derive(Clone, Debug, SimpleObject)]
+#[graphql(name = "McpServer")]
 pub struct GraphqlMcpServer {
     /// Durable MCP server id.
     pub mcp_server_id: String,
@@ -43,6 +44,7 @@ pub struct GraphqlMcpServer {
 
 /// Add and verify an MCP server.
 #[derive(Clone, Debug, InputObject)]
+#[graphql(name = "CreateMcpServerInput")]
 pub struct GraphqlCreateMcpServerInput {
     /// Human-visible server name.
     pub display_name: String,
@@ -56,6 +58,7 @@ pub struct GraphqlCreateMcpServerInput {
 
 /// Stdio MCP setup config.
 #[derive(Clone, Debug, InputObject)]
+#[graphql(name = "McpStdioConfigInput")]
 pub struct GraphqlMcpStdioConfigInput {
     /// Command to launch.
     pub command: String,
@@ -71,6 +74,7 @@ pub struct GraphqlMcpStdioConfigInput {
 
 /// HTTP MCP setup config.
 #[derive(Clone, Debug, InputObject)]
+#[graphql(name = "McpHttpConfigInput")]
 pub struct GraphqlMcpHttpConfigInput {
     /// MCP endpoint URL.
     pub url: String,
@@ -84,6 +88,7 @@ pub struct GraphqlMcpHttpConfigInput {
 
 /// OAuth client-secret credentials for MCP setup.
 #[derive(Clone, Debug, InputObject)]
+#[graphql(name = "McpOAuthClientCredentialsInput")]
 pub struct GraphqlMcpOAuthClientCredentialsInput {
     /// OAuth client id.
     pub client_id: String,
@@ -95,6 +100,7 @@ pub struct GraphqlMcpOAuthClientCredentialsInput {
 
 /// Continue setup after adding authentication material.
 #[derive(Clone, Debug, InputObject)]
+#[graphql(name = "ContinueMcpServerSetupInput")]
 pub struct GraphqlContinueMcpServerSetupInput {
     /// Durable MCP server id.
     pub mcp_server_id: String,
@@ -108,6 +114,7 @@ pub struct GraphqlContinueMcpServerSetupInput {
 
 /// Guided MCP setup result.
 #[derive(Clone, Debug, SimpleObject)]
+#[graphql(name = "McpServerSetupResult")]
 pub struct GraphqlMcpServerSetupResult {
     /// Server metadata safe to show in Settings.
     pub server: Option<GraphqlMcpServer>,
@@ -125,6 +132,7 @@ pub struct GraphqlMcpServerSetupResult {
 
 /// Authentication options safe to show during MCP setup.
 #[derive(Clone, Debug, SimpleObject)]
+#[graphql(name = "McpSetupAuthDetails")]
 pub struct GraphqlMcpSetupAuthDetails {
     /// Whether OAuth client-secret credentials can be attempted.
     pub oauth_client_credentials_supported: bool,
@@ -136,6 +144,7 @@ pub struct GraphqlMcpSetupAuthDetails {
 
 /// Start a browser OAuth setup attempt for a hosted MCP server.
 #[derive(Clone, Debug, InputObject)]
+#[graphql(name = "StartMcpServerOAuthSetupInput")]
 pub struct GraphqlStartMcpServerOAuthSetupInput {
     /// Pending MCP server setup input.
     pub server: GraphqlCreateMcpServerInput,
@@ -145,6 +154,7 @@ pub struct GraphqlStartMcpServerOAuthSetupInput {
 
 /// Safe browser OAuth setup attempt state.
 #[derive(Clone, Debug, SimpleObject)]
+#[graphql(name = "McpOAuthSetupAttempt")]
 pub struct GraphqlMcpOAuthSetupAttempt {
     /// Short-lived attempt id.
     pub attempt_id: String,
@@ -195,6 +205,7 @@ impl From<McpOAuthSetupAttemptView> for GraphqlMcpOAuthSetupAttempt {
 
 /// MCP tool metadata and current calibration safe to show in Settings.
 #[derive(Clone, Debug, SimpleObject)]
+#[graphql(name = "McpTool")]
 pub struct GraphqlMcpTool {
     /// Durable MCP tool id.
     pub mcp_tool_id: String,
@@ -248,6 +259,7 @@ impl From<McpServerRecord> for GraphqlMcpServer {
 
 /// MCP tool calibration safe to show in Settings.
 #[derive(Clone, Debug, SimpleObject)]
+#[graphql(name = "ToolCalibration")]
 pub struct GraphqlToolCalibration {
     /// Durable calibration id.
     pub calibration_id: String,
@@ -291,6 +303,7 @@ impl From<ToolCalibrationRecord> for GraphqlToolCalibration {
 
 /// Advisory MCP tool calibration Autofill result.
 #[derive(Clone, Debug, SimpleObject)]
+#[graphql(name = "AutofillToolCalibrationsResult")]
 pub struct GraphqlAutofillToolCalibrationsResult {
     /// Validated calibration suggestions keyed by MCP tool id.
     pub suggestions: Vec<GraphqlToolCalibrationSuggestion>,
@@ -298,6 +311,7 @@ pub struct GraphqlAutofillToolCalibrationsResult {
 
 /// Advisory calibration suggestion for one MCP tool.
 #[derive(Clone, Debug, SimpleObject)]
+#[graphql(name = "ToolCalibrationSuggestion")]
 pub struct GraphqlToolCalibrationSuggestion {
     /// Durable MCP tool id.
     pub mcp_tool_id: String,
@@ -332,6 +346,7 @@ impl From<crate::mcp::autofill::McpToolCalibrationSuggestion> for GraphqlToolCal
 
 /// Deterministic owner extractor safe to show in Settings.
 #[derive(Clone, Debug, SimpleObject)]
+#[graphql(name = "OwnerExtractor")]
 pub struct GraphqlOwnerExtractor {
     /// Source document or field family to inspect.
     pub source: String,
@@ -353,6 +368,7 @@ impl From<OwnerExtractor> for GraphqlOwnerExtractor {
 
 /// Save reviewed MCP tool calibration.
 #[derive(Clone, Debug, InputObject)]
+#[graphql(name = "SaveToolCalibrationInput")]
 pub struct GraphqlSaveToolCalibrationInput {
     /// Durable calibration id.
     pub calibration_id: String,
@@ -376,6 +392,7 @@ pub struct GraphqlSaveToolCalibrationInput {
 
 /// Deterministic owner extractor input for MCP ownership resolution.
 #[derive(Clone, Debug, InputObject)]
+#[graphql(name = "OwnerExtractorInput")]
 pub struct GraphqlOwnerExtractorInput {
     /// Source document or field family to inspect.
     pub source: String,
@@ -387,6 +404,7 @@ pub struct GraphqlOwnerExtractorInput {
 
 /// Trusted identity selector metadata safe to show in Settings.
 #[derive(Clone, Debug, SimpleObject)]
+#[graphql(name = "TrustedIdentitySelector")]
 pub struct GraphqlTrustedIdentitySelector {
     /// Durable selector id.
     pub selector_id: String,
@@ -417,6 +435,7 @@ impl From<TrustedIdentitySelectorRecord> for GraphqlTrustedIdentitySelector {
 
 /// MCP approval request metadata safe to show in Settings.
 #[derive(Clone, Debug, SimpleObject)]
+#[graphql(name = "McpApprovalRequest")]
 pub struct GraphqlMcpApprovalRequest {
     /// Durable approval request id.
     pub approval_id: String,

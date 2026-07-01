@@ -47,7 +47,7 @@ pub(crate) fn graphql_data_is_turn_completed(
 
 pub(crate) fn graphql_data_is_subscription_ready(data: &Value, conversation_id: &str) -> bool {
     data.get("conversationEvents").is_some_and(|event| {
-        event.get("__typename").and_then(Value::as_str) == Some("GraphqlSubscriptionReadyEvent")
+        event.get("__typename").and_then(Value::as_str) == Some("SubscriptionReadyEvent")
             && event.get("conversationId").and_then(Value::as_str) == Some(conversation_id)
     })
 }
@@ -58,7 +58,7 @@ fn graphql_event_matches_turn(
     client_message_id: &str,
 ) -> bool {
     match event.get("__typename").and_then(Value::as_str) {
-        Some("GraphqlConversationItemEvent" | "GraphqlTurnCompletedEvent") => {
+        Some("ConversationItemEvent" | "TurnCompletedEvent") => {
             event.get("conversationId").and_then(Value::as_str) == Some(conversation_id)
                 && event.get("clientMessageId").and_then(Value::as_str) == Some(client_message_id)
         }
@@ -67,7 +67,7 @@ fn graphql_event_matches_turn(
 }
 
 fn transcript_item_from_graphql_event(event: &Value) -> Result<Option<TurnTranscriptItem>, String> {
-    if event.get("__typename").and_then(Value::as_str) != Some("GraphqlConversationItemEvent") {
+    if event.get("__typename").and_then(Value::as_str) != Some("ConversationItemEvent") {
         return Ok(None);
     }
 
@@ -75,13 +75,13 @@ fn transcript_item_from_graphql_event(event: &Value) -> Result<Option<TurnTransc
         .get("item")
         .ok_or_else(|| "GraphQL conversation item event missing item".to_string())?;
     match required_str(item, "__typename")? {
-        "GraphqlUserText" => Ok(Some(TurnTranscriptItem::UserText {
+        "UserText" => Ok(Some(TurnTranscriptItem::UserText {
             text: required_str(item, "text")?.to_string(),
         })),
-        "GraphqlAssistantText" => Ok(Some(TurnTranscriptItem::AssistantText {
+        "AssistantText" => Ok(Some(TurnTranscriptItem::AssistantText {
             text: required_str(item, "text")?.to_string(),
         })),
-        "GraphqlActivity" => Ok(Some(TurnTranscriptItem::Activity {
+        "Activity" => Ok(Some(TurnTranscriptItem::Activity {
             id: required_str(item, "id")?.to_string(),
             activity_kind: required_str(item, "activityKind")?.to_string(),
             status: graphql_activity_status(required_str(item, "status")?)?,
@@ -92,12 +92,12 @@ fn transcript_item_from_graphql_event(event: &Value) -> Result<Option<TurnTransc
                 .map(ToString::to_string),
             metadata: item.get("metadata").cloned().unwrap_or(Value::Null),
         })),
-        "GraphqlA2UiCard" => Ok(Some(TurnTranscriptItem::A2uiCard {
+        "A2UiCard" => Ok(Some(TurnTranscriptItem::A2uiCard {
             id: required_str(item, "id")?.to_string(),
             schema: required_str(item, "schema")?.to_string(),
             payload: item.get("payload").cloned().unwrap_or(Value::Null),
         })),
-        "GraphqlErrorNotice" => Ok(Some(TurnTranscriptItem::ErrorNotice {
+        "ErrorNotice" => Ok(Some(TurnTranscriptItem::ErrorNotice {
             message: required_str(item, "message")?.to_string(),
             recoverable: item
                 .get("recoverable")
@@ -141,7 +141,7 @@ fn is_graphql_turn_completed_event(
     conversation_id: &str,
     client_message_id: &str,
 ) -> bool {
-    event.get("__typename").and_then(Value::as_str) == Some("GraphqlTurnCompletedEvent")
+    event.get("__typename").and_then(Value::as_str) == Some("TurnCompletedEvent")
         && event.get("conversationId").and_then(Value::as_str) == Some(conversation_id)
         && event.get("clientMessageId").and_then(Value::as_str) == Some(client_message_id)
 }
@@ -153,11 +153,11 @@ mod tests {
     #[test]
     fn graphql_client_converts_assistant_event_to_transcript_item() {
         let event = serde_json::json!({
-            "__typename": "GraphqlConversationItemEvent",
+            "__typename": "ConversationItemEvent",
             "conversationId": "conversation_1",
             "clientMessageId": "client_1",
             "item": {
-                "__typename": "GraphqlAssistantText",
+                "__typename": "AssistantText",
                 "text": "hello"
             }
         });
@@ -175,7 +175,7 @@ mod tests {
     #[test]
     fn graphql_client_matches_turn_completed_for_client_message() {
         let event = serde_json::json!({
-            "__typename": "GraphqlTurnCompletedEvent",
+            "__typename": "TurnCompletedEvent",
             "conversationId": "conversation_1",
             "clientMessageId": "client_1"
         });
@@ -196,11 +196,11 @@ mod tests {
     fn graphql_client_ignores_item_for_mismatched_client_message() {
         let data = Ok(serde_json::json!({
             "conversationEvents": {
-                "__typename": "GraphqlConversationItemEvent",
+                "__typename": "ConversationItemEvent",
                 "conversationId": "conversation_1",
                 "clientMessageId": "other_client",
                 "item": {
-                    "__typename": "GraphqlAssistantText",
+                    "__typename": "AssistantText",
                     "text": "not for this turn"
                 }
             }
@@ -216,11 +216,11 @@ mod tests {
     fn graphql_client_ignores_item_for_mismatched_conversation() {
         let data = Ok(serde_json::json!({
             "conversationEvents": {
-                "__typename": "GraphqlConversationItemEvent",
+                "__typename": "ConversationItemEvent",
                 "conversationId": "other_conversation",
                 "clientMessageId": "client_1",
                 "item": {
-                    "__typename": "GraphqlAssistantText",
+                    "__typename": "AssistantText",
                     "text": "not for this conversation"
                 }
             }
@@ -236,11 +236,11 @@ mod tests {
     fn graphql_client_marks_nonrecoverable_error_notice_as_terminal_error() {
         let data = Ok(serde_json::json!({
             "conversationEvents": {
-                "__typename": "GraphqlConversationItemEvent",
+                "__typename": "ConversationItemEvent",
                 "conversationId": "conversation_1",
                 "clientMessageId": "client_1",
                 "item": {
-                    "__typename": "GraphqlErrorNotice",
+                    "__typename": "ErrorNotice",
                     "message": "provider failed",
                     "recoverable": false
                 }

@@ -1,7 +1,7 @@
-import type { GraphqlAgentStatus, GraphqlTurnActivityStatus } from "./generated/graphql";
+import type { AgentStatus, TurnActivityStatus } from "./generated/graphql";
 
 export type SocketState = "connecting" | "ready" | "closed";
-export type ConversationAgentStatus = GraphqlAgentStatus | "connecting" | "closed";
+export type ConversationAgentStatus = AgentStatus | "connecting" | "closed";
 
 export type TranscriptEntrySource = "replay";
 
@@ -12,7 +12,7 @@ export type TurnTranscriptItem =
       kind: "activity";
       id: string;
       activity_kind: string;
-      status: GraphqlTurnActivityStatus;
+      status: TurnActivityStatus;
       title: string;
       summary?: string | null;
       metadata: unknown;

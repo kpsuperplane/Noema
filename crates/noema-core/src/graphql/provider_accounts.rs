@@ -8,6 +8,7 @@ use super::{
 
 /// Provider account metadata safe to show in Settings.
 #[derive(Clone, Debug, SimpleObject)]
+#[graphql(name = "ProviderAccount")]
 pub struct GraphqlProviderAccount {
     /// Provider family, such as `codex`.
     pub provider_kind: String,

@@ -75,7 +75,7 @@ export const AgentsDocument = gql`
 `;
 
 export const SaveAgentModelPreferenceDocument = gql`
-  mutation SaveAgentModelPreference($input: GraphqlSaveAgentModelPreferenceInput!) {
+  mutation SaveAgentModelPreference($input: SaveAgentModelPreferenceInput!) {
     saveAgentModelPreference(input: $input) {
       providerKind
       providerAccountId
@@ -166,7 +166,7 @@ export const McpApprovalSettingsDocument = gql`
 `;
 
 export const SaveToolCalibrationDocument = gql`
-  mutation SaveToolCalibration($input: GraphqlSaveToolCalibrationInput!) {
+  mutation SaveToolCalibration($input: SaveToolCalibrationInput!) {
     saveToolCalibration(input: $input) {
       calibrationId
       mcpToolId
@@ -179,7 +179,7 @@ export const SaveToolCalibrationDocument = gql`
 `;
 
 export const SaveToolCalibrationsDocument = gql`
-  mutation SaveToolCalibrations($inputs: [GraphqlSaveToolCalibrationInput!]!) {
+  mutation SaveToolCalibrations($inputs: [SaveToolCalibrationInput!]!) {
     saveToolCalibrations(inputs: $inputs) {
       calibrationId
       mcpToolId
@@ -211,7 +211,7 @@ export const AutofillToolCalibrationsDocument = gql`
 `;
 
 export const CreateMcpServerDocument = gql`
-  mutation CreateMcpServer($input: GraphqlCreateMcpServerInput!) {
+  mutation CreateMcpServer($input: CreateMcpServerInput!) {
     createMcpServer(input: $input) {
       setupStatus
       discoveryStatus
@@ -236,7 +236,7 @@ export const CreateMcpServerDocument = gql`
 `;
 
 export const ContinueMcpServerSetupDocument = gql`
-  mutation ContinueMcpServerSetup($input: GraphqlContinueMcpServerSetupInput!) {
+  mutation ContinueMcpServerSetup($input: ContinueMcpServerSetupInput!) {
     continueMcpServerSetup(input: $input) {
       setupStatus
       discoveryStatus
@@ -261,7 +261,7 @@ export const ContinueMcpServerSetupDocument = gql`
 `;
 
 export const StartMcpServerOauthSetupDocument = gql`
-  mutation StartMcpServerOauthSetup($input: GraphqlStartMcpServerOAuthSetupInput!) {
+  mutation StartMcpServerOauthSetup($input: StartMcpServerOAuthSetupInput!) {
     startMcpServerOauthSetup(input: $input) {
       attemptId
       status
@@ -346,7 +346,7 @@ export const ProviderAuthAttemptDocument = gql`
 `;
 
 export const MemoryGraphDocument = gql`
-  query MemoryGraph($input: GraphqlMemoryGraphInput) {
+  query MemoryGraph($input: MemoryGraphInput) {
     memoryGraph(input: $input) {
       nodes {
         nodeId
@@ -413,7 +413,7 @@ export const MemoryGraphClaimDetailDocument = gql`
 `;
 
 export const StartProviderAuthAttemptDocument = gql`
-  mutation StartProviderAuthAttempt($input: GraphqlStartProviderAuthAttemptInput!) {
+  mutation StartProviderAuthAttempt($input: StartProviderAuthAttemptInput!) {
     startProviderAuthAttempt(input: $input) {
       attemptId
       providerKind
@@ -439,13 +439,13 @@ export const StartPrimaryConversationDocument = gql`
         turnId
         item {
           __typename
-          ... on GraphqlUserText {
+          ... on UserText {
             text
           }
-          ... on GraphqlAssistantText {
+          ... on AssistantText {
             text
           }
-          ... on GraphqlActivity {
+          ... on Activity {
             id
             activityKind
             status
@@ -453,12 +453,12 @@ export const StartPrimaryConversationDocument = gql`
             summary
             metadata
           }
-          ... on GraphqlA2UiCard {
+          ... on A2UiCard {
             id
             schema
             payload
           }
-          ... on GraphqlErrorNotice {
+          ... on ErrorNotice {
             message
             recoverable
           }
@@ -469,7 +469,7 @@ export const StartPrimaryConversationDocument = gql`
 `;
 
 export const SendConversationTurnDocument = gql`
-  mutation SendConversationTurn($input: GraphqlSendConversationTurnInput!) {
+  mutation SendConversationTurn($input: SendConversationTurnInput!) {
     sendConversationTurn(input: $input) {
       conversationId
       clientMessageId
@@ -481,7 +481,7 @@ export const ConversationEventsDocument = gql`
   subscription ConversationEvents($conversationId: String!) {
     conversationEvents(conversationId: $conversationId) {
       __typename
-      ... on GraphqlConversationItemEvent {
+      ... on ConversationItemEvent {
         conversationId
         clientMessageId
         itemId
@@ -489,13 +489,13 @@ export const ConversationEventsDocument = gql`
         metadata
         item {
           __typename
-          ... on GraphqlUserText {
+          ... on UserText {
             text
           }
-          ... on GraphqlAssistantText {
+          ... on AssistantText {
             text
           }
-          ... on GraphqlActivity {
+          ... on Activity {
             id
             activityKind
             status
@@ -503,28 +503,28 @@ export const ConversationEventsDocument = gql`
             summary
             metadata
           }
-          ... on GraphqlA2UiCard {
+          ... on A2UiCard {
             id
             schema
             payload
           }
-          ... on GraphqlErrorNotice {
+          ... on ErrorNotice {
             message
             recoverable
           }
         }
       }
-      ... on GraphqlAssistantTextDeltaEvent {
+      ... on AssistantTextDeltaEvent {
         conversationId
         deltaTurnId: turnId
         streamId
         delta
       }
-      ... on GraphqlAgentStatusEvent {
+      ... on AgentStatusEvent {
         conversationId
         status
       }
-      ... on GraphqlTurnCompletedEvent {
+      ... on TurnCompletedEvent {
         conversationId
         clientMessageId
       }

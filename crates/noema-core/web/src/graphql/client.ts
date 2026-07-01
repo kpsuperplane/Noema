@@ -9,16 +9,16 @@ export const apolloClient = new ApolloClient({
   link,
   cache: new InMemoryCache({
     typePolicies: {
-      GraphqlConversationItem: {
+      ConversationItem: {
         keyFields: ["itemId"]
       },
-      GraphqlConversationItemEvent: {
+      ConversationItemEvent: {
         keyFields: ["itemId"]
       },
-      GraphqlAgentStatusEvent: {
+      AgentStatusEvent: {
         keyFields: false
       },
-      GraphqlTurnCompletedEvent: {
+      TurnCompletedEvent: {
         keyFields: false
       }
     }

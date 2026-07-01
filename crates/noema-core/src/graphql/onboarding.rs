@@ -9,6 +9,7 @@ use super::{errors::graphql_error, schema::GraphqlState};
 
 /// Provider auth method exposed through GraphQL.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Enum)]
+#[graphql(name = "ProviderAuthMethod")]
 pub enum GraphqlProviderAuthMethod {
     /// OAuth device-code flow.
     OauthDeviceCode,
@@ -44,6 +45,7 @@ impl From<GraphqlProviderAuthMethod> for ProviderAuthMethod {
 
 /// Provider account status exposed through GraphQL.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Enum)]
+#[graphql(name = "ProviderAccountStatus")]
 pub enum GraphqlProviderAccountStatus {
     /// Status has not been checked.
     Unknown,
@@ -71,6 +73,7 @@ impl From<ProviderAccountStatus> for GraphqlProviderAccountStatus {
 
 /// Onboarding step status exposed through GraphQL.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Enum)]
+#[graphql(name = "OnboardingStepStatus")]
 pub enum GraphqlOnboardingStepStatus {
     /// Step is complete.
     Complete,
@@ -80,6 +83,7 @@ pub enum GraphqlOnboardingStepStatus {
 
 /// One onboarding step.
 #[derive(Clone, Debug, SimpleObject)]
+#[graphql(name = "OnboardingStep")]
 pub struct GraphqlOnboardingStep {
     /// Stable step id.
     pub id: String,
@@ -101,6 +105,7 @@ pub struct GraphqlOnboardingStep {
 
 /// Onboarding status.
 #[derive(Clone, Debug, SimpleObject)]
+#[graphql(name = "OnboardingStatus")]
 pub struct GraphqlOnboardingStatus {
     /// Whether chat can start.
     pub is_user_onboarded: bool,
@@ -139,6 +144,7 @@ impl From<OnboardingStatus> for GraphqlOnboardingStatus {
 
 /// Input for starting a provider auth attempt.
 #[derive(Clone, Debug, InputObject)]
+#[graphql(name = "StartProviderAuthAttemptInput")]
 pub struct GraphqlStartProviderAuthAttemptInput {
     /// Provider family, such as `codex`.
     pub provider_kind: String,
@@ -150,6 +156,7 @@ pub struct GraphqlStartProviderAuthAttemptInput {
 
 /// Provider auth attempt status.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Enum)]
+#[graphql(name = "ProviderAuthAttemptStatus")]
 pub enum GraphqlProviderAuthAttemptStatus {
     /// Attempt is starting.
     Starting,
@@ -180,6 +187,7 @@ impl From<ProviderAuthAttemptStatus> for GraphqlProviderAuthAttemptStatus {
 
 /// Provider auth attempt view.
 #[derive(Clone, Debug, SimpleObject)]
+#[graphql(name = "ProviderAuthAttempt")]
 pub struct GraphqlProviderAuthAttempt {
     /// Short-lived auth attempt id.
     pub attempt_id: String,
