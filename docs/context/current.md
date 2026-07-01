@@ -145,9 +145,9 @@ The next storage slice should stay small and concrete:
   suggestions from persisted tool metadata; suggestions populate frontend draft
   state only and require explicit Save before backend calibration records are
   written, with batch calibration saves, stale-value glimmers while suggestions
-  are pending, compact tool-name prompt blocks, bounded description hints,
-  model-filled read/write/export classifications, and deterministic shallow
-  owner extractor discovery from argument and structured-output schemas.
+  are pending, compact TSV-style tool prompt rows, bounded description hints,
+  compact model-facing classification codes, and deterministic shallow owner
+  extractor discovery from argument and structured-output schemas.
   User-facing setup errors are sanitized while raw transport details stay out of
   the web form.
   Web Settings also exposes MCPs, Trusted Identities, Approvals, and Audit

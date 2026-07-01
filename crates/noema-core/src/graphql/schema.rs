@@ -1552,7 +1552,7 @@ mod tests {
         seed_autofill_server(&store).await;
         let runtime = test_autofill_runtime(
             store.clone(),
-            r#"{"suggestions":[{"tool":"read_doc","read_classification":"mixed","write_classification":"none","export_classification":"none","disabled":false}]}"#,
+            r#"{"suggestions":[{"tool":"read_doc","read":"m","write":"n","export":"n","d":false}]}"#,
         )
         .await;
         let schema = build_schema(GraphqlState::for_tests_with_store_and_runtime(
@@ -1607,7 +1607,7 @@ mod tests {
         seed_autofill_server(&store).await;
         let runtime = test_autofill_runtime(
             store.clone(),
-            r#"{"suggestions":[{"tool":"missing_doc","read_classification":"mixed","write_classification":"none","export_classification":"none","disabled":false}]}"#,
+            r#"{"suggestions":[{"tool":"missing_doc","read":"m","write":"n","export":"n","d":false}]}"#,
         )
         .await;
         let schema = build_schema(GraphqlState::for_tests_with_store_and_runtime(
@@ -1650,7 +1650,7 @@ mod tests {
         seed_autofill_server(&store).await;
         let runtime = test_autofill_runtime(
             store.clone(),
-            r#"{"suggestions":[{"tool":"read_doc","read_classification":"mixed","write_classification":"none","export_classification":"none"}]}"#,
+            r#"{"suggestions":[{"tool":"read_doc","read":"m","write":"n","export":"n"}]}"#,
         )
         .await;
         let schema = build_schema(GraphqlState::for_tests_with_store_and_runtime(

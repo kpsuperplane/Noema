@@ -58,11 +58,15 @@ struct AutofillResponse {
 #[serde(deny_unknown_fields)]
 struct RawSuggestion {
     tool: String,
+    #[serde(rename = "read", alias = "r", alias = "read_classification")]
     read_classification: String,
+    #[serde(rename = "write", alias = "w", alias = "write_classification")]
     write_classification: String,
+    #[serde(rename = "export", alias = "e", alias = "export_classification")]
     export_classification: String,
     #[serde(default, rename = "owner_extractors")]
     _owner_extractors: Vec<Value>,
+    #[serde(rename = "d", alias = "disabled")]
     disabled: Option<bool>,
 }
 
@@ -71,65 +75,39 @@ struct RawSuggestion {
 pub fn build_autofill_prompt(server_name: &str, tools: &[McpToolRecord]) -> String {
     let tool_text = tools
         .iter()
-        .map(format_tool_prompt_block)
+        .map(format_tool_prompt_row)
         .collect::<Vec<_>>()
-        .join("\n\n");
+        .join("\n");
 
     format!(
-        r#"You are Noema's MCP tool calibration assistant.
-Return strict JSON only. Do not include Markdown, comments, code fences, or prose.
-Classify from persisted metadata only for MCP server "{server_name}".
-
-Definitions:
-- read means the tool can bring data from the MCP destination into Noema.
-- write means the tool can mutate state inside the MCP destination.
-- export means the tool can share information beyond the MCP destination.
-- none: the axis clearly does not apply.
-- trusted: metadata indicates the tool operates on the authenticated user's own account,
-  private workspace, local resources, or same MCP destination without arbitrary outside parties.
-- untrusted: metadata indicates public web data, arbitrary external URLs, user-supplied third
-  parties, public resources, or arbitrary recipients outside the MCP destination.
-- mixed: trust or ownership depends on runtime identifiers, resource contents, or user-provided
-  owners that are not knowable from metadata alone.
-- Noema fills ownership extractor paths deterministically from schemas; do not return extractor
-  fields or paths.
-- Include disabled only when you intentionally suggest changing or preserving disabled state.
-
-Return exactly:
-{{"suggestions":[{{"tool":"...","read_classification":"none|trusted|untrusted|mixed","write_classification":"none|trusted|untrusted|mixed","export_classification":"none|trusted|untrusted|mixed","disabled":false}}]}}
-
-Tools:
+        r#"Classify MCP tools for server "{server_name}" from metadata only.
+Return JSON only: {{"suggestions":[{{"tool":"name","read":"n|t|u|m","write":"n|t|u|m","export":"n|t|u|m","d":false}}]}}
+read=MCP data into Noema; write=mutate MCP destination; export=share beyond MCP destination.
+Writes/creates inside the same MCP destination are not export.
+n=none; t=trusted own/private/local/same destination; u=untrusted public web/arbitrary URL/recipient/outside party; m=mixed/runtime-dependent.
+Return d:false unless metadata says the tool itself is unsafe/deprecated. Writing is not a reason to disable. No owner extractors.
+tool	hint	in	out	ann
 {tool_text}"#
     )
 }
 
-fn format_tool_prompt_block(tool: &McpToolRecord) -> String {
+fn format_tool_prompt_row(tool: &McpToolRecord) -> String {
     let hint =
         compact_description_hint(tool.description.as_deref(), MAX_TOOL_DESCRIPTION_HINT_CHARS);
-    let mut lines = Vec::new();
-    if let Some(hint) = hint {
-        lines.push(format!(
-            "{}: {}",
-            sanitize_prompt_line(&tool.name),
-            sanitize_prompt_line(&hint)
-        ));
-    } else {
-        lines.push(sanitize_prompt_line(&tool.name));
-    }
-    lines.push(format!(
-        "Inputs: {}",
-        field_list_or_none(schema_field_names(&tool.input_schema))
-    ));
-    if let Some(output_schema) = &tool.output_schema {
-        let output_fields = schema_field_names(output_schema);
-        if !output_fields.is_empty() {
-            lines.push(format!("Outputs: {}", field_list_or_none(output_fields)));
-        }
-    }
-    if let Some(annotations) = format_annotations(&tool.annotations) {
-        lines.push(format!("Annotations: {annotations}"));
-    }
-    lines.join("\n")
+    let output_fields = tool
+        .output_schema
+        .as_ref()
+        .map(schema_field_names)
+        .unwrap_or_default();
+    [
+        sanitize_prompt_line(&tool.name),
+        hint.map(|hint| sanitize_prompt_line(&hint))
+            .unwrap_or_else(|| "-".to_string()),
+        field_list_or_dash(schema_field_names(&tool.input_schema)),
+        field_list_or_dash(output_fields),
+        format_annotations(&tool.annotations).unwrap_or_else(|| "-".to_string()),
+    ]
+    .join("\t")
 }
 
 fn schema_field_names(schema: &Value) -> Vec<String> {
@@ -142,11 +120,11 @@ fn schema_field_names(schema: &Value) -> Vec<String> {
         .collect()
 }
 
-fn field_list_or_none(fields: Vec<String>) -> String {
+fn field_list_or_dash(fields: Vec<String>) -> String {
     if fields.is_empty() {
-        "none".to_string()
+        "-".to_string()
     } else {
-        fields.join(", ")
+        fields.join(",")
     }
 }
 
@@ -495,10 +473,10 @@ fn parse_classification(
     field: &'static str,
 ) -> Result<McpTrustClassification, McpAutofillError> {
     match value {
-        "none" => Ok(McpTrustClassification::None),
-        "trusted" => Ok(McpTrustClassification::Trusted),
-        "untrusted" => Ok(McpTrustClassification::Untrusted),
-        "mixed" => Ok(McpTrustClassification::Mixed),
+        "n" | "none" => Ok(McpTrustClassification::None),
+        "t" | "trusted" => Ok(McpTrustClassification::Trusted),
+        "u" | "untrusted" => Ok(McpTrustClassification::Untrusted),
+        "m" | "mixed" => Ok(McpTrustClassification::Mixed),
         _ => Err(McpAutofillError::InvalidClassification { field }),
     }
 }

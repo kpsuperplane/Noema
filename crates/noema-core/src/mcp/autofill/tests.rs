@@ -12,10 +12,10 @@ fn parses_valid_autofill_response_for_known_tools() {
     let response = r#"{
       "suggestions": [{
         "tool": "read_doc",
-        "read_classification": "mixed",
-        "write_classification": "none",
-        "export_classification": "none",
-        "disabled": false
+        "read": "m",
+        "write": "n",
+        "export": "n",
+        "d": false
       }]
     }"#;
 
@@ -37,9 +37,9 @@ fn parses_missing_disabled_as_no_disabled_suggestion() {
     let response = r#"{
       "suggestions": [{
         "tool": "read_doc",
-        "read_classification": "mixed",
-        "write_classification": "none",
-        "export_classification": "none"
+        "read": "m",
+        "write": "n",
+        "export": "n"
       }]
     }"#;
 
@@ -54,10 +54,10 @@ fn rejects_unknown_tool_name_without_partial_suggestions() {
     let response = r#"{
       "suggestions": [{
         "tool": "missing_doc",
-        "read_classification": "mixed",
-        "write_classification": "none",
-        "export_classification": "none",
-        "disabled": false
+        "read": "m",
+        "write": "n",
+        "export": "n",
+        "d": false
       }]
     }"#;
 
@@ -72,14 +72,14 @@ fn rejects_duplicate_tool_name_without_partial_suggestions() {
     let response = r#"{
       "suggestions": [{
         "tool": "read_doc",
-        "read_classification": "mixed",
-        "write_classification": "none",
-        "export_classification": "none"
+        "read": "m",
+        "write": "n",
+        "export": "n"
       }, {
         "tool": "read_doc",
-        "read_classification": "mixed",
-        "write_classification": "none",
-        "export_classification": "none"
+        "read": "m",
+        "write": "n",
+        "export": "n"
       }]
     }"#;
 
@@ -94,10 +94,10 @@ fn rejects_invalid_enum() {
     let response = r#"{
       "suggestions": [{
         "tool": "read_doc",
-        "read_classification": "Mixed",
-        "write_classification": "none",
-        "export_classification": "none",
-        "disabled": false
+        "read": "Mixed",
+        "write": "n",
+        "export": "n",
+        "d": false
       }]
     }"#;
 
@@ -110,12 +110,12 @@ fn rejects_invalid_enum() {
 fn prompt_names_trust_axes_and_demands_strict_json() {
     let prompt = build_autofill_prompt("Docs", &[test_tool("mcp_tool:docs:read", "read_doc")]);
 
-    assert!(prompt.contains("Return strict JSON only"));
-    assert!(prompt.contains("export means"));
+    assert!(prompt.contains("Return JSON only"));
+    assert!(prompt.contains("export=share beyond MCP destination"));
+    assert!(prompt.contains("same MCP destination are not export"));
     assert!(prompt.contains("metadata only"));
-    assert!(prompt.contains("read_doc: Read a document"));
-    assert!(prompt.contains("Inputs: owner_email"));
-    assert!(prompt.contains("Annotations: readOnlyHint=true"));
+    assert!(prompt.contains("tool\thint\tin\tout\tann"));
+    assert!(prompt.contains("read_doc\tRead a document\towner_email\t-\treadOnlyHint=true"));
     assert!(!prompt.contains("mcp_tool:docs:read"));
 }
 
@@ -123,14 +123,16 @@ fn prompt_names_trust_axes_and_demands_strict_json() {
 fn prompt_limits_model_to_trust_classification_rubric() {
     let prompt = build_autofill_prompt("Docs", &[test_tool("mcp_tool:docs:read", "read_doc")]);
 
-    assert!(prompt.contains("do not return extractor"));
+    assert!(prompt.contains("No owner extractors"));
+    assert!(prompt.contains("Writing is not a reason to disable"));
     assert!(!prompt.contains("owner_extractors"));
-    assert!(prompt.contains(r#""tool":"...""#));
+    assert!(prompt.contains(r#""tool":"name""#));
+    assert!(prompt.contains(r#""read":"n|t|u|m""#));
     assert!(!prompt.contains(r#""mcp_tool_id":"...""#));
-    assert!(prompt.contains("trusted:"));
-    assert!(prompt.contains("untrusted:"));
+    assert!(prompt.contains("t=trusted"));
+    assert!(prompt.contains("u=untrusted"));
     assert!(prompt.contains("public web"));
-    assert!(prompt.contains("authenticated user's own"));
+    assert!(prompt.contains("own/private/local"));
 }
 
 #[test]
@@ -140,7 +142,8 @@ fn prompt_omits_annotations_when_empty() {
 
     let prompt = build_autofill_prompt("Docs", &[tool]);
 
-    assert!(!prompt.contains("Annotations:"));
+    assert!(prompt.contains("read_doc\tRead a document\towner_email\t-\t-"));
+    assert!(!prompt.contains("readOnlyHint"));
 }
 
 #[test]
@@ -278,9 +281,9 @@ fn parse_ignores_model_extractors_and_uses_deterministic_extractors() {
     let response = r#"{
       "suggestions": [{
         "tool": "notion-update-page",
-        "read_classification": "none",
-        "write_classification": "mixed",
-        "export_classification": "none",
+        "read": "n",
+        "write": "m",
+        "export": "n",
         "owner_extractors": [{
           "source": "arguments",
           "selector_kind": "domain",
@@ -329,10 +332,11 @@ fn prompt_compacts_long_tool_and_field_descriptions() {
 
     let prompt = build_autofill_prompt("Notion", &[tool]);
 
-    assert!(prompt.len() < 2_000, "prompt was {} chars", prompt.len());
+    assert!(prompt.len() < 1_250, "prompt was {} chars", prompt.len());
+    assert!(prompt.contains("tool\thint\tin\tout\tann"));
     assert!(prompt.contains("notion-update-page"));
     assert!(prompt.contains("Update a Notion page."));
-    assert!(prompt.contains("Inputs: page_id, recipient_email"));
+    assert!(prompt.contains("page_id,recipient_email"));
     assert!(!prompt.contains("Example payload noise"));
     assert!(!prompt.contains("Verbose examples that should not ride along"));
 }
