@@ -12,6 +12,7 @@ use super::foundation_bridge_protocol::{
 };
 
 const CONTROL_RESPONSE_TIMEOUT: Duration = Duration::from_secs(5);
+const TOKEN_COUNT_RESPONSE_TIMEOUT: Duration = GENERATE_RESPONSE_TIMEOUT;
 const GENERATE_RESPONSE_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// Bridge process configuration.
@@ -150,13 +151,16 @@ impl FoundationBridgeProcess {
         input: String,
     ) -> Result<u32, FoundationBridgeError> {
         let response = self
-            .send_request(BridgeRequest {
-                id: "count_tokens".to_string(),
-                payload: BridgeRequestPayload::CountTokens {
-                    instructions,
-                    input,
+            .send_request_with_timeout(
+                BridgeRequest {
+                    id: "count_tokens".to_string(),
+                    payload: BridgeRequestPayload::CountTokens {
+                        instructions,
+                        input,
+                    },
                 },
-            })
+                TOKEN_COUNT_RESPONSE_TIMEOUT,
+            )
             .await?;
         match response.payload {
             BridgeResponsePayload::TokenCount { tokens } => Ok(tokens),
@@ -328,9 +332,18 @@ impl FoundationBridgeProcess {
         &mut self,
         request: BridgeRequest,
     ) -> Result<BridgeResponse, FoundationBridgeError> {
+        self.send_request_with_timeout(request, CONTROL_RESPONSE_TIMEOUT)
+            .await
+    }
+
+    async fn send_request_with_timeout(
+        &mut self,
+        request: BridgeRequest,
+        timeout: Duration,
+    ) -> Result<BridgeResponse, FoundationBridgeError> {
         let request_id = request.id.clone();
         self.write_request(&request).await?;
-        self.read_response(&request_id).await
+        self.read_response_with_timeout(&request_id, timeout).await
     }
 
     async fn write_request(
@@ -354,46 +367,45 @@ impl FoundationBridgeProcess {
         Ok(())
     }
 
-    async fn read_response(
-        &mut self,
-        request_id: &str,
-    ) -> Result<BridgeResponse, FoundationBridgeError> {
-        self.read_response_with_timeout(request_id, CONTROL_RESPONSE_TIMEOUT)
-            .await
-    }
-
     async fn read_response_with_timeout(
         &mut self,
         request_id: &str,
         timeout: Duration,
     ) -> Result<BridgeResponse, FoundationBridgeError> {
-        let response_line = time::timeout(timeout, self.stdout.next_line())
-            .await
-            .map_err(|_| {
-                FoundationBridgeError::BridgeLaunchFailed(format!(
+        let deadline = time::Instant::now() + timeout;
+        loop {
+            let now = time::Instant::now();
+            if now >= deadline {
+                return Err(FoundationBridgeError::BridgeLaunchFailed(format!(
                     "timed out waiting for bridge response to {request_id}"
-                ))
-            })?
-            .map_err(|source| FoundationBridgeError::BridgeLaunchFailed(source.to_string()))?
-            .ok_or_else(|| {
-                FoundationBridgeError::BridgeLaunchFailed(format!(
-                    "bridge exited before responding to {request_id}"
-                ))
-            })?;
-        let response: BridgeResponse = serde_json::from_str(&response_line)
-            .map_err(|source| FoundationBridgeError::BridgeProtocol(source.to_string()))?;
-        if response.id != request_id {
-            return Err(FoundationBridgeError::BridgeProtocol(format!(
-                "bridge response id {} did not match request id {}",
-                response.id, request_id,
-            )));
+                )));
+            }
+            let remaining = deadline - now;
+            let response_line = time::timeout(remaining, self.stdout.next_line())
+                .await
+                .map_err(|_| {
+                    FoundationBridgeError::BridgeLaunchFailed(format!(
+                        "timed out waiting for bridge response to {request_id}"
+                    ))
+                })?
+                .map_err(|source| FoundationBridgeError::BridgeLaunchFailed(source.to_string()))?
+                .ok_or_else(|| {
+                    FoundationBridgeError::BridgeLaunchFailed(format!(
+                        "bridge exited before responding to {request_id}"
+                    ))
+                })?;
+            let response: BridgeResponse = serde_json::from_str(&response_line)
+                .map_err(|source| FoundationBridgeError::BridgeProtocol(source.to_string()))?;
+            if response.id != request_id {
+                continue;
+            }
+            if let BridgeResponsePayload::Error { code, message } = &response.payload {
+                return Err(FoundationBridgeError::BridgeProtocol(format!(
+                    "{code}: {message}"
+                )));
+            }
+            return Ok(response);
         }
-        if let BridgeResponsePayload::Error { code, message } = &response.payload {
-            return Err(FoundationBridgeError::BridgeProtocol(format!(
-                "{code}: {message}"
-            )));
-        }
-        Ok(response)
     }
 }
 
@@ -588,6 +600,70 @@ done
             .expect("generate should wait beyond control timeout");
 
         assert_eq!(text, "slow bridge answer");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn bridge_count_tokens_waits_longer_than_control_timeout() {
+        let (_dir, bridge_path) = bridge_script(
+            r#"#!/bin/sh
+while IFS= read -r line; do
+  case "$line" in
+    *'"id":"handshake"'*) printf '%s\n' '{"id":"handshake","payload":{"type":"handshake_ok","protocol_version":1}}' ;;
+    *'"id":"health"'*) printf '%s\n' '{"id":"health","payload":{"type":"health","available":true,"profiles":[{"id":"default","label":"Default"}],"unavailable_reason":null}}' ;;
+    *'"id":"count_tokens"'*) sleep 6; printf '%s\n' '{"id":"count_tokens","payload":{"type":"token_count","tokens":42}}' ;;
+    *) printf '%s\n' '{"id":"unknown","payload":{"type":"error","code":"unsupported_request","message":"Unsupported request."}}' ;;
+  esac
+done
+"#,
+        );
+        let mut process = FoundationBridgeProcess::start(FoundationBridgeConfig {
+            bridge_path,
+            build: None,
+        })
+        .await
+        .expect("bridge should start");
+
+        let tokens = process
+            .count_tokens(Some("instructions".to_string()), "hello".to_string())
+            .await
+            .expect("count_tokens should wait beyond control timeout");
+
+        assert_eq!(tokens, 42);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn bridge_ignores_stale_response_ids_before_matching_response() {
+        let (_dir, bridge_path) = bridge_script(
+            r#"#!/bin/sh
+while IFS= read -r line; do
+  case "$line" in
+    *'"id":"handshake"'*) printf '%s\n' '{"id":"handshake","payload":{"type":"handshake_ok","protocol_version":1}}' ;;
+    *'"id":"health"'*) printf '%s\n' '{"id":"health","payload":{"type":"health","available":true,"profiles":[{"id":"default","label":"Default"}],"unavailable_reason":null}}' ;;
+    *'"id":"create_session"'*) printf '%s\n' '{"id":"count_tokens","payload":{"type":"token_count","tokens":42}}'; printf '%s\n' '{"id":"create_session","payload":{"type":"session_created","session_id":"session-1"}}' ;;
+    *) printf '%s\n' '{"id":"unknown","payload":{"type":"error","code":"unsupported_request","message":"Unsupported request."}}' ;;
+  esac
+done
+"#,
+        );
+        let mut process = FoundationBridgeProcess::start(FoundationBridgeConfig {
+            bridge_path,
+            build: None,
+        })
+        .await
+        .expect("bridge should start");
+
+        let session_id = process
+            .create_session(
+                "conversation:test".to_string(),
+                "default".to_string(),
+                Some("be concise".to_string()),
+            )
+            .await
+            .expect("create_session should skip stale responses");
+
+        assert_eq!(session_id, "session-1");
     }
 
     #[cfg(unix)]
