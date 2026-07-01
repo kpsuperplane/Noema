@@ -97,8 +97,7 @@ The next storage slice should stay small and concrete:
   Noema colors applied through local CSS tokens. Noema-owned shell and domain
   components remain responsible for chat, memory, provenance, approvals, tools,
   runs, and object detail semantics.
-- Next frontend shell slice: implement the approved route-derived L0 to L1
-  Settings navigation from
+- The route-derived L0 to L1 Settings navigation has landed from
   `docs/superpowers/specs/2026-06-30-route-derived-shell-settings-design.md`
   and
   `docs/superpowers/plans/2026-06-30-route-derived-shell-settings.md`.
@@ -106,13 +105,13 @@ The next storage slice should stay small and concrete:
   ground layer sits under the route content deck. Expanded desktop keeps the
   sidebar visible; collapsed desktop and mobile reveal navigation by moving the
   deck aside rather than rendering a separate drawer/sidebar copy.
-- The web shell exposes Settings as a bottom-left sidebar cog, not as a primary
-  navigation destination. `/settings` renders as a full-screen utility takeover
-  after onboarding and defaults to `/settings/providers`. Settings now contains
-  read-only Providers and Agents tabs: Providers shows non-secret provider
-  account metadata, while Agents is backed by a dedicated GraphQL `agents` read
-  model and shows safe registered-agent metadata such as agent ids. Agent
-  management actions are not exposed yet.
+- The web shell exposes Settings as a bottom-anchored L0 sidebar item that
+  opens a route-derived L1 Settings submenu inside the same shell. `/settings`
+  and `/settings/providers` default to Providers, while section routes such as
+  `/settings/mcps` are deep-linkable and restore the Settings submenu after
+  refresh. Settings contains Providers, Agents, MCPs, Trusted identities,
+  Approvals, and Audit surfaces backed by existing GraphQL read models where
+  live data exists. Agent management actions are not exposed yet.
 - The first third-party MCP control-plane slice has landed. Third-party MCPs
   route through a Noema-owned Capability Gateway rather than raw model tool
   handles. MCP setup is a mandatory metadata-only calibration flow: tools get

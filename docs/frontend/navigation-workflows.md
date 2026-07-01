@@ -53,8 +53,9 @@ ground-layer sidebar visible; collapsed desktop and mobile move the deck aside
 to reveal the same single sidebar instance. Healthy setup, service, chat,
 provider, and memory state are silent in the shell. The shell shows a single
 compact attention item only when state is degraded or action-worthy; the active
-page owns detailed recovery UI. A bottom-left cog opens Settings as a
-temporary full-screen takeover rather than a primary navigation destination.
+page owns detailed recovery UI. Settings is a bottom-anchored L0 menu item that
+opens a route-derived L1 Settings submenu. Settings routes render inside the
+main deck and remain deep-linkable.
 
 ## Chat
 
@@ -253,15 +254,19 @@ activity, memory, handoff rules, and proactivity limits.
 ## Settings
 
 Settings is a secondary utility surface, not the main experience.
-It renders as a full-screen utility takeover opened from the sidebar cog. The
-current backed tabs are `Providers` and `Agents`: `/settings` defaults to
-Providers, `/settings/providers` opens Providers directly, and
-`/settings/agents` opens Agents.
+It renders inside the main shell deck after the bottom-anchored Settings item
+opens the route-derived L1 Settings submenu. `/settings` defaults to Providers,
+and `/settings/<section>` routes remain direct links into each Settings
+surface.
 
 Include:
 
 - Providers tab with non-secret provider account metadata.
 - Agents tab with read-only registered-agent metadata.
+- MCPs tab with mediated third-party server metadata and setup entry points.
+- Trusted identities tab with identity selectors used for ownership resolution.
+- Approvals tab for pending MCP checkpoints.
+- Audit tab for mediated MCP activity records.
 - Back to chat.
 - Local folder path.
 - Config file status.
@@ -628,9 +633,13 @@ addressability and backing, not what the first shell emphasizes.
 | `/inspect` | Advanced inspection | CLI-equivalent read models | owner/admin inspection hub; not primary navigation during onboarding or normal beginner use | Current |
 | `/inspect/context-graph` | Context graph | future graph neighborhood read model | owner/admin-only, redacted by default | Future |
 | `/inspect/context-packets` | Context packets | context packet tables if populated | inspect when rows exist; unavailable state otherwise | Current limited |
-| `/settings` | Settings default | provider account metadata from GraphQL, gated by onboarding | temporary full-screen utility takeover opened from the sidebar cog; defaults to Providers | Current |
+| `/settings` | Settings default | provider account metadata from GraphQL, gated by onboarding | route-derived Settings L1 inside the main shell deck; defaults to Providers | Current |
 | `/settings/providers` | Settings / Providers | provider account metadata from GraphQL, gated by onboarding | Providers tab with only non-secret account metadata | Current |
 | `/settings/agents` | Settings / Agents | agent metadata from GraphQL, gated by onboarding | read-only registered-agent list with safe local technical metadata such as agent ids | Current |
+| `/settings/mcps` | Settings / MCPs | MCP server metadata from GraphQL, gated by onboarding | mediated MCP server list with setup, calibration, and destructive-delete entry points | Current |
+| `/settings/trusted-identities` | Settings / Trusted identities | trusted identity selectors from GraphQL, gated by onboarding | selector rows used to resolve tool-result ownership | Current |
+| `/settings/approvals` | Settings / Approvals | approval read models where available | pending MCP approval checkpoints | Current |
+| `/settings/audit` | Settings / Audit | audit read models where available | mediated MCP activity records | Current |
 
 Future route groups:
 
