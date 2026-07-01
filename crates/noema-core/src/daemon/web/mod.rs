@@ -79,6 +79,21 @@ pub(super) async fn handle_connection(
         return Ok(());
     }
 
+    if is_graphiql_route(&request.method, &request.path) {
+        let page = async_graphql::http::GraphiQLSource::build()
+            .endpoint("/graphql")
+            .subscription_endpoint("/graphql/ws")
+            .finish();
+        write_response(
+            &mut stream,
+            "200 OK",
+            "text/html; charset=utf-8",
+            page.as_bytes(),
+        )
+        .await?;
+        return Ok(());
+    }
+
     if is_graphql_schema_route(&request.method, &request.path) {
         let schema = crate::graphql::build_schema(state.graphql_state().clone());
         write_response(
@@ -123,6 +138,10 @@ fn is_graphql_http_route(method: &str, path: &str) -> bool {
     method == "POST" && path == "/graphql"
 }
 
+fn is_graphiql_route(method: &str, path: &str) -> bool {
+    method == "GET" && path == "/graphql"
+}
+
 fn is_graphql_schema_route(method: &str, path: &str) -> bool {
     method == "GET" && path == "/graphql/schema.graphql"
 }
@@ -133,7 +152,8 @@ fn is_graphql_ws_route(method: &str, path: &str) -> bool {
 
 #[cfg(test)]
 fn is_supported_product_route(method: &str, path: &str) -> bool {
-    is_graphql_http_route(method, path)
+    is_graphiql_route(method, path)
+        || is_graphql_http_route(method, path)
         || is_graphql_schema_route(method, path)
         || is_graphql_ws_route(method, path)
 }
@@ -195,6 +215,11 @@ mod tests {
     }
 
     #[test]
+    fn graphiql_endpoint_accepts_get_path() {
+        assert!(is_graphiql_route("GET", "/graphql"));
+    }
+
+    #[test]
     fn graphql_schema_endpoint_accepts_get_path() {
         assert!(is_graphql_schema_route("GET", "/graphql/schema.graphql"));
     }
@@ -234,6 +259,7 @@ mod tests {
 
     #[test]
     fn graphql_routes_remain_supported_product_api() {
+        assert!(is_supported_product_route("GET", "/graphql"));
         assert!(is_supported_product_route("POST", "/graphql"));
         assert!(is_supported_product_route("GET", "/graphql/ws"));
         assert!(is_supported_product_route("GET", "/graphql/schema.graphql"));
