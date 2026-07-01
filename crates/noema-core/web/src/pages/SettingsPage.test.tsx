@@ -248,6 +248,10 @@ describe("McpSettingsPaneContent", () => {
           discoveryStatus: "needs_auth",
           discoveredToolCount: 0,
           setupError: "This MCP server requires authentication before Noema can list tools.",
+          auth: {
+            oauthClientCredentialsSupported: true,
+            scopes: []
+          },
           server: null
         }}
         setupSubmitting={false}
@@ -257,6 +261,7 @@ describe("McpSettingsPaneContent", () => {
     );
 
     assert.match(markup, /Authentication required/);
+    assert.match(markup, /OAuth client credentials/);
     assert.match(markup, /Back/);
     assert.match(markup, /server has not been saved yet/);
     assert.doesNotMatch(markup, /Display name/);

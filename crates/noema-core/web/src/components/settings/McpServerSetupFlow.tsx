@@ -33,6 +33,9 @@ export function McpServerSetupFlow({
   const [secretHeaders, setSecretHeaders] = React.useState<KeyValueDraft[]>([]);
   const [retrySecretEnv, setRetrySecretEnv] = React.useState<KeyValueDraft[]>([]);
   const [retrySecretHeaders, setRetrySecretHeaders] = React.useState<KeyValueDraft[]>([]);
+  const [retryOAuthClientId, setRetryOAuthClientId] = React.useState("");
+  const [retryOAuthClientSecret, setRetryOAuthClientSecret] = React.useState("");
+  const [retryOAuthScopes, setRetryOAuthScopes] = React.useState<RowDraft[]>([]);
   const [lastSubmission, setLastSubmission] = React.useState<McpSetupFormSubmission | null>(null);
 
   function submitCreate(event: React.FormEvent<HTMLFormElement>) {
@@ -72,7 +75,8 @@ export function McpServerSetupFlow({
       http: {
         url,
         headers: safeHeaders.value,
-        secretHeaders: hiddenHeaders.value
+        secretHeaders: hiddenHeaders.value,
+        oauthClientCredentials: null
       }
     } satisfies McpSetupFormSubmission;
     setLastSubmission(submission);
@@ -85,13 +89,27 @@ export function McpServerSetupFlow({
     if (!lastSubmission) return;
     const parsedEnv = keyValueRowsToRecord(retrySecretEnv, "Secret env");
     const parsedHeaders = keyValueRowsToRecord(retrySecretHeaders, "Secret headers");
+    const parsedOAuth = oauthClientCredentialsFromState(
+      retryOAuthClientId,
+      retryOAuthClientSecret,
+      retryOAuthScopes
+    );
     const parseError = parsedEnv.error ?? parsedHeaders.error;
     if (parseError) {
       setFormError(parseError);
       return;
     }
+    if (parsedOAuth.error) {
+      setFormError(parsedOAuth.error);
+      return;
+    }
     setFormError(null);
-    const submission = mergeRetrySecrets(lastSubmission, parsedEnv.value, parsedHeaders.value);
+    const submission = mergeRetrySecrets(
+      lastSubmission,
+      parsedEnv.value,
+      parsedHeaders.value,
+      parsedOAuth.value
+    );
     setLastSubmission(submission);
     setShowAuthScreen(true);
     onCreateServer(submission);
@@ -99,6 +117,8 @@ export function McpServerSetupFlow({
 
   const authRequired = setupResult?.setupStatus === "needs_auth";
   const setupScreen = authRequired && showAuthScreen ? "auth" : "details";
+  const oauthClientCredentialsSupported =
+    setupResult?.auth?.oauthClientCredentialsSupported ?? false;
   const visibleError =
     formError ?? setupError ?? (setupScreen === "auth" ? setupResult?.setupError : null) ?? null;
 
@@ -209,6 +229,33 @@ export function McpServerSetupFlow({
             MCP server expects, then retry setup to verify and list tools.
           </p>
           <div className="grid gap-3 sm:grid-cols-2">
+            {oauthClientCredentialsSupported ? (
+              <section className="grid gap-3 sm:col-span-2 sm:grid-cols-2">
+                <h3 className="m-0 text-sm font-medium sm:col-span-2">
+                  OAuth client credentials
+                </h3>
+                <TextField
+                  label="Client ID"
+                  value={retryOAuthClientId}
+                  onChange={setRetryOAuthClientId}
+                />
+                <TextField
+                  label="Client secret"
+                  type="password"
+                  value={retryOAuthClientSecret}
+                  onChange={setRetryOAuthClientSecret}
+                />
+                <div className="sm:col-span-2">
+                  <StringListEditor
+                    label="Scopes"
+                    values={retryOAuthScopes}
+                    emptyText="No scopes configured."
+                    addLabel="Add scope"
+                    onChange={setRetryOAuthScopes}
+                  />
+                </div>
+              </section>
+            ) : null}
             <KeyValueEditor
               label="Secret env"
               rows={retrySecretEnv}
@@ -265,7 +312,10 @@ export function McpServerSetupFlow({
 function mergeRetrySecrets(
   submission: McpSetupFormSubmission,
   secretEnv: Record<string, string>,
-  secretHeaders: Record<string, string>
+  secretHeaders: Record<string, string>,
+  oauthClientCredentials: NonNullable<
+    NonNullable<McpSetupFormSubmission["http"]>["oauthClientCredentials"]
+  > | null
 ): McpSetupFormSubmission {
   if (submission.transportKind === "stdio" && submission.stdio) {
     return {
@@ -290,7 +340,9 @@ function mergeRetrySecrets(
         secretHeaders: {
           ...submission.http.secretHeaders,
           ...secretHeaders
-        }
+        },
+        oauthClientCredentials:
+          oauthClientCredentials ?? submission.http.oauthClientCredentials ?? null
       }
     };
   }
@@ -343,10 +395,12 @@ function newKeyValueDraft(): KeyValueDraft {
 
 function TextField({
   label,
+  type = "text",
   value,
   onChange
 }: {
   label: string;
+  type?: "password" | "text";
   value: string;
   onChange: (value: string) => void;
 }) {
@@ -354,12 +408,47 @@ function TextField({
     <label className="grid gap-1 text-sm font-medium">
       {label}
       <input
+        type={type}
         className="h-9 rounded-md border border-[var(--border-subtle)] px-3 text-sm font-normal"
         value={value}
         onChange={(event) => onChange(event.currentTarget.value)}
       />
     </label>
   );
+}
+
+function oauthClientCredentialsFromState(
+  clientId: string,
+  clientSecret: string,
+  scopes: readonly RowDraft[]
+):
+  | {
+      value: NonNullable<
+        NonNullable<McpSetupFormSubmission["http"]>["oauthClientCredentials"]
+      > | null;
+      error: null;
+    }
+  | { value: null; error: string } {
+  const trimmedClientId = clientId.trim();
+  const trimmedClientSecret = clientSecret.trim();
+  const parsedScopes = rowDraftsToValues(scopes);
+  if (!trimmedClientId && !trimmedClientSecret && parsedScopes.length === 0) {
+    return { value: null, error: null };
+  }
+  if (!trimmedClientId || !trimmedClientSecret) {
+    return {
+      value: null,
+      error: "OAuth client credentials require both Client ID and Client secret."
+    };
+  }
+  return {
+    value: {
+      clientId: trimmedClientId,
+      clientSecret: trimmedClientSecret,
+      scopes: parsedScopes
+    },
+    error: null
+  };
 }
 
 function StringListEditor({

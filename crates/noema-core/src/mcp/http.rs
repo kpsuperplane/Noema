@@ -16,7 +16,8 @@ use reqwest::{
 use rmcp::{
     ServiceExt,
     transport::{
-        StreamableHttpClientTransport, streamable_http_client::StreamableHttpClientTransportConfig,
+        ClientCredentialsConfig, StreamableHttpClientTransport, auth::OAuthState,
+        streamable_http_client::StreamableHttpClientTransportConfig,
     },
 };
 use serde_json::{Map, Value, json};
@@ -29,7 +30,7 @@ use crate::{
             DiscoveredMcpTool, McpClientError, McpTransport, discovered_tool_from_rmcp,
             parse_tools_list_result,
         },
-        secrets::McpSecretMaterial,
+        secrets::{McpOAuthClientCredentials, McpSecretMaterial},
     },
 };
 
@@ -43,6 +44,7 @@ type SseByteStream = Pin<Box<dyn Stream<Item = Result<Bytes, reqwest::Error>> + 
 pub struct StreamableHttpMcpTransport {
     url: String,
     headers: BTreeMap<String, String>,
+    oauth_client_credentials: Option<McpOAuthClientCredentials>,
     discovered_tools: Option<Vec<DiscoveredMcpTool>>,
 }
 
@@ -53,6 +55,7 @@ impl StreamableHttpMcpTransport {
         Self {
             url,
             headers,
+            oauth_client_credentials: None,
             discovered_tools: None,
         }
     }
@@ -68,14 +71,24 @@ impl StreamableHttpMcpTransport {
         secrets: &McpSecretMaterial,
     ) -> Result<Self, String> {
         let config = http_config_from_server(server, secrets, "streamable_http")?;
-        Ok(Self::new(config.url, config.headers))
+        Ok(Self {
+            url: config.url,
+            headers: config.headers,
+            oauth_client_credentials: config.oauth_client_credentials,
+            discovered_tools: None,
+        })
     }
 }
 
 impl McpTransport for StreamableHttpMcpTransport {
     async fn initialize(&mut self) -> Result<(), McpClientError> {
-        let config = StreamableHttpClientTransportConfig::with_uri(self.url.clone())
+        let mut config = StreamableHttpClientTransportConfig::with_uri(self.url.clone())
             .custom_headers(rmcp_headers(&self.headers)?);
+        if let Some(token) =
+            oauth_access_token(&self.url, self.oauth_client_credentials.as_ref()).await?
+        {
+            config = config.auth_header(token);
+        }
         let transport = StreamableHttpClientTransport::from_config(config);
         let mut service = ().serve(transport).await.map_err(rmcp_initialize_error)?;
         let tools = service
@@ -104,6 +117,7 @@ impl McpTransport for StreamableHttpMcpTransport {
 pub struct SseMcpTransport {
     url: String,
     headers: BTreeMap<String, String>,
+    oauth_client_credentials: Option<McpOAuthClientCredentials>,
     client: reqwest::Client,
     endpoint_url: Option<String>,
     stream: Option<SseByteStream>,
@@ -125,6 +139,7 @@ impl SseMcpTransport {
         Ok(Self {
             url,
             headers,
+            oauth_client_credentials: None,
             client,
             endpoint_url: None,
             stream: None,
@@ -144,7 +159,9 @@ impl SseMcpTransport {
         secrets: &McpSecretMaterial,
     ) -> Result<Self, String> {
         let config = http_config_from_server(server, secrets, "sse")?;
-        Self::new(config.url, config.headers)
+        let mut transport = Self::new(config.url, config.headers)?;
+        transport.oauth_client_credentials = config.oauth_client_credentials;
+        Ok(transport)
     }
 
     fn next_request_id(&mut self) -> u64 {
@@ -287,6 +304,12 @@ impl SseMcpTransport {
 
 impl McpTransport for SseMcpTransport {
     async fn initialize(&mut self) -> Result<(), McpClientError> {
+        if let Some(token) =
+            oauth_access_token(&self.url, self.oauth_client_credentials.as_ref()).await?
+        {
+            self.headers
+                .insert("Authorization".to_string(), format!("Bearer {token}"));
+        }
         self.ensure_connected().await?;
         let id = self.next_request_id();
         self.post_message(json!({
@@ -343,6 +366,7 @@ impl McpTransport for SseMcpTransport {
 struct HttpConfig {
     url: String,
     headers: BTreeMap<String, String>,
+    oauth_client_credentials: Option<McpOAuthClientCredentials>,
 }
 
 fn http_config_from_server(
@@ -357,7 +381,40 @@ fn http_config_from_server(
     let url = string_field(object, "url")?;
     let mut headers = string_map_field(object, "headers")?;
     headers.extend(secrets.headers.clone());
-    Ok(HttpConfig { url, headers })
+    Ok(HttpConfig {
+        url,
+        headers,
+        oauth_client_credentials: secrets.oauth_client_credentials.clone(),
+    })
+}
+
+async fn oauth_access_token(
+    url: &str,
+    credentials: Option<&McpOAuthClientCredentials>,
+) -> Result<Option<String>, McpClientError> {
+    let Some(credentials) = credentials else {
+        return Ok(None);
+    };
+    let mut oauth_state = OAuthState::new(url, None).await.map_err(|error| {
+        McpClientError::AuthRequired(format!("MCP OAuth initialization failed: {error}"))
+    })?;
+    oauth_state
+        .authenticate_client_credentials(ClientCredentialsConfig::ClientSecret {
+            client_id: credentials.client_id.clone(),
+            client_secret: credentials.client_secret.clone(),
+            scopes: credentials.scopes.clone(),
+            resource: Some(url.to_string()),
+        })
+        .await
+        .map_err(|error| {
+            McpClientError::AuthRequired(format!("MCP OAuth client credentials failed: {error}"))
+        })?;
+    let manager = oauth_state.into_authorization_manager().ok_or_else(|| {
+        McpClientError::AuthRequired("MCP OAuth did not produce an authorized session".to_string())
+    })?;
+    manager.get_access_token().await.map(Some).map_err(|error| {
+        McpClientError::AuthRequired(format!("MCP OAuth token unavailable: {error}"))
+    })
 }
 
 fn rmcp_initialize_error(error: rmcp::service::ClientInitializeError) -> McpClientError {
@@ -569,6 +626,7 @@ mod tests {
         let secrets = McpSecretMaterial {
             env: BTreeMap::new(),
             headers: BTreeMap::from([("Authorization".to_string(), "Bearer secret".to_string())]),
+            oauth_client_credentials: None,
         };
 
         let transport =
@@ -603,6 +661,7 @@ mod tests {
         let secrets = McpSecretMaterial {
             env: BTreeMap::new(),
             headers: BTreeMap::from([("Authorization".to_string(), "Bearer secret".to_string())]),
+            oauth_client_credentials: None,
         };
 
         let transport = SseMcpTransport::from_server_config(&server, &secrets).expect("transport");

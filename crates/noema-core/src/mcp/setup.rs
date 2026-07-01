@@ -52,6 +52,17 @@ pub struct McpServerSetupResult {
     pub discovered_tool_count: usize,
     /// Non-secret setup error text suitable for the UI.
     pub setup_error: Option<String>,
+    /// Authentication options detected or applicable for this setup result.
+    pub auth: Option<McpSetupAuthDetails>,
+}
+
+/// Authentication options safe to return during guided MCP setup.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct McpSetupAuthDetails {
+    /// Whether OAuth client-secret credentials can be attempted for this server.
+    pub oauth_client_credentials_supported: bool,
+    /// OAuth scopes Noema should suggest, when known.
+    pub scopes: Vec<String>,
 }
 
 /// New MCP server setup input after GraphQL/local validation.
@@ -103,7 +114,12 @@ where
     let mut runtime = McpClientRuntime::new(make_transport(&preview, &input.secrets));
     let tools = match runtime.discover_tools().await {
         Ok(tools) => tools,
-        Err(error) => return Ok(unpersisted_setup_result_from_error(error)),
+        Err(error) => {
+            return Ok(unpersisted_setup_result_from_error(
+                input.transport_kind,
+                error,
+            ));
+        }
     };
 
     let server_home = paths.mcp_server_home(&mcp_server_id);
@@ -173,7 +189,10 @@ where
             let auth_status = auth_status_for_verified_secrets(secrets);
             persist_discovered_tools(store, server, tools, auth_status).await
         }
-        Err(error) => setup_result_from_error(store, &server.mcp_server_id, error).await,
+        Err(error) => {
+            setup_result_from_error(store, &server.mcp_server_id, server.transport_kind, error)
+                .await
+        }
     }
 }
 
@@ -202,37 +221,43 @@ async fn persist_discovered_tools(
         discovery_status: Some("discovered".to_string()),
         discovered_tool_count: count,
         setup_error: None,
+        auth: None,
     })
 }
 
 async fn setup_result_from_error(
     store: &NoemaStore,
     mcp_server_id: &str,
+    transport_kind: McpTransportKind,
     error: McpClientError,
 ) -> Result<McpServerSetupResult, StoreError> {
-    let (setup_status, discovery_status, health_status, auth_status, setup_error) = match error {
-        McpClientError::AuthRequired(_) => (
-            McpSetupStatus::NeedsAuth,
-            "needs_auth",
-            McpServerHealthStatus::Unavailable,
-            McpServerAuthStatus::NeedsAuth,
-            Some(safe_setup_error_text(McpSetupStatus::NeedsAuth)),
-        ),
-        McpClientError::Transport(_) => (
-            McpSetupStatus::Unavailable,
-            "unavailable",
-            McpServerHealthStatus::Unavailable,
-            McpServerAuthStatus::Unavailable,
-            Some(safe_setup_error_text(McpSetupStatus::Unavailable)),
-        ),
-        McpClientError::Malformed(_) => (
-            McpSetupStatus::Malformed,
-            "malformed",
-            McpServerHealthStatus::Unavailable,
-            McpServerAuthStatus::Unavailable,
-            Some(safe_setup_error_text(McpSetupStatus::Malformed)),
-        ),
-    };
+    let (setup_status, discovery_status, health_status, auth_status, setup_error, auth) =
+        match error {
+            McpClientError::AuthRequired(_) => (
+                McpSetupStatus::NeedsAuth,
+                "needs_auth",
+                McpServerHealthStatus::Unavailable,
+                McpServerAuthStatus::NeedsAuth,
+                Some(safe_setup_error_text(McpSetupStatus::NeedsAuth)),
+                auth_details_for_transport(transport_kind),
+            ),
+            McpClientError::Transport(_) => (
+                McpSetupStatus::Unavailable,
+                "unavailable",
+                McpServerHealthStatus::Unavailable,
+                McpServerAuthStatus::Unavailable,
+                Some(safe_setup_error_text(McpSetupStatus::Unavailable)),
+                None,
+            ),
+            McpClientError::Malformed(_) => (
+                McpSetupStatus::Malformed,
+                "malformed",
+                McpServerHealthStatus::Unavailable,
+                McpServerAuthStatus::Unavailable,
+                Some(safe_setup_error_text(McpSetupStatus::Malformed)),
+                None,
+            ),
+        };
     let server = store
         .update_mcp_server_setup_status(mcp_server_id, health_status, auth_status)
         .await?;
@@ -242,25 +267,32 @@ async fn setup_result_from_error(
         discovery_status: Some(discovery_status.to_string()),
         discovered_tool_count: 0,
         setup_error,
+        auth,
     })
 }
 
-fn unpersisted_setup_result_from_error(error: McpClientError) -> McpServerSetupResult {
-    let (setup_status, discovery_status, setup_error) = match error {
+fn unpersisted_setup_result_from_error(
+    transport_kind: McpTransportKind,
+    error: McpClientError,
+) -> McpServerSetupResult {
+    let (setup_status, discovery_status, setup_error, auth) = match error {
         McpClientError::AuthRequired(_) => (
             McpSetupStatus::NeedsAuth,
             "needs_auth",
             Some(safe_setup_error_text(McpSetupStatus::NeedsAuth)),
+            auth_details_for_transport(transport_kind),
         ),
         McpClientError::Transport(_) => (
             McpSetupStatus::Unavailable,
             "unavailable",
             Some(safe_setup_error_text(McpSetupStatus::Unavailable)),
+            None,
         ),
         McpClientError::Malformed(_) => (
             McpSetupStatus::Malformed,
             "malformed",
             Some(safe_setup_error_text(McpSetupStatus::Malformed)),
+            None,
         ),
     };
     McpServerSetupResult {
@@ -269,6 +301,17 @@ fn unpersisted_setup_result_from_error(error: McpClientError) -> McpServerSetupR
         discovery_status: Some(discovery_status.to_string()),
         discovered_tool_count: 0,
         setup_error,
+        auth,
+    }
+}
+
+fn auth_details_for_transport(transport_kind: McpTransportKind) -> Option<McpSetupAuthDetails> {
+    match transport_kind {
+        McpTransportKind::Sse | McpTransportKind::StreamableHttp => Some(McpSetupAuthDetails {
+            oauth_client_credentials_supported: true,
+            scopes: Vec::new(),
+        }),
+        McpTransportKind::Stdio => None,
     }
 }
 
@@ -466,6 +509,9 @@ fn safe_config_with_secret_refs(
             Value::Array(secrets.headers.keys().cloned().map(Value::String).collect()),
         );
     }
+    if secrets.oauth_client_credentials.is_some() {
+        secret_refs.insert("oauth_client_credentials".to_string(), Value::Bool(true));
+    }
     if secret_refs.is_empty() {
         object.remove("secret_refs");
     } else {
@@ -626,7 +672,7 @@ mod tests {
     use crate::{
         McpServerAuthStatus, McpServerHealthStatus, McpTransportKind, NoemaPaths, NoemaStore,
         StoreConfig,
-        mcp::secrets::{McpSecretMaterial, read_mcp_secrets},
+        mcp::secrets::{McpOAuthClientCredentials, McpSecretMaterial, read_mcp_secrets},
         mcp::{DiscoveredMcpTool, McpClientError, McpTransport},
     };
     use serde_json::json;
@@ -653,6 +699,7 @@ mod tests {
                 secrets: McpSecretMaterial {
                     env: map_from_pairs([("GITHUB_TOKEN", "secret")]),
                     headers: BTreeMap::new(),
+                    oauth_client_credentials: None,
                 },
             },
             |_, _| FakeMcpTransport::ok(vec![fake_tool("list_repos")]),
@@ -709,6 +756,11 @@ mod tests {
                 secrets: McpSecretMaterial {
                     env: BTreeMap::new(),
                     headers: map_from_pairs([("Authorization", "Bearer secret")]),
+                    oauth_client_credentials: Some(McpOAuthClientCredentials {
+                        client_id: "client".to_string(),
+                        client_secret: "oauth-secret".to_string(),
+                        scopes: vec!["tools.read".to_string()],
+                    }),
                 },
             },
             |_, _| FakeMcpTransport::ok(vec![fake_tool("search")]),
@@ -723,10 +775,14 @@ mod tests {
             json!({
                 "url": "https://example.com/mcp",
                 "headers": { "X-Team": "infra" },
-                "secret_refs": { "headers": ["Authorization"] }
+                "secret_refs": {
+                    "headers": ["Authorization"],
+                    "oauth_client_credentials": true
+                }
             })
         );
         assert!(!server.safe_config.to_string().contains("Bearer secret"));
+        assert!(!server.safe_config.to_string().contains("oauth-secret"));
         assert_eq!(server.auth_status, McpServerAuthStatus::Authenticated);
         let tools = fixture
             .store
@@ -749,6 +805,7 @@ mod tests {
                 secrets: McpSecretMaterial {
                     env: map_from_pairs([("GITHUB_TOKEN", "secret")]),
                     headers: BTreeMap::new(),
+                    oauth_client_credentials: None,
                 },
             },
             |_, _| FakeMcpTransport::auth_required("missing authorization"),
@@ -816,6 +873,7 @@ mod tests {
                 secrets: McpSecretMaterial {
                     env: BTreeMap::new(),
                     headers: map_from_pairs([("Authorization", "Bearer retry")]),
+                    oauth_client_credentials: None,
                 },
             },
             move |_, _| FakeMcpTransport::from_queue(retry_create_outcomes.clone()),
@@ -837,6 +895,7 @@ mod tests {
                 secrets: McpSecretMaterial {
                     env: BTreeMap::new(),
                     headers: map_from_pairs([("Authorization", "Bearer retry")]),
+                    oauth_client_credentials: None,
                 },
             },
             move |_, _| FakeMcpTransport::from_queue(retry_outcomes.clone()),
@@ -873,6 +932,7 @@ mod tests {
                 secrets: McpSecretMaterial {
                     env: map_from_pairs([("GITHUB_TOKEN", "secret")]),
                     headers: BTreeMap::new(),
+                    oauth_client_credentials: None,
                 },
             },
             |_, _| FakeMcpTransport::ok(Vec::new()),

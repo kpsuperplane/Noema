@@ -222,6 +222,7 @@ done
         let secrets = McpSecretMaterial {
             env: BTreeMap::from([("TOKEN".to_string(), "secret".to_string())]),
             headers: BTreeMap::new(),
+            oauth_client_credentials: None,
         };
 
         let transport =

@@ -170,6 +170,10 @@ input GraphqlContinueMcpServerSetupInput {
 	Secret headers stored on disk.
 	"""
 	secretHeaders: JSON
+	"""
+	OAuth client-secret credentials, when supported by the server.
+	"""
+	oauthClientCredentials: GraphqlMcpOAuthClientCredentialsInput
 }
 
 """
@@ -413,6 +417,28 @@ input GraphqlMcpHttpConfigInput {
 	Secret request headers stored on disk.
 	"""
 	secretHeaders: JSON
+	"""
+	OAuth client-secret credentials, when supported by the server.
+	"""
+	oauthClientCredentials: GraphqlMcpOAuthClientCredentialsInput
+}
+
+"""
+OAuth client-secret credentials for MCP setup.
+"""
+input GraphqlMcpOAuthClientCredentialsInput {
+	"""
+	OAuth client id.
+	"""
+	clientId: String!
+	"""
+	OAuth client secret stored on disk.
+	"""
+	clientSecret: String!
+	"""
+	OAuth scopes to request.
+	"""
+	scopes: [String!]!
 }
 
 """
@@ -473,6 +499,24 @@ type GraphqlMcpServerSetupResult {
 	Non-secret setup error, when present.
 	"""
 	setupError: String
+	"""
+	Authentication options safe to show to the user.
+	"""
+	auth: GraphqlMcpSetupAuthDetails
+}
+
+"""
+Authentication options safe to show during MCP setup.
+"""
+type GraphqlMcpSetupAuthDetails {
+	"""
+	Whether OAuth client-secret credentials can be attempted.
+	"""
+	oauthClientCredentialsSupported: Boolean!
+	"""
+	Suggested OAuth scopes, when known.
+	"""
+	scopes: [String!]!
 }
 
 """

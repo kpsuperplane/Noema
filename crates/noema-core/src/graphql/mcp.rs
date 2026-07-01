@@ -9,9 +9,9 @@ use crate::{
     OwnerExtractor, OwnerExtractorSource, ToolCalibrationRecord, TrustedIdentitySelectorEffect,
     TrustedIdentitySelectorKind, TrustedIdentitySelectorRecord,
     mcp::{
-        secrets::McpSecretMaterial,
+        secrets::{McpOAuthClientCredentials, McpSecretMaterial},
         setup::{
-            ContinueMcpServerSetup, McpServerSetupResult, NewMcpServerSetup,
+            ContinueMcpServerSetup, McpServerSetupResult, McpSetupAuthDetails, NewMcpServerSetup,
             continue_mcp_server_setup as continue_setup_service,
             create_mcp_server_setup as create_setup_service,
         },
@@ -76,6 +76,19 @@ pub struct GraphqlMcpHttpConfigInput {
     pub headers: Option<Json<Value>>,
     /// Secret request headers stored on disk.
     pub secret_headers: Option<Json<Value>>,
+    /// OAuth client-secret credentials, when supported by the server.
+    pub oauth_client_credentials: Option<GraphqlMcpOAuthClientCredentialsInput>,
+}
+
+/// OAuth client-secret credentials for MCP setup.
+#[derive(Clone, Debug, InputObject)]
+pub struct GraphqlMcpOAuthClientCredentialsInput {
+    /// OAuth client id.
+    pub client_id: String,
+    /// OAuth client secret stored on disk.
+    pub client_secret: String,
+    /// OAuth scopes to request.
+    pub scopes: Vec<String>,
 }
 
 /// Continue setup after adding authentication material.
@@ -87,6 +100,8 @@ pub struct GraphqlContinueMcpServerSetupInput {
     pub secret_env: Option<Json<Value>>,
     /// Secret headers stored on disk.
     pub secret_headers: Option<Json<Value>>,
+    /// OAuth client-secret credentials, when supported by the server.
+    pub oauth_client_credentials: Option<GraphqlMcpOAuthClientCredentialsInput>,
 }
 
 /// Guided MCP setup result.
@@ -102,6 +117,17 @@ pub struct GraphqlMcpServerSetupResult {
     pub discovered_tool_count: usize,
     /// Non-secret setup error, when present.
     pub setup_error: Option<String>,
+    /// Authentication options safe to show to the user.
+    pub auth: Option<GraphqlMcpSetupAuthDetails>,
+}
+
+/// Authentication options safe to show during MCP setup.
+#[derive(Clone, Debug, SimpleObject)]
+pub struct GraphqlMcpSetupAuthDetails {
+    /// Whether OAuth client-secret credentials can be attempted.
+    pub oauth_client_credentials_supported: bool,
+    /// Suggested OAuth scopes, when known.
+    pub scopes: Vec<String>,
 }
 
 impl From<McpServerSetupResult> for GraphqlMcpServerSetupResult {
@@ -112,6 +138,16 @@ impl From<McpServerSetupResult> for GraphqlMcpServerSetupResult {
             discovery_status: result.discovery_status,
             discovered_tool_count: result.discovered_tool_count,
             setup_error: result.setup_error,
+            auth: result.auth.map(Into::into),
+        }
+    }
+}
+
+impl From<McpSetupAuthDetails> for GraphqlMcpSetupAuthDetails {
+    fn from(auth: McpSetupAuthDetails) -> Self {
+        Self {
+            oauth_client_credentials_supported: auth.oauth_client_credentials_supported,
+            scopes: auth.scopes,
         }
     }
 }
@@ -468,6 +504,9 @@ pub(super) async fn continue_mcp_server_setup(
             secrets: McpSecretMaterial {
                 env: json_string_map(input.secret_env, "secretEnv")?,
                 headers: json_string_map(input.secret_headers, "secretHeaders")?,
+                oauth_client_credentials: parse_oauth_client_credentials(
+                    input.oauth_client_credentials,
+                )?,
             },
         },
         |server, secrets| state.mcp_setup_transport(server, Some(secrets)),
@@ -593,6 +632,7 @@ fn parse_create_mcp_server_input(input: GraphqlCreateMcpServerInput) -> Result<N
                 secrets: McpSecretMaterial {
                     env: secret_env,
                     headers: BTreeMap::new(),
+                    oauth_client_credentials: None,
                 },
             })
         }
@@ -607,6 +647,8 @@ fn parse_create_mcp_server_input(input: GraphqlCreateMcpServerInput) -> Result<N
                 .ok_or_else(|| graphql_error("invalid MCP setup input: http config is required"))?;
             let headers = json_string_map(http.headers, "headers")?;
             let secret_headers = json_string_map(http.secret_headers, "secretHeaders")?;
+            let oauth_client_credentials =
+                parse_oauth_client_credentials(http.oauth_client_credentials)?;
             Ok(NewMcpServerSetup {
                 display_name: input.display_name,
                 transport_kind,
@@ -617,10 +659,36 @@ fn parse_create_mcp_server_input(input: GraphqlCreateMcpServerInput) -> Result<N
                 secrets: McpSecretMaterial {
                     env: BTreeMap::new(),
                     headers: secret_headers,
+                    oauth_client_credentials,
                 },
             })
         }
     }
+}
+
+fn parse_oauth_client_credentials(
+    input: Option<GraphqlMcpOAuthClientCredentialsInput>,
+) -> Result<Option<McpOAuthClientCredentials>> {
+    let Some(input) = input else {
+        return Ok(None);
+    };
+    let client_id = input.client_id.trim();
+    let client_secret = input.client_secret.trim();
+    if client_id.is_empty() || client_secret.is_empty() {
+        return Err(graphql_error(
+            "invalid MCP OAuth client credentials: clientId and clientSecret are required",
+        ));
+    }
+    Ok(Some(McpOAuthClientCredentials {
+        client_id: client_id.to_string(),
+        client_secret: client_secret.to_string(),
+        scopes: input
+            .scopes
+            .into_iter()
+            .map(|scope| scope.trim().to_string())
+            .filter(|scope| !scope.is_empty())
+            .collect(),
+    }))
 }
 
 fn parse_graphql_transport_kind(value: &str) -> Result<McpTransportKind> {

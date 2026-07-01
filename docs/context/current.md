@@ -133,8 +133,11 @@ The next storage slice should stay small and concrete:
   server plus stored setup secrets through an in-app destructive confirmation.
   Authentication-required setup results move to their own modal screen with a
   Back affordance so the initial server-detail form and credential retry form do
-  not stack. User-facing setup errors are sanitized while raw transport details
-  stay out of the web form.
+  not stack. HTTP auth-required setup can now offer OAuth client-secret
+  credentials; the backend exchanges them through the MCP Rust SDK OAuth flow,
+  injects a bearer token for metadata discovery, and stores the OAuth credential
+  material only under the MCP secret directory. User-facing setup errors are
+  sanitized while raw transport details stay out of the web form.
   Web Settings also exposes MCPs, Trusted Identities, Approvals, and Audit
   surfaces backed by GraphQL read models where live data exists.
 - Routed web surfaces learn shell-owned deck state through

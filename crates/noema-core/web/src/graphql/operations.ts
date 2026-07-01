@@ -160,6 +160,10 @@ export const CreateMcpServerDocument = gql`
       discoveryStatus
       discoveredToolCount
       setupError
+      auth {
+        oauthClientCredentialsSupported
+        scopes
+      }
       server {
         mcpServerId
         displayName
@@ -180,6 +184,10 @@ export const ContinueMcpServerSetupDocument = gql`
       discoveryStatus
       discoveredToolCount
       setupError
+      auth {
+        oauthClientCredentialsSupported
+        scopes
+      }
       server {
         mcpServerId
         displayName

@@ -16,13 +16,21 @@ export type McpSetupFormSubmission = {
     url: string;
     headers: Record<string, string>;
     secretHeaders: Record<string, string>;
+    oauthClientCredentials?: McpOAuthClientCredentials | null;
   } | null;
+};
+
+export type McpOAuthClientCredentials = {
+  clientId: string;
+  clientSecret: string;
+  scopes: string[];
 };
 
 export type McpSetupContinueSubmission = {
   mcpServerId: string;
   secretEnv: Record<string, string>;
   secretHeaders: Record<string, string>;
+  oauthClientCredentials?: McpOAuthClientCredentials | null;
 };
 
 export function parseKeyValueLines(input: string): KeyValueParseResult {

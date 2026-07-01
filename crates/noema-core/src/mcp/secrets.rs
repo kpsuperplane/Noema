@@ -15,14 +15,29 @@ pub struct McpSecretMaterial {
     /// Secret headers for HTTP-based MCP servers.
     #[serde(default)]
     pub headers: BTreeMap<String, String>,
+    /// OAuth client-credentials material for HTTP-based MCP servers.
+    #[serde(default)]
+    pub oauth_client_credentials: Option<McpOAuthClientCredentials>,
 }
 
 impl McpSecretMaterial {
     /// Whether this setup material contains any configured secret.
     #[must_use]
     pub fn has_secret_material(&self) -> bool {
-        !self.env.is_empty() || !self.headers.is_empty()
+        !self.env.is_empty() || !self.headers.is_empty() || self.oauth_client_credentials.is_some()
     }
+}
+
+/// OAuth 2.0 client-secret credentials for MCP client-credentials flow.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct McpOAuthClientCredentials {
+    /// OAuth client id.
+    pub client_id: String,
+    /// OAuth client secret.
+    pub client_secret: String,
+    /// Requested OAuth scopes.
+    #[serde(default)]
+    pub scopes: Vec<String>,
 }
 
 /// Write MCP secrets under one server's private home directory.
@@ -100,6 +115,7 @@ mod tests {
         let secrets = McpSecretMaterial {
             env: map_from_pairs([("GITHUB_TOKEN", "secret")]),
             headers: map_from_pairs([("Authorization", "Bearer secret")]),
+            oauth_client_credentials: None,
         };
 
         write_mcp_secrets(&home, &secrets).expect("write secrets");
@@ -113,7 +129,8 @@ mod tests {
             .expect("json"),
             json!({
                 "env": { "GITHUB_TOKEN": "secret" },
-                "headers": { "Authorization": "Bearer secret" }
+                "headers": { "Authorization": "Bearer secret" },
+                "oauth_client_credentials": null
             })
         );
     }
