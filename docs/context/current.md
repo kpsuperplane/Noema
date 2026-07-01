@@ -125,11 +125,12 @@ The next storage slice should stay small and concrete:
   stores secrets under `${NOEMA_HOME}/mcp/`, verifies metadata-only
   connectivity through concrete stdio, Streamable HTTP, and legacy SSE MCP
   transports, fetches tool schemas, and automatically opens a separate
-  tool-permissions modal while
-  keeping discovered tools disabled and agent-invisible. The permissions modal
-  now shows discovered schemas, owner extractor setup, agent visibility, and
-  scope visibility, and blocks impossible `ready` saves before they hit the
-  backend. Existing MCP rows can reopen the permissions modal or delete the
+  tool-permissions modal while keeping discovered tools disabled until
+  calibrated. The permissions modal
+  now shows discovered schemas and owner extractor setup, and blocks impossible
+  `ready` saves before they hit the backend. MCP tool calibrations are exposed
+  to all agents and scopes until a richer visibility model lands. Existing MCP
+  rows can reopen the permissions modal or delete the
   server plus stored setup secrets through an in-app destructive confirmation.
   Authentication-required setup results move to their own modal screen with a
   Back affordance so the initial server-detail form and credential retry form do

@@ -88,8 +88,6 @@ DEFINE FIELD OVERWRITE owner_extractors ON TABLE tool_calibrations TYPE array<ob
 DEFINE FIELD OVERWRITE owner_extractors[*].source ON TABLE tool_calibrations TYPE string;
 DEFINE FIELD OVERWRITE owner_extractors[*].selector_kind ON TABLE tool_calibrations TYPE string;
 DEFINE FIELD OVERWRITE owner_extractors[*].path ON TABLE tool_calibrations TYPE string;
-DEFINE FIELD OVERWRITE enabled_agent_ids ON TABLE tool_calibrations TYPE array<string> DEFAULT [];
-DEFINE FIELD OVERWRITE enabled_scope_ids ON TABLE tool_calibrations TYPE array<string> DEFAULT [];
 DEFINE FIELD OVERWRITE status ON TABLE tool_calibrations TYPE string ASSERT $value INSIDE ['needs_review', 'blocked_unresolved_ownership', 'ready', 'disabled'];
 DEFINE FIELD OVERWRITE reviewed_by ON TABLE tool_calibrations TYPE option<string>;
 DEFINE FIELD OVERWRITE reviewed_metadata_fingerprint ON TABLE tool_calibrations TYPE option<string>;

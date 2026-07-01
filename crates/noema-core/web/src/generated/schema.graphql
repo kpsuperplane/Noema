@@ -1314,14 +1314,6 @@ input GraphqlSaveToolCalibrationInput {
 	"""
 	ownerExtractors: [GraphqlOwnerExtractorInput!]!
 	"""
-	Agents allowed to see/use this calibration.
-	"""
-	enabledAgentIds: [String!]!
-	"""
-	Governable scopes where this calibration is enabled.
-	"""
-	enabledScopeIds: [String!]!
-	"""
 	Review/gateway readiness status.
 	"""
 	status: String!
@@ -1423,14 +1415,6 @@ type GraphqlToolCalibration {
 	Deterministic owner extractors configured for this tool.
 	"""
 	ownerExtractors: [GraphqlOwnerExtractor!]!
-	"""
-	Agents allowed to see/use this calibration.
-	"""
-	enabledAgentIds: [String!]!
-	"""
-	Governable scopes where this calibration is enabled.
-	"""
-	enabledScopeIds: [String!]!
 	"""
 	Review/gateway readiness status.
 	"""

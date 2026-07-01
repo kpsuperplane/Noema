@@ -1197,8 +1197,6 @@ mod tests {
                     writeClassification: "none"
                     exportClassification: "none"
                     ownerExtractors: []
-                    enabledAgentIds: ["agent:primary"]
-                    enabledScopeIds: ["human:local"]
                     status: "blocked_unresolved_ownership"
                     reviewedBy: "human:local"
                     reviewedMetadataFingerprint: "fingerprint_1"
@@ -1281,8 +1279,6 @@ mod tests {
                     writeClassification: "none"
                     exportClassification: "none"
                     ownerExtractors: []
-                    enabledAgentIds: ["agent:primary"]
-                    enabledScopeIds: ["human:local"]
                     status: "blocked_unresolved_ownership"
                   }) {
                     calibrationId

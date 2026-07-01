@@ -126,10 +126,6 @@ pub struct NewToolCalibration {
     pub export_classification: McpTrustClassification,
     /// Deterministic owner extractors configured for this tool.
     pub owner_extractors: Vec<OwnerExtractor>,
-    /// Agents allowed to see/use this calibration.
-    pub enabled_agent_ids: Vec<String>,
-    /// Governable scopes where this calibration is enabled.
-    pub enabled_scope_ids: Vec<String>,
     /// Review/gateway readiness status.
     pub status: McpCalibrationStatus,
     /// Actor who reviewed the calibration, when reviewed.
@@ -153,10 +149,6 @@ pub struct ToolCalibrationRecord {
     pub export_classification: McpTrustClassification,
     /// Deterministic owner extractors configured for this tool.
     pub owner_extractors: Vec<OwnerExtractor>,
-    /// Agents allowed to see/use this calibration.
-    pub enabled_agent_ids: Vec<String>,
-    /// Governable scopes where this calibration is enabled.
-    pub enabled_scope_ids: Vec<String>,
     /// Review/gateway readiness status.
     pub status: McpCalibrationStatus,
     /// Actor who reviewed the calibration, when reviewed.
@@ -600,8 +592,6 @@ impl NoemaStore {
                   write_classification = $write_classification,
                   export_classification = $export_classification,
                   owner_extractors = $owner_extractors,
-                  enabled_agent_ids = $enabled_agent_ids,
-                  enabled_scope_ids = $enabled_scope_ids,
                   status = $status,
                   reviewed_by = $reviewed_by,
                   reviewed_metadata_fingerprint = $reviewed_metadata_fingerprint,
@@ -627,8 +617,6 @@ impl NoemaStore {
                 calibration.export_classification.as_str().to_string(),
             ))
             .bind(("owner_extractors", owner_extractors))
-            .bind(("enabled_agent_ids", calibration.enabled_agent_ids))
-            .bind(("enabled_scope_ids", calibration.enabled_scope_ids))
             .bind(("status", calibration.status.as_str().to_string()))
             .bind(("reviewed_by", calibration.reviewed_by))
             .bind((
@@ -716,22 +704,6 @@ impl NoemaStore {
                     calibration.mcp_tool_id
                 )));
             }
-            if calibration.status == McpCalibrationStatus::Ready
-                && calibration.enabled_agent_ids.is_empty()
-            {
-                return Err(StoreError::Schema(format!(
-                    "ready MCP tool calibration requires at least one enabled agent: {}",
-                    calibration.mcp_tool_id
-                )));
-            }
-            if calibration.status == McpCalibrationStatus::Ready
-                && calibration.enabled_scope_ids.is_empty()
-            {
-                return Err(StoreError::Schema(format!(
-                    "ready MCP tool calibration requires at least one enabled scope: {}",
-                    calibration.mcp_tool_id
-                )));
-            }
         }
 
         Ok(())
@@ -747,8 +719,7 @@ impl NoemaStore {
                 r#"
                 SELECT calibration_id, mcp_tool_id, read_classification,
                   write_classification, export_classification, owner_extractors,
-                  enabled_agent_ids, enabled_scope_ids, status, reviewed_by,
-                  reviewed_metadata_fingerprint
+                  status, reviewed_by, reviewed_metadata_fingerprint
                 FROM tool_calibrations
                 WHERE calibration_id = $calibration_id
                 LIMIT 1;
@@ -800,8 +771,7 @@ impl NoemaStore {
                 r#"
                 SELECT calibration_id, mcp_tool_id, read_classification,
                   write_classification, export_classification, owner_extractors,
-                  enabled_agent_ids, enabled_scope_ids, status, reviewed_by,
-                  reviewed_metadata_fingerprint
+                  status, reviewed_by, reviewed_metadata_fingerprint
                 FROM tool_calibrations
                 WHERE mcp_tool_id = $mcp_tool_id
                 LIMIT 1;
@@ -1095,8 +1065,6 @@ struct ToolCalibrationRow {
     write_classification: String,
     export_classification: String,
     owner_extractors: Value,
-    enabled_agent_ids: Vec<String>,
-    enabled_scope_ids: Vec<String>,
     status: String,
     reviewed_by: Option<String>,
     reviewed_metadata_fingerprint: Option<String>,
@@ -1177,8 +1145,6 @@ fn tool_calibration_from_row(row: ToolCalibrationRow) -> Result<ToolCalibrationR
         write_classification: parse_mcp_trust_classification(&row.write_classification)?,
         export_classification: parse_mcp_trust_classification(&row.export_classification)?,
         owner_extractors,
-        enabled_agent_ids: row.enabled_agent_ids,
-        enabled_scope_ids: row.enabled_scope_ids,
         status: parse_mcp_calibration_status(&row.status)?,
         reviewed_by: row.reviewed_by,
         reviewed_metadata_fingerprint: row.reviewed_metadata_fingerprint,

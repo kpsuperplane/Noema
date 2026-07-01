@@ -10,18 +10,14 @@ import {
   DialogHeader,
   DialogTitle
 } from "@/components/ui/dialog";
-import { Textarea } from "@/components/ui/textarea";
 import {
-  AgentsDocument,
   McpToolsDocument,
   SaveToolCalibrationDocument,
-  type AgentsQuery,
   type McpToolsQuery,
   type SaveToolCalibrationMutation
 } from "@/generated/graphql";
 
 type McpTool = McpToolsQuery["mcpTools"][number];
-type Agent = AgentsQuery["agents"][number];
 
 const classificationOptions = ["none", "trusted", "untrusted", "mixed"] as const;
 const extractorSourceOptions = [
@@ -49,10 +45,6 @@ export function McpToolPermissionsModal({
     skip: !open || !serverId,
     fetchPolicy: "cache-and-network"
   });
-  const agentsResult = useQuery<AgentsQuery>(AgentsDocument, {
-    skip: !open,
-    fetchPolicy: "cache-and-network"
-  });
   const [saveToolCalibration, saveState] =
     useMutation<SaveToolCalibrationMutation>(SaveToolCalibrationDocument);
   const [saveError, setSaveError] = React.useState<string | null>(null);
@@ -78,8 +70,6 @@ export function McpToolPermissionsModal({
             writeClassification: draft.writeClassification,
             exportClassification: draft.exportClassification,
             ownerExtractors,
-            enabledAgentIds: draft.enabledAgentIds,
-            enabledScopeIds: draft.enabledScopeIds,
             status,
             reviewedBy: reviewed ? "human:local" : null,
             reviewedMetadataFingerprint: reviewed ? tool.metadataFingerprint : null
@@ -93,7 +83,6 @@ export function McpToolPermissionsModal({
   }
 
   const tools = result.data?.mcpTools ?? [];
-  const agents = agentsResult.data?.agents ?? [];
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -102,7 +91,7 @@ export function McpToolPermissionsModal({
           <DialogTitle>Configure tool permissions</DialogTitle>
           <DialogDescription>
             {serverName ?? serverId ?? "MCP server"} tools stay unavailable until each ready tool has
-            owner resolution, agent visibility, and scope visibility.
+            reviewed permissions and owner resolution where needed.
           </DialogDescription>
         </DialogHeader>
         <DialogBody className="grid gap-3 overflow-y-auto">
@@ -122,7 +111,6 @@ export function McpToolPermissionsModal({
             <ToolPermissionEditor
               key={toolPermissionEditorKey(tool)}
               tool={tool}
-              agents={agents}
               saving={saveState.loading}
               onSave={(draft) => void handleSave(tool, draft)}
             />
@@ -146,19 +134,15 @@ type ToolPermissionDraft = {
   writeClassification: string;
   exportClassification: string;
   ownerExtractors: OwnerExtractorDraft[];
-  enabledAgentIds: string[];
-  enabledScopeIds: string[];
   disabled: boolean;
 };
 
 function ToolPermissionEditor({
   tool,
-  agents,
   saving,
   onSave
 }: {
   tool: McpTool;
-  agents: readonly Agent[];
   saving: boolean;
   onSave: (draft: ToolPermissionDraft) => void;
 }) {
@@ -172,12 +156,6 @@ function ToolPermissionEditor({
       selectorKind: extractor.selectorKind,
       path: extractor.path
     })),
-    enabledAgentIds: tool.calibration?.enabledAgentIds.length
-      ? [...tool.calibration.enabledAgentIds]
-      : ["agent:primary"],
-    enabledScopeIds: tool.calibration?.enabledScopeIds.length
-      ? [...tool.calibration.enabledScopeIds]
-      : ["human:local"],
     disabled: tool.calibration?.status === "disabled"
   }));
   const [localError, setLocalError] = React.useState<string | null>(null);
@@ -242,8 +220,6 @@ function ToolPermissionEditor({
       </div>
 
       <OwnerExtractorsEditor draft={draft} onChange={setDraft} />
-      <AgentVisibilityEditor agents={agents} draft={draft} onChange={setDraft} />
-      <ScopeVisibilityEditor draft={draft} onChange={setDraft} />
 
       {localError ? <p className="m-0 text-sm text-destructive">{localError}</p> : null}
       <Button type="button" className="w-fit" disabled={saving} onClick={save}>
@@ -359,69 +335,6 @@ function OwnerExtractorsEditor({
   );
 }
 
-function AgentVisibilityEditor({
-  agents,
-  draft,
-  onChange
-}: {
-  agents: readonly Agent[];
-  draft: ToolPermissionDraft;
-  onChange: React.Dispatch<React.SetStateAction<ToolPermissionDraft>>;
-}) {
-  return (
-    <section className="grid gap-2">
-      <h4 className="m-0 text-sm font-medium">Agent visibility</h4>
-      {agents.length > 0 ? (
-        <div className="grid gap-2 sm:grid-cols-2">
-          {agents.map((agent) => (
-            <label key={agent.agentId} className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={draft.enabledAgentIds.includes(agent.agentId)}
-                onChange={(event) =>
-                  onChange((current) => ({
-                    ...current,
-                    enabledAgentIds: toggleValue(
-                      current.enabledAgentIds,
-                      agent.agentId,
-                      event.currentTarget.checked
-                    )
-                  }))
-                }
-              />
-              <span>{agent.displayName ?? agent.agentId}</span>
-            </label>
-          ))}
-        </div>
-      ) : null}
-      <LineListField
-        label="Enabled agent IDs"
-        values={draft.enabledAgentIds}
-        onChange={(enabledAgentIds) => onChange((current) => ({ ...current, enabledAgentIds }))}
-      />
-    </section>
-  );
-}
-
-function ScopeVisibilityEditor({
-  draft,
-  onChange
-}: {
-  draft: ToolPermissionDraft;
-  onChange: React.Dispatch<React.SetStateAction<ToolPermissionDraft>>;
-}) {
-  return (
-    <section className="grid gap-2">
-      <h4 className="m-0 text-sm font-medium">Scope visibility</h4>
-      <LineListField
-        label="Enabled scope IDs"
-        values={draft.enabledScopeIds}
-        onChange={(enabledScopeIds) => onChange((current) => ({ ...current, enabledScopeIds }))}
-      />
-    </section>
-  );
-}
-
 function updateExtractor(
   onChange: React.Dispatch<React.SetStateAction<ToolPermissionDraft>>,
   id: string,
@@ -452,12 +365,6 @@ function validateReadyDraft(draft: ToolPermissionDraft) {
   if (hasBlankExtractorPath) return "Owner extractor paths cannot be empty.";
   if (!hasAnyClassification) return "Enabled tools need at least one non-none permission axis.";
   if (hasMixedClassification && draft.ownerExtractors.length === 0) return null;
-  if (draft.enabledAgentIds.length === 0) {
-    return "Enabled tools need at least one enabled agent.";
-  }
-  if (draft.enabledScopeIds.length === 0) {
-    return "Enabled tools need at least one enabled scope.";
-  }
   return null;
 }
 
@@ -481,9 +388,7 @@ function toolPermissionEditorKey(tool: McpTool) {
     tool.calibration?.writeClassification ?? "none",
     tool.calibration?.exportClassification ?? "none",
     tool.calibration?.status === "disabled" ? "disabled" : "enabled",
-    tool.calibration?.ownerExtractors.map((extractor) => extractor.path).join(",") ?? "",
-    tool.calibration?.enabledAgentIds.join(",") ?? "",
-    tool.calibration?.enabledScopeIds.join(",") ?? ""
+    tool.calibration?.ownerExtractors.map((extractor) => extractor.path).join(",") ?? ""
   ].join(":");
 }
 
@@ -561,40 +466,6 @@ function TextField({
   );
 }
 
-function LineListField({
-  label,
-  values,
-  onChange
-}: {
-  label: string;
-  values: string[];
-  onChange: (values: string[]) => void;
-}) {
-  return (
-    <label className="grid gap-1 text-sm font-medium">
-      {label}
-      <Textarea
-        rows={2}
-        value={values.join("\n")}
-        onChange={(event) => onChange(parseLineList(event.currentTarget.value))}
-      />
-    </label>
-  );
-}
-
-function parseLineList(value: string) {
-  return value
-    .split(/\r?\n|,/)
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
-
-function toggleValue(values: string[], value: string, checked: boolean) {
-  if (checked && !values.includes(value)) return [...values, value];
-  if (!checked) return values.filter((item) => item !== value);
-  return values;
-}
-
 function formatSchemaPreview(tool: McpTool) {
   return JSON.stringify(
     {
@@ -610,12 +481,6 @@ function formatSchemaPreview(tool: McpTool) {
 function safeCalibrationSaveError(error: unknown) {
   if (error instanceof Error && error.message.includes("ready mixed")) {
     return "Mixed tools need at least one owner extractor before they can be ready.";
-  }
-  if (error instanceof Error && error.message.includes("enabled agent")) {
-    return "Ready tools need at least one enabled agent.";
-  }
-  if (error instanceof Error && error.message.includes("enabled scope")) {
-    return "Ready tools need at least one enabled scope.";
   }
   return "Could not save tool permissions. Check the required fields and try again.";
 }

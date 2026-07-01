@@ -261,10 +261,6 @@ pub struct GraphqlToolCalibration {
     pub export_classification: String,
     /// Deterministic owner extractors configured for this tool.
     pub owner_extractors: Vec<GraphqlOwnerExtractor>,
-    /// Agents allowed to see/use this calibration.
-    pub enabled_agent_ids: Vec<String>,
-    /// Governable scopes where this calibration is enabled.
-    pub enabled_scope_ids: Vec<String>,
     /// Review/gateway readiness status.
     pub status: String,
     /// Actor who reviewed the calibration, when reviewed.
@@ -286,8 +282,6 @@ impl From<ToolCalibrationRecord> for GraphqlToolCalibration {
                 .into_iter()
                 .map(Into::into)
                 .collect(),
-            enabled_agent_ids: calibration.enabled_agent_ids,
-            enabled_scope_ids: calibration.enabled_scope_ids,
             status: calibration.status.as_str().to_string(),
             reviewed_by: calibration.reviewed_by,
             reviewed_metadata_fingerprint: calibration.reviewed_metadata_fingerprint,
@@ -331,10 +325,6 @@ pub struct GraphqlSaveToolCalibrationInput {
     pub export_classification: String,
     /// Deterministic owner extractors configured for this tool.
     pub owner_extractors: Vec<GraphqlOwnerExtractorInput>,
-    /// Agents allowed to see/use this calibration.
-    pub enabled_agent_ids: Vec<String>,
-    /// Governable scopes where this calibration is enabled.
-    pub enabled_scope_ids: Vec<String>,
     /// Review/gateway readiness status.
     pub status: String,
     /// Actor who reviewed the calibration, when reviewed.
@@ -716,8 +706,6 @@ pub(super) async fn save_tool_calibration(
             write_classification,
             export_classification,
             owner_extractors,
-            enabled_agent_ids: input.enabled_agent_ids,
-            enabled_scope_ids: input.enabled_scope_ids,
             status,
             reviewed_by: input.reviewed_by,
             reviewed_metadata_fingerprint: input.reviewed_metadata_fingerprint,

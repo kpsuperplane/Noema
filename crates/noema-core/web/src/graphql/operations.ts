@@ -94,8 +94,6 @@ export const McpToolsDocument = gql`
           selectorKind
           path
         }
-        enabledAgentIds
-        enabledScopeIds
         reviewedBy
         reviewedMetadataFingerprint
       }

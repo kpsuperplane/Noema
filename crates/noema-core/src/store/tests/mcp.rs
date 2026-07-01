@@ -141,8 +141,6 @@ async fn mcp_control_plane_tables_bootstrap() {
                   path: '/owner/email'
                 }
               ],
-              enabled_agent_ids = [],
-              enabled_scope_ids = [],
               status = 'needs_review',
               updated_at = time::now();
 
@@ -443,8 +441,6 @@ async fn calibration_blocks_unresolved_ownership_until_reviewed() {
             write_classification: McpTrustClassification::None,
             export_classification: McpTrustClassification::None,
             owner_extractors: Vec::new(),
-            enabled_agent_ids: vec!["agent:primary".to_string()],
-            enabled_scope_ids: vec!["human:local".to_string()],
             status: McpCalibrationStatus::BlockedUnresolvedOwnership,
             reviewed_by: Some("human:local".to_string()),
             reviewed_metadata_fingerprint: Some("fingerprint_1".to_string()),
@@ -489,8 +485,6 @@ async fn ready_mixed_calibration_requires_owner_extractor() {
             write_classification: McpTrustClassification::None,
             export_classification: McpTrustClassification::None,
             owner_extractors: Vec::new(),
-            enabled_agent_ids: vec!["agent:primary".to_string()],
-            enabled_scope_ids: vec!["human:local".to_string()],
             status: McpCalibrationStatus::Ready,
             reviewed_by: Some("human:local".to_string()),
             reviewed_metadata_fingerprint: Some("fingerprint_1".to_string()),
@@ -499,27 +493,6 @@ async fn ready_mixed_calibration_requires_owner_extractor() {
         .expect_err("ready mixed calibration without extractor should fail");
 
     assert!(error.to_string().contains("requires an owner extractor"));
-}
-
-#[tokio::test]
-async fn ready_calibration_requires_agent_and_scope_visibility() {
-    let store = test_store_with_mcp_tool().await;
-
-    let mut missing_agent = ready_mixed_calibration("fingerprint_1");
-    missing_agent.enabled_agent_ids.clear();
-    let error = store
-        .save_tool_calibration(missing_agent)
-        .await
-        .expect_err("ready calibration without agent visibility should fail");
-    assert!(error.to_string().contains("enabled agent"));
-
-    let mut missing_scope = ready_mixed_calibration("fingerprint_1");
-    missing_scope.enabled_scope_ids.clear();
-    let error = store
-        .save_tool_calibration(missing_scope)
-        .await
-        .expect_err("ready calibration without scope visibility should fail");
-    assert!(error.to_string().contains("enabled scope"));
 }
 
 #[tokio::test]
@@ -564,8 +537,6 @@ async fn calibration_id_cannot_move_between_tools() {
             write_classification: McpTrustClassification::Trusted,
             export_classification: McpTrustClassification::None,
             owner_extractors: Vec::new(),
-            enabled_agent_ids: vec!["agent:primary".to_string()],
-            enabled_scope_ids: vec!["human:local".to_string()],
             status: McpCalibrationStatus::Ready,
             reviewed_by: Some("human:local".to_string()),
             reviewed_metadata_fingerprint: Some("fingerprint_write".to_string()),
@@ -678,8 +649,6 @@ fn ready_mixed_calibration(reviewed_metadata_fingerprint: &str) -> NewToolCalibr
             selector_kind: TrustedIdentitySelectorKind::Email,
             path: "/owner/email".to_string(),
         }],
-        enabled_agent_ids: vec!["agent:primary".to_string()],
-        enabled_scope_ids: vec!["human:local".to_string()],
         status: McpCalibrationStatus::Ready,
         reviewed_by: Some("human:local".to_string()),
         reviewed_metadata_fingerprint: Some(reviewed_metadata_fingerprint.to_string()),
@@ -890,8 +859,6 @@ async fn tool_calibration_schema_rejects_malformed_owner_extractors() {
                   path: ''
                 }
               ],
-              enabled_agent_ids = [],
-              enabled_scope_ids = [],
               status = 'ready',
               updated_at = time::now();
             "#,

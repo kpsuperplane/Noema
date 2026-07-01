@@ -311,7 +311,7 @@ export function McpServerSetupFlow({
           </div>
           <p className="m-0 text-sm text-muted-foreground">
             {setupResult.discoveredToolCount} discovered tools are waiting for calibration before
-            agent visibility.
+            use.
           </p>
         </div>
       ) : null}
