@@ -29,6 +29,8 @@
 - The main agent owns final integration, validation, and the user-facing summary.
 
 ## Validation
+- Never circumvent, disable, bypass, unset, or otherwise interfere with the `sccache` build cache.
+- Never modify `CARGO_BUILD_RUSTC_WRAPPER` or attempt to work around the configured Rust compiler wrapper. Doing so invalidates shared cache state, causes 15min+ builds, and can break other agents building in parallel.
 - Default Rust validation:
   - `cargo fmt --all --check`
   - `cargo check --workspace`
