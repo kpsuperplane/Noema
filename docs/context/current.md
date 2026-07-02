@@ -315,6 +315,12 @@ The next storage slice should stay small and concrete:
   implement actual third-party server installation/auth management, approval
   decision mutations, richer audit event persistence, and any future
   auto-approval model hooks.
+- Implement the approved system errors log design in
+  `docs/superpowers/specs/2026-07-02-system-errors-log-design.md`: append
+  developer-diagnostic JSONL events to `${NOEMA_HOME:-$HOME/.noema}/errors.log`
+  for system-level errors that likely require Noema code, prompt, schema,
+  protocol, parser, or adapter changes. The log is intentionally uncapped and
+  unredacted.
 - Add signing, notarization, update, and production distribution for the Tauri
   macOS app after the unsigned developer build is stable.
 - Revisit migrations only when the project needs persisted user data compatibility.
