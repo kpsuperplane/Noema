@@ -14,8 +14,8 @@ type ChatMessageBubbleXStyle = ChatMessageBubbleProps["xstyle"];
 
 const styles = stylex.create({
   message: {
-    width: "100%",
-    maxWidth: 760,
+    width: "calc(100% - 40px)",
+    maxWidth: 720,
     minWidth: 0
   },
   bubble: {
