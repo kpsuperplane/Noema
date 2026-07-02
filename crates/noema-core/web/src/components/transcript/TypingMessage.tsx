@@ -1,5 +1,6 @@
+import { ChatMessage, ChatMessageBubble, type ChatMessageBubbleProps, type ChatMessageProps } from "@astryxdesign/core/Chat";
 import * as stylex from "@stylexjs/stylex";
-import { TranscriptRow } from "./TranscriptRow";
+import { TranscriptActorAvatar } from "./TranscriptActorAvatar";
 
 const dotAnimation = {
   animationDuration: "1s",
@@ -8,29 +9,26 @@ const dotAnimation = {
   animationTimingFunction: "ease"
 } as const;
 
+type ChatMessageXStyle = ChatMessageProps["xstyle"];
+type ChatMessageBubbleXStyle = ChatMessageBubbleProps["xstyle"];
+
 const styles = stylex.create({
+  message: {
+    width: "100%",
+    maxWidth: 760,
+    minWidth: 0
+  },
   bubble: {
-    display: "flex",
-    width: "fit-content",
-    maxWidth: "100%",
-    minWidth: 0,
-    flexDirection: "column",
-    gap: 4
+    width: 58,
+    minHeight: 36
   },
   content: {
     display: "flex",
-    width: 58,
+    width: "100%",
     minHeight: 36,
     alignItems: "center",
     justifyContent: "center",
-    gap: 6,
-    borderRadius: 24,
-    borderWidth: 1,
-    borderStyle: "solid",
-    borderColor: "transparent",
-    backgroundColor: "var(--muted)",
-    paddingBlock: 8,
-    paddingInline: 12
+    gap: 6
   },
   dot: {
     width: 6,
@@ -49,14 +47,26 @@ const styles = stylex.create({
 
 export function TypingMessage({ showAvatar }: { showAvatar: boolean }) {
   return (
-    <TranscriptRow lane="assistant" showAvatar={showAvatar}>
-      <div {...stylex.props(styles.bubble)}>
+    <ChatMessage
+      sender="assistant"
+      avatar={<TranscriptActorAvatar lane="assistant" visible={showAvatar} />}
+      xstyle={chatMessageXStyle(styles.message)}
+    >
+      <ChatMessageBubble xstyle={chatMessageBubbleXStyle(styles.bubble)}>
         <div {...stylex.props(styles.content)} aria-label="Noema is typing" role="status">
           <span {...stylex.props(styles.dot, styles.firstDot)} />
           <span {...stylex.props(styles.dot, styles.secondDot)} />
           <span {...stylex.props(styles.dot)} />
         </div>
-      </div>
-    </TranscriptRow>
+      </ChatMessageBubble>
+    </ChatMessage>
   );
+}
+
+function chatMessageXStyle(...xstyle: unknown[]): ChatMessageXStyle {
+  return xstyle as unknown as ChatMessageXStyle;
+}
+
+function chatMessageBubbleXStyle(...xstyle: unknown[]): ChatMessageBubbleXStyle {
+  return xstyle as unknown as ChatMessageBubbleXStyle;
 }
