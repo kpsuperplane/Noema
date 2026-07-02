@@ -2,6 +2,7 @@ import * as stylex from "@stylexjs/stylex";
 import { readableKind, statusLabel } from "../../format";
 import type { TurnTranscriptItem } from "../../types";
 import { TranscriptAttachmentCard } from "./TranscriptAttachmentCard";
+import { TranscriptSystemNotice } from "./TranscriptSystemNotice";
 
 const styles = stylex.create({
   details: {
@@ -44,6 +45,15 @@ export function ActivityRow({
   const title = isMemorySave ? "Memory saved" : item.title;
   const status = statusLabel(item.status);
   const tone = item.status === "FAILED" ? "error" : item.status === "STARTED" ? "info" : "success";
+  const noticeTone = item.status === "FAILED" ? "error" : item.status === "COMPLETED" ? "success" : "default";
+
+  if (!isMemorySave) {
+    return (
+      <TranscriptSystemNotice label={status} role={item.status === "FAILED" ? "alert" : "status"} tone={noticeTone}>
+        {item.summary || title}
+      </TranscriptSystemNotice>
+    );
+  }
 
   return (
     <TranscriptAttachmentCard

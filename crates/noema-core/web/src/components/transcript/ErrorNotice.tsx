@@ -1,10 +1,9 @@
-import { TranscriptMarkerFrame } from "./TranscriptMarkerFrame";
+import { TranscriptSystemNotice } from "./TranscriptSystemNotice";
 
 export function ErrorNotice({ message, recoverable }: { message: string; recoverable: boolean }) {
   return (
-    <TranscriptMarkerFrame role={recoverable ? "status" : "alert"} tone="error">
-      <strong>{recoverable ? "Notice" : "Error"}</strong>
-      <span>{message}</span>
-    </TranscriptMarkerFrame>
+    <TranscriptSystemNotice label={recoverable ? "Notice" : "Error"} role={recoverable ? "status" : "alert"} tone="error">
+      {message}
+    </TranscriptSystemNotice>
   );
 }
