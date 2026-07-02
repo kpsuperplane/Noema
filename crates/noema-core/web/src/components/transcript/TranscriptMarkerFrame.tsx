@@ -99,20 +99,29 @@ export function TranscriptMarkerFrame({
           {icon}
         </span>
       ) : null}
-      <span {...stylex.props(styles.content)}>{children}</span>
+      <span {...stylex.props(styles.content)} data-slot="marker-content">
+        {children}
+      </span>
     </>
   );
 
   if (buttonProps) {
     return (
-      <button type="button" {...buttonProps} {...styleProps} data-pending={pending ? "true" : undefined}>
+      <button
+        type="button"
+        {...buttonProps}
+        {...styleProps}
+        data-pending={pending ? "true" : undefined}
+        data-slot="marker"
+        data-tone={tone}
+      >
         {content}
       </button>
     );
   }
 
   return (
-    <span role={role} {...styleProps} data-pending={pending ? "true" : undefined}>
+    <span role={role} {...styleProps} data-pending={pending ? "true" : undefined} data-slot="marker" data-tone={tone}>
       {content}
     </span>
   );
