@@ -163,6 +163,7 @@ export function McpServerSetupFlow({
             value={transportKind}
             onChange={(value) => setTransportKind(value as TransportKind)}
             hasDivider
+            aria-label="Transport"
           >
             <Tab value="streamable_http" label="Streamable HTTP" />
             <Tab value="sse" label="SSE" />
@@ -226,6 +227,7 @@ export function McpServerSetupFlow({
             value={activeAuthMode}
             onChange={(value) => setAuthMode(value as AuthMode)}
             hasDivider
+            aria-label="Authentication method"
           >
             {oauthAuthorizationSupported ? <Tab value="browser" label="Browser" /> : null}
             <Tab value="secrets" label="Secrets" />

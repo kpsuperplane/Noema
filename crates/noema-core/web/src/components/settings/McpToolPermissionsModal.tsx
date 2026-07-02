@@ -159,6 +159,7 @@ export function McpToolPermissionsModal({
       purpose="form"
       width={760}
       maxHeight="85vh"
+      aria-label={editingTool ? editingTool.name : "Configure tool permissions"}
     >
       <div {...stylex.props(styles.dialog)}>
         {editingTool && editingDraft ? (
@@ -596,19 +597,6 @@ const styles = stylex.create({
     gap: 8,
     fontSize: 14,
     fontWeight: 500,
-    lineHeight: 1.5,
-    color: "var(--foreground)"
-  },
-  input: {
-    height: 36,
-    minWidth: 0,
-    borderWidth: 1,
-    borderStyle: "solid",
-    borderColor: "var(--border-subtle)",
-    borderRadius: 6,
-    paddingInline: 12,
-    fontSize: 14,
-    fontWeight: 400,
     lineHeight: 1.5,
     color: "var(--foreground)"
   },

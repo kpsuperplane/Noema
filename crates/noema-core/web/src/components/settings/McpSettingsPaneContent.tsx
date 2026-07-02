@@ -233,7 +233,13 @@ function DeleteMcpServerDialog({
     : "Delete this MCP server and its stored secrets.";
 
   return (
-    <Dialog isOpen={open} onOpenChange={onOpenChange} purpose="form" width={520}>
+    <Dialog
+      isOpen={open}
+      onOpenChange={onOpenChange}
+      purpose="form"
+      width={520}
+      aria-label="Delete MCP server"
+    >
       <div {...stylex.props(styles.dialog)}>
         <DialogHeader
           title="Delete MCP server"
@@ -402,7 +408,13 @@ function McpSetupDialog({
   onStartOAuth: (input: McpSetupFormSubmission) => void;
 }) {
   return (
-    <Dialog isOpen={open} onOpenChange={onOpenChange} purpose="form" width={680}>
+    <Dialog
+      isOpen={open}
+      onOpenChange={onOpenChange}
+      purpose="form"
+      width={680}
+      aria-label="Add MCP server"
+    >
       <div {...stylex.props(styles.dialog)}>
         <DialogHeader
           title="Add MCP server"
