@@ -34,6 +34,8 @@ pub mod provider;
 pub mod runtime_host;
 /// Embedded canonical structured store.
 pub mod store;
+/// Developer diagnostic system error logging.
+pub mod system_errors;
 
 pub use capability::{
     CapabilityAxis, CapabilityDecisionOutcome, CapabilityGateway, CapabilityPolicyDecision,
@@ -117,4 +119,9 @@ pub use store::{
     PredicateProposalFilter, PredicateProposalRecord, PredicateRecord, RelatedClaimCandidate,
     RelatedClaimRecord, RetrievedClaim, StoreConfig, StoreError, SupersedeClaimCandidate,
     ToolCalibrationRecord, TrustedIdentitySelectorEffect, TrustedIdentitySelectorRecord,
+};
+pub use system_errors::{
+    SYSTEM_ERROR_MCP_MALFORMED_RESPONSE, SYSTEM_ERROR_PROVIDER_MALFORMED_RESPONSE,
+    SYSTEM_ERROR_RUNTIME_INVARIANT, SYSTEM_ERROR_STORE_INVARIANT, SystemErrorEvent,
+    SystemErrorLogger, SystemErrorWriteError,
 };

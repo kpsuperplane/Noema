@@ -85,6 +85,12 @@ impl NoemaPaths {
         self.root.join("config.yaml")
     }
 
+    /// Path to the developer diagnostic system error log.
+    #[must_use]
+    pub fn errors_log_path(&self) -> PathBuf {
+        self.root.join("errors.log")
+    }
+
     /// Path to the runtime directory.
     #[must_use]
     pub fn run_dir(&self) -> PathBuf {
@@ -201,6 +207,16 @@ mod tests {
         let paths = NoemaPaths::from_noema_home("/tmp/custom-noema").expect("paths");
 
         assert_eq!(paths.db_dir(), PathBuf::from("/tmp/custom-noema/db"));
+    }
+
+    #[test]
+    fn errors_log_path_lives_at_noema_root() {
+        let paths = NoemaPaths::from_noema_home("/tmp/noema").expect("paths");
+
+        assert_eq!(
+            paths.errors_log_path(),
+            PathBuf::from("/tmp/noema/errors.log")
+        );
     }
 
     #[test]

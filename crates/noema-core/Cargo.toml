@@ -24,6 +24,7 @@ serde.workspace = true
 serde_json.workspace = true
 surrealdb.workspace = true
 thiserror.workspace = true
+time.workspace = true
 tokio.workspace = true
 ts-rs.workspace = true
 url.workspace = true
