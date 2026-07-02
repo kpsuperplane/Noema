@@ -13,13 +13,12 @@ const styles = stylex.create({
     minWidth: 0
   },
   bubble: {
-    width: "fit-content",
     maxWidth: "80%",
     minWidth: 0,
     overflow: "hidden",
     fontSize: 14,
     lineHeight: 1.7,
-    overflowWrap: "anywhere",
+    overflowWrap: "break-word",
     whiteSpace: "pre-wrap"
   },
   assistantBubble: {

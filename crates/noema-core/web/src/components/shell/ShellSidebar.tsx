@@ -299,7 +299,16 @@ const styles = stylex.create({
     height: 32
   },
   menuItemFrame: {
-    width: "100%"
+    width: "100%",
+    borderRadius: 8,
+    transitionDuration: "120ms",
+    transitionProperty: "background-color",
+    transitionTimingFunction: "ease",
+    ":hover": {
+      "@media (hover: hover)": {
+        backgroundColor: "var(--noema-surface-hover)"
+      }
+    }
   },
   primaryAgentAvatarFrame: {
     display: "grid",

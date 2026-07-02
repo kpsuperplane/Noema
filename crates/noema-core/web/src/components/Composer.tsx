@@ -372,6 +372,7 @@ export const Composer = React.forwardRef<HTMLTextAreaElement, ComposerProps>(fun
             data-slot="composer-textarea"
             label="Message"
             isLabelHidden
+            width={textareaWrapStyle.width}
             value={value}
             isDisabled={isComposerTextareaDisabled({ ready })}
             placeholder={placeholder}
