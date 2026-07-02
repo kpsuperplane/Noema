@@ -8,6 +8,7 @@ const composerMinWidthCh = 18;
 const composerWidthBufferCh = 5;
 const composerWidthBufferPx = 32;
 const composerMeasuredTextSlackPx = 4;
+const composerBubbleInlineReservePx = 54;
 const composerMinTextHeightPx = 24;
 const composerTextareaFontSize = "1rem";
 const composerTextareaLineHeight = "1.5rem";
@@ -200,6 +201,22 @@ export function composerTextareaWrapStyle({
   };
 }
 
+export function composerBubbleStyle({
+  inlineSize,
+  value,
+  placeholder
+}: {
+  inlineSize?: ComposerInlineSize;
+  value: string;
+  placeholder: string;
+}): React.CSSProperties {
+  const size = inlineSize ?? composerDraftInlineSize({ value, placeholder });
+  return {
+    width: `min(calc(${size.width} + ${composerBubbleInlineReservePx}px), 100%)`,
+    minWidth: `min(calc(${size.minWidth} + ${composerBubbleInlineReservePx}px), 100%)`
+  };
+}
+
 export function refocusComposerTextarea(
   textarea: Pick<HTMLTextAreaElement, "focus"> | null,
   schedule: (callback: () => void) => void = (callback) => window.requestAnimationFrame(callback)
@@ -339,10 +356,16 @@ export const Composer = React.forwardRef<HTMLTextAreaElement, ComposerProps>(fun
     return () => observer.disconnect();
   }, [placeholder]);
 
+  const currentInlineSize = measuredInlineSize?.key === sizeKey ? measuredInlineSize.size : fallbackInlineSize;
   const textareaWrapStyle = composerTextareaWrapStyle({
     value,
     placeholder,
-    inlineSize: measuredInlineSize?.key === sizeKey ? measuredInlineSize.size : fallbackInlineSize
+    inlineSize: currentInlineSize
+  });
+  const bubbleStyle = composerBubbleStyle({
+    value,
+    placeholder,
+    inlineSize: currentInlineSize
   });
   // Astryx omits enterKeyHint from its public BaseProps, but forwards rest props to the native textarea.
   const textareaNativeProps = {
@@ -361,6 +384,7 @@ export const Composer = React.forwardRef<HTMLTextAreaElement, ComposerProps>(fun
       <div
         data-slot="composer-bubble"
         {...stylex.props(styles.bubble)}
+        style={bubbleStyle}
       >
         <div
           data-slot="composer-textarea-wrap"

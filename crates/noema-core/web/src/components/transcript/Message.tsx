@@ -18,8 +18,7 @@ const styles = stylex.create({
     overflow: "hidden",
     fontSize: 14,
     lineHeight: 1.7,
-    overflowWrap: "break-word",
-    whiteSpace: "pre-wrap"
+    overflowWrap: "break-word"
   },
   assistantBubble: {
     maxWidth: "100%"

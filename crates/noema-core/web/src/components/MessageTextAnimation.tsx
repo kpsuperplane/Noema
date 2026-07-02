@@ -52,10 +52,10 @@ export function AnimatedMessageText({
     : tokens;
 
   return (
-    <>
+    <span {...stylex.props(styles.text)}>
       {visibleTokens.map((token, index) => {
         if (token.kind === "space") {
-          return <React.Fragment key={`space-${index}`}>{token.value}</React.Fragment>;
+          return <React.Fragment key={`space-${index}`}>{renderMessageTextSpace(token.value, index)}</React.Fragment>;
         }
         return (
           <span
@@ -66,7 +66,22 @@ export function AnimatedMessageText({
           </span>
         );
       })}
-    </>
+    </span>
+  );
+}
+
+function renderMessageTextSpace(value: string, index: number): React.ReactNode {
+  const parts = value.split(/(\r\n|\n|\r)/);
+  if (parts.length === 1) {
+    return value;
+  }
+
+  return parts.map((part, partIndex) =>
+    part === "\r\n" || part === "\n" || part === "\r" ? (
+      <br key={`line-${index}-${partIndex}`} />
+    ) : (
+      part
+    )
   );
 }
 
@@ -132,6 +147,10 @@ function messageTextWordCount(tokens: MessageTextAnimationToken[]): number {
 }
 
 const styles = stylex.create({
+  text: {
+    display: "block",
+    minWidth: 0
+  },
   wordFade: {
     animation: {
       default: "message-word-fade-in 180ms ease-out both",
