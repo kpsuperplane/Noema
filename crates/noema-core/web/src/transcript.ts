@@ -75,7 +75,9 @@ function replaceOptimisticTranscriptEntry(
     if (index === -1) {
       return [...current, entry];
     }
-    return current.map((candidate, candidateIndex) => (candidateIndex === index ? entry : candidate));
+    return current.map((candidate, candidateIndex) =>
+      candidateIndex === index ? { ...entry, id: optimisticId } : candidate
+    );
   });
 }
 
