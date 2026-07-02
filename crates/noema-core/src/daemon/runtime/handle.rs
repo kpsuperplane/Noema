@@ -91,9 +91,9 @@ impl CodexRuntimeHandle {
         if !providers.contains_key("codex") {
             providers.insert(
                 "codex".to_string(),
-                Arc::new(CodexResponsesProvider::new(
-                    default_codex_provider_config(system_errors.clone())?,
-                )?),
+                Arc::new(CodexResponsesProvider::new(default_codex_provider_config(
+                    system_errors.clone(),
+                )?)?),
             );
         }
         if !providers.contains_key("foundation_local") {
@@ -172,9 +172,13 @@ impl CodexRuntimeHandle {
         };
         let tool_classification_model = default_provider.default_tool_classification_model();
         let (sender, receiver) = mpsc::channel(16);
-        let actor =
-            CodexRuntimeActor::new(default_provider_kind.clone(), providers, store, system_errors)
-                .await?;
+        let actor = CodexRuntimeActor::new(
+            default_provider_kind.clone(),
+            providers,
+            store,
+            system_errors,
+        )
+        .await?;
         tokio::spawn(actor.run(receiver));
         Ok(Self {
             sender,
