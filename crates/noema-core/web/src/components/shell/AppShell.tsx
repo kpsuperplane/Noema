@@ -1,18 +1,17 @@
 import React from "react";
+import { Button } from "@astryxdesign/core/Button";
+import * as stylex from "@stylexjs/stylex";
 import { Menu, PanelLeftClose, PanelLeftOpen } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import type { LocalStatusQuery } from "@/generated/graphql";
 import { isTauriRuntime } from "@/graphql/transportMode";
-import { cn } from "@/lib/utils";
 import type { AppRoute } from "@/routes";
 import type { SocketState } from "@/types";
 import {
   deckTransitionPropertyCanSettleSurfaceVisibility,
-  type DeckNavigationState,
   useDeckNavigation
 } from "./deckNavigation";
 import { ShellSidebar } from "./ShellSidebar";
-import { ShellSurfaceProvider, type ShellSurfaceVisibility } from "./ShellSurfaceContext";
+import { ShellSurfaceProvider } from "./ShellSurfaceContext";
 import {
   breadcrumbForRoute,
   shellMenuLevelForRoute,
@@ -55,15 +54,6 @@ export function shellRootStyle({
     "--shell-sidebar-width": shellDesktopSidebarWidth,
     "--shell-desktop-chrome-offset": desktopChromeOffset
   } as ShellRootStyle;
-}
-
-export function shellRootClassName(isDesktopRuntime = isTauriRuntime()) {
-  return cn(
-    "relative h-dvh min-h-screen overflow-hidden text-foreground",
-    isDesktopRuntime
-      ? "bg-[rgba(233,242,236,0.6)] backdrop-brightness-105"
-      : "bg-[var(--pine-50)]"
-  );
 }
 
 function primaryAgentNameForStatus(status: LocalStatusQuery["localStatus"] | null) {
@@ -109,43 +99,6 @@ export function shellAttentionForState(input: ShellAttentionInput): ShellAttenti
   return null;
 }
 
-export function shellContentDeckClassName(deckNavigation: DeckNavigationState) {
-  return cn(
-    "absolute z-30 grid min-h-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden border border-[var(--border-subtle)] bg-background shadow-[0_0_24px_color-mix(in_srgb,var(--pine-700),transparent_80%)] transition-[inset,left,right,transform,translate,scale,border-radius,box-shadow] duration-300 ease-out",
-    "motion-reduce:transition-none",
-    deckNavigation.sidebarCollapsed
-      ? "inset-2 rounded-xl"
-      : "inset-y-2 right-2 left-[calc(var(--shell-sidebar-width))] rounded-xl",
-    "max-[760px]:inset-0 max-[760px]:rounded-none max-[760px]:border-0 data-[nav-open=true]:max-[760px]:rounded-xl",
-    deckNavigation.navOpen &&
-      "translate-x-[min(calc(var(--shell-sidebar-width)+20px),68vw)] min-[761px]:scale-[0.97] max-[760px]:left-[min(252px,72vw)] max-[760px]:right-[calc(min(252px,72vw)*-1)] max-[760px]:translate-x-0 pointer-events-none"
-  );
-}
-
-export function shellDeckHeaderClassName() {
-  return cn(
-    "flex py-1 items-center gap-3 border-b border-[var(--border-subtle)] bg-white/95 px-4"
-  );
-}
-
-export function shellSidebarCollapseButtonClassName() {
-  return cn(
-    "absolute top-3 left-[calc(0.75rem+var(--shell-desktop-chrome-offset))] z-40 max-[760px]:hidden hover:bg-black/5"
-  );
-}
-
-export function shellSidebarGroundClassName(deckNavigation: DeckNavigationState) {
-  return cn(
-    "absolute inset-y-0 left-0 z-10 grid min-h-0 w-[var(--shell-sidebar-width)]",
-    "max-[760px]:w-[min(286px,78vw)] max-[760px]:pb-[max(1rem,env(safe-area-inset-bottom))]",
-    deckNavigation.navOpen && "z-[25]"
-  );
-}
-
-export function shellRouteContentClassName(visibility: ShellSurfaceVisibility) {
-  return cn("min-h-0 overflow-hidden", visibility !== "visible" && "pointer-events-none");
-}
-
 function shellHeaderLabelForBreadcrumb(breadcrumb: ShellBreadcrumb) {
   return breadcrumb.parent ? `${breadcrumb.parent} / ${breadcrumb.current}` : breadcrumb.current;
 }
@@ -153,27 +106,21 @@ function shellHeaderLabelForBreadcrumb(breadcrumb: ShellBreadcrumb) {
 function ShellBreadcrumbLabel({ breadcrumb }: { breadcrumb: ShellBreadcrumb }) {
   if (!breadcrumb.parent) {
     return (
-      <strong className="block truncate font-heading text-base tracking-normal">
+      <strong {...stylex.props(styles.breadcrumbCurrent)}>
         {breadcrumb.current}
       </strong>
     );
   }
 
   return (
-    <div data-slot="shell-breadcrumb" className="flex min-w-0 items-center gap-2">
-      <span
-        data-slot="shell-breadcrumb-parent"
-        className="truncate text-sm text-muted-foreground"
-      >
+    <div data-slot="shell-breadcrumb" {...stylex.props(styles.breadcrumb)}>
+      <span data-slot="shell-breadcrumb-parent" {...stylex.props(styles.breadcrumbParent)}>
         {breadcrumb.parent}
       </span>
-      <span className="text-muted-foreground/70" aria-hidden="true">
+      <span {...stylex.props(styles.breadcrumbSeparator)} aria-hidden="true">
         /
       </span>
-      <strong
-        data-slot="shell-breadcrumb-current"
-        className="truncate font-heading text-base tracking-normal"
-      >
+      <strong data-slot="shell-breadcrumb-current" {...stylex.props(styles.breadcrumbCurrent)}>
         {breadcrumb.current}
       </strong>
     </div>
@@ -267,13 +214,13 @@ export function AppShell({
       data-sidebar-collapsed={deckNavigation.sidebarCollapsed}
       data-tauri-runtime={isDesktopRuntime}
       style={rootStyle}
-      className={shellRootClassName(isDesktopRuntime)}
+      {...stylex.props(styles.root, isDesktopRuntime ? styles.desktopRoot : styles.browserRoot)}
     >
       <aside
         id="noema-shell-sidebar"
         data-slot="shell-sidebar-ground"
         aria-label="Noema navigation"
-        className={shellSidebarGroundClassName(deckNavigation)}
+        {...stylex.props(styles.sidebarGround, deckNavigation.navOpen && styles.sidebarGroundOpen)}
       >
         <ShellSidebar
           menuLevel={menuLevel}
@@ -288,24 +235,26 @@ export function AppShell({
         data-slot="shell-sidebar-collapse-button"
         type="button"
         variant="ghost"
-        size="icon"
-        aria-label={labels.collapse}
-        className={shellSidebarCollapseButtonClassName()}
+        size="sm"
+        label={labels.collapse}
+        icon={
+          deckNavigation.sidebarCollapsed ? (
+            <PanelLeftOpen aria-hidden="true" size={18} />
+          ) : (
+            <PanelLeftClose aria-hidden="true" size={18} />
+          )
+        }
+        isIconOnly
+        {...stylex.props(styles.sidebarCollapseButton)}
         onClick={toggleSidebarCollapsed}
-      >
-        {deckNavigation.sidebarCollapsed ? (
-          <PanelLeftOpen aria-hidden="true" />
-        ) : (
-          <PanelLeftClose aria-hidden="true" />
-        )}
-      </Button>
+      />
 
       {deckNavigation.navOpen ? (
         <button
           type="button"
           data-slot="shell-nav-backdrop"
           aria-label="Close navigation"
-          className="absolute inset-0 z-20 cursor-default bg-transparent"
+          {...stylex.props(styles.navBackdrop)}
           onClick={closeNav}
         />
       ) : null}
@@ -314,7 +263,11 @@ export function AppShell({
         data-slot="shell-content-deck"
         data-nav-open={deckNavigation.navOpen}
         aria-label={activeLabel}
-        className={shellContentDeckClassName(deckNavigation)}
+        {...stylex.props(
+          styles.contentDeck,
+          deckNavigation.sidebarCollapsed ? styles.contentDeckCollapsed : styles.contentDeckExpanded,
+          deckNavigation.navOpen && styles.contentDeckNavOpen
+        )}
         onTransitionEnd={(event) => {
           if (
             event.currentTarget === event.target &&
@@ -327,14 +280,14 @@ export function AppShell({
         <header
           data-slot="shell-deck-header"
           data-tauri-drag-region
-          className={shellDeckHeaderClassName()}
+          {...stylex.props(styles.deckHeader)}
         >
           <div
             data-slot="shell-header-offset"
             data-sidebar-collapsed={deckNavigation.sidebarCollapsed}
-            className={cn(
-              "transition-transform duration-300 flex items-center",
-              "data-[sidebar-collapsed=true]:min-[761px]:translate-x-[calc(1.5rem+var(--shell-desktop-chrome-offset))]"
+            {...stylex.props(
+              styles.headerOffset,
+              deckNavigation.sidebarCollapsed && styles.headerOffsetCollapsed
             )}
           >
             <Button
@@ -342,16 +295,16 @@ export function AppShell({
               data-slot="shell-menu-button"
               type="button"
               variant="ghost"
-              size="icon"
-              aria-label={labels.menu}
+              size="sm"
+              label={labels.menu}
+              icon={<Menu aria-hidden="true" size={18} />}
+              isIconOnly
               aria-controls="noema-shell-sidebar"
               aria-expanded={deckNavigation.navOpen}
-              className="min-[761px]:!hidden"
+              {...stylex.props(styles.menuButton)}
               onClick={deckNavigation.navOpen ? closeNav : openNav}
-            >
-              <Menu aria-hidden="true" />
-            </Button>
-            <div className="min-w-0 py-[0.2rem]">
+            />
+            <div {...stylex.props(styles.breadcrumbWrap)}>
               <ShellBreadcrumbLabel breadcrumb={breadcrumb} />
             </div>
           </div>
@@ -361,7 +314,10 @@ export function AppShell({
           <div
             data-slot="shell-route-content"
             data-surface-visibility={deckNavigation.surfaceVisibility}
-            className={shellRouteContentClassName(deckNavigation.surfaceVisibility)}
+            {...stylex.props(
+              styles.routeContent,
+              deckNavigation.surfaceVisibility !== "visible" && styles.routeContentInactive
+            )}
           >
             {children}
           </div>
@@ -370,3 +326,172 @@ export function AppShell({
     </main>
   );
 }
+
+const styles = stylex.create({
+  root: {
+    position: "relative",
+    height: "100dvh",
+    minHeight: "100vh",
+    overflow: "hidden",
+    color: "var(--foreground)"
+  },
+  desktopRoot: {
+    backgroundColor: "rgba(233, 242, 236, 0.6)",
+    backdropFilter: "brightness(1.05)"
+  },
+  browserRoot: {
+    backgroundColor: "var(--pine-50)"
+  },
+  sidebarGround: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    left: 0,
+    zIndex: 10,
+    display: "grid",
+    minHeight: 0,
+    width: "var(--shell-sidebar-width)",
+    "@media (max-width: 760px)": {
+      width: "min(286px, 78vw)",
+      paddingBottom: "max(1rem, env(safe-area-inset-bottom))"
+    }
+  },
+  sidebarGroundOpen: {
+    zIndex: 25
+  },
+  sidebarCollapseButton: {
+    position: "absolute",
+    top: 12,
+    left: "calc(0.75rem + var(--shell-desktop-chrome-offset))",
+    zIndex: 40,
+    backgroundColor: "transparent",
+    ":hover": {
+      backgroundColor: "rgb(0 0 0 / 0.05)"
+    },
+    "@media (max-width: 760px)": {
+      display: "none"
+    }
+  },
+  navBackdrop: {
+    position: "absolute",
+    inset: 0,
+    zIndex: 20,
+    cursor: "default",
+    backgroundColor: "transparent",
+    borderWidth: 0,
+    padding: 0
+  },
+  contentDeck: {
+    position: "absolute",
+    zIndex: 30,
+    display: "grid",
+    minHeight: 0,
+    gridTemplateRows: "auto minmax(0, 1fr)",
+    overflow: "hidden",
+    borderWidth: 1,
+    borderStyle: "solid",
+    borderColor: "var(--border-subtle)",
+    backgroundColor: "var(--background)",
+    boxShadow: "0 0 24px color-mix(in srgb, var(--pine-700), transparent 80%)",
+    transitionProperty: "inset, left, right, transform, translate, scale, border-radius, box-shadow",
+    transitionDuration: "300ms",
+    transitionTimingFunction: "cubic-bezier(0.2, 0, 0, 1)",
+    "@media (prefers-reduced-motion: reduce)": {
+      transition: "none"
+    },
+    "@media (max-width: 760px)": {
+      inset: 0,
+      borderWidth: 0,
+      borderRadius: 0
+    }
+  },
+  contentDeckCollapsed: {
+    inset: 8,
+    borderRadius: 12
+  },
+  contentDeckExpanded: {
+    top: 8,
+    right: 8,
+    bottom: 8,
+    left: "calc(var(--shell-sidebar-width))",
+    borderRadius: 12
+  },
+  contentDeckNavOpen: {
+    transform: "translateX(min(calc(var(--shell-sidebar-width) + 20px), 68vw))",
+    pointerEvents: "none",
+    "@media (min-width: 761px)": {
+      scale: 0.97
+    },
+    "@media (max-width: 760px)": {
+      left: "min(252px, 72vw)",
+      right: "calc(min(252px, 72vw) * -1)",
+      transform: "translateX(0)",
+      borderRadius: 12
+    }
+  },
+  deckHeader: {
+    display: "flex",
+    alignItems: "center",
+    gap: 12,
+    borderBottomWidth: 1,
+    borderBottomStyle: "solid",
+    borderBottomColor: "var(--border-subtle)",
+    backgroundColor: "rgb(255 255 255 / 0.95)",
+    paddingBlock: 4,
+    paddingInline: 16
+  },
+  headerOffset: {
+    display: "flex",
+    alignItems: "center",
+    transitionProperty: "transform",
+    transitionDuration: "300ms",
+    transitionTimingFunction: "cubic-bezier(0.2, 0, 0, 1)"
+  },
+  headerOffsetCollapsed: {
+    "@media (min-width: 761px)": {
+      transform: "translateX(calc(1.5rem + var(--shell-desktop-chrome-offset)))"
+    }
+  },
+  menuButton: {
+    "@media (min-width: 761px)": {
+      display: "none"
+    }
+  },
+  breadcrumbWrap: {
+    minWidth: 0,
+    paddingBlock: "0.2rem"
+  },
+  breadcrumb: {
+    display: "flex",
+    minWidth: 0,
+    alignItems: "center",
+    gap: 8
+  },
+  breadcrumbParent: {
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    fontSize: 14,
+    color: "var(--muted-foreground)"
+  },
+  breadcrumbSeparator: {
+    color: "color-mix(in srgb, var(--muted-foreground) 70%, transparent)"
+  },
+  breadcrumbCurrent: {
+    display: "block",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    fontFamily: "var(--font-heading)",
+    fontSize: 16,
+    fontWeight: 700,
+    letterSpacing: 0
+  },
+  routeContent: {
+    minHeight: 0,
+    overflow: "hidden"
+  },
+  routeContentInactive: {
+    pointerEvents: "none"
+  }
+});

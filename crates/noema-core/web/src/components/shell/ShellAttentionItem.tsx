@@ -1,17 +1,44 @@
+import * as stylex from "@stylexjs/stylex";
 import { AlertTriangle } from "lucide-react";
 import type { ShellAttention } from "./AppShell";
 
 export function ShellAttentionItem({ attention }: { attention: ShellAttention }) {
   return (
     <div
-      className="grid gap-1 rounded-md border border-[color-mix(in_srgb,var(--clay-600)_32%,transparent)] bg-[var(--clay-50)] px-3 py-2.5 text-[var(--red-700)]"
+      {...stylex.props(styles.root)}
       role="status"
     >
-      <span className="flex items-center gap-2 text-xs font-semibold">
-        <AlertTriangle className="size-3.5" aria-hidden="true" />
+      <span {...stylex.props(styles.title)}>
+        <AlertTriangle size={14} aria-hidden="true" />
         {attention.title}
       </span>
-      <span className="text-xs leading-snug">{attention.message}</span>
+      <span {...stylex.props(styles.message)}>{attention.message}</span>
     </div>
   );
 }
+
+const styles = stylex.create({
+  root: {
+    display: "grid",
+    gap: 4,
+    borderWidth: 1,
+    borderStyle: "solid",
+    borderColor: "color-mix(in srgb, var(--clay-600) 32%, transparent)",
+    borderRadius: 6,
+    backgroundColor: "var(--clay-50)",
+    paddingBlock: 10,
+    paddingInline: 12,
+    color: "var(--red-700)"
+  },
+  title: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    fontSize: 12,
+    fontWeight: 600
+  },
+  message: {
+    fontSize: 12,
+    lineHeight: 1.375
+  }
+});

@@ -10,7 +10,7 @@ import {
   ServerCog,
   Settings
 } from "lucide-react";
-import type { ComponentType } from "react";
+import type { LucideIcon } from "lucide-react";
 import type { AppRoute, SettingsSection } from "@/routes";
 
 export type ShellMenuLevelId = "l0" | "settings";
@@ -34,7 +34,7 @@ export type ShellMenuItem = {
   label: string;
   route?: AppRoute;
   action: "navigate" | "goBackFromSettings";
-  icon: ComponentType<{ className?: string; "aria-hidden"?: true }>;
+  icon: LucideIcon;
 };
 
 export type ShellMenuLevel = {
@@ -55,7 +55,7 @@ export type ShellSettingsSection = {
   section: SettingsSection;
   itemId: Extract<ShellMenuItemId, `settings.${string}`>;
   label: string;
-  icon: ComponentType<{ className?: string; "aria-hidden"?: true }>;
+  icon: LucideIcon;
 };
 
 export const shellSettingsSections: ShellSettingsSection[] = [
