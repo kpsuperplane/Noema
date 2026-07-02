@@ -54,6 +54,8 @@ References:
 
 - Make user, assistant, streaming assistant, and typing rows use Astryx chat
   message primitives where they fit.
+- Use Astryx `ChatSystemMessage` for true non-sender transcript notices:
+  errors and generic non-interactive activity/status notices.
 - Preserve Noema's current information architecture, transcript data flow, and
   composer.
 - Keep Noema's scroll, replay, live-region, and animation behavior stable.
@@ -161,25 +163,31 @@ If the mapping is awkward or hides Noema-specific details, keep the current
 Astryx message bubbles. Tool markers must remain expandable and must preserve
 their current labels, pending state, and error tone.
 
-### Memory And Activity Rows
+### System Notices, Memory, And Activity Rows
 
-Memory markers, activity rows, structured cards, and error notices remain
-Noema-owned domain components.
+Introduce a Noema-owned system notice adapter around Astryx
+`ChatSystemMessage`. The adapter owns Noema tone mapping and accessibility
+roles, while Astryx owns the centered system-message presentation.
 
-They may adopt Astryx-like system/status presentation where it improves
-consistency, but they should not become generic chat system messages if doing
-so hides Noema meaning. In particular:
+Use this adapter for:
+
+- Error notices, preserving `role="alert"` for non-recoverable errors and
+  `role="status"` for recoverable notices.
+- Generic non-interactive activity/status notices that are not memory-specific,
+  tool-specific, structured-card content, or sender content.
+
+Do not use `ChatSystemMessage` where it would hide Noema domain meaning. In
+particular:
 
 - Memory markers stay expandable and continue to expose saved, proposed,
   reinforced, failed, and reviewable memory details.
-- Activity rows keep current title, summary, status, and source/next-step
-  details.
+- Tool markers stay expandable and continue to expose call/result detail
+  through the Astryx tool-call path.
+- Memory-specific activity rows such as explicit memory saves stay Noema-owned
+  detail cards unless they are later folded into the memory marker model.
 - Structured cards keep schema-specific rendering.
-- Error notices keep their alert/status role distinction.
 
-`ChatSystemMessage` can be used later for true transcript-level status rows or
-date dividers, but this slice should not invent date dividers or new system
-messages unless they already exist in the transcript data.
+This slice should not invent date dividers or new transcript item types.
 
 ### Markdown And Code
 

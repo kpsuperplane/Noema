@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Adopt Astryx core chat primitives for Noema transcript message, typing, and tool-call rows while preserving Noema's transcript scroller, render model, replay behavior, memory/activity rows, cards, and composer.
+**Goal:** Adopt Astryx core chat primitives for Noema transcript message, typing, tool-call, error, and generic status rows while preserving Noema's transcript scroller, render model, replay behavior, memory-specific rows, cards, and composer.
 
-**Architecture:** Keep `Transcript`, `TranscriptScroller`, `TranscriptBottomFollower`, and `renderModel.ts` as Noema-owned infrastructure. Introduce a small transcript avatar adapter, render text/typing rows with Astryx `ChatMessage` and `ChatMessageBubble`, and render grouped tool activity with Astryx `ChatToolCalls` while reusing Noema's existing tool detail attachment.
+**Architecture:** Keep `Transcript`, `TranscriptScroller`, `TranscriptBottomFollower`, and `renderModel.ts` as Noema-owned infrastructure. Introduce small transcript-local adapters for avatars and system notices, render text/typing rows with Astryx `ChatMessage` and `ChatMessageBubble`, render grouped tool activity with Astryx `ChatToolCalls`, and render errors/generic status notices with Astryx `ChatSystemMessage`.
 
 **Tech Stack:** React 19, TypeScript, StyleX, Astryx `@astryxdesign/core/Chat`, existing Noema transcript components, Bun validation.
 
@@ -29,6 +29,10 @@ Create:
   - Shared transcript-local adapter that maps Noema transcript lanes to
     deterministic Noema identity avatars while supporting hidden avatar gutters
     for grouped rows.
+- `crates/noema-core/web/src/components/transcript/TranscriptSystemNotice.tsx`
+  - Shared transcript-local adapter around Astryx `ChatSystemMessage` for
+    errors and generic non-interactive status notices, preserving Noema tone and
+    accessibility roles.
 
 Modify:
 
@@ -48,6 +52,12 @@ Modify:
 - `crates/noema-core/web/src/components/transcript/ToolMarker.tsx`
   - Render the grouped tool marker through Astryx `ChatToolCalls` with Noema's
     existing `ToolDetailAttachment` as the expanded detail.
+- `crates/noema-core/web/src/components/transcript/ErrorNotice.tsx`
+  - Render recoverable and non-recoverable transcript errors through
+    `TranscriptSystemNotice`.
+- `crates/noema-core/web/src/components/transcript/ActivityRow.tsx`
+  - Render generic non-interactive activities through `TranscriptSystemNotice`
+    while preserving memory-specific detail cards.
 
 Do not modify in this slice:
 
@@ -516,7 +526,186 @@ git add crates/noema-core/web/src/components/transcript/markerModel.ts \
 git commit -m "refactor: render tool markers with astryx chat calls"
 ```
 
-## Task 5: Final Validation And Cleanup
+## Task 5: Render Errors And Generic Status With ChatSystemMessage
+
+**Files:**
+- Create: `crates/noema-core/web/src/components/transcript/TranscriptSystemNotice.tsx`
+- Modify: `crates/noema-core/web/src/components/transcript/ErrorNotice.tsx`
+- Modify: `crates/noema-core/web/src/components/transcript/ActivityRow.tsx`
+
+- [ ] **Step 1: Create `TranscriptSystemNotice.tsx`**
+
+Create `crates/noema-core/web/src/components/transcript/TranscriptSystemNotice.tsx`:
+
+```tsx
+import type { AriaRole, ReactNode } from "react";
+import { ChatSystemMessage, type ChatSystemMessageProps } from "@astryxdesign/core/Chat";
+import * as stylex from "@stylexjs/stylex";
+
+type TranscriptSystemNoticeTone = "default" | "success" | "warning" | "error";
+type ChatSystemMessageXStyle = ChatSystemMessageProps["xstyle"];
+
+const styles = stylex.create({
+  root: {
+    width: "100%",
+    maxWidth: 760,
+    minWidth: 0
+  },
+  content: {
+    display: "inline-flex",
+    maxWidth: "100%",
+    alignItems: "baseline",
+    justifyContent: "center",
+    flexWrap: "wrap",
+    gap: "0 6px",
+    overflowWrap: "anywhere",
+    textAlign: "center"
+  },
+  label: {
+    fontWeight: 650
+  },
+  defaultTone: {
+    color: "var(--noema-text-secondary)"
+  },
+  successTone: {
+    color: "var(--noema-pine-700)"
+  },
+  warningTone: {
+    color: "var(--noema-clay-600)"
+  },
+  errorTone: {
+    color: "var(--noema-red-700)"
+  }
+});
+
+export function TranscriptSystemNotice({
+  label,
+  children,
+  role,
+  tone = "default"
+}: {
+  label?: ReactNode;
+  children: ReactNode;
+  role?: AriaRole;
+  tone?: TranscriptSystemNoticeTone;
+}) {
+  return (
+    <ChatSystemMessage role={role} xstyle={chatSystemMessageXStyle(styles.root)}>
+      <span
+        {...stylex.props(
+          styles.content,
+          tone === "default" && styles.defaultTone,
+          tone === "success" && styles.successTone,
+          tone === "warning" && styles.warningTone,
+          tone === "error" && styles.errorTone
+        )}
+      >
+        {label ? <strong {...stylex.props(styles.label)}>{label}</strong> : null}
+        <span>{children}</span>
+      </span>
+    </ChatSystemMessage>
+  );
+}
+
+function chatSystemMessageXStyle(xstyle: unknown): ChatSystemMessageXStyle {
+  return xstyle as unknown as ChatSystemMessageXStyle;
+}
+```
+
+- [ ] **Step 2: Replace `ErrorNotice.tsx` with the system notice adapter**
+
+Replace `crates/noema-core/web/src/components/transcript/ErrorNotice.tsx` with:
+
+```tsx
+import { TranscriptSystemNotice } from "./TranscriptSystemNotice";
+
+export function ErrorNotice({ message, recoverable }: { message: string; recoverable: boolean }) {
+  return (
+    <TranscriptSystemNotice
+      label={recoverable ? "Notice" : "Error"}
+      role={recoverable ? "status" : "alert"}
+      tone="error"
+    >
+      {message}
+    </TranscriptSystemNotice>
+  );
+}
+```
+
+- [ ] **Step 3: Update `ActivityRow.tsx` imports**
+
+Keep the existing StyleX, formatting, type, and `TranscriptAttachmentCard`
+imports. Add:
+
+```tsx
+import { TranscriptSystemNotice } from "./TranscriptSystemNotice";
+```
+
+- [ ] **Step 4: Add a generic activity branch in `ActivityRow.tsx`**
+
+Inside `ActivityRow`, after `tone` is computed and before the current
+`return <TranscriptAttachmentCard ...>`, add:
+
+```tsx
+  const noticeTone = item.status === "FAILED" ? "error" : item.status === "COMPLETED" ? "success" : "default";
+
+  if (!isMemorySave) {
+    return (
+      <TranscriptSystemNotice label={status} role={item.status === "FAILED" ? "alert" : "status"} tone={noticeTone}>
+        {item.summary || title}
+      </TranscriptSystemNotice>
+    );
+  }
+```
+
+The existing `TranscriptAttachmentCard` return remains for `memory_save`
+activity rows and continues to use `open` and `onToggle`.
+
+- [ ] **Step 5: Verify error and activity paths use `TranscriptSystemNotice`**
+
+Run:
+
+```bash
+rg -n "TranscriptSystemNotice|ChatSystemMessage" crates/noema-core/web/src/components/transcript/ErrorNotice.tsx \
+  crates/noema-core/web/src/components/transcript/ActivityRow.tsx \
+  crates/noema-core/web/src/components/transcript/TranscriptSystemNotice.tsx
+```
+
+Expected output includes `ChatSystemMessage` only in `TranscriptSystemNotice.tsx`
+and `TranscriptSystemNotice` in both `ErrorNotice.tsx` and `ActivityRow.tsx`.
+
+- [ ] **Step 6: Verify memory-specific activity still uses the detail card**
+
+Run:
+
+```bash
+rg -n "isMemorySave|TranscriptAttachmentCard|aria-expanded|memory_save" crates/noema-core/web/src/components/transcript/ActivityRow.tsx
+```
+
+Expected output includes `isMemorySave`, `memory_save`, `TranscriptAttachmentCard`,
+and `aria-expanded`.
+
+- [ ] **Step 7: Run lint**
+
+Run:
+
+```bash
+cd crates/noema-core/web
+bun run lint
+```
+
+Expected: pass.
+
+- [ ] **Step 8: Commit Task 5**
+
+```bash
+git add crates/noema-core/web/src/components/transcript/TranscriptSystemNotice.tsx \
+  crates/noema-core/web/src/components/transcript/ErrorNotice.tsx \
+  crates/noema-core/web/src/components/transcript/ActivityRow.tsx
+git commit -m "refactor: render transcript notices with astryx system messages"
+```
+
+## Task 6: Final Validation And Cleanup
 
 **Files:**
 - Inspect only unless validation requires fixes.
@@ -537,7 +726,7 @@ or type-safe adapter code if present. Do not introduce Tailwind classes.
 Run:
 
 ```bash
-git diff --name-only HEAD~4..HEAD
+git diff --name-only HEAD~5..HEAD
 ```
 
 Expected files are limited to:
@@ -549,6 +738,9 @@ crates/noema-core/web/src/components/transcript/Message.tsx
 crates/noema-core/web/src/components/transcript/TypingMessage.tsx
 crates/noema-core/web/src/components/transcript/markerModel.ts
 crates/noema-core/web/src/components/transcript/ToolMarker.tsx
+crates/noema-core/web/src/components/transcript/TranscriptSystemNotice.tsx
+crates/noema-core/web/src/components/transcript/ErrorNotice.tsx
+crates/noema-core/web/src/components/transcript/ActivityRow.tsx
 ```
 
 If additional files changed, inspect each one and keep it only if it is directly
@@ -593,7 +785,7 @@ Expected:
 
 - [ ] **Step 6: Inspect final staged changes before any final commit**
 
-If any validation fixes were needed after Task 4, stage only transcript files:
+If any validation fixes were needed after Task 5, stage only transcript files:
 
 ```bash
 git add crates/noema-core/web/src/components/transcript/TranscriptActorAvatar.tsx \
@@ -601,7 +793,10 @@ git add crates/noema-core/web/src/components/transcript/TranscriptActorAvatar.ts
   crates/noema-core/web/src/components/transcript/Message.tsx \
   crates/noema-core/web/src/components/transcript/TypingMessage.tsx \
   crates/noema-core/web/src/components/transcript/markerModel.ts \
-  crates/noema-core/web/src/components/transcript/ToolMarker.tsx
+  crates/noema-core/web/src/components/transcript/ToolMarker.tsx \
+  crates/noema-core/web/src/components/transcript/TranscriptSystemNotice.tsx \
+  crates/noema-core/web/src/components/transcript/ErrorNotice.tsx \
+  crates/noema-core/web/src/components/transcript/ActivityRow.tsx
 git diff --cached --stat
 git diff --cached --name-status
 ```
@@ -612,16 +807,16 @@ Expected: only transcript files are staged. If there are staged fixes, commit:
 git commit -m "chore: polish astryx transcript adoption"
 ```
 
-If no validation fixes were needed after Task 4, do not create an empty commit.
+If no validation fixes were needed after Task 5, do not create an empty commit.
 
 ## Self-Review Notes
 
 - Spec coverage: message rows are covered by Task 2, typing row by Task 3,
-  shared avatar preservation by Task 1, tool rows by Task 4, and validation by
-  Task 5.
+  shared avatar preservation by Task 1, tool rows by Task 4, system notices by
+  Task 5, and validation by Task 6.
 - Preserved scope: `Transcript`, `TranscriptScroller`, `TranscriptBottomFollower`,
-  `renderModel.ts`, composer, memory markers, activity rows, structured cards,
-  and error notices remain Noema-owned and unchanged unless TypeScript import
-  cleanup is required.
-- Deferred work: markdown/code rendering, date dividers/system messages, artifact
-  side panel, and full `ChatLayout` scroll ownership remain future slices.
+  `renderModel.ts`, composer, memory markers, memory-specific activity cards,
+  structured cards, and error semantics remain Noema-owned unless TypeScript
+  import cleanup is required.
+- Deferred work: markdown/code rendering, date dividers, artifact side panel,
+  and full `ChatLayout` scroll ownership remain future slices.
