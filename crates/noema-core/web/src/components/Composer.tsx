@@ -139,6 +139,15 @@ function parsedPixelValue(value: string, fallback: number): number {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function inlineBoxReservePx(styles: CSSStyleDeclaration): number {
+  return (
+    parsedPixelValue(styles.paddingLeft, 0) +
+    parsedPixelValue(styles.paddingRight, 0) +
+    parsedPixelValue(styles.borderLeftWidth, 0) +
+    parsedPixelValue(styles.borderRightWidth, 0)
+  );
+}
+
 export function syncHeight({
   textarea,
   value,
@@ -317,13 +326,17 @@ export const Composer = React.forwardRef<HTMLTextAreaElement, ComposerProps>(fun
 
     const styles = window.getComputedStyle(textarea);
     context.font = styles.font;
-    const padding =
-      Number.parseFloat(styles.paddingLeft || "0") + Number.parseFloat(styles.paddingRight || "0");
+    const textareaChromeStyles = textarea.parentElement
+      ? window.getComputedStyle(textarea.parentElement)
+      : null;
+    const inlineReservePx =
+      inlineBoxReservePx(styles) +
+      (textareaChromeStyles ? inlineBoxReservePx(textareaChromeStyles) : 0);
     const nextSize = composerDraftInlineSize({
       value,
       placeholder,
       measureText: (text) => context.measureText(text || " ").width,
-      widthBufferPx: composerMeasuredWidthBuffer(padding)
+      widthBufferPx: composerMeasuredWidthBuffer(inlineReservePx)
     });
     setMeasuredInlineSize((previous) =>
       previous?.key === sizeKey &&
