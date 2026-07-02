@@ -108,10 +108,11 @@ The next storage slice should stay small and concrete:
   runtime state.
 - Frontend build and lint use Bun from `crates/noema-core/web`.
 - Web GraphQL schema and operation types are generated with `bun run gen:types`.
-- The web UI uses shadcn/ui `base-rhea` components backed by Base UI, with
-  Noema colors applied through local CSS tokens. Noema-owned shell and domain
-  components remain responsible for chat, memory, provenance, approvals, tools,
-  runs, and object detail semantics.
+- The web UI uses Astryx as its component foundation, with a Noema-owned
+  Neutral-derived theme and StyleX for Noema-specific layout and state styling.
+  Noema-owned shell and domain components remain responsible for chat, memory,
+  provenance, approvals, tools, runs, settings, and object detail semantics.
+  shadcn/Base UI/Tailwind are no longer part of the frontend foundation.
 - The route-derived L0 to L1 Settings navigation has landed from
   `docs/superpowers/specs/2026-06-30-route-derived-shell-settings-design.md`
   and
@@ -179,8 +180,9 @@ The next storage slice should stay small and concrete:
   visibility is `visible`; the shell owns transition settling.
 - Noema-owned React product components should live one component per file.
   Pure helper/model logic belongs in `.ts` files, shared type files/types and
-  nearby tests may live in component folders, and `components/ui` primitive
-  wrappers may remain grouped when they mirror upstream compound APIs.
+  nearby tests may live in component folders. Shared local UI components should
+  express Noema domain semantics and use Astryx/StyleX rather than generic
+  compatibility wrappers for the retired shadcn/Base UI foundation.
 - Frontend Noema-owned product components now follow the one-component-per-file
   rule, with transcript render/model helpers split from React components.
 - GraphQL, daemon web transport, daemon runtime, graph-claim store, provider

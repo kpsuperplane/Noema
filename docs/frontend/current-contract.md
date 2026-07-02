@@ -36,10 +36,11 @@ explicit owner/admin entry points.
 
 Noema-owned React product components should live one component per file.
 Component folders may contain pure `.ts` helpers, shared type files, and
-nearby tests. Design-system or shadcn-style compound primitive wrappers under
-`components/ui` may remain grouped when they mirror an upstream primitive API,
-but new Noema-owned product components should follow the one-component-per-file
-rule.
+nearby tests. The web UI foundation is Astryx with a Noema-owned
+Neutral-derived theme and StyleX for Noema-specific layout and state styling.
+Generic shadcn/Base UI primitive wrappers are no longer part of the frontend
+contract; local UI components should express Noema domain semantics rather than
+compatibility with an old component library.
 
 ## Default Current Identities
 
