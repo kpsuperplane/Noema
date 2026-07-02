@@ -1,7 +1,4 @@
-import BoringAvatar from "boring-avatars";
-
-import { Avatar } from "@/components/ui/avatar";
-import { cn } from "@/lib/utils";
+import { Avatar } from "@astryxdesign/core/Avatar";
 
 export const NOEMA_AVATAR_COLORS = ["#3b4a6b", "#7d6a91", "#b9786d", "#d6ad6b", "#e6d8c4", "#2f3440"];
 
@@ -35,22 +32,17 @@ export function IdentityAvatar({
   size?: "default" | "sm" | "lg";
 }) {
   const avatarSeed = avatarSeedForActorId(actorId);
-  const avatarVariant = avatarVariantForActorType(actorType);
+  const avatarSize = size === "sm" ? "xsmall" : size === "lg" ? "medium" : "small";
+  const avatarProps = className ? { className } : {};
 
   return (
-    <Avatar className={className} size={size}>
-      <BoringAvatar
-        aria-hidden="true"
-        className={cn("size-full rounded-full")}
-        colors={NOEMA_AVATAR_COLORS}
-        data-avatar-seed={avatarSeed}
-        data-avatar-variant={avatarVariant}
-        focusable="false"
-        name={avatarSeed}
-        size="100%"
-        title={false}
-        variant={avatarVariant}
-      />
-    </Avatar>
+    <Avatar
+      {...avatarProps}
+      alt={actorType === "human" ? "Human avatar" : "Agent avatar"}
+      data-avatar-seed={avatarSeed}
+      data-avatar-variant={avatarVariantForActorType(actorType)}
+      name={avatarSeed}
+      size={avatarSize}
+    />
   );
 }

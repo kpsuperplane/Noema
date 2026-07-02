@@ -1,5 +1,6 @@
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card } from "@astryxdesign/core/Card";
+import { Button } from "@astryxdesign/core/Button";
+import * as stylex from "@stylexjs/stylex";
 
 const STARTERS = [
   "Say hello and tell me Noema is working.",
@@ -9,30 +10,84 @@ const STARTERS = [
 
 export function EmptyState({ onPick }: { onPick: (starter: string) => void }) {
   return (
-    <div className="grid min-h-[56vh] content-center justify-items-center gap-3.5 text-center">
-      <p className="m-0 font-mono text-[11px] tracking-[0.12em] text-[var(--text-accent)] uppercase">Today</p>
-      <h1 className="m-0 max-w-[680px] font-heading text-[clamp(38px,8vw,66px)] leading-none tracking-normal text-foreground">
+    <div {...stylex.props(styles.root)}>
+      <p {...stylex.props(styles.eyebrow)}>Today</p>
+      <h1 {...stylex.props(styles.title)}>
         What should we work on?
       </h1>
-      <p className="m-0 max-w-[560px] text-lg leading-[1.55] text-muted-foreground">
+      <p {...stylex.props(styles.description)}>
         Start with one chat. Memory and activity appear in the transcript when Noema has something worth showing.
       </p>
-      <div className="mt-2.5 grid w-[min(720px,100%)] grid-cols-3 gap-2.5 max-[760px]:grid-cols-1">
+      <div {...stylex.props(styles.starters)}>
         {STARTERS.map((starter) => (
-          <Card key={starter} className="min-h-[54px] p-0">
-            <CardContent className="h-full p-0">
-              <Button
-                type="button"
-                variant="ghost"
-                className="h-full min-h-[54px] w-full justify-start px-3.5 py-2.5 text-left whitespace-normal text-foreground"
-                onClick={() => onPick(starter)}
-              >
-                {starter}
-              </Button>
-            </CardContent>
+          <Card key={starter} padding={0} minHeight={54}>
+            <Button
+              {...stylex.props(styles.starterButton)}
+              type="button"
+              variant="ghost"
+              label={starter}
+              onClick={() => onPick(starter)}
+            >
+              {starter}
+            </Button>
           </Card>
         ))}
       </div>
     </div>
   );
 }
+
+const styles = stylex.create({
+  root: {
+    display: "grid",
+    minHeight: "56vh",
+    alignContent: "center",
+    justifyItems: "center",
+    gap: 14,
+    textAlign: "center"
+  },
+  eyebrow: {
+    margin: 0,
+    fontFamily: "var(--font-mono)",
+    fontSize: 11,
+    letterSpacing: "0.12em",
+    color: "var(--text-accent)",
+    textTransform: "uppercase"
+  },
+  title: {
+    margin: 0,
+    maxWidth: 680,
+    fontFamily: "var(--font-heading)",
+    fontSize: "clamp(38px, 8vw, 66px)",
+    lineHeight: 1,
+    letterSpacing: 0,
+    color: "var(--foreground)"
+  },
+  description: {
+    margin: 0,
+    maxWidth: 560,
+    fontSize: 18,
+    lineHeight: 1.55,
+    color: "var(--muted-foreground)"
+  },
+  starters: {
+    display: "grid",
+    width: "min(720px, 100%)",
+    gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+    gap: 10,
+    marginTop: 10,
+    "@media (max-width: 760px)": {
+      gridTemplateColumns: "1fr"
+    }
+  },
+  starterButton: {
+    width: "100%",
+    height: "100%",
+    minHeight: 54,
+    justifyContent: "flex-start",
+    padding: "10px 14px",
+    textAlign: "left",
+    whiteSpace: "normal",
+    color: "var(--foreground)"
+  }
+});

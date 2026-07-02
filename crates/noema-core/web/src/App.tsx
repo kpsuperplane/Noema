@@ -1,5 +1,6 @@
 import React from "react";
 import { useApolloClient, useMutation, useQuery, useSubscription } from "@apollo/client/react";
+import * as stylex from "@stylexjs/stylex";
 import {
   ConversationEventsDocument,
   LocalStatusDocument,
@@ -347,15 +348,15 @@ export function App() {
     return (
       <SetupFrame>
         <section
-          className="mx-auto grid min-h-full w-[min(760px,100%)] content-center px-6 max-[760px]:content-start max-[760px]:px-5"
+          {...stylex.props(styles.setupStatus)}
           aria-label="Noema onboarding"
         >
-          <div className="grid min-w-0 gap-3.5 py-[18px]">
-            <p className="m-0 font-mono text-[11px] tracking-[0.12em] text-[var(--text-accent)] uppercase">First run</p>
-            <h1 className="m-0 font-heading text-[34px] leading-[1.1] tracking-normal text-foreground [overflow-wrap:anywhere] max-[760px]:text-3xl">
+          <div {...stylex.props(styles.setupStatusContent)}>
+            <p {...stylex.props(styles.setupEyebrow)}>First run</p>
+            <h1 {...stylex.props(styles.setupTitle)}>
               Checking setup
             </h1>
-            <p className="m-0 max-w-[560px] text-muted-foreground [overflow-wrap:anywhere]">
+            <p {...stylex.props(styles.setupDescription)}>
               Noema is checking whether chat can start.
             </p>
             {displayedOnboardingError ? <ErrorMarker message={displayedOnboardingError} /> : null}
@@ -436,3 +437,50 @@ export function App() {
     </AppShell>
   );
 }
+
+const styles = stylex.create({
+  setupStatus: {
+    display: "grid",
+    width: "min(760px, 100%)",
+    minHeight: "100%",
+    alignContent: "center",
+    marginInline: "auto",
+    paddingInline: 24,
+    "@media (max-width: 760px)": {
+      alignContent: "start",
+      paddingInline: 20
+    }
+  },
+  setupStatusContent: {
+    display: "grid",
+    minWidth: 0,
+    gap: 14,
+    paddingBlock: 18
+  },
+  setupEyebrow: {
+    margin: 0,
+    fontFamily: "var(--font-mono)",
+    fontSize: 11,
+    letterSpacing: "0.12em",
+    color: "var(--text-accent)",
+    textTransform: "uppercase"
+  },
+  setupTitle: {
+    margin: 0,
+    fontFamily: "var(--font-heading)",
+    fontSize: 34,
+    lineHeight: 1.1,
+    letterSpacing: 0,
+    color: "var(--foreground)",
+    overflowWrap: "anywhere",
+    "@media (max-width: 760px)": {
+      fontSize: 30
+    }
+  },
+  setupDescription: {
+    margin: 0,
+    maxWidth: 560,
+    color: "var(--muted-foreground)",
+    overflowWrap: "anywhere"
+  }
+});
