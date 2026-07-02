@@ -23,6 +23,7 @@ const styles = stylex.create({
   },
   textBubble: {
     maxWidth: "80%",
+    minHeight: 40,
     fontSize: 14,
     lineHeight: 1.7,
     overflowWrap: "break-word",
