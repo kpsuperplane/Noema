@@ -335,7 +335,7 @@ const styles = stylex.create({
     borderWidth: 0,
     borderRadius: 8,
     backgroundColor: "transparent",
-    color: "var(--foreground)",
+    color: "color-mix(in srgb, var(--pine-700) 78%, var(--foreground))",
     paddingBlock: 0,
     paddingInline: 4,
     textAlign: "left",
@@ -346,7 +346,7 @@ const styles = stylex.create({
     transitionTimingFunction: "ease",
     ":hover": {
       "@media (hover: hover)": {
-        backgroundColor: "var(--surface-hover)"
+        backgroundColor: "color-mix(in srgb, var(--pine-100) 44%, transparent)"
       }
     },
     ":focus-visible": {
@@ -360,15 +360,16 @@ const styles = stylex.create({
     }
   },
   menuButtonActive: {
-    backgroundColor: "var(--color-neutral)",
+    backgroundColor: "color-mix(in srgb, var(--pine-100) 72%, transparent)",
+    color: "var(--pine-700)",
     fontWeight: 500,
     ":hover": {
       "@media (hover: hover)": {
-        backgroundColor: "var(--color-neutral)"
+        backgroundColor: "color-mix(in srgb, var(--pine-100) 72%, transparent)"
       }
     },
     ":active": {
-      backgroundColor: "var(--color-neutral)"
+      backgroundColor: "color-mix(in srgb, var(--pine-100) 72%, transparent)"
     }
   },
   menuIcon: {
