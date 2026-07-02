@@ -1,5 +1,5 @@
 import React from "react";
-import { SideNav, SideNavItem } from "@astryxdesign/core/SideNav";
+import { SideNav, SideNavItem, type SideNavProps } from "@astryxdesign/core/SideNav";
 import * as stylex from "@stylexjs/stylex";
 import { IdentityAvatar, LOCAL_AGENT_AVATAR_ID } from "../IdentityAvatar";
 import type { ShellAttention } from "./AppShell";
@@ -10,6 +10,7 @@ const shellSidebarMenuTransitionMs = 300;
 
 type ShellSidebarTransitionDirection = "forward" | "backward";
 type ShellSidebarMenuFrameState = "current" | "entering" | "exiting";
+type SideNavXStyle = SideNavProps["xstyle"];
 
 const shellSidebarMenuLevelOrder: Record<ShellMenuLevelId, number> = {
   l0: 0,
@@ -119,13 +120,6 @@ function ShellSidebarMenuFrame({
   interactive: boolean;
   onSelectItem: (item: ShellMenuItem) => void;
 }) {
-  const visibleAttention =
-    menuLevel.supportsAttention && attention ? (
-      <ShellAttentionItem attention={attention} />
-    ) : (
-      <div aria-hidden="true" />
-    );
-
   return (
     <div
       data-slot="shell-sidebar-menu-level-frame"
@@ -138,35 +132,69 @@ function ShellSidebarMenuFrame({
         !interactive && styles.menuFrameNonInteractive
       )}
     >
-      <SideNav
-        aria-label={menuLevel.ariaLabel}
-        header={<ShellSidebarHeader attention={visibleAttention} />}
-        footer={
-          <ShellMenuItem
-            item={menuLevel.bottomItem}
-            active={menuLevel.bottomItem.itemId === menuLevel.activeItemId}
-            primaryAgentNamed={false}
-            primaryAgentLabel={primaryAgentLabel}
-            interactive={interactive}
-            bottom
-            onSelectItem={onSelectItem}
-          />
-        }
-        {...stylex.props(styles.sideNav)}
-      >
-        {menuLevel.items.map((item) => (
-          <ShellMenuItem
-            key={item.itemId}
-            item={item}
-            active={item.itemId === menuLevel.activeItemId}
-            primaryAgentNamed={primaryAgentNamed}
-            primaryAgentLabel={primaryAgentLabel}
-            interactive={interactive}
-            onSelectItem={onSelectItem}
-          />
-        ))}
-      </SideNav>
+      <ShellSidebarNav
+        menuLevel={menuLevel}
+        attention={attention}
+        primaryAgentNamed={primaryAgentNamed}
+        primaryAgentLabel={primaryAgentLabel}
+        interactive={interactive}
+        onSelectItem={onSelectItem}
+      />
     </div>
+  );
+}
+
+function ShellSidebarNav({
+  menuLevel,
+  attention,
+  primaryAgentNamed,
+  primaryAgentLabel,
+  interactive,
+  onSelectItem
+}: {
+  menuLevel: ShellMenuLevel;
+  attention: ShellAttention | null;
+  primaryAgentNamed: boolean;
+  primaryAgentLabel: string;
+  interactive: boolean;
+  onSelectItem: (item: ShellMenuItem) => void;
+}) {
+  const visibleAttention =
+    menuLevel.supportsAttention && attention ? (
+      <ShellAttentionItem attention={attention} />
+    ) : (
+      <div aria-hidden="true" />
+    );
+
+  return (
+    <SideNav
+      aria-label={menuLevel.ariaLabel}
+      header={<ShellSidebarHeader attention={visibleAttention} />}
+      footer={
+        <ShellSidebarNavItem
+          item={menuLevel.bottomItem}
+          active={menuLevel.bottomItem.itemId === menuLevel.activeItemId}
+          primaryAgentNamed={false}
+          primaryAgentLabel={primaryAgentLabel}
+          interactive={interactive}
+          bottom
+          onSelectItem={onSelectItem}
+        />
+      }
+      xstyle={sideNavXStyle(styles.sideNav)}
+    >
+      {menuLevel.items.map((item) => (
+        <ShellSidebarNavItem
+          key={item.itemId}
+          item={item}
+          active={item.itemId === menuLevel.activeItemId}
+          primaryAgentNamed={primaryAgentNamed}
+          primaryAgentLabel={primaryAgentLabel}
+          interactive={interactive}
+          onSelectItem={onSelectItem}
+        />
+      ))}
+    </SideNav>
   );
 }
 
@@ -179,7 +207,7 @@ function ShellSidebarHeader({ attention }: { attention: React.ReactNode }) {
   );
 }
 
-function ShellMenuItem({
+function ShellSidebarNavItem({
   item,
   active,
   primaryAgentNamed,
@@ -231,6 +259,10 @@ function PrimaryAgentMenuAvatar() {
       </span>
     </span>
   );
+}
+
+function sideNavXStyle(xstyle: unknown): SideNavXStyle {
+  return xstyle as unknown as SideNavXStyle;
 }
 
 const styles = stylex.create({
