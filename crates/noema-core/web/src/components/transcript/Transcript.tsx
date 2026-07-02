@@ -202,6 +202,11 @@ function renderTranscriptEntry(
     return <Message animate={animateText} role="assistant" text={entry.text} showAvatar={showAvatar} />;
   }
   if (entry.type === "activity") {
+    if (entry.item.activity_kind !== "memory_save") {
+      return (
+        <ActivityRow item={entry.item} open={expandedActivities.has(entry.id)} onToggle={() => onToggleActivity(entry.id)} />
+      );
+    }
     return (
       <TranscriptRow lane="assistant" showAvatar={showAvatar}>
         <ActivityRow item={entry.item} open={expandedActivities.has(entry.id)} onToggle={() => onToggleActivity(entry.id)} />
@@ -215,9 +220,5 @@ function renderTranscriptEntry(
       </TranscriptRow>
     );
   }
-  return (
-    <TranscriptRow lane="assistant" showAvatar={showAvatar}>
-      <ErrorNotice message={entry.message} recoverable={entry.recoverable} />
-    </TranscriptRow>
-  );
+  return <ErrorNotice message={entry.message} recoverable={entry.recoverable} />;
 }
