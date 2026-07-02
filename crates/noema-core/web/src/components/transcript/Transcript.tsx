@@ -79,16 +79,21 @@ export function Transcript({
       return;
     }
 
+    let cancelled = false;
+    if (textAnimatingChanged) {
+      window.queueMicrotask(() => {
+        if (!cancelled) {
+          setTextAnimatingMessageIds(nextTextAnimatingMessageIds);
+        }
+      });
+    }
+
     const timeout = window.setTimeout(() => {
-      if (changed) {
-        setSeenArrivalMessageIds(nextSeenMessageIds);
-      }
-      if (textAnimatingChanged) {
-        setTextAnimatingMessageIds(nextTextAnimatingMessageIds);
-      }
+      setSeenArrivalMessageIds(nextSeenMessageIds);
     }, arrivalScrollKey ? ARRIVAL_SCROLL_FOLLOW_DURATION_MS : 0);
 
     return () => {
+      cancelled = true;
       window.clearTimeout(timeout);
     };
   }, [arrivalScrollKey, renderedEntries, seenArrivalMessageIds, textAnimatingMessageIds]);
