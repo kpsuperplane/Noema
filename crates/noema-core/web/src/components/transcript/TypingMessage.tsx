@@ -21,6 +21,8 @@ const styles = stylex.create({
   bubble: {
     width: 58,
     minHeight: 36,
+    paddingBlock: 0,
+    paddingInline: 0,
     backgroundColor: "var(--muted)",
     color: "var(--foreground)"
   },
