@@ -1,4 +1,5 @@
 import React from "react";
+import * as stylex from "@stylexjs/stylex";
 import { Composer } from "./Composer";
 import { EmptyState } from "./EmptyState";
 import { Transcript } from "./Transcript";
@@ -74,7 +75,7 @@ export function ChatSurface({
   return (
     <section
       data-slot="chat-surface"
-      className="grid h-full min-h-0 w-full grid-rows-[minmax(0,1fr)_auto] overflow-hidden pb-[22px] [--chat-column-width:min(860px,calc(100%_-_48px))] max-[760px]:[--chat-column-width:calc(100%_-_40px)]"
+      {...stylex.props(styles.root)}
       aria-label="Noema chat"
     >
       {transcript.length === 0 ? (
@@ -102,3 +103,22 @@ export function ChatSurface({
     </section>
   );
 }
+
+const styles = stylex.create({
+  root: {
+    "--chat-column-width": {
+      default: "min(860px, calc(100% - 48px))",
+      "@media (max-width: 760px)": "calc(100% - 40px)"
+    },
+    display: "grid",
+    gridTemplateRows: "minmax(0, 1fr) auto",
+    minHeight: 0,
+    height: "100%",
+    width: "100%",
+    overflow: "hidden",
+    paddingBottom: {
+      default: 22,
+      "@media (hover: none) and (pointer: coarse)": "max(18px, env(safe-area-inset-bottom))"
+    }
+  }
+});

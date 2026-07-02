@@ -1,4 +1,5 @@
 import * as React from "react";
+import * as stylex from "@stylexjs/stylex";
 
 type MessageTextAnimationToken =
   | { kind: "word"; value: string; wordIndex: number }
@@ -59,7 +60,7 @@ export function AnimatedMessageText({
         return (
           <span
             key={`word-${index}`}
-            className={shouldAnimate ? "message-word-fade" : undefined}
+            {...stylex.props(shouldAnimate && styles.wordFade)}
           >
             {token.value}
           </span>
@@ -129,3 +130,12 @@ export function visibleMessageTextAnimationTokens(
 function messageTextWordCount(tokens: MessageTextAnimationToken[]): number {
   return tokens.filter((token) => token.kind === "word").length;
 }
+
+const styles = stylex.create({
+  wordFade: {
+    animation: {
+      default: "message-word-fade-in 180ms ease-out both",
+      "@media (prefers-reduced-motion: reduce)": "none"
+    }
+  }
+});

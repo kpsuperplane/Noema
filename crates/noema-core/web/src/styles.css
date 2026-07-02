@@ -60,21 +60,6 @@ body {
   textarea {
     font-size: max(16px, 1em);
   }
-
-  [data-slot="chat-surface"] {
-    padding-bottom: max(18px, env(safe-area-inset-bottom));
-  }
-
-  [data-slot="composer-bubble"] {
-    padding-right: 3.5rem;
-  }
-
-  [data-slot="composer-submit"] {
-    right: 0.25rem;
-    bottom: 0.25rem;
-    width: 2.75rem;
-    height: 2.75rem;
-  }
 }
 
 html[data-tauri-runtime="true"],
@@ -108,10 +93,6 @@ html[data-tauri-runtime="true"] #root {
   animation: shell-sidebar-menu-exit-backward 300ms cubic-bezier(0.2, 0, 0, 1) both;
 }
 
-.message-word-fade {
-  animation: message-word-fade-in 180ms ease-out both;
-}
-
 [data-slot="message-scroller-item"][data-arrival="true"] {
   content-visibility: visible;
   position: relative;
@@ -138,6 +119,15 @@ html[data-tauri-runtime="true"] #root {
 
 [data-slot="message-scroller-item"][data-arrival="true"] [data-slot="message-arrival-inner"] > * {
   animation: message-content-arrival 220ms cubic-bezier(0.2, 0, 0, 1) 35ms both;
+}
+
+[data-slot="composer-textarea"] {
+  min-height: 36px;
+  width: 100%;
+  resize: none;
+  overflow-y: hidden;
+  font-size: 1rem;
+  line-height: 1.5rem;
 }
 
 [data-slot="marker"][data-pending] {
@@ -298,10 +288,6 @@ html[data-tauri-runtime="true"] #root {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .message-word-fade {
-    animation: none;
-  }
-
   [data-slot="message-scroller-item"][data-reveal-after-arrival="true"] {
     opacity: 1;
     animation: none;

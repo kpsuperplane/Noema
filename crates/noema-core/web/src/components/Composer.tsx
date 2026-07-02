@@ -1,7 +1,8 @@
 import React from "react";
 import { SendHorizontal } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
+import { Button } from "@astryxdesign/core/Button";
+import { TextArea } from "@astryxdesign/core/TextArea";
+import * as stylex from "@stylexjs/stylex";
 
 const composerMinWidthCh = 18;
 const composerWidthBufferCh = 5;
@@ -34,9 +35,7 @@ export function composerSubmitState({
 
 export function composerTextareaProps() {
   return {
-    rows: 1,
-    className:
-      "min-h-9 min-w-0 w-full resize-none overflow-y-hidden border-transparent bg-transparent px-2.5 py-1.5 text-base leading-6 text-primary-foreground placeholder:text-primary-foreground/70 focus-visible:border-transparent focus-visible:ring-0 disabled:opacity-70"
+    rows: 1
   };
 }
 
@@ -218,11 +217,14 @@ export const Composer = React.forwardRef<HTMLTextAreaElement, ComposerProps>(fun
     placeholder,
     inlineSize: measuredInlineSize?.key === sizeKey ? measuredInlineSize.size : fallbackInlineSize
   });
+  const textareaNativeProps = {
+    enterKeyHint: "send"
+  } as const;
 
   return (
     <form
       data-slot="composer-shell"
-      className="mx-auto flex w-[var(--chat-column-width)] justify-end pt-3.5"
+      {...stylex.props(styles.shell)}
       onSubmit={(event) => {
         event.preventDefault();
         submit();
@@ -230,19 +232,26 @@ export const Composer = React.forwardRef<HTMLTextAreaElement, ComposerProps>(fun
     >
       <div
         data-slot="composer-bubble"
-        className="relative w-fit min-w-[min(13rem,100%)] max-w-full rounded-4xl bg-primary p-1.5 pr-12 text-primary-foreground shadow-[0_8px_24px_rgba(23,22,15,0.08)]"
+        {...stylex.props(styles.bubble)}
       >
-        <div data-slot="composer-textarea-wrap" className="min-w-0" style={textareaWrapStyle}>
-          <Textarea
+        <div
+          data-slot="composer-textarea-wrap"
+          {...stylex.props(styles.textareaWrap)}
+          style={textareaWrapStyle}
+        >
+          <TextArea
             ref={setTextareaRef}
+            data-slot="composer-textarea"
+            label="Message"
+            isLabelHidden
             value={value}
-            disabled={isComposerTextareaDisabled({ ready })}
+            isDisabled={isComposerTextareaDisabled({ ready })}
             placeholder={placeholder}
-            enterKeyHint="send"
             rows={textareaProps.rows}
             style={textareaStyle}
-            className={textareaProps.className}
-            onChange={(event) => onChange(event.currentTarget.value)}
+            xstyle={styles.textareaChrome as never}
+            {...textareaNativeProps}
+            onChange={(nextValue) => onChange(nextValue)}
             onKeyDown={(event) => {
               if (event.key === "Enter" && !event.shiftKey) {
                 event.preventDefault();
@@ -254,15 +263,96 @@ export const Composer = React.forwardRef<HTMLTextAreaElement, ComposerProps>(fun
         <Button
           data-slot="composer-submit"
           type="button"
-          size="icon-lg"
-          className="absolute right-1.5 bottom-1.5 touch-manipulation rounded-full bg-primary-foreground text-primary hover:bg-primary-foreground/90 disabled:text-primary/70"
-          aria-label={submitState.label}
-          disabled={submitState.disabled}
+          label={submitState.label}
+          isIconOnly
+          icon={<SendHorizontal aria-hidden="true" />}
+          size="lg"
+          variant="secondary"
+          xstyle={styles.submit as never}
+          isDisabled={submitState.disabled}
           onClick={submit}
-        >
-          <SendHorizontal aria-hidden="true" />
-        </Button>
+        />
       </div>
     </form>
   );
+});
+
+const styles = stylex.create({
+  shell: {
+    display: "flex",
+    justifyContent: "flex-end",
+    width: "var(--chat-column-width)",
+    marginInline: "auto",
+    paddingTop: 14
+  },
+  bubble: {
+    position: "relative",
+    width: "fit-content",
+    minWidth: "min(13rem, 100%)",
+    maxWidth: "100%",
+    borderRadius: "calc(var(--radius) * 2.6)",
+    backgroundColor: "var(--primary)",
+    padding: 6,
+    paddingRight: {
+      default: 48,
+      "@media (hover: none) and (pointer: coarse)": 56
+    },
+    color: "var(--primary-foreground)",
+    boxShadow: "0 8px 24px rgba(23, 22, 15, 0.08)"
+  },
+  textareaWrap: {
+    minWidth: 0
+  },
+  textareaChrome: {
+    "--color-text-primary": "var(--primary-foreground)",
+    "--color-text-secondary": "color-mix(in srgb, var(--primary-foreground) 70%, transparent)",
+    minHeight: 36,
+    minWidth: 0,
+    width: "100%",
+    borderColor: "transparent",
+    backgroundColor: "transparent",
+    paddingBlock: 6,
+    paddingInline: 10,
+    opacity: {
+      default: 1,
+      ":disabled": 0.7
+    },
+    outline: {
+      default: null,
+      ":focus-visible": "none"
+    },
+    boxShadow: "none"
+  },
+  submit: {
+    position: "absolute",
+    right: {
+      default: 6,
+      "@media (hover: none) and (pointer: coarse)": 4
+    },
+    bottom: {
+      default: 6,
+      "@media (hover: none) and (pointer: coarse)": 4
+    },
+    width: {
+      default: 36,
+      "@media (hover: none) and (pointer: coarse)": 44
+    },
+    height: {
+      default: 36,
+      "@media (hover: none) and (pointer: coarse)": 44
+    },
+    touchAction: "manipulation",
+    borderRadius: 999,
+    backgroundColor: "var(--primary-foreground)",
+    color: {
+      default: "var(--primary)",
+      ":disabled": "color-mix(in srgb, var(--primary) 70%, transparent)"
+    },
+    backgroundImage: {
+      default: null,
+      ":hover": {
+        "@media (hover: hover)": "linear-gradient(rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.1))"
+      }
+    }
+  }
 });
