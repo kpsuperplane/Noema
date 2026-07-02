@@ -51,7 +51,8 @@ impl SseAccumulator {
             });
         }
 
-        if self.output_values.is_empty() && !self.output_text.is_empty() {
+        if !self.output_text.is_empty() {
+            self.output_values.clear();
             self.output_values.push(serde_json::json!({
                 "type": "message",
                 "content": [{"type": "output_text", "text": self.output_text}]
@@ -293,6 +294,33 @@ mod tests {
 
         assert_eq!(response.id.as_deref(), Some("resp_test"));
         assert_eq!(response.output_text().expect("output text"), "from item");
+    }
+
+    #[test]
+    fn response_from_sse_prefers_streamed_text_over_output_item_done_text() {
+        let response = response_from_sse(
+            "event: response.output_text.delta\n\
+             data: {\"type\":\"response.output_text.delta\",\"delta\":\"{\\\"type\\\":\\\"noema_response\\\",\\\"output\\\":[{\\\"kind\\\":\\\"assistant_text\\\",\\\"text\\\":\\\"Searching memory.\\\"},\"}\n\
+             \n\
+             event: response.output_text.delta\n\
+             data: {\"type\":\"response.output_text.delta\",\"delta\":\"{\\\"kind\\\":\\\"tool_call\\\",\\\"id\\\":\\\"call_memory_1\\\",\\\"name\\\":\\\"search_memory\\\",\\\"payload\\\":{\\\"scope_ids\\\":[\\\"human:local\\\"],\\\"query\\\":\\\"\\\",\\\"purpose\\\":\\\"answer_human_question\\\",\\\"limit\\\":8}},\"}\n\
+             \n\
+             event: response.output_text.delta\n\
+             data: {\"type\":\"response.output_text.delta\",\"delta\":\"{\\\"kind\\\":\\\"memory_proposals\\\",\\\"proposals\\\":[]}]}\"}\n\
+             \n\
+             event: response.output_item.done\n\
+             data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"message\",\"content\":[{\"type\":\"output_text\",\"text\":\"Searching memory.\"}]}}\n\
+             \n\
+             event: response.completed\n\
+             data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_test\",\"status\":\"completed\",\"output\":null}}\n\
+             \n",
+        )
+        .expect("sse response");
+
+        assert_eq!(
+            response.output_text().expect("output text"),
+            "{\"type\":\"noema_response\",\"output\":[{\"kind\":\"assistant_text\",\"text\":\"Searching memory.\"},{\"kind\":\"tool_call\",\"id\":\"call_memory_1\",\"name\":\"search_memory\",\"payload\":{\"scope_ids\":[\"human:local\"],\"query\":\"\",\"purpose\":\"answer_human_question\",\"limit\":8}},{\"kind\":\"memory_proposals\",\"proposals\":[]}]}"
+        );
     }
 
     #[test]
