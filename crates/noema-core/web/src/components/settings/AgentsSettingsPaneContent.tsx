@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
+import { Badge } from "@astryxdesign/core/Badge";
+import { Button } from "@astryxdesign/core/Button";
+import * as stylex from "@stylexjs/stylex";
 import { Settings2 } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import {
   agentBadgeLabel,
   agentDisplayName,
@@ -60,13 +61,13 @@ export function AgentsSettingsPaneContent({
   const [editingAgentId, setEditingAgentId] = useState<string | null>(null);
 
   if (loading) {
-    return <p className="m-0 text-sm text-muted-foreground">Loading agents...</p>;
+    return <p {...stylex.props(styles.mutedText)}>Loading agents...</p>;
   }
 
   if (error) {
     return (
-      <div className="rounded-md border border-[var(--border-subtle)] bg-white p-4">
-        <p className="m-0 text-sm text-muted-foreground">
+      <div {...stylex.props(styles.card)}>
+        <p {...stylex.props(styles.mutedText)}>
           Agent metadata could not be loaded.
         </p>
       </div>
@@ -75,16 +76,16 @@ export function AgentsSettingsPaneContent({
 
   if (agents.length === 0) {
     return (
-      <div className="rounded-md border border-[var(--border-subtle)] bg-white p-4">
-        <p className="m-0 text-sm text-muted-foreground">No agents were found.</p>
+      <div {...stylex.props(styles.card)}>
+        <p {...stylex.props(styles.mutedText)}>No agents were found.</p>
       </div>
     );
   }
 
   return (
-    <div className="grid gap-3">
+    <div {...stylex.props(styles.list)}>
       {saveError ? (
-        <p className="m-0 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+        <p {...stylex.props(styles.saveError)}>
           Noema could not save the model choice.
         </p>
       ) : null}
@@ -97,41 +98,40 @@ export function AgentsSettingsPaneContent({
         return (
           <article
             key={agent.agentId}
-            className="grid gap-3 rounded-md border border-[var(--border-subtle)] bg-white p-4"
+            {...stylex.props(styles.card)}
           >
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex flex-wrap items-center gap-3">
-                <h2 className="m-0 font-heading text-xl leading-tight tracking-normal text-foreground">
+            <div {...stylex.props(styles.cardHeader)}>
+              <div {...stylex.props(styles.titleRow)}>
+                <h2 {...stylex.props(styles.cardTitle)}>
                   {displayName}
                 </h2>
-                {badgeLabel ? <Badge variant="outline">{badgeLabel}</Badge> : null}
+                {badgeLabel ? <Badge variant="neutral" label={badgeLabel} /> : null}
               </div>
               <Button
                 type="button"
-                variant="outline"
+                variant="secondary"
                 size="sm"
+                label="Model"
+                icon={<Settings2 {...stylex.props(styles.icon)} aria-hidden="true" />}
                 aria-label={`${editing ? "Close" : "Edit"} model settings for ${displayName}`}
                 aria-expanded={editing}
                 onClick={() => setEditingAgentId(editing ? null : agent.agentId)}
-              >
-                <Settings2 className="size-4" aria-hidden="true" />
-                Model
-              </Button>
+              />
             </div>
-            <dl className="m-0 grid gap-2">
+            <dl {...stylex.props(styles.definitionList)}>
               {rows.map((row) => (
                 <div
                   key={row.label}
-                  className="grid grid-cols-[minmax(120px,180px)_1fr] gap-4 max-[760px]:grid-cols-1 max-[760px]:gap-1"
+                  {...stylex.props(styles.definitionRow)}
                 >
-                  <dt className="text-sm font-medium text-muted-foreground">{row.label}</dt>
-                  <dd className="m-0 min-w-0 break-words font-mono text-sm text-foreground">
+                  <dt {...stylex.props(styles.definitionTerm)}>{row.label}</dt>
+                  <dd {...stylex.props(styles.definitionValue)}>
                     {row.value}
                   </dd>
                 </div>
               ))}
             </dl>
-            {warning ? <p className="m-0 text-sm text-amber-700">{warning}</p> : null}
+            {warning ? <p {...stylex.props(styles.warningText)}>{warning}</p> : null}
             {editing ? (
               <AgentModelPreferenceEditor
                 agent={agent}
@@ -206,7 +206,7 @@ function AgentModelPreferenceEditor({
 
   return (
     <form
-      className="grid gap-3 border-t border-[var(--border-subtle)] pt-3"
+      {...stylex.props(styles.editor)}
       onSubmit={(event) => {
         event.preventDefault();
         if (canSave) {
@@ -218,11 +218,11 @@ function AgentModelPreferenceEditor({
         }
       }}
     >
-      <div className="grid grid-cols-2 gap-3 max-[760px]:grid-cols-1">
-        <label className="grid gap-1 text-sm">
-          <span className="font-medium text-foreground">Provider</span>
+      <div {...stylex.props(styles.editorGrid)}>
+        <label {...stylex.props(styles.field)}>
+          <span {...stylex.props(styles.fieldLabel)}>Provider</span>
           <select
-            className="h-9 min-w-0 rounded-md border border-[var(--border-subtle)] bg-white px-2 text-sm"
+            {...stylex.props(styles.select)}
             value={providerAccountId}
             onChange={(event) => {
               const nextProvider = options.find(
@@ -247,10 +247,10 @@ function AgentModelPreferenceEditor({
             )}
           </select>
         </label>
-        <label className="grid gap-1 text-sm">
-          <span className="font-medium text-foreground">Model</span>
+        <label {...stylex.props(styles.field)}>
+          <span {...stylex.props(styles.fieldLabel)}>Model</span>
           <select
-            className="h-9 min-w-0 rounded-md border border-[var(--border-subtle)] bg-white px-2 text-sm"
+            {...stylex.props(styles.select)}
             value={effectiveProfile}
             onChange={(event) => setModelProfile(event.target.value)}
             disabled={profiles.length === 0}
@@ -272,20 +272,169 @@ function AgentModelPreferenceEditor({
         </label>
       </div>
       {disabledMessages.length > 0 ? (
-        <ul className="m-0 grid gap-1 pl-4 text-sm text-amber-700">
+        <ul {...stylex.props(styles.warningList)}>
           {disabledMessages.map((message) => (
             <li key={message}>{message}</li>
           ))}
         </ul>
       ) : null}
-      <div className="flex flex-wrap justify-end gap-2">
-        <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
-          Cancel
-        </Button>
-        <Button type="submit" size="sm" disabled={!canSave}>
-          Save
-        </Button>
+      <div {...stylex.props(styles.actions)}>
+        <Button type="button" variant="ghost" size="sm" label="Cancel" onClick={onCancel} />
+        <Button
+          type="submit"
+          size="sm"
+          label="Save"
+          isDisabled={!canSave}
+          isLoading={saving}
+        />
       </div>
     </form>
   );
 }
+
+const styles = stylex.create({
+  mutedText: {
+    margin: 0,
+    fontSize: 14,
+    lineHeight: 1.5,
+    color: "var(--muted-foreground)"
+  },
+  list: {
+    display: "grid",
+    gap: 12
+  },
+  card: {
+    display: "grid",
+    gap: 12,
+    borderWidth: 1,
+    borderStyle: "solid",
+    borderColor: "var(--border-subtle)",
+    borderRadius: 6,
+    backgroundColor: "white",
+    padding: 16
+  },
+  saveError: {
+    margin: 0,
+    borderWidth: 1,
+    borderStyle: "solid",
+    borderColor: "color-mix(in srgb, var(--destructive) 30%, transparent)",
+    borderRadius: 6,
+    backgroundColor: "color-mix(in srgb, var(--destructive) 5%, transparent)",
+    padding: 12,
+    fontSize: 14,
+    lineHeight: 1.5,
+    color: "var(--destructive)"
+  },
+  cardHeader: {
+    display: "flex",
+    flexWrap: "wrap",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12
+  },
+  titleRow: {
+    display: "flex",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: 12
+  },
+  cardTitle: {
+    margin: 0,
+    fontFamily: "var(--font-heading)",
+    fontSize: 20,
+    lineHeight: 1.25,
+    letterSpacing: 0,
+    color: "var(--foreground)"
+  },
+  definitionList: {
+    display: "grid",
+    gap: 8,
+    margin: 0
+  },
+  definitionRow: {
+    display: "grid",
+    gridTemplateColumns: "minmax(120px, 180px) 1fr",
+    gap: 16,
+    "@media (max-width: 760px)": {
+      gridTemplateColumns: "1fr",
+      gap: 4
+    }
+  },
+  definitionTerm: {
+    fontSize: 14,
+    fontWeight: 500,
+    lineHeight: 1.5,
+    color: "var(--muted-foreground)"
+  },
+  definitionValue: {
+    minWidth: 0,
+    margin: 0,
+    overflowWrap: "break-word",
+    fontFamily: "var(--font-mono)",
+    fontSize: 14,
+    lineHeight: 1.5,
+    color: "var(--foreground)"
+  },
+  warningText: {
+    margin: 0,
+    fontSize: 14,
+    lineHeight: 1.5,
+    color: "rgb(180, 83, 9)"
+  },
+  editor: {
+    display: "grid",
+    gap: 12,
+    borderTopWidth: 1,
+    borderTopStyle: "solid",
+    borderTopColor: "var(--border-subtle)",
+    paddingTop: 12
+  },
+  editorGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+    gap: 12,
+    "@media (max-width: 760px)": {
+      gridTemplateColumns: "1fr"
+    }
+  },
+  field: {
+    display: "grid",
+    gap: 4,
+    fontSize: 14,
+    lineHeight: 1.5
+  },
+  fieldLabel: {
+    fontWeight: 500,
+    color: "var(--foreground)"
+  },
+  select: {
+    height: 36,
+    minWidth: 0,
+    borderWidth: 1,
+    borderStyle: "solid",
+    borderColor: "var(--border-subtle)",
+    borderRadius: 6,
+    backgroundColor: "white",
+    paddingInline: 8,
+    fontSize: 14
+  },
+  warningList: {
+    display: "grid",
+    gap: 4,
+    margin: 0,
+    paddingLeft: 16,
+    fontSize: 14,
+    lineHeight: 1.5,
+    color: "rgb(180, 83, 9)"
+  },
+  actions: {
+    display: "flex",
+    flexWrap: "wrap",
+    justifyContent: "flex-end",
+    gap: 8
+  },
+  icon: {
+    width: 16,
+    height: 16
+  }
+});

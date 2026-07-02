@@ -5,6 +5,7 @@ import { McpSettingsPane } from "@/components/settings/McpSettingsPane";
 import { ProvidersSettingsPane } from "@/components/settings/ProvidersSettingsPane";
 import { TrustedIdentitiesSettingsPane } from "@/components/settings/TrustedIdentitiesSettingsPane";
 import type { SettingsSection } from "@/routes";
+import * as stylex from "@stylexjs/stylex";
 
 type SettingsSurfaceProps = {
   section: SettingsSection;
@@ -44,18 +45,15 @@ export function SettingsSurface({ section }: SettingsSurfaceProps) {
   return (
     <section
       data-slot="settings-surface"
-      className="h-full min-h-0 overflow-y-auto overscroll-contain px-6 py-6 max-[760px]:px-5"
+      {...stylex.props(styles.surface)}
       aria-labelledby="settings-surface-title"
     >
-      <div className="grid max-w-3xl gap-5">
-        <div className="grid gap-2">
-          <h1
-            id="settings-surface-title"
-            className="m-0 font-heading text-2xl leading-tight tracking-normal text-foreground"
-          >
+      <div {...stylex.props(styles.content)}>
+        <div {...stylex.props(styles.header)}>
+          <h1 id="settings-surface-title" {...stylex.props(styles.title)}>
             {copy.title}
           </h1>
-          <p className="m-0 max-w-[620px] text-sm text-muted-foreground">
+          <p {...stylex.props(styles.description)}>
             {copy.description}
           </p>
         </div>
@@ -81,3 +79,40 @@ function SettingsSectionPane({ section }: { section: SettingsSection }) {
       return <ProvidersSettingsPane />;
   }
 }
+
+const styles = stylex.create({
+  surface: {
+    height: "100%",
+    minHeight: 0,
+    overflowY: "auto",
+    overscrollBehavior: "contain",
+    padding: "24px 24px",
+    "@media (max-width: 760px)": {
+      paddingInline: 20
+    }
+  },
+  content: {
+    display: "grid",
+    maxWidth: 768,
+    gap: 20
+  },
+  header: {
+    display: "grid",
+    gap: 8
+  },
+  title: {
+    margin: 0,
+    fontFamily: "var(--font-heading)",
+    fontSize: 24,
+    lineHeight: 1.25,
+    letterSpacing: 0,
+    color: "var(--foreground)"
+  },
+  description: {
+    margin: 0,
+    maxWidth: 620,
+    fontSize: 14,
+    lineHeight: 1.5,
+    color: "var(--muted-foreground)"
+  }
+});
