@@ -1,5 +1,5 @@
 import React from "react";
-import { Button } from "@astryxdesign/core/Button";
+import { SideNav, SideNavItem } from "@astryxdesign/core/SideNav";
 import * as stylex from "@stylexjs/stylex";
 import { IdentityAvatar, LOCAL_AGENT_AVATAR_ID } from "../IdentityAvatar";
 import type { ShellAttention } from "./AppShell";
@@ -138,12 +138,24 @@ function ShellSidebarMenuFrame({
         !interactive && styles.menuFrameNonInteractive
       )}
     >
-      <div {...stylex.props(styles.dragRegionSpacer)} data-tauri-drag-region />
-      {visibleAttention}
-
-      <nav {...stylex.props(styles.nav)} aria-label={menuLevel.ariaLabel}>
+      <SideNav
+        aria-label={menuLevel.ariaLabel}
+        header={<ShellSidebarHeader attention={visibleAttention} />}
+        footer={
+          <ShellMenuItem
+            item={menuLevel.bottomItem}
+            active={menuLevel.bottomItem.itemId === menuLevel.activeItemId}
+            primaryAgentNamed={false}
+            primaryAgentLabel={primaryAgentLabel}
+            interactive={interactive}
+            bottom
+            onSelectItem={onSelectItem}
+          />
+        }
+        {...stylex.props(styles.sideNav)}
+      >
         {menuLevel.items.map((item) => (
-          <ShellMenuButton
+          <ShellMenuItem
             key={item.itemId}
             item={item}
             active={item.itemId === menuLevel.activeItemId}
@@ -153,24 +165,21 @@ function ShellSidebarMenuFrame({
             onSelectItem={onSelectItem}
           />
         ))}
-      </nav>
-
-      <div {...stylex.props(styles.bottomSlot)}>
-        <ShellMenuButton
-          item={menuLevel.bottomItem}
-          active={menuLevel.bottomItem.itemId === menuLevel.activeItemId}
-          primaryAgentNamed={false}
-          primaryAgentLabel={primaryAgentLabel}
-          interactive={interactive}
-          bottom
-          onSelectItem={onSelectItem}
-        />
-      </div>
+      </SideNav>
     </div>
   );
 }
 
-function ShellMenuButton({
+function ShellSidebarHeader({ attention }: { attention: React.ReactNode }) {
+  return (
+    <div {...stylex.props(styles.header)}>
+      <div {...stylex.props(styles.dragRegionSpacer)} data-tauri-drag-region />
+      {attention}
+    </div>
+  );
+}
+
+function ShellMenuItem({
   item,
   active,
   primaryAgentNamed,
@@ -192,21 +201,20 @@ function ShellMenuButton({
   const label = item.itemId === "home" && primaryAgentNamed ? primaryAgentLabel : item.label;
 
   return (
-    <Button
+    <div
       data-slot={bottom ? "shell-menu-bottom-item" : "shell-menu-item"}
       data-shell-menu-item={item.itemId}
-      type="button"
-      variant="ghost"
-      size="md"
-      label={label}
-      icon={showPrimaryAgentAvatar ? <PrimaryAgentMenuAvatar /> : <Icon aria-hidden size={16} />}
-      {...stylex.props(styles.menuButton, active && styles.menuButtonActive)}
-      aria-current={active ? "page" : undefined}
-      isDisabled={!interactive}
-      onClick={() => onSelectItem(item)}
+      {...stylex.props(styles.menuItemFrame)}
     >
-      <span {...stylex.props(styles.menuButtonLabel)}>{label}</span>
-    </Button>
+      <SideNavItem
+        size="sm"
+        label={label}
+        icon={showPrimaryAgentAvatar ? <PrimaryAgentMenuAvatar /> : <Icon aria-hidden size={16} />}
+        isSelected={active}
+        isDisabled={!interactive}
+        onClick={() => onSelectItem(item)}
+      />
+    </div>
   );
 }
 
@@ -237,46 +245,28 @@ const styles = stylex.create({
     display: "grid",
     height: "100%",
     minHeight: 0,
-    gridTemplateRows: "auto auto minmax(0, 1fr) auto",
-    gap: 4,
-    paddingBlock: 16,
-    paddingInline: 14
+    paddingBlock: 0,
+    paddingInline: 0
   },
   menuFrameNonInteractive: {
     pointerEvents: "none"
   },
+  sideNav: {
+    width: "100%",
+    minWidth: 0,
+    borderWidth: 0,
+    backgroundColor: "transparent"
+  },
+  header: {
+    display: "grid",
+    gap: 4,
+    paddingInline: 2
+  },
   dragRegionSpacer: {
     height: 32
   },
-  nav: {
-    display: "grid",
-    alignContent: "start",
-    gap: 4
-  },
-  bottomSlot: {
-    display: "flex",
-    alignItems: "flex-end"
-  },
-  menuButton: {
-    width: "100%",
-    justifyContent: "flex-start",
-    borderRadius: 6,
-    paddingInline: 10,
-    backgroundColor: "transparent",
-    color: "var(--pine-700)",
-    fontSize: 14,
-    ":hover": {
-      backgroundColor: "color-mix(in srgb, var(--pine-700) 10%, transparent)"
-    }
-  },
-  menuButtonActive: {
-    backgroundColor: "color-mix(in srgb, var(--pine-700) 10%, transparent)"
-  },
-  menuButtonLabel: {
-    minWidth: 0,
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap"
+  menuItemFrame: {
+    width: "100%"
   },
   primaryAgentAvatarFrame: {
     display: "grid",

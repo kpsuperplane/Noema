@@ -313,7 +313,7 @@ export function AppShell({
         <ShellSurfaceProvider value={{ visibility: deckNavigation.surfaceVisibility }}>
           <div
             data-slot="shell-route-content"
-            data-surface-visibility={deckNavigation.surfaceVisibility}
+            data-shell-surface-visibility={deckNavigation.surfaceVisibility}
             {...stylex.props(
               styles.routeContent,
               deckNavigation.surfaceVisibility !== "visible" && styles.routeContentInactive
