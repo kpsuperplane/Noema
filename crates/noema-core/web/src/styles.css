@@ -79,6 +79,7 @@ html[data-tauri-runtime="true"] #root {
 [data-slot="message-scroller-item"][data-reveal-after-arrival="true"] {
   display: grid;
   grid-template-rows: 0fr;
+  margin-top: -12px;
   opacity: 0;
   overflow: hidden;
   animation: typing-indicator-after-arrival 180ms cubic-bezier(0.2, 0, 0, 1) 280ms both;
@@ -235,11 +236,13 @@ html[data-tauri-runtime="true"] #root {
 @keyframes typing-indicator-after-arrival {
   from {
     grid-template-rows: 0fr;
+    margin-top: -12px;
     opacity: 0;
   }
 
   to {
     grid-template-rows: 1fr;
+    margin-top: 0;
     opacity: 1;
   }
 }
@@ -271,6 +274,7 @@ html[data-tauri-runtime="true"] #root {
   [data-slot="message-scroller-item"][data-reveal-after-arrival="true"] {
     display: flex;
     grid-template-rows: 1fr;
+    margin-top: 0;
     opacity: 1;
     overflow: visible;
     animation: none;

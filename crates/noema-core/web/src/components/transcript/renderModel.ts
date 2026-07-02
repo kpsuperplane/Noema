@@ -368,7 +368,12 @@ function groupTranscriptMarkers(entries: TranscriptEntry[]): RenderTranscriptEnt
       continue;
     }
 
-    rendered.push({ kind: "entry", id: entry.id, entry });
+    rendered.push({
+      kind: "entry",
+      id: entry.id,
+      entry,
+      suppressArrival: entry.type === "assistant_stream"
+    });
   }
 
   return rendered;
