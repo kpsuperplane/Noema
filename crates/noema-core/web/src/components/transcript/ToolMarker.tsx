@@ -1,9 +1,8 @@
-import { WrenchIcon } from "lucide-react";
+import { ChatToolCalls, type ChatToolCallItem, type ChatToolCallStatus } from "@astryxdesign/core/Chat";
 import * as stylex from "@stylexjs/stylex";
-import { toolMarkerLabel, toolMarkerPending, toolMarkerTone } from "./markerModel";
+import { toolMarkerName, toolMarkerPending } from "./markerModel";
 import type { ToolMarkerGroup } from "./renderModel";
 import { ToolDetailAttachment } from "./ToolDetailAttachment";
-import { TranscriptMarkerFrame } from "./TranscriptMarkerFrame";
 
 const styles = stylex.create({
   root: {
@@ -23,24 +22,53 @@ export function ToolMarker({
   open: boolean;
   onToggle: () => void;
 }) {
-  const tone = toolMarkerTone(marker);
-  const pending = toolMarkerPending(marker);
+  const calls = toolMarkerCalls(marker);
 
   return (
     <div {...stylex.props(styles.root)}>
-      <TranscriptMarkerFrame
-        tone={tone}
-        pending={pending}
-        icon={<WrenchIcon />}
-        buttonProps={{
-          "aria-expanded": open,
-          "aria-controls": `${marker.id}-details`,
-          onClick: onToggle
+      <ChatToolCalls
+        calls={calls}
+        isExpanded={open}
+        onExpandedChange={(nextOpen) => {
+          if (nextOpen !== open) {
+            onToggle();
+          }
         }}
-      >
-        {toolMarkerLabel(marker)}
-      </TranscriptMarkerFrame>
-      {open ? <ToolDetailAttachment id={`${marker.id}-details`} marker={marker} /> : null}
+      />
     </div>
   );
+}
+
+function toolMarkerCalls(marker: ToolMarkerGroup): ChatToolCallItem[] {
+  const target = marker.result?.item.summary ?? marker.call?.item.summary;
+  const errorMessage =
+    marker.result?.item.status === "FAILED" ? marker.result.item.summary ?? marker.result.item.title : undefined;
+  const call: ChatToolCallItem = {
+    key: marker.id,
+    name: toolMarkerName(marker),
+    status: toolMarkerStatus(marker),
+    resultDetail: <ToolDetailAttachment id={`${marker.id}-details`} marker={marker} />
+  };
+
+  if (target) {
+    call.target = target;
+  }
+  if (errorMessage) {
+    call.errorMessage = errorMessage;
+  }
+
+  return [call];
+}
+
+function toolMarkerStatus(marker: ToolMarkerGroup): ChatToolCallStatus {
+  if (marker.result?.item.status === "FAILED") {
+    return "error";
+  }
+  if (marker.result) {
+    return "complete";
+  }
+  if (toolMarkerPending(marker)) {
+    return "running";
+  }
+  return "pending";
 }

@@ -135,6 +135,16 @@ export function toolMarkerLabel(marker: ToolMarkerGroup): string {
   return marker.call?.item.title ?? marker.result?.item.title ?? "Tool activity";
 }
 
+export function toolMarkerName(marker: ToolMarkerGroup): string {
+  return (
+    toolNameFromMetadata(marker.call?.item.metadata) ??
+    toolNameFromMetadata(marker.result?.item.metadata) ??
+    marker.call?.item.title ??
+    marker.result?.item.title ??
+    "Tool activity"
+  );
+}
+
 export function formatToolDetail(fallback: string, metadata: unknown): string {
   const metadataText = formatMetadata(metadata);
   if (!metadataText) {
