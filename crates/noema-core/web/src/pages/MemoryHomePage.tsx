@@ -1,35 +1,112 @@
+import { Button } from "@astryxdesign/core/Button";
+import { Card } from "@astryxdesign/core/Card";
+import * as stylex from "@stylexjs/stylex";
 import { Network } from "lucide-react";
-import { Button } from "@/components/ui/button";
 
 export function MemoryHomePage({ onOpenGraph }: { onOpenGraph: () => void }) {
   return (
-    <section className="mx-auto grid min-h-0 w-[min(960px,100%)] gap-5 px-6 py-7 max-[760px]:px-5">
-      <div className="grid gap-2">
-        <p className="m-0 font-mono text-[11px] tracking-[0.12em] text-[var(--text-accent)] uppercase">
-          Memory
-        </p>
-        <h1 className="m-0 font-heading text-[32px] leading-[1.1] tracking-normal text-foreground">
+    <section {...stylex.props(styles.root)}>
+      <div {...stylex.props(styles.header)}>
+        <p {...stylex.props(styles.eyebrow)}>Memory</p>
+        <h1 {...stylex.props(styles.title)}>
           Memory management
         </h1>
-        <p className="m-0 max-w-[640px] text-sm text-muted-foreground">
+        <p {...stylex.props(styles.description)}>
           Inspect what Noema remembers and how those memories connect.
         </p>
       </div>
 
-      <div className="grid gap-3 rounded-md border border-[var(--border-subtle)] bg-white p-4">
-        <div className="flex items-center gap-3">
-          <Network className="size-5 text-[var(--text-accent)]" aria-hidden="true" />
-          <div className="min-w-0">
-            <strong className="block text-sm font-semibold">Memory Graph</strong>
-            <span className="block text-sm text-muted-foreground">
+      <Card {...stylex.props(styles.graphCard)} padding={4}>
+        <div {...stylex.props(styles.graphEntry)}>
+          <Network {...stylex.props(styles.graphIcon)} aria-hidden="true" />
+          <div {...stylex.props(styles.graphText)}>
+            <strong {...stylex.props(styles.graphTitle)}>Memory Graph</strong>
+            <span {...stylex.props(styles.graphDescription)}>
               View entities and claim edges from accessible memories.
             </span>
           </div>
         </div>
-        <Button type="button" className="w-fit" onClick={onOpenGraph}>
+        <Button
+          {...stylex.props(styles.openButton)}
+          type="button"
+          label="Open graph"
+          onClick={onOpenGraph}
+        >
           Open graph
         </Button>
-      </div>
+      </Card>
     </section>
   );
 }
+
+const styles = stylex.create({
+  root: {
+    display: "grid",
+    width: "min(960px, 100%)",
+    minHeight: 0,
+    gap: 20,
+    marginInline: "auto",
+    padding: "28px 24px",
+    "@media (max-width: 760px)": {
+      paddingInline: 20
+    }
+  },
+  header: {
+    display: "grid",
+    gap: 8
+  },
+  eyebrow: {
+    margin: 0,
+    fontFamily: "var(--font-mono)",
+    fontSize: 11,
+    letterSpacing: "0.12em",
+    color: "var(--text-accent)",
+    textTransform: "uppercase"
+  },
+  title: {
+    margin: 0,
+    fontFamily: "var(--font-heading)",
+    fontSize: 32,
+    lineHeight: 1.1,
+    letterSpacing: 0,
+    color: "var(--foreground)"
+  },
+  description: {
+    margin: 0,
+    maxWidth: 640,
+    fontSize: 14,
+    color: "var(--muted-foreground)"
+  },
+  graphCard: {
+    display: "grid",
+    gap: 12
+  },
+  graphEntry: {
+    display: "flex",
+    alignItems: "center",
+    gap: 12,
+    minWidth: 0
+  },
+  graphIcon: {
+    width: 20,
+    height: 20,
+    flexShrink: 0,
+    color: "var(--text-accent)"
+  },
+  graphText: {
+    minWidth: 0
+  },
+  graphTitle: {
+    display: "block",
+    fontSize: 14,
+    fontWeight: 600
+  },
+  graphDescription: {
+    display: "block",
+    fontSize: 14,
+    color: "var(--muted-foreground)"
+  },
+  openButton: {
+    width: "fit-content"
+  }
+});

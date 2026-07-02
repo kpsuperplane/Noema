@@ -9,6 +9,7 @@ import {
   type EdgeTypes,
   type NodeTypes
 } from "@xyflow/react";
+import * as stylex from "@stylexjs/stylex";
 import { useCallback, useMemo, useState } from "react";
 
 import { applyMemoryGraphNodeChanges, type MemoryGraphEdgeData, type MemoryGraphNodeData } from "@/memoryGraphLayout";
@@ -50,7 +51,7 @@ export function MemoryGraphFlow({
   );
 
   return (
-    <div className="h-full min-h-[420px] overflow-hidden bg-[var(--surface-sunken)]">
+    <div {...stylex.props(styles.root)}>
       <ReactFlow
         nodes={flowNodes}
         edges={selectedEdges}
@@ -72,3 +73,12 @@ export function MemoryGraphFlow({
     </div>
   );
 }
+
+const styles = stylex.create({
+  root: {
+    height: "100%",
+    minHeight: 420,
+    overflow: "hidden",
+    backgroundColor: "var(--surface-sunken)"
+  }
+});

@@ -37,7 +37,7 @@ export function MemoryClaimEdge({
         fill="none"
       />
       {label ? (
-        <text className="fill-[var(--text-secondary)] text-[11px]">
+        <text style={labelStyle}>
           <textPath href={`#${id}`} startOffset="50%" textAnchor="middle">
             {label}
           </textPath>
@@ -46,3 +46,8 @@ export function MemoryClaimEdge({
     </g>
   );
 }
+
+const labelStyle = {
+  fill: "var(--text-secondary)",
+  fontSize: 11
+};

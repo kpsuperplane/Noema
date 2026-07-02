@@ -1,80 +1,175 @@
-import { useQuery } from "@apollo/client/react"
+import { Card } from "@astryxdesign/core/Card";
+import * as stylex from "@stylexjs/stylex";
+import { useQuery } from "@apollo/client/react";
 
-import { MemoryGraphClaimDetailDocument } from "@/generated/graphql"
-import type { NormalizedMemoryGraphEdge } from "@/memoryGraph"
+import { MemoryGraphClaimDetailDocument } from "@/generated/graphql";
+import type { NormalizedMemoryGraphEdge } from "@/memoryGraph";
 
 export function MemoryGraphDetailPanel({ selectedEdge }: { selectedEdge: NormalizedMemoryGraphEdge | null }) {
   const detail = useQuery(MemoryGraphClaimDetailDocument, {
     variables: { claimId: selectedEdge?.claimId ?? "" },
     skip: !selectedEdge,
     fetchPolicy: "cache-and-network",
-  })
+  });
 
   if (!selectedEdge) {
     return (
-      <aside className="grid min-h-0 content-start gap-2 overflow-y-auto border-l border-[var(--border-subtle)] bg-white p-5">
-        <h2 className="m-0 font-heading text-lg tracking-normal">Memory detail</h2>
-        <p className="m-0 text-sm text-muted-foreground">Select a claim edge to inspect evidence.</p>
+      <aside {...stylex.props(styles.root)}>
+        <h2 {...stylex.props(styles.panelTitle)}>Memory detail</h2>
+        <p {...stylex.props(styles.mutedText)}>Select a claim edge to inspect evidence.</p>
       </aside>
-    )
+    );
   }
 
-  const claim = detail.data?.memoryClaim
-  const claimUnavailable = !detail.loading && !detail.error && detail.data && !claim
+  const claim = detail.data?.memoryClaim;
+  const claimUnavailable = !detail.loading && !detail.error && detail.data && !claim;
 
   return (
-    <aside className="grid min-h-0 content-start gap-4 overflow-y-auto border-l border-[var(--border-subtle)] bg-white p-5">
-      <div className="grid gap-1">
-        <p className="m-0 font-mono text-[11px] tracking-[0.12em] text-[var(--text-accent)] uppercase">
+    <aside {...stylex.props(styles.root, styles.selectedRoot)}>
+      <div {...stylex.props(styles.header)}>
+        <p {...stylex.props(styles.eyebrow)}>
           {claim?.status ?? selectedEdge.status}
         </p>
-        <h2 className="m-0 font-heading text-lg leading-snug tracking-normal">
+        <h2 {...stylex.props(styles.panelTitle)}>
           {claim?.predicateLabel ?? selectedEdge.predicateLabel}
         </h2>
-        <p className="m-0 text-sm text-muted-foreground">{claim?.fact ?? selectedEdge.fact}</p>
+        <p {...stylex.props(styles.mutedText)}>{claim?.fact ?? selectedEdge.fact}</p>
       </div>
 
-      <dl className="grid grid-cols-2 gap-3 text-sm">
+      <dl {...stylex.props(styles.metadata)}>
         <div>
-          <dt className="text-xs text-muted-foreground">Sensitivity</dt>
-          <dd className="m-0">{claim?.sensitivity ?? selectedEdge.sensitivity}</dd>
+          <dt {...stylex.props(styles.metadataLabel)}>Sensitivity</dt>
+          <dd {...stylex.props(styles.metadataValue)}>{claim?.sensitivity ?? selectedEdge.sensitivity}</dd>
         </div>
         <div>
-          <dt className="text-xs text-muted-foreground">Evidence</dt>
-          <dd className="m-0">{claim?.evidenceCount ?? selectedEdge.evidenceCount}</dd>
+          <dt {...stylex.props(styles.metadataLabel)}>Evidence</dt>
+          <dd {...stylex.props(styles.metadataValue)}>{claim?.evidenceCount ?? selectedEdge.evidenceCount}</dd>
         </div>
       </dl>
 
-      {detail.loading ? <p className="m-0 text-sm text-muted-foreground">Loading evidence...</p> : null}
-      {detail.error ? <p className="m-0 text-sm text-destructive">{detail.error.message}</p> : null}
+      {detail.loading ? <p {...stylex.props(styles.mutedText)}>Loading evidence...</p> : null}
+      {detail.error ? <p {...stylex.props(styles.errorText)}>{detail.error.message}</p> : null}
       {claimUnavailable ? (
-        <p className="m-0 text-sm text-muted-foreground">
+        <p {...stylex.props(styles.mutedText)}>
           Claim detail is unavailable. The graph edge summary remains visible.
         </p>
       ) : null}
 
       {claim?.evidence.length ? (
-        <div className="grid gap-2">
-          <h3 className="m-0 text-sm font-semibold">Evidence</h3>
+        <div {...stylex.props(styles.evidenceList)}>
+          <h3 {...stylex.props(styles.evidenceTitle)}>Evidence</h3>
           {claim.evidence.map((evidence, index) => {
             const key =
               evidence.evidenceId ??
-              `${evidence.sourceItemId ?? "source"}:${evidence.observedAt ?? evidence.createdAt}:${index}`
+              `${evidence.sourceItemId ?? "source"}:${evidence.observedAt ?? evidence.createdAt}:${index}`;
 
             return (
-              <article key={key} className="rounded-md border border-[var(--border-subtle)] p-3">
-                <strong className="block text-xs">{evidence.authority}</strong>
-                {evidence.excerpt ? (
-                  <p className="m-0 mt-1 text-sm text-muted-foreground">{evidence.excerpt}</p>
-                ) : null}
-                {evidence.sourceItemId ? (
-                  <code className="mt-2 block text-[11px] text-muted-foreground">{evidence.sourceItemId}</code>
-                ) : null}
-              </article>
-            )
+              <Card key={key} padding={3}>
+                <article {...stylex.props(styles.evidenceCard)}>
+                  <strong {...stylex.props(styles.evidenceAuthority)}>{evidence.authority}</strong>
+                  {evidence.excerpt ? (
+                    <p {...stylex.props(styles.evidenceExcerpt)}>{evidence.excerpt}</p>
+                  ) : null}
+                  {evidence.sourceItemId ? (
+                    <code {...stylex.props(styles.sourceCode)}>{evidence.sourceItemId}</code>
+                  ) : null}
+                </article>
+              </Card>
+            );
           })}
         </div>
       ) : null}
     </aside>
-  )
+  );
 }
+
+const styles = stylex.create({
+  root: {
+    display: "grid",
+    minHeight: 0,
+    alignContent: "start",
+    gap: 8,
+    overflowY: "auto",
+    borderLeft: "1px solid var(--border-subtle)",
+    backgroundColor: "white",
+    padding: 20,
+    "@media (max-width: 900px)": {
+      borderLeftWidth: 0,
+      borderTop: "1px solid var(--border-subtle)"
+    }
+  },
+  selectedRoot: {
+    gap: 16
+  },
+  header: {
+    display: "grid",
+    gap: 4
+  },
+  eyebrow: {
+    margin: 0,
+    fontFamily: "var(--font-mono)",
+    fontSize: 11,
+    letterSpacing: "0.12em",
+    color: "var(--text-accent)",
+    textTransform: "uppercase"
+  },
+  panelTitle: {
+    margin: 0,
+    fontFamily: "var(--font-heading)",
+    fontSize: 18,
+    lineHeight: 1.35,
+    letterSpacing: 0
+  },
+  mutedText: {
+    margin: 0,
+    fontSize: 14,
+    color: "var(--muted-foreground)"
+  },
+  metadata: {
+    display: "grid",
+    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+    gap: 12,
+    fontSize: 14
+  },
+  metadataLabel: {
+    fontSize: 12,
+    color: "var(--muted-foreground)"
+  },
+  metadataValue: {
+    margin: 0
+  },
+  errorText: {
+    margin: 0,
+    fontSize: 14,
+    color: "var(--destructive)"
+  },
+  evidenceList: {
+    display: "grid",
+    gap: 8
+  },
+  evidenceTitle: {
+    margin: 0,
+    fontSize: 14,
+    fontWeight: 600
+  },
+  evidenceCard: {
+    display: "grid",
+    gap: 8
+  },
+  evidenceAuthority: {
+    display: "block",
+    fontSize: 12
+  },
+  evidenceExcerpt: {
+    margin: 0,
+    fontSize: 14,
+    color: "var(--muted-foreground)"
+  },
+  sourceCode: {
+    display: "block",
+    marginTop: 0,
+    fontSize: 11,
+    color: "var(--muted-foreground)",
+    overflowWrap: "anywhere"
+  }
+});

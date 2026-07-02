@@ -1,5 +1,6 @@
 import React from "react";
 import { useQuery } from "@apollo/client/react";
+import * as stylex from "@stylexjs/stylex";
 
 import { MemoryGraphCanvas } from "@/components/memory/MemoryGraphCanvas";
 import { MemoryGraphControls } from "@/components/memory/MemoryGraphControls";
@@ -57,7 +58,7 @@ export function MemoryGraphPage() {
 
   if (result.loading && !graph) {
     return (
-      <section className="grid min-h-0 place-items-center px-6 text-sm text-muted-foreground" aria-label="Memory Graph">
+      <section {...stylex.props(styles.centerState)} aria-label="Memory Graph">
         Loading memory graph...
       </section>
     );
@@ -65,22 +66,22 @@ export function MemoryGraphPage() {
 
   if (result.error) {
     return (
-      <section className="mx-auto grid min-h-0 w-[min(760px,100%)] content-center gap-3 px-6 py-7" aria-label="Memory Graph">
-        <h1 className="m-0 font-heading text-[32px] leading-[1.1] tracking-normal text-foreground">
+      <section {...stylex.props(styles.messageState)} aria-label="Memory Graph">
+        <h1 {...stylex.props(styles.title)}>
           Memory graph unavailable
         </h1>
-        <p className="m-0 text-sm text-muted-foreground">{result.error.message}</p>
+        <p {...stylex.props(styles.messageText)}>{result.error.message}</p>
       </section>
     );
   }
 
   if (!graph) {
     return (
-      <section className="mx-auto grid min-h-0 w-[min(760px,100%)] content-center gap-3 px-6 py-7" aria-label="Memory Graph">
-        <h1 className="m-0 font-heading text-[32px] leading-[1.1] tracking-normal text-foreground">
+      <section {...stylex.props(styles.messageState)} aria-label="Memory Graph">
+        <h1 {...stylex.props(styles.title)}>
           No memory graph yet
         </h1>
-        <p className="m-0 max-w-[560px] text-sm text-muted-foreground">
+        <p {...stylex.props(styles.messageText)}>
           Start a chat with Noema or use remember-this notes to create inspectable memories.
         </p>
       </section>
@@ -88,7 +89,7 @@ export function MemoryGraphPage() {
   }
 
   return (
-    <section className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden" aria-label="Memory Graph">
+    <section {...stylex.props(styles.root)} aria-label="Memory Graph">
       <MemoryGraphControls
         query={query}
         statuses={statuses}
@@ -98,18 +99,18 @@ export function MemoryGraphPage() {
         onStatusesChange={handleStatusesChange}
       />
       {graph.edges.length === 0 ? (
-        <div className="mx-auto grid min-h-0 w-[min(760px,100%)] content-center gap-3 px-6 py-7">
-          <h1 className="m-0 font-heading text-[32px] leading-[1.1] tracking-normal text-foreground">
+        <div {...stylex.props(styles.messageState)}>
+          <h1 {...stylex.props(styles.title)}>
             {hasActiveFilters ? "No matching memories" : "No memory graph yet"}
           </h1>
-          <p className="m-0 max-w-[560px] text-sm text-muted-foreground">
+          <p {...stylex.props(styles.messageText)}>
             {hasActiveFilters
               ? "Adjust the search or status filters to bring memories back into view."
               : "Start a chat with Noema or use remember-this notes to create inspectable memories."}
           </p>
         </div>
       ) : (
-        <div className="grid min-h-0 grid-cols-[minmax(0,1fr)_minmax(300px,360px)] overflow-hidden max-[900px]:grid-cols-1 max-[900px]:grid-rows-[minmax(420px,1fr)_minmax(0,360px)]">
+        <div {...stylex.props(styles.graphLayout)}>
           <MemoryGraphCanvas
             nodes={layout.nodes}
             edges={layout.edges}
@@ -122,3 +123,53 @@ export function MemoryGraphPage() {
     </section>
   );
 }
+
+const styles = stylex.create({
+  root: {
+    display: "grid",
+    minHeight: 0,
+    gridTemplateRows: "auto minmax(0, 1fr)",
+    overflow: "hidden"
+  },
+  centerState: {
+    display: "grid",
+    minHeight: 0,
+    placeItems: "center",
+    paddingInline: 24,
+    fontSize: 14,
+    color: "var(--muted-foreground)"
+  },
+  messageState: {
+    display: "grid",
+    width: "min(760px, 100%)",
+    minHeight: 0,
+    alignContent: "center",
+    gap: 12,
+    marginInline: "auto",
+    padding: "28px 24px"
+  },
+  title: {
+    margin: 0,
+    fontFamily: "var(--font-heading)",
+    fontSize: 32,
+    lineHeight: 1.1,
+    letterSpacing: 0,
+    color: "var(--foreground)"
+  },
+  messageText: {
+    margin: 0,
+    maxWidth: 560,
+    fontSize: 14,
+    color: "var(--muted-foreground)"
+  },
+  graphLayout: {
+    display: "grid",
+    minHeight: 0,
+    gridTemplateColumns: "minmax(0, 1fr) minmax(300px, 360px)",
+    overflow: "hidden",
+    "@media (max-width: 900px)": {
+      gridTemplateColumns: "1fr",
+      gridTemplateRows: "minmax(420px, 1fr) minmax(0, 360px)"
+    }
+  }
+});
