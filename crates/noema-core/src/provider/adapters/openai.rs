@@ -1,14 +1,18 @@
 //! Provider adapter for the OpenAI Responses API.
 
-use super::responses::{ResponsesRequest, ResponsesTransport, header_value, normalize_base_url};
+use super::responses::{
+    ResponsesDiagnosticContext, ResponsesRequest, ResponsesTransport, header_value,
+    normalize_base_url,
+};
 use crate::{
-    SystemErrorLogger,
+    SYSTEM_ERROR_PROVIDER_MALFORMED_RESPONSE, SystemErrorEvent, SystemErrorLogger,
     provider::{
         DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateInput, GenerateRequest, GenerateResponse,
         ModelProvider, ProviderError, output_items_from_text, required_output_items_from_text,
     },
 };
 use reqwest::header::{HeaderMap, HeaderName};
+use serde_json::Value;
 use std::time::Duration;
 
 /// Default request timeout for `OpenAI` calls.
@@ -184,14 +188,51 @@ impl ModelProvider for OpenAiProvider {
             store: false,
         };
 
+        let diagnostics = ResponsesDiagnosticContext::new(
+            self.system_errors.clone(),
+            "openai",
+            model.clone(),
+            request.conversation_id.clone(),
+        );
         let response = self
             .transport
-            .send(&self.config.api_key, body, self.extra_headers()?)
+            .send(
+                &self.config.api_key,
+                body,
+                self.extra_headers()?,
+                diagnostics,
+            )
             .await?;
-        let text = response.output_text()?;
+        let text = match response.output_text() {
+            Ok(text) => text,
+            Err(error @ ProviderError::MalformedResponse { .. }) => {
+                self.log_malformed_response_raw(
+                    &error,
+                    &model,
+                    request.conversation_id.as_deref(),
+                    response.id.as_deref(),
+                    response.raw_payload(),
+                );
+                return Err(error);
+            }
+            Err(error) => return Err(error),
+        };
+        let raw_text = text.clone();
 
         let output = if request.options.require_noema_response {
-            required_output_items_from_text(text)?
+            match required_output_items_from_text(text) {
+                Ok(output) => output,
+                Err(error) => {
+                    self.log_malformed_response(
+                        &error,
+                        &model,
+                        request.conversation_id.as_deref(),
+                        response.id.as_deref(),
+                        raw_text,
+                    );
+                    return Err(error);
+                }
+            }
         } else {
             output_items_from_text(text)?
         };
@@ -203,6 +244,51 @@ impl ModelProvider for OpenAiProvider {
             response_id: response.id,
             usage: response.usage.map(Into::into),
         })
+    }
+}
+
+impl OpenAiProvider {
+    fn log_malformed_response(
+        &self,
+        error: &ProviderError,
+        model: &str,
+        conversation_id: Option<&str>,
+        request_id: Option<&str>,
+        provider_text: String,
+    ) {
+        self.log_malformed_response_raw(
+            error,
+            model,
+            conversation_id,
+            request_id,
+            serde_json::json!({
+                "provider_text": provider_text,
+            }),
+        );
+    }
+
+    fn log_malformed_response_raw(
+        &self,
+        error: &ProviderError,
+        model: &str,
+        conversation_id: Option<&str>,
+        request_id: Option<&str>,
+        raw: Value,
+    ) {
+        let Some(logger) = &self.system_errors else {
+            return;
+        };
+        logger.try_append(
+            SystemErrorEvent::new(SYSTEM_ERROR_PROVIDER_MALFORMED_RESPONSE, error.to_string())
+                .with_context(serde_json::json!({
+                    "provider_kind": "openai",
+                    "model": model,
+                    "conversation_id": conversation_id,
+                    "request_id": request_id,
+                }))
+                .with_error_chain([error.to_string()])
+                .with_raw(raw),
+        );
     }
 }
 

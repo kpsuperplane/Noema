@@ -4,6 +4,7 @@ use std::{path::PathBuf, time::Duration};
 
 use reqwest::header::HeaderMap;
 use serde::Serialize;
+use serde_json::Value;
 
 use super::{
     codex_oauth::{
@@ -11,10 +12,10 @@ use super::{
         CodexTokenStore, DEFAULT_CODEX_BASE_URL,
     },
     noema_response_stream::NoemaAssistantTextDeltaExtractor,
-    responses::{ResponsesTransport, normalize_base_url},
+    responses::{ResponsesDiagnosticContext, ResponsesTransport, normalize_base_url},
 };
 use crate::{
-    SystemErrorLogger,
+    SYSTEM_ERROR_PROVIDER_MALFORMED_RESPONSE, SystemErrorEvent, SystemErrorLogger,
     provider::{
         DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateInput, GenerateRequest, GenerateResponse,
         GenerateStreamEvent, ModelProvider, ProviderError, output_items_from_text,
@@ -225,6 +226,12 @@ impl CodexResponsesProvider {
             max_output_tokens,
             temperature,
         );
+        let diagnostics = ResponsesDiagnosticContext::new(
+            self.system_errors.clone(),
+            "codex",
+            model.clone(),
+            request.conversation_id.clone(),
+        );
 
         let access_token = self
             .token_store
@@ -242,7 +249,13 @@ impl CodexResponsesProvider {
         };
         let response = match self
             .transport
-            .send_streaming(&access_token, body, HeaderMap::new(), &mut forward_event)
+            .send_streaming(
+                &access_token,
+                body,
+                HeaderMap::new(),
+                diagnostics.clone(),
+                &mut forward_event,
+            )
             .await
         {
             Ok(response) => response,
@@ -259,15 +272,47 @@ impl CodexResponsesProvider {
                     temperature,
                 );
                 self.transport
-                    .send_streaming(&refreshed, retry_body, HeaderMap::new(), &mut forward_event)
+                    .send_streaming(
+                        &refreshed,
+                        retry_body,
+                        HeaderMap::new(),
+                        diagnostics,
+                        &mut forward_event,
+                    )
                     .await?
             }
             Err(error) => return Err(error),
         };
-        let text = response.output_text()?;
+        let text = match response.output_text() {
+            Ok(text) => text,
+            Err(error @ ProviderError::MalformedResponse { .. }) => {
+                self.log_malformed_response_raw(
+                    &error,
+                    &model,
+                    request.conversation_id.as_deref(),
+                    response.id.as_deref(),
+                    response.raw_payload(),
+                );
+                return Err(error);
+            }
+            Err(error) => return Err(error),
+        };
+        let raw_text = text.clone();
 
         let output = if require_noema_response {
-            required_output_items_from_text(text)?
+            match required_output_items_from_text(text) {
+                Ok(output) => output,
+                Err(error) => {
+                    self.log_malformed_response(
+                        &error,
+                        &model,
+                        request.conversation_id.as_deref(),
+                        response.id.as_deref(),
+                        raw_text,
+                    );
+                    return Err(error);
+                }
+            }
         } else {
             output_items_from_text(text)?
         };
@@ -279,6 +324,49 @@ impl CodexResponsesProvider {
             response_id: response.id,
             usage: response.usage.map(Into::into),
         })
+    }
+
+    fn log_malformed_response(
+        &self,
+        error: &ProviderError,
+        model: &str,
+        conversation_id: Option<&str>,
+        request_id: Option<&str>,
+        provider_text: String,
+    ) {
+        self.log_malformed_response_raw(
+            error,
+            model,
+            conversation_id,
+            request_id,
+            serde_json::json!({
+                "provider_text": provider_text,
+            }),
+        );
+    }
+
+    fn log_malformed_response_raw(
+        &self,
+        error: &ProviderError,
+        model: &str,
+        conversation_id: Option<&str>,
+        request_id: Option<&str>,
+        raw: Value,
+    ) {
+        let Some(logger) = &self.system_errors else {
+            return;
+        };
+        logger.try_append(
+            SystemErrorEvent::new(SYSTEM_ERROR_PROVIDER_MALFORMED_RESPONSE, error.to_string())
+                .with_context(serde_json::json!({
+                    "provider_kind": "codex",
+                    "model": model,
+                    "conversation_id": conversation_id,
+                    "request_id": request_id,
+                }))
+                .with_error_chain([error.to_string()])
+                .with_raw(raw),
+        );
     }
 }
 
@@ -503,6 +591,45 @@ mod tests {
                 }
             ]
         );
+    }
+
+    #[tokio::test]
+    async fn logs_required_noema_response_parse_failure() {
+        let response_body = "event: response.output_text.delta\n\
+             data: {\"type\":\"response.output_text.delta\",\"delta\":\"plain text\"}\n\
+             \n\
+             event: response.completed\n\
+             data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_bad\",\"model\":\"gpt-test\",\"status\":\"completed\"}}\n\
+             \n";
+        let (base_url, _request_rx) = spawn_server(200, response_body).await;
+        let dir = TempDir::new().expect("temp dir");
+        let logger = SystemErrorLogger::new(dir.path().join("errors.log"));
+        let (mut provider, _tokens_dir) = provider_with_tokens(base_url);
+        provider.system_errors = Some(logger.clone());
+
+        let error = provider
+            .generate(GenerateRequest {
+                conversation_id: Some("conversation:test".to_string()),
+                model: Some("gpt-test".to_string()),
+                input: GenerateInput::Text("hello".to_string()),
+                instructions: None,
+                options: GenerateOptions {
+                    require_noema_response: true,
+                    ..GenerateOptions::default()
+                },
+            })
+            .await
+            .expect_err("malformed response");
+
+        assert!(matches!(error, ProviderError::MalformedResponse { .. }));
+        let events = crate::system_errors::read_system_error_events(logger.path()).expect("events");
+        assert_eq!(events.len(), 1);
+        assert_eq!(
+            events[0]["category"],
+            SYSTEM_ERROR_PROVIDER_MALFORMED_RESPONSE
+        );
+        assert_eq!(events[0]["context"]["conversation_id"], "conversation:test");
+        assert_eq!(events[0]["raw"]["provider_text"], "plain text");
     }
 
     fn provider_with_tokens(base_url: String) -> (CodexResponsesProvider, TempDir) {

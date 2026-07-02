@@ -1,7 +1,10 @@
 //! Shared transport and parser for OpenAI-compatible Responses API calls.
 
 use super::sse::SseAccumulator;
-use crate::provider::{GenerateStreamEvent, ProviderError, TokenUsage};
+use crate::{
+    SYSTEM_ERROR_PROVIDER_MALFORMED_RESPONSE, SystemErrorEvent, SystemErrorLogger,
+    provider::{GenerateStreamEvent, ProviderError, TokenUsage},
+};
 use futures_util::StreamExt;
 use reqwest::{
     StatusCode,
@@ -31,7 +34,7 @@ pub struct ResponsesRequest {
 }
 
 /// Parsed Responses-compatible API response.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct ResponsesResponse {
     /// Provider response id.
     pub id: Option<String>,
@@ -41,9 +44,24 @@ pub struct ResponsesResponse {
     output: Vec<ResponsesOutputItem>,
     /// Token usage reported by the provider.
     pub usage: Option<ResponsesUsage>,
+    #[serde(default, skip)]
+    raw: Option<Value>,
 }
 
 impl ResponsesResponse {
+    /// Return the raw provider payload preserved for developer diagnostics.
+    #[must_use]
+    pub fn raw_payload(&self) -> Value {
+        self.raw.clone().unwrap_or_else(|| {
+            serde_json::json!({
+                "id": self.id.clone(),
+                "model": self.model.clone(),
+                "output": self.output.clone(),
+                "usage": self.usage.clone(),
+            })
+        })
+    }
+
     /// Collect assistant output text in provider order.
     ///
     /// # Errors
@@ -92,6 +110,7 @@ impl ResponsesResponse {
         output_values: Vec<Value>,
         usage: Option<ResponsesUsage>,
     ) -> Result<Self, ProviderError> {
+        let raw_output_values = output_values.clone();
         let output = output_values
             .into_iter()
             .map(|value| {
@@ -101,16 +120,23 @@ impl ResponsesResponse {
             })
             .collect::<Result<Vec<_>, _>>()?;
 
+        let raw = serde_json::json!({
+            "id": id.clone(),
+            "model": model.clone(),
+            "output": raw_output_values,
+            "usage": usage.clone(),
+        });
         Ok(Self {
             id,
             model,
             output,
             usage,
+            raw: Some(raw),
         })
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(tag = "type")]
 enum ResponsesOutputItem {
     #[serde(rename = "message")]
@@ -119,7 +145,7 @@ enum ResponsesOutputItem {
     Other,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(tag = "type")]
 enum ResponsesContent {
     #[serde(rename = "output_text")]
@@ -131,7 +157,7 @@ enum ResponsesContent {
 }
 
 /// Token usage reported by a Responses-compatible API.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ResponsesUsage {
     #[serde(default, rename = "input_tokens")]
     input: u64,
@@ -156,6 +182,58 @@ impl From<ResponsesUsage> for TokenUsage {
 pub struct ResponsesTransport {
     client: reqwest::Client,
     responses_url: String,
+}
+
+/// Diagnostic context for Responses-compatible provider calls.
+#[derive(Debug, Clone)]
+pub struct ResponsesDiagnosticContext {
+    /// Developer diagnostic logger.
+    pub logger: Option<SystemErrorLogger>,
+    /// Provider kind.
+    pub provider_kind: String,
+    /// Model requested by Noema.
+    pub model: String,
+    /// Noema conversation id, when available.
+    pub conversation_id: Option<String>,
+}
+
+impl ResponsesDiagnosticContext {
+    /// Build a provider diagnostic context.
+    #[must_use]
+    pub fn new(
+        logger: Option<SystemErrorLogger>,
+        provider_kind: impl Into<String>,
+        model: impl Into<String>,
+        conversation_id: Option<String>,
+    ) -> Self {
+        Self {
+            logger,
+            provider_kind: provider_kind.into(),
+            model: model.into(),
+            conversation_id,
+        }
+    }
+
+    pub(crate) fn context_json(&self, request_id: Option<&str>) -> Value {
+        serde_json::json!({
+            "provider_kind": self.provider_kind,
+            "model": self.model,
+            "conversation_id": self.conversation_id,
+            "request_id": request_id,
+        })
+    }
+
+    pub(crate) fn log_malformed(&self, message: impl Into<String>, raw: Value) {
+        if let Some(logger) = &self.logger {
+            let message = message.into();
+            logger.try_append(
+                SystemErrorEvent::new(SYSTEM_ERROR_PROVIDER_MALFORMED_RESPONSE, message.clone())
+                    .with_context(self.context_json(None))
+                    .with_error_chain([message])
+                    .with_raw(raw),
+            );
+        }
+    }
 }
 
 impl ResponsesTransport {
@@ -189,6 +267,7 @@ impl ResponsesTransport {
         bearer_token: &str,
         body: T,
         extra_headers: HeaderMap,
+        diagnostics: ResponsesDiagnosticContext,
     ) -> Result<ResponsesResponse, ProviderError>
     where
         T: Serialize,
@@ -224,9 +303,31 @@ impl ResponsesTransport {
             return Err(error_from_status(status, request_id, &body_text));
         }
 
-        serde_json::from_str(&body_text).map_err(|source| ProviderError::MalformedResponse {
-            message: format!("failed to parse JSON: {source}"),
-        })
+        let value = serde_json::from_str::<Value>(&body_text).map_err(|source| {
+            let message = format!("failed to parse JSON: {source}");
+            diagnostics.log_malformed(
+                message.clone(),
+                serde_json::json!({
+                    "http_status": status.as_u16(),
+                    "body_text": body_text,
+                }),
+            );
+            ProviderError::MalformedResponse { message }
+        })?;
+        let mut response =
+            serde_json::from_value::<ResponsesResponse>(value.clone()).map_err(|source| {
+                let message = format!("failed to parse JSON: {source}");
+                diagnostics.log_malformed(
+                    message.clone(),
+                    serde_json::json!({
+                        "http_status": status.as_u16(),
+                        "body_text": body_text,
+                    }),
+                );
+                ProviderError::MalformedResponse { message }
+            })?;
+        response.raw = Some(value);
+        Ok(response)
     }
 
     /// Send one streaming Responses request and collect the terminal response.
@@ -240,11 +341,12 @@ impl ResponsesTransport {
         bearer_token: &str,
         body: T,
         extra_headers: HeaderMap,
+        diagnostics: ResponsesDiagnosticContext,
     ) -> Result<ResponsesResponse, ProviderError>
     where
         T: Serialize,
     {
-        self.send_streaming(bearer_token, body, extra_headers, &mut |_| {})
+        self.send_streaming(bearer_token, body, extra_headers, diagnostics, &mut |_| {})
             .await
     }
 
@@ -260,6 +362,7 @@ impl ResponsesTransport {
         bearer_token: &str,
         body: T,
         extra_headers: HeaderMap,
+        diagnostics: ResponsesDiagnosticContext,
         on_event: &mut (dyn FnMut(GenerateStreamEvent) + Send),
     ) -> Result<ResponsesResponse, ProviderError>
     where
@@ -296,7 +399,7 @@ impl ResponsesTransport {
             return Err(error_from_status(status, request_id, &body_text));
         }
 
-        let mut accumulator = SseAccumulator::default();
+        let mut accumulator = SseAccumulator::new(diagnostics);
         let mut stream = response.bytes_stream();
         while let Some(chunk) = stream.next().await {
             let chunk = chunk.map_err(|source| ProviderError::HttpFailure { source })?;

@@ -1,11 +1,14 @@
 //! Server-Sent Events parser for Responses-compatible streams.
 
-use super::responses::{ResponsesResponse, ResponsesUsage};
-use crate::provider::{GenerateStreamEvent, ProviderError};
+use super::responses::{ResponsesDiagnosticContext, ResponsesResponse, ResponsesUsage};
+use crate::{
+    SYSTEM_ERROR_PROVIDER_MALFORMED_RESPONSE, SystemErrorEvent,
+    provider::{GenerateStreamEvent, ProviderError},
+};
 use serde_json::Value;
 
-#[derive(Default)]
 pub(crate) struct SseAccumulator {
+    diagnostics: ResponsesDiagnosticContext,
     pending: Vec<u8>,
     output_values: Vec<Value>,
     output_text: String,
@@ -16,6 +19,19 @@ pub(crate) struct SseAccumulator {
 }
 
 impl SseAccumulator {
+    pub(crate) fn new(diagnostics: ResponsesDiagnosticContext) -> Self {
+        Self {
+            diagnostics,
+            pending: Vec::new(),
+            output_values: Vec::new(),
+            output_text: String::new(),
+            response_id: None,
+            model: None,
+            usage: None,
+            terminal_error: None,
+        }
+    }
+
     pub(crate) fn push_bytes(
         &mut self,
         chunk: &[u8],
@@ -26,7 +42,15 @@ impl SseAccumulator {
         while let Some((index, delimiter_len)) = next_sse_event_boundary(&self.pending) {
             let raw = self.pending[..index].to_vec();
             self.pending.drain(..index + delimiter_len);
-            let event = parse_sse_event_bytes(&raw)?;
+            let event = parse_sse_event_bytes(&raw).map_err(|error| {
+                self.log_malformed(
+                    error.to_string(),
+                    serde_json::json!({
+                        "raw_event_bytes_utf8_lossy": String::from_utf8_lossy(&raw).to_string(),
+                    }),
+                );
+                error
+            })?;
             self.handle_event(event, on_event)?;
         }
 
@@ -38,7 +62,16 @@ impl SseAccumulator {
         on_event: &mut (dyn FnMut(GenerateStreamEvent) + Send),
     ) -> Result<ResponsesResponse, ProviderError> {
         if !self.pending.is_empty() {
-            let event = parse_sse_event_bytes(&self.pending)?;
+            let event = parse_sse_event_bytes(&self.pending).map_err(|error| {
+                self.log_malformed(
+                    error.to_string(),
+                    serde_json::json!({
+                        "raw_event_bytes_utf8_lossy": String::from_utf8_lossy(&self.pending)
+                            .to_string(),
+                    }),
+                );
+                error
+            })?;
             self.pending.clear();
             self.handle_event(event, on_event)?;
         }
@@ -59,12 +92,26 @@ impl SseAccumulator {
             }));
         }
 
-        ResponsesResponse::from_stream_parts(
-            self.response_id,
-            self.model,
-            self.output_values,
-            self.usage,
-        )
+        let response_id = self.response_id.clone();
+        let model = self.model.clone();
+        let output_values = self.output_values.clone();
+        let response = ResponsesResponse::from_stream_parts(
+            self.response_id.clone(),
+            self.model.clone(),
+            self.output_values.clone(),
+            self.usage.clone(),
+        );
+        if let Err(error) = &response {
+            self.log_malformed(
+                error.to_string(),
+                serde_json::json!({
+                    "response_id": response_id,
+                    "model": model,
+                    "output_values": output_values,
+                }),
+            );
+        }
+        response
     }
 
     #[cfg(test)]
@@ -88,10 +135,17 @@ impl SseAccumulator {
             return Ok(());
         }
 
-        let value: Value =
-            serde_json::from_str(&data).map_err(|source| ProviderError::MalformedResponse {
-                message: format!("failed to parse SSE JSON: {source}"),
-            })?;
+        let value: Value = serde_json::from_str(&data).map_err(|source| {
+            let message = format!("failed to parse SSE JSON: {source}");
+            self.log_malformed(
+                message.clone(),
+                serde_json::json!({
+                    "event": event.event,
+                    "data": data,
+                }),
+            );
+            ProviderError::MalformedResponse { message }
+        })?;
         let event_type = value
             .get("type")
             .and_then(Value::as_str)
@@ -145,6 +199,19 @@ impl SseAccumulator {
         }
 
         Ok(())
+    }
+
+    fn log_malformed(&self, message: impl Into<String>, raw: serde_json::Value) {
+        let Some(logger) = &self.diagnostics.logger else {
+            return;
+        };
+        let message = message.into();
+        logger.try_append(
+            SystemErrorEvent::new(SYSTEM_ERROR_PROVIDER_MALFORMED_RESPONSE, message.clone())
+                .with_context(self.diagnostics.context_json(self.response_id.as_deref()))
+                .with_error_chain([message])
+                .with_raw(raw),
+        );
     }
 }
 
@@ -242,10 +309,14 @@ pub(crate) fn next_sse_event_boundary(bytes: &[u8]) -> Option<(usize, usize)> {
 mod tests {
     use super::*;
 
+    fn test_diagnostics() -> ResponsesDiagnosticContext {
+        ResponsesDiagnosticContext::new(None, "test", "test-model", None)
+    }
+
     #[test]
     fn incremental_sse_parser_emits_deltas_before_terminal_response() {
         let mut events = Vec::new();
-        let mut accumulator = SseAccumulator::default();
+        let mut accumulator = SseAccumulator::new(test_diagnostics());
         accumulator
             .push_chunk(
                 "event: response.output_text.delta\n\
@@ -335,7 +406,7 @@ mod tests {
         let split_at = payload.find(accent).expect("accent byte offset") + 1;
         let bytes = payload.as_bytes();
         let mut events = Vec::new();
-        let mut accumulator = SseAccumulator::default();
+        let mut accumulator = SseAccumulator::new(test_diagnostics());
 
         accumulator
             .push_bytes(&bytes[..split_at], &mut |event| events.push(event))
@@ -371,7 +442,7 @@ mod tests {
             .expect("delimiter");
         let split_at = first_delimiter + 2;
         let mut events = Vec::new();
-        let mut accumulator = SseAccumulator::default();
+        let mut accumulator = SseAccumulator::new(test_diagnostics());
 
         accumulator
             .push_bytes(&payload[..split_at], &mut |event| events.push(event))
@@ -392,7 +463,7 @@ mod tests {
     }
 
     fn response_from_sse(text: &str) -> Result<ResponsesResponse, ProviderError> {
-        let mut accumulator = SseAccumulator::default();
+        let mut accumulator = SseAccumulator::new(test_diagnostics());
         accumulator.push_chunk(text, &mut |_| {})?;
         accumulator.finish(&mut |_| {})
     }
