@@ -2,7 +2,7 @@ import * as React from "react";
 import { useTranscriptScroller } from "./TranscriptScroller";
 
 export const ARRIVAL_SCROLL_SETTLE_DURATION_MS = 260;
-const SCROLL_REVEAL_DURATION_MS = 180;
+const SCROLL_REVEAL_DURATION_MS = 240;
 
 type ScrollMetrics = {
   clientHeight: number;

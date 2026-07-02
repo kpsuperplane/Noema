@@ -45,6 +45,7 @@ const styles = stylex.create({
     height: "100%",
     minWidth: 0,
     minHeight: 0,
+    overflowAnchor: "none",
     overflowY: "auto",
     overscrollBehavior: "contain"
   },
