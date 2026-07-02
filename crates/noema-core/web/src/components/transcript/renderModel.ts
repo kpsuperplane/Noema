@@ -46,13 +46,7 @@ export function renderableTranscriptEntries(
   pending: boolean,
   agentStatus: ConversationAgentStatus
 ): RenderTranscriptEntry[] {
-  const typingContinuationRenderIds = typingContinuationAssistantRenderIds(entries);
-  const renderedEntries = groupTranscriptMarkers(entries).map((entry): RenderTranscriptEntry => {
-    if (entry.kind !== "entry" || !typingContinuationRenderIds.has(transcriptEntryRenderId(entry.entry))) {
-      return entry;
-    }
-    return { ...entry, suppressArrival: true };
-  });
+  const renderedEntries = groupTranscriptMarkers(entries);
   if (shouldShowTypingIndicator(entries, pending, agentStatus)) {
     renderedEntries.push({ kind: "typing", id: "typing-indicator" });
   }
@@ -213,28 +207,6 @@ function shouldAnimateMessageArrival({
 
 function isTextTranscriptEntry(entry: TranscriptEntry): entry is Extract<TranscriptEntry, { text: string }> {
   return "text" in entry;
-}
-
-function typingContinuationAssistantRenderIds(entries: TranscriptEntry[]): Set<string> {
-  const renderIds = new Set<string>();
-  const lastUserIndex = latestUserEntryIndex(entries);
-  if (lastUserIndex === -1) {
-    return renderIds;
-  }
-
-  for (let index = lastUserIndex + 1; index < entries.length; index += 1) {
-    const entry = entries[index];
-    if (!entry || (entry.type !== "assistant" && entry.type !== "assistant_stream")) {
-      continue;
-    }
-
-    if (entry.streamId) {
-      renderIds.add(transcriptEntryRenderId(entry));
-    }
-    break;
-  }
-
-  return renderIds;
 }
 
 function isMarkerRenderEntry(entry: RenderTranscriptEntry): boolean {
