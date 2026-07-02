@@ -136,9 +136,8 @@ impl McpTransport for StreamableHttpMcpTransport {
             .into_iter()
             .map(|tool| {
                 let raw_tool = format!("{tool:?}");
-                discovered_tool_from_rmcp(tool).map_err(|error| {
-                    diagnostics.log_malformed(&error, json!({ "sdk_tool_debug": raw_tool }));
-                    error
+                discovered_tool_from_rmcp(tool).inspect_err(|error| {
+                    diagnostics.log_malformed(error, json!({ "sdk_tool_debug": raw_tool }));
                 })
             })
             .collect::<Result<Vec<_>, _>>()?;
@@ -177,10 +176,9 @@ impl McpTransport for StreamableHttpMcpTransport {
             .map_err(|error| McpClientError::Transport(format!("MCP tools/call failed: {error}")))
             .and_then(|result| {
                 let raw_result = format!("{result:?}");
-                call_tool_result_value(result).map_err(|error| {
+                call_tool_result_value(result).inspect_err(|error| {
                     diagnostics
-                        .log_malformed(&error, json!({ "sdk_call_result_debug": raw_result }));
-                    error
+                        .log_malformed(error, json!({ "sdk_call_result_debug": raw_result }));
                 })
             });
         let _ = service.close().await;

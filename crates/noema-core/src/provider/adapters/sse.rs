@@ -42,14 +42,13 @@ impl SseAccumulator {
         while let Some((index, delimiter_len)) = next_sse_event_boundary(&self.pending) {
             let raw = self.pending[..index].to_vec();
             self.pending.drain(..index + delimiter_len);
-            let event = parse_sse_event_bytes(&raw).map_err(|error| {
+            let event = parse_sse_event_bytes(&raw).inspect_err(|error| {
                 self.log_malformed(
                     error.to_string(),
                     serde_json::json!({
                         "raw_event_bytes_utf8_lossy": String::from_utf8_lossy(&raw).to_string(),
                     }),
                 );
-                error
             })?;
             self.handle_event(event, on_event)?;
         }
@@ -62,7 +61,7 @@ impl SseAccumulator {
         on_event: &mut (dyn FnMut(GenerateStreamEvent) + Send),
     ) -> Result<ResponsesResponse, ProviderError> {
         if !self.pending.is_empty() {
-            let event = parse_sse_event_bytes(&self.pending).map_err(|error| {
+            let event = parse_sse_event_bytes(&self.pending).inspect_err(|error| {
                 self.log_malformed(
                     error.to_string(),
                     serde_json::json!({
@@ -70,7 +69,6 @@ impl SseAccumulator {
                             .to_string(),
                     }),
                 );
-                error
             })?;
             self.pending.clear();
             self.handle_event(event, on_event)?;
