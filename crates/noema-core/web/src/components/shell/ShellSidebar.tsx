@@ -259,9 +259,7 @@ function PrimaryAgentMenuAvatar() {
       aria-hidden="true"
       {...stylex.props(styles.primaryAgentAvatarFrame)}
     >
-      <span {...stylex.props(styles.primaryAgentAvatarScale)}>
-        <IdentityAvatar actorId={LOCAL_AGENT_AVATAR_ID} actorType="agent" size="sm" />
-      </span>
+      <IdentityAvatar actorId={LOCAL_AGENT_AVATAR_ID} actorType="agent" size="xs" />
     </span>
   );
 }
@@ -328,16 +326,16 @@ const styles = stylex.create({
   menuButton: {
     display: "flex",
     alignItems: "center",
-    gap: 8,
+    gap: 10,
     width: "100%",
     minWidth: 0,
-    height: 28,
+    height: 34,
     borderWidth: 0,
     borderRadius: 8,
     backgroundColor: "transparent",
     color: "color-mix(in srgb, var(--pine-700) 78%, var(--foreground))",
     paddingBlock: 0,
-    paddingInline: 4,
+    paddingInline: 10,
     textAlign: "left",
     fontFamily: "inherit",
     boxSizing: "border-box",
@@ -374,8 +372,8 @@ const styles = stylex.create({
   },
   menuIcon: {
     display: "grid",
-    width: 16,
-    height: 16,
+    width: 18,
+    height: 18,
     flexShrink: 0,
     placeItems: "center"
   },
@@ -390,17 +388,10 @@ const styles = stylex.create({
   },
   primaryAgentAvatarFrame: {
     display: "grid",
-    width: 16,
-    height: 16,
+    width: 18,
+    height: 18,
     flexShrink: 0,
     placeItems: "center",
     overflow: "hidden"
-  },
-  primaryAgentAvatarScale: {
-    display: "grid",
-    width: 28,
-    height: 28,
-    placeItems: "center",
-    transform: "scale(0.5715)"
   }
 });

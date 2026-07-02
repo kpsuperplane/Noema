@@ -32,6 +32,10 @@ const styles = stylex.create({
     borderRadius: 999,
     backgroundColor: "var(--noema-surface-sunken)"
   },
+  xsSize: {
+    width: 16,
+    height: 16
+  },
   defaultSize: {
     width: 36,
     height: 36
@@ -61,12 +65,13 @@ export function IdentityAvatar({
   actorId: string;
   actorType: IdentityAvatarActorType;
   className?: string;
-  size?: "default" | "sm" | "lg";
+  size?: "xs" | "default" | "sm" | "lg";
 }) {
   const avatarSeed = avatarSeedForActorId(actorId);
   const avatarVariant = avatarVariantForActorType(actorType);
   const rootProps = stylex.props(
     styles.root,
+    size === "xs" && styles.xsSize,
     size === "sm" && styles.smSize,
     size === "lg" && styles.lgSize,
     size === "default" && styles.defaultSize
