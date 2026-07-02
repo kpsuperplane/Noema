@@ -1,5 +1,6 @@
 import * as React from "react";
 import * as stylex from "@stylexjs/stylex";
+import type { TranscriptLane } from "./renderModel";
 
 const styles = stylex.create({
   content: {
@@ -14,17 +15,19 @@ const styles = stylex.create({
 
 export function RenderedTranscriptEntryFrame({
   animateArrival,
-  children
+  children,
+  lane
 }: {
   animateArrival: boolean;
   children: React.ReactNode;
+  lane: TranscriptLane;
 }) {
   if (!animateArrival) {
     return <>{children}</>;
   }
 
   return (
-    <div {...stylex.props(styles.content)} data-slot="message-arrival-content">
+    <div {...stylex.props(styles.content)} data-lane={lane} data-slot="message-arrival-content">
       <div {...stylex.props(styles.inner)} data-slot="message-arrival-inner">
         {children}
       </div>
