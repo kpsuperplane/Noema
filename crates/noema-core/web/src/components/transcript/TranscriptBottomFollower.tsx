@@ -1,7 +1,7 @@
 import * as React from "react";
 import { useTranscriptScroller } from "./TranscriptScroller";
 
-export const ARRIVAL_SCROLL_FOLLOW_DURATION_MS = 360;
+export const ARRIVAL_SCROLL_FOLLOW_DURATION_MS = 480;
 
 export function TranscriptBottomFollower({
   arrivalScrollKey,
