@@ -37,7 +37,7 @@ const styles = stylex.create({
   },
   typingBubble: {
     width: 58,
-    minHeight: 36,
+    minHeight: 40,
     paddingBlock: 0,
     paddingInline: 0
   }

@@ -12,7 +12,7 @@ const styles = stylex.create({
   content: {
     display: "flex",
     width: "100%",
-    minHeight: 36,
+    minHeight: 40,
     alignItems: "center",
     justifyContent: "center",
     gap: 6
