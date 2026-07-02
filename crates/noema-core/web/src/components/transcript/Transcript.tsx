@@ -11,7 +11,7 @@ import {
   renderedTranscriptLane,
   shouldAnchorRenderedEntry,
   shouldAnimateRenderedEntryArrivalForSeen,
-  shouldAnimateRenderedEntryText,
+  shouldContinueRenderedEntryTextAnimation,
   shouldAnimateRenderedEntryTextForSeen,
   shouldCompactMarkerClusterSpacing,
   shouldRevealRenderedEntryAfterArrival,
@@ -69,7 +69,7 @@ export function Transcript({
       if (!nextSeenMessageIds.has(messageId)) {
         nextSeenMessageIds.add(messageId);
         changed = true;
-        if (shouldAnimateRenderedEntryText(entry) && !nextTextAnimatingMessageIds.has(messageId)) {
+        if (shouldContinueRenderedEntryTextAnimation(entry) && !nextTextAnimatingMessageIds.has(messageId)) {
           nextTextAnimatingMessageIds.add(messageId);
           textAnimatingChanged = true;
         }

@@ -89,8 +89,12 @@ export function shouldRevealRenderedEntryAfterArrival(
   return entry.kind === "typing" && previousEntryAnimateArrival;
 }
 
-export function shouldAnimateRenderedEntryText(entry: RenderTranscriptEntry): boolean {
-  return entry.kind === "entry" && isTextTranscriptEntry(entry.entry) && shouldAnimateMessageText(entry.entry);
+export function shouldContinueRenderedEntryTextAnimation(entry: RenderTranscriptEntry): boolean {
+  return (
+    entry.kind === "entry" &&
+    entry.entry.type === "assistant_stream" &&
+    shouldAnimateMessageText(entry.entry)
+  );
 }
 
 export function shouldAnimateMessageText(entry: Extract<TranscriptEntry, { text: string }>): boolean {
@@ -103,10 +107,16 @@ export function shouldAnimateRenderedEntryTextForSeen(
   seenMessageIds: ReadonlySet<string>,
   textAnimatingMessageIds: ReadonlySet<string>
 ): boolean {
-  return (
-    shouldAnimateRenderedEntryText(entry) &&
-    (!seenMessageIds.has(messageId) || textAnimatingMessageIds.has(messageId))
-  );
+  if (entry.kind !== "entry" || !isTextTranscriptEntry(entry.entry) || !shouldAnimateMessageText(entry.entry)) {
+    return false;
+  }
+  if (entry.entry.type === "assistant_stream") {
+    return !seenMessageIds.has(messageId) || textAnimatingMessageIds.has(messageId);
+  }
+  if (entry.entry.type === "assistant" && textAnimatingMessageIds.has(messageId)) {
+    return false;
+  }
+  return !seenMessageIds.has(messageId);
 }
 
 export function transcriptEntryLane(entryType: TranscriptEntry["type"]): TranscriptLane {
