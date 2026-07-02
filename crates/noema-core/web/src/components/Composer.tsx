@@ -1,14 +1,14 @@
 import React from "react";
 import { SendHorizontal } from "lucide-react";
-import { Button } from "@astryxdesign/core/Button";
-import { TextArea } from "@astryxdesign/core/TextArea";
+import { Button, type ButtonProps } from "@astryxdesign/core/Button";
+import { TextArea, type TextAreaProps } from "@astryxdesign/core/TextArea";
 import * as stylex from "@stylexjs/stylex";
 
 const composerMinWidthCh = 18;
 const composerWidthBufferCh = 5;
 const composerWidthBufferPx = 32;
 const composerMeasuredTextSlackPx = 4;
-const composerMinHeightPx = 36;
+const composerMinTextHeightPx = 24;
 const composerTextareaFontSize = "1rem";
 const composerTextareaLineHeight = "1.5rem";
 
@@ -25,13 +25,15 @@ export function isComposerTextareaDisabled({ ready }: { ready: boolean }) {
 
 export function composerSubmitState({
   ready,
-  pending
+  pending,
+  value
 }: {
   ready: boolean;
   pending: boolean;
+  value: string;
 }) {
   return {
-    disabled: !ready,
+    disabled: !canSend({ ready, value }),
     label: pending ? "Sending message" : "Send message"
   };
 }
@@ -149,13 +151,13 @@ export function syncHeight({
     return;
   }
 
-  textarea.style.minHeight = `${composerMinHeightPx}px`;
+  textarea.style.minHeight = `${composerMinTextHeightPx}px`;
   textarea.style.width = "100%";
   textarea.style.resize = "none";
   textarea.style.overflowY = "hidden";
   textarea.style.fontSize = composerTextareaFontSize;
   textarea.style.lineHeight = composerTextareaLineHeight;
-  textarea.style.height = `${composerMinHeightPx}px`;
+  textarea.style.height = `${composerMinTextHeightPx}px`;
 
   const context = document.createElement("canvas").getContext("2d");
   if (!context) {
@@ -179,7 +181,7 @@ export function syncHeight({
     lineHeightPx,
     paddingBlockPx
   });
-  textarea.style.height = `${Math.max(composerMinHeightPx, measuredHeight)}px`;
+  textarea.style.height = `${Math.max(composerMinTextHeightPx, measuredHeight)}px`;
 }
 
 export function composerTextareaWrapStyle({
@@ -225,6 +227,12 @@ export function assignComposerTextareaRef(
   }
 }
 
+type AstryxXStyle = TextAreaProps["xstyle"] | ButtonProps["xstyle"];
+
+function astryxXStyle(xstyle: unknown): AstryxXStyle {
+  return xstyle as unknown as AstryxXStyle;
+}
+
 export type ComposerProps = {
   value: string;
   ready: boolean;
@@ -268,7 +276,7 @@ export const Composer = React.forwardRef<HTMLTextAreaElement, ComposerProps>(fun
     refocusComposerTextarea(textareaRef.current);
   }
 
-  const submitState = composerSubmitState({ ready, pending });
+  const submitState = composerSubmitState({ ready, pending, value });
   const textareaProps = composerTextareaProps();
   const sizeKey = `${value}\u0000${placeholder}`;
   const fallbackInlineSize = React.useMemo(
@@ -336,6 +344,7 @@ export const Composer = React.forwardRef<HTMLTextAreaElement, ComposerProps>(fun
     placeholder,
     inlineSize: measuredInlineSize?.key === sizeKey ? measuredInlineSize.size : fallbackInlineSize
   });
+  // Astryx omits enterKeyHint from its public BaseProps, but forwards rest props to the native textarea.
   const textareaNativeProps = {
     enterKeyHint: "send"
   } as const;
@@ -367,7 +376,7 @@ export const Composer = React.forwardRef<HTMLTextAreaElement, ComposerProps>(fun
             isDisabled={isComposerTextareaDisabled({ ready })}
             placeholder={placeholder}
             rows={textareaProps.rows}
-            xstyle={styles.textareaChrome as never}
+            xstyle={astryxXStyle(styles.textareaChrome)}
             {...textareaNativeProps}
             onChange={(nextValue, event) => {
               syncHeight({ textarea: event.currentTarget, value: nextValue, placeholder });
@@ -389,7 +398,7 @@ export const Composer = React.forwardRef<HTMLTextAreaElement, ComposerProps>(fun
           icon={<SendHorizontal aria-hidden="true" />}
           size="lg"
           variant="secondary"
-          xstyle={styles.submit as never}
+          xstyle={astryxXStyle(styles.submit)}
           isDisabled={submitState.disabled}
           onClick={submit}
         />
