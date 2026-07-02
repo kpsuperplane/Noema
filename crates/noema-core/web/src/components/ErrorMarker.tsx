@@ -29,21 +29,15 @@ const styles = stylex.create({
 export function ErrorMarker({
   message,
   label,
-  recoverable = true,
-  className
+  recoverable = true
 }: {
   message: string;
   label?: string;
   recoverable?: boolean;
-  className?: string;
 }) {
-  const rootProps = stylex.props(styles.root);
-  const rootClassName = [rootProps.className, className].filter(Boolean).join(" ");
-
   return (
     <span
-      {...rootProps}
-      className={rootClassName || undefined}
+      {...stylex.props(styles.root)}
       data-slot="marker"
       data-tone="error"
       role={recoverable ? "status" : "alert"}

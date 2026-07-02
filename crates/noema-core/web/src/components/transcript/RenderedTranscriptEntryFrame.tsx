@@ -1,4 +1,16 @@
 import * as React from "react";
+import * as stylex from "@stylexjs/stylex";
+
+const styles = stylex.create({
+  content: {
+    width: "100%",
+    maxWidth: 760,
+    minWidth: 0
+  },
+  inner: {
+    minHeight: 0
+  }
+});
 
 export function RenderedTranscriptEntryFrame({
   animateArrival,
@@ -12,8 +24,8 @@ export function RenderedTranscriptEntryFrame({
   }
 
   return (
-    <div data-slot="message-arrival-content" className="w-full max-w-[760px] min-w-0">
-      <div data-slot="message-arrival-inner" className="min-h-0">
+    <div {...stylex.props(styles.content)} data-slot="message-arrival-content">
+      <div {...stylex.props(styles.inner)} data-slot="message-arrival-inner">
         {children}
       </div>
     </div>

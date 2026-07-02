@@ -1,4 +1,5 @@
 import { BrainIcon } from "lucide-react";
+import * as stylex from "@stylexjs/stylex";
 import { memoryCardsFromStructuredItem } from "../../memoryCards";
 import type { TurnTranscriptItem } from "../../types";
 import {
@@ -8,6 +9,15 @@ import {
 } from "./markerModel";
 import { MemoryDetailAttachment } from "./MemoryDetailAttachment";
 import { TranscriptMarkerFrame } from "./TranscriptMarkerFrame";
+
+const styles = stylex.create({
+  root: {
+    display: "grid",
+    width: "100%",
+    maxWidth: "100%",
+    gap: 8
+  }
+});
 
 export function MemoryMarker({
   id,
@@ -31,7 +41,7 @@ export function MemoryMarker({
   const tone = failed ? "error" : started ? "default" : "success";
 
   return (
-    <div className="grid w-full max-w-full gap-2">
+    <div {...stylex.props(styles.root)}>
       <TranscriptMarkerFrame
         tone={tone}
         pending={started}

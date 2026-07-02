@@ -1,8 +1,18 @@
 import { WrenchIcon } from "lucide-react";
+import * as stylex from "@stylexjs/stylex";
 import { toolMarkerLabel, toolMarkerPending, toolMarkerTone } from "./markerModel";
 import type { ToolMarkerGroup } from "./renderModel";
 import { ToolDetailAttachment } from "./ToolDetailAttachment";
 import { TranscriptMarkerFrame } from "./TranscriptMarkerFrame";
+
+const styles = stylex.create({
+  root: {
+    display: "grid",
+    width: "100%",
+    maxWidth: "100%",
+    gap: 8
+  }
+});
 
 export function ToolMarker({
   marker,
@@ -17,7 +27,7 @@ export function ToolMarker({
   const pending = toolMarkerPending(marker);
 
   return (
-    <div className="grid w-full max-w-full gap-2">
+    <div {...stylex.props(styles.root)}>
       <TranscriptMarkerFrame
         tone={tone}
         pending={pending}
