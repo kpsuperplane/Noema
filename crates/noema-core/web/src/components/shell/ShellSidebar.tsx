@@ -328,24 +328,25 @@ const styles = stylex.create({
   menuButton: {
     display: "flex",
     alignItems: "center",
-    gap: 10,
+    gap: 8,
     width: "100%",
     minWidth: 0,
-    minHeight: 34,
+    height: 28,
     borderWidth: 0,
     borderRadius: 8,
     backgroundColor: "transparent",
-    color: "var(--muted-foreground)",
-    paddingBlock: 7,
-    paddingInline: 10,
+    color: "var(--foreground)",
+    paddingBlock: 0,
+    paddingInline: 4,
     textAlign: "left",
+    fontFamily: "inherit",
+    boxSizing: "border-box",
     transitionDuration: "120ms",
-    transitionProperty: "background-color, box-shadow, color",
+    transitionProperty: "background-color, color",
     transitionTimingFunction: "ease",
     ":hover": {
       "@media (hover: hover)": {
-        backgroundColor: "var(--surface-hover)",
-        color: "var(--foreground)"
+        backgroundColor: "var(--surface-hover)"
       }
     },
     ":focus-visible": {
@@ -359,9 +360,16 @@ const styles = stylex.create({
     }
   },
   menuButtonActive: {
-    backgroundColor: "var(--surface-hover)",
-    boxShadow: "var(--shadow-inset-selected)",
-    color: "var(--foreground)"
+    backgroundColor: "var(--color-neutral)",
+    fontWeight: 500,
+    ":hover": {
+      "@media (hover: hover)": {
+        backgroundColor: "var(--color-neutral)"
+      }
+    },
+    ":active": {
+      backgroundColor: "var(--color-neutral)"
+    }
   },
   menuIcon: {
     display: "grid",
@@ -376,7 +384,7 @@ const styles = stylex.create({
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
     fontSize: 14,
-    fontWeight: 600,
+    fontWeight: "inherit",
     lineHeight: "20px"
   },
   primaryAgentAvatarFrame: {
