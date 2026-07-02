@@ -1,6 +1,6 @@
 import * as stylex from "@stylexjs/stylex";
-import { IdentityAvatar, LOCAL_AGENT_AVATAR_ID, LOCAL_HUMAN_AVATAR_ID } from "../IdentityAvatar";
 import type { TranscriptLane } from "./renderModel";
+import { TranscriptActorAvatar } from "./TranscriptActorAvatar";
 
 const styles = stylex.create({
   root: {
@@ -14,19 +14,6 @@ const styles = stylex.create({
   },
   human: {
     flexDirection: "row-reverse"
-  },
-  avatar: {
-    display: "flex",
-    width: "fit-content",
-    minWidth: 32,
-    alignItems: "center",
-    justifyContent: "center",
-    alignSelf: "flex-end",
-    flexShrink: 0,
-    overflow: "hidden"
-  },
-  hiddenAvatar: {
-    visibility: "hidden"
   },
   content: {
     display: "flex",
@@ -50,14 +37,9 @@ export function TranscriptRow({
   showAvatar?: boolean;
   children: React.ReactNode;
 }) {
-  const actorId = lane === "human" ? LOCAL_HUMAN_AVATAR_ID : LOCAL_AGENT_AVATAR_ID;
-  const actorType = lane === "human" ? "human" : "agent";
-
   return (
     <div {...stylex.props(styles.root, lane === "human" && styles.human)} data-lane={lane}>
-      <div {...stylex.props(styles.avatar, !showAvatar && styles.hiddenAvatar)} aria-hidden={!showAvatar}>
-        <IdentityAvatar actorId={actorId} actorType={actorType} size="sm" />
-      </div>
+      <TranscriptActorAvatar lane={lane} visible={showAvatar} />
       <div {...stylex.props(styles.content, lane === "human" && styles.humanContent)}>{children}</div>
     </div>
   );
