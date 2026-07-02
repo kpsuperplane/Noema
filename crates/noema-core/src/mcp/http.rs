@@ -26,11 +26,11 @@ use serde_json::{Map, Value, json};
 use tokio::time;
 
 use crate::{
-    McpServerRecord,
+    McpServerRecord, SystemErrorLogger,
     mcp::{
         client::{
-            DiscoveredMcpTool, McpClientError, McpTransport, discovered_tool_from_rmcp,
-            parse_tools_list_result,
+            DiscoveredMcpTool, McpClientError, McpDiagnosticContext, McpTransport,
+            discovered_tool_from_rmcp, parse_tools_list_result_with_diagnostics,
         },
         secrets::{McpOAuthClientCredentials, McpOAuthStoredCredentials, McpSecretMaterial},
     },
@@ -49,6 +49,8 @@ pub struct StreamableHttpMcpTransport {
     oauth_client_credentials: Option<McpOAuthClientCredentials>,
     oauth_credentials: Option<McpOAuthStoredCredentials>,
     discovered_tools: Option<Vec<DiscoveredMcpTool>>,
+    diagnostics: Option<SystemErrorLogger>,
+    diagnostic_mcp_server_id: Option<String>,
 }
 
 impl StreamableHttpMcpTransport {
@@ -61,6 +63,8 @@ impl StreamableHttpMcpTransport {
             oauth_client_credentials: None,
             oauth_credentials: None,
             discovered_tools: None,
+            diagnostics: None,
+            diagnostic_mcp_server_id: None,
         }
     }
 
@@ -81,7 +85,30 @@ impl StreamableHttpMcpTransport {
             oauth_client_credentials: config.oauth_client_credentials,
             oauth_credentials: config.oauth_credentials,
             discovered_tools: None,
+            diagnostics: None,
+            diagnostic_mcp_server_id: None,
         })
+    }
+
+    /// Attach developer diagnostics for malformed MCP responses.
+    #[must_use]
+    pub fn with_diagnostics(
+        mut self,
+        diagnostics: Option<SystemErrorLogger>,
+        mcp_server_id: Option<String>,
+    ) -> Self {
+        self.diagnostics = diagnostics;
+        self.diagnostic_mcp_server_id = mcp_server_id;
+        self
+    }
+
+    fn diagnostic_context(&self, method: &'static str) -> McpDiagnosticContext {
+        McpDiagnosticContext::new(
+            self.diagnostics.clone(),
+            self.diagnostic_mcp_server_id.clone(),
+            Some("streamable_http".to_string()),
+            method,
+        )
     }
 }
 
@@ -100,13 +127,20 @@ impl McpTransport for StreamableHttpMcpTransport {
         }
         let transport = StreamableHttpClientTransport::from_config(config);
         let mut service = ().serve(transport).await.map_err(rmcp_initialize_error)?;
+        let diagnostics = self.diagnostic_context("tools/list");
         let tools = service
             .peer()
             .list_all_tools()
             .await
             .map_err(|error| McpClientError::Transport(format!("MCP tools/list failed: {error}")))?
             .into_iter()
-            .map(discovered_tool_from_rmcp)
+            .map(|tool| {
+                let raw_tool = format!("{tool:?}");
+                discovered_tool_from_rmcp(tool).map_err(|error| {
+                    diagnostics.log_malformed(&error, json!({ "sdk_tool_debug": raw_tool }));
+                    error
+                })
+            })
             .collect::<Result<Vec<_>, _>>()?;
         let _ = service.close().await;
         self.discovered_tools = Some(tools);
@@ -135,12 +169,20 @@ impl McpTransport for StreamableHttpMcpTransport {
         }
         let transport = StreamableHttpClientTransport::from_config(config);
         let mut service = ().serve(transport).await.map_err(rmcp_initialize_error)?;
+        let diagnostics = self.diagnostic_context("tools/call");
         let result = service
             .peer()
             .call_tool(call_tool_params(name, arguments)?)
             .await
             .map_err(|error| McpClientError::Transport(format!("MCP tools/call failed: {error}")))
-            .and_then(call_tool_result_value);
+            .and_then(|result| {
+                let raw_result = format!("{result:?}");
+                call_tool_result_value(result).map_err(|error| {
+                    diagnostics
+                        .log_malformed(&error, json!({ "sdk_call_result_debug": raw_result }));
+                    error
+                })
+            });
         let _ = service.close().await;
         result
     }
@@ -157,6 +199,8 @@ pub struct SseMcpTransport {
     stream: Option<SseByteStream>,
     stream_buffer: String,
     next_id: u64,
+    diagnostics: Option<SystemErrorLogger>,
+    diagnostic_mcp_server_id: Option<String>,
 }
 
 impl SseMcpTransport {
@@ -180,6 +224,8 @@ impl SseMcpTransport {
             stream: None,
             stream_buffer: String::new(),
             next_id: 1,
+            diagnostics: None,
+            diagnostic_mcp_server_id: None,
         })
     }
 
@@ -198,6 +244,27 @@ impl SseMcpTransport {
         transport.oauth_client_credentials = config.oauth_client_credentials;
         transport.oauth_credentials = config.oauth_credentials;
         Ok(transport)
+    }
+
+    /// Attach developer diagnostics for malformed MCP responses.
+    #[must_use]
+    pub fn with_diagnostics(
+        mut self,
+        diagnostics: Option<SystemErrorLogger>,
+        mcp_server_id: Option<String>,
+    ) -> Self {
+        self.diagnostics = diagnostics;
+        self.diagnostic_mcp_server_id = mcp_server_id;
+        self
+    }
+
+    fn diagnostic_context(&self, method: &'static str) -> McpDiagnosticContext {
+        McpDiagnosticContext::new(
+            self.diagnostics.clone(),
+            self.diagnostic_mcp_server_id.clone(),
+            Some("sse".to_string()),
+            method,
+        )
     }
 
     fn next_request_id(&mut self) -> u64 {
@@ -291,25 +358,45 @@ impl SseMcpTransport {
         Ok(())
     }
 
-    async fn read_response(&mut self, id: u64, method: &str) -> Result<Value, McpClientError> {
+    async fn read_response(
+        &mut self,
+        id: u64,
+        method: &'static str,
+    ) -> Result<Value, McpClientError> {
         loop {
             let event = self.read_sse_event().await?;
             if !matches!(event.event.as_deref(), None | Some("") | Some("message")) {
                 continue;
             }
+            let event_kind = event.event.clone();
             let Some(data) = event.data else {
                 continue;
             };
-            let response: Value = serde_json::from_str(&data).map_err(|error| {
-                McpClientError::Malformed(format!("invalid MCP SSE JSON-RPC event: {error}"))
-            })?;
+            let response: Value = match serde_json::from_str(&data) {
+                Ok(response) => response,
+                Err(error) => {
+                    let client_error = McpClientError::Malformed(format!(
+                        "invalid MCP SSE JSON-RPC event: {error}"
+                    ));
+                    self.diagnostic_context(method)
+                        .log_malformed(&client_error, json!({ "event": event_kind, "data": data }));
+                    return Err(client_error);
+                }
+            };
             let Some(response_id) = response.get("id").and_then(Value::as_u64) else {
                 continue;
             };
             if response_id != id {
                 continue;
             }
-            return parse_json_rpc_response(response, method);
+            let raw_response = response.clone();
+            return parse_json_rpc_response(response, method).map_err(|error| {
+                if matches!(error, McpClientError::Malformed(_)) {
+                    self.diagnostic_context(method)
+                        .log_malformed(&error, raw_response);
+                }
+                error
+            });
         }
     }
 
@@ -330,9 +417,18 @@ impl SseMcpTransport {
                 .map_err(|error| {
                     McpClientError::Transport(format!("failed to read MCP SSE: {error}"))
                 })?;
-            let text = std::str::from_utf8(&next_chunk).map_err(|error| {
-                McpClientError::Malformed(format!("MCP SSE stream was not UTF-8: {error}"))
-            })?;
+            let text = match std::str::from_utf8(&next_chunk) {
+                Ok(text) => text,
+                Err(error) => {
+                    let client_error =
+                        McpClientError::Malformed(format!("MCP SSE stream was not UTF-8: {error}"));
+                    self.diagnostic_context("sse/event").log_malformed(
+                        &client_error,
+                        json!({ "chunk_bytes": next_chunk.to_vec() }),
+                    );
+                    return Err(client_error);
+                }
+            };
             self.stream_buffer.push_str(text);
         }
     }
@@ -393,7 +489,10 @@ impl McpTransport for SseMcpTransport {
             }))
             .await?;
             let result = self.read_response(id, "tools/list").await?;
-            let page = parse_tools_list_result(result)?;
+            let page = parse_tools_list_result_with_diagnostics(
+                result,
+                &self.diagnostic_context("tools/list"),
+            )?;
             tools.extend(page.tools);
             match page.next_cursor {
                 Some(next_cursor) => cursor = Some(next_cursor),

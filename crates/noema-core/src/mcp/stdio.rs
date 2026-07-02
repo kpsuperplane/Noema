@@ -3,13 +3,16 @@
 use std::{collections::BTreeMap, process::Stdio};
 
 use rmcp::{ServiceExt, model::CallToolRequestParams, transport::TokioChildProcess};
-use serde_json::{Map, Value};
+use serde_json::{Map, Value, json};
 use tokio::process::Command;
 
 use crate::{
-    McpServerRecord,
+    McpServerRecord, SystemErrorLogger,
     mcp::{
-        client::{DiscoveredMcpTool, McpClientError, McpTransport, discovered_tool_from_rmcp},
+        client::{
+            DiscoveredMcpTool, McpClientError, McpDiagnosticContext, McpTransport,
+            discovered_tool_from_rmcp,
+        },
         secrets::McpSecretMaterial,
     },
 };
@@ -21,6 +24,8 @@ pub struct StdioMcpTransport {
     cwd: Option<String>,
     env: BTreeMap<String, String>,
     discovered_tools: Option<Vec<DiscoveredMcpTool>>,
+    diagnostics: Option<SystemErrorLogger>,
+    diagnostic_mcp_server_id: Option<String>,
 }
 
 impl StdioMcpTransport {
@@ -38,6 +43,8 @@ impl StdioMcpTransport {
             cwd,
             env,
             discovered_tools: None,
+            diagnostics: None,
+            diagnostic_mcp_server_id: None,
         }
     }
 
@@ -62,6 +69,27 @@ impl StdioMcpTransport {
         env.extend(secrets.env.clone());
         Ok(Self::new(command, args, cwd, env))
     }
+
+    /// Attach developer diagnostics for malformed MCP responses.
+    #[must_use]
+    pub fn with_diagnostics(
+        mut self,
+        diagnostics: Option<SystemErrorLogger>,
+        mcp_server_id: Option<String>,
+    ) -> Self {
+        self.diagnostics = diagnostics;
+        self.diagnostic_mcp_server_id = mcp_server_id;
+        self
+    }
+
+    fn diagnostic_context(&self, method: &'static str) -> McpDiagnosticContext {
+        McpDiagnosticContext::new(
+            self.diagnostics.clone(),
+            self.diagnostic_mcp_server_id.clone(),
+            Some("stdio".to_string()),
+            method,
+        )
+    }
 }
 
 impl McpTransport for StdioMcpTransport {
@@ -78,13 +106,20 @@ impl McpTransport for StdioMcpTransport {
                 McpClientError::Transport(format!("failed to start MCP stdio command: {error}"))
             })?;
         let mut service = ().serve(transport).await.map_err(rmcp_initialize_error)?;
+        let diagnostics = self.diagnostic_context("tools/list");
         let tools = service
             .peer()
             .list_all_tools()
             .await
             .map_err(|error| McpClientError::Transport(format!("MCP tools/list failed: {error}")))?
             .into_iter()
-            .map(discovered_tool_from_rmcp)
+            .map(|tool| {
+                let raw_tool = format!("{tool:?}");
+                discovered_tool_from_rmcp(tool).map_err(|error| {
+                    diagnostics.log_malformed(&error, json!({ "sdk_tool_debug": raw_tool }));
+                    error
+                })
+            })
             .collect::<Result<Vec<_>, _>>()?;
         let _ = service.close().await;
         self.discovered_tools = Some(tools);
@@ -110,12 +145,20 @@ impl McpTransport for StdioMcpTransport {
                 McpClientError::Transport(format!("failed to start MCP stdio command: {error}"))
             })?;
         let mut service = ().serve(transport).await.map_err(rmcp_initialize_error)?;
+        let diagnostics = self.diagnostic_context("tools/call");
         let result = service
             .peer()
             .call_tool(call_tool_params(name, arguments)?)
             .await
             .map_err(|error| McpClientError::Transport(format!("MCP tools/call failed: {error}")))
-            .and_then(call_tool_result_value);
+            .and_then(|result| {
+                let raw_result = format!("{result:?}");
+                call_tool_result_value(result).map_err(|error| {
+                    diagnostics
+                        .log_malformed(&error, json!({ "sdk_call_result_debug": raw_result }));
+                    error
+                })
+            });
         let _ = service.close().await;
         result
     }

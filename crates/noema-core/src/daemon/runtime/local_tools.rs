@@ -23,7 +23,10 @@ impl CodexRuntimeActor {
         agent_identity: &AgentPromptIdentity,
     ) -> Vec<LocalToolResult> {
         let mut results = Vec::new();
-        let gateway = CapabilityGateway { store: &self.store };
+        let gateway = CapabilityGateway {
+            store: &self.store,
+            system_errors: &self.system_errors,
+        };
         let scope_ids = vec![turn.conversation_id.clone()];
         for (index, output) in turn.response.output.iter().enumerate() {
             let GenerateOutputItem::ToolCall { id, name, payload } = output else {

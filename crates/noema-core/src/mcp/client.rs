@@ -3,6 +3,8 @@
 use serde_json::{Map, Value, json};
 use thiserror::Error;
 
+use crate::{SYSTEM_ERROR_MCP_MALFORMED_RESPONSE, SystemErrorEvent, SystemErrorLogger};
+
 /// MCP tool metadata discovered during setup.
 #[derive(Debug, Clone, PartialEq)]
 pub struct DiscoveredMcpTool {
@@ -19,11 +21,60 @@ pub struct DiscoveredMcpTool {
 }
 
 /// One parsed `tools/list` result page.
+#[derive(Debug)]
 pub(crate) struct DiscoveredMcpToolsPage {
     /// Discovered tools in the page.
     pub(crate) tools: Vec<DiscoveredMcpTool>,
     /// Cursor for the next page, when present.
     pub(crate) next_cursor: Option<String>,
+}
+
+/// Context for logging malformed MCP responses.
+#[derive(Debug, Clone)]
+pub struct McpDiagnosticContext {
+    /// Developer diagnostic logger.
+    pub logger: Option<SystemErrorLogger>,
+    /// MCP server id when known.
+    pub mcp_server_id: Option<String>,
+    /// MCP transport kind when known.
+    pub transport_kind: Option<String>,
+    /// MCP method being parsed.
+    pub method: &'static str,
+}
+
+impl McpDiagnosticContext {
+    /// Construct an MCP diagnostic context.
+    #[must_use]
+    pub fn new(
+        logger: Option<SystemErrorLogger>,
+        mcp_server_id: Option<String>,
+        transport_kind: Option<String>,
+        method: &'static str,
+    ) -> Self {
+        Self {
+            logger,
+            mcp_server_id,
+            transport_kind,
+            method,
+        }
+    }
+
+    /// Best-effort log of a malformed MCP payload.
+    pub fn log_malformed(&self, error: &McpClientError, raw: Value) {
+        let Some(logger) = &self.logger else {
+            return;
+        };
+        logger.try_append(
+            SystemErrorEvent::new(SYSTEM_ERROR_MCP_MALFORMED_RESPONSE, error.to_string())
+                .with_context(json!({
+                    "mcp_server_id": self.mcp_server_id,
+                    "transport_kind": self.transport_kind,
+                    "method": self.method,
+                }))
+                .with_error_chain([error.to_string()])
+                .with_raw(json!({ "payload": raw })),
+        );
+    }
 }
 
 /// Errors returned by MCP client discovery or mediated tool calls.
@@ -129,6 +180,20 @@ pub(crate) fn parse_tools_list_result(
         }
     };
     Ok(DiscoveredMcpToolsPage { tools, next_cursor })
+}
+
+pub(crate) fn parse_tools_list_result_with_diagnostics(
+    result: Value,
+    diagnostics: &McpDiagnosticContext,
+) -> Result<DiscoveredMcpToolsPage, McpClientError> {
+    match parse_tools_list_result(result.clone()) {
+        Ok(page) => Ok(page),
+        Err(error @ McpClientError::Malformed(_)) => {
+            diagnostics.log_malformed(&error, result);
+            Err(error)
+        }
+        Err(error) => Err(error),
+    }
 }
 
 /// Normalize an SDK-discovered MCP tool into Noema's setup metadata shape.
@@ -288,6 +353,31 @@ mod tests {
         );
         assert_eq!(page.tools[0].annotations, json!({ "readOnlyHint": true }));
         assert_eq!(page.next_cursor.as_deref(), Some("next"));
+    }
+
+    #[test]
+    fn tools_list_parser_logs_malformed_payload_with_diagnostics() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let logger = SystemErrorLogger::new(dir.path().join("errors.log"));
+        let diagnostics = McpDiagnosticContext::new(
+            Some(logger.clone()),
+            Some("mcp:test".to_string()),
+            Some("sse".to_string()),
+            "tools/list",
+        );
+        let raw = json!({"tools": "not-an-array"});
+
+        let error =
+            parse_tools_list_result_with_diagnostics(raw.clone(), &diagnostics).expect_err("error");
+
+        assert!(matches!(error, McpClientError::Malformed(_)));
+        let events = crate::system_errors::read_system_error_events(logger.path()).expect("events");
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0]["category"], SYSTEM_ERROR_MCP_MALFORMED_RESPONSE);
+        assert_eq!(events[0]["context"]["mcp_server_id"], "mcp:test");
+        assert_eq!(events[0]["context"]["transport_kind"], "sse");
+        assert_eq!(events[0]["context"]["method"], "tools/list");
+        assert_eq!(events[0]["raw"]["payload"], raw);
     }
 
     #[tokio::test]

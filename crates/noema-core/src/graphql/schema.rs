@@ -166,22 +166,33 @@ impl GraphqlState {
                 &disk_secrets
             }
         };
+        let system_errors = Some(crate::SystemErrorLogger::from_paths(paths));
+        let diagnostic_server_id = Some(server.mcp_server_id.clone());
         match server.transport_kind {
             crate::McpTransportKind::Stdio => {
                 match crate::mcp::StdioMcpTransport::from_server_config(server, secrets) {
-                    Ok(transport) => GraphqlMcpSetupTransport::Stdio(Box::new(transport)),
+                    Ok(transport) => GraphqlMcpSetupTransport::Stdio(Box::new(
+                        transport
+                            .with_diagnostics(system_errors.clone(), diagnostic_server_id.clone()),
+                    )),
                     Err(message) => GraphqlMcpSetupTransport::Unavailable(message),
                 }
             }
             crate::McpTransportKind::Sse => {
                 match crate::mcp::SseMcpTransport::from_server_config(server, secrets) {
-                    Ok(transport) => GraphqlMcpSetupTransport::Sse(Box::new(transport)),
+                    Ok(transport) => GraphqlMcpSetupTransport::Sse(Box::new(
+                        transport
+                            .with_diagnostics(system_errors.clone(), diagnostic_server_id.clone()),
+                    )),
                     Err(message) => GraphqlMcpSetupTransport::Unavailable(message),
                 }
             }
             crate::McpTransportKind::StreamableHttp => {
                 match crate::mcp::StreamableHttpMcpTransport::from_server_config(server, secrets) {
-                    Ok(transport) => GraphqlMcpSetupTransport::StreamableHttp(Box::new(transport)),
+                    Ok(transport) => GraphqlMcpSetupTransport::StreamableHttp(Box::new(
+                        transport
+                            .with_diagnostics(system_errors.clone(), diagnostic_server_id.clone()),
+                    )),
                     Err(message) => GraphqlMcpSetupTransport::Unavailable(message),
                 }
             }

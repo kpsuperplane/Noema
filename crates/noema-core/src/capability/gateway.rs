@@ -2,8 +2,9 @@
 
 use crate::{
     McpCalibrationStatus, McpServerAuthStatus, McpServerHealthStatus, McpTransportKind, NoemaStore,
+    SYSTEM_ERROR_MCP_MALFORMED_RESPONSE, SystemErrorEvent, SystemErrorLogger,
     mcp::{
-        McpClientRuntime, McpTransport, SseMcpTransport, StdioMcpTransport,
+        McpClientError, McpClientRuntime, McpTransport, SseMcpTransport, StdioMcpTransport,
         StreamableHttpMcpTransport, secrets::read_mcp_secrets,
     },
 };
@@ -13,6 +14,8 @@ use serde_json::{Value, json};
 pub struct CapabilityGateway<'a> {
     /// Canonical Noema store used by calibrated capability implementations.
     pub store: &'a NoemaStore,
+    /// Developer diagnostic logger for system-level capability failures.
+    pub system_errors: &'a SystemErrorLogger,
 }
 
 /// Provider-proposed tool call to mediate through the Capability Gateway.
@@ -120,23 +123,61 @@ impl CapabilityGateway<'_> {
         let secrets = read_mcp_secrets(&self.store.mcp_server_home(&server.mcp_server_id))
             .unwrap_or_default();
         let arguments = tool_arguments_from_payload(payload)?;
-        match server.transport_kind {
+        let result = match server.transport_kind {
             McpTransportKind::Stdio => {
                 let transport = StdioMcpTransport::from_server_config(&server, &secrets)
-                    .map_err(|_| "mcp_transport_unavailable")?;
-                call_mcp_transport_tool(transport, &tool.name, arguments).await
+                    .map_err(|_| "mcp_transport_unavailable")?
+                    .with_diagnostics(
+                        Some(self.system_errors.clone()),
+                        Some(server.mcp_server_id.clone()),
+                    );
+                call_mcp_transport_tool(transport, &tool.name, arguments.clone()).await
             }
             McpTransportKind::Sse => {
                 let transport = SseMcpTransport::from_server_config(&server, &secrets)
-                    .map_err(|_| "mcp_transport_unavailable")?;
-                call_mcp_transport_tool(transport, &tool.name, arguments).await
+                    .map_err(|_| "mcp_transport_unavailable")?
+                    .with_diagnostics(
+                        Some(self.system_errors.clone()),
+                        Some(server.mcp_server_id.clone()),
+                    );
+                call_mcp_transport_tool(transport, &tool.name, arguments.clone()).await
             }
             McpTransportKind::StreamableHttp => {
                 let transport = StreamableHttpMcpTransport::from_server_config(&server, &secrets)
-                    .map_err(|_| "mcp_transport_unavailable")?;
-                call_mcp_transport_tool(transport, &tool.name, arguments).await
+                    .map_err(|_| "mcp_transport_unavailable")?
+                    .with_diagnostics(
+                        Some(self.system_errors.clone()),
+                        Some(server.mcp_server_id.clone()),
+                    );
+                call_mcp_transport_tool(transport, &tool.name, arguments.clone()).await
             }
+        };
+        result.map_err(|error| self.mcp_tool_call_error(name, payload, &arguments, error))
+    }
+
+    fn mcp_tool_call_error(
+        &self,
+        name: McpToolName<'_>,
+        payload: &Value,
+        arguments: &Value,
+        error: McpClientError,
+    ) -> &'static str {
+        if matches!(error, McpClientError::Malformed(_)) {
+            self.system_errors.try_append(
+                SystemErrorEvent::new(SYSTEM_ERROR_MCP_MALFORMED_RESPONSE, error.to_string())
+                    .with_context(json!({
+                        "mcp_server_id": name.server_id,
+                        "tool_name": name.tool_name,
+                        "method": "tools/call",
+                    }))
+                    .with_error_chain([error.to_string()])
+                    .with_raw(json!({
+                        "proposal_payload": payload,
+                        "arguments": arguments,
+                    })),
+            );
         }
+        "mcp_tool_call_failed"
     }
 }
 
@@ -179,15 +220,12 @@ async fn call_mcp_transport_tool<T>(
     transport: T,
     tool_name: &str,
     arguments: Value,
-) -> Result<Value, &'static str>
+) -> Result<Value, McpClientError>
 where
     T: McpTransport,
 {
     let mut runtime = McpClientRuntime::new(transport);
-    runtime
-        .call_tool(tool_name, arguments)
-        .await
-        .map_err(|_| "mcp_tool_call_failed")
+    runtime.call_tool(tool_name, arguments).await
 }
 
 #[cfg(test)]
@@ -214,7 +252,12 @@ mod tests {
         seed_mcp_tool(&store, false).await;
         seed_ready_calibration(&store).await;
         set_server_enabled(&store, false).await;
-        let gateway = CapabilityGateway { store: &store };
+        let temp_dir = tempfile::tempdir().expect("temp dir");
+        let system_errors = SystemErrorLogger::new(temp_dir.path().join("errors.log"));
+        let gateway = CapabilityGateway {
+            store: &store,
+            system_errors: &system_errors,
+        };
 
         let result = gateway
             .execute_tool_proposal(GatewayToolProposal {
@@ -233,7 +276,12 @@ mod tests {
     async fn gateway_reports_uncalibrated_enabled_tool() {
         let store = test_store().await;
         seed_mcp_tool(&store, true).await;
-        let gateway = CapabilityGateway { store: &store };
+        let temp_dir = tempfile::tempdir().expect("temp dir");
+        let system_errors = SystemErrorLogger::new(temp_dir.path().join("errors.log"));
+        let gateway = CapabilityGateway {
+            store: &store,
+            system_errors: &system_errors,
+        };
 
         let result = gateway
             .execute_tool_proposal(GatewayToolProposal {
