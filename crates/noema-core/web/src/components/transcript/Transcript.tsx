@@ -14,7 +14,6 @@ import {
   shouldContinueRenderedEntryTextAnimation,
   shouldAnimateRenderedEntryTextForSeen,
   shouldCompactMarkerClusterSpacing,
-  shouldRevealRenderedEntryAfterArrival,
   type RenderTranscriptEntry
 } from "./renderModel";
 import {
@@ -25,7 +24,7 @@ import {
 } from "./scrollModel";
 import { StructuredCard } from "./StructuredCard";
 import { ToolMarker } from "./ToolMarker";
-import { TranscriptBottomFollower, ARRIVAL_SCROLL_FOLLOW_DURATION_MS } from "./TranscriptBottomFollower";
+import { TranscriptBottomFollower, ARRIVAL_SCROLL_SETTLE_DURATION_MS } from "./TranscriptBottomFollower";
 import { TranscriptRow } from "./TranscriptRow";
 import { TranscriptScroller, TranscriptScrollerItem, TranscriptScrollerProvider } from "./TranscriptScroller";
 import { TypingMessage } from "./TypingMessage";
@@ -90,7 +89,7 @@ export function Transcript({
 
     const timeout = window.setTimeout(() => {
       setSeenArrivalMessageIds(nextSeenMessageIds);
-    }, arrivalScrollKey ? ARRIVAL_SCROLL_FOLLOW_DURATION_MS : 0);
+    }, arrivalScrollKey ? ARRIVAL_SCROLL_SETTLE_DURATION_MS : 0);
 
     return () => {
       cancelled = true;
@@ -108,12 +107,6 @@ export function Transcript({
           const showAvatar = previousLane !== lane;
           const messageId = renderedEntryMessageId(entry);
           const animateArrival = shouldAnimateRenderedEntryArrivalForSeen(entry, messageId, seenArrivalMessageIds);
-          const previousEntryMessageId = previousEntry ? renderedEntryMessageId(previousEntry) : null;
-          const previousEntryAnimateArrival =
-            previousEntry && previousEntryMessageId
-              ? shouldAnimateRenderedEntryArrivalForSeen(previousEntry, previousEntryMessageId, seenArrivalMessageIds)
-              : false;
-          const revealAfterArrival = shouldRevealRenderedEntryAfterArrival(entry, previousEntryAnimateArrival);
           const animateText = shouldAnimateRenderedEntryTextForSeen(
             entry,
             messageId,
@@ -127,7 +120,6 @@ export function Transcript({
               align={lane === "human" ? "end" : "start"}
               compact={shouldCompactMarkerClusterSpacing(entry, previousEntry)}
               data-arrival={animateArrival ? "true" : undefined}
-              data-reveal-after-arrival={revealAfterArrival ? "true" : undefined}
               messageId={messageId}
               scrollAnchor={shouldAnchorRenderedEntry(entry)}
             >

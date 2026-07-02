@@ -82,13 +82,6 @@ export function shouldAnimateRenderedEntryArrivalForSeen(
   });
 }
 
-export function shouldRevealRenderedEntryAfterArrival(
-  entry: RenderTranscriptEntry,
-  previousEntryAnimateArrival: boolean
-): boolean {
-  return entry.kind === "typing" && previousEntryAnimateArrival;
-}
-
 export function shouldContinueRenderedEntryTextAnimation(entry: RenderTranscriptEntry): boolean {
   return (
     entry.kind === "entry" &&
