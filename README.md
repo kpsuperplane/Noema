@@ -1,83 +1,48 @@
 # Noema
 
-Noema is an open-source, always-on, self-hosted personal agent operating system.
+Noema is an open-source, always-on, self-hosted personal agent operating
+system.
 
-This repository currently contains the first minimal Rust runtime slices:
+This repository currently contains the active Rust product paths:
 
-- a small one-shot `noema` CLI that sends one prompt to a configured model
-  provider and prints the response
-- a foreground Noema daemon that owns a long-lived Codex app-server runtime
-  for `noema chat`
-- a basic React web chat served by the core daemon
+- `noema-core`: the local runtime host, embedded SurrealDB store, provider
+  adapters, GraphQL schema, local web transport, memory systems, MCP control
+  plane, and generated web assets.
+- `noema-desktop`: a macOS Tauri app that starts the Noema runtime host inside
+  the desktop process and talks to it through Tauri IPC/events.
+- `crates/noema-core/web`: the React product UI used by the web and desktop
+  surfaces.
 
-Two providers are currently supported:
-
-- `openai`: calls the OpenAI Responses API with a Platform API key.
-- `codex`: shells out to `codex exec` for one-shot prompts and uses
-  `codex app-server` inside the daemon for chat.
+There is currently no standalone Noema binary in this workspace. Local product
+work should use the core library, the web frontend package, or the desktop app.
 
 ## Requirements
 
 - Rust and Cargo
 - Bun for frontend development
-- `NOEMA_OPENAI__API_KEY` in the environment when using `provider: openai`
-- Codex CLI installed and authenticated when using `provider: codex`
+- A provider account for chat:
+  - OpenAI Platform API key for `provider: openai`
+  - Noema-managed Codex OAuth credentials for `provider: codex`, created through
+    provider onboarding
 
-## Usage
+## Product Surfaces
 
-```bash
-export NOEMA_OPENAI__API_KEY="..."
-cargo run -p noema-cli -- "Say hello in one sentence"
-```
+The first-party product API is GraphQL. The local web UI uses `/graphql` for
+queries and mutations plus `/graphql/ws` for subscriptions. The desktop app
+uses the same GraphQL schema through Tauri commands and events instead of a
+local HTTP server.
 
-You can also pipe stdin:
-
-```bash
-echo "Say hello in one sentence" | cargo run -p noema-cli --
-```
-
-The installed binary name is `noema`.
-
-Daemon-backed chat uses your Codex CLI authentication and keeps the Codex
-runtime warm while the daemon is alive:
-
-```bash
-codex login
-cargo run -p noema-cli -- config
-cargo run -p noema-cli -- start
-```
-
-`noema start` also hosts the local web chat. By default it is available at:
-
-```text
-http://127.0.0.1:3737
-```
-
-In another terminal:
-
-```bash
-cargo run -p noema-cli -- chat
-```
-
-If `noema chat` cannot connect to a daemon, it starts a temporary daemon for
-that chat session, prints a hint, and shuts the temporary daemon down when chat
-exits.
+`noema-core` owns the runtime and store. It initializes `${NOEMA_HOME}` when the
+runtime host starts, opens embedded SurrealDB at
+`${NOEMA_HOME:-$HOME/.noema}/db`, and stores provider credential material under
+`${NOEMA_HOME:-$HOME/.noema}/providers/<provider>/<account>/`.
 
 ## Configuration
 
-Secrets are read from environment variables only. Non-secret defaults may live
-in the Noema directory's `config.yaml`. The default Noema directory is
-`~/.noema`; set `NOEMA_HOME` to use another directory.
+Non-secret defaults may live in the Noema directory's `config.yaml`. The default
+Noema directory is `~/.noema`; set `NOEMA_HOME` to use another directory.
 
-Initialize the directory with:
-
-```bash
-cargo run -p noema-cli -- config
-```
-
-`noema start` also creates the Noema directory and a default Codex-oriented
-config when the directory or default config file is missing. Use
-`noema config --force` to rewrite `config.yaml` with the default template.
+Example OpenAI-oriented configuration:
 
 ```yaml
 provider: openai
@@ -95,10 +60,10 @@ web:
 Configuration precedence is:
 
 ```text
-CLI flags > environment variables > $NOEMA_HOME/config.yaml or ~/.noema/config.yaml > defaults
+environment variables > $NOEMA_HOME/config.yaml or ~/.noema/config.yaml > defaults
 ```
 
-Supported environment variables:
+Supported environment variables include:
 
 - `NOEMA_HOME`
 - `NOEMA_PROVIDER`
@@ -108,58 +73,24 @@ Supported environment variables:
 - `NOEMA_OPENAI__TIMEOUT_SECONDS`
 - `NOEMA_OPENAI__ORGANIZATION_ID`
 - `NOEMA_OPENAI__PROJECT_ID`
-- `NOEMA_CODEX__COMMAND`
 - `NOEMA_CODEX__MODEL`
-- `NOEMA_CODEX__SANDBOX`
-- `NOEMA_CODEX__EPHEMERAL`
-- `NOEMA_CODEX__IGNORE_RULES`
-- `NOEMA_CODEX__IGNORE_USER_CONFIG`
 - `NOEMA_CODEX__STARTUP_TIMEOUT_SECONDS`
 - `NOEMA_CODEX__TURN_TIMEOUT_SECONDS`
-- `NOEMA_CODEX__HOME`
 - `NOEMA_WEB__HOST`
 - `NOEMA_WEB__PORT`
 
-Supported CLI flags:
-
-```bash
-noema --provider openai --model gpt-5.5 --base-url https://api.openai.com/v1 "Hello"
-```
-
-To use your Codex subscription instead of a Platform API key, sign in with the
-Codex CLI first:
-
-```bash
-codex login
-cargo run -p noema-cli -- --provider codex "Say hello in one sentence"
-```
-
-You can also configure Codex as the default provider:
+Example Codex-oriented configuration:
 
 ```yaml
 provider: codex
 codex:
-  command: codex
-  sandbox: read-only
-  ephemeral: true
-  ignore_rules: true
-  ignore_user_config: false
+  model: gpt-5.5
   startup_timeout_seconds: 60
   turn_timeout_seconds: 300
-  home: /Users/you/.codex
 ```
 
-The one-shot Codex provider intentionally uses `codex exec` rather than
-pretending that a ChatGPT/Codex subscription is an OpenAI API key. Daemon chat
-uses `codex app-server --listen stdio://`, creates one Noema conversation per
-`noema chat` session, and maps each conversation to one Codex thread. Explicit
-`remember this:` and `/remember` chat messages are persisted to
-the embedded store and can be inspected with `noema memory list` and
-`noema memory show <id>`.
-
-The web chat uses Noema's first-party GraphQL API at `/graphql` with live
-updates over `/graphql/ws`. An adapter can be added later if external client
-compatibility becomes a product requirement.
+Codex authentication is handled as Noema-owned provider account state. The web
+onboarding flow blocks chat until an active provider account is authenticated.
 
 ## Development
 
@@ -172,56 +103,13 @@ export NOEMA_HOME="$PWD/.noema-dev"
 export NOEMA_OPENAI__API_KEY="..."
 ```
 
-Install `cargo-watch` once:
-
-```bash
-cargo install cargo-watch --locked
-```
-
-Start the auto-reloading local development stack:
-
-```bash
-NOEMA_HOME=.noema-dev cargo dev-daemon
-```
-
-The `dev-daemon` cargo alias starts the Rust daemon watcher and the core web
-asset watcher. The web chat is available at <http://localhost:3737/>. Embedded
-SurrealDB structured state is stored under
-`${NOEMA_HOME:-$HOME/.noema}/db`; the command above keeps development state in
-`.noema-dev/db`.
-
-On first launch, the web UI checks backend onboarding readiness before opening
-chat. Chat stays blocked until an active provider account is authenticated.
-For Codex, the default credential home is
-`${NOEMA_HOME:-$HOME/.noema}/providers/codex/default`.
-
-The preferred first-run flow is:
-
-```bash
-NOEMA_HOME=.noema-dev cargo dev-daemon
-```
-
-Then open <http://localhost:3737/> and click **Connect Codex**. If you need a
-terminal fallback, run:
-
-```bash
-NOEMA_HOME="$PWD/.noema-dev" \
-CODEX_HOME="$PWD/.noema-dev/providers/codex/default" \
-codex login --device-auth
-```
-
-To run the server without file watching:
-
-```bash
-NOEMA_HOME=.noema-dev cargo run -p noema-cli -- start
-```
-
 General Rust validation:
 
 ```bash
 cargo fmt --all --check
 cargo check --workspace
-cargo test --workspace
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace --no-fail-fast
 ```
 
 Frontend assets are built with Bun and embedded into `noema-core`:
@@ -229,19 +117,38 @@ Frontend assets are built with Bun and embedded into `noema-core`:
 ```bash
 cd crates/noema-core/web
 bun install
-bun run dev
 bun run gen:types
 bun run lint
 bun run build
 ```
 
-`bun run dev`, `bun run lint`, and `bun run build` regenerate the Rust-owned
-web protocol types before running TypeScript or Vite. `bun run dev` keeps Vite
-in build-watch mode and writes updated assets into `noema-core`.
-
-For chat development, connect from another terminal while `cargo dev-daemon`
-is running:
+For frontend development against the desktop app, run the Tauri-oriented Vite
+build/watch task:
 
 ```bash
-NOEMA_HOME=.noema-dev cargo run -p noema-cli -- chat
+cd crates/noema-core/web
+bun run dev:tauri
+```
+
+For desktop packaging assets:
+
+```bash
+cd crates/noema-core/web
+bun run build:tauri
+```
+
+Then use the Rust desktop crate for desktop-side validation:
+
+```bash
+cargo check -p noema-desktop
+cargo test -p noema-desktop
+```
+
+## Repository Layout
+
+```text
+crates/noema-core/       Rust runtime, store, providers, GraphQL, and web assets
+crates/noema-core/web/   React UI and GraphQL operation generation
+crates/noema-desktop/    Tauri desktop app
+docs/                    Current design notes and historical plans/specs
 ```
