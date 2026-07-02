@@ -174,19 +174,19 @@ tasks, approvals, runs, or reviews that a user needs an attention surface.
 
 The current repository implements only a narrow slice:
 
-- `noema config` initializes the Noema directory and config.
-- `noema start` runs a foreground local daemon and serves the basic local web
-  chat.
-- `noema chat` starts daemon-backed Codex chat through Noema-owned OAuth and
-  direct Codex Responses API calls.
-- One-shot prompts can use the configured provider.
+- `NoemaRuntimeHost` initializes the Noema directory, opens embedded SurrealDB,
+  and owns the local runtime used by web and desktop surfaces.
+- The React web shell in `crates/noema-core/web` uses GraphQL queries,
+  mutations, and subscriptions for chat, memory, settings, and MCP setup.
+- The Tauri desktop app in `crates/noema-desktop` hosts the same React UI and
+  talks to the runtime through Tauri IPC/events rather than a local HTTP server.
+- Chat turns use Noema-owned provider account state and direct provider API
+  calls.
 - Explicit `remember this:` and `/remember` messages are persisted.
 - Ordinary chat memory extraction can produce persisted candidates.
-- `noema memory list` and `noema memory show <id>` provide current
-  owner/admin memory inspection through the daemon GraphQL `memoryClaims` and
-  `memoryClaim` fields. The retired `noema context graph` command remains
-  unavailable.
-- The daemon protocol already has transcript activity notices and an `A2uiCard`
+- GraphQL `memoryClaims`, `memoryClaim`, and `memoryGraph` provide current
+  owner/admin memory and graph read models for frontend inspection surfaces.
+- Runtime transcript events already carry activity notices and an `A2uiCard`
   placeholder for future structured UI cards.
 - The first implemented frontend shell is the core-hosted React chat in
   `crates/noema-core/web`, built and linted with Bun.
@@ -199,13 +199,13 @@ from chat/work context rather than pretending they already exist.
 
 | Area | Status | Notes |
 | --- | --- | --- |
-| Setup/config health | Current Rust-backed | `noema config`, `NoemaPaths`, config loading, daemon socket paths |
-| Live chat | Current Rust-backed | GraphQL mutations/subscriptions, Noema runtime commands, and direct Codex Responses provider runtime |
+| Setup/config health | Current Rust-backed | `NoemaPaths`, config loading, runtime-host startup, and onboarding GraphQL read models |
+| Live chat | Current Rust-backed | GraphQL mutations/subscriptions, Noema runtime commands, and direct provider runtimes |
 | Transcript activity | Current Rust-backed | Assistant text, activity notices, errors, turn completion, future `A2uiCard` payloads |
 | Persisted chat history | Current Rust-backed | Durable chat history is reconstructed from `conversation_items`; live turn coordination comes from GraphQL subscriptions and `agent_status` |
 | Explicit memory save | Current Rust-backed | `remember this:` and `/remember` persist memory with provenance |
-| Memory list/detail | Current Rust-backed | GraphQL memory read models and CLI inspection exist; UI should open from inline events first |
-| Context graph inspection | Future graph inspection | Rich graph neighborhood inspection is not yet active; memory claim list/detail is current |
+| Memory browse/detail | Current Rust-backed | GraphQL memory read models exist; UI should open from inline events first |
+| Context graph inspection | Future graph inspection | Rich graph neighborhood inspection is not yet active; memory claim browse/detail is current |
 | Context packets | Store-backed, not fully chat-wired | Retrieval packet records exist where populated, but chat turns do not yet persist all packet details in production flow |
 | Runs, approvals, capabilities, task system | Harness-doc target | Architecture exists in docs; durable runtime/schema paths are not implemented as active product controls |
 | Memory versions, proactive rules, tombstones, richer search | Future store target | Not all are created by the current embedded store schema |
@@ -224,13 +224,13 @@ first practical frontend slice should keep proving the chat-led mental model:
    memory omission, and review-required memory.
 5. Expandable memory details in the transcript with safe actions: keep, edit,
    stop using here, open memory settings, and explain why.
-6. Memory list/detail parity with `noema memory list/show` as a secondary
+6. Memory browse/detail parity with GraphQL backend read models as a secondary
    management drill-in.
 7. Memory review queue for active/candidate memories, opened from chat or
    settings when review is needed.
 8. Owner/admin-only graph inspector as a future drill-in; the current backed
-   inspection surface is memory list/detail parity with `noema memory
-   list/show` and GraphQL `memoryClaims`/`memoryClaim`.
+   inspection surface is memory browse/detail parity with GraphQL
+   `memoryClaims`/`memoryClaim`.
 9. Memory-only access preview using the existing deterministic retrieval
    engine, presented first as a `Why?` or `What did Noema use?` explanation.
 10. Settings for assistant connection, local paths, backups, rebuildable state,
