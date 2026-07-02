@@ -4,31 +4,31 @@ import type { TranscriptLane } from "./renderModel";
 
 const styles = stylex.create({
   content: {
+    display: "grid",
     width: "100%",
     maxWidth: 760,
     minWidth: 0
   },
   inner: {
+    display: "grid",
+    alignItems: "end",
     minHeight: 0
+  },
+  innerHuman: {
+    justifyItems: "end"
   }
 });
 
 export function RenderedTranscriptEntryFrame({
-  animateArrival,
   children,
   lane
 }: {
-  animateArrival: boolean;
   children: React.ReactNode;
   lane: TranscriptLane;
 }) {
-  if (!animateArrival) {
-    return <>{children}</>;
-  }
-
   return (
     <div {...stylex.props(styles.content)} data-lane={lane} data-slot="message-arrival-content">
-      <div {...stylex.props(styles.inner)} data-slot="message-arrival-inner">
+      <div {...stylex.props(styles.inner, lane === "human" && styles.innerHuman)} data-slot="message-arrival-inner">
         {children}
       </div>
     </div>

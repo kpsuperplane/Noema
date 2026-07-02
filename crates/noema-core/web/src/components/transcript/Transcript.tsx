@@ -131,7 +131,7 @@ export function Transcript({
               messageId={messageId}
               scrollAnchor={shouldAnchorRenderedEntry(entry)}
             >
-              <RenderedTranscriptEntryFrame animateArrival={animateArrival} lane={lane}>
+              <RenderedTranscriptEntryFrame lane={lane}>
                 {renderTranscriptRenderEntry(entry, expandedActivities, onToggleActivity, showAvatar, animateText)}
               </RenderedTranscriptEntryFrame>
             </TranscriptScrollerItem>
