@@ -1,6 +1,6 @@
 use std::{collections::HashMap, sync::Arc};
 
-use crate::NoemaStore;
+use crate::{NoemaStore, SystemErrorLogger};
 use tokio::sync::mpsc;
 
 use super::handle::{CodexRuntimeCommand, RuntimeModelProvider};
@@ -11,6 +11,7 @@ pub(super) struct CodexRuntimeActor {
     pub(super) default_provider_kind: String,
     pub(super) providers: HashMap<String, Arc<dyn RuntimeModelProvider>>,
     pub(super) store: NoemaStore,
+    pub(super) system_errors: SystemErrorLogger,
     pub(super) conversations: HashMap<String, ActiveConversation>,
 }
 
@@ -19,11 +20,13 @@ impl CodexRuntimeActor {
         default_provider_kind: String,
         providers: HashMap<String, Arc<dyn RuntimeModelProvider>>,
         store: NoemaStore,
+        system_errors: SystemErrorLogger,
     ) -> Result<Self, DaemonError> {
         Ok(Self {
             default_provider_kind,
             providers,
             store,
+            system_errors,
             conversations: HashMap::new(),
         })
     }

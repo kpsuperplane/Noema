@@ -1,9 +1,12 @@
 //! Provider adapter for the OpenAI Responses API.
 
 use super::responses::{ResponsesRequest, ResponsesTransport, header_value, normalize_base_url};
-use crate::provider::{
-    DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateInput, GenerateRequest, GenerateResponse,
-    ModelProvider, ProviderError, output_items_from_text, required_output_items_from_text,
+use crate::{
+    SystemErrorLogger,
+    provider::{
+        DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateInput, GenerateRequest, GenerateResponse,
+        ModelProvider, ProviderError, output_items_from_text, required_output_items_from_text,
+    },
 };
 use reqwest::header::{HeaderMap, HeaderName};
 use std::time::Duration;
@@ -28,6 +31,8 @@ pub struct OpenAiProviderConfig {
     pub tool_classification_model: Option<String>,
     /// Request timeout in seconds.
     pub timeout_seconds: u64,
+    /// Developer diagnostic system error logger.
+    pub system_errors: Option<SystemErrorLogger>,
 }
 
 /// Provider implementation backed by the `OpenAI` Responses API.
@@ -35,6 +40,7 @@ pub struct OpenAiProviderConfig {
 pub struct OpenAiProvider {
     transport: ResponsesTransport,
     config: OpenAiProviderConfig,
+    system_errors: Option<SystemErrorLogger>,
 }
 
 impl OpenAiProvider {
@@ -67,7 +73,11 @@ impl OpenAiProvider {
     ) -> Result<Self, ProviderError> {
         let config = normalize_config(config)?;
         let transport = ResponsesTransport::new(client, config.base_url.clone())?;
-        Ok(Self { transport, config })
+        Ok(Self {
+            transport,
+            system_errors: config.system_errors.clone(),
+            config,
+        })
     }
 
     fn extra_headers(&self) -> Result<HeaderMap, ProviderError> {
@@ -239,6 +249,7 @@ mod tests {
             default_model: "default-model".to_string(),
             tool_classification_model: None,
             timeout_seconds: DEFAULT_OPENAI_TIMEOUT_SECONDS,
+            system_errors: None,
         })
         .expect("provider");
 
@@ -394,6 +405,7 @@ mod tests {
             default_model: "default-model".to_string(),
             tool_classification_model: None,
             timeout_seconds: DEFAULT_OPENAI_TIMEOUT_SECONDS,
+            system_errors: None,
         })
         .unwrap_err();
 
@@ -410,6 +422,7 @@ mod tests {
             default_model: "default-model".to_string(),
             tool_classification_model: None,
             timeout_seconds: 0,
+            system_errors: None,
         })
         .unwrap_err();
 
@@ -436,6 +449,7 @@ mod tests {
             default_model: "default-model".to_string(),
             tool_classification_model: Some("custom-tool-classifier".to_string()),
             timeout_seconds: DEFAULT_OPENAI_TIMEOUT_SECONDS,
+            system_errors: None,
         })
         .expect("provider");
 
@@ -454,6 +468,7 @@ mod tests {
             default_model: "default-model".to_string(),
             tool_classification_model: None,
             timeout_seconds: DEFAULT_OPENAI_TIMEOUT_SECONDS,
+            system_errors: None,
         })
         .expect("provider")
     }

@@ -13,10 +13,13 @@ use super::{
     noema_response_stream::NoemaAssistantTextDeltaExtractor,
     responses::{ResponsesTransport, normalize_base_url},
 };
-use crate::provider::{
-    DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateInput, GenerateRequest, GenerateResponse,
-    GenerateStreamEvent, ModelProvider, ProviderError, output_items_from_text,
-    required_output_items_from_text,
+use crate::{
+    SystemErrorLogger,
+    provider::{
+        DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateInput, GenerateRequest, GenerateResponse,
+        GenerateStreamEvent, ModelProvider, ProviderError, output_items_from_text,
+        required_output_items_from_text,
+    },
 };
 
 /// Default Codex Responses model used when no override is supplied.
@@ -39,6 +42,8 @@ pub struct CodexProviderConfig {
     pub account_home: Option<PathBuf>,
     /// OAuth endpoint configuration used for token refresh and login.
     pub oauth: CodexOAuthConfig,
+    /// Developer diagnostic system error logger.
+    pub system_errors: Option<SystemErrorLogger>,
 }
 
 impl Default for CodexProviderConfig {
@@ -50,6 +55,7 @@ impl Default for CodexProviderConfig {
             timeout_seconds: DEFAULT_CODEX_TIMEOUT_SECONDS,
             account_home: None,
             oauth: CodexOAuthConfig::default(),
+            system_errors: None,
         }
     }
 }
@@ -61,6 +67,7 @@ pub struct CodexResponsesProvider {
     token_store: CodexTokenStore,
     oauth_client: CodexOAuthClient,
     config: CodexProviderConfig,
+    system_errors: Option<SystemErrorLogger>,
 }
 
 impl CodexResponsesProvider {
@@ -103,6 +110,7 @@ impl CodexResponsesProvider {
             transport,
             token_store,
             oauth_client,
+            system_errors: config.system_errors.clone(),
             config,
         })
     }

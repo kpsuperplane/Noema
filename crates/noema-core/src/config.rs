@@ -355,6 +355,7 @@ impl RawConfig {
                 .or_else(|| non_empty_option(self.openai.tool_classification_model.as_deref()))
                 .map(ToString::to_string),
             timeout_seconds,
+            system_errors: None,
         })
     }
 
@@ -378,6 +379,7 @@ impl RawConfig {
             timeout_seconds,
             account_home: None,
             oauth: Default::default(),
+            system_errors: None,
         })
     }
 

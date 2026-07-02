@@ -2,7 +2,7 @@
 
 use crate::{
     DaemonError, NoemaHomeInitOptions, NoemaPathError, NoemaPaths, NoemaStore, ProviderConfig,
-    StoreConfig, daemon::CodexRuntimeHandle, mcp::McpOAuthSetupManager,
+    StoreConfig, SystemErrorLogger, daemon::CodexRuntimeHandle, mcp::McpOAuthSetupManager,
     provider::auth::ProviderAuthManager,
 };
 
@@ -14,6 +14,7 @@ pub struct NoemaRuntimeHost {
     store: NoemaStore,
     provider_auth: ProviderAuthManager,
     mcp_oauth: McpOAuthSetupManager,
+    system_errors: SystemErrorLogger,
     paths: NoemaPaths,
     #[allow(dead_code)]
     subscriptions: crate::graphql::ConversationSubscriptionRegistry,
@@ -38,6 +39,7 @@ impl NoemaRuntimeHost {
         )
         .map_err(|source| RuntimeHostError::DataFolder(source.to_string()))?;
 
+        let system_errors = SystemErrorLogger::from_paths(&paths);
         let store = NoemaStore::open(&StoreConfig::from_paths(&paths))
             .await
             .map_err(|source| RuntimeHostError::Store(source.to_string()))?;
@@ -50,15 +52,17 @@ impl NoemaRuntimeHost {
             .await
             .map_err(|source| RuntimeHostError::Store(source.to_string()))?;
 
-        let runtime = CodexRuntimeHandle::spawn_from_config(provider, store.clone())
-            .await
-            .map_err(|source| RuntimeHostError::Runtime(source.to_string()))?;
+        let runtime =
+            CodexRuntimeHandle::spawn_from_config(provider, store.clone(), system_errors.clone())
+                .await
+                .map_err(|source| RuntimeHostError::Runtime(source.to_string()))?;
 
         Ok(Self {
             runtime,
             store,
             provider_auth: ProviderAuthManager::new(),
             mcp_oauth: McpOAuthSetupManager::new(),
+            system_errors,
             paths,
             subscriptions: crate::graphql::ConversationSubscriptionRegistry::default(),
         })
@@ -76,6 +80,9 @@ impl NoemaRuntimeHost {
             store,
             provider_auth: ProviderAuthManager::new(),
             mcp_oauth: McpOAuthSetupManager::new(),
+            system_errors: SystemErrorLogger::from_paths(
+                &NoemaPaths::from_process_env().expect("test paths"),
+            ),
             paths: NoemaPaths::from_process_env().expect("test paths"),
             subscriptions: crate::graphql::ConversationSubscriptionRegistry::default(),
         }
@@ -102,6 +109,12 @@ impl NoemaRuntimeHost {
     #[must_use]
     pub fn mcp_oauth(&self) -> &McpOAuthSetupManager {
         &self.mcp_oauth
+    }
+
+    /// Developer diagnostic system error logger.
+    #[must_use]
+    pub fn system_errors(&self) -> &SystemErrorLogger {
+        &self.system_errors
     }
 
     /// Resolved Noema paths.

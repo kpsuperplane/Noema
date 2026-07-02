@@ -77,6 +77,12 @@ impl NoemaStore {
             .join(crate::paths::sanitize_path_segment(mcp_server_id))
     }
 
+    /// Return a developer diagnostic logger rooted in this store's Noema home.
+    #[must_use]
+    pub(crate) fn system_error_logger(&self) -> crate::SystemErrorLogger {
+        crate::SystemErrorLogger::new(self.noema_home.join("errors.log"))
+    }
+
     /// Return the current schema marker version.
     ///
     /// # Errors
