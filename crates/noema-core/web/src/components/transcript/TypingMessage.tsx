@@ -20,7 +20,9 @@ const styles = stylex.create({
   },
   bubble: {
     width: 58,
-    minHeight: 36
+    minHeight: 36,
+    backgroundColor: "var(--muted)",
+    color: "var(--foreground)"
   },
   content: {
     display: "flex",

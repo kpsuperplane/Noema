@@ -20,8 +20,14 @@ const styles = stylex.create({
     lineHeight: 1.7,
     overflowWrap: "break-word"
   },
+  userBubble: {
+    backgroundColor: "var(--primary)",
+    color: "var(--primary-foreground)"
+  },
   assistantBubble: {
-    maxWidth: "100%"
+    maxWidth: "100%",
+    backgroundColor: "var(--muted)",
+    color: "var(--foreground)"
   }
 });
 
@@ -45,7 +51,12 @@ export function Message({
       avatar={<TranscriptActorAvatar lane={lane} visible={showAvatar} />}
       xstyle={chatMessageXStyle(styles.message)}
     >
-      <ChatMessageBubble xstyle={chatMessageBubbleXStyle(styles.bubble, role === "assistant" && styles.assistantBubble)}>
+      <ChatMessageBubble
+        xstyle={chatMessageBubbleXStyle(
+          styles.bubble,
+          role === "user" ? styles.userBubble : styles.assistantBubble
+        )}
+      >
         <AnimatedMessageText animate={animate} text={text} />
       </ChatMessageBubble>
     </ChatMessage>
