@@ -837,6 +837,39 @@ async fn start_primary_conversation_generates_initial_name_onboarding_message() 
 }
 
 #[tokio::test]
+async fn failed_initial_name_onboarding_logs_runtime_invariant() {
+    let (handle, store) = test_runtime_handle_with_store(
+        fake_codex_provider_with_initial_name_onboarding_no_assistant(),
+    )
+    .await;
+
+    let error = handle
+        .start_primary_conversation(None, None)
+        .await
+        .expect_err("onboarding should fail");
+
+    assert!(
+        error
+            .to_string()
+            .contains("initial onboarding response did not include assistant text")
+    );
+    let logger = store.system_error_logger();
+    let events = crate::system_errors::read_system_error_events(logger.path()).expect("events");
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0]["category"], crate::SYSTEM_ERROR_RUNTIME_INVARIANT);
+    assert_eq!(
+        events[0]["message"],
+        "initial onboarding response did not include assistant text"
+    );
+    assert_eq!(events[0]["raw"]["persisted_count"], 0);
+    assert_eq!(
+        events[0]["raw"]["provider_response"]["output"][0]["kind"],
+        "memory_proposals"
+    );
+    handle.shutdown().await;
+}
+
+#[tokio::test]
 async fn failed_initial_name_onboarding_recomputes_turn_index_on_retry() {
     let (handle, store) =
         test_runtime_handle_with_store(fake_codex_provider_with_turn_error()).await;
@@ -4104,6 +4137,7 @@ enum FakeCodexScenario {
     RestartContext,
     IdentityPromptCheck,
     InitialNameOnboarding,
+    InitialNameOnboardingNoAssistant,
     TurnError,
     ToolItem,
     ToolItemThenFailure,
@@ -4210,6 +4244,9 @@ impl FakeCodexProvider {
                 } else {
                     "missing warm onboarding prompt"
                 })
+            }
+            FakeCodexScenario::InitialNameOnboardingNoAssistant => {
+                vec![GenerateOutputItem::MemoryProposals { proposals: vec![] }]
             }
             FakeCodexScenario::TurnError => {
                 return Err(ProviderError::ApiError {
@@ -5559,6 +5596,10 @@ fn fake_codex_provider_with_identity_prompt_check() -> FakeCodexProvider {
 
 fn fake_codex_provider_with_initial_name_onboarding() -> FakeCodexProvider {
     FakeCodexProvider::new(FakeCodexScenario::InitialNameOnboarding)
+}
+
+fn fake_codex_provider_with_initial_name_onboarding_no_assistant() -> FakeCodexProvider {
+    FakeCodexProvider::new(FakeCodexScenario::InitialNameOnboardingNoAssistant)
 }
 
 fn fake_codex_provider_with_tool_item() -> FakeCodexProvider {

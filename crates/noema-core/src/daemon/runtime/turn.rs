@@ -1,7 +1,8 @@
 use crate::{
     ActorRef, ConversationItemKind, ConversationItemStatus, McpCalibrationStatus,
     McpServerAuthStatus, McpServerHealthStatus, NewConversation, NewConversationItem,
-    NewConversationTurn, PersistedAgentStatus, ReplayMode,
+    NewConversationTurn, PersistedAgentStatus, ReplayMode, SYSTEM_ERROR_RUNTIME_INVARIANT,
+    SystemErrorEvent,
     memory::extraction::{ExtractorMemoryProposal, ValidatedMemoryProposal},
     provider::{
         GenerateInput, GenerateOptions, GenerateOutputItem, GenerateRequest, GenerateResponse,
@@ -36,6 +37,21 @@ use crate::daemon::{
 };
 
 impl CodexRuntimeActor {
+    fn log_runtime_invariant(
+        &self,
+        message: impl Into<String>,
+        context: serde_json::Value,
+        raw: serde_json::Value,
+    ) {
+        let message = message.into();
+        self.system_errors.try_append(
+            SystemErrorEvent::new(SYSTEM_ERROR_RUNTIME_INVARIANT, message.clone())
+                .with_context(context)
+                .with_error_chain([message])
+                .with_raw(raw),
+        );
+    }
+
     pub(super) async fn start_conversation(
         &mut self,
         model: Option<String>,
@@ -176,6 +192,17 @@ impl CodexRuntimeActor {
                 return Err(error.into());
             }
         };
+        let raw_provider_response = json!({
+            "provider": &response.provider,
+            "model": &response.model,
+            "response_id": &response.response_id,
+            "usage": response.usage.as_ref().map(|usage| json!({
+                "input_tokens": usage.input_tokens,
+                "output_tokens": usage.output_tokens,
+                "total_tokens": usage.total_tokens,
+            })),
+            "output": &response.output,
+        });
         let persisted_count = self
             .persist_agent_initiated_provider_response(
                 conversation_id,
@@ -187,6 +214,20 @@ impl CodexRuntimeActor {
         if persisted_count == 0 {
             self.store.fail_conversation_turn(&turn.turn_id).await?;
             self.conversations.remove(conversation_id);
+            self.log_runtime_invariant(
+                "initial onboarding response did not include assistant text",
+                json!({
+                    "conversation_id": conversation_id,
+                    "turn_id": turn.turn_id,
+                    "turn_index": turn_index,
+                    "provider_kind": conversation.provider_kind,
+                    "model": conversation.model,
+                }),
+                json!({
+                    "persisted_count": persisted_count,
+                    "provider_response": raw_provider_response,
+                }),
+            );
             return Err(DaemonError::Protocol(
                 "initial onboarding response did not include assistant text".to_string(),
             ));

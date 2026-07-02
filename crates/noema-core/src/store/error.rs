@@ -82,3 +82,57 @@ impl From<surrealdb::Error> for StoreError {
         Self::Surreal(Box::new(source))
     }
 }
+
+impl StoreError {
+    /// Return true when this store error represents a Noema schema invariant failure.
+    #[must_use]
+    pub fn is_system_invariant(&self) -> bool {
+        matches!(self, Self::Schema(_) | Self::InvalidEnum { .. })
+    }
+
+    /// Convert this store invariant into a system error event.
+    #[must_use]
+    pub fn system_error_event(
+        &self,
+        context: serde_json::Value,
+        raw: serde_json::Value,
+    ) -> Option<crate::SystemErrorEvent> {
+        self.is_system_invariant().then(|| {
+            crate::SystemErrorEvent::new(crate::SYSTEM_ERROR_STORE_INVARIANT, self.to_string())
+                .with_context(context)
+                .with_error_chain([self.to_string()])
+                .with_raw(raw)
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn schema_errors_build_system_error_events() {
+        let error = StoreError::Schema("bad row".to_string());
+
+        let event = error
+            .system_error_event(
+                json!({"table": "mcp_tools"}),
+                json!({"row": {"status": "bad"}}),
+            )
+            .expect("event");
+
+        assert_eq!(event.category, crate::SYSTEM_ERROR_STORE_INVARIANT);
+        assert_eq!(event.context["table"], "mcp_tools");
+        assert_eq!(event.raw["row"]["status"], "bad");
+    }
+
+    #[test]
+    fn missing_records_are_not_store_invariants() {
+        let error = StoreError::ConversationNotFound {
+            conversation_id: "conversation:missing".to_string(),
+        };
+
+        assert!(error.system_error_event(json!({}), json!({})).is_none());
+    }
+}
