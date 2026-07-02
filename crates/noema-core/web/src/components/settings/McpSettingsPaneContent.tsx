@@ -1,15 +1,9 @@
 import * as React from "react";
 import { AlertTriangle, RefreshCw, Settings2, Trash2 } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogBody,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle
-} from "@/components/ui/dialog";
+import { Badge } from "@astryxdesign/core/Badge";
+import { Button } from "@astryxdesign/core/Button";
+import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
+import * as stylex from "@stylexjs/stylex";
 import {
   mcpEnabledLabel,
   mcpMetadataRows,
@@ -74,31 +68,39 @@ export function McpSettingsPaneContent({
   const deleteTarget = servers.find((server) => server.mcpServerId === deleteTargetId) ?? null;
 
   if (loading) {
-    return <p className="m-0 text-sm text-muted-foreground">Loading MCP servers...</p>;
+    return <p {...stylex.props(styles.mutedText)}>Loading MCP servers...</p>;
   }
 
   if (error) {
     return (
-      <div className="grid gap-3 rounded-md border border-[var(--border-subtle)] bg-white p-4">
-        <p className="m-0 text-sm text-muted-foreground">
+      <div {...stylex.props(styles.card)}>
+        <p {...stylex.props(styles.mutedText)}>
           MCP server metadata could not be loaded.
         </p>
-        <Button type="button" variant="outline" className="w-fit" onClick={onRetry}>
-          <RefreshCw className="size-4" aria-hidden="true" />
-          Retry
-        </Button>
+        <Button
+          type="button"
+          variant="secondary"
+          label="Retry"
+          icon={<RefreshCw {...stylex.props(styles.icon)} aria-hidden="true" />}
+          {...stylex.props(styles.fitButton)}
+          onClick={onRetry}
+        />
       </div>
     );
   }
 
   if (servers.length === 0) {
     return (
-      <div className="grid gap-4">
-        <Button type="button" variant="outline" className="w-fit" onClick={onOpenSetup}>
-          Add MCP server
-        </Button>
-        <div className="rounded-md border border-[var(--border-subtle)] bg-white p-4">
-          <p className="m-0 text-sm text-muted-foreground">No MCP servers are configured.</p>
+      <div {...stylex.props(styles.list)}>
+        <Button
+          type="button"
+          variant="secondary"
+          label="Add MCP server"
+          {...stylex.props(styles.fitButton)}
+          onClick={onOpenSetup}
+        />
+        <div {...stylex.props(styles.card)}>
+          <p {...stylex.props(styles.mutedText)}>No MCP servers are configured.</p>
         </div>
         <McpSetupDialog
           open={setupOpen}
@@ -117,48 +119,48 @@ export function McpSettingsPaneContent({
   }
 
   return (
-    <div className="grid gap-3">
-      <div className="rounded-md border border-[var(--border-subtle)] bg-white p-4">
-        <Button type="button" variant="outline" onClick={onOpenSetup}>
-          Add MCP server
-        </Button>
+    <div {...stylex.props(styles.list)}>
+      <div {...stylex.props(styles.card)}>
+        <Button type="button" variant="secondary" label="Add MCP server" onClick={onOpenSetup} />
       </div>
       {servers.map((server) => {
         const rows = mcpMetadataRows(server);
         return (
           <article
             key={server.mcpServerId}
-            className="grid gap-3 rounded-md border border-[var(--border-subtle)] bg-white p-4"
+            {...stylex.props(styles.card)}
           >
-            <div className="flex flex-wrap items-center gap-3">
-              <h2 className="m-0 min-w-0 font-heading text-xl leading-tight tracking-normal text-foreground">
+            <div {...stylex.props(styles.titleRow)}>
+              <h2 {...stylex.props(styles.cardTitle)}>
                 {server.displayName}
               </h2>
-              <Badge variant="outline">{mcpEnabledLabel(server)}</Badge>
+              <Badge variant="neutral" label={mcpEnabledLabel(server)} />
             </div>
-            <div className="flex flex-wrap gap-2">
-              <Button type="button" variant="outline" onClick={() => onOpenPermissions(server.mcpServerId)}>
-                <Settings2 className="size-4" aria-hidden="true" />
-                Configure tools
-              </Button>
+            <div {...stylex.props(styles.actions)}>
+              <Button
+                type="button"
+                variant="secondary"
+                label="Configure tools"
+                icon={<Settings2 {...stylex.props(styles.icon)} aria-hidden="true" />}
+                onClick={() => onOpenPermissions(server.mcpServerId)}
+              />
               <Button
                 type="button"
                 variant="destructive"
-                disabled={deleteSubmitting}
+                label="Delete"
+                icon={<Trash2 {...stylex.props(styles.icon)} aria-hidden="true" />}
+                isDisabled={deleteSubmitting}
                 onClick={() => setDeleteTargetId(server.mcpServerId)}
-              >
-                <Trash2 className="size-4" aria-hidden="true" />
-                Delete
-              </Button>
+              />
             </div>
-            <dl className="m-0 grid gap-2">
+            <dl {...stylex.props(styles.definitionList)}>
               {rows.map((row) => (
                 <div
                   key={row.label}
-                  className="grid grid-cols-[minmax(120px,180px)_1fr] gap-4 max-[760px]:grid-cols-1 max-[760px]:gap-1"
+                  {...stylex.props(styles.definitionRow)}
                 >
-                  <dt className="text-sm font-medium text-muted-foreground">{row.label}</dt>
-                  <dd className="m-0 min-w-0 break-words font-mono text-sm text-foreground">
+                  <dt {...stylex.props(styles.definitionTerm)}>{row.label}</dt>
+                  <dd {...stylex.props(styles.definitionValue)}>
                     {row.value}
                   </dd>
                 </div>
@@ -224,49 +226,161 @@ function DeleteMcpServerDialog({
   onOpenChange: (open: boolean) => void;
   onConfirm: () => void;
 }) {
+  const subtitle = server
+    ? `Delete ${server.displayName}, its stored secrets, ${mcpToolCountLabel(
+        server.toolCount
+      )}, and any saved tool calibration.`
+    : "Delete this MCP server and its stored secrets.";
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Delete MCP server</DialogTitle>
-          <DialogDescription>
-            {server
-              ? `Delete ${server.displayName}, its stored secrets, ${mcpToolCountLabel(
-                  server.toolCount
-                )}, and any saved tool calibration.`
-              : "Delete this MCP server and its stored secrets."}
-          </DialogDescription>
-        </DialogHeader>
-        <DialogBody className="grid gap-3">
-          <p className="m-0 flex items-start gap-2 text-sm text-muted-foreground">
-            <AlertTriangle className="mt-0.5 size-4 text-destructive" aria-hidden="true" />
+    <Dialog isOpen={open} onOpenChange={onOpenChange} purpose="form" width={520}>
+      <div {...stylex.props(styles.dialog)}>
+        <DialogHeader
+          title="Delete MCP server"
+          subtitle={subtitle}
+          onOpenChange={onOpenChange}
+        />
+        <div {...stylex.props(styles.dialogBody)}>
+          <p {...stylex.props(styles.warningText)}>
+            <AlertTriangle {...stylex.props(styles.warningIcon)} aria-hidden="true" />
             This cannot be undone from Settings. Historical approval and audit records are kept.
           </p>
-          {error ? <p className="m-0 text-sm text-destructive">{error}</p> : null}
-          <div className="flex flex-wrap gap-2">
+          {error ? <p {...stylex.props(styles.errorText)}>{error}</p> : null}
+          <div {...stylex.props(styles.actions)}>
             <Button
               type="button"
               variant="destructive"
-              disabled={submitting}
+              label="Delete server"
+              icon={<Trash2 {...stylex.props(styles.icon)} aria-hidden="true" />}
+              isDisabled={submitting}
+              isLoading={submitting}
               onClick={onConfirm}
-            >
-              <Trash2 className="size-4" aria-hidden="true" />
-              Delete server
-            </Button>
+            />
             <Button
               type="button"
-              variant="outline"
-              disabled={submitting}
+              variant="secondary"
+              label="Cancel"
+              isDisabled={submitting}
               onClick={() => onOpenChange(false)}
-            >
-              Cancel
-            </Button>
+            />
           </div>
-        </DialogBody>
-      </DialogContent>
+        </div>
+      </div>
     </Dialog>
   );
 }
+
+const styles = stylex.create({
+  mutedText: {
+    margin: 0,
+    fontSize: 14,
+    lineHeight: 1.5,
+    color: "var(--muted-foreground)"
+  },
+  errorText: {
+    margin: 0,
+    fontSize: 14,
+    lineHeight: 1.5,
+    color: "var(--destructive)"
+  },
+  list: {
+    display: "grid",
+    gap: 12
+  },
+  card: {
+    display: "grid",
+    gap: 12,
+    borderWidth: 1,
+    borderStyle: "solid",
+    borderColor: "var(--border-subtle)",
+    borderRadius: 6,
+    backgroundColor: "white",
+    padding: 16
+  },
+  titleRow: {
+    display: "flex",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: 12
+  },
+  cardTitle: {
+    minWidth: 0,
+    margin: 0,
+    fontFamily: "var(--font-heading)",
+    fontSize: 20,
+    lineHeight: 1.25,
+    letterSpacing: 0,
+    color: "var(--foreground)"
+  },
+  actions: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: 8
+  },
+  definitionList: {
+    display: "grid",
+    gap: 8,
+    margin: 0
+  },
+  definitionRow: {
+    display: "grid",
+    gridTemplateColumns: "minmax(120px, 180px) 1fr",
+    gap: 16,
+    "@media (max-width: 760px)": {
+      gridTemplateColumns: "1fr",
+      gap: 4
+    }
+  },
+  definitionTerm: {
+    fontSize: 14,
+    fontWeight: 500,
+    lineHeight: 1.5,
+    color: "var(--muted-foreground)"
+  },
+  definitionValue: {
+    minWidth: 0,
+    margin: 0,
+    overflowWrap: "break-word",
+    fontFamily: "var(--font-mono)",
+    fontSize: 14,
+    lineHeight: 1.5,
+    color: "var(--foreground)"
+  },
+  dialog: {
+    display: "grid",
+    minHeight: 0
+  },
+  dialogBody: {
+    display: "grid",
+    gap: 12,
+    minHeight: 0,
+    overflow: "auto",
+    padding: 16
+  },
+  warningText: {
+    display: "flex",
+    alignItems: "flex-start",
+    gap: 8,
+    margin: 0,
+    fontSize: 14,
+    lineHeight: 1.5,
+    color: "var(--muted-foreground)"
+  },
+  warningIcon: {
+    width: 16,
+    height: 16,
+    marginTop: 2,
+    color: "var(--destructive)",
+    flexShrink: 0
+  },
+  fitButton: {
+    width: "fit-content"
+  },
+  icon: {
+    width: 16,
+    height: 16
+  }
+});
 
 function McpSetupDialog({
   open,
@@ -288,13 +402,14 @@ function McpSetupDialog({
   onStartOAuth: (input: McpSetupFormSubmission) => void;
 }) {
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Add MCP server</DialogTitle>
-          <DialogDescription>Verify connection and discover tools.</DialogDescription>
-        </DialogHeader>
-        <DialogBody>
+    <Dialog isOpen={open} onOpenChange={onOpenChange} purpose="form" width={680}>
+      <div {...stylex.props(styles.dialog)}>
+        <DialogHeader
+          title="Add MCP server"
+          subtitle="Verify connection and discover tools."
+          onOpenChange={onOpenChange}
+        />
+        <div {...stylex.props(styles.dialogBody)}>
           <McpServerSetupFlow
             setupResult={setupResult}
             setupSubmitting={setupSubmitting}
@@ -303,8 +418,8 @@ function McpSetupDialog({
             onCreateServer={onCreateServer}
             onStartOAuth={onStartOAuth}
           />
-        </DialogBody>
-      </DialogContent>
+        </div>
+      </div>
     </Dialog>
   );
 }

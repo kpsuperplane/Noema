@@ -1,17 +1,8 @@
 import * as React from "react";
 import { useMutation, useQuery } from "@apollo/client/react";
-import { Loader2, Pencil, Plus, Trash2 } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogBody,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle
-} from "@/components/ui/dialog";
-import { Item, ItemActions, ItemContent, ItemTitle } from "@/components/ui/item";
+import { Loader2 } from "lucide-react";
+import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
+import * as stylex from "@stylexjs/stylex";
 import {
   AutofillToolCalibrationsDocument,
   McpToolsDocument,
@@ -20,19 +11,14 @@ import {
   type McpToolsQuery,
   type SaveToolCalibrationsMutation
 } from "@/generated/graphql";
+import { McpToolOwnerResolutionFields } from "./McpToolOwnerResolutionFields";
+import { McpToolPermissionRow } from "./McpToolPermissionRow";
 import { ToolPermissionsFooter } from "./McpToolPermissionsFooter";
+import { McpToolDescription, McpToolSchemaPreview } from "./McpToolSchemaPreview";
 
-type McpTool = McpToolsQuery["mcpTools"][number];
+export type McpTool = McpToolsQuery["mcpTools"][number];
 
 const classificationOptions = ["none", "trusted", "untrusted", "mixed"] as const;
-const extractorSourceOptions = [
-  "arguments",
-  "structured_content",
-  "metadata",
-  "resource_uri",
-  "built_in_adapter"
-] as const;
-const selectorKindOptions = ["email", "phone", "domain"] as const;
 
 export function McpToolPermissionsModal({
   open,
@@ -167,17 +153,23 @@ export function McpToolPermissionsModal({
   }
 
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="grid-rows-[auto_minmax(0,1fr)_auto]">
+    <Dialog
+      isOpen={open}
+      onOpenChange={handleOpenChange}
+      purpose="form"
+      width={760}
+      maxHeight="85vh"
+    >
+      <div {...stylex.props(styles.dialog)}>
         {editingTool && editingDraft ? (
           <>
-            <DialogHeader>
-              <DialogTitle>{editingTool.name}</DialogTitle>
-              <DialogDescription>
-                Configure this tool. Use Save to persist all tool permission changes.
-              </DialogDescription>
-            </DialogHeader>
-            <DialogBody className="grid gap-3 overflow-y-auto">
+            <DialogHeader
+              title={editingTool.name}
+              subtitle="Configure this tool. Use Save to persist all tool permission changes."
+              onOpenChange={handleOpenChange}
+              hasDivider
+            />
+            <div {...stylex.props(styles.dialogBody)}>
               {autofillState.loading ? (
                 <ToolPermissionEditorGlimmer toolName={editingTool.name} />
               ) : (
@@ -188,13 +180,13 @@ export function McpToolPermissionsModal({
                 />
               )}
               {autofillMessage ? (
-                <p className="m-0 text-sm text-muted-foreground">{autofillMessage}</p>
+                <p {...stylex.props(styles.mutedText)}>{autofillMessage}</p>
               ) : null}
               {autofillError ? (
-                <p className="m-0 text-sm text-destructive">{autofillError}</p>
+                <p {...stylex.props(styles.errorText)}>{autofillError}</p>
               ) : null}
-              {saveError ? <p className="m-0 text-sm text-destructive">{saveError}</p> : null}
-            </DialogBody>
+              {saveError ? <p {...stylex.props(styles.errorText)}>{saveError}</p> : null}
+            </div>
             <ToolPermissionsFooter
               canSave={tools.length > 0}
               saving={saveState.loading}
@@ -207,46 +199,48 @@ export function McpToolPermissionsModal({
           </>
         ) : (
           <>
-            <DialogHeader>
-              <DialogTitle>Configure tool permissions</DialogTitle>
-              <DialogDescription>
-                {serverName ?? serverId ?? "MCP server"} tools stay unavailable until each ready
-                tool has reviewed permissions and owner resolution where needed.
-              </DialogDescription>
-            </DialogHeader>
-            <DialogBody className="grid gap-3 overflow-y-auto">
+            <DialogHeader
+              title="Configure tool permissions"
+              subtitle={`${
+                serverName ?? serverId ?? "MCP server"
+              } tools stay unavailable until each ready tool has reviewed permissions and owner resolution where needed.`}
+              onOpenChange={handleOpenChange}
+              hasDivider
+            />
+            <div {...stylex.props(styles.dialogBody)}>
               {result.loading && !result.data ? (
-                <p className="m-0 flex items-center gap-2 text-sm text-muted-foreground">
-                  <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+                <p {...stylex.props(styles.loadingText)}>
+                  <Loader2 {...stylex.props(styles.spinner)} aria-hidden="true" />
                   Loading tools...
                 </p>
               ) : null}
               {result.error ? (
-                <p className="m-0 text-sm text-destructive">Tool metadata could not be loaded.</p>
+                <p {...stylex.props(styles.errorText)}>Tool metadata could not be loaded.</p>
               ) : null}
               {autofillMessage ? (
-                <p className="m-0 text-sm text-muted-foreground">{autofillMessage}</p>
+                <p {...stylex.props(styles.mutedText)}>{autofillMessage}</p>
               ) : null}
               {autofillError ? (
-                <p className="m-0 text-sm text-destructive">{autofillError}</p>
+                <p {...stylex.props(styles.errorText)}>{autofillError}</p>
               ) : null}
               {!result.loading && !result.error && tools.length === 0 ? (
-                <p className="m-0 text-sm text-muted-foreground">No tools were discovered.</p>
+                <p {...stylex.props(styles.mutedText)}>No tools were discovered.</p>
               ) : null}
               {tools.map((tool) => {
                 const draft = draftOverrides[tool.mcpToolId] ?? draftFromTool(tool);
                 return (
-                  <ToolPermissionItem
+                  <McpToolPermissionRow
                     key={tool.mcpToolId}
                     tool={tool}
                     draft={draft}
+                    attention={toolAttentionLabel(draft)}
                     autofilling={autofillState.loading}
                     onEdit={() => setEditingToolId(tool.mcpToolId)}
                   />
                 );
               })}
-              {saveError ? <p className="m-0 text-sm text-destructive">{saveError}</p> : null}
-            </DialogBody>
+              {saveError ? <p {...stylex.props(styles.errorText)}>{saveError}</p> : null}
+            </div>
             <ToolPermissionsFooter
               canSave={tools.length > 0}
               saving={saveState.loading}
@@ -257,19 +251,19 @@ export function McpToolPermissionsModal({
             />
           </>
         )}
-      </DialogContent>
+      </div>
     </Dialog>
   );
 }
 
-type OwnerExtractorDraft = {
+export type OwnerExtractorDraft = {
   id: string;
   source: string;
   selectorKind: string;
   path: string;
 };
 
-type ToolPermissionDraft = {
+export type ToolPermissionDraft = {
   readClassification: string;
   writeClassification: string;
   exportClassification: string;
@@ -277,116 +271,19 @@ type ToolPermissionDraft = {
   disabled: boolean;
 };
 
-function ToolPermissionItem({
-  tool,
-  draft,
-  autofilling,
-  onEdit
-}: {
-  tool: McpTool;
-  draft: ToolPermissionDraft;
-  autofilling: boolean;
-  onEdit: () => void;
-}) {
-  const attention = toolAttentionLabel(draft);
-  if (autofilling) {
-    return (
-      <Item className="animate-pulse">
-        <ItemContent>
-          <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <ItemTitle className="text-muted-foreground">{tool.name}</ItemTitle>
-            <div className="h-5 w-24 rounded bg-muted" aria-hidden="true" />
-          </div>
-          <div className="h-4 w-full max-w-[32rem] rounded bg-muted" aria-hidden="true" />
-        </ItemContent>
-        <ItemActions>
-          <div className="size-8 rounded bg-muted" aria-hidden="true" />
-        </ItemActions>
-      </Item>
-    );
-  }
-  return (
-    <Item>
-      <ItemContent>
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <ItemTitle>{tool.name}</ItemTitle>
-          <ToolStatusBadge disabled={draft.disabled} />
-          {attention ? <Badge variant="destructive">{attention}</Badge> : null}
-        </div>
-        <ToolPermissionSummary draft={draft} />
-      </ItemContent>
-      <ItemActions>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          aria-label={`Edit ${tool.name}`}
-          onClick={onEdit}
-        >
-          <Pencil className="size-4" aria-hidden="true" />
-        </Button>
-      </ItemActions>
-    </Item>
-  );
-}
-
 function ToolPermissionEditorGlimmer({ toolName }: { toolName: string }) {
   return (
-    <div className="grid gap-3 animate-pulse" aria-label={`Autofilling ${toolName}`}>
-      <div className="h-4 w-full max-w-[36rem] rounded bg-muted" aria-hidden="true" />
-      <div className="h-24 rounded-md border border-[var(--border-subtle)] bg-muted" aria-hidden="true" />
-      <div className="grid gap-2 sm:grid-cols-4">
-        <div className="h-14 rounded bg-muted" aria-hidden="true" />
-        <div className="h-14 rounded bg-muted" aria-hidden="true" />
-        <div className="h-14 rounded bg-muted" aria-hidden="true" />
-        <div className="h-14 rounded bg-muted" aria-hidden="true" />
+    <div {...stylex.props(styles.glimmerGrid)} aria-label={`Autofilling ${toolName}`}>
+      <div {...stylex.props(styles.glimmerLine)} aria-hidden="true" />
+      <div {...stylex.props(styles.glimmerPanel)} aria-hidden="true" />
+      <div {...stylex.props(styles.classificationGrid)}>
+        <div {...stylex.props(styles.glimmerControl)} aria-hidden="true" />
+        <div {...stylex.props(styles.glimmerControl)} aria-hidden="true" />
+        <div {...stylex.props(styles.glimmerControl)} aria-hidden="true" />
+        <div {...stylex.props(styles.glimmerControl)} aria-hidden="true" />
       </div>
-      <div className="h-20 rounded-md border border-[var(--border-subtle)] bg-muted" aria-hidden="true" />
+      <div {...stylex.props(styles.glimmerPanelSmall)} aria-hidden="true" />
     </div>
-  );
-}
-
-function ToolPermissionSummary({ draft }: { draft: ToolPermissionDraft }) {
-  return (
-    <div
-      className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5"
-      aria-label="Configured tool permissions"
-    >
-      <ClassificationBadge label="Read" value={draft.readClassification} />
-      <ClassificationBadge label="Write" value={draft.writeClassification} />
-      <ClassificationBadge label="Export" value={draft.exportClassification} />
-    </div>
-  );
-}
-
-function ToolStatusBadge({ disabled }: { disabled: boolean }) {
-  const style = disabled
-    ? {
-        backgroundColor: "var(--red-100)",
-        borderColor: "var(--red-700)",
-        color: "var(--red-700)"
-      }
-    : {
-        backgroundColor: "var(--pine-50)",
-        borderColor: "var(--pine-500)",
-        color: "var(--pine-700)"
-      };
-
-  return (
-    <Badge variant="outline" style={style}>
-      {disabled ? "Disabled" : "Enabled"}
-    </Badge>
-  );
-}
-
-function ClassificationBadge({ label, value }: { label: string; value: string }) {
-  return (
-    <Badge
-      variant={value === "none" ? "outline" : "secondary"}
-      className="font-mono text-xs"
-    >
-      {label}: {value}
-    </Badge>
   );
 }
 
@@ -404,14 +301,9 @@ function ToolPermissionEditor({
 
   return (
     <>
-      {tool.description ? <ToolDescription description={tool.description} /> : null}
-      <details className="rounded-md border border-[var(--border-subtle)] p-3">
-        <summary className="cursor-pointer text-sm font-medium">Review discovered schema</summary>
-        <pre className="mt-3 max-h-56 overflow-auto whitespace-pre-wrap rounded-md bg-muted p-3 text-xs">
-          {formatSchemaPreview(tool)}
-        </pre>
-      </details>
-      <div className="grid gap-2 sm:grid-cols-4">
+      {tool.description ? <McpToolDescription description={tool.description} /> : null}
+      <McpToolSchemaPreview tool={tool} />
+      <div {...stylex.props(styles.classificationGrid)}>
         <SelectField
           label="Read"
           value={draft.readClassification}
@@ -442,136 +334,15 @@ function ToolPermissionEditor({
           onChange={(disabled) => onDraftChange((current) => ({ ...current, disabled }))}
         />
       </div>
-      <OwnerExtractorsEditor draft={draft} onChange={onDraftChange} />
-      {validationError ? <p className="m-0 text-sm text-destructive">{validationError}</p> : null}
+      <McpToolOwnerResolutionFields draft={draft} onChange={onDraftChange} />
+      {validationError ? <p {...stylex.props(styles.errorText)}>{validationError}</p> : null}
       {blocked ? (
-        <p className="m-0 text-sm text-muted-foreground">
+        <p {...stylex.props(styles.mutedText)}>
           This mixed tool will stay blocked until an owner extractor is added.
         </p>
       ) : null}
     </>
   );
-}
-
-function ToolDescription({ description }: { description: string }) {
-  const [expanded, setExpanded] = React.useState(false);
-
-  return (
-    <div className="min-w-0 text-sm text-muted-foreground">
-      <div className={expanded ? "grid gap-1" : "flex min-w-0 items-baseline gap-2"}>
-        <p className={expanded ? "m-0 whitespace-pre-wrap" : "m-0 min-w-0 flex-1 truncate"}>
-          {description}
-        </p>
-        <Button
-          type="button"
-          variant="link"
-          className="h-auto w-fit shrink-0 p-0 text-xs"
-          onClick={() => setExpanded((current) => !current)}
-        >
-          {expanded ? "Show less" : "Show more..."}
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-function OwnerExtractorsEditor({
-  draft,
-  onChange
-}: {
-  draft: ToolPermissionDraft;
-  onChange: (updater: (current: ToolPermissionDraft) => ToolPermissionDraft) => void;
-}) {
-  return (
-    <section className="grid gap-2">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="grid gap-1">
-          <h4 className="m-0 text-sm font-medium">Owner resolution</h4>
-          <p className="m-0 text-sm text-muted-foreground">
-            Mixed tools need a deterministic field that resolves an email, phone, or domain owner.
-          </p>
-        </div>
-        <Button
-          type="button"
-          variant="outline"
-          className="w-fit"
-          onClick={() =>
-            onChange((current) => ({
-              ...current,
-              ownerExtractors: [
-                ...current.ownerExtractors,
-                {
-                  id: `extractor:${Date.now()}`,
-                  source: "arguments",
-                  selectorKind: "email",
-                  path: ""
-                }
-              ]
-            }))
-          }
-        >
-          <Plus className="size-4" aria-hidden="true" />
-          Add extractor
-        </Button>
-      </div>
-      {draft.ownerExtractors.length === 0 ? (
-        <p className="m-0 text-sm text-muted-foreground">
-          No owner extractor configured. Mixed tools stay blocked until one is added.
-        </p>
-      ) : null}
-      {draft.ownerExtractors.map((extractor) => (
-        <div
-          key={extractor.id}
-          className="grid gap-2 rounded-md border border-[var(--border-subtle)] p-3 sm:grid-cols-[1fr_1fr_2fr_auto]"
-        >
-          <SelectField
-            label="Source"
-            value={extractor.source}
-            options={extractorSourceOptions}
-            onChange={(source) => updateExtractor(onChange, extractor.id, { source })}
-          />
-          <SelectField
-            label="Identity"
-            value={extractor.selectorKind}
-            options={selectorKindOptions}
-            onChange={(selectorKind) => updateExtractor(onChange, extractor.id, { selectorKind })}
-          />
-          <TextField
-            label="Path"
-            value={extractor.path}
-            onChange={(path) => updateExtractor(onChange, extractor.id, { path })}
-          />
-          <Button
-            type="button"
-            variant="ghost"
-            className="self-end"
-            aria-label="Remove owner extractor"
-            onClick={() =>
-              onChange((current) => ({
-                ...current,
-                ownerExtractors: current.ownerExtractors.filter((item) => item.id !== extractor.id)
-              }))
-            }
-          >
-            <Trash2 className="size-4" aria-hidden="true" />
-          </Button>
-        </div>
-      ))}
-    </section>
-  );
-}
-
-function updateExtractor(
-  onChange: (updater: (current: ToolPermissionDraft) => ToolPermissionDraft) => void,
-  id: string,
-  patch: Partial<Omit<OwnerExtractorDraft, "id">>
-) {
-  onChange((current) => ({
-    ...current,
-    ownerExtractors: current.ownerExtractors.map((extractor) =>
-      extractor.id === id ? { ...extractor, ...patch } : extractor
-    )
-  }));
 }
 
 function draftFromTool(tool: McpTool): ToolPermissionDraft {
@@ -678,10 +449,10 @@ function SelectField<T extends readonly string[]>({
   onChange: (value: T[number]) => void;
 }) {
   return (
-    <label className="grid gap-1 text-sm font-medium">
-      {label}
+    <label {...stylex.props(styles.field)}>
+      <span>{label}</span>
       <select
-        className="h-9 rounded-md border border-[var(--border-subtle)] bg-white px-2 text-sm font-normal"
+        {...stylex.props(styles.select)}
         value={value}
         onChange={(event) => onChange(event.currentTarget.value as T[number])}
       >
@@ -705,9 +476,9 @@ function CheckboxField({
   onChange: (checked: boolean) => void;
 }) {
   return (
-    <label className="grid content-start gap-2 text-sm font-medium">
-      {label}
-      <span className="flex h-9 items-center rounded-md border border-[var(--border-subtle)] px-3">
+    <label {...stylex.props(styles.checkboxField)}>
+      <span>{label}</span>
+      <span {...stylex.props(styles.checkboxFrame)}>
         <input
           aria-label="Disable tool"
           type="checkbox"
@@ -716,39 +487,6 @@ function CheckboxField({
         />
       </span>
     </label>
-  );
-}
-
-function TextField({
-  label,
-  value,
-  onChange
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-}) {
-  return (
-    <label className="grid gap-1 text-sm font-medium">
-      {label}
-      <input
-        className="h-9 rounded-md border border-[var(--border-subtle)] px-3 text-sm font-normal"
-        value={value}
-        onChange={(event) => onChange(event.currentTarget.value)}
-      />
-    </label>
-  );
-}
-
-function formatSchemaPreview(tool: McpTool) {
-  return JSON.stringify(
-    {
-      inputSchema: tool.inputSchema,
-      outputSchema: tool.outputSchema,
-      annotations: tool.annotations
-    },
-    null,
-    2
   );
 }
 
@@ -763,3 +501,139 @@ function calibrationIdForTool(mcpToolId: string) {
   const fragment = mcpToolId.replace(/[^A-Za-z0-9_-]+/g, "_").replace(/^_+|_+$/g, "");
   return `tool_calibration:${fragment || "tool"}`;
 }
+
+const styles = stylex.create({
+  dialog: {
+    display: "grid",
+    gridTemplateRows: "auto minmax(0, 1fr) auto",
+    minHeight: 0,
+    maxHeight: "85vh"
+  },
+  dialogBody: {
+    display: "grid",
+    gap: 12,
+    minHeight: 0,
+    overflowY: "auto",
+    padding: 16
+  },
+  mutedText: {
+    margin: 0,
+    fontSize: 14,
+    lineHeight: 1.5,
+    color: "var(--muted-foreground)"
+  },
+  errorText: {
+    margin: 0,
+    fontSize: 14,
+    lineHeight: 1.5,
+    color: "var(--destructive)"
+  },
+  loadingText: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    margin: 0,
+    fontSize: 14,
+    lineHeight: 1.5,
+    color: "var(--muted-foreground)"
+  },
+  spinner: {
+    width: 16,
+    height: 16
+  },
+  glimmerGrid: {
+    display: "grid",
+    gap: 12,
+    opacity: 0.7
+  },
+  glimmerLine: {
+    width: "100%",
+    maxWidth: 576,
+    height: 16,
+    borderRadius: 6,
+    backgroundColor: "var(--muted)"
+  },
+  glimmerPanel: {
+    height: 96,
+    borderWidth: 1,
+    borderStyle: "solid",
+    borderColor: "var(--border-subtle)",
+    borderRadius: 6,
+    backgroundColor: "var(--muted)"
+  },
+  glimmerPanelSmall: {
+    height: 80,
+    borderWidth: 1,
+    borderStyle: "solid",
+    borderColor: "var(--border-subtle)",
+    borderRadius: 6,
+    backgroundColor: "var(--muted)"
+  },
+  glimmerControl: {
+    height: 56,
+    borderRadius: 6,
+    backgroundColor: "var(--muted)"
+  },
+  classificationGrid: {
+    display: "grid",
+    gap: 8,
+    gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+    "@media (max-width: 760px)": {
+      gridTemplateColumns: "1fr"
+    }
+  },
+  field: {
+    display: "grid",
+    gap: 4,
+    fontSize: 14,
+    fontWeight: 500,
+    lineHeight: 1.5,
+    color: "var(--foreground)"
+  },
+  checkboxField: {
+    display: "grid",
+    alignContent: "start",
+    gap: 8,
+    fontSize: 14,
+    fontWeight: 500,
+    lineHeight: 1.5,
+    color: "var(--foreground)"
+  },
+  input: {
+    height: 36,
+    minWidth: 0,
+    borderWidth: 1,
+    borderStyle: "solid",
+    borderColor: "var(--border-subtle)",
+    borderRadius: 6,
+    paddingInline: 12,
+    fontSize: 14,
+    fontWeight: 400,
+    lineHeight: 1.5,
+    color: "var(--foreground)"
+  },
+  select: {
+    height: 36,
+    minWidth: 0,
+    borderWidth: 1,
+    borderStyle: "solid",
+    borderColor: "var(--border-subtle)",
+    borderRadius: 6,
+    backgroundColor: "white",
+    paddingInline: 8,
+    fontSize: 14,
+    fontWeight: 400,
+    lineHeight: 1.5,
+    color: "var(--foreground)"
+  },
+  checkboxFrame: {
+    display: "flex",
+    height: 36,
+    alignItems: "center",
+    borderWidth: 1,
+    borderStyle: "solid",
+    borderColor: "var(--border-subtle)",
+    borderRadius: 6,
+    paddingInline: 12
+  }
+});

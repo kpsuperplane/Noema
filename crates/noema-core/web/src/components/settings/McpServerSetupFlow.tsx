@@ -1,7 +1,8 @@
 import * as React from "react";
-import { ArrowLeft, ExternalLink, KeyRound, Loader2, Plus, ShieldCheck, Trash2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ArrowLeft, ExternalLink, KeyRound, Plus, ShieldCheck, Trash2 } from "lucide-react";
+import { Button } from "@astryxdesign/core/Button";
+import { Tab, TabList } from "@astryxdesign/core/TabList";
+import * as stylex from "@stylexjs/stylex";
 import type { CreateMcpServerMutation } from "@/generated/graphql";
 import type { McpSetupFormSubmission } from "./mcpSetupForm";
 
@@ -122,11 +123,11 @@ export function McpServerSetupFlow({
 
   function renderHttpTransportFields() {
     return (
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div className="sm:col-span-2">
+      <div {...stylex.props(styles.twoColumnGrid)}>
+        <div {...stylex.props(styles.fullSpan)}>
           <TextField label="URL" value={url} onChange={setUrl} />
         </div>
-        <div className="sm:col-span-2">
+        <div {...stylex.props(styles.fullSpan)}>
           <KeyValueEditor
             label="Non-secret headers"
             rows={headers}
@@ -134,7 +135,7 @@ export function McpServerSetupFlow({
             onChange={setHeaders}
           />
         </div>
-        <div className="sm:col-span-2">
+        <div {...stylex.props(styles.fullSpan)}>
           <KeyValueEditor
             label="Secret headers"
             rows={secretHeaders}
@@ -147,95 +148,95 @@ export function McpServerSetupFlow({
   }
 
   return (
-    <section className="grid gap-4">
+    <section {...stylex.props(styles.root)}>
       {setupScreen === "details" ? (
-        <form className="grid gap-3" onSubmit={submitCreate}>
-          <label className="grid gap-1 text-sm font-medium">
-            Display name
+        <form {...stylex.props(styles.form)} onSubmit={submitCreate}>
+          <label {...stylex.props(styles.field)}>
+            <span>Display name</span>
             <input
-              className="h-9 rounded-md border border-[var(--border-subtle)] px-3 text-sm font-normal"
+              {...stylex.props(styles.input)}
               value={displayName}
               onChange={(event) => setDisplayName(event.currentTarget.value)}
             />
           </label>
-          <Tabs
+          <TabList
             value={transportKind}
-            onValueChange={(value) => setTransportKind(value as TransportKind)}
+            onChange={(value) => setTransportKind(value as TransportKind)}
+            hasDivider
           >
-            <TabsList aria-label="Transport">
-              <TabsTrigger value="streamable_http">Streamable HTTP</TabsTrigger>
-              <TabsTrigger value="sse">SSE</TabsTrigger>
-              <TabsTrigger value="stdio">stdio</TabsTrigger>
-            </TabsList>
-            <TabsContent value="streamable_http">{renderHttpTransportFields()}</TabsContent>
-            <TabsContent value="sse">{renderHttpTransportFields()}</TabsContent>
-            <TabsContent value="stdio">
-              <div className="grid gap-3 sm:grid-cols-2">
-                <TextField label="Command" value={command} onChange={setCommand} />
-                <TextField label="Working directory" value={cwd} onChange={setCwd} />
-                <div className="sm:col-span-2">
-                  <StringListEditor
-                    label="Args"
-                    values={args}
-                    emptyText="No arguments configured."
-                    addLabel="Add argument"
-                    onChange={setArgs}
-                  />
-                </div>
-                <div className="sm:col-span-2">
-                  <KeyValueEditor
-                    label="Non-secret env"
-                    rows={env}
-                    emptyText="No non-secret environment variables configured."
-                    onChange={setEnv}
-                  />
-                </div>
-                <div className="sm:col-span-2">
-                  <KeyValueEditor
-                    label="Secret env"
-                    rows={secretEnv}
-                    emptyText="No secret environment variables configured."
-                    onChange={setSecretEnv}
-                  />
-                </div>
+            <Tab value="streamable_http" label="Streamable HTTP" />
+            <Tab value="sse" label="SSE" />
+            <Tab value="stdio" label="stdio" />
+          </TabList>
+          {transportKind === "streamable_http" ? renderHttpTransportFields() : null}
+          {transportKind === "sse" ? renderHttpTransportFields() : null}
+          {transportKind === "stdio" ? (
+            <div {...stylex.props(styles.twoColumnGrid)}>
+              <TextField label="Command" value={command} onChange={setCommand} />
+              <TextField label="Working directory" value={cwd} onChange={setCwd} />
+              <div {...stylex.props(styles.fullSpan)}>
+                <StringListEditor
+                  label="Args"
+                  values={args}
+                  emptyText="No arguments configured."
+                  addLabel="Add argument"
+                  onChange={setArgs}
+                />
               </div>
-            </TabsContent>
-          </Tabs>
+              <div {...stylex.props(styles.fullSpan)}>
+                <KeyValueEditor
+                  label="Non-secret env"
+                  rows={env}
+                  emptyText="No non-secret environment variables configured."
+                  onChange={setEnv}
+                />
+              </div>
+              <div {...stylex.props(styles.fullSpan)}>
+                <KeyValueEditor
+                  label="Secret env"
+                  rows={secretEnv}
+                  emptyText="No secret environment variables configured."
+                  onChange={setSecretEnv}
+                />
+              </div>
+            </div>
+          ) : null}
 
-          {visibleError ? <p className="m-0 text-sm text-destructive">{visibleError}</p> : null}
-          <div className="flex justify-end">
-            <Button type="submit" className="w-fit" disabled={setupSubmitting}>
-              {setupSubmitting ? (
-                <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-              ) : (
-                <Plus className="size-4" aria-hidden="true" />
-              )}
-              Save and verify
-            </Button>
+          {visibleError ? <p {...stylex.props(styles.errorText)}>{visibleError}</p> : null}
+          <div {...stylex.props(styles.endActions)}>
+            <Button
+              type="submit"
+              label="Save and verify"
+              isDisabled={setupSubmitting}
+              isLoading={setupSubmitting}
+              icon={!setupSubmitting ? <Plus {...stylex.props(styles.icon)} aria-hidden="true" /> : undefined}
+          {...stylex.props(styles.fitButton)}
+            />
           </div>
         </form>
       ) : null}
 
       {setupScreen === "auth" && authRequired ? (
-        <form className="grid gap-3" onSubmit={submitRetry}>
-          <div className="flex items-center gap-2 text-sm font-medium">
-            <KeyRound className="size-4" aria-hidden="true" />
+        <form {...stylex.props(styles.form)} onSubmit={submitRetry}>
+          <div {...stylex.props(styles.inlineHeader)}>
+            <KeyRound {...stylex.props(styles.icon)} aria-hidden="true" />
             Authentication required
           </div>
-          <Tabs value={activeAuthMode} onValueChange={(value) => setAuthMode(value as AuthMode)}>
-            <TabsList aria-label="Authentication method">
-              {oauthAuthorizationSupported ? (
-                <TabsTrigger value="browser">Browser</TabsTrigger>
-              ) : null}
-              <TabsTrigger value="secrets">Secrets</TabsTrigger>
-            </TabsList>
+          <TabList
+            value={activeAuthMode}
+            onChange={(value) => setAuthMode(value as AuthMode)}
+            hasDivider
+          >
+            {oauthAuthorizationSupported ? <Tab value="browser" label="Browser" /> : null}
+            <Tab value="secrets" label="Secrets" />
+          </TabList>
             {oauthAuthorizationSupported ? (
-              <TabsContent value="browser">
-                <div className="grid gap-3">
+              <div hidden={activeAuthMode !== "browser"}>
+                <div {...stylex.props(styles.form)}>
                   {visibleError ? (
-                    <p className="m-0 text-sm text-destructive">{visibleError}</p>
+                    <p {...stylex.props(styles.errorText)}>{visibleError}</p>
                   ) : null}
-                  <div className="flex items-center justify-between gap-2">
+                  <div {...stylex.props(styles.spreadActions)}>
                     <BackButton
                       onClick={() => {
                         setFormError(null);
@@ -245,25 +246,21 @@ export function McpServerSetupFlow({
                     {lastSubmission ? (
                       <Button
                         type="button"
-                        className="w-fit"
-                        disabled={oauthSubmitting}
+                        label="Continue with OAuth"
+                        isDisabled={oauthSubmitting}
+                        isLoading={oauthSubmitting}
+                        icon={!oauthSubmitting ? <ExternalLink {...stylex.props(styles.icon)} aria-hidden="true" /> : undefined}
+          {...stylex.props(styles.fitButton)}
                         onClick={() => onStartOAuth(lastSubmission)}
-                      >
-                        {oauthSubmitting ? (
-                          <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-                        ) : (
-                          <ExternalLink className="size-4" aria-hidden="true" />
-                        )}
-                        Continue with OAuth
-                      </Button>
+                      />
                     ) : null}
                   </div>
                 </div>
-              </TabsContent>
+              </div>
             ) : null}
-            <TabsContent value="secrets">
-              <div className="grid gap-3">
-                <div className="grid gap-3 sm:grid-cols-2">
+            <div hidden={activeAuthMode !== "secrets"}>
+              <div {...stylex.props(styles.form)}>
+                <div {...stylex.props(styles.twoColumnGrid)}>
                   <KeyValueEditor
                     label="Secret env"
                     rows={retrySecretEnv}
@@ -277,26 +274,26 @@ export function McpServerSetupFlow({
                     onChange={setRetrySecretHeaders}
                   />
                 </div>
-                {visibleError ? <p className="m-0 text-sm text-destructive">{visibleError}</p> : null}
-                <div className="flex items-center justify-between gap-2">
+                {visibleError ? <p {...stylex.props(styles.errorText)}>{visibleError}</p> : null}
+                <div {...stylex.props(styles.spreadActions)}>
                   <BackButton
                     onClick={() => {
                       setFormError(null);
                       setShowAuthScreen(false);
                     }}
                   />
-                  <Button type="submit" className="w-fit" disabled={setupSubmitting}>
-                    {setupSubmitting ? (
-                      <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-                    ) : null}
-                    Retry setup
-                  </Button>
+                  <Button
+                    type="submit"
+                    label="Retry setup"
+                    isDisabled={setupSubmitting}
+                    isLoading={setupSubmitting}
+          {...stylex.props(styles.fitButton)}
+                  />
                 </div>
               </div>
-            </TabsContent>
-          </Tabs>
+            </div>
           {oauthClientCredentialsSupported && !oauthAuthorizationSupported ? (
-            <p className="m-0 text-xs text-muted-foreground">
+            <p {...stylex.props(styles.smallMutedText)}>
               This server may also support OAuth client credentials through backend configuration.
             </p>
           ) : null}
@@ -304,12 +301,12 @@ export function McpServerSetupFlow({
       ) : null}
 
       {setupResult?.setupStatus === "ready_for_calibration" ? (
-        <div className="grid gap-2 border-t border-[var(--border-subtle)] pt-4">
-          <div className="flex items-center gap-2 text-sm font-medium">
-            <ShieldCheck className="size-4" aria-hidden="true" />
+        <div {...stylex.props(styles.calibrationNotice)}>
+          <div {...stylex.props(styles.inlineHeader)}>
+            <ShieldCheck {...stylex.props(styles.icon)} aria-hidden="true" />
             Configure tools
           </div>
-          <p className="m-0 text-sm text-muted-foreground">
+          <p {...stylex.props(styles.mutedText)}>
             {setupResult.discoveredToolCount} discovered tools are waiting for calibration before
             use.
           </p>
@@ -321,10 +318,14 @@ export function McpServerSetupFlow({
 
 function BackButton({ onClick }: { onClick: () => void }) {
   return (
-    <Button type="button" variant="ghost" className="w-fit" onClick={onClick}>
-      <ArrowLeft className="size-4" aria-hidden="true" />
-      Back
-    </Button>
+    <Button
+      type="button"
+      variant="ghost"
+      label="Back"
+      icon={<ArrowLeft {...stylex.props(styles.icon)} aria-hidden="true" />}
+          {...stylex.props(styles.fitButton)}
+      onClick={onClick}
+    />
   );
 }
 
@@ -424,11 +425,11 @@ function TextField({
   onChange: (value: string) => void;
 }) {
   return (
-    <label className="grid gap-1 text-sm font-medium">
-      {label}
+    <label {...stylex.props(styles.field)}>
+      <span>{label}</span>
       <input
         type={type}
-        className="h-9 rounded-md border border-[var(--border-subtle)] px-3 text-sm font-normal"
+        {...stylex.props(styles.input)}
         value={value}
         onChange={(event) => onChange(event.currentTarget.value)}
       />
@@ -450,29 +451,28 @@ function StringListEditor({
   onChange: React.Dispatch<React.SetStateAction<RowDraft[]>>;
 }) {
   return (
-    <section className="grid gap-2">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="m-0 text-sm font-medium">{label}</h3>
+    <section {...stylex.props(styles.editorSection)}>
+      <div {...stylex.props(styles.sectionHeader)}>
+        <h3 {...stylex.props(styles.sectionTitle)}>{label}</h3>
         <Button
           type="button"
-          variant="outline"
-          className="w-fit"
+          variant="secondary"
+          label={addLabel}
+          icon={<Plus {...stylex.props(styles.icon)} aria-hidden="true" />}
+          {...stylex.props(styles.fitButton)}
           onClick={() => onChange((current) => [...current, newRowDraft()])}
-        >
-          <Plus className="size-4" aria-hidden="true" />
-          {addLabel}
-        </Button>
+        />
       </div>
-      {values.length === 0 ? <p className="m-0 text-sm text-muted-foreground">{emptyText}</p> : null}
-      <div className="grid gap-2">
+      {values.length === 0 ? <p {...stylex.props(styles.mutedText)}>{emptyText}</p> : null}
+      <div {...stylex.props(styles.editorRows)}>
         {values.map((row, index) => (
-          <div key={row.id} className="grid gap-2 sm:grid-cols-[auto_1fr_auto]">
-            <span className="self-center font-mono text-xs text-muted-foreground">
+          <div key={row.id} {...stylex.props(styles.stringRow)}>
+            <span {...stylex.props(styles.rowIndex)}>
               {index + 1}
             </span>
             <input
               aria-label={`${label} ${index + 1}`}
-              className="h-9 rounded-md border border-[var(--border-subtle)] px-3 text-sm"
+              {...stylex.props(styles.input)}
               value={row.value}
               onChange={(event) =>
                 onChange((current) =>
@@ -485,11 +485,11 @@ function StringListEditor({
             <Button
               type="button"
               variant="ghost"
-              aria-label={`Remove ${label} ${index + 1}`}
+              label={`Remove ${label} ${index + 1}`}
+              icon={<Trash2 {...stylex.props(styles.icon)} aria-hidden="true" />}
+              isIconOnly
               onClick={() => onChange((current) => current.filter((item) => item.id !== row.id))}
-            >
-              <Trash2 className="size-4" aria-hidden="true" />
-            </Button>
+            />
           </div>
         ))}
       </div>
@@ -509,27 +509,26 @@ function KeyValueEditor({
   onChange: React.Dispatch<React.SetStateAction<KeyValueDraft[]>>;
 }) {
   return (
-    <section className="grid gap-2">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="m-0 text-sm font-medium">{label}</h3>
+    <section {...stylex.props(styles.editorSection)}>
+      <div {...stylex.props(styles.sectionHeader)}>
+        <h3 {...stylex.props(styles.sectionTitle)}>{label}</h3>
         <Button
           type="button"
-          variant="outline"
-          className="w-fit"
+          variant="secondary"
+          label="Add row"
+          icon={<Plus {...stylex.props(styles.icon)} aria-hidden="true" />}
+          {...stylex.props(styles.fitButton)}
           onClick={() => onChange((current) => [...current, newKeyValueDraft()])}
-        >
-          <Plus className="size-4" aria-hidden="true" />
-          Add row
-        </Button>
+        />
       </div>
-      {rows.length === 0 ? <p className="m-0 text-sm text-muted-foreground">{emptyText}</p> : null}
-      <div className="grid gap-2">
+      {rows.length === 0 ? <p {...stylex.props(styles.mutedText)}>{emptyText}</p> : null}
+      <div {...stylex.props(styles.editorRows)}>
         {rows.map((row, index) => (
-          <div key={row.id} className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+          <div key={row.id} {...stylex.props(styles.keyValueRow)}>
             <input
               aria-label={`${label} key ${index + 1}`}
               placeholder="Key"
-              className="h-9 rounded-md border border-[var(--border-subtle)] px-3 text-sm"
+              {...stylex.props(styles.input)}
               value={row.key}
               onChange={(event) =>
                 updateKeyValueRow(onChange, row.id, { key: event.currentTarget.value })
@@ -538,7 +537,7 @@ function KeyValueEditor({
             <input
               aria-label={`${label} value ${index + 1}`}
               placeholder="Value"
-              className="h-9 rounded-md border border-[var(--border-subtle)] px-3 text-sm"
+              {...stylex.props(styles.input)}
               value={row.value}
               onChange={(event) =>
                 updateKeyValueRow(onChange, row.id, { value: event.currentTarget.value })
@@ -547,11 +546,11 @@ function KeyValueEditor({
             <Button
               type="button"
               variant="ghost"
-              aria-label={`Remove ${label} row ${index + 1}`}
+              label={`Remove ${label} row ${index + 1}`}
+              icon={<Trash2 {...stylex.props(styles.icon)} aria-hidden="true" />}
+              isIconOnly
               onClick={() => onChange((current) => current.filter((item) => item.id !== row.id))}
-            >
-              <Trash2 className="size-4" aria-hidden="true" />
-            </Button>
+            />
           </div>
         ))}
       </div>
@@ -568,3 +567,144 @@ function updateKeyValueRow(
     current.map((row) => (row.id === id ? { ...row, ...patch } : row))
   );
 }
+
+const styles = stylex.create({
+  root: {
+    display: "grid",
+    gap: 16
+  },
+  form: {
+    display: "grid",
+    gap: 12
+  },
+  field: {
+    display: "grid",
+    gap: 4,
+    fontSize: 14,
+    fontWeight: 500,
+    lineHeight: 1.5,
+    color: "var(--foreground)"
+  },
+  input: {
+    height: 36,
+    minWidth: 0,
+    borderWidth: 1,
+    borderStyle: "solid",
+    borderColor: "var(--border-subtle)",
+    borderRadius: 6,
+    backgroundColor: "white",
+    paddingInline: 12,
+    fontSize: 14,
+    fontWeight: 400,
+    lineHeight: 1.5,
+    color: "var(--foreground)"
+  },
+  twoColumnGrid: {
+    display: "grid",
+    gap: 12,
+    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+    "@media (max-width: 640px)": {
+      gridTemplateColumns: "1fr"
+    }
+  },
+  fullSpan: {
+    gridColumn: "1 / -1"
+  },
+  errorText: {
+    margin: 0,
+    fontSize: 14,
+    lineHeight: 1.5,
+    color: "var(--destructive)"
+  },
+  mutedText: {
+    margin: 0,
+    fontSize: 14,
+    lineHeight: 1.5,
+    color: "var(--muted-foreground)"
+  },
+  smallMutedText: {
+    margin: 0,
+    fontSize: 12,
+    lineHeight: 1.5,
+    color: "var(--muted-foreground)"
+  },
+  endActions: {
+    display: "flex",
+    justifyContent: "flex-end"
+  },
+  spreadActions: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8
+  },
+  inlineHeader: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    fontSize: 14,
+    fontWeight: 500,
+    lineHeight: 1.5,
+    color: "var(--foreground)"
+  },
+  calibrationNotice: {
+    display: "grid",
+    gap: 8,
+    borderTopWidth: 1,
+    borderTopStyle: "solid",
+    borderTopColor: "var(--border-subtle)",
+    paddingTop: 16
+  },
+  editorSection: {
+    display: "grid",
+    gap: 8
+  },
+  sectionHeader: {
+    display: "flex",
+    flexWrap: "wrap",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8
+  },
+  sectionTitle: {
+    margin: 0,
+    fontSize: 14,
+    fontWeight: 500,
+    lineHeight: 1.5,
+    color: "var(--foreground)"
+  },
+  editorRows: {
+    display: "grid",
+    gap: 8
+  },
+  stringRow: {
+    display: "grid",
+    gap: 8,
+    gridTemplateColumns: "auto minmax(0, 1fr) auto",
+    "@media (max-width: 640px)": {
+      gridTemplateColumns: "1fr"
+    }
+  },
+  keyValueRow: {
+    display: "grid",
+    gap: 8,
+    gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr) auto",
+    "@media (max-width: 640px)": {
+      gridTemplateColumns: "1fr"
+    }
+  },
+  rowIndex: {
+    alignSelf: "center",
+    fontFamily: "var(--font-mono)",
+    fontSize: 12,
+    lineHeight: 1.5,
+    color: "var(--muted-foreground)"
+  },
+  fitButton: {
+    width: "fit-content"
+  },
+  icon: {
+    width: 16,
+    height: 16
+  }
+});

@@ -1,6 +1,7 @@
 import { RefreshCw } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Badge } from "@astryxdesign/core/Badge";
+import { Button } from "@astryxdesign/core/Button";
+import * as stylex from "@stylexjs/stylex";
 import type { McpApprovalSettingsQuery } from "@/generated/graphql";
 
 type McpApprovalRequest = McpApprovalSettingsQuery["mcpApprovalRequests"][number];
@@ -19,50 +20,54 @@ export function ApprovalsSettingsPaneContent({
   onRetry = () => {}
 }: ApprovalsSettingsPaneContentProps = {}) {
   if (loading) {
-    return <p className="m-0 text-sm text-muted-foreground">Loading MCP approvals...</p>;
+    return <p {...stylex.props(styles.mutedText)}>Loading MCP approvals...</p>;
   }
 
   if (error) {
     return (
-      <div className="grid gap-3 rounded-md border border-[var(--border-subtle)] bg-white p-4">
-        <p className="m-0 text-sm text-muted-foreground">
+      <div {...stylex.props(styles.card)}>
+        <p {...stylex.props(styles.mutedText)}>
           MCP approval requests could not be loaded.
         </p>
-        <Button type="button" variant="outline" className="w-fit" onClick={onRetry}>
-          <RefreshCw className="size-4" aria-hidden="true" />
-          Retry
-        </Button>
+        <Button
+          type="button"
+          variant="secondary"
+          label="Retry"
+          icon={<RefreshCw {...stylex.props(styles.icon)} aria-hidden="true" />}
+          {...stylex.props(styles.fitButton)}
+          onClick={onRetry}
+        />
       </div>
     );
   }
 
   if (approvals.length === 0) {
     return (
-      <div className="rounded-md border border-[var(--border-subtle)] bg-white p-4">
-        <p className="m-0 text-sm text-muted-foreground">No MCP approvals are pending.</p>
+      <div {...stylex.props(styles.card)}>
+        <p {...stylex.props(styles.mutedText)}>No MCP approvals are pending.</p>
       </div>
     );
   }
 
   return (
-    <div className="overflow-hidden rounded-md border border-[var(--border-subtle)] bg-white">
-      <div className="grid min-w-0 divide-y divide-[var(--border-subtle)]">
+    <div {...stylex.props(styles.panel)}>
+      <div {...stylex.props(styles.list)}>
         {approvals.map((approval) => (
-          <article key={approval.approvalId} className="grid gap-3 p-4">
-            <div className="flex min-w-0 flex-wrap items-center gap-3">
-              <h2 className="m-0 min-w-0 break-words font-heading text-lg leading-tight tracking-normal text-foreground">
+          <article key={approval.approvalId} {...stylex.props(styles.item)}>
+            <div {...stylex.props(styles.titleRow)}>
+              <h2 {...stylex.props(styles.title)}>
                 {approval.actionSummary}
               </h2>
-              <Badge variant="outline">{approval.status}</Badge>
+              <Badge variant="neutral" label={approval.status} />
             </div>
-            <dl className="m-0 grid gap-2">
+            <dl {...stylex.props(styles.definitionList)}>
               {approvalRows(approval).map((row) => (
                 <div
                   key={row.label}
-                  className="grid grid-cols-[minmax(110px,160px)_1fr] gap-4 max-[760px]:grid-cols-1 max-[760px]:gap-1"
+                  {...stylex.props(styles.definitionRow)}
                 >
-                  <dt className="text-sm font-medium text-muted-foreground">{row.label}</dt>
-                  <dd className="m-0 min-w-0 break-words font-mono text-sm text-foreground">
+                  <dt {...stylex.props(styles.definitionTerm)}>{row.label}</dt>
+                  <dd {...stylex.props(styles.definitionValue)}>
                     {row.value}
                   </dd>
                 </div>
@@ -115,3 +120,98 @@ function formatPayloadPreview(value: unknown): string {
     return "Unavailable";
   }
 }
+
+const styles = stylex.create({
+  mutedText: {
+    margin: 0,
+    fontSize: 14,
+    lineHeight: 1.5,
+    color: "var(--muted-foreground)"
+  },
+  card: {
+    display: "grid",
+    gap: 12,
+    borderWidth: 1,
+    borderStyle: "solid",
+    borderColor: "var(--border-subtle)",
+    borderRadius: 6,
+    backgroundColor: "white",
+    padding: 16
+  },
+  panel: {
+    overflow: "hidden",
+    borderWidth: 1,
+    borderStyle: "solid",
+    borderColor: "var(--border-subtle)",
+    borderRadius: 6,
+    backgroundColor: "white"
+  },
+  list: {
+    display: "grid",
+    minWidth: 0
+  },
+  item: {
+    display: "grid",
+    gap: 12,
+    padding: 16,
+    borderTopWidth: 1,
+    borderTopStyle: "solid",
+    borderTopColor: "var(--border-subtle)",
+    ":first-child": {
+      borderTopWidth: 0
+    }
+  },
+  titleRow: {
+    display: "flex",
+    minWidth: 0,
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: 12
+  },
+  title: {
+    minWidth: 0,
+    margin: 0,
+    overflowWrap: "break-word",
+    fontFamily: "var(--font-heading)",
+    fontSize: 18,
+    lineHeight: 1.25,
+    letterSpacing: 0,
+    color: "var(--foreground)"
+  },
+  definitionList: {
+    display: "grid",
+    gap: 8,
+    margin: 0
+  },
+  definitionRow: {
+    display: "grid",
+    gridTemplateColumns: "minmax(110px, 160px) 1fr",
+    gap: 16,
+    "@media (max-width: 760px)": {
+      gridTemplateColumns: "1fr",
+      gap: 4
+    }
+  },
+  definitionTerm: {
+    fontSize: 14,
+    fontWeight: 500,
+    lineHeight: 1.5,
+    color: "var(--muted-foreground)"
+  },
+  definitionValue: {
+    minWidth: 0,
+    margin: 0,
+    overflowWrap: "break-word",
+    fontFamily: "var(--font-mono)",
+    fontSize: 14,
+    lineHeight: 1.5,
+    color: "var(--foreground)"
+  },
+  fitButton: {
+    width: "fit-content"
+  },
+  icon: {
+    width: 16,
+    height: 16
+  }
+});

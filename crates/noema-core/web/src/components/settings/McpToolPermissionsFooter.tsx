@@ -1,5 +1,6 @@
-import { ArrowLeft, Loader2, Save, Sparkles } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { ArrowLeft, Save, Sparkles } from "lucide-react";
+import { Button } from "@astryxdesign/core/Button";
+import * as stylex from "@stylexjs/stylex";
 
 export function ToolPermissionsFooter({
   canSave,
@@ -19,44 +20,67 @@ export function ToolPermissionsFooter({
   onBack?: () => void;
 }) {
   return (
-    <div className="flex items-center justify-between gap-3 border-t border-[var(--border-subtle)] px-6 py-4">
+    <div {...stylex.props(styles.footer)}>
       {onBack ? (
-        <Button type="button" variant="ghost" className="w-fit" onClick={onBack}>
-          <ArrowLeft className="size-4" aria-hidden="true" />
-          Back
-        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          label="Back"
+          icon={<ArrowLeft {...stylex.props(styles.icon)} aria-hidden="true" />}
+          {...stylex.props(styles.fitButton)}
+          onClick={onBack}
+        />
       ) : (
         <span aria-hidden="true" />
       )}
-      <div className="flex flex-wrap justify-end gap-2">
+      <div {...stylex.props(styles.actions)}>
         <Button
           type="button"
-          variant="outline"
-          className="w-fit"
-          disabled={saving || loading || autofilling || !canSave}
+          variant="secondary"
+          label="Autofill"
+          icon={!autofilling ? <Sparkles {...stylex.props(styles.icon)} aria-hidden="true" /> : undefined}
+          {...stylex.props(styles.fitButton)}
+          isDisabled={saving || loading || autofilling || !canSave}
+          isLoading={autofilling}
           onClick={onAutofill}
-        >
-          {autofilling ? (
-            <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-          ) : (
-            <Sparkles className="size-4" aria-hidden="true" />
-          )}
-          Autofill
-        </Button>
+        />
         <Button
           type="button"
-          className="w-fit"
-          disabled={saving || loading || autofilling || !canSave}
+          label="Save"
+          icon={!saving ? <Save {...stylex.props(styles.icon)} aria-hidden="true" /> : undefined}
+          {...stylex.props(styles.fitButton)}
+          isDisabled={saving || loading || autofilling || !canSave}
+          isLoading={saving}
           onClick={onSave}
-        >
-          {saving ? (
-            <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-          ) : (
-            <Save className="size-4" aria-hidden="true" />
-          )}
-          Save
-        </Button>
+        />
       </div>
     </div>
   );
 }
+
+const styles = stylex.create({
+  footer: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    borderTopWidth: 1,
+    borderTopStyle: "solid",
+    borderTopColor: "var(--border-subtle)",
+    paddingBlock: 16,
+    paddingInline: 24
+  },
+  actions: {
+    display: "flex",
+    flexWrap: "wrap",
+    justifyContent: "flex-end",
+    gap: 8
+  },
+  fitButton: {
+    width: "fit-content"
+  },
+  icon: {
+    width: 16,
+    height: 16
+  }
+});
