@@ -10,6 +10,11 @@ type ScrollMetrics = {
   scrollTop: number;
 };
 
+type ActiveScrollAnimation = {
+  cancel: () => void;
+  key: string;
+};
+
 export function TranscriptBottomFollower({
   arrivalScrollKey,
   followBottomRef,
@@ -21,54 +26,64 @@ export function TranscriptBottomFollower({
 }) {
   const { scrollToEnd, viewportRef } = useTranscriptScroller();
   const previousMetricsRef = React.useRef<ScrollMetrics | null>(null);
-  const animatedArrivalKeyRef = React.useRef("");
+  const completedArrivalKeyRef = React.useRef("");
+  const activeScrollAnimationRef = React.useRef<ActiveScrollAnimation | null>(null);
 
   React.useLayoutEffect(() => {
     const viewport = viewportRef.current;
-    if (!viewport) {
+    const previousMetrics = previousMetricsRef.current;
+    if (
+      !viewport ||
+      !arrivalScrollKey ||
+      !previousMetrics ||
+      arrivalScrollKey === completedArrivalKeyRef.current ||
+      !followBottomRef.current ||
+      prefersReducedMotion()
+    ) {
       return;
     }
 
-    const previousMetrics = previousMetricsRef.current;
-    const currentMetrics = readScrollMetrics(viewport);
-    const targetScrollTop = scrollBottomTop(currentMetrics);
-    const shouldAnimateArrival =
-      !!arrivalScrollKey &&
-      arrivalScrollKey !== animatedArrivalKeyRef.current &&
-      followBottomRef.current &&
-      !prefersReducedMotion();
+    activeScrollAnimationRef.current?.cancel();
+    viewport.scrollTop = Math.min(previousMetrics.scrollTop, scrollBottomTop(readScrollMetrics(viewport)));
 
-    if (shouldAnimateArrival && previousMetrics) {
-      animatedArrivalKeyRef.current = arrivalScrollKey;
-      viewport.scrollTop = Math.min(previousMetrics.scrollTop, targetScrollTop);
-      const cancelScrollAnimation = animateScrollTop(viewport, targetScrollTop, () => {
+    const cancel = animateScrollToBottom(viewport, viewport.scrollTop, () => {
+      completedArrivalKeyRef.current = arrivalScrollKey;
+      activeScrollAnimationRef.current = null;
+      previousMetricsRef.current = readScrollMetrics(viewport);
+    });
+    activeScrollAnimationRef.current = { cancel, key: arrivalScrollKey };
+
+    return () => {
+      if (activeScrollAnimationRef.current?.key === arrivalScrollKey) {
+        activeScrollAnimationRef.current.cancel();
+        activeScrollAnimationRef.current = null;
         previousMetricsRef.current = readScrollMetrics(viewport);
-      });
-      return () => {
-        cancelScrollAnimation?.();
-        previousMetricsRef.current = readScrollMetrics(viewport);
-      };
+      }
+    };
+  }, [arrivalScrollKey, followBottomRef, viewportRef]);
+
+  React.useLayoutEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport || !followBottomRef.current || activeScrollAnimationRef.current) {
+      return;
     }
 
-    if (followBottomRef.current) {
-      scrollToEnd({ behavior: "auto" });
+    scrollToEnd({ behavior: "auto" });
+  }, [followBottomRef, scrollKey, scrollToEnd, viewportRef]);
+
+  React.useLayoutEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport || activeScrollAnimationRef.current) {
+      return;
     }
 
     previousMetricsRef.current = readScrollMetrics(viewport);
-  }, [arrivalScrollKey, followBottomRef, scrollKey, scrollToEnd, viewportRef]);
+  });
 
   return null;
 }
 
-function animateScrollTop(viewport: HTMLDivElement, targetScrollTop: number, onComplete: () => void) {
-  const startScrollTop = viewport.scrollTop;
-  const distance = targetScrollTop - startScrollTop;
-  if (Math.abs(distance) < 1) {
-    viewport.scrollTop = targetScrollTop;
-    onComplete();
-    return;
-  }
-
+function animateScrollToBottom(viewport: HTMLDivElement, startScrollTop: number, onComplete: () => void) {
   let animationFrame: number | null = null;
   let startedAt: number | null = null;
 
@@ -78,6 +93,8 @@ function animateScrollTop(viewport: HTMLDivElement, targetScrollTop: number, onC
     }
 
     const progress = Math.min(1, (timestamp - startedAt) / SCROLL_REVEAL_DURATION_MS);
+    const targetScrollTop = scrollBottomTop(readScrollMetrics(viewport));
+    const distance = targetScrollTop - startScrollTop;
     viewport.scrollTop = startScrollTop + distance * easeOutCubic(progress);
 
     if (progress < 1) {
@@ -85,6 +102,7 @@ function animateScrollTop(viewport: HTMLDivElement, targetScrollTop: number, onC
       return;
     }
 
+    viewport.scrollTop = targetScrollTop;
     onComplete();
   };
 
