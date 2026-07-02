@@ -19,6 +19,16 @@ body {
   background: var(--surface-page);
 }
 
+button,
+[role="button"],
+summary {
+  cursor: default;
+}
+
+a[href] {
+  cursor: pointer;
+}
+
 @media (hover: none) and (pointer: coarse) {
   input,
   select,

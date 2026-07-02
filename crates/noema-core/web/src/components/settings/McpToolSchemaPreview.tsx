@@ -55,7 +55,6 @@ const styles = stylex.create({
     padding: 12
   },
   summary: {
-    cursor: "pointer",
     fontSize: 14,
     fontWeight: 500,
     lineHeight: 1.5,

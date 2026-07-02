@@ -32,7 +32,6 @@ const styles = stylex.create({
   },
   button: {
     appearance: "none",
-    cursor: "pointer",
     font: "inherit",
     ":hover": {
       backgroundColor: "var(--noema-surface-hover)"

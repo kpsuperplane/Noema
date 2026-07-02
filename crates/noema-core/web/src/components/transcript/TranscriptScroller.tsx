@@ -88,7 +88,6 @@ const styles = stylex.create({
     borderColor: "var(--noema-border-default)",
     backgroundColor: "var(--noema-surface-card)",
     color: "var(--noema-text-primary)",
-    cursor: "pointer",
     transform: "translateX(-50%)",
     transitionDuration: "200ms",
     transitionProperty: "opacity, transform",

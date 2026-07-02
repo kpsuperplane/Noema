@@ -45,7 +45,6 @@ const styles = stylex.create({
     borderRadius: 8,
     backgroundColor: "transparent",
     color: "inherit",
-    cursor: "pointer",
     font: "inherit",
     margin: -4,
     padding: 4,
