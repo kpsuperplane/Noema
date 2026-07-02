@@ -1,8 +1,7 @@
 use crate::{
     ActorRef, ConversationItemKind, ConversationItemStatus, McpCalibrationStatus,
-    McpServerAuthStatus, McpServerHealthStatus, NewConversation, NewConversationItem,
-    NewConversationTurn, PersistedAgentStatus, ReplayMode, SYSTEM_ERROR_RUNTIME_INVARIANT,
-    SystemErrorEvent,
+    McpServerAuthStatus, McpServerHealthStatus, NewConversationItem, NewConversationTurn,
+    PersistedAgentStatus, ReplayMode, SYSTEM_ERROR_RUNTIME_INVARIANT, SystemErrorEvent,
     memory::extraction::{ExtractorMemoryProposal, ValidatedMemoryProposal},
     provider::{
         GenerateInput, GenerateOptions, GenerateOutputItem, GenerateRequest, GenerateResponse,
@@ -52,6 +51,7 @@ impl CodexRuntimeActor {
         );
     }
 
+    #[cfg(test)]
     pub(super) async fn start_conversation(
         &mut self,
         model: Option<String>,
@@ -61,7 +61,7 @@ impl CodexRuntimeActor {
         let selection =
             provider_selection_for_conversation(&self.store, &self.default_provider_kind, model)
                 .await?;
-        let new_conversation = NewConversation::local_chat_for_provider(
+        let new_conversation = crate::NewConversation::local_chat_for_provider(
             &selection.provider_kind,
             selection.model.clone(),
             cwd.clone(),

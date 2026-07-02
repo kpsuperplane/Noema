@@ -4,12 +4,8 @@ This Swift package is the macOS-only helper process for the `foundation_local`
 provider. It is not a Cargo workspace member and is not required for Linux or
 Windows builds.
 
-In local source builds, Noema can materialize this bridge automatically:
-
-- `cargo dev-daemon` runs a bridge watcher that rebuilds this Swift package
-  when `Package.swift` or `Sources/` changes.
-- The Rust `foundation_local` provider runs `swift build` on demand when the
-  default source-tree bridge binary is missing.
+In local source builds, the Rust `foundation_local` provider runs `swift build`
+on demand when the default source-tree bridge binary is missing.
 
 Manual development build on a supported macOS toolchain:
 

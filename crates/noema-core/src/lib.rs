@@ -1,7 +1,7 @@
 //! Core Noema types and runtimes.
 //!
 //! This crate contains configuration loading, provider adapters, daemon
-//! protocol support, home-directory setup, path resolution, and the memory
+//! runtime support, home-directory setup, path resolution, and the memory
 //! retrieval model.
 
 /// Capability Gateway policy core.
@@ -10,7 +10,7 @@ pub mod capability;
 pub mod config;
 /// Neutral conversation domain types.
 pub mod conversation;
-/// Local daemon protocol and client/server runtime.
+/// Local daemon runtime and web protocol types.
 pub mod daemon;
 /// GraphQL client API facade.
 pub mod graphql;
@@ -53,9 +53,8 @@ pub use conversation::{
     ConversationTurnStatus, NewConversation, NewConversationItem, NewConversationTurn, ReplayMode,
 };
 pub use daemon::{
-    AgentStatus, DaemonClient, DaemonError, DaemonRequest, DaemonResponse, DaemonServerConfig,
-    StartedConversation, TurnActivityStatus, TurnTranscriptItem, default_socket_path,
-    is_connection_refused, run_daemon, socket_path_for_home,
+    AgentStatus, DaemonError, DaemonWebServerConfig, StartedConversation, TurnActivityStatus,
+    TurnTranscriptItem, run_daemon_web,
 };
 pub use home::{
     DEFAULT_NOEMA_CONFIG_YAML, NoemaHomeError, NoemaHomeInitOptions, NoemaHomeInitResult,

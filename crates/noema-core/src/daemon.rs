@@ -1,26 +1,22 @@
-//! Local daemon protocol and Unix-socket runtime.
+//! Local daemon runtime and web protocol types.
 
 mod agent_name_tool;
 mod agent_onboarding;
-mod client;
 mod memory_pipeline;
 mod memory_tool;
 mod prompts;
 mod protocol;
 mod runtime;
-mod server;
 #[cfg(test)]
 mod tests;
 pub(crate) mod web;
+mod web_server;
 
-pub use client::DaemonClient;
 pub(crate) use protocol::TurnStreamEvent;
 pub use protocol::{
-    AgentStatus, DEFAULT_DAEMON_SOCKET_NAME, DaemonError, DaemonRequest, DaemonResponse,
-    DaemonServerConfig, StartedConversation, TurnActivityStatus, TurnTranscriptItem,
-    default_socket_path, is_connection_refused, socket_path_for_home,
+    AgentStatus, DaemonError, StartedConversation, TurnActivityStatus, TurnTranscriptItem,
 };
 pub(crate) use runtime::CodexRuntimeHandle;
 #[cfg(test)]
 pub(crate) use runtime::RuntimeModelProvider;
-pub use server::run_daemon;
+pub use web_server::{DaemonWebServerConfig, run_daemon_web};

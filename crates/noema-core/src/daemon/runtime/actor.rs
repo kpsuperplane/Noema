@@ -50,6 +50,7 @@ impl CodexRuntimeActor {
     pub(super) async fn run(mut self, mut receiver: mpsc::Receiver<CodexRuntimeCommand>) {
         while let Some(command) = receiver.recv().await {
             match command {
+                #[cfg(test)]
                 CodexRuntimeCommand::StartConversation { model, cwd, reply } => {
                     let _ = reply.send(self.start_conversation(model, cwd).await);
                 }
@@ -80,13 +81,6 @@ impl CodexRuntimeActor {
                             .map_err(DaemonError::Provider);
                         let _ = reply.send(result);
                     });
-                }
-                CodexRuntimeCommand::EndConversation {
-                    conversation_id,
-                    reply,
-                } => {
-                    self.conversations.remove(&conversation_id);
-                    let _ = reply.send(Ok(()));
                 }
                 CodexRuntimeCommand::Shutdown { reply } => {
                     let _ = reply.send(());

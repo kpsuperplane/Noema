@@ -1,110 +1,7 @@
-use std::{
-    io::ErrorKind,
-    path::{Path, PathBuf},
-};
-
-use crate::{
-    MemoryPersistenceError, NoemaPathError, NoemaPaths, ProviderConfig, StoreError, WebConfig,
-    provider::ProviderError,
-};
+use crate::{NoemaPathError, StoreError, provider::ProviderError};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use ts_rs::TS;
-
-/// Filename used for the daemon Unix socket.
-pub const DEFAULT_DAEMON_SOCKET_NAME: &str = "noema.sock";
-
-/// Requests accepted by the Noema daemon.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum DaemonRequest {
-    /// Health-check request.
-    Hello,
-    /// Start a provider-backed conversation.
-    ConversationStart {
-        /// Optional model override.
-        model: Option<String>,
-        /// Optional working directory for the conversation.
-        cwd: Option<String>,
-        /// Optional conversation instructions.
-        instructions: Option<String>,
-    },
-    /// Send one user turn to an existing conversation.
-    ConversationTurn {
-        /// Daemon conversation id.
-        conversation_id: String,
-        /// User input.
-        input: String,
-    },
-    /// End a conversation and release provider state.
-    ConversationEnd {
-        /// Daemon conversation id.
-        conversation_id: String,
-    },
-    /// Ask the daemon to shut down.
-    Shutdown,
-}
-
-/// Responses emitted by the Noema daemon.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum DaemonResponse {
-    /// Generic success response.
-    Ok {
-        /// Optional success message.
-        message: Option<String>,
-    },
-    /// Conversation start response.
-    ConversationStarted {
-        /// Daemon conversation id.
-        conversation_id: String,
-        /// Provider used for the conversation.
-        provider: String,
-    },
-    /// One persisted conversation item emitted by an in-progress turn.
-    ConversationItem {
-        /// Daemon conversation id.
-        conversation_id: String,
-        /// Durable conversation item id.
-        item_id: String,
-        /// Durable conversation turn id.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        turn_id: Option<String>,
-        /// Structured durable item metadata.
-        #[serde(default)]
-        metadata: serde_json::Value,
-        /// Transcript item to render in chat.
-        item: Box<TurnTranscriptItem>,
-    },
-    /// Ephemeral assistant text delta from an in-progress turn.
-    AssistantTextDelta {
-        /// Daemon conversation id.
-        conversation_id: String,
-        /// Durable conversation turn id.
-        turn_id: String,
-        /// Runtime stream id for reconciling final text.
-        stream_id: String,
-        /// Assistant text delta.
-        delta: String,
-    },
-    /// Live agent status changed for a conversation.
-    AgentStatusChanged {
-        /// Daemon conversation id.
-        conversation_id: String,
-        /// Current agent coordination status.
-        status: AgentStatus,
-    },
-    /// Turn completion response.
-    TurnCompleted {
-        /// Daemon conversation id.
-        conversation_id: String,
-    },
-    /// Error response returned over the daemon protocol.
-    Error {
-        /// Human-readable error message.
-        message: String,
-    },
-}
 
 /// Live agent coordination state exported by daemon and web protocols.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -208,67 +105,9 @@ pub enum TurnActivityStatus {
     Failed,
 }
 
-/// Configuration required to start the daemon.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DaemonServerConfig {
-    /// Unix socket path to bind.
-    pub socket_path: PathBuf,
-    /// Provider configuration used by daemon conversations.
-    pub provider: ProviderConfig,
-    /// Local web UI configuration.
-    pub web: WebConfig,
-}
-
-impl DaemonServerConfig {
-    /// Create daemon server configuration.
-    #[must_use]
-    pub fn new(socket_path: PathBuf, provider: ProviderConfig, web: WebConfig) -> Self {
-        Self {
-            socket_path,
-            provider,
-            web,
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn daemon_server_config_uses_embedded_store_path_from_noema_home() {
-        let home = tempfile::tempdir().expect("temp noema home");
-        let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
-        let config = DaemonServerConfig::new(
-            paths.socket_path(),
-            ProviderConfig::Codex(crate::CodexProviderConfig::default()),
-            WebConfig::default(),
-        );
-
-        assert_eq!(config.socket_path, paths.socket_path());
-        assert_eq!(crate::StoreConfig::from_paths(&paths).path, paths.db_dir());
-    }
-}
-
-/// Errors produced by daemon client and server operations.
+/// Errors produced by daemon runtime and web operations.
 #[derive(Debug, Error)]
 pub enum DaemonError {
-    /// Another daemon appears to be listening at the socket path.
-    #[error("daemon is already running at {}", path.display())]
-    AlreadyRunning {
-        /// Existing daemon socket path.
-        path: PathBuf,
-    },
-
-    /// Unix-socket operation failed.
-    #[error("daemon socket error at {}: {source}", path.display())]
-    Socket {
-        /// Socket path involved in the operation.
-        path: PathBuf,
-        /// Underlying I/O error.
-        source: std::io::Error,
-    },
-
     /// Generic daemon I/O failure.
     #[error("daemon I/O error: {0}")]
     Io(#[from] std::io::Error),
@@ -285,10 +124,6 @@ pub enum DaemonError {
     #[error(transparent)]
     Provider(#[from] ProviderError),
 
-    /// Memory persistence failed.
-    #[error(transparent)]
-    Memory(#[from] MemoryPersistenceError),
-
     /// Embedded store operation failed.
     #[error(transparent)]
     Store(Box<StoreError>),
@@ -302,24 +137,6 @@ impl From<StoreError> for DaemonError {
     fn from(source: StoreError) -> Self {
         Self::Store(Box::new(source))
     }
-}
-
-/// Return the default daemon socket path for the current process environment.
-///
-/// # Errors
-///
-/// Returns [`DaemonError`] when Noema path resolution fails.
-pub fn default_socket_path() -> Result<PathBuf, DaemonError> {
-    Ok(NoemaPaths::from_process_env()?.socket_path())
-}
-
-/// Return the daemon socket path under a home directory.
-#[must_use]
-pub fn socket_path_for_home(home: impl AsRef<Path>) -> PathBuf {
-    home.as_ref()
-        .join(".noema")
-        .join("run")
-        .join(DEFAULT_DAEMON_SOCKET_NAME)
 }
 
 /// Durable conversation id allocated by Noema.
@@ -365,51 +182,4 @@ impl TurnStreamEvent {
             } => conversation_id,
         }
     }
-
-    #[must_use]
-    pub(super) fn into_daemon_response(self) -> DaemonResponse {
-        match self {
-            Self::ConversationItem {
-                conversation_id,
-                item_id,
-                turn_id,
-                metadata,
-                item,
-            } => DaemonResponse::ConversationItem {
-                conversation_id,
-                item_id,
-                turn_id,
-                metadata,
-                item,
-            },
-            Self::AssistantTextDelta {
-                conversation_id,
-                turn_id,
-                stream_id,
-                delta,
-            } => DaemonResponse::AssistantTextDelta {
-                conversation_id,
-                turn_id,
-                stream_id,
-                delta,
-            },
-            Self::AgentStatusChanged {
-                conversation_id,
-                status,
-            } => DaemonResponse::AgentStatusChanged {
-                conversation_id,
-                status,
-            },
-        }
-    }
-}
-
-/// Return whether a daemon connection failure means no daemon is listening.
-#[must_use]
-pub fn is_connection_refused(error: &DaemonError) -> bool {
-    matches!(
-        error,
-        DaemonError::Socket { source, .. }
-            if matches!(source.kind(), ErrorKind::NotFound | ErrorKind::ConnectionRefused)
-    )
 }

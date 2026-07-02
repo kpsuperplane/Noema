@@ -6,7 +6,6 @@ use super::{
     },
     protocol::TurnStreamEvent,
     runtime::CodexRuntimeHandle,
-    server::bind_listener,
 };
 use crate::{
     ActorRef, EntityType,
@@ -34,79 +33,6 @@ const RESTART_CONTEXT_TEST_PHASE_ENV: &str = "NOEMA_RESTART_CONTEXT_TEST_PHASE";
 const RESTART_CONTEXT_TEST_HOME_ENV: &str = "NOEMA_RESTART_CONTEXT_TEST_HOME";
 const RESTART_CONTEXT_TEST_CONVERSATION_FILE: &str = "restart_context_conversation_id";
 
-#[test]
-fn protocol_round_trips_requests_and_responses() {
-    let request = DaemonRequest::ConversationTurn {
-        conversation_id: "conversation_1".to_string(),
-        input: "hello".to_string(),
-    };
-    let encoded = serde_json::to_string(&request).expect("encode");
-    let decoded: DaemonRequest = serde_json::from_str(&encoded).expect("decode");
-    assert_eq!(decoded, request);
-
-    let response = DaemonResponse::ConversationStarted {
-        conversation_id: "conversation_1".to_string(),
-        provider: "codex".to_string(),
-    };
-    let encoded = serde_json::to_string(&response).expect("encode");
-    let decoded: DaemonResponse = serde_json::from_str(&encoded).expect("decode");
-    assert_eq!(decoded, response);
-
-    let response = DaemonResponse::ConversationItem {
-        conversation_id: "conversation_1".to_string(),
-        item_id: "item_1".to_string(),
-        turn_id: Some("turn_1".to_string()),
-        metadata: json!({ "stream_id": "assistant_stream:turn_1:initial" }),
-        item: Box::new(TurnTranscriptItem::Activity {
-            id: "memory_extraction:conversation_1:1".to_string(),
-            activity_kind: "memory_extraction".to_string(),
-            status: TurnActivityStatus::Started,
-            title: "Extracting memory proposals".to_string(),
-            summary: Some("ordinary chat memory extraction is running".to_string()),
-            metadata: json!({ "turn_index": 1 }),
-        }),
-    };
-    let encoded = serde_json::to_string(&response).expect("encode");
-    assert!(encoded.contains(r#""type":"conversation_item""#));
-    assert!(encoded.contains(r#""item_id":"item_1""#));
-    assert!(encoded.contains(r#""turn_id":"turn_1""#));
-    assert!(encoded.contains(r#""stream_id":"assistant_stream:turn_1:initial""#));
-    let decoded: DaemonResponse = serde_json::from_str(&encoded).expect("decode");
-    assert_eq!(decoded, response);
-
-    let response = DaemonResponse::AssistantTextDelta {
-        conversation_id: "conversation_1".to_string(),
-        turn_id: "turn_1".to_string(),
-        stream_id: "assistant_stream:turn_1:initial".to_string(),
-        delta: "fake".to_string(),
-    };
-    let encoded = serde_json::to_string(&response).expect("encode");
-    assert!(encoded.contains(r#""type":"assistant_text_delta""#));
-    assert!(encoded.contains(r#""delta":"fake""#));
-    let decoded: DaemonResponse = serde_json::from_str(&encoded).expect("decode");
-    assert_eq!(decoded, response);
-
-    let response = DaemonResponse::AgentStatusChanged {
-        conversation_id: "conversation_1".to_string(),
-        status: AgentStatus::Thinking,
-    };
-    let encoded = serde_json::to_string(&response).expect("encode");
-    assert!(encoded.contains(r#""type":"agent_status_changed""#));
-    assert!(encoded.contains(r#""status":"thinking""#));
-    let decoded: DaemonResponse = serde_json::from_str(&encoded).expect("decode");
-    assert_eq!(decoded, response);
-}
-
-#[test]
-fn socket_path_is_under_noema_run_directory() {
-    let path = socket_path_for_home("/tmp/noema-test-home");
-
-    assert_eq!(
-        path,
-        PathBuf::from("/tmp/noema-test-home/.noema/run/noema.sock")
-    );
-}
-
 fn answer_claim_request() -> ClaimRetrievalRequest {
     ClaimRetrievalRequest {
         requesting_agent_id: "agent:primary".to_string(),
@@ -117,17 +43,6 @@ fn answer_claim_request() -> ClaimRetrievalRequest {
         sensitivity_ceiling: Sensitivity::Normal,
         approved_secret_access: false,
     }
-}
-
-#[tokio::test]
-async fn second_listener_on_same_socket_is_rejected() {
-    let dir = tempfile::tempdir().expect("temp dir");
-    let socket_path = dir.path().join("noema.sock");
-    let _listener = bind_listener(&socket_path).await.expect("listener");
-
-    let error = bind_listener(&socket_path).await.unwrap_err();
-
-    assert!(matches!(error, DaemonError::AlreadyRunning { .. }));
 }
 
 #[tokio::test]

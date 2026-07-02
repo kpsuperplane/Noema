@@ -22,17 +22,15 @@ The next storage slice should stay small and concrete:
 - Embedded SurrealDB is the target canonical structured store for the always-on
   personal server.
 - The Noema server process is the only process that opens the embedded database;
-  clients, CLI, desktop, web, and future mobile use Noema APIs.
+  desktop, web, and future mobile clients use Noema APIs.
 - Embedded database files live directly under `${NOEMA_HOME:-$HOME/.noema}/db`.
 - The embedded store uses the stable SurrealDB v3 Rust SDK with `kv-rocksdb`;
   pre-stable local development databases created by v2 may be deleted and
   rebuilt instead of migrated.
 - Docker/Compose development infrastructure has been retired after the embedded
-  SurrealDB migration; local development uses host Rust, Bun, the Codex CLI, and
-  the `cargo dev-daemon` alias.
-- `dev-daemon` traps normal terminal/process shutdown signals and stops both
-  watcher process groups so interrupted dev sessions do not leave orphaned
-  daemon processes behind.
+  SurrealDB migration; local development uses host Rust, Bun, and web/desktop
+  product surfaces. The old Noema CLI and `cargo dev-daemon` alias have been
+  removed.
 - First-run web onboarding is derived from backend readiness checks and blocks
   chat until an active provider account is authenticated.
 - Provider credential/session material lives under
@@ -59,7 +57,7 @@ The next storage slice should stay small and concrete:
   explicit and provider memory writes use a shared proposal/canonicalization
   path, promoted predicates are validated before active claims, unknown
   predicates create review-gated predicate proposals, bounded match search
-  supports conservative consolidation, and GraphQL/CLI expose predicate
+  supports conservative consolidation, and GraphQL exposes predicate
   proposal inspection.
 - The claim canonicalizer prompt must spell out the exact strict JSON contract
   consumed by the parser. Runtime canonicalization validates promoted
@@ -72,8 +70,8 @@ The next storage slice should stay small and concrete:
 - The initial frontend should start with chat, memory, and inspection before exposing full workspaces, tasks, agents, tools, or governance.
 - The first-party product API direction is GraphQL, with Apollo Client on the
   React web frontend and backend-exported schema/types feeding frontend codegen.
-- GraphQL is the first-party client API for Noema web, CLI, future desktop,
-  and future mobile clients. Internal Rust modules continue to use command,
+- GraphQL is the first-party client API for Noema web, desktop, and future
+  mobile clients. Internal Rust modules continue to use command,
   runtime, repository, policy, provenance, audit, and event interfaces directly.
 - The current web UI consumes GraphQL over `/graphql` plus
   `graphql-transport-ws` subscriptions over `/graphql/ws`.
@@ -96,10 +94,9 @@ The next storage slice should stay small and concrete:
   daemon now resolves the saved agent provider preference at conversation/turn
   time instead of requiring a matching startup provider or daemon restart. The
   Swift bridge and web controls remain separately owned implementation lanes.
-- The CLI chat path now uses GraphQL for `startPrimaryConversation` and
-  `sendConversationTurn` streaming. It still uses the daemon Unix-socket
-  protocol only for local lifecycle cleanup such as connection setup,
-  `end_conversation`, and temporary daemon shutdown.
+- The old Noema CLI and raw daemon Unix-socket protocol have been removed.
+  Chat product traffic remains on GraphQL mutations/subscriptions for web and
+  desktop surfaces.
 - The transitional product web endpoints and old frontend protocol/type export
   surfaces have been retired; GraphQL is now the only client-facing product
   API.
@@ -185,9 +182,9 @@ The next storage slice should stay small and concrete:
   compatibility wrappers for the retired shadcn/Base UI foundation.
 - Frontend Noema-owned product components now follow the one-component-per-file
   rule, with transcript render/model helpers split from React components.
-- GraphQL, daemon web transport, daemon runtime, graph-claim store, provider
-  streaming parsers, and CLI command/GraphQL client code are split into focused
-  modules while preserving existing behavior.
+- GraphQL, daemon web transport, daemon runtime, graph-claim store, and provider
+  streaming parsers are split into focused modules while preserving existing
+  product behavior.
 - Memory extraction, consolidation, errors, and shared memory types now live
   under the `memory` module tree. Provider-neutral contracts, account metadata,
   and auth support live under `provider`, while concrete adapters and response
@@ -248,10 +245,8 @@ The next storage slice should stay small and concrete:
 - The first graph-memory inspection surface has landed. GraphQL exposes bounded
   memory-management graph-claim inspection through `memoryClaims` and `memoryClaim`:
   lists redact non-public fact text and content-bearing display names, while
-  explicit detail inspection shows full fact and evidence. CLI `noema memory
-  list` and `noema memory show <id>` consume GraphQL through the daemon/web
-  endpoint rather than opening SurrealDB directly. Generated web GraphQL
-  schema/types are kept in sync.
+  explicit detail inspection shows full fact and evidence. Generated web
+  GraphQL schema/types are kept in sync.
 - The first web memory graph page has landed under `/memory/graph`, reached
   from the memory management surface. It uses a bounded `memoryGraph` GraphQL
   read model, defaults to candidate, active, and confirmed claims, caps the
@@ -271,7 +266,8 @@ The next storage slice should stay small and concrete:
   builds, launches the bridge over stdio, performs handshake/health checks,
   creates a FoundationModels `LanguageModelSession`, forwards generation to the
   Swift bridge, and uses a longer generation response timeout than control
-  messages. `cargo dev-daemon` also supervises a Swift bridge watcher on macOS.
+  messages. The removed `cargo dev-daemon` alias no longer supervises a Swift
+  bridge watcher on macOS.
   Unsupported Windows/Linux builds can still ship without the Swift bridge;
   Foundation Local remains unavailable there rather than blocking the rest of
   Noema. Primary chat continuity is owned by Noema's human primary conversation
@@ -296,7 +292,7 @@ The next storage slice should stay small and concrete:
   provider contract now carries an optional Noema conversation id, normal chat
   turns pass it through, and `foundation_local` keeps a daemon-owned bridge
   process with live sessions reused by conversation/model/instructions while
-  one-shot compaction and CLI requests stay transient. The bridge protocol now
+  one-shot compaction requests stay transient. The bridge protocol now
   exposes Rust replay/cancel request methods, and the Swift bridge decodes
   replay/cancel, replays prior turns by rebuilding the session transcript when
   supported, and returns an explicit unsupported-cancellation error for now.
@@ -308,8 +304,8 @@ The next storage slice should stay small and concrete:
 - Refine the landed Memory Graph page from
   `docs/superpowers/specs/2026-06-29-memory-graph-page-design.md` with richer
   filters, neighborhoods, and detail views.
-- Add richer graph neighborhood inspection for CLI, GraphQL, and web.
-- Continue aligning docs, schema, CLI inspection commands, and frontend IA.
+- Add richer graph neighborhood inspection for GraphQL and web.
+- Continue aligning docs, schema, and frontend IA.
 - Decide which export formats ship first and how export preview/redaction should work.
 - Continue the third-party MCP control plane after the first landed slice:
   implement actual third-party server installation/auth management, approval

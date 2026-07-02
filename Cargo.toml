@@ -1,6 +1,6 @@
 [workspace]
-members = ["crates/noema-cli", "crates/noema-core", "crates/noema-desktop"]
-default-members = ["crates/noema-cli", "crates/noema-core"]
+members = ["crates/noema-core", "crates/noema-desktop"]
+default-members = ["crates/noema-core"]
 resolver = "3"
 
 [workspace.package]

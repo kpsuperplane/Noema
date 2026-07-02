@@ -14,31 +14,25 @@ trigger -> run envelope -> context packet -> governed execution
 This keeps user conversations, task automation, scheduled work, proactive
 suggestions, imports, and agent handoffs compatible with one another.
 
-## Current Rust daemon slice
+## Current Rust runtime slice
 
 The current Rust implementation is intentionally much smaller than the full
-runtime described below. It introduces the process boundary that later runtime
+runtime described below. It introduces the local runtime host that later runtime
 features can grow into:
 
-- `noema start` runs a foreground, user-level daemon.
-- The daemon listens on `$NOEMA_HOME/run/noema.sock`, defaulting to
-  `~/.noema/run/noema.sock`, using newline-delimited JSON.
-- `noema config` initializes the Noema directory and writes a default
-  Codex-oriented `config.yaml` when one is not already present.
-- `noema start` runs the same initialization path when the Noema directory or
-  default config is missing.
-- The daemon owns live coordination state for active turns. Durable
+- `NoemaRuntimeHost` initializes the Noema directory and opens embedded
+  SurrealDB.
+- Web and desktop product surfaces use GraphQL mutations/subscriptions instead
+  of the removed CLI and raw daemon Unix-socket protocol.
+- The daemon runtime owns live coordination state for active turns. Durable
   conversation identity and transcript history live in embedded SurrealDB.
 - The daemon calls Codex through Noema-owned OAuth tokens and the direct Codex
   Responses API. It does not start the Codex CLI or use a `CODEX_HOME`.
-- The local web chat connects to the daemon, loads
+- The local web chat loads
   `human:local.primary_conversation_id`, and appends turns to that durable
   Noema conversation.
-- `noema chat` can still create explicit daemon conversations for CLI use, but
-  conversation continuity is a Noema structured-store concept rather than a
+- Conversation continuity is a Noema structured-store concept rather than a
   provider runtime mapping.
-- If `noema chat` cannot reach a daemon, it starts a temporary daemon for that
-  chat session and shuts it down when chat exits.
 
 This slice creates durable conversation rows, turns, transcript items, graph
 claims, chat-turn provenance, and GraphQL-backed memory inspection. It

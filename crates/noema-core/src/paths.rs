@@ -129,12 +129,6 @@ impl NoemaPaths {
             .join(sanitize_path_segment(account_key))
     }
 
-    /// Path to the daemon socket.
-    #[must_use]
-    pub fn socket_path(&self) -> PathBuf {
-        self.run_dir().join("noema.sock")
-    }
-
     /// Whether the Noema root exists.
     #[must_use]
     pub fn exists(&self) -> bool {
@@ -195,10 +189,6 @@ mod tests {
         assert_eq!(
             paths.config_path(),
             PathBuf::from("/tmp/custom-noema/config.yaml")
-        );
-        assert_eq!(
-            paths.socket_path(),
-            PathBuf::from("/tmp/custom-noema/run/noema.sock")
         );
     }
 
