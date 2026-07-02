@@ -209,14 +209,14 @@ html[data-tauri-runtime="true"] #root {
 
   to {
     opacity: 0.4;
-    transform: translateX(-100%);
+    transform: translateX(-22%);
   }
 }
 
 @keyframes shell-sidebar-menu-enter-backward {
   from {
     opacity: 0.4;
-    transform: translateX(-100%);
+    transform: translateX(-22%);
   }
 
   to {

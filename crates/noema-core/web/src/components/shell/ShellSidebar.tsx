@@ -204,6 +204,7 @@ function ShellMenuItem({
     <div
       data-slot={bottom ? "shell-menu-bottom-item" : "shell-menu-item"}
       data-shell-menu-item={item.itemId}
+      data-current={active ? "true" : undefined}
       {...stylex.props(styles.menuItemFrame)}
     >
       <SideNavItem

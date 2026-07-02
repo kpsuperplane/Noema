@@ -401,6 +401,10 @@ const styles = stylex.create({
     },
     "@media (max-width: 760px)": {
       inset: 0,
+      top: 0,
+      right: 0,
+      bottom: 0,
+      left: 0,
       borderWidth: 0,
       borderRadius: 0
     }
@@ -423,6 +427,8 @@ const styles = stylex.create({
       scale: 0.97
     },
     "@media (max-width: 760px)": {
+      top: 0,
+      bottom: 0,
       left: "min(252px, 72vw)",
       right: "calc(min(252px, 72vw) * -1)",
       transform: "translateX(0)",
