@@ -35,6 +35,9 @@ const styles = stylex.create({
     gap: 10,
     minWidth: 0
   },
+  headerWithoutIcon: {
+    gridTemplateColumns: "minmax(0, 1fr) auto"
+  },
   headerButton: {
     appearance: "none",
     width: "100%",
@@ -121,18 +124,12 @@ export function TranscriptAttachmentCard({
   headerButtonProps
 }: TranscriptAttachmentCardProps) {
   const header = (
-    <div {...stylex.props(styles.header)}>
-      <span
-        {...stylex.props(
-          styles.icon,
-          tone === "info" && styles.info,
-          tone === "error" && styles.error,
-          tone === "success" && styles.icon
-        )}
-        aria-hidden="true"
-      >
-        {icon}
-      </span>
+    <div {...stylex.props(styles.header, !icon && styles.headerWithoutIcon)}>
+      {icon ? (
+        <span {...stylex.props(styles.icon, tone === "info" && styles.info, tone === "error" && styles.error)} aria-hidden="true">
+          {icon}
+        </span>
+      ) : null}
       <span {...stylex.props(styles.text)}>
         <span {...stylex.props(styles.title)}>{title}</span>
         {description ? <span {...stylex.props(styles.description)}>{description}</span> : null}
