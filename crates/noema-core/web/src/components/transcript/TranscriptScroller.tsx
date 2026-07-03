@@ -64,9 +64,7 @@ const styles = stylex.create({
     display: "flex",
     width: "100%",
     minWidth: 0,
-    flexShrink: 0,
-    contentVisibility: "auto",
-    containIntrinsicSize: "auto 10rem"
+    flexShrink: 0
   },
   itemEnd: {
     justifyContent: "flex-end"
