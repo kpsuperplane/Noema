@@ -81,8 +81,7 @@ Supported environment variables include:
 - `NOEMA_OPENAI__ORGANIZATION_ID`
 - `NOEMA_OPENAI__PROJECT_ID`
 - `NOEMA_CODEX__MODEL`
-- `NOEMA_CODEX__STARTUP_TIMEOUT_SECONDS`
-- `NOEMA_CODEX__TURN_TIMEOUT_SECONDS`
+- `NOEMA_CODEX__TIMEOUT_SECONDS`
 - `NOEMA_WEB__HOST`
 - `NOEMA_WEB__PORT`
 
@@ -92,8 +91,7 @@ Example Codex-oriented configuration:
 provider: codex
 codex:
   model: gpt-5.5
-  startup_timeout_seconds: 60
-  turn_timeout_seconds: 300
+  timeout_seconds: 300
 ```
 
 Codex authentication is handled as Noema-owned provider account state. The web
