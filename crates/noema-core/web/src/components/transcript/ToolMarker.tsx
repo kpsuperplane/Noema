@@ -37,7 +37,7 @@ const styles = stylex.create({
 });
 
 const toolCallsStyle = {
-  width: "fit-content",
+  width: "100%",
   maxWidth: "100%",
   minWidth: 0
 };
