@@ -3,10 +3,10 @@ use surrealdb::types::SurrealValue;
 
 use super::test_store;
 use crate::{
-    ActorRef, ClaimStatus, ClaimWriteOutcome, ConversationItemKind, ConversationItemStatus,
-    EntityCandidate, EntityType, EvidenceAuthority, EvidenceCandidate, NewClaimCandidate,
-    NewConversation, NewConversationItem, NewConversationTurn, NoemaStore, StoreError,
-    SupersedeClaimCandidate,
+    ActorRef, ClaimRetrievalResult, ClaimStatus, ClaimWriteOutcome, ConversationItemKind,
+    ConversationItemStatus, EntityCandidate, EntityType, EvidenceAuthority, EvidenceCandidate,
+    NewClaimCandidate, NewConversation, NewConversationItem, NewConversationTurn, NoemaStore,
+    StoreError, SupersedeClaimCandidate,
     memory::{ClaimRetrievalRequest, Sensitivity, UseMode},
 };
 
@@ -496,10 +496,8 @@ async fn confirmed_reinforcement_promotes_candidate_claim() {
 
     assert_eq!(candidate.status, ClaimStatus::Candidate);
     assert!(
-        store
-            .retrieve_claims(&personalize_request(), "trains", 8)
+        retrieve_personalized(&store, "trains", 8)
             .await
-            .expect("candidate retrieval")
             .included
             .is_empty()
     );
@@ -522,10 +520,7 @@ async fn confirmed_reinforcement_promotes_candidate_claim() {
         Some(0.95)
     );
 
-    let result = store
-        .retrieve_claims(&personalize_request(), "trains", 8)
-        .await
-        .expect("confirmed retrieval");
+    let result = retrieve_personalized(&store, "trains", 8).await;
     assert_eq!(result.included.len(), 1);
     assert_eq!(result.included[0].claim_id, confirmed.claim_id);
 }
@@ -1211,10 +1206,7 @@ async fn retrieval_includes_normal_active_claim_for_allowed_use_mode() {
         .await
         .expect("create claim");
 
-    let result = store
-        .retrieve_claims(&personalize_request(), "trains", 8)
-        .await
-        .expect("retrieve claims");
+    let result = retrieve_personalized(&store, "trains", 8).await;
 
     assert_eq!(result.redacted_omission_count, 0);
     assert_eq!(result.included.len(), 1);
@@ -1233,10 +1225,7 @@ async fn query_only_retrieval_ignores_structural_metadata_matches() {
         .await
         .expect("create claim");
 
-    let result = store
-        .retrieve_claims(&personalize_request(), "human", 8)
-        .await
-        .expect("retrieve query-only memories");
+    let result = retrieve_personalized(&store, "human", 8).await;
 
     assert!(result.included.is_empty());
     assert_eq!(result.redacted_omission_count, 0);
@@ -1304,10 +1293,7 @@ async fn retrieval_limit_keeps_fact_match_over_earlier_hint_only_match() {
         .await
         .expect("create fact-match claim");
 
-    let result = store
-        .retrieve_claims(&personalize_request(), "trains", 1)
-        .await
-        .expect("retrieve claims");
+    let result = retrieve_personalized(&store, "trains", 1).await;
 
     assert_eq!(result.redacted_omission_count, 0);
     assert_eq!(result.included.len(), 1);
@@ -1340,10 +1326,7 @@ async fn retrieval_term_ranking_keeps_content_matches_over_hint_only_matches() {
         .expect("create content-match claim");
 
     let query = format!("night {}", hint_terms.join(" "));
-    let result = store
-        .retrieve_claims(&personalize_request(), &query, 1)
-        .await
-        .expect("retrieve claims");
+    let result = retrieve_personalized(&store, &query, 1).await;
 
     assert_eq!(result.redacted_omission_count, 0);
     assert_eq!(result.included.len(), 1);
@@ -1360,10 +1343,7 @@ async fn retrieval_short_terms_match_tokens_not_substrings() {
         .await
         .expect("create train claim");
 
-    let result = store
-        .retrieve_claims(&personalize_request(), "ai", 8)
-        .await
-        .expect("retrieve claims");
+    let result = retrieve_personalized(&store, "ai", 8).await;
 
     assert_eq!(result.redacted_omission_count, 0);
     assert!(result.included.is_empty());
@@ -1378,10 +1358,7 @@ async fn retrieval_one_character_query_does_not_match_substrings() {
         .await
         .expect("create train claim");
 
-    let result = store
-        .retrieve_claims(&personalize_request(), "i", 8)
-        .await
-        .expect("retrieve claims");
+    let result = retrieve_personalized(&store, "i", 8).await;
 
     assert_eq!(result.redacted_omission_count, 0);
     assert!(result.included.is_empty());
@@ -1419,10 +1396,7 @@ async fn retrieval_long_content_token_query_cannot_outrank_exact_content_match()
         .await
         .expect("create content-token claim");
 
-    let result = store
-        .retrieve_claims(&personalize_request(), &query, 1)
-        .await
-        .expect("retrieve claims");
+    let result = retrieve_personalized(&store, &query, 1).await;
 
     assert_eq!(result.redacted_omission_count, 0);
     assert_eq!(result.included.len(), 1);
@@ -1439,10 +1413,7 @@ async fn retrieval_limit_zero_returns_empty_result() {
         .await
         .expect("create claim");
 
-    let result = store
-        .retrieve_claims(&personalize_request(), "trains", 0)
-        .await
-        .expect("retrieve claims");
+    let result = retrieve_personalized(&store, "trains", 0).await;
 
     assert!(result.included.is_empty());
     assert_eq!(result.redacted_omission_count, 0);
@@ -1529,10 +1500,7 @@ async fn query_only_retrieval_still_uses_existing_api() {
         .await
         .expect("create claim");
 
-    let result = store
-        .retrieve_claims(&personalize_request(), "trains", 8)
-        .await
-        .expect("retrieve query-only memories");
+    let result = retrieve_personalized(&store, "trains", 8).await;
 
     assert_eq!(result.included.len(), 1);
     assert_eq!(result.included[0].claim_id, summary.claim_id);
@@ -1965,41 +1933,23 @@ async fn create_source_item(store: &NoemaStore, text: &str) -> crate::Conversati
 }
 
 fn train_claim(source_item_id: String) -> NewClaimCandidate {
-    NewClaimCandidate {
-        subject: EntityCandidate::local_human(),
-        object: EntityCandidate::concept("trains", "trains"),
-        predicate_id: "likes".to_string(),
-        fact: "Kevin likes trains.".to_string(),
-        sensitivity: Sensitivity::Normal,
-        status: ClaimStatus::Active,
-        confidence: Some(0.9),
-        evidence: EvidenceCandidate {
-            source_item_id,
-            authority: EvidenceAuthority::ExplicitHumanStatement,
-            excerpt: Some("Kevin likes trains.".to_string()),
-        },
-        retrieval_hints: json!({}),
-        metadata: json!({}),
-    }
+    claim_candidate(
+        EntityCandidate::local_human(),
+        EntityCandidate::concept("trains", "trains"),
+        "likes",
+        source_item_id,
+        "Kevin likes trains.",
+    )
 }
 
 fn ice_cream_claim(source_item_id: String, fact: &str) -> NewClaimCandidate {
-    NewClaimCandidate {
-        subject: EntityCandidate::local_human(),
-        object: EntityCandidate::concept("ice_cream", "ice cream"),
-        predicate_id: "likes".to_string(),
-        fact: fact.to_string(),
-        sensitivity: Sensitivity::Normal,
-        status: ClaimStatus::Active,
-        confidence: Some(0.9),
-        evidence: EvidenceCandidate {
-            source_item_id,
-            authority: EvidenceAuthority::ExplicitHumanStatement,
-            excerpt: Some(fact.to_string()),
-        },
-        retrieval_hints: json!({}),
-        metadata: json!({}),
-    }
+    claim_candidate(
+        EntityCandidate::local_human(),
+        EntityCandidate::concept("ice_cream", "ice cream"),
+        "likes",
+        source_item_id,
+        fact,
+    )
 }
 
 fn note_claim(
@@ -2008,22 +1958,13 @@ fn note_claim(
     object_name: &str,
     fact: &str,
 ) -> NewClaimCandidate {
-    NewClaimCandidate {
-        subject: EntityCandidate::local_human(),
-        object: EntityCandidate::concept(&object_entity_id, object_name),
-        predicate_id: "has_note".to_string(),
-        fact: fact.to_string(),
-        sensitivity: Sensitivity::Normal,
-        status: ClaimStatus::Active,
-        confidence: Some(0.9),
-        evidence: EvidenceCandidate {
-            source_item_id,
-            authority: EvidenceAuthority::ExplicitHumanStatement,
-            excerpt: Some(fact.to_string()),
-        },
-        retrieval_hints: json!({}),
-        metadata: json!({}),
-    }
+    claim_candidate(
+        EntityCandidate::local_human(),
+        EntityCandidate::concept(&object_entity_id, object_name),
+        "has_note",
+        source_item_id,
+        fact,
+    )
 }
 
 fn personalize_request() -> ClaimRetrievalRequest {
@@ -2038,20 +1979,47 @@ fn personalize_request() -> ClaimRetrievalRequest {
     }
 }
 
+async fn retrieve_personalized(
+    store: &NoemaStore,
+    query_text: &str,
+    limit: usize,
+) -> ClaimRetrievalResult {
+    store
+        .retrieve_claims(&personalize_request(), query_text, limit)
+        .await
+        .expect("retrieve claims")
+}
+
 fn person_train_claim(
     subject_entity_id: &str,
     subject_name: &str,
     source_item_id: String,
     fact: &str,
 ) -> NewClaimCandidate {
-    NewClaimCandidate {
-        subject: EntityCandidate {
+    claim_candidate(
+        EntityCandidate {
             entity_id: subject_entity_id.to_string(),
             entity_type: EntityType::Person,
             canonical_name: subject_name.to_string(),
         },
-        object: EntityCandidate::concept("trains", "trains"),
-        predicate_id: "likes".to_string(),
+        EntityCandidate::concept("trains", "trains"),
+        "likes",
+        source_item_id,
+        fact,
+    )
+}
+
+fn claim_candidate(
+    subject: EntityCandidate,
+    object: EntityCandidate,
+    predicate_id: &str,
+    source_item_id: String,
+    fact: &str,
+) -> NewClaimCandidate {
+    NewClaimCandidate {
+        subject,
+        object,
+        predicate_id: predicate_id.to_string(),
         fact: fact.to_string(),
         sensitivity: Sensitivity::Normal,
         status: ClaimStatus::Active,
