@@ -257,75 +257,150 @@ struct ParsedExplicitClaim {
     fact: String,
 }
 
-fn parse_explicit_claim(content: &str) -> ParsedExplicitClaim {
+/// A predicate paired with the lowercase sentence prefixes that imply it.
+///
+/// NOTE: this English prefix matching is a deliberate pre-V1 heuristic, not an
+/// authority for semantic intent (see AGENTS.md rule 14); it is centralized here
+/// so it can be replaced by structured interpretation without touching callers.
+type ClaimPrefixTable = (&'static str, &'static [&'static str]);
+
+const EXPLICIT_CLAIM_PREFIXES: &[ClaimPrefixTable] = &[
+    (
+        "likes",
+        &[
+            "i like ",
+            "i love ",
+            "i'm a big fan of ",
+            "i am a big fan of ",
+            "kevin likes ",
+            "kevin loves ",
+            "kevin is a big fan of ",
+            "local human likes ",
+            "local human loves ",
+        ],
+    ),
+    (
+        "dislikes",
+        &[
+            "i dislike ",
+            "i don't like ",
+            "i do not like ",
+            "i hate ",
+            "kevin dislikes ",
+            "kevin doesn't like ",
+            "kevin does not like ",
+            "kevin hates ",
+            "local human dislikes ",
+            "local human doesn't like ",
+            "local human does not like ",
+            "local human hates ",
+        ],
+    ),
+    (
+        "prefers",
+        &[
+            "i prefer ",
+            "i want ",
+            "kevin prefers ",
+            "kevin wants ",
+            "local human prefers ",
+            "local human wants ",
+        ],
+    ),
+];
+
+const PROVIDER_CLAIM_PREFIXES: &[ClaimPrefixTable] = &[
+    (
+        "likes",
+        &[
+            "i like ",
+            "i love ",
+            "i'm a big fan of ",
+            "i am a big fan of ",
+            "kevin likes ",
+            "kevin loves ",
+            "kevin is a big fan of ",
+            "local human likes ",
+            "local human loves ",
+            "the user likes ",
+            "the user loves ",
+            "user likes ",
+            "user loves ",
+            "current human likes ",
+            "current human loves ",
+            "current user likes ",
+            "current user loves ",
+        ],
+    ),
+    (
+        "dislikes",
+        &[
+            "i dislike ",
+            "i don't like ",
+            "i do not like ",
+            "i hate ",
+            "kevin dislikes ",
+            "kevin doesn't like ",
+            "kevin does not like ",
+            "kevin hates ",
+            "local human dislikes ",
+            "local human doesn't like ",
+            "local human does not like ",
+            "local human hates ",
+            "the user dislikes ",
+            "the user doesn't like ",
+            "the user does not like ",
+            "the user hates ",
+            "user dislikes ",
+            "user doesn't like ",
+            "user does not like ",
+            "user hates ",
+            "current human dislikes ",
+            "current human doesn't like ",
+            "current human does not like ",
+            "current human hates ",
+            "current user dislikes ",
+            "current user doesn't like ",
+            "current user does not like ",
+            "current user hates ",
+        ],
+    ),
+    (
+        "prefers",
+        &[
+            "i prefer ",
+            "i want ",
+            "kevin prefers ",
+            "kevin wants ",
+            "local human prefers ",
+            "local human wants ",
+            "the user prefers ",
+            "the user wants ",
+            "user prefers ",
+            "user wants ",
+            "current human prefers ",
+            "current human wants ",
+            "current user prefers ",
+            "current user wants ",
+        ],
+    ),
+];
+
+fn parse_claim(content: &str, tables: &[ClaimPrefixTable]) -> ParsedExplicitClaim {
     let normalized = collapse_whitespace(content);
     let lowered = normalized.to_ascii_lowercase();
 
-    for prefix in [
-        "i like ",
-        "i love ",
-        "i'm a big fan of ",
-        "i am a big fan of ",
-        "kevin likes ",
-        "kevin loves ",
-        "kevin is a big fan of ",
-        "local human likes ",
-        "local human loves ",
-    ] {
-        if lowered.starts_with(prefix) {
-            let object_phrase = normalize_object_phrase(&normalized[prefix.len()..]);
-            if is_substantive_object_phrase(&object_phrase) {
-                return ParsedExplicitClaim {
-                    predicate_id: "likes",
-                    fact: format!("Kevin likes {}.", object_phrase),
-                    object_phrase,
-                };
-            }
-        }
-    }
-
-    for prefix in [
-        "i dislike ",
-        "i don't like ",
-        "i do not like ",
-        "i hate ",
-        "kevin dislikes ",
-        "kevin doesn't like ",
-        "kevin does not like ",
-        "kevin hates ",
-        "local human dislikes ",
-        "local human doesn't like ",
-        "local human does not like ",
-        "local human hates ",
-    ] {
-        if lowered.starts_with(prefix) {
-            let object_phrase = normalize_object_phrase(&normalized[prefix.len()..]);
-            if is_substantive_object_phrase(&object_phrase) {
-                return ParsedExplicitClaim {
-                    predicate_id: "dislikes",
-                    fact: format!("Kevin dislikes {}.", object_phrase),
-                    object_phrase,
-                };
-            }
-        }
-    }
-
-    for prefix in [
-        "i prefer ",
-        "i want ",
-        "kevin prefers ",
-        "kevin wants ",
-        "local human prefers ",
-        "local human wants ",
-    ] {
-        if lowered.starts_with(prefix) {
-            let object_phrase = normalize_object_phrase(&normalized[prefix.len()..]);
-            if is_substantive_object_phrase(&object_phrase) {
-                return ParsedExplicitClaim {
-                    predicate_id: "prefers",
-                    fact: format!("Kevin prefers {}.", object_phrase),
-                    object_phrase,
-                };
+    for &(predicate_id, prefixes) in tables {
+        for &prefix in prefixes {
+            if lowered.starts_with(prefix) {
+                let object_phrase = normalize_object_phrase(&normalized[prefix.len()..]);
+                if is_substantive_object_phrase(&object_phrase) {
+                    return ParsedExplicitClaim {
+                        predicate_id,
+                        fact: format!("Kevin {predicate_id} {object_phrase}."),
+                        object_phrase,
+                    };
+                }
             }
         }
     }
@@ -333,112 +408,12 @@ fn parse_explicit_claim(content: &str) -> ParsedExplicitClaim {
     fallback_note_claim(&normalized)
 }
 
+fn parse_explicit_claim(content: &str) -> ParsedExplicitClaim {
+    parse_claim(content, EXPLICIT_CLAIM_PREFIXES)
+}
+
 fn parse_provider_claim(content: &str, _title: Option<&str>) -> ParsedExplicitClaim {
-    let normalized = collapse_whitespace(content);
-    let lowered = normalized.to_ascii_lowercase();
-
-    for prefix in [
-        "i like ",
-        "i love ",
-        "i'm a big fan of ",
-        "i am a big fan of ",
-        "kevin likes ",
-        "kevin loves ",
-        "kevin is a big fan of ",
-        "local human likes ",
-        "local human loves ",
-        "the user likes ",
-        "the user loves ",
-        "user likes ",
-        "user loves ",
-        "current human likes ",
-        "current human loves ",
-        "current user likes ",
-        "current user loves ",
-    ] {
-        if lowered.starts_with(prefix) {
-            let object_phrase = normalize_object_phrase(&normalized[prefix.len()..]);
-            if is_substantive_object_phrase(&object_phrase) {
-                return ParsedExplicitClaim {
-                    predicate_id: "likes",
-                    fact: format!("Kevin likes {}.", object_phrase),
-                    object_phrase,
-                };
-            }
-        }
-    }
-
-    for prefix in [
-        "i dislike ",
-        "i don't like ",
-        "i do not like ",
-        "i hate ",
-        "kevin dislikes ",
-        "kevin doesn't like ",
-        "kevin does not like ",
-        "kevin hates ",
-        "local human dislikes ",
-        "local human doesn't like ",
-        "local human does not like ",
-        "local human hates ",
-        "the user dislikes ",
-        "the user doesn't like ",
-        "the user does not like ",
-        "the user hates ",
-        "user dislikes ",
-        "user doesn't like ",
-        "user does not like ",
-        "user hates ",
-        "current human dislikes ",
-        "current human doesn't like ",
-        "current human does not like ",
-        "current human hates ",
-        "current user dislikes ",
-        "current user doesn't like ",
-        "current user does not like ",
-        "current user hates ",
-    ] {
-        if lowered.starts_with(prefix) {
-            let object_phrase = normalize_object_phrase(&normalized[prefix.len()..]);
-            if is_substantive_object_phrase(&object_phrase) {
-                return ParsedExplicitClaim {
-                    predicate_id: "dislikes",
-                    fact: format!("Kevin dislikes {}.", object_phrase),
-                    object_phrase,
-                };
-            }
-        }
-    }
-
-    for prefix in [
-        "i prefer ",
-        "i want ",
-        "kevin prefers ",
-        "kevin wants ",
-        "local human prefers ",
-        "local human wants ",
-        "the user prefers ",
-        "the user wants ",
-        "user prefers ",
-        "user wants ",
-        "current human prefers ",
-        "current human wants ",
-        "current user prefers ",
-        "current user wants ",
-    ] {
-        if lowered.starts_with(prefix) {
-            let object_phrase = normalize_object_phrase(&normalized[prefix.len()..]);
-            if is_substantive_object_phrase(&object_phrase) {
-                return ParsedExplicitClaim {
-                    predicate_id: "prefers",
-                    fact: format!("Kevin prefers {}.", object_phrase),
-                    object_phrase,
-                };
-            }
-        }
-    }
-
-    fallback_note_claim(&normalized)
+    parse_claim(content, PROVIDER_CLAIM_PREFIXES)
 }
 
 fn fallback_note_claim(normalized: &str) -> ParsedExplicitClaim {
