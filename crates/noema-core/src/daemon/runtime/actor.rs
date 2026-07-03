@@ -51,11 +51,11 @@ impl CodexRuntimeActor {
         while let Some(command) = receiver.recv().await {
             match command {
                 #[cfg(test)]
-                CodexRuntimeCommand::StartConversation { model, cwd, reply } => {
-                    let _ = reply.send(self.start_conversation(model, cwd).await);
+                CodexRuntimeCommand::StartConversation { cwd, reply } => {
+                    let _ = reply.send(self.start_conversation(cwd).await);
                 }
-                CodexRuntimeCommand::StartPrimaryConversation { model, cwd, reply } => {
-                    let _ = reply.send(self.start_primary_conversation(model, cwd).await);
+                CodexRuntimeCommand::StartPrimaryConversation { cwd, reply } => {
+                    let _ = reply.send(self.start_primary_conversation(cwd).await);
                 }
                 CodexRuntimeCommand::Turn {
                     conversation_id,

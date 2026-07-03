@@ -17,10 +17,12 @@ use crate::{
     },
 };
 use serde_json::{Value, json};
+use std::sync::Arc;
 use tokio::sync::mpsc;
 
 use super::{
     actor::CodexRuntimeActor,
+    handle::RuntimeModelProvider,
     transcript_persistence::send_transient_turn_item,
     turn::{ExplicitMemoryOutcome, ProviderMemoryProposalBatch, ValidatedProviderMemoryProposal},
 };
@@ -37,6 +39,7 @@ use crate::daemon::{
 impl CodexRuntimeActor {
     async fn canonicalize_memory_write(
         &self,
+        provider: &dyn RuntimeModelProvider,
         proposal: &MemoryWriteProposal,
     ) -> Result<Vec<CanonicalClaimCandidate>, DaemonError> {
         let predicates = self.store.predicate_catalog().await?;
@@ -45,7 +48,6 @@ impl CodexRuntimeActor {
         })?;
         let prompt = build_claim_canonicalization_prompt(proposal, &catalog_json);
         let mut ignored_events = |_| {};
-        let provider = self.default_provider()?;
         let response = provider
             .generate_streaming(GenerateRequest::text(prompt), &mut ignored_events)
             .await
@@ -78,6 +80,7 @@ impl CodexRuntimeActor {
     pub(super) async fn persist_provider_memory_proposals(
         &mut self,
         batches: Vec<ProviderMemoryProposalBatch>,
+        provider: Arc<dyn RuntimeModelProvider>,
         item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
     ) -> Result<(), DaemonError> {
         let Some(activity_context) = batches.first().map(|batch| batch.context.clone()) else {
@@ -173,7 +176,10 @@ impl CodexRuntimeActor {
                 "ordinary_chat",
             );
 
-            let canonical_candidates = match self.canonicalize_memory_write(&write_proposal).await {
+            let canonical_candidates = match self
+                .canonicalize_memory_write(provider.as_ref(), &write_proposal)
+                .await
+            {
                 Ok(candidates) => candidates,
                 Err(error) => {
                     failed_proposals.push(json!({
@@ -201,7 +207,10 @@ impl CodexRuntimeActor {
                                 continue;
                             }
                         };
-                        match self.consolidate_promoted_claim(candidate, &canonical).await {
+                        match self
+                            .consolidate_promoted_claim(provider.as_ref(), candidate, &canonical)
+                            .await
+                        {
                             Ok(outcome) => {
                                 match outcome.outcome {
                                     "created" => created_claim_count += 1,
@@ -379,6 +388,7 @@ impl CodexRuntimeActor {
 
     async fn consolidate_promoted_claim(
         &self,
+        provider: &dyn RuntimeModelProvider,
         candidate: NewClaimCandidate,
         canonical: &CanonicalClaimCandidate,
     ) -> Result<PersistedMemoryOutcome, DaemonError> {
@@ -426,7 +436,6 @@ impl CodexRuntimeActor {
         .map_err(|error| DaemonError::Protocol(format!("match serialization failed: {error}")))?;
         let prompt = build_consolidation_prompt(canonical, &existing_json);
         let mut ignored_events = |_| {};
-        let provider = self.default_provider()?;
         let response = provider
             .generate_streaming(GenerateRequest::text(prompt), &mut ignored_events)
             .await

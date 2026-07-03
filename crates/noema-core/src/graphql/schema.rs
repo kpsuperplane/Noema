@@ -450,11 +450,10 @@ impl MutationRoot {
     async fn start_primary_conversation(
         &self,
         ctx: &Context<'_>,
-        model: Option<String>,
         cwd: Option<String>,
     ) -> Result<GraphqlConversationStarted> {
         let state = ctx.data_unchecked::<GraphqlState>();
-        chat::start_primary_conversation(state, model, cwd).await
+        chat::start_primary_conversation(state, cwd).await
     }
 
     /// Send a conversation turn.
@@ -569,6 +568,7 @@ mod tests {
         assert!(sdl.contains("type Mutation"));
         assert!(sdl.contains("startProviderAuthAttempt"));
         assert!(sdl.contains("startPrimaryConversation"));
+        assert!(!sdl.contains("startPrimaryConversation(model:"));
         assert!(sdl.contains("sendConversationTurn"));
         assert!(sdl.contains("saveToolCalibration"));
         assert!(sdl.contains("autofillToolCalibrations"));
@@ -1048,7 +1048,7 @@ mod tests {
         let (requests, runtime) =
             test_autofill_runtime_with_requests(store, "captured", None).await;
         let started = runtime
-            .start_conversation(None, None)
+            .start_conversation(None)
             .await
             .expect("conversation");
         let (item_tx, _item_rx) = tokio::sync::mpsc::unbounded_channel::<TurnStreamEvent>();

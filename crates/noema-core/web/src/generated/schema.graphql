@@ -1068,7 +1068,7 @@ type MutationRoot {
 	"""
 	Start or resume the primary conversation.
 	"""
-	startPrimaryConversation(model: String, cwd: String): ConversationStarted!
+	startPrimaryConversation(cwd: String): ConversationStarted!
 	"""
 	Send a conversation turn.
 	"""

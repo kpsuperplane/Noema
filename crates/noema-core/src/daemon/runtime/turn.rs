@@ -52,13 +52,11 @@ impl CodexRuntimeActor {
     #[cfg(test)]
     pub(super) async fn start_conversation(
         &mut self,
-        model: Option<String>,
         cwd: Option<String>,
     ) -> Result<StartedConversation, DaemonError> {
         self.store.ensure_default_actors().await?;
         let selection =
-            provider_selection_for_conversation(&self.store, &self.default_provider_kind, model)
-                .await?;
+            provider_selection_for_conversation(&self.store, &self.default_provider_kind).await?;
         let new_conversation = crate::NewConversation::local_chat_for_provider(
             &selection.provider_kind,
             selection.model.clone(),
@@ -81,13 +79,11 @@ impl CodexRuntimeActor {
 
     pub(super) async fn start_primary_conversation(
         &mut self,
-        model: Option<String>,
         cwd: Option<String>,
     ) -> Result<StartedConversation, DaemonError> {
         self.store.ensure_default_actors().await?;
         let selection =
-            provider_selection_for_conversation(&self.store, &self.default_provider_kind, model)
-                .await?;
+            provider_selection_for_conversation(&self.store, &self.default_provider_kind).await?;
         let durable_conversation = self
             .store
             .get_or_create_primary_conversation_for_provider(
@@ -752,8 +748,13 @@ impl CodexRuntimeActor {
         }
 
         if !turn.explicit_memory_outcome.was_attempted() && !provider_memory_batches.is_empty() {
-            self.persist_provider_memory_proposals(provider_memory_batches, item_tx)
-                .await?;
+            let memory_provider = self.provider_for_kind(&turn.provider_kind)?;
+            self.persist_provider_memory_proposals(
+                provider_memory_batches,
+                memory_provider,
+                item_tx,
+            )
+            .await?;
         }
 
         self.store.complete_conversation_turn(&turn.turn_id).await?;
@@ -914,17 +915,7 @@ impl CodexRuntimeActor {
 async fn provider_selection_for_conversation(
     store: &crate::NoemaStore,
     default_provider_kind: &str,
-    conversation_model: Option<String>,
 ) -> Result<ConversationProviderSelection, DaemonError> {
-    if conversation_model
-        .as_ref()
-        .is_some_and(|model| !model.trim().is_empty())
-    {
-        return Ok(ConversationProviderSelection {
-            provider_kind: default_provider_kind.to_string(),
-            model: conversation_model,
-        });
-    }
     let Some(preference) = store.get_agent_runtime_preference("agent:primary").await? else {
         return Ok(ConversationProviderSelection {
             provider_kind: default_provider_kind.to_string(),

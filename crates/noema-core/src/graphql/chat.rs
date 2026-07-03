@@ -313,7 +313,6 @@ pub enum GraphqlConversationEvent {
 
 pub(super) async fn start_primary_conversation(
     state: &GraphqlState,
-    model: Option<String>,
     cwd: Option<String>,
 ) -> Result<GraphqlConversationStarted> {
     let store = state.store()?;
@@ -330,7 +329,7 @@ pub(super) async fn start_primary_conversation(
     }
 
     let started = runtime
-        .start_primary_conversation(model, cwd)
+        .start_primary_conversation(cwd)
         .await
         .map_err(graphql_error)?;
     let replay_records =

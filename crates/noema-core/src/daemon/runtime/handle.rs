@@ -190,12 +190,11 @@ impl CodexRuntimeHandle {
     #[cfg(test)]
     pub(crate) async fn start_conversation(
         &self,
-        model: Option<String>,
         cwd: Option<String>,
     ) -> Result<StartedConversation, DaemonError> {
         let (reply, reply_rx) = oneshot::channel();
         self.sender
-            .send(CodexRuntimeCommand::StartConversation { model, cwd, reply })
+            .send(CodexRuntimeCommand::StartConversation { cwd, reply })
             .await
             .map_err(|_| DaemonError::Protocol("daemon runtime stopped".to_string()))?;
         reply_rx
@@ -205,12 +204,11 @@ impl CodexRuntimeHandle {
 
     pub(crate) async fn start_primary_conversation(
         &self,
-        model: Option<String>,
         cwd: Option<String>,
     ) -> Result<StartedConversation, DaemonError> {
         let (reply, reply_rx) = oneshot::channel();
         self.sender
-            .send(CodexRuntimeCommand::StartPrimaryConversation { model, cwd, reply })
+            .send(CodexRuntimeCommand::StartPrimaryConversation { cwd, reply })
             .await
             .map_err(|_| DaemonError::Protocol("daemon runtime stopped".to_string()))?;
         reply_rx
@@ -325,12 +323,10 @@ fn apply_provider_account_home(
 pub(super) enum CodexRuntimeCommand {
     #[cfg(test)]
     StartConversation {
-        model: Option<String>,
         cwd: Option<String>,
         reply: oneshot::Sender<Result<StartedConversation, DaemonError>>,
     },
     StartPrimaryConversation {
-        model: Option<String>,
         cwd: Option<String>,
         reply: oneshot::Sender<Result<StartedConversation, DaemonError>>,
     },

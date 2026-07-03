@@ -50,11 +50,11 @@ async fn runtime_actor_allocates_distinct_conversation_ids() {
     let handle = test_runtime_handle(fake_codex_provider()).await;
 
     let first = handle
-        .start_conversation(None, None)
+        .start_conversation(None)
         .await
         .expect("first conversation");
     let second = handle
-        .start_conversation(None, None)
+        .start_conversation(None)
         .await
         .expect("second conversation");
 
@@ -101,11 +101,8 @@ async fn runtime_handle_generate_once_does_not_block_subsequent_commands() {
     });
 
     started_rx.await.expect("provider started");
-    let start_result = tokio::time::timeout(
-        Duration::from_millis(100),
-        handle.start_conversation(None, None),
-    )
-    .await;
+    let start_result =
+        tokio::time::timeout(Duration::from_millis(100), handle.start_conversation(None)).await;
     let _ = release_tx.send(());
     let generated = pending_generate
         .await
@@ -124,10 +121,7 @@ async fn runtime_handle_generate_once_does_not_block_subsequent_commands() {
 async fn runtime_turn_streams_durable_assistant_item_and_idle_status() {
     let (handle, store) = test_runtime_handle_with_store(fake_codex_provider()).await;
 
-    let conversation = handle
-        .start_conversation(None, None)
-        .await
-        .expect("conversation");
+    let conversation = handle.start_conversation(None).await.expect("conversation");
     let conversation_id = conversation.conversation_id.clone();
     let (result, events) =
         collect_turn_events(&handle, conversation_id.clone(), "hello".to_string()).await;
@@ -220,7 +214,7 @@ async fn primary_agent_runtime_preference_supplies_turn_model() {
             .expect("runtime");
 
     let started = runtime
-        .start_primary_conversation(None, None)
+        .start_primary_conversation(None)
         .await
         .expect("conversation");
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
@@ -252,7 +246,7 @@ async fn prompt_context_uses_active_summary_and_post_checkpoint_items() {
     .await
     .expect("runtime");
     let started = runtime
-        .start_conversation(Some("default".to_string()), None)
+        .start_conversation(None)
         .await
         .expect("conversation");
 
@@ -262,7 +256,7 @@ async fn prompt_context_uses_active_summary_and_post_checkpoint_items() {
         .insert_conversation_context_summary(crate::NewConversationContextSummary {
             conversation_id: started.conversation_id.clone(),
             provider_kind: "foundation_local".to_string(),
-            model_profile: Some("default".to_string()),
+            model_profile: None,
             summary_text: "Summary: the user approved rolling durable compaction.".to_string(),
             covered_item_start_sequence: 1,
             covered_item_end_sequence: 2,
@@ -270,7 +264,7 @@ async fn prompt_context_uses_active_summary_and_post_checkpoint_items() {
             input_token_estimate: 400,
             summary_token_estimate: 16,
             compaction_provider_kind: "foundation_local".to_string(),
-            compaction_model_profile: Some("default".to_string()),
+            compaction_model_profile: None,
             status: crate::ConversationContextSummaryStatus::Active,
             error_code: None,
             error_message: None,
@@ -318,7 +312,7 @@ async fn prompt_context_keeps_all_post_checkpoint_items_for_budgeting() {
     .await
     .expect("runtime");
     let started = runtime
-        .start_conversation(Some("default".to_string()), None)
+        .start_conversation(None)
         .await
         .expect("conversation");
 
@@ -367,7 +361,7 @@ async fn prompt_context_falls_back_to_estimates_when_token_count_fails() {
     .await
     .expect("runtime");
     let started = runtime
-        .start_conversation(Some("default".to_string()), None)
+        .start_conversation(None)
         .await
         .expect("conversation");
 
@@ -401,7 +395,7 @@ async fn foreground_context_compaction_runs_before_over_limit_turn() {
     .await
     .expect("runtime");
     let started = runtime
-        .start_conversation(Some("default".to_string()), None)
+        .start_conversation(None)
         .await
         .expect("conversation");
     append_test_text_item(
@@ -438,7 +432,7 @@ async fn foreground_context_compaction_runs_before_over_limit_turn() {
         .expect("summaries");
     assert!(summaries.iter().any(|summary| {
         summary.provider_kind == "foundation_local"
-            && summary.model_profile.as_deref() == Some("default")
+            && summary.model_profile.is_none()
             && summary.covered_item_end_sequence >= 2
             && summary.summary_text == "fake answer"
     }));
@@ -462,7 +456,7 @@ async fn background_context_compaction_creates_checkpoint_after_large_turn() {
     .await
     .expect("runtime");
     let started = runtime
-        .start_conversation(Some("default".to_string()), None)
+        .start_conversation(None)
         .await
         .expect("conversation");
     append_test_text_item(
@@ -495,11 +489,7 @@ async fn background_context_compaction_creates_checkpoint_after_large_turn() {
         assert!(agent_index < compaction_index);
     }
     let active = store
-        .latest_active_context_summary(
-            &started.conversation_id,
-            "foundation_local",
-            Some("default"),
-        )
+        .latest_active_context_summary(&started.conversation_id, "foundation_local", None)
         .await
         .expect("active summary")
         .expect("active summary exists");
@@ -524,7 +514,7 @@ async fn foreground_context_compaction_failure_blocks_turn_with_recoverable_noti
     .await
     .expect("runtime");
     let started = runtime
-        .start_conversation(Some("default".to_string()), None)
+        .start_conversation(None)
         .await
         .expect("conversation");
     append_test_text_item(
@@ -610,7 +600,7 @@ async fn primary_agent_runtime_preference_selects_provider_without_restart() {
     .expect("runtime");
 
     let started = runtime
-        .start_primary_conversation(None, None)
+        .start_primary_conversation(None)
         .await
         .expect("conversation");
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
@@ -640,10 +630,7 @@ async fn primary_agent_runtime_preference_selects_provider_without_restart() {
 #[tokio::test]
 async fn runtime_turn_streams_assistant_text_deltas_before_durable_item() {
     let (handle, store) = test_runtime_handle_with_store(fake_codex_provider()).await;
-    let conversation = handle
-        .start_conversation(None, None)
-        .await
-        .expect("conversation");
+    let conversation = handle.start_conversation(None).await.expect("conversation");
     let conversation_id = conversation.conversation_id.clone();
     let (result, events) =
         collect_turn_events(&handle, conversation_id.clone(), "hello".to_string()).await;
@@ -705,7 +692,7 @@ async fn runtime_prompt_includes_unnamed_agent_onboarding() {
     let handle = test_runtime_handle(fake_codex_provider_with_identity_prompt_check()).await;
 
     let conversation_id = handle
-        .start_conversation(None, None)
+        .start_conversation(None)
         .await
         .expect("conversation")
         .conversation_id;
@@ -726,7 +713,7 @@ async fn start_primary_conversation_generates_initial_name_onboarding_message() 
         test_runtime_handle_with_store(fake_codex_provider_with_initial_name_onboarding()).await;
 
     let conversation_id = handle
-        .start_primary_conversation(None, None)
+        .start_primary_conversation(None)
         .await
         .expect("primary conversation")
         .conversation_id;
@@ -759,7 +746,7 @@ async fn failed_initial_name_onboarding_logs_runtime_invariant() {
     .await;
 
     let error = handle
-        .start_primary_conversation(None, None)
+        .start_primary_conversation(None)
         .await
         .expect_err("onboarding should fail");
 
@@ -789,8 +776,8 @@ async fn failed_initial_name_onboarding_recomputes_turn_index_on_retry() {
     let (handle, store) =
         test_runtime_handle_with_store(fake_codex_provider_with_turn_error()).await;
 
-    assert!(handle.start_primary_conversation(None, None).await.is_err());
-    assert!(handle.start_primary_conversation(None, None).await.is_err());
+    assert!(handle.start_primary_conversation(None).await.is_err());
+    assert!(handle.start_primary_conversation(None).await.is_err());
     handle.shutdown().await;
 
     let conversation_id = store
@@ -836,7 +823,7 @@ async fn restart_context_write_phase(home: &std::path::Path) {
     .await
     .expect("first runtime");
     let first_conversation_id = first_handle
-        .start_primary_conversation(None, None)
+        .start_primary_conversation(None)
         .await
         .expect("first primary conversation")
         .conversation_id;
@@ -873,7 +860,7 @@ async fn restart_context_read_phase(home: &std::path::Path) {
     .await
     .expect("second runtime");
     let restarted_conversation_id = second_handle
-        .start_primary_conversation(None, None)
+        .start_primary_conversation(None)
         .await
         .expect("restarted primary conversation")
         .conversation_id;
@@ -994,10 +981,7 @@ async fn explicit_remember_creates_claim_with_source_evidence() {
     let (handle, store) =
         test_runtime_handle_with_store(fake_codex_provider_with_memory_extraction()).await;
 
-    let conversation = handle
-        .start_conversation(None, None)
-        .await
-        .expect("conversation");
+    let conversation = handle.start_conversation(None).await.expect("conversation");
     let conversation_id = conversation.conversation_id.clone();
     let items = collect_turn(
         &handle,
@@ -1066,10 +1050,7 @@ async fn explicit_remember_write_failure_suppresses_generic_unavailable_activity
         .check()
         .expect("delete likes predicate check");
 
-    let conversation = handle
-        .start_conversation(None, None)
-        .await
-        .expect("conversation");
+    let conversation = handle.start_conversation(None).await.expect("conversation");
     let items = collect_turn(
         &handle,
         conversation.conversation_id,
@@ -1117,10 +1098,7 @@ async fn repeated_explicit_memory_reinforces_one_claim() {
     let (handle, store) =
         test_runtime_handle_with_store(fake_codex_provider_with_memory_extraction()).await;
 
-    let conversation = handle
-        .start_conversation(None, None)
-        .await
-        .expect("conversation");
+    let conversation = handle.start_conversation(None).await.expect("conversation");
     let conversation_id = conversation.conversation_id.clone();
 
     let _first_items = collect_turn(
@@ -1176,10 +1154,7 @@ async fn repeated_explicit_memory_reinforces_one_claim() {
 #[tokio::test]
 async fn explicit_memory_saved_activity_includes_claim_outcome() {
     let handle = test_runtime_handle(fake_codex_provider_with_memory_extraction()).await;
-    let conversation = handle
-        .start_conversation(None, None)
-        .await
-        .expect("conversation");
+    let conversation = handle.start_conversation(None).await.expect("conversation");
 
     let items = collect_turn(
         &handle,
@@ -1238,10 +1213,7 @@ async fn runtime_actor_persists_ordinary_provider_memory_as_graph_claim() {
     let (handle, store) =
         test_runtime_handle_with_store(fake_codex_provider_with_memory_extraction()).await;
 
-    let conversation = handle
-        .start_conversation(None, None)
-        .await
-        .expect("conversation");
+    let conversation = handle.start_conversation(None).await.expect("conversation");
     let items = collect_turn(
         &handle,
         conversation.conversation_id,
@@ -1299,14 +1271,98 @@ async fn runtime_actor_persists_ordinary_provider_memory_as_graph_claim() {
 }
 
 #[tokio::test]
+async fn provider_memory_canonicalization_uses_selected_conversation_provider() {
+    let store = crate::store::tests::test_store().await;
+    store.ensure_default_actors().await.expect("actors");
+    store
+        .update_agent_display_name("agent:primary", "Noema")
+        .await
+        .expect("name primary");
+    let foundation = store
+        .ensure_default_foundation_local_provider_account()
+        .await
+        .expect("foundation account");
+    store
+        .upsert_agent_runtime_preference(crate::NewAgentRuntimePreference {
+            agent_id: "agent:primary".to_string(),
+            provider_kind: "foundation_local".to_string(),
+            provider_account_id: foundation.provider_account_id,
+            model_profile: "default".to_string(),
+        })
+        .await
+        .expect("preference");
+
+    let codex_provider = Arc::new(RecordingFakeProvider::new(
+        "codex",
+        FakeCodexScenario::MalformedCanonicalizer,
+    ));
+    let foundation_provider = Arc::new(RecordingFakeProvider::new(
+        "foundation_local",
+        FakeCodexScenario::MemoryExtraction,
+    ));
+    let handle = CodexRuntimeHandle::spawn_with_provider_map(
+        "codex",
+        vec![
+            (
+                "codex".to_string(),
+                codex_provider.clone() as Arc<dyn super::runtime::RuntimeModelProvider>,
+            ),
+            (
+                "foundation_local".to_string(),
+                foundation_provider.clone() as Arc<dyn super::runtime::RuntimeModelProvider>,
+            ),
+        ],
+        store.clone(),
+    )
+    .await
+    .expect("runtime");
+
+    let conversation = handle
+        .start_primary_conversation(None)
+        .await
+        .expect("conversation");
+    let items = collect_turn(
+        &handle,
+        conversation.conversation_id.clone(),
+        "I prefer automatic memory extraction in chat.".to_string(),
+    )
+    .await
+    .expect("turn");
+
+    assert!(
+        items.iter().any(|item| {
+            matches!(
+                item,
+                TurnTranscriptItem::Activity {
+                    activity_kind,
+                    status: TurnActivityStatus::Completed,
+                    title,
+                    ..
+                } if activity_kind == "memory_extraction" && title == "Memory persisted"
+            )
+        }),
+        "selected provider should canonicalize and persist memory: {items:?}"
+    );
+    assert!(
+        codex_provider.requests().is_empty(),
+        "default provider should not receive memory canonicalization requests"
+    );
+    assert!(
+        foundation_provider.requests().iter().any(|request| {
+            let GenerateInput::Text(input) = &request.input;
+            input.contains("Noema's memory claim canonicalizer")
+        }),
+        "selected provider should receive memory canonicalization requests"
+    );
+    handle.shutdown().await;
+}
+
+#[tokio::test]
 async fn provider_memory_mislabelled_secret_stays_candidate_and_unretrievable() {
     let (handle, store) =
         test_runtime_handle_with_store(fake_codex_provider_with_mislabelled_secret_memory()).await;
 
-    let conversation = handle
-        .start_conversation(None, None)
-        .await
-        .expect("conversation");
+    let conversation = handle.start_conversation(None).await.expect("conversation");
     let (result, events) = collect_turn_events(
         &handle,
         conversation.conversation_id,
@@ -1333,10 +1389,7 @@ async fn provider_memory_malformed_canonicalizer_response_fails_without_fallback
     let (handle, store) =
         test_runtime_handle_with_store(fake_codex_provider_with_malformed_canonicalizer()).await;
 
-    let conversation = handle
-        .start_conversation(None, None)
-        .await
-        .expect("conversation");
+    let conversation = handle.start_conversation(None).await.expect("conversation");
     let items = collect_turn(
         &handle,
         conversation.conversation_id,
@@ -1395,10 +1448,7 @@ async fn provider_memory_mismatched_canonical_entity_fails_without_fallback_clai
         test_runtime_handle_with_store(fake_codex_provider_with_mismatched_canonical_entity())
             .await;
 
-    let conversation = handle
-        .start_conversation(None, None)
-        .await
-        .expect("conversation");
+    let conversation = handle.start_conversation(None).await.expect("conversation");
     let items = collect_turn(
         &handle,
         conversation.conversation_id,
@@ -1462,10 +1512,7 @@ async fn provider_memory_unknown_promoted_predicate_fails_before_graph_write() {
         test_runtime_handle_with_store(fake_codex_provider_with_unknown_canonical_predicate())
             .await;
 
-    let conversation = handle
-        .start_conversation(None, None)
-        .await
-        .expect("conversation");
+    let conversation = handle.start_conversation(None).await.expect("conversation");
     let items = collect_turn(
         &handle,
         conversation.conversation_id,
@@ -1505,10 +1552,7 @@ async fn provider_memory_validation_rejection_is_discarded_without_failure_activ
     let (handle, _store) =
         test_runtime_handle_with_store(fake_codex_provider_with_invalid_memory_proposal()).await;
 
-    let conversation = handle
-        .start_conversation(None, None)
-        .await
-        .expect("conversation");
+    let conversation = handle.start_conversation(None).await.expect("conversation");
     let (result, events) = collect_turn_events(
         &handle,
         conversation.conversation_id,
@@ -1541,10 +1585,7 @@ async fn provider_memory_discards_invalid_extraction_proposal_and_persists_valid
         test_runtime_handle_with_store(fake_codex_provider_with_mixed_invalid_memory_proposals())
             .await;
 
-    let conversation = handle
-        .start_conversation(None, None)
-        .await
-        .expect("conversation");
+    let conversation = handle.start_conversation(None).await.expect("conversation");
     let items = collect_turn(
         &handle,
         conversation.conversation_id,
@@ -1605,10 +1646,7 @@ async fn provider_memory_discards_local_human_preference_from_assistant_status_c
         test_runtime_handle_with_store(fake_codex_provider_with_assistant_status_chatter_memory())
             .await;
 
-    let conversation = handle
-        .start_conversation(None, None)
-        .await
-        .expect("conversation");
+    let conversation = handle.start_conversation(None).await.expect("conversation");
     let (result, events) =
         collect_turn_events(&handle, conversation.conversation_id, "Nice".to_string()).await;
     result.expect("turn should complete despite rejected status-chatter memory proposal");
@@ -1664,10 +1702,7 @@ async fn provider_memory_graph_write_failure_persists_failed_activity() {
         .check()
         .expect("delete prefers predicate check");
 
-    let conversation = handle
-        .start_conversation(None, None)
-        .await
-        .expect("conversation");
+    let conversation = handle.start_conversation(None).await.expect("conversation");
     let items = collect_turn(
         &handle,
         conversation.conversation_id,
@@ -1717,10 +1752,7 @@ async fn runtime_actor_persists_provider_memory_proposals_as_graph_claims() {
     let (handle, store) =
         test_runtime_handle_with_store(fake_codex_provider_with_memory_extraction()).await;
 
-    let conversation = handle
-        .start_conversation(None, None)
-        .await
-        .expect("conversation");
+    let conversation = handle.start_conversation(None).await.expect("conversation");
     let conversation_id = conversation.conversation_id.clone();
     let (result, events) = collect_turn_events(
         &handle,
@@ -1828,10 +1860,7 @@ async fn runtime_actor_persists_natural_remember_provider_proposals_as_graph_cla
     let (handle, store) =
         test_runtime_handle_with_store(fake_codex_provider_with_memory_extraction()).await;
 
-    let conversation = handle
-        .start_conversation(None, None)
-        .await
-        .expect("conversation");
+    let conversation = handle.start_conversation(None).await.expect("conversation");
     let items = collect_turn(
         &handle,
         conversation.conversation_id,
@@ -1900,10 +1929,7 @@ async fn provider_first_person_memory_reinforces_explicit_canonical_claim() {
     let (handle, store) =
         test_runtime_handle_with_store(fake_codex_provider_with_memory_extraction()).await;
 
-    let conversation = handle
-        .start_conversation(None, None)
-        .await
-        .expect("conversation");
+    let conversation = handle.start_conversation(None).await.expect("conversation");
     let conversation_id = conversation.conversation_id.clone();
     collect_turn(
         &handle,
@@ -1946,10 +1972,7 @@ async fn provider_first_person_memory_reinforces_explicit_canonical_claim() {
 async fn semantic_repeat_reinforces_existing_claim() {
     let (handle, store) =
         test_runtime_handle_with_store(fake_codex_provider_with_memory_extraction()).await;
-    let conversation = handle
-        .start_conversation(None, None)
-        .await
-        .expect("conversation");
+    let conversation = handle.start_conversation(None).await.expect("conversation");
     let conversation_id = conversation.conversation_id.clone();
 
     collect_turn(
@@ -2001,10 +2024,7 @@ async fn semantic_repeat_reinforces_existing_claim() {
 async fn semantic_repeat_reinforces_existing_claim_by_id_without_duplicate() {
     let (handle, store) =
         test_runtime_handle_with_store(fake_codex_provider_with_memory_extraction()).await;
-    let conversation = handle
-        .start_conversation(None, None)
-        .await
-        .expect("conversation");
+    let conversation = handle.start_conversation(None).await.expect("conversation");
     let conversation_id = conversation.conversation_id.clone();
 
     collect_turn(
@@ -2044,10 +2064,7 @@ async fn semantic_repeat_reinforces_existing_claim_by_id_without_duplicate() {
 async fn consolidation_decision_rejects_existing_claim_id_outside_bounded_matches() {
     let (provider, invalid_target) = fake_codex_provider_with_invalid_consolidation_target();
     let (handle, store) = test_runtime_handle_with_store(provider).await;
-    let conversation = handle
-        .start_conversation(None, None)
-        .await
-        .expect("conversation");
+    let conversation = handle.start_conversation(None).await.expect("conversation");
     let conversation_id = conversation.conversation_id.clone();
 
     collect_turn(
@@ -2128,10 +2145,7 @@ async fn consolidation_decision_rejects_existing_claim_id_outside_bounded_matche
 async fn contradiction_becomes_reviewable_dispute() {
     let (handle, store) =
         test_runtime_handle_with_store(fake_codex_provider_with_memory_extraction()).await;
-    let conversation = handle
-        .start_conversation(None, None)
-        .await
-        .expect("conversation");
+    let conversation = handle.start_conversation(None).await.expect("conversation");
     let conversation_id = conversation.conversation_id.clone();
 
     collect_turn(
@@ -2180,10 +2194,7 @@ async fn contradiction_becomes_reviewable_dispute() {
 async fn provider_mixed_active_and_disputed_claims_needs_review() {
     let (handle, store) =
         test_runtime_handle_with_store(fake_codex_provider_with_memory_extraction()).await;
-    let conversation = handle
-        .start_conversation(None, None)
-        .await
-        .expect("conversation");
+    let conversation = handle.start_conversation(None).await.expect("conversation");
     let conversation_id = conversation.conversation_id.clone();
 
     collect_turn(
@@ -2263,10 +2274,7 @@ async fn provider_user_loves_planes_canonicalizes_to_likes_claim() {
     let (handle, store) =
         test_runtime_handle_with_store(fake_codex_provider_with_memory_extraction()).await;
 
-    let conversation = handle
-        .start_conversation(None, None)
-        .await
-        .expect("conversation");
+    let conversation = handle.start_conversation(None).await.expect("conversation");
     let items = collect_turn(
         &handle,
         conversation.conversation_id,
@@ -2305,10 +2313,7 @@ async fn unknown_memory_relationship_creates_predicate_proposal() {
     let (handle, store) =
         test_runtime_handle_with_store(fake_codex_provider_with_memory_extraction()).await;
 
-    let conversation = handle
-        .start_conversation(None, None)
-        .await
-        .expect("conversation");
+    let conversation = handle.start_conversation(None).await.expect("conversation");
     let items = collect_turn(
         &handle,
         conversation.conversation_id,
@@ -2358,10 +2363,7 @@ async fn provider_candidate_claim_with_predicate_proposal_needs_review() {
     let (handle, store) =
         test_runtime_handle_with_store(fake_codex_provider_with_memory_extraction()).await;
 
-    let conversation = handle
-        .start_conversation(None, None)
-        .await
-        .expect("conversation");
+    let conversation = handle.start_conversation(None).await.expect("conversation");
     let items = collect_turn(
         &handle,
         conversation.conversation_id,
@@ -2429,10 +2431,7 @@ async fn provider_active_claim_with_predicate_proposal_persists_memory() {
     let (handle, _store) =
         test_runtime_handle_with_store(fake_codex_provider_with_memory_extraction()).await;
 
-    let conversation = handle
-        .start_conversation(None, None)
-        .await
-        .expect("conversation");
+    let conversation = handle.start_conversation(None).await.expect("conversation");
     let items = collect_turn(
         &handle,
         conversation.conversation_id,
@@ -2478,10 +2477,7 @@ async fn provider_first_person_local_name_memory_persists_without_explicit_seed(
     let (handle, store) =
         test_runtime_handle_with_store(fake_codex_provider_with_memory_extraction()).await;
 
-    let conversation = handle
-        .start_conversation(None, None)
-        .await
-        .expect("conversation");
+    let conversation = handle.start_conversation(None).await.expect("conversation");
     let items = collect_turn(
         &handle,
         conversation.conversation_id,
@@ -2524,10 +2520,7 @@ async fn provider_memory_proposal_uses_initial_assistant_context_before_continua
     )
     .await;
 
-    let conversation = handle
-        .start_conversation(None, None)
-        .await
-        .expect("conversation");
+    let conversation = handle.start_conversation(None).await.expect("conversation");
     let conversation_id = conversation.conversation_id.clone();
     let (result, events) = collect_turn_events(
         &handle,
@@ -2571,10 +2564,7 @@ async fn provider_memory_proposal_uses_matching_assistant_item_within_phase() {
     let (handle, store) =
         test_runtime_handle_with_store(fake_codex_provider_with_multi_assistant_memory()).await;
 
-    let conversation = handle
-        .start_conversation(None, None)
-        .await
-        .expect("conversation");
+    let conversation = handle.start_conversation(None).await.expect("conversation");
     let conversation_id = conversation.conversation_id.clone();
     let (result, events) = collect_turn_events(
         &handle,
@@ -2601,10 +2591,7 @@ async fn provider_memory_proposal_discards_assistant_evidence_spanning_items() {
         test_runtime_handle_with_store(fake_codex_provider_with_split_assistant_evidence_memory())
             .await;
 
-    let conversation = handle
-        .start_conversation(None, None)
-        .await
-        .expect("conversation");
+    let conversation = handle.start_conversation(None).await.expect("conversation");
     let (result, events) = collect_turn_events(
         &handle,
         conversation.conversation_id,
@@ -2641,10 +2628,7 @@ async fn provider_memory_partial_write_reports_partial_failure() {
         test_runtime_handle_with_store(fake_codex_provider_with_partial_memory_write()).await;
     delete_predicate(&store, "has_note").await;
 
-    let conversation = handle
-        .start_conversation(None, None)
-        .await
-        .expect("conversation");
+    let conversation = handle.start_conversation(None).await.expect("conversation");
     let items = collect_turn(
         &handle,
         conversation.conversation_id,
@@ -2689,10 +2673,7 @@ async fn explicit_remember_is_saved_before_provider_failure() {
     let (handle, store) =
         test_runtime_handle_with_store(fake_codex_provider_with_turn_error()).await;
 
-    let conversation = handle
-        .start_conversation(None, None)
-        .await
-        .expect("conversation");
+    let conversation = handle.start_conversation(None).await.expect("conversation");
     let conversation_id = conversation.conversation_id.clone();
     let (result, events) = collect_turn_events(
         &handle,
@@ -2792,7 +2773,7 @@ async fn runtime_actor_persists_provider_tool_items_as_action_rows() {
         test_runtime_handle_with_store(fake_codex_provider_with_tool_item()).await;
 
     let conversation_id = handle
-        .start_conversation(None, None)
+        .start_conversation(None)
         .await
         .expect("conversation")
         .conversation_id;
@@ -2882,7 +2863,7 @@ async fn runtime_actor_persists_provider_tool_items_before_turn_failure() {
     let handle = test_runtime_handle(fake_codex_provider_with_tool_item_then_failure()).await;
 
     let conversation_id = handle
-        .start_conversation(None, None)
+        .start_conversation(None)
         .await
         .expect("conversation")
         .conversation_id;
@@ -2940,10 +2921,7 @@ async fn runtime_actor_persists_provider_tool_items_before_turn_failure() {
 async fn runtime_actor_executes_search_memory_as_local_tool_result() {
     let handle = test_runtime_handle(fake_codex_provider_with_search_memory_continuation()).await;
 
-    let conversation = handle
-        .start_conversation(None, None)
-        .await
-        .expect("conversation");
+    let conversation = handle.start_conversation(None).await.expect("conversation");
     let conversation_id = conversation.conversation_id.clone();
     collect_turn(
         &handle,
@@ -3002,7 +2980,7 @@ async fn update_own_name_tool_updates_agent_without_continuation_turn() {
             .await;
 
     let conversation_id = handle
-        .start_conversation(None, None)
+        .start_conversation(None)
         .await
         .expect("conversation")
         .conversation_id;
@@ -3050,7 +3028,7 @@ async fn update_own_name_tool_does_not_start_repeated_continuation_tool_calls() 
         test_runtime_handle_with_store(fake_codex_provider_with_repeated_update_own_name()).await;
 
     let conversation_id = handle
-        .start_conversation(None, None)
+        .start_conversation(None)
         .await
         .expect("conversation")
         .conversation_id;
@@ -3093,7 +3071,7 @@ async fn ambiguous_name_suggestion_asks_confirmation_without_tool_call() {
         test_runtime_handle_with_store(fake_codex_provider_with_ambiguous_update_own_name()).await;
 
     let conversation_id = handle
-        .start_conversation(None, None)
+        .start_conversation(None)
         .await
         .expect("conversation")
         .conversation_id;
@@ -3133,7 +3111,7 @@ async fn runtime_prompt_includes_stored_agent_name_after_update() {
         test_runtime_handle(fake_codex_provider_with_update_own_name_then_identity_check()).await;
 
     let conversation_id = handle
-        .start_conversation(None, None)
+        .start_conversation(None)
         .await
         .expect("conversation")
         .conversation_id;
@@ -3162,10 +3140,7 @@ async fn search_memory_profile_continuation_uses_scoped_empty_query() {
     )
     .await;
 
-    let conversation = handle
-        .start_conversation(None, None)
-        .await
-        .expect("conversation");
+    let conversation = handle.start_conversation(None).await.expect("conversation");
     let conversation_id = conversation.conversation_id.clone();
     collect_turn(
         &handle,
@@ -3214,7 +3189,7 @@ async fn search_memory_tool_returns_empty_graph_result_without_unavailable() {
     let handle = test_runtime_handle(fake_codex_provider_with_search_memory_continuation()).await;
 
     let conversation_id = handle
-        .start_conversation(None, None)
+        .start_conversation(None)
         .await
         .expect("conversation")
         .conversation_id;
@@ -3255,7 +3230,7 @@ async fn search_memory_tool_invalid_arguments_are_failed_tool_result() {
         test_runtime_handle(fake_codex_provider_with_invalid_search_memory_tool_item()).await;
 
     let conversation_id = handle
-        .start_conversation(None, None)
+        .start_conversation(None)
         .await
         .expect("conversation")
         .conversation_id;
@@ -3290,7 +3265,7 @@ async fn uncalibrated_mcp_tool_call_returns_failed_tool_result() {
     seed_enabled_uncalibrated_mcp_tool(&store).await;
 
     let conversation_id = handle
-        .start_conversation(None, None)
+        .start_conversation(None)
         .await
         .expect("conversation")
         .conversation_id;
@@ -3689,6 +3664,27 @@ fn estimated_test_tokens(value: &str) -> u32 {
 struct FakeCodexProvider {
     scenario: FakeCodexScenario,
     invalid_consolidation_target_id: Arc<Mutex<Option<String>>>,
+}
+
+#[derive(Debug)]
+struct RecordingFakeProvider {
+    provider_kind: String,
+    inner: FakeCodexProvider,
+    requests: Mutex<Vec<GenerateRequest>>,
+}
+
+impl RecordingFakeProvider {
+    fn new(provider_kind: &str, scenario: FakeCodexScenario) -> Self {
+        Self {
+            provider_kind: provider_kind.to_string(),
+            inner: FakeCodexProvider::new(scenario),
+            requests: Mutex::new(Vec::new()),
+        }
+    }
+
+    fn requests(&self) -> Vec<GenerateRequest> {
+        self.requests.lock().expect("requests").clone()
+    }
 }
 
 #[derive(Debug, Default)]
@@ -4344,6 +4340,47 @@ impl super::runtime::RuntimeModelProvider for FakeCodexProvider {
                         if !chunk.is_empty() {
                             on_event(GenerateStreamEvent::AssistantTextDelta { delta: chunk });
                         }
+                    }
+                    GenerateOutputItem::MemoryProposals { proposals } if !proposals.is_empty() => {
+                        on_event(GenerateStreamEvent::MemoryProposalsStarted);
+                    }
+                    GenerateOutputItem::ToolCall { name, .. } => {
+                        on_event(GenerateStreamEvent::ToolCallStarted {
+                            output_index: index,
+                            name: name.clone(),
+                        });
+                    }
+                    GenerateOutputItem::MemoryProposals { .. }
+                    | GenerateOutputItem::ToolResult { .. }
+                    | GenerateOutputItem::ApprovalRequest { .. }
+                    | GenerateOutputItem::ApprovalResult { .. }
+                    | GenerateOutputItem::Structured { .. } => {}
+                }
+            }
+            Ok(response)
+        })
+    }
+}
+
+impl super::runtime::RuntimeModelProvider for RecordingFakeProvider {
+    fn generate_streaming<'a>(
+        &'a self,
+        request: GenerateRequest,
+        on_event: &'a mut (dyn FnMut(GenerateStreamEvent) + Send),
+    ) -> Pin<Box<dyn Future<Output = Result<GenerateResponse, ProviderError>> + Send + 'a>> {
+        Box::pin(async move {
+            self.requests
+                .lock()
+                .expect("requests")
+                .push(request.clone());
+            let mut response = self.inner.generate_response(request)?;
+            response.provider = self.provider_kind.clone();
+            for (index, output) in response.output.iter().enumerate() {
+                match output {
+                    GenerateOutputItem::AssistantText { text } => {
+                        on_event(GenerateStreamEvent::AssistantTextDelta {
+                            delta: text.clone(),
+                        });
                     }
                     GenerateOutputItem::MemoryProposals { proposals } if !proposals.is_empty() => {
                         on_event(GenerateStreamEvent::MemoryProposalsStarted);

@@ -2,7 +2,7 @@
 
 use crate::memory::extraction::ExtractorMemoryProposal;
 use serde::{Deserialize, Serialize};
-use serde_json::{Deserializer, Value};
+use serde_json::Value;
 use std::future::Future;
 use thiserror::Error;
 
@@ -308,9 +308,6 @@ fn output_items_from_text_with_mode(
     }
 
     if require_noema_response {
-        if let Some(output) = output_items_from_concatenated_json(trimmed)? {
-            return Ok(output);
-        }
         return Err(ProviderError::MalformedResponse {
             message: "provider did not return a Noema structured response envelope".to_string(),
         });
@@ -324,24 +321,14 @@ fn output_items_from_structured_value(
     require_noema_response: bool,
 ) -> Result<Option<Vec<GenerateOutputItem>>, ProviderError> {
     let is_explicit_envelope = value.get("type").and_then(Value::as_str) == Some("noema_response");
-    let has_output_array = value.get("output").is_some_and(Value::is_array);
-    if !is_explicit_envelope && !has_output_array {
+    if !is_explicit_envelope {
         return Ok(None);
     }
 
-    let envelope: GenerateOutputEnvelope = if is_explicit_envelope {
+    let envelope: GenerateOutputEnvelope =
         serde_json::from_value(value).map_err(|source| ProviderError::MalformedResponse {
             message: format!("invalid Noema structured response: {source}"),
-        })?
-    } else {
-        serde_json::from_value(serde_json::json!({
-            "type": "noema_response",
-            "output": value["output"].clone(),
-        }))
-        .map_err(|source| ProviderError::MalformedResponse {
-            message: format!("invalid Noema structured response: {source}"),
-        })?
-    };
+        })?;
     if envelope.output.is_empty() {
         return Err(ProviderError::MalformedResponse {
             message: "Noema structured response contained no output items".to_string(),
@@ -351,34 +338,6 @@ fn output_items_from_structured_value(
         validate_required_noema_response_output(&envelope.output)?;
     }
     Ok(Some(envelope.output))
-}
-
-fn output_items_from_concatenated_json(
-    text: &str,
-) -> Result<Option<Vec<GenerateOutputItem>>, ProviderError> {
-    let mut values = Deserializer::from_str(text).into_iter::<Value>();
-    let Some(first) = values.next() else {
-        return Ok(None);
-    };
-    let first = match first {
-        Ok(value) => value,
-        Err(_) => return Ok(None),
-    };
-    let Some(output) = output_items_from_structured_value(first, true)? else {
-        return Ok(None);
-    };
-
-    for value in values {
-        let value = match value {
-            Ok(value) => value,
-            Err(_) => return Ok(None),
-        };
-        if output_items_from_structured_value(value, true)?.is_none() {
-            return Ok(None);
-        }
-    }
-
-    Ok(Some(output))
 }
 
 #[derive(Debug, Deserialize)]
@@ -622,17 +581,34 @@ mod tests {
     }
 
     #[test]
-    fn parses_implicit_noema_structured_response_output_array() {
+    fn treats_implicit_output_array_as_plain_assistant_text_when_envelope_is_optional() {
         let output = output_items_from_text(
             r#"{"output":[{"kind":"tool_call","id":"call_1","name":"search_memory","payload":{"query":"trains"}}]}"#
                 .to_string(),
         )
-        .expect("implicit structured output");
+        .expect("plain assistant text");
+
+        assert_eq!(
+            output,
+            vec![GenerateOutputItem::AssistantText {
+                text: r#"{"output":[{"kind":"tool_call","id":"call_1","name":"search_memory","payload":{"query":"trains"}}]}"#
+                    .to_string()
+            }]
+        );
+    }
+
+    #[test]
+    fn required_noema_response_rejects_implicit_output_array() {
+        let error = required_output_items_from_text(
+            r#"{"output":[{"kind":"assistant_text","text":"Hello"},{"kind":"memory_proposals","proposals":[]}]}"#
+                .to_string(),
+        )
+        .unwrap_err();
 
         assert!(matches!(
-            &output[0],
-            GenerateOutputItem::ToolCall { id: Some(id), name, .. }
-                if id == "call_1" && name == "search_memory"
+            error,
+            ProviderError::MalformedResponse { message }
+                if message == "provider did not return a Noema structured response envelope"
         ));
     }
 
@@ -722,21 +698,14 @@ mod tests {
     }
 
     #[test]
-    fn required_noema_response_accepts_first_envelope_from_concatenated_stream_duplicate() {
+    fn required_noema_response_rejects_concatenated_stream_duplicate() {
         let duplicate = r#"{"type":"noema_response","output":[{"kind":"assistant_text","text":"Searching memory."},{"kind":"tool_call","id":"call_1","name":"search_memory","payload":{"scope_ids":["human:local"],"query":"","purpose":"answer_human_question","limit":8}},{"kind":"memory_proposals","proposals":[]}]}"#;
-        let output = required_output_items_from_text(format!("{duplicate}{duplicate}"))
-            .expect("required structured output");
+        let error = required_output_items_from_text(format!("{duplicate}{duplicate}")).unwrap_err();
 
-        assert_eq!(
-            output[0],
-            GenerateOutputItem::AssistantText {
-                text: "Searching memory.".to_string()
-            }
-        );
         assert!(matches!(
-            &output[1],
-            GenerateOutputItem::ToolCall { id: Some(id), name, .. }
-                if id == "call_1" && name == "search_memory"
+            error,
+            ProviderError::MalformedResponse { message }
+                if message == "provider did not return a Noema structured response envelope"
         ));
     }
 
