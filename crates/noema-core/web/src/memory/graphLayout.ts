@@ -1,6 +1,6 @@
 import { applyNodeChanges, type Edge, type Node, type NodeChange } from "@xyflow/react";
 import { forceCenter, forceCollide, forceLink, forceManyBody, forceSimulation } from "d3-force";
-import type { NormalizedMemoryGraph, NormalizedMemoryGraphEdge, NormalizedMemoryGraphNode } from "./memoryGraph";
+import type { NormalizedMemoryGraph, NormalizedMemoryGraphEdge, NormalizedMemoryGraphNode } from "./graph";
 
 export type MemoryGraphNodeData = NormalizedMemoryGraphNode;
 export type MemoryGraphEdgeData = NormalizedMemoryGraphEdge;

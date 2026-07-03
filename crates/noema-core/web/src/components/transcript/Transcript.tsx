@@ -1,5 +1,5 @@
 import * as React from "react";
-import type { TranscriptEntry } from "../../types";
+import type { TranscriptEntry } from "@/shared/types";
 import { ActivityRow } from "./ActivityRow";
 import { ErrorNotice } from "./ErrorNotice";
 import { Message } from "./Message";
@@ -28,7 +28,7 @@ import { TranscriptBottomFollower, ARRIVAL_SCROLL_SETTLE_DURATION_MS } from "./T
 import { TranscriptRow } from "./TranscriptRow";
 import { TranscriptScroller, TranscriptScrollerItem, TranscriptScrollerProvider } from "./TranscriptScroller";
 import { TypingMessage } from "./TypingMessage";
-import type { ConversationAgentStatus } from "../../types";
+import type { ConversationAgentStatus } from "@/shared/types";
 
 export function Transcript({
   entries,

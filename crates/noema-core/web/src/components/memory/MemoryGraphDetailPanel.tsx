@@ -3,7 +3,7 @@ import * as stylex from "@stylexjs/stylex";
 import { useQuery } from "@apollo/client/react";
 
 import { MemoryGraphClaimDetailDocument } from "@/generated/graphql";
-import type { NormalizedMemoryGraphEdge } from "@/memoryGraph";
+import type { NormalizedMemoryGraphEdge } from "@/memory/graph";
 
 export function MemoryGraphDetailPanel({ selectedEdge }: { selectedEdge: NormalizedMemoryGraphEdge | null }) {
   const detail = useQuery(MemoryGraphClaimDetailDocument, {

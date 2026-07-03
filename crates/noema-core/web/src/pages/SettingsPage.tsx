@@ -3,7 +3,7 @@ import { ApprovalsSettingsPane } from "@/components/settings/ApprovalsSettingsPa
 import { McpSettingsPane } from "@/components/settings/McpSettingsPane";
 import { ProvidersSettingsPane } from "@/components/settings/ProvidersSettingsPane";
 import { TrustedIdentitiesSettingsPane } from "@/components/settings/TrustedIdentitiesSettingsPane";
-import type { SettingsSection } from "@/routes";
+import type { SettingsSection } from "@/app/routes";
 import * as stylex from "@stylexjs/stylex";
 
 type SettingsSurfaceProps = {

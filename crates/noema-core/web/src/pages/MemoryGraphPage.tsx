@@ -7,8 +7,8 @@ import { MemoryGraphCanvas } from "@/components/memory/MemoryGraphCanvas";
 import { MemoryGraphControls } from "@/components/memory/MemoryGraphControls";
 import { MemoryGraphDetailPanel } from "@/components/memory/MemoryGraphDetailPanel";
 import { MemoryGraphDocument } from "@/generated/graphql";
-import { graphStatusDefaults, normalizeMemoryGraph } from "@/memoryGraph";
-import { layoutMemoryGraph } from "@/memoryGraphLayout";
+import { graphStatusDefaults, normalizeMemoryGraph } from "@/memory/graph";
+import { layoutMemoryGraph } from "@/memory/graphLayout";
 
 export function MemoryGraphPage() {
   const [inspectionEnabled, setInspectionEnabled] = React.useState(false);

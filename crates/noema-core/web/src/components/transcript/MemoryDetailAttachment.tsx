@@ -1,7 +1,7 @@
 import { BrainIcon } from "lucide-react";
-import { statusLabel } from "../../format";
-import type { MemoryCardData } from "../../memoryCards";
-import type { TurnTranscriptItem } from "../../types";
+import { statusLabel } from "@/shared/format";
+import type { MemoryCardData } from "@/memory/cards";
+import type { TurnTranscriptItem } from "@/shared/types";
 import { memoryMarkerLabel, metadataCount } from "./markerModel";
 import { MemoryDetailList } from "./MemoryDetailList";
 import { TranscriptAttachmentCard } from "./TranscriptAttachmentCard";

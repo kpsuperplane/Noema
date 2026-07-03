@@ -11,22 +11,22 @@ import {
   StartProviderAuthAttemptDocument,
   type ProviderAuthAttemptQuery,
   type StartProviderAuthAttemptMutation
-} from "./generated/graphql";
-import { ChatSurface } from "./components/ChatSurface";
+} from "@/generated/graphql";
+import { ChatSurface } from "@/components/ChatSurface";
 import { AppShell } from "@/components/shell/AppShell";
 import { SetupFrame } from "@/components/shell/SetupFrame";
-import { ErrorMarker } from "./components/ErrorMarker";
+import { ErrorMarker } from "@/components/ErrorMarker";
 import {
   isProviderAuthAttemptPending,
   Onboarding,
   PROVIDER_AUTH_POLL_INTERVAL_MS
-} from "./components/Onboarding";
-import { MemoryGraphPage } from "./pages/MemoryGraphPage";
-import { MemoryHomePage } from "./pages/MemoryHomePage";
-import { SettingsSurface } from "./pages/SettingsPage";
+} from "@/components/Onboarding";
+import { MemoryGraphPage } from "@/pages/MemoryGraphPage";
+import { MemoryHomePage } from "@/pages/MemoryHomePage";
+import { SettingsSurface } from "@/pages/SettingsPage";
 import { useBrowserRoute } from "./routes";
-import { entriesFromReplay, handleConversationEvent, pushTranscript } from "./transcript";
-import type { ConversationAgentStatus, SocketState, TranscriptEntry } from "./types";
+import { entriesFromReplay, handleConversationEvent, pushTranscript } from "@/transcript/events";
+import type { ConversationAgentStatus, SocketState, TranscriptEntry } from "@/shared/types";
 
 type ProviderAuthAttemptView =
   | StartProviderAuthAttemptMutation["startProviderAuthAttempt"]

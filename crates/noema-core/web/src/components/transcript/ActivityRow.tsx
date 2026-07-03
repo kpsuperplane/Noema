@@ -1,6 +1,6 @@
 import * as stylex from "@stylexjs/stylex";
-import { readableKind, statusLabel } from "../../format";
-import type { TurnTranscriptItem } from "../../types";
+import { readableKind, statusLabel } from "@/shared/format";
+import type { TurnTranscriptItem } from "@/shared/types";
 import { TranscriptAttachmentCard } from "./TranscriptAttachmentCard";
 import { TranscriptSystemNotice } from "./TranscriptSystemNotice";
 

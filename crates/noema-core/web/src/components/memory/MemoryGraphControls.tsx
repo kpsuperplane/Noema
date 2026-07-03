@@ -3,7 +3,7 @@ import { TextInput } from "@astryxdesign/core/TextInput";
 import * as stylex from "@stylexjs/stylex";
 import { Search } from "lucide-react";
 
-import { graphStatusDefaults, graphStatusOptions, toggleStatus } from "@/memoryGraph";
+import { graphStatusDefaults, graphStatusOptions, toggleStatus } from "@/memory/graph";
 
 export function MemoryGraphControls({
   query,

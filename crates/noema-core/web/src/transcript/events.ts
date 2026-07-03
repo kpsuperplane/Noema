@@ -2,8 +2,8 @@ import type { Dispatch, SetStateAction } from "react";
 import type {
   ConversationEventsSubscription,
   StartPrimaryConversationMutation
-} from "./generated/graphql";
-import type { ConversationAgentStatus, TranscriptEntry, TurnTranscriptItem } from "./types";
+} from "@/generated/graphql";
+import type { ConversationAgentStatus, TranscriptEntry, TurnTranscriptItem } from "@/shared/types";
 
 type ReplayItem = StartPrimaryConversationMutation["startPrimaryConversation"]["replay"][number];
 type ConversationEvent = ConversationEventsSubscription["conversationEvents"];

@@ -1,7 +1,7 @@
 import { BrainIcon } from "lucide-react";
 import * as stylex from "@stylexjs/stylex";
-import { memoryCardsFromStructuredItem } from "../../memoryCards";
-import type { TurnTranscriptItem } from "../../types";
+import { memoryCardsFromStructuredItem } from "@/memory/cards";
+import type { TurnTranscriptItem } from "@/shared/types";
 import {
   memoryCardsFromClaimOutcomes,
   memoryMarkerLabel,

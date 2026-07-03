@@ -1,4 +1,4 @@
-import type { ConversationAgentStatus, TranscriptEntry, TurnTranscriptItem } from "../../types";
+import type { ConversationAgentStatus, TranscriptEntry, TurnTranscriptItem } from "@/shared/types";
 
 type ActivityTranscriptItem = Extract<TurnTranscriptItem, { kind: "activity" }>;
 type ActivityTranscriptEntry = Extract<TranscriptEntry, { type: "activity" }>;

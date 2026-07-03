@@ -1,6 +1,6 @@
 import * as stylex from "@stylexjs/stylex";
 import { WrenchIcon } from "lucide-react";
-import { statusLabel } from "../../format";
+import { statusLabel } from "@/shared/format";
 import { formatToolDetail, toolMarkerLabel } from "./markerModel";
 import type { ToolMarkerGroup } from "./renderModel";
 import { TranscriptAttachmentCard } from "./TranscriptAttachmentCard";

@@ -1,5 +1,5 @@
 import React from "react";
-import type { AppRoute } from "@/routes";
+import type { AppRoute } from "@/app/routes";
 import type { ShellSurfaceVisibility } from "./ShellSurfaceContext";
 
 export type DeckNavigationState = {

@@ -1,4 +1,4 @@
-import type { MemoryGraphQuery } from "./generated/graphql";
+import type { MemoryGraphQuery } from "@/generated/graphql";
 
 type WithOptionalTypename<T, Typename extends string> = T & {
   __typename?: Typename;

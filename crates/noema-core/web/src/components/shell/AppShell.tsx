@@ -4,8 +4,8 @@ import * as stylex from "@stylexjs/stylex";
 import { Menu, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import type { LocalStatusQuery } from "@/generated/graphql";
 import { isTauriRuntime } from "@/graphql/transportMode";
-import type { AppRoute } from "@/routes";
-import type { SocketState } from "@/types";
+import type { AppRoute } from "@/app/routes";
+import type { SocketState } from "@/shared/types";
 import {
   deckTransitionPropertyCanSettleSurfaceVisibility,
   useDeckNavigation

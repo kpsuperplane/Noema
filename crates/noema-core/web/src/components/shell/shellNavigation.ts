@@ -10,7 +10,7 @@ import {
   Settings
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import type { AppRoute, SettingsSection } from "@/routes";
+import type { AppRoute, SettingsSection } from "@/app/routes";
 
 export type ShellMenuLevelId = "l0" | "settings";
 

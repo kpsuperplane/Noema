@@ -1,5 +1,5 @@
 import * as stylex from "@stylexjs/stylex";
-import type { MemoryCardData } from "../../memoryCards";
+import type { MemoryCardData } from "@/memory/cards";
 import { memoryDetailItems } from "./markerModel";
 import { MemoryDetailRow } from "./MemoryDetailRow";
 

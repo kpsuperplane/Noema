@@ -1,4 +1,4 @@
-import type { TurnTranscriptItem } from "./types";
+import type { TurnTranscriptItem } from "@/shared/types";
 
 type JsonRecord = Record<string, unknown>;
 

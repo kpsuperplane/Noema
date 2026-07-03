@@ -1,5 +1,5 @@
-import type { MemoryCardData } from "../../memoryCards";
-import type { TurnTranscriptItem } from "../../types";
+import type { MemoryCardData } from "@/memory/cards";
+import type { TurnTranscriptItem } from "@/shared/types";
 import type { ToolMarkerGroup } from "./renderModel";
 type MemoryDetailRowData = { label: string; value: string };
 type MemoryClaimOutcome = {

@@ -3,7 +3,7 @@ import "@xyflow/react/dist/style.css";
 import { useMemo } from "react";
 
 import { MemoryGraphFlow } from "./MemoryGraphFlow";
-import type { MemoryGraphEdgeData, MemoryGraphNodeData } from "@/memoryGraphLayout";
+import type { MemoryGraphEdgeData, MemoryGraphNodeData } from "@/memory/graphLayout";
 
 export function MemoryGraphCanvas({
   nodes,

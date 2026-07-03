@@ -1,5 +1,5 @@
 import type { Edge, EdgeProps } from "@xyflow/react";
-import type { MemoryGraphEdgeData } from "@/memoryGraphLayout";
+import type { MemoryGraphEdgeData } from "@/memory/graphLayout";
 
 export function MemoryClaimEdge({
   id,

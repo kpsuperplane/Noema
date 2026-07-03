@@ -7,7 +7,7 @@ import {
   type ShellSurfaceVisibility,
   useShellSurface
 } from "./shell/ShellSurfaceContext";
-import type { ConversationAgentStatus, TranscriptEntry } from "../types";
+import type { ConversationAgentStatus, TranscriptEntry } from "@/shared/types";
 
 export function shouldFocusChatComposer({
   ready,

@@ -1,4 +1,4 @@
-import type { AgentStatus, TurnActivityStatus } from "./generated/graphql";
+import type { AgentStatus, TurnActivityStatus } from "@/generated/graphql";
 
 export type SocketState = "connecting" | "ready" | "closed";
 export type ConversationAgentStatus = AgentStatus | "connecting" | "closed";

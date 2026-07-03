@@ -1,5 +1,5 @@
-import { memoryCardsFromStructuredItem } from "../../memoryCards";
-import type { TurnTranscriptItem } from "../../types";
+import { memoryCardsFromStructuredItem } from "@/memory/cards";
+import type { TurnTranscriptItem } from "@/shared/types";
 import { MemoryMarker } from "./MemoryMarker";
 import { MemoryStructuredCard } from "./MemoryStructuredCard";
 import { TranscriptAttachmentCard } from "./TranscriptAttachmentCard";

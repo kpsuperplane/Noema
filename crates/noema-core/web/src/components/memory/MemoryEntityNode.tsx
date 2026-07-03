@@ -1,6 +1,6 @@
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
 import * as stylex from "@stylexjs/stylex";
-import type { MemoryGraphNodeData } from "@/memoryGraphLayout";
+import type { MemoryGraphNodeData } from "@/memory/graphLayout";
 
 export function MemoryEntityNode({ data, selected }: NodeProps<Node<MemoryGraphNodeData>>) {
   return (

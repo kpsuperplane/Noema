@@ -12,7 +12,7 @@ import {
 import * as stylex from "@stylexjs/stylex";
 import { useCallback, useMemo, useState } from "react";
 
-import { applyMemoryGraphNodeChanges, type MemoryGraphEdgeData, type MemoryGraphNodeData } from "@/memoryGraphLayout";
+import { applyMemoryGraphNodeChanges, type MemoryGraphEdgeData, type MemoryGraphNodeData } from "@/memory/graphLayout";
 import { MemoryClaimEdge } from "./MemoryClaimEdge";
 import { MemoryEntityNode } from "./MemoryEntityNode";
 

@@ -1,5 +1,5 @@
 import { BrainIcon } from "lucide-react";
-import type { MemoryCardData } from "../../memoryCards";
+import type { MemoryCardData } from "@/memory/cards";
 import { MemoryDetailList } from "./MemoryDetailList";
 import { TranscriptAttachmentCard } from "./TranscriptAttachmentCard";
 

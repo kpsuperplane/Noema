@@ -4,7 +4,7 @@ import {
   transcriptEntryRenderId,
   type RenderTranscriptEntry
 } from "./renderModel";
-import type { TranscriptEntry } from "../../types";
+import type { TranscriptEntry } from "@/shared/types";
 
 export function transcriptScrollKey(entries: RenderTranscriptEntry[]): string {
   return entries.map(renderedEntryScrollFingerprint).join("|");
