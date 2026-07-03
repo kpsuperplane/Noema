@@ -1,8 +1,8 @@
 use crate::{
-    ConversationContextSummaryRecord, ConversationItemRecord, NoemaStore,
+    ConversationContextSummaryRecord, ConversationItemKind, ConversationItemRecord, GenerateInput,
+    GenerateMessage, GenerateMessageRole, NoemaStore,
     daemon::{
-        agent_onboarding::AgentPromptIdentity,
-        prompts::{build_structured_turn_system_prompt, render_recent_transcript_for_prompt},
+        agent_onboarding::AgentPromptIdentity, prompts::build_structured_turn_system_prompt,
         protocol::DaemonError,
     },
 };
@@ -25,6 +25,7 @@ pub(super) struct PromptContext {
 pub(super) struct PlannedPromptContext {
     pub(super) context: PromptContext,
     pub(super) instructions: String,
+    pub(super) input: GenerateInput,
     pub(super) estimated_input_tokens: u32,
     pub(super) budget: ContextBudget,
     pub(super) fits: bool,
@@ -70,7 +71,7 @@ async fn load_prompt_context(
     let transcript_items = store
         .list_all_conversation_items_after_sequence_for_context(conversation_id, after_sequence)
         .await?;
-    let rendered_context = render_prompt_context(active_summary.as_ref(), &transcript_items);
+    let rendered_context = render_prompt_context(active_summary.as_ref());
     Ok(PromptContext {
         active_summary,
         transcript_items,
@@ -113,12 +114,13 @@ async fn plan_loaded_prompt_context(
         request.agent_identity,
         request.rendered_tools,
     );
+    let input = build_turn_input(&request.context.transcript_items, request.current_input);
     let metadata = request.provider.context_metadata(request.model_profile);
     let budget = ContextBudget::from_metadata(metadata);
     let estimated_input_tokens = count_tokens_or_estimate(
         request.provider,
         Some(&instructions),
-        request.current_input,
+        &input,
         request.model_profile,
     )
     .await;
@@ -126,6 +128,7 @@ async fn plan_loaded_prompt_context(
     Ok(PlannedPromptContext {
         context: request.context,
         instructions,
+        input,
         estimated_input_tokens,
         budget,
         fits,
@@ -135,30 +138,66 @@ async fn plan_loaded_prompt_context(
 async fn count_tokens_or_estimate(
     provider: &dyn RuntimeModelProvider,
     instructions: Option<&str>,
-    input: &str,
+    input: &GenerateInput,
     model_profile: Option<&str>,
 ) -> u32 {
+    let rendered_input = input.render_for_token_count();
     match provider
-        .count_tokens(instructions, input, model_profile)
+        .count_tokens(instructions, &rendered_input, model_profile)
         .await
     {
         Ok(Some(tokens)) => tokens,
         Ok(None) | Err(_) => {
-            instructions.map_or(0, estimate_text_tokens) + estimate_text_tokens(input)
+            instructions.map_or(0, estimate_text_tokens) + estimate_text_tokens(&rendered_input)
         }
     }
 }
 
-fn render_prompt_context(
-    summary: Option<&ConversationContextSummaryRecord>,
+fn build_turn_input(
     transcript_items: &[ConversationItemRecord],
-) -> String {
-    let transcript = render_recent_transcript_for_prompt(transcript_items);
+    current_input: &str,
+) -> GenerateInput {
+    let mut messages = transcript_items
+        .iter()
+        .filter_map(message_from_transcript_item)
+        .collect::<Vec<_>>();
+    if !current_input.trim().is_empty() {
+        messages.push(GenerateMessage {
+            role: GenerateMessageRole::User,
+            content: current_input.to_string(),
+        });
+    }
+    GenerateInput::Messages(messages)
+}
+
+fn message_from_transcript_item(item: &ConversationItemRecord) -> Option<GenerateMessage> {
+    let role = match item.kind {
+        ConversationItemKind::UserText => GenerateMessageRole::User,
+        ConversationItemKind::AssistantText => GenerateMessageRole::Assistant,
+        ConversationItemKind::Activity
+        | ConversationItemKind::A2uiCard
+        | ConversationItemKind::ToolCall
+        | ConversationItemKind::ToolResult
+        | ConversationItemKind::ApprovalRequest
+        | ConversationItemKind::ApprovalResult
+        | ConversationItemKind::ErrorNotice => return None,
+    };
+    let content = item.content_text.as_deref()?.trim();
+    if content.is_empty() {
+        return None;
+    }
+    Some(GenerateMessage {
+        role,
+        content: content.to_string(),
+    })
+}
+
+fn render_prompt_context(summary: Option<&ConversationContextSummaryRecord>) -> String {
     match summary {
         Some(summary) => format!(
-            "Compacted conversation context:\n{}\n\nRecent transcript after compacted checkpoint:\n{}",
-            summary.summary_text, transcript
+            "Compacted conversation context:\n{}\n\nRecent transcript after compacted checkpoint: sent as role-tagged provider input messages",
+            summary.summary_text
         ),
-        None => transcript,
+        None => "none".to_string(),
     }
 }

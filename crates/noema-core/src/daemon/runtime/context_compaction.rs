@@ -453,6 +453,7 @@ mod tests {
                 rendered_context: String::new(),
             },
             instructions: String::new(),
+            input: crate::GenerateInput::Text(String::new()),
             estimated_input_tokens: 611,
             budget,
             fits: true,

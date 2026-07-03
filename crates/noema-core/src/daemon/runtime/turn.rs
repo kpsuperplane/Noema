@@ -5,7 +5,7 @@ use crate::{
     memory::extraction::{ExtractorMemoryProposal, ValidatedMemoryProposal},
     provider::{
         GenerateInput, GenerateOptions, GenerateOutputItem, GenerateRequest, GenerateResponse,
-        GenerateStreamEvent, ProviderError,
+        GenerateStreamEvent, PromptCacheRetention, ProviderError,
     },
 };
 use serde_json::json;
@@ -170,6 +170,7 @@ impl CodexRuntimeActor {
                     instructions: Some(instructions),
                     options: GenerateOptions {
                         require_noema_response: true,
+                        prompt_cache_retention: Some(PromptCacheRetention::TwentyFourHours),
                         ..GenerateOptions::default()
                     },
                 },
@@ -192,6 +193,7 @@ impl CodexRuntimeActor {
                 "input_tokens": usage.input_tokens,
                 "output_tokens": usage.output_tokens,
                 "total_tokens": usage.total_tokens,
+                "cached_input_tokens": usage.cached_input_tokens,
             })),
             "output": &response.output,
         });
@@ -473,11 +475,12 @@ impl CodexRuntimeActor {
                 GenerateRequest {
                     conversation_id: Some(conversation_id.clone()),
                     model: conversation.model.clone(),
-                    input: GenerateInput::Text(input.clone()),
+                    input: planned_context.input,
                     instructions: Some(planned_context.instructions),
                     options: GenerateOptions {
                         max_output_tokens: planned_context.budget.output_reserve_tokens(),
                         require_noema_response: true,
+                        prompt_cache_retention: Some(PromptCacheRetention::TwentyFourHours),
                         ..GenerateOptions::default()
                     },
                 },
@@ -695,6 +698,7 @@ impl CodexRuntimeActor {
                         instructions: Some(continuation_instructions),
                         options: GenerateOptions {
                             require_noema_response: true,
+                            prompt_cache_retention: Some(PromptCacheRetention::TwentyFourHours),
                             ..GenerateOptions::default()
                         },
                     },

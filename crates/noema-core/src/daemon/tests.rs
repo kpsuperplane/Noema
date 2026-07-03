@@ -282,16 +282,20 @@ async fn prompt_context_uses_active_summary_and_post_checkpoint_items() {
     runtime.shutdown().await;
 
     let requests = provider.requests.lock().expect("requests");
-    let instructions = requests
+    let request = requests
         .iter()
         .find(|request| request.options.require_noema_response)
-        .and_then(|request| request.instructions.as_deref())
-        .expect("instructions");
+        .expect("agent request");
+    let instructions = request.instructions.as_deref().expect("instructions");
     assert!(instructions.contains("Compacted conversation context:"));
     assert!(instructions.contains("rolling durable compaction"));
-    assert!(instructions.contains("post checkpoint user"));
     assert!(!instructions.contains("current turn"));
     assert!(!instructions.contains("covered user"));
+    assert!(!instructions.contains("post checkpoint user"));
+    let input = request.input.render_for_token_count();
+    assert!(input.contains("post checkpoint user"));
+    assert!(input.contains("current turn"));
+    assert!(!input.contains("covered user"));
 }
 
 #[tokio::test]
@@ -334,13 +338,92 @@ async fn prompt_context_keeps_all_post_checkpoint_items_for_budgeting() {
     runtime.shutdown().await;
 
     let requests = provider.requests.lock().expect("requests");
-    let instructions = requests
+    let request = requests
         .iter()
         .find(|request| request.options.require_noema_response)
-        .and_then(|request| request.instructions.as_deref())
-        .expect("instructions");
-    assert!(instructions.contains("post checkpoint item 1"));
-    assert!(instructions.contains("post checkpoint item 45"));
+        .expect("agent request");
+    let input = request.input.render_for_token_count();
+    assert!(input.contains("post checkpoint item 1"));
+    assert!(input.contains("post checkpoint item 45"));
+}
+
+#[tokio::test]
+async fn prompt_context_sends_prior_transcript_as_provider_messages() {
+    let store = crate::store::tests::test_store().await;
+    store.ensure_default_actors().await.expect("actors");
+    let provider = Arc::new(CapturingProvider::default());
+    let runtime = CodexRuntimeHandle::spawn_with_provider_kind(
+        provider.clone(),
+        store.clone(),
+        "foundation_local",
+    )
+    .await
+    .expect("runtime");
+    let started = runtime
+        .start_conversation(None)
+        .await
+        .expect("conversation");
+
+    append_test_text_item_with_kind(
+        &store,
+        &started.conversation_id,
+        ConversationItemKind::UserText,
+        "first durable question",
+    )
+    .await;
+    append_test_text_item_with_kind(
+        &store,
+        &started.conversation_id,
+        ConversationItemKind::AssistantText,
+        "first durable answer",
+    )
+    .await;
+
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    runtime
+        .turn(
+            started.conversation_id,
+            "second durable question".to_string(),
+            tx,
+        )
+        .await
+        .expect("turn");
+    while rx.recv().await.is_some() {}
+    runtime.shutdown().await;
+
+    let requests = provider.requests.lock().expect("requests");
+    let request = requests
+        .iter()
+        .find(|request| request.options.require_noema_response)
+        .expect("agent request");
+    assert_eq!(
+        request.options.prompt_cache_retention,
+        Some(crate::PromptCacheRetention::TwentyFourHours)
+    );
+    let GenerateInput::Messages(messages) = &request.input else {
+        panic!("expected transcript messages, got {:?}", request.input);
+    };
+    let observed = messages
+        .iter()
+        .map(|message| (message.role, message.content.as_str()))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        observed,
+        vec![
+            (
+                crate::provider::GenerateMessageRole::User,
+                "first durable question"
+            ),
+            (
+                crate::provider::GenerateMessageRole::Assistant,
+                "first durable answer"
+            ),
+            (
+                crate::provider::GenerateMessageRole::User,
+                "second durable question"
+            ),
+        ]
+    );
 }
 
 #[tokio::test]
@@ -443,7 +526,7 @@ async fn background_context_compaction_creates_checkpoint_after_large_turn() {
     let store = crate::store::tests::test_store().await;
     store.ensure_default_actors().await.expect("actors");
     let provider = Arc::new(MetadataCapturingProvider {
-        context_window_tokens: 5_500,
+        context_window_tokens: 13_000,
         fail_compaction: false,
         fail_token_count: false,
         requests: Mutex::new(Vec::new()),
@@ -1349,8 +1432,10 @@ async fn provider_memory_canonicalization_uses_selected_conversation_provider() 
     );
     assert!(
         foundation_provider.requests().iter().any(|request| {
-            let GenerateInput::Text(input) = &request.input;
-            input.contains("Noema's memory claim canonicalizer")
+            request
+                .input
+                .render_for_token_count()
+                .contains("Noema's memory claim canonicalizer")
         }),
         "selected provider should receive memory canonicalization requests"
     );
@@ -3622,14 +3707,35 @@ async fn test_runtime_handle_with_store(
 }
 
 async fn append_test_text_item(store: &crate::NoemaStore, conversation_id: &str, text: &str) {
+    append_test_text_item_with_kind(store, conversation_id, ConversationItemKind::UserText, text)
+        .await;
+}
+
+async fn append_test_text_item_with_kind(
+    store: &crate::NoemaStore,
+    conversation_id: &str,
+    kind: ConversationItemKind,
+    text: &str,
+) {
+    let author = match kind {
+        ConversationItemKind::UserText => ActorRef::human("human:local"),
+        ConversationItemKind::AssistantText => ActorRef::agent("agent:primary"),
+        ConversationItemKind::Activity
+        | ConversationItemKind::A2uiCard
+        | ConversationItemKind::ToolCall
+        | ConversationItemKind::ToolResult
+        | ConversationItemKind::ApprovalRequest
+        | ConversationItemKind::ApprovalResult
+        | ConversationItemKind::ErrorNotice => ActorRef::agent("agent:primary"),
+    };
     store
         .append_conversation_item(crate::NewConversationItem {
             conversation_id: conversation_id.to_string(),
             turn_id: None,
             parent_item_id: None,
-            kind: ConversationItemKind::UserText,
+            kind,
             status: ConversationItemStatus::Completed,
-            author: ActorRef::human("human:local"),
+            author,
             content_text: Some(text.to_string()),
             payload_json: json!({}),
             metadata: json!({}),
@@ -3774,7 +3880,8 @@ impl FakeCodexProvider {
             .model
             .clone()
             .unwrap_or_else(|| "fake-model".to_string());
-        let GenerateInput::Text(input) = request.input;
+        let rendered_input = request.input.render_for_token_count();
+        let input = current_user_input(&request.input);
         let instructions = request.instructions.unwrap_or_default();
         if input.contains("Noema's memory claim canonicalizer") {
             let text = canonicalization_response_text(&input, self.scenario);
@@ -3789,11 +3896,12 @@ impl FakeCodexProvider {
         let output = match self.scenario {
             FakeCodexScenario::Simple => assistant_with_no_memories("fake answer"),
             FakeCodexScenario::RestartContext => {
-                let saw_context = instructions
-                    .contains("Recent durable transcript from embedded Noema store:")
-                    && instructions.contains("User: first durable question")
-                    && instructions.contains("Noema: fake answer")
-                    && input.contains("second durable question");
+                let saw_context = rendered_input.contains("first durable question")
+                    && rendered_input.contains("fake answer")
+                    && input.contains("second durable question")
+                    && instructions
+                        .contains("Recent durable transcript from embedded Noema store:")
+                    && !instructions.contains("first durable question");
                 assistant_with_no_memories(if saw_context {
                     "saw durable context"
                 } else {
@@ -4315,6 +4423,20 @@ impl FakeCodexProvider {
             response_id: Some("fake-response".to_string()),
             usage: None,
         })
+    }
+}
+
+fn current_user_input(input: &GenerateInput) -> String {
+    match input {
+        GenerateInput::Text(text) => text.clone(),
+        GenerateInput::Messages(messages) => messages
+            .iter()
+            .rev()
+            .find(|message| message.role == crate::provider::GenerateMessageRole::User)
+            .map_or_else(
+                || input.render_for_token_count(),
+                |message| message.content.clone(),
+            ),
     }
 }
 

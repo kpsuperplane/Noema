@@ -17,9 +17,9 @@ use super::{
 use crate::{
     SYSTEM_ERROR_PROVIDER_MALFORMED_RESPONSE, SystemErrorEvent, SystemErrorLogger,
     provider::{
-        DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateInput, GenerateRequest, GenerateResponse,
-        GenerateStreamEvent, ModelProvider, ProviderError, output_items_from_text,
-        required_output_items_from_text,
+        DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateInput, GenerateMessageRole, GenerateRequest,
+        GenerateResponse, GenerateStreamEvent, ModelProvider, PromptCacheRetention, ProviderError,
+        output_items_from_text, required_output_items_from_text,
     },
 };
 
@@ -167,27 +167,28 @@ struct CodexResponsesRequest {
     temperature: Option<f32>,
     store: bool,
     stream: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    prompt_cache_retention: Option<PromptCacheRetention>,
 }
 
 impl CodexResponsesRequest {
-    fn text(
+    fn new(
         model: String,
-        input: String,
+        input: &GenerateInput,
         instructions: Option<String>,
         max_output_tokens: Option<u32>,
         temperature: Option<f32>,
+        prompt_cache_retention: Option<PromptCacheRetention>,
     ) -> Self {
         Self {
             model,
-            input: vec![CodexInputMessage {
-                role: "user",
-                content: input,
-            }],
+            input: codex_input_messages(input),
             instructions,
             max_output_tokens,
             temperature,
             store: false,
             stream: true,
+            prompt_cache_retention,
         }
     }
 }
@@ -205,8 +206,7 @@ impl CodexResponsesProvider {
         on_event: &mut (dyn FnMut(GenerateStreamEvent) + Send),
     ) -> Result<GenerateResponse, ProviderError> {
         let require_noema_response = request.options.require_noema_response;
-        let GenerateInput::Text(input) = request.input;
-        if input.trim().is_empty() {
+        if request.input.is_empty() {
             return Err(ProviderError::InvalidRequest {
                 message: "input cannot be empty".to_string(),
             });
@@ -219,12 +219,14 @@ impl CodexResponsesProvider {
             .filter(|instructions| !instructions.trim().is_empty());
         let max_output_tokens = request.options.max_output_tokens;
         let temperature = request.options.temperature;
-        let body = CodexResponsesRequest::text(
+        let prompt_cache_retention = request.options.prompt_cache_retention;
+        let body = CodexResponsesRequest::new(
             model.clone(),
-            input.clone(),
+            &request.input,
             instructions.clone(),
             max_output_tokens,
             temperature,
+            prompt_cache_retention,
         );
         let diagnostics = ResponsesDiagnosticContext::new(
             self.system_errors.clone(),
@@ -264,12 +266,13 @@ impl CodexResponsesProvider {
                     .token_store
                     .refresh_access_token(&self.oauth_client)
                     .await?;
-                let retry_body = CodexResponsesRequest::text(
+                let retry_body = CodexResponsesRequest::new(
                     model.clone(),
-                    input,
+                    &request.input,
                     instructions,
                     max_output_tokens,
                     temperature,
+                    prompt_cache_retention,
                 );
                 self.transport
                     .send_streaming(
@@ -370,6 +373,26 @@ impl CodexResponsesProvider {
     }
 }
 
+fn codex_input_messages(input: &GenerateInput) -> Vec<CodexInputMessage> {
+    match input {
+        GenerateInput::Text(text) => vec![CodexInputMessage {
+            role: "user",
+            content: text.clone(),
+        }],
+        GenerateInput::Messages(messages) => messages
+            .iter()
+            .filter(|message| !message.content.trim().is_empty())
+            .map(|message| CodexInputMessage {
+                role: match message.role {
+                    GenerateMessageRole::User => "user",
+                    GenerateMessageRole::Assistant => "assistant",
+                },
+                content: message.content.clone(),
+            })
+            .collect(),
+    }
+}
+
 impl ModelProvider for CodexResponsesProvider {
     fn default_tool_classification_model(&self) -> Option<String> {
         Some(
@@ -396,8 +419,10 @@ impl ModelProvider for CodexResponsesProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::provider::GenerateOptions;
     use crate::provider::adapters::codex_oauth::CodexOAuthTokens;
+    use crate::provider::{
+        GenerateMessage, GenerateMessageRole, GenerateOptions, PromptCacheRetention,
+    };
     use serde_json::Value;
     use std::collections::HashMap;
     use tempfile::TempDir;
@@ -510,6 +535,58 @@ mod tests {
         assert_eq!(body["store"], false);
 
         assert_eq!(response.assistant_text(), "Hello");
+    }
+
+    #[tokio::test]
+    async fn sends_codex_transcript_messages_as_response_input_items() {
+        let (base_url, request_rx) = spawn_server(
+            200,
+            "event: response.output_text.delta\n\
+             data: {\"type\":\"response.output_text.delta\",\"delta\":\"Hello again\"}\n\
+             \n\
+             event: response.completed\n\
+             data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_test\",\"model\":\"gpt-test\",\"status\":\"completed\"}}\n\
+             \n",
+        )
+        .await;
+        let (provider, _dir) = provider_with_tokens(base_url);
+
+        let response = provider
+            .generate(GenerateRequest {
+                input: GenerateInput::Messages(vec![
+                    GenerateMessage {
+                        role: GenerateMessageRole::User,
+                        content: "first durable question".to_string(),
+                    },
+                    GenerateMessage {
+                        role: GenerateMessageRole::Assistant,
+                        content: "first durable answer".to_string(),
+                    },
+                    GenerateMessage {
+                        role: GenerateMessageRole::User,
+                        content: "second durable question".to_string(),
+                    },
+                ]),
+                options: GenerateOptions {
+                    prompt_cache_retention: Some(PromptCacheRetention::TwentyFourHours),
+                    ..GenerateOptions::default()
+                },
+                ..GenerateRequest::text("unused")
+            })
+            .await
+            .expect("response");
+
+        let captured = request_rx.await.expect("captured request");
+        let body: Value = serde_json::from_str(&captured.body).expect("json body");
+        assert_eq!(body["input"][0]["role"], "user");
+        assert_eq!(body["input"][0]["content"], "first durable question");
+        assert_eq!(body["input"][1]["role"], "assistant");
+        assert_eq!(body["input"][1]["content"], "first durable answer");
+        assert_eq!(body["input"][2]["role"], "user");
+        assert_eq!(body["input"][2]["content"], "second durable question");
+        assert_eq!(body["prompt_cache_retention"], "24h");
+
+        assert_eq!(response.assistant_text(), "Hello again");
     }
 
     #[tokio::test]

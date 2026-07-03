@@ -286,9 +286,12 @@ The next storage slice should stay small and concrete:
   from the latest active summary plus all post-checkpoint text items, performs
   foreground compaction before over-limit turns, schedules background compaction
   after large turns, and reports foreground compaction failures through the
-  existing chat `ErrorNotice` path. Foundation Local forwards max output token
-  limits to the Swift bridge and parses required Noema response envelopes for
-  normal chat turns. Backend review follow-ups that remain intentionally separate:
+  existing chat `ErrorNotice` path. Normal chat provider requests now send the
+  durable post-checkpoint transcript as role-tagged provider input messages,
+  request provider prompt-cache retention where supported, and budget that same
+  message-shaped input for compaction decisions. Foundation Local forwards max
+  output token limits to the Swift bridge and parses required Noema response
+  envelopes for normal chat turns. Backend review follow-ups that remain intentionally separate:
   The remaining bridge follow-ups have landed: GraphQL Providers and Agents
   opportunistically refresh Foundation Local availability in real runtime-host
   state before rendering model options, keep unknown/unavailable Foundation

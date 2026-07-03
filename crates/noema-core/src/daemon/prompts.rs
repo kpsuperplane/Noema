@@ -1,5 +1,3 @@
-use crate::{ConversationItemKind, ConversationItemRecord};
-
 use super::{
     agent_onboarding::{AgentPromptIdentity, agent_identity_prompt},
     memory_pipeline::project_scope_from_cwd,
@@ -56,68 +54,6 @@ Response shape:
 - Avoid formulaic contrast pivots that frame a point as a negation followed by a replacement. State the point directly.
 - Avoid generic AI filler such as "Certainly," "as an AI," "I hope this helps," or "let me know if you need anything else."
 - Do not overperform intimacy. No pet names, forced banter, therapy voice, or grand declarations."#;
-
-const RECENT_TRANSCRIPT_ITEM_CHAR_LIMIT: usize = 2_000;
-const RECENT_TRANSCRIPT_TOTAL_CHAR_LIMIT: usize = 12_000;
-
-pub(super) fn render_recent_transcript_for_prompt(items: &[ConversationItemRecord]) -> String {
-    let mut rendered = String::new();
-    for item in items {
-        let Some(role) = transcript_role(item.kind) else {
-            continue;
-        };
-        let Some(content) = item.content_text.as_deref() else {
-            continue;
-        };
-        let content = content.trim();
-        if content.is_empty() {
-            continue;
-        }
-
-        let line = format!(
-            "{role}: {}",
-            truncate_chars(content, RECENT_TRANSCRIPT_ITEM_CHAR_LIMIT)
-        );
-        let separator_len = usize::from(!rendered.is_empty());
-        if rendered.chars().count() + separator_len + line.chars().count()
-            > RECENT_TRANSCRIPT_TOTAL_CHAR_LIMIT
-        {
-            break;
-        }
-        if !rendered.is_empty() {
-            rendered.push('\n');
-        }
-        rendered.push_str(&line);
-    }
-
-    if rendered.is_empty() {
-        "none".to_string()
-    } else {
-        rendered
-    }
-}
-
-fn transcript_role(kind: ConversationItemKind) -> Option<&'static str> {
-    match kind {
-        ConversationItemKind::UserText => Some("User"),
-        ConversationItemKind::AssistantText => Some("Noema"),
-        ConversationItemKind::Activity
-        | ConversationItemKind::A2uiCard
-        | ConversationItemKind::ToolCall
-        | ConversationItemKind::ToolResult
-        | ConversationItemKind::ApprovalRequest
-        | ConversationItemKind::ApprovalResult
-        | ConversationItemKind::ErrorNotice => None,
-    }
-}
-
-fn truncate_chars(value: &str, limit: usize) -> String {
-    let mut truncated: String = value.chars().take(limit).collect();
-    if value.chars().count() > limit {
-        truncated.push_str("...");
-    }
-    truncated
-}
 
 pub(super) fn build_structured_turn_system_prompt(
     conversation_id: &str,

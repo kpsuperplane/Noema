@@ -1,14 +1,14 @@
 //! Provider adapter for the OpenAI Responses API.
 
 use super::responses::{
-    ResponsesDiagnosticContext, ResponsesRequest, ResponsesTransport, header_value,
+    ResponsesDiagnosticContext, ResponsesInput, ResponsesRequest, ResponsesTransport, header_value,
     normalize_base_url,
 };
 use crate::{
     SYSTEM_ERROR_PROVIDER_MALFORMED_RESPONSE, SystemErrorEvent, SystemErrorLogger,
     provider::{
-        DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateInput, GenerateRequest, GenerateResponse,
-        ModelProvider, ProviderError, output_items_from_text, required_output_items_from_text,
+        DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateRequest, GenerateResponse, ModelProvider,
+        ProviderError, output_items_from_text, required_output_items_from_text,
     },
 };
 use reqwest::header::{HeaderMap, HeaderName};
@@ -159,8 +159,7 @@ impl ModelProvider for OpenAiProvider {
     }
 
     async fn generate(&self, request: GenerateRequest) -> Result<GenerateResponse, ProviderError> {
-        let GenerateInput::Text(input) = request.input;
-        if input.trim().is_empty() {
+        if request.input.is_empty() {
             return Err(ProviderError::InvalidRequest {
                 message: "input cannot be empty".to_string(),
             });
@@ -179,13 +178,14 @@ impl ModelProvider for OpenAiProvider {
 
         let body = ResponsesRequest {
             model: model.clone(),
-            input,
+            input: ResponsesInput::from(&request.input),
             instructions: request
                 .instructions
                 .filter(|instructions| !instructions.trim().is_empty()),
             max_output_tokens: request.options.max_output_tokens,
             temperature: request.options.temperature,
             store: false,
+            prompt_cache_retention: request.options.prompt_cache_retention,
         };
 
         let diagnostics = ResponsesDiagnosticContext::new(
@@ -296,6 +296,7 @@ impl OpenAiProvider {
 mod tests {
     use super::*;
     use crate::provider::TokenUsage;
+    use crate::{GenerateInput, PromptCacheRetention};
     use serde_json::Value;
     use std::collections::HashMap;
     use tokio::{
@@ -321,7 +322,10 @@ mod tests {
               "usage": {
                 "input_tokens": 2,
                 "output_tokens": 3,
-                "total_tokens": 5
+                "total_tokens": 5,
+                "input_tokens_details": {
+                  "cached_tokens": 1
+                }
               }
             }"#,
         )
@@ -348,6 +352,7 @@ mod tests {
                 options: crate::provider::GenerateOptions {
                     max_output_tokens: Some(32),
                     temperature: Some(0.4),
+                    prompt_cache_retention: Some(PromptCacheRetention::TwentyFourHours),
                     ..crate::provider::GenerateOptions::default()
                 },
             })
@@ -380,6 +385,7 @@ mod tests {
         assert_eq!(body["store"], false);
         assert_eq!(body["max_output_tokens"], 32);
         assert_eq!(body["temperature"], 0.4);
+        assert_eq!(body["prompt_cache_retention"], "24h");
 
         assert_eq!(response.assistant_text(), "Hello, world");
         assert_eq!(response.provider, "openai");
@@ -391,6 +397,7 @@ mod tests {
                 input_tokens: 2,
                 output_tokens: 3,
                 total_tokens: 5,
+                cached_input_tokens: Some(1),
             })
         );
     }

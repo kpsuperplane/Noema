@@ -1068,8 +1068,10 @@ mod tests {
                 request.conversation_id.as_deref() == Some(started.conversation_id.as_str())
                     && matches!(
                         &request.input,
-                        crate::provider::GenerateInput::Text(text)
-                            if text == "hello from durable chat"
+                        crate::provider::GenerateInput::Messages(messages)
+                            if messages.len() == 1
+                                && messages[0].role == crate::provider::GenerateMessageRole::User
+                                && messages[0].content == "hello from durable chat"
                     )
             }),
             "captured requests: {requests:?}"

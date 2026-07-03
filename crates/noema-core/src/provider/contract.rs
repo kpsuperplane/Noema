@@ -114,6 +114,73 @@ impl GenerateRequest {
 pub enum GenerateInput {
     /// Plain text input.
     Text(String),
+    /// Role-tagged conversation messages.
+    Messages(Vec<GenerateMessage>),
+}
+
+impl GenerateInput {
+    /// Return whether this input has no model-visible text.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        match self {
+            Self::Text(text) => text.trim().is_empty(),
+            Self::Messages(messages) => messages
+                .iter()
+                .all(|message| message.content.trim().is_empty()),
+        }
+    }
+
+    /// Render input to plain text for token counters that do not understand
+    /// provider-neutral message structure.
+    #[must_use]
+    pub fn render_for_token_count(&self) -> String {
+        match self {
+            Self::Text(text) => text.clone(),
+            Self::Messages(messages) => messages
+                .iter()
+                .filter(|message| !message.content.trim().is_empty())
+                .map(|message| format!("{}: {}", message.role.as_str(), message.content))
+                .collect::<Vec<_>>()
+                .join("\n"),
+        }
+    }
+}
+
+/// One role-tagged message in provider-neutral generation input.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GenerateMessage {
+    /// Role visible to the provider.
+    pub role: GenerateMessageRole,
+    /// Text content for the message.
+    pub content: String,
+}
+
+/// Role for a provider-neutral generation message.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GenerateMessageRole {
+    /// Human/user message.
+    User,
+    /// Assistant/model message.
+    Assistant,
+}
+
+impl GenerateMessageRole {
+    /// Provider-independent lower-case role name.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::User => "user",
+            Self::Assistant => "assistant",
+        }
+    }
+}
+
+/// Prompt-cache retention request for providers that support configurable caching.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PromptCacheRetention {
+    /// Keep eligible prompt prefixes cached for 24 hours.
+    #[serde(rename = "24h")]
+    TwentyFourHours,
 }
 
 /// Provider-neutral optional generation controls.
@@ -125,6 +192,8 @@ pub struct GenerateOptions {
     pub temperature: Option<f32>,
     /// Require a strict Noema response envelope with assistant text and memory proposals.
     pub require_noema_response: bool,
+    /// Provider prompt-cache retention request when supported.
+    pub prompt_cache_retention: Option<PromptCacheRetention>,
 }
 
 /// Structured response returned by a model provider.
@@ -387,6 +456,8 @@ pub struct TokenUsage {
     pub output_tokens: u64,
     /// Total tokens reported by the provider.
     pub total_tokens: u64,
+    /// Input tokens served from provider prompt cache when reported.
+    pub cached_input_tokens: Option<u64>,
 }
 
 /// Errors produced by model providers.
@@ -506,7 +577,7 @@ mod tests {
             &self,
             request: GenerateRequest,
         ) -> Result<GenerateResponse, ProviderError> {
-            let GenerateInput::Text(text) = request.input;
+            let text = request.input.render_for_token_count();
 
             Ok(GenerateResponse {
                 output: vec![GenerateOutputItem::AssistantText { text }],
@@ -517,6 +588,7 @@ mod tests {
                     input_tokens: 1,
                     output_tokens: 1,
                     total_tokens: 2,
+                    cached_input_tokens: None,
                 }),
             })
         }

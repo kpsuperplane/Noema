@@ -10,7 +10,7 @@ use std::{
 use crate::{
     FoundationLocalProviderConfig,
     provider::{
-        GenerateInput, GenerateRequest, GenerateResponse, GenerateStreamEvent, ModelProvider,
+        GenerateRequest, GenerateResponse, GenerateStreamEvent, ModelProvider,
         ProviderContextMetadata, ProviderError, required_output_items_from_text,
     },
 };
@@ -254,7 +254,7 @@ impl ModelProvider for FoundationLocalProvider {
             .filter(|model| !model.trim().is_empty())
             .unwrap_or_else(|| self.config.default_profile.clone());
         let require_noema_response = request.options.require_noema_response;
-        let GenerateInput::Text(text) = request.input;
+        let text = request.input.render_for_token_count();
         let mut noema_delta_extractor = NoemaAssistantTextDeltaExtractor::default();
         let mut relay_delta = |delta: String| {
             if require_noema_response {
@@ -303,6 +303,7 @@ impl ModelProvider for FoundationLocalProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::GenerateInput;
     use crate::provider::GenerateStreamEvent;
     use crate::{
         FoundationLocalProviderConfig, GenerateOutputItem, GenerateRequest, ModelProvider,

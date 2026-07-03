@@ -88,8 +88,9 @@ pub use provider::adapters::{
     openai::{OpenAiProvider, OpenAiProviderConfig},
 };
 pub use provider::{
-    GenerateInput, GenerateOptions, GenerateOutputItem, GenerateRequest, GenerateResponse,
-    ModelProvider, ProviderContextMetadata, ProviderError, TokenUsage,
+    GenerateInput, GenerateMessage, GenerateMessageRole, GenerateOptions, GenerateOutputItem,
+    GenerateRequest, GenerateResponse, ModelProvider, PromptCacheRetention,
+    ProviderContextMetadata, ProviderError, TokenUsage,
 };
 pub use runtime_host::{NoemaRuntimeHost, RuntimeHostError};
 pub use store::{

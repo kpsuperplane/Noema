@@ -3,7 +3,10 @@
 use super::sse::SseAccumulator;
 use crate::{
     SYSTEM_ERROR_PROVIDER_MALFORMED_RESPONSE, SystemErrorEvent, SystemErrorLogger,
-    provider::{GenerateStreamEvent, ProviderError, TokenUsage},
+    provider::{
+        GenerateInput, GenerateMessageRole, GenerateStreamEvent, PromptCacheRetention,
+        ProviderError, TokenUsage,
+    },
 };
 use futures_util::StreamExt;
 use reqwest::{
@@ -18,8 +21,8 @@ use serde_json::Value;
 pub struct ResponsesRequest {
     /// Model identifier to use for the response.
     pub model: String,
-    /// User-visible input text.
-    pub input: String,
+    /// User-visible input.
+    pub input: ResponsesInput,
     /// Optional system/developer instructions.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub instructions: Option<String>,
@@ -31,6 +34,49 @@ pub struct ResponsesRequest {
     pub temperature: Option<f32>,
     /// Whether the upstream should store this response.
     pub store: bool,
+    /// Provider prompt-cache retention request when supported.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt_cache_retention: Option<PromptCacheRetention>,
+}
+
+/// Responses API input shape.
+#[derive(Debug, Serialize)]
+#[serde(untagged)]
+pub enum ResponsesInput {
+    /// Plain text input.
+    Text(String),
+    /// Role-tagged input messages.
+    Messages(Vec<ResponsesInputMessage>),
+}
+
+impl From<&GenerateInput> for ResponsesInput {
+    fn from(value: &GenerateInput) -> Self {
+        match value {
+            GenerateInput::Text(text) => Self::Text(text.clone()),
+            GenerateInput::Messages(messages) => Self::Messages(
+                messages
+                    .iter()
+                    .filter(|message| !message.content.trim().is_empty())
+                    .map(|message| ResponsesInputMessage {
+                        role: match message.role {
+                            GenerateMessageRole::User => "user",
+                            GenerateMessageRole::Assistant => "assistant",
+                        },
+                        content: message.content.clone(),
+                    })
+                    .collect(),
+            ),
+        }
+    }
+}
+
+/// One Responses API input message.
+#[derive(Debug, Serialize)]
+pub struct ResponsesInputMessage {
+    /// Provider role.
+    pub role: &'static str,
+    /// Message text.
+    pub content: String,
 }
 
 /// Parsed Responses-compatible API response.
@@ -165,6 +211,14 @@ pub struct ResponsesUsage {
     output: u64,
     #[serde(default, rename = "total_tokens")]
     total: u64,
+    #[serde(default, rename = "input_tokens_details")]
+    input_details: Option<ResponsesInputTokenDetails>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+struct ResponsesInputTokenDetails {
+    #[serde(default)]
+    cached_tokens: u64,
 }
 
 impl From<ResponsesUsage> for TokenUsage {
@@ -173,6 +227,7 @@ impl From<ResponsesUsage> for TokenUsage {
             input_tokens: value.input,
             output_tokens: value.output,
             total_tokens: value.total,
+            cached_input_tokens: value.input_details.map(|details| details.cached_tokens),
         }
     }
 }
