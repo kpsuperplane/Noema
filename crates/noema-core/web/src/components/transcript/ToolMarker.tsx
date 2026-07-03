@@ -29,10 +29,17 @@ const styles = stylex.create({
   root: {
     display: "grid",
     width: "100%",
-    gap: 8,
-    justifyItems: "start"
+    maxWidth: "100%",
+    minWidth: 0,
+    gap: 8
   }
 });
+
+const toolCallsStyle = {
+  width: "100%",
+  maxWidth: "100%",
+  minWidth: 0
+};
 
 export function ToolMarker({
   data,
@@ -50,6 +57,7 @@ export function ToolMarker({
       <ChatToolCalls
         calls={calls}
         isExpanded={open}
+        style={toolCallsStyle}
         onExpandedChange={(nextOpen) => {
           if (nextOpen !== open) {
             onToggle();
