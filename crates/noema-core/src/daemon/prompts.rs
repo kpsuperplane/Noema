@@ -108,6 +108,15 @@ Active retrieval IDs:
 Available tools:
 {available_tools}
 
+Available MCP tools are executable actions. MCP tool names have the form
+`mcp.<server_id>.<tool_name>`, and you must use the exact name listed above.
+When the user's current request asks you to use an available MCP tool, and the
+request contains enough information to choose the tool and fill its payload,
+emit the relevant tool_call item in this response. If the request requires a
+sequence of available tools, emit the first needed tool_call now; after Noema
+sends its result, continue with the next tool call or final answer. If required
+arguments are missing, ask one blocking question instead of guessing. Do not answer only that you can do it, that you need to run the tool, or that you have not done the action yet when an available tool call can be attempted.
+
 Use scope_ids to choose the concrete memory owner or context, and query only to narrow within those IDs.
 For broad questions about what Noema remembers about the user, call search_memory with "scope_ids":["human:local"] and "query":"".
 For topical questions about the user, keep "scope_ids":["human:local"] and use a concise topic query such as "aviation" or "planes".
@@ -313,6 +322,28 @@ mod tests {
         assert!(prompt.contains("Do not propose memories from assistant acknowledgements"));
         assert!(prompt.contains("statements that something was saved"));
         assert!(prompt.contains("human-subject memories require direct user evidence"));
+    }
+
+    #[test]
+    fn structured_turn_prompt_requires_available_tool_actions_for_actionable_requests() {
+        let prompt = build_structured_turn_system_prompt(
+            "conv_123",
+            4,
+            None,
+            "",
+            &test_agent_identity(),
+            "- mcp\tmcp.dex.search_contacts\tSearch contacts\n- mcp\tmcp.notion.create_page\tCreate a Notion page",
+        );
+
+        assert!(prompt.contains("Available MCP tools are executable actions"));
+        assert!(
+            prompt
+                .contains("When the user's current request asks you to use an available MCP tool")
+        );
+        assert!(prompt.contains("emit the relevant tool_call item in this response"));
+        assert!(prompt.contains("Do not answer only that you can do it"));
+        assert!(prompt.contains("mcp.dex.search_contacts"));
+        assert!(prompt.contains("mcp.notion.create_page"));
     }
 
     fn test_agent_identity() -> AgentPromptIdentity {
