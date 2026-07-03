@@ -471,6 +471,28 @@ async fn ready_mixed_calibration_requires_owner_extractor() {
 }
 
 #[tokio::test]
+async fn ready_calibration_requires_at_least_one_non_none_classification() {
+    let store = test_store_with_mcp_tool().await;
+
+    let error = store
+        .save_tool_calibration(NewToolCalibration {
+            calibration_id: "tool_calibration:read_doc".to_string(),
+            mcp_tool_id: "mcp_tool:google:read_doc".to_string(),
+            read_classification: McpTrustClassification::None,
+            write_classification: McpTrustClassification::None,
+            export_classification: McpTrustClassification::None,
+            owner_extractors: Vec::new(),
+            status: McpCalibrationStatus::Ready,
+            reviewed_by: Some("human:local".to_string()),
+            reviewed_metadata_fingerprint: Some("fingerprint_1".to_string()),
+        })
+        .await
+        .expect_err("ready calibration with no allowed axes should fail");
+
+    assert!(error.to_string().contains("at least one non-none"));
+}
+
+#[tokio::test]
 async fn ready_calibration_requires_current_metadata_fingerprint() {
     let store = test_store_with_mcp_tool().await;
 

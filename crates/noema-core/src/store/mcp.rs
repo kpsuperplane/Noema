@@ -757,6 +757,14 @@ impl NoemaStore {
                 )));
             }
             if calibration.status == McpCalibrationStatus::Ready
+                && !calibration.has_enabled_classification()
+            {
+                return Err(StoreError::Schema(format!(
+                    "ready MCP tool calibration requires at least one non-none classification: {}",
+                    calibration.mcp_tool_id
+                )));
+            }
+            if calibration.status == McpCalibrationStatus::Ready
                 && calibration.has_mixed_classification()
                 && calibration.owner_extractors.is_empty()
             {
@@ -1418,6 +1426,16 @@ impl McpCalibrationStatus {
 }
 
 impl NewToolCalibration {
+    fn has_enabled_classification(&self) -> bool {
+        [
+            self.read_classification,
+            self.write_classification,
+            self.export_classification,
+        ]
+        .iter()
+        .any(|classification| *classification != McpTrustClassification::None)
+    }
+
     fn has_mixed_classification(&self) -> bool {
         [
             self.read_classification,

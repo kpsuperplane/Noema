@@ -266,7 +266,6 @@ Include:
 - MCPs tab with mediated third-party server metadata and setup entry points.
 - Trusted identities tab with identity selectors used for ownership resolution.
 - Approvals tab for pending MCP checkpoints.
-- Audit tab for mediated MCP activity records.
 - Back to chat.
 - Local folder path.
 - Config file status.
@@ -646,8 +645,8 @@ addressability and backing, not what the first shell emphasizes.
 | `/settings/agents` | Settings / Agents | agent metadata from GraphQL, gated by onboarding | read-only registered-agent list with safe local technical metadata such as agent ids | Current |
 | `/settings/mcps` | Settings / MCPs | MCP server metadata from GraphQL, gated by onboarding | mediated MCP server list with setup, calibration, and destructive-delete entry points | Current |
 | `/settings/trusted-identities` | Settings / Trusted identities | trusted identity selectors from GraphQL, gated by onboarding | selector rows used to resolve tool-result ownership | Current |
-| `/settings/approvals` | Settings / Approvals | approval read models where available | pending MCP approval checkpoints | Current |
-| `/settings/audit` | Settings / Audit | audit read models where available | mediated MCP activity records | Current |
+| `/settings/approvals` | Settings / Approvals | approval read models where available | pending MCP approval checkpoints | Current limited |
+| `/settings/audit` | Settings / Audit | future audit read models | mediated MCP activity records | Future |
 
 Future route groups:
 

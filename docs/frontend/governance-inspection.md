@@ -460,14 +460,15 @@ Current Settings MCP slice:
 - `/settings/trusted-identities` lists trusted identity selectors for emails,
   phone numbers, and domains. These selectors are the user-owned trust anchors
   for ownership extraction.
-- `/settings/approvals` lists pending MCP approval requests with structured
-  decision evidence: requested action, source and destination summaries, source
-  and destination owner identity/trust, export summary, active scope, requester,
-  linked invocation id, server/tool ids, and a sanitized payload preview.
-- `/settings/audit` is present as the global MCP audit drill-in placeholder.
-  Mediated calls already record invocation/quarantine/approval state in the
-  store, but the full audit stream UI still needs event persistence and
-  filtering.
+- `/settings/approvals` is present as a limited read-model surface for pending
+  MCP approval requests. Rows should carry structured decision evidence when
+  mediation starts producing them: requested action, source and destination
+  summaries, source and destination owner identity/trust, export summary, active
+  scope, requester, linked invocation id, server/tool ids, and a sanitized
+  payload preview.
+- `/settings/audit` is not currently exposed. The placeholder surface was
+  removed until mediated MCP invocation, quarantine, approval, and audit event
+  persistence are implemented.
 
 The approval surface intentionally treats every row as decision material, not
 model prose. Approval requests must be linked to a tool invocation, terminal

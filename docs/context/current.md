@@ -122,17 +122,21 @@ The next storage slice should stay small and concrete:
   opens a route-derived L1 Settings submenu inside the same shell. `/settings`
   and `/settings/providers` default to Providers, while section routes such as
   `/settings/mcps` are deep-linkable and restore the Settings submenu after
-  refresh. Settings contains Providers, Agents, MCPs, Trusted identities,
-  Approvals, and Audit surfaces backed by existing GraphQL read models where
-  live data exists. Agent management actions are not exposed yet.
+  refresh. Settings contains Providers, Agents, MCPs, Trusted identities, and
+  Approvals surfaces backed by existing GraphQL read models where live data
+  exists. The placeholder Audit settings surface has been removed until audit
+  event persistence lands. Agent management actions are not exposed yet.
 - The first third-party MCP control-plane slice has landed. Third-party MCPs
   route through a Noema-owned Capability Gateway rather than raw model tool
   handles. MCP setup is a mandatory metadata-only calibration flow: tools get
   reviewed `read`/`write`/`export` classifications of `none`, `trusted`,
-  `untrusted`, or `mixed`; ownership is resolved through deterministic
-  extractors and trusted identity selectors; unresolved ownership blocks agent
-  use; read results are quarantined before model-visible release; and V1
-  exports always require manual approval. Web Settings can now add MCP servers
+  `untrusted`, or `mixed`; ready tools must expose at least one non-`none`
+  axis; and `mixed` ready tools require owner extractors. Runtime enforcement
+  is currently limited to server enabled/health/authentication state, reviewed
+  metadata fingerprint freshness, and ready calibration status. Read-result
+  quarantine, export approvals, and deeper owner-trust enforcement remain the
+  next MCP gateway policy slice rather than shipped behavior. Web Settings can
+  now add MCP servers
   through a guided modal setup flow that does not persist the server until
   authentication is complete and metadata discovery succeeds. Successful setup
   stores secrets under `${NOEMA_HOME}/mcp/`, verifies metadata-only
@@ -169,8 +173,8 @@ The next storage slice should stay small and concrete:
   Streamable HTTP, or SSE transports. Saving at least one ready calibration
   enables the server for agent use. User-facing setup errors are sanitized while
   raw transport details stay out of the web form.
-  Web Settings also exposes MCPs, Trusted Identities, Approvals, and Audit
-  surfaces backed by GraphQL read models where live data exists.
+  Web Settings also exposes MCPs, Trusted Identities, and Approvals surfaces
+  backed by GraphQL read models where live data exists.
 - Routed web surfaces learn shell-owned deck state through
   `ShellSurfaceContext` visibility (`visible`, `hiding`, `hidden`, `showing`).
   Surfaces should run focus and other visible-only side effects only when

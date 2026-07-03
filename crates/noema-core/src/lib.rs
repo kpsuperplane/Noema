@@ -55,9 +55,7 @@ pub use home::{
     DEFAULT_NOEMA_CONFIG_YAML, NoemaHomeError, NoemaHomeInitOptions, NoemaHomeInitResult,
     init_noema_home,
 };
-pub use ids::{
-    ActorId, ContextPacketId, ConversationId, ConversationItemId, MemoryItemId, ObjectId,
-};
+pub use ids::{ActorId, ContextPacketId, ConversationId, ConversationItemId, ObjectId};
 pub use mcp::{
     McpCalibrationStatus, McpTransportKind, McpTrustClassification, OwnerExtractor,
     OwnerExtractorSource, TrustedIdentitySelectorKind, normalize_trusted_identity_value,

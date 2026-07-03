@@ -17,8 +17,6 @@ pub enum ObjectType {
     ConversationTurn,
     /// A canonical conversation stream item.
     ConversationItem,
-    /// A durable memory record.
-    MemoryItem,
     /// A semantic graph entity.
     Entity,
     /// A semantic graph relationship.
@@ -38,7 +36,6 @@ impl ObjectType {
             Self::Conversation => "conversation",
             Self::ConversationTurn => "conversation_turn",
             Self::ConversationItem => "conversation_item",
-            Self::MemoryItem => "memory_item",
             Self::Entity => "entity",
             Self::Relationship => "relationship",
             Self::ContextPacket => "context_packet",
@@ -59,7 +56,6 @@ impl ObjectType {
             "conversation" => Ok(Self::Conversation),
             "conversation_turn" => Ok(Self::ConversationTurn),
             "conversation_item" => Ok(Self::ConversationItem),
-            "memory_item" => Ok(Self::MemoryItem),
             "entity" => Ok(Self::Entity),
             "relationship" => Ok(Self::Relationship),
             "context_packet" => Ok(Self::ContextPacket),
@@ -79,7 +75,6 @@ impl ObjectType {
             Self::Conversation => "conversations",
             Self::ConversationTurn => "conversation_turns",
             Self::ConversationItem => "conversation_items",
-            Self::MemoryItem => "memory_items",
             Self::Entity => "entities",
             Self::Relationship => "relationships",
             Self::ContextPacket => "context_packets",
@@ -96,7 +91,6 @@ impl ObjectType {
             Self::Conversation => "conversation_id",
             Self::ConversationTurn => "turn_id",
             Self::ConversationItem => "item_id",
-            Self::MemoryItem => "memory_id",
             Self::Entity => "entity_id",
             Self::Relationship => "relationship_id",
             Self::ContextPacket => "context_packet_id",

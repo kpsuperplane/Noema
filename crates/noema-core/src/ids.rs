@@ -77,7 +77,6 @@ macro_rules! persistence_id {
 
 persistence_id!(ActorId, "A typed id for rows in `actors`.");
 persistence_id!(ObjectId, "A typed id for concrete object rows.");
-persistence_id!(MemoryItemId, "A typed id for rows in `memory_items`.");
 persistence_id!(ConversationId, "A typed id for rows in `conversations`.");
 persistence_id!(
     ConversationItemId,
