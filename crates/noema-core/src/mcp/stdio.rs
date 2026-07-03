@@ -2,8 +2,8 @@
 
 use std::{collections::BTreeMap, process::Stdio};
 
-use rmcp::{ServiceExt, model::CallToolRequestParams, transport::TokioChildProcess};
-use serde_json::{Map, Value, json};
+use rmcp::{ServiceExt, transport::TokioChildProcess};
+use serde_json::{Value, json};
 use tokio::process::Command;
 
 use crate::{
@@ -11,7 +11,8 @@ use crate::{
     mcp::{
         client::{
             DiscoveredMcpTool, McpClientError, McpDiagnosticContext, McpTransport,
-            discovered_tool_from_rmcp,
+            call_tool_params, call_tool_result_value, discovered_tool_from_rmcp,
+            optional_string_field, string_array_field, string_field, string_map_field,
         },
         secrets::McpSecretMaterial,
     },
@@ -168,86 +169,6 @@ fn rmcp_initialize_error(error: rmcp::service::ClientInitializeError) -> McpClie
         McpClientError::AuthRequired("MCP stdio server requires authentication".to_string())
     } else {
         McpClientError::Transport(format!("MCP stdio initialize failed: {message}"))
-    }
-}
-
-fn call_tool_params(name: &str, arguments: Value) -> Result<CallToolRequestParams, McpClientError> {
-    Ok(
-        CallToolRequestParams::new(name.to_string())
-            .with_arguments(call_tool_arguments(arguments)?),
-    )
-}
-
-fn call_tool_arguments(arguments: Value) -> Result<Map<String, Value>, McpClientError> {
-    match arguments {
-        Value::Object(arguments) => Ok(arguments),
-        Value::Null => Ok(Map::new()),
-        _ => Err(McpClientError::Malformed(
-            "MCP tool arguments must be an object".to_string(),
-        )),
-    }
-}
-
-fn call_tool_result_value(result: rmcp::model::CallToolResult) -> Result<Value, McpClientError> {
-    serde_json::to_value(result).map_err(|error| {
-        McpClientError::Malformed(format!("invalid MCP tools/call result: {error}"))
-    })
-}
-
-fn string_field(object: &Map<String, Value>, field: &'static str) -> Result<String, String> {
-    object
-        .get(field)
-        .and_then(Value::as_str)
-        .map(ToString::to_string)
-        .ok_or_else(|| format!("MCP config field {field} must be a string"))
-}
-
-fn optional_string_field(
-    object: &Map<String, Value>,
-    field: &'static str,
-) -> Result<Option<String>, String> {
-    match object.get(field) {
-        None | Some(Value::Null) => Ok(None),
-        Some(Value::String(value)) => Ok(Some(value.clone())),
-        Some(_) => Err(format!("MCP config field {field} must be a string")),
-    }
-}
-
-fn string_array_field(
-    object: &Map<String, Value>,
-    field: &'static str,
-) -> Result<Vec<String>, String> {
-    match object.get(field) {
-        None => Ok(Vec::new()),
-        Some(Value::Array(values)) => values
-            .iter()
-            .map(|value| {
-                value
-                    .as_str()
-                    .map(ToString::to_string)
-                    .ok_or_else(|| format!("MCP config field {field} must contain strings"))
-            })
-            .collect(),
-        Some(_) => Err(format!("MCP config field {field} must be an array")),
-    }
-}
-
-fn string_map_field(
-    object: &Map<String, Value>,
-    field: &'static str,
-) -> Result<BTreeMap<String, String>, String> {
-    match object.get(field) {
-        None | Some(Value::Null) => Ok(BTreeMap::new()),
-        Some(Value::Object(map)) => map
-            .iter()
-            .map(|(key, value)| {
-                value
-                    .as_str()
-                    .map(|string| (key.clone(), string.to_string()))
-                    .ok_or_else(|| format!("MCP config field {field} must contain string values"))
-            })
-            .collect(),
-        Some(_) => Err(format!("MCP config field {field} must be an object")),
     }
 }
 

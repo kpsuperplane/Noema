@@ -8,7 +8,10 @@ use crate::{
     McpServerAuthStatus, McpServerHealthStatus, McpServerRecord, McpTransportKind, NewMcpServer,
     NewMcpTool, NoemaPaths, NoemaStore, StoreError,
     mcp::{
-        client::{DiscoveredMcpTool, McpClientError, McpClientRuntime, McpTransport},
+        client::{
+            DiscoveredMcpTool, McpClientError, McpClientRuntime, McpTransport,
+            optional_string_field, string_array_field, string_field, string_map_field,
+        },
         secrets::{McpSecretMaterial, read_mcp_secrets, write_mcp_secrets},
     },
 };
@@ -457,15 +460,15 @@ fn normalize_safe_config(
         .ok_or_else(|| StoreError::Schema("MCP safe config must be a JSON object".to_string()))?;
     match transport_kind {
         McpTransportKind::Stdio => {
-            let command = string_field(object, "command")?;
+            let command = string_field(object, "command").map_err(StoreError::Schema)?;
             if command.trim().is_empty() {
                 return Err(StoreError::Schema(
                     "MCP stdio command cannot be empty".to_string(),
                 ));
             }
-            let args = string_array_field(object, "args")?;
-            let cwd = optional_string_field(object, "cwd")?;
-            let env = string_map_field(object, "env")?;
+            let args = string_array_field(object, "args").map_err(StoreError::Schema)?;
+            let cwd = optional_string_field(object, "cwd").map_err(StoreError::Schema)?;
+            let env = string_map_field(object, "env").map_err(StoreError::Schema)?;
             reject_secret_shaped_keys("env", &env)?;
             Ok(safe_config_with_secret_refs(
                 json!({
@@ -478,13 +481,13 @@ fn normalize_safe_config(
             )?)
         }
         McpTransportKind::Sse | McpTransportKind::StreamableHttp => {
-            let url = string_field(object, "url")?;
+            let url = string_field(object, "url").map_err(StoreError::Schema)?;
             if !(url.starts_with("http://") || url.starts_with("https://")) {
                 return Err(StoreError::Schema(
                     "MCP HTTP url must start with http:// or https://".to_string(),
                 ));
             }
-            let headers = string_map_field(object, "headers")?;
+            let headers = string_map_field(object, "headers").map_err(StoreError::Schema)?;
             reject_secret_shaped_keys("headers", &headers)?;
             Ok(safe_config_with_secret_refs(
                 json!({
@@ -529,75 +532,6 @@ fn safe_config_with_secret_refs(
         object.insert("secret_refs".to_string(), Value::Object(secret_refs));
     }
     Ok(safe_config)
-}
-
-fn string_field(
-    object: &serde_json::Map<String, Value>,
-    field: &'static str,
-) -> Result<String, StoreError> {
-    object
-        .get(field)
-        .and_then(Value::as_str)
-        .map(ToString::to_string)
-        .ok_or_else(|| StoreError::Schema(format!("MCP config field {field} must be a string")))
-}
-
-fn optional_string_field(
-    object: &serde_json::Map<String, Value>,
-    field: &'static str,
-) -> Result<Option<String>, StoreError> {
-    match object.get(field) {
-        None | Some(Value::Null) => Ok(None),
-        Some(Value::String(value)) => Ok(Some(value.clone())),
-        Some(_) => Err(StoreError::Schema(format!(
-            "MCP config field {field} must be a string"
-        ))),
-    }
-}
-
-fn string_array_field(
-    object: &serde_json::Map<String, Value>,
-    field: &'static str,
-) -> Result<Vec<String>, StoreError> {
-    match object.get(field) {
-        None => Ok(Vec::new()),
-        Some(Value::Array(values)) => values
-            .iter()
-            .map(|value| {
-                value.as_str().map(ToString::to_string).ok_or_else(|| {
-                    StoreError::Schema(format!("MCP config field {field} must contain strings"))
-                })
-            })
-            .collect(),
-        Some(_) => Err(StoreError::Schema(format!(
-            "MCP config field {field} must be an array"
-        ))),
-    }
-}
-
-fn string_map_field(
-    object: &serde_json::Map<String, Value>,
-    field: &'static str,
-) -> Result<BTreeMap<String, String>, StoreError> {
-    match object.get(field) {
-        None | Some(Value::Null) => Ok(BTreeMap::new()),
-        Some(Value::Object(map)) => map
-            .iter()
-            .map(|(key, value)| {
-                value
-                    .as_str()
-                    .map(|string| (key.clone(), string.to_string()))
-                    .ok_or_else(|| {
-                        StoreError::Schema(format!(
-                            "MCP config field {field} must contain string values"
-                        ))
-                    })
-            })
-            .collect(),
-        Some(_) => Err(StoreError::Schema(format!(
-            "MCP config field {field} must be an object"
-        ))),
-    }
 }
 
 fn reject_secret_shaped_keys(

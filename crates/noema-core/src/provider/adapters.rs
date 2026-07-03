@@ -18,3 +18,6 @@ pub mod openai;
 pub mod responses;
 /// Shared Server-Sent Events parser for Responses API streams.
 pub(crate) mod sse;
+/// Shared one-shot HTTP server helpers for adapter tests.
+#[cfg(test)]
+mod test_support;

@@ -1,5 +1,7 @@
 //! MCP client runtime for metadata discovery and mediated tool calls.
 
+use std::collections::BTreeMap;
+
 use serde_json::{Map, Value, json};
 use thiserror::Error;
 
@@ -270,12 +272,90 @@ fn parse_tool(value: &Value) -> Result<DiscoveredMcpTool, McpClientError> {
     })
 }
 
-fn string_field(object: &Map<String, Value>, field: &'static str) -> Result<String, String> {
+pub(crate) fn call_tool_params(
+    name: &str,
+    arguments: Value,
+) -> Result<rmcp::model::CallToolRequestParams, McpClientError> {
+    Ok(rmcp::model::CallToolRequestParams::new(name.to_string())
+        .with_arguments(call_tool_arguments(arguments)?))
+}
+
+pub(crate) fn call_tool_arguments(arguments: Value) -> Result<Map<String, Value>, McpClientError> {
+    match arguments {
+        Value::Object(arguments) => Ok(arguments),
+        Value::Null => Ok(Map::new()),
+        _ => Err(McpClientError::Malformed(
+            "MCP tool arguments must be an object".to_string(),
+        )),
+    }
+}
+
+pub(crate) fn call_tool_result_value(
+    result: rmcp::model::CallToolResult,
+) -> Result<Value, McpClientError> {
+    serde_json::to_value(result).map_err(|error| {
+        McpClientError::Malformed(format!("invalid MCP tools/call result: {error}"))
+    })
+}
+
+pub(crate) fn string_field(
+    object: &Map<String, Value>,
+    field: &'static str,
+) -> Result<String, String> {
     object
         .get(field)
         .and_then(Value::as_str)
         .map(ToString::to_string)
         .ok_or_else(|| format!("MCP config field {field} must be a string"))
+}
+
+pub(crate) fn optional_string_field(
+    object: &Map<String, Value>,
+    field: &'static str,
+) -> Result<Option<String>, String> {
+    match object.get(field) {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(value)) => Ok(Some(value.clone())),
+        Some(_) => Err(format!("MCP config field {field} must be a string")),
+    }
+}
+
+pub(crate) fn string_array_field(
+    object: &Map<String, Value>,
+    field: &'static str,
+) -> Result<Vec<String>, String> {
+    match object.get(field) {
+        None => Ok(Vec::new()),
+        Some(Value::Array(values)) => values
+            .iter()
+            .map(|value| {
+                value
+                    .as_str()
+                    .map(ToString::to_string)
+                    .ok_or_else(|| format!("MCP config field {field} must contain strings"))
+            })
+            .collect(),
+        Some(_) => Err(format!("MCP config field {field} must be an array")),
+    }
+}
+
+pub(crate) fn string_map_field(
+    object: &Map<String, Value>,
+    field: &'static str,
+) -> Result<BTreeMap<String, String>, String> {
+    match object.get(field) {
+        None | Some(Value::Null) => Ok(BTreeMap::new()),
+        Some(Value::Object(map)) => map
+            .iter()
+            .map(|(key, value)| {
+                value
+                    .as_str()
+                    .map(|string| (key.clone(), string.to_string()))
+                    .ok_or_else(|| format!("MCP config field {field} must contain string values"))
+            })
+            .collect(),
+        Some(_) => Err(format!("MCP config field {field} must be an object")),
+    }
 }
 
 #[cfg(test)]

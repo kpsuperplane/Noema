@@ -18,7 +18,7 @@ use crate::{
     SYSTEM_ERROR_PROVIDER_MALFORMED_RESPONSE, SystemErrorEvent, SystemErrorLogger,
     provider::{
         DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateInput, GenerateMessageRole, GenerateRequest,
-        GenerateResponse, GenerateStreamEvent, ModelProvider, PromptCacheRetention, ProviderError,
+        GenerateResponse, GenerateStreamEvent, ModelProvider, ProviderError,
         output_items_from_text, required_output_items_from_text,
     },
 };
@@ -167,8 +167,6 @@ struct CodexResponsesRequest {
     temperature: Option<f32>,
     store: bool,
     stream: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    prompt_cache_retention: Option<PromptCacheRetention>,
 }
 
 impl CodexResponsesRequest {
@@ -178,7 +176,6 @@ impl CodexResponsesRequest {
         instructions: Option<String>,
         max_output_tokens: Option<u32>,
         temperature: Option<f32>,
-        prompt_cache_retention: Option<PromptCacheRetention>,
     ) -> Self {
         Self {
             model,
@@ -188,7 +185,6 @@ impl CodexResponsesRequest {
             temperature,
             store: false,
             stream: true,
-            prompt_cache_retention,
         }
     }
 }
@@ -219,14 +215,12 @@ impl CodexResponsesProvider {
             .filter(|instructions| !instructions.trim().is_empty());
         let max_output_tokens = request.options.max_output_tokens;
         let temperature = request.options.temperature;
-        let prompt_cache_retention = request.options.prompt_cache_retention;
         let body = CodexResponsesRequest::new(
             model.clone(),
             &request.input,
             instructions.clone(),
             max_output_tokens,
             temperature,
-            prompt_cache_retention,
         );
         let diagnostics = ResponsesDiagnosticContext::new(
             self.system_errors.clone(),
@@ -272,7 +266,6 @@ impl CodexResponsesProvider {
                     instructions,
                     max_output_tokens,
                     temperature,
-                    prompt_cache_retention,
                 );
                 self.transport
                     .send_streaming(
@@ -420,17 +413,12 @@ impl ModelProvider for CodexResponsesProvider {
 mod tests {
     use super::*;
     use crate::provider::adapters::codex_oauth::CodexOAuthTokens;
+    use crate::provider::adapters::test_support::spawn_server;
     use crate::provider::{
         GenerateMessage, GenerateMessageRole, GenerateOptions, PromptCacheRetention,
     };
     use serde_json::Value;
-    use std::collections::HashMap;
     use tempfile::TempDir;
-    use tokio::{
-        io::{AsyncReadExt, AsyncWriteExt},
-        net::TcpListener,
-        sync::oneshot,
-    };
 
     #[test]
     fn rejects_missing_account_home() {
@@ -538,7 +526,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn sends_codex_transcript_messages_as_response_input_items() {
+    async fn sends_codex_transcript_messages_as_response_input_items_without_cache_retention() {
         let (base_url, request_rx) = spawn_server(
             200,
             "event: response.output_text.delta\n\
@@ -584,7 +572,7 @@ mod tests {
         assert_eq!(body["input"][1]["content"], "first durable answer");
         assert_eq!(body["input"][2]["role"], "user");
         assert_eq!(body["input"][2]["content"], "second durable question");
-        assert_eq!(body["prompt_cache_retention"], "24h");
+        assert!(body.get("prompt_cache_retention").is_none());
 
         assert_eq!(response.assistant_text(), "Hello again");
     }
@@ -730,48 +718,6 @@ mod tests {
         (provider, dir)
     }
 
-    #[derive(Debug)]
-    struct CapturedRequest {
-        method: String,
-        path: String,
-        headers: HashMap<String, String>,
-        body: String,
-    }
-
-    async fn spawn_server(
-        status: u16,
-        response_body: impl Into<String>,
-    ) -> (String, oneshot::Receiver<CapturedRequest>) {
-        let response_body = response_body.into();
-        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
-        let addr = listener.local_addr().expect("local addr");
-        let (request_tx, request_rx) = oneshot::channel();
-
-        tokio::spawn(async move {
-            let (mut socket, _) = listener.accept().await.expect("accept");
-            let request = read_request(&mut socket).await;
-            let _ = request_tx.send(request);
-
-            let reason = match status {
-                200 => "OK",
-                401 => "Unauthorized",
-                429 => "Too Many Requests",
-                _ => "Error",
-            };
-            let response = format!(
-                "HTTP/1.1 {status} {reason}\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n{}",
-                response_body.len(),
-                response_body
-            );
-            socket
-                .write_all(response.as_bytes())
-                .await
-                .expect("write response");
-        });
-
-        (format!("http://{addr}"), request_rx)
-    }
-
     fn sse_delta(delta: &str) -> String {
         format!(
             "event: response.output_text.delta\n\
@@ -787,69 +733,7 @@ mod tests {
     fn sse_completed() -> String {
         "event: response.completed\n\
          data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_test\",\"model\":\"gpt-test\",\"status\":\"completed\"}}\n\
-         \n"
+        \n"
         .to_string()
-    }
-
-    async fn read_request(socket: &mut tokio::net::TcpStream) -> CapturedRequest {
-        let mut bytes = Vec::new();
-        let mut buffer = [0_u8; 1024];
-        loop {
-            let read = socket.read(&mut buffer).await.expect("read request");
-            assert_ne!(read, 0, "client closed before complete request");
-            bytes.extend_from_slice(&buffer[..read]);
-            if bytes.windows(4).any(|window| window == b"\r\n\r\n") {
-                let text = String::from_utf8_lossy(&bytes);
-                if let Some(content_length) = parse_content_length(&text) {
-                    let header_end = bytes
-                        .windows(4)
-                        .position(|window| window == b"\r\n\r\n")
-                        .expect("header end")
-                        + 4;
-                    if bytes.len() >= header_end + content_length {
-                        break;
-                    }
-                }
-            }
-        }
-
-        parse_request(&bytes)
-    }
-
-    fn parse_request(bytes: &[u8]) -> CapturedRequest {
-        let header_end = bytes
-            .windows(4)
-            .position(|window| window == b"\r\n\r\n")
-            .expect("header end");
-        let headers_text = String::from_utf8(bytes[..header_end].to_vec()).expect("headers utf8");
-        let body = String::from_utf8(bytes[header_end + 4..].to_vec()).expect("body utf8");
-        let mut lines = headers_text.lines();
-        let request_line = lines.next().expect("request line");
-        let mut request_parts = request_line.split_whitespace();
-        let method = request_parts.next().expect("method").to_string();
-        let path = request_parts.next().expect("path").to_string();
-        let mut headers = HashMap::new();
-        for line in lines {
-            let Some((name, value)) = line.split_once(':') else {
-                continue;
-            };
-            headers.insert(name.to_ascii_lowercase(), value.trim().to_string());
-        }
-
-        CapturedRequest {
-            method,
-            path,
-            headers,
-            body,
-        }
-    }
-
-    fn parse_content_length(text: &str) -> Option<usize> {
-        text.lines().find_map(|line| {
-            let (name, value) = line.split_once(':')?;
-            (name.eq_ignore_ascii_case("content-length"))
-                .then(|| value.trim().parse().ok())
-                .flatten()
-        })
     }
 }
