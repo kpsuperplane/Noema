@@ -161,20 +161,23 @@ schema/API shape unless a separate decision document says otherwise.
 #### Cross-Client GraphQL DTO/Operation Consolidation
 
 - Scope IDs: `cli-003`, `ccd-003`
+- Current state: resolved/superseded by the 2026-07-03 campaign Task 1 removal
+  of `noema-cli`. The original audit evidence below is historical; there is no
+  remaining CLI DTO/operation surface to consolidate.
 - Files: `crates/noema-cli/src/graphql/mod.rs`,
   `crates/noema-cli/src/graphql/ws.rs`,
   `crates/noema-cli/src/inspection.rs`,
   `crates/noema-core/web/src/graphql/operations.ts`
 - Payoff: reduces schema drift between CLI string queries/manual serde DTOs and
   web generated operations.
-- Why medium-risk: both clients are live first-party API consumers;
-  consolidation can accidentally change selected fields or output formatting.
+- Original risk: both clients were live first-party API consumers at audit time;
+  consolidation could have accidentally changed selected fields or output
+  formatting.
 - Prerequisites: choose a behavior-preserving sharing/codegen approach without
   changing GraphQL schema.
-- Suggested shape: start with CLI memory list/detail DTO/selection dedupe; treat
-  broader Rust GraphQL codegen as a separate follow-up.
-- Validation: full Rust validation, CLI inspection/chat tests, and web
-  typegen/build if shared operations move.
+- Superseded shape: no implementation remains. Future GraphQL/codegen work
+  should target active web/desktop clients only.
+- Validation if revisited: full Rust validation and web typegen/build.
 
 #### Provider Adapter Test/Diagnostic Fixture Consolidation
 
@@ -218,7 +221,8 @@ Can bundle:
 - `GQL-003`, `GQL-004`, and `GQL-005`.
 - `MCP-003` through `MCP-006`, but land in sub-steps.
 - `memory-005` with `ccd-004` only if preserving all wire/persisted strings.
-- `cli-003` with a narrow first pass of `ccd-003`.
+- `cli-003`/CLI portions of `ccd-003` are resolved/superseded by Task 1; do not
+  bundle them as active work.
 
 Should isolate:
 
@@ -341,23 +345,24 @@ release semantics.
 #### Raw Daemon Protocol Surface
 
 - Scope IDs: `DC-004`, `DC-005`, `DC-006`, `DC-007`
+- Current state: resolved by the 2026-07-03 campaign Task 1 removal of the raw
+  daemon Unix-socket client/server and public request/response API. This is no
+  longer a pending decision point.
 - Files: `crates/noema-core/src/daemon/client.rs`,
   `crates/noema-core/src/daemon/protocol.rs`,
   `crates/noema-core/src/daemon/server.rs`,
   `crates/noema-core/src/paths.rs`,
   `crates/noema-core/src/lib.rs`
-- Decision required: whether raw Unix-socket chat clients and serialized daemon
-  protocol compatibility are still supported now that product chat uses
-  GraphQL.
+- Original decision: whether raw Unix-socket chat clients and serialized daemon
+  protocol compatibility were still supported once product chat used GraphQL.
 - Payoff: simplifies daemon protocol around lifecycle-only use.
 - Blast radius: public `DaemonClient`, request/response enums, CLI lifecycle,
   tests.
 - Failure modes: breaking hidden clients, stale protocol docs, removing
   errors/fields still needed for diagnostics.
-- Recommended artifact: protocol support statement: lifecycle-only vs public
-  chat API.
-- Validation: daemon client/server tests, CLI chat lifecycle tests, full Rust
-  validation.
+- Resulting artifact: raw socket compatibility is not supported pre-V1; web and
+  desktop use GraphQL/runtime paths. Historical daemon client/server tests were
+  removed with the surface.
 
 #### GraphQL Memory/Status Stale Fields
 
@@ -388,8 +393,8 @@ release semantics.
   committed generated assets.
 - Payoff: removes generated bundle churn from Rust source while preserving
   release serving.
-- Blast radius: release builds, debug asset loading, CI, dev-daemon watcher
-  behavior.
+- Blast radius: release builds, debug asset loading, CI, and historical dev
+  watcher behavior.
 - Failure modes: clean checkout cannot serve web UI, release binary misses
   assets, Rust rebuild loops return.
 - Recommended artifact: packaging design for when assets are built, embedded,
@@ -432,16 +437,19 @@ release semantics.
 #### CLI `noema context graph` Placeholder
 
 - Scope ID: `cli-002`
+- Current state: resolved/superseded by the 2026-07-03 campaign Task 1 removal
+  of `noema-cli`. The placeholder is no longer reachable and is not a current
+  implementation opportunity.
 - Files: `crates/noema-cli/src/inspection.rs`, CLI command wiring
-- Decision required: remove, implement against `memoryGraph`, or intentionally
+- Original decision: remove, implement against `memoryGraph`, or intentionally
   keep unavailable placeholder.
 - Payoff: removes a reachable dead-end CLI command or turns it into useful graph
   inspection.
 - Blast radius: CLI UX, parse tests, docs.
 - Failure modes: users hit unavailable command, or incompatible output format
   lands prematurely.
-- Recommended artifact: CLI inspection IA/output spec.
-- Validation: CLI parser and inspection output tests.
+- Future graph work should target active GraphQL/web/desktop inspection
+  surfaces.
 
 #### Frontend Audit Settings Placeholder
 
@@ -475,8 +483,8 @@ Why this order:
 
 - Provider selection and Capability Gateway decisions affect privacy/security
   assumptions that downstream refactors should not obscure.
-- Memory API and raw daemon protocol decisions define which public surfaces
-  refactors must preserve.
+- Memory API decisions define which public surfaces refactors must preserve;
+  raw daemon protocol preservation was resolved by Task 1 removal.
 - GraphQL schema and asset packaging decisions change generated/client-facing
   artifacts and should not be bundled with internal module splits.
 - Medium-risk refactors are easier and safer once product/security/API
@@ -494,7 +502,7 @@ Explicitly excluded low-risk deletion slices:
 - Provider-core unused exports and enum pieces.
 - MCP unused schema/test helper.
 - Provider-adapter unused wrappers.
-- CLI GraphQL facade.
+- CLI GraphQL facade (resolved by Task 1 `noema-cli` removal).
 - Frontend unused helpers/barrel.
 - Core misc unused helpers.
 - Desktop subscription serialization test cleanup.

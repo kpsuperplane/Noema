@@ -1348,6 +1348,10 @@ direct in-scope usage.
 
 ### cli
 
+Current state after the 2026-07-03 campaign Task 1 cleanup: `noema-cli` has
+been deleted, so `cli-*` findings below are historical audit evidence rather
+than active implementation opportunities.
+
 Files read in scope: `crates/noema-cli/Cargo.toml`, `commands.rs`,
 `commands/chat.rs`, `commands/config.rs`, `commands/memory.rs`,
 `commands/start.rs`, `dev.rs`, `graphql/http.rs`, `graphql/mod.rs`,
@@ -1371,6 +1375,8 @@ Findings:
   - Risk: low
 
 - `cli-002` - `crates/noema-cli/src/inspection.rs:55`
+  - Current status: resolved/superseded by Task 1 deletion of `noema-cli`; the
+    command is no longer live or user-visible.
   - Category: `speculative`, `dead_test`
   - LOC estimate: 45
   - Symbol: `ContextCommand::Graph` / `run_context`
@@ -1387,6 +1393,8 @@ Findings:
   - Risk: medium
 
 - `cli-003` - `crates/noema-cli/src/inspection.rs:158`
+  - Current status: resolved/superseded by Task 1 deletion of `noema-cli`; there
+    is no remaining CLI GraphQL DTO surface to refactor.
   - Category: `duplication`
   - LOC estimate: 50
   - Symbol: `GraphqlMemoryClaim`/`GraphqlMemoryClaimDetail` and
@@ -1546,6 +1554,9 @@ Findings:
   - Risk: low-medium
 
 - `ccd-003` - cross-client GraphQL duplication
+  - Current status: partially resolved/superseded by Task 1 deletion of
+    `noema-cli`. Any future codegen strategy should target active web/desktop
+    clients, not the deleted CLI.
   - Files:
     - `crates/noema-cli/src/graphql/mod.rs:19`
     - `crates/noema-cli/src/graphql/ws.rs:16`
@@ -1608,7 +1619,8 @@ Findings:
     `crates/`.
   - Evidence: Vite writes to `../src/daemon/web/assets`; release builds
     `include_bytes!` those files; debug builds read generated files from disk;
-    `dev-daemon` ignores asset changes to avoid Rust rebuild loops.
+    historically, the deleted `dev-daemon` watcher ignored asset changes to
+    avoid Rust rebuild loops.
   - References to check: release packaging requirements, CI/build-from-clean
     behavior, whether generated assets should stay committed or be produced in
     build/packaging.
@@ -1981,28 +1993,34 @@ Verdicts:
     `sanitize_context_packet_fragment`, JSON field, and tests/docs implying this
     path records a context packet.
 
-- `DC-004`: `needs_human`
+- `DC-004`: `resolved_by_task_1`
+  - Current status: resolved by Task 1 deletion of the raw daemon socket
+    client/server surface.
   - Evidence: `DaemonClient::{start_conversation, turn, turn_streaming}` have
     no in-repo product caller, but are public API/protocol. CLI chat uses
     GraphQL.
-  - Suggested slice: decide whether raw Unix-socket chat clients are supported.
-    If not, remove methods with matching daemon protocol branches/tests.
+  - Superseded slice: Task 1 decided raw daemon socket clients are unsupported
+    pre-V1 and removed the matching protocol branches/tests.
 
-- `DC-005`: `needs_human`
+- `DC-005`: `resolved_by_task_1`
+  - Current status: resolved by Task 1 deletion of the raw request/response
+    protocol surface.
   - Evidence: `DaemonRequest::ConversationStart.instructions` has no meaningful
     in-repo use, but is public serialized protocol. Client sends `None`; server
     ignores it.
   - Suggested slice: if raw daemon protocol compatibility is not needed, remove
     field and update client/server protocol tests.
 
-- `DC-006`: `needs_human`
+- `DC-006`: `resolved_by_task_1`
+  - Current status: resolved by Task 1 deletion of public raw socket helpers.
   - Evidence: `socket_path_for_home` duplicates `NoemaPaths` socket
     construction and only in-repo call is a daemon test, but helper is publicly
     exported.
   - Suggested slice: if public helper stability is not required, remove helper
     and re-export; use `NoemaPaths` in tests.
 
-- `DC-007`: `needs_human`
+- `DC-007`: `resolved_by_task_1`
+  - Current status: resolved by Task 1 protocol/error cleanup.
   - Evidence: `DaemonError::Memory` has no in-repo construction outside variant;
     runtime memory paths use `Store`, `Provider`, or `Protocol`; but
     `DaemonError` is public.
@@ -2305,22 +2323,26 @@ Verdicts:
   - Suggested slice: delete `graphql_client.rs` after mechanically rewriting
     CLI imports to `crate::graphql`.
 
-- `cli-002`: `needs_human`
-  - Evidence: `noema context` is live and user-visible, but execution is an
-    unavailable stub. Graph memory inspection exists elsewhere through GraphQL
-    `memory_graph` and the frontend memory graph page.
-  - Decision needed: remove the CLI surface, implement it against
-    `memoryGraph`, or intentionally keep the placeholder.
+- `cli-002`: `resolved_by_task_1`
+  - Current status: resolved/superseded by Task 1 deletion of `noema-cli`; this
+    is no longer a live/user-visible surface.
+  - Historical evidence: at audit time, `noema context` was live and
+    user-visible, but execution was an unavailable stub. Graph memory inspection
+    existed elsewhere through GraphQL `memory_graph` and the frontend memory
+    graph page.
+  - Superseded decision: Task 1 removed the CLI surface.
 
 - `cli-003`: `confirmed_cruft`
+  - Current status: resolved/superseded by Task 1 deletion of `noema-cli`; no
+    CLI DTO consolidation remains.
   - Evidence: CLI list/detail GraphQL selections and DTOs repeat claim and
     proposal fields. Paths are live through `run_memory` and output writers.
   - Classification note: refactor-only, not deletion-safe. Proposal list
     intentionally omits heavy JSON fields.
 
-Suggested CLI deletion slice: `cli-001` only. Treat `cli-003` as a later
-behavior-preserving refactor; keep `cli-002` out until the CLI API decision is
-made.
+Superseded note: the earlier suggested CLI deletion slice is obsolete. The
+campaign decision removed the whole CLI, including `cli-001`, `cli-002`, and
+`cli-003`.
 
 ### verify-frontend
 
@@ -2372,11 +2394,14 @@ Verdicts:
   - Suggested slice: remove wrappers, staged helpers, and tests that exist only
     to preserve those wrappers.
 
-- `ccd-003`: `needs_human`
-  - Evidence: duplicated CLI/web GraphQL operation and DTO surfaces are real,
-    but both clients are live.
-  - Decision needed: shared GraphQL operation/codegen strategy. No direct
-    deletion is safe.
+- `ccd-003`: `cli_portion_resolved_by_task_1`
+  - Current status: CLI half resolved/superseded by Task 1 deletion of
+    `noema-cli`; future work should consider active web/desktop GraphQL
+    codegen only.
+  - Historical evidence: duplicated CLI/web GraphQL operation and DTO surfaces
+    were real while both clients were live.
+  - Superseded decision: Task 1 removed the CLI half. Future codegen decisions
+    should target active web/desktop clients.
 
 - `ccd-004`: `confirmed_cruft`
   - Evidence: duplicate string vocabulary parsers are confirmed across MCP
@@ -2514,7 +2539,7 @@ the gateway policy/quarantine decision is made.
    - Validation: full Rust validation; provider adapter streaming and
      Foundation Local tests.
 
-9. CLI GraphQL facade
+9. CLI GraphQL facade (resolved by Task 1 `noema-cli` removal)
    - Scope ID: `cli-001`
    - Scope: `noema-cli/src/graphql_client.rs`, CLI imports
    - Safe because: facade only re-exports `crate::graphql`; callers are
@@ -2559,8 +2584,10 @@ the gateway policy/quarantine decision is made.
 - Provider adapter duplicated logging/test fixtures: `provider-adapters-006`,
   `provider-adapters-007`, `provider-adapters-008`
 - Desktop OAuth callback shared handling: `desktop-cruft-001`
-- CLI GraphQL DTO/selection consolidation: `cli-003`
-- Cross-client GraphQL/codegen strategy: `ccd-003`
+- CLI GraphQL DTO/selection consolidation: `cli-003` (resolved/superseded by
+  Task 1 `noema-cli` removal)
+- Cross-client GraphQL/codegen strategy: `ccd-003` (CLI portion
+  resolved/superseded by Task 1; active-client strategy remains separate)
 - Cross-module string vocabulary parsers: `ccd-004`
 - Gateway discarded fields: `core-misc-004`
 
@@ -2570,14 +2597,16 @@ the gateway policy/quarantine decision is made.
 - Capability policy/quarantine/owner extraction: `core-misc-001`,
   `core-misc-002`, `core-misc-003`
 - Provider selection/privacy semantics: `DR-003`, `DR-004`
-- Raw daemon protocol/public API: `DC-004`, `DC-005`, `DC-006`, `DC-007`
+- Resolved raw daemon protocol/public API: `DC-004`, `DC-005`, `DC-006`,
+  `DC-007` by Task 1 raw socket removal.
 - Evidence authority variants: `store-claims-004`
 - GraphQL memory/status fields: `GQL-006`, `GQL-008`
 - Provider response compatibility parser: `provider-core-004`
 - Foundation bridge lifecycle APIs: `provider-adapters-004`,
   `provider-adapters-005`
 - Desktop OAuth listener startup timing: `desktop-cruft-002`
-- CLI `noema context graph` placeholder: `cli-002`
+- CLI `noema context graph` placeholder: `cli-002` (resolved/superseded by Task
+  1 `noema-cli` removal)
 - Frontend Audit settings placeholder: `frontend-004`
 - Embedded generated web assets packaging: `ccd-005`
 

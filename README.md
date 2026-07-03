@@ -13,8 +13,15 @@ This repository currently contains the active Rust product paths:
 - `crates/noema-core/web`: the React product UI used by the web and desktop
   surfaces.
 
-There is currently no standalone Noema binary in this workspace. Local product
-work should use the core library, the web frontend package, or the desktop app.
+The old multi-command Noema CLI surface has been removed. For standalone local
+web development, `noema-core` now provides a narrow `noema_web` binary that
+loads configured provider/web settings and starts the GraphQL/web server. Local
+product work should use that web entrypoint, the core library, the web frontend
+package, or the desktop app.
+
+```bash
+NOEMA_HOME=.noema-dev cargo run -p noema-core --bin noema_web
+```
 
 ## Requirements
 
