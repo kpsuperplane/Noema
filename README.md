@@ -14,13 +14,13 @@ This repository currently contains the active Rust product paths:
   surfaces.
 
 The old multi-command Noema CLI surface has been removed. For standalone local
-web development, `noema-core` now provides a narrow `noema_web` binary that
-loads configured provider/web settings and starts the GraphQL/web server. Local
-product work should use that web entrypoint, the core library, the web frontend
-package, or the desktop app.
+web development, use the `cargo dev` supervisor. It runs the `noema_web`
+GraphQL/web server watcher next to the Bun web asset watcher. Local product work
+should use that web entrypoint, the core library, the web frontend package, or
+the desktop app.
 
 ```bash
-NOEMA_HOME=.noema-dev cargo run -p noema-core --bin noema_web
+NOEMA_HOME=.noema-dev cargo dev
 ```
 
 ## Requirements
@@ -126,6 +126,16 @@ bun run gen:types
 bun run lint
 bun run build
 ```
+
+For standalone web development, run the combined local supervisor from the repo
+root:
+
+```bash
+NOEMA_HOME=.noema-dev cargo dev
+```
+
+This expects `cargo-watch` to be installed because it restarts the Rust web
+server on backend changes.
 
 For frontend development against the desktop app, run the Tauri-oriented Vite
 build/watch task:

@@ -270,8 +270,9 @@ The next storage slice should stay small and concrete:
   builds, launches the bridge over stdio, performs handshake/health checks,
   creates a FoundationModels `LanguageModelSession`, forwards generation to the
   Swift bridge, and uses a longer generation response timeout than control
-  messages. The removed `cargo dev-daemon` alias no longer supervises a Swift
-  bridge watcher on macOS.
+  messages. `cargo dev` is the active local web supervisor and runs the web
+  asset watcher, `noema_web` watcher, and macOS Swift bridge watcher when the
+  bridge package is present.
   Unsupported Windows/Linux builds can still ship without the Swift bridge;
   Foundation Local remains unavailable there rather than blocking the rest of
   Noema. Primary chat continuity is owned by Noema's human primary conversation
