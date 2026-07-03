@@ -1,15 +1,23 @@
 import type { AriaRole, ReactNode } from "react";
-import { ChatSystemMessage, type ChatSystemMessageProps } from "@astryxdesign/core/Chat";
 import * as stylex from "@stylexjs/stylex";
 
 type TranscriptSystemNoticeTone = "default" | "success" | "warning" | "error";
-type ChatSystemMessageXStyle = ChatSystemMessageProps["xstyle"];
 
 const styles = stylex.create({
   root: {
+    display: "grid",
     width: "100%",
     maxWidth: 760,
-    minWidth: 0
+    minWidth: 0,
+    justifyItems: "center",
+    paddingBlock: 4,
+    fontFamily: "var(--noema-font-body)",
+    fontSize: 13,
+    fontWeight: 400,
+    lineHeight: 1.5,
+    overflowWrap: "anywhere",
+    textAlign: "center",
+    wordBreak: "break-word"
   },
   content: {
     display: "inline-flex",
@@ -60,23 +68,22 @@ export function TranscriptSystemNotice({
   tone?: TranscriptSystemNoticeTone;
 }) {
   return (
-    <ChatSystemMessage role={role} xstyle={chatSystemMessageXStyle(styles.root)}>
+    <div
+      {...stylex.props(
+        styles.root,
+        tone === "default" && styles.defaultTone,
+        tone === "success" && styles.successTone,
+        tone === "warning" && styles.warningTone,
+        tone === "error" && styles.errorTone
+      )}
+      role={role ?? "status"}
+    >
       <span
-        {...stylex.props(
-          styles.content,
-          tone === "default" && styles.defaultTone,
-          tone === "success" && styles.successTone,
-          tone === "warning" && styles.warningTone,
-          tone === "error" && styles.errorTone
-        )}
+        {...stylex.props(styles.content)}
       >
         {label ? <strong {...stylex.props(styles.label)}>{label}</strong> : null}
         <span {...stylex.props(styles.message)}>{children}</span>
       </span>
-    </ChatSystemMessage>
+    </div>
   );
-}
-
-function chatSystemMessageXStyle(xstyle: unknown): ChatSystemMessageXStyle {
-  return xstyle as unknown as ChatSystemMessageXStyle;
 }
