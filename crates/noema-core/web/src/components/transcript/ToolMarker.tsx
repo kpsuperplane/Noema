@@ -39,7 +39,8 @@ const styles = stylex.create({
 const toolCallsStyle = {
   width: "fit-content",
   maxWidth: "100%",
-  minWidth: 0
+  minWidth: 0,
+  overflow: "hidden"
 };
 
 export function ToolMarker({
