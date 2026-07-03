@@ -10,91 +10,83 @@ use crate::{
 
 #[test]
 fn trusted_identity_selectors_normalize_email_phone_and_domain() {
-    assert_eq!(
-        normalize_trusted_identity_value(TrustedIdentitySelectorKind::Email, " Kevin@Example.COM "),
-        Some("kevin@example.com".to_string())
-    );
-    assert_eq!(
-        normalize_trusted_identity_value(
+    let cases = [
+        (
             TrustedIdentitySelectorKind::Email,
-            " Kevin+Noema_1@Example.COM "
+            " Kevin@Example.COM ",
+            Some("kevin@example.com"),
         ),
-        Some("kevin+noema_1@example.com".to_string())
-    );
-    assert_eq!(
-        normalize_trusted_identity_value(TrustedIdentitySelectorKind::Domain, " Example.COM "),
-        Some("example.com".to_string())
-    );
-    assert_eq!(
-        normalize_trusted_identity_value(TrustedIdentitySelectorKind::Phone, " +1 (415) 555-0100 "),
-        Some("+14155550100".to_string())
-    );
-    assert_eq!(
-        normalize_trusted_identity_value(TrustedIdentitySelectorKind::Phone, "+1-415-555-0100"),
-        Some("+14155550100".to_string())
-    );
-    assert_eq!(
-        normalize_trusted_identity_value(TrustedIdentitySelectorKind::Phone, "+1-415-555-0100abc"),
-        None
-    );
-    assert_eq!(
-        normalize_trusted_identity_value(TrustedIdentitySelectorKind::Phone, "+1+4155550100"),
-        None
-    );
-    assert_eq!(
-        normalize_trusted_identity_value(TrustedIdentitySelectorKind::Phone, "415.555.0100"),
-        None
-    );
-    assert_eq!(
-        normalize_trusted_identity_value(TrustedIdentitySelectorKind::Phone, "1-415-555-0100"),
-        None
-    );
-    assert_eq!(
-        normalize_trusted_identity_value(TrustedIdentitySelectorKind::Phone, " ext. "),
-        None
-    );
-    assert_eq!(
-        normalize_trusted_identity_value(TrustedIdentitySelectorKind::Email, " "),
-        None
-    );
-    assert_eq!(
-        normalize_trusted_identity_value(TrustedIdentitySelectorKind::Email, "kevin@@example.com"),
-        None
-    );
-    assert_eq!(
-        normalize_trusted_identity_value(TrustedIdentitySelectorKind::Email, "kevin@example"),
-        None
-    );
-    assert_eq!(
-        normalize_trusted_identity_value(TrustedIdentitySelectorKind::Email, ".kevin@example.com"),
-        None
-    );
-    assert_eq!(
-        normalize_trusted_identity_value(
+        (
             TrustedIdentitySelectorKind::Email,
-            "kevin..x@example.com"
+            " Kevin+Noema_1@Example.COM ",
+            Some("kevin+noema_1@example.com"),
         ),
-        None
-    );
-    assert_eq!(
-        normalize_trusted_identity_value(TrustedIdentitySelectorKind::Email, "bad()@example.com"),
-        None
-    );
-    assert_eq!(
-        normalize_trusted_identity_value(
+        (
             TrustedIdentitySelectorKind::Domain,
-            "https://example.com"
+            " Example.COM ",
+            Some("example.com"),
         ),
-        None
-    );
-    assert_eq!(
-        normalize_trusted_identity_value(TrustedIdentitySelectorKind::Domain, "bad-.example.com"),
-        None
-    );
-    assert_eq!(
-        normalize_trusted_identity_value(TrustedIdentitySelectorKind::Domain, "example com"),
-        None
-    );
+        (
+            TrustedIdentitySelectorKind::Phone,
+            " +1 (415) 555-0100 ",
+            Some("+14155550100"),
+        ),
+        (
+            TrustedIdentitySelectorKind::Phone,
+            "+1-415-555-0100",
+            Some("+14155550100"),
+        ),
+        (
+            TrustedIdentitySelectorKind::Phone,
+            "+1-415-555-0100abc",
+            None,
+        ),
+        (TrustedIdentitySelectorKind::Phone, "+1+4155550100", None),
+        (TrustedIdentitySelectorKind::Phone, "415.555.0100", None),
+        (TrustedIdentitySelectorKind::Phone, "1-415-555-0100", None),
+        (TrustedIdentitySelectorKind::Phone, " ext. ", None),
+        (TrustedIdentitySelectorKind::Email, " ", None),
+        (
+            TrustedIdentitySelectorKind::Email,
+            "kevin@@example.com",
+            None,
+        ),
+        (TrustedIdentitySelectorKind::Email, "kevin@example", None),
+        (
+            TrustedIdentitySelectorKind::Email,
+            ".kevin@example.com",
+            None,
+        ),
+        (
+            TrustedIdentitySelectorKind::Email,
+            "kevin..x@example.com",
+            None,
+        ),
+        (
+            TrustedIdentitySelectorKind::Email,
+            "bad()@example.com",
+            None,
+        ),
+        (
+            TrustedIdentitySelectorKind::Domain,
+            "https://example.com",
+            None,
+        ),
+        (
+            TrustedIdentitySelectorKind::Domain,
+            "bad-.example.com",
+            None,
+        ),
+        (TrustedIdentitySelectorKind::Domain, "example com", None),
+    ];
+
+    for (kind, value, expected) in cases {
+        assert_eq!(
+            normalize_trusted_identity_value(kind, value),
+            expected.map(str::to_string),
+            "{kind:?} should normalize {value:?}"
+        );
+    }
 }
 
 #[tokio::test]
@@ -384,42 +376,16 @@ async fn delete_mcp_server_removes_server_tools_and_calibrations() {
 
 #[tokio::test]
 async fn calibration_blocks_unresolved_ownership_until_reviewed() {
-    let store = test_store().await;
-    store
-        .create_mcp_server(NewMcpServer {
-            mcp_server_id: "mcp_server:google".to_string(),
-            display_name: "Google".to_string(),
-            transport_kind: McpTransportKind::Stdio,
-            safe_config: json!({}),
-        })
-        .await
-        .expect("create server");
-    store
-        .upsert_discovered_mcp_tool(NewMcpTool {
-            mcp_tool_id: "mcp_tool:google:read_doc".to_string(),
-            mcp_server_id: "mcp_server:google".to_string(),
-            name: "read_doc".to_string(),
-            description: Some("Read a document".to_string()),
-            input_schema: json!({"type": "object"}),
-            output_schema: None,
-            annotations: json!({"readOnlyHint": true}),
-            metadata_fingerprint: "fingerprint_1".to_string(),
-        })
-        .await
-        .expect("upsert tool");
+    let store = test_store_with_mcp_tool().await;
 
     let calibration = store
-        .save_tool_calibration(NewToolCalibration {
-            calibration_id: "tool_calibration:read_doc".to_string(),
-            mcp_tool_id: "mcp_tool:google:read_doc".to_string(),
-            read_classification: McpTrustClassification::Mixed,
-            write_classification: McpTrustClassification::None,
-            export_classification: McpTrustClassification::None,
-            owner_extractors: Vec::new(),
-            status: McpCalibrationStatus::BlockedUnresolvedOwnership,
-            reviewed_by: Some("human:local".to_string()),
-            reviewed_metadata_fingerprint: Some("fingerprint_1".to_string()),
-        })
+        .save_tool_calibration(google_read_calibration(
+            McpTrustClassification::Mixed,
+            McpTrustClassification::None,
+            Vec::new(),
+            McpCalibrationStatus::BlockedUnresolvedOwnership,
+            "fingerprint_1",
+        ))
         .await
         .expect("save calibration");
 
@@ -453,17 +419,13 @@ async fn ready_mixed_calibration_requires_owner_extractor() {
     let store = test_store_with_mcp_tool().await;
 
     let error = store
-        .save_tool_calibration(NewToolCalibration {
-            calibration_id: "tool_calibration:read_doc".to_string(),
-            mcp_tool_id: "mcp_tool:google:read_doc".to_string(),
-            read_classification: McpTrustClassification::Mixed,
-            write_classification: McpTrustClassification::None,
-            export_classification: McpTrustClassification::None,
-            owner_extractors: Vec::new(),
-            status: McpCalibrationStatus::Ready,
-            reviewed_by: Some("human:local".to_string()),
-            reviewed_metadata_fingerprint: Some("fingerprint_1".to_string()),
-        })
+        .save_tool_calibration(google_read_calibration(
+            McpTrustClassification::Mixed,
+            McpTrustClassification::None,
+            Vec::new(),
+            McpCalibrationStatus::Ready,
+            "fingerprint_1",
+        ))
         .await
         .expect_err("ready mixed calibration without extractor should fail");
 
@@ -475,17 +437,13 @@ async fn ready_calibration_requires_at_least_one_non_none_classification() {
     let store = test_store_with_mcp_tool().await;
 
     let error = store
-        .save_tool_calibration(NewToolCalibration {
-            calibration_id: "tool_calibration:read_doc".to_string(),
-            mcp_tool_id: "mcp_tool:google:read_doc".to_string(),
-            read_classification: McpTrustClassification::None,
-            write_classification: McpTrustClassification::None,
-            export_classification: McpTrustClassification::None,
-            owner_extractors: Vec::new(),
-            status: McpCalibrationStatus::Ready,
-            reviewed_by: Some("human:local".to_string()),
-            reviewed_metadata_fingerprint: Some("fingerprint_1".to_string()),
-        })
+        .save_tool_calibration(google_read_calibration(
+            McpTrustClassification::None,
+            McpTrustClassification::None,
+            Vec::new(),
+            McpCalibrationStatus::Ready,
+            "fingerprint_1",
+        ))
         .await
         .expect_err("ready calibration with no allowed axes should fail");
 
@@ -531,19 +489,7 @@ async fn ready_calibration_enables_mcp_server() {
 #[tokio::test]
 async fn batch_calibration_rolls_back_saved_rows_and_enabled_state_on_mid_batch_failure() {
     let store = test_store_with_mcp_tool().await;
-    store
-        .upsert_discovered_mcp_tool(NewMcpTool {
-            mcp_tool_id: "mcp_tool:google:write_doc".to_string(),
-            mcp_server_id: "mcp_server:google".to_string(),
-            name: "write_doc".to_string(),
-            description: Some("Write a document".to_string()),
-            input_schema: json!({"type": "object"}),
-            output_schema: None,
-            annotations: json!({}),
-            metadata_fingerprint: "fingerprint_write".to_string(),
-        })
-        .await
-        .expect("upsert second tool");
+    upsert_google_tool(&store, "write_doc", json!({}), "fingerprint_write").await;
 
     let error = store
         .save_tool_calibrations(vec![
@@ -601,19 +547,13 @@ async fn batch_calibration_rolls_back_saved_rows_and_enabled_state_on_mid_batch_
 #[tokio::test]
 async fn calibration_id_cannot_move_between_tools() {
     let store = test_store_with_mcp_tool().await;
-    store
-        .upsert_discovered_mcp_tool(NewMcpTool {
-            mcp_tool_id: "mcp_tool:google:write_doc".to_string(),
-            mcp_server_id: "mcp_server:google".to_string(),
-            name: "write_doc".to_string(),
-            description: Some("Write a document".to_string()),
-            input_schema: json!({"type": "object"}),
-            output_schema: None,
-            annotations: json!({"destructiveHint": true}),
-            metadata_fingerprint: "fingerprint_write".to_string(),
-        })
-        .await
-        .expect("upsert second tool");
+    upsert_google_tool(
+        &store,
+        "write_doc",
+        json!({"destructiveHint": true}),
+        "fingerprint_write",
+    )
+    .await;
 
     store
         .save_tool_calibration(ready_mixed_calibration("fingerprint_1"))
@@ -648,14 +588,8 @@ async fn rediscovered_tool_metadata_invalidates_reviewed_calibration() {
 
     store
         .upsert_discovered_mcp_tool(NewMcpTool {
-            mcp_tool_id: "mcp_tool:google:read_doc".to_string(),
-            mcp_server_id: "mcp_server:google".to_string(),
-            name: "read_doc".to_string(),
-            description: Some("Read a document".to_string()),
             input_schema: json!({"type": "object", "properties": {"id": {"type": "string"}}}),
-            output_schema: None,
-            annotations: json!({"readOnlyHint": true}),
-            metadata_fingerprint: "fingerprint_2".to_string(),
+            ..google_tool("read_doc", json!({"readOnlyHint": true}), "fingerprint_2")
         })
         .await
         .expect("refresh tool metadata");
@@ -704,43 +638,82 @@ async fn stores_trusted_identity_selector_normalized() {
 async fn test_store_with_mcp_tool() -> crate::NoemaStore {
     let store = test_store().await;
     store
-        .create_mcp_server(NewMcpServer {
-            mcp_server_id: "mcp_server:google".to_string(),
-            display_name: "Google".to_string(),
-            transport_kind: McpTransportKind::Stdio,
-            safe_config: json!({}),
-        })
+        .create_mcp_server(google_server())
         .await
         .expect("create server");
-    store
-        .upsert_discovered_mcp_tool(NewMcpTool {
-            mcp_tool_id: "mcp_tool:google:read_doc".to_string(),
-            mcp_server_id: "mcp_server:google".to_string(),
-            name: "read_doc".to_string(),
-            description: Some("Read a document".to_string()),
-            input_schema: json!({"type": "object"}),
-            output_schema: None,
-            annotations: json!({"readOnlyHint": true}),
-            metadata_fingerprint: "fingerprint_1".to_string(),
-        })
-        .await
-        .expect("upsert tool");
+    upsert_google_tool(
+        &store,
+        "read_doc",
+        json!({"readOnlyHint": true}),
+        "fingerprint_1",
+    )
+    .await;
     store
 }
 
+fn google_server() -> NewMcpServer {
+    NewMcpServer {
+        mcp_server_id: "mcp_server:google".to_string(),
+        display_name: "Google".to_string(),
+        transport_kind: McpTransportKind::Stdio,
+        safe_config: json!({}),
+    }
+}
+
+fn google_tool(name: &str, annotations: serde_json::Value, fingerprint: &str) -> NewMcpTool {
+    NewMcpTool {
+        mcp_tool_id: format!("mcp_tool:google:{name}"),
+        mcp_server_id: "mcp_server:google".to_string(),
+        name: name.to_string(),
+        description: Some(name.replace('_', " ")),
+        input_schema: json!({"type": "object"}),
+        output_schema: None,
+        annotations,
+        metadata_fingerprint: fingerprint.to_string(),
+    }
+}
+
+async fn upsert_google_tool(
+    store: &crate::NoemaStore,
+    name: &str,
+    annotations: serde_json::Value,
+    fingerprint: &str,
+) {
+    store
+        .upsert_discovered_mcp_tool(google_tool(name, annotations, fingerprint))
+        .await
+        .expect("upsert tool");
+}
+
 fn ready_mixed_calibration(reviewed_metadata_fingerprint: &str) -> NewToolCalibration {
-    NewToolCalibration {
-        calibration_id: "tool_calibration:read_doc".to_string(),
-        mcp_tool_id: "mcp_tool:google:read_doc".to_string(),
-        read_classification: McpTrustClassification::Mixed,
-        write_classification: McpTrustClassification::None,
-        export_classification: McpTrustClassification::None,
-        owner_extractors: vec![OwnerExtractor {
+    google_read_calibration(
+        McpTrustClassification::Mixed,
+        McpTrustClassification::None,
+        vec![OwnerExtractor {
             source: OwnerExtractorSource::Arguments,
             selector_kind: TrustedIdentitySelectorKind::Email,
             path: "/owner/email".to_string(),
         }],
-        status: McpCalibrationStatus::Ready,
+        McpCalibrationStatus::Ready,
+        reviewed_metadata_fingerprint,
+    )
+}
+
+fn google_read_calibration(
+    read_classification: McpTrustClassification,
+    write_classification: McpTrustClassification,
+    owner_extractors: Vec<OwnerExtractor>,
+    status: McpCalibrationStatus,
+    reviewed_metadata_fingerprint: &str,
+) -> NewToolCalibration {
+    NewToolCalibration {
+        calibration_id: "tool_calibration:read_doc".to_string(),
+        mcp_tool_id: "mcp_tool:google:read_doc".to_string(),
+        read_classification,
+        write_classification,
+        export_classification: McpTrustClassification::None,
+        owner_extractors,
+        status,
         reviewed_by: Some("human:local".to_string()),
         reviewed_metadata_fingerprint: Some(reviewed_metadata_fingerprint.to_string()),
     }

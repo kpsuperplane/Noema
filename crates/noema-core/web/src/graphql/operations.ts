@@ -165,19 +165,6 @@ export const McpApprovalSettingsDocument = gql`
   }
 `;
 
-export const SaveToolCalibrationDocument = gql`
-  mutation SaveToolCalibration($input: SaveToolCalibrationInput!) {
-    saveToolCalibration(input: $input) {
-      calibrationId
-      mcpToolId
-      status
-      readClassification
-      writeClassification
-      exportClassification
-    }
-  }
-`;
-
 export const SaveToolCalibrationsDocument = gql`
   mutation SaveToolCalibrations($inputs: [SaveToolCalibrationInput!]!) {
     saveToolCalibrations(inputs: $inputs) {
@@ -210,116 +197,67 @@ export const AutofillToolCalibrationsDocument = gql`
   }
 `;
 
-export const CreateMcpServerDocument = gql`
-  mutation CreateMcpServer($input: CreateMcpServerInput!) {
-    createMcpServer(input: $input) {
-      setupStatus
-      discoveryStatus
-      discoveredToolCount
-      setupError
-      auth {
-        oauthClientCredentialsSupported
-        oauthAuthorizationSupported
-        scopes
-      }
-      server {
-        mcpServerId
-        displayName
-        transportKind
-        enabled
-        healthStatus
-        authStatus
-        toolCount
-      }
+const McpServerSetupResultFields = gql`
+  fragment McpServerSetupResultFields on McpServerSetupResult {
+    setupStatus
+    discoveryStatus
+    discoveredToolCount
+    setupError
+    auth {
+      oauthClientCredentialsSupported
+      oauthAuthorizationSupported
+      scopes
+    }
+    server {
+      mcpServerId
+      displayName
+      transportKind
+      enabled
+      healthStatus
+      authStatus
+      toolCount
     }
   }
 `;
 
-export const ContinueMcpServerSetupDocument = gql`
-  mutation ContinueMcpServerSetup($input: ContinueMcpServerSetupInput!) {
-    continueMcpServerSetup(input: $input) {
-      setupStatus
-      discoveryStatus
-      discoveredToolCount
-      setupError
-      auth {
-        oauthClientCredentialsSupported
-        oauthAuthorizationSupported
-        scopes
-      }
-      server {
-        mcpServerId
-        displayName
-        transportKind
-        enabled
-        healthStatus
-        authStatus
-        toolCount
-      }
+const McpOAuthSetupAttemptFields = gql`
+  fragment McpOAuthSetupAttemptFields on McpOAuthSetupAttempt {
+    attemptId
+    status
+    authorizationUrl
+    errorMessage
+    setupResult {
+      ...McpServerSetupResultFields
     }
   }
+  ${McpServerSetupResultFields}
+`;
+
+export const CreateMcpServerDocument = gql`
+  mutation CreateMcpServer($input: CreateMcpServerInput!) {
+    createMcpServer(input: $input) {
+      ...McpServerSetupResultFields
+    }
+  }
+  ${McpServerSetupResultFields}
 `;
 
 export const StartMcpServerOauthSetupDocument = gql`
   mutation StartMcpServerOauthSetup($input: StartMcpServerOAuthSetupInput!) {
     startMcpServerOauthSetup(input: $input) {
-      attemptId
-      status
-      authorizationUrl
-      errorMessage
-      setupResult {
-        setupStatus
-        discoveryStatus
-        discoveredToolCount
-        setupError
-        auth {
-          oauthClientCredentialsSupported
-          oauthAuthorizationSupported
-          scopes
-        }
-        server {
-          mcpServerId
-          displayName
-          transportKind
-          enabled
-          healthStatus
-          authStatus
-          toolCount
-        }
-      }
+      ...McpOAuthSetupAttemptFields
     }
   }
+  ${McpOAuthSetupAttemptFields}
 `;
 
 export const McpOauthSetupAttemptDocument = gql`
   query McpOauthSetupAttempt($attemptId: String!) {
     mcpOauthSetupAttempt(attemptId: $attemptId) {
-      attemptId
-      status
-      authorizationUrl
-      errorMessage
-      setupResult {
-        setupStatus
-        discoveryStatus
-        discoveredToolCount
-        setupError
-        auth {
-          oauthClientCredentialsSupported
-          oauthAuthorizationSupported
-          scopes
-        }
-        server {
-          mcpServerId
-          displayName
-          transportKind
-          enabled
-          healthStatus
-          authStatus
-          toolCount
-        }
-      }
+      ...McpOAuthSetupAttemptFields
     }
   }
+  ${McpOAuthSetupAttemptFields}
 `;
 
 export const DeleteMcpServerDocument = gql`
