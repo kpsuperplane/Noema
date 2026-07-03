@@ -37,6 +37,18 @@ export function shouldSubmitFromPointerDown({
   return pointerType !== "mouse" && button === 0 && isPrimary && canSend({ ready, value });
 }
 
+export function shouldSubmitFromTouchStart({
+  ready,
+  value,
+  touchCount
+}: {
+  ready: boolean;
+  value: string;
+  touchCount: number;
+}) {
+  return touchCount === 1 && canSend({ ready, value });
+}
+
 export function composerTextareaProps() {
   return {
     rows: 1

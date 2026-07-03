@@ -8,7 +8,8 @@ import {
   composerSubmitState,
   composerTextareaProps,
   isComposerTextareaDisabled,
-  shouldSubmitFromPointerDown
+  shouldSubmitFromPointerDown,
+  shouldSubmitFromTouchStart
 } from "./composerModel";
 
 export {
@@ -16,7 +17,8 @@ export {
   composerSubmitState,
   composerTextareaProps,
   isComposerTextareaDisabled,
-  shouldSubmitFromPointerDown
+  shouldSubmitFromPointerDown,
+  shouldSubmitFromTouchStart
 } from "./composerModel";
 
 const composerMinWidthCh = 18;
@@ -267,6 +269,7 @@ export const Composer = React.forwardRef<HTMLTextAreaElement, ComposerProps>(fun
 ) {
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
   const ignoreNextClickRef = React.useRef(false);
+  const earlyActivationSubmittedRef = React.useRef(false);
   const setTextareaRef = React.useCallback(
     (textarea: HTMLTextAreaElement | null) => {
       textareaRef.current = textarea;
@@ -289,11 +292,22 @@ export const Composer = React.forwardRef<HTMLTextAreaElement, ComposerProps>(fun
     return true;
   }
 
-  function suppressSyntheticClick() {
+  function suppressSyntheticActivation() {
     ignoreNextClickRef.current = true;
+    earlyActivationSubmittedRef.current = true;
     window.setTimeout(() => {
       ignoreNextClickRef.current = false;
+      earlyActivationSubmittedRef.current = false;
     }, 500);
+  }
+
+  function submitFromEarlyActivation(nextValue: string) {
+    if (earlyActivationSubmittedRef.current) {
+      return;
+    }
+
+    suppressSyntheticActivation();
+    submit(nextValue);
   }
 
   const submitState = composerSubmitState({ ready, pending, value });
@@ -432,6 +446,21 @@ export const Composer = React.forwardRef<HTMLTextAreaElement, ComposerProps>(fun
           variant="secondary"
           xstyle={astryxXStyle(styles.submit)}
           isDisabled={submitState.disabled}
+          onTouchStart={(event) => {
+            const nextValue = textareaRef.current?.value ?? value;
+            if (
+              !shouldSubmitFromTouchStart({
+                ready,
+                value: nextValue,
+                touchCount: event.touches.length
+              })
+            ) {
+              return;
+            }
+
+            event.preventDefault();
+            submitFromEarlyActivation(nextValue);
+          }}
           onPointerDown={(event) => {
             const nextValue = textareaRef.current?.value ?? value;
             if (
@@ -447,8 +476,7 @@ export const Composer = React.forwardRef<HTMLTextAreaElement, ComposerProps>(fun
             }
 
             event.preventDefault();
-            suppressSyntheticClick();
-            submit(nextValue);
+            submitFromEarlyActivation(nextValue);
           }}
           onClick={(event) => {
             if (ignoreNextClickRef.current) {
