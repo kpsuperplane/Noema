@@ -184,7 +184,12 @@ The next storage slice should stay small and concrete:
   failed tool results that are still fed back to the provider for same-turn
   recovery or explanation, while raw transport/tool diagnostics are written to
   `errors.log` under `mcp_tool_call_failure`. User-facing setup errors are
-  sanitized while raw transport details stay out of the web form.
+  sanitized while raw transport details stay out of the web form. Runtime MCP
+  call failures now mark the server unhealthy in persisted setup state; auth
+  shaped failures also mark the server as needing authentication. MCP Settings
+  exposes a per-server reauthentication dialog that retries persisted setup
+  discovery through the existing continue-setup path with replacement secrets or
+  OAuth client credentials.
   Web Settings also exposes MCPs, Trusted Identities, and Approvals surfaces
   backed by GraphQL read models where live data exists.
 - Routed web surfaces learn shell-owned deck state through

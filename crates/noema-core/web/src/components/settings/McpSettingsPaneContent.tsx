@@ -1,5 +1,5 @@
 import * as React from "react";
-import { AlertTriangle, RefreshCw, Settings2, Trash2 } from "lucide-react";
+import { AlertTriangle, KeyRound, RefreshCw, Settings2, Trash2 } from "lucide-react";
 import { Badge } from "@astryxdesign/core/Badge";
 import { Button } from "@astryxdesign/core/Button";
 import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
@@ -14,8 +14,9 @@ import {
   McpServerSetupFlow,
   type McpServerSetupResult
 } from "./McpServerSetupFlow";
+import { McpServerReauthenticationDialog } from "./McpServerReauthenticationDialog";
 import { McpToolPermissionsModal } from "./McpToolPermissionsModal";
-import type { McpSetupFormSubmission } from "./mcpSetupForm";
+import type { McpSetupContinueSubmission, McpSetupFormSubmission } from "./mcpSetupForm";
 
 export function McpSettingsPaneContent({
   servers,
@@ -28,6 +29,10 @@ export function McpSettingsPaneContent({
   setupError = null,
   permissionsServerId = null,
   autoAutofillServerId = null,
+  reauthServerId = null,
+  reauthSubmitting = false,
+  reauthError = null,
+  reauthResult = null,
   deleteSubmitting = false,
   deleteError = null,
   onOpenSetup = () => {},
@@ -35,6 +40,9 @@ export function McpSettingsPaneContent({
   onCreateServer = () => {},
   onStartOAuth = () => {},
   onOpenPermissions = () => {},
+  onOpenReauth = () => {},
+  onCloseReauth = () => {},
+  onContinueServerSetup = () => {},
   onClosePermissions = () => {},
   onAutoAutofillComplete = () => {},
   onDeleteServer = async () => false,
@@ -50,6 +58,10 @@ export function McpSettingsPaneContent({
   setupError?: string | null;
   permissionsServerId?: string | null;
   autoAutofillServerId?: string | null;
+  reauthServerId?: string | null;
+  reauthSubmitting?: boolean;
+  reauthError?: string | null;
+  reauthResult?: McpServerSetupResult | null;
   deleteSubmitting?: boolean;
   deleteError?: string | null;
   onOpenSetup?: () => void;
@@ -57,6 +69,9 @@ export function McpSettingsPaneContent({
   onCreateServer?: (input: McpSetupFormSubmission) => void;
   onStartOAuth?: (input: McpSetupFormSubmission) => void;
   onOpenPermissions?: (mcpServerId: string) => void;
+  onOpenReauth?: (mcpServerId: string) => void;
+  onCloseReauth?: () => void;
+  onContinueServerSetup?: (input: McpSetupContinueSubmission) => void;
   onClosePermissions?: () => void;
   onAutoAutofillComplete?: () => void;
   onDeleteServer?: (mcpServerId: string) => Promise<boolean>;
@@ -65,6 +80,8 @@ export function McpSettingsPaneContent({
   const [deleteTargetId, setDeleteTargetId] = React.useState<string | null>(null);
   const selectedPermissionsServer =
     servers.find((server) => server.mcpServerId === permissionsServerId) ?? null;
+  const reauthServer =
+    servers.find((server) => server.mcpServerId === reauthServerId) ?? null;
   const deleteTarget = servers.find((server) => server.mcpServerId === deleteTargetId) ?? null;
 
   if (loading) {
@@ -144,6 +161,15 @@ export function McpSettingsPaneContent({
                 icon={<Settings2 {...stylex.props(styles.icon)} aria-hidden="true" />}
                 onClick={() => onOpenPermissions(server.mcpServerId)}
               />
+              {mcpServerNeedsReauth(server) ? (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  label="Reauthenticate"
+                  icon={<KeyRound {...stylex.props(styles.icon)} aria-hidden="true" />}
+                  onClick={() => onOpenReauth(server.mcpServerId)}
+                />
+              ) : null}
               <Button
                 type="button"
                 variant="destructive"
@@ -193,6 +219,18 @@ export function McpSettingsPaneContent({
           }}
         />
       ) : null}
+      <McpServerReauthenticationDialog
+        key={reauthServer?.mcpServerId ?? "mcp-reauthentication"}
+        server={reauthServer}
+        open={reauthServer !== null}
+        submitting={reauthSubmitting}
+        error={reauthError}
+        setupResult={reauthResult}
+        onOpenChange={(open) => {
+          if (!open) onCloseReauth();
+        }}
+        onSubmit={onContinueServerSetup}
+      />
       <DeleteMcpServerDialog
         server={deleteTarget}
         open={deleteTarget !== null}
@@ -209,6 +247,10 @@ export function McpSettingsPaneContent({
       />
     </div>
   );
+}
+
+function mcpServerNeedsReauth(server: McpSettingsServer) {
+  return server.healthStatus === "unavailable" || !["none", "authenticated"].includes(server.authStatus);
 }
 
 function DeleteMcpServerDialog({

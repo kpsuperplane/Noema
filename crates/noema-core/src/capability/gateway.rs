@@ -1,8 +1,9 @@
 //! Runtime Capability Gateway for provider-proposed tool calls.
 
 use crate::{
-    McpTransportKind, NoemaStore, SYSTEM_ERROR_MCP_MALFORMED_RESPONSE,
-    SYSTEM_ERROR_MCP_TOOL_CALL_FAILURE, SystemErrorEvent, SystemErrorLogger,
+    McpServerAuthStatus, McpServerHealthStatus, McpTransportKind, NoemaStore,
+    SYSTEM_ERROR_MCP_MALFORMED_RESPONSE, SYSTEM_ERROR_MCP_TOOL_CALL_FAILURE, SystemErrorEvent,
+    SystemErrorLogger,
     mcp::{
         McpClientError, McpClientRuntime, McpTransport, SseMcpTransport, StdioMcpTransport,
         StreamableHttpMcpTransport, mcp_tool_ineligibility, secrets::read_mcp_secrets,
@@ -130,16 +131,23 @@ impl CapabilityGateway<'_> {
                 call_mcp_transport_tool(transport, &tool.name, arguments.clone()).await
             }
         };
-        result.map_err(|error| self.mcp_tool_call_error(name, payload, &arguments, error))
+        match result {
+            Ok(payload) => Ok(payload),
+            Err(error) => Err(self
+                .mcp_tool_call_error(name, payload, &arguments, error)
+                .await),
+        }
     }
 
-    fn mcp_tool_call_error(
+    async fn mcp_tool_call_error(
         &self,
         name: McpToolName<'_>,
         payload: &Value,
         arguments: &Value,
         error: McpClientError,
     ) -> &'static str {
+        self.mark_mcp_server_unhealthy_after_call_failure(name.server_id, &error)
+            .await;
         let category = if matches!(error, McpClientError::Malformed(_)) {
             SYSTEM_ERROR_MCP_MALFORMED_RESPONSE
         } else {
@@ -159,6 +167,29 @@ impl CapabilityGateway<'_> {
                 })),
         );
         mcp_tool_call_gateway_error(&error)
+    }
+
+    async fn mark_mcp_server_unhealthy_after_call_failure(
+        &self,
+        mcp_server_id: &str,
+        error: &McpClientError,
+    ) {
+        let Ok(Some(server)) = self.store.get_mcp_server(mcp_server_id).await else {
+            return;
+        };
+        let auth_status = if mcp_client_error_indicates_auth_failure(error) {
+            McpServerAuthStatus::NeedsAuth
+        } else {
+            server.auth_status
+        };
+        let _ = self
+            .store
+            .update_mcp_server_setup_status(
+                mcp_server_id,
+                McpServerHealthStatus::Unavailable,
+                auth_status,
+            )
+            .await;
     }
 }
 
@@ -198,12 +229,18 @@ fn tool_arguments_from_payload(payload: &Value) -> Result<Value, &'static str> {
 }
 
 fn mcp_tool_call_gateway_error(error: &McpClientError) -> &'static str {
+    if mcp_client_error_indicates_auth_failure(error) {
+        "mcp_authentication_failed"
+    } else {
+        "mcp_tool_call_failed"
+    }
+}
+
+fn mcp_client_error_indicates_auth_failure(error: &McpClientError) -> bool {
     match error {
-        McpClientError::AuthRequired(_) => "mcp_authentication_failed",
-        McpClientError::Transport(message) if transport_error_indicates_auth_failure(message) => {
-            "mcp_authentication_failed"
-        }
-        McpClientError::Transport(_) | McpClientError::Malformed(_) => "mcp_tool_call_failed",
+        McpClientError::AuthRequired(_) => true,
+        McpClientError::Transport(message) => transport_error_indicates_auth_failure(message),
+        McpClientError::Malformed(_) => false,
     }
 }
 
@@ -352,6 +389,7 @@ mod tests {
     #[tokio::test]
     async fn gateway_reports_auth_required_mcp_call_errors() {
         let store = test_store().await;
+        seed_mcp_tool(&store, true).await;
         let temp_dir = tempfile::tempdir().expect("temp dir");
         let system_errors = SystemErrorLogger::new(temp_dir.path().join("errors.log"));
         let gateway = CapabilityGateway {
@@ -359,22 +397,32 @@ mod tests {
             system_errors: &system_errors,
         };
 
-        let error = gateway.mcp_tool_call_error(
-            McpToolName {
-                server_id: "mcp:dex",
-                tool_name: "dex_search_contacts",
-            },
-            &json!({"query": "Gautam"}),
-            &json!({"query": "Gautam"}),
-            McpClientError::AuthRequired("MCP server requires authentication".to_string()),
-        );
+        let error = gateway
+            .mcp_tool_call_error(
+                McpToolName {
+                    server_id: "mcp:notion",
+                    tool_name: "dex_search_contacts",
+                },
+                &json!({"query": "Gautam"}),
+                &json!({"query": "Gautam"}),
+                McpClientError::AuthRequired("MCP server requires authentication".to_string()),
+            )
+            .await;
 
         assert_eq!(error, "mcp_authentication_failed");
+        let server = store
+            .get_mcp_server("mcp:notion")
+            .await
+            .expect("server read")
+            .expect("server");
+        assert_eq!(server.health_status, McpServerHealthStatus::Unavailable);
+        assert_eq!(server.auth_status, McpServerAuthStatus::NeedsAuth);
     }
 
     #[tokio::test]
     async fn gateway_reports_auth_shaped_mcp_transport_errors() {
         let store = test_store().await;
+        seed_mcp_tool(&store, true).await;
         let temp_dir = tempfile::tempdir().expect("temp dir");
         let errors_log_path = temp_dir.path().join("errors.log");
         let system_errors = SystemErrorLogger::new(&errors_log_path);
@@ -383,17 +431,19 @@ mod tests {
             system_errors: &system_errors,
         };
 
-        let error = gateway.mcp_tool_call_error(
-            McpToolName {
-                server_id: "mcp:dex",
-                tool_name: "dex_search_contacts",
-            },
-            &json!({"query": "Gautam"}),
-            &json!({"query": "Gautam"}),
-            McpClientError::Transport(
-                "MCP tools/call failed: unauthorized: Authentication failed".to_string(),
-            ),
-        );
+        let error = gateway
+            .mcp_tool_call_error(
+                McpToolName {
+                    server_id: "mcp:notion",
+                    tool_name: "dex_search_contacts",
+                },
+                &json!({"query": "Gautam"}),
+                &json!({"query": "Gautam"}),
+                McpClientError::Transport(
+                    "MCP tools/call failed: unauthorized: Authentication failed".to_string(),
+                ),
+            )
+            .await;
 
         assert_eq!(error, "mcp_authentication_failed");
         let events =
@@ -403,11 +453,54 @@ mod tests {
             events[0]["category"],
             crate::SYSTEM_ERROR_MCP_TOOL_CALL_FAILURE
         );
-        assert_eq!(events[0]["context"]["mcp_server_id"], "mcp:dex");
+        assert_eq!(events[0]["context"]["mcp_server_id"], "mcp:notion");
         assert_eq!(events[0]["context"]["tool_name"], "dex_search_contacts");
         assert!(events[0]["message"].as_str().is_some_and(|message| {
             message.contains("unauthorized") && message.contains("Authentication failed")
         }));
+        let server = store
+            .get_mcp_server("mcp:notion")
+            .await
+            .expect("server read")
+            .expect("server");
+        assert_eq!(server.health_status, McpServerHealthStatus::Unavailable);
+        assert_eq!(server.auth_status, McpServerAuthStatus::NeedsAuth);
+    }
+
+    #[tokio::test]
+    async fn gateway_marks_transport_failures_unhealthy_without_requiring_auth() {
+        let store = test_store().await;
+        seed_mcp_tool(&store, true).await;
+        let temp_dir = tempfile::tempdir().expect("temp dir");
+        let system_errors = SystemErrorLogger::new(temp_dir.path().join("errors.log"));
+        let gateway = CapabilityGateway {
+            store: &store,
+            system_errors: &system_errors,
+        };
+
+        let error = gateway
+            .mcp_tool_call_error(
+                McpToolName {
+                    server_id: "mcp:notion",
+                    tool_name: "dex_list_contacts",
+                },
+                &json!({"limit": 50}),
+                &json!({"limit": 50}),
+                McpClientError::Transport(
+                    "MCP Streamable HTTP initialize failed: HTTP 500 Internal Server Error"
+                        .to_string(),
+                ),
+            )
+            .await;
+
+        assert_eq!(error, "mcp_tool_call_failed");
+        let server = store
+            .get_mcp_server("mcp:notion")
+            .await
+            .expect("server read")
+            .expect("server");
+        assert_eq!(server.health_status, McpServerHealthStatus::Unavailable);
+        assert_eq!(server.auth_status, McpServerAuthStatus::Authenticated);
     }
 
     #[test]

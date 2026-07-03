@@ -1,12 +1,14 @@
 import * as React from "react";
 import { useApolloClient, useMutation, useQuery } from "@apollo/client/react";
 import {
+  ContinueMcpServerSetupDocument,
   CreateMcpServerDocument,
   DeleteMcpServerDocument,
   McpOauthSetupAttemptDocument,
   McpSettingsDocument,
   StartMcpServerOauthSetupDocument,
   type CreateMcpServerMutation,
+  type ContinueMcpServerSetupMutation,
   type DeleteMcpServerMutation,
   type McpOauthSetupAttemptQuery,
   type McpSettingsQuery,
@@ -16,7 +18,7 @@ import { openExternalUrlForAuth } from "@/graphql/externalUrls";
 import { mcpOAuthRedirectUri } from "@/graphql/mcpOAuthCallback";
 import { McpSettingsPaneContent } from "./McpSettingsPaneContent";
 import type { McpServerSetupResult } from "./McpServerSetupFlow";
-import type { McpSetupFormSubmission } from "./mcpSetupForm";
+import type { McpSetupContinueSubmission, McpSetupFormSubmission } from "./mcpSetupForm";
 
 export { McpSettingsPaneContent } from "./McpSettingsPaneContent";
 
@@ -30,10 +32,15 @@ export function McpSettingsPane() {
   const [setupOpen, setSetupOpen] = React.useState(false);
   const [permissionsServerId, setPermissionsServerId] = React.useState<string | null>(null);
   const [autoAutofillServerId, setAutoAutofillServerId] = React.useState<string | null>(null);
+  const [reauthServerId, setReauthServerId] = React.useState<string | null>(null);
+  const [reauthResult, setReauthResult] = React.useState<McpServerSetupResult | null>(null);
+  const [reauthError, setReauthError] = React.useState<string | null>(null);
   const [deleteError, setDeleteError] = React.useState<string | null>(null);
   const [oauthAttemptId, setOauthAttemptId] = React.useState<string | null>(null);
   const [createMcpServer, createState] =
     useMutation<CreateMcpServerMutation>(CreateMcpServerDocument);
+  const [continueMcpServerSetup, continueState] =
+    useMutation<ContinueMcpServerSetupMutation>(ContinueMcpServerSetupDocument);
   const [startMcpServerOAuthSetup, oauthStartState] =
     useMutation<StartMcpServerOauthSetupMutation>(StartMcpServerOauthSetupDocument);
   const [deleteMcpServer, deleteState] =
@@ -109,6 +116,26 @@ export function McpSettingsPane() {
     }
   }
 
+  async function handleContinueServerSetup(input: McpSetupContinueSubmission) {
+    setReauthError(null);
+    try {
+      const response = await continueMcpServerSetup({ variables: { input } });
+      const setup = response.data?.continueMcpServerSetup;
+      if (!setup) {
+        throw new Error("Noema did not return an MCP setup result.");
+      }
+      setReauthResult(setup);
+      await result.refetch();
+      if (setup.setupStatus === "ready_for_calibration" && setup.server) {
+        setReauthServerId(null);
+        setReauthResult(null);
+        setPermissionsServerId(setup.server.mcpServerId);
+      }
+    } catch (error) {
+      setReauthError(error instanceof Error ? error.message : "MCP reauthentication failed");
+    }
+  }
+
   React.useEffect(() => {
     if (!oauthAttemptId) return;
     let cancelled = false;
@@ -179,6 +206,10 @@ export function McpSettingsPane() {
       setupError={setupError}
       permissionsServerId={permissionsServerId}
       autoAutofillServerId={autoAutofillServerId}
+      reauthServerId={reauthServerId}
+      reauthSubmitting={continueState.loading}
+      reauthError={reauthError}
+      reauthResult={reauthResult}
       deleteSubmitting={deleteState.loading}
       deleteError={deleteError}
       onOpenSetup={() => {
@@ -195,6 +226,17 @@ export function McpSettingsPane() {
         setAutoAutofillServerId(null);
         setPermissionsServerId(mcpServerId);
       }}
+      onOpenReauth={(mcpServerId) => {
+        setReauthResult(null);
+        setReauthError(null);
+        setReauthServerId(mcpServerId);
+      }}
+      onCloseReauth={() => {
+        setReauthServerId(null);
+        setReauthResult(null);
+        setReauthError(null);
+      }}
+      onContinueServerSetup={(input) => void handleContinueServerSetup(input)}
       onClosePermissions={() => {
         setAutoAutofillServerId(null);
         setPermissionsServerId(null);

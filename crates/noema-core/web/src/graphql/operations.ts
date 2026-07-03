@@ -242,6 +242,15 @@ export const CreateMcpServerDocument = gql`
   ${McpServerSetupResultFields}
 `;
 
+export const ContinueMcpServerSetupDocument = gql`
+  mutation ContinueMcpServerSetup($input: ContinueMcpServerSetupInput!) {
+    continueMcpServerSetup(input: $input) {
+      ...McpServerSetupResultFields
+    }
+  }
+  ${McpServerSetupResultFields}
+`;
+
 export const StartMcpServerOauthSetupDocument = gql`
   mutation StartMcpServerOauthSetup($input: StartMcpServerOAuthSetupInput!) {
     startMcpServerOauthSetup(input: $input) {
