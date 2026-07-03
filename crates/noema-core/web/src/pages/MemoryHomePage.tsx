@@ -20,19 +20,19 @@ export function MemoryHomePage({ onOpenGraph }: { onOpenGraph: () => void }) {
         <div {...stylex.props(styles.graphEntry)}>
           <Network {...stylex.props(styles.graphIcon)} aria-hidden="true" />
           <div {...stylex.props(styles.graphText)}>
-            <strong {...stylex.props(styles.graphTitle)}>Memory Graph</strong>
+            <strong {...stylex.props(styles.graphTitle)}>Owner inspection graph</strong>
             <span {...stylex.props(styles.graphDescription)}>
-              View entities and claim edges from accessible memories.
+              Inspect full graph claims, entity links, and evidence.
             </span>
           </div>
         </div>
         <Button
           {...stylex.props(styles.openButton)}
           type="button"
-          label="Open graph"
+          label="Open inspection"
           onClick={onOpenGraph}
         >
-          Open graph
+          Open inspection
         </Button>
       </Card>
     </section>

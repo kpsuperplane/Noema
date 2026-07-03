@@ -100,7 +100,7 @@ impl CodexRuntimeHandle {
             providers.insert(
                 "foundation_local".to_string(),
                 Arc::new(FoundationLocalProvider::new(
-                    default_foundation_local_config(),
+                    default_foundation_local_config(system_errors.clone()),
                 )?),
             );
         }
@@ -282,7 +282,10 @@ fn provider_from_config(
         }
         ProviderConfig::FoundationLocal(config) => Ok((
             ProviderKind::FoundationLocal.as_str().to_string(),
-            Arc::new(FoundationLocalProvider::new(config)?),
+            Arc::new(FoundationLocalProvider::new(foundation_local_config(
+                config,
+                system_errors,
+            ))?),
         )),
     }
 }
@@ -305,11 +308,22 @@ fn codex_provider_config(
     Ok(codex_config)
 }
 
-fn default_foundation_local_config() -> FoundationLocalProviderConfig {
+fn default_foundation_local_config(
+    system_errors: SystemErrorLogger,
+) -> FoundationLocalProviderConfig {
     FoundationLocalProviderConfig {
         default_profile: DEFAULT_FOUNDATION_LOCAL_PROFILE.to_string(),
         bridge_path: None,
+        system_errors: Some(system_errors),
     }
+}
+
+fn foundation_local_config(
+    mut config: FoundationLocalProviderConfig,
+    system_errors: SystemErrorLogger,
+) -> FoundationLocalProviderConfig {
+    config.system_errors = Some(system_errors);
+    config
 }
 
 fn apply_provider_account_home(

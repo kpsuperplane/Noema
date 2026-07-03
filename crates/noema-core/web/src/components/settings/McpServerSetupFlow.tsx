@@ -40,6 +40,9 @@ export function McpServerSetupFlow({
   const [secretHeaders, setSecretHeaders] = React.useState<KeyValueDraft[]>([]);
   const [retrySecretEnv, setRetrySecretEnv] = React.useState<KeyValueDraft[]>([]);
   const [retrySecretHeaders, setRetrySecretHeaders] = React.useState<KeyValueDraft[]>([]);
+  const [oauthClientId, setOauthClientId] = React.useState("");
+  const [oauthClientSecret, setOauthClientSecret] = React.useState("");
+  const [oauthScopes, setOauthScopes] = React.useState("");
   const [lastSubmission, setLastSubmission] = React.useState<McpSetupFormSubmission | null>(null);
 
   function submitCreate(event: React.FormEvent<HTMLFormElement>) {
@@ -95,7 +98,10 @@ export function McpServerSetupFlow({
     if (!lastSubmission) return;
     const parsedEnv = keyValueRowsToRecord(retrySecretEnv, "Secret env");
     const parsedHeaders = keyValueRowsToRecord(retrySecretHeaders, "Secret headers");
-    const parseError = parsedEnv.error ?? parsedHeaders.error;
+    const parsedOAuth = oauthClientCredentialsSupported
+      ? oauthClientCredentialsFromDraft(oauthClientId, oauthClientSecret, oauthScopes)
+      : { value: null, error: null };
+    const parseError = parsedEnv.error ?? parsedHeaders.error ?? parsedOAuth.error;
     if (parseError) {
       setFormError(parseError);
       return;
@@ -105,7 +111,7 @@ export function McpServerSetupFlow({
       lastSubmission,
       parsedEnv.value,
       parsedHeaders.value,
-      null
+      parsedOAuth.value
     );
     setLastSubmission(submission);
     setShowAuthScreen(true);
@@ -275,6 +281,24 @@ export function McpServerSetupFlow({
                     emptyText="No secret headers configured."
                     onChange={setRetrySecretHeaders}
                   />
+                  {oauthClientCredentialsSupported ? (
+                    <>
+                      <TextField label="OAuth client ID" value={oauthClientId} onChange={setOauthClientId} />
+                      <TextField
+                        label="OAuth client secret"
+                        value={oauthClientSecret}
+                        onChange={setOauthClientSecret}
+                        type="password"
+                      />
+                      <div {...stylex.props(styles.fullSpan)}>
+                        <TextField
+                          label="OAuth scopes"
+                          value={oauthScopes}
+                          onChange={setOauthScopes}
+                        />
+                      </div>
+                    </>
+                  ) : null}
                 </div>
                 {visibleError ? <p {...stylex.props(styles.errorText)}>{visibleError}</p> : null}
                 <div {...stylex.props(styles.spreadActions)}>
@@ -294,11 +318,6 @@ export function McpServerSetupFlow({
                 </div>
               </div>
             </div>
-          {oauthClientCredentialsSupported && !oauthAuthorizationSupported ? (
-            <p {...stylex.props(styles.smallMutedText)}>
-              This server may also support OAuth client credentials through backend configuration.
-            </p>
-          ) : null}
         </form>
       ) : null}
 
@@ -374,6 +393,40 @@ function mergeRetrySecrets(
 type KeyValueRowsResult =
   | { value: Record<string, string>; error: null }
   | { value: Record<string, string>; error: string };
+
+type OAuthClientCredentialsDraft = NonNullable<
+  NonNullable<McpSetupFormSubmission["http"]>["oauthClientCredentials"]
+>;
+
+type OAuthClientCredentialsResult =
+  | { value: OAuthClientCredentialsDraft | null; error: null }
+  | { value: null; error: string };
+
+function oauthClientCredentialsFromDraft(
+  clientId: string,
+  clientSecret: string,
+  scopes: string
+): OAuthClientCredentialsResult {
+  const trimmedClientId = clientId.trim();
+  const trimmedClientSecret = clientSecret.trim();
+  if (!trimmedClientId && !trimmedClientSecret && !scopes.trim()) {
+    return { value: null, error: null };
+  }
+  if (!trimmedClientId || !trimmedClientSecret) {
+    return { value: null, error: "OAuth client ID and secret are both required." };
+  }
+  return {
+    value: {
+      clientId: trimmedClientId,
+      clientSecret: trimmedClientSecret,
+      scopes: scopes
+        .split(/[\s,]+/u)
+        .map((scope) => scope.trim())
+        .filter(Boolean)
+    },
+    error: null
+  };
+}
 
 type RowDraft = {
   id: string;

@@ -10,7 +10,8 @@ use tokio::{
 
 use super::{
     DaemonError, WebState,
-    http::{HttpRequest, write_response},
+    http::{HttpRequest, HttpRequestError, write_response},
+    origin::validate_mutation_request,
 };
 
 const MAX_WS_FRAME_BYTES: usize = 1024 * 1024;
@@ -22,6 +23,17 @@ pub(super) async fn upgrade_graphql_websocket(
     request: &HttpRequest,
     state: WebState,
 ) -> Result<(), DaemonError> {
+    if let Err(error) = validate_graphql_websocket_upgrade_request(request) {
+        write_response(
+            &mut stream,
+            error.status(),
+            "text/plain; charset=utf-8",
+            error.message().as_bytes(),
+        )
+        .await?;
+        return Ok(());
+    }
+
     let key = request
         .header("sec-websocket-key")
         .ok_or_else(|| DaemonError::Protocol("missing websocket key".to_string()))?;
@@ -45,6 +57,12 @@ pub(super) async fn upgrade_graphql_websocket(
     stream.flush().await?;
 
     handle_graphql_websocket(stream, state).await
+}
+
+pub(super) fn validate_graphql_websocket_upgrade_request(
+    request: &HttpRequest,
+) -> Result<(), HttpRequestError> {
+    validate_mutation_request(request)
 }
 
 pub(super) async fn handle_graphql_websocket(

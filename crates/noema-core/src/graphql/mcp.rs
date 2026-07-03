@@ -741,14 +741,20 @@ pub(super) async fn continue_mcp_server_setup(
 pub(super) async fn delete_mcp_server(state: &GraphqlState, mcp_server_id: String) -> Result<bool> {
     let store = state.store()?;
     let paths = state.paths()?;
+    if store
+        .get_mcp_server(&mcp_server_id)
+        .await
+        .map_err(graphql_error)?
+        .is_none()
+    {
+        return Ok(false);
+    }
+    crate::mcp::secrets::remove_mcp_secrets_dir(&paths.mcp_server_home(&mcp_server_id))
+        .map_err(graphql_error)?;
     let deleted = store
         .delete_mcp_server(&mcp_server_id)
         .await
         .map_err(graphql_error)?;
-    if deleted {
-        crate::mcp::secrets::remove_mcp_secrets_dir(&paths.mcp_server_home(&mcp_server_id))
-            .map_err(graphql_error)?;
-    }
     Ok(deleted)
 }
 

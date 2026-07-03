@@ -1,7 +1,8 @@
 use crate::{
-    ActorRef, ConversationItemKind, ConversationItemStatus, McpCalibrationStatus,
-    McpServerAuthStatus, McpServerHealthStatus, NewConversationItem, NewConversationTurn,
-    PersistedAgentStatus, ReplayMode, SYSTEM_ERROR_RUNTIME_INVARIANT, SystemErrorEvent,
+    ActorRef, ConversationItemKind, ConversationItemStatus, NewConversationItem,
+    NewConversationTurn, PersistedAgentStatus, ReplayMode, SYSTEM_ERROR_RUNTIME_INVARIANT,
+    SystemErrorEvent,
+    mcp::{mcp_tool_ineligibility, prompt_safe_mcp_tool_description},
     memory::extraction::{ExtractorMemoryProposal, ValidatedMemoryProposal},
     provider::{
         GenerateInput, GenerateOptions, GenerateOutputItem, GenerateRequest, GenerateResponse,
@@ -12,7 +13,7 @@ use serde_json::json;
 use tokio::sync::mpsc;
 
 use super::{
-    actor::{ActiveConversation, CodexRuntimeActor},
+    actor::CodexRuntimeActor,
     local_tools::{
         agent_identity_after_local_tools, local_tool_result_continuation_input,
         local_tool_result_output_item,
@@ -55,8 +56,11 @@ impl CodexRuntimeActor {
         cwd: Option<String>,
     ) -> Result<StartedConversation, DaemonError> {
         self.store.ensure_default_actors().await?;
-        let selection =
-            provider_selection_for_conversation(&self.store, &self.default_provider_kind).await?;
+        let selection = super::conversation_state::provider_selection_for_conversation(
+            &self.store,
+            &self.default_provider_kind,
+        )
+        .await?;
         let new_conversation = crate::NewConversation::local_chat_for_provider(
             &selection.provider_kind,
             selection.model.clone(),
@@ -64,15 +68,8 @@ impl CodexRuntimeActor {
         );
         let durable_conversation = self.store.create_conversation(new_conversation).await?;
         let conversation_id = durable_conversation.conversation_id;
-        self.conversations.insert(
-            conversation_id.clone(),
-            ActiveConversation {
-                provider_kind: selection.provider_kind,
-                model: selection.model,
-                cwd,
-                next_turn_index: 1,
-            },
-        );
+        self.hydrate_active_conversation(&conversation_id, cwd)
+            .await?;
 
         Ok(StartedConversation { conversation_id })
     }
@@ -82,8 +79,11 @@ impl CodexRuntimeActor {
         cwd: Option<String>,
     ) -> Result<StartedConversation, DaemonError> {
         self.store.ensure_default_actors().await?;
-        let selection =
-            provider_selection_for_conversation(&self.store, &self.default_provider_kind).await?;
+        let selection = super::conversation_state::provider_selection_for_conversation(
+            &self.store,
+            &self.default_provider_kind,
+        )
+        .await?;
         let durable_conversation = self
             .store
             .get_or_create_primary_conversation_for_provider(
@@ -95,21 +95,8 @@ impl CodexRuntimeActor {
             .await?;
         let conversation_id = durable_conversation.conversation_id;
 
-        if !self.conversations.contains_key(&conversation_id) {
-            let next_turn_index = self
-                .store
-                .next_conversation_turn_index(&conversation_id)
-                .await?;
-            self.conversations.insert(
-                conversation_id.clone(),
-                ActiveConversation {
-                    provider_kind: selection.provider_kind,
-                    model: selection.model,
-                    cwd,
-                    next_turn_index,
-                },
-            );
-        }
+        self.hydrate_active_conversation(&conversation_id, cwd)
+            .await?;
 
         self.ensure_initial_name_onboarding_message(&conversation_id)
             .await?;
@@ -240,12 +227,8 @@ impl CodexRuntimeActor {
         item_tx: mpsc::UnboundedSender<TurnStreamEvent>,
     ) -> Result<(), DaemonError> {
         let conversation = self
-            .conversations
-            .get(&conversation_id)
-            .cloned()
-            .ok_or_else(|| {
-                DaemonError::Protocol(format!("unknown conversation id: {conversation_id}"))
-            })?;
+            .hydrate_active_conversation(&conversation_id, None)
+            .await?;
         let turn_index = conversation.next_turn_index;
         let turn = self
             .store
@@ -815,33 +798,17 @@ impl CodexRuntimeActor {
         ];
         let servers = self.store.list_mcp_servers().await?;
         for server in servers {
-            if !server.enabled
-                || server.health_status != McpServerHealthStatus::Healthy
-                || !matches!(
-                    server.auth_status,
-                    McpServerAuthStatus::None | McpServerAuthStatus::Authenticated
-                )
-            {
-                continue;
-            }
             let tools = self
                 .store
                 .list_mcp_tools_for_server(&server.mcp_server_id)
                 .await?;
             for tool in tools {
                 let calibration = self.store.get_tool_calibration(&tool.mcp_tool_id).await?;
-                let Some(calibration) = calibration else {
-                    continue;
-                };
-                if calibration.status != McpCalibrationStatus::Ready
-                    || calibration.reviewed_metadata_fingerprint.as_deref()
-                        != Some(tool.metadata_fingerprint.as_str())
-                {
+                if mcp_tool_ineligibility(&server, &tool, calibration.as_ref()).is_some() {
                     continue;
                 }
-                let hint =
-                    crate::mcp::autofill::compact_description_hint(tool.description.as_deref(), 96)
-                        .unwrap_or_else(|| "MCP tool".to_string());
+                let hint = prompt_safe_mcp_tool_description(tool.description.as_deref(), 96)
+                    .unwrap_or_else(|| "MCP tool".to_string());
                 rows.push(format!(
                     "- mcp\tmcp.{}.{}\t{}",
                     server.mcp_server_id, tool.name, hint
@@ -869,6 +836,11 @@ impl CodexRuntimeActor {
                 agent_identity,
                 rendered_tools,
             } = schedule;
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            match store.next_conversation_turn_index(&conversation_id).await {
+                Ok(current_next_turn_index) if current_next_turn_index == next_turn_index => {}
+                Ok(_) | Err(_) => return,
+            }
             let plan = super::prompt_context::plan_prompt_context(
                 super::prompt_context::PromptPlanRequest {
                     store: &store,
@@ -914,28 +886,6 @@ impl CodexRuntimeActor {
             }
         });
     }
-}
-
-async fn provider_selection_for_conversation(
-    store: &crate::NoemaStore,
-    default_provider_kind: &str,
-) -> Result<ConversationProviderSelection, DaemonError> {
-    let Some(preference) = store.get_agent_runtime_preference("agent:primary").await? else {
-        return Ok(ConversationProviderSelection {
-            provider_kind: default_provider_kind.to_string(),
-            model: None,
-        });
-    };
-    Ok(ConversationProviderSelection {
-        provider_kind: preference.provider_kind,
-        model: Some(preference.model_profile),
-    })
-}
-
-#[derive(Debug, Clone)]
-struct ConversationProviderSelection {
-    provider_kind: String,
-    model: Option<String>,
 }
 
 #[derive(Debug)]

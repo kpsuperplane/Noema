@@ -4,8 +4,9 @@ This contract keeps the first frontend aligned with the current Rust runtime.
 It should be updated whenever the GraphQL contract, runtime events, embedded
 store schema, or inspection read models change.
 
-For the current slice, routes may exist for memory, settings, and inspection,
-but the default user-facing experience is chat. Management and admin routes are
+For the current slice, the route source supports chat at `/`, memory management
+at `/memory` and `/memory/graph`, and route-derived Settings utility sections.
+The default user-facing experience is chat. Management and admin routes are
 secondary drill-ins from chat activity, object details, utility controls, or
 explicit owner/admin entry points.
 
@@ -52,29 +53,30 @@ The frontend should not ask a beginner to create humans, agents, scopes, or
 workspaces before first chat. Those are later customization and inspection
 concepts.
 
-## Route Matrix
+## Addressable Route Matrix
 
-Routes describe addressable states and backend backing. They do not imply
-primary navigation priority.
+Routes describe states implemented by `crates/noema-core/web/src/routes.ts` and
+their backend backing. Unknown browser paths fall back to the chat home route.
+They do not imply primary navigation priority.
 
 | Route | Label | Backing | Capability | Status |
 | --- | --- | --- | --- | --- |
 | `/` | Home | setup health, local service state, primary conversation | route to the durable primary conversation when ready; show guided readiness state if blocked | Current |
-| `/setup` | Setup | local folder, assistant connection, local service checks | initialize or update setup through explicit setup flow | Current |
-| `/chat` | Chat | local service stream | start chat, render transcript items, show inline memory/activity rows | Current |
-| `/chat/:id` | Chat detail | active daemon conversation; persisted `conversation_items` after acknowledged turns | live while active; durable item replay after turn | Current limited |
-| `/memory` | Memory settings | memory browse read model | secondary memory management opened from chat or settings; redacted browse, filters, review entry points | Current |
-| `/memory/:id` | Memory detail | memory detail read model | opened from inline memory event or memory settings; inspect content/provenance/policy with reveal rules | Current |
-| `/memory/review` | Review memory | memory candidates and active extracted memories | opened from review-required chat events or settings; inspect now; mutation only where repository/API supports it | Current limited |
-| `/inspect` | Advanced inspection | embedded store read models | owner/admin inspection hub; never required for ordinary chat success | Current limited |
-| `/inspect/context-graph` | Context graph | future graph neighborhood read model | owner/admin-only graph inspection, redacted by default | Future |
-| `/inspect/context-packets` | Context packets | retrieval packet tables when populated | inspect when rows exist; unavailable state otherwise | Current limited |
+| `/memory` | Memory | memory browse read model | secondary memory management opened from chat or settings; redacted browse, filters, and graph entry point | Current |
+| `/memory/graph` | Memory graph | GraphQL `memoryGraph` and `memoryClaim` read models | bounded owner/admin graph inspection with claim-edge detail, default status filters, and redaction | Current |
 | `/settings` | Settings default | provider account metadata from GraphQL, gated by onboarding | temporary full-screen utility takeover opened from the sidebar cog; defaults to Providers | Current |
 | `/settings/providers` | Settings / Providers | provider account metadata from GraphQL, gated by onboarding | Providers tab with non-secret account metadata, auth method, readiness, and safe error state; no model/profile picker | Current |
 | `/settings/agents` | Settings / Agents | agent metadata and model preference options from GraphQL, gated by onboarding | registered-agent list with safe metadata, selected provider/model, and a compact per-agent provider/model preference editor; no prompts, memory internals, credentials, conversations, or tool grants | Current |
+| `/settings/mcps` | Settings / MCPs | MCP server metadata from GraphQL, gated by onboarding | MCP server list with setup, authentication, calibration, permissions, and destructive-delete entry points where implemented | Current |
+| `/settings/trusted-identities` | Settings / Trusted identities | trusted identity selectors from GraphQL, gated by onboarding | selector rows used to resolve tool-result ownership | Current |
+| `/settings/approvals` | Settings / Approvals | MCP approval read models where available | pending MCP approval checkpoints; mutation depth remains limited to implemented approval APIs | Current limited |
 
 Future route groups:
 
+- `/setup`.
+- `/chat`, `/chat/:id`.
+- `/memory/:id`, `/memory/review`.
+- `/inspect`, `/inspect/context-graph`, `/inspect/context-packets`.
 - `/threads`, `/threads/:id`.
 - `/workspaces`, `/workspaces/:id`.
 - `/projects`, `/projects/:id`.
@@ -119,8 +121,8 @@ require an unguided terminal flow do not satisfy the beginner onboarding goal.
 
 ## Setup Health Read Model
 
-The setup route is a blocking readiness state, not the product home. Once setup
-is healthy enough, `/` should route to chat.
+Setup health is a blocking pre-chat readiness state, not the product home. Once
+setup is healthy enough, `/` should show the chat home.
 
 Checklist:
 

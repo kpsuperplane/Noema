@@ -91,6 +91,7 @@ pub(super) async fn refresh_foundation_local_availability(state: &GraphqlState) 
         let provider = match FoundationLocalProvider::new(FoundationLocalProviderConfig {
             default_profile: DEFAULT_FOUNDATION_LOCAL_PROFILE.to_string(),
             bridge_path: None,
+            system_errors: None,
         }) {
             Ok(provider) => provider,
             Err(error) => {

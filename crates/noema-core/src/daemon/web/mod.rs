@@ -297,7 +297,10 @@ mod tests {
     };
 
     use super::{
-        graphql_ws::{graphql_websocket_upgrade_response, websocket_accept_key},
+        graphql_ws::{
+            graphql_websocket_upgrade_response, validate_graphql_websocket_upgrade_request,
+            websocket_accept_key,
+        },
         http::{HttpRequestError, MAX_API_BODY_BYTES},
         provider_auth::{
             CodexDeviceAuthStarter, ProviderAccountStatusStore, ProviderAccountStatusUpdate,
@@ -517,6 +520,49 @@ mod tests {
             validate_json_post_request(&request).unwrap_err().message(),
             "invalid request origin"
         );
+    }
+
+    #[test]
+    fn graphql_websocket_upgrade_accepts_same_origin() {
+        let mut request = test_request("GET", "/graphql/ws");
+        request
+            .headers
+            .insert("host".to_string(), "127.0.0.1:8765".to_string());
+        request
+            .headers
+            .insert("origin".to_string(), "http://localhost:8765".to_string());
+        request
+            .headers
+            .insert("upgrade".to_string(), "websocket".to_string());
+        request.headers.insert(
+            "sec-websocket-key".to_string(),
+            "dGhlIHNhbXBsZSBub25jZQ==".to_string(),
+        );
+
+        assert!(validate_graphql_websocket_upgrade_request(&request).is_ok());
+    }
+
+    #[test]
+    fn graphql_websocket_upgrade_rejects_cross_origin() {
+        let mut request = test_request("GET", "/graphql/ws");
+        request
+            .headers
+            .insert("host".to_string(), "localhost:8765".to_string());
+        request
+            .headers
+            .insert("origin".to_string(), "https://example.com".to_string());
+        request
+            .headers
+            .insert("upgrade".to_string(), "websocket".to_string());
+        request.headers.insert(
+            "sec-websocket-key".to_string(),
+            "dGhlIHNhbXBsZSBub25jZQ==".to_string(),
+        );
+
+        let error = validate_graphql_websocket_upgrade_request(&request)
+            .expect_err("cross-origin websocket should be rejected");
+        assert_eq!(error.status(), "400 Bad Request");
+        assert_eq!(error.message(), "invalid request origin");
     }
 
     #[test]

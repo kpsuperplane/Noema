@@ -282,7 +282,7 @@ Return strict JSON only. Do not include Markdown, code fences, comments, or pros
 If there are no durable ordinary-chat memories, return {{"proposals":[]}}.
 
 Extract proposals only from the user and assistant messages below. This extractor
-does not handle explicit "remember this" commands; those are processed elsewhere.
+does not handle explicit /remember slash commands; those are processed elsewhere.
 
 Return exactly this JSON shape:
 {{
@@ -638,9 +638,7 @@ fn is_explicit_memory_command(input: &str) -> bool {
     }
 
     let lower = trimmed.to_ascii_lowercase();
-    lower.starts_with("/remember")
-        || lower.starts_with("remember this:")
-        || lower.starts_with("remember that:")
+    lower == "/remember" || lower.starts_with("/remember ") || lower.starts_with("/remember:")
 }
 
 fn evidence_source(

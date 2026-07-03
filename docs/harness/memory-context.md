@@ -12,7 +12,7 @@ Harness proposes: "This run observed something that may deserve memory."
 Memory decides: "Create, promote, confirm, supersede, archive, or reject."
 ```
 
-This file extends the [Memory System Plan](../memory.md) for runtime use.
+This file extends the [Memory Plan Index](../memory.md) for runtime use.
 
 ## Goals
 

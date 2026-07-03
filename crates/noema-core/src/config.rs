@@ -5,7 +5,7 @@ use crate::provider::adapters::{
     codex_responses::{CodexProviderConfig, DEFAULT_CODEX_MODEL, DEFAULT_CODEX_TIMEOUT_SECONDS},
     openai::{DEFAULT_OPENAI_TIMEOUT_SECONDS, OpenAiProviderConfig},
 };
-use crate::{NOEMA_HOME_ENV, NoemaPathError, NoemaPaths};
+use crate::{NOEMA_HOME_ENV, NoemaPathError, NoemaPaths, SystemErrorLogger};
 use figment::{
     Figment,
     providers::{Env, Format, Serialized, Yaml},
@@ -175,6 +175,8 @@ pub struct FoundationLocalProviderConfig {
     pub default_profile: String,
     /// Optional path to a manually built Swift bridge executable.
     pub bridge_path: Option<PathBuf>,
+    /// Optional developer diagnostic logger for malformed provider output.
+    pub system_errors: Option<SystemErrorLogger>,
 }
 
 /// Concrete configuration for the selected provider.
@@ -376,6 +378,7 @@ impl RawConfig {
         FoundationLocalProviderConfig {
             default_profile,
             bridge_path: self.foundation_local.bridge_path.clone(),
+            system_errors: None,
         }
     }
 }

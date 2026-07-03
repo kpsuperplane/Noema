@@ -146,25 +146,46 @@ export function toolMarkerName(marker: ToolMarkerGroup): string {
 }
 
 export function formatToolDetail(fallback: string, metadata: unknown): string {
-  const metadataText = formatMetadata(metadata);
-  if (!metadataText) {
+  const preview = safeToolMetadataPreview(metadata);
+  if (!preview.length) {
     return fallback;
   }
-  return `${fallback}\n${metadataText}`;
+  return [fallback, ...preview].join("\n");
 }
 
-function formatMetadata(metadata: unknown): string | null {
-  if (metadata === null || metadata === undefined) {
-    return null;
+function safeToolMetadataPreview(metadata: unknown): string[] {
+  if (!isRecord(metadata)) {
+    return [];
   }
-  if (typeof metadata === "string") {
-    return metadata;
+
+  const rows: string[] = [];
+  const provider = stringValue(metadata.provider);
+  if (provider) {
+    rows.push(`Provider: ${provider}`);
   }
-  try {
-    return JSON.stringify(metadata, null, 2);
-  } catch {
-    return String(metadata);
+
+  const action = isRecord(metadata.action) ? metadata.action : null;
+  const actionName = stringValue(action?.name);
+  if (actionName) {
+    rows.push(`Tool: ${actionName}`);
   }
+  const actionId = stringValue(action?.id) ?? stringValue(action?.call_id);
+  if (actionId) {
+    rows.push(`Call ID: ${actionId}`);
+  }
+  const success = action?.success;
+  if (typeof success === "boolean") {
+    rows.push(`Success: ${success ? "yes" : "no"}`);
+  }
+
+  const hasHiddenMetadata =
+    Object.keys(metadata).some((key) => !["provider", "action"].includes(key)) ||
+    (action ? Object.keys(action).some((key) => !["id", "call_id", "name", "success"].includes(key)) : false);
+  if (hasHiddenMetadata || rows.length === 0) {
+    rows.push("Additional metadata hidden from normal transcript view.");
+  }
+
+  return rows;
 }
 
 function toolNameFromMetadata(metadata: unknown): string | null {
@@ -187,4 +208,8 @@ function toolNameFromMetadata(metadata: unknown): string | null {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function stringValue(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value : null;
 }

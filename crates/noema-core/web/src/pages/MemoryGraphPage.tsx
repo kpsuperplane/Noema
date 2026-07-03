@@ -1,5 +1,6 @@
 import React from "react";
 import { useQuery } from "@apollo/client/react";
+import { Button } from "@astryxdesign/core/Button";
 import * as stylex from "@stylexjs/stylex";
 
 import { MemoryGraphCanvas } from "@/components/memory/MemoryGraphCanvas";
@@ -10,6 +11,7 @@ import { graphStatusDefaults, normalizeMemoryGraph } from "@/memoryGraph";
 import { layoutMemoryGraph } from "@/memoryGraphLayout";
 
 export function MemoryGraphPage() {
+  const [inspectionEnabled, setInspectionEnabled] = React.useState(false);
   const [query, setQuery] = React.useState("");
   const [statuses, setStatuses] = React.useState(() => graphStatusDefaults());
   const [selectedClaimId, setSelectedClaimId] = React.useState<string | null>(null);
@@ -28,6 +30,7 @@ export function MemoryGraphPage() {
 
   const result = useQuery(MemoryGraphDocument, {
     variables,
+    skip: !inspectionEnabled,
     fetchPolicy: "cache-and-network",
   });
   const graphData = result.data?.memoryGraph ?? null;
@@ -55,6 +58,27 @@ export function MemoryGraphPage() {
   const hasDefaultStatuses =
     statuses.length === defaultStatuses.length && statuses.every((status) => defaultStatuses.includes(status));
   const hasActiveFilters = query.trim().length > 0 || !hasDefaultStatuses;
+
+  if (!inspectionEnabled) {
+    return (
+      <section {...stylex.props(styles.messageState)} aria-label="Memory Graph">
+        <h1 {...stylex.props(styles.title)}>
+          Memory graph inspection
+        </h1>
+        <p {...stylex.props(styles.messageText)}>
+          Owner/admin inspection may reveal full memory facts, entity labels, evidence excerpts, and provenance ids.
+        </p>
+        <Button
+          {...stylex.props(styles.inspectionButton)}
+          type="button"
+          label="Start inspection"
+          onClick={() => setInspectionEnabled(true)}
+        >
+          Start inspection
+        </Button>
+      </section>
+    );
+  }
 
   if (result.loading && !graph) {
     return (
@@ -161,6 +185,9 @@ const styles = stylex.create({
     maxWidth: 560,
     fontSize: 14,
     color: "var(--muted-foreground)"
+  },
+  inspectionButton: {
+    width: "fit-content"
   },
   graphLayout: {
     display: "grid",

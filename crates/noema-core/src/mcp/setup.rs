@@ -160,7 +160,8 @@ where
             StoreError::Schema(format!("missing MCP server: {}", input.mcp_server_id))
         })?;
     let server_home = paths.mcp_server_home(&input.mcp_server_id);
-    let mut secrets = read_mcp_secrets(&server_home).unwrap_or_default();
+    let mut secrets = read_mcp_secrets(&server_home)
+        .map_err(|error| StoreError::Schema(format!("failed to read MCP secrets: {error}")))?;
     secrets.env.extend(input.secrets.env);
     secrets.headers.extend(input.secrets.headers);
     if input.secrets.oauth_client_credentials.is_some() {
@@ -931,6 +932,52 @@ mod tests {
             Some("Bearer retry")
         );
         assert!(!server.safe_config.to_string().contains("Bearer retry"));
+    }
+
+    #[tokio::test]
+    async fn continue_setup_rejects_corrupt_existing_secrets_without_overwriting_them() {
+        let fixture = TestFixture::new().await;
+        create_mcp_server_setup(
+            &fixture.store,
+            &fixture.paths,
+            NewMcpServerSetup {
+                display_name: "Remote".to_string(),
+                transport_kind: McpTransportKind::StreamableHttp,
+                safe_config: json!({ "url": "https://example.com/mcp" }),
+                secrets: McpSecretMaterial::default(),
+            },
+            |_, _| FakeMcpTransport::ok(vec![fake_tool("search")]),
+        )
+        .await
+        .expect("initial setup");
+        let secret_file = fixture
+            .paths
+            .mcp_server_home("mcp:remote")
+            .join("secrets.json");
+        std::fs::write(&secret_file, b"{not-json").expect("corrupt secrets");
+
+        let error = continue_mcp_server_setup(
+            &fixture.store,
+            &fixture.paths,
+            ContinueMcpServerSetup {
+                mcp_server_id: "mcp:remote".to_string(),
+                secrets: McpSecretMaterial {
+                    env: BTreeMap::new(),
+                    headers: map_from_pairs([("Authorization", "Bearer retry")]),
+                    oauth_client_credentials: None,
+                    oauth_credentials: None,
+                },
+            },
+            |_, _| FakeMcpTransport::ok(vec![fake_tool("search")]),
+        )
+        .await
+        .expect_err("corrupt secrets should stop setup continuation");
+
+        assert!(error.to_string().contains("failed to read MCP secrets"));
+        assert_eq!(
+            std::fs::read_to_string(secret_file).expect("secret file"),
+            "{not-json"
+        );
     }
 
     #[tokio::test]

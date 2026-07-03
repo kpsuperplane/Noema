@@ -10,8 +10,8 @@ use std::{
 use crate::{
     FoundationLocalProviderConfig,
     provider::{
-        GenerateRequest, GenerateResponse, GenerateStreamEvent, ModelProvider,
-        ProviderContextMetadata, ProviderError, required_output_items_from_text,
+        GenerateInput, GenerateMessageRole, GenerateRequest, GenerateResponse, GenerateStreamEvent,
+        ModelProvider, ProviderContextMetadata, ProviderError, required_output_items_from_text,
     },
 };
 
@@ -19,7 +19,9 @@ use super::foundation_bridge_process::{
     FoundationBridgeBuildConfig, FoundationBridgeConfig, FoundationBridgeError,
     FoundationBridgeProcess,
 };
+use super::foundation_bridge_protocol::{BridgeReplayTurn, BridgeRole};
 use super::noema_response_stream::NoemaAssistantTextDeltaExtractor;
+use super::responses::ResponsesDiagnosticContext;
 use tokio::sync::Mutex;
 
 /// Provider identifier for Apple Foundation Models.
@@ -48,7 +50,6 @@ struct FoundationBridgeRuntime {
 struct FoundationSessionKey {
     conversation_id: String,
     model_profile: String,
-    instructions: Option<String>,
 }
 
 impl FoundationLocalProvider {
@@ -132,6 +133,8 @@ impl FoundationLocalProvider {
         &self,
         runtime: &mut FoundationBridgeRuntime,
         key: FoundationSessionKey,
+        instructions: Option<String>,
+        replay_turns: Vec<BridgeReplayTurn>,
     ) -> Result<String, ProviderError> {
         if let Some(session_id) = runtime.sessions.get(&key) {
             return Ok(session_id.clone());
@@ -141,13 +144,23 @@ impl FoundationLocalProvider {
             .create_session(
                 key.conversation_id.clone(),
                 key.model_profile.clone(),
-                key.instructions.clone(),
+                instructions,
             )
             .await
             .map_err(|error| ProviderError::ProviderUnavailable {
                 provider: FOUNDATION_LOCAL_PROVIDER.to_string(),
                 message: format!("Apple Foundation Models bridge session failed: {error}"),
             })?;
+        if !replay_turns.is_empty() {
+            runtime
+                .process
+                .replay_turns(session_id.clone(), replay_turns)
+                .await
+                .map_err(|error| ProviderError::ProviderUnavailable {
+                    provider: FOUNDATION_LOCAL_PROVIDER.to_string(),
+                    message: format!("Apple Foundation Models bridge replay failed: {error}"),
+                })?;
+        }
         runtime.sessions.insert(key, session_id.clone());
         Ok(session_id)
     }
@@ -254,7 +267,10 @@ impl ModelProvider for FoundationLocalProvider {
             .filter(|model| !model.trim().is_empty())
             .unwrap_or_else(|| self.config.default_profile.clone());
         let require_noema_response = request.options.require_noema_response;
-        let text = request.input.render_for_token_count();
+        let FoundationPrompt {
+            replay_turns,
+            generate_input,
+        } = foundation_prompt_parts(&request.input);
         let mut noema_delta_extractor = NoemaAssistantTextDeltaExtractor::default();
         let mut relay_delta = |delta: String| {
             if require_noema_response {
@@ -266,17 +282,18 @@ impl ModelProvider for FoundationLocalProvider {
         let key = FoundationSessionKey {
             conversation_id,
             model_profile: model.clone(),
-            instructions: request.instructions.clone(),
         };
         let mut guard = self.bridge_runtime.lock().await;
         self.ensure_bridge_runtime(&mut guard).await?;
         let runtime = guard.as_mut().expect("bridge runtime initialized");
-        let session_id = self.session_for_request(runtime, key).await?;
+        let session_id = self
+            .session_for_request(runtime, key, request.instructions.clone(), replay_turns)
+            .await?;
         let output_text = runtime
             .process
             .generate_in_session(
                 session_id,
-                text,
+                generate_input,
                 request.options.max_output_tokens,
                 &mut relay_delta,
             )
@@ -286,7 +303,22 @@ impl ModelProvider for FoundationLocalProvider {
                 message: format!("Apple Foundation Models bridge generation failed: {error}"),
             })?;
         let output = if require_noema_response {
-            required_output_items_from_text(output_text)?
+            match required_output_items_from_text(output_text.clone()) {
+                Ok(output) => output,
+                Err(error) => {
+                    ResponsesDiagnosticContext::new(
+                        self.config.system_errors.clone(),
+                        FOUNDATION_LOCAL_PROVIDER,
+                        model.clone(),
+                        request.conversation_id.clone(),
+                    )
+                    .log_malformed(
+                        error.to_string(),
+                        serde_json::json!({ "provider_text": output_text }),
+                    );
+                    return Err(error);
+                }
+            }
         } else {
             vec![crate::GenerateOutputItem::AssistantText { text: output_text }]
         };
@@ -298,6 +330,50 @@ impl ModelProvider for FoundationLocalProvider {
             usage: None,
         })
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct FoundationPrompt {
+    replay_turns: Vec<BridgeReplayTurn>,
+    generate_input: String,
+}
+
+fn foundation_prompt_parts(input: &GenerateInput) -> FoundationPrompt {
+    match input {
+        GenerateInput::Text(text) => FoundationPrompt {
+            replay_turns: Vec::new(),
+            generate_input: text.clone(),
+        },
+        GenerateInput::Messages(messages) => {
+            let last_user_index = messages
+                .iter()
+                .rposition(|message| message.role == GenerateMessageRole::User);
+            let Some(last_user_index) = last_user_index else {
+                return FoundationPrompt {
+                    replay_turns: bridge_replay_turns(messages),
+                    generate_input: String::new(),
+                };
+            };
+            FoundationPrompt {
+                replay_turns: bridge_replay_turns(&messages[..last_user_index]),
+                generate_input: messages[last_user_index].content.clone(),
+            }
+        }
+    }
+}
+
+fn bridge_replay_turns(messages: &[crate::GenerateMessage]) -> Vec<BridgeReplayTurn> {
+    messages
+        .iter()
+        .filter(|message| !message.content.trim().is_empty())
+        .map(|message| BridgeReplayTurn {
+            role: match message.role {
+                GenerateMessageRole::User => BridgeRole::User,
+                GenerateMessageRole::Assistant => BridgeRole::Assistant,
+            },
+            text: message.content.clone(),
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -319,6 +395,7 @@ mod tests {
         let provider = FoundationLocalProvider::new(FoundationLocalProviderConfig {
             default_profile: "default".to_string(),
             bridge_path: Some(bridge_path),
+            system_errors: None,
         })
         .expect("provider");
 
@@ -342,6 +419,7 @@ mod tests {
         let provider = FoundationLocalProvider::new(FoundationLocalProviderConfig {
             default_profile: "default".to_string(),
             bridge_path: None,
+            system_errors: None,
         })
         .expect("provider");
 
@@ -356,6 +434,7 @@ mod tests {
         let provider = FoundationLocalProvider::new(FoundationLocalProviderConfig {
             default_profile: "default".to_string(),
             bridge_path: None,
+            system_errors: None,
         })
         .expect("provider");
 
@@ -377,6 +456,7 @@ mod tests {
         let provider = FoundationLocalProvider::new(FoundationLocalProviderConfig {
             default_profile: "default".to_string(),
             bridge_path: Some(bridge_path.clone()),
+            system_errors: None,
         })
         .expect("provider");
 
@@ -384,6 +464,39 @@ mod tests {
 
         assert_eq!(config.bridge_path, bridge_path);
         assert!(config.build.is_none());
+    }
+
+    #[test]
+    fn message_prompt_replays_prior_turns_and_generates_from_latest_user_message() {
+        let prompt = foundation_prompt_parts(&GenerateInput::Messages(vec![
+            crate::GenerateMessage {
+                role: GenerateMessageRole::User,
+                content: "first question".to_string(),
+            },
+            crate::GenerateMessage {
+                role: GenerateMessageRole::Assistant,
+                content: "first answer".to_string(),
+            },
+            crate::GenerateMessage {
+                role: GenerateMessageRole::User,
+                content: "second question".to_string(),
+            },
+        ]));
+
+        assert_eq!(
+            prompt.replay_turns,
+            vec![
+                BridgeReplayTurn {
+                    role: BridgeRole::User,
+                    text: "first question".to_string(),
+                },
+                BridgeReplayTurn {
+                    role: BridgeRole::Assistant,
+                    text: "first answer".to_string(),
+                },
+            ]
+        );
+        assert_eq!(prompt.generate_input, "second question");
     }
 
     #[cfg(all(unix, target_os = "macos"))]
@@ -405,6 +518,7 @@ done
         let provider = FoundationLocalProvider::new(FoundationLocalProviderConfig {
             default_profile: "default".to_string(),
             bridge_path: Some(bridge_path),
+            system_errors: None,
         })
         .expect("provider");
         let mut events = Vec::new();
@@ -449,6 +563,7 @@ done
         let provider = FoundationLocalProvider::new(FoundationLocalProviderConfig {
             default_profile: "default".to_string(),
             bridge_path: Some(bridge_path),
+            system_errors: None,
         })
         .expect("provider");
 
@@ -496,6 +611,7 @@ done
         let provider = FoundationLocalProvider::new(FoundationLocalProviderConfig {
             default_profile: "default".to_string(),
             bridge_path: Some(bridge_path),
+            system_errors: None,
         })
         .expect("provider");
         let mut events = Vec::new();
@@ -557,6 +673,7 @@ done
         let provider = FoundationLocalProvider::new(FoundationLocalProviderConfig {
             default_profile: "default".to_string(),
             bridge_path: Some(bridge_path),
+            system_errors: None,
         })
         .expect("provider");
 

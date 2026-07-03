@@ -185,13 +185,16 @@ fn build_request(
     if let Some(project_scope) = project_scope_from_cwd(context.cwd.as_deref()) {
         active_object_ids.push(project_scope);
     }
+    active_object_ids.extend(arguments.scope_ids.iter().cloned());
+    active_object_ids.sort();
+    active_object_ids.dedup();
 
     Ok(ClaimRetrievalRequest {
         requesting_agent_id: "agent:primary".to_string(),
         active_human_ids: vec!["human:local".to_string()],
         active_object_ids,
         use_mode: UseMode::Answer,
-        explicit_memory_request: explicit_memory_request(&context.user_input),
+        explicit_memory_request: false,
         sensitivity_ceiling: Sensitivity::Normal,
         approved_secret_access: false,
     })
@@ -218,15 +221,6 @@ fn parse_purpose(value: Option<&str>) -> Result<Purpose, MemoryToolError> {
             "unsupported purpose: {other}"
         ))),
     }
-}
-
-fn explicit_memory_request(input: &str) -> bool {
-    let lowered = input.to_ascii_lowercase();
-    lowered.contains("search memory")
-        || lowered.contains("read memory")
-        || lowered.contains("recall memory")
-        || lowered.contains("remembered")
-        || lowered.contains("what do you know about")
 }
 
 fn safe_error_message(error: &MemoryToolError) -> String {
@@ -364,14 +358,14 @@ mod tests {
     }
 
     #[test]
-    fn builds_conservative_trusted_request() {
+    fn natural_language_memory_phrases_do_not_unlock_retrieval_policy() {
         let context = MemoryToolRuntimeContext {
             conversation_id: "conv_123".to_string(),
             turn_id: "turn_456".to_string(),
             turn_index: 7,
             call_site_id: "output_0".to_string(),
             cwd: None,
-            user_input: "Please search memory for our plan".to_string(),
+            user_input: "What do you know about my private plan?".to_string(),
         };
         let arguments = SearchMemoryArguments {
             query: "  launch criteria  ".to_string(),
@@ -386,9 +380,35 @@ mod tests {
         assert_eq!(request.active_human_ids, vec!["human:local"]);
         assert_eq!(request.active_object_ids, vec!["conversation:conv_123"]);
         assert_eq!(request.use_mode, UseMode::Answer);
-        assert!(request.explicit_memory_request);
+        assert!(!request.explicit_memory_request);
         assert_eq!(request.sensitivity_ceiling, Sensitivity::Normal);
         assert!(!request.approved_secret_access);
+    }
+
+    #[test]
+    fn validated_scope_args_become_trusted_active_objects() {
+        let context = MemoryToolRuntimeContext {
+            conversation_id: "conv_123".to_string(),
+            turn_id: "turn_456".to_string(),
+            turn_index: 7,
+            call_site_id: "output_0".to_string(),
+            cwd: None,
+            user_input: "What do you know about me?".to_string(),
+        };
+        let arguments = SearchMemoryArguments {
+            query: "".to_string(),
+            scope_ids: vec!["human:local".to_string()],
+            purpose: Some("answer_human_question".to_string()),
+            limit: None,
+        };
+
+        let request = build_request(&context, &arguments).expect("build scoped request");
+
+        assert_eq!(
+            request.active_object_ids,
+            vec!["conversation:conv_123", "human:local"]
+        );
+        assert!(!request.explicit_memory_request);
     }
 
     #[test]
@@ -399,7 +419,7 @@ mod tests {
             turn_index: 7,
             call_site_id: "output_0".to_string(),
             cwd: None,
-            user_input: "Please search memory for our plan".to_string(),
+            user_input: "Please continue the plan".to_string(),
         };
         let arguments = SearchMemoryArguments {
             query: "project memory".to_string(),

@@ -4,13 +4,29 @@
 
 The name comes from phenomenology — a *noema* is the object of a thought. Fittingly, Noema turns your intentions into agents that act, while always showing their reasoning.
 
-This repository is the single source of truth for Noema's visual language: tokens, fonts, reusable components, and full-screen product recreations.
+This directory is a prototype/reference design kit for Noema's visual
+language: proposed tokens, fonts, reusable demo components, and the standalone
+spec page. It is not the production component source.
+
+Production web UI lives in `crates/noema-core/web` and currently uses Astryx as
+the component foundation, a Noema-owned Neutral-derived theme, and StyleX for
+Noema-specific layout and state styling. Treat this design kit as brand
+reference and artifact scaffolding. Do not copy its demo React components into
+production without first translating them to the production Astryx/StyleX
+patterns and checking the current frontend contract in
+`docs/frontend/current-contract.md`.
 
 ---
 
 ## Sources & provenance
 
 This system was authored **from a written brand brief only** — no existing codebase, Figma file, or asset library was provided. Every visual decision (palette, type pairing, logo mark, motion) is an original proposal and is flagged for review in the **Caveats** section below. If you have brand assets, a product repo, or a Figma library, share them and this system will be re-grounded against them.
+
+Since this kit was created, the production frontend foundation has moved to
+Astryx and StyleX. The files here remain useful for brand exploration,
+throwaway prototypes, generated mockups, and asset reference. They should not
+override production architecture, routing, component ownership, accessibility,
+or data-flow contracts.
 
 ---
 
@@ -20,13 +36,16 @@ This system was authored **from a written brand brief only** — no existing cod
 |---|---|
 | `styles.css` | The single entry point consumers link. `@import` lines only. |
 | `tokens/` | CSS custom properties: `colors`, `typography`, `spacing`, `effects`, `fonts`, `base`. |
-| `components/<group>/` | Reusable React primitives (`core`, `forms`, `display`, `navigation`, `feedback`, `agent`). |
+| `components/<group>/` | Demo React primitives (`core`, `forms`, `display`, `navigation`, `feedback`, `agent`) for prototypes only. |
 | `Noema Design System.html` | **Single-page spec** — the shareable overview of the whole system (live components). |
 | `guidelines/` | Foundation specimen cards shown in the Design System tab. |
 | `assets/` | Logo / mark SVGs. |
 | `SKILL.md` | Agent-Skill manifest for using this system in Claude Code. |
 
-Components are consumed as `const { Button } = window.NoemaDesignSystem_3d237e` after loading `_ds_bundle.js` (auto-generated — never edit by hand).
+Prototype components are consumed as
+`const { Button } = window.NoemaDesignSystem_3d237e` after loading
+`_ds_bundle.js` (auto-generated — never edit by hand). Production code should
+instead use the current web app's Astryx/StyleX component patterns.
 
 ---
 

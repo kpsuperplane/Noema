@@ -711,6 +711,117 @@ async fn primary_agent_runtime_preference_selects_provider_without_restart() {
 }
 
 #[tokio::test]
+async fn runtime_turn_refreshes_agent_preference_after_conversation_hydration() {
+    let store = crate::store::tests::test_store().await;
+    store.ensure_default_actors().await.expect("actors");
+    store
+        .update_agent_display_name("agent:primary", "Noema")
+        .await
+        .expect("name primary");
+    let codex_account = store
+        .ensure_default_provider_account()
+        .await
+        .expect("codex account");
+    store
+        .upsert_agent_runtime_preference(crate::NewAgentRuntimePreference {
+            agent_id: "agent:primary".to_string(),
+            provider_kind: "codex".to_string(),
+            provider_account_id: codex_account.provider_account_id,
+            model_profile: "codex-initial".to_string(),
+        })
+        .await
+        .expect("initial preference");
+
+    let codex_provider = Arc::new(CapturingProvider::default());
+    let foundation_provider = Arc::new(CapturingProvider::default());
+    let runtime = CodexRuntimeHandle::spawn_with_provider_map(
+        "codex",
+        vec![
+            (
+                "codex".to_string(),
+                codex_provider.clone() as Arc<dyn crate::daemon::runtime::RuntimeModelProvider>,
+            ),
+            (
+                "foundation_local".to_string(),
+                foundation_provider.clone()
+                    as Arc<dyn crate::daemon::runtime::RuntimeModelProvider>,
+            ),
+        ],
+        store.clone(),
+    )
+    .await
+    .expect("runtime");
+
+    let started = runtime
+        .start_primary_conversation(None)
+        .await
+        .expect("conversation");
+    let foundation_account = store
+        .ensure_default_foundation_local_provider_account()
+        .await
+        .expect("foundation account");
+    store
+        .upsert_agent_runtime_preference(crate::NewAgentRuntimePreference {
+            agent_id: "agent:primary".to_string(),
+            provider_kind: "foundation_local".to_string(),
+            provider_account_id: foundation_account.provider_account_id,
+            model_profile: "foundation-live".to_string(),
+        })
+        .await
+        .expect("updated preference");
+
+    let (result, _events) =
+        collect_turn_events(&runtime, started.conversation_id, "hello".to_string()).await;
+    result.expect("turn");
+    runtime.shutdown().await;
+
+    assert!(codex_provider.requests.lock().expect("codex").is_empty());
+    let foundation_requests = foundation_provider.requests.lock().expect("foundation");
+    assert_eq!(
+        foundation_requests
+            .last()
+            .and_then(|request| request.model.as_deref()),
+        Some("foundation-live")
+    );
+}
+
+#[tokio::test]
+async fn runtime_turn_rehydrates_recorded_failure_conversation_for_retry() {
+    let (handle, store) =
+        test_runtime_handle_with_store(fake_codex_provider_with_turn_error()).await;
+
+    let conversation_id = handle
+        .start_conversation(None)
+        .await
+        .expect("conversation")
+        .conversation_id;
+    let (first_result, first_events) =
+        collect_turn_events(&handle, conversation_id.clone(), "first".to_string()).await;
+    first_result.expect_err("first turn failure");
+    assert!(first_events.iter().any(|event| {
+        matches!(
+            event,
+            TurnStreamEvent::ConversationItem {
+                item,
+                ..
+            } if matches!(item.as_ref(), TurnTranscriptItem::ErrorNotice { .. })
+        )
+    }));
+
+    let (second_result, _second_events) =
+        collect_turn_events(&handle, conversation_id.clone(), "second".to_string()).await;
+    second_result.expect_err("second provider failure should not become unknown conversation");
+    assert_eq!(
+        store
+            .next_conversation_turn_index(&conversation_id)
+            .await
+            .expect("next turn index"),
+        3
+    );
+    handle.shutdown().await;
+}
+
+#[tokio::test]
 async fn runtime_turn_streams_assistant_text_deltas_before_durable_item() {
     let (handle, store) = test_runtime_handle_with_store(fake_codex_provider()).await;
     let conversation = handle.start_conversation(None).await.expect("conversation");
@@ -979,15 +1090,7 @@ async fn restart_context_read_phase(home: &std::path::Path) {
 }
 
 #[test]
-fn explicit_memory_parser_accepts_only_top_level_commands() {
-    assert_eq!(
-        explicit_memory_content("remember this: Kevin prefers inspectable memory").as_deref(),
-        Some("Kevin prefers inspectable memory")
-    );
-    assert_eq!(
-        explicit_memory_content(" remember that: project decisions belong to projects ").as_deref(),
-        Some("project decisions belong to projects")
-    );
+fn explicit_memory_parser_accepts_only_slash_commands() {
     assert_eq!(
         explicit_memory_content("/remember Kevin likes concise inspection output").as_deref(),
         Some("Kevin likes concise inspection output")
@@ -996,10 +1099,22 @@ fn explicit_memory_parser_accepts_only_top_level_commands() {
         explicit_memory_content("/remember: Kevin likes durable memory").as_deref(),
         Some("Kevin likes durable memory")
     );
+    assert_eq!(
+        explicit_memory_content("remember this: Kevin prefers inspectable memory"),
+        None
+    );
+    assert_eq!(
+        explicit_memory_content(" remember that: project decisions belong to projects "),
+        None
+    );
+    assert_eq!(
+        explicit_memory_content("remember: Kevin likes durable memory"),
+        None
+    );
     assert_eq!(explicit_memory_content("hello remember this: nope"), None);
     assert_eq!(explicit_memory_content("> remember this: quoted"), None);
     assert_eq!(explicit_memory_content("don't remember this: nope"), None);
-    assert_eq!(explicit_memory_content("remember this:"), None);
+    assert_eq!(explicit_memory_content("/remember"), None);
 }
 
 #[test]
@@ -1069,7 +1184,7 @@ async fn explicit_remember_creates_claim_with_source_evidence() {
     let items = collect_turn(
         &handle,
         conversation_id.clone(),
-        "remember this: Kevin prefers CLI memory inspection.".to_string(),
+        "/remember Kevin prefers CLI memory inspection.".to_string(),
     )
     .await
     .expect("turn");
@@ -1137,7 +1252,7 @@ async fn explicit_remember_write_failure_suppresses_generic_unavailable_activity
     let items = collect_turn(
         &handle,
         conversation.conversation_id,
-        "remember: I like trains.".to_string(),
+        "/remember I like trains.".to_string(),
     )
     .await
     .expect("turn");
@@ -1187,14 +1302,14 @@ async fn repeated_explicit_memory_reinforces_one_claim() {
     let _first_items = collect_turn(
         &handle,
         conversation_id.clone(),
-        "remember: I like ice cream.".to_string(),
+        "/remember I like ice cream.".to_string(),
     )
     .await
     .expect("first turn");
     let second_items = collect_turn(
         &handle,
         conversation_id,
-        "remember: I LIKE   ICE CREAM".to_string(),
+        "/remember I LIKE   ICE CREAM".to_string(),
     )
     .await
     .expect("second turn");
@@ -1242,7 +1357,7 @@ async fn explicit_memory_saved_activity_includes_claim_outcome() {
     let items = collect_turn(
         &handle,
         conversation.conversation_id,
-        "remember: I like planes.".to_string(),
+        "/remember I like planes.".to_string(),
     )
     .await
     .expect("turn");
@@ -2019,7 +2134,7 @@ async fn provider_first_person_memory_reinforces_explicit_canonical_claim() {
     collect_turn(
         &handle,
         conversation_id.clone(),
-        "remember: I prefer dark mode.".to_string(),
+        "/remember I prefer dark mode.".to_string(),
     )
     .await
     .expect("explicit seed turn");
@@ -3011,7 +3126,7 @@ async fn runtime_actor_executes_search_memory_as_local_tool_result() {
     collect_turn(
         &handle,
         conversation_id.clone(),
-        "remember: I'm a big fan of trains".to_string(),
+        "/remember I'm a big fan of trains".to_string(),
     )
     .await
     .expect("seed turn");
@@ -3230,7 +3345,7 @@ async fn search_memory_profile_continuation_uses_scoped_empty_query() {
     collect_turn(
         &handle,
         conversation_id.clone(),
-        "remember: I like planes.".to_string(),
+        "/remember I like planes.".to_string(),
     )
     .await
     .expect("seed turn");

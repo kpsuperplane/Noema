@@ -248,7 +248,7 @@ memory
 
 Use embedded SurrealDB as the canonical structured store. Use the filesystem for durable object-owned documents and artifacts. Use chat/work drill-ins, advanced inspection, and explicit export tools for introspection into database-backed state.
 
-[Memory System Plan](memory.md)
+[Memory Plan Index](memory.md)
 
 [Runtime Harness Architecture](harness.md)
 

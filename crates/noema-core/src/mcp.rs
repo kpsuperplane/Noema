@@ -3,6 +3,7 @@
 /// Advisory MCP tool calibration autofill prompt and parser support.
 pub mod autofill;
 pub mod client;
+mod eligibility;
 /// HTTP MCP metadata transports.
 pub mod http;
 /// Hosted MCP OAuth setup attempts.
@@ -15,6 +16,9 @@ pub mod setup;
 pub mod stdio;
 
 pub use client::{DiscoveredMcpTool, McpClientError, McpClientRuntime, McpTransport};
+pub use eligibility::{
+    McpToolIneligibility, mcp_tool_ineligibility, prompt_safe_mcp_tool_description,
+};
 pub use http::{SseMcpTransport, StreamableHttpMcpTransport};
 pub use oauth::{
     McpOAuthSetupAttemptStatus, McpOAuthSetupAttemptView, McpOAuthSetupManager,

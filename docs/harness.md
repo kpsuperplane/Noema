@@ -42,7 +42,7 @@ Detailed subdocuments:
 Related core docs:
 
 - [Project overview](project.md)
-- [Memory system plan](memory.md)
+- [Memory plan index](memory.md)
 - [Retired Postgres schema](postgres.md)
 
 ## Architectural thesis

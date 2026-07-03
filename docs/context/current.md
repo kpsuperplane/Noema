@@ -110,6 +110,10 @@ The next storage slice should stay small and concrete:
   Noema-owned shell and domain components remain responsible for chat, memory,
   provenance, approvals, tools, runs, settings, and object detail semantics.
   shadcn/Base UI/Tailwind are no longer part of the frontend foundation.
+- `design/` is prototype and brand-reference material, not production
+  component source. Production frontend changes should translate relevant brand
+  intent into the active Astryx/StyleX patterns in `crates/noema-core/web`
+  rather than copying design-kit demo components or CDN assumptions.
 - The route-derived L0 to L1 Settings navigation has landed from
   `docs/superpowers/specs/2026-06-30-route-derived-shell-settings-design.md`
   and
@@ -126,6 +130,11 @@ The next storage slice should stay small and concrete:
   Approvals surfaces backed by existing GraphQL read models where live data
   exists. The placeholder Audit settings surface has been removed until audit
   event persistence lands. Agent management actions are not exposed yet.
+- Frontend docs now distinguish currently addressable routes from target
+  surfaces: `routes.ts` owns `/`, `/memory`, `/memory/graph`, `/settings`, and
+  `/settings/{providers,agents,mcps,trusted-identities,approvals}`. Older
+  `/setup`, `/chat/:id`, memory detail/review, and `/inspect` paths are target
+  routes until product routing implements them.
 - The first third-party MCP control-plane slice has landed. Third-party MCPs
   route through a Noema-owned Capability Gateway rather than raw model tool
   handles. MCP setup is a mandatory metadata-only calibration flow: tools get
@@ -197,9 +206,10 @@ The next storage slice should stay small and concrete:
 - `crates/noema-core/web/tests` has been removed; web validation should use
   `bun run lint`, `bun run build`, and local browser smoke checks.
 - Agent memory reads start as an explicit `search_memory` tool-only slice:
-  Noema validates arguments, builds the trusted retrieval envelope, records a
-  context packet, returns approved memories plus generic omissions as a normal
-  tool result, and does not inject memories automatically before turns.
+  Noema validates arguments, builds the trusted retrieval envelope, returns
+  approved memories plus generic omissions as a normal tool result, and does
+  not inject memories automatically before turns. Retrieval/context packet
+  persistence remains an open implementation loop.
 - The primary agent starts unnamed. Prompt construction includes an
   `onboarding_prompt` asking the model to ask the user for a name while the
   agent has no display name. The local `update_own_name` tool persists later
@@ -224,9 +234,10 @@ The next storage slice should stay small and concrete:
   active/confirmed claims by simple fact/hint text matching, applies predicate
   `use_mode` plus sensitivity/context policy gates, and reports redacted
   omission counts without writing retrieval packets yet.
-- Explicit `/remember` and `remember:` chat commands now create or reinforce
-  SurrealDB graph claims before provider generation, using the user
-  conversation item as explicit-human evidence.
+- Explicit `/remember` chat commands now create or reinforce SurrealDB graph
+  claims before provider generation, using the user conversation item as
+  explicit-human evidence. Natural English `remember:` prefixes are ordinary
+  chat text, not command grammar.
 - Provider-structured ordinary memory proposals now route through SurrealDB
   graph claims instead of the legacy memory persistence path. Validation and
   persistence record conversation item provenance, accept user or assistant
@@ -313,6 +324,8 @@ The next storage slice should stay small and concrete:
   `docs/superpowers/specs/2026-06-29-memory-graph-page-design.md` with richer
   filters, neighborhoods, and detail views.
 - Add richer graph neighborhood inspection for GraphQL and web.
+- Persist retrieval/context packets for `search_memory` executions, including
+  audit-only omission detail, instead of only returning tool-result payloads.
 - Continue aligning docs, schema, and frontend IA.
 - Decide which export formats ship first and how export preview/redaction should work.
 - Continue the third-party MCP control plane after the first landed slice:

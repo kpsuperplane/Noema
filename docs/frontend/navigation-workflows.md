@@ -625,32 +625,34 @@ tombstoned or deleted data without explicit conflict approval.
 
 ## Current Route Support Matrix
 
-Routes may exist before they are primary navigation. The route contract is about
-addressability and backing, not what the first shell emphasizes.
+Routes may exist before they are primary navigation. This table tracks routes
+implemented by `crates/noema-core/web/src/routes.ts`; unknown paths fall back to
+the chat home route. The route contract is about addressability and backing,
+not what the first shell emphasizes.
 
 | Route | Visible label | Backed by | Capability | Status |
 | --- | --- | --- | --- | --- |
 | `/` | Home | setup health, local service state, primary conversation | route to the durable primary conversation when ready; show setup readiness if blocked | Current |
-| `/setup` | Setup | local folder, assistant connection, local service checks | create/update setup through guided setup flow | Current |
-| `/chat` | Chat | local service stream | live chat, transcript activity, inline memory extraction rows | Current |
-| `/chat/:id` | Chat detail | active daemon conversation; persisted `conversation_items` where available | live while daemon conversation exists; durable chat history after acknowledged turns | Current limited |
 | `/memory` | Memory settings | GraphQL memory read model | secondary list and supported filters with redacted metadata; richer search waits for backend support | Current |
-| `/memory/:id` | Memory detail | GraphQL memory read model | opened from chat line or memory settings; inspect, reveal when authorized, limited lifecycle actions as backend supports | Current |
-| `/memory/review` | Review memory | persisted candidates/active extracted memories | opened from review-required chat lines or settings; keep/edit/reject once mutation endpoints exist | Current limited |
-| `/inspect` | Advanced inspection | GraphQL and store-backed read models | owner/admin inspection hub; not primary navigation during onboarding or normal beginner use | Current |
-| `/inspect/context-graph` | Context graph | future graph neighborhood read model | owner/admin-only, redacted by default | Future |
-| `/inspect/context-packets` | Context packets | context packet tables if populated | inspect when rows exist; unavailable state otherwise | Current limited |
+| `/memory/graph` | Memory graph | GraphQL `memoryGraph` and `memoryClaim` read models | bounded graph canvas and selected-claim detail panel; redacted by default where required | Current |
 | `/settings` | Settings default | provider account metadata from GraphQL, gated by onboarding | route-derived Settings L1 inside the main shell deck; defaults to Providers | Current |
 | `/settings/providers` | Settings / Providers | provider account metadata from GraphQL, gated by onboarding | Providers tab with only non-secret account metadata | Current |
 | `/settings/agents` | Settings / Agents | agent metadata from GraphQL, gated by onboarding | read-only registered-agent list with safe local technical metadata such as agent ids | Current |
 | `/settings/mcps` | Settings / MCPs | MCP server metadata from GraphQL, gated by onboarding | mediated MCP server list with setup, calibration, and destructive-delete entry points | Current |
 | `/settings/trusted-identities` | Settings / Trusted identities | trusted identity selectors from GraphQL, gated by onboarding | selector rows used to resolve tool-result ownership | Current |
 | `/settings/approvals` | Settings / Approvals | approval read models where available | pending MCP approval checkpoints | Current limited |
-| `/settings/audit` | Settings / Audit | future audit read models | mediated MCP activity records | Future |
 
 Future route groups:
 
 ```text
+/setup
+/chat
+/chat/:id
+/memory/:id
+/memory/review
+/inspect
+/inspect/context-graph
+/inspect/context-packets
 /threads
 /workspaces
 /workspaces/:id

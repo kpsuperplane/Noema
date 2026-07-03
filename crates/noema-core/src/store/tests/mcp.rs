@@ -529,6 +529,76 @@ async fn ready_calibration_enables_mcp_server() {
 }
 
 #[tokio::test]
+async fn batch_calibration_rolls_back_saved_rows_and_enabled_state_on_mid_batch_failure() {
+    let store = test_store_with_mcp_tool().await;
+    store
+        .upsert_discovered_mcp_tool(NewMcpTool {
+            mcp_tool_id: "mcp_tool:google:write_doc".to_string(),
+            mcp_server_id: "mcp_server:google".to_string(),
+            name: "write_doc".to_string(),
+            description: Some("Write a document".to_string()),
+            input_schema: json!({"type": "object"}),
+            output_schema: None,
+            annotations: json!({}),
+            metadata_fingerprint: "fingerprint_write".to_string(),
+        })
+        .await
+        .expect("upsert second tool");
+
+    let error = store
+        .save_tool_calibrations(vec![
+            NewToolCalibration {
+                calibration_id: "tool_calibration:shared".to_string(),
+                mcp_tool_id: "mcp_tool:google:read_doc".to_string(),
+                read_classification: McpTrustClassification::Trusted,
+                write_classification: McpTrustClassification::None,
+                export_classification: McpTrustClassification::None,
+                owner_extractors: Vec::new(),
+                status: McpCalibrationStatus::Ready,
+                reviewed_by: Some("human:local".to_string()),
+                reviewed_metadata_fingerprint: Some("fingerprint_1".to_string()),
+            },
+            NewToolCalibration {
+                calibration_id: "tool_calibration:shared".to_string(),
+                mcp_tool_id: "mcp_tool:google:write_doc".to_string(),
+                read_classification: McpTrustClassification::None,
+                write_classification: McpTrustClassification::Trusted,
+                export_classification: McpTrustClassification::None,
+                owner_extractors: Vec::new(),
+                status: McpCalibrationStatus::Ready,
+                reviewed_by: Some("human:local".to_string()),
+                reviewed_metadata_fingerprint: Some("fingerprint_write".to_string()),
+            },
+        ])
+        .await
+        .expect_err("duplicate calibration id should fail during batch save");
+
+    assert!(error.to_string().contains("duplicate calibration id"));
+    assert!(
+        store
+            .get_tool_calibration("mcp_tool:google:read_doc")
+            .await
+            .expect("read calibration")
+            .is_none()
+    );
+    assert!(
+        store
+            .get_tool_calibration("mcp_tool:google:write_doc")
+            .await
+            .expect("write calibration")
+            .is_none()
+    );
+    assert!(
+        !store
+            .get_mcp_server("mcp_server:google")
+            .await
+            .expect("get server")
+            .expect("server")
+            .enabled
+    );
+}
+
+#[tokio::test]
 async fn calibration_id_cannot_move_between_tools() {
     let store = test_store_with_mcp_tool().await;
     store

@@ -1,7 +1,9 @@
 # IA Review Notes
 
 This file records how the frontend IA plan was produced and how adversarial
-review findings were resolved.
+review findings were resolved. It is historical process context, not the
+current route or product contract. For current addressable routes and backing,
+use [current-contract.md](current-contract.md).
 
 ## Orchestration
 
@@ -176,8 +178,9 @@ Resolution:
 - Added [experience-layers.md](experience-layers.md).
 - The current slice now starts with `You -> Noema -> first chat -> saved memory -> details
   when wanted`.
-- `/setup` is a guided checklist: local folder, assistant connection, local
-  service, first chat, first memory.
+- Setup is a guided checklist concept: local folder, assistant connection,
+  local service, first chat, first memory. It is not an addressable route until
+  `routes.ts` implements it.
 - The happy path uses Codex, a seeded first prompt, and an explicit
   `remember this:` message so success does not depend on inferred memory.
 
@@ -225,8 +228,9 @@ Resolution:
 
 - Beginner-facing labels now use local folder, assistant connection, local
   service, what Noema used, and Show technical details.
-- `/inspect` remains a current owner/admin route but must not appear in primary
-  navigation during onboarding or normal beginner use.
+- `/inspect` remains a target owner/admin route and must not appear in primary
+  navigation during onboarding or normal beginner use until product routing
+  implements it.
 - Added the first-shell assumption: The current slice must provide a guided shell that can
   perform beginner setup actions, or show one plain-language next step plus a
   copyable command under Show technical details.

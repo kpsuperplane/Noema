@@ -160,6 +160,7 @@ async fn strict_schema_rejects_invalid_claim_timestamp() {
             CREATE type::record('claims', 'invalid_timestamp_claim') SET
               claim_id = 'claim:invalid-timestamp',
               subject_entity_id = 'entity:human-local',
+              object_entity_id = 'entity:invalid-timestamp',
               predicate_id = 'likes',
               fact = 'invalid timestamp test claim',
               status = 'candidate',
@@ -194,6 +195,7 @@ async fn strict_schema_rejects_duplicate_claim_dedupe_fingerprint() {
             CREATE type::record('claims', 'first_dedupe_claim') SET
               claim_id = 'claim:first-dedupe',
               subject_entity_id = 'entity:human-local',
+              object_entity_id = 'entity:first-dedupe',
               predicate_id = 'likes',
               fact = 'first dedupe test claim',
               status = 'candidate',
@@ -217,6 +219,7 @@ async fn strict_schema_rejects_duplicate_claim_dedupe_fingerprint() {
             CREATE type::record('claims', 'second_dedupe_claim') SET
               claim_id = 'claim:second-dedupe',
               subject_entity_id = 'entity:human-local',
+              object_entity_id = 'entity:second-dedupe',
               predicate_id = 'likes',
               fact = 'second dedupe test claim',
               status = 'candidate',

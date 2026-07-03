@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use serde::Deserialize;
 use serde_json::{Map, Value};
 use surrealdb::types::SurrealValue;
@@ -579,6 +581,19 @@ impl NoemaStore {
     ) -> Result<ToolCalibrationRecord, StoreError> {
         self.validate_tool_calibration(&calibration).await?;
         let mcp_tool_id = calibration.mcp_tool_id.clone();
+        let saved = self.write_tool_calibration_row(&calibration).await?;
+        if let Some(tool) = self.get_mcp_tool(&mcp_tool_id).await? {
+            self.update_mcp_server_enabled_from_calibrations(&tool.mcp_server_id)
+                .await?;
+        }
+        Ok(saved)
+    }
+
+    async fn write_tool_calibration_row(
+        &self,
+        calibration: &NewToolCalibration,
+    ) -> Result<ToolCalibrationRecord, StoreError> {
+        let mcp_tool_id = calibration.mcp_tool_id.clone();
         let owner_extractors =
             serde_json::to_value(&calibration.owner_extractors).map_err(|error| {
                 StoreError::Schema(format!("invalid owner extractor serialization: {error}"))
@@ -619,10 +634,10 @@ impl NoemaStore {
             ))
             .bind(("owner_extractors", owner_extractors))
             .bind(("status", calibration.status.as_str().to_string()))
-            .bind(("reviewed_by", calibration.reviewed_by))
+            .bind(("reviewed_by", calibration.reviewed_by.clone()))
             .bind((
                 "reviewed_metadata_fingerprint",
-                calibration.reviewed_metadata_fingerprint,
+                calibration.reviewed_metadata_fingerprint.clone(),
             ))
             .await?
             .check()?;
@@ -635,10 +650,6 @@ impl NoemaStore {
                     mcp_tool_id
                 ))
             })?;
-        if let Some(tool) = self.get_mcp_tool(&mcp_tool_id).await? {
-            self.update_mcp_server_enabled_from_calibrations(&tool.mcp_server_id)
-                .await?;
-        }
         Ok(saved)
     }
 
@@ -653,13 +664,26 @@ impl NoemaStore {
         &self,
         calibrations: Vec<NewToolCalibration>,
     ) -> Result<Vec<ToolCalibrationRecord>, StoreError> {
+        reject_duplicate_calibrations_in_batch(&calibrations)?;
         for calibration in &calibrations {
             self.validate_tool_calibration(calibration).await?;
         }
 
+        let mut server_ids = BTreeSet::new();
+        for calibration in &calibrations {
+            if let Some(tool) = self.get_mcp_tool(&calibration.mcp_tool_id).await? {
+                server_ids.insert(tool.mcp_server_id);
+            }
+        }
+
         let mut saved = Vec::with_capacity(calibrations.len());
-        for calibration in calibrations {
-            saved.push(self.save_tool_calibration(calibration).await?);
+        for calibration in &calibrations {
+            saved.push(self.write_tool_calibration_row(calibration).await?);
+        }
+
+        for server_id in server_ids {
+            self.update_mcp_server_enabled_from_calibrations(&server_id)
+                .await?;
         }
         Ok(saved)
     }
@@ -1451,6 +1475,28 @@ fn invalid_enum<T>(kind: &'static str, value: &str) -> Result<T, StoreError> {
         kind,
         value: value.to_string(),
     })
+}
+
+fn reject_duplicate_calibrations_in_batch(
+    calibrations: &[NewToolCalibration],
+) -> Result<(), StoreError> {
+    let mut calibration_ids = BTreeSet::new();
+    let mut tool_ids = BTreeSet::new();
+    for calibration in calibrations {
+        if !calibration_ids.insert(calibration.calibration_id.as_str()) {
+            return Err(StoreError::Schema(format!(
+                "duplicate calibration id in MCP calibration batch: {}",
+                calibration.calibration_id
+            )));
+        }
+        if !tool_ids.insert(calibration.mcp_tool_id.as_str()) {
+            return Err(StoreError::Schema(format!(
+                "duplicate MCP tool id in calibration batch: {}",
+                calibration.mcp_tool_id
+            )));
+        }
+    }
+    Ok(())
 }
 
 fn mcp_record_fragment(id: &str) -> String {

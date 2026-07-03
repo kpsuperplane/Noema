@@ -2,8 +2,9 @@
 
 This directory defines the frontend information architecture for Noema. It is
 grounded in the current repository state and in the product architecture in
-`docs/project.md`, `docs/memory.md`, the retired Postgres schema in
-`docs/postgres.md`, and `docs/harness/`.
+`docs/project.md`, the memory index in `docs/memory.md`, and `docs/harness/`.
+Historical storage notes such as `docs/postgres.md` are background only; they
+are not active frontend architecture.
 
 Noema should not open as an admin dashboard. The primary user-facing
 experience is a quiet chat workspace: one person talking to Noema, with memory,
@@ -162,9 +163,11 @@ Contextual drill-ins: Memory detail/review, What did Noema use?, local health
 Owner/admin utility: Advanced inspection
 ```
 
-The current slice can still implement routes for `/memory`, `/settings`, and `/inspect`, but
-normal users should reach them through chat events, object details, or utility
-controls. They should not read as the primary product shell.
+The current route source supports chat at `/`, memory management at `/memory`
+and `/memory/graph`, and route-derived Settings utility sections. Future
+owner/admin inspection routes should be reached from chat events, object
+details, or utility controls when backed by implementation; they should not read
+as the primary product shell.
 
 Home as an operational overview can exist later, but it should not be the first
 post-ramp destination. It becomes useful only after there are enough threads,

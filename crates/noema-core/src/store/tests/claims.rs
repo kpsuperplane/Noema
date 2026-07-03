@@ -43,6 +43,44 @@ async fn known_predicate_claim_gets_evidence() {
 }
 
 #[tokio::test]
+async fn schema_rejects_objectless_claim_rows() {
+    let store = test_store().await;
+
+    let error = store
+        .db()
+        .query(
+            r#"
+            CREATE type::record('claims', 'objectless_test') SET
+              claim_id = 'claim:objectless-test',
+              subject_entity_id = 'human:local',
+              object_entity_id = NONE,
+              predicate_id = 'has_note',
+              fact = 'Objectless claims are not part of the graph model.',
+              status = 'active',
+              sensitivity = 'normal',
+              valid_from = NONE,
+              valid_to = NONE,
+              observed_at = time::now(),
+              confidence = 1.0,
+              dedupe_fingerprint = 'claim-fingerprint:test:objectless',
+              retrieval_hints = {},
+              policy_overrides = {},
+              metadata = {},
+              updated_at = time::now();
+            "#,
+        )
+        .await
+        .expect("objectless claim query")
+        .check()
+        .expect_err("objectless claim should violate schema");
+
+    assert!(
+        error.to_string().contains("object_entity_id"),
+        "unexpected error: {error}"
+    );
+}
+
+#[tokio::test]
 async fn reinforcing_existing_claim_adds_evidence() {
     let store = test_store().await;
     let first_item = create_source_item(&store, "Kevin likes trains.").await;

@@ -62,27 +62,14 @@ pub(super) struct AssistantEvidenceItem {
 pub(super) fn explicit_memory_content(input: &str) -> Option<String> {
     let trimmed = input.trim();
     let lowered = trimmed.to_ascii_lowercase();
-    for prefix in ["remember this:", "remember that:", "remember:"] {
-        if lowered.starts_with(prefix) {
-            let content = trimmed[prefix.len()..].trim();
-            if !content.is_empty() {
-                return Some(content.to_string());
-            }
+    let content = lowered.strip_prefix("/remember").and_then(|rest| {
+        match rest.as_bytes().first().copied() {
+            Some(b':') => Some(trimmed["/remember:".len()..].trim()),
+            Some(byte) if byte.is_ascii_whitespace() => Some(trimmed["/remember".len()..].trim()),
+            _ => None,
         }
-    }
-    if lowered.starts_with("/remember ") {
-        let content = trimmed["/remember ".len()..].trim();
-        if !content.is_empty() {
-            return Some(content.to_string());
-        }
-    }
-    if lowered.starts_with("/remember:") {
-        let content = trimmed["/remember:".len()..].trim();
-        if !content.is_empty() {
-            return Some(content.to_string());
-        }
-    }
-    None
+    })?;
+    (!content.is_empty()).then(|| content.to_string())
 }
 
 pub(super) fn explicit_memory_write_proposal(

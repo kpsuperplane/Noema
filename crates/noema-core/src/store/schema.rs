@@ -262,7 +262,7 @@ DEFINE INDEX IF NOT EXISTS predicate_proposals_proposal_id ON TABLE predicate_pr
 DEFINE TABLE IF NOT EXISTS claims SCHEMAFULL;
 DEFINE FIELD OVERWRITE claim_id ON TABLE claims TYPE string;
 DEFINE FIELD OVERWRITE subject_entity_id ON TABLE claims TYPE string;
-DEFINE FIELD OVERWRITE object_entity_id ON TABLE claims TYPE option<string>;
+DEFINE FIELD OVERWRITE object_entity_id ON TABLE claims TYPE string;
 DEFINE FIELD OVERWRITE predicate_id ON TABLE claims TYPE string;
 DEFINE FIELD OVERWRITE fact ON TABLE claims TYPE string;
 DEFINE FIELD OVERWRITE status ON TABLE claims TYPE string ASSERT $value INSIDE ['candidate', 'active', 'confirmed', 'disputed', 'superseded', 'archived', 'deleted'];
