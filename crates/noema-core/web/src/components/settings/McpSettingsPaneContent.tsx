@@ -31,6 +31,7 @@ export function McpSettingsPaneContent({
   autoAutofillServerId = null,
   reauthServerId = null,
   reauthSubmitting = false,
+  reauthOauthSubmitting = false,
   reauthError = null,
   reauthResult = null,
   deleteSubmitting = false,
@@ -43,6 +44,7 @@ export function McpSettingsPaneContent({
   onOpenReauth = () => {},
   onCloseReauth = () => {},
   onContinueServerSetup = () => {},
+  onStartReauthenticationOAuth = () => {},
   onClosePermissions = () => {},
   onAutoAutofillComplete = () => {},
   onDeleteServer = async () => false,
@@ -60,6 +62,7 @@ export function McpSettingsPaneContent({
   autoAutofillServerId?: string | null;
   reauthServerId?: string | null;
   reauthSubmitting?: boolean;
+  reauthOauthSubmitting?: boolean;
   reauthError?: string | null;
   reauthResult?: McpServerSetupResult | null;
   deleteSubmitting?: boolean;
@@ -72,6 +75,7 @@ export function McpSettingsPaneContent({
   onOpenReauth?: (mcpServerId: string) => void;
   onCloseReauth?: () => void;
   onContinueServerSetup?: (input: McpSetupContinueSubmission) => void;
+  onStartReauthenticationOAuth?: (mcpServerId: string) => void;
   onClosePermissions?: () => void;
   onAutoAutofillComplete?: () => void;
   onDeleteServer?: (mcpServerId: string) => Promise<boolean>;
@@ -224,12 +228,14 @@ export function McpSettingsPaneContent({
         server={reauthServer}
         open={reauthServer !== null}
         submitting={reauthSubmitting}
+        oauthSubmitting={reauthOauthSubmitting}
         error={reauthError}
         setupResult={reauthResult}
         onOpenChange={(open) => {
           if (!open) onCloseReauth();
         }}
         onSubmit={onContinueServerSetup}
+        onStartBrowserOAuth={onStartReauthenticationOAuth}
       />
       <DeleteMcpServerDialog
         server={deleteTarget}

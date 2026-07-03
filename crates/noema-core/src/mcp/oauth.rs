@@ -63,6 +63,8 @@ pub struct StartMcpOAuthSetupRequest {
     pub setup: NewMcpServerSetup,
     /// Browser callback base URL owned by the local Noema web server.
     pub redirect_uri: String,
+    /// Existing persisted server id when this attempt is refreshing stored credentials.
+    pub existing_mcp_server_id: Option<String>,
 }
 
 /// Runtime OAuth setup state that must not be exposed to GraphQL clients.
@@ -71,6 +73,8 @@ pub struct McpOAuthSetupAttemptRuntime {
     pub oauth_state: OAuthState,
     /// Pending server setup to persist after successful authorization and discovery.
     pub setup: NewMcpServerSetup,
+    /// Existing persisted server id when this attempt is refreshing stored credentials.
+    pub existing_mcp_server_id: Option<String>,
 }
 
 /// In-memory manager for short-lived MCP OAuth setup attempts.
@@ -124,6 +128,7 @@ impl McpOAuthSetupManager {
             McpOAuthSetupAttemptRuntime {
                 oauth_state,
                 setup: request.setup,
+                existing_mcp_server_id: request.existing_mcp_server_id,
             },
         );
         Ok(view)

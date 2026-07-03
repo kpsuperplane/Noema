@@ -94,6 +94,7 @@ export const McpSettingsDocument = gql`
       healthStatus
       authStatus
       toolCount
+      browserOauthReauthenticationSupported
     }
   }
 `;
@@ -216,6 +217,7 @@ const McpServerSetupResultFields = gql`
       healthStatus
       authStatus
       toolCount
+      browserOauthReauthenticationSupported
     }
   }
 `;
@@ -254,6 +256,15 @@ export const ContinueMcpServerSetupDocument = gql`
 export const StartMcpServerOauthSetupDocument = gql`
   mutation StartMcpServerOauthSetup($input: StartMcpServerOAuthSetupInput!) {
     startMcpServerOauthSetup(input: $input) {
+      ...McpOAuthSetupAttemptFields
+    }
+  }
+  ${McpOAuthSetupAttemptFields}
+`;
+
+export const StartMcpServerReauthenticationOauthSetupDocument = gql`
+  mutation StartMcpServerReauthenticationOauthSetup($input: StartMcpServerReauthenticationOAuthSetupInput!) {
+    startMcpServerReauthenticationOauthSetup(input: $input) {
       ...McpOAuthSetupAttemptFields
     }
   }

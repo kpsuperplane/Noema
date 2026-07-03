@@ -189,7 +189,10 @@ The next storage slice should stay small and concrete:
   shaped failures also mark the server as needing authentication. MCP Settings
   exposes a per-server reauthentication dialog that retries persisted setup
   discovery through the existing continue-setup path with replacement secrets or
-  OAuth client credentials.
+  OAuth client credentials. Servers originally authenticated through hosted
+  browser OAuth, such as Dex, are detected from persisted OAuth credential refs
+  and restart the browser authorization flow for reauthentication instead of
+  prompting for OAuth client ID/secret material.
   Web Settings also exposes MCPs, Trusted Identities, and Approvals surfaces
   backed by GraphQL read models where live data exists.
 - Routed web surfaces learn shell-owned deck state through

@@ -21,7 +21,8 @@ use super::{
         GraphqlCreateMcpServerInput, GraphqlMcpApprovalRequest, GraphqlMcpOAuthSetupAttempt,
         GraphqlMcpServer, GraphqlMcpServerSetupResult, GraphqlMcpTool,
         GraphqlSaveToolCalibrationInput, GraphqlStartMcpServerOAuthSetupInput,
-        GraphqlToolCalibration, GraphqlTrustedIdentitySelector,
+        GraphqlStartMcpServerReauthenticationOAuthSetupInput, GraphqlToolCalibration,
+        GraphqlTrustedIdentitySelector,
     },
     memory::{
         self, GraphqlMemoryClaim, GraphqlMemoryClaimDetail, GraphqlMemoryGraph,
@@ -563,6 +564,16 @@ impl MutationRoot {
         mcp::start_mcp_server_oauth_setup(state, input).await
     }
 
+    /// Start browser OAuth reauthentication for an existing hosted MCP server.
+    async fn start_mcp_server_reauthentication_oauth_setup(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlStartMcpServerReauthenticationOAuthSetupInput,
+    ) -> Result<GraphqlMcpOAuthSetupAttempt> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        mcp::start_mcp_server_reauthentication_oauth_setup(state, input).await
+    }
+
     /// Continue MCP server setup after adding authentication material.
     async fn continue_mcp_server_setup(
         &self,
@@ -624,6 +635,7 @@ mod tests {
         assert!(sdl.contains("type ToolCalibrationSuggestion"));
         assert!(sdl.contains("createMcpServer"));
         assert!(sdl.contains("continueMcpServerSetup"));
+        assert!(sdl.contains("startMcpServerReauthenticationOauthSetup"));
         assert!(sdl.contains("SaveToolCalibrationInput"));
         assert!(sdl.contains("type ToolCalibration"));
         assert!(sdl.contains("type Subscription"));
@@ -1365,6 +1377,19 @@ mod tests {
             .await
             .expect("upsert tool");
         store
+            .create_mcp_server(NewMcpServer {
+                mcp_server_id: "mcp:browser-oauth".to_string(),
+                display_name: "Browser OAuth".to_string(),
+                transport_kind: McpTransportKind::StreamableHttp,
+                safe_config: json!({
+                    "url": "https://example.com/mcp",
+                    "headers": {},
+                    "secret_refs": { "oauth_credentials": true }
+                }),
+            })
+            .await
+            .expect("create browser oauth server");
+        store
             .create_trusted_identity_selector(NewTrustedIdentitySelector {
                 selector_id: "trusted_identity:human-local:email".to_string(),
                 owner_scope_id: "human:local".to_string(),
@@ -1388,6 +1413,7 @@ mod tests {
                     enabled
                     healthStatus
                     toolCount
+                    browserOauthReauthenticationSupported
                   }
                   trustedIdentitySelectors(ownerScopeId: "human:local") {
                     selectorId
@@ -1403,13 +1429,30 @@ mod tests {
 
         assert!(response.errors.is_empty(), "{:?}", response.errors);
         let data = response.data.into_json().expect("json");
-        let server = &data["mcpServers"][0];
+        let server = data["mcpServers"]
+            .as_array()
+            .expect("servers")
+            .iter()
+            .find(|server| server["mcpServerId"] == "mcp_server:local-test")
+            .expect("local test server");
         assert_eq!(server["mcpServerId"], "mcp_server:local-test");
         assert_eq!(server["displayName"], "Local Test");
         assert_eq!(server["transportKind"], "stdio");
         assert_eq!(server["enabled"], false);
         assert_eq!(server["healthStatus"], "unknown");
         assert_eq!(server["toolCount"], 1);
+        assert_eq!(server["browserOauthReauthenticationSupported"], false);
+
+        let browser_oauth_server = data["mcpServers"]
+            .as_array()
+            .expect("servers")
+            .iter()
+            .find(|server| server["mcpServerId"] == "mcp:browser-oauth")
+            .expect("browser oauth server");
+        assert_eq!(
+            browser_oauth_server["browserOauthReauthenticationSupported"],
+            true
+        );
 
         let selector = &data["trustedIdentitySelectors"][0];
         assert_eq!(selector["selectorId"], "trusted_identity:human-local:email");

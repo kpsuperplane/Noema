@@ -1,5 +1,5 @@
 import * as React from "react";
-import { KeyRound, RefreshCw } from "lucide-react";
+import { ExternalLink, KeyRound, RefreshCw } from "lucide-react";
 import { Button } from "@astryxdesign/core/Button";
 import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
 import * as stylex from "@stylexjs/stylex";
@@ -15,18 +15,22 @@ export function McpServerReauthenticationDialog({
   server,
   open,
   submitting,
+  oauthSubmitting,
   error,
   setupResult,
   onOpenChange,
-  onSubmit
+  onSubmit,
+  onStartBrowserOAuth
 }: {
   server: McpSettingsServer | null;
   open: boolean;
   submitting: boolean;
+  oauthSubmitting: boolean;
   error: string | null;
   setupResult: McpServerSetupResult | null;
   onOpenChange: (open: boolean) => void;
   onSubmit: (input: McpSetupContinueSubmission) => void;
+  onStartBrowserOAuth: (mcpServerId: string) => void;
 }) {
   const [secretEnv, setSecretEnv] = React.useState("");
   const [secretHeaders, setSecretHeaders] = React.useState("");
@@ -37,11 +41,17 @@ export function McpServerReauthenticationDialog({
 
   const isHttp =
     server?.transportKind === "sse" || server?.transportKind === "streamable_http";
+  const usesBrowserOAuth = Boolean(server?.browserOauthReauthenticationSupported);
   const visibleError = formError ?? error ?? setupResult?.setupError ?? null;
 
   function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!server) return;
+    if (usesBrowserOAuth) {
+      setFormError(null);
+      onStartBrowserOAuth(server.mcpServerId);
+      return;
+    }
 
     const parsedSecretEnv = parseKeyValueLines(secretEnv);
     const parsedSecretHeaders = parseKeyValueLines(secretHeaders);
@@ -92,7 +102,7 @@ export function McpServerReauthenticationDialog({
               onChange={setSecretEnv}
             />
           ) : null}
-          {isHttp ? (
+          {isHttp && !usesBrowserOAuth ? (
             <>
               <TextAreaField
                 label="Secret headers"
@@ -119,18 +129,32 @@ export function McpServerReauthenticationDialog({
           ) : null}
           {visibleError ? <p {...stylex.props(styles.errorText)}>{visibleError}</p> : null}
           <div {...stylex.props(styles.actions)}>
-            <Button
-              type="submit"
-              label="Retry connection"
-              icon={!submitting ? <RefreshCw {...stylex.props(styles.icon)} aria-hidden="true" /> : undefined}
-              isDisabled={submitting || !server}
-              isLoading={submitting}
-            />
+            {usesBrowserOAuth ? (
+              <Button
+                type="submit"
+                label="Continue with OAuth"
+                icon={
+                  !oauthSubmitting ? (
+                    <ExternalLink {...stylex.props(styles.icon)} aria-hidden="true" />
+                  ) : undefined
+                }
+                isDisabled={oauthSubmitting || submitting || !server}
+                isLoading={oauthSubmitting}
+              />
+            ) : (
+              <Button
+                type="submit"
+                label="Retry connection"
+                icon={!submitting ? <RefreshCw {...stylex.props(styles.icon)} aria-hidden="true" /> : undefined}
+                isDisabled={submitting || !server}
+                isLoading={submitting}
+              />
+            )}
             <Button
               type="button"
               variant="secondary"
               label="Cancel"
-              isDisabled={submitting}
+              isDisabled={submitting || oauthSubmitting}
               onClick={() => onOpenChange(false)}
             />
           </div>

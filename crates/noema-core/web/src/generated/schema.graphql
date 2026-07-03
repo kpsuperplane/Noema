@@ -588,6 +588,10 @@ type McpServer {
 	Number of discovered tools for this server.
 	"""
 	toolCount: Int!
+	"""
+	Whether this persisted server can restart browser OAuth authorization.
+	"""
+	browserOauthReauthenticationSupported: Boolean!
 }
 
 """
@@ -1094,6 +1098,10 @@ type MutationRoot {
 	"""
 	startMcpServerOauthSetup(input: StartMcpServerOAuthSetupInput!): McpOAuthSetupAttempt!
 	"""
+	Start browser OAuth reauthentication for an existing hosted MCP server.
+	"""
+	startMcpServerReauthenticationOauthSetup(input: StartMcpServerReauthenticationOAuthSetupInput!): McpOAuthSetupAttempt!
+	"""
 	Continue MCP server setup after adding authentication material.
 	"""
 	continueMcpServerSetup(input: ContinueMcpServerSetupInput!): McpServerSetupResult!
@@ -1570,6 +1578,20 @@ input StartMcpServerOAuthSetupInput {
 	Pending MCP server setup input.
 	"""
 	server: CreateMcpServerInput!
+	"""
+	Absolute local callback URI owned by Noema web.
+	"""
+	redirectUri: String!
+}
+
+"""
+Start a browser OAuth reauthentication attempt for an existing MCP server.
+"""
+input StartMcpServerReauthenticationOAuthSetupInput {
+	"""
+	Durable MCP server id.
+	"""
+	mcpServerId: String!
 	"""
 	Absolute local callback URI owned by Noema web.
 	"""

@@ -11,7 +11,7 @@ use crate::{
     mcp::{
         McpOAuthSetupAttemptView, StartMcpOAuthSetupRequest,
         oauth::oauth_secret_material,
-        secrets::{McpOAuthClientCredentials, McpSecretMaterial},
+        secrets::{McpOAuthClientCredentials, McpSecretMaterial, read_mcp_secrets},
         setup::{
             ContinueMcpServerSetup, McpServerSetupResult, McpSetupAuthDetails, NewMcpServerSetup,
             continue_mcp_server_setup as continue_setup_service,
@@ -40,6 +40,8 @@ pub struct GraphqlMcpServer {
     pub auth_status: String,
     /// Number of discovered tools for this server.
     pub tool_count: usize,
+    /// Whether this persisted server can restart browser OAuth authorization.
+    pub browser_oauth_reauthentication_supported: bool,
 }
 
 /// Add and verify an MCP server.
@@ -152,6 +154,16 @@ pub struct GraphqlStartMcpServerOAuthSetupInput {
     pub redirect_uri: String,
 }
 
+/// Start a browser OAuth reauthentication attempt for an existing MCP server.
+#[derive(Clone, Debug, InputObject)]
+#[graphql(name = "StartMcpServerReauthenticationOAuthSetupInput")]
+pub struct GraphqlStartMcpServerReauthenticationOAuthSetupInput {
+    /// Durable MCP server id.
+    pub mcp_server_id: String,
+    /// Absolute local callback URI owned by Noema web.
+    pub redirect_uri: String,
+}
+
 /// Safe browser OAuth setup attempt state.
 #[derive(Clone, Debug, SimpleObject)]
 #[graphql(name = "McpOAuthSetupAttempt")]
@@ -245,6 +257,7 @@ impl GraphqlMcpTool {
 
 impl From<McpServerRecord> for GraphqlMcpServer {
     fn from(server: McpServerRecord) -> Self {
+        let browser_oauth_reauthentication_supported = browser_oauth_reauth_supported(&server);
         Self {
             mcp_server_id: server.mcp_server_id,
             display_name: server.display_name,
@@ -253,8 +266,22 @@ impl From<McpServerRecord> for GraphqlMcpServer {
             health_status: health_status_label(server.health_status).to_string(),
             auth_status: auth_status_label(server.auth_status).to_string(),
             tool_count: server.tool_count,
+            browser_oauth_reauthentication_supported,
         }
     }
+}
+
+fn browser_oauth_reauth_supported(server: &McpServerRecord) -> bool {
+    matches!(
+        server.transport_kind,
+        McpTransportKind::Sse | McpTransportKind::StreamableHttp
+    ) && server
+        .safe_config
+        .get("secret_refs")
+        .and_then(Value::as_object)
+        .and_then(|refs| refs.get("oauth_credentials"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
 }
 
 /// MCP tool calibration safe to show in Settings.
@@ -640,6 +667,44 @@ pub(super) async fn start_mcp_server_oauth_setup(
         .start_attempt(StartMcpOAuthSetupRequest {
             setup,
             redirect_uri: input.redirect_uri,
+            existing_mcp_server_id: None,
+        })
+        .await
+        .map_err(graphql_error)?;
+    Ok(attempt.into())
+}
+
+pub(super) async fn start_mcp_server_reauthentication_oauth_setup(
+    state: &GraphqlState,
+    input: GraphqlStartMcpServerReauthenticationOAuthSetupInput,
+) -> Result<GraphqlMcpOAuthSetupAttempt> {
+    let store = state.store()?;
+    let paths = state.paths()?;
+    let server = store
+        .get_mcp_server(&input.mcp_server_id)
+        .await
+        .map_err(graphql_error)?
+        .ok_or_else(|| graphql_error("MCP server was not found"))?;
+    if !browser_oauth_reauth_supported(&server) {
+        return Err(graphql_error(
+            "MCP server does not have browser OAuth credentials to refresh",
+        ));
+    }
+    let secrets = read_mcp_secrets(&paths.mcp_server_home(&server.mcp_server_id))
+        .map_err(|error| graphql_error(format!("failed to read MCP secrets: {error}")))?;
+    let setup = NewMcpServerSetup {
+        display_name: server.display_name,
+        transport_kind: server.transport_kind,
+        safe_config: server.safe_config,
+        secrets,
+        browser_oauth_supported: true,
+    };
+    let attempt = state
+        .mcp_oauth()?
+        .start_attempt(StartMcpOAuthSetupRequest {
+            setup,
+            redirect_uri: input.redirect_uri,
+            existing_mcp_server_id: Some(input.mcp_server_id),
         })
         .await
         .map_err(graphql_error)?;
@@ -685,13 +750,26 @@ pub async fn complete_mcp_server_oauth_setup(
             return attempt.map(Into::into).ok_or_else(|| graphql_error(error));
         }
     };
-    runtime.setup.secrets = secrets;
     let store = state.store()?;
     let paths = state.paths()?;
-    let setup_result = create_setup_service(store, paths, runtime.setup, |server, secrets| {
-        state.mcp_setup_transport(server, Some(secrets))
-    })
-    .await
+    let setup_result = if let Some(mcp_server_id) = runtime.existing_mcp_server_id {
+        continue_setup_service(
+            store,
+            paths,
+            ContinueMcpServerSetup {
+                mcp_server_id,
+                secrets,
+            },
+            |server, secrets| state.mcp_setup_transport(server, Some(secrets)),
+        )
+        .await
+    } else {
+        runtime.setup.secrets = secrets;
+        create_setup_service(store, paths, runtime.setup, |server, secrets| {
+            state.mcp_setup_transport(server, Some(secrets))
+        })
+        .await
+    }
     .map_err(graphql_error)?;
     let status = setup_result.setup_status;
     let attempt = if matches!(

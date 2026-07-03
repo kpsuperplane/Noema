@@ -6,12 +6,14 @@ import {
   DeleteMcpServerDocument,
   McpOauthSetupAttemptDocument,
   McpSettingsDocument,
+  StartMcpServerReauthenticationOauthSetupDocument,
   StartMcpServerOauthSetupDocument,
   type CreateMcpServerMutation,
   type ContinueMcpServerSetupMutation,
   type DeleteMcpServerMutation,
   type McpOauthSetupAttemptQuery,
   type McpSettingsQuery,
+  type StartMcpServerReauthenticationOauthSetupMutation,
   type StartMcpServerOauthSetupMutation
 } from "@/generated/graphql";
 import { openExternalUrlForAuth } from "@/graphql/externalUrls";
@@ -36,13 +38,20 @@ export function McpSettingsPane() {
   const [reauthResult, setReauthResult] = React.useState<McpServerSetupResult | null>(null);
   const [reauthError, setReauthError] = React.useState<string | null>(null);
   const [deleteError, setDeleteError] = React.useState<string | null>(null);
-  const [oauthAttemptId, setOauthAttemptId] = React.useState<string | null>(null);
+  const [oauthAttempt, setOauthAttempt] = React.useState<{
+    attemptId: string;
+    mode: "setup" | "reauth";
+  } | null>(null);
   const [createMcpServer, createState] =
     useMutation<CreateMcpServerMutation>(CreateMcpServerDocument);
   const [continueMcpServerSetup, continueState] =
     useMutation<ContinueMcpServerSetupMutation>(ContinueMcpServerSetupDocument);
   const [startMcpServerOAuthSetup, oauthStartState] =
     useMutation<StartMcpServerOauthSetupMutation>(StartMcpServerOauthSetupDocument);
+  const [startMcpServerReauthenticationOAuthSetup, reauthOauthStartState] =
+    useMutation<StartMcpServerReauthenticationOauthSetupMutation>(
+      StartMcpServerReauthenticationOauthSetupDocument
+    );
   const [deleteMcpServer, deleteState] =
     useMutation<DeleteMcpServerMutation>(DeleteMcpServerDocument);
 
@@ -82,7 +91,7 @@ export function McpSettingsPane() {
       if (!attempt) {
         throw new Error("Noema did not return an MCP OAuth attempt.");
       }
-      setOauthAttemptId(attempt.attemptId);
+      setOauthAttempt({ attemptId: attempt.attemptId, mode: "setup" });
       if (attempt.authorizationUrl) {
         const handled = await openExternalUrlForAuth(attempt.authorizationUrl);
         if (!handled) {
@@ -136,30 +145,71 @@ export function McpSettingsPane() {
     }
   }
 
+  async function handleStartReauthenticationOAuth(mcpServerId: string) {
+    setReauthError(null);
+    try {
+      const redirectUri = await mcpOAuthRedirectUri();
+      const response = await startMcpServerReauthenticationOAuthSetup({
+        variables: { input: { mcpServerId, redirectUri } }
+      });
+      const attempt = response.data?.startMcpServerReauthenticationOauthSetup;
+      if (!attempt) {
+        throw new Error("Noema did not return an MCP OAuth attempt.");
+      }
+      setOauthAttempt({ attemptId: attempt.attemptId, mode: "reauth" });
+      if (attempt.authorizationUrl) {
+        const handled = await openExternalUrlForAuth(attempt.authorizationUrl);
+        if (!handled) {
+          window.open(attempt.authorizationUrl, "_blank", "noopener,noreferrer");
+        }
+      }
+    } catch (error) {
+      setReauthError(error instanceof Error ? error.message : "MCP OAuth setup failed");
+    }
+  }
+
   React.useEffect(() => {
-    if (!oauthAttemptId) return;
+    if (!oauthAttempt) return;
     let cancelled = false;
     let timeout: number | null = null;
+    const { attemptId, mode } = oauthAttempt;
     const poll = () => {
       timeout = window.setTimeout(() => {
         client
           .query<McpOauthSetupAttemptQuery>({
             query: McpOauthSetupAttemptDocument,
-            variables: { attemptId: oauthAttemptId },
+            variables: { attemptId },
             fetchPolicy: "network-only"
           })
           .then(async (response) => {
             if (cancelled) return;
             const attempt = response.data?.mcpOauthSetupAttempt;
             if (!attempt) {
-              setOauthAttemptId(null);
-              setSetupError("Noema could not find that MCP OAuth setup attempt.");
+              setOauthAttempt(null);
+              const message = "Noema could not find that MCP OAuth setup attempt.";
+              if (mode === "reauth") {
+                setReauthError(message);
+              } else {
+                setSetupError(message);
+              }
               return;
             }
             if (attempt.status === "completed" && attempt.setupResult) {
-              setOauthAttemptId(null);
-              setSetupResult(attempt.setupResult);
+              setOauthAttempt(null);
               await result.refetch();
+              if (mode === "reauth") {
+                setReauthResult(attempt.setupResult);
+                if (
+                  attempt.setupResult.setupStatus === "ready_for_calibration" &&
+                  attempt.setupResult.server
+                ) {
+                  setReauthServerId(null);
+                  setReauthResult(null);
+                  setPermissionsServerId(attempt.setupResult.server.mcpServerId);
+                }
+                return;
+              }
+              setSetupResult(attempt.setupResult);
               if (
                 attempt.setupResult.setupStatus === "ready_for_calibration" &&
                 attempt.setupResult.server
@@ -172,18 +222,27 @@ export function McpSettingsPane() {
               return;
             }
             if (attempt.status === "failed") {
-              setOauthAttemptId(null);
-              setSetupError(
-                attempt.errorMessage ?? "Noema could not complete MCP OAuth setup."
-              );
+              setOauthAttempt(null);
+              const message =
+                attempt.errorMessage ?? "Noema could not complete MCP OAuth setup.";
+              if (mode === "reauth") {
+                setReauthError(message);
+              } else {
+                setSetupError(message);
+              }
               return;
             }
             poll();
           })
           .catch((error) => {
             if (cancelled) return;
-            setOauthAttemptId(null);
-            setSetupError(error instanceof Error ? error.message : "MCP OAuth setup failed");
+            setOauthAttempt(null);
+            const message = error instanceof Error ? error.message : "MCP OAuth setup failed";
+            if (mode === "reauth") {
+              setReauthError(message);
+            } else {
+              setSetupError(message);
+            }
           });
       }, 1500);
     };
@@ -192,7 +251,7 @@ export function McpSettingsPane() {
       cancelled = true;
       if (timeout !== null) window.clearTimeout(timeout);
     };
-  }, [client, oauthAttemptId, result]);
+  }, [client, oauthAttempt, result]);
 
   return (
     <McpSettingsPaneContent
@@ -202,12 +261,15 @@ export function McpSettingsPane() {
       setupResult={setupResult}
       setupOpen={setupOpen}
       setupSubmitting={createState.loading}
-      oauthSubmitting={oauthStartState.loading || oauthAttemptId !== null}
+      oauthSubmitting={oauthStartState.loading || oauthAttempt?.mode === "setup"}
       setupError={setupError}
       permissionsServerId={permissionsServerId}
       autoAutofillServerId={autoAutofillServerId}
       reauthServerId={reauthServerId}
       reauthSubmitting={continueState.loading}
+      reauthOauthSubmitting={
+        reauthOauthStartState.loading || oauthAttempt?.mode === "reauth"
+      }
       reauthError={reauthError}
       reauthResult={reauthResult}
       deleteSubmitting={deleteState.loading}
@@ -237,6 +299,9 @@ export function McpSettingsPane() {
         setReauthError(null);
       }}
       onContinueServerSetup={(input) => void handleContinueServerSetup(input)}
+      onStartReauthenticationOAuth={(mcpServerId) =>
+        void handleStartReauthenticationOAuth(mcpServerId)
+      }
       onClosePermissions={() => {
         setAutoAutofillServerId(null);
         setPermissionsServerId(null);
