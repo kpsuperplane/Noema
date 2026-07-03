@@ -1,6 +1,6 @@
 use crate::{
     NoemaStore,
-    daemon::memory_pipeline::project_scope_from_cwd,
+    daemon::memory::pipeline::project_scope_from_cwd,
     memory::{ClaimRetrievalRequest, Purpose, Sensitivity, UseMode},
     store::StoreError,
 };
@@ -14,7 +14,7 @@ const DEFAULT_LIMIT: usize = 8;
 const MAX_LIMIT: usize = 16;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct MemoryToolRuntimeContext {
+pub(in crate::daemon) struct MemoryToolRuntimeContext {
     pub conversation_id: String,
     pub turn_id: String,
     pub turn_index: u64,
@@ -24,7 +24,7 @@ pub(super) struct MemoryToolRuntimeContext {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct MemoryToolResult {
+pub(in crate::daemon) struct MemoryToolResult {
     pub call_id: Option<String>,
     pub name: String,
     pub success: bool,
@@ -32,7 +32,7 @@ pub(super) struct MemoryToolResult {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub(super) enum MemoryToolError {
+pub(in crate::daemon) enum MemoryToolError {
     #[error("{0}")]
     InvalidArguments(String),
     #[error(transparent)]
@@ -51,11 +51,11 @@ struct SearchMemoryArguments {
     limit: Option<usize>,
 }
 
-pub(super) fn is_search_memory_tool(name: &str) -> bool {
+pub(in crate::daemon) fn is_search_memory_tool(name: &str) -> bool {
     name == SEARCH_MEMORY_TOOL
 }
 
-pub(super) async fn execute_search_memory(
+pub(in crate::daemon) async fn execute_search_memory(
     store: &NoemaStore,
     context: &MemoryToolRuntimeContext,
     call_id: Option<String>,

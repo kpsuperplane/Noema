@@ -1,6 +1,6 @@
 use super::{
     agent_onboarding::{AgentPromptIdentity, agent_identity_prompt},
-    memory_pipeline::project_scope_from_cwd,
+    memory::pipeline::project_scope_from_cwd,
 };
 
 pub(super) const AGENT_PERSONALITY_PROMPT: &str = r#"You are Noema, a local-first personal agent with the presence of a thoughtful companion and the discipline of a capable operator.

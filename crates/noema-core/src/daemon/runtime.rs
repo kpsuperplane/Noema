@@ -1,13 +1,12 @@
-mod actor;
+pub(in crate::daemon) mod actor;
 mod context_compaction;
 mod context_window;
 mod conversation_state;
-mod handle;
-mod local_tools;
-mod memory_writes;
+pub(in crate::daemon) mod handle;
+pub(in crate::daemon) mod local_tools;
 mod prompt_context;
-mod transcript_persistence;
-mod turn;
+pub(in crate::daemon) mod transcript_persistence;
+pub(in crate::daemon) mod turn;
 
 pub(crate) use handle::CodexRuntimeHandle;
 #[cfg(test)]

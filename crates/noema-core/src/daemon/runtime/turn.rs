@@ -24,7 +24,7 @@ use super::{
 };
 use crate::daemon::{
     agent_onboarding::AgentPromptIdentity,
-    memory_pipeline::{AssistantEvidenceItem, ConversationMemoryContext, explicit_memory_content},
+    memory::pipeline::{AssistantEvidenceItem, ConversationMemoryContext, explicit_memory_content},
     prompts::{
         build_initial_name_onboarding_system_prompt,
         build_local_tool_result_continuation_system_prompt, build_model_available_tools_prompt,
@@ -51,7 +51,7 @@ impl CodexRuntimeActor {
     }
 
     #[cfg(test)]
-    pub(super) async fn start_conversation(
+    pub(in crate::daemon) async fn start_conversation(
         &mut self,
         cwd: Option<String>,
     ) -> Result<StartedConversation, DaemonError> {
@@ -74,7 +74,7 @@ impl CodexRuntimeActor {
         Ok(StartedConversation { conversation_id })
     }
 
-    pub(super) async fn start_primary_conversation(
+    pub(in crate::daemon) async fn start_primary_conversation(
         &mut self,
         cwd: Option<String>,
     ) -> Result<StartedConversation, DaemonError> {
@@ -220,7 +220,7 @@ impl CodexRuntimeActor {
         Ok(())
     }
 
-    pub(super) async fn turn(
+    pub(in crate::daemon) async fn turn(
         &mut self,
         conversation_id: String,
         input: String,
@@ -759,7 +759,7 @@ impl CodexRuntimeActor {
         Ok(())
     }
 
-    pub(super) async fn update_conversation_agent_status(
+    pub(in crate::daemon) async fn update_conversation_agent_status(
         &mut self,
         conversation_id: &str,
         status: PersistedAgentStatus,
@@ -900,36 +900,36 @@ struct BackgroundContextCompactionSchedule {
 }
 
 #[derive(Debug)]
-pub(super) struct SuccessfulProviderTurn {
-    pub(super) conversation_id: String,
-    pub(super) turn_id: String,
-    pub(super) turn_index: u64,
-    pub(super) user_item_id: String,
-    pub(super) user_input: String,
-    pub(super) cwd: Option<String>,
-    pub(super) provider_kind: String,
-    pub(super) model: Option<String>,
-    pub(super) initial_stream_id: String,
-    pub(super) response: GenerateResponse,
-    pub(super) explicit_memory_outcome: ExplicitMemoryOutcome,
-    pub(super) agent_identity: AgentPromptIdentity,
+pub(in crate::daemon) struct SuccessfulProviderTurn {
+    pub(in crate::daemon) conversation_id: String,
+    pub(in crate::daemon) turn_id: String,
+    pub(in crate::daemon) turn_index: u64,
+    pub(in crate::daemon) user_item_id: String,
+    pub(in crate::daemon) user_input: String,
+    pub(in crate::daemon) cwd: Option<String>,
+    pub(in crate::daemon) provider_kind: String,
+    pub(in crate::daemon) model: Option<String>,
+    pub(in crate::daemon) initial_stream_id: String,
+    pub(in crate::daemon) response: GenerateResponse,
+    pub(in crate::daemon) explicit_memory_outcome: ExplicitMemoryOutcome,
+    pub(in crate::daemon) agent_identity: AgentPromptIdentity,
 }
 
 #[derive(Debug)]
-pub(super) struct ProviderMemoryProposalBatch {
-    pub(super) context: ConversationMemoryContext,
-    pub(super) proposals: Vec<ExtractorMemoryProposal>,
+pub(in crate::daemon) struct ProviderMemoryProposalBatch {
+    pub(in crate::daemon) context: ConversationMemoryContext,
+    pub(in crate::daemon) proposals: Vec<ExtractorMemoryProposal>,
 }
 
 #[derive(Debug, Default)]
-pub(super) struct ProviderAssistantResponse {
-    pub(super) item_id: Option<String>,
-    pub(super) text: String,
-    pub(super) items: Vec<AssistantEvidenceItem>,
+pub(in crate::daemon) struct ProviderAssistantResponse {
+    pub(in crate::daemon) item_id: Option<String>,
+    pub(in crate::daemon) text: String,
+    pub(in crate::daemon) items: Vec<AssistantEvidenceItem>,
 }
 
 impl ProviderAssistantResponse {
-    pub(super) fn push_text(&mut self, text: &str) {
+    pub(in crate::daemon) fn push_text(&mut self, text: &str) {
         if !self.text.is_empty() {
             self.text.push_str("\n\n");
         }
@@ -938,40 +938,40 @@ impl ProviderAssistantResponse {
 }
 
 #[derive(Debug)]
-pub(super) struct ValidatedProviderMemoryProposal {
-    pub(super) context: ConversationMemoryContext,
-    pub(super) proposal: ValidatedMemoryProposal,
-    pub(super) proposal_index: usize,
+pub(in crate::daemon) struct ValidatedProviderMemoryProposal {
+    pub(in crate::daemon) context: ConversationMemoryContext,
+    pub(in crate::daemon) proposal: ValidatedMemoryProposal,
+    pub(in crate::daemon) proposal_index: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) enum ExplicitMemoryOutcome {
+pub(in crate::daemon) enum ExplicitMemoryOutcome {
     None,
     Saved,
     Failed,
 }
 
 impl ExplicitMemoryOutcome {
-    pub(super) fn was_attempted(&self) -> bool {
+    pub(in crate::daemon) fn was_attempted(&self) -> bool {
         !matches!(self, Self::None)
     }
 }
 
-pub(super) struct ProviderActionTurn {
-    pub(super) conversation_id: String,
-    pub(super) turn_id: String,
-    pub(super) turn_index: u64,
-    pub(super) user_item_id: String,
-    pub(super) provider: String,
-    pub(super) stream_id: Option<String>,
+pub(in crate::daemon) struct ProviderActionTurn {
+    pub(in crate::daemon) conversation_id: String,
+    pub(in crate::daemon) turn_id: String,
+    pub(in crate::daemon) turn_index: u64,
+    pub(in crate::daemon) user_item_id: String,
+    pub(in crate::daemon) provider: String,
+    pub(in crate::daemon) stream_id: Option<String>,
 }
 
-pub(super) struct ProviderActionOutput {
-    pub(super) index: usize,
-    pub(super) kind: ConversationItemKind,
-    pub(super) status: ConversationItemStatus,
-    pub(super) action_kind: &'static str,
-    pub(super) title: String,
-    pub(super) summary: Option<String>,
-    pub(super) payload: serde_json::Value,
+pub(in crate::daemon) struct ProviderActionOutput {
+    pub(in crate::daemon) index: usize,
+    pub(in crate::daemon) kind: ConversationItemKind,
+    pub(in crate::daemon) status: ConversationItemStatus,
+    pub(in crate::daemon) action_kind: &'static str,
+    pub(in crate::daemon) title: String,
+    pub(in crate::daemon) summary: Option<String>,
+    pub(in crate::daemon) payload: serde_json::Value,
 }

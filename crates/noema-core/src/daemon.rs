@@ -2,8 +2,7 @@
 
 mod agent_name_tool;
 mod agent_onboarding;
-mod memory_pipeline;
-mod memory_tool;
+mod memory;
 mod prompts;
 mod protocol;
 mod runtime;

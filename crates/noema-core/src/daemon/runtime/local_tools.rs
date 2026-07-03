@@ -11,7 +11,7 @@ use crate::daemon::{
         is_update_own_name_tool,
     },
     agent_onboarding::AgentPromptIdentity,
-    memory_tool::{
+    memory::tool::{
         MemoryToolResult, MemoryToolRuntimeContext, execute_search_memory, is_search_memory_tool,
     },
 };

@@ -7,16 +7,16 @@ use super::handle::{CodexRuntimeCommand, RuntimeModelProvider};
 use crate::daemon::protocol::DaemonError;
 
 #[derive(Debug)]
-pub(super) struct CodexRuntimeActor {
-    pub(super) default_provider_kind: String,
-    pub(super) providers: HashMap<String, Arc<dyn RuntimeModelProvider>>,
-    pub(super) store: NoemaStore,
-    pub(super) system_errors: SystemErrorLogger,
-    pub(super) conversations: HashMap<String, ActiveConversation>,
+pub(in crate::daemon) struct CodexRuntimeActor {
+    pub(in crate::daemon) default_provider_kind: String,
+    pub(in crate::daemon) providers: HashMap<String, Arc<dyn RuntimeModelProvider>>,
+    pub(in crate::daemon) store: NoemaStore,
+    pub(in crate::daemon) system_errors: SystemErrorLogger,
+    pub(in crate::daemon) conversations: HashMap<String, ActiveConversation>,
 }
 
 impl CodexRuntimeActor {
-    pub(super) async fn new(
+    pub(in crate::daemon) async fn new(
         default_provider_kind: String,
         providers: HashMap<String, Arc<dyn RuntimeModelProvider>>,
         store: NoemaStore,
@@ -31,7 +31,7 @@ impl CodexRuntimeActor {
         })
     }
 
-    pub(super) fn provider_for_kind(
+    pub(in crate::daemon) fn provider_for_kind(
         &self,
         provider_kind: &str,
     ) -> Result<Arc<dyn RuntimeModelProvider>, DaemonError> {
@@ -43,7 +43,9 @@ impl CodexRuntimeActor {
         })
     }
 
-    pub(super) fn default_provider(&self) -> Result<Arc<dyn RuntimeModelProvider>, DaemonError> {
+    pub(in crate::daemon) fn default_provider(
+        &self,
+    ) -> Result<Arc<dyn RuntimeModelProvider>, DaemonError> {
         self.provider_for_kind(&self.default_provider_kind)
     }
 
@@ -92,9 +94,9 @@ impl CodexRuntimeActor {
 }
 
 #[derive(Debug, Clone)]
-pub(super) struct ActiveConversation {
-    pub(super) provider_kind: String,
-    pub(super) model: Option<String>,
-    pub(super) cwd: Option<String>,
-    pub(super) next_turn_index: u64,
+pub(in crate::daemon) struct ActiveConversation {
+    pub(in crate::daemon) provider_kind: String,
+    pub(in crate::daemon) model: Option<String>,
+    pub(in crate::daemon) cwd: Option<String>,
+    pub(in crate::daemon) next_turn_index: u64,
 }

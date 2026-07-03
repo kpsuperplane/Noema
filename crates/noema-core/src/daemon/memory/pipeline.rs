@@ -18,10 +18,10 @@ use crate::{
 };
 use serde_json::json;
 
-use super::protocol::{TurnActivityStatus, TurnTranscriptItem};
+use crate::daemon::protocol::{TurnActivityStatus, TurnTranscriptItem};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum CanonicalClaimConversionError {
+pub(in crate::daemon) enum CanonicalClaimConversionError {
     UnsupportedPredicateResolution,
     InvalidSubjectEntityMetadata,
     InvalidObjectEntityMetadata,
@@ -42,7 +42,7 @@ impl std::fmt::Display for CanonicalClaimConversionError {
 }
 
 #[derive(Debug, Clone)]
-pub(super) struct ConversationMemoryContext {
+pub(in crate::daemon) struct ConversationMemoryContext {
     pub conversation_id: String,
     pub turn_id: String,
     pub turn_index: u64,
@@ -54,12 +54,12 @@ pub(super) struct ConversationMemoryContext {
 }
 
 #[derive(Debug, Clone)]
-pub(super) struct AssistantEvidenceItem {
+pub(in crate::daemon) struct AssistantEvidenceItem {
     pub item_id: String,
     pub text: String,
 }
 
-pub(super) fn explicit_memory_content(input: &str) -> Option<String> {
+pub(in crate::daemon) fn explicit_memory_content(input: &str) -> Option<String> {
     let trimmed = input.trim();
     let lowered = trimmed.to_ascii_lowercase();
     let content = lowered.strip_prefix("/remember").and_then(|rest| {
@@ -72,7 +72,7 @@ pub(super) fn explicit_memory_content(input: &str) -> Option<String> {
     (!content.is_empty()).then(|| content.to_string())
 }
 
-pub(super) fn explicit_memory_write_proposal(
+pub(in crate::daemon) fn explicit_memory_write_proposal(
     content: &str,
     context: &ConversationMemoryContext,
 ) -> MemoryWriteProposal {
@@ -101,7 +101,7 @@ pub(super) fn explicit_memory_write_proposal(
     }
 }
 
-pub(super) fn provider_memory_write_proposal(
+pub(in crate::daemon) fn provider_memory_write_proposal(
     validated: &ValidatedMemoryProposal,
     context: &ConversationMemoryContext,
     proposal_index: usize,
@@ -149,7 +149,7 @@ pub(super) fn provider_memory_write_proposal(
     }
 }
 
-pub(super) fn deterministic_canonical_claim(
+pub(in crate::daemon) fn deterministic_canonical_claim(
     proposal: &MemoryWriteProposal,
     status: ClaimStatus,
     confidence: Option<f64>,
@@ -185,7 +185,7 @@ pub(super) fn deterministic_canonical_claim(
     }
 }
 
-pub(super) fn new_claim_from_canonical(
+pub(in crate::daemon) fn new_claim_from_canonical(
     candidate: &CanonicalClaimCandidate,
     proposal: &MemoryWriteProposal,
     authority: EvidenceAuthority,
@@ -223,7 +223,7 @@ pub(super) fn new_claim_from_canonical(
     })
 }
 
-pub(super) fn predicate_proposal_candidate_from_canonical(
+pub(in crate::daemon) fn predicate_proposal_candidate_from_canonical(
     candidate: &CanonicalClaimCandidate,
     proposal: &MemoryWriteProposal,
 ) -> Option<PredicateProposalCandidate> {
@@ -642,7 +642,7 @@ fn stable_entity_prefix_type(entity_id: &str) -> Option<EntityType> {
     }
 }
 
-pub(super) fn claim_status_from_memory_status(status: MemoryStatus) -> ClaimStatus {
+pub(in crate::daemon) fn claim_status_from_memory_status(status: MemoryStatus) -> ClaimStatus {
     match status {
         MemoryStatus::Candidate => ClaimStatus::Candidate,
         MemoryStatus::Active | MemoryStatus::Inferred => ClaimStatus::Active,
@@ -823,7 +823,7 @@ fn ensure_final_punctuation(value: &str) -> String {
     }
 }
 
-pub(super) fn infer_chat_sensitivity(content: &str) -> Sensitivity {
+pub(in crate::daemon) fn infer_chat_sensitivity(content: &str) -> Sensitivity {
     infer_memory_text_sensitivity([content])
 }
 
@@ -831,7 +831,7 @@ pub(super) fn infer_chat_sensitivity(content: &str) -> Sensitivity {
     dead_code,
     reason = "legacy provider candidate wrapper preserves subject behavior for daemon tests"
 )]
-pub(super) fn memory_extraction_subject_is_local_human(
+pub(in crate::daemon) fn memory_extraction_subject_is_local_human(
     subject: &MemoryExtractionSubject,
     evidence_excerpt: &str,
 ) -> bool {
@@ -851,7 +851,10 @@ fn stable_hex_fingerprint(bytes: &[u8]) -> String {
     dead_code,
     reason = "legacy provider candidate wrapper preserves subject behavior for daemon tests"
 )]
-pub(super) fn generated_entity_id(kind: MemoryExtractionSubjectKind, name: &str) -> String {
+pub(in crate::daemon) fn generated_entity_id(
+    kind: MemoryExtractionSubjectKind,
+    name: &str,
+) -> String {
     format!("{}:{}", subject_kind_id_prefix(kind), slug_fragment(name))
 }
 
@@ -877,7 +880,7 @@ fn subject_kind_id_prefix(kind: MemoryExtractionSubjectKind) -> &'static str {
     }
 }
 
-pub(super) fn project_scope_from_cwd(cwd: Option<&str>) -> Option<String> {
+pub(in crate::daemon) fn project_scope_from_cwd(cwd: Option<&str>) -> Option<String> {
     let cwd = cwd?.trim();
     if cwd.is_empty() {
         return None;
@@ -892,7 +895,7 @@ pub(super) fn project_scope_from_cwd(cwd: Option<&str>) -> Option<String> {
     Some(format!("project:{}", slug_fragment(&name)))
 }
 
-pub(super) fn slug_fragment(value: &str) -> String {
+pub(in crate::daemon) fn slug_fragment(value: &str) -> String {
     let slug: String = value
         .chars()
         .map(|ch| {
@@ -911,7 +914,7 @@ pub(super) fn slug_fragment(value: &str) -> String {
     }
 }
 
-pub(super) fn memory_activity(
+pub(in crate::daemon) fn memory_activity(
     id: &str,
     status: TurnActivityStatus,
     title: &str,
@@ -921,7 +924,7 @@ pub(super) fn memory_activity(
     typed_memory_activity(id, "memory_extraction", status, title, summary, metadata)
 }
 
-pub(super) fn typed_memory_activity(
+pub(in crate::daemon) fn typed_memory_activity(
     id: &str,
     activity_kind: &str,
     status: TurnActivityStatus,

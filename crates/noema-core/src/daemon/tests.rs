@@ -1,6 +1,6 @@
 use super::*;
 use super::{
-    memory_pipeline::{
+    memory::pipeline::{
         ConversationMemoryContext, explicit_memory_content, infer_chat_sensitivity,
         provider_memory_write_proposal,
     },

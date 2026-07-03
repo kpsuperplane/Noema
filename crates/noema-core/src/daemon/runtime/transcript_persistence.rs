@@ -11,7 +11,7 @@ use super::{
     turn::{ProviderActionOutput, ProviderActionTurn, ProviderAssistantResponse},
 };
 use crate::daemon::{
-    memory_pipeline::{AssistantEvidenceItem, ConversationMemoryContext, typed_memory_activity},
+    memory::pipeline::{AssistantEvidenceItem, ConversationMemoryContext, typed_memory_activity},
     protocol::{DaemonError, TurnActivityStatus, TurnStreamEvent, TurnTranscriptItem},
 };
 
@@ -372,7 +372,7 @@ impl CodexRuntimeActor {
             .await
     }
 
-    pub(super) async fn persist_and_send_turn_item(
+    pub(in crate::daemon) async fn persist_and_send_turn_item(
         &mut self,
         context: &ConversationMemoryContext,
         item: TurnTranscriptItem,
@@ -509,7 +509,7 @@ pub(super) fn send_conversation_item(
     });
 }
 
-pub(super) fn send_transient_turn_item(
+pub(in crate::daemon) fn send_transient_turn_item(
     context: &ConversationMemoryContext,
     item: TurnTranscriptItem,
     item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,

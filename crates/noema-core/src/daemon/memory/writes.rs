@@ -19,14 +19,14 @@ use serde_json::{Value, json};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
-use super::{
+use crate::daemon::runtime::{
     actor::CodexRuntimeActor,
     handle::RuntimeModelProvider,
     transcript_persistence::send_transient_turn_item,
     turn::{ExplicitMemoryOutcome, ProviderMemoryProposalBatch, ValidatedProviderMemoryProposal},
 };
 use crate::daemon::{
-    memory_pipeline::{
+    memory::pipeline::{
         ConversationMemoryContext, claim_status_from_memory_status, deterministic_canonical_claim,
         explicit_memory_write_proposal, memory_activity, new_claim_from_canonical,
         predicate_proposal_candidate_from_canonical, project_scope_from_cwd,
@@ -76,7 +76,7 @@ impl CodexRuntimeActor {
         Ok(parsed.candidates)
     }
 
-    pub(super) async fn persist_provider_memory_proposals(
+    pub(in crate::daemon) async fn persist_provider_memory_proposals(
         &mut self,
         batches: Vec<ProviderMemoryProposalBatch>,
         provider: Arc<dyn RuntimeModelProvider>,
@@ -570,7 +570,7 @@ impl CodexRuntimeActor {
         }
     }
 
-    pub(super) async fn persist_explicit_memory_claim(
+    pub(in crate::daemon) async fn persist_explicit_memory_claim(
         &mut self,
         context: &ConversationMemoryContext,
         content: &str,
