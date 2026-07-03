@@ -3,6 +3,21 @@ import { SendHorizontal } from "lucide-react";
 import { Button, type ButtonProps } from "@astryxdesign/core/Button";
 import { TextArea, type TextAreaProps } from "@astryxdesign/core/TextArea";
 import * as stylex from "@stylexjs/stylex";
+import {
+  canSend,
+  composerSubmitState,
+  composerTextareaProps,
+  isComposerTextareaDisabled,
+  shouldSubmitFromPointerDown
+} from "./composerModel";
+
+export {
+  canSend,
+  composerSubmitState,
+  composerTextareaProps,
+  isComposerTextareaDisabled,
+  shouldSubmitFromPointerDown
+} from "./composerModel";
 
 const composerMinWidthCh = 18;
 const composerWidthBufferCh = 5;
@@ -19,35 +34,6 @@ type ComposerInlineSize = {
 };
 
 const useBrowserLayoutEffect = typeof window === "undefined" ? React.useEffect : React.useLayoutEffect;
-
-export function isComposerTextareaDisabled({ ready }: { ready: boolean }) {
-  return !ready;
-}
-
-export function composerSubmitState({
-  ready,
-  pending,
-  value
-}: {
-  ready: boolean;
-  pending: boolean;
-  value: string;
-}) {
-  return {
-    disabled: !canSend({ ready, value }),
-    label: pending ? "Sending message" : "Send message"
-  };
-}
-
-export function canSend({ ready, value }: { ready: boolean; value: string }) {
-  return ready && value.trim().length > 0;
-}
-
-export function composerTextareaProps() {
-  return {
-    rows: 1
-  };
-}
 
 export function composerDraftInlineSize({
   value,
@@ -280,6 +266,7 @@ export const Composer = React.forwardRef<HTMLTextAreaElement, ComposerProps>(fun
   forwardedRef
 ) {
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
+  const ignoreNextClickRef = React.useRef(false);
   const setTextareaRef = React.useCallback(
     (textarea: HTMLTextAreaElement | null) => {
       textareaRef.current = textarea;
@@ -291,15 +278,22 @@ export const Composer = React.forwardRef<HTMLTextAreaElement, ComposerProps>(fun
     [forwardedRef, placeholder]
   );
 
-  function submit() {
-    const nextValue = textareaRef.current?.value ?? value;
+  function submit(nextValue = textareaRef.current?.value ?? value) {
     if (!canSend({ ready, value: nextValue })) {
       refocusComposerTextarea(textareaRef.current);
-      return;
+      return false;
     }
 
     onSubmit(nextValue);
     refocusComposerTextarea(textareaRef.current);
+    return true;
+  }
+
+  function suppressSyntheticClick() {
+    ignoreNextClickRef.current = true;
+    window.setTimeout(() => {
+      ignoreNextClickRef.current = false;
+    }, 500);
   }
 
   const submitState = composerSubmitState({ ready, pending, value });
@@ -438,7 +432,33 @@ export const Composer = React.forwardRef<HTMLTextAreaElement, ComposerProps>(fun
           variant="secondary"
           xstyle={astryxXStyle(styles.submit)}
           isDisabled={submitState.disabled}
-          onClick={submit}
+          onPointerDown={(event) => {
+            const nextValue = textareaRef.current?.value ?? value;
+            if (
+              !shouldSubmitFromPointerDown({
+                ready,
+                value: nextValue,
+                button: event.button,
+                isPrimary: event.isPrimary,
+                pointerType: event.pointerType
+              })
+            ) {
+              return;
+            }
+
+            event.preventDefault();
+            suppressSyntheticClick();
+            submit(nextValue);
+          }}
+          onClick={(event) => {
+            if (ignoreNextClickRef.current) {
+              event.preventDefault();
+              ignoreNextClickRef.current = false;
+              return;
+            }
+
+            submit();
+          }}
         />
       </div>
     </form>
