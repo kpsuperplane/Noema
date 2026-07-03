@@ -699,21 +699,11 @@ mod tests {
         let result = create_mcp_server_setup(
             &fixture.store,
             &fixture.paths,
-            NewMcpServerSetup {
-                display_name: "GitHub".to_string(),
-                transport_kind: McpTransportKind::Stdio,
-                safe_config: json!({
-                    "command": "npx",
-                    "args": ["-y", "server"],
-                    "env": { "GITHUB_OWNER": "example" }
-                }),
-                secrets: McpSecretMaterial {
-                    env: map_from_pairs([("GITHUB_TOKEN", "secret")]),
-                    headers: BTreeMap::new(),
-                    oauth_client_credentials: None,
-                    oauth_credentials: None,
-                },
-            },
+            github_stdio_setup(json!({
+                "command": "npx",
+                "args": ["-y", "server"],
+                "env": { "GITHUB_OWNER": "example" }
+            })),
             |_, _| FakeMcpTransport::ok(vec![fake_tool("list_repos")]),
         )
         .await
@@ -758,14 +748,14 @@ mod tests {
         let result = create_mcp_server_setup(
             &fixture.store,
             &fixture.paths,
-            NewMcpServerSetup {
-                display_name: "Remote".to_string(),
-                transport_kind: McpTransportKind::StreamableHttp,
-                safe_config: json!({
+            setup_input(
+                "Remote",
+                McpTransportKind::StreamableHttp,
+                json!({
                     "url": "https://example.com/mcp",
                     "headers": { "X-Team": "infra" }
                 }),
-                secrets: McpSecretMaterial {
+                McpSecretMaterial {
                     env: BTreeMap::new(),
                     headers: map_from_pairs([("Authorization", "Bearer secret")]),
                     oauth_client_credentials: Some(McpOAuthClientCredentials {
@@ -775,7 +765,7 @@ mod tests {
                     }),
                     oauth_credentials: None,
                 },
-            },
+            ),
             |_, _| FakeMcpTransport::ok(vec![fake_tool("search")]),
         )
         .await
@@ -811,17 +801,7 @@ mod tests {
         let result = create_mcp_server_setup(
             &fixture.store,
             &fixture.paths,
-            NewMcpServerSetup {
-                display_name: "GitHub".to_string(),
-                transport_kind: McpTransportKind::Stdio,
-                safe_config: json!({ "command": "npx", "args": [] }),
-                secrets: McpSecretMaterial {
-                    env: map_from_pairs([("GITHUB_TOKEN", "secret")]),
-                    headers: BTreeMap::new(),
-                    oauth_client_credentials: None,
-                    oauth_credentials: None,
-                },
-            },
+            github_stdio_setup(json!({ "command": "npx", "args": [] })),
             |_, _| FakeMcpTransport::auth_required("missing authorization"),
         )
         .await
@@ -863,12 +843,7 @@ mod tests {
         let initial = create_mcp_server_setup(
             &fixture.store,
             &fixture.paths,
-            NewMcpServerSetup {
-                display_name: "Remote".to_string(),
-                transport_kind: McpTransportKind::StreamableHttp,
-                safe_config: json!({ "url": "https://example.com/mcp" }),
-                secrets: McpSecretMaterial::default(),
-            },
+            remote_http_setup(McpSecretMaterial::default()),
             move |_, _| FakeMcpTransport::from_queue(create_outcomes.clone()),
         )
         .await
@@ -880,17 +855,7 @@ mod tests {
         let result = create_mcp_server_setup(
             &fixture.store,
             &fixture.paths,
-            NewMcpServerSetup {
-                display_name: "Remote".to_string(),
-                transport_kind: McpTransportKind::StreamableHttp,
-                safe_config: json!({ "url": "https://example.com/mcp" }),
-                secrets: McpSecretMaterial {
-                    env: BTreeMap::new(),
-                    headers: map_from_pairs([("Authorization", "Bearer retry")]),
-                    oauth_client_credentials: None,
-                    oauth_credentials: None,
-                },
-            },
+            remote_http_setup(retry_authorization_secret()),
             move |_, _| FakeMcpTransport::from_queue(retry_create_outcomes.clone()),
         )
         .await
@@ -905,15 +870,7 @@ mod tests {
         let result = continue_mcp_server_setup(
             &fixture.store,
             &fixture.paths,
-            ContinueMcpServerSetup {
-                mcp_server_id: "mcp:remote".to_string(),
-                secrets: McpSecretMaterial {
-                    env: BTreeMap::new(),
-                    headers: map_from_pairs([("Authorization", "Bearer retry")]),
-                    oauth_client_credentials: None,
-                    oauth_credentials: None,
-                },
-            },
+            continue_remote_setup(retry_authorization_secret()),
             move |_, _| FakeMcpTransport::from_queue(retry_outcomes.clone()),
         )
         .await
@@ -938,12 +895,7 @@ mod tests {
         create_mcp_server_setup(
             &fixture.store,
             &fixture.paths,
-            NewMcpServerSetup {
-                display_name: "Remote".to_string(),
-                transport_kind: McpTransportKind::StreamableHttp,
-                safe_config: json!({ "url": "https://example.com/mcp" }),
-                secrets: McpSecretMaterial::default(),
-            },
+            remote_http_setup(McpSecretMaterial::default()),
             |_, _| FakeMcpTransport::ok(vec![fake_tool("search")]),
         )
         .await
@@ -957,15 +909,7 @@ mod tests {
         let error = continue_mcp_server_setup(
             &fixture.store,
             &fixture.paths,
-            ContinueMcpServerSetup {
-                mcp_server_id: "mcp:remote".to_string(),
-                secrets: McpSecretMaterial {
-                    env: BTreeMap::new(),
-                    headers: map_from_pairs([("Authorization", "Bearer retry")]),
-                    oauth_client_credentials: None,
-                    oauth_credentials: None,
-                },
-            },
+            continue_remote_setup(retry_authorization_secret()),
             |_, _| FakeMcpTransport::ok(vec![fake_tool("search")]),
         )
         .await
@@ -984,20 +928,15 @@ mod tests {
         let error = create_mcp_server_setup(
             &fixture.store,
             &fixture.paths,
-            NewMcpServerSetup {
-                display_name: "Unsafe".to_string(),
-                transport_kind: McpTransportKind::StreamableHttp,
-                safe_config: json!({
+            setup_input(
+                "Unsafe",
+                McpTransportKind::StreamableHttp,
+                json!({
                     "url": "https://example.com/mcp",
                     "headers": { "Authorization": "not-safe" }
                 }),
-                secrets: McpSecretMaterial {
-                    env: map_from_pairs([("GITHUB_TOKEN", "secret")]),
-                    headers: BTreeMap::new(),
-                    oauth_client_credentials: None,
-                    oauth_credentials: None,
-                },
-            },
+                github_token_secret(),
+            ),
             |_, _| FakeMcpTransport::ok(Vec::new()),
         )
         .await
@@ -1023,6 +962,59 @@ mod tests {
                 store,
                 _home: home,
             }
+        }
+    }
+
+    fn setup_input(
+        display_name: &str,
+        transport_kind: McpTransportKind,
+        safe_config: serde_json::Value,
+        secrets: McpSecretMaterial,
+    ) -> NewMcpServerSetup {
+        NewMcpServerSetup {
+            display_name: display_name.to_string(),
+            transport_kind,
+            safe_config,
+            secrets,
+        }
+    }
+
+    fn github_stdio_setup(safe_config: serde_json::Value) -> NewMcpServerSetup {
+        setup_input(
+            "GitHub",
+            McpTransportKind::Stdio,
+            safe_config,
+            github_token_secret(),
+        )
+    }
+
+    fn remote_http_setup(secrets: McpSecretMaterial) -> NewMcpServerSetup {
+        setup_input(
+            "Remote",
+            McpTransportKind::StreamableHttp,
+            json!({ "url": "https://example.com/mcp" }),
+            secrets,
+        )
+    }
+
+    fn continue_remote_setup(secrets: McpSecretMaterial) -> ContinueMcpServerSetup {
+        ContinueMcpServerSetup {
+            mcp_server_id: "mcp:remote".to_string(),
+            secrets,
+        }
+    }
+
+    fn github_token_secret() -> McpSecretMaterial {
+        McpSecretMaterial {
+            env: map_from_pairs([("GITHUB_TOKEN", "secret")]),
+            ..McpSecretMaterial::default()
+        }
+    }
+
+    fn retry_authorization_secret() -> McpSecretMaterial {
+        McpSecretMaterial {
+            headers: map_from_pairs([("Authorization", "Bearer retry")]),
+            ..McpSecretMaterial::default()
         }
     }
 

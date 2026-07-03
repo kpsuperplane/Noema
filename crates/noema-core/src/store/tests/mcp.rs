@@ -493,28 +493,20 @@ async fn batch_calibration_rolls_back_saved_rows_and_enabled_state_on_mid_batch_
 
     let error = store
         .save_tool_calibrations(vec![
-            NewToolCalibration {
-                calibration_id: "tool_calibration:shared".to_string(),
-                mcp_tool_id: "mcp_tool:google:read_doc".to_string(),
-                read_classification: McpTrustClassification::Trusted,
-                write_classification: McpTrustClassification::None,
-                export_classification: McpTrustClassification::None,
-                owner_extractors: Vec::new(),
-                status: McpCalibrationStatus::Ready,
-                reviewed_by: Some("human:local".to_string()),
-                reviewed_metadata_fingerprint: Some("fingerprint_1".to_string()),
-            },
-            NewToolCalibration {
-                calibration_id: "tool_calibration:shared".to_string(),
-                mcp_tool_id: "mcp_tool:google:write_doc".to_string(),
-                read_classification: McpTrustClassification::None,
-                write_classification: McpTrustClassification::Trusted,
-                export_classification: McpTrustClassification::None,
-                owner_extractors: Vec::new(),
-                status: McpCalibrationStatus::Ready,
-                reviewed_by: Some("human:local".to_string()),
-                reviewed_metadata_fingerprint: Some("fingerprint_write".to_string()),
-            },
+            ready_google_calibration(
+                "shared",
+                "read_doc",
+                McpTrustClassification::Trusted,
+                McpTrustClassification::None,
+                "fingerprint_1",
+            ),
+            ready_google_calibration(
+                "shared",
+                "write_doc",
+                McpTrustClassification::None,
+                McpTrustClassification::Trusted,
+                "fingerprint_write",
+            ),
         ])
         .await
         .expect_err("duplicate calibration id should fail during batch save");
@@ -561,17 +553,13 @@ async fn calibration_id_cannot_move_between_tools() {
         .expect("save first calibration");
 
     let error = store
-        .save_tool_calibration(NewToolCalibration {
-            calibration_id: "tool_calibration:read_doc".to_string(),
-            mcp_tool_id: "mcp_tool:google:write_doc".to_string(),
-            read_classification: McpTrustClassification::None,
-            write_classification: McpTrustClassification::Trusted,
-            export_classification: McpTrustClassification::None,
-            owner_extractors: Vec::new(),
-            status: McpCalibrationStatus::Ready,
-            reviewed_by: Some("human:local".to_string()),
-            reviewed_metadata_fingerprint: Some("fingerprint_write".to_string()),
-        })
+        .save_tool_calibration(ready_google_calibration(
+            "read_doc",
+            "write_doc",
+            McpTrustClassification::None,
+            McpTrustClassification::Trusted,
+            "fingerprint_write",
+        ))
         .await
         .expect_err("calibration id cannot move to another tool");
 
@@ -699,6 +687,26 @@ fn ready_mixed_calibration(reviewed_metadata_fingerprint: &str) -> NewToolCalibr
     )
 }
 
+fn ready_google_calibration(
+    calibration_name: &str,
+    tool_name: &str,
+    read_classification: McpTrustClassification,
+    write_classification: McpTrustClassification,
+    reviewed_metadata_fingerprint: &str,
+) -> NewToolCalibration {
+    NewToolCalibration {
+        calibration_id: format!("tool_calibration:{calibration_name}"),
+        mcp_tool_id: format!("mcp_tool:google:{tool_name}"),
+        read_classification,
+        write_classification,
+        export_classification: McpTrustClassification::None,
+        owner_extractors: Vec::new(),
+        status: McpCalibrationStatus::Ready,
+        reviewed_by: Some("human:local".to_string()),
+        reviewed_metadata_fingerprint: Some(reviewed_metadata_fingerprint.to_string()),
+    }
+}
+
 fn google_read_calibration(
     read_classification: McpTrustClassification,
     write_classification: McpTrustClassification,
@@ -751,39 +759,23 @@ async fn create_trusted_identity_selector_rejects_invalid_raw_value() {
 async fn mcp_tool_upsert_replaces_discovered_metadata() {
     let store = test_store().await;
     store
-        .create_mcp_server(NewMcpServer {
-            mcp_server_id: "mcp_server:local-test".to_string(),
-            display_name: "Local Test".to_string(),
-            transport_kind: McpTransportKind::Stdio,
-            safe_config: json!({}),
-        })
+        .create_mcp_server(google_server())
         .await
         .expect("create server");
 
     store
         .upsert_discovered_mcp_tool(NewMcpTool {
-            mcp_tool_id: "mcp_tool:local-test:read".to_string(),
-            mcp_server_id: "mcp_server:local-test".to_string(),
-            name: "read".to_string(),
             description: Some("Old description".to_string()),
-            input_schema: json!({"type": "object"}),
-            output_schema: None,
-            annotations: json!({}),
-            metadata_fingerprint: "fingerprint:v1".to_string(),
+            ..google_tool("read", json!({}), "fingerprint:v1")
         })
         .await
         .expect("upsert old tool");
 
     let updated = store
         .upsert_discovered_mcp_tool(NewMcpTool {
-            mcp_tool_id: "mcp_tool:local-test:read".to_string(),
-            mcp_server_id: "mcp_server:local-test".to_string(),
-            name: "read".to_string(),
             description: Some("New description".to_string()),
-            input_schema: json!({"type": "object"}),
-            output_schema: None,
             annotations: json!({"destructiveHint": false}),
-            metadata_fingerprint: "fingerprint:v2".to_string(),
+            ..google_tool("read", json!({}), "fingerprint:v2")
         })
         .await
         .expect("upsert replacement tool");
@@ -792,7 +784,7 @@ async fn mcp_tool_upsert_replaces_discovered_metadata() {
     assert_eq!(updated.metadata_fingerprint, "fingerprint:v2");
     assert_eq!(updated.annotations, json!({"destructiveHint": false}));
     let tools = store
-        .list_mcp_tools_for_server("mcp_server:local-test")
+        .list_mcp_tools_for_server("mcp_server:google")
         .await
         .expect("list tools");
     assert_eq!(tools.len(), 1);
