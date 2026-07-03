@@ -14,15 +14,25 @@ const styles = stylex.create({
   content: {
     display: "inline-flex",
     maxWidth: "100%",
+    minWidth: 0,
     alignItems: "baseline",
     justifyContent: "center",
     flexWrap: "wrap",
     gap: "0 6px",
     overflowWrap: "anywhere",
+    whiteSpace: "normal",
+    wordBreak: "break-word",
     textAlign: "center"
   },
   label: {
     fontWeight: 650
+  },
+  message: {
+    minWidth: 0,
+    maxWidth: "100%",
+    overflowWrap: "anywhere",
+    whiteSpace: "normal",
+    wordBreak: "break-word"
   },
   defaultTone: {
     color: "var(--noema-text-secondary)"
@@ -61,7 +71,7 @@ export function TranscriptSystemNotice({
         )}
       >
         {label ? <strong {...stylex.props(styles.label)}>{label}</strong> : null}
-        <span>{children}</span>
+        <span {...stylex.props(styles.message)}>{children}</span>
       </span>
     </ChatSystemMessage>
   );
