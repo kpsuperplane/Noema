@@ -75,16 +75,15 @@ Resolution:
 
 Original issue:
 
-- "Parity with `noema context graph`" could imply normal user or agent-visible
+- Parity with the old graph command could imply normal user or agent-visible
   graph views exposing memory IDs, entities, relationships, provenance,
   omissions, grants, and denial reasons.
 
 Resolution:
 
 - Rich context graph inspection is future owner/admin-only. Current backed
-  inspection is memory list/detail through `noema memory list/show` and
-  GraphQL `memoryClaims`/`memoryClaim`; the retired `noema context graph`
-  command remains unavailable.
+  inspection is memory browse/detail through GraphQL `memoryClaims`,
+  `memoryClaim`, and the bounded `memoryGraph` read model.
 - It is redacted by default in normal views.
 - Private, sensitive, or secret node/edge existence, aliases, source names,
   denial reasons, and counts require authorized reveal.

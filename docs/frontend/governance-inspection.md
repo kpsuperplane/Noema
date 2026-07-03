@@ -30,13 +30,13 @@ Noema needs separate inspection modes:
 | Owner/admin inspection | Privileged local debugging and audit | More detail, but still explicit reveal for sensitive/secret data |
 | Export view | Portable record with chosen redaction mode | Manifested, scoped, and sensitivity-aware |
 
-The current CLI-backed memory inspection surface is `noema memory list/show`,
-fed by daemon GraphQL `memoryClaims`/`memoryClaim`. The retired `noema context
-graph` command remains unavailable, so any richer context graph inspector is a
-future owner/admin drill-in rather than current CLI parity. The frontend should
-not reuse owner/admin detail as agent-visible context. Private, sensitive, or
-secret graph node existence, edge existence, aliases, source names, denial
-reasons, and exact counts require authorized reveal.
+The current memory inspection surface is backed by GraphQL
+`memoryClaims`/`memoryClaim` and the bounded `memoryGraph` read model. Any
+richer context graph inspector is a future owner/admin drill-in beyond the
+current read model. The frontend should not reuse owner/admin detail as
+agent-visible context. Private, sensitive, or secret graph node existence, edge
+existence, aliases, source names, denial reasons, and exact counts require
+authorized reveal.
 
 Current reveal rule: owner/admin inspection means a local interactive user
 explicitly enters Inspect or clicks Reveal for a specific object/session.
@@ -670,10 +670,12 @@ The current slice should ship with narrow but honest inspection:
 
 - Inline memory rows for saved/proposed/used/omitted memories in chat.
 - Expanded memory details in chat before full memory settings.
-- Memory list/show UI parity with CLI behavior as a secondary drill-in.
+- Memory browse/detail UI parity with GraphQL read models as a secondary
+  drill-in.
 - Owner/admin-only graph inspection remains future-oriented; the current backed
-  inspection surface is memory list/show parity through GraphQL
-  `memoryClaims`/`memoryClaim`, redacted by default in normal views.
+  inspection surface is memory browse/detail through GraphQL
+  `memoryClaims`/`memoryClaim` and `memoryGraph`, redacted by default in normal
+  views.
 - Chat page showing transcript items and memory extraction activity.
 - Memory review queue for active/candidate extracted memories.
 - Access preview backed by deterministic memory retrieval, entered first

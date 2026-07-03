@@ -1,8 +1,8 @@
 # Current Frontend Contract
 
 This contract keeps the first frontend aligned with the current Rust runtime.
-It should be updated whenever the daemon protocol, embedded store schema, or
-inspection commands change.
+It should be updated whenever the GraphQL contract, runtime events, embedded
+store schema, or inspection read models change.
 
 For the current slice, routes may exist for memory, settings, and inspection,
 but the default user-facing experience is chat. Management and admin routes are
@@ -26,11 +26,10 @@ explicit owner/admin entry points.
 | Daemon web server | Local React shell, GraphQL HTTP, and GraphQL WebSocket subscription endpoints |
 | `A2uiCard` payloads | Future structured cards inside the chat stream |
 | `config.yaml` and environment-derived config | Provider/model/default setup state; secrets remain environment-only |
-| `NoemaPaths` and store config | Noema home, run directory, socket path, and embedded store location |
+| `NoemaPaths` and store config | Noema home, runtime directory, and embedded store location |
 | Embedded SurrealDB store | Concrete object rows, conversations, conversation_turns, conversation_items, graph claims, evidence, provider accounts, predicates, and retrieval packets |
-| GraphQL memory read model | Memory list/detail, durable conversation item replay, graph-claim retrieval, and redaction |
-| Predicate proposal inspection | Current Rust-backed GraphQL `memoryPredicateProposals` and `memoryPredicateProposal`; CLI mirrors these for owner/admin inspection. Proposals are review-gated and do not unlock ordinary retrieval until promoted or merged. |
-| CLI inspection commands | Reference behavior for memory display/redaction |
+| GraphQL memory read model | Memory browse/detail, durable conversation item replay, graph-claim retrieval, and redaction |
+| Predicate proposal inspection | Current Rust-backed GraphQL `memoryPredicateProposals` and `memoryPredicateProposal`. Proposals are review-gated and do not unlock ordinary retrieval until promoted or merged. |
 
 ## Frontend Code Organization
 
@@ -64,7 +63,7 @@ primary navigation priority.
 | `/setup` | Setup | local folder, assistant connection, local service checks | initialize or update setup through explicit setup flow | Current |
 | `/chat` | Chat | local service stream | start chat, render transcript items, show inline memory/activity rows | Current |
 | `/chat/:id` | Chat detail | active daemon conversation; persisted `conversation_items` after acknowledged turns | live while active; durable item replay after turn | Current limited |
-| `/memory` | Memory settings | memory list read model | secondary memory management opened from chat or settings; redacted list, filters, review entry points | Current |
+| `/memory` | Memory settings | memory browse read model | secondary memory management opened from chat or settings; redacted browse, filters, review entry points | Current |
 | `/memory/:id` | Memory detail | memory detail read model | opened from inline memory event or memory settings; inspect content/provenance/policy with reveal rules | Current |
 | `/memory/review` | Review memory | memory candidates and active extracted memories | opened from review-required chat events or settings; inspect now; mutation only where repository/API supports it | Current limited |
 | `/inspect` | Advanced inspection | embedded store read models | owner/admin inspection hub; never required for ordinary chat success | Current limited |
@@ -100,11 +99,11 @@ takeover. Unknown browser paths fall back to `Home`.
 
 ## First Shell Assumption
 
-The current implementation starts with a core-hosted local web chat served by
-`noema start`. Longer term, the initial product shell should guide setup
-without requiring a beginner to open a terminal after launch. That may remain
-local web chat, or become a desktop app or launcher-backed inspector if the
-launcher can perform the beginner actions.
+The current implementation starts with a core-hosted local web chat and a
+desktop shell that talks to the same GraphQL-backed runtime. Longer term, the
+initial product shell should guide setup without requiring a beginner to open a
+terminal after launch. That may remain local web chat, or become a desktop app
+or launcher-backed inspector if the launcher can perform the beginner actions.
 
 The frontend owns these beginner actions:
 
@@ -115,9 +114,8 @@ The frontend owns these beginner actions:
 - View saved memory inline.
 
 If the shell cannot perform one of these actions directly, the screen must show
-one plain-language next step and a copyable command under `Show technical
-details`. CLI-only setup does not satisfy the beginner onboarding goal unless
-those commands are wrapped by a guided shell.
+one plain-language next step under `Show technical details`. Setup paths that
+require an unguided terminal flow do not satisfy the beginner onboarding goal.
 
 ## Setup Health Read Model
 
@@ -390,13 +388,10 @@ inspection is limited to claim list/detail surfaces.
 
 Backed by:
 
-- Current: daemon GraphQL `memoryClaims`/`memoryClaim` and
-  `memoryPredicateProposals`/`memoryPredicateProposal`, consumed by `noema
-  memory list`, `noema memory show <id>`, `noema memory predicate-proposals`,
-  and `noema memory predicate-proposal <id>`.
-- Future: richer graph neighborhood inspection. The retired `noema context
-  graph` command is intentionally unavailable and is not a current backing
-  surface.
+- Current: GraphQL `memoryClaims`/`memoryClaim`,
+  `memoryPredicateProposals`/`memoryPredicateProposal`, and `memoryGraph`.
+- Future: richer graph neighborhood inspection beyond the current bounded
+  GraphQL read model.
 
 Sections:
 
@@ -522,9 +517,9 @@ Current IA implementation is acceptable when:
 - Memory management remains reachable from the expanded card or settings, but
   does not replace chat as the first success state.
 - Onboarding does not expose projects, tasks, tools, approvals, agents, audit,
-  graph, packets, raw IDs, YAML, socket paths, or command palette mutations.
+  graph, packets, raw IDs, YAML, transport details, or command palette mutations.
 - Unsupported run/approval/tool/task controls are absent or clearly disabled.
-- Memory list/detail matches CLI redaction posture or is stricter.
+- Memory browse/detail follows GraphQL redaction policy.
 - Context graph is owner/admin-only and not exposed as agent-visible context.
 - Context packet views show unavailable states when no packet exists.
 - Access preview cannot enumerate denied private, sensitive, or secret objects

@@ -88,7 +88,7 @@ should be conversational and contextual:
 2. Expand the saved memory line.
 3. Open memory settings only if the user wants deeper management.
 
-Secondary actions such as local setup, memory list, and advanced inspection are
+Secondary actions such as local setup, memory browse, and advanced inspection are
 available through small utility controls, expanded event details, or settings.
 They should not take over the primary frame.
 
@@ -279,6 +279,6 @@ Chat turn or activity line
 - The expanded memory card can route to memory settings for deeper management.
 - The current slice shows one visible user and one visible assistant by default.
 - Onboarding does not expose projects, tasks, tools, approvals, agents, audit,
-  graph, packets, raw IDs, YAML, socket paths, or command palette mutations.
+  graph, packets, raw IDs, YAML, transport details, or command palette mutations.
 - Unsupported controls are hidden, absent, or disabled with exact missing
   dependency text.

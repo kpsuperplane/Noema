@@ -29,8 +29,8 @@ The next storage slice should stay small and concrete:
   rebuilt instead of migrated.
 - Docker/Compose development infrastructure has been retired after the embedded
   SurrealDB migration; local development uses host Rust, Bun, and web/desktop
-  product surfaces. The old Noema CLI and `cargo dev-daemon` alias have been
-  removed.
+  product surfaces. The old standalone Noema binary and local dev alias have
+  been removed.
 - First-run web onboarding is derived from backend readiness checks and blocks
   chat until an active provider account is authenticated.
 - Provider credential/session material lives under

@@ -294,7 +294,7 @@ impl NewMemoryCandidate {
     }
 }
 
-/// Recent memory row suitable for CLI inspection.
+/// Recent memory row suitable for owner/admin inspection.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MemorySummary {
     /// Memory id.

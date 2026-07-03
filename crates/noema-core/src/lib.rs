@@ -44,7 +44,7 @@ pub use capability::{
     evaluate_capability_policy, examine_read_result, resolve_owner_from_json,
 };
 pub use config::{
-    CliOverrides, Config, ConfigError, DaemonResolvedConfig, FoundationLocalProviderConfig,
+    Config, ConfigError, ConfigOverrides, DaemonResolvedConfig, FoundationLocalProviderConfig,
     ProviderConfig, ProviderKind, ResolvedConfig, WebConfig,
 };
 pub use conversation::{

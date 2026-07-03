@@ -53,9 +53,9 @@ const CONFIG_ENV_KEYS: &[&str] = &[
     "web.port",
 ];
 
-/// Configuration values supplied directly by the CLI.
+/// Programmatic configuration overrides supplied by local entrypoints.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
-pub struct CliOverrides {
+pub struct ConfigOverrides {
     /// Provider override, such as `openai` or `codex`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provider: Option<String>,
@@ -64,17 +64,17 @@ pub struct CliOverrides {
     pub model: Option<String>,
     /// OpenAI-specific overrides.
     #[serde(skip_serializing_if = "Option::is_none", rename = "openai")]
-    pub openai_overrides: Option<CliOpenAiOverrides>,
+    pub openai_overrides: Option<ConfigOpenAiOverrides>,
 }
 
-impl CliOverrides {
-    /// Build CLI overrides from parsed command-line options.
+impl ConfigOverrides {
+    /// Build overrides from parsed entrypoint options.
     #[must_use]
     pub fn new(provider: Option<String>, model: Option<String>, base_url: Option<String>) -> Self {
         Self {
             provider,
             model,
-            openai_overrides: base_url.map(|base_url| CliOpenAiOverrides {
+            openai_overrides: base_url.map(|base_url| ConfigOpenAiOverrides {
                 base_url: Some(base_url),
             }),
         }
@@ -89,9 +89,9 @@ impl CliOverrides {
     }
 }
 
-/// OpenAI-specific CLI overrides.
+/// OpenAI-specific entrypoint overrides.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
-pub struct CliOpenAiOverrides {
+pub struct ConfigOpenAiOverrides {
     /// OpenAI-compatible API base URL.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub base_url: Option<String>,
@@ -106,7 +106,7 @@ pub struct ResolvedConfig {
     pub web: WebConfig,
 }
 
-/// Configuration for the local web UI served by `noema start`.
+/// Configuration for the local web UI.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WebConfig {
     /// Host/interface to bind.
@@ -135,7 +135,7 @@ impl WebConfig {
 /// Supported provider identifiers.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProviderKind {
-    /// Codex CLI provider.
+    /// Codex Responses provider.
     Codex,
     /// `OpenAI` Responses API provider.
     OpenAi,
@@ -215,7 +215,7 @@ impl ProviderConfig {
 pub struct Config;
 
 impl Config {
-    /// Load the configured provider from defaults, config file, environment, and CLI overrides.
+    /// Load the configured provider from defaults, config file, environment, and overrides.
     ///
     /// # Errors
     ///
@@ -224,9 +224,9 @@ impl Config {
     /// missing for the selected provider, or the provider is unsupported.
     pub fn load(
         path_override: Option<PathBuf>,
-        cli: CliOverrides,
+        overrides: ConfigOverrides,
     ) -> Result<ResolvedConfig, ConfigError> {
-        let raw = load_raw_config(path_override, cli)?;
+        let raw = load_raw_config(path_override, overrides)?;
         raw.resolve()
     }
 
@@ -239,9 +239,9 @@ impl Config {
     /// values fail validation.
     pub fn load_codex(
         path_override: Option<PathBuf>,
-        cli: CliOverrides,
+        overrides: ConfigOverrides,
     ) -> Result<CodexProviderConfig, ConfigError> {
-        let raw = load_raw_config(path_override, cli)?;
+        let raw = load_raw_config(path_override, overrides)?;
         raw.resolve_codex_config()
     }
 
@@ -253,9 +253,9 @@ impl Config {
     /// missing or invalid, or Codex/web settings fail validation.
     pub fn load_daemon(
         path_override: Option<PathBuf>,
-        cli: CliOverrides,
+        overrides: ConfigOverrides,
     ) -> Result<DaemonResolvedConfig, ConfigError> {
-        let raw = load_raw_config(path_override, cli)?;
+        let raw = load_raw_config(path_override, overrides)?;
         raw.resolve_daemon_config()
     }
 }
@@ -561,11 +561,11 @@ impl From<figment::Error> for ConfigError {
 
 fn load_raw_config(
     path_override: Option<PathBuf>,
-    cli: CliOverrides,
+    overrides: ConfigOverrides,
 ) -> Result<RawConfig, ConfigError> {
     load_raw_config_from_sources(
         path_override,
-        cli,
+        overrides,
         default_config_path()?,
         Figment::from(config_env_provider()),
     )
@@ -573,7 +573,7 @@ fn load_raw_config(
 
 fn load_raw_config_from_sources(
     path_override: Option<PathBuf>,
-    cli: CliOverrides,
+    overrides: ConfigOverrides,
     default_config_path: Option<PathBuf>,
     env: Figment,
 ) -> Result<RawConfig, ConfigError> {
@@ -585,7 +585,7 @@ fn load_raw_config_from_sources(
     }
 
     figment = figment.merge(env);
-    figment = figment.merge(Serialized::defaults(cli));
+    figment = figment.merge(Serialized::defaults(overrides));
 
     Ok(figment.extract()?)
 }

@@ -785,9 +785,9 @@ mod tests {
         fs::create_dir_all(&account_home).expect("account dir");
         fs::write(
             account_home.join("auth.json"),
-            r#"{"tokens":{"access_token":"cli","refresh_token":"cli-refresh"}}"#,
+            r#"{"tokens":{"access_token":"local","refresh_token":"local-refresh"}}"#,
         )
-        .expect("cli auth");
+        .expect("local auth");
 
         let store = CodexTokenStore::new(account_home);
 

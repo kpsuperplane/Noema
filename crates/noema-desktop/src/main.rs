@@ -20,7 +20,7 @@ fn noema_desktop_main() {
             let state = app.state::<desktop_state::DesktopState>();
             let provider = noema_core::Config::load_daemon(
                 None,
-                noema_core::CliOverrides::default(),
+                noema_core::ConfigOverrides::default(),
             )
             .map(|config| config.provider)
             .unwrap_or_else(|_| {

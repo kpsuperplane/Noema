@@ -4,7 +4,7 @@ use crate::paths::NoemaPaths;
 use std::{fs, path::PathBuf};
 use thiserror::Error;
 
-/// Default config written by `noema config`.
+/// Default config written during Noema home initialization.
 pub const DEFAULT_NOEMA_CONFIG_YAML: &str = r"# Noema configuration
 provider: codex
 

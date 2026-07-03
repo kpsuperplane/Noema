@@ -10,30 +10,31 @@ fn write_config(contents: &str) -> NamedTempFile {
 
 fn load_resolved(
     path_override: Option<PathBuf>,
-    cli: CliOverrides,
+    overrides: ConfigOverrides,
     default_config_path: Option<PathBuf>,
     env: &[(&str, &str)],
 ) -> Result<ResolvedConfig, ConfigError> {
-    load_raw_config_from_sources(path_override, cli, default_config_path, test_env(env))?.resolve()
+    load_raw_config_from_sources(path_override, overrides, default_config_path, test_env(env))?
+        .resolve()
 }
 
 fn load_codex_config(
     path_override: Option<PathBuf>,
-    cli: CliOverrides,
+    overrides: ConfigOverrides,
     default_config_path: Option<PathBuf>,
     env: &[(&str, &str)],
 ) -> Result<CodexProviderConfig, ConfigError> {
-    load_raw_config_from_sources(path_override, cli, default_config_path, test_env(env))?
+    load_raw_config_from_sources(path_override, overrides, default_config_path, test_env(env))?
         .resolve_codex_config()
 }
 
 fn load_daemon_config(
     path_override: Option<PathBuf>,
-    cli: CliOverrides,
+    overrides: ConfigOverrides,
     default_config_path: Option<PathBuf>,
     env: &[(&str, &str)],
 ) -> Result<DaemonResolvedConfig, ConfigError> {
-    load_raw_config_from_sources(path_override, cli, default_config_path, test_env(env))?
+    load_raw_config_from_sources(path_override, overrides, default_config_path, test_env(env))?
         .resolve_daemon_config()
 }
 
@@ -71,7 +72,7 @@ fn parse_env_value(value: &str) -> Value {
 
 #[test]
 fn default_openai_config_requires_normalized_api_key() {
-    let error = load_resolved(None, CliOverrides::default(), None, &[]).unwrap_err();
+    let error = load_resolved(None, ConfigOverrides::default(), None, &[]).unwrap_err();
 
     assert!(matches!(
         error,
@@ -96,10 +97,10 @@ openai:
 
     let resolved = load_resolved(
         Some(file.path().to_path_buf()),
-        CliOverrides::new(
+        ConfigOverrides::new(
             None,
-            Some("cli-model".to_string()),
-            Some("https://cli.example/v1".to_string()),
+            Some("override-model".to_string()),
+            Some("https://override.example/v1".to_string()),
         ),
         None,
         &[
@@ -119,8 +120,8 @@ openai:
     };
 
     assert_eq!(openai.api_key, "env-key");
-    assert_eq!(openai.default_model, "cli-model");
-    assert_eq!(openai.base_url, "https://cli.example/v1");
+    assert_eq!(openai.default_model, "override-model");
+    assert_eq!(openai.base_url, "https://override.example/v1");
     assert_eq!(openai.organization_id.as_deref(), Some("env-org"));
     assert_eq!(openai.project_id.as_deref(), Some("env-project"));
     assert_eq!(openai.timeout_seconds, 33);
@@ -143,7 +144,7 @@ openai:
 
     let resolved = load_resolved(
         Some(file.path().to_path_buf()),
-        CliOverrides::default(),
+        ConfigOverrides::default(),
         None,
         &[(OPENAI_API_KEY_ENV, "env-key")],
     )
@@ -180,7 +181,7 @@ model: noema-home-model
 
     let resolved = load_resolved(
         None,
-        CliOverrides::default(),
+        ConfigOverrides::default(),
         Some(noema_home.join("config.yaml")),
         &[(OPENAI_API_KEY_ENV, "env-key")],
     )
@@ -210,7 +211,7 @@ model: home-model
 
     let resolved = load_resolved(
         None,
-        CliOverrides::default(),
+        ConfigOverrides::default(),
         Some(home.join(".noema/config.yaml")),
         &[(OPENAI_API_KEY_ENV, "env-key")],
     )
@@ -238,7 +239,7 @@ provider: codex
 
     let resolved = load_resolved(
         None,
-        CliOverrides::default(),
+        ConfigOverrides::default(),
         Some(noema_home.join("config.yaml")),
         &[(NOEMA_HOME_ENV, "/ignored/as/config")],
     )
@@ -251,7 +252,7 @@ provider: codex
 fn codex_provider_does_not_require_openai_api_key() {
     let resolved = load_resolved(
         None,
-        CliOverrides::new(Some("codex".to_string()), None, None),
+        ConfigOverrides::new(Some("codex".to_string()), None, None),
         None,
         &[],
     )
@@ -273,7 +274,7 @@ fn codex_provider_does_not_require_openai_api_key() {
 fn foundation_local_config_does_not_require_openai_or_codex_credentials() {
     let resolved = load_resolved(
         None,
-        CliOverrides::new(Some("foundation_local".to_string()), None, None),
+        ConfigOverrides::new(Some("foundation_local".to_string()), None, None),
         None,
         &[],
     )
@@ -302,7 +303,7 @@ foundation_local:
 
     let resolved = load_resolved(
         Some(file.path().to_path_buf()),
-        CliOverrides::default(),
+        ConfigOverrides::default(),
         None,
         &[
             ("NOEMA_FOUNDATION_LOCAL__DEFAULT_PROFILE", "default"),
@@ -329,7 +330,7 @@ foundation_local:
 fn provider_config_does_not_require_database_url() {
     let resolved = load_resolved(
         None,
-        CliOverrides::new(Some("codex".to_string()), None, None),
+        ConfigOverrides::new(Some("codex".to_string()), None, None),
         None,
         &[],
     )
@@ -342,7 +343,7 @@ fn provider_config_does_not_require_database_url() {
 fn resolves_default_web_config() {
     let resolved = load_resolved(
         None,
-        CliOverrides::new(Some("codex".to_string()), None, None),
+        ConfigOverrides::new(Some("codex".to_string()), None, None),
         None,
         &[],
     )
@@ -370,7 +371,7 @@ web:
 
     let resolved = load_resolved(
         Some(file.path().to_path_buf()),
-        CliOverrides::default(),
+        ConfigOverrides::default(),
         None,
         &[
             ("NOEMA_WEB__HOST", "127.0.0.3"),
@@ -392,7 +393,7 @@ web:
 fn daemon_config_resolves_codex_and_web_without_openai_credentials() {
     let config = load_daemon_config(
         None,
-        CliOverrides::new(Some("codex".to_string()), None, None),
+        ConfigOverrides::new(Some("codex".to_string()), None, None),
         None,
         &[],
     )
@@ -415,7 +416,7 @@ provider: codex
 
     let config = load_daemon_config(
         Some(file.path().to_path_buf()),
-        CliOverrides::default(),
+        ConfigOverrides::default(),
         None,
         &[("NOEMA_LEGACY_DATABASE_URL", "ignored")],
     )
@@ -453,7 +454,7 @@ codex:
 
     let resolved = load_resolved(
         Some(file.path().to_path_buf()),
-        CliOverrides::default(),
+        ConfigOverrides::default(),
         None,
         &[
             ("NOEMA_MODEL", "env-model"),
@@ -496,7 +497,7 @@ codex:
 
     let codex = load_codex_config(
         Some(file.path().to_path_buf()),
-        CliOverrides::default(),
+        ConfigOverrides::default(),
         None,
         &[],
     )
@@ -510,7 +511,7 @@ codex:
 
 #[test]
 fn load_codex_ignores_default_openai_provider_credentials() {
-    let codex = load_codex_config(None, CliOverrides::default(), None, &[])
+    let codex = load_codex_config(None, ConfigOverrides::default(), None, &[])
         .expect("codex config should resolve");
 
     assert_eq!(codex.base_url, DEFAULT_CODEX_BASE_URL);
@@ -520,7 +521,7 @@ fn load_codex_ignores_default_openai_provider_credentials() {
 fn old_openai_api_key_env_is_ignored() {
     let error = load_resolved(
         None,
-        CliOverrides::default(),
+        ConfigOverrides::default(),
         None,
         &[("OPENAI_API_KEY", "old-key")],
     )
@@ -544,7 +545,7 @@ openai:
 
     let error = load_resolved(
         Some(file.path().to_path_buf()),
-        CliOverrides::default(),
+        ConfigOverrides::default(),
         None,
         &[],
     )
@@ -556,7 +557,7 @@ openai:
 #[test]
 fn missing_explicit_config_file_is_an_error() {
     let missing = PathBuf::from("/tmp/noema-missing-config.yaml");
-    let error = Config::load(Some(missing.clone()), CliOverrides::default()).unwrap_err();
+    let error = Config::load(Some(missing.clone()), ConfigOverrides::default()).unwrap_err();
 
     assert!(matches!(
         error,
@@ -568,7 +569,7 @@ fn missing_explicit_config_file_is_an_error() {
 fn invalid_codex_timeout_env_is_an_error() {
     let error = load_resolved(
         None,
-        CliOverrides::default(),
+        ConfigOverrides::default(),
         None,
         &[
             ("NOEMA_PROVIDER", "codex"),
@@ -584,7 +585,7 @@ fn invalid_codex_timeout_env_is_an_error() {
 fn zero_codex_timeout_is_an_error() {
     let error = load_resolved(
         None,
-        CliOverrides::default(),
+        ConfigOverrides::default(),
         None,
         &[
             ("NOEMA_PROVIDER", "codex"),
@@ -600,7 +601,7 @@ fn zero_codex_timeout_is_an_error() {
 fn unsupported_provider_is_an_error() {
     let error = load_resolved(
         None,
-        CliOverrides::default(),
+        ConfigOverrides::default(),
         None,
         &[("NOEMA_PROVIDER", "unknown")],
     )
@@ -615,7 +616,7 @@ fn generated_config_template_parses() {
 
     let codex = load_codex_config(
         Some(file.path().to_path_buf()),
-        CliOverrides::default(),
+        ConfigOverrides::default(),
         None,
         &[],
     )

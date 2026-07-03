@@ -146,7 +146,7 @@ Memory management pages include:
   usage history.
 - Access preview.
 - Future owner/admin graph-neighborhood inspection only behind explicit reveal;
-  current backed inspection is memory list/detail.
+  current backed inspection is memory browse/detail.
 
 Primary actions:
 
@@ -430,7 +430,7 @@ Required screens/states:
 - Health check using beginner labels first.
 
 Setup and health screens must never render secret values. Environment-derived
-credentials, provider account identifiers, socket paths, and local home paths
+credentials, provider account identifiers, transport details, and local home paths
 should be redacted in screenshots, exports, and shared audit views unless an
 authorized owner/admin explicitly reveals them.
 
@@ -438,7 +438,7 @@ Hide during onboarding:
 
 - Top-level agents, workspaces, projects, tasks, tools, governance, audit,
   runs, approvals, exports, restore, context graph, context packets, capability
-  grants, proactivity rules, raw IDs, runtime internals, socket paths, YAML,
+  grants, proactivity rules, raw IDs, runtime internals, transport details, YAML,
   API key fields, and command palette mutations.
 
 Beginner labels:
@@ -638,7 +638,7 @@ addressability and backing, not what the first shell emphasizes.
 | `/memory` | Memory settings | GraphQL memory read model | secondary list and supported filters with redacted metadata; richer search waits for backend support | Current |
 | `/memory/:id` | Memory detail | GraphQL memory read model | opened from chat line or memory settings; inspect, reveal when authorized, limited lifecycle actions as backend supports | Current |
 | `/memory/review` | Review memory | persisted candidates/active extracted memories | opened from review-required chat lines or settings; keep/edit/reject once mutation endpoints exist | Current limited |
-| `/inspect` | Advanced inspection | CLI-equivalent read models | owner/admin inspection hub; not primary navigation during onboarding or normal beginner use | Current |
+| `/inspect` | Advanced inspection | GraphQL and store-backed read models | owner/admin inspection hub; not primary navigation during onboarding or normal beginner use | Current |
 | `/inspect/context-graph` | Context graph | future graph neighborhood read model | owner/admin-only, redacted by default | Future |
 | `/inspect/context-packets` | Context packets | context packet tables if populated | inspect when rows exist; unavailable state otherwise | Current limited |
 | `/settings` | Settings default | provider account metadata from GraphQL, gated by onboarding | route-derived Settings L1 inside the main shell deck; defaults to Providers | Current |
