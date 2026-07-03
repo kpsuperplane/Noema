@@ -37,6 +37,23 @@ use crate::daemon::{
 
 const MAX_PROVIDER_TOOL_CONTINUATIONS: usize = 6;
 
+fn mcp_health_status_label(status: crate::McpServerHealthStatus) -> &'static str {
+    match status {
+        crate::McpServerHealthStatus::Unknown => "unknown",
+        crate::McpServerHealthStatus::Healthy => "healthy",
+        crate::McpServerHealthStatus::Unavailable => "unavailable",
+    }
+}
+
+fn mcp_auth_status_label(status: crate::McpServerAuthStatus) -> &'static str {
+    match status {
+        crate::McpServerAuthStatus::None => "none",
+        crate::McpServerAuthStatus::NeedsAuth => "needs_auth",
+        crate::McpServerAuthStatus::Authenticated => "authenticated",
+        crate::McpServerAuthStatus::Unavailable => "unavailable",
+    }
+}
+
 impl CodexRuntimeActor {
     fn log_runtime_invariant(
         &self,
@@ -886,6 +903,22 @@ impl CodexRuntimeActor {
         }
         let servers = self.store.list_mcp_servers().await?;
         for server in servers {
+            if server.enabled
+                && (server.health_status != crate::McpServerHealthStatus::Healthy
+                    || !matches!(
+                        server.auth_status,
+                        crate::McpServerAuthStatus::None
+                            | crate::McpServerAuthStatus::Authenticated
+                    ))
+            {
+                rows.push(format!(
+                    "- unavailable_mcp\t{}\t{}\thealth={}\tauth={}",
+                    server.mcp_server_id,
+                    server.display_name,
+                    mcp_health_status_label(server.health_status),
+                    mcp_auth_status_label(server.auth_status),
+                ));
+            }
             let tools = self
                 .store
                 .list_mcp_tools_for_server(&server.mcp_server_id)

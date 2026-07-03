@@ -110,6 +110,9 @@ Available tools:
 
 Available MCP tools are executable actions. MCP tool names have the form
 `mcp.<server_id>.<tool_name>`, and you must use the exact name listed above.
+Rows beginning with `unavailable_mcp` are not callable tools. They show
+connectors the user may ask about, but Noema cannot use them in this turn. If
+the user's request depends on an unavailable MCP connector, do not claim you can perform that external action. Say which connector is unavailable or needs authentication, and ask for reconnection or another next step.
 When the user's current request asks you to use an available MCP tool, and the
 request contains enough information to choose the tool and fill its payload,
 emit the relevant tool_call item in this response. If the request requires a
@@ -344,6 +347,23 @@ mod tests {
         assert!(prompt.contains("Do not answer only that you can do it"));
         assert!(prompt.contains("mcp.dex.search_contacts"));
         assert!(prompt.contains("mcp.notion.create_page"));
+    }
+
+    #[test]
+    fn structured_turn_prompt_marks_unavailable_mcp_connectors_as_non_callable() {
+        let prompt = build_structured_turn_system_prompt(
+            "conv_123",
+            4,
+            None,
+            "",
+            &test_agent_identity(),
+            "- builtin\tsearch_memory\tNoema built-in memory retrieval\n- unavailable_mcp\tmcp:dex\tDex\thealth=unavailable\tauth=authenticated",
+        );
+
+        assert!(prompt.contains("Rows beginning with `unavailable_mcp` are not callable tools"));
+        assert!(prompt.contains("do not claim you can perform that external action"));
+        assert!(prompt.contains("mcp:dex"));
+        assert!(prompt.contains("health=unavailable"));
     }
 
     fn test_agent_identity() -> AgentPromptIdentity {
