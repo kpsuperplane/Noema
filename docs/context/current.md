@@ -198,6 +198,10 @@ The next storage slice should stay small and concrete:
 - GraphQL, daemon web transport, daemon runtime, graph-claim store, and provider
   streaming parsers are split into focused modules while preserving existing
   product behavior.
+- Core Rust source organization favors focused module trees over broad flat
+  files: store MCP persistence, daemon memory work, config loading/resolution,
+  conversation domain types, and MCP trusted identity helpers are split into
+  nearby submodules with root files acting as stable facades.
 - Memory extraction, consolidation, errors, and shared memory types now live
   under the `memory` module tree. Provider-neutral contracts, account metadata,
   and auth support live under `provider`, while concrete adapters and response
