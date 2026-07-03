@@ -1,5 +1,6 @@
 import { ApolloLink, Observable, type FetchResult, type Operation } from "@apollo/client";
 import { print } from "graphql";
+import { createClientId } from "@/shared/clientId";
 import { invokeDesktop, listenDesktop } from "./desktopBridge";
 
 type DesktopGraphqlResponse = FetchResult<Record<string, unknown>>;
@@ -16,7 +17,7 @@ type DesktopTransportDependencies = {
 };
 
 const defaultDependencies: DesktopTransportDependencies = {
-  createSubscriptionId: () => crypto.randomUUID(),
+  createSubscriptionId: createClientId,
   invokeDesktop,
   listenDesktop
 };

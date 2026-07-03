@@ -27,6 +27,7 @@ import { SettingsSurface } from "@/pages/SettingsPage";
 import { useBrowserRoute } from "./routes";
 import { entriesFromReplay, handleConversationEvent, pushTranscript } from "@/transcript/events";
 import type { ConversationAgentStatus, SocketState, TranscriptEntry } from "@/shared/types";
+import { createClientId } from "@/shared/clientId";
 
 type ProviderAuthAttemptView =
   | StartProviderAuthAttemptMutation["startProviderAuthAttempt"]
@@ -109,7 +110,7 @@ export function App() {
     setPending(false);
     setAwaitingAssistantTurn(false);
     pushTranscript(setTranscript, {
-      id: crypto.randomUUID(),
+      id: createClientId(),
       type: "error",
       message: error.message,
       recoverable: true
@@ -149,7 +150,7 @@ export function App() {
         setPending(false);
         setAwaitingAssistantTurn(false);
         pushTranscript(setTranscript, {
-          id: crypto.randomUUID(),
+          id: createClientId(),
           type: "error",
           message: error instanceof Error ? error.message : "Noema could not start chat.",
           recoverable: true
@@ -272,7 +273,7 @@ export function App() {
       return;
     }
 
-    const clientMessageId = crypto.randomUUID();
+    const clientMessageId = createClientId();
     setDraft("");
     setPending(true);
     setAwaitingAssistantTurn(false);
@@ -292,7 +293,7 @@ export function App() {
     } catch (error: unknown) {
       setPending(false);
       pushTranscript(setTranscript, {
-        id: crypto.randomUUID(),
+        id: createClientId(),
         type: "error",
         message: error instanceof Error ? error.message : "Noema could not send that message.",
         recoverable: true

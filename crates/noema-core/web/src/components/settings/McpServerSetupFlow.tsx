@@ -4,6 +4,7 @@ import { Button } from "@astryxdesign/core/Button";
 import { Tab, TabList } from "@astryxdesign/core/TabList";
 import * as stylex from "@stylexjs/stylex";
 import type { CreateMcpServerMutation } from "@/generated/graphql";
+import { createClientId } from "@/shared/clientId";
 import type { McpSetupFormSubmission } from "./mcpSetupForm";
 
 export type McpServerSetupResult = CreateMcpServerMutation["createMcpServer"];
@@ -461,11 +462,11 @@ function keyValueRowsToRecord(rows: readonly KeyValueDraft[], label: string): Ke
 }
 
 function newRowDraft(): RowDraft {
-  return { id: crypto.randomUUID(), value: "" };
+  return { id: createClientId(), value: "" };
 }
 
 function newKeyValueDraft(): KeyValueDraft {
-  return { id: crypto.randomUUID(), key: "", value: "" };
+  return { id: createClientId(), key: "", value: "" };
 }
 
 function TextField({
