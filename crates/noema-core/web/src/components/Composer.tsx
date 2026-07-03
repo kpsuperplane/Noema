@@ -29,8 +29,8 @@ const composerMinWidthCh = 18;
 const composerWidthBufferCh = 5;
 const composerWidthBufferPx = 32;
 const composerMeasuredTextSlackPx = 4;
-const composerBubbleInlineReservePx = 54;
-const composerMinTextHeightPx = 24;
+const composerBubbleInlineReservePx = 62;
+const composerMinTextHeightPx = 36;
 const composerTextareaFontSize = "1rem";
 const composerTextareaLineHeight = "1.5rem";
 
@@ -113,6 +113,10 @@ export function syncHeight({
   textarea.style.fontSize = composerTextareaFontSize;
   textarea.style.lineHeight = composerTextareaLineHeight;
   textarea.style.height = `${composerMinTextHeightPx}px`;
+
+  if (textarea.value.length === 0) {
+    return;
+  }
 
   textarea.style.height = `${Math.max(composerMinTextHeightPx, textarea.scrollHeight)}px`;
 }
