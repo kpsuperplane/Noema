@@ -69,7 +69,12 @@ const styles = stylex.create({
     lineHeight: "20px",
     paddingBlock: 2,
     paddingInline: 0,
-    textAlign: "left"
+    textAlign: "left",
+    transitionDuration: "120ms",
+    transitionProperty: "opacity",
+    ":hover": {
+      opacity: 0.72
+    }
   },
   statusIcon: {
     display: "inline-flex",
