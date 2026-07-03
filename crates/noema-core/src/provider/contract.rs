@@ -805,6 +805,28 @@ mod tests {
     }
 
     #[test]
+    fn required_noema_response_keeps_answer_when_memory_proposal_omits_evidence() {
+        let output = required_output_items_from_text(
+            r#"{"type":"noema_response","output":[{"kind":"assistant_text","text":"Hello"},{"kind":"memory_proposals","proposals":[{"content":"Kevin is debugging Foundation Local.","memory_type":"note","title":"Foundation Local debugging","confidence":0.9,"sensitivity":"normal","subjects":[{"id":"human:local","kind":"human","name":"Kevin","role":"about"}],"retrieval_hints":{"topics":["foundation local"],"keywords":["debugging"],"summary":"Kevin is debugging Foundation Local."},"risk_flags":[]}]}]}"#
+                .to_string(),
+        )
+        .expect("required structured output should tolerate invalid proposal fields");
+
+        assert_eq!(output.len(), 2);
+        assert_eq!(
+            output[0],
+            GenerateOutputItem::AssistantText {
+                text: "Hello".to_string()
+            }
+        );
+        assert!(matches!(
+            &output[1],
+            GenerateOutputItem::MemoryProposals { proposals }
+                if proposals.len() == 1 && proposals[0].evidence_excerpt.is_empty()
+        ));
+    }
+
+    #[test]
     fn required_noema_response_accepts_tool_calls_with_memory_proposals() {
         let output = required_output_items_from_text(
             r#"{"type":"noema_response","output":[{"kind":"assistant_text","text":"I will check memory."},{"kind":"tool_call","id":"call_1","name":"search_memory","payload":{"query":"trains"}},{"kind":"memory_proposals","proposals":[]}]}"#

@@ -42,6 +42,7 @@ pub struct ExtractorMemoryProposal {
     /// Review risk flags. Low-risk proposals should use an empty array.
     pub risk_flags: Vec<MemoryExtractionRiskFlag>,
     /// Exact quote from the user or assistant message supporting the proposal.
+    #[serde(default)]
     pub evidence_excerpt: String,
 }
 
