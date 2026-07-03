@@ -178,13 +178,5 @@ fn normalize_agent_display_name(display_name: Option<&str>) -> Result<Option<Str
 }
 
 pub(super) fn agent_record_fragment(agent_id: &str) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-
-    let mut fragment = String::with_capacity("agent_".len() + agent_id.len() * 2);
-    fragment.push_str("agent_");
-    for byte in agent_id.bytes() {
-        fragment.push(HEX[(byte >> 4) as usize] as char);
-        fragment.push(HEX[(byte & 0x0f) as usize] as char);
-    }
-    fragment
+    super::ids::hex_record_fragment("agent_", agent_id)
 }

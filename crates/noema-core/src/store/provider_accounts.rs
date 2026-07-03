@@ -3,7 +3,8 @@ use serde_json::Value;
 use surrealdb::types::SurrealValue;
 
 use crate::{
-    ProviderAccountRecord, ProviderAccountStatus, ProviderAuthMethod, store::ids::now_string,
+    ProviderAccountRecord, ProviderAccountStatus, ProviderAuthMethod,
+    store::ids::{invalid_enum, now_string},
 };
 
 use super::{NoemaStore, StoreError, agents::agent_record_fragment};
@@ -355,11 +356,4 @@ const fn provider_status_str(status: ProviderAccountStatus) -> &'static str {
         ProviderAccountStatus::Unauthenticated => "unauthenticated",
         ProviderAccountStatus::Unavailable => "unavailable",
     }
-}
-
-fn invalid_enum<T>(kind: &'static str, value: &str) -> Result<T, StoreError> {
-    Err(StoreError::InvalidEnum {
-        kind,
-        value: value.to_string(),
-    })
 }

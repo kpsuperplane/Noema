@@ -54,15 +54,5 @@ pub(in crate::store) fn format_datetime(value: Datetime) -> String {
 }
 
 pub(super) fn entity_record_id(entity_id: &str) -> String {
-    let mut encoded = String::with_capacity("entity_".len() + entity_id.len().saturating_mul(2));
-    encoded.push_str("entity_");
-    for byte in entity_id.as_bytes() {
-        encoded.push(HEX_CHARS[usize::from(byte >> 4)]);
-        encoded.push(HEX_CHARS[usize::from(byte & 0x0f)]);
-    }
-    encoded
+    crate::store::ids::hex_record_fragment("entity_", entity_id)
 }
-
-const HEX_CHARS: [char; 16] = [
-    '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f',
-];

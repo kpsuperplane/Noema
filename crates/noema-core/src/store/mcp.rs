@@ -9,7 +9,10 @@ use crate::{
     TrustedIdentitySelectorKind, normalize_trusted_identity_value,
 };
 
-use super::{NoemaStore, StoreError, ids::now_string};
+use super::{
+    NoemaStore, StoreError,
+    ids::{invalid_enum, now_string},
+};
 
 /// Input for creating an MCP server metadata row.
 #[derive(Debug, Clone, PartialEq)]
@@ -1470,13 +1473,6 @@ impl NewToolCalibration {
     }
 }
 
-fn invalid_enum<T>(kind: &'static str, value: &str) -> Result<T, StoreError> {
-    Err(StoreError::InvalidEnum {
-        kind,
-        value: value.to_string(),
-    })
-}
-
 fn reject_duplicate_calibrations_in_batch(
     calibrations: &[NewToolCalibration],
 ) -> Result<(), StoreError> {
@@ -1500,13 +1496,5 @@ fn reject_duplicate_calibrations_in_batch(
 }
 
 fn mcp_record_fragment(id: &str) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-
-    let mut fragment = String::with_capacity("mcp_".len() + id.len() * 2);
-    fragment.push_str("mcp_");
-    for byte in id.bytes() {
-        fragment.push(HEX[(byte >> 4) as usize] as char);
-        fragment.push(HEX[(byte & 0x0f) as usize] as char);
-    }
-    fragment
+    super::ids::hex_record_fragment("mcp_", id)
 }
