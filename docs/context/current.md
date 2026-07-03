@@ -225,6 +225,13 @@ The next storage slice should stay small and concrete:
   Empty `query` is allowed only for scoped reads, and `query` narrows within
   scope rather than broadening it. Memory write activities expose canonical
   claim outcome previews so chat markers can name the saved or reinforced fact.
+- Provider tool continuations follow a bounded same-turn loop inspired by the
+  OpenAI Codex turn runner: local tool results are fed back to the provider, a
+  continuation may request another model-visible local or calibrated MCP tool,
+  and the loop stops only when no tool result requires another provider
+  continuation or the runtime limit is hit. Continuations hide the one-shot
+  `update_own_name` tool while preserving normal `search_memory` and calibrated
+  MCP tool use.
 - New graph memory direction: durable memories are strict graph claims over
   entities and promoted predicate records. Conversation items are direct
   provenance sources. Specialized evidence relations replace broad memory audit

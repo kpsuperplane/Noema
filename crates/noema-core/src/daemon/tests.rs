@@ -3186,6 +3186,48 @@ async fn runtime_actor_executes_search_memory_as_local_tool_result() {
 }
 
 #[tokio::test]
+async fn runtime_actor_continues_after_continuation_tool_call() {
+    let handle = test_runtime_handle(fake_provider(
+        FakeCodexScenario::ChainedSearchMemoryContinuation,
+    ))
+    .await;
+
+    let conversation_id = handle
+        .start_conversation(None)
+        .await
+        .expect("conversation")
+        .conversation_id;
+    let items = collect_turn(
+        &handle,
+        conversation_id.clone(),
+        "Check memory twice before answering.".to_string(),
+    )
+    .await
+    .expect("turn");
+    handle.shutdown().await;
+
+    let completed_search_results = items
+        .iter()
+        .filter(|item| {
+            matches!(
+                item,
+                TurnTranscriptItem::Activity {
+                    activity_kind,
+                    status: TurnActivityStatus::Completed,
+                    title,
+                    ..
+                } if activity_kind == "tool_result" && title == "Tool result: search_memory"
+            )
+        })
+        .count();
+    assert_eq!(completed_search_results, 2, "{items:?}");
+    assert!(items.iter().any(|item| matches!(
+        item,
+        TurnTranscriptItem::AssistantText { text } if text == "I checked both memory topics."
+    )));
+}
+
+#[tokio::test]
 async fn update_own_name_tool_updates_agent_without_continuation_turn() {
     let (handle, store) =
         test_runtime_handle_with_store(fake_provider(FakeCodexScenario::UpdateOwnNameContinuation))
@@ -3969,6 +4011,7 @@ enum FakeCodexScenario {
     UncalibratedMcpToolCall,
     InvalidSearchMemory,
     SearchMemoryContinuation,
+    ChainedSearchMemoryContinuation,
     SearchMemoryProfileContinuation,
     UpdateOwnNameContinuation,
     RepeatedUpdateOwnNameContinuation,
@@ -4086,13 +4129,22 @@ impl FakeCodexProvider {
                     request_id: None,
                 });
             }
-            FakeCodexScenario::ToolItem => vec![
-                search_memory_tool_call("call_1", json!({"arguments": {"query": "trains"}})),
-                GenerateOutputItem::AssistantText {
-                    text: "fake answer".to_string(),
-                },
-                GenerateOutputItem::MemoryProposals { proposals: vec![] },
-            ],
+            FakeCodexScenario::ToolItem => {
+                if input.contains("NOEMA_LOCAL_TOOL_RESULT") {
+                    assistant_with_no_memories("tool result received")
+                } else {
+                    vec![
+                        search_memory_tool_call(
+                            "call_1",
+                            json!({"arguments": {"query": "trains"}}),
+                        ),
+                        GenerateOutputItem::AssistantText {
+                            text: "fake answer".to_string(),
+                        },
+                        GenerateOutputItem::MemoryProposals { proposals: vec![] },
+                    ]
+                }
+            }
             FakeCodexScenario::ToolItemThenFailure => {
                 return Err(ProviderError::PartialResponse {
                     provider: "codex".to_string(),
@@ -4158,6 +4210,35 @@ impl FakeCodexProvider {
                     vec![
                         GenerateOutputItem::AssistantText {
                             text: "Searching memory.".to_string(),
+                        },
+                        search_memory_tool_call(
+                            "call_1",
+                            json!({"arguments": {"query": "trains"}}),
+                        ),
+                        GenerateOutputItem::MemoryProposals { proposals: vec![] },
+                    ]
+                } else {
+                    assistant_with_no_memories("fake answer")
+                }
+            }
+            FakeCodexScenario::ChainedSearchMemoryContinuation => {
+                if input.contains("call_2") {
+                    assistant_with_no_memories("I checked both memory topics.")
+                } else if input.contains("call_1") {
+                    vec![
+                        GenerateOutputItem::AssistantText {
+                            text: "I need one more memory check.".to_string(),
+                        },
+                        search_memory_tool_call(
+                            "call_2",
+                            json!({"arguments": {"query": "planes"}}),
+                        ),
+                        GenerateOutputItem::MemoryProposals { proposals: vec![] },
+                    ]
+                } else if input.contains("Check memory twice before answering.") {
+                    vec![
+                        GenerateOutputItem::AssistantText {
+                            text: "Checking memory first.".to_string(),
                         },
                         search_memory_tool_call(
                             "call_1",

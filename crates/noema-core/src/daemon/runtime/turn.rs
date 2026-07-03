@@ -23,6 +23,7 @@ use super::{
     },
 };
 use crate::daemon::{
+    agent_name_tool::is_update_own_name_tool,
     agent_onboarding::AgentPromptIdentity,
     memory::pipeline::{AssistantEvidenceItem, ConversationMemoryContext, explicit_memory_content},
     prompts::{
@@ -33,6 +34,8 @@ use crate::daemon::{
         AgentStatus, DaemonError, StartedConversation, TurnStreamEvent, TurnTranscriptItem,
     },
 };
+
+const MAX_PROVIDER_TOOL_CONTINUATIONS: usize = 6;
 
 impl CodexRuntimeActor {
     fn log_runtime_invariant(
@@ -242,7 +245,8 @@ impl CodexRuntimeActor {
         let agent_identity = self
             .agent_identity_for_conversation(&conversation_id)
             .await?;
-        let rendered_tools = self.render_available_tools().await?;
+        let rendered_tools = self.render_available_tools(true).await?;
+        let rendered_continuation_tools = self.render_available_tools(false).await?;
         self.update_conversation_agent_status(
             &conversation_id,
             PersistedAgentStatus::InputReceived,
@@ -487,6 +491,8 @@ impl CodexRuntimeActor {
                             response,
                             explicit_memory_outcome,
                             agent_identity,
+                            rendered_tools: rendered_tools.clone(),
+                            rendered_continuation_tools,
                         },
                         &item_tx,
                     )
@@ -611,7 +617,9 @@ impl CodexRuntimeActor {
         }
 
         let local_tool_results = self.execute_local_tools(&turn, &turn.agent_identity).await;
+        let mut all_local_tool_results = local_tool_results.clone();
         let has_local_tool_results = !local_tool_results.is_empty();
+        let mut next_output_index = initial_output_count;
         if has_local_tool_results {
             let local_action_turn = ProviderActionTurn {
                 conversation_id: turn.conversation_id.clone(),
@@ -624,32 +632,45 @@ impl CodexRuntimeActor {
             for (offset, result) in local_tool_results.iter().enumerate() {
                 self.persist_provider_action_output_item(
                     &local_action_turn,
-                    initial_output_count + offset,
+                    next_output_index + offset,
                     local_tool_result_output_item(result),
                     item_tx,
                 )
                 .await?;
             }
+            next_output_index += local_tool_results.len();
         }
 
-        let continuation_tool_results = local_tool_results
+        let mut continuation_tool_results = local_tool_results
             .iter()
             .filter(|result| result.requires_provider_continuation())
+            .cloned()
             .collect::<Vec<_>>();
-        if !continuation_tool_results.is_empty() {
+        for continuation_step in 0..MAX_PROVIDER_TOOL_CONTINUATIONS {
+            if continuation_tool_results.is_empty() {
+                break;
+            }
             let continuation_agent_identity =
-                agent_identity_after_local_tools(&turn.agent_identity, &local_tool_results);
+                agent_identity_after_local_tools(&turn.agent_identity, &all_local_tool_results);
+            let continuation_result_refs = continuation_tool_results.iter().collect::<Vec<_>>();
             let continuation_input =
-                local_tool_result_continuation_input(&continuation_tool_results);
+                local_tool_result_continuation_input(&continuation_result_refs);
             let continuation_instructions = build_local_tool_result_continuation_system_prompt(
                 &turn.conversation_id,
                 turn.turn_index,
                 turn.cwd.as_deref(),
                 &turn.user_input,
                 &continuation_agent_identity,
+                &turn.rendered_continuation_tools,
             );
-            let continuation_stream_id = assistant_stream_id(&turn.turn_id, "continuation");
-            let continuation_output_base = initial_output_count + local_tool_results.len();
+            let continuation_stream_suffix = if continuation_step == 0 {
+                "continuation".to_string()
+            } else {
+                format!("continuation-{continuation_step}")
+            };
+            let continuation_stream_id =
+                assistant_stream_id(&turn.turn_id, &continuation_stream_suffix);
+            let continuation_output_base = next_output_index;
             let continuation_event_context = ConversationMemoryContext {
                 turn_index: turn.turn_index,
                 conversation_id: turn.conversation_id.clone(),
@@ -661,15 +682,20 @@ impl CodexRuntimeActor {
                 cwd: turn.cwd.clone(),
             };
             let mut on_continuation_event = |event| {
-                if !matches!(event, GenerateStreamEvent::ToolCallStarted { .. }) {
-                    handle_provider_stream_event(
-                        event,
-                        item_tx,
-                        &continuation_event_context,
-                        &continuation_stream_id,
-                        continuation_output_base,
-                    );
+                if matches!(
+                    &event,
+                    GenerateStreamEvent::ToolCallStarted { name, .. }
+                        if is_update_own_name_tool(name)
+                ) {
+                    return;
                 }
+                handle_provider_stream_event(
+                    event,
+                    item_tx,
+                    &continuation_event_context,
+                    &continuation_stream_id,
+                    continuation_output_base,
+                );
             };
             let provider = self.provider_for_kind(&turn.provider_kind)?;
             let continuation_response = provider
@@ -698,16 +724,14 @@ impl CodexRuntimeActor {
                 provider: continuation_response.provider.clone(),
                 stream_id: Some(continuation_stream_id.clone()),
             };
-            for (offset, output) in continuation_response.output.into_iter().enumerate() {
-                if matches!(
-                    output,
-                    GenerateOutputItem::ToolCall { .. }
-                        | GenerateOutputItem::ToolResult { .. }
-                        | GenerateOutputItem::ApprovalRequest { .. }
-                        | GenerateOutputItem::ApprovalResult { .. }
-                ) {
-                    continue;
-                }
+            let continuation_outputs_for_tools = continuation_response
+                .output
+                .iter()
+                .filter(|output| !is_disallowed_continuation_output(output))
+                .cloned()
+                .collect::<Vec<_>>();
+            let continuation_output_count = continuation_outputs_for_tools.len();
+            for (offset, output) in continuation_outputs_for_tools.iter().cloned().enumerate() {
                 self.persist_provider_response_output_item(
                     &continuation_action_turn,
                     continuation_output_base + offset,
@@ -732,6 +756,66 @@ impl CodexRuntimeActor {
                     proposals: continuation_memory_proposals,
                 });
             }
+            next_output_index += continuation_output_count;
+
+            let continuation_turn = SuccessfulProviderTurn {
+                conversation_id: turn.conversation_id.clone(),
+                turn_id: turn.turn_id.clone(),
+                turn_index: turn.turn_index,
+                user_item_id: turn.user_item_id.clone(),
+                user_input: turn.user_input.clone(),
+                cwd: turn.cwd.clone(),
+                provider_kind: turn.provider_kind.clone(),
+                model: turn.model.clone(),
+                initial_stream_id: continuation_stream_id.clone(),
+                response: GenerateResponse {
+                    output: continuation_outputs_for_tools,
+                    provider: continuation_response.provider,
+                    model: continuation_response.model,
+                    response_id: continuation_response.response_id,
+                    usage: continuation_response.usage,
+                },
+                explicit_memory_outcome: ExplicitMemoryOutcome::None,
+                agent_identity: continuation_agent_identity,
+                rendered_tools: turn.rendered_tools.clone(),
+                rendered_continuation_tools: turn.rendered_continuation_tools.clone(),
+            };
+            let local_tool_results = self
+                .execute_local_tools(&continuation_turn, &continuation_turn.agent_identity)
+                .await;
+            continuation_tool_results = local_tool_results
+                .iter()
+                .filter(|result| result.requires_provider_continuation())
+                .cloned()
+                .collect::<Vec<_>>();
+            all_local_tool_results.extend(local_tool_results.clone());
+            if !local_tool_results.is_empty() {
+                let local_action_turn = ProviderActionTurn {
+                    conversation_id: turn.conversation_id.clone(),
+                    turn_id: turn.turn_id.clone(),
+                    turn_index: turn.turn_index,
+                    user_item_id: turn.user_item_id.clone(),
+                    provider: "noema_local".to_string(),
+                    stream_id: None,
+                };
+                for (offset, result) in local_tool_results.iter().enumerate() {
+                    self.persist_provider_action_output_item(
+                        &local_action_turn,
+                        next_output_index + offset,
+                        local_tool_result_output_item(result),
+                        item_tx,
+                    )
+                    .await?;
+                }
+                next_output_index += local_tool_results.len();
+            }
+        }
+        if !continuation_tool_results.is_empty() {
+            return Err(ProviderError::ProtocolError {
+                provider: turn.provider_kind.clone(),
+                message: "tool continuation limit exceeded".to_string(),
+            }
+            .into());
         }
 
         if !turn.explicit_memory_outcome.was_attempted() && !provider_memory_batches.is_empty() {
@@ -791,11 +875,15 @@ impl CodexRuntimeActor {
         })
     }
 
-    async fn render_available_tools(&self) -> Result<String, DaemonError> {
-        let mut rows = vec![
-            "- builtin\tsearch_memory\tNoema built-in memory retrieval".to_string(),
-            "- builtin\tupdate_own_name\tNoema built-in agent naming".to_string(),
-        ];
+    async fn render_available_tools(
+        &self,
+        include_agent_name_tool: bool,
+    ) -> Result<String, DaemonError> {
+        let mut rows =
+            vec!["- builtin\tsearch_memory\tNoema built-in memory retrieval".to_string()];
+        if include_agent_name_tool {
+            rows.push("- builtin\tupdate_own_name\tNoema built-in agent naming".to_string());
+        }
         let servers = self.store.list_mcp_servers().await?;
         for server in servers {
             let tools = self
@@ -913,6 +1001,8 @@ pub(in crate::daemon) struct SuccessfulProviderTurn {
     pub(in crate::daemon) response: GenerateResponse,
     pub(in crate::daemon) explicit_memory_outcome: ExplicitMemoryOutcome,
     pub(in crate::daemon) agent_identity: AgentPromptIdentity,
+    pub(in crate::daemon) rendered_tools: String,
+    pub(in crate::daemon) rendered_continuation_tools: String,
 }
 
 #[derive(Debug)]
@@ -974,4 +1064,11 @@ pub(in crate::daemon) struct ProviderActionOutput {
     pub(in crate::daemon) title: String,
     pub(in crate::daemon) summary: Option<String>,
     pub(in crate::daemon) payload: serde_json::Value,
+}
+
+fn is_disallowed_continuation_output(output: &GenerateOutputItem) -> bool {
+    matches!(
+        output,
+        GenerateOutputItem::ToolCall { name, .. } if is_update_own_name_tool(name)
+    )
 }

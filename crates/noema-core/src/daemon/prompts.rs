@@ -224,6 +224,7 @@ pub(super) fn build_local_tool_result_continuation_system_prompt(
     cwd: Option<&str>,
     user_input: &str,
     agent_identity: &AgentPromptIdentity,
+    available_tools: &str,
 ) -> String {
     let mut prompt = build_structured_turn_system_prompt(
         conversation_id,
@@ -231,14 +232,14 @@ pub(super) fn build_local_tool_result_continuation_system_prompt(
         cwd,
         "",
         agent_identity,
-        "none",
+        available_tools,
     );
     prompt.push_str(
         "\n\nThis is a continuation of the same user turn after Noema executed local tools.",
     );
     prompt.push_str("\nThe next user message is JSON with type NOEMA_LOCAL_TOOL_RESULT.");
-    prompt.push_str("\nUse those results to answer the original user message.");
-    prompt.push_str("\nDo not emit tool calls or approval requests in this continuation.");
+    prompt.push_str("\nUse those results to answer the original user message, or emit another tool call when another tool result is needed before answering.");
+    prompt.push_str("\nDo not emit update_own_name in this continuation.");
     prompt.push_str("\n\nOriginal user message:\n");
     prompt.push_str(user_input);
     prompt
