@@ -12,7 +12,10 @@ use super::{
         CodexTokenStore, DEFAULT_CODEX_BASE_URL,
     },
     noema_response_stream::NoemaAssistantTextDeltaExtractor,
-    responses::{ResponsesDiagnosticContext, ResponsesTransport, normalize_base_url},
+    responses::{
+        ResponsesDiagnosticContext, ResponsesTransport, noema_response_text_format,
+        normalize_base_url,
+    },
 };
 use crate::{
     SYSTEM_ERROR_PROVIDER_MALFORMED_RESPONSE, SystemErrorEvent, SystemErrorLogger,
@@ -165,6 +168,8 @@ struct CodexResponsesRequest {
     max_output_tokens: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     temperature: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    text: Option<serde_json::Value>,
     store: bool,
     stream: bool,
 }
@@ -176,6 +181,7 @@ impl CodexResponsesRequest {
         instructions: Option<String>,
         max_output_tokens: Option<u32>,
         temperature: Option<f32>,
+        require_noema_response: bool,
     ) -> Self {
         Self {
             model,
@@ -183,6 +189,7 @@ impl CodexResponsesRequest {
             instructions,
             max_output_tokens,
             temperature,
+            text: require_noema_response.then(noema_response_text_format),
             store: false,
             stream: true,
         }
@@ -221,6 +228,7 @@ impl CodexResponsesProvider {
             instructions.clone(),
             max_output_tokens,
             temperature,
+            require_noema_response,
         );
         let diagnostics = ResponsesDiagnosticContext::new(
             self.system_errors.clone(),
@@ -266,6 +274,7 @@ impl CodexResponsesProvider {
                     instructions,
                     max_output_tokens,
                     temperature,
+                    require_noema_response,
                 );
                 self.transport
                     .send_streaming(
@@ -602,7 +611,10 @@ mod tests {
             .await
             .expect("response");
 
-        let _captured = request_rx.await.expect("captured request");
+        let captured = request_rx.await.expect("captured request");
+        let body: Value = serde_json::from_str(&captured.body).expect("json body");
+        assert!(body.get("text").is_none());
+
         assert_eq!(response.assistant_text(), "Hello");
         assert_eq!(
             events,
@@ -643,7 +655,15 @@ mod tests {
             .await
             .expect("response");
 
-        let _captured = request_rx.await.expect("captured request");
+        let captured = request_rx.await.expect("captured request");
+        let body: Value = serde_json::from_str(&captured.body).expect("json body");
+        assert_eq!(body["text"]["format"]["type"], "json_schema");
+        assert_eq!(body["text"]["format"]["name"], "noema_response");
+        assert_eq!(
+            body["text"]["format"]["schema"]["properties"]["type"]["const"],
+            "noema_response"
+        );
+
         assert_eq!(response.assistant_text(), "Hello");
         assert_eq!(
             events,
@@ -661,7 +681,7 @@ mod tests {
     #[tokio::test]
     async fn logs_required_noema_response_parse_failure() {
         let response_body = "event: response.output_text.delta\n\
-             data: {\"type\":\"response.output_text.delta\",\"delta\":\"plain text\"}\n\
+             data: {\"type\":\"response.output_text.delta\",\"delta\":\"{\\\"output\\\":[]}\"}\n\
              \n\
              event: response.completed\n\
              data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_bad\",\"model\":\"gpt-test\",\"status\":\"completed\"}}\n\
@@ -694,7 +714,7 @@ mod tests {
             SYSTEM_ERROR_PROVIDER_MALFORMED_RESPONSE
         );
         assert_eq!(events[0]["context"]["conversation_id"], "conversation:test");
-        assert_eq!(events[0]["raw"]["provider_text"], "plain text");
+        assert_eq!(events[0]["raw"]["provider_text"], "{\"output\":[]}");
     }
 
     fn provider_with_tokens(base_url: String) -> (CodexResponsesProvider, TempDir) {

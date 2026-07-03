@@ -2,7 +2,7 @@
 
 use super::responses::{
     ResponsesDiagnosticContext, ResponsesInput, ResponsesRequest, ResponsesTransport, header_value,
-    normalize_base_url,
+    noema_response_text_format, normalize_base_url,
 };
 use crate::{
     SYSTEM_ERROR_PROVIDER_MALFORMED_RESPONSE, SystemErrorEvent, SystemErrorLogger,
@@ -184,6 +184,10 @@ impl ModelProvider for OpenAiProvider {
                 .filter(|instructions| !instructions.trim().is_empty()),
             max_output_tokens: request.options.max_output_tokens,
             temperature: request.options.temperature,
+            text: request
+                .options
+                .require_noema_response
+                .then(noema_response_text_format),
             store: false,
             prompt_cache_retention: request.options.prompt_cache_retention,
         };
@@ -395,6 +399,46 @@ mod tests {
                 cached_input_tokens: Some(1),
             })
         );
+    }
+
+    #[tokio::test]
+    async fn required_noema_response_requests_json_schema_text_format() {
+        let (base_url, request_rx) = spawn_server(
+            200,
+            r#"{
+              "id": "resp_test",
+              "model": "gpt-test",
+              "output": [{
+                "type": "message",
+                "content": [
+                  {"type": "output_text", "text": "{\"type\":\"noema_response\",\"output\":[{\"kind\":\"assistant_text\",\"text\":\"Hello\"},{\"kind\":\"memory_proposals\",\"proposals\":[]}]}"}
+                ]
+              }]
+            }"#,
+        )
+        .await;
+
+        let provider = test_provider(base_url);
+        let response = provider
+            .generate(GenerateRequest {
+                options: crate::provider::GenerateOptions {
+                    require_noema_response: true,
+                    ..crate::provider::GenerateOptions::default()
+                },
+                ..GenerateRequest::text("Hello?")
+            })
+            .await
+            .expect("response");
+
+        let captured = request_rx.await.expect("captured request");
+        let body: Value = serde_json::from_str(&captured.body).expect("json body");
+        assert_eq!(body["text"]["format"]["type"], "json_schema");
+        assert_eq!(body["text"]["format"]["name"], "noema_response");
+        assert_eq!(
+            body["text"]["format"]["schema"]["properties"]["type"]["const"],
+            "noema_response"
+        );
+        assert_eq!(response.assistant_text(), "Hello");
     }
 
     #[tokio::test]

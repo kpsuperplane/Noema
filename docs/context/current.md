@@ -248,6 +248,13 @@ The next storage slice should stay small and concrete:
   evidence, track response phases and assistant items, reject split assistant
   evidence that cannot map to one item, and report created versus reinforced
   claims, partial versus full failure, and failed proposal diagnostics.
+- Required Noema provider responses should be enforced as close to the provider
+  boundary as the transport allows. The OpenAI and Codex Responses adapters send
+  a `text.format` JSON schema for the `noema_response` envelope, while the
+  parser still recovers from common non-strict text shapes: prose-wrapped single
+  envelopes and plain assistant-text fallbacks with empty memory proposals.
+  Duplicate structured envelopes remain malformed because they indicate stream
+  assembly corruption.
 - Provider memory extraction output is treated as fallible draft data. Invalid
   extractor proposals are discarded before canonicalization; all-invalid batches
   produce no user-facing memory activity, while mixed batches persist valid

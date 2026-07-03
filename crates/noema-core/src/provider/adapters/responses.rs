@@ -32,11 +32,57 @@ pub struct ResponsesRequest {
     /// Optional sampling temperature.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f32>,
+    /// Optional Responses text controls such as JSON schema output format.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text: Option<Value>,
     /// Whether the upstream should store this response.
     pub store: bool,
     /// Provider prompt-cache retention request when supported.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prompt_cache_retention: Option<PromptCacheRetention>,
+}
+
+pub(super) fn noema_response_text_format() -> Value {
+    serde_json::json!({
+        "format": {
+            "type": "json_schema",
+            "name": "noema_response",
+            "strict": false,
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "type": {
+                        "type": "string",
+                        "const": "noema_response"
+                    },
+                    "output": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "kind": {
+                                    "type": "string",
+                                    "enum": [
+                                        "assistant_text",
+                                        "memory_proposals",
+                                        "tool_call",
+                                        "tool_result",
+                                        "approval_request",
+                                        "approval_result",
+                                        "structured"
+                                    ]
+                                }
+                            },
+                            "required": ["kind"],
+                            "additionalProperties": true
+                        }
+                    }
+                },
+                "required": ["type", "output"],
+                "additionalProperties": false
+            }
+        }
+    })
 }
 
 /// Responses API input shape.

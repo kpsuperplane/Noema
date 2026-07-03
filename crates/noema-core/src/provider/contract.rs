@@ -370,19 +370,95 @@ fn output_items_from_text_with_mode(
         });
     }
 
-    if let Ok(value) = serde_json::from_str::<Value>(trimmed)
-        && let Some(output) = output_items_from_structured_value(value, require_noema_response)?
-    {
-        return Ok(output);
+    if let Ok(value) = serde_json::from_str::<Value>(trimmed) {
+        if let Some(output) = output_items_from_structured_value(value, require_noema_response)? {
+            return Ok(output);
+        }
+        if require_noema_response {
+            return Err(ProviderError::MalformedResponse {
+                message: "provider did not return a Noema structured response envelope".to_string(),
+            });
+        }
     }
 
     if require_noema_response {
-        return Err(ProviderError::MalformedResponse {
-            message: "provider did not return a Noema structured response envelope".to_string(),
-        });
+        if let Some(output) = embedded_required_noema_response_output(trimmed)? {
+            return Ok(output);
+        }
+
+        return Ok(vec![
+            GenerateOutputItem::AssistantText { text },
+            GenerateOutputItem::MemoryProposals {
+                proposals: Vec::new(),
+            },
+        ]);
     }
 
     Ok(vec![GenerateOutputItem::AssistantText { text }])
+}
+
+fn embedded_required_noema_response_output(
+    text: &str,
+) -> Result<Option<Vec<GenerateOutputItem>>, ProviderError> {
+    let mut output = None;
+    for candidate in balanced_json_object_candidates(text) {
+        let Ok(value) = serde_json::from_str::<Value>(candidate) else {
+            continue;
+        };
+        let Some(candidate_output) = output_items_from_structured_value(value, true)? else {
+            continue;
+        };
+        if output.is_some() {
+            return Err(ProviderError::MalformedResponse {
+                message: "provider returned multiple Noema structured response envelopes"
+                    .to_string(),
+            });
+        }
+        output = Some(candidate_output);
+    }
+    Ok(output)
+}
+
+fn balanced_json_object_candidates(text: &str) -> Vec<&str> {
+    let mut candidates = Vec::new();
+    let mut start = None;
+    let mut depth = 0usize;
+    let mut in_string = false;
+    let mut escaping = false;
+
+    for (index, ch) in text.char_indices() {
+        if in_string {
+            if escaping {
+                escaping = false;
+            } else if ch == '\\' {
+                escaping = true;
+            } else if ch == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+
+        match ch {
+            '"' if depth > 0 => in_string = true,
+            '{' => {
+                if depth == 0 {
+                    start = Some(index);
+                }
+                depth += 1;
+            }
+            '}' if depth > 0 => {
+                depth -= 1;
+                if depth == 0
+                    && let Some(start_index) = start.take()
+                {
+                    candidates.push(&text[start_index..index + ch.len_utf8()]);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    candidates
 }
 
 fn output_items_from_structured_value(
@@ -744,14 +820,56 @@ mod tests {
     }
 
     #[test]
-    fn required_noema_response_rejects_plain_text() {
-        let error = required_output_items_from_text("Hello".to_string()).unwrap_err();
+    fn required_noema_response_recovers_envelope_after_leading_prose() {
+        let output = required_output_items_from_text(
+            "Searching Dex now.{\"type\":\"noema_response\",\"output\":[{\"kind\":\"tool_call\",\"id\":\"call_1\",\"name\":\"mcp.dex.search\",\"payload\":{\"query\":\"Gautam\"}},{\"kind\":\"assistant_text\",\"text\":\"Searching Dex now.\"},{\"kind\":\"memory_proposals\",\"proposals\":[]}]}"
+                .to_string(),
+        )
+        .expect("embedded envelope");
 
         assert!(matches!(
-            error,
-            ProviderError::MalformedResponse { message }
-                if message == "provider did not return a Noema structured response envelope"
+            &output[0],
+            GenerateOutputItem::ToolCall { id: Some(id), name, .. }
+                if id == "call_1" && name == "mcp.dex.search"
         ));
+        assert!(matches!(
+            &output[1],
+            GenerateOutputItem::AssistantText { text } if text == "Searching Dex now."
+        ));
+    }
+
+    #[test]
+    fn required_noema_response_treats_plain_text_as_assistant_text_with_empty_memory_proposals() {
+        let output = required_output_items_from_text(
+            "No. I didn't actually call a Notion write tool.".to_string(),
+        )
+        .expect("plain text fallback");
+
+        assert_eq!(
+            output,
+            vec![
+                GenerateOutputItem::AssistantText {
+                    text: "No. I didn't actually call a Notion write tool.".to_string(),
+                },
+                GenerateOutputItem::MemoryProposals { proposals: vec![] },
+            ]
+        );
+    }
+
+    #[test]
+    fn required_noema_response_recovers_envelope_before_trailing_prose() {
+        let output = required_output_items_from_text(
+            r#"{"type":"noema_response","output":[{"kind":"assistant_text","text":"Hello"},{"kind":"memory_proposals","proposals":[]}]} trailing prose"#
+                .to_string(),
+        )
+        .expect("embedded envelope");
+
+        assert_eq!(
+            output[0],
+            GenerateOutputItem::AssistantText {
+                text: "Hello".to_string()
+            }
+        );
     }
 
     #[test]
@@ -777,20 +895,7 @@ mod tests {
         assert!(matches!(
             error,
             ProviderError::MalformedResponse { message }
-                if message == "provider did not return a Noema structured response envelope"
+                if message == "provider returned multiple Noema structured response envelopes"
         ));
-    }
-
-    #[test]
-    fn required_noema_response_rejects_envelope_with_trailing_prose() {
-        let error = required_output_items_from_text(
-            r#"{"type":"noema_response","output":[{"kind":"assistant_text","text":"Hello"},{"kind":"memory_proposals","proposals":[]}]} trailing prose"#
-                .to_string(),
-        )
-        .unwrap_err();
-
-        assert!(
-            matches!(error, ProviderError::MalformedResponse { message } if message == "provider did not return a Noema structured response envelope")
-        );
     }
 }
