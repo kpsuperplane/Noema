@@ -1,4 +1,4 @@
-use crate::memory::{MemoryId, MemoryStoreError};
+use crate::memory::MemoryId;
 use thiserror::Error;
 
 /// Errors produced by durable memory persistence.
@@ -69,10 +69,6 @@ pub enum MemoryPersistenceError {
         /// Missing provider account id.
         provider_account_id: String,
     },
-
-    /// Stored memory graph rows violated retrieval policy invariants.
-    #[error(transparent)]
-    MemoryStore(#[from] MemoryStoreError),
 
     /// Structured store operation failed.
     #[error(transparent)]
