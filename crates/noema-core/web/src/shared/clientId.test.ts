@@ -23,6 +23,20 @@ describe("createClientId", () => {
     assert.match(id, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
   });
 
+  test("calls getRandomValues with the provided crypto receiver", () => {
+    const source = {
+      getRandomValues<T extends Uint8Array>(this: unknown, array: T) {
+        assert.equal(this, source);
+        array.fill(0x22);
+        return array;
+      }
+    };
+
+    const id = createClientId(source);
+
+    assert.match(id, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+  });
+
   test("falls back without browser crypto", () => {
     const id = createClientId({});
 
