@@ -9,12 +9,10 @@ use crate::{
     },
 };
 use serde_json::json;
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
 use tokio::sync::mpsc;
 
 use super::{
-    actor::{ActiveConversation, CachedToolSnapshot, CodexRuntimeActor},
+    actor::{ActiveConversation, CodexRuntimeActor},
     local_tools::{
         agent_identity_after_local_tools, local_tool_result_continuation_input,
         local_tool_result_output_item,
@@ -75,7 +73,6 @@ impl CodexRuntimeActor {
                 model: selection.model,
                 cwd,
                 next_turn_index: 1,
-                tool_snapshot: None,
             },
         );
 
@@ -114,7 +111,6 @@ impl CodexRuntimeActor {
                     model: selection.model,
                     cwd,
                     next_turn_index,
-                    tool_snapshot: None,
                 },
             );
         }
@@ -265,14 +261,13 @@ impl CodexRuntimeActor {
         let agent_identity = self
             .agent_identity_for_conversation(&conversation_id)
             .await?;
-        let _tool_snapshot = self.refresh_tool_snapshot(&conversation_id).await?;
+        let rendered_tools = self.render_available_tools().await?;
         self.update_conversation_agent_status(
             &conversation_id,
             PersistedAgentStatus::InputReceived,
             &item_tx,
         )
         .await?;
-        let tool_snapshot = self.refresh_tool_snapshot(&conversation_id).await?;
         self.update_conversation_agent_status(
             &conversation_id,
             PersistedAgentStatus::Thinking,
@@ -289,7 +284,7 @@ impl CodexRuntimeActor {
                 turn_index,
                 cwd: conversation.cwd.as_deref(),
                 agent_identity: &agent_identity,
-                rendered_tools: &tool_snapshot.rendered_tools,
+                rendered_tools: &rendered_tools,
                 current_input: &input,
             })
             .await?;
@@ -378,7 +373,7 @@ impl CodexRuntimeActor {
                     turn_index,
                     cwd: conversation.cwd.as_deref(),
                     agent_identity: &agent_identity,
-                    rendered_tools: &tool_snapshot.rendered_tools,
+                    rendered_tools: &rendered_tools,
                     current_input: &input,
                 },
             )
@@ -427,7 +422,7 @@ impl CodexRuntimeActor {
                         turn_index,
                         cwd: conversation.cwd.as_deref(),
                         agent_identity: &agent_identity,
-                        rendered_tools: &tool_snapshot.rendered_tools,
+                        rendered_tools: &rendered_tools,
                         current_input: &input,
                     },
                 )
@@ -537,7 +532,7 @@ impl CodexRuntimeActor {
                     next_turn_index: turn_index.saturating_add(1),
                     cwd: conversation.cwd.clone(),
                     agent_identity: agent_identity_for_background,
-                    rendered_tools: tool_snapshot.rendered_tools.clone(),
+                    rendered_tools: rendered_tools.clone(),
                 });
 
                 Ok(())
@@ -556,7 +551,6 @@ impl CodexRuntimeActor {
                     | ProviderError::MalformedResponse { .. }
                     | ProviderError::ProtocolError { .. }
                     | ProviderError::Timeout { .. }
-                    | ProviderError::UnsupportedFeature { .. }
                     | ProviderError::ProviderUnavailable { .. } => None,
                 };
                 let error_message = error.to_string();
@@ -809,29 +803,6 @@ impl CodexRuntimeActor {
         })
     }
 
-    async fn refresh_tool_snapshot(
-        &mut self,
-        conversation_id: &str,
-    ) -> Result<CachedToolSnapshot, DaemonError> {
-        let rendered_tools = self.render_available_tools().await?;
-        let hash = stable_hash(&rendered_tools);
-        let snapshot = CachedToolSnapshot {
-            hash,
-            rendered_tools,
-        };
-        if let Some(conversation) = self.conversations.get_mut(conversation_id) {
-            let should_replace = conversation
-                .tool_snapshot
-                .as_ref()
-                .map(|cached| cached.hash != snapshot.hash)
-                .unwrap_or(true);
-            if should_replace {
-                conversation.tool_snapshot = Some(snapshot.clone());
-            }
-        }
-        Ok(snapshot)
-    }
-
     async fn render_available_tools(&self) -> Result<String, DaemonError> {
         let mut rows = vec![
             "- builtin\tsearch_memory\tNoema built-in memory retrieval".to_string(),
@@ -938,12 +909,6 @@ impl CodexRuntimeActor {
             }
         });
     }
-}
-
-fn stable_hash(value: &str) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    value.hash(&mut hasher);
-    hasher.finish()
 }
 
 async fn provider_selection_for_conversation(

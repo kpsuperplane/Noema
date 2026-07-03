@@ -68,26 +68,6 @@ impl NoemaRuntimeHost {
         })
     }
 
-    /// Construct a host around already-open test state.
-    #[cfg(test)]
-    #[allow(dead_code)]
-    pub(crate) fn for_tests_with_store_and_runtime(
-        store: NoemaStore,
-        runtime: CodexRuntimeHandle,
-    ) -> Self {
-        Self {
-            runtime,
-            store,
-            provider_auth: ProviderAuthManager::new(),
-            mcp_oauth: McpOAuthSetupManager::new(),
-            system_errors: SystemErrorLogger::from_paths(
-                &NoemaPaths::from_process_env().expect("test paths"),
-            ),
-            paths: NoemaPaths::from_process_env().expect("test paths"),
-            subscriptions: crate::graphql::ConversationSubscriptionRegistry::default(),
-        }
-    }
-
     /// Runtime command handle.
     pub(crate) fn runtime(&self) -> &CodexRuntimeHandle {
         &self.runtime

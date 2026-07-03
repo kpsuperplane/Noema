@@ -2,8 +2,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use ts_rs::TS;
 
-use crate::memory::error::MemoryPersistenceError;
-
 /// Supported provider account authentication methods.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
@@ -92,43 +90,4 @@ pub struct ProviderAccountRecord {
     pub last_error_message: Option<String>,
     /// Additional non-secret account metadata.
     pub metadata: Value,
-}
-
-/// Parse a stored provider auth method.
-///
-/// # Errors
-///
-/// Returns [`MemoryPersistenceError::InvalidEnum`] when the value is outside
-/// the provider auth method vocabulary.
-pub fn parse_auth_method(value: &str) -> Result<ProviderAuthMethod, MemoryPersistenceError> {
-    match value {
-        "oauth_device_code" => Ok(ProviderAuthMethod::OauthDeviceCode),
-        "secret_input" => Ok(ProviderAuthMethod::SecretInput),
-        "external_manual" => Ok(ProviderAuthMethod::ExternalManual),
-        "none" => Ok(ProviderAuthMethod::None),
-        other => Err(MemoryPersistenceError::InvalidEnum {
-            kind: "provider_auth_method",
-            value: other.to_string(),
-        }),
-    }
-}
-
-/// Parse a stored provider account status.
-///
-/// # Errors
-///
-/// Returns [`MemoryPersistenceError::InvalidEnum`] when the value is outside
-/// the provider account status vocabulary.
-pub fn parse_account_status(value: &str) -> Result<ProviderAccountStatus, MemoryPersistenceError> {
-    match value {
-        "unknown" => Ok(ProviderAccountStatus::Unknown),
-        "checking" => Ok(ProviderAccountStatus::Checking),
-        "authenticated" => Ok(ProviderAccountStatus::Authenticated),
-        "unauthenticated" => Ok(ProviderAccountStatus::Unauthenticated),
-        "unavailable" => Ok(ProviderAccountStatus::Unavailable),
-        other => Err(MemoryPersistenceError::InvalidEnum {
-            kind: "provider_account_status",
-            value: other.to_string(),
-        }),
-    }
 }

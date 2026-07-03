@@ -283,14 +283,6 @@ pub(crate) fn parse_sse_event_bytes(raw: &[u8]) -> Result<SseEvent, ProviderErro
     Ok(parse_sse_event(raw))
 }
 
-#[allow(dead_code)]
-pub(crate) fn sse_events(text: &str) -> impl Iterator<Item = SseEvent> + '_ {
-    text.split("\n\n").filter_map(|chunk| {
-        let event = parse_sse_event(chunk);
-        (event.event.is_some() || event.data.is_some()).then_some(event)
-    })
-}
-
 pub(crate) fn next_sse_event_boundary(bytes: &[u8]) -> Option<(usize, usize)> {
     [(b"\n\n".as_slice(), 2), (b"\r\n\r\n".as_slice(), 4)]
         .into_iter()

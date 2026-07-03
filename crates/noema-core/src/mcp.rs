@@ -23,7 +23,6 @@ pub use oauth::{
 pub use stdio::StdioMcpTransport;
 
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 /// Effective trust classification for an MCP tool policy axis.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -152,17 +151,6 @@ pub enum OwnerExtractorSource {
     ResourceUri,
     /// Extract through a built-in Noema adapter rule.
     BuiltInAdapter,
-}
-
-/// MCP tool schema metadata captured during discovery.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct McpToolSchema {
-    /// MCP input schema used for argument validation.
-    pub input_schema: Value,
-    /// Optional MCP output schema used for result validation.
-    pub output_schema: Option<Value>,
-    /// MCP tool annotations captured as non-authoritative setup hints.
-    pub annotations: Value,
 }
 
 /// Normalize a trusted identity selector value before storage or matching.

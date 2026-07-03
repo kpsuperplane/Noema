@@ -59,7 +59,7 @@ pub use ids::{
     ActorId, ContextPacketId, ConversationId, ConversationItemId, MemoryItemId, ObjectId,
 };
 pub use mcp::{
-    McpCalibrationStatus, McpToolSchema, McpTransportKind, McpTrustClassification, OwnerExtractor,
+    McpCalibrationStatus, McpTransportKind, McpTrustClassification, OwnerExtractor,
     OwnerExtractorSource, TrustedIdentitySelectorKind, normalize_trusted_identity_value,
 };
 pub use memory::consolidation::{
@@ -83,10 +83,7 @@ pub use onboarding::{
     OnboardingStatus, OnboardingStep, OnboardingStepStatus, onboarding_status_from_account,
 };
 pub use paths::{NOEMA_HOME_ENV, NoemaPathError, NoemaPaths};
-pub use provider::accounts::{
-    ProviderAccountRecord, ProviderAccountStatus, ProviderAuthMethod, parse_account_status,
-    parse_auth_method,
-};
+pub use provider::accounts::{ProviderAccountRecord, ProviderAccountStatus, ProviderAuthMethod};
 pub use provider::adapters::{
     codex_responses::{CodexProviderConfig, CodexResponsesProvider},
     foundation_local::FoundationLocalProvider,

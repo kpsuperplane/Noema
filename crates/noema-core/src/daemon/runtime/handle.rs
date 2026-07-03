@@ -108,12 +108,8 @@ impl CodexRuntimeHandle {
             .await
     }
 
-    fn configured_provider_kind(&self) -> &str {
-        &self.default_provider_kind
-    }
-
     pub(crate) fn provider_kind(&self) -> &str {
-        self.configured_provider_kind()
+        &self.default_provider_kind
     }
 
     #[cfg(test)]

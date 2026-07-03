@@ -392,17 +392,7 @@ fn mapped_memory_graph_node_id(
 ) -> String {
     node_id_map
         .get(store_node_id)
-        .expect("memory graph node must exist in response node map")
-        .clone()
-}
-
-fn mapped_memory_graph_edge_endpoint_id(
-    node_id_map: &HashMap<String, String>,
-    store_node_id: &str,
-) -> String {
-    node_id_map
-        .get(store_node_id)
-        .expect("memory graph edge endpoint must exist in returned nodes")
+        .expect("memory graph node must exist in returned node map")
         .clone()
 }
 
@@ -424,8 +414,8 @@ impl GraphqlMemoryGraphEdge {
     fn from_store_edge(edge: MemoryGraphEdge, node_id_map: &HashMap<String, String>) -> Self {
         Self {
             claim_id: edge.claim_id,
-            source_node_id: mapped_memory_graph_edge_endpoint_id(node_id_map, &edge.source_node_id),
-            target_node_id: mapped_memory_graph_edge_endpoint_id(node_id_map, &edge.target_node_id),
+            source_node_id: mapped_memory_graph_node_id(node_id_map, &edge.source_node_id),
+            target_node_id: mapped_memory_graph_node_id(node_id_map, &edge.target_node_id),
             predicate_id: edge.predicate_id,
             predicate_label: edge.predicate_label,
             fact: edge.fact,

@@ -82,13 +82,12 @@ pub(super) async fn execute_search_memory(
 async fn execute_search_memory_inner(
     store: &NoemaStore,
     context: &MemoryToolRuntimeContext,
-    call_id: Option<&str>,
+    _call_id: Option<&str>,
     payload: &Value,
 ) -> Result<Value, MemoryToolError> {
     let arguments = parse_arguments(payload)?;
     validate_scope_ids(context, &arguments)?;
     let request = build_request(context, &arguments)?;
-    let context_packet_id = context_packet_id(context, call_id);
     let retrieval = store
         .retrieve_claims_scoped(
             &request,
@@ -122,7 +121,6 @@ async fn execute_search_memory_inner(
     Ok(json!({
         "memories": memories,
         "omissions": omissions,
-        "context_packet_id": context_packet_id,
         "scope_ids": arguments.scope_ids,
     }))
 }
@@ -219,31 +217,6 @@ fn parse_purpose(value: Option<&str>) -> Result<Purpose, MemoryToolError> {
         other => Err(MemoryToolError::InvalidArguments(format!(
             "unsupported purpose: {other}"
         ))),
-    }
-}
-
-fn context_packet_id(context: &MemoryToolRuntimeContext, call_id: Option<&str>) -> String {
-    let discriminator = call_id
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or(&context.call_site_id);
-    format!(
-        "ctx_search_memory:{}:{}:{}",
-        sanitize_context_packet_fragment(&context.conversation_id),
-        context.turn_index,
-        sanitize_context_packet_fragment(discriminator)
-    )
-}
-
-fn sanitize_context_packet_fragment(value: &str) -> String {
-    let sanitized = value
-        .chars()
-        .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '_' })
-        .collect::<String>();
-    let sanitized = sanitized.trim_matches('_');
-    if sanitized.is_empty() {
-        "unknown".to_string()
-    } else {
-        sanitized.to_string()
     }
 }
 
@@ -438,26 +411,5 @@ mod tests {
         let request = build_request(&context, &arguments).expect("build request");
 
         assert_eq!(request.use_mode, UseMode::Answer);
-    }
-
-    #[test]
-    fn context_packet_id_uses_sanitized_per_call_discriminator() {
-        let context = MemoryToolRuntimeContext {
-            conversation_id: "conv/123".to_string(),
-            turn_id: "turn_456".to_string(),
-            turn_index: 7,
-            call_site_id: "output:0".to_string(),
-            cwd: None,
-            user_input: "Please search memory for our plan".to_string(),
-        };
-
-        assert_eq!(
-            context_packet_id(&context, Some("call-abc/123")),
-            "ctx_search_memory:conv_123:7:call_abc_123"
-        );
-        assert_eq!(
-            context_packet_id(&context, None),
-            "ctx_search_memory:conv_123:7:output_0"
-        );
     }
 }

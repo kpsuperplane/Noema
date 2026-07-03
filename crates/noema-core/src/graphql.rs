@@ -16,7 +16,6 @@ mod resolvers;
 mod runtime_state;
 mod schema;
 mod subscriptions;
-mod types;
 
 pub use mcp::complete_mcp_server_oauth_setup;
 pub(crate) use runtime_state::GraphqlRuntimeState;

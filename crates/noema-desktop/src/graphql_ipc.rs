@@ -104,13 +104,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn subscription_event_payload_keeps_subscription_id() {
+    fn subscription_event_payload_serializes_frontend_wire_key() {
         let payload = SubscriptionEventPayload {
             subscription_id: "sub_1".to_string(),
             response: serde_json::json!({"data": {"ok": true}}),
         };
 
-        assert_eq!(payload.subscription_id, "sub_1");
-        assert_eq!(payload.response["data"]["ok"], true);
+        let serialized =
+            serde_json::to_value(&payload).expect("serialize subscription event payload");
+
+        assert_eq!(serialized["subscriptionId"], "sub_1");
+        assert!(serialized.get("subscription_id").is_none());
+        assert_eq!(serialized["response"]["data"]["ok"], true);
     }
 }

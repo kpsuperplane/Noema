@@ -330,26 +330,6 @@ impl ResponsesTransport {
         Ok(response)
     }
 
-    /// Send one streaming Responses request and collect the terminal response.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ProviderError`] for HTTP transport failures, API errors, or
-    /// malformed Server-Sent Events.
-    pub async fn send_stream<T>(
-        &self,
-        bearer_token: &str,
-        body: T,
-        extra_headers: HeaderMap,
-        diagnostics: ResponsesDiagnosticContext,
-    ) -> Result<ResponsesResponse, ProviderError>
-    where
-        T: Serialize,
-    {
-        self.send_streaming(bearer_token, body, extra_headers, diagnostics, &mut |_| {})
-            .await
-    }
-
     /// Send one streaming Responses request, emitting incremental assistant text
     /// events as SSE chunks arrive, and collect the terminal response.
     ///

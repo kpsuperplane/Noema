@@ -526,13 +526,6 @@ pub enum ProviderError {
         seconds: u64,
     },
 
-    /// The provider does not support a requested option.
-    #[error("unsupported provider feature: {feature}")]
-    UnsupportedFeature {
-        /// Unsupported feature name.
-        feature: String,
-    },
-
     /// The provider cannot currently be used.
     #[error("{provider} provider is unavailable: {message}")]
     ProviderUnavailable {

@@ -118,28 +118,6 @@ impl FoundationBridgeProcess {
         Ok(process)
     }
 
-    /// Generate assistant text through a bridge-backed session.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`FoundationBridgeError`] when session creation or generation
-    /// fails.
-    pub async fn generate(
-        &mut self,
-        conversation_id: String,
-        model_profile: String,
-        instructions: Option<String>,
-        input: String,
-        max_output_tokens: Option<u32>,
-        on_delta: &mut (dyn FnMut(String) + Send),
-    ) -> Result<String, FoundationBridgeError> {
-        let session_id = self
-            .create_session(conversation_id, model_profile, instructions)
-            .await?;
-        self.generate_in_session(session_id, input, max_output_tokens, on_delta)
-            .await
-    }
-
     /// Count prompt tokens through the bridge.
     ///
     /// # Errors
@@ -548,15 +526,18 @@ done
         .expect("bridge should start");
         let mut deltas = Vec::new();
 
-        let text = process
-            .generate(
+        let session_id = process
+            .create_session(
                 "conversation:test".to_string(),
                 "default".to_string(),
                 Some("be concise".to_string()),
-                "hello".to_string(),
-                None,
-                &mut |delta| deltas.push(delta),
             )
+            .await
+            .expect("session should be created");
+        let text = process
+            .generate_in_session(session_id, "hello".to_string(), None, &mut |delta| {
+                deltas.push(delta);
+            })
             .await
             .expect("generate should complete");
 
@@ -587,15 +568,12 @@ done
         .await
         .expect("bridge should start");
 
+        let session_id = process
+            .create_session("conversation:test".to_string(), "default".to_string(), None)
+            .await
+            .expect("session should be created");
         let text = process
-            .generate(
-                "conversation:test".to_string(),
-                "default".to_string(),
-                None,
-                "hello".to_string(),
-                None,
-                &mut |_| {},
-            )
+            .generate_in_session(session_id, "hello".to_string(), None, &mut |_| {})
             .await
             .expect("generate should wait beyond control timeout");
 

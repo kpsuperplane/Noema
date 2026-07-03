@@ -230,21 +230,6 @@ impl Config {
         raw.resolve()
     }
 
-    /// Load the Codex provider configuration without requiring `OpenAI` credentials.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ConfigError`] when path resolution fails, the config file is
-    /// missing or invalid, environment values are invalid, or Codex-specific
-    /// values fail validation.
-    pub fn load_codex(
-        path_override: Option<PathBuf>,
-        overrides: ConfigOverrides,
-    ) -> Result<CodexProviderConfig, ConfigError> {
-        let raw = load_raw_config(path_override, overrides)?;
-        raw.resolve_codex_config()
-    }
-
     /// Load daemon configuration without requiring non-daemon provider credentials.
     ///
     /// # Errors

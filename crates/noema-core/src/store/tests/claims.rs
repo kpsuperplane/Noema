@@ -70,6 +70,51 @@ async fn reinforcing_existing_claim_adds_evidence() {
 }
 
 #[tokio::test]
+async fn evidence_source_object_type_rejects_retired_object_types() {
+    let store = test_store().await;
+
+    for (table, authority) in [
+        ("supported_by", "explicit_human_statement"),
+        ("corrected_by", "human_correction"),
+        ("contradicted_by", "agent_inference"),
+    ] {
+        for object_type in ["memory_item", "relationship", "context_packet"] {
+            let query = format!(
+                r#"
+                CREATE type::record('{table}', string::concat('legacy_', $object_type)) SET
+                  relation_id = string::concat('relation:', $object_type),
+                  claim_id = 'claim:legacy-object-type',
+                  source_kind = 'object',
+                  source_item_id = NONE,
+                  source_object_type = $object_type,
+                  source_object_id = string::concat($object_type, ':legacy'),
+                  authority = $authority,
+                  excerpt = NONE,
+                  observed_at = NONE,
+                  created_by = 'agent:primary',
+                  metadata = {{}};
+                "#
+            );
+
+            let error = store
+                .db()
+                .query(query)
+                .bind(("object_type", object_type))
+                .bind(("authority", authority))
+                .await
+                .expect("legacy source object type query")
+                .check()
+                .expect_err("retired source object type should be rejected");
+
+            assert!(
+                error.to_string().contains(object_type),
+                "unexpected error for {table} / {object_type}: {error}"
+            );
+        }
+    }
+}
+
+#[tokio::test]
 async fn reinforce_claim_by_id_rejects_different_object_without_match_context() {
     let store = test_store().await;
     let first_item = create_source_item(&store, "Kevin likes ice cream.").await;

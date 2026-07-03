@@ -282,12 +282,9 @@ fn string_field(object: &Map<String, Value>, field: &'static str) -> Result<Stri
 mod tests {
     use super::*;
     use serde_json::json;
-    use std::{
-        sync::{
-            Arc,
-            atomic::{AtomicUsize, Ordering},
-        },
-        time::Duration,
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
     };
 
     #[tokio::test]
@@ -443,12 +440,6 @@ mod tests {
 
         fn call_count(&self) -> usize {
             self.state.call_count.load(Ordering::SeqCst)
-        }
-
-        #[allow(dead_code)]
-        async fn call_tool(&self) {
-            tokio::time::sleep(Duration::from_millis(1)).await;
-            self.state.call_count.fetch_add(1, Ordering::SeqCst);
         }
     }
 

@@ -719,8 +719,7 @@ fn safe_auth_failure_message(error: ProviderError) -> String {
             format!("Codex auth timed out during {operation}")
         }
         ProviderError::ProtocolError { message, .. }
-        | ProviderError::PartialResponse { message, .. }
-        | ProviderError::UnsupportedFeature { feature: message } => message,
+        | ProviderError::PartialResponse { message, .. } => message,
     }
 }
 

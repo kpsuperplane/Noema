@@ -8,7 +8,6 @@ mod conversations;
 mod error;
 mod ids;
 mod mcp;
-pub mod objects;
 mod ontology;
 mod provider_accounts;
 mod retrieval;

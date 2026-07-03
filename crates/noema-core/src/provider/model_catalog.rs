@@ -3,7 +3,7 @@
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use reqwest::StatusCode;
-use serde_json::{Map, Value, json};
+use serde_json::{Map, Value};
 
 use crate::{
     NoemaPaths, NoemaStore, ProviderAccountRecord, ProviderAccountStatus, ProviderError,
@@ -204,35 +204,12 @@ fn profile_value_from_model(model: &Value) -> Option<Value> {
     let mut object = Map::new();
     object.insert("id".to_string(), Value::String(id.to_string()));
     object.insert("label".to_string(), Value::String(label.to_string()));
-    if let Some(default_reasoning_effort) = string_field(model, &["default_reasoning_level"]) {
-        object.insert(
-            "default_reasoning_effort".to_string(),
-            Value::String(default_reasoning_effort.to_string()),
-        );
-    }
-    if let Some(input_modalities) = model.get("input_modalities").and_then(Value::as_array) {
-        object.insert(
-            "input_modalities".to_string(),
-            Value::Array(input_modalities.clone()),
-        );
-    }
     Some(Value::Object(object))
 }
 
 fn string_field<'a>(value: &'a Value, keys: &[&str]) -> Option<&'a str> {
     keys.iter()
         .find_map(|key| value.get(*key).and_then(Value::as_str))
-}
-
-/// Build provider account metadata for tests and seeded local providers.
-#[must_use]
-pub fn profiles_metadata(profiles: &[(&str, &str)]) -> Value {
-    json!({
-        "profiles": profiles
-            .iter()
-            .map(|(id, label)| json!({ "id": id, "label": label }))
-            .collect::<Vec<_>>()
-    })
 }
 
 fn now_string() -> String {
@@ -244,6 +221,7 @@ fn now_string() -> String {
 
 #[cfg(test)]
 mod tests {
+    use serde_json::json;
     use tempfile::TempDir;
     use tokio::{
         io::{AsyncReadExt, AsyncWriteExt},
@@ -278,8 +256,6 @@ mod tests {
         assert_eq!(profiles.len(), 1);
         assert_eq!(profiles[0]["id"], "gpt-5.5");
         assert_eq!(profiles[0]["label"], "GPT-5.5");
-        assert_eq!(profiles[0]["default_reasoning_effort"], "medium");
-        assert_eq!(profiles[0]["input_modalities"], json!(["text", "image"]));
     }
 
     #[tokio::test]

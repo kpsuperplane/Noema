@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use crate::{NoemaStore, store::StoreError};
 
 use serde::Deserialize;

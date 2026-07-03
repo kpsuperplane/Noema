@@ -85,33 +85,6 @@ pub(super) fn explicit_memory_content(input: &str) -> Option<String> {
     None
 }
 
-#[allow(
-    dead_code,
-    reason = "legacy daemon tests exercise this wrapper while runtime writes use proposal routing"
-)]
-pub(super) fn explicit_memory_claim_candidate(
-    content: &str,
-    source_item_id: String,
-) -> NewClaimCandidate {
-    let context = ConversationMemoryContext {
-        conversation_id: String::new(),
-        turn_id: String::new(),
-        turn_index: 0,
-        user_item_id: source_item_id,
-        assistant_item_id: None,
-        assistant_items: Vec::new(),
-        user_content: content.to_string(),
-        cwd: None,
-    };
-    let proposal = explicit_memory_write_proposal(content, &context);
-    deterministic_canonical_claim(
-        &proposal,
-        ClaimStatus::Confirmed,
-        Some(1.0),
-        EvidenceAuthority::ExplicitHumanStatement,
-    )
-}
-
 pub(super) fn explicit_memory_write_proposal(
     content: &str,
     context: &ConversationMemoryContext,
@@ -139,26 +112,6 @@ pub(super) fn explicit_memory_write_proposal(
             "turn_index": context.turn_index,
         }),
     }
-}
-
-#[allow(
-    dead_code,
-    reason = "legacy daemon tests exercise this wrapper while runtime writes use proposal routing"
-)]
-pub(super) fn provider_memory_claim_candidate(
-    validated: &ValidatedMemoryProposal,
-    context: &ConversationMemoryContext,
-    proposal_index: usize,
-    trigger: &str,
-) -> NewClaimCandidate {
-    let write_proposal =
-        provider_memory_write_proposal(validated, context, proposal_index, trigger);
-    deterministic_canonical_claim(
-        &write_proposal,
-        claim_status_from_memory_status(validated.status),
-        Some(f64::from(validated.proposal.confidence)),
-        EvidenceAuthority::AgentInference,
-    )
 }
 
 pub(super) fn provider_memory_write_proposal(
@@ -918,31 +871,8 @@ fn ensure_final_punctuation(value: &str) -> String {
     }
 }
 
-#[expect(
-    dead_code,
-    reason = "graph-claim memory write bridge keeps classification helpers staged for the next slice"
-)]
-pub(super) fn infer_chat_memory_type(content: &str) -> MemoryType {
-    let lowered = content.to_ascii_lowercase();
-    if lowered.contains("prefer") || lowered.contains("preference") {
-        MemoryType::Preference
-    } else if lowered.contains("decided") || lowered.contains("decision") {
-        MemoryType::Decision
-    } else {
-        MemoryType::Note
-    }
-}
-
 pub(super) fn infer_chat_sensitivity(content: &str) -> Sensitivity {
     infer_memory_text_sensitivity([content])
-}
-
-#[expect(
-    dead_code,
-    reason = "graph-claim memory write bridge keeps title derivation staged for the next slice"
-)]
-pub(super) fn title_from_memory_content(content: &str) -> String {
-    content.trim().chars().take(80).collect()
 }
 
 #[allow(
