@@ -77,49 +77,6 @@ export function composerMeasuredWidthBuffer(textareaPaddingInlinePx: number): nu
   return textareaPaddingInlinePx + composerMeasuredTextSlackPx;
 }
 
-export function measureTextHeight({
-  value,
-  placeholder,
-  measureText,
-  availableWidthPx,
-  lineHeightPx,
-  paddingBlockPx
-}: {
-  value: string;
-  placeholder: string;
-  measureText: (text: string) => number;
-  availableWidthPx: number;
-  lineHeightPx: number;
-  paddingBlockPx: number;
-}): number {
-  const content = value.length > 0 ? value : placeholder;
-  const lines = content.split(/\r\n|\n|\r/);
-  const width = Math.max(1, availableWidthPx);
-  let visualLineCount = 0;
-
-  for (const line of lines) {
-    if (line.length === 0) {
-      visualLineCount += 1;
-      continue;
-    }
-
-    let currentLine = "";
-    for (const character of Array.from(line)) {
-      const nextLine = `${currentLine}${character}`;
-      if (currentLine.length === 0 || measureText(nextLine) <= width) {
-        currentLine = nextLine;
-        continue;
-      }
-
-      visualLineCount += 1;
-      currentLine = character;
-    }
-    visualLineCount += 1;
-  }
-
-  return Math.ceil(visualLineCount * lineHeightPx + paddingBlockPx);
-}
-
 function longestDraftLine(content: string): string {
   return content.split(/\r\n|\n|\r/).reduce((longest, line) => {
     return Array.from(line).length > Array.from(longest).length ? line : longest;
@@ -141,13 +98,9 @@ function inlineBoxReservePx(styles: CSSStyleDeclaration): number {
 }
 
 export function syncHeight({
-  textarea,
-  value,
-  placeholder
+  textarea
 }: {
   textarea: HTMLTextAreaElement;
-  value: string;
-  placeholder: string;
 }) {
   if (typeof document === "undefined") {
     return;
@@ -161,29 +114,7 @@ export function syncHeight({
   textarea.style.lineHeight = composerTextareaLineHeight;
   textarea.style.height = `${composerMinTextHeightPx}px`;
 
-  const context = document.createElement("canvas").getContext("2d");
-  if (!context) {
-    return;
-  }
-
-  const styles = window.getComputedStyle(textarea);
-  context.font = styles.font;
-  const fontSizePx = parsedPixelValue(styles.fontSize, 16);
-  const lineHeightPx = parsedPixelValue(styles.lineHeight, fontSizePx * 1.5);
-  const paddingBlockPx =
-    parsedPixelValue(styles.paddingTop, 0) + parsedPixelValue(styles.paddingBottom, 0);
-  const paddingInlinePx =
-    parsedPixelValue(styles.paddingLeft, 0) + parsedPixelValue(styles.paddingRight, 0);
-  const availableWidthPx = textarea.clientWidth - paddingInlinePx;
-  const measuredHeight = measureTextHeight({
-    value,
-    placeholder: value.length > 0 ? placeholder : "",
-    measureText: (text) => context.measureText(text || " ").width,
-    availableWidthPx,
-    lineHeightPx,
-    paddingBlockPx
-  });
-  textarea.style.height = `${Math.max(composerMinTextHeightPx, measuredHeight)}px`;
+  textarea.style.height = `${Math.max(composerMinTextHeightPx, textarea.scrollHeight)}px`;
 }
 
 export function composerTextareaWrapStyle({
@@ -278,11 +209,11 @@ export const Composer = React.forwardRef<HTMLTextAreaElement, ComposerProps>(fun
     (textarea: HTMLTextAreaElement | null) => {
       textareaRef.current = textarea;
       if (textarea) {
-        syncHeight({ textarea, value: textarea.value, placeholder });
+        syncHeight({ textarea });
       }
       assignComposerTextareaRef(forwardedRef, textarea);
     },
-    [forwardedRef, placeholder]
+    [forwardedRef]
   );
 
   function submit(nextValue = textareaRef.current?.value ?? value) {
@@ -325,6 +256,8 @@ export const Composer = React.forwardRef<HTMLTextAreaElement, ComposerProps>(fun
     key: string;
     size: ComposerInlineSize;
   } | null>(null);
+  const currentInlineSize =
+    measuredInlineSize?.key === sizeKey ? measuredInlineSize.size : fallbackInlineSize;
 
   useBrowserLayoutEffect(() => {
     const textarea = textareaRef.current;
@@ -365,8 +298,8 @@ export const Composer = React.forwardRef<HTMLTextAreaElement, ComposerProps>(fun
       return;
     }
 
-    syncHeight({ textarea, value, placeholder });
-  }, [placeholder, value]);
+    syncHeight({ textarea });
+  }, [currentInlineSize, value]);
 
   React.useEffect(() => {
     const textarea = textareaRef.current;
@@ -375,13 +308,12 @@ export const Composer = React.forwardRef<HTMLTextAreaElement, ComposerProps>(fun
     }
 
     const observer = new ResizeObserver(() => {
-      syncHeight({ textarea, value: textarea.value, placeholder });
+      syncHeight({ textarea });
     });
     observer.observe(textarea);
     return () => observer.disconnect();
-  }, [placeholder]);
+  }, []);
 
-  const currentInlineSize = measuredInlineSize?.key === sizeKey ? measuredInlineSize.size : fallbackInlineSize;
   const textareaWrapStyle = composerTextareaWrapStyle({
     value,
     placeholder,
@@ -444,7 +376,7 @@ export const Composer = React.forwardRef<HTMLTextAreaElement, ComposerProps>(fun
               submit(nextValue);
             }}
             onChange={(nextValue, event) => {
-              syncHeight({ textarea: event.currentTarget, value: nextValue, placeholder });
+              syncHeight({ textarea: event.currentTarget });
               onChange(nextValue);
             }}
             onKeyDown={(event) => {
