@@ -153,31 +153,6 @@ async fn mcp_control_plane_tables_bootstrap() {
               issuer_actor_id = 'human:local',
               updated_at = time::now();
 
-            CREATE type::record('tool_invocations', 'local_test_invocation') SET
-              tool_invocation_id = 'tool_invocation:local-test',
-              mcp_server_id = 'mcp_server:local-test',
-              mcp_tool_id = 'mcp_tool:local-test:read',
-              conversation_id = 'conversation:local-test',
-              turn_id = 'turn:local-test',
-              requesting_actor_id = 'agent:primary',
-              status = 'proposed',
-              policy_decision = {},
-              proposal_payload = {},
-              result_summary = {},
-              updated_at = time::now();
-
-            CREATE type::record('quarantined_tool_results', 'local_test_result') SET
-              quarantine_id = 'quarantine:local-test',
-              tool_invocation_id = 'tool_invocation:local-test',
-              validation_status = 'pending',
-              owner_trust = 'unresolved',
-              release_status = 'quarantined',
-              owner_evidence = {},
-              scan_summary = {},
-              raw_result_ref = NONE,
-              released_payload = {},
-              updated_at = time::now();
-
             CREATE type::record('approval_requests', 'local_test_approval') SET
               approval_id = 'approval:local-test',
               action_summary = 'Approve local test MCP call',
@@ -894,66 +869,6 @@ async fn tool_calibration_schema_rejects_malformed_owner_extractors() {
 
     assert!(
         error.to_string().contains("owner_extractors"),
-        "unexpected error: {error}"
-    );
-}
-
-#[tokio::test]
-async fn tool_invocation_schema_rejects_invalid_status() {
-    let store = test_store().await;
-
-    let error = store
-        .db()
-        .query(
-            r#"
-            CREATE type::record('tool_invocations', 'invalid_status') SET
-              tool_invocation_id = 'tool_invocation:invalid-status',
-              requesting_actor_id = 'agent:primary',
-              status = 'running',
-              policy_decision = {},
-              proposal_payload = {},
-              result_summary = {},
-              updated_at = time::now();
-            "#,
-        )
-        .await
-        .expect("invalid tool invocation query")
-        .check()
-        .expect_err("invalid tool invocation status should be rejected");
-
-    assert!(
-        error.to_string().contains("status") || error.to_string().contains("running"),
-        "unexpected error: {error}"
-    );
-}
-
-#[tokio::test]
-async fn quarantined_tool_result_schema_rejects_invalid_status() {
-    let store = test_store().await;
-
-    let error = store
-        .db()
-        .query(
-            r#"
-            CREATE type::record('quarantined_tool_results', 'invalid_status') SET
-              quarantine_id = 'quarantine:invalid-status',
-              tool_invocation_id = 'tool_invocation:invalid-status',
-              validation_status = 'valid',
-              owner_trust = 'trusted',
-              release_status = 'streamed',
-              owner_evidence = {},
-              scan_summary = {},
-              released_payload = {},
-              updated_at = time::now();
-            "#,
-        )
-        .await
-        .expect("invalid quarantine query")
-        .check()
-        .expect_err("invalid quarantine release status should be rejected");
-
-    assert!(
-        error.to_string().contains("release_status") || error.to_string().contains("streamed"),
         "unexpected error: {error}"
     );
 }

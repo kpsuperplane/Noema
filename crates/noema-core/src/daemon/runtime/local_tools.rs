@@ -27,7 +27,6 @@ impl CodexRuntimeActor {
             store: &self.store,
             system_errors: &self.system_errors,
         };
-        let scope_ids = vec![turn.conversation_id.clone()];
         for (index, output) in turn.response.output.iter().enumerate() {
             let GenerateOutputItem::ToolCall { id, name, payload } = output else {
                 continue;
@@ -52,12 +51,7 @@ impl CodexRuntimeActor {
                     execute_update_own_name(&self.store, &context, id.clone(), payload).await,
                 ));
             } else {
-                let proposal = GatewayToolProposal {
-                    name,
-                    payload,
-                    agent_id: &agent_identity.agent_id,
-                    scope_ids: &scope_ids,
-                };
+                let proposal = GatewayToolProposal { name, payload };
                 results.push(LocalToolResult::Gateway {
                     call_id: id.clone(),
                     name: name.clone(),

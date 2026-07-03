@@ -4,7 +4,7 @@
 //! runtime support, home-directory setup, path resolution, and the memory
 //! retrieval model.
 
-/// Capability Gateway policy core.
+/// Capability Gateway runtime entrypoint.
 pub mod capability;
 /// Configuration loading and provider selection.
 pub mod config;
@@ -20,7 +20,7 @@ pub mod home;
 pub mod ids;
 /// Third-party MCP control-plane types.
 pub mod mcp;
-/// Memory storage and retrieval policy model.
+/// Memory extraction, consolidation, and graph retrieval policy model.
 pub mod memory;
 /// Neutral concrete object and actor references.
 pub mod objects;
@@ -37,12 +37,7 @@ pub mod store;
 /// Developer diagnostic system error logging.
 pub mod system_errors;
 
-pub use capability::{
-    CapabilityAxis, CapabilityDecisionOutcome, CapabilityGateway, CapabilityPolicyDecision,
-    CapabilityPolicyInput, GatewayToolProposal, GatewayToolResult, OwnerTrust,
-    ReadExaminationDecision, ReadExaminationInput, ReadExaminationOutcome, ResolvedOwner,
-    evaluate_capability_policy, examine_read_result, resolve_owner_from_json,
-};
+pub use capability::{CapabilityGateway, GatewayToolProposal, GatewayToolResult};
 pub use config::{
     Config, ConfigError, ConfigOverrides, DaemonResolvedConfig, FoundationLocalProviderConfig,
     ProviderConfig, ProviderKind, ResolvedConfig, WebConfig,
@@ -82,10 +77,7 @@ pub use memory::extraction::{
     ValidatedMemoryProposal, build_memory_extraction_prompt, decide_memory_proposal_status,
     parse_memory_extraction_proposals, validate_memory_extraction_response,
 };
-pub use memory::types::{
-    MemoryAuthorityLevel, MemoryExtractionMethod, MemorySummary, MemoryType, NewMemoryCandidate,
-    NewMemoryParticipant, NewMemorySubject, ObjectProvenanceSource,
-};
+pub use memory::types::MemoryType;
 pub use objects::{ActorKind, ActorRef, ObjectRef, ObjectType};
 pub use onboarding::{
     OnboardingStatus, OnboardingStep, OnboardingStepStatus, onboarding_status_from_account,

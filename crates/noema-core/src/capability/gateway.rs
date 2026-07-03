@@ -24,10 +24,6 @@ pub struct GatewayToolProposal<'a> {
     pub name: &'a str,
     /// Provider-supplied tool payload.
     pub payload: &'a Value,
-    /// Agent proposing the tool call.
-    pub agent_id: &'a str,
-    /// Active governable scope ids for the proposal.
-    pub scope_ids: &'a [String],
 }
 
 /// Gateway execution result released back into the runtime transcript.
@@ -47,8 +43,6 @@ impl CapabilityGateway<'_> {
         &self,
         proposal: GatewayToolProposal<'_>,
     ) -> GatewayToolResult {
-        let _ = (proposal.agent_id, proposal.scope_ids);
-
         if let Some(name) = parse_mcp_tool_name(proposal.name) {
             return self.execute_mcp_tool(name, proposal.payload).await;
         }
@@ -263,8 +257,6 @@ mod tests {
             .execute_tool_proposal(GatewayToolProposal {
                 name: "mcp.mcp:notion.notion-search",
                 payload: &json!({"arguments": {"query": "project"}}),
-                agent_id: "agent:primary",
-                scope_ids: &["human:local".to_string()],
             })
             .await;
 
@@ -287,8 +279,6 @@ mod tests {
             .execute_tool_proposal(GatewayToolProposal {
                 name: "mcp.mcp:notion.notion-search",
                 payload: &json!({"arguments": {"query": "project"}}),
-                agent_id: "agent:primary",
-                scope_ids: &["human:local".to_string()],
             })
             .await;
 
