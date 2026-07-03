@@ -177,7 +177,7 @@ export function syncHeight({
   const availableWidthPx = textarea.clientWidth - paddingInlinePx;
   const measuredHeight = measureTextHeight({
     value,
-    placeholder,
+    placeholder: value.length > 0 ? placeholder : "",
     measureText: (text) => context.measureText(text || " ").width,
     availableWidthPx,
     lineHeightPx,
@@ -557,7 +557,10 @@ const styles = stylex.create({
       default: null,
       ":focus-visible": "none"
     },
-    boxShadow: "none"
+    boxShadow: "none",
+    "::placeholder": {
+      whiteSpace: "nowrap"
+    }
   },
   submit: {
     position: "absolute",
