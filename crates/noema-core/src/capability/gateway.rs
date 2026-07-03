@@ -155,7 +155,7 @@ impl CapabilityGateway<'_> {
                     })),
             );
         }
-        "mcp_tool_call_failed"
+        mcp_tool_call_gateway_error(&error)
     }
 }
 
@@ -192,6 +192,24 @@ fn tool_arguments_from_payload(payload: &Value) -> Result<Value, &'static str> {
         Some(arguments) => Ok(arguments.clone()),
         None => Ok(payload.clone()),
     }
+}
+
+fn mcp_tool_call_gateway_error(error: &McpClientError) -> &'static str {
+    match error {
+        McpClientError::AuthRequired(_) => "mcp_authentication_failed",
+        McpClientError::Transport(message) if transport_error_indicates_auth_failure(message) => {
+            "mcp_authentication_failed"
+        }
+        McpClientError::Transport(_) | McpClientError::Malformed(_) => "mcp_tool_call_failed",
+    }
+}
+
+fn transport_error_indicates_auth_failure(message: &str) -> bool {
+    let normalized = message.to_ascii_lowercase();
+    normalized.contains("unauthorized")
+        || normalized.contains("authentication failed")
+        || normalized.contains("401")
+        || normalized.contains("403")
 }
 
 async fn call_mcp_transport_tool<T>(
@@ -310,6 +328,54 @@ mod tests {
 
         assert!(!result.success);
         assert_eq!(result.payload["error"], "mcp_tool_not_calibrated");
+    }
+
+    #[tokio::test]
+    async fn gateway_reports_auth_required_mcp_call_errors() {
+        let store = test_store().await;
+        let temp_dir = tempfile::tempdir().expect("temp dir");
+        let system_errors = SystemErrorLogger::new(temp_dir.path().join("errors.log"));
+        let gateway = CapabilityGateway {
+            store: &store,
+            system_errors: &system_errors,
+        };
+
+        let error = gateway.mcp_tool_call_error(
+            McpToolName {
+                server_id: "mcp:dex",
+                tool_name: "dex_search_contacts",
+            },
+            &json!({"query": "Gautam"}),
+            &json!({"query": "Gautam"}),
+            McpClientError::AuthRequired("MCP server requires authentication".to_string()),
+        );
+
+        assert_eq!(error, "mcp_authentication_failed");
+    }
+
+    #[tokio::test]
+    async fn gateway_reports_auth_shaped_mcp_transport_errors() {
+        let store = test_store().await;
+        let temp_dir = tempfile::tempdir().expect("temp dir");
+        let system_errors = SystemErrorLogger::new(temp_dir.path().join("errors.log"));
+        let gateway = CapabilityGateway {
+            store: &store,
+            system_errors: &system_errors,
+        };
+
+        let error = gateway.mcp_tool_call_error(
+            McpToolName {
+                server_id: "mcp:dex",
+                tool_name: "dex_search_contacts",
+            },
+            &json!({"query": "Gautam"}),
+            &json!({"query": "Gautam"}),
+            McpClientError::Transport(
+                "MCP tools/call failed: unauthorized: Authentication failed".to_string(),
+            ),
+        );
+
+        assert_eq!(error, "mcp_authentication_failed");
     }
 
     #[test]

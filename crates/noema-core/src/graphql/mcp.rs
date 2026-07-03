@@ -620,7 +620,8 @@ pub(super) async fn create_mcp_server(
 ) -> Result<GraphqlMcpServerSetupResult> {
     let store = state.store()?;
     let paths = state.paths()?;
-    let setup_input = parse_create_mcp_server_input(input)?;
+    let mut setup_input = parse_create_mcp_server_input(input)?;
+    setup_input.browser_oauth_supported = state.mcp_browser_oauth_supported(&setup_input).await;
     let result = create_setup_service(store, paths, setup_input, |server, secrets| {
         state.mcp_setup_transport(server, Some(secrets))
     })
@@ -885,6 +886,7 @@ fn parse_create_mcp_server_input(input: GraphqlCreateMcpServerInput) -> Result<N
                     oauth_client_credentials: None,
                     oauth_credentials: None,
                 },
+                browser_oauth_supported: false,
             })
         }
         McpTransportKind::Sse | McpTransportKind::StreamableHttp => {
@@ -913,6 +915,7 @@ fn parse_create_mcp_server_input(input: GraphqlCreateMcpServerInput) -> Result<N
                     oauth_client_credentials,
                     oauth_credentials: None,
                 },
+                browser_oauth_supported: false,
             })
         }
     }

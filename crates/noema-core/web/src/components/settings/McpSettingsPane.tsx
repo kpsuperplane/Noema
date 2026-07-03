@@ -52,6 +52,11 @@ export function McpSettingsPane() {
           setSetupOpen(false);
           setPermissionsServerId(setup.server.mcpServerId);
           setAutoAutofillServerId(setup.server.mcpServerId);
+        } else if (
+          setup.setupStatus === "needs_auth" &&
+          setup.auth?.oauthAuthorizationSupported
+        ) {
+          await handleStartOAuth(input);
         }
       }
     } catch (error) {

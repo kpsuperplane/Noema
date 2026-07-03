@@ -1,10 +1,11 @@
 //! Short-lived OAuth setup attempts for hosted MCP servers.
 
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use ring::rand::{SecureRandom, SystemRandom};
 use rmcp::transport::auth::OAuthState;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use tokio::sync::Mutex;
 use url::Url;
 
@@ -99,13 +100,10 @@ impl McpOAuthSetupManager {
         let mcp_url = mcp_url_from_setup(&request.setup)?;
         let attempt_id = random_attempt_id()?;
         let redirect_uri = callback_uri_with_attempt(&request.redirect_uri, &attempt_id)?;
-        let mut oauth_state = OAuthState::new(&mcp_url, None)
-            .await
-            .map_err(|error| StoreError::Schema(format!("MCP OAuth setup failed: {error}")))?;
-        oauth_state
-            .start_authorization(&[], redirect_uri.as_str(), Some("Noema"))
-            .await
-            .map_err(|error| StoreError::Schema(format!("MCP OAuth setup failed: {error}")))?;
+        let oauth_state =
+            start_browser_authorization_for_mcp_url(&mcp_url, redirect_uri.as_str(), Some("Noema"))
+                .await
+                .map_err(|error| StoreError::Schema(format!("MCP OAuth setup failed: {error}")))?;
         let authorization_url = oauth_state
             .get_authorization_url()
             .await
@@ -183,6 +181,210 @@ impl McpOAuthSetupManager {
     }
 }
 
+/// Return whether the MCP server URL exposes browser OAuth metadata.
+pub async fn oauth_authorization_supported(mcp_url: &str) -> bool {
+    resolved_oauth_resource_url(mcp_url).await.is_some()
+}
+
+/// Build rmcp OAuth state for an MCP endpoint URL.
+///
+/// Some servers publish OAuth protected-resource metadata for the resource
+/// origin while serving MCP traffic from a path under that origin. The rmcp
+/// metadata validator rejects that shape when initialized with the endpoint
+/// URL, so retry against the origin before surfacing the mismatch.
+///
+/// # Errors
+///
+/// Returns the SDK metadata or initialization error when no compatible OAuth
+/// protected resource can be discovered.
+pub async fn oauth_state_for_mcp_url(mcp_url: &str) -> Result<OAuthState, String> {
+    let oauth_url = resolved_oauth_resource_url(mcp_url)
+        .await
+        .unwrap_or_else(|| mcp_url.to_string());
+    match OAuthState::new(oauth_url.as_str(), None).await {
+        Ok(state) => Ok(state),
+        Err(error) => {
+            let primary_error = error.to_string();
+            if oauth_error_indicates_browser_auth_metadata(&primary_error)
+                && let Some(origin_url) = oauth_resource_origin_url(mcp_url)
+            {
+                return OAuthState::new(origin_url.as_str(), None)
+                    .await
+                    .map_err(|origin_error| {
+                        format!(
+                            "{primary_error}; origin OAuth discovery failed for {origin_url}: \
+                             {origin_error}"
+                        )
+                    });
+            }
+            Err(primary_error)
+        }
+    }
+}
+
+async fn start_browser_authorization_for_mcp_url(
+    mcp_url: &str,
+    redirect_uri: &str,
+    client_name: Option<&str>,
+) -> Result<OAuthState, String> {
+    let mut oauth_state = oauth_state_for_mcp_url(mcp_url).await?;
+    match oauth_state
+        .start_authorization(&[], redirect_uri, client_name)
+        .await
+    {
+        Ok(()) => Ok(oauth_state),
+        Err(error) => {
+            let primary_error = error.to_string();
+            if oauth_error_indicates_browser_auth_metadata(&primary_error)
+                && let Some(origin_url) = oauth_resource_origin_url(mcp_url)
+            {
+                let mut origin_state =
+                    OAuthState::new(origin_url.as_str(), None)
+                        .await
+                        .map_err(|origin_error| {
+                            format!(
+                                "{primary_error}; origin OAuth initialization failed for \
+                             {origin_url}: {origin_error}"
+                            )
+                        })?;
+                origin_state
+                    .start_authorization(&[], redirect_uri, client_name)
+                    .await
+                    .map_err(|origin_error| {
+                        format!(
+                            "{primary_error}; origin OAuth authorization failed for \
+                             {origin_url}: {origin_error}"
+                        )
+                    })?;
+                return Ok(origin_state);
+            }
+            Err(primary_error)
+        }
+    }
+}
+
+async fn resolved_oauth_resource_url(mcp_url: &str) -> Option<String> {
+    let mcp_url = Url::parse(mcp_url).ok()?;
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(5))
+        .build()
+        .ok()?;
+    for metadata_url in protected_resource_metadata_candidate_urls(&mcp_url) {
+        let Some(metadata) = fetch_protected_resource_metadata(&client, &metadata_url).await else {
+            continue;
+        };
+        if let Some(resource) = metadata_oauth_resource_url(&mcp_url, &metadata) {
+            return Some(resource);
+        }
+    }
+    None
+}
+
+async fn fetch_protected_resource_metadata(client: &reqwest::Client, url: &Url) -> Option<Value> {
+    let response = client
+        .get(url.clone())
+        .header("MCP-Protocol-Version", "2024-11-05")
+        .send()
+        .await
+        .ok()?;
+    if response.status().is_success() {
+        return response.json::<Value>().await.ok();
+    }
+    if response.status() != reqwest::StatusCode::UNAUTHORIZED {
+        return None;
+    }
+    let metadata_url = response
+        .headers()
+        .get_all(reqwest::header::WWW_AUTHENTICATE)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .find_map(|value| www_authenticate_resource_metadata_url(value, url))?;
+    client
+        .get(metadata_url)
+        .header("MCP-Protocol-Version", "2024-11-05")
+        .send()
+        .await
+        .ok()?
+        .json::<Value>()
+        .await
+        .ok()
+}
+
+fn protected_resource_metadata_candidate_urls(mcp_url: &Url) -> Vec<Url> {
+    let mut urls = Vec::new();
+    let trimmed_path = mcp_url.path().trim_start_matches('/').trim_end_matches('/');
+    if !trimmed_path.is_empty() {
+        urls.push(with_path(
+            mcp_url,
+            &format!("/.well-known/oauth-protected-resource/{trimmed_path}"),
+        ));
+    }
+    urls.push(with_path(mcp_url, "/.well-known/oauth-protected-resource"));
+    urls
+}
+
+fn with_path(base: &Url, path: &str) -> Url {
+    let mut url = base.clone();
+    url.set_query(None);
+    url.set_fragment(None);
+    url.set_path(path);
+    url
+}
+
+fn metadata_oauth_resource_url(mcp_url: &Url, metadata: &Value) -> Option<String> {
+    let resource = metadata.get("resource")?.as_str()?;
+    if !metadata_has_authorization_server(metadata) {
+        return None;
+    }
+    if resource_identifiers_match(mcp_url.as_str(), resource) {
+        return Some(resource.to_string());
+    }
+    let origin = oauth_resource_origin_url(mcp_url.as_str())?;
+    resource_identifiers_match(origin.as_str(), resource).then(|| resource.to_string())
+}
+
+fn metadata_has_authorization_server(metadata: &Value) -> bool {
+    metadata
+        .get("authorization_server")
+        .and_then(Value::as_str)
+        .is_some_and(|value| !value.is_empty())
+        || metadata
+            .get("authorization_servers")
+            .and_then(Value::as_array)
+            .is_some_and(|values| values.iter().any(|value| value.as_str().is_some()))
+}
+
+fn www_authenticate_resource_metadata_url(header: &str, base: &Url) -> Option<Url> {
+    let prefix = "resource_metadata=\"";
+    let start = header.find(prefix)? + prefix.len();
+    let end = header[start..].find('"')? + start;
+    let value = &header[start..end];
+    Url::parse(value).or_else(|_| base.join(value)).ok()
+}
+
+fn oauth_error_indicates_browser_auth_metadata(message: &str) -> bool {
+    message.contains("Protected resource metadata resource mismatch")
+}
+
+fn resource_identifiers_match(expected: &str, actual: &str) -> bool {
+    expected == actual
+        || (is_root_resource_identifier(expected) && actual == expected.trim_end_matches('/'))
+        || (is_root_resource_identifier(actual) && expected == actual.trim_end_matches('/'))
+}
+
+fn is_root_resource_identifier(value: &str) -> bool {
+    Url::parse(value)
+        .is_ok_and(|url| url.path() == "/" && url.query().is_none() && url.fragment().is_none())
+}
+
+fn oauth_resource_origin_url(mcp_url: &str) -> Option<String> {
+    let mut url = Url::parse(mcp_url).ok()?;
+    url.set_path("/");
+    url.set_query(None);
+    url.set_fragment(None);
+    Some(url.to_string())
+}
+
 /// Build secret material containing SDK OAuth credentials after callback completion.
 ///
 /// # Errors
@@ -249,4 +451,66 @@ fn hex_bytes(bytes: &[u8]) -> String {
         let _ = write!(output, "{byte:02x}");
     }
     output
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn oauth_resource_mismatch_still_indicates_browser_auth_metadata() {
+        assert!(oauth_error_indicates_browser_auth_metadata(
+            "Metadata error: Protected resource metadata resource mismatch: expected \
+             'https://mcp.getdex.com/mcp', got 'https://mcp.getdex.com/'"
+        ));
+    }
+
+    #[test]
+    fn oauth_resource_origin_url_uses_url_origin() {
+        assert_eq!(
+            oauth_resource_origin_url("https://mcp.getdex.com/mcp?transport=streamable#fragment")
+                .as_deref(),
+            Some("https://mcp.getdex.com/")
+        );
+    }
+
+    #[test]
+    fn protected_resource_metadata_candidates_include_path_then_origin() {
+        let url = Url::parse("https://mcp.getdex.com/mcp").expect("url");
+
+        let candidates = protected_resource_metadata_candidate_urls(&url);
+
+        assert_eq!(
+            candidates.iter().map(Url::as_str).collect::<Vec<_>>(),
+            vec![
+                "https://mcp.getdex.com/.well-known/oauth-protected-resource/mcp",
+                "https://mcp.getdex.com/.well-known/oauth-protected-resource"
+            ]
+        );
+    }
+
+    #[test]
+    fn metadata_oauth_resource_accepts_origin_resource() {
+        let url = Url::parse("https://mcp.getdex.com/mcp").expect("url");
+        let metadata = serde_json::json!({
+            "resource": "https://mcp.getdex.com/",
+            "authorization_servers": ["https://mcp.getdex.com/"]
+        });
+
+        assert_eq!(
+            metadata_oauth_resource_url(&url, &metadata).as_deref(),
+            Some("https://mcp.getdex.com/")
+        );
+    }
+
+    #[test]
+    fn metadata_oauth_resource_rejects_unrelated_resource() {
+        let url = Url::parse("https://mcp.getdex.com/mcp").expect("url");
+        let metadata = serde_json::json!({
+            "resource": "https://other.example/",
+            "authorization_servers": ["https://mcp.getdex.com/"]
+        });
+
+        assert_eq!(metadata_oauth_resource_url(&url, &metadata), None);
+    }
 }

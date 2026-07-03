@@ -81,6 +81,8 @@ pub struct NewMcpServerSetup {
     pub safe_config: Value,
     /// Secret setup material stored on disk.
     pub secrets: McpSecretMaterial,
+    /// Whether the HTTP server advertises browser OAuth before setup persists.
+    pub browser_oauth_supported: bool,
 }
 
 /// Continue setup by updating disk-backed secrets and retrying discovery.
@@ -116,6 +118,14 @@ where
         input.transport_kind,
         safe_config.clone(),
     );
+    if input.browser_oauth_supported && browser_oauth_probe_applies(&preview, &input.secrets) {
+        return Ok(unpersisted_setup_result_from_error(
+            input.transport_kind,
+            McpClientError::AuthRequired(
+                "MCP server advertises browser OAuth authorization".to_string(),
+            ),
+        ));
+    }
     let mut runtime = McpClientRuntime::new(make_transport(&preview, &input.secrets));
     let tools = match runtime.discover_tools().await {
         Ok(tools) => tools,
@@ -140,6 +150,13 @@ where
         .await?;
     let auth_status = auth_status_for_verified_secrets(&input.secrets);
     persist_discovered_tools(store, server, tools, auth_status).await
+}
+
+fn browser_oauth_probe_applies(server: &McpServerRecord, secrets: &McpSecretMaterial) -> bool {
+    matches!(
+        server.transport_kind,
+        McpTransportKind::Sse | McpTransportKind::StreamableHttp
+    ) && !secrets.has_secret_material()
 }
 
 /// Update secrets for an existing MCP server and retry metadata discovery.
@@ -730,6 +747,49 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn create_http_setup_with_browser_oauth_support_returns_needs_auth_without_persisting() {
+        let fixture = TestFixture::new().await;
+        let result = create_mcp_server_setup(
+            &fixture.store,
+            &fixture.paths,
+            NewMcpServerSetup {
+                browser_oauth_supported: true,
+                ..remote_http_setup(McpSecretMaterial::default())
+            },
+            |_, _| FakeMcpTransport::ok(vec![fake_tool("search")]),
+        )
+        .await
+        .expect("setup");
+
+        assert_eq!(result.setup_status, McpSetupStatus::NeedsAuth);
+        assert_eq!(result.discovery_status.as_deref(), Some("needs_auth"));
+        assert!(result.server.is_none());
+        assert_eq!(
+            result.auth,
+            Some(McpSetupAuthDetails {
+                oauth_client_credentials_supported: true,
+                oauth_authorization_supported: true,
+                scopes: Vec::new()
+            })
+        );
+        assert!(
+            fixture
+                .store
+                .get_mcp_server("mcp:remote")
+                .await
+                .expect("get server")
+                .is_none()
+        );
+        assert!(
+            !fixture
+                .paths
+                .mcp_server_home("mcp:remote")
+                .join("secrets.json")
+                .exists()
+        );
+    }
+
+    #[tokio::test]
     async fn auth_required_setup_returns_needs_auth_without_secret_values() {
         let fixture = TestFixture::new().await;
         let result = create_mcp_server_setup(
@@ -910,6 +970,7 @@ mod tests {
             transport_kind,
             safe_config,
             secrets,
+            browser_oauth_supported: false,
         }
     }
 

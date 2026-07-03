@@ -16,8 +16,7 @@ use reqwest::{
 use rmcp::{
     ServiceExt,
     transport::{
-        ClientCredentialsConfig, StreamableHttpClientTransport,
-        auth::{OAuthState, OAuthTokenResponse},
+        ClientCredentialsConfig, StreamableHttpClientTransport, auth::OAuthTokenResponse,
         streamable_http_client::StreamableHttpClientTransportConfig,
     },
 };
@@ -33,6 +32,7 @@ use crate::{
             discovered_tool_from_rmcp, parse_tools_list_result_with_diagnostics, string_field,
             string_map_field,
         },
+        oauth::oauth_state_for_mcp_url,
         secrets::{McpOAuthClientCredentials, McpOAuthStoredCredentials, McpSecretMaterial},
     },
 };
@@ -554,7 +554,7 @@ async fn oauth_access_token(
     let Some(credentials) = client_credentials else {
         return Ok(None);
     };
-    let mut oauth_state = OAuthState::new(url, None).await.map_err(|error| {
+    let mut oauth_state = oauth_state_for_mcp_url(url).await.map_err(|error| {
         McpClientError::AuthRequired(format!("MCP OAuth initialization failed: {error}"))
     })?;
     oauth_state
@@ -584,7 +584,7 @@ async fn stored_oauth_access_token(
         serde_json::from_value(credentials.token_response.clone()).map_err(|error| {
             McpClientError::AuthRequired(format!("MCP OAuth credentials are invalid: {error}"))
         })?;
-    let mut oauth_state = OAuthState::new(url, None).await.map_err(|error| {
+    let mut oauth_state = oauth_state_for_mcp_url(url).await.map_err(|error| {
         McpClientError::AuthRequired(format!("MCP OAuth initialization failed: {error}"))
     })?;
     oauth_state

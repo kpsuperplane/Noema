@@ -43,6 +43,8 @@ pub struct GraphqlState {
     runtime_state: GraphqlRuntimeState,
     #[cfg(test)]
     mcp_setup_outcomes: Option<Arc<Mutex<VecDeque<TestMcpSetupOutcome>>>>,
+    #[cfg(test)]
+    mcp_browser_oauth_supported: bool,
 }
 
 impl GraphqlState {
@@ -53,6 +55,8 @@ impl GraphqlState {
             runtime_state: GraphqlRuntimeState::for_tests(),
             #[cfg(test)]
             mcp_setup_outcomes: None,
+            #[cfg(test)]
+            mcp_browser_oauth_supported: false,
         }
     }
 
@@ -63,6 +67,7 @@ impl GraphqlState {
         Self {
             runtime_state: GraphqlRuntimeState::for_tests_with_store(store),
             mcp_setup_outcomes: None,
+            mcp_browser_oauth_supported: false,
         }
     }
 
@@ -76,6 +81,7 @@ impl GraphqlState {
         Self {
             runtime_state: GraphqlRuntimeState::for_tests_with_store_and_runtime(store, runtime),
             mcp_setup_outcomes: None,
+            mcp_browser_oauth_supported: false,
         }
     }
 
@@ -90,7 +96,16 @@ impl GraphqlState {
         Self {
             runtime_state: GraphqlRuntimeState::for_tests_with_store_and_paths(store, paths),
             mcp_setup_outcomes: Some(Arc::new(Mutex::new(VecDeque::from(outcomes)))),
+            mcp_browser_oauth_supported: false,
         }
+    }
+
+    /// Override browser OAuth autodetection for MCP setup tests.
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) const fn with_mcp_browser_oauth_supported(mut self, supported: bool) -> Self {
+        self.mcp_browser_oauth_supported = supported;
+        self
     }
 
     /// Build state backed by the shared Noema runtime host.
@@ -100,6 +115,8 @@ impl GraphqlState {
             runtime_state: GraphqlRuntimeState::from_host(host),
             #[cfg(test)]
             mcp_setup_outcomes: None,
+            #[cfg(test)]
+            mcp_browser_oauth_supported: false,
         }
     }
 
@@ -196,6 +213,36 @@ impl GraphqlState {
                     Err(message) => GraphqlMcpSetupTransport::Unavailable(message),
                 }
             }
+        }
+    }
+
+    pub(crate) async fn mcp_browser_oauth_supported(
+        &self,
+        setup: &crate::mcp::setup::NewMcpServerSetup,
+    ) -> bool {
+        #[cfg(test)]
+        {
+            let _ = setup;
+            self.mcp_browser_oauth_supported
+        }
+
+        #[cfg(not(test))]
+        {
+            if !matches!(
+                setup.transport_kind,
+                crate::McpTransportKind::Sse | crate::McpTransportKind::StreamableHttp
+            ) || setup.secrets.has_secret_material()
+            {
+                return false;
+            }
+            let Some(url) = setup
+                .safe_config
+                .get("url")
+                .and_then(serde_json::Value::as_str)
+            else {
+                return false;
+            };
+            crate::mcp::oauth::oauth_authorization_supported(url).await
         }
     }
 }
@@ -1428,6 +1475,60 @@ mod tests {
             !serde_json::to_string(&data)
                 .expect("response json")
                 .contains("top-secret")
+        );
+    }
+
+    #[tokio::test]
+    async fn create_mcp_server_mutation_autodetects_browser_oauth_before_persisting() {
+        let fixture =
+            GraphqlMcpSetupFixture::new(vec![TestMcpSetupOutcome::Ok(vec![discovered_mcp_tool(
+                "search",
+                "Search contacts",
+                Some(json!({"type": "object"})),
+                json!({"readOnlyHint": true}),
+            )])])
+            .await;
+        let store = fixture.store.clone();
+        let schema = build_schema(fixture.state.with_mcp_browser_oauth_supported(true));
+        let response = execute_graphql(
+            &schema,
+            r#"
+                mutation {
+                  createMcpServer(input: {
+                    displayName: "Dex"
+                    transportKind: "streamable_http"
+                    http: { url: "https://mcp.getdex.com/mcp" }
+                  }) {
+                    setupStatus
+                    discoveryStatus
+                    discoveredToolCount
+                    setupError
+                    auth {
+                      oauthAuthorizationSupported
+                      oauthClientCredentialsSupported
+                    }
+                    server { mcpServerId }
+                  }
+                }
+                "#,
+        )
+        .await;
+
+        assert!(response.errors.is_empty(), "{:?}", response.errors);
+        let data = response.data.into_json().expect("json");
+        let result = &data["createMcpServer"];
+        assert_eq!(result["setupStatus"], "needs_auth");
+        assert_eq!(result["discoveryStatus"], "needs_auth");
+        assert_eq!(result["discoveredToolCount"], 0);
+        assert_eq!(result["auth"]["oauthAuthorizationSupported"], true);
+        assert_eq!(result["auth"]["oauthClientCredentialsSupported"], true);
+        assert_eq!(result["server"], serde_json::Value::Null);
+        assert!(
+            store
+                .get_mcp_server("mcp:dex")
+                .await
+                .expect("get server")
+                .is_none()
         );
     }
 
