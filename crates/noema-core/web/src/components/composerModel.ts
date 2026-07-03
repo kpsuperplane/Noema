@@ -21,6 +21,24 @@ export function canSend({ ready, value }: { ready: boolean; value: string }) {
   return ready && value.trim().length > 0;
 }
 
+export function composerSubmitLayerStyle() {
+  return {
+    zIndex: 2
+  };
+}
+
+export function shouldSubmitFromBeforeInput({
+  ready,
+  value,
+  inputType
+}: {
+  ready: boolean;
+  value: string;
+  inputType: string | null;
+}) {
+  return inputType === "insertLineBreak" && canSend({ ready, value });
+}
+
 export function shouldSubmitFromPointerDown({
   ready,
   value,

@@ -5,18 +5,22 @@ import { TextArea, type TextAreaProps } from "@astryxdesign/core/TextArea";
 import * as stylex from "@stylexjs/stylex";
 import {
   canSend,
+  composerSubmitLayerStyle,
   composerSubmitState,
   composerTextareaProps,
   isComposerTextareaDisabled,
+  shouldSubmitFromBeforeInput,
   shouldSubmitFromPointerDown,
   shouldSubmitFromTouchStart
 } from "./composerModel";
 
 export {
   canSend,
+  composerSubmitLayerStyle,
   composerSubmitState,
   composerTextareaProps,
   isComposerTextareaDisabled,
+  shouldSubmitFromBeforeInput,
   shouldSubmitFromPointerDown,
   shouldSubmitFromTouchStart
 } from "./composerModel";
@@ -383,6 +387,7 @@ export const Composer = React.forwardRef<HTMLTextAreaElement, ComposerProps>(fun
     placeholder,
     inlineSize: currentInlineSize
   });
+  const submitLayerStyle = composerSubmitLayerStyle();
   const bubbleStyle = composerBubbleStyle({
     value,
     placeholder,
@@ -424,6 +429,20 @@ export const Composer = React.forwardRef<HTMLTextAreaElement, ComposerProps>(fun
             rows={textareaProps.rows}
             xstyle={astryxXStyle(styles.textareaChrome)}
             {...textareaNativeProps}
+            onBeforeInput={(event) => {
+              const nativeEvent = event.nativeEvent;
+              const inputType =
+                "inputType" in nativeEvent && typeof nativeEvent.inputType === "string"
+                  ? nativeEvent.inputType
+                  : null;
+              const nextValue = (event.currentTarget as HTMLTextAreaElement).value;
+              if (!shouldSubmitFromBeforeInput({ ready, value: nextValue, inputType })) {
+                return;
+              }
+
+              event.preventDefault();
+              submit(nextValue);
+            }}
             onChange={(nextValue, event) => {
               syncHeight({ textarea: event.currentTarget, value: nextValue, placeholder });
               onChange(nextValue);
@@ -444,6 +463,7 @@ export const Composer = React.forwardRef<HTMLTextAreaElement, ComposerProps>(fun
           icon={<SendHorizontal aria-hidden="true" />}
           size="lg"
           variant="secondary"
+          style={submitLayerStyle}
           xstyle={astryxXStyle(styles.submit)}
           isDisabled={submitState.disabled}
           onTouchStart={(event) => {

@@ -1,9 +1,49 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  composerSubmitLayerStyle,
+  shouldSubmitFromBeforeInput,
   shouldSubmitFromPointerDown,
   shouldSubmitFromTouchStart
 } from "./composerModel";
+
+describe("composerSubmitLayerStyle", () => {
+  test("places the send button above the textarea wrapper hit target", () => {
+    assert.deepEqual(composerSubmitLayerStyle(), { zIndex: 2 });
+  });
+});
+
+describe("shouldSubmitFromBeforeInput", () => {
+  test("submits virtual-keyboard line breaks before they edit the textarea", () => {
+    assert.equal(
+      shouldSubmitFromBeforeInput({
+        ready: true,
+        value: "hello",
+        inputType: "insertLineBreak"
+      }),
+      true
+    );
+  });
+
+  test("ignores ordinary text input and empty drafts", () => {
+    assert.equal(
+      shouldSubmitFromBeforeInput({
+        ready: true,
+        value: "hello",
+        inputType: "insertText"
+      }),
+      false
+    );
+    assert.equal(
+      shouldSubmitFromBeforeInput({
+        ready: true,
+        value: "   ",
+        inputType: "insertLineBreak"
+      }),
+      false
+    );
+  });
+});
 
 describe("shouldSubmitFromPointerDown", () => {
   test("submits primary touch activation before mobile focus changes can drop the click", () => {
