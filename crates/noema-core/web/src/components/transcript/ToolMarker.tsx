@@ -31,12 +31,13 @@ const styles = stylex.create({
     width: "100%",
     maxWidth: "100%",
     minWidth: 0,
-    gap: 8
+    gap: 8,
+    justifyItems: "start"
   }
 });
 
 const toolCallsStyle = {
-  width: "100%",
+  width: "fit-content",
   maxWidth: "100%",
   minWidth: 0
 };
