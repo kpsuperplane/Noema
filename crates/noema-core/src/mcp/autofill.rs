@@ -7,6 +7,7 @@ use thiserror::Error;
 use crate::{
     McpToolRecord, McpTrustClassification, OwnerExtractor, OwnerExtractorSource,
     TrustedIdentitySelectorKind,
+    mcp::{sanitize_prompt_line, truncate_chars},
 };
 
 const MAX_TOOL_DESCRIPTION_HINT_CHARS: usize = 96;
@@ -160,10 +161,6 @@ fn sanitize_annotation_value(value: &Value) -> String {
     }
 }
 
-fn sanitize_prompt_line(value: &str) -> String {
-    value.split_whitespace().collect::<Vec<_>>().join(" ")
-}
-
 pub(crate) fn compact_description_hint(
     description: Option<&str>,
     max_chars: usize,
@@ -192,19 +189,6 @@ pub(crate) fn compact_description_hint(
     }
 
     Some(truncate_chars(&hint, max_chars))
-}
-
-fn truncate_chars(value: &str, max_chars: usize) -> String {
-    if value.chars().count() <= max_chars {
-        return value.to_string();
-    }
-
-    let mut truncated = value
-        .chars()
-        .take(max_chars.saturating_sub(3))
-        .collect::<String>();
-    truncated.push_str("...");
-    truncated
 }
 
 /// Discover conservative owner extractors from schema metadata.

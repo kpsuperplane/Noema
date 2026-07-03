@@ -47,7 +47,7 @@ fn answer_claim_request() -> ClaimRetrievalRequest {
 
 #[tokio::test]
 async fn runtime_actor_allocates_distinct_conversation_ids() {
-    let handle = test_runtime_handle(fake_codex_provider()).await;
+    let handle = test_runtime_handle(fake_provider(FakeCodexScenario::Simple)).await;
 
     let first = handle
         .start_conversation(None)
@@ -70,7 +70,7 @@ async fn runtime_actor_allocates_distinct_conversation_ids() {
 
 #[tokio::test]
 async fn runtime_handle_generate_once_uses_provider_without_conversation() {
-    let handle = test_runtime_handle(fake_codex_provider()).await;
+    let handle = test_runtime_handle(fake_provider(FakeCodexScenario::Simple)).await;
 
     let response = handle
         .generate_once(GenerateRequest::text("hello"))
@@ -119,7 +119,8 @@ async fn runtime_handle_generate_once_does_not_block_subsequent_commands() {
 
 #[tokio::test]
 async fn runtime_turn_streams_durable_assistant_item_and_idle_status() {
-    let (handle, store) = test_runtime_handle_with_store(fake_codex_provider()).await;
+    let (handle, store) =
+        test_runtime_handle_with_store(fake_provider(FakeCodexScenario::Simple)).await;
 
     let conversation = handle.start_conversation(None).await.expect("conversation");
     let conversation_id = conversation.conversation_id.clone();
@@ -788,7 +789,7 @@ async fn runtime_turn_refreshes_agent_preference_after_conversation_hydration() 
 #[tokio::test]
 async fn runtime_turn_rehydrates_recorded_failure_conversation_for_retry() {
     let (handle, store) =
-        test_runtime_handle_with_store(fake_codex_provider_with_turn_error()).await;
+        test_runtime_handle_with_store(fake_provider(FakeCodexScenario::TurnError)).await;
 
     let conversation_id = handle
         .start_conversation(None)
@@ -823,7 +824,8 @@ async fn runtime_turn_rehydrates_recorded_failure_conversation_for_retry() {
 
 #[tokio::test]
 async fn runtime_turn_streams_assistant_text_deltas_before_durable_item() {
-    let (handle, store) = test_runtime_handle_with_store(fake_codex_provider()).await;
+    let (handle, store) =
+        test_runtime_handle_with_store(fake_provider(FakeCodexScenario::Simple)).await;
     let conversation = handle.start_conversation(None).await.expect("conversation");
     let conversation_id = conversation.conversation_id.clone();
     let (result, events) =
@@ -883,7 +885,7 @@ async fn runtime_primary_conversation_sends_recent_durable_context_after_restart
 
 #[tokio::test]
 async fn runtime_prompt_includes_unnamed_agent_onboarding() {
-    let handle = test_runtime_handle(fake_codex_provider_with_identity_prompt_check()).await;
+    let handle = test_runtime_handle(fake_provider(FakeCodexScenario::IdentityPromptCheck)).await;
 
     let conversation_id = handle
         .start_conversation(None)
@@ -904,7 +906,8 @@ async fn runtime_prompt_includes_unnamed_agent_onboarding() {
 #[tokio::test]
 async fn start_primary_conversation_generates_initial_name_onboarding_message() {
     let (handle, store) =
-        test_runtime_handle_with_store(fake_codex_provider_with_initial_name_onboarding()).await;
+        test_runtime_handle_with_store(fake_provider(FakeCodexScenario::InitialNameOnboarding))
+            .await;
 
     let conversation_id = handle
         .start_primary_conversation(None)
@@ -934,9 +937,9 @@ async fn start_primary_conversation_generates_initial_name_onboarding_message() 
 
 #[tokio::test]
 async fn failed_initial_name_onboarding_logs_runtime_invariant() {
-    let (handle, store) = test_runtime_handle_with_store(
-        fake_codex_provider_with_initial_name_onboarding_no_assistant(),
-    )
+    let (handle, store) = test_runtime_handle_with_store(fake_provider(
+        FakeCodexScenario::InitialNameOnboardingNoAssistant,
+    ))
     .await;
 
     let error = handle
@@ -968,7 +971,7 @@ async fn failed_initial_name_onboarding_logs_runtime_invariant() {
 #[tokio::test]
 async fn failed_initial_name_onboarding_recomputes_turn_index_on_retry() {
     let (handle, store) =
-        test_runtime_handle_with_store(fake_codex_provider_with_turn_error()).await;
+        test_runtime_handle_with_store(fake_provider(FakeCodexScenario::TurnError)).await;
 
     assert!(handle.start_primary_conversation(None).await.is_err());
     assert!(handle.start_primary_conversation(None).await.is_err());
@@ -1011,7 +1014,7 @@ async fn restart_context_write_phase(home: &std::path::Path) {
         .await
         .expect("open first store");
     let first_handle = CodexRuntimeHandle::spawn_with_provider(
-        Arc::new(fake_codex_provider_with_restart_context_check()),
+        Arc::new(fake_provider(FakeCodexScenario::RestartContext)),
         first_store.clone(),
     )
     .await
@@ -1048,7 +1051,7 @@ async fn restart_context_read_phase(home: &std::path::Path) {
         .await
         .expect("reopen store");
     let second_handle = CodexRuntimeHandle::spawn_with_provider(
-        Arc::new(fake_codex_provider_with_restart_context_check()),
+        Arc::new(fake_provider(FakeCodexScenario::RestartContext)),
         reopened_store.clone(),
     )
     .await
@@ -1177,7 +1180,7 @@ fn provider_write_proposal_risk_flags_use_stable_snake_case_labels() {
 #[tokio::test]
 async fn explicit_remember_creates_claim_with_source_evidence() {
     let (handle, store) =
-        test_runtime_handle_with_store(fake_codex_provider_with_memory_extraction()).await;
+        test_runtime_handle_with_store(fake_provider(FakeCodexScenario::MemoryExtraction)).await;
 
     let conversation = handle.start_conversation(None).await.expect("conversation");
     let conversation_id = conversation.conversation_id.clone();
@@ -1239,7 +1242,7 @@ async fn explicit_remember_creates_claim_with_source_evidence() {
 #[tokio::test]
 async fn explicit_remember_write_failure_suppresses_generic_unavailable_activity() {
     let (handle, store) =
-        test_runtime_handle_with_store(fake_codex_provider_with_memory_extraction()).await;
+        test_runtime_handle_with_store(fake_provider(FakeCodexScenario::MemoryExtraction)).await;
     store
         .db()
         .query("DELETE predicates WHERE predicate_id = 'likes';")
@@ -1294,7 +1297,7 @@ async fn explicit_remember_write_failure_suppresses_generic_unavailable_activity
 #[tokio::test]
 async fn repeated_explicit_memory_reinforces_one_claim() {
     let (handle, store) =
-        test_runtime_handle_with_store(fake_codex_provider_with_memory_extraction()).await;
+        test_runtime_handle_with_store(fake_provider(FakeCodexScenario::MemoryExtraction)).await;
 
     let conversation = handle.start_conversation(None).await.expect("conversation");
     let conversation_id = conversation.conversation_id.clone();
@@ -1351,7 +1354,7 @@ async fn repeated_explicit_memory_reinforces_one_claim() {
 
 #[tokio::test]
 async fn explicit_memory_saved_activity_includes_claim_outcome() {
-    let handle = test_runtime_handle(fake_codex_provider_with_memory_extraction()).await;
+    let handle = test_runtime_handle(fake_provider(FakeCodexScenario::MemoryExtraction)).await;
     let conversation = handle.start_conversation(None).await.expect("conversation");
 
     let items = collect_turn(
@@ -1409,7 +1412,7 @@ fn assert_no_failed_memory_extraction(items: &[TurnTranscriptItem]) {
 #[tokio::test]
 async fn runtime_actor_persists_ordinary_provider_memory_as_graph_claim() {
     let (handle, store) =
-        test_runtime_handle_with_store(fake_codex_provider_with_memory_extraction()).await;
+        test_runtime_handle_with_store(fake_provider(FakeCodexScenario::MemoryExtraction)).await;
 
     let conversation = handle.start_conversation(None).await.expect("conversation");
     let items = collect_turn(
@@ -1560,7 +1563,8 @@ async fn provider_memory_canonicalization_uses_selected_conversation_provider() 
 #[tokio::test]
 async fn provider_memory_mislabelled_secret_stays_candidate_and_unretrievable() {
     let (handle, store) =
-        test_runtime_handle_with_store(fake_codex_provider_with_mislabelled_secret_memory()).await;
+        test_runtime_handle_with_store(fake_provider(FakeCodexScenario::MislabelledSecretMemory))
+            .await;
 
     let conversation = handle.start_conversation(None).await.expect("conversation");
     let (result, events) = collect_turn_events(
@@ -1587,7 +1591,8 @@ async fn provider_memory_mislabelled_secret_stays_candidate_and_unretrievable() 
 #[tokio::test]
 async fn provider_memory_malformed_canonicalizer_response_fails_without_fallback_claim() {
     let (handle, store) =
-        test_runtime_handle_with_store(fake_codex_provider_with_malformed_canonicalizer()).await;
+        test_runtime_handle_with_store(fake_provider(FakeCodexScenario::MalformedCanonicalizer))
+            .await;
 
     let conversation = handle.start_conversation(None).await.expect("conversation");
     let items = collect_turn(
@@ -1645,7 +1650,7 @@ async fn provider_memory_malformed_canonicalizer_response_fails_without_fallback
 #[tokio::test]
 async fn provider_memory_mismatched_canonical_entity_fails_without_fallback_claim() {
     let (handle, store) =
-        test_runtime_handle_with_store(fake_codex_provider_with_mismatched_canonical_entity())
+        test_runtime_handle_with_store(fake_provider(FakeCodexScenario::MismatchedCanonicalEntity))
             .await;
 
     let conversation = handle.start_conversation(None).await.expect("conversation");
@@ -1709,7 +1714,7 @@ async fn provider_memory_mismatched_canonical_entity_fails_without_fallback_clai
 #[tokio::test]
 async fn provider_memory_unknown_promoted_predicate_fails_before_graph_write() {
     let (handle, _store) =
-        test_runtime_handle_with_store(fake_codex_provider_with_unknown_canonical_predicate())
+        test_runtime_handle_with_store(fake_provider(FakeCodexScenario::UnknownCanonicalPredicate))
             .await;
 
     let conversation = handle.start_conversation(None).await.expect("conversation");
@@ -1750,7 +1755,8 @@ async fn provider_memory_unknown_promoted_predicate_fails_before_graph_write() {
 #[tokio::test]
 async fn provider_memory_validation_rejection_is_discarded_without_failure_activity() {
     let (handle, _store) =
-        test_runtime_handle_with_store(fake_codex_provider_with_invalid_memory_proposal()).await;
+        test_runtime_handle_with_store(fake_provider(FakeCodexScenario::InvalidMemoryProposal))
+            .await;
 
     let conversation = handle.start_conversation(None).await.expect("conversation");
     let (result, events) = collect_turn_events(
@@ -1781,9 +1787,10 @@ async fn provider_memory_validation_rejection_is_discarded_without_failure_activ
 
 #[tokio::test]
 async fn provider_memory_discards_invalid_extraction_proposal_and_persists_valid_one() {
-    let (handle, store) =
-        test_runtime_handle_with_store(fake_codex_provider_with_mixed_invalid_memory_proposals())
-            .await;
+    let (handle, store) = test_runtime_handle_with_store(fake_provider(
+        FakeCodexScenario::MixedInvalidMemoryProposal,
+    ))
+    .await;
 
     let conversation = handle.start_conversation(None).await.expect("conversation");
     let items = collect_turn(
@@ -1842,9 +1849,10 @@ async fn provider_memory_discards_invalid_extraction_proposal_and_persists_valid
 
 #[tokio::test]
 async fn provider_memory_discards_local_human_preference_from_assistant_status_chatter() {
-    let (handle, store) =
-        test_runtime_handle_with_store(fake_codex_provider_with_assistant_status_chatter_memory())
-            .await;
+    let (handle, store) = test_runtime_handle_with_store(fake_provider(
+        FakeCodexScenario::AssistantStatusChatterMemory,
+    ))
+    .await;
 
     let conversation = handle.start_conversation(None).await.expect("conversation");
     let (result, events) =
@@ -1893,7 +1901,7 @@ async fn provider_memory_discards_local_human_preference_from_assistant_status_c
 #[tokio::test]
 async fn provider_memory_graph_write_failure_persists_failed_activity() {
     let (handle, store) =
-        test_runtime_handle_with_store(fake_codex_provider_with_memory_extraction()).await;
+        test_runtime_handle_with_store(fake_provider(FakeCodexScenario::MemoryExtraction)).await;
     store
         .db()
         .query("DELETE predicates WHERE predicate_id = 'prefers';")
@@ -1950,7 +1958,7 @@ async fn provider_memory_graph_write_failure_persists_failed_activity() {
 #[tokio::test]
 async fn runtime_actor_persists_provider_memory_proposals_as_graph_claims() {
     let (handle, store) =
-        test_runtime_handle_with_store(fake_codex_provider_with_memory_extraction()).await;
+        test_runtime_handle_with_store(fake_provider(FakeCodexScenario::MemoryExtraction)).await;
 
     let conversation = handle.start_conversation(None).await.expect("conversation");
     let conversation_id = conversation.conversation_id.clone();
@@ -2058,7 +2066,7 @@ async fn runtime_actor_persists_provider_memory_proposals_as_graph_claims() {
 #[tokio::test]
 async fn runtime_actor_persists_natural_remember_provider_proposals_as_graph_claims() {
     let (handle, store) =
-        test_runtime_handle_with_store(fake_codex_provider_with_memory_extraction()).await;
+        test_runtime_handle_with_store(fake_provider(FakeCodexScenario::MemoryExtraction)).await;
 
     let conversation = handle.start_conversation(None).await.expect("conversation");
     let items = collect_turn(
@@ -2127,7 +2135,7 @@ async fn runtime_actor_persists_natural_remember_provider_proposals_as_graph_cla
 #[tokio::test]
 async fn provider_first_person_memory_reinforces_explicit_canonical_claim() {
     let (handle, store) =
-        test_runtime_handle_with_store(fake_codex_provider_with_memory_extraction()).await;
+        test_runtime_handle_with_store(fake_provider(FakeCodexScenario::MemoryExtraction)).await;
 
     let conversation = handle.start_conversation(None).await.expect("conversation");
     let conversation_id = conversation.conversation_id.clone();
@@ -2171,7 +2179,7 @@ async fn provider_first_person_memory_reinforces_explicit_canonical_claim() {
 #[tokio::test]
 async fn semantic_repeat_reinforces_existing_claim() {
     let (handle, store) =
-        test_runtime_handle_with_store(fake_codex_provider_with_memory_extraction()).await;
+        test_runtime_handle_with_store(fake_provider(FakeCodexScenario::MemoryExtraction)).await;
     let conversation = handle.start_conversation(None).await.expect("conversation");
     let conversation_id = conversation.conversation_id.clone();
 
@@ -2223,7 +2231,7 @@ async fn semantic_repeat_reinforces_existing_claim() {
 #[tokio::test]
 async fn semantic_repeat_reinforces_existing_claim_by_id_without_duplicate() {
     let (handle, store) =
-        test_runtime_handle_with_store(fake_codex_provider_with_memory_extraction()).await;
+        test_runtime_handle_with_store(fake_provider(FakeCodexScenario::MemoryExtraction)).await;
     let conversation = handle.start_conversation(None).await.expect("conversation");
     let conversation_id = conversation.conversation_id.clone();
 
@@ -2262,7 +2270,8 @@ async fn semantic_repeat_reinforces_existing_claim_by_id_without_duplicate() {
 
 #[tokio::test]
 async fn consolidation_decision_rejects_existing_claim_id_outside_bounded_matches() {
-    let (provider, invalid_target) = fake_codex_provider_with_invalid_consolidation_target();
+    let invalid_target = Arc::new(Mutex::new(None));
+    let provider = FakeCodexProvider::with_invalid_consolidation_target(invalid_target.clone());
     let (handle, store) = test_runtime_handle_with_store(provider).await;
     let conversation = handle.start_conversation(None).await.expect("conversation");
     let conversation_id = conversation.conversation_id.clone();
@@ -2344,7 +2353,7 @@ async fn consolidation_decision_rejects_existing_claim_id_outside_bounded_matche
 #[tokio::test]
 async fn contradiction_becomes_reviewable_dispute() {
     let (handle, store) =
-        test_runtime_handle_with_store(fake_codex_provider_with_memory_extraction()).await;
+        test_runtime_handle_with_store(fake_provider(FakeCodexScenario::MemoryExtraction)).await;
     let conversation = handle.start_conversation(None).await.expect("conversation");
     let conversation_id = conversation.conversation_id.clone();
 
@@ -2393,7 +2402,7 @@ async fn contradiction_becomes_reviewable_dispute() {
 #[tokio::test]
 async fn provider_mixed_active_and_disputed_claims_needs_review() {
     let (handle, store) =
-        test_runtime_handle_with_store(fake_codex_provider_with_memory_extraction()).await;
+        test_runtime_handle_with_store(fake_provider(FakeCodexScenario::MemoryExtraction)).await;
     let conversation = handle.start_conversation(None).await.expect("conversation");
     let conversation_id = conversation.conversation_id.clone();
 
@@ -2472,7 +2481,7 @@ async fn provider_mixed_active_and_disputed_claims_needs_review() {
 #[tokio::test]
 async fn provider_user_loves_planes_canonicalizes_to_likes_claim() {
     let (handle, store) =
-        test_runtime_handle_with_store(fake_codex_provider_with_memory_extraction()).await;
+        test_runtime_handle_with_store(fake_provider(FakeCodexScenario::MemoryExtraction)).await;
 
     let conversation = handle.start_conversation(None).await.expect("conversation");
     let items = collect_turn(
@@ -2511,7 +2520,7 @@ async fn provider_user_loves_planes_canonicalizes_to_likes_claim() {
 #[tokio::test]
 async fn unknown_memory_relationship_creates_predicate_proposal() {
     let (handle, store) =
-        test_runtime_handle_with_store(fake_codex_provider_with_memory_extraction()).await;
+        test_runtime_handle_with_store(fake_provider(FakeCodexScenario::MemoryExtraction)).await;
 
     let conversation = handle.start_conversation(None).await.expect("conversation");
     let items = collect_turn(
@@ -2561,7 +2570,7 @@ async fn unknown_memory_relationship_creates_predicate_proposal() {
 #[tokio::test]
 async fn provider_candidate_claim_with_predicate_proposal_needs_review() {
     let (handle, store) =
-        test_runtime_handle_with_store(fake_codex_provider_with_memory_extraction()).await;
+        test_runtime_handle_with_store(fake_provider(FakeCodexScenario::MemoryExtraction)).await;
 
     let conversation = handle.start_conversation(None).await.expect("conversation");
     let items = collect_turn(
@@ -2629,7 +2638,7 @@ async fn provider_candidate_claim_with_predicate_proposal_needs_review() {
 #[tokio::test]
 async fn provider_active_claim_with_predicate_proposal_persists_memory() {
     let (handle, _store) =
-        test_runtime_handle_with_store(fake_codex_provider_with_memory_extraction()).await;
+        test_runtime_handle_with_store(fake_provider(FakeCodexScenario::MemoryExtraction)).await;
 
     let conversation = handle.start_conversation(None).await.expect("conversation");
     let items = collect_turn(
@@ -2675,7 +2684,7 @@ async fn provider_active_claim_with_predicate_proposal_persists_memory() {
 #[tokio::test]
 async fn provider_first_person_local_name_memory_persists_without_explicit_seed() {
     let (handle, store) =
-        test_runtime_handle_with_store(fake_codex_provider_with_memory_extraction()).await;
+        test_runtime_handle_with_store(fake_provider(FakeCodexScenario::MemoryExtraction)).await;
 
     let conversation = handle.start_conversation(None).await.expect("conversation");
     let items = collect_turn(
@@ -2715,9 +2724,9 @@ async fn provider_first_person_local_name_memory_persists_without_explicit_seed(
 
 #[tokio::test]
 async fn provider_memory_proposal_uses_initial_assistant_context_before_continuation() {
-    let (handle, store) = test_runtime_handle_with_store(
-        fake_codex_provider_with_initial_assistant_memory_continuation(),
-    )
+    let (handle, store) = test_runtime_handle_with_store(fake_provider(
+        FakeCodexScenario::InitialAssistantMemoryContinuation,
+    ))
     .await;
 
     let conversation = handle.start_conversation(None).await.expect("conversation");
@@ -2762,7 +2771,8 @@ async fn provider_memory_proposal_uses_initial_assistant_context_before_continua
 #[tokio::test]
 async fn provider_memory_proposal_uses_matching_assistant_item_within_phase() {
     let (handle, store) =
-        test_runtime_handle_with_store(fake_codex_provider_with_multi_assistant_memory()).await;
+        test_runtime_handle_with_store(fake_provider(FakeCodexScenario::MultiAssistantMemory))
+            .await;
 
     let conversation = handle.start_conversation(None).await.expect("conversation");
     let conversation_id = conversation.conversation_id.clone();
@@ -2787,9 +2797,10 @@ async fn provider_memory_proposal_uses_matching_assistant_item_within_phase() {
 
 #[tokio::test]
 async fn provider_memory_proposal_discards_assistant_evidence_spanning_items() {
-    let (handle, store) =
-        test_runtime_handle_with_store(fake_codex_provider_with_split_assistant_evidence_memory())
-            .await;
+    let (handle, store) = test_runtime_handle_with_store(fake_provider(
+        FakeCodexScenario::SplitAssistantEvidenceMemory,
+    ))
+    .await;
 
     let conversation = handle.start_conversation(None).await.expect("conversation");
     let (result, events) = collect_turn_events(
@@ -2825,7 +2836,7 @@ async fn provider_memory_proposal_discards_assistant_evidence_spanning_items() {
 #[tokio::test]
 async fn provider_memory_partial_write_reports_partial_failure() {
     let (handle, store) =
-        test_runtime_handle_with_store(fake_codex_provider_with_partial_memory_write()).await;
+        test_runtime_handle_with_store(fake_provider(FakeCodexScenario::PartialMemoryWrite)).await;
     delete_predicate(&store, "has_note").await;
 
     let conversation = handle.start_conversation(None).await.expect("conversation");
@@ -2871,7 +2882,7 @@ async fn provider_memory_partial_write_reports_partial_failure() {
 #[tokio::test]
 async fn explicit_remember_is_saved_before_provider_failure() {
     let (handle, store) =
-        test_runtime_handle_with_store(fake_codex_provider_with_turn_error()).await;
+        test_runtime_handle_with_store(fake_provider(FakeCodexScenario::TurnError)).await;
 
     let conversation = handle.start_conversation(None).await.expect("conversation");
     let conversation_id = conversation.conversation_id.clone();
@@ -2970,7 +2981,7 @@ async fn explicit_remember_is_saved_before_provider_failure() {
 #[tokio::test]
 async fn runtime_actor_persists_provider_tool_items_as_action_rows() {
     let (handle, store) =
-        test_runtime_handle_with_store(fake_codex_provider_with_tool_item()).await;
+        test_runtime_handle_with_store(fake_provider(FakeCodexScenario::ToolItem)).await;
 
     let conversation_id = handle
         .start_conversation(None)
@@ -3060,7 +3071,7 @@ async fn runtime_actor_persists_provider_tool_items_as_action_rows() {
 
 #[tokio::test]
 async fn runtime_actor_persists_provider_tool_items_before_turn_failure() {
-    let handle = test_runtime_handle(fake_codex_provider_with_tool_item_then_failure()).await;
+    let handle = test_runtime_handle(fake_provider(FakeCodexScenario::ToolItemThenFailure)).await;
 
     let conversation_id = handle
         .start_conversation(None)
@@ -3119,7 +3130,8 @@ async fn runtime_actor_persists_provider_tool_items_before_turn_failure() {
 
 #[tokio::test]
 async fn runtime_actor_executes_search_memory_as_local_tool_result() {
-    let handle = test_runtime_handle(fake_codex_provider_with_search_memory_continuation()).await;
+    let handle =
+        test_runtime_handle(fake_provider(FakeCodexScenario::SearchMemoryContinuation)).await;
 
     let conversation = handle.start_conversation(None).await.expect("conversation");
     let conversation_id = conversation.conversation_id.clone();
@@ -3176,7 +3188,7 @@ async fn runtime_actor_executes_search_memory_as_local_tool_result() {
 #[tokio::test]
 async fn update_own_name_tool_updates_agent_without_continuation_turn() {
     let (handle, store) =
-        test_runtime_handle_with_store(fake_codex_provider_with_update_own_name_continuation())
+        test_runtime_handle_with_store(fake_provider(FakeCodexScenario::UpdateOwnNameContinuation))
             .await;
 
     let conversation_id = handle
@@ -3224,8 +3236,10 @@ async fn update_own_name_tool_updates_agent_without_continuation_turn() {
 
 #[tokio::test]
 async fn update_own_name_tool_does_not_start_repeated_continuation_tool_calls() {
-    let (handle, store) =
-        test_runtime_handle_with_store(fake_codex_provider_with_repeated_update_own_name()).await;
+    let (handle, store) = test_runtime_handle_with_store(fake_provider(
+        FakeCodexScenario::RepeatedUpdateOwnNameContinuation,
+    ))
+    .await;
 
     let conversation_id = handle
         .start_conversation(None)
@@ -3268,7 +3282,8 @@ async fn update_own_name_tool_does_not_start_repeated_continuation_tool_calls() 
 #[tokio::test]
 async fn ambiguous_name_suggestion_asks_confirmation_without_tool_call() {
     let (handle, store) =
-        test_runtime_handle_with_store(fake_codex_provider_with_ambiguous_update_own_name()).await;
+        test_runtime_handle_with_store(fake_provider(FakeCodexScenario::AmbiguousUpdateOwnName))
+            .await;
 
     let conversation_id = handle
         .start_conversation(None)
@@ -3307,8 +3322,10 @@ async fn ambiguous_name_suggestion_asks_confirmation_without_tool_call() {
 
 #[tokio::test]
 async fn runtime_prompt_includes_stored_agent_name_after_update() {
-    let handle =
-        test_runtime_handle(fake_codex_provider_with_update_own_name_then_identity_check()).await;
+    let handle = test_runtime_handle(fake_provider(
+        FakeCodexScenario::UpdateOwnNameThenIdentityCheck,
+    ))
+    .await;
 
     let conversation_id = handle
         .start_conversation(None)
@@ -3335,9 +3352,9 @@ async fn runtime_prompt_includes_stored_agent_name_after_update() {
 
 #[tokio::test]
 async fn search_memory_profile_continuation_uses_scoped_empty_query() {
-    let (handle, store) = test_runtime_handle_with_store(
-        fake_codex_provider_with_search_memory_profile_continuation(),
-    )
+    let (handle, store) = test_runtime_handle_with_store(fake_provider(
+        FakeCodexScenario::SearchMemoryProfileContinuation,
+    ))
     .await;
 
     let conversation = handle.start_conversation(None).await.expect("conversation");
@@ -3386,7 +3403,8 @@ async fn search_memory_profile_continuation_uses_scoped_empty_query() {
 
 #[tokio::test]
 async fn search_memory_tool_returns_empty_graph_result_without_unavailable() {
-    let handle = test_runtime_handle(fake_codex_provider_with_search_memory_continuation()).await;
+    let handle =
+        test_runtime_handle(fake_provider(FakeCodexScenario::SearchMemoryContinuation)).await;
 
     let conversation_id = handle
         .start_conversation(None)
@@ -3426,8 +3444,7 @@ async fn search_memory_tool_returns_empty_graph_result_without_unavailable() {
 
 #[tokio::test]
 async fn search_memory_tool_invalid_arguments_are_failed_tool_result() {
-    let handle =
-        test_runtime_handle(fake_codex_provider_with_invalid_search_memory_tool_item()).await;
+    let handle = test_runtime_handle(fake_provider(FakeCodexScenario::InvalidSearchMemory)).await;
 
     let conversation_id = handle
         .start_conversation(None)
@@ -3461,7 +3478,8 @@ async fn search_memory_tool_invalid_arguments_are_failed_tool_result() {
 #[tokio::test]
 async fn uncalibrated_mcp_tool_call_returns_failed_tool_result() {
     let (handle, store) =
-        test_runtime_handle_with_store(fake_codex_provider_with_mcp_tool_call()).await;
+        test_runtime_handle_with_store(fake_provider(FakeCodexScenario::UncalibratedMcpToolCall))
+            .await;
     seed_enabled_uncalibrated_mcp_tool(&store).await;
 
     let conversation_id = handle
@@ -3968,6 +3986,10 @@ enum FakeCodexScenario {
     MixedInvalidMemoryProposal,
     AssistantStatusChatterMemory,
     MemoryExtraction,
+}
+
+fn fake_provider(scenario: FakeCodexScenario) -> FakeCodexProvider {
+    FakeCodexProvider::new(scenario)
 }
 
 impl FakeCodexProvider {
@@ -5440,125 +5462,4 @@ fn first_memory_id_from_consolidation_prompt(input: &str) -> Option<String> {
         .get("memory_id")?
         .as_str()
         .map(str::to_string)
-}
-
-fn fake_codex_provider_with_turn_error() -> FakeCodexProvider {
-    FakeCodexProvider::new(FakeCodexScenario::TurnError)
-}
-
-fn fake_codex_provider() -> FakeCodexProvider {
-    FakeCodexProvider::new(FakeCodexScenario::Simple)
-}
-
-fn fake_codex_provider_with_restart_context_check() -> FakeCodexProvider {
-    FakeCodexProvider::new(FakeCodexScenario::RestartContext)
-}
-
-fn fake_codex_provider_with_identity_prompt_check() -> FakeCodexProvider {
-    FakeCodexProvider::new(FakeCodexScenario::IdentityPromptCheck)
-}
-
-fn fake_codex_provider_with_initial_name_onboarding() -> FakeCodexProvider {
-    FakeCodexProvider::new(FakeCodexScenario::InitialNameOnboarding)
-}
-
-fn fake_codex_provider_with_initial_name_onboarding_no_assistant() -> FakeCodexProvider {
-    FakeCodexProvider::new(FakeCodexScenario::InitialNameOnboardingNoAssistant)
-}
-
-fn fake_codex_provider_with_tool_item() -> FakeCodexProvider {
-    FakeCodexProvider::new(FakeCodexScenario::ToolItem)
-}
-
-fn fake_codex_provider_with_tool_item_then_failure() -> FakeCodexProvider {
-    FakeCodexProvider::new(FakeCodexScenario::ToolItemThenFailure)
-}
-
-fn fake_codex_provider_with_mcp_tool_call() -> FakeCodexProvider {
-    FakeCodexProvider::new(FakeCodexScenario::UncalibratedMcpToolCall)
-}
-
-fn fake_codex_provider_with_invalid_search_memory_tool_item() -> FakeCodexProvider {
-    FakeCodexProvider::new(FakeCodexScenario::InvalidSearchMemory)
-}
-
-fn fake_codex_provider_with_search_memory_continuation() -> FakeCodexProvider {
-    FakeCodexProvider::new(FakeCodexScenario::SearchMemoryContinuation)
-}
-
-fn fake_codex_provider_with_search_memory_profile_continuation() -> FakeCodexProvider {
-    FakeCodexProvider::new(FakeCodexScenario::SearchMemoryProfileContinuation)
-}
-
-fn fake_codex_provider_with_update_own_name_continuation() -> FakeCodexProvider {
-    FakeCodexProvider::new(FakeCodexScenario::UpdateOwnNameContinuation)
-}
-
-fn fake_codex_provider_with_repeated_update_own_name() -> FakeCodexProvider {
-    FakeCodexProvider::new(FakeCodexScenario::RepeatedUpdateOwnNameContinuation)
-}
-
-fn fake_codex_provider_with_ambiguous_update_own_name() -> FakeCodexProvider {
-    FakeCodexProvider::new(FakeCodexScenario::AmbiguousUpdateOwnName)
-}
-
-fn fake_codex_provider_with_update_own_name_then_identity_check() -> FakeCodexProvider {
-    FakeCodexProvider::new(FakeCodexScenario::UpdateOwnNameThenIdentityCheck)
-}
-
-fn fake_codex_provider_with_initial_assistant_memory_continuation() -> FakeCodexProvider {
-    FakeCodexProvider::new(FakeCodexScenario::InitialAssistantMemoryContinuation)
-}
-
-fn fake_codex_provider_with_multi_assistant_memory() -> FakeCodexProvider {
-    FakeCodexProvider::new(FakeCodexScenario::MultiAssistantMemory)
-}
-
-fn fake_codex_provider_with_split_assistant_evidence_memory() -> FakeCodexProvider {
-    FakeCodexProvider::new(FakeCodexScenario::SplitAssistantEvidenceMemory)
-}
-
-fn fake_codex_provider_with_mislabelled_secret_memory() -> FakeCodexProvider {
-    FakeCodexProvider::new(FakeCodexScenario::MislabelledSecretMemory)
-}
-
-fn fake_codex_provider_with_malformed_canonicalizer() -> FakeCodexProvider {
-    FakeCodexProvider::new(FakeCodexScenario::MalformedCanonicalizer)
-}
-
-fn fake_codex_provider_with_mismatched_canonical_entity() -> FakeCodexProvider {
-    FakeCodexProvider::new(FakeCodexScenario::MismatchedCanonicalEntity)
-}
-
-fn fake_codex_provider_with_unknown_canonical_predicate() -> FakeCodexProvider {
-    FakeCodexProvider::new(FakeCodexScenario::UnknownCanonicalPredicate)
-}
-
-fn fake_codex_provider_with_partial_memory_write() -> FakeCodexProvider {
-    FakeCodexProvider::new(FakeCodexScenario::PartialMemoryWrite)
-}
-
-fn fake_codex_provider_with_invalid_memory_proposal() -> FakeCodexProvider {
-    FakeCodexProvider::new(FakeCodexScenario::InvalidMemoryProposal)
-}
-
-fn fake_codex_provider_with_mixed_invalid_memory_proposals() -> FakeCodexProvider {
-    FakeCodexProvider::new(FakeCodexScenario::MixedInvalidMemoryProposal)
-}
-
-fn fake_codex_provider_with_assistant_status_chatter_memory() -> FakeCodexProvider {
-    FakeCodexProvider::new(FakeCodexScenario::AssistantStatusChatterMemory)
-}
-
-fn fake_codex_provider_with_invalid_consolidation_target()
--> (FakeCodexProvider, Arc<Mutex<Option<String>>>) {
-    let invalid_target_id = Arc::new(Mutex::new(None));
-    (
-        FakeCodexProvider::with_invalid_consolidation_target(invalid_target_id.clone()),
-        invalid_target_id,
-    )
-}
-
-fn fake_codex_provider_with_memory_extraction() -> FakeCodexProvider {
-    FakeCodexProvider::new(FakeCodexScenario::MemoryExtraction)
 }

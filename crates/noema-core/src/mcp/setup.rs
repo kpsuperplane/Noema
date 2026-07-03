@@ -240,43 +240,17 @@ async fn setup_result_from_error(
     transport_kind: McpTransportKind,
     error: McpClientError,
 ) -> Result<McpServerSetupResult, StoreError> {
-    let (setup_status, discovery_status, health_status, auth_status, setup_error, auth) =
-        match error {
-            McpClientError::AuthRequired(_) => (
-                McpSetupStatus::NeedsAuth,
-                "needs_auth",
-                McpServerHealthStatus::Unavailable,
-                McpServerAuthStatus::NeedsAuth,
-                Some(safe_setup_error_text(McpSetupStatus::NeedsAuth)),
-                auth_details_for_transport(transport_kind),
-            ),
-            McpClientError::Transport(_) => (
-                McpSetupStatus::Unavailable,
-                "unavailable",
-                McpServerHealthStatus::Unavailable,
-                McpServerAuthStatus::Unavailable,
-                Some(safe_setup_error_text(McpSetupStatus::Unavailable)),
-                None,
-            ),
-            McpClientError::Malformed(_) => (
-                McpSetupStatus::Malformed,
-                "malformed",
-                McpServerHealthStatus::Unavailable,
-                McpServerAuthStatus::Unavailable,
-                Some(safe_setup_error_text(McpSetupStatus::Malformed)),
-                None,
-            ),
-        };
+    let failure = setup_failure_from_error(transport_kind, error);
     let server = store
-        .update_mcp_server_setup_status(mcp_server_id, health_status, auth_status)
+        .update_mcp_server_setup_status(mcp_server_id, failure.health_status, failure.auth_status)
         .await?;
     Ok(McpServerSetupResult {
         server: Some(server),
-        setup_status,
-        discovery_status: Some(discovery_status.to_string()),
+        setup_status: failure.setup_status,
+        discovery_status: Some(failure.discovery_status.to_string()),
         discovered_tool_count: 0,
-        setup_error,
-        auth,
+        setup_error: failure.setup_error,
+        auth: failure.auth,
     })
 }
 
@@ -284,32 +258,56 @@ fn unpersisted_setup_result_from_error(
     transport_kind: McpTransportKind,
     error: McpClientError,
 ) -> McpServerSetupResult {
-    let (setup_status, discovery_status, setup_error, auth) = match error {
+    let failure = setup_failure_from_error(transport_kind, error);
+    McpServerSetupResult {
+        server: None,
+        setup_status: failure.setup_status,
+        discovery_status: Some(failure.discovery_status.to_string()),
+        discovered_tool_count: 0,
+        setup_error: failure.setup_error,
+        auth: failure.auth,
+    }
+}
+
+struct McpSetupFailure {
+    setup_status: McpSetupStatus,
+    discovery_status: &'static str,
+    health_status: McpServerHealthStatus,
+    auth_status: McpServerAuthStatus,
+    setup_error: Option<String>,
+    auth: Option<McpSetupAuthDetails>,
+}
+
+fn setup_failure_from_error(
+    transport_kind: McpTransportKind,
+    error: McpClientError,
+) -> McpSetupFailure {
+    let (setup_status, discovery_status, auth_status, auth) = match error {
         McpClientError::AuthRequired(_) => (
             McpSetupStatus::NeedsAuth,
             "needs_auth",
-            Some(safe_setup_error_text(McpSetupStatus::NeedsAuth)),
+            McpServerAuthStatus::NeedsAuth,
             auth_details_for_transport(transport_kind),
         ),
         McpClientError::Transport(_) => (
             McpSetupStatus::Unavailable,
             "unavailable",
-            Some(safe_setup_error_text(McpSetupStatus::Unavailable)),
+            McpServerAuthStatus::Unavailable,
             None,
         ),
         McpClientError::Malformed(_) => (
             McpSetupStatus::Malformed,
             "malformed",
-            Some(safe_setup_error_text(McpSetupStatus::Malformed)),
+            McpServerAuthStatus::Unavailable,
             None,
         ),
     };
-    McpServerSetupResult {
-        server: None,
+    McpSetupFailure {
         setup_status,
-        discovery_status: Some(discovery_status.to_string()),
-        discovered_tool_count: 0,
-        setup_error,
+        discovery_status,
+        health_status: McpServerHealthStatus::Unavailable,
+        auth_status,
+        setup_error: Some(safe_setup_error_text(setup_status)),
         auth,
     }
 }

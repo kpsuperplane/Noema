@@ -89,7 +89,7 @@ pub fn prompt_safe_mcp_tool_description(
     Some(truncate_chars(&hint, max_chars))
 }
 
-fn sanitize_prompt_line(value: &str) -> String {
+pub(crate) fn sanitize_prompt_line(value: &str) -> String {
     value
         .chars()
         .filter(|character| !character.is_control() || character.is_whitespace())
@@ -117,7 +117,7 @@ fn looks_like_prompt_directive(value: &str) -> bool {
     .any(|prefix| lower.starts_with(prefix))
 }
 
-fn truncate_chars(value: &str, max_chars: usize) -> String {
+pub(crate) fn truncate_chars(value: &str, max_chars: usize) -> String {
     if value.chars().count() <= max_chars {
         return value.to_string();
     }

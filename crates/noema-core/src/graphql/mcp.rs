@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use async_graphql::{InputObject, Json, Result, SimpleObject};
 use serde_json::Value;
@@ -803,7 +803,6 @@ pub(super) async fn save_tool_calibrations(
         .into_iter()
         .map(parse_save_tool_calibration_input)
         .collect::<Result<Vec<_>>>()?;
-    reject_duplicate_batch_calibrations(&calibrations)?;
 
     let store = state.store()?;
     let saved = store
@@ -840,26 +839,6 @@ fn parse_save_tool_calibration_input(
         reviewed_by: input.reviewed_by,
         reviewed_metadata_fingerprint: input.reviewed_metadata_fingerprint,
     })
-}
-
-fn reject_duplicate_batch_calibrations(calibrations: &[NewToolCalibration]) -> Result<()> {
-    let mut calibration_ids = BTreeSet::new();
-    let mut tool_ids = BTreeSet::new();
-    for calibration in calibrations {
-        if !calibration_ids.insert(calibration.calibration_id.as_str()) {
-            return Err(graphql_error(format!(
-                "duplicate calibrationId in batch: {}",
-                calibration.calibration_id
-            )));
-        }
-        if !tool_ids.insert(calibration.mcp_tool_id.as_str()) {
-            return Err(graphql_error(format!(
-                "duplicate mcpToolId in batch: {}",
-                calibration.mcp_tool_id
-            )));
-        }
-    }
-    Ok(())
 }
 
 fn parse_graphql_trust_classification(
