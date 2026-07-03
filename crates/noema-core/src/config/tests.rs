@@ -1,5 +1,16 @@
 use super::*;
+use crate::{
+    NOEMA_HOME_ENV,
+    provider::adapters::{
+        codex_oauth::DEFAULT_CODEX_BASE_URL,
+        codex_responses::{
+            CodexProviderConfig, DEFAULT_CODEX_MODEL, DEFAULT_CODEX_TIMEOUT_SECONDS,
+        },
+    },
+};
+use figment::{Figment, providers::Serialized};
 use serde_json::{Number, Value};
+use std::path::PathBuf;
 use tempfile::NamedTempFile;
 
 fn write_config(contents: &str) -> NamedTempFile {
