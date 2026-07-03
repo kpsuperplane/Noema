@@ -116,10 +116,6 @@ export function memoryDetailItems(memories: MemoryCardData[]): MemoryDetailItem[
   });
 }
 
-export function toolMarkerTone(marker: ToolMarkerGroup): "default" | "error" {
-  return marker.result?.item.status === "FAILED" ? "error" : "default";
-}
-
 export function toolMarkerPending(marker: ToolMarkerGroup): boolean {
   return marker.call?.item.status === "STARTED" && !marker.result;
 }

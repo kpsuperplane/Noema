@@ -3,7 +3,6 @@ import type { TranscriptEntry } from "@/shared/types";
 import { ActivityRow } from "./ActivityRow";
 import { ErrorNotice } from "./ErrorNotice";
 import { Message } from "./Message";
-import { MemoryMarker } from "./MemoryMarker";
 import { RenderedTranscriptEntryFrame } from "./RenderedTranscriptEntryFrame";
 import {
   renderableTranscriptEntries,
@@ -155,10 +154,13 @@ function renderTranscriptRenderEntry(
   if (entry.kind === "memory_marker") {
     return (
       <TranscriptRow lane="assistant" showAvatar={showAvatar}>
-        <MemoryMarker
-          id={entry.id}
-          extraction={entry.extraction}
-          proposal={entry.proposal}
+        <ToolMarker
+          data={{
+            kind: "memory",
+            id: entry.id,
+            extraction: entry.extraction,
+            proposal: entry.proposal
+          }}
           open={expandedActivities.has(entry.id)}
           onToggle={() => onToggleActivity(entry.id)}
         />
@@ -169,7 +171,7 @@ function renderTranscriptRenderEntry(
     return (
       <TranscriptRow lane="assistant" showAvatar={showAvatar}>
         <ToolMarker
-          marker={entry.marker}
+          data={{ kind: "tool", marker: entry.marker }}
           open={expandedActivities.has(entry.id)}
           onToggle={() => onToggleActivity(entry.id)}
         />
