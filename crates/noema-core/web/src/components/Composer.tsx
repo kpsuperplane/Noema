@@ -30,7 +30,7 @@ const composerWidthBufferCh = 5;
 const composerWidthBufferPx = 32;
 const composerMeasuredTextSlackPx = 4;
 const composerBubbleInlineReservePx = 62;
-const composerMinTextHeightPx = 36;
+const composerMinTextHeightPx = 24;
 const composerTextareaFontSize = "1rem";
 const composerTextareaLineHeight = "1.5rem";
 
