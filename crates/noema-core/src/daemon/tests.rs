@@ -3550,6 +3550,44 @@ async fn uncalibrated_mcp_tool_call_returns_failed_tool_result() {
     );
 }
 
+#[tokio::test]
+async fn failed_mcp_tool_result_continues_to_provider() {
+    let handle = test_runtime_handle(fake_provider(
+        FakeCodexScenario::FailedMcpToolResultContinuation,
+    ))
+    .await;
+
+    let conversation_id = handle
+        .start_conversation(None)
+        .await
+        .expect("conversation")
+        .conversation_id;
+    let items = collect_turn(
+        &handle,
+        conversation_id.clone(),
+        "Create a Notion page".to_string(),
+    )
+    .await
+    .expect("turn");
+    handle.shutdown().await;
+
+    assert!(items.iter().any(|item| matches!(
+        item,
+        TurnTranscriptItem::Activity {
+            activity_kind,
+            status: TurnActivityStatus::Failed,
+            title,
+            ..
+        } if activity_kind == "tool_result"
+            && title == "Tool result: mcp.mcp:notion.notion-create-pages"
+    )));
+    assert!(items.iter().any(|item| matches!(
+        item,
+        TurnTranscriptItem::AssistantText { text }
+            if text == "I saw the Notion tool failure and can explain it."
+    )));
+}
+
 async fn seed_enabled_uncalibrated_mcp_tool(store: &crate::NoemaStore) {
     store
         .create_mcp_server(crate::NewMcpServer {
@@ -4009,6 +4047,7 @@ enum FakeCodexScenario {
     ToolItem,
     ToolItemThenFailure,
     UncalibratedMcpToolCall,
+    FailedMcpToolResultContinuation,
     InvalidSearchMemory,
     SearchMemoryContinuation,
     ChainedSearchMemoryContinuation,
@@ -4156,14 +4195,41 @@ impl FakeCodexProvider {
                     )],
                 });
             }
-            FakeCodexScenario::UncalibratedMcpToolCall => vec![
-                mcp_tool_call(
-                    "call_mcp_1",
-                    "mcp.docs.read",
-                    json!({"arguments": {"document_id": "doc_1"}}),
-                ),
-                GenerateOutputItem::MemoryProposals { proposals: vec![] },
-            ],
+            FakeCodexScenario::UncalibratedMcpToolCall => {
+                if input.contains("NOEMA_LOCAL_TOOL_RESULT") {
+                    assistant_with_no_memories("uncalibrated MCP tool failed")
+                } else {
+                    vec![
+                        mcp_tool_call(
+                            "call_mcp_1",
+                            "mcp.docs.read",
+                            json!({"arguments": {"document_id": "doc_1"}}),
+                        ),
+                        GenerateOutputItem::MemoryProposals { proposals: vec![] },
+                    ]
+                }
+            }
+            FakeCodexScenario::FailedMcpToolResultContinuation => {
+                if input.contains("NOEMA_LOCAL_TOOL_RESULT")
+                    && input.contains("mcp_server_not_found")
+                {
+                    assistant_with_no_memories("I saw the Notion tool failure and can explain it.")
+                } else {
+                    vec![
+                        mcp_tool_call(
+                            "call_notion_create_1",
+                            "mcp.mcp:notion.notion-create-pages",
+                            json!({
+                                "pages": [{
+                                    "properties": {"title": "Test page"},
+                                    "content": "Body"
+                                }]
+                            }),
+                        ),
+                        GenerateOutputItem::MemoryProposals { proposals: vec![] },
+                    ]
+                }
+            }
             FakeCodexScenario::InvalidSearchMemory => {
                 if input.contains("NOEMA_LOCAL_TOOL_RESULT") {
                     assistant_with_no_memories("invalid tool result received")

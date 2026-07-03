@@ -14,6 +14,8 @@ use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 pub const SYSTEM_ERROR_PROVIDER_MALFORMED_RESPONSE: &str = "provider_malformed_response";
 /// MCP metadata or tool-call payload was malformed.
 pub const SYSTEM_ERROR_MCP_MALFORMED_RESPONSE: &str = "mcp_malformed_response";
+/// MCP tool execution failed at the transport or remote tool boundary.
+pub const SYSTEM_ERROR_MCP_TOOL_CALL_FAILURE: &str = "mcp_tool_call_failure";
 /// Runtime state reached an invariant violation.
 pub const SYSTEM_ERROR_RUNTIME_INVARIANT: &str = "runtime_invariant_violation";
 /// Store-backed state violated a closed Noema schema assumption.

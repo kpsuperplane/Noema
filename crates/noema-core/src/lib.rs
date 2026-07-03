@@ -108,7 +108,7 @@ pub use store::{
     ToolCalibrationRecord, TrustedIdentitySelectorEffect, TrustedIdentitySelectorRecord,
 };
 pub use system_errors::{
-    SYSTEM_ERROR_MCP_MALFORMED_RESPONSE, SYSTEM_ERROR_PROVIDER_MALFORMED_RESPONSE,
-    SYSTEM_ERROR_RUNTIME_INVARIANT, SYSTEM_ERROR_STORE_INVARIANT, SystemErrorEvent,
-    SystemErrorLogger, SystemErrorWriteError,
+    SYSTEM_ERROR_MCP_MALFORMED_RESPONSE, SYSTEM_ERROR_MCP_TOOL_CALL_FAILURE,
+    SYSTEM_ERROR_PROVIDER_MALFORMED_RESPONSE, SYSTEM_ERROR_RUNTIME_INVARIANT,
+    SYSTEM_ERROR_STORE_INVARIANT, SystemErrorEvent, SystemErrorLogger, SystemErrorWriteError,
 };

@@ -180,8 +180,11 @@ The next storage slice should stay small and concrete:
   matches the discovered tool metadata; the Capability Gateway re-checks those
   conditions at execution time and calls calibrated tools through stdio,
   Streamable HTTP, or SSE transports. Saving at least one ready calibration
-  enables the server for agent use. User-facing setup errors are sanitized while
-  raw transport details stay out of the web form.
+  enables the server for agent use. MCP `tools/call` failures now persist as
+  failed tool results that are still fed back to the provider for same-turn
+  recovery or explanation, while raw transport/tool diagnostics are written to
+  `errors.log` under `mcp_tool_call_failure`. User-facing setup errors are
+  sanitized while raw transport details stay out of the web form.
   Web Settings also exposes MCPs, Trusted Identities, and Approvals surfaces
   backed by GraphQL read models where live data exists.
 - Routed web surfaces learn shell-owned deck state through
@@ -220,7 +223,8 @@ The next storage slice should stay small and concrete:
   naming or renaming only when the current user explicitly names or renames the
   agent. Intent is carried by the structured tool call and trusted runtime
   state rather than direct user-text matching. The runtime feeds successful
-  local tool results back into the same turn plus subsequent prompts.
+  local tool results, and failed MCP gateway tool results, back into the same
+  turn plus subsequent prompts.
 - The local `search_memory` tool supports validated concrete `scope_ids`.
   Empty `query` is allowed only for scoped reads, and `query` narrows within
   scope rather than broadening it. Memory write activities expose canonical

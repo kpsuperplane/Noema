@@ -1,8 +1,8 @@
 //! Runtime Capability Gateway for provider-proposed tool calls.
 
 use crate::{
-    McpTransportKind, NoemaStore, SYSTEM_ERROR_MCP_MALFORMED_RESPONSE, SystemErrorEvent,
-    SystemErrorLogger,
+    McpTransportKind, NoemaStore, SYSTEM_ERROR_MCP_MALFORMED_RESPONSE,
+    SYSTEM_ERROR_MCP_TOOL_CALL_FAILURE, SystemErrorEvent, SystemErrorLogger,
     mcp::{
         McpClientError, McpClientRuntime, McpTransport, SseMcpTransport, StdioMcpTransport,
         StreamableHttpMcpTransport, mcp_tool_ineligibility, secrets::read_mcp_secrets,
@@ -57,14 +57,14 @@ impl CapabilityGateway<'_> {
     async fn execute_mcp_tool(&self, name: McpToolName<'_>, payload: &Value) -> GatewayToolResult {
         match self.try_execute_mcp_tool(name, payload).await {
             Ok(payload) => GatewayToolResult {
-                success: true,
+                success: !mcp_tool_payload_is_error(&payload),
                 payload,
                 requires_provider_continuation: true,
             },
             Err(error) => GatewayToolResult {
                 success: false,
                 payload: json!({ "error": error }),
-                requires_provider_continuation: false,
+                requires_provider_continuation: true,
             },
         }
     }
@@ -140,21 +140,24 @@ impl CapabilityGateway<'_> {
         arguments: &Value,
         error: McpClientError,
     ) -> &'static str {
-        if matches!(error, McpClientError::Malformed(_)) {
-            self.system_errors.try_append(
-                SystemErrorEvent::new(SYSTEM_ERROR_MCP_MALFORMED_RESPONSE, error.to_string())
-                    .with_context(json!({
-                        "mcp_server_id": name.server_id,
-                        "tool_name": name.tool_name,
-                        "method": "tools/call",
-                    }))
-                    .with_error_chain([error.to_string()])
-                    .with_raw(json!({
-                        "proposal_payload": payload,
-                        "arguments": arguments,
-                    })),
-            );
-        }
+        let category = if matches!(error, McpClientError::Malformed(_)) {
+            SYSTEM_ERROR_MCP_MALFORMED_RESPONSE
+        } else {
+            SYSTEM_ERROR_MCP_TOOL_CALL_FAILURE
+        };
+        self.system_errors.try_append(
+            SystemErrorEvent::new(category, error.to_string())
+                .with_context(json!({
+                    "mcp_server_id": name.server_id,
+                    "tool_name": name.tool_name,
+                    "method": "tools/call",
+                }))
+                .with_error_chain([error.to_string()])
+                .with_raw(json!({
+                    "proposal_payload": payload,
+                    "arguments": arguments,
+                })),
+        );
         mcp_tool_call_gateway_error(&error)
     }
 }
@@ -202,6 +205,13 @@ fn mcp_tool_call_gateway_error(error: &McpClientError) -> &'static str {
         }
         McpClientError::Transport(_) | McpClientError::Malformed(_) => "mcp_tool_call_failed",
     }
+}
+
+fn mcp_tool_payload_is_error(payload: &Value) -> bool {
+    payload
+        .get("isError")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
 }
 
 fn transport_error_indicates_auth_failure(message: &str) -> bool {
@@ -306,6 +316,7 @@ mod tests {
 
         assert!(!result.success);
         assert_eq!(result.payload["error"], "mcp_server_disabled");
+        assert!(result.requires_provider_continuation);
     }
 
     #[tokio::test]
@@ -328,6 +339,14 @@ mod tests {
 
         assert!(!result.success);
         assert_eq!(result.payload["error"], "mcp_tool_not_calibrated");
+        assert!(result.requires_provider_continuation);
+    }
+
+    #[test]
+    fn mcp_tool_payload_is_error_marks_result_failed() {
+        assert!(mcp_tool_payload_is_error(&json!({"isError": true})));
+        assert!(!mcp_tool_payload_is_error(&json!({"isError": false})));
+        assert!(!mcp_tool_payload_is_error(&json!({"content": []})));
     }
 
     #[tokio::test]
@@ -357,7 +376,8 @@ mod tests {
     async fn gateway_reports_auth_shaped_mcp_transport_errors() {
         let store = test_store().await;
         let temp_dir = tempfile::tempdir().expect("temp dir");
-        let system_errors = SystemErrorLogger::new(temp_dir.path().join("errors.log"));
+        let errors_log_path = temp_dir.path().join("errors.log");
+        let system_errors = SystemErrorLogger::new(&errors_log_path);
         let gateway = CapabilityGateway {
             store: &store,
             system_errors: &system_errors,
@@ -376,6 +396,18 @@ mod tests {
         );
 
         assert_eq!(error, "mcp_authentication_failed");
+        let events =
+            crate::system_errors::read_system_error_events(&errors_log_path).expect("error events");
+        assert_eq!(events.len(), 1);
+        assert_eq!(
+            events[0]["category"],
+            crate::SYSTEM_ERROR_MCP_TOOL_CALL_FAILURE
+        );
+        assert_eq!(events[0]["context"]["mcp_server_id"], "mcp:dex");
+        assert_eq!(events[0]["context"]["tool_name"], "dex_search_contacts");
+        assert!(events[0]["message"].as_str().is_some_and(|message| {
+            message.contains("unauthorized") && message.contains("Authentication failed")
+        }));
     }
 
     #[test]
