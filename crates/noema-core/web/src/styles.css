@@ -270,3 +270,9 @@ html[data-tauri-runtime="true"] #root {
   max-width: 100%;
   min-width: 0;
 }
+
+.astryx-chat-tool-calls [role="button"] {
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
