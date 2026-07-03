@@ -1,6 +1,5 @@
 import { AgentsSettingsPane } from "@/components/settings/AgentsSettingsPane";
 import { ApprovalsSettingsPane } from "@/components/settings/ApprovalsSettingsPane";
-import { AuditSettingsPane } from "@/components/settings/AuditSettingsPane";
 import { McpSettingsPane } from "@/components/settings/McpSettingsPane";
 import { ProvidersSettingsPane } from "@/components/settings/ProvidersSettingsPane";
 import { TrustedIdentitiesSettingsPane } from "@/components/settings/TrustedIdentitiesSettingsPane";
@@ -32,10 +31,6 @@ const settingsSectionCopy: Record<SettingsSection, { title: string; description:
   approvals: {
     title: "Approvals",
     description: "Review pending MCP approval checkpoints."
-  },
-  audit: {
-    title: "Audit",
-    description: "Review mediated MCP activity records."
   }
 };
 
@@ -73,8 +68,6 @@ function SettingsSectionPane({ section }: { section: SettingsSection }) {
       return <TrustedIdentitiesSettingsPane />;
     case "approvals":
       return <ApprovalsSettingsPane />;
-    case "audit":
-      return <AuditSettingsPane />;
     case "providers":
       return <ProvidersSettingsPane />;
   }

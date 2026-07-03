@@ -24,7 +24,7 @@ import {
 import { MemoryGraphPage } from "./pages/MemoryGraphPage";
 import { MemoryHomePage } from "./pages/MemoryHomePage";
 import { SettingsSurface } from "./pages/SettingsPage";
-import { useBrowserRoute, type AppRoute } from "./routes";
+import { useBrowserRoute } from "./routes";
 import { entriesFromReplay, handleConversationEvent, pushTranscript } from "./transcript";
 import type { ConversationAgentStatus, SocketState, TranscriptEntry } from "./types";
 
@@ -67,16 +67,6 @@ export function shouldRefreshLocalStatusForConversationEvent(event: unknown) {
     action.name === "update_own_name" &&
     action.success === true
   );
-}
-
-export function shouldRouteThroughAppShell({
-  route,
-  onboarded
-}: {
-  route: AppRoute;
-  onboarded: boolean;
-}) {
-  return onboarded && Boolean(route);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

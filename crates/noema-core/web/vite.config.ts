@@ -31,10 +31,11 @@ export default defineConfig({
     }
   },
   build: {
-    outDir: "../src/daemon/web/assets",
+    outDir: "../target/web-assets",
     emptyOutDir: true,
     rollupOptions: {
       output: {
+        inlineDynamicImports: true,
         entryFileNames: "app.js",
         chunkFileNames: "[name].js",
         assetFileNames: (assetInfo) => {

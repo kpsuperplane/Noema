@@ -1,4 +1,5 @@
 /target/
+/crates/noema-core/target/
 /crates/noema-desktop/gen/
 node_modules/
 .noema-dev/

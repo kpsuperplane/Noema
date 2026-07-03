@@ -5,8 +5,7 @@ export type SettingsSection =
   | "agents"
   | "mcps"
   | "trusted-identities"
-  | "approvals"
-  | "audit";
+  | "approvals";
 
 export type AppRoute =
   | { kind: "chat" }
@@ -38,9 +37,6 @@ export function routeFromPathname(pathname: string): AppRoute {
   if (pathname === "/settings/approvals") {
     return { kind: "settings", section: "approvals" };
   }
-  if (pathname === "/settings/audit") {
-    return { kind: "settings", section: "audit" };
-  }
   return { kind: "chat" };
 }
 
@@ -61,10 +57,6 @@ export function shouldRememberAsPreviousAppRoute(
   route: AppRoute
 ): route is NonSettingsAppRoute {
   return route.kind !== "settings";
-}
-
-export function settingsFallbackRoute(route: NonSettingsAppRoute | null): NonSettingsAppRoute {
-  return route ?? { kind: "chat" };
 }
 
 export type SettingsBackNavigation =

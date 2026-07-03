@@ -4,7 +4,6 @@ import {
   Brain,
   CheckSquare,
   Fingerprint,
-  History,
   House,
   PlugZap,
   ServerCog,
@@ -24,7 +23,6 @@ export type ShellMenuItemId =
   | "settings.mcps"
   | "settings.trusted-identities"
   | "settings.approvals"
-  | "settings.audit"
   | "settings.go-back";
 
 export type ShellMenuSelectionBehavior = "close-reveal" | "keep-reveal-open";
@@ -68,8 +66,7 @@ export const shellSettingsSections: ShellSettingsSection[] = [
     label: "Trusted identities",
     icon: Fingerprint
   },
-  { section: "approvals", itemId: "settings.approvals", label: "Approvals", icon: CheckSquare },
-  { section: "audit", itemId: "settings.audit", label: "Audit", icon: History }
+  { section: "approvals", itemId: "settings.approvals", label: "Approvals", icon: CheckSquare }
 ];
 
 export function activeL0ItemId(route: AppRoute): Extract<ShellMenuItemId, "home" | "memory"> {

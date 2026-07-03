@@ -44,10 +44,10 @@ pub(super) fn is_spa_entry_path(path: &str) -> bool {
 #[cfg(not(debug_assertions))]
 pub(super) fn asset_body(name: &str) -> Option<Cow<'static, [u8]>> {
     let body: &'static [u8] = match name {
-        "index.html" => include_bytes!("assets/index.html"),
-        "app.js" => include_bytes!("assets/app.js"),
-        "styles.css" => include_bytes!("assets/styles.css"),
-        "noema-mark.svg" => include_bytes!("assets/noema-mark.svg"),
+        "index.html" => include_bytes!("../../../target/web-assets/index.html"),
+        "app.js" => include_bytes!("../../../target/web-assets/app.js"),
+        "styles.css" => include_bytes!("../../../target/web-assets/styles.css"),
+        "noema-mark.svg" => include_bytes!("../../../target/web-assets/noema-mark.svg"),
         _ => return None,
     };
     Some(Cow::Borrowed(body))
@@ -60,6 +60,6 @@ pub(super) fn asset_body(name: &str) -> Option<Cow<'static, [u8]>> {
 /// running `vite build --watch`) without forcing a recompile of this crate.
 #[cfg(debug_assertions)]
 pub(super) fn asset_body(name: &str) -> Option<Cow<'static, [u8]>> {
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/daemon/web/assets");
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target/web-assets");
     std::fs::read(dir.join(name)).ok().map(Cow::Owned)
 }
