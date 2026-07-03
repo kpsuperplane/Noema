@@ -3,10 +3,11 @@ import type { TurnTranscriptItem } from "@/shared/types";
 import type { ToolMarkerGroup } from "./renderModel";
 type MemoryDetailRowData = { label: string; value: string };
 type MemoryClaimOutcome = {
-  claimId: string;
-  outcome: "created" | "reinforced";
+  claimId?: string;
+  outcome: "created" | "reinforced" | "needs_review" | "disputed" | "related" | "superseded";
   factPreview?: string;
   sensitivity?: string;
+  status?: string;
 };
 
 type MemoryDetailItem = {
@@ -27,20 +28,36 @@ function memoryClaimOutcomes(metadata: unknown): MemoryClaimOutcome[] {
       return [];
     }
     const record = outcome as Record<string, unknown>;
-    const claimId = typeof record.claim_id === "string" ? record.claim_id : "";
+    const claimId = typeof record.claim_id === "string" && record.claim_id.trim() ? record.claim_id : undefined;
     const rawOutcome = record.outcome;
-    if (!claimId || (rawOutcome !== "created" && rawOutcome !== "reinforced")) {
+    if (!isMemoryOutcome(rawOutcome)) {
+      return [];
+    }
+    const factPreview = typeof record.fact_preview === "string" ? record.fact_preview : undefined;
+    if (!claimId && !factPreview) {
       return [];
     }
     return [
       {
         claimId,
         outcome: rawOutcome,
-        factPreview: typeof record.fact_preview === "string" ? record.fact_preview : undefined,
-        sensitivity: typeof record.sensitivity === "string" ? record.sensitivity : undefined
+        factPreview,
+        sensitivity: typeof record.sensitivity === "string" ? record.sensitivity : undefined,
+        status: typeof record.status === "string" ? record.status : undefined
       }
     ];
   });
+}
+
+function isMemoryOutcome(value: unknown): value is MemoryClaimOutcome["outcome"] {
+  return (
+    value === "created" ||
+    value === "reinforced" ||
+    value === "needs_review" ||
+    value === "disputed" ||
+    value === "related" ||
+    value === "superseded"
+  );
 }
 
 export function metadataCount(metadata: unknown, key: string): number {
@@ -66,17 +83,42 @@ export function memoryMarkerLabel(extraction?: Extract<TurnTranscriptItem, { kin
   }
   if (outcomes.length === 1 && failedCount === 0) {
     const outcome = outcomes[0];
-    const verb = outcome.outcome === "reinforced" ? "Memory updated" : "Memory saved";
+    const verb = memoryOutcomeMarkerVerb(outcome.outcome);
     return outcome.factPreview ? `${verb}: ${outcome.factPreview}` : verb;
   }
 
   const createdCount = metadataCount(extraction.metadata, "created_claim_count");
   const reinforcedCount = metadataCount(extraction.metadata, "reinforced_claim_count");
-  const savedCount = createdCount + reinforcedCount || outcomes.length;
+  const reviewCount =
+    metadataCount(extraction.metadata, "needs_review_claim_count") +
+    metadataCount(extraction.metadata, "predicate_proposal_count") +
+    metadataCount(extraction.metadata, "disputed_claim_count");
+  const savedCount = createdCount + reinforcedCount || outcomes.filter((outcome) => isSavedOutcome(outcome.outcome)).length;
   const noun = savedCount === 1 ? "memory" : "memories";
-  const prefix = createdCount > 0 ? "Memory saved" : "Memory updated";
+  const prefix = savedCount > 0 ? (createdCount > 0 ? "Memory saved" : "Memory updated") : "Memory needs review";
+  const countLabel = savedCount > 0 ? `${savedCount} ${noun}` : `${reviewCount || outcomes.length} ${reviewCount === 1 || outcomes.length === 1 ? "memory" : "memories"}`;
   const failureSuffix = failedCount > 0 ? `; ${failedCount} failed` : "";
-  return `${prefix}: ${savedCount} ${noun}${failureSuffix}`;
+  return `${prefix}: ${countLabel}${failureSuffix}`;
+}
+
+function memoryOutcomeMarkerVerb(outcome: MemoryClaimOutcome["outcome"]): string {
+  switch (outcome) {
+    case "created":
+      return "Memory saved";
+    case "reinforced":
+      return "Memory updated";
+    case "superseded":
+      return "Memory replaced";
+    case "related":
+      return "Related memory saved";
+    case "disputed":
+    case "needs_review":
+      return "Memory needs review";
+  }
+}
+
+function isSavedOutcome(outcome: MemoryClaimOutcome["outcome"]): boolean {
+  return outcome === "created" || outcome === "reinforced" || outcome === "related" || outcome === "superseded";
 }
 
 export function memoryCardsFromClaimOutcomes(
@@ -84,9 +126,9 @@ export function memoryCardsFromClaimOutcomes(
 ): MemoryCardData[] {
   return memoryClaimOutcomes(extraction?.metadata).map((outcome) => ({
     id: outcome.claimId,
-    title: outcome.factPreview ?? outcome.claimId,
-    content: outcome.factPreview ?? outcome.claimId,
-    status: outcome.outcome,
+    title: outcome.factPreview ?? outcome.claimId ?? "Memory",
+    content: outcome.factPreview ?? outcome.claimId ?? "Memory",
+    status: humanStatusLabel(outcome.status ?? outcome.outcome),
     sensitivity: outcome.sensitivity
   }));
 }
@@ -101,16 +143,13 @@ export function memoryDetailItems(memories: MemoryCardData[]): MemoryDetailItem[
       rows.push({ label: "Sensitivity", value: memory.sensitivity });
     }
     if (memory.status) {
-      rows.push({ label: "Status", value: memory.status });
+      rows.push({ label: "Status", value: humanStatusLabel(memory.status) });
     }
     if (typeof memory.confidence === "number") {
       rows.push({ label: "Confidence", value: `${Math.round(memory.confidence * 100)}%` });
     }
     if (memory.evidenceExcerpt) {
       rows.push({ label: "Evidence", value: memory.evidenceExcerpt });
-    }
-    if (memory.id) {
-      rows.push({ label: "Memory ID", value: memory.id });
     }
     return { title: memory.title, rows };
   });
@@ -146,7 +185,7 @@ export function formatToolDetail(fallback: string, metadata: unknown): string {
   if (!preview.length) {
     return fallback;
   }
-  return [fallback, ...preview].join("\n");
+  return preview.join("\n");
 }
 
 function safeToolMetadataPreview(metadata: unknown): string[] {
@@ -154,31 +193,21 @@ function safeToolMetadataPreview(metadata: unknown): string[] {
     return [];
   }
 
-  const rows: string[] = [];
-  const provider = stringValue(metadata.provider);
-  if (provider) {
-    rows.push(`Provider: ${provider}`);
+  const display = isRecord(metadata.display) ? metadata.display : null;
+  const displayRows = displayToolMetadataPreview(display);
+  if (displayRows.length) {
+    return displayRows;
   }
 
+  const rows: string[] = [];
   const action = isRecord(metadata.action) ? metadata.action : null;
   const actionName = stringValue(action?.name);
   if (actionName) {
-    rows.push(`Tool: ${actionName}`);
-  }
-  const actionId = stringValue(action?.id) ?? stringValue(action?.call_id);
-  if (actionId) {
-    rows.push(`Call ID: ${actionId}`);
+    rows.push(readableToolName(actionName));
   }
   const success = action?.success;
   if (typeof success === "boolean") {
-    rows.push(`Success: ${success ? "yes" : "no"}`);
-  }
-
-  const hasHiddenMetadata =
-    Object.keys(metadata).some((key) => !["provider", "action"].includes(key)) ||
-    (action ? Object.keys(action).some((key) => !["id", "call_id", "name", "success"].includes(key)) : false);
-  if (hasHiddenMetadata || rows.length === 0) {
-    rows.push("Additional metadata hidden from normal transcript view.");
+    rows.push(`Result: ${success ? "Completed" : "Failed"}`);
   }
 
   return rows;
@@ -189,17 +218,98 @@ function toolNameFromMetadata(metadata: unknown): string | null {
     return null;
   }
 
+  const display = metadata.display;
+  if (isRecord(display) && typeof display.name === "string" && display.name.trim()) {
+    return display.name;
+  }
   const action = metadata.action;
   if (isRecord(action) && typeof action.name === "string" && action.name.trim()) {
-    return action.name;
+    return readableToolName(action.name);
   }
   if (typeof metadata.name === "string" && metadata.name.trim()) {
-    return metadata.name;
+    return readableToolName(metadata.name);
   }
   if (typeof metadata.tool_name === "string" && metadata.tool_name.trim()) {
-    return metadata.tool_name;
+    return readableToolName(metadata.tool_name);
   }
   return null;
+}
+
+export function toolMarkerTarget(marker: ToolMarkerGroup): string | undefined {
+  return (
+    toolDisplayString(marker.result?.item.metadata, "result") ??
+    toolDisplayString(marker.result?.item.metadata, "target") ??
+    toolDisplayString(marker.call?.item.metadata, "target")
+  );
+}
+
+function displayToolMetadataPreview(display: Record<string, unknown> | null): string[] {
+  if (!display) {
+    return [];
+  }
+  const rows: string[] = [];
+  const name = stringValue(display.name);
+  if (name) {
+    rows.push(name);
+  }
+  appendDisplayRow(rows, "Purpose", stringValue(display.purpose));
+  appendDisplayRow(rows, "Access", stringValue(display.access));
+  appendDisplayRow(rows, "Scope", stringValue(display.scope));
+  appendDisplayRow(rows, "Approval", stringValue(display.approval));
+  appendDisplayRow(rows, "Result", stringValue(display.result));
+  return rows;
+}
+
+function appendDisplayRow(rows: string[], label: string, value: string | null) {
+  if (value) {
+    rows.push(`${label}: ${value}`);
+  }
+}
+
+function toolDisplayString(metadata: unknown, key: string): string | undefined {
+  if (!isRecord(metadata) || !isRecord(metadata.display)) {
+    return undefined;
+  }
+  return stringValue(metadata.display[key]) ?? undefined;
+}
+
+function readableToolName(name: string): string {
+  const trimmed = name.trim();
+  if (trimmed === "search_memory") {
+    return "Search memory";
+  }
+  if (trimmed === "update_own_name") {
+    return "Update agent name";
+  }
+  const lastSegment = trimmed.split(".").filter(Boolean).at(-1) ?? trimmed;
+  return lastSegment
+    .split(/[_-]+/g)
+    .filter(Boolean)
+    .map((part, index) => {
+      const lower = part.toLowerCase();
+      return index === 0 ? lower.charAt(0).toUpperCase() + lower.slice(1) : lower;
+    })
+    .join(" ");
+}
+
+function humanStatusLabel(status: string): string {
+  switch (status) {
+    case "created":
+      return "Saved";
+    case "reinforced":
+      return "Updated";
+    case "needs_review":
+    case "candidate":
+      return "Needs review";
+    case "disputed":
+      return "Disputed";
+    case "related":
+      return "Related";
+    case "superseded":
+      return "Replaced";
+    default:
+      return status;
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

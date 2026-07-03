@@ -2599,7 +2599,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn memory_claims_list_redacts_non_public_facts() {
+    async fn memory_claims_list_returns_owner_visible_non_public_facts() {
         use crate::{
             ActorRef, ClaimStatus, ConversationItemKind, ConversationItemStatus, EntityCandidate,
             EvidenceAuthority, EvidenceCandidate, NewClaimCandidate, NewConversation,
@@ -2681,19 +2681,10 @@ mod tests {
         );
         let data = list_response.data.into_json().expect("json");
         assert_eq!(data["memoryClaims"][0]["claimId"], summary.claim_id);
-        assert_eq!(
-            data["memoryClaims"][0]["fact"],
-            "[redacted; use memoryClaim(claimId) for detail]"
-        );
-        assert_eq!(
-            data["memoryClaims"][0]["subjectEntityName"],
-            "[redacted; use memoryClaim(claimId) for detail]"
-        );
-        assert_eq!(
-            data["memoryClaims"][0]["objectEntityName"],
-            "[redacted; use memoryClaim(claimId) for detail]"
-        );
-        assert_eq!(data["memoryClaims"][0]["factRedacted"], true);
+        assert_eq!(data["memoryClaims"][0]["fact"], private_note);
+        assert_eq!(data["memoryClaims"][0]["subjectEntityName"], "Local human");
+        assert_eq!(data["memoryClaims"][0]["objectEntityName"], private_note);
+        assert_eq!(data["memoryClaims"][0]["factRedacted"], false);
         assert_eq!(data["memoryClaims"][0]["sensitivity"], "private");
 
         let detail_response = schema

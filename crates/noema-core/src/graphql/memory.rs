@@ -16,9 +16,9 @@ use super::{errors::graphql_error, schema::GraphqlState};
 pub struct GraphqlMemoryClaim {
     /// Stable claim id.
     pub claim_id: String,
-    /// Conservative fact preview. Non-public facts are redacted in list views.
+    /// Fact text visible to the current memory-management principal.
     pub fact: String,
-    /// Whether the fact was redacted at the GraphQL boundary.
+    /// Whether the fact was redacted at the GraphQL boundary for this principal.
     pub fact_redacted: bool,
     /// Predicate id.
     pub predicate_id: String,
@@ -52,23 +52,17 @@ pub struct GraphqlMemoryClaim {
 
 impl From<MemoryClaimRecord> for GraphqlMemoryClaim {
     fn from(claim: MemoryClaimRecord) -> Self {
-        let fact_redacted = claim.sensitivity != Sensitivity::Public;
         Self {
             claim_id: claim.claim_id,
-            fact: graphql_list_fact(&claim.fact, claim.sensitivity),
-            fact_redacted,
+            fact: claim.fact,
+            fact_redacted: false,
             predicate_id: claim.predicate_id,
             predicate_label: claim.predicate_label,
             subject_entity_id: claim.subject_entity_id,
-            subject_entity_name: graphql_list_display_name(
-                claim.subject_entity_name,
-                claim.sensitivity,
-            ),
+            subject_entity_name: claim.subject_entity_name,
             subject_entity_type: claim.subject_entity_type,
             object_entity_id: claim.object_entity_id,
-            object_entity_name: claim
-                .object_entity_name
-                .map(|name| graphql_list_display_name(name, claim.sensitivity)),
+            object_entity_name: claim.object_entity_name,
             object_entity_type: claim.object_entity_type,
             status: claim.status.as_str().to_string(),
             sensitivity: claim.sensitivity.as_str().to_string(),
@@ -77,26 +71,6 @@ impl From<MemoryClaimRecord> for GraphqlMemoryClaim {
             created_at: claim.created_at,
             updated_at: claim.updated_at,
         }
-    }
-}
-
-fn graphql_list_fact(fact: &str, sensitivity: Sensitivity) -> String {
-    match sensitivity {
-        Sensitivity::Public => fact.to_string(),
-        Sensitivity::Normal
-        | Sensitivity::Private
-        | Sensitivity::Sensitive
-        | Sensitivity::Secret => "[redacted; use memoryClaim(claimId) for detail]".to_string(),
-    }
-}
-
-fn graphql_list_display_name(name: String, sensitivity: Sensitivity) -> String {
-    match sensitivity {
-        Sensitivity::Public => name,
-        Sensitivity::Normal
-        | Sensitivity::Private
-        | Sensitivity::Sensitive
-        | Sensitivity::Secret => "[redacted; use memoryClaim(claimId) for detail]".to_string(),
     }
 }
 

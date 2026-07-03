@@ -9,7 +9,8 @@ import {
   memoryMarkerLabel,
   metadataCount,
   toolMarkerName,
-  toolMarkerPending
+  toolMarkerPending,
+  toolMarkerTarget
 } from "./markerModel";
 import type { ToolMarkerGroup } from "./renderModel";
 import { ToolDetailAttachment } from "./ToolDetailAttachment";
@@ -210,7 +211,7 @@ function toolMarkerCalls(data: ToolMarkerData): ToolMarkerCall[] {
 }
 
 function activityToolMarkerCall(marker: ToolMarkerGroup): ToolMarkerCall {
-  const target = marker.result?.item.summary ?? marker.call?.item.summary;
+  const target = toolMarkerTarget(marker);
   const errorMessage =
     marker.result?.item.status === "FAILED" ? marker.result.item.summary ?? marker.result.item.title : undefined;
   const call: ToolMarkerCall = {

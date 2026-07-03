@@ -22,7 +22,7 @@ export function MemoryHomePage({ onOpenGraph }: { onOpenGraph: () => void }) {
           <div {...stylex.props(styles.graphText)}>
             <strong {...stylex.props(styles.graphTitle)}>Owner inspection graph</strong>
             <span {...stylex.props(styles.graphDescription)}>
-              Inspect full graph claims, entity links, and evidence.
+              Inspect full memories, entity links, and evidence.
             </span>
           </div>
         </div>

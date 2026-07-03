@@ -16,7 +16,7 @@ export function MemoryGraphDetailPanel({ selectedEdge }: { selectedEdge: Normali
     return (
       <aside {...stylex.props(styles.root)}>
         <h2 {...stylex.props(styles.panelTitle)}>Memory detail</h2>
-        <p {...stylex.props(styles.mutedText)}>Select a claim edge to inspect evidence.</p>
+        <p {...stylex.props(styles.mutedText)}>Select a memory link to inspect evidence.</p>
       </aside>
     );
   }
@@ -51,7 +51,7 @@ export function MemoryGraphDetailPanel({ selectedEdge }: { selectedEdge: Normali
       {detail.error ? <p {...stylex.props(styles.errorText)}>{detail.error.message}</p> : null}
       {claimUnavailable ? (
         <p {...stylex.props(styles.mutedText)}>
-          Claim detail is unavailable. The graph edge summary remains visible.
+          Memory detail is unavailable. The graph summary remains visible.
         </p>
       ) : null}
 

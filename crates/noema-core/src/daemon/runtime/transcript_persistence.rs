@@ -169,6 +169,7 @@ impl CodexRuntimeActor {
     ) -> Result<(), DaemonError> {
         match output {
             GenerateOutputItem::ToolCall { id, name, payload } => {
+                let display = tool_call_display(&name, &payload);
                 self.persist_provider_action_output(
                     turn,
                     ProviderActionOutput {
@@ -177,12 +178,13 @@ impl CodexRuntimeActor {
                         status: ConversationItemStatus::Completed,
                         action_kind: "tool_call",
                         title: format!("Tool call: {name}"),
-                        summary: id.as_deref().map(|id| format!("provider id {id}")),
+                        summary: display_summary(&display, "target"),
                         payload: json!({
                             "id": id,
                             "name": name,
                             "payload": payload,
                         }),
+                        display,
                     },
                     item_tx,
                 )
@@ -199,6 +201,7 @@ impl CodexRuntimeActor {
                 } else {
                     ConversationItemStatus::Completed
                 };
+                let display = tool_result_display(name.as_deref(), success, &payload);
                 self.persist_provider_action_output(
                     turn,
                     ProviderActionOutput {
@@ -210,13 +213,14 @@ impl CodexRuntimeActor {
                             || "Tool result".to_string(),
                             |name| format!("Tool result: {name}"),
                         ),
-                        summary: call_id.as_deref().map(|id| format!("call id {id}")),
+                        summary: display_summary(&display, "result"),
                         payload: json!({
                             "call_id": call_id,
                             "name": name,
                             "success": success,
                             "payload": payload,
                         }),
+                        display,
                     },
                     item_tx,
                 )
@@ -238,8 +242,14 @@ impl CodexRuntimeActor {
                         summary: Some(method.clone()),
                         payload: json!({
                             "id": id,
-                            "method": method,
+                            "method": method.clone(),
                             "payload": payload,
+                        }),
+                        display: json!({
+                            "name": "Approval requested",
+                            "purpose": "Ask before taking an external action",
+                            "access": "Requires approval",
+                            "target": method.clone(),
                         }),
                     },
                     item_tx,
@@ -259,11 +269,15 @@ impl CodexRuntimeActor {
                         status: ConversationItemStatus::Completed,
                         action_kind: "approval_result",
                         title: format!("Approval {decision}"),
-                        summary: request_id.as_deref().map(|id| format!("request id {id}")),
+                        summary: Some(decision.clone()),
                         payload: json!({
                             "request_id": request_id,
-                            "decision": decision,
+                            "decision": decision.clone(),
                             "payload": payload,
+                        }),
+                        display: json!({
+                            "name": "Approval decision",
+                            "result": decision.clone(),
                         }),
                     },
                     item_tx,
@@ -301,6 +315,7 @@ impl CodexRuntimeActor {
                 "output_index": action.index,
                 "provider": turn.provider.clone(),
                 "action": action.payload,
+                "display": action.display,
             },
         });
         let content_text = payload_json
@@ -604,11 +619,12 @@ fn send_tool_call_started_transient(
         "tool_call",
         TurnActivityStatus::Started,
         &format!("Tool call: {name}"),
-        Some("tool call is streaming"),
+        Some("preparing tool"),
         json!({
             "turn_index": context.turn_index,
             "output_index": output_index,
             "source": "provider_structured_output",
+            "display": tool_call_display(name, &json!({})),
             "action": {
                 "name": name,
             },
@@ -661,6 +677,218 @@ const fn activity_status_payload(status: TurnActivityStatus) -> &'static str {
         TurnActivityStatus::Started => "started",
         TurnActivityStatus::Completed => "completed",
         TurnActivityStatus::Failed => "failed",
+    }
+}
+
+fn tool_call_display(name: &str, payload: &Value) -> Value {
+    let arguments = tool_arguments(payload);
+    let mut display = json!({
+        "name": readable_tool_name(name),
+        "access": tool_access_label(name),
+    });
+
+    if name == "search_memory" {
+        insert_display_value(
+            &mut display,
+            "purpose",
+            purpose_label(arguments.get("purpose").and_then(Value::as_str)),
+        );
+        insert_display_value(
+            &mut display,
+            "scope",
+            scope_label(arguments.get("scope_ids")),
+        );
+        let query = arguments
+            .get("query")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        insert_display_value(
+            &mut display,
+            "target",
+            Some(query.map_or_else(
+                || "Scoped memories".to_string(),
+                |query| format!("Memory search: {query}"),
+            )),
+        );
+    } else if name == "update_own_name" {
+        insert_display_value(
+            &mut display,
+            "purpose",
+            Some("Save the agent name you requested".to_string()),
+        );
+        if let Some(agent_name) = arguments.get("name").and_then(Value::as_str) {
+            insert_display_value(&mut display, "target", Some(format!("Name: {agent_name}")));
+        }
+    } else {
+        insert_display_value(
+            &mut display,
+            "purpose",
+            Some("Use an enabled connected tool".to_string()),
+        );
+    }
+
+    display
+}
+
+fn tool_result_display(name: Option<&str>, success: Option<bool>, payload: &Value) -> Value {
+    let name = name.unwrap_or("tool");
+    let mut display = json!({
+        "name": readable_tool_name(name),
+        "access": tool_access_label(name),
+    });
+
+    if name == "search_memory" {
+        insert_display_value(&mut display, "scope", scope_label(payload.get("scope_ids")));
+        insert_display_value(
+            &mut display,
+            "result",
+            Some(memory_search_result_label(payload)),
+        );
+    } else if name == "update_own_name" {
+        let result = payload
+            .get("display_name")
+            .and_then(Value::as_str)
+            .map(|display_name| format!("Saved name: {display_name}"))
+            .unwrap_or_else(|| success_result_label(success, payload));
+        insert_display_value(&mut display, "result", Some(result));
+    } else {
+        insert_display_value(
+            &mut display,
+            "result",
+            Some(success_result_label(success, payload)),
+        );
+    }
+
+    display
+}
+
+fn display_summary(display: &Value, key: &str) -> Option<String> {
+    display
+        .get(key)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
+}
+
+fn tool_arguments(payload: &Value) -> &Value {
+    payload.get("arguments").unwrap_or(payload)
+}
+
+fn readable_tool_name(name: &str) -> String {
+    match name {
+        "search_memory" => "Search memory".to_string(),
+        "update_own_name" => "Update agent name".to_string(),
+        other => other
+            .split('.')
+            .next_back()
+            .unwrap_or(other)
+            .split(['_', '-'])
+            .filter(|part| !part.is_empty())
+            .enumerate()
+            .map(|(index, part)| {
+                let lower = part.to_ascii_lowercase();
+                if index == 0 {
+                    let mut chars = lower.chars();
+                    chars
+                        .next()
+                        .map(|first| first.to_ascii_uppercase().to_string() + chars.as_str())
+                        .unwrap_or(lower)
+                } else {
+                    lower
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(" "),
+    }
+}
+
+fn tool_access_label(name: &str) -> &'static str {
+    match name {
+        "search_memory" => "Reads memory",
+        "update_own_name" => "Updates agent profile",
+        _ => "Uses a connected tool",
+    }
+}
+
+fn purpose_label(purpose: Option<&str>) -> Option<String> {
+    match purpose {
+        Some("answer_human_question") => {
+            Some("Answer the question from saved memories".to_string())
+        }
+        Some("personalize_response") => {
+            Some("Personalize this response from saved memories".to_string())
+        }
+        Some("continue_task") => Some("Continue the current task with saved context".to_string()),
+        Some("use_tool") => Some("Use saved context before a tool action".to_string()),
+        Some(other) => Some(other.replace('_', " ")),
+        None => None,
+    }
+}
+
+fn scope_label(scope_ids: Option<&Value>) -> Option<String> {
+    let scopes = scope_ids?.as_array()?;
+    let labels = scopes
+        .iter()
+        .filter_map(Value::as_str)
+        .filter(|scope| !scope.trim().is_empty())
+        .collect::<Vec<_>>();
+    if labels.is_empty() {
+        None
+    } else {
+        Some(labels.join(", "))
+    }
+}
+
+fn memory_search_result_label(payload: &Value) -> String {
+    if let Some(error) = payload.get("error").and_then(Value::as_str) {
+        return format!("Failed: {error}");
+    }
+    let memory_count = payload
+        .get("memories")
+        .and_then(Value::as_array)
+        .map_or(0, Vec::len);
+    let mut result = match memory_count {
+        0 => "Found no memories".to_string(),
+        1 => "Found 1 memory".to_string(),
+        count => format!("Found {count} memories"),
+    };
+    let omission_count = payload
+        .get("omissions")
+        .and_then(Value::as_array)
+        .map(|omissions| {
+            omissions
+                .iter()
+                .filter_map(|omission| omission.get("count").and_then(Value::as_u64))
+                .sum::<u64>()
+        })
+        .unwrap_or(0);
+    if omission_count > 0 {
+        result.push_str(&format!("; {omission_count} omitted by policy"));
+    }
+    result
+}
+
+fn success_result_label(success: Option<bool>, payload: &Value) -> String {
+    if let Some(error) = payload.get("error").and_then(Value::as_str) {
+        return format!("Failed: {error}");
+    }
+    match success {
+        Some(false) => "Failed".to_string(),
+        _ => "Completed".to_string(),
+    }
+}
+
+fn insert_display_value(display: &mut Value, key: &str, value: Option<String>) {
+    let Some(value) = value else {
+        return;
+    };
+    if value.trim().is_empty() {
+        return;
+    }
+    if let Some(object) = display.as_object_mut() {
+        object.insert(key.to_string(), Value::String(value));
     }
 }
 

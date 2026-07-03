@@ -228,6 +228,7 @@ impl CodexRuntimeActor {
                                     "outcome": outcome.outcome,
                                     "fact_preview": outcome.fact_preview,
                                     "sensitivity": outcome.sensitivity,
+                                    "status": outcome.status.as_str(),
                                 }));
                                 if let Some(claim_id) = outcome.claim_id {
                                     claim_ids.push(claim_id);
@@ -256,6 +257,7 @@ impl CodexRuntimeActor {
                                     "predicate_proposal_id": record.proposal_id,
                                     "fact_preview": fact_preview(&canonical.fact),
                                     "sensitivity": canonical.sensitivity.as_str(),
+                                    "status": "candidate",
                                 }));
                             }
                             Err(error) => {
@@ -594,7 +596,7 @@ impl CodexRuntimeActor {
                     ),
                     TurnActivityStatus::Completed,
                     "Explicit memory saved",
-                    Some("saved graph claim"),
+                    Some("saved memory"),
                     json!({
                         "turn_index": context.turn_index,
                         "trigger": "explicit_remember",
@@ -621,7 +623,7 @@ impl CodexRuntimeActor {
                     ),
                     TurnActivityStatus::Failed,
                     "Explicit memory save failed",
-                    Some("graph claim write failed"),
+                    Some("memory save failed"),
                     json!({
                         "turn_index": context.turn_index,
                         "trigger": "explicit_remember",
@@ -645,7 +647,7 @@ fn provider_memory_claim_activity(
     if failed_count == 0 {
         return (
             TurnActivityStatus::Completed,
-            "Memory persisted",
+            "Memory saved",
             provider_memory_claim_summary(saved_count, failed_count),
         );
     }
@@ -656,25 +658,21 @@ fn provider_memory_claim_activity(
         } else {
             provider_memory_claim_summary(saved_count, failed_count)
         };
-        return (
-            TurnActivityStatus::Failed,
-            "Memory persistence failed",
-            summary,
-        );
+        return (TurnActivityStatus::Failed, "Memory update failed", summary);
     }
 
     (
         TurnActivityStatus::Failed,
-        "Memory persistence partially failed",
+        "Memory update partially failed",
         provider_memory_claim_summary(saved_count, failed_count),
     )
 }
 
 fn provider_memory_single_failure_summary(error: Option<&str>) -> String {
     if error.is_some_and(|error| error.contains("memory canonicalization failed")) {
-        "memory canonicalization failed".to_string()
+        "memory could not be prepared".to_string()
     } else {
-        "graph claim write failed".to_string()
+        "memory save failed".to_string()
     }
 }
 
@@ -684,6 +682,7 @@ fn claim_outcome_json(summary: &crate::ClaimSummary) -> Value {
         "outcome": claim_write_outcome_label(summary.write_outcome),
         "fact_preview": fact_preview(&summary.fact),
         "sensitivity": summary.sensitivity.as_str(),
+        "status": summary.status.as_str(),
     })
 }
 
@@ -753,14 +752,14 @@ const fn saved_claim_counts_as_active(status: crate::ClaimStatus) -> bool {
 
 fn provider_memory_claim_summary(saved_count: usize, failed_count: usize) -> String {
     match (saved_count, failed_count) {
-        (1, 0) => "saved 1 graph claim".to_string(),
-        (count, 0) => format!("saved {count} graph claims"),
-        (0, 1) => "saved 0 graph claims; 1 proposal failed".to_string(),
-        (0, failed) => format!("saved 0 graph claims; {failed} proposals failed"),
-        (1, 1) => "saved 1 graph claim; 1 proposal failed".to_string(),
-        (1, failed) => format!("saved 1 graph claim; {failed} proposals failed"),
-        (saved, 1) => format!("saved {saved} graph claims; 1 proposal failed"),
-        (saved, failed) => format!("saved {saved} graph claims; {failed} proposals failed"),
+        (1, 0) => "saved 1 memory".to_string(),
+        (count, 0) => format!("saved {count} memories"),
+        (0, 1) => "saved 0 memories; 1 proposal failed".to_string(),
+        (0, failed) => format!("saved 0 memories; {failed} proposals failed"),
+        (1, 1) => "saved 1 memory; 1 proposal failed".to_string(),
+        (1, failed) => format!("saved 1 memory; {failed} proposals failed"),
+        (saved, 1) => format!("saved {saved} memories; 1 proposal failed"),
+        (saved, failed) => format!("saved {saved} memories; {failed} proposals failed"),
     }
 }
 
@@ -771,19 +770,19 @@ fn provider_memory_review_summary(
 ) -> String {
     let reviewed = predicate_proposal_count + review_claim_count;
     let reviewed_label = match (predicate_proposal_count, review_claim_count) {
-        (0, 1) => "stored 1 graph claim for review".to_string(),
-        (0, count) => format!("stored {count} graph claims for review"),
-        (1, 0) => "stored 1 predicate proposal for review".to_string(),
-        (count, 0) => format!("stored {count} predicate proposals for review"),
-        (1, 1) => "stored 1 graph claim and 1 predicate proposal for review".to_string(),
+        (0, 1) => "stored 1 memory for review".to_string(),
+        (0, count) => format!("stored {count} memories for review"),
+        (1, 0) => "stored 1 memory pattern for review".to_string(),
+        (count, 0) => format!("stored {count} memory patterns for review"),
+        (1, 1) => "stored 1 memory and 1 memory pattern for review".to_string(),
         (predicates, 1) => {
-            format!("stored 1 graph claim and {predicates} predicate proposals for review")
+            format!("stored 1 memory and {predicates} memory patterns for review")
         }
         (1, claims) => {
-            format!("stored {claims} graph claims and 1 predicate proposal for review")
+            format!("stored {claims} memories and 1 memory pattern for review")
         }
         (predicates, claims) => {
-            format!("stored {claims} graph claims and {predicates} predicate proposals for review")
+            format!("stored {claims} memories and {predicates} memory patterns for review")
         }
     };
 

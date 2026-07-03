@@ -8,7 +8,7 @@ export function MemoryEntityNode({ data, selected }: NodeProps<Node<MemoryGraphN
       <Handle type="target" position={Position.Left} style={hiddenHandleStyle} />
       <strong {...stylex.props(styles.label)}>{data.label}</strong>
       <span {...stylex.props(styles.meta)}>
-        {data.entityType} / {data.claimCount} claims
+        {data.entityType} / {data.claimCount} memories
       </span>
       <Handle type="source" position={Position.Right} style={hiddenHandleStyle} />
     </div>

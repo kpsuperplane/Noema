@@ -22,7 +22,5 @@ export function StructuredCard({
     return <MemoryStructuredCard schema={item.schema} memories={memories} />;
   }
 
-  return (
-    <TranscriptAttachmentCard title={item.schema} description="Structured card placeholder" />
-  );
+  return <TranscriptAttachmentCard title="Noema recorded an update" description="Details are available in inspection." />;
 }

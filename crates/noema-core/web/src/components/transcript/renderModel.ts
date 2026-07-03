@@ -234,6 +234,7 @@ function latestUserEntryIndex(entries: TranscriptEntry[]): number {
 
 function groupTranscriptMarkers(entries: TranscriptEntry[]): RenderTranscriptEntry[] {
   const rendered: RenderTranscriptEntry[] = [];
+  const pendingToolMarkers = new Map<string, Extract<RenderTranscriptEntry, { kind: "tool_marker" }>>();
 
   for (let index = 0; index < entries.length; index += 1) {
     const entry = entries[index];
@@ -324,11 +325,13 @@ function groupTranscriptMarkers(entries: TranscriptEntry[]): RenderTranscriptEnt
     }
 
     if (entry.type === "activity" && entry.item.activity_kind === "tool_call") {
+      const correlationId = toolActivityCorrelationId(entry);
       if (
         nextEntry &&
         nextEntry.type === "activity" &&
         nextEntry.item.activity_kind === "tool_result" &&
-        sameTurn(entry, nextEntry)
+        sameTurn(entry, nextEntry) &&
+        (!correlationId || correlationId === toolActivityCorrelationId(nextEntry))
       ) {
         const id = entry.id;
         rendered.push({
@@ -342,16 +345,30 @@ function groupTranscriptMarkers(entries: TranscriptEntry[]): RenderTranscriptEnt
         continue;
       }
 
-      rendered.push({
+      const marker: Extract<RenderTranscriptEntry, { kind: "tool_marker" }> = {
         kind: "tool_marker",
         id: entry.id,
         source: transcriptGroupSource(entry),
         marker: { id: entry.id, call: entry }
-      });
+      };
+      rendered.push(marker);
+      if (correlationId) {
+        pendingToolMarkers.set(correlationId, marker);
+      }
       continue;
     }
 
     if (entry.type === "activity" && entry.item.activity_kind === "tool_result") {
+      const correlationId = toolActivityCorrelationId(entry);
+      const pendingMarker = correlationId ? pendingToolMarkers.get(correlationId) : undefined;
+      const pendingCall = pendingMarker?.marker.call;
+      if (correlationId && pendingMarker && pendingCall && sameTurn(pendingCall, entry)) {
+        pendingMarker.marker.result = entry;
+        pendingMarker.source = transcriptGroupSource(pendingCall, entry);
+        pendingToolMarkers.delete(correlationId);
+        continue;
+      }
+
       rendered.push({
         kind: "tool_marker",
         id: entry.id,
@@ -370,4 +387,28 @@ function groupTranscriptMarkers(entries: TranscriptEntry[]): RenderTranscriptEnt
   }
 
   return rendered;
+}
+
+function toolActivityCorrelationId(entry: ActivityTranscriptEntry): string | undefined {
+  const action = recordValue(entry.item.metadata)?.action;
+  if (!isRecord(action)) {
+    return undefined;
+  }
+  const id = stringValue(action.id) ?? stringValue(action.call_id);
+  if (!id) {
+    return undefined;
+  }
+  return [entry.turnId ?? "", id].join(":");
+}
+
+function recordValue(value: unknown): Record<string, unknown> | null {
+  return isRecord(value) ? value : null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value : undefined;
 }

@@ -1097,6 +1097,7 @@ pub(in crate::daemon) struct ProviderActionOutput {
     pub(in crate::daemon) title: String,
     pub(in crate::daemon) summary: Option<String>,
     pub(in crate::daemon) payload: serde_json::Value,
+    pub(in crate::daemon) display: serde_json::Value,
 }
 
 fn is_disallowed_continuation_output(output: &GenerateOutputItem) -> bool {

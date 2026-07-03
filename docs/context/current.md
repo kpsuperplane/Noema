@@ -237,6 +237,11 @@ The next storage slice should stay small and concrete:
   Empty `query` is allowed only for scoped reads, and `query` narrows within
   scope rather than broadening it. Memory write activities expose canonical
   claim outcome previews so chat markers can name the saved or reinforced fact.
+- Owner-facing memory management surfaces should show the owner's memory facts
+  directly rather than redacting them. Normal chat transcript markers should
+  surface user-meaningful tool and memory summaries (purpose, access, scope,
+  result, evidence/review state) while keeping provider ids, call ids, raw tool
+  payloads, and graph-claim terminology out of the default expanded view.
 - Provider tool continuations follow a bounded same-turn loop inspired by the
   OpenAI Codex turn runner: local tool results are fed back to the provider, a
   continuation may request another model-visible local or calibrated MCP tool,

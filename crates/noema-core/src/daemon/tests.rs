@@ -1284,7 +1284,7 @@ async fn explicit_remember_creates_claim_with_source_evidence() {
                 ..
             } if activity_kind == "memory_extraction"
                 && title == "Explicit memory saved"
-                && summary == "saved graph claim"
+                && summary == "saved memory"
                 && metadata["trigger"] == "explicit_remember"
                 && metadata["predicate_id"] == "prefers" =>
             {
@@ -1514,8 +1514,8 @@ async fn runtime_actor_persists_ordinary_provider_memory_as_graph_claim() {
                 metadata,
                 ..
             } if activity_kind == "memory_extraction"
-                && title == "Memory persisted"
-                && summary == "saved 1 graph claim"
+                && title == "Memory saved"
+                && summary == "saved 1 memory"
                 && metadata["source"] == "provider_structured_output"
                 && metadata["proposal_count"] == 1
                 && metadata["created_claim_count"] == 1
@@ -1619,7 +1619,7 @@ async fn provider_memory_canonicalization_uses_selected_conversation_provider() 
                     status: TurnActivityStatus::Completed,
                     title,
                     ..
-                } if activity_kind == "memory_extraction" && title == "Memory persisted"
+                } if activity_kind == "memory_extraction" && title == "Memory saved"
             )
         }),
         "selected provider should canonicalize and persist memory: {items:?}"
@@ -1695,8 +1695,8 @@ async fn provider_memory_malformed_canonicalizer_response_fails_without_fallback
                 metadata,
                 ..
             } if activity_kind == "memory_extraction"
-                && title == "Memory persistence failed"
-                && summary.contains("memory canonicalization failed")
+                && title == "Memory update failed"
+                && summary.contains("memory could not be prepared")
                 && metadata["failed_proposal_count"] == 1
                 && metadata["failed_proposals"][0]["error"]
                     .as_str()
@@ -1713,7 +1713,7 @@ async fn provider_memory_malformed_canonicalizer_response_fails_without_fallback
                     title,
                     ..
                 } if activity_kind == "memory_extraction"
-                    && title == "Memory persisted"
+                    && title == "Memory saved"
             )
         }),
         "malformed canonicalizer response should not persist fallback memory: {items:?}"
@@ -1753,7 +1753,7 @@ async fn provider_memory_mismatched_canonical_entity_fails_without_fallback_clai
                 metadata,
                 ..
             } if activity_kind == "memory_extraction"
-                && title == "Memory persistence failed"
+                && title == "Memory update failed"
                 && metadata["source"] == "provider_structured_output"
                 && metadata["proposal_count"] == 1
                 && metadata["failed_proposal_count"] == 1
@@ -1772,7 +1772,7 @@ async fn provider_memory_mismatched_canonical_entity_fails_without_fallback_clai
                     title,
                     ..
                 } if activity_kind == "memory_extraction"
-                    && title == "Memory persisted"
+                    && title == "Memory saved"
             )
         }),
         "invalid canonical entity metadata should not persist fallback memory: {items:?}"
@@ -1818,7 +1818,7 @@ async fn provider_memory_unknown_promoted_predicate_fails_before_graph_write() {
                     metadata,
                     ..
                 } if activity_kind == "memory_extraction"
-                    && title == "Memory persistence failed"
+                    && title == "Memory update failed"
                     && metadata["source"] == "provider_structured_output"
                     && metadata["proposal_count"] == 1
                     && metadata["failed_proposal_count"] == 1
@@ -1892,7 +1892,7 @@ async fn provider_memory_discards_invalid_extraction_proposal_and_persists_valid
                 metadata,
                 ..
             } if activity_kind == "memory_extraction"
-                && title == "Memory persisted"
+                && title == "Memory saved"
                 && metadata["proposal_count"] == 2
                 && metadata["validated_proposal_count"] == 1
                 && metadata["rejected_extraction_proposal_count"] == 1
@@ -2011,8 +2011,8 @@ async fn provider_memory_graph_write_failure_persists_failed_activity() {
                 metadata,
                 ..
             } if activity_kind == "memory_extraction"
-                && title == "Memory persistence failed"
-                && summary == "graph claim write failed"
+                && title == "Memory update failed"
+                && summary == "memory save failed"
                 && metadata["source"] == "provider_structured_output"
                 && metadata["proposal_count"] == 1
         )
@@ -2027,7 +2027,7 @@ async fn provider_memory_graph_write_failure_persists_failed_activity() {
                     title,
                     ..
                 } if activity_kind == "memory_extraction"
-                    && title == "Memory persisted"
+                    && title == "Memory saved"
             )
         }),
         "failed graph write should not emit persisted activity: {items:?}"
@@ -2065,7 +2065,7 @@ async fn runtime_actor_persists_provider_memory_proposals_as_graph_claims() {
         "provider proposal card should stay suppressed for graph-claim writes"
     );
     let persisted_index =
-        memory_extraction_event_index(&events, TurnActivityStatus::Completed, "Memory persisted")
+        memory_extraction_event_index(&events, TurnActivityStatus::Completed, "Memory saved")
             .expect("persisted memory proposal activity");
     let proposed_item_id =
         memory_extraction_event_item_id(&events, TurnActivityStatus::Started, "Memory proposed")
@@ -2089,8 +2089,8 @@ async fn runtime_actor_persists_provider_memory_proposals_as_graph_claims() {
                 metadata,
                 ..
             } if activity_kind == "memory_extraction"
-                && title == "Memory persisted"
-                && summary == "saved 1 graph claim"
+                && title == "Memory saved"
+                && summary == "saved 1 memory"
                 && metadata["source"] == "provider_structured_output"
                 && metadata["proposal_count"] == 1
                 && metadata["created_claim_count"] == 1 =>
@@ -2109,9 +2109,7 @@ async fn runtime_actor_persists_provider_memory_proposals_as_graph_claims() {
                 title,
                 metadata,
                 ..
-            } if activity_kind == "memory_extraction" && title == "Memory persisted" => {
-                Some(metadata)
-            }
+            } if activity_kind == "memory_extraction" && title == "Memory saved" => Some(metadata),
             _ => None,
         })
         .expect("provider memory activity metadata");
@@ -2167,7 +2165,7 @@ async fn runtime_actor_persists_natural_remember_provider_proposals_as_graph_cla
                 metadata,
                 ..
             } if activity_kind == "memory_extraction"
-                && title == "Memory persisted"
+                && title == "Memory saved"
                 && metadata["proposal_count"] == 1 =>
             {
                 metadata["claim_ids"][0].as_str().map(str::to_string)
@@ -2185,7 +2183,7 @@ async fn runtime_actor_persists_natural_remember_provider_proposals_as_graph_cla
                 title,
                 ..
             } if activity_kind == "memory_extraction"
-                && title == "Memory persisted"
+                && title == "Memory saved"
         )
     }));
     let claims = store
@@ -2240,7 +2238,7 @@ async fn provider_first_person_memory_reinforces_explicit_canonical_claim() {
                 metadata,
                 ..
             } if activity_kind == "memory_extraction"
-                && title == "Memory persisted"
+                && title == "Memory saved"
                 && metadata["created_claim_count"] == 0
                 && metadata["reinforced_claim_count"] == 1
         )
@@ -2289,7 +2287,7 @@ async fn semantic_repeat_reinforces_existing_claim() {
                     metadata,
                     ..
                 } if activity_kind == "memory_extraction"
-                    && title == "Memory persisted"
+                    && title == "Memory saved"
                     && metadata["reinforced_claim_count"] == 1
             )
         }),
@@ -2404,7 +2402,7 @@ async fn consolidation_decision_rejects_existing_claim_id_outside_bounded_matche
                 metadata,
                 ..
             } if activity_kind == "memory_extraction"
-                && title == "Memory persistence failed"
+                && title == "Memory update failed"
                 && metadata["failed_proposal_count"] == 1
                 && metadata["failed_proposals"][0]["error"]
                     .as_str()
@@ -2582,7 +2580,7 @@ async fn provider_user_loves_planes_canonicalizes_to_likes_claim() {
                 metadata,
                 ..
             } if activity_kind == "memory_extraction"
-                && title == "Memory persisted"
+                && title == "Memory saved"
                 && metadata["created_claim_count"] == 1
         )
     }));
@@ -2785,7 +2783,7 @@ async fn provider_first_person_local_name_memory_persists_without_explicit_seed(
                 metadata,
                 ..
             } if activity_kind == "memory_extraction"
-                && title == "Memory persisted"
+                && title == "Memory saved"
                 && metadata["created_claim_count"] == 1
                 && metadata["reinforced_claim_count"] == 0
         )
@@ -2840,7 +2838,7 @@ async fn provider_memory_proposal_uses_initial_assistant_context_before_continua
                         metadata,
                         ..
                     } if activity_kind == "memory_extraction"
-                        && title == "Memory persisted"
+                        && title == "Memory saved"
                         && metadata["proposal_count"] == 1
                 )
         )
@@ -2939,8 +2937,8 @@ async fn provider_memory_partial_write_reports_partial_failure() {
                 metadata,
                 ..
             } if activity_kind == "memory_extraction"
-                && title == "Memory persistence partially failed"
-                && summary == "saved 1 graph claim; 1 proposal failed"
+                && title == "Memory update partially failed"
+                && summary == "saved 1 memory; 1 proposal failed"
                 && metadata["proposal_count"] == 2
                 && metadata["created_claim_count"] == 1
                 && metadata["failed_proposal_count"] == 1
@@ -3865,7 +3863,7 @@ fn memory_persisted_claim_id(events: &[TurnStreamEvent]) -> String {
                     title,
                     metadata,
                     ..
-                } if activity_kind == "memory_extraction" && title == "Memory persisted" => {
+                } if activity_kind == "memory_extraction" && title == "Memory saved" => {
                     metadata["claim_ids"][0].as_str().map(str::to_string)
                 }
                 _ => None,
