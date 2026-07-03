@@ -60,6 +60,29 @@ pub(super) async fn compact_context(
 pub(super) async fn compact_context_with_retry(
     request: CompactionRequest<'_>,
 ) -> Result<ConversationContextSummaryRecord, DaemonError> {
+    let mut latest_summary = compact_context_chunk_with_retry(request.clone()).await?;
+    if request.mode != CompactionMode::Foreground {
+        return Ok(latest_summary);
+    }
+
+    while load_summary_seed(
+        request.store,
+        request.conversation_id,
+        request.provider_kind,
+        request.model_profile,
+    )
+    .await?
+    .is_some()
+    {
+        latest_summary = compact_context_chunk_with_retry(request.clone()).await?;
+    }
+
+    Ok(latest_summary)
+}
+
+async fn compact_context_chunk_with_retry(
+    request: CompactionRequest<'_>,
+) -> Result<ConversationContextSummaryRecord, DaemonError> {
     match compact_context_with_target(request.clone(), None).await {
         Ok(summary) => Ok(summary),
         Err(error) if request.mode == CompactionMode::Foreground => {
@@ -176,7 +199,7 @@ async fn compact_context_with_target(
     request: CompactionRequest<'_>,
     summary_target_tokens: Option<u32>,
 ) -> Result<ConversationContextSummaryRecord, DaemonError> {
-    let Some(summary_seed) = load_summary_seed(
+    let Some(mut summary_seed) = load_summary_seed(
         request.store,
         request.conversation_id,
         request.provider_kind,
@@ -193,17 +216,19 @@ async fn compact_context_with_target(
         .or_else(|| request.budget.compact_summary_target_tokens())
         .unwrap_or(512);
     let instructions = compaction_instructions(target_tokens);
+    let input_token_estimate = bound_summary_seed_to_context_budget(
+        request.provider,
+        request.model_profile,
+        request.budget,
+        target_tokens,
+        &instructions,
+        &mut summary_seed,
+    )
+    .await?;
     let input = render_compaction_input(
         summary_seed.previous_summary.as_ref(),
         &summary_seed.transcript_items,
     );
-    let input_token_estimate = count_tokens_or_estimate(
-        request.provider,
-        Some(&instructions),
-        &input,
-        request.model_profile,
-    )
-    .await;
     let response = generate_compaction_summary(
         request.provider,
         request.model_profile,
@@ -380,6 +405,95 @@ fn compaction_instructions(target_tokens: u32) -> String {
 fn retry_summary_target(budget: ContextBudget) -> Option<u32> {
     let target = budget.compact_summary_target_tokens()?;
     Some((target / 2).max(MIN_RETRY_SUMMARY_TARGET_TOKENS))
+}
+
+async fn bound_summary_seed_to_context_budget(
+    provider: &dyn RuntimeModelProvider,
+    model_profile: Option<&str>,
+    budget: ContextBudget,
+    target_tokens: u32,
+    instructions: &str,
+    summary_seed: &mut SummarySeed,
+) -> Result<u32, DaemonError> {
+    let full_input = render_compaction_input(
+        summary_seed.previous_summary.as_ref(),
+        &summary_seed.transcript_items,
+    );
+    let full_token_estimate =
+        count_tokens_or_estimate(provider, Some(instructions), &full_input, model_profile).await;
+    if budget.fits_with_output_reserve(full_token_estimate, target_tokens) {
+        return Ok(full_token_estimate);
+    }
+
+    let (bounded_len, bounded_token_estimate) = largest_fitting_transcript_prefix(
+        provider,
+        model_profile,
+        budget,
+        target_tokens,
+        instructions,
+        summary_seed.previous_summary.as_ref(),
+        &summary_seed.transcript_items,
+    )
+    .await?;
+    summary_seed.transcript_items.truncate(bounded_len);
+    summary_seed.covered_item_end_sequence = summary_seed
+        .transcript_items
+        .last()
+        .map_or(summary_seed.covered_item_end_sequence, |item| {
+            item.sequence_index
+        });
+    summary_seed.source_item_ids = bounded_combined_source_item_ids(
+        summary_seed.previous_summary.as_ref(),
+        &summary_seed.transcript_items,
+    );
+    Ok(bounded_token_estimate)
+}
+
+async fn largest_fitting_transcript_prefix(
+    provider: &dyn RuntimeModelProvider,
+    model_profile: Option<&str>,
+    budget: ContextBudget,
+    target_tokens: u32,
+    instructions: &str,
+    previous_summary: Option<&ConversationContextSummaryRecord>,
+    transcript_items: &[ConversationItemRecord],
+) -> Result<(usize, u32), DaemonError> {
+    let mut low = 0;
+    let mut high = transcript_items.len();
+    let mut best_token_estimate = 0;
+
+    while low < high {
+        let midpoint = (low + high).div_ceil(2);
+        let input = render_compaction_input(previous_summary, &transcript_items[..midpoint]);
+        let token_estimate =
+            count_tokens_or_estimate(provider, Some(instructions), &input, model_profile).await;
+        if budget.fits_with_output_reserve(token_estimate, target_tokens) {
+            low = midpoint;
+            best_token_estimate = token_estimate;
+        } else {
+            high = midpoint - 1;
+        }
+    }
+
+    if low == 0 {
+        let available = budget
+            .available_input_tokens_with_output_reserve(target_tokens)
+            .map_or_else(|| "unknown".to_string(), |tokens| tokens.to_string());
+        return Err(ProviderError::InvalidRequest {
+            message: format!(
+                "context compaction input exceeds provider context window for a single transcript item; available input tokens: {available}"
+            ),
+        }
+        .into());
+    }
+
+    if best_token_estimate == 0 {
+        let input = render_compaction_input(previous_summary, &transcript_items[..low]);
+        best_token_estimate =
+            count_tokens_or_estimate(provider, Some(instructions), &input, model_profile).await;
+    }
+
+    Ok((low, best_token_estimate))
 }
 
 async fn count_tokens_or_estimate(

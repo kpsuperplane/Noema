@@ -31,17 +31,32 @@ impl ContextBudget {
     }
 
     pub(super) fn available_input_tokens(self) -> Option<u32> {
+        self.available_input_tokens_with_output_reserve(self.output_reserve_tokens.unwrap_or(0))
+    }
+
+    pub(super) fn available_input_tokens_with_output_reserve(
+        self,
+        output_reserve_tokens: u32,
+    ) -> Option<u32> {
         let window = self.context_window_tokens?;
-        let output = self.output_reserve_tokens.unwrap_or(0);
         Some(
             window
-                .saturating_sub(output)
+                .saturating_sub(output_reserve_tokens)
                 .saturating_sub(self.safety_tokens),
         )
     }
 
     pub(super) fn fits(self, input_tokens: u32) -> bool {
         self.available_input_tokens()
+            .is_none_or(|available| input_tokens <= available)
+    }
+
+    pub(super) fn fits_with_output_reserve(
+        self,
+        input_tokens: u32,
+        output_reserve_tokens: u32,
+    ) -> bool {
+        self.available_input_tokens_with_output_reserve(output_reserve_tokens)
             .is_none_or(|available| input_tokens <= available)
     }
 }
