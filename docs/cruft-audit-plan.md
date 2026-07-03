@@ -11,6 +11,12 @@ well-built, LOC-efficient codebase. Could be 25%, could be 75%.
 **Nature:** this is an **audit only**. No files are edited during the audit. The output is a
 plan; execution happens afterward in reviewable slices.
 
+**Current status after campaign Task 1:** this document is historical audit
+planning context, not the current implementation plan. The first campaign slice
+deleted `noema-cli` and the raw daemon socket client/server surface. Any CLI or
+raw-socket scope listed below is resolved/superseded by that removal and should
+not be treated as future work.
+
 ---
 
 ## Baseline (why this is worth doing)
@@ -71,7 +77,7 @@ Ownership is disjoint so there is no overlap or shared state.
 | 11 | `provider-core` | `provider.rs` + `provider/*.rs` (excl. adapters) |
 | 12 | `provider-adapters` | `provider/adapters/*.rs` |
 | 13 | `core-misc` | `lib.rs`, `runtime_host.rs`, `config/**`, `capability/**`, unused-dep check on `Cargo.toml` |
-| 14 | `cli` | `noema-cli/src/**` + its `Cargo.toml` |
+| 14 | `cli` | Historical scope: `noema-cli/src/**` + its `Cargo.toml`; resolved/superseded by Task 1 deletion of `noema-cli` |
 | 15 | `desktop` | `noema-desktop/src/**` + its `Cargo.toml` |
 | 16 | `frontend` | `crates/noema-core/web/**` + `daemon/web/assets/**` |
 | 17 | `cross-cutting-duplication` | Whole `crates/` tree — *cross-module* duplication & needless abstraction that single-subsystem auditors structurally cannot see |
