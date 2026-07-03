@@ -33,7 +33,7 @@ pub struct ExtractorMemoryProposal {
     /// Extractor confidence in the inclusive range 0.0 through 1.0.
     pub confidence: f32,
     /// Proposed sensitivity tier.
-    #[serde(with = "sensitivity_json")]
+    #[serde(with = "crate::memory::sensitivity_serde")]
     pub sensitivity: Sensitivity,
     /// Subject entities the memory is about or otherwise bound to.
     pub subjects: Vec<MemoryExtractionSubject>,
@@ -857,51 +857,6 @@ mod memory_type_json {
             "policy" => Some(MemoryType::Policy),
             "note" => Some(MemoryType::Note),
             "other" => Some(MemoryType::Other),
-            _ => None,
-        }
-    }
-}
-
-mod sensitivity_json {
-    use super::*;
-    use serde::{Deserializer, Serializer, de};
-
-    pub(super) fn serialize<S>(sensitivity: &Sensitivity, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_str(sensitivity_as_str(*sensitivity))
-    }
-
-    pub(super) fn deserialize<'de, D>(deserializer: D) -> Result<Sensitivity, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let value = String::deserialize(deserializer)?;
-        parse_sensitivity(&value)
-            .ok_or_else(|| de::Error::unknown_variant(&value, SUPPORTED_SENSITIVITIES))
-    }
-
-    const SUPPORTED_SENSITIVITIES: &[&str] =
-        &["public", "normal", "private", "sensitive", "secret"];
-
-    fn sensitivity_as_str(sensitivity: Sensitivity) -> &'static str {
-        match sensitivity {
-            Sensitivity::Public => "public",
-            Sensitivity::Normal => "normal",
-            Sensitivity::Private => "private",
-            Sensitivity::Sensitive => "sensitive",
-            Sensitivity::Secret => "secret",
-        }
-    }
-
-    fn parse_sensitivity(value: &str) -> Option<Sensitivity> {
-        match value {
-            "public" => Some(Sensitivity::Public),
-            "normal" => Some(Sensitivity::Normal),
-            "private" => Some(Sensitivity::Private),
-            "sensitive" => Some(Sensitivity::Sensitive),
-            "secret" => Some(Sensitivity::Secret),
             _ => None,
         }
     }

@@ -5,28 +5,11 @@ use crate::memory::Sensitivity;
 use super::model::ClaimStatus;
 use crate::store::StoreError;
 
-pub(super) fn sensitivity_to_store(sensitivity: Sensitivity) -> &'static str {
-    match sensitivity {
-        Sensitivity::Public => "public",
-        Sensitivity::Normal => "normal",
-        Sensitivity::Private => "private",
-        Sensitivity::Sensitive => "sensitive",
-        Sensitivity::Secret => "secret",
-    }
-}
-
 pub(super) fn parse_sensitivity(value: &str) -> Result<Sensitivity, StoreError> {
-    match value {
-        "public" => Ok(Sensitivity::Public),
-        "normal" => Ok(Sensitivity::Normal),
-        "private" => Ok(Sensitivity::Private),
-        "sensitive" => Ok(Sensitivity::Sensitive),
-        "secret" => Ok(Sensitivity::Secret),
-        _ => Err(StoreError::InvalidEnum {
-            kind: "sensitivity",
-            value: value.to_string(),
-        }),
-    }
+    Sensitivity::from_wire(value).ok_or_else(|| StoreError::InvalidEnum {
+        kind: "sensitivity",
+        value: value.to_string(),
+    })
 }
 
 pub(super) fn allowed_match_sensitivities(sensitivity: Sensitivity) -> Vec<String> {
@@ -34,7 +17,7 @@ pub(super) fn allowed_match_sensitivities(sensitivity: Sensitivity) -> Vec<Strin
         Sensitivity::Public => vec!["public".to_string()],
         Sensitivity::Normal => vec!["public".to_string(), "normal".to_string()],
         Sensitivity::Private | Sensitivity::Sensitive | Sensitivity::Secret => {
-            vec![sensitivity_to_store(sensitivity).to_string()]
+            vec![sensitivity.as_str().to_string()]
         }
     }
 }

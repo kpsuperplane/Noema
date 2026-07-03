@@ -26,7 +26,7 @@ pub struct MemoryWriteProposal {
     /// Coarse memory category supplied by the extraction layer.
     pub memory_type: String,
     /// Sensitivity tier for the proposed memory.
-    #[serde(with = "sensitivity_json")]
+    #[serde(with = "crate::memory::sensitivity_serde")]
     pub sensitivity: Sensitivity,
     /// Risk labels carried from extraction and policy checks.
     pub risk_flags: Vec<String>,
@@ -75,7 +75,7 @@ pub struct CanonicalClaimCandidate {
     /// Human-readable claim fact.
     pub fact: String,
     /// Sensitivity tier assigned to the claim.
-    #[serde(with = "sensitivity_json")]
+    #[serde(with = "crate::memory::sensitivity_serde")]
     pub sensitivity: Sensitivity,
     /// Proposed lifecycle status for the claim.
     pub status: CanonicalClaimStatus,
@@ -134,7 +134,7 @@ pub struct ProposedPredicate {
     /// Retrieval use modes allowed for this predicate.
     pub allowed_use_modes: Vec<String>,
     /// Default sensitivity for claims using this predicate.
-    #[serde(with = "sensitivity_json")]
+    #[serde(with = "crate::memory::sensitivity_serde")]
     pub default_sensitivity: Sensitivity,
     /// Conflict handling policy id.
     pub conflict_policy: String,
@@ -541,51 +541,6 @@ Input JSON payload:
 {}"#,
         serde_json::to_string_pretty(&payload).expect("serialize comparator payload")
     )
-}
-
-mod sensitivity_json {
-    use super::*;
-    use serde::{Deserializer, Serializer, de};
-
-    pub(super) fn serialize<S>(sensitivity: &Sensitivity, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_str(sensitivity_as_str(*sensitivity))
-    }
-
-    pub(super) fn deserialize<'de, D>(deserializer: D) -> Result<Sensitivity, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let value = String::deserialize(deserializer)?;
-        parse_sensitivity(&value)
-            .ok_or_else(|| de::Error::unknown_variant(&value, SUPPORTED_SENSITIVITIES))
-    }
-
-    const SUPPORTED_SENSITIVITIES: &[&str] =
-        &["public", "normal", "private", "sensitive", "secret"];
-
-    fn sensitivity_as_str(sensitivity: Sensitivity) -> &'static str {
-        match sensitivity {
-            Sensitivity::Public => "public",
-            Sensitivity::Normal => "normal",
-            Sensitivity::Private => "private",
-            Sensitivity::Sensitive => "sensitive",
-            Sensitivity::Secret => "secret",
-        }
-    }
-
-    fn parse_sensitivity(value: &str) -> Option<Sensitivity> {
-        match value {
-            "public" => Some(Sensitivity::Public),
-            "normal" => Some(Sensitivity::Normal),
-            "private" => Some(Sensitivity::Private),
-            "sensitive" => Some(Sensitivity::Sensitive),
-            "secret" => Some(Sensitivity::Secret),
-            _ => None,
-        }
-    }
 }
 
 #[cfg(test)]

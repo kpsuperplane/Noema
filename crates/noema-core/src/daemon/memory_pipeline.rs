@@ -242,7 +242,7 @@ pub(super) fn predicate_proposal_candidate_from_canonical(
             "subject": candidate.subject,
             "object": candidate.object,
             "fact": candidate.fact,
-            "sensitivity": canonical_sensitivity_label(candidate.sensitivity),
+            "sensitivity": candidate.sensitivity.as_str(),
             "status": "candidate",
             "confidence": candidate.confidence,
             "retrieval_hints": candidate.retrieval_hints,
@@ -744,16 +744,6 @@ fn memory_status_label(status: MemoryStatus) -> &'static str {
         MemoryStatus::Archived => "archived",
         MemoryStatus::Deleted => "deleted",
         MemoryStatus::Disputed => "disputed",
-    }
-}
-
-fn canonical_sensitivity_label(sensitivity: Sensitivity) -> &'static str {
-    match sensitivity {
-        Sensitivity::Public => "public",
-        Sensitivity::Normal => "normal",
-        Sensitivity::Private => "private",
-        Sensitivity::Sensitive => "sensitive",
-        Sensitivity::Secret => "secret",
     }
 }
 

@@ -72,7 +72,7 @@ impl From<MemoryClaimRecord> for GraphqlMemoryClaim {
                 .map(|name| graphql_list_display_name(name, claim.sensitivity)),
             object_entity_type: claim.object_entity_type,
             status: claim_status_label(claim.status).to_string(),
-            sensitivity: sensitivity_label(claim.sensitivity).to_string(),
+            sensitivity: claim.sensitivity.as_str().to_string(),
             confidence: claim.confidence,
             evidence_count: claim.evidence_count,
             created_at: claim.created_at,
@@ -110,16 +110,6 @@ fn claim_status_label(status: ClaimStatus) -> &'static str {
         ClaimStatus::Superseded => "superseded",
         ClaimStatus::Archived => "archived",
         ClaimStatus::Deleted => "deleted",
-    }
-}
-
-fn sensitivity_label(sensitivity: Sensitivity) -> &'static str {
-    match sensitivity {
-        Sensitivity::Public => "public",
-        Sensitivity::Normal => "normal",
-        Sensitivity::Private => "private",
-        Sensitivity::Sensitive => "sensitive",
-        Sensitivity::Secret => "secret",
     }
 }
 
@@ -209,7 +199,7 @@ impl From<MemoryClaimDetail> for GraphqlMemoryClaimDetail {
             object_entity_name: claim.object_entity_name,
             object_entity_type: claim.object_entity_type,
             status: claim_status_label(claim.status).to_string(),
-            sensitivity: sensitivity_label(claim.sensitivity).to_string(),
+            sensitivity: claim.sensitivity.as_str().to_string(),
             confidence: claim.confidence,
             evidence_count: claim.evidence_count,
             created_at: claim.created_at,
@@ -421,7 +411,7 @@ impl GraphqlMemoryGraphEdge {
             fact: edge.fact,
             fact_redacted: false,
             status: claim_status_label(edge.status).to_string(),
-            sensitivity: sensitivity_label(edge.sensitivity).to_string(),
+            sensitivity: edge.sensitivity.as_str().to_string(),
             confidence: edge.confidence,
             evidence_count: edge.evidence_count,
             created_at: edge.created_at,
@@ -582,17 +572,9 @@ fn parse_graphql_claim_status(value: &str) -> Result<crate::ClaimStatus> {
     }
 }
 
-fn parse_graphql_sensitivity(value: &str) -> Result<crate::memory::Sensitivity> {
-    match value {
-        "public" => Ok(crate::memory::Sensitivity::Public),
-        "normal" => Ok(crate::memory::Sensitivity::Normal),
-        "private" => Ok(crate::memory::Sensitivity::Private),
-        "sensitive" => Ok(crate::memory::Sensitivity::Sensitive),
-        "secret" => Ok(crate::memory::Sensitivity::Secret),
-        _ => Err(async_graphql::Error::new(format!(
-            "unknown memory sensitivity: {value}"
-        ))),
-    }
+fn parse_graphql_sensitivity(value: &str) -> Result<Sensitivity> {
+    Sensitivity::from_wire(value)
+        .ok_or_else(|| async_graphql::Error::new(format!("unknown memory sensitivity: {value}")))
 }
 
 fn parse_memory_graph_limit(limit: Option<i32>) -> Result<Option<usize>> {

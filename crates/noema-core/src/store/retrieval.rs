@@ -387,15 +387,8 @@ fn parse_claim_status(value: &str) -> Result<ClaimStatusForPolicy, StoreError> {
 }
 
 fn parse_sensitivity(value: &str) -> Result<Sensitivity, StoreError> {
-    match value {
-        "public" => Ok(Sensitivity::Public),
-        "normal" => Ok(Sensitivity::Normal),
-        "private" => Ok(Sensitivity::Private),
-        "sensitive" => Ok(Sensitivity::Sensitive),
-        "secret" => Ok(Sensitivity::Secret),
-        _ => Err(StoreError::InvalidEnum {
-            kind: "sensitivity",
-            value: value.to_string(),
-        }),
-    }
+    Sensitivity::from_wire(value).ok_or_else(|| StoreError::InvalidEnum {
+        kind: "sensitivity",
+        value: value.to_string(),
+    })
 }

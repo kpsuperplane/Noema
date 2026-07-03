@@ -39,6 +39,59 @@ pub enum Sensitivity {
     Secret,
 }
 
+impl Sensitivity {
+    /// Canonical wire labels, in ascending sensitivity order.
+    pub const WIRE_VARIANTS: &'static [&'static str] =
+        &["public", "normal", "private", "sensitive", "secret"];
+
+    /// Canonical lowercase wire label.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Sensitivity::Public => "public",
+            Sensitivity::Normal => "normal",
+            Sensitivity::Private => "private",
+            Sensitivity::Sensitive => "sensitive",
+            Sensitivity::Secret => "secret",
+        }
+    }
+
+    /// Parse a canonical wire label, if recognized.
+    #[must_use]
+    pub fn from_wire(value: &str) -> Option<Self> {
+        match value {
+            "public" => Some(Sensitivity::Public),
+            "normal" => Some(Sensitivity::Normal),
+            "private" => Some(Sensitivity::Private),
+            "sensitive" => Some(Sensitivity::Sensitive),
+            "secret" => Some(Sensitivity::Secret),
+            _ => None,
+        }
+    }
+}
+
+/// Serde adapter serializing `Sensitivity` as its canonical wire label.
+pub(crate) mod sensitivity_serde {
+    use super::Sensitivity;
+    use serde::{Deserialize, Deserializer, Serializer, de};
+
+    pub fn serialize<S>(value: &Sensitivity, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(value.as_str())
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Sensitivity, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        Sensitivity::from_wire(&value)
+            .ok_or_else(|| de::Error::unknown_variant(&value, Sensitivity::WIRE_VARIANTS))
+    }
+}
+
 /// Deterministic graph-claim use mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum UseMode {

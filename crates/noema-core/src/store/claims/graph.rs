@@ -5,7 +5,7 @@ use crate::store::{NoemaStore, StoreError};
 
 use super::{
     inspection::memory_claim_record,
-    labels::{default_memory_graph_statuses, sensitivity_to_store},
+    labels::default_memory_graph_statuses,
     model::{MemoryGraph, MemoryGraphEdge, MemoryGraphFilter, MemoryGraphNode, MemoryGraphSummary},
     rows::InspectionClaimRow,
 };
@@ -66,8 +66,7 @@ impl NoemaStore {
             statement = statement.bind(("predicate_id", predicate_id));
         }
         if let Some(sensitivity) = filter.sensitivity {
-            statement =
-                statement.bind(("sensitivity", sensitivity_to_store(sensitivity).to_string()));
+            statement = statement.bind(("sensitivity", sensitivity.as_str().to_string()));
         }
         let mut response = statement.await?;
         let rows: Vec<InspectionClaimRow> = response.take(0)?;

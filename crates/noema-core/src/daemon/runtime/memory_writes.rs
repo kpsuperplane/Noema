@@ -1,6 +1,5 @@
 use crate::{
     ClaimWriteOutcome,
-    memory::Sensitivity,
     memory::consolidation::{
         CanonicalClaimCandidate, ConsolidationDecision, ConsolidationDecisionKind,
         MemoryConsolidationError, MemoryWriteProposal, PredicateResolution,
@@ -256,7 +255,7 @@ impl CodexRuntimeActor {
                                     "outcome": "needs_review",
                                     "predicate_proposal_id": record.proposal_id,
                                     "fact_preview": fact_preview(&canonical.fact),
-                                    "sensitivity": sensitivity_label(canonical.sensitivity),
+                                    "sensitivity": canonical.sensitivity.as_str(),
                                 }));
                             }
                             Err(error) => {
@@ -428,7 +427,7 @@ impl CodexRuntimeActor {
                         "fact": item.fact,
                         "predicate_id": item.predicate_id,
                         "status": claim_status_label(item.status),
-                        "sensitivity": sensitivity_label(item.sensitivity),
+                        "sensitivity": item.sensitivity.as_str(),
                     })
                 })
                 .collect::<Vec<_>>(),
@@ -487,7 +486,7 @@ impl CodexRuntimeActor {
                     claim_id: Some(summary.claim_id),
                     outcome: "disputed",
                     fact_preview: fact_preview(&summary.fact),
-                    sensitivity: sensitivity_label(summary.sensitivity).to_string(),
+                    sensitivity: summary.sensitivity.as_str().to_string(),
                     status: summary.status,
                 })
             }
@@ -522,7 +521,7 @@ impl CodexRuntimeActor {
                     claim_id: Some(summary.claim_id),
                     outcome: "related",
                     fact_preview: fact_preview(&summary.fact),
-                    sensitivity: sensitivity_label(summary.sensitivity).to_string(),
+                    sensitivity: summary.sensitivity.as_str().to_string(),
                     status: summary.status,
                 })
             }
@@ -553,7 +552,7 @@ impl CodexRuntimeActor {
                     claim_id: Some(summary.claim_id),
                     outcome: "superseded",
                     fact_preview: fact_preview(&summary.fact),
-                    sensitivity: sensitivity_label(summary.sensitivity).to_string(),
+                    sensitivity: summary.sensitivity.as_str().to_string(),
                     status: summary.status,
                 })
             }
@@ -564,7 +563,7 @@ impl CodexRuntimeActor {
                     claim_id: Some(summary.claim_id),
                     outcome: "needs_review",
                     fact_preview: fact_preview(&summary.fact),
-                    sensitivity: sensitivity_label(summary.sensitivity).to_string(),
+                    sensitivity: summary.sensitivity.as_str().to_string(),
                     status: summary.status,
                 })
             }
@@ -607,7 +606,7 @@ impl CodexRuntimeActor {
                         "predicate_id": summary.predicate_id,
                         "source_item_id": context.user_item_id,
                         "evidence_count": summary.evidence_count,
-                        "sensitivity": sensitivity_label(summary.sensitivity),
+                        "sensitivity": summary.sensitivity.as_str(),
                     }),
                 );
                 self.persist_and_send_turn_item(context, activity, item_tx)
@@ -635,16 +634,6 @@ impl CodexRuntimeActor {
                 Ok(ExplicitMemoryOutcome::Failed)
             }
         }
-    }
-}
-
-fn sensitivity_label(sensitivity: Sensitivity) -> &'static str {
-    match sensitivity {
-        Sensitivity::Public => "public",
-        Sensitivity::Normal => "normal",
-        Sensitivity::Private => "private",
-        Sensitivity::Sensitive => "sensitive",
-        Sensitivity::Secret => "secret",
     }
 }
 
@@ -706,7 +695,7 @@ fn claim_outcome_json(summary: &crate::ClaimSummary) -> Value {
         "claim_id": summary.claim_id,
         "outcome": claim_write_outcome_label(summary.write_outcome),
         "fact_preview": fact_preview(&summary.fact),
-        "sensitivity": sensitivity_label(summary.sensitivity),
+        "sensitivity": summary.sensitivity.as_str(),
     })
 }
 
@@ -741,7 +730,7 @@ impl PersistedMemoryOutcome {
             claim_id: Some(summary.claim_id),
             outcome: claim_write_outcome_label(summary.write_outcome),
             fact_preview: fact_preview(&summary.fact),
-            sensitivity: sensitivity_label(summary.sensitivity).to_string(),
+            sensitivity: summary.sensitivity.as_str().to_string(),
             status: summary.status,
         }
     }

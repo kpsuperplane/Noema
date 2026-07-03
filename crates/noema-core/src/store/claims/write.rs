@@ -7,7 +7,7 @@ use crate::store::{
 };
 
 use super::{
-    labels::{entity_record_id, format_datetime, parse_sensitivity, sensitivity_to_store},
+    labels::{entity_record_id, format_datetime, parse_sensitivity},
     model::{
         ClaimStatus, ClaimSummary, ClaimWriteOutcome, EvidenceCandidate, NewClaimCandidate,
         RelatedClaimCandidate, RelatedClaimRecord, SupersedeClaimCandidate,
@@ -348,7 +348,7 @@ impl NoemaStore {
             )
             .bind(("claim_id", claim_id.to_string()))
             .bind(("status", status.as_str().to_string()))
-            .bind(("sensitivity", sensitivity_to_store(sensitivity).to_string()))
+            .bind(("sensitivity", sensitivity.as_str().to_string()))
             .bind(("confidence", confidence))
             .await?
             .check()?;
@@ -646,10 +646,7 @@ impl NoemaStore {
             .bind(("predicate_id", candidate.predicate_id.clone()))
             .bind(("fact", candidate.fact.clone()))
             .bind(("status", candidate.status.as_str().to_string()))
-            .bind((
-                "sensitivity",
-                sensitivity_to_store(candidate.sensitivity).to_string(),
-            ))
+            .bind(("sensitivity", candidate.sensitivity.as_str().to_string()))
             .bind(("confidence", candidate.confidence))
             .bind(("dedupe_fingerprint", fingerprint.to_string()))
             .bind(("retrieval_hints", candidate.retrieval_hints.clone()))
