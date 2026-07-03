@@ -4,9 +4,8 @@ use async_graphql::{InputObject, Json, Result, SimpleObject};
 use serde_json::Value;
 
 use crate::{
-    ClaimStatus, MemoryClaimDetail, MemoryClaimEvidence, MemoryClaimRecord, MemoryGraph,
-    MemoryGraphEdge, MemoryGraphNode, MemoryGraphSummary, PredicateProposalRecord,
-    memory::Sensitivity,
+    MemoryClaimDetail, MemoryClaimEvidence, MemoryClaimRecord, MemoryGraph, MemoryGraphEdge,
+    MemoryGraphNode, MemoryGraphSummary, PredicateProposalRecord, memory::Sensitivity,
 };
 
 use super::{errors::graphql_error, schema::GraphqlState};
@@ -71,7 +70,7 @@ impl From<MemoryClaimRecord> for GraphqlMemoryClaim {
                 .object_entity_name
                 .map(|name| graphql_list_display_name(name, claim.sensitivity)),
             object_entity_type: claim.object_entity_type,
-            status: claim_status_label(claim.status).to_string(),
+            status: claim.status.as_str().to_string(),
             sensitivity: claim.sensitivity.as_str().to_string(),
             confidence: claim.confidence,
             evidence_count: claim.evidence_count,
@@ -98,18 +97,6 @@ fn graphql_list_display_name(name: String, sensitivity: Sensitivity) -> String {
         | Sensitivity::Private
         | Sensitivity::Sensitive
         | Sensitivity::Secret => "[redacted; use memoryClaim(claimId) for detail]".to_string(),
-    }
-}
-
-fn claim_status_label(status: ClaimStatus) -> &'static str {
-    match status {
-        ClaimStatus::Candidate => "candidate",
-        ClaimStatus::Active => "active",
-        ClaimStatus::Confirmed => "confirmed",
-        ClaimStatus::Disputed => "disputed",
-        ClaimStatus::Superseded => "superseded",
-        ClaimStatus::Archived => "archived",
-        ClaimStatus::Deleted => "deleted",
     }
 }
 
@@ -198,7 +185,7 @@ impl From<MemoryClaimDetail> for GraphqlMemoryClaimDetail {
             object_entity_id: claim.object_entity_id,
             object_entity_name: claim.object_entity_name,
             object_entity_type: claim.object_entity_type,
-            status: claim_status_label(claim.status).to_string(),
+            status: claim.status.as_str().to_string(),
             sensitivity: claim.sensitivity.as_str().to_string(),
             confidence: claim.confidence,
             evidence_count: claim.evidence_count,
@@ -410,7 +397,7 @@ impl GraphqlMemoryGraphEdge {
             predicate_label: edge.predicate_label,
             fact: edge.fact,
             fact_redacted: false,
-            status: claim_status_label(edge.status).to_string(),
+            status: edge.status.as_str().to_string(),
             sensitivity: edge.sensitivity.as_str().to_string(),
             confidence: edge.confidence,
             evidence_count: edge.evidence_count,

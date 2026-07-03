@@ -32,7 +32,9 @@ pub enum ClaimWriteOutcome {
 }
 
 impl ClaimStatus {
-    pub(super) const fn as_str(self) -> &'static str {
+    /// Canonical lowercase wire label for this claim status.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
         match self {
             Self::Candidate => "candidate",
             Self::Active => "active",

@@ -426,7 +426,7 @@ impl CodexRuntimeActor {
                         "claim_id": item.claim_id,
                         "fact": item.fact,
                         "predicate_id": item.predicate_id,
-                        "status": claim_status_label(item.status),
+                        "status": item.status.as_str(),
                         "sensitivity": item.sensitivity.as_str(),
                     })
                 })
@@ -634,18 +634,6 @@ impl CodexRuntimeActor {
                 Ok(ExplicitMemoryOutcome::Failed)
             }
         }
-    }
-}
-
-fn claim_status_label(status: ClaimStatus) -> &'static str {
-    match status {
-        ClaimStatus::Candidate => "candidate",
-        ClaimStatus::Active => "active",
-        ClaimStatus::Confirmed => "confirmed",
-        ClaimStatus::Disputed => "disputed",
-        ClaimStatus::Superseded => "superseded",
-        ClaimStatus::Archived => "archived",
-        ClaimStatus::Deleted => "deleted",
     }
 }
 
