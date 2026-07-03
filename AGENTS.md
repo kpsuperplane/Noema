@@ -6,6 +6,8 @@
 
 ## Standards
 - Work on main branch unless explicitly instructed
+- Clean code and good architecture are of utmost priority. When implementing features or fixing bugs, take a bigger-picture look at the surrounding system before editing, and aggressively look for ways to deliver the change with the least new net code.
+- Consolidate existing logic whenever reasonable. Prefer improving or reusing the right abstraction over adding parallel paths, duplicate helpers, or narrowly scoped patches that leave the system more fragmented.
 - The project is under active development, do not build backwards compatibility unless explicitly instructed
 - Pre-V1 schema changes may rewrite tables/docs directly. Do not add migrations or compatibility layers unless explicitly requested.
 - Try to keep code source files under 750 lines. It is not a hard rule, however any file exceeding that threshold should be inspected for refactor, split up, and cleanup opportunities
