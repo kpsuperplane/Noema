@@ -46,12 +46,15 @@ const styles = stylex.create({
     minWidth: 0,
     minHeight: 0,
     overflowAnchor: "none",
+    overflowX: "hidden",
     overflowY: "auto",
     overscrollBehavior: "contain"
   },
   content: {
     display: "flex",
     width: "var(--chat-column-width)",
+    maxWidth: "100%",
+    minWidth: 0,
     minHeight: "100%",
     flexDirection: "column",
     justifyContent: "flex-end",

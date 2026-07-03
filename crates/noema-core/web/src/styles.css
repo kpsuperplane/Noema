@@ -276,4 +276,16 @@ html[data-tauri-runtime="true"] #root {
   max-width: 100%;
   min-width: 0;
   overflow: hidden;
+  contain: paint;
+}
+
+.astryx-chat-tool-calls [role="button"] > span {
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.astryx-chat-tool-calls [role="button"] > span:not(:first-child):not(:last-child) {
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
