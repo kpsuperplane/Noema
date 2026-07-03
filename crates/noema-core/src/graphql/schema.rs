@@ -1374,20 +1374,18 @@ mod tests {
 
     #[tokio::test]
     async fn create_mcp_server_mutation_returns_ready_for_calibration_without_secrets() {
-        let fixture = GraphqlMcpSetupFixture::new(vec![TestMcpSetupOutcome::Ok(vec![
-            crate::mcp::DiscoveredMcpTool {
-                name: "list_repos".to_string(),
-                description: Some("List repositories".to_string()),
-                input_schema: json!({"type": "object"}),
-                output_schema: Some(json!({"type": "object"})),
-                annotations: json!({"readOnlyHint": true}),
-            },
-        ])])
-        .await;
+        let fixture =
+            GraphqlMcpSetupFixture::new(vec![TestMcpSetupOutcome::Ok(vec![discovered_mcp_tool(
+                "list_repos",
+                "List repositories",
+                Some(json!({"type": "object"})),
+                json!({"readOnlyHint": true}),
+            )])])
+            .await;
         let schema = build_schema(fixture.state);
-        let response = schema
-            .execute(async_graphql::Request::new(
-                r#"
+        let response = execute_graphql(
+            &schema,
+            r#"
                 mutation {
                   createMcpServer(input: {
                     displayName: "GitHub"
@@ -1415,8 +1413,8 @@ mod tests {
                   }
                 }
                 "#,
-            ))
-            .await;
+        )
+        .await;
 
         assert!(response.errors.is_empty(), "{:?}", response.errors);
         let data = response.data.into_json().expect("json");
@@ -1437,9 +1435,9 @@ mod tests {
     async fn create_mcp_server_mutation_rejects_secret_shaped_safe_keys() {
         let fixture = GraphqlMcpSetupFixture::new(Vec::new()).await;
         let schema = build_schema(fixture.state);
-        let response = schema
-            .execute(async_graphql::Request::new(
-                r#"
+        let response = execute_graphql(
+            &schema,
+            r#"
                 mutation {
                   createMcpServer(input: {
                     displayName: "Unsafe"
@@ -1453,8 +1451,8 @@ mod tests {
                   }
                 }
                 "#,
-            ))
-            .await;
+        )
+        .await;
 
         assert_eq!(response.errors.len(), 1, "{:?}", response.errors);
         assert!(response.errors[0].message.contains("Authorization"));
@@ -1464,20 +1462,19 @@ mod tests {
     async fn create_mcp_server_mutation_does_not_persist_until_auth_and_discovery_succeed() {
         let fixture = GraphqlMcpSetupFixture::new(vec![
             TestMcpSetupOutcome::AuthRequired("missing authorization".to_string()),
-            TestMcpSetupOutcome::Ok(vec![crate::mcp::DiscoveredMcpTool {
-                name: "retry_tool".to_string(),
-                description: Some("Retry tool".to_string()),
-                input_schema: json!({"type": "object"}),
-                output_schema: None,
-                annotations: json!({}),
-            }]),
+            TestMcpSetupOutcome::Ok(vec![discovered_mcp_tool(
+                "retry_tool",
+                "Retry tool",
+                None,
+                json!({}),
+            )]),
         ])
         .await;
         let schema = build_schema(fixture.state);
         let store = fixture.store.clone();
-        let create = schema
-            .execute(async_graphql::Request::new(
-                r#"
+        let create = execute_graphql(
+            &schema,
+            r#"
                 mutation {
                   createMcpServer(input: {
                     displayName: "Remote"
@@ -1490,8 +1487,8 @@ mod tests {
                   }
                 }
                 "#,
-            ))
-            .await;
+        )
+        .await;
         assert!(create.errors.is_empty(), "{:?}", create.errors);
         let create_data = create.data.into_json().expect("create json");
         assert_eq!(create_data["createMcpServer"]["setupStatus"], "needs_auth");
@@ -1507,9 +1504,9 @@ mod tests {
                 .is_none()
         );
 
-        let retry = schema
-            .execute(async_graphql::Request::new(
-                r#"
+        let retry = execute_graphql(
+            &schema,
+            r#"
                 mutation {
                   createMcpServer(input: {
                     displayName: "Remote"
@@ -1525,8 +1522,8 @@ mod tests {
                   }
                 }
                 "#,
-            ))
-            .await;
+        )
+        .await;
 
         assert!(retry.errors.is_empty(), "{:?}", retry.errors);
         let retry_data = retry.data.into_json().expect("retry json");
@@ -1545,21 +1542,19 @@ mod tests {
 
     #[tokio::test]
     async fn mcp_tools_query_and_delete_mutation_use_persisted_setup_state() {
-        let fixture = GraphqlMcpSetupFixture::new(vec![TestMcpSetupOutcome::Ok(vec![
-            crate::mcp::DiscoveredMcpTool {
-                name: "read_doc".to_string(),
-                description: Some("Read a document".to_string()),
-                input_schema: json!({"type": "object"}),
-                output_schema: None,
-                annotations: json!({"readOnlyHint": true}),
-            },
-        ])])
-        .await;
+        let fixture =
+            GraphqlMcpSetupFixture::new(vec![TestMcpSetupOutcome::Ok(vec![discovered_mcp_tool(
+                "read_doc",
+                "Read a document",
+                None,
+                json!({"readOnlyHint": true}),
+            )])])
+            .await;
         let schema = build_schema(fixture.state);
 
-        let create = schema
-            .execute(async_graphql::Request::new(
-                r#"
+        let create = execute_graphql(
+            &schema,
+            r#"
                 mutation {
                   createMcpServer(input: {
                     displayName: "Docs"
@@ -1575,8 +1570,8 @@ mod tests {
                   }
                 }
                 "#,
-            ))
-            .await;
+        )
+        .await;
         assert!(create.errors.is_empty(), "{:?}", create.errors);
         assert!(
             fixture
@@ -1586,9 +1581,9 @@ mod tests {
                 .exists()
         );
 
-        let tools = schema
-            .execute(async_graphql::Request::new(
-                r#"
+        let tools = execute_graphql(
+            &schema,
+            r#"
                 query {
                   mcpTools(mcpServerId: "mcp:docs") {
                     mcpToolId
@@ -1602,8 +1597,8 @@ mod tests {
                   }
                 }
                 "#,
-            ))
-            .await;
+        )
+        .await;
         assert!(tools.errors.is_empty(), "{:?}", tools.errors);
         let tools_data = tools.data.into_json().expect("tools json");
         let tool = &tools_data["mcpTools"][0];
@@ -1613,15 +1608,15 @@ mod tests {
         assert_eq!(tool["inputSchema"], json!({"type": "object"}));
         assert_eq!(tool["calibration"], serde_json::Value::Null);
 
-        let delete = schema
-            .execute(async_graphql::Request::new(
-                r#"
+        let delete = execute_graphql(
+            &schema,
+            r#"
                 mutation {
                   deleteMcpServer(mcpServerId: "mcp:docs")
                 }
                 "#,
-            ))
-            .await;
+        )
+        .await;
         assert!(delete.errors.is_empty(), "{:?}", delete.errors);
         let delete_data = delete.data.into_json().expect("delete json");
         assert_eq!(delete_data["deleteMcpServer"], true);
@@ -1668,6 +1663,55 @@ mod tests {
                 paths,
                 _home: home,
             }
+        }
+    }
+
+    async fn execute_graphql(
+        schema: &GraphqlSchema,
+        query: &'static str,
+    ) -> async_graphql::Response {
+        schema.execute(async_graphql::Request::new(query)).await
+    }
+
+    fn discovered_mcp_tool(
+        name: &str,
+        description: &str,
+        output_schema: Option<serde_json::Value>,
+        annotations: serde_json::Value,
+    ) -> crate::mcp::DiscoveredMcpTool {
+        crate::mcp::DiscoveredMcpTool {
+            name: name.to_string(),
+            description: Some(description.to_string()),
+            input_schema: json!({"type": "object"}),
+            output_schema,
+            annotations,
+        }
+    }
+
+    async fn seed_google_mcp_tools(store: &crate::NoemaStore, tools: &[(&str, &str)]) {
+        store
+            .create_mcp_server(crate::NewMcpServer {
+                mcp_server_id: "mcp_server:google".to_string(),
+                display_name: "Google".to_string(),
+                transport_kind: crate::McpTransportKind::Stdio,
+                safe_config: json!({}),
+            })
+            .await
+            .expect("create server");
+        for (name, fingerprint) in tools {
+            store
+                .upsert_discovered_mcp_tool(crate::NewMcpTool {
+                    mcp_tool_id: format!("mcp_tool:google:{name}"),
+                    mcp_server_id: "mcp_server:google".to_string(),
+                    name: (*name).to_string(),
+                    description: Some(format!("Tool {name}")),
+                    input_schema: json!({"type": "object"}),
+                    output_schema: None,
+                    annotations: json!({}),
+                    metadata_fingerprint: (*fingerprint).to_string(),
+                })
+                .await
+                .expect("upsert tool");
         }
     }
 
@@ -1789,39 +1833,15 @@ mod tests {
 
     #[tokio::test]
     async fn save_tool_calibration_mutation_persists_reviewed_policy() {
-        use crate::{
-            McpCalibrationStatus, McpTransportKind, NewMcpServer, NewMcpTool,
-            store::tests::test_store,
-        };
+        use crate::{McpCalibrationStatus, store::tests::test_store};
 
         let store = test_store().await;
-        store
-            .create_mcp_server(NewMcpServer {
-                mcp_server_id: "mcp_server:google".to_string(),
-                display_name: "Google".to_string(),
-                transport_kind: McpTransportKind::Stdio,
-                safe_config: json!({}),
-            })
-            .await
-            .expect("create server");
-        store
-            .upsert_discovered_mcp_tool(NewMcpTool {
-                mcp_tool_id: "mcp_tool:google:read_doc".to_string(),
-                mcp_server_id: "mcp_server:google".to_string(),
-                name: "read_doc".to_string(),
-                description: Some("Read a document".to_string()),
-                input_schema: json!({"type": "object"}),
-                output_schema: None,
-                annotations: json!({"readOnlyHint": true}),
-                metadata_fingerprint: "fingerprint_1".to_string(),
-            })
-            .await
-            .expect("upsert tool");
+        seed_google_mcp_tools(&store, &[("read_doc", "fingerprint_1")]).await;
 
         let schema = build_schema(GraphqlState::for_tests_with_store(store.clone()));
-        let response = schema
-            .execute(async_graphql::Request::new(
-                r#"
+        let response = execute_graphql(
+            &schema,
+            r#"
                 mutation {
                   saveToolCalibration(input: {
                     calibrationId: "tool_calibration:read_doc"
@@ -1843,8 +1863,8 @@ mod tests {
                   }
                 }
                 "#,
-            ))
-            .await;
+        )
+        .await;
 
         assert!(response.errors.is_empty(), "{:?}", response.errors);
         let data = response.data.into_json().expect("json");
@@ -1874,48 +1894,22 @@ mod tests {
 
     #[tokio::test]
     async fn save_tool_calibrations_mutation_persists_multiple_policies_in_one_request() {
-        use crate::{
-            McpCalibrationStatus, McpTransportKind, McpTrustClassification, NewMcpServer,
-            NewMcpTool, store::tests::test_store,
-        };
+        use crate::{McpCalibrationStatus, McpTrustClassification, store::tests::test_store};
 
         let store = test_store().await;
-        store
-            .create_mcp_server(NewMcpServer {
-                mcp_server_id: "mcp_server:google".to_string(),
-                display_name: "Google".to_string(),
-                transport_kind: McpTransportKind::Stdio,
-                safe_config: json!({}),
-            })
-            .await
-            .expect("create server");
-        for (tool_id, name, fingerprint) in [
-            ("mcp_tool:google:read_doc", "read_doc", "fingerprint_read"),
-            (
-                "mcp_tool:google:share_doc",
-                "share_doc",
-                "fingerprint_share",
-            ),
-        ] {
-            store
-                .upsert_discovered_mcp_tool(NewMcpTool {
-                    mcp_tool_id: tool_id.to_string(),
-                    mcp_server_id: "mcp_server:google".to_string(),
-                    name: name.to_string(),
-                    description: Some(format!("Tool {name}")),
-                    input_schema: json!({"type": "object"}),
-                    output_schema: None,
-                    annotations: json!({}),
-                    metadata_fingerprint: fingerprint.to_string(),
-                })
-                .await
-                .expect("upsert tool");
-        }
+        seed_google_mcp_tools(
+            &store,
+            &[
+                ("read_doc", "fingerprint_read"),
+                ("share_doc", "fingerprint_share"),
+            ],
+        )
+        .await;
 
         let schema = build_schema(GraphqlState::for_tests_with_store(store.clone()));
-        let response = schema
-            .execute(async_graphql::Request::new(
-                r#"
+        let response = execute_graphql(
+            &schema,
+            r#"
                 mutation {
                   saveToolCalibrations(inputs: [
                     {
@@ -1949,8 +1943,8 @@ mod tests {
                   }
                 }
                 "#,
-            ))
-            .await;
+        )
+        .await;
 
         assert!(response.errors.is_empty(), "{:?}", response.errors);
         let data = response.data.into_json().expect("json");
@@ -1987,45 +1981,22 @@ mod tests {
 
     #[tokio::test]
     async fn save_tool_calibrations_mutation_rejects_invalid_batch_without_partial_writes() {
-        use crate::{McpTransportKind, NewMcpServer, NewMcpTool, store::tests::test_store};
+        use crate::store::tests::test_store;
 
         let store = test_store().await;
-        store
-            .create_mcp_server(NewMcpServer {
-                mcp_server_id: "mcp_server:google".to_string(),
-                display_name: "Google".to_string(),
-                transport_kind: McpTransportKind::Stdio,
-                safe_config: json!({}),
-            })
-            .await
-            .expect("create server");
-        for (tool_id, name, fingerprint) in [
-            ("mcp_tool:google:read_doc", "read_doc", "fingerprint_read"),
-            (
-                "mcp_tool:google:share_doc",
-                "share_doc",
-                "fingerprint_share",
-            ),
-        ] {
-            store
-                .upsert_discovered_mcp_tool(NewMcpTool {
-                    mcp_tool_id: tool_id.to_string(),
-                    mcp_server_id: "mcp_server:google".to_string(),
-                    name: name.to_string(),
-                    description: Some(format!("Tool {name}")),
-                    input_schema: json!({"type": "object"}),
-                    output_schema: None,
-                    annotations: json!({}),
-                    metadata_fingerprint: fingerprint.to_string(),
-                })
-                .await
-                .expect("upsert tool");
-        }
+        seed_google_mcp_tools(
+            &store,
+            &[
+                ("read_doc", "fingerprint_read"),
+                ("share_doc", "fingerprint_share"),
+            ],
+        )
+        .await;
 
         let schema = build_schema(GraphqlState::for_tests_with_store(store.clone()));
-        let response = schema
-            .execute(async_graphql::Request::new(
-                r#"
+        let response = execute_graphql(
+            &schema,
+            r#"
                 mutation {
                   saveToolCalibrations(inputs: [
                     {
@@ -2055,8 +2026,8 @@ mod tests {
                   }
                 }
                 "#,
-            ))
-            .await;
+        )
+        .await;
 
         assert!(!response.errors.is_empty());
         assert!(
@@ -2077,36 +2048,15 @@ mod tests {
 
     #[tokio::test]
     async fn save_tool_calibration_mutation_rejects_invalid_enum_strings() {
-        use crate::{McpTransportKind, NewMcpServer, NewMcpTool, store::tests::test_store};
+        use crate::store::tests::test_store;
 
         let store = test_store().await;
-        store
-            .create_mcp_server(NewMcpServer {
-                mcp_server_id: "mcp_server:google".to_string(),
-                display_name: "Google".to_string(),
-                transport_kind: McpTransportKind::Stdio,
-                safe_config: json!({}),
-            })
-            .await
-            .expect("create server");
-        store
-            .upsert_discovered_mcp_tool(NewMcpTool {
-                mcp_tool_id: "mcp_tool:google:read_doc".to_string(),
-                mcp_server_id: "mcp_server:google".to_string(),
-                name: "read_doc".to_string(),
-                description: None,
-                input_schema: json!({"type": "object"}),
-                output_schema: None,
-                annotations: json!({}),
-                metadata_fingerprint: "fingerprint_1".to_string(),
-            })
-            .await
-            .expect("upsert tool");
+        seed_google_mcp_tools(&store, &[("read_doc", "fingerprint_1")]).await;
 
         let schema = build_schema(GraphqlState::for_tests_with_store(store.clone()));
-        let response = schema
-            .execute(async_graphql::Request::new(
-                r#"
+        let response = execute_graphql(
+            &schema,
+            r#"
                 mutation {
                   saveToolCalibration(input: {
                     calibrationId: "tool_calibration:read_doc"
@@ -2121,8 +2071,8 @@ mod tests {
                   }
                 }
                 "#,
-            ))
-            .await;
+        )
+        .await;
 
         assert!(!response.errors.is_empty());
         assert!(
