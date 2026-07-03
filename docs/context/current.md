@@ -110,10 +110,10 @@ The next storage slice should stay small and concrete:
   Noema-owned shell and domain components remain responsible for chat, memory,
   provenance, approvals, tools, runs, settings, and object detail semantics.
   shadcn/Base UI/Tailwind are no longer part of the frontend foundation.
-- `design/` is prototype and brand-reference material, not production
-  component source. Production frontend changes should translate relevant brand
-  intent into the active Astryx/StyleX patterns in `crates/noema-core/web`
-  rather than copying design-kit demo components or CDN assumptions.
+- Production frontend changes should translate relevant brand intent into the
+  active Astryx/StyleX patterns in `crates/noema-core/web` rather than copying
+  design-kit demo components or CDN assumptions. (The former `design/` prototype
+  kit and `mocks/` static IA prototype have been removed as dead scaffolding.)
 - The route-derived L0 to L1 Settings navigation has landed from
   `docs/superpowers/specs/2026-06-30-route-derived-shell-settings-design.md`
   and

@@ -1,7 +1,0 @@
-/* Noema typefaces — loaded from Google Fonts CDN.
-   NOTE: local binaries are not bundled; see readme.md "Fonts" caveat.
-   - Bricolage Grotesque : display / headings (characterful, thoughtfully-built)
-   - Hanken Grotesk      : body / UI (warm humanist grotesque)
-   - JetBrains Mono      : code, agent output, metadata (developer-credible) */
-
-@import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
