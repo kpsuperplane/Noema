@@ -1,56 +1,23 @@
-import type { Dispatch, SetStateAction } from "react";
 import type {
   ConversationEventsSubscription,
   ConversationTranscriptPageQuery
 } from "@/generated/graphql";
-import type { ConversationAgentStatus, TranscriptEntry, TurnTranscriptItem } from "@/shared/types";
+import type { TranscriptEntry, TurnTranscriptItem } from "@/shared/types";
 
 type ReplayItem = ConversationTranscriptPageQuery["conversationTranscriptPage"]["items"][number];
-type ConversationEvent = ConversationEventsSubscription["conversationEvents"];
+export type ConversationEvent = ConversationEventsSubscription["conversationEvents"];
 type GraphqlTranscriptItem = ReplayItem["item"];
 
 export function entriesFromReplay(items: ReplayItem[]): TranscriptEntry[] {
   return items.map(entryFromReplayItem).filter((entry) => entry !== null);
 }
 
-export function handleConversationEvent(
-  event: ConversationEvent,
-  setters: {
-    setTranscript: Dispatch<SetStateAction<TranscriptEntry[]>>;
-    setPending: Dispatch<SetStateAction<boolean>>;
-    setAgentStatus: Dispatch<SetStateAction<ConversationAgentStatus>>;
-    setAwaitingAssistantTurn: Dispatch<SetStateAction<boolean>>;
-  }
-) {
-  markClientTurnEvent("client_conversation_event_received", clientEventFields(event));
-  if (event.__typename === "TurnCompletedEvent") {
-    setters.setTranscript((current) => removeStaleStartedMemoryExtractions(current));
-    markClientTurnEvent("client_turn_completed_scheduled", clientEventFields(event));
-    setters.setPending(false);
-    setters.setAwaitingAssistantTurn(false);
-    setters.setAgentStatus("IDLE");
-    return;
-  }
-  if (event.__typename === "AgentStatusEvent") {
-    setters.setAgentStatus(event.status);
-    markClientTurnEvent("client_agent_status_scheduled", clientEventFields(event));
-    return;
-  }
-  if (event.__typename === "AssistantTextDeltaEvent") {
-    setters.setAwaitingAssistantTurn(false);
-    appendAssistantTextDelta(setters.setTranscript, {
-      conversationId: event.conversationId,
-      turnId: event.deltaTurnId,
-      streamId: event.streamId,
-      delta: event.delta
-    });
-    markClientTurnEvent("client_assistant_delta_scheduled", clientEventFields(event));
-    return;
-  }
+export function entryFromConversationEvent(event: ConversationEvent): TranscriptEntry | null {
   if (event.__typename !== "ConversationItemEvent") {
-    return;
+    return null;
   }
 
+  markClientTurnEvent("client_conversation_event_received", clientEventFields(event));
   const entry = entryFromConversationItem(
     event.itemId,
     event.cursor,
@@ -58,84 +25,47 @@ export function handleConversationEvent(
     event.item,
     event.metadata
   );
-  if (!entry) {
-    return;
-  }
-  if (event.clientMessageId && entry.type === "user") {
-    replaceOptimisticTranscriptEntry(setters.setTranscript, event.clientMessageId, entry);
-  } else {
-    upsertTranscriptEntry(setters.setTranscript, entry);
-  }
-  markClientTurnEvent("client_transcript_entry_scheduled", {
-    ...clientEventFields(event),
-    entry_type: entry.type
-  });
-}
-
-export function pushTranscript(
-  setTranscript: Dispatch<SetStateAction<TranscriptEntry[]>>,
-  entry: TranscriptEntry
-) {
-  setTranscript((current) => [...current, entry]);
-}
-
-function replaceOptimisticTranscriptEntry(
-  setTranscript: Dispatch<SetStateAction<TranscriptEntry[]>>,
-  optimisticId: string,
-  entry: TranscriptEntry
-) {
-  setTranscript((current) => {
-    const index = current.findIndex((candidate) => candidate.id === optimisticId);
-    if (index === -1) {
-      return [...current, entry];
-    }
-    return current.map((candidate, candidateIndex) =>
-      candidateIndex === index ? { ...entry, id: optimisticId } : candidate
-    );
-  });
-}
-
-function upsertTranscriptEntry(
-  setTranscript: Dispatch<SetStateAction<TranscriptEntry[]>>,
-  entry: TranscriptEntry
-) {
-  setTranscript((current) => upsertTranscriptEntryValue(current, entry));
-}
-
-function upsertTranscriptEntryValue(current: TranscriptEntry[], entry: TranscriptEntry): TranscriptEntry[] {
-  const entryItemId = transcriptEntryItemId(entry);
-  const entryRuntimeId = transcriptEntryRuntimeId(entry);
-  const existingIndex = current.findIndex(
-    (candidate) =>
-      (entryItemId !== undefined && transcriptEntryItemId(candidate) === entryItemId) ||
-      (entryRuntimeId !== undefined && transcriptEntryRuntimeId(candidate) === entryRuntimeId) ||
-      candidate.id === entry.id
-  );
-  const streamIndex =
-    entry.type === "assistant" && entry.streamId
-      ? current.findIndex((candidate) => candidate.type === "assistant_stream" && candidate.streamId === entry.streamId)
-      : -1;
-
-  if (existingIndex !== -1) {
-    return current.flatMap((candidate, candidateIndex) => {
-      if (candidateIndex === existingIndex) {
-        return [entry];
-      }
-      if (streamIndex !== -1 && candidateIndex === streamIndex) {
-        return [];
-      }
-      return [candidate];
+  if (entry) {
+    markClientTurnEvent("client_transcript_entry_scheduled", {
+      ...clientEventFields(event),
+      entry_type: entry.type
     });
   }
-
-  if (streamIndex !== -1) {
-    return current.map((candidate, candidateIndex) => (candidateIndex === streamIndex ? entry : candidate));
-  }
-
-  return [...current, entry];
+  return entry;
 }
 
-function removeStaleStartedMemoryExtractions(current: TranscriptEntry[]): TranscriptEntry[] {
+export function isTurnCompletedEvent(event: ConversationEvent): boolean {
+  if (event.__typename === "TurnCompletedEvent") {
+    markClientTurnEvent("client_conversation_event_received", clientEventFields(event));
+    markClientTurnEvent("client_turn_completed_scheduled", clientEventFields(event));
+    return true;
+  }
+  return false;
+}
+
+export function isAgentStatusEvent(
+  event: ConversationEvent
+): event is Extract<ConversationEvent, { __typename: "AgentStatusEvent" }> {
+  if (event.__typename === "AgentStatusEvent") {
+    markClientTurnEvent("client_conversation_event_received", clientEventFields(event));
+    markClientTurnEvent("client_agent_status_scheduled", clientEventFields(event));
+    return true;
+  }
+  return false;
+}
+
+export function isAssistantTextDeltaEvent(
+  event: ConversationEvent
+): event is Extract<ConversationEvent, { __typename: "AssistantTextDeltaEvent" }> {
+  if (event.__typename === "AssistantTextDeltaEvent") {
+    markClientTurnEvent("client_conversation_event_received", clientEventFields(event));
+    markClientTurnEvent("client_assistant_delta_scheduled", clientEventFields(event));
+    return true;
+  }
+  return false;
+}
+
+export function removeStaleStartedMemoryExtractions(current: TranscriptEntry[]): TranscriptEntry[] {
   return current.filter(
     (entry) =>
       !(
@@ -146,57 +76,44 @@ function removeStaleStartedMemoryExtractions(current: TranscriptEntry[]): Transc
   );
 }
 
-function transcriptEntryItemId(entry: TranscriptEntry): string | undefined {
-  return "itemId" in entry ? entry.itemId : undefined;
-}
-
-function transcriptEntryRuntimeId(entry: TranscriptEntry): string | undefined {
-  if (entry.type === "activity") {
-    return entry.item.id;
-  }
-  return undefined;
-}
-
-function appendAssistantTextDelta(
-  setTranscript: Dispatch<SetStateAction<TranscriptEntry[]>>,
+export function appendAssistantTextDeltaEntry(
+  current: TranscriptEntry[],
   event: { turnId: string; streamId: string; delta: string; conversationId: string }
-) {
+): TranscriptEntry[] {
   void event.conversationId;
-  setTranscript((current) => {
-    const completedIndex = current.findIndex((candidate) => {
-      if (candidate.type !== "assistant") {
-        return false;
-      }
-      if (candidate.streamId === event.streamId) {
-        return true;
-      }
-      return candidate.turnId === event.turnId;
-    });
-    if (completedIndex !== -1) {
-      return current;
+  const completedIndex = current.findIndex((candidate) => {
+    if (candidate.type !== "assistant") {
+      return false;
     }
-
-    const index = current.findIndex(
-      (candidate) => candidate.type === "assistant_stream" && candidate.streamId === event.streamId
-    );
-    if (index === -1) {
-      return [
-        ...current,
-        {
-          id: event.streamId,
-          turnId: event.turnId,
-          type: "assistant_stream",
-          streamId: event.streamId,
-          text: event.delta
-        }
-      ];
+    if (candidate.streamId === event.streamId) {
+      return true;
     }
-    return current.map((candidate, candidateIndex) =>
-      candidateIndex === index && candidate.type === "assistant_stream"
-        ? { ...candidate, text: `${candidate.text}${event.delta}` }
-        : candidate
-    );
+    return candidate.turnId === event.turnId;
   });
+  if (completedIndex !== -1) {
+    return current;
+  }
+
+  const index = current.findIndex(
+    (candidate) => candidate.type === "assistant_stream" && candidate.streamId === event.streamId
+  );
+  if (index === -1) {
+    return [
+      ...current,
+      {
+        id: event.streamId,
+        turnId: event.turnId,
+        type: "assistant_stream",
+        streamId: event.streamId,
+        text: event.delta
+      }
+    ];
+  }
+  return current.map((candidate, candidateIndex) =>
+    candidateIndex === index && candidate.type === "assistant_stream"
+      ? { ...candidate, text: `${candidate.text}${event.delta}` }
+      : candidate
+  );
 }
 
 function entryFromReplayItem(item: ReplayItem): TranscriptEntry | null {

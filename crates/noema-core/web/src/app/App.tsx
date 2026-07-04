@@ -3,11 +3,13 @@ import { useApolloClient, useMutation, useQuery, useSubscription } from "@apollo
 import * as stylex from "@stylexjs/stylex";
 import {
   ConversationEventsDocument,
+  ConversationTranscriptPageDocument,
+  EnsurePrimaryConversationDocument,
   LocalStatusDocument,
   OnboardingStatusDocument,
+  PrimaryConversationDocument,
   ProviderAuthAttemptDocument,
   SendConversationTurnDocument,
-  StartPrimaryConversationDocument,
   StartProviderAuthAttemptDocument,
   type ProviderAuthAttemptQuery,
   type StartProviderAuthAttemptMutation
@@ -25,8 +27,24 @@ import { MemoryGraphPage } from "@/pages/MemoryGraphPage";
 import { MemoryHomePage } from "@/pages/MemoryHomePage";
 import { SettingsSurface } from "@/pages/SettingsPage";
 import { useBrowserRoute } from "./routes";
-import { entriesFromReplay, handleConversationEvent, pushTranscript } from "@/transcript/events";
-import type { ConversationAgentStatus, SocketState, TranscriptEntry } from "@/shared/types";
+import {
+  appendAssistantTextDeltaEntry,
+  entriesFromReplay,
+  entryFromConversationEvent,
+  isAgentStatusEvent,
+  isAssistantTextDeltaEvent,
+  isTurnCompletedEvent,
+  removeStaleStartedMemoryExtractions,
+  type ConversationEvent
+} from "@/transcript/events";
+import {
+  appendOptimisticEntry,
+  emptyTranscriptWindow,
+  mergeDurableEntries,
+  replaceOptimisticEntry,
+  transcriptWindowEntries
+} from "@/transcript/window";
+import type { ConversationAgentStatus, SocketState } from "@/shared/types";
 import { createClientId } from "@/shared/clientId";
 
 type ProviderAuthAttemptView =
@@ -80,7 +98,14 @@ export function App() {
   const localStatus = useQuery(LocalStatusDocument);
   const onboardingStatus = useQuery(OnboardingStatusDocument);
   const [startProviderAuthAttempt] = useMutation(StartProviderAuthAttemptDocument);
-  const [startPrimaryConversation] = useMutation(StartPrimaryConversationDocument);
+  const onboarding = onboardingStatus.data?.onboardingStatus ?? null;
+  const onboarded = onboarding?.isUserOnboarded ?? false;
+  const chatRoute = route.kind === "chat";
+  const primaryConversation = useQuery(PrimaryConversationDocument, {
+    skip: !chatRoute || !onboarded,
+    fetchPolicy: "network-only"
+  });
+  const [ensurePrimaryConversation] = useMutation(EnsurePrimaryConversationDocument);
   const [sendConversationTurn] = useMutation(SendConversationTurnDocument);
 
   const [socketState, setSocketState] = React.useState<SocketState>("closed");
@@ -88,33 +113,64 @@ export function App() {
   const [agentStatus, setAgentStatus] = React.useState<ConversationAgentStatus>("closed");
   const [authAttempt, setAuthAttempt] = React.useState<ProviderAuthAttemptView | null>(null);
   const [onboardingError, setOnboardingError] = React.useState<string | null>(null);
-  const [transcript, setTranscript] = React.useState<TranscriptEntry[]>([]);
+  const [transcriptWindow, setTranscriptWindow] = React.useState(() => emptyTranscriptWindow());
+  const transcript = transcriptWindowEntries(transcriptWindow);
+  const [loadingLatestTranscript, setLoadingLatestTranscript] = React.useState(false);
+  const [loadingOlderTranscript, setLoadingOlderTranscript] = React.useState(false);
+  const [transcriptPageError, setTranscriptPageError] = React.useState<string | null>(null);
   const [draft, setDraft] = React.useState("");
   const [pending, setPending] = React.useState(false);
   const [awaitingAssistantTurn, setAwaitingAssistantTurn] = React.useState(false);
   const [expandedActivities, setExpandedActivities] = React.useState<Set<string>>(new Set());
   const startingConversationRef = React.useRef(false);
+  const latestTranscriptConversationRef = React.useRef<string | null>(null);
 
-  const onboarding = onboardingStatus.data?.onboardingStatus ?? null;
   const status = localStatus.data?.localStatus ?? null;
   const agentName = status?.primaryAgentDisplayName ?? null;
-  const onboarded = onboarding?.isUserOnboarded ?? false;
-  const chatRoute = route.kind === "chat";
   const displayedOnboardingError = onboardingError ?? onboardingStatus.error?.message ?? null;
   const authAttemptId = authAttempt?.attemptId;
   const authAttemptStatus = authAttempt?.status;
+
+  const pushTranscriptWindowError = React.useCallback((message: string) => {
+    setTranscriptWindow((current) =>
+      mergeDurableEntries(
+        current,
+        [
+          {
+            id: createClientId(),
+            type: "error",
+            message,
+            recoverable: true
+          }
+        ],
+        {
+          placement: "append",
+          beforeCursor: current.beforeCursor,
+          hasMoreBefore: current.hasMoreBefore
+        }
+      )
+    );
+  }, []);
 
   const reportConversationError = React.useCallback((error: Error) => {
     setSocketState("closed");
     setAgentStatus("closed");
     setPending(false);
     setAwaitingAssistantTurn(false);
-    pushTranscript(setTranscript, {
-      id: createClientId(),
-      type: "error",
-      message: error.message,
-      recoverable: true
-    });
+    pushTranscriptWindowError(error.message);
+  }, [pushTranscriptWindowError]);
+
+  const markConversationConnecting = React.useCallback(() => {
+    setSocketState("connecting");
+    setAgentStatus("connecting");
+  }, []);
+
+  const acceptPrimaryConversation = React.useCallback((nextConversationId: string) => {
+    setConversationId(nextConversationId);
+    setPending(false);
+    setAwaitingAssistantTurn(false);
+    setSocketState("ready");
+    setAgentStatus("IDLE");
   }, []);
 
   const conversationEvents = useSubscription(ConversationEventsDocument, {
@@ -123,59 +179,218 @@ export function App() {
     onError: reportConversationError
   });
 
+  const loadConversationTranscriptPage = React.useCallback(
+    async ({ cursor, placement }: { cursor: string | null; placement: "latest" | "before" }) => {
+      if (!conversationId) {
+        return;
+      }
+      if (placement === "latest") {
+        setLoadingLatestTranscript(true);
+      } else {
+        setLoadingOlderTranscript(true);
+      }
+      setTranscriptPageError(null);
+      try {
+        const result = await apolloClient.query({
+          query: ConversationTranscriptPageDocument,
+          variables: {
+            input: {
+              conversationId,
+              cursor,
+              limit: 80
+            }
+          },
+          fetchPolicy: "network-only"
+        });
+        const page = result.data?.conversationTranscriptPage;
+        if (!page) {
+          throw new Error("Noema did not return chat history.");
+        }
+        setTranscriptWindow((current) =>
+          mergeDurableEntries(current, entriesFromReplay(page.items), {
+            placement,
+            beforeCursor: page.pageInfo.beforeCursor ?? null,
+            hasMoreBefore: page.pageInfo.hasMoreBefore
+          })
+        );
+      } catch (error: unknown) {
+        setTranscriptPageError(error instanceof Error ? error.message : "Noema could not load chat history.");
+      } finally {
+        if (placement === "latest") {
+          setLoadingLatestTranscript(false);
+        } else {
+          setLoadingOlderTranscript(false);
+        }
+      }
+    },
+    [apolloClient, conversationId]
+  );
+
   React.useEffect(() => {
     if (!chatRoute || !onboarded || conversationId || startingConversationRef.current) {
       return;
     }
 
+    let cancelled = false;
+    const scheduleConversationState = (update: () => void) => {
+      window.queueMicrotask(() => {
+        if (!cancelled) {
+          update();
+        }
+      });
+    };
+
+    const existing = primaryConversation.data?.primaryConversation;
+    if (existing) {
+      scheduleConversationState(() => acceptPrimaryConversation(existing.conversationId));
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    if (primaryConversation.loading) {
+      scheduleConversationState(markConversationConnecting);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    if (primaryConversation.error) {
+      const error = primaryConversation.error;
+      scheduleConversationState(() => reportConversationError(error));
+      return () => {
+        cancelled = true;
+      };
+    }
+
     startingConversationRef.current = true;
-    setSocketState("connecting");
-    setAgentStatus("connecting");
-    void startPrimaryConversation()
+    scheduleConversationState(markConversationConnecting);
+    void ensurePrimaryConversation()
       .then((result) => {
-        const started = result.data?.startPrimaryConversation;
-        if (!started) {
+        const ensured = result.data?.ensurePrimaryConversation;
+        if (!ensured) {
           throw new Error("Noema did not return a conversation.");
         }
-        setConversationId(started.conversationId);
-        setTranscript(entriesFromReplay(started.replay));
-        setPending(false);
-        setAwaitingAssistantTurn(false);
-        setSocketState("ready");
-        setAgentStatus("IDLE");
+        acceptPrimaryConversation(ensured.conversationId);
       })
       .catch((error: unknown) => {
         setSocketState("closed");
         setAgentStatus("closed");
         setPending(false);
         setAwaitingAssistantTurn(false);
-        pushTranscript(setTranscript, {
-          id: createClientId(),
-          type: "error",
-          message: error instanceof Error ? error.message : "Noema could not start chat.",
-          recoverable: true
-        });
+        pushTranscriptWindowError(error instanceof Error ? error.message : "Noema could not start chat.");
       })
       .finally(() => {
         startingConversationRef.current = false;
       });
-  }, [chatRoute, conversationId, onboarded, startPrimaryConversation]);
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    acceptPrimaryConversation,
+    chatRoute,
+    conversationId,
+    ensurePrimaryConversation,
+    markConversationConnecting,
+    onboarded,
+    primaryConversation.data,
+    primaryConversation.error,
+    primaryConversation.loading,
+    pushTranscriptWindowError,
+    reportConversationError
+  ]);
+
+  React.useEffect(() => {
+    if (
+      !conversationId ||
+      loadingLatestTranscript ||
+      transcriptWindow.durableEntries.length > 0 ||
+      latestTranscriptConversationRef.current === conversationId
+    ) {
+      return;
+    }
+    latestTranscriptConversationRef.current = conversationId;
+    void loadConversationTranscriptPage({ cursor: null, placement: "latest" });
+  }, [
+    conversationId,
+    loadConversationTranscriptPage,
+    loadingLatestTranscript,
+    transcriptWindow.durableEntries.length
+  ]);
+
+  const loadOlderTranscript = React.useCallback(() => {
+    if (!transcriptWindow.hasMoreBefore || loadingOlderTranscript || !transcriptWindow.beforeCursor) {
+      return;
+    }
+    void loadConversationTranscriptPage({
+      cursor: transcriptWindow.beforeCursor,
+      placement: "before"
+    });
+  }, [
+    loadConversationTranscriptPage,
+    loadingOlderTranscript,
+    transcriptWindow.beforeCursor,
+    transcriptWindow.hasMoreBefore
+  ]);
+
+  const applyConversationEvent = React.useCallback((event: ConversationEvent) => {
+    if (isTurnCompletedEvent(event)) {
+      setTranscriptWindow((current) => ({
+        ...current,
+        durableEntries: removeStaleStartedMemoryExtractions(current.durableEntries)
+      }));
+      setPending(false);
+      setAwaitingAssistantTurn(false);
+      setAgentStatus("IDLE");
+    } else if (isAgentStatusEvent(event)) {
+      setAgentStatus(event.status);
+    } else if (isAssistantTextDeltaEvent(event)) {
+      setAwaitingAssistantTurn(false);
+      setTranscriptWindow((current) => ({
+        ...current,
+        durableEntries: appendAssistantTextDeltaEntry(current.durableEntries, {
+          conversationId: event.conversationId,
+          turnId: event.deltaTurnId,
+          streamId: event.streamId,
+          delta: event.delta
+        })
+      }));
+    } else {
+      const entry = entryFromConversationEvent(event);
+      if (entry) {
+        if (event.__typename === "ConversationItemEvent" && event.clientMessageId && entry.type === "user") {
+          setTranscriptWindow((current) => replaceOptimisticEntry(current, event.clientMessageId ?? "", entry));
+        } else {
+          setTranscriptWindow((current) =>
+            mergeDurableEntries(current, [entry], {
+              placement: "append",
+              beforeCursor: current.beforeCursor,
+              hasMoreBefore: current.hasMoreBefore
+            })
+          );
+        }
+      }
+    }
+    if (shouldRefreshLocalStatusForConversationEvent(event)) {
+      void localStatus.refetch();
+    }
+  }, [localStatus]);
 
   React.useEffect(() => {
     const event = conversationEvents.data?.conversationEvents;
     if (!event) {
       return;
     }
-    handleConversationEvent(event, {
-      setTranscript,
-      setPending,
-      setAgentStatus,
-      setAwaitingAssistantTurn
+    let cancelled = false;
+    window.queueMicrotask(() => {
+      if (!cancelled) {
+        applyConversationEvent(event);
+      }
     });
-    if (shouldRefreshLocalStatusForConversationEvent(event)) {
-      void localStatus.refetch();
-    }
-  }, [conversationEvents.data, localStatus]);
+    return () => {
+      cancelled = true;
+    };
+  }, [applyConversationEvent, conversationEvents.data]);
 
   async function connectProvider() {
     const step = onboarding?.steps.find((candidate) => candidate.id === "connect_provider_account");
@@ -278,7 +493,7 @@ export function App() {
     setPending(true);
     setAwaitingAssistantTurn(false);
     setAgentStatus("INPUT_RECEIVED");
-    pushTranscript(setTranscript, { id: clientMessageId, type: "user", text: input });
+    setTranscriptWindow((current) => appendOptimisticEntry(current, { id: clientMessageId, type: "user", text: input }));
 
     try {
       await sendConversationTurn({
@@ -292,12 +507,7 @@ export function App() {
       });
     } catch (error: unknown) {
       setPending(false);
-      pushTranscript(setTranscript, {
-        id: createClientId(),
-        type: "error",
-        message: error instanceof Error ? error.message : "Noema could not send that message.",
-        recoverable: true
-      });
+      pushTranscriptWindowError(error instanceof Error ? error.message : "Noema could not send that message.");
     }
   }
 
@@ -307,6 +517,9 @@ export function App() {
   const chatView = (
     <ChatSurface
       transcript={transcript}
+      loadingOlderTranscript={loadingOlderTranscript}
+      hasMoreTranscriptBefore={transcriptWindow.hasMoreBefore}
+      transcriptPageError={transcriptPageError}
       pending={pending}
       agentStatus={agentStatus}
       awaitingAssistantTurn={awaitingAssistantTurn}
@@ -327,6 +540,7 @@ export function App() {
         })
       }
       onDraftChange={setDraft}
+      onLoadOlderTranscript={loadOlderTranscript}
       onSubmit={(value) => void sendMessage(value)}
     />
   );

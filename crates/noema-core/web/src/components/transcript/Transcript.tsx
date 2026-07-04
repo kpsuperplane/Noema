@@ -31,20 +31,32 @@ import type { ConversationAgentStatus } from "@/shared/types";
 
 export function Transcript({
   entries,
+  loadingOlderTranscript,
+  hasMoreTranscriptBefore,
+  transcriptPageError,
   pending,
   awaitingAssistantTurn,
   agentStatus,
   expandedActivities,
-  onToggleActivity
+  onToggleActivity,
+  onLoadOlderTranscript
 }: {
   entries: TranscriptEntry[];
+  loadingOlderTranscript: boolean;
+  hasMoreTranscriptBefore: boolean;
+  transcriptPageError: string | null;
   pending: boolean;
   awaitingAssistantTurn: boolean;
   agentStatus: ConversationAgentStatus;
   expandedActivities: Set<string>;
   onToggleActivity: (id: string) => void;
+  onLoadOlderTranscript: () => void;
 }) {
   void awaitingAssistantTurn;
+  void loadingOlderTranscript;
+  void hasMoreTranscriptBefore;
+  void transcriptPageError;
+  void onLoadOlderTranscript;
   const renderedEntries = renderableTranscriptEntries(entries, pending, agentStatus);
   const [seenArrivalMessageIds, setSeenArrivalMessageIds] = React.useState<ReadonlySet<string>>(() =>
     initialSeenArrivalMessageIds(renderedEntries)

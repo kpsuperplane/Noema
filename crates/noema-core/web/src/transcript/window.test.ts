@@ -135,4 +135,45 @@ describe("transcript window model", () => {
       ["one", "two", "three"]
     );
   });
+
+  test("replaces assistant stream entry with durable assistant entry", () => {
+    const current: TranscriptWindowState = {
+      durableEntries: [
+        {
+          id: "stream:1",
+          turnId: "turn:1",
+          type: "assistant_stream",
+          streamId: "stream:1",
+          text: "hello"
+        }
+      ],
+      optimisticEntries: [],
+      beforeCursor: null,
+      hasMoreBefore: false
+    };
+    const merged = mergeDurableEntries(
+      current,
+      [
+        {
+          id: "item:1",
+          itemId: "item:1",
+          cursor: "c1",
+          turnId: "turn:1",
+          type: "assistant",
+          streamId: "stream:1",
+          text: "hello there"
+        }
+      ],
+      {
+        beforeCursor: null,
+        hasMoreBefore: false,
+        placement: "append"
+      }
+    );
+
+    assert.deepEqual(
+      transcriptWindowEntries(merged).map((entry) => entry.id),
+      ["item:1"]
+    );
+  });
 });

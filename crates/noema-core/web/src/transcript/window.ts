@@ -9,12 +9,14 @@ export type TranscriptWindowState = {
   hasMoreBefore: boolean;
 };
 
-export const emptyTranscriptWindow: TranscriptWindowState = {
-  durableEntries: [],
-  optimisticEntries: [],
-  beforeCursor: null,
-  hasMoreBefore: false
-};
+export function emptyTranscriptWindow(): TranscriptWindowState {
+  return {
+    durableEntries: [],
+    optimisticEntries: [],
+    beforeCursor: null,
+    hasMoreBefore: false
+  };
+}
 
 export function transcriptWindowEntries(state: TranscriptWindowState): TranscriptEntry[] {
   return [...state.durableEntries, ...state.optimisticEntries];
@@ -84,9 +86,15 @@ function mergeEntriesByItemId(
       return itemId === undefined ? [] : [[itemId, entry]];
     })
   );
+  const incomingAssistantStreamIds = new Set(
+    incoming.flatMap((entry) => (entry.type === "assistant" && entry.streamId ? [entry.streamId] : []))
+  );
   const seenItemIds = new Set<string>();
 
   return baseEntries.flatMap((entry) => {
+    if (entry.type === "assistant_stream" && incomingAssistantStreamIds.has(entry.streamId)) {
+      return [];
+    }
     const itemId = transcriptEntryItemId(entry);
     if (itemId === undefined) {
       return [entry];

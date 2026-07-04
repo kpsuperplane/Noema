@@ -36,6 +36,9 @@ export function composerPlaceholder({
 
 export type ChatSurfaceProps = {
   transcript: TranscriptEntry[];
+  loadingOlderTranscript: boolean;
+  hasMoreTranscriptBefore: boolean;
+  transcriptPageError: string | null;
   pending: boolean;
   agentStatus: ConversationAgentStatus;
   awaitingAssistantTurn: boolean;
@@ -46,11 +49,15 @@ export type ChatSurfaceProps = {
   onPickStarter: (starter: string) => void;
   onToggleActivity: (id: string) => void;
   onDraftChange: (value: string) => void;
+  onLoadOlderTranscript: () => void;
   onSubmit: (value: string) => void;
 };
 
 export function ChatSurface({
   transcript,
+  loadingOlderTranscript,
+  hasMoreTranscriptBefore,
+  transcriptPageError,
   pending,
   agentStatus,
   awaitingAssistantTurn,
@@ -61,6 +68,7 @@ export function ChatSurface({
   onPickStarter,
   onToggleActivity,
   onDraftChange,
+  onLoadOlderTranscript,
   onSubmit
 }: ChatSurfaceProps) {
   const { visibility } = useShellSurface();
@@ -115,11 +123,15 @@ export function ChatSurface({
         ) : (
           <Transcript
             entries={transcript}
+            loadingOlderTranscript={loadingOlderTranscript}
+            hasMoreTranscriptBefore={hasMoreTranscriptBefore}
+            transcriptPageError={transcriptPageError}
             pending={pending}
             agentStatus={agentStatus}
             awaitingAssistantTurn={awaitingAssistantTurn}
             expandedActivities={expandedActivities}
             onToggleActivity={onToggleActivity}
+            onLoadOlderTranscript={onLoadOlderTranscript}
           />
         )}
       </div>
