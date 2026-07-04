@@ -586,6 +586,9 @@ done
                     require_noema_response: true,
                     ..crate::GenerateOptions::default()
                 },
+                tools: Vec::new(),
+                tool_choice: Default::default(),
+                parallel_tool_calls: false,
             })
             .await
             .expect("generate");
@@ -636,6 +639,9 @@ done
                         require_noema_response: true,
                         ..crate::GenerateOptions::default()
                     },
+                    tools: Vec::new(),
+                    tool_choice: Default::default(),
+                    parallel_tool_calls: false,
                 },
                 &mut |event| events.push(event),
             )
@@ -692,6 +698,9 @@ done
                     input: GenerateInput::Text(input.to_string()),
                     instructions: Some("be concise".to_string()),
                     options: crate::GenerateOptions::default(),
+                    tools: Vec::new(),
+                    tool_choice: Default::default(),
+                    parallel_tool_calls: false,
                 })
                 .await
                 .expect("generate");

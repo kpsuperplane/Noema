@@ -710,6 +710,9 @@ mod tests {
                     require_noema_response: true,
                     ..GenerateOptions::default()
                 },
+                tools: Vec::new(),
+                tool_choice: Default::default(),
+                parallel_tool_calls: false,
             })
             .await
             .expect_err("malformed response");

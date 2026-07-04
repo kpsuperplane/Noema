@@ -360,6 +360,9 @@ mod tests {
                     prompt_cache_retention: Some(PromptCacheRetention::TwentyFourHours),
                     ..crate::provider::GenerateOptions::default()
                 },
+                tools: Vec::new(),
+                tool_choice: Default::default(),
+                parallel_tool_calls: false,
             })
             .await
             .expect("response");

@@ -14,6 +14,8 @@ pub mod auth;
 pub mod contract;
 /// Provider model/profile catalog refresh helpers.
 pub mod model_catalog;
+/// Provider-neutral native tool contracts.
+pub mod tools;
 
 pub use contract::{
     AssistantTextPhase, DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateActionItem, GenerateInput,
@@ -22,4 +24,10 @@ pub use contract::{
     ModelProvider, ParsedNoemaResponse, PromptCacheRetention, ProviderContextMetadata,
     ProviderError, TokenUsage, noema_response_from_text, output_items_from_text,
     required_noema_response_from_text,
+};
+
+pub use tools::{
+    NoemaToolCall, NoemaToolChoice, NoemaToolExecution, NoemaToolResult, NoemaToolSchema,
+    NoemaToolSpec, ProviderToolCapabilities, ProviderToolFallbackMode, ProviderToolSchemaDialect,
+    ToolContractError, ToolExposurePolicy, ToolName,
 };

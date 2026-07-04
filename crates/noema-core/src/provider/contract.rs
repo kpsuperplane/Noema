@@ -1,5 +1,6 @@
 //! Provider-neutral generation contract.
 
+use super::tools::{NoemaToolChoice, NoemaToolSpec, ProviderToolCapabilities};
 use crate::memory::extraction::ExtractorMemoryProposal;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -33,6 +34,11 @@ pub trait ModelProvider: Send + Sync {
     /// Return provider/model context-window metadata used for prompt planning.
     fn context_metadata(&self, _model: Option<&str>) -> ProviderContextMetadata {
         ProviderContextMetadata::default()
+    }
+
+    /// Return native tool-calling capabilities for this provider/model.
+    fn tool_capabilities(&self, _model: Option<&str>) -> ProviderToolCapabilities {
+        ProviderToolCapabilities::default()
     }
 
     /// Count request tokens when the provider has an authoritative tokenizer.
@@ -86,6 +92,12 @@ pub struct GenerateRequest {
     pub instructions: Option<String>,
     /// Provider-neutral generation controls.
     pub options: GenerateOptions,
+    /// Provider-neutral model-visible tools for this request.
+    pub tools: Vec<NoemaToolSpec>,
+    /// Tool selection policy requested by Noema.
+    pub tool_choice: NoemaToolChoice,
+    /// Whether Noema allows the provider to emit independent tool calls in parallel.
+    pub parallel_tool_calls: bool,
 }
 
 impl GenerateRequest {
@@ -98,6 +110,9 @@ impl GenerateRequest {
             input: GenerateInput::Text(input.into()),
             instructions: None,
             options: GenerateOptions::default(),
+            tools: Vec::new(),
+            tool_choice: NoemaToolChoice::default(),
+            parallel_tool_calls: false,
         }
     }
 

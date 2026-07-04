@@ -284,6 +284,9 @@ async fn generate_compaction_summary(
                     require_noema_response: false,
                     ..GenerateOptions::default()
                 },
+                tools: Vec::new(),
+                tool_choice: Default::default(),
+                parallel_tool_calls: false,
             },
             &mut ignore_event,
         )

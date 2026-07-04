@@ -181,6 +181,9 @@ impl CodexRuntimeActor {
                         prompt_cache_retention: Some(PromptCacheRetention::TwentyFourHours),
                         ..GenerateOptions::default()
                     },
+                    tools: Vec::new(),
+                    tool_choice: Default::default(),
+                    parallel_tool_calls: false,
                 },
                 &mut |_| {},
             )
@@ -491,6 +494,9 @@ impl CodexRuntimeActor {
                         prompt_cache_retention: Some(PromptCacheRetention::TwentyFourHours),
                         ..GenerateOptions::default()
                     },
+                    tools: Vec::new(),
+                    tool_choice: Default::default(),
+                    parallel_tool_calls: false,
                 },
                 &mut on_initial_event,
             )
@@ -742,6 +748,9 @@ impl CodexRuntimeActor {
                             prompt_cache_retention: Some(PromptCacheRetention::TwentyFourHours),
                             ..GenerateOptions::default()
                         },
+                        tools: Vec::new(),
+                        tool_choice: Default::default(),
+                        parallel_tool_calls: false,
                     },
                     &mut on_continuation_event,
                 )
