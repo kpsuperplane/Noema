@@ -61,6 +61,50 @@ describe("transcript window model", () => {
       ["client:1"]
     );
     assert.equal(transcriptWindowEntries(replaced)[0]?.itemId, "item:1");
+    assert.deepEqual(
+      replaced.durableEntries.map((entry) => entry.id),
+      ["client:1"]
+    );
+    assert.deepEqual(replaced.optimisticEntries, []);
+  });
+
+  test("removes optimistic entries when matching durable item is merged", () => {
+    const current: TranscriptWindowState = {
+      durableEntries: [userEntry("item:1", "one", "c1")],
+      optimisticEntries: [{ ...userEntry("item:2", "optimistic two", "c2"), id: "client:2" }],
+      beforeCursor: null,
+      hasMoreBefore: false
+    };
+    const merged = mergeDurableEntries(current, [userEntry("item:2", "durable two", "c2")], {
+      beforeCursor: null,
+      hasMoreBefore: false,
+      placement: "append"
+    });
+
+    assert.deepEqual(
+      transcriptWindowEntries(merged).map((entry) => entry.id),
+      ["item:1", "item:2"]
+    );
+    assert.deepEqual(merged.optimisticEntries, []);
+  });
+
+  test("append duplicate durable entries keep base order with incoming value", () => {
+    const current: TranscriptWindowState = {
+      durableEntries: [userEntry("item:1", "old one", "c1"), userEntry("item:2", "two", "c2")],
+      optimisticEntries: [],
+      beforeCursor: null,
+      hasMoreBefore: false
+    };
+    const merged = mergeDurableEntries(current, [userEntry("item:1", "new one", "c1"), userEntry("item:3", "three", "c3")], {
+      beforeCursor: null,
+      hasMoreBefore: false,
+      placement: "append"
+    });
+
+    assert.deepEqual(
+      transcriptWindowEntries(merged).map((entry) => ("text" in entry ? entry.text : entry.id)),
+      ["new one", "two", "three"]
+    );
   });
 
   test("keeps live item after latest replay when subscription wins the race", () => {

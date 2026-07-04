@@ -36,19 +36,20 @@ export function replaceOptimisticEntry(
   durableEntry: TranscriptEntry
 ): TranscriptWindowState {
   const optimisticIndex = state.optimisticEntries.findIndex((entry) => entry.id === optimisticId);
+  const replacement = { ...durableEntry, id: optimisticId };
   if (optimisticIndex === -1) {
-    return mergeDurableEntries(state, [durableEntry], {
+    return mergeDurableEntries(state, [replacement], {
       beforeCursor: state.beforeCursor,
       hasMoreBefore: state.hasMoreBefore,
       placement: "append"
     });
   }
 
+  const nextOptimisticEntries = state.optimisticEntries.filter((_, index) => index !== optimisticIndex);
   return {
     ...state,
-    optimisticEntries: state.optimisticEntries.map((entry, index) =>
-      index === optimisticIndex ? { ...durableEntry, id: optimisticId } : entry
-    )
+    durableEntries: mergeEntriesByItemId(state.durableEntries, [replacement], "append"),
+    optimisticEntries: removeOptimisticEntriesWithDurableItemIds(nextOptimisticEntries, [replacement])
   };
 }
 
@@ -61,9 +62,11 @@ export function mergeDurableEntries(
     placement: TranscriptPagePlacement;
   }
 ): TranscriptWindowState {
+  const durableEntries = mergeEntriesByItemId(state.durableEntries, entries, page.placement);
   return {
     ...state,
-    durableEntries: mergeEntriesByItemId(state.durableEntries, entries, page.placement),
+    durableEntries,
+    optimisticEntries: removeOptimisticEntriesWithDurableItemIds(state.optimisticEntries, durableEntries),
     beforeCursor: page.beforeCursor,
     hasMoreBefore: page.hasMoreBefore
   };
@@ -74,15 +77,39 @@ function mergeEntriesByItemId(
   incoming: TranscriptEntry[],
   placement: TranscriptPagePlacement
 ): TranscriptEntry[] {
-  const incomingItemIds = new Set(incoming.map(transcriptEntryItemId).filter((itemId) => itemId !== undefined));
-  const currentWithoutIncomingDuplicates = current.filter((entry) => {
-    const itemId = transcriptEntryItemId(entry);
-    return itemId === undefined || !incomingItemIds.has(itemId);
-  });
+  const baseEntries = placement === "append" ? [...current, ...incoming] : [...incoming, ...current];
+  const incomingByItemId = new Map(
+    incoming.flatMap((entry) => {
+      const itemId = transcriptEntryItemId(entry);
+      return itemId === undefined ? [] : [[itemId, entry]];
+    })
+  );
+  const seenItemIds = new Set<string>();
 
-  return placement === "append"
-    ? [...currentWithoutIncomingDuplicates, ...incoming]
-    : [...incoming, ...currentWithoutIncomingDuplicates];
+  return baseEntries.flatMap((entry) => {
+    const itemId = transcriptEntryItemId(entry);
+    if (itemId === undefined) {
+      return [entry];
+    }
+    if (seenItemIds.has(itemId)) {
+      return [];
+    }
+    seenItemIds.add(itemId);
+    return [incomingByItemId.get(itemId) ?? entry];
+  });
+}
+
+function removeOptimisticEntriesWithDurableItemIds(
+  optimisticEntries: TranscriptEntry[],
+  durableEntries: TranscriptEntry[]
+): TranscriptEntry[] {
+  const durableItemIds = new Set(
+    durableEntries.map(transcriptEntryItemId).filter((itemId) => itemId !== undefined)
+  );
+  return optimisticEntries.filter((entry) => {
+    const itemId = transcriptEntryItemId(entry);
+    return itemId === undefined || !durableItemIds.has(itemId);
+  });
 }
 
 function transcriptEntryItemId(entry: TranscriptEntry): string | undefined {
