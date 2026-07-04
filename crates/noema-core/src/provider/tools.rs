@@ -1,12 +1,12 @@
 //! Provider-neutral tool contracts.
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
 use std::{fmt, str::FromStr};
 use thiserror::Error;
 
 /// Validated provider-visible tool name.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ToolName(String);
 
 impl ToolName {
@@ -22,6 +22,23 @@ impl ToolName {
         if trimmed != value {
             return Err(ToolContractError::InvalidToolName(format!(
                 "tool name cannot contain leading or trailing whitespace: {value:?}"
+            )));
+        }
+        if !trimmed.chars().all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '_' | '-' | '.')
+        }) {
+            return Err(ToolContractError::InvalidToolName(format!(
+                "tool name cannot contain spaces, slashes, control characters, or other unsupported characters: {value:?}"
+            )));
+        }
+        if trimmed.split('.').any(|segment| {
+            segment.is_empty()
+                || !segment
+                    .chars()
+                    .any(|character| character.is_ascii_alphanumeric())
+        }) {
+            return Err(ToolContractError::InvalidToolName(format!(
+                "tool name must contain non-empty dot-separated segments with at least one ASCII letter or digit: {value:?}"
             )));
         }
         Ok(Self(value))
@@ -45,6 +62,25 @@ impl FromStr for ToolName {
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         Self::new(value)
+    }
+}
+
+impl Serialize for ToolName {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for ToolName {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        Self::new(value).map_err(serde::de::Error::custom)
     }
 }
 
@@ -75,7 +111,7 @@ impl NoemaToolSpec {
         execution: NoemaToolExecution,
     ) -> Result<Self, ToolContractError> {
         let name = ToolName::new(name.as_ref())?;
-        let input_schema = NoemaToolSchema::new(name.as_str(), input_schema)?;
+        let input_schema = NoemaToolSchema::new_input(name.as_str(), input_schema)?;
         let description = description.into().trim().to_string();
         if description.is_empty() {
             return Err(ToolContractError::InvalidDescription(format!(
@@ -95,13 +131,13 @@ impl NoemaToolSpec {
     /// Attach an optional output schema to this tool specification.
     #[must_use]
     pub fn with_output_schema(mut self, schema: Value) -> Result<Self, ToolContractError> {
-        self.output_schema = Some(NoemaToolSchema::new(self.name.as_str(), schema)?);
+        self.output_schema = Some(NoemaToolSchema::new_output(self.name.as_str(), schema)?);
         Ok(self)
     }
 }
 
 /// Validated JSON object schema for a Noema tool contract.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct NoemaToolSchema {
     value: Value,
 }
@@ -109,9 +145,27 @@ pub struct NoemaToolSchema {
 impl NoemaToolSchema {
     /// Validate and construct a tool schema.
     pub fn new(tool_name: &str, value: Value) -> Result<Self, ToolContractError> {
+        Self::new_input(tool_name, value)
+    }
+
+    /// Validate and construct an input schema.
+    pub fn new_input(tool_name: &str, value: Value) -> Result<Self, ToolContractError> {
+        Self::new_with_kind(tool_name, "input", value)
+    }
+
+    /// Validate and construct an output schema.
+    pub fn new_output(tool_name: &str, value: Value) -> Result<Self, ToolContractError> {
+        Self::new_with_kind(tool_name, "output", value)
+    }
+
+    fn new_with_kind(
+        tool_name: &str,
+        schema_kind: &str,
+        value: Value,
+    ) -> Result<Self, ToolContractError> {
         if value.get("type").and_then(Value::as_str) != Some("object") {
             return Err(ToolContractError::InvalidSchema(format!(
-                "tool {tool_name} input schema root must be an object"
+                "tool {tool_name} {schema_kind} schema root must be an object"
             )));
         }
         Ok(Self { value })
@@ -121,6 +175,25 @@ impl NoemaToolSchema {
     #[must_use]
     pub fn as_value(&self) -> &Value {
         &self.value
+    }
+}
+
+impl Serialize for NoemaToolSchema {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        self.value.serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for NoemaToolSchema {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = Value::deserialize(deserializer)?;
+        Self::new_input("schema", value).map_err(serde::de::Error::custom)
     }
 }
 
@@ -258,6 +331,8 @@ pub struct NoemaToolResult {
     pub call_id: Option<String>,
     /// Canonical tool name.
     pub name: ToolName,
+    /// Provider call id this result answers when supplied by the native tool channel.
+    pub provider_call_id: Option<String>,
     /// Whether execution succeeded.
     pub success: bool,
     /// Structured result payload.
@@ -319,6 +394,133 @@ mod tests {
         assert_eq!(spec.name.as_str(), "search_memory");
         assert_eq!(spec.description, "Search governed Noema memory.");
         assert!(matches!(spec.execution, NoemaToolExecution::LocalBuiltin));
+    }
+
+    #[test]
+    fn canonical_tool_spec_rejects_empty_description() {
+        let error = NoemaToolSpec::new(
+            "search_memory",
+            "   ",
+            json!({"type": "object"}),
+            NoemaToolExecution::LocalBuiltin,
+        )
+        .expect_err("empty description rejected");
+
+        assert_eq!(
+            error.to_string(),
+            "tool search_memory description cannot be empty"
+        );
+    }
+
+    #[test]
+    fn tool_name_accepts_planned_provider_visible_names() {
+        for name in ["search_memory", "update_own_name", "mcp.docs.read"] {
+            assert_eq!(ToolName::new(name).expect("valid name").as_str(), name);
+        }
+    }
+
+    #[test]
+    fn tool_name_rejects_invalid_provider_visible_names() {
+        for name in [
+            "",
+            " search_memory",
+            "search_memory ",
+            "search memory",
+            "mcp/docs/read",
+            ".mcp.docs.read",
+            "mcp..docs.read",
+            "mcp.docs.read.",
+            "search\tmemory",
+            "search\nmemory",
+        ] {
+            assert!(
+                ToolName::new(name).is_err(),
+                "expected invalid tool name: {name:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn tool_name_deserialization_uses_validation() {
+        let valid: ToolName = serde_json::from_value(json!("mcp.docs.read")).expect("valid name");
+        assert_eq!(valid.as_str(), "mcp.docs.read");
+
+        let error = serde_json::from_value::<ToolName>(json!("mcp/docs/read"))
+            .expect_err("invalid name rejected");
+        assert!(error.to_string().contains("tool name cannot contain"));
+    }
+
+    #[test]
+    fn tool_schema_serializes_as_raw_json_schema() {
+        let schema = NoemaToolSchema::new(
+            "search_memory",
+            json!({
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string"}
+                },
+                "required": ["query"],
+                "additionalProperties": false
+            }),
+        )
+        .expect("schema");
+
+        assert_eq!(
+            serde_json::to_value(&schema).expect("serialize schema"),
+            json!({
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string"}
+                },
+                "required": ["query"],
+                "additionalProperties": false
+            })
+        );
+    }
+
+    #[test]
+    fn tool_schema_deserialization_validates_object_root() {
+        let schema: NoemaToolSchema =
+            serde_json::from_value(json!({"type": "object"})).expect("object schema");
+        assert_eq!(schema.as_value(), &json!({"type": "object"}));
+
+        let error = serde_json::from_value::<NoemaToolSchema>(json!({"type": "string"}))
+            .expect_err("non-object schema rejected");
+        assert_eq!(
+            error.to_string(),
+            "tool schema input schema root must be an object"
+        );
+    }
+
+    #[test]
+    fn output_schema_error_names_output_schema() {
+        let error = NoemaToolSpec::new(
+            "search_memory",
+            "Search governed Noema memory.",
+            json!({"type": "object"}),
+            NoemaToolExecution::LocalBuiltin,
+        )
+        .expect("spec")
+        .with_output_schema(json!({"type": "string"}))
+        .expect_err("non-object output schema rejected");
+
+        assert_eq!(
+            error.to_string(),
+            "tool search_memory output schema root must be an object"
+        );
+    }
+
+    #[test]
+    fn tool_result_preserves_provider_call_id() {
+        let result = NoemaToolResult {
+            call_id: Some("call_1".to_string()),
+            name: ToolName::new("search_memory").expect("name"),
+            provider_call_id: Some("fc_1".to_string()),
+            success: true,
+            output: json!({"ok": true}),
+        };
+
+        assert_eq!(result.provider_call_id.as_deref(), Some("fc_1"));
     }
 
     #[test]
