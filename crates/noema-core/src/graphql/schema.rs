@@ -3438,10 +3438,13 @@ mod tests {
             client_message_id: None,
             event: Box::new(TurnStreamEvent::ConversationItem {
                 conversation_id: "conversation_1".to_string(),
-                item_id: "item_1".to_string(),
+                item_id: "transient:activity_1".to_string(),
                 cursor: None,
                 turn_id: Some("turn_1".to_string()),
-                metadata: json!({"stream_id":"assistant_stream:turn_1:initial"}),
+                metadata: json!({
+                    "runtime_item_id": "activity_1",
+                    "transient": true,
+                }),
                 item: Box::new(crate::TurnTranscriptItem::AssistantText {
                     text: "Hello".to_string(),
                 }),
@@ -3453,11 +3456,14 @@ mod tests {
         let event = &data["conversationEvents"];
         assert_eq!(event["__typename"], "ConversationItemEvent");
         assert_eq!(event["conversationId"], "conversation_1");
-        assert_eq!(event["itemId"], "item_1");
+        assert_eq!(event["itemId"], "transient:activity_1");
         assert!(event["cursor"].is_null());
         assert_eq!(
             event["metadata"],
-            json!({"stream_id":"assistant_stream:turn_1:initial"})
+            json!({
+                "runtime_item_id": "activity_1",
+                "transient": true,
+            })
         );
     }
 

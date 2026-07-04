@@ -108,7 +108,6 @@ impl NoemaStore {
         &self,
         human_id: &str,
     ) -> Result<Option<ConversationRecord>, StoreError> {
-        self.ensure_default_actors().await?;
         let mut response = self
             .db
             .query("SELECT primary_conversation_id FROM humans WHERE human_id = $human_id LIMIT 1;")
