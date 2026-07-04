@@ -120,6 +120,7 @@ export function App() {
   const [loadingLatestTranscript, setLoadingLatestTranscript] = React.useState(false);
   const [loadingOlderTranscript, setLoadingOlderTranscript] = React.useState(false);
   const [transcriptPageError, setTranscriptPageError] = React.useState<string | null>(null);
+  const [latestTranscriptRetryTick, setLatestTranscriptRetryTick] = React.useState(0);
   const [draft, setDraft] = React.useState("");
   const [pending, setPending] = React.useState(false);
   const [awaitingAssistantTurn, setAwaitingAssistantTurn] = React.useState(false);
@@ -250,6 +251,7 @@ export function App() {
             if (latestTranscriptRetryBlockedConversationRef.current === conversationId) {
               latestTranscriptRetryBlockedConversationRef.current = null;
               setTranscriptPageError(null);
+              setLatestTranscriptRetryTick((current) => current + 1);
             }
             latestTranscriptRetryTimeoutRef.current = null;
           }, 3000);
@@ -350,11 +352,9 @@ export function App() {
   }, []);
 
   React.useEffect(() => {
-    const durableHistoryLoaded = transcriptWindow.durableEntries.some((entry) => "itemId" in entry && entry.itemId);
     if (
       !conversationId ||
       loadingLatestTranscript ||
-      durableHistoryLoaded ||
       latestTranscriptLoadedConversationRef.current === conversationId ||
       latestTranscriptRetryBlockedConversationRef.current === conversationId
     ) {
@@ -368,9 +368,9 @@ export function App() {
     });
   }, [
     conversationId,
+    latestTranscriptRetryTick,
     loadConversationTranscriptPage,
-    loadingLatestTranscript,
-    transcriptWindow.durableEntries
+    loadingLatestTranscript
   ]);
 
   const loadOlderTranscript = React.useCallback(() => {
