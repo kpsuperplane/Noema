@@ -60,7 +60,10 @@ describe("transcript window model", () => {
       transcriptWindowEntries(replaced).map((entry) => entry.id),
       ["client:1"]
     );
-    assert.equal(transcriptWindowEntries(replaced)[0]?.itemId, "item:1");
+    const replacedEntry = transcriptWindowEntries(replaced)[0];
+    assert.ok(replacedEntry);
+    assert.equal(replacedEntry.type, "user");
+    assert.equal(replacedEntry.itemId, "item:1");
     assert.deepEqual(
       replaced.durableEntries.map((entry) => entry.id),
       ["client:1"]
