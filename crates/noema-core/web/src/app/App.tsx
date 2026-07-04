@@ -125,7 +125,12 @@ export function App() {
   const [awaitingAssistantTurn, setAwaitingAssistantTurn] = React.useState(false);
   const [expandedActivities, setExpandedActivities] = React.useState<Set<string>>(new Set());
   const startingConversationRef = React.useRef(false);
-  const latestTranscriptConversationRef = React.useRef<string | null>(null);
+  const latestTranscriptLoadedConversationRef = React.useRef<string | null>(null);
+  const latestTranscriptRetryBlockedConversationRef = React.useRef<string | null>(null);
+  const latestTranscriptRetryTimeoutRef = React.useRef<number | null>(null);
+  const latestTranscriptErrorVisibleConversationRef = React.useRef<string | null>(null);
+  const lastProcessedConversationEventRef = React.useRef<ConversationEvent | null>(null);
+  const localStatusRefetchRef = React.useRef(localStatus.refetch);
 
   const status = localStatus.data?.localStatus ?? null;
   const agentName = status?.primaryAgentDisplayName ?? null;
@@ -181,10 +186,14 @@ export function App() {
     onError: reportConversationError
   });
 
+  React.useEffect(() => {
+    localStatusRefetchRef.current = localStatus.refetch;
+  }, [localStatus.refetch]);
+
   const loadConversationTranscriptPage = React.useCallback(
     async ({ cursor, placement }: { cursor: string | null; placement: "latest" | "before" }) => {
       if (!conversationId) {
-        return;
+        return false;
       }
       if (placement === "latest") {
         setLoadingLatestTranscript(true);
@@ -215,8 +224,37 @@ export function App() {
             hasMoreBefore: page.pageInfo.hasMoreBefore
           })
         );
+        if (placement === "latest") {
+          latestTranscriptRetryBlockedConversationRef.current = null;
+          latestTranscriptErrorVisibleConversationRef.current = null;
+          if (latestTranscriptRetryTimeoutRef.current !== null) {
+            window.clearTimeout(latestTranscriptRetryTimeoutRef.current);
+            latestTranscriptRetryTimeoutRef.current = null;
+          }
+        }
+        return true;
       } catch (error: unknown) {
-        setTranscriptPageError(error instanceof Error ? error.message : "Noema could not load chat history.");
+        const message = error instanceof Error ? error.message : "Noema could not load chat history.";
+        setTranscriptPageError(message);
+        if (placement === "latest") {
+          latestTranscriptLoadedConversationRef.current = null;
+          latestTranscriptRetryBlockedConversationRef.current = conversationId;
+          if (latestTranscriptErrorVisibleConversationRef.current !== conversationId) {
+            latestTranscriptErrorVisibleConversationRef.current = conversationId;
+            pushTranscriptWindowError(message);
+          }
+          if (latestTranscriptRetryTimeoutRef.current !== null) {
+            window.clearTimeout(latestTranscriptRetryTimeoutRef.current);
+          }
+          latestTranscriptRetryTimeoutRef.current = window.setTimeout(() => {
+            if (latestTranscriptRetryBlockedConversationRef.current === conversationId) {
+              latestTranscriptRetryBlockedConversationRef.current = null;
+              setTranscriptPageError(null);
+            }
+            latestTranscriptRetryTimeoutRef.current = null;
+          }, 3000);
+        }
+        return false;
       } finally {
         if (placement === "latest") {
           setLoadingLatestTranscript(false);
@@ -225,7 +263,7 @@ export function App() {
         }
       }
     },
-    [apolloClient, conversationId]
+    [apolloClient, conversationId, pushTranscriptWindowError]
   );
 
   React.useEffect(() => {
@@ -303,21 +341,36 @@ export function App() {
   ]);
 
   React.useEffect(() => {
+    return () => {
+      if (latestTranscriptRetryTimeoutRef.current !== null) {
+        window.clearTimeout(latestTranscriptRetryTimeoutRef.current);
+        latestTranscriptRetryTimeoutRef.current = null;
+      }
+    };
+  }, []);
+
+  React.useEffect(() => {
+    const durableHistoryLoaded = transcriptWindow.durableEntries.some((entry) => "itemId" in entry && entry.itemId);
     if (
       !conversationId ||
       loadingLatestTranscript ||
-      transcriptWindow.durableEntries.length > 0 ||
-      latestTranscriptConversationRef.current === conversationId
+      durableHistoryLoaded ||
+      latestTranscriptLoadedConversationRef.current === conversationId ||
+      latestTranscriptRetryBlockedConversationRef.current === conversationId
     ) {
       return;
     }
-    latestTranscriptConversationRef.current = conversationId;
-    void loadConversationTranscriptPage({ cursor: null, placement: "latest" });
+    const targetConversationId = conversationId;
+    void loadConversationTranscriptPage({ cursor: null, placement: "latest" }).then((loaded) => {
+      if (loaded) {
+        latestTranscriptLoadedConversationRef.current = targetConversationId;
+      }
+    });
   }, [
     conversationId,
     loadConversationTranscriptPage,
     loadingLatestTranscript,
-    transcriptWindow.durableEntries.length
+    transcriptWindow.durableEntries
   ]);
 
   const loadOlderTranscript = React.useCallback(() => {
@@ -379,9 +432,9 @@ export function App() {
       }
     }
     if (shouldRefreshLocalStatusForConversationEvent(event)) {
-      void localStatus.refetch();
+      void localStatusRefetchRef.current();
     }
-  }, [localStatus]);
+  }, []);
 
   React.useEffect(() => {
     const event = conversationEvents.data?.conversationEvents;
@@ -390,7 +443,8 @@ export function App() {
     }
     let cancelled = false;
     window.queueMicrotask(() => {
-      if (!cancelled) {
+      if (!cancelled && lastProcessedConversationEventRef.current !== event) {
+        lastProcessedConversationEventRef.current = event;
         applyConversationEvent(event);
       }
     });
