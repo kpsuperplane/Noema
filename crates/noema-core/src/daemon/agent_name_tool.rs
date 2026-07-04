@@ -1,4 +1,8 @@
-use crate::{NoemaStore, store::StoreError};
+use crate::{
+    NoemaStore,
+    provider::{NoemaToolExecution, NoemaToolSpec, ToolContractError},
+    store::StoreError,
+};
 
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -35,6 +39,27 @@ pub(super) struct UpdateOwnNameArguments {
 
 pub(super) fn is_update_own_name_tool(name: &str) -> bool {
     name == UPDATE_OWN_NAME_TOOL
+}
+
+pub(super) fn update_own_name_tool_spec() -> Result<NoemaToolSpec, ToolContractError> {
+    NoemaToolSpec::new(
+        UPDATE_OWN_NAME_TOOL,
+        "Persist the primary agent display name when the current user explicitly asks to name or rename the agent.",
+        json!({
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": MAX_AGENT_NAME_CHARS,
+                    "description": "The agent display name requested by the current user."
+                }
+            },
+            "required": ["name"],
+            "additionalProperties": false
+        }),
+        NoemaToolExecution::LocalBuiltin,
+    )
 }
 
 pub(super) async fn execute_update_own_name(
@@ -141,6 +166,19 @@ mod tests {
         let arguments = parse_arguments(&payload).expect("parse arguments");
 
         assert_eq!(arguments.name, "Mira");
+    }
+
+    #[test]
+    fn update_own_name_tool_spec_matches_runtime_arguments() {
+        let spec = update_own_name_tool_spec().expect("tool spec");
+
+        assert_eq!(spec.name.as_str(), UPDATE_OWN_NAME_TOOL);
+        assert!(spec.description.contains("name or rename"));
+        assert_eq!(spec.input_schema.as_value()["required"], json!(["name"]));
+        assert_eq!(
+            spec.input_schema.as_value()["properties"]["name"]["maxLength"],
+            MAX_AGENT_NAME_CHARS
+        );
     }
 
     #[test]

@@ -2,6 +2,7 @@ use crate::{
     NoemaStore,
     daemon::memory::pipeline::project_scope_from_cwd,
     memory::{ClaimRetrievalRequest, Purpose, Sensitivity, UseMode},
+    provider::{NoemaToolExecution, NoemaToolSpec, ToolContractError},
     store::StoreError,
 };
 use std::collections::HashSet;
@@ -53,6 +54,52 @@ struct SearchMemoryArguments {
 
 pub(in crate::daemon) fn is_search_memory_tool(name: &str) -> bool {
     name == SEARCH_MEMORY_TOOL
+}
+
+pub(in crate::daemon) fn search_memory_tool_spec() -> Result<NoemaToolSpec, ToolContractError> {
+    NoemaToolSpec::new(
+        SEARCH_MEMORY_TOOL,
+        "Search governed Noema memory for the current user, conversation, or active project.",
+        json!({
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Search text. May be empty only when scope_ids is non-empty."
+                },
+                "scope_ids": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Concrete active memory scopes such as human:local or conversation:<id>."
+                },
+                "purpose": {
+                    "type": "string",
+                    "enum": [
+                        "answer_human_question",
+                        "draft_internal_content",
+                        "general_personalization",
+                        "manage_task",
+                        "manage_calendar",
+                        "draft_external_content",
+                        "use_tool",
+                        "proactive_suggestion",
+                        "external_action",
+                        "debug_audit"
+                    ],
+                    "description": "Policy purpose for retrieval."
+                },
+                "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 16,
+                    "description": "Maximum number of memory facts to return."
+                }
+            },
+            "required": ["query"],
+            "additionalProperties": false
+        }),
+        NoemaToolExecution::LocalBuiltin,
+    )
 }
 
 pub(in crate::daemon) async fn execute_search_memory(
@@ -249,6 +296,34 @@ mod tests {
         assert_eq!(arguments.query, "project notes");
         assert_eq!(arguments.purpose.as_deref(), Some("answer_human_question"));
         assert_eq!(arguments.limit(), MAX_LIMIT);
+    }
+
+    #[test]
+    fn search_memory_tool_spec_matches_runtime_arguments() {
+        let spec = search_memory_tool_spec().expect("tool spec");
+
+        assert_eq!(spec.name.as_str(), SEARCH_MEMORY_TOOL);
+        assert!(spec.description.contains("Search governed Noema memory"));
+        assert_eq!(spec.input_schema.as_value()["required"], json!(["query"]));
+        assert_eq!(
+            spec.input_schema.as_value()["properties"]["scope_ids"]["items"]["type"],
+            "string"
+        );
+        assert_eq!(
+            spec.input_schema.as_value()["properties"]["purpose"]["enum"],
+            json!([
+                "answer_human_question",
+                "draft_internal_content",
+                "general_personalization",
+                "manage_task",
+                "manage_calendar",
+                "draft_external_content",
+                "use_tool",
+                "proactive_suggestion",
+                "external_action",
+                "debug_audit"
+            ])
+        );
     }
 
     #[test]
