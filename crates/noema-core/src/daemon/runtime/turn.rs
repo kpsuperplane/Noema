@@ -6,7 +6,7 @@ use crate::{
     provider::{
         GenerateInput, GenerateOptions, GenerateRequest, GenerateResponse, GenerateResponseStatus,
         GenerateStreamEvent, GenerateToolCall, PromptCacheRetention, ProviderError,
-        ProviderToolCapabilities, ProviderToolFallbackMode,
+        ProviderToolCapabilities,
     },
 };
 use serde_json::json;
@@ -18,7 +18,7 @@ use super::{
         agent_identity_after_local_tools, local_tool_result_action_item,
         local_tool_result_continuation_input,
     },
-    model_tools::build_model_tools,
+    model_tools::{ModelTools, build_model_tools},
     tool_lifecycle::local_tool_calls,
     transcript_persistence::{
         assistant_stream_id, handle_provider_stream_event, send_conversation_item,
@@ -267,11 +267,14 @@ impl CodexRuntimeActor {
             })
             .await?;
         let provider = self.provider_for_kind(&conversation.provider_kind)?;
+        let tool_capabilities = provider.tool_capabilities(conversation.model.as_deref());
         let agent_identity = self
             .agent_identity_for_conversation(&conversation_id)
             .await?;
-        let rendered_tools = self.render_available_tools(true).await?;
-        let rendered_continuation_tools = self.render_available_tools(false).await?;
+        let model_tools = self.model_tools(true, tool_capabilities).await?;
+        let continuation_model_tools = self.model_tools(false, tool_capabilities).await?;
+        let rendered_tools = render_available_tools(&model_tools);
+        let rendered_continuation_tools = render_available_tools(&continuation_model_tools);
         self.update_conversation_agent_status(
             &conversation_id,
             PersistedAgentStatus::InputReceived,
@@ -495,9 +498,10 @@ impl CodexRuntimeActor {
                         prompt_cache_retention: Some(PromptCacheRetention::TwentyFourHours),
                         ..GenerateOptions::default()
                     },
-                    tools: Vec::new(),
+                    tools: model_tools.native.clone(),
                     tool_choice: Default::default(),
-                    parallel_tool_calls: false,
+                    parallel_tool_calls: !model_tools.native.is_empty()
+                        && tool_capabilities.parallel_tool_calls,
                 },
                 &mut on_initial_event,
             )
@@ -519,6 +523,8 @@ impl CodexRuntimeActor {
                             response,
                             explicit_memory_outcome,
                             agent_identity,
+                            tool_capabilities,
+                            continuation_model_tools,
                             rendered_tools: rendered_tools.clone(),
                             rendered_continuation_tools,
                         },
@@ -749,9 +755,10 @@ impl CodexRuntimeActor {
                             prompt_cache_retention: Some(PromptCacheRetention::TwentyFourHours),
                             ..GenerateOptions::default()
                         },
-                        tools: Vec::new(),
+                        tools: turn.continuation_model_tools.native.clone(),
                         tool_choice: Default::default(),
-                        parallel_tool_calls: false,
+                        parallel_tool_calls: !turn.continuation_model_tools.native.is_empty()
+                            && turn.tool_capabilities.parallel_tool_calls,
                     },
                     &mut on_continuation_event,
                 )
@@ -832,6 +839,8 @@ impl CodexRuntimeActor {
                 },
                 explicit_memory_outcome: ExplicitMemoryOutcome::None,
                 agent_identity: continuation_agent_identity,
+                tool_capabilities: turn.tool_capabilities,
+                continuation_model_tools: turn.continuation_model_tools.clone(),
                 rendered_tools: turn.rendered_tools.clone(),
                 rendered_continuation_tools: turn.rendered_continuation_tools.clone(),
             };
@@ -937,24 +946,14 @@ impl CodexRuntimeActor {
         })
     }
 
-    async fn render_available_tools(
+    async fn model_tools(
         &self,
         include_agent_name_tool: bool,
-    ) -> Result<String, DaemonError> {
-        let model_tools = build_model_tools(
-            &self.store,
-            include_agent_name_tool,
-            ProviderToolCapabilities {
-                fallback_mode: ProviderToolFallbackMode::BuiltinOnlyEnvelope,
-                ..ProviderToolCapabilities::default()
-            },
-        )
-        .await
-        .map_err(|error| DaemonError::Protocol(error.to_string()))?;
-        let _legacy_builtin_envelope_tools = &model_tools.legacy_builtin_envelope_tools;
-        let _native_tools = &model_tools.native;
-        let _unavailable_rows = &model_tools.unavailable_rows;
-        Ok(build_model_available_tools_prompt(&model_tools.prompt_rows))
+        capabilities: ProviderToolCapabilities,
+    ) -> Result<ModelTools, DaemonError> {
+        build_model_tools(&self.store, include_agent_name_tool, capabilities)
+            .await
+            .map_err(|error| DaemonError::Protocol(error.to_string()))
     }
 
     fn schedule_background_context_compaction(
@@ -1027,6 +1026,14 @@ impl CodexRuntimeActor {
     }
 }
 
+fn render_available_tools(model_tools: &ModelTools) -> String {
+    let mut rows =
+        Vec::with_capacity(model_tools.prompt_rows.len() + model_tools.unavailable_rows.len());
+    rows.extend(model_tools.prompt_rows.iter().cloned());
+    rows.extend(model_tools.unavailable_rows.iter().cloned());
+    build_model_available_tools_prompt(&rows)
+}
+
 #[derive(Debug)]
 struct BackgroundContextCompactionSchedule {
     conversation_id: String,
@@ -1052,6 +1059,8 @@ pub(in crate::daemon) struct SuccessfulProviderTurn {
     pub(in crate::daemon) response: GenerateResponse,
     pub(in crate::daemon) explicit_memory_outcome: ExplicitMemoryOutcome,
     pub(in crate::daemon) agent_identity: AgentPromptIdentity,
+    pub(in crate::daemon) tool_capabilities: ProviderToolCapabilities,
+    pub(in crate::daemon) continuation_model_tools: ModelTools,
     pub(in crate::daemon) rendered_tools: String,
     pub(in crate::daemon) rendered_continuation_tools: String,
 }

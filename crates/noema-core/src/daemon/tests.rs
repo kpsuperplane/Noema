@@ -13,7 +13,8 @@ use crate::{
     provider::{
         AssistantTextPhase, GenerateActionItem, GenerateInput, GenerateRequest, GenerateResponse,
         GenerateResponseItem, GenerateResponseStatus, GenerateStreamEvent, GenerateToolCall,
-        ProviderError,
+        ProviderError, ProviderToolCapabilities, ProviderToolFallbackMode,
+        ProviderToolSchemaDialect,
     },
     {ConversationItemKind, ConversationItemStatus, ReplayMode},
 };
@@ -249,6 +250,54 @@ async fn primary_agent_runtime_preference_supplies_turn_model() {
         requests.last().and_then(|request| request.model.as_deref()),
         Some("default")
     );
+}
+
+#[tokio::test]
+async fn native_provider_turn_request_includes_builtin_tools() {
+    let store = crate::store::tests::test_store().await;
+    store.ensure_default_actors().await.expect("actors");
+    let provider = Arc::new(CapturingProvider {
+        capabilities: ProviderToolCapabilities {
+            native_tools: true,
+            parallel_tool_calls: true,
+            tool_choice: true,
+            schema_dialect: ProviderToolSchemaDialect::OpenAiResponses,
+            strict_schema: false,
+            custom_tools: false,
+            native_tool_results: true,
+            fallback_mode: ProviderToolFallbackMode::NativeRequired,
+        },
+        requests: Mutex::new(Vec::new()),
+    });
+    let runtime = CodexRuntimeHandle::spawn_with_provider(provider.clone(), store)
+        .await
+        .expect("runtime");
+    let started = runtime
+        .start_conversation(None)
+        .await
+        .expect("conversation");
+
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    runtime
+        .turn(started.conversation_id, "hello".to_string(), tx)
+        .await
+        .expect("turn");
+
+    while rx.recv().await.is_some() {}
+    runtime.shutdown().await;
+
+    let requests = provider.requests.lock().expect("requests");
+    let request = requests
+        .iter()
+        .find(|request| request.options.require_noema_response)
+        .expect("agent request");
+    let tool_names = request
+        .tools
+        .iter()
+        .map(|tool| tool.name.as_str())
+        .collect::<Vec<_>>();
+    assert!(tool_names.contains(&"search_memory"));
+    assert!(request.parallel_tool_calls);
 }
 
 #[tokio::test]
@@ -4231,9 +4280,19 @@ impl RecordingFakeProvider {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 struct CapturingProvider {
+    capabilities: ProviderToolCapabilities,
     requests: Mutex<Vec<GenerateRequest>>,
+}
+
+impl Default for CapturingProvider {
+    fn default() -> Self {
+        Self {
+            capabilities: ProviderToolCapabilities::default(),
+            requests: Mutex::new(Vec::new()),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -4995,6 +5054,13 @@ fn current_user_input(input: &GenerateInput) -> String {
 }
 
 impl super::runtime::RuntimeModelProvider for FakeCodexProvider {
+    fn tool_capabilities(&self, _model: Option<&str>) -> ProviderToolCapabilities {
+        ProviderToolCapabilities {
+            fallback_mode: ProviderToolFallbackMode::BuiltinOnlyEnvelope,
+            ..ProviderToolCapabilities::default()
+        }
+    }
+
     fn generate_streaming<'a>(
         &'a self,
         request: GenerateRequest,
@@ -5032,6 +5098,10 @@ impl super::runtime::RuntimeModelProvider for FakeCodexProvider {
 }
 
 impl super::runtime::RuntimeModelProvider for RecordingFakeProvider {
+    fn tool_capabilities(&self, model: Option<&str>) -> ProviderToolCapabilities {
+        self.inner.tool_capabilities(model)
+    }
+
     fn generate_streaming<'a>(
         &'a self,
         request: GenerateRequest,
@@ -5066,6 +5136,10 @@ impl super::runtime::RuntimeModelProvider for RecordingFakeProvider {
 }
 
 impl super::runtime::RuntimeModelProvider for CapturingProvider {
+    fn tool_capabilities(&self, _model: Option<&str>) -> ProviderToolCapabilities {
+        self.capabilities
+    }
+
     fn generate_streaming<'a>(
         &'a self,
         request: GenerateRequest,

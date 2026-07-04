@@ -7,7 +7,7 @@ use crate::{
     provider::adapters::codex_responses::{CodexProviderConfig, CodexResponsesProvider},
     provider::{
         GenerateRequest, GenerateResponse, GenerateStreamEvent, ModelProvider,
-        ProviderContextMetadata, ProviderError,
+        ProviderContextMetadata, ProviderError, ProviderToolCapabilities,
     },
 };
 use tokio::sync::{mpsc, oneshot};
@@ -22,6 +22,10 @@ pub(crate) trait RuntimeModelProvider: std::fmt::Debug + Send + Sync {
 
     fn context_metadata(&self, _model: Option<&str>) -> ProviderContextMetadata {
         ProviderContextMetadata::default()
+    }
+
+    fn tool_capabilities(&self, _model: Option<&str>) -> ProviderToolCapabilities {
+        ProviderToolCapabilities::default()
     }
 
     fn count_tokens<'a>(
@@ -51,6 +55,10 @@ where
 
     fn context_metadata(&self, model: Option<&str>) -> ProviderContextMetadata {
         ModelProvider::context_metadata(self, model)
+    }
+
+    fn tool_capabilities(&self, model: Option<&str>) -> ProviderToolCapabilities {
+        ModelProvider::tool_capabilities(self, model)
     }
 
     fn count_tokens<'a>(

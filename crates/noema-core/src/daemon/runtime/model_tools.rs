@@ -13,11 +13,11 @@ use crate::{
 };
 
 #[derive(Debug, Clone, PartialEq)]
-pub(super) struct ModelTools {
-    pub(super) native: Vec<NoemaToolSpec>,
-    pub(super) legacy_builtin_envelope_tools: Vec<String>,
-    pub(super) prompt_rows: Vec<String>,
-    pub(super) unavailable_rows: Vec<String>,
+pub(in crate::daemon) struct ModelTools {
+    pub(in crate::daemon) native: Vec<NoemaToolSpec>,
+    pub(in crate::daemon) legacy_builtin_envelope_tools: Vec<String>,
+    pub(in crate::daemon) prompt_rows: Vec<String>,
+    pub(in crate::daemon) unavailable_rows: Vec<String>,
 }
 
 pub(super) async fn build_model_tools(
@@ -32,26 +32,32 @@ pub(super) async fn build_model_tools(
         let mut native = builtin_tools.clone();
         native.extend(calibrated_mcp_tool_specs(store).await?);
         return Ok(ModelTools {
-            prompt_rows: prompt_rows(&native, &unavailable_rows),
+            prompt_rows: prompt_rows(&native),
             native,
             legacy_builtin_envelope_tools: Vec::new(),
             unavailable_rows,
         });
     }
 
-    let legacy_builtin_envelope_tools =
-        if capabilities.fallback_mode == ProviderToolFallbackMode::BuiltinOnlyEnvelope {
-            builtin_tools
-                .iter()
-                .map(|tool| tool.name.as_str().to_string())
-                .collect()
-        } else {
-            Vec::new()
-        };
+    let builtin_envelope_fallback =
+        capabilities.fallback_mode == ProviderToolFallbackMode::BuiltinOnlyEnvelope;
+    let legacy_builtin_envelope_tools = if builtin_envelope_fallback {
+        builtin_tools
+            .iter()
+            .map(|tool| tool.name.as_str().to_string())
+            .collect()
+    } else {
+        Vec::new()
+    };
+    let prompt_rows = if builtin_envelope_fallback {
+        prompt_rows(&builtin_tools)
+    } else {
+        Vec::new()
+    };
 
     Ok(ModelTools {
         native: Vec::new(),
-        prompt_rows: prompt_rows(&builtin_tools, &unavailable_rows),
+        prompt_rows,
         legacy_builtin_envelope_tools,
         unavailable_rows,
     })
@@ -134,8 +140,8 @@ async fn unavailable_mcp_rows(store: &NoemaStore) -> Result<Vec<String>, ToolCon
         .collect())
 }
 
-fn prompt_rows(native_tools: &[NoemaToolSpec], unavailable_rows: &[String]) -> Vec<String> {
-    let mut rows = Vec::with_capacity(native_tools.len() + unavailable_rows.len());
+fn prompt_rows(native_tools: &[NoemaToolSpec]) -> Vec<String> {
+    let mut rows = Vec::with_capacity(native_tools.len());
     for tool in native_tools {
         rows.push(match &tool.execution {
             NoemaToolExecution::LocalBuiltin => {
@@ -146,7 +152,6 @@ fn prompt_rows(native_tools: &[NoemaToolSpec], unavailable_rows: &[String]) -> V
             }
         });
     }
-    rows.extend(unavailable_rows.iter().cloned());
     rows
 }
 
