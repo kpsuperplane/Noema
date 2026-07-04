@@ -5,7 +5,7 @@ use serde_json::Value;
 use std::{fmt, str::FromStr};
 use thiserror::Error;
 
-/// Validated provider-visible tool name.
+/// Validated canonical Noema tool name.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ToolName(String);
 
@@ -15,8 +15,9 @@ impl ToolName {
     /// # Errors
     ///
     /// Returns [`ToolContractError`] when the name is empty, has leading or
-    /// trailing whitespace, or contains characters outside the provider-visible
-    /// tool-name grammar.
+    /// trailing whitespace, or contains characters outside the canonical Noema
+    /// tool-name grammar. Provider adapters may lower these names for stricter
+    /// provider-specific grammars.
     pub fn new(value: impl Into<String>) -> Result<Self, ToolContractError> {
         let value = value.into();
         let trimmed = value.trim();
@@ -31,7 +32,7 @@ impl ToolName {
             )));
         }
         if !trimmed.chars().all(|character| {
-            character.is_ascii_alphanumeric() || matches!(character, '_' | '-' | '.')
+            character.is_ascii_alphanumeric() || matches!(character, '_' | '-' | '.' | ':')
         }) {
             return Err(ToolContractError::InvalidToolName(format!(
                 "tool name cannot contain spaces, slashes, control characters, or other unsupported characters: {value:?}"
@@ -93,7 +94,7 @@ impl<'de> Deserialize<'de> for ToolName {
 /// Canonical provider-neutral model-visible tool specification.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NoemaToolSpec {
-    /// Provider-visible canonical tool name.
+    /// Canonical Noema tool name.
     pub name: ToolName,
     /// Human and model readable tool description.
     pub description: String,
@@ -438,8 +439,13 @@ mod tests {
     }
 
     #[test]
-    fn tool_name_accepts_planned_provider_visible_names() {
-        for name in ["search_memory", "update_own_name", "mcp.docs.read"] {
+    fn tool_name_accepts_canonical_noema_names() {
+        for name in [
+            "search_memory",
+            "update_own_name",
+            "mcp.docs.read",
+            "mcp.mcp:docs.read",
+        ] {
             assert_eq!(ToolName::new(name).expect("valid name").as_str(), name);
         }
     }

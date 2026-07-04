@@ -194,7 +194,7 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(
             names,
-            vec!["search_memory", "update_own_name", "mcp.docs.read"]
+            vec!["search_memory", "update_own_name", "mcp.mcp:docs.read"]
         );
         assert!(tools.legacy_builtin_envelope_tools.is_empty());
     }
@@ -225,14 +225,14 @@ mod tests {
             tools
                 .unavailable_rows
                 .iter()
-                .all(|row| !row.contains("mcp.docs.read"))
+                .all(|row| !row.contains("mcp.mcp:docs.read"))
         );
     }
 
     async fn seed_ready_mcp_tool(store: &crate::NoemaStore) {
         let server = store
             .create_mcp_server(NewMcpServer {
-                mcp_server_id: "docs".to_string(),
+                mcp_server_id: "mcp:docs".to_string(),
                 display_name: "Docs".to_string(),
                 transport_kind: McpTransportKind::Stdio,
                 safe_config: json!({}),
@@ -249,8 +249,8 @@ mod tests {
             .expect("server state");
         store
             .upsert_discovered_mcp_tool(NewMcpTool {
-                mcp_tool_id: "docs:read".to_string(),
-                mcp_server_id: "docs".to_string(),
+                mcp_tool_id: "mcp:docs:read".to_string(),
+                mcp_server_id: "mcp:docs".to_string(),
                 name: "read".to_string(),
                 description: Some("Read a document.".to_string()),
                 input_schema: json!({
@@ -268,7 +268,7 @@ mod tests {
         store
             .save_tool_calibration(NewToolCalibration {
                 calibration_id: "cal_docs_read".to_string(),
-                mcp_tool_id: "docs:read".to_string(),
+                mcp_tool_id: "mcp:docs:read".to_string(),
                 read_classification: McpTrustClassification::Trusted,
                 write_classification: McpTrustClassification::None,
                 export_classification: McpTrustClassification::None,
