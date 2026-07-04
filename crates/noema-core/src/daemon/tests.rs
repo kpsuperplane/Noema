@@ -1016,6 +1016,75 @@ async fn runtime_turn_streams_assistant_text_deltas_before_durable_item() {
 }
 
 #[tokio::test]
+async fn runtime_turn_streams_tool_call_started_before_durable_response_items() {
+    let (handle, store) =
+        test_runtime_handle_with_store(fake_provider(FakeCodexScenario::SearchMemoryContinuation))
+            .await;
+    let conversation = handle.start_conversation(None).await.expect("conversation");
+    let conversation_id = conversation.conversation_id.clone();
+    let (result, events) = collect_turn_events(
+        &handle,
+        conversation_id.clone(),
+        "What do you remember about trains?".to_string(),
+    )
+    .await;
+    result.expect("turn");
+    handle.shutdown().await;
+
+    let streamed_text = events
+        .iter()
+        .position(|event| matches!(event, TurnStreamEvent::AssistantTextDelta { .. }))
+        .expect("assistant text delta");
+    let streamed_tool_started = events
+        .iter()
+        .position(|event| {
+            matches!(
+                event,
+                TurnStreamEvent::ConversationItem { item_id, item, .. }
+                    if item_id.starts_with("transient:tool_call:")
+                        && matches!(
+                            item.as_ref(),
+                            TurnTranscriptItem::Activity {
+                                activity_kind,
+                                status: TurnActivityStatus::Started,
+                                title,
+                                ..
+                            } if activity_kind == "tool_call" && title == "Tool call: search_memory"
+                        )
+            )
+        })
+        .expect("transient tool call started item");
+    let durable_commentary = assistant_text_item_event_index(&events, "Searching memory.")
+        .expect("durable commentary item");
+
+    assert!(
+        streamed_text < streamed_tool_started,
+        "tool marker should not appear before streamed assistant commentary: {events:?}"
+    );
+    assert!(
+        streamed_tool_started < durable_commentary,
+        "tool marker should appear while the provider response is still streaming: {events:?}"
+    );
+
+    let replay = store
+        .list_conversation_items(&conversation_id, ReplayMode::Visible)
+        .await
+        .expect("conversation replay");
+    let durable_assistant = replay
+        .iter()
+        .position(|item| item.kind == ConversationItemKind::AssistantText)
+        .expect("durable assistant item");
+    let durable_tool = replay
+        .iter()
+        .position(|item| item.kind == ConversationItemKind::ToolCall)
+        .expect("durable tool item");
+    assert!(
+        durable_assistant < durable_tool,
+        "replay should keep durable commentary before durable tool execution: {replay:?}"
+    );
+}
+
+#[tokio::test]
 async fn runtime_primary_conversation_sends_recent_durable_context_after_restart() {
     if let Ok(phase) = std::env::var(RESTART_CONTEXT_TEST_PHASE_ENV) {
         let home = PathBuf::from(
@@ -3269,8 +3338,11 @@ async fn runtime_displays_commentary_before_tool_lifecycle_when_provider_orders_
                     activity_kind,
                     status: TurnActivityStatus::Started,
                     title,
+                    metadata,
                     ..
-                } if activity_kind == "tool_call" && title == "Tool call: search_memory"
+                } if activity_kind == "tool_call"
+                    && title == "Tool call: search_memory"
+                    && metadata.get("provider").and_then(serde_json::Value::as_str) == Some("noema_local")
             )
         })
         .expect("tool started item");
@@ -3333,8 +3405,11 @@ async fn runtime_keeps_commentary_before_tool_lifecycle_when_provider_orders_tex
                     activity_kind,
                     status: TurnActivityStatus::Started,
                     title,
+                    metadata,
                     ..
-                } if activity_kind == "tool_call" && title == "Tool call: search_memory"
+                } if activity_kind == "tool_call"
+                    && title == "Tool call: search_memory"
+                    && metadata.get("provider").and_then(serde_json::Value::as_str) == Some("noema_local")
             )
         })
         .expect("tool started item");
@@ -3661,8 +3736,11 @@ async fn update_own_name_tool_does_not_start_repeated_continuation_tool_calls() 
                 TurnTranscriptItem::Activity {
                     activity_kind,
                     title,
+                    metadata,
                     ..
-                } if activity_kind == "tool_call" && title == "Tool call: update_own_name"
+                } if activity_kind == "tool_call"
+                    && title == "Tool call: update_own_name"
+                    && metadata.get("provider").and_then(serde_json::Value::as_str) == Some("noema_local")
             )
         })
         .count();

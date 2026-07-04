@@ -274,6 +274,9 @@ The next storage slice should stay small and concrete:
   execution start/result timing rather than from provider output array order.
   This keeps GPT 5.4 and GPT 5.5 provider ordering differences from changing
   whether a tool appears to have run before the assistant's pre-tool message.
+  Provider-stream tool start signals are surfaced as transient activity rows
+  and replaced by durable `noema_local` tool execution rows when the runtime
+  actually starts the side effect.
 - New graph memory direction: durable memories are strict graph claims over
   entities and promoted predicate records. Conversation items are direct
   provenance sources. Specialized evidence relations replace broad memory audit

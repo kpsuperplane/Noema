@@ -613,7 +613,7 @@ pub(super) fn handle_provider_stream_event(
     item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
     context: &ConversationMemoryContext,
     stream_id: &str,
-    _output_index_base: usize,
+    output_index_base: usize,
 ) {
     match event {
         GenerateStreamEvent::AssistantTextDelta { delta } => send_assistant_text_delta(
@@ -626,8 +626,46 @@ pub(super) fn handle_provider_stream_event(
         GenerateStreamEvent::MemoryProposalsStarted => {
             send_memory_proposals_started_transient(context, item_tx);
         }
-        GenerateStreamEvent::ToolCallStarted { .. } => {}
+        GenerateStreamEvent::ToolCallStarted { output_index, name } => {
+            send_tool_call_started_transient(
+                context,
+                item_tx,
+                output_index_base + output_index,
+                &name,
+            );
+        }
     }
+}
+
+fn send_tool_call_started_transient(
+    context: &ConversationMemoryContext,
+    item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
+    output_index: usize,
+    name: &str,
+) {
+    let display = tool_call_display(name, &json!({}));
+    let activity_id = format!(
+        "tool_call:{}:{}:{}",
+        context.conversation_id, context.turn_index, output_index
+    );
+    let activity = TurnTranscriptItem::Activity {
+        id: activity_id,
+        activity_kind: "tool_call".to_string(),
+        status: TurnActivityStatus::Started,
+        title: format!("Tool call: {name}"),
+        summary: display_summary(&display, "target"),
+        metadata: json!({
+            "turn_index": context.turn_index,
+            "output_index": output_index,
+            "source": "provider_stream",
+            "provider": "provider_stream",
+            "action": {
+                "name": name,
+            },
+            "display": display,
+        }),
+    };
+    send_transient_turn_item(context, activity, item_tx);
 }
 
 fn send_memory_proposals_started_transient(
