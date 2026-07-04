@@ -151,11 +151,23 @@ export function shouldShowTypingIndicator(
     return false;
   }
 
-  if (pending || agentStatus === "THINKING" || agentStatus === "TOOL_RUNNING") {
-    return true;
-  }
+  return pending || isActiveAgentStatus(agentStatus);
+}
 
-  return entries.slice(lastUserIndex + 1).some((entry) => entry.type === "activity");
+function isActiveAgentStatus(agentStatus: ConversationAgentStatus): boolean {
+  switch (agentStatus) {
+    case "INPUT_RECEIVED":
+    case "THINKING":
+    case "TOOL_RUNNING":
+    case "WAITING_FOR_PREVIOUS_TURN_COMPLETION":
+    case "INTERRUPTING":
+      return true;
+    case "IDLE":
+    case "ERROR":
+    case "connecting":
+    case "closed":
+      return false;
+  }
 }
 
 function sameTurn(left: TranscriptEntry, right: TranscriptEntry) {
