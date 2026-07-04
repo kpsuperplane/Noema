@@ -49,11 +49,11 @@ empty conversation. Normal chat boot should not call this mutation when
 `primaryConversation` already returns a conversation.
 
 `conversationTranscriptPage` is the only GraphQL replay read for transcript
-items. It accepts a conversation id, a cursor mode, and a bounded limit. The
-latest-page form loads the newest visible items. The older-page form loads items
-before the current oldest loaded `sequenceIndex`. Results are returned in
-ascending transcript order so the frontend can merge pages directly into its
-normal append-order model.
+items. It accepts a conversation id, a nullable cursor, and a bounded limit. A
+null cursor loads the newest visible items. A non-null cursor loads items before
+the current oldest loaded cursor position. Results are returned in ascending
+transcript order so the frontend can merge pages directly into its normal
+append-order model.
 
 `conversationEvents` remains the live source for current turn updates. Durable
 conversation item events include the item `sequenceIndex` so live appends can
@@ -100,6 +100,7 @@ type ConversationTranscriptPage {
 }
 
 type ConversationTranscriptPageInfo {
+  beforeCursor: String
   oldestSequenceIndex: Int
   newestSequenceIndex: Int
   hasMoreBefore: Boolean!
@@ -112,8 +113,7 @@ Add an input shape equivalent to:
 ```graphql
 input ConversationTranscriptPageInput {
   conversationId: String!
-  beforeSequenceIndex: Int
-  latest: Boolean
+  cursor: String
   limit: Int
 }
 ```
@@ -121,11 +121,14 @@ input ConversationTranscriptPageInput {
 The exact GraphQL spelling can be refined during implementation, but the
 semantics are fixed:
 
-- `latest` and `beforeSequenceIndex` are mutually exclusive.
-- latest reads fetch newest visible items with `ORDER BY sequence_index DESC`
+- `cursor: null` fetches the newest visible items with `ORDER BY sequence_index DESC`
   internally, then reverse them before returning.
-- before-cursor reads fetch visible items with
-  `sequence_index < beforeSequenceIndex`, also returning ascending order.
+- non-null cursor reads fetch visible items before the decoded cursor position,
+  also returning ascending order.
+- the first cursor format is an opaque encoding of the oldest loaded
+  `sequenceIndex`; clients must pass it back unchanged rather than parse it.
+- `pageInfo.beforeCursor` is the cursor to pass when fetching the next older
+  page; it is null when the returned page has no items.
 - limits are clamped server-side to a small safe range.
 - `hasMoreBefore` is computed by fetching one extra row or an equivalent bounded
   existence check.
@@ -144,7 +147,7 @@ On chat boot:
 6. Render the loaded transcript window through the virtualized transcript.
 
 Older pages load when the virtualized viewport approaches the first rendered
-row. The request uses the current `oldestSequenceIndex`. The loaded page is
+row. The request uses the current oldest page cursor. The loaded page is
 prepended into the transcript window, deduped by durable `itemId`, and sorted by
 `sequenceIndex`.
 
@@ -158,6 +161,7 @@ The transcript window model owns:
 - durable live entries
 - optimistic local entries
 - oldest and newest loaded sequence indexes
+- oldest page cursor
 - latest-page loading state
 - older-page loading and retry state
 - `hasMoreBefore`
@@ -213,7 +217,7 @@ window model preserves that live item and merges it once replay arrives.
 Rust store tests:
 
 - latest visible page returns ascending items
-- before-cursor page returns ascending items before the cursor
+- cursor page returns ascending items before the decoded cursor position
 - deleted items are excluded from visible pages
 - limits are clamped
 - `hasMoreBefore` is correct at the beginning and middle of history
@@ -223,8 +227,9 @@ GraphQL tests:
 - `primaryConversation` returns identity without transcript items
 - `ensurePrimaryConversation` creates or attaches the primary conversation
   without returning transcript items
-- `conversationTranscriptPage` supports latest and before-cursor reads
-- invalid limits and conflicting cursor arguments are rejected
+- `conversationTranscriptPage` supports null-cursor latest reads and non-null
+  cursor older-page reads
+- invalid limits and malformed cursors are rejected
 - `sequenceIndex` appears on transcript page items
 - durable subscription item events expose `sequenceIndex`
 
@@ -234,7 +239,7 @@ Frontend model tests:
 - overlapping pages dedupe by `itemId`
 - durable live items replace optimistic entries through `clientMessageId`
 - live-before-replay data is preserved and merged
-- oldest cursor and `hasMoreBefore` update correctly
+- oldest page cursor and `hasMoreBefore` update correctly
 
 Frontend validation:
 
