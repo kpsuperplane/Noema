@@ -119,6 +119,12 @@ The next storage slice should stay small and concrete:
 - The web home chat should load `human:local.primary_conversation_id`; Noema
   conversation continuity is owned by Noema structured state, not provider
   runtime state.
+- The web chat transcript loads durable history through paged GraphQL replay:
+  `primaryConversation` reads identity, `ensurePrimaryConversation` creates the
+  rare missing primary conversation, `conversationTranscriptPage` returns
+  cursor-based visible item windows, and the frontend renders loaded transcript
+  rows through TanStack Virtual while keeping live updates on
+  `conversationEvents`.
 - Frontend build and lint use Bun from `crates/noema-core/web`.
 - Web GraphQL schema and operation types are generated with `bun run gen:types`.
 - The web UI uses Astryx as its component foundation, with a Noema-owned
