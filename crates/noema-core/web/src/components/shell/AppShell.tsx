@@ -446,21 +446,24 @@ const styles = stylex.create({
     borderBottomWidth: 1,
     borderBottomStyle: "solid",
     borderBottomColor: "transparent",
-    backgroundColor: "var(--background)",
+    backgroundColor: "transparent",
     minHeight: "var(--shell-deck-header-height)",
     paddingBlock: 4,
     paddingInline: 16
   },
   headerScrim: {
     position: "absolute",
-    top: "100%",
+    top: 0,
     right: 0,
     left: 0,
-    height: 72,
+    height: "calc(var(--shell-deck-header-height) + 72px)",
+    zIndex: 0,
     pointerEvents: "none",
     background: "linear-gradient(to bottom, var(--background), rgb(255 255 255 / 0))"
   },
   headerOffset: {
+    position: "relative",
+    zIndex: 1,
     display: "flex",
     alignItems: "center",
     transitionProperty: "transform",
