@@ -79,7 +79,8 @@ const styles = stylex.create({
   scrollButton: {
     position: "absolute",
     left: "50%",
-    bottom: 16,
+    bottom: "calc(var(--chat-composer-dock-height, 0px) + 10px)",
+    zIndex: 3,
     display: "inline-flex",
     width: 32,
     height: 32,
