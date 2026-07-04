@@ -182,16 +182,48 @@ impl From<TurnTranscriptItem> for GraphqlTranscriptItem {
     }
 }
 
-/// Started conversation with replay payload.
+/// Primary conversation identity.
 #[derive(Clone, Debug, SimpleObject)]
-#[graphql(name = "ConversationStarted")]
-pub struct GraphqlConversationStarted {
+#[graphql(name = "PrimaryConversation")]
+pub struct GraphqlPrimaryConversation {
     /// Durable Noema conversation id.
     pub conversation_id: String,
     /// Provider used for the conversation.
     pub provider: String,
-    /// Visible replay items.
-    pub replay: Vec<GraphqlConversationItem>,
+}
+
+/// Input for reading a visible transcript page.
+#[derive(Clone, Debug, InputObject)]
+#[graphql(name = "ConversationTranscriptPageInput")]
+pub struct GraphqlConversationTranscriptPageInput {
+    /// Durable Noema conversation id.
+    pub conversation_id: String,
+    /// Opaque cursor. When omitted, reads the latest page.
+    pub cursor: Option<String>,
+    /// Page size. Defaults to 80 and must be within 1..=200.
+    pub limit: Option<i32>,
+}
+
+/// Visible transcript page.
+#[derive(Clone, Debug, SimpleObject)]
+#[graphql(name = "ConversationTranscriptPage")]
+pub struct GraphqlConversationTranscriptPage {
+    /// Visible transcript items in display order.
+    pub items: Vec<GraphqlConversationItem>,
+    /// Paging metadata for older reads.
+    pub page_info: GraphqlConversationTranscriptPageInfo,
+}
+
+/// Visible transcript page metadata.
+#[derive(Clone, Debug, SimpleObject)]
+#[graphql(name = "ConversationTranscriptPageInfo")]
+pub struct GraphqlConversationTranscriptPageInfo {
+    /// Cursor before the first returned item.
+    pub before_cursor: Option<String>,
+    /// Whether more visible items exist before this page.
+    pub has_more_before: bool,
+    /// Applied page size.
+    pub limit: i32,
 }
 
 /// One visible conversation item.
@@ -200,6 +232,8 @@ pub struct GraphqlConversationStarted {
 pub struct GraphqlConversationItem {
     /// Durable conversation item id.
     pub item_id: String,
+    /// Opaque durable pagination cursor.
+    pub cursor: String,
     /// Durable conversation turn id.
     pub turn_id: Option<String>,
     /// Transcript item to render.
@@ -210,6 +244,7 @@ impl From<crate::daemon::web::ConversationReplayItem> for GraphqlConversationIte
     fn from(item: crate::daemon::web::ConversationReplayItem) -> Self {
         Self {
             item_id: item.item_id,
+            cursor: item.cursor,
             turn_id: item.turn_id,
             item: item.item.into(),
         }
@@ -248,6 +283,8 @@ pub struct GraphqlConversationItemEvent {
     pub client_message_id: Option<String>,
     /// Durable conversation item id.
     pub item_id: String,
+    /// Opaque durable pagination cursor, absent for transient runtime rows.
+    pub cursor: Option<String>,
     /// Durable conversation turn id.
     pub turn_id: Option<String>,
     /// Structured durable item metadata.
@@ -314,10 +351,26 @@ pub enum GraphqlConversationEvent {
     TurnCompleted(GraphqlTurnCompletedEvent),
 }
 
-pub(super) async fn start_primary_conversation(
+pub(super) async fn primary_conversation(
+    state: &GraphqlState,
+) -> Result<Option<GraphqlPrimaryConversation>> {
+    let store = state.store()?;
+    let runtime = state.runtime()?;
+    let provider_kind = primary_agent_provider_kind(store, runtime.provider_kind()).await?;
+    let conversation = store
+        .primary_conversation_for_human("human:local")
+        .await
+        .map_err(graphql_error)?;
+    Ok(conversation.map(|conversation| GraphqlPrimaryConversation {
+        conversation_id: conversation.conversation_id,
+        provider: provider_kind,
+    }))
+}
+
+pub(super) async fn ensure_primary_conversation(
     state: &GraphqlState,
     cwd: Option<String>,
-) -> Result<GraphqlConversationStarted> {
+) -> Result<GraphqlPrimaryConversation> {
     let store = state.store()?;
     let runtime = state.runtime()?;
     let provider_kind = primary_agent_provider_kind(store, runtime.provider_kind()).await?;
@@ -335,23 +388,54 @@ pub(super) async fn start_primary_conversation(
         .start_primary_conversation(cwd)
         .await
         .map_err(graphql_error)?;
-    let replay_records =
-        crate::daemon::web::visible_conversation_replay(store, &started.conversation_id)
-            .await
-            .map_err(graphql_error)?;
-    let mut replay = Vec::new();
-    for record in replay_records {
+
+    Ok(GraphqlPrimaryConversation {
+        conversation_id: started.conversation_id,
+        provider: provider_kind,
+    })
+}
+
+pub(super) async fn conversation_transcript_page(
+    state: &GraphqlState,
+    input: GraphqlConversationTranscriptPageInput,
+) -> Result<GraphqlConversationTranscriptPage> {
+    let limit = input.limit.unwrap_or(80);
+    if limit < 1 {
+        return Err(async_graphql::Error::new(
+            "conversationTranscriptPage limit must be at least 1",
+        ));
+    }
+    if limit > 200 {
+        return Err(async_graphql::Error::new(
+            "conversationTranscriptPage limit must be at most 200",
+        ));
+    }
+
+    let page = state
+        .store()?
+        .list_visible_conversation_item_page(
+            &input.conversation_id,
+            input.cursor.as_deref(),
+            i64::from(limit),
+        )
+        .await
+        .map_err(graphql_error)?;
+    let mut items = Vec::new();
+    for record in page.items {
         if let Some(item) =
             crate::daemon::web::web_conversation_item_from_record(record).map_err(graphql_error)?
         {
-            replay.push(GraphqlConversationItem::from(item));
+            items.push(GraphqlConversationItem::from(item));
         }
     }
 
-    Ok(GraphqlConversationStarted {
-        conversation_id: started.conversation_id,
-        provider: provider_kind,
-        replay,
+    Ok(GraphqlConversationTranscriptPage {
+        items,
+        page_info: GraphqlConversationTranscriptPageInfo {
+            before_cursor: page.before_cursor,
+            has_more_before: page.has_more_before,
+            limit: i32::try_from(page.limit).unwrap_or(i32::MAX),
+        },
     })
 }
 
@@ -467,6 +551,7 @@ pub(super) fn conversation_events(
                     crate::daemon::TurnStreamEvent::ConversationItem {
                             conversation_id,
                             item_id,
+                            cursor,
                             turn_id,
                             metadata,
                             item,
@@ -476,6 +561,7 @@ pub(super) fn conversation_events(
                             conversation_id,
                             client_message_id,
                             item_id,
+                            cursor,
                             turn_id,
                             metadata: async_graphql::Json(metadata),
                             item: (*item).into(),
@@ -546,6 +632,7 @@ fn publish_turn_terminal_events(
             event: Box::new(TurnStreamEvent::ConversationItem {
                 conversation_id: conversation_id.clone(),
                 item_id: error_item_id,
+                cursor: None,
                 turn_id: None,
                 metadata: serde_json::json!({}),
                 item: Box::new(crate::TurnTranscriptItem::ErrorNotice {
@@ -757,6 +844,7 @@ mod tests {
             event: Box::new(TurnStreamEvent::ConversationItem {
                 conversation_id: "conversation_1".to_string(),
                 item_id: "item:persisted_error".to_string(),
+                cursor: None,
                 turn_id: Some("turn_1".to_string()),
                 metadata: json!({}),
                 item: Box::new(crate::TurnTranscriptItem::ErrorNotice {

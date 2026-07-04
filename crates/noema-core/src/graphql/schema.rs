@@ -12,7 +12,8 @@ use super::{
         self, GraphqlAgent, GraphqlAgentModelPreference, GraphqlSaveAgentModelPreferenceInput,
     },
     chat::{
-        self, GraphqlConversationEvent, GraphqlConversationStarted,
+        self, GraphqlConversationEvent, GraphqlConversationTranscriptPage,
+        GraphqlConversationTranscriptPageInput, GraphqlPrimaryConversation,
         GraphqlSendConversationTurnInput, GraphqlTurnAccepted,
     },
     local_status::{self, GraphqlLocalStatus, GraphqlMemoryStorageStatus},
@@ -467,6 +468,25 @@ impl QueryRoot {
         let state = ctx.data_unchecked::<GraphqlState>();
         memory::memory_graph(state, input).await
     }
+
+    /// Return the primary conversation identity without creating it or replaying transcript.
+    async fn primary_conversation(
+        &self,
+        ctx: &Context<'_>,
+    ) -> Result<Option<GraphqlPrimaryConversation>> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        chat::primary_conversation(state).await
+    }
+
+    /// Return a cursor-based page of visible conversation transcript items.
+    async fn conversation_transcript_page(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlConversationTranscriptPageInput,
+    ) -> Result<GraphqlConversationTranscriptPage> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        chat::conversation_transcript_page(state, input).await
+    }
 }
 
 /// Root GraphQL mutation object.
@@ -494,14 +514,14 @@ impl MutationRoot {
         agents::save_agent_model_preference(state, input).await
     }
 
-    /// Start or resume the primary conversation.
-    async fn start_primary_conversation(
+    /// Ensure the primary conversation exists.
+    async fn ensure_primary_conversation(
         &self,
         ctx: &Context<'_>,
         cwd: Option<String>,
-    ) -> Result<GraphqlConversationStarted> {
+    ) -> Result<GraphqlPrimaryConversation> {
         let state = ctx.data_unchecked::<GraphqlState>();
-        chat::start_primary_conversation(state, cwd).await
+        chat::ensure_primary_conversation(state, cwd).await
     }
 
     /// Send a conversation turn.
@@ -625,8 +645,10 @@ mod tests {
         assert!(sdl.contains("onboardingStatus"));
         assert!(sdl.contains("type Mutation"));
         assert!(sdl.contains("startProviderAuthAttempt"));
-        assert!(sdl.contains("startPrimaryConversation"));
-        assert!(!sdl.contains("startPrimaryConversation(model:"));
+        assert!(sdl.contains("primaryConversation"));
+        assert!(sdl.contains("conversationTranscriptPage"));
+        assert!(sdl.contains("ensurePrimaryConversation"));
+        assert!(!sdl.contains("startPrimaryConversation"));
         assert!(sdl.contains("sendConversationTurn"));
         assert!(sdl.contains("saveToolCalibration"));
         assert!(sdl.contains("autofillToolCalibrations"));
@@ -1081,7 +1103,7 @@ mod tests {
             .execute(async_graphql::Request::new(
                 r#"
                 mutation {
-                  startPrimaryConversation {
+                  ensurePrimaryConversation {
                     provider
                     conversationId
                   }
@@ -1093,8 +1115,139 @@ mod tests {
         assert!(response.errors.is_empty(), "{:?}", response.errors);
         let data = response.data.into_json().expect("json");
         assert_eq!(
-            data["startPrimaryConversation"]["provider"],
+            data["ensurePrimaryConversation"]["provider"],
             "foundation_local"
+        );
+    }
+
+    #[tokio::test]
+    async fn primary_conversation_returns_identity_without_transcript() {
+        use crate::store::tests::test_store;
+
+        let store = test_store().await;
+        let conversation = store
+            .get_or_create_primary_conversation_for_provider(
+                "human:local",
+                "codex",
+                Some("gpt-test".to_string()),
+                None,
+            )
+            .await
+            .expect("primary conversation");
+        let runtime = test_autofill_runtime(store.clone(), "ok").await;
+        let schema = build_schema(GraphqlState::for_tests_with_store_and_runtime(
+            store, runtime,
+        ));
+
+        let response = schema
+            .execute(async_graphql::Request::new(
+                r#"
+                query {
+                  primaryConversation {
+                    provider
+                    conversationId
+                  }
+                }
+                "#,
+            ))
+            .await;
+
+        assert!(response.errors.is_empty(), "{:?}", response.errors);
+        let data = response.data.into_json().expect("json");
+        assert_eq!(
+            data["primaryConversation"]["conversationId"],
+            conversation.conversation_id
+        );
+        assert_eq!(data["primaryConversation"]["provider"], "codex");
+        assert!(data["primaryConversation"].get("replay").is_none());
+    }
+
+    #[tokio::test]
+    async fn conversation_transcript_page_supports_latest_and_cursor_reads() {
+        use crate::store::tests::test_store;
+
+        let store = test_store().await;
+        store.ensure_default_actors().await.expect("actors");
+        let conversation = store
+            .create_conversation(crate::NewConversation::local_chat(None, None))
+            .await
+            .expect("conversation");
+        let turn = store
+            .create_conversation_turn(crate::NewConversationTurn {
+                conversation_id: conversation.conversation_id.clone(),
+                trigger_item_id: None,
+                metadata: serde_json::json!({ "turn_index": 1 }),
+            })
+            .await
+            .expect("turn");
+
+        for label in ["one", "two", "three"] {
+            store
+                .append_conversation_item(crate::NewConversationItem {
+                    conversation_id: conversation.conversation_id.clone(),
+                    turn_id: Some(turn.turn_id.clone()),
+                    parent_item_id: None,
+                    kind: crate::ConversationItemKind::UserText,
+                    status: crate::ConversationItemStatus::Completed,
+                    author: crate::ActorRef::human("human:local"),
+                    content_text: Some(label.to_string()),
+                    payload_json: serde_json::json!({}),
+                    metadata: serde_json::json!({ "turn_index": 1 }),
+                })
+                .await
+                .expect("item");
+        }
+
+        let schema = build_schema(GraphqlState::for_tests_with_store(store));
+        let latest = schema
+            .execute(async_graphql::Request::new(format!(
+                r#"
+                query {{
+                  conversationTranscriptPage(input: {{ conversationId: "{}", limit: 2 }}) {{
+                    items {{
+                      itemId
+                      cursor
+                      item {{ __typename ... on UserText {{ text }} }}
+                    }}
+                    pageInfo {{ beforeCursor hasMoreBefore limit }}
+                  }}
+                }}
+                "#,
+                conversation.conversation_id
+            )))
+            .await;
+
+        assert!(latest.errors.is_empty(), "{:?}", latest.errors);
+        let latest_data = latest.data.into_json().expect("latest json");
+        let page = &latest_data["conversationTranscriptPage"];
+        assert_eq!(page["items"][0]["item"]["text"], "two");
+        assert_eq!(page["items"][1]["item"]["text"], "three");
+        assert_eq!(page["pageInfo"]["hasMoreBefore"], true);
+        let before_cursor = page["pageInfo"]["beforeCursor"].as_str().expect("cursor");
+
+        let older = schema
+            .execute(async_graphql::Request::new(format!(
+                r#"
+                query {{
+                  conversationTranscriptPage(input: {{ conversationId: "{}", cursor: "{}", limit: 2 }}) {{
+                    items {{ item {{ __typename ... on UserText {{ text }} }} }}
+                    pageInfo {{ hasMoreBefore }}
+                  }}
+                }}
+                "#,
+                conversation.conversation_id, before_cursor
+            )))
+            .await;
+
+        assert!(older.errors.is_empty(), "{:?}", older.errors);
+        let older_data = older.data.into_json().expect("older json");
+        assert_eq!(
+            older_data["conversationTranscriptPage"]["items"][0]["item"]["text"],
+            "one"
+        );
+        assert_eq!(
+            older_data["conversationTranscriptPage"]["pageInfo"]["hasMoreBefore"],
+            false
         );
     }
 
@@ -3267,6 +3420,7 @@ mod tests {
                 ... on ConversationItemEvent {
                   conversationId
                   itemId
+                  cursor
                   metadata
                 }
               }
@@ -3285,6 +3439,7 @@ mod tests {
             event: Box::new(TurnStreamEvent::ConversationItem {
                 conversation_id: "conversation_1".to_string(),
                 item_id: "item_1".to_string(),
+                cursor: None,
                 turn_id: Some("turn_1".to_string()),
                 metadata: json!({"stream_id":"assistant_stream:turn_1:initial"}),
                 item: Box::new(crate::TurnTranscriptItem::AssistantText {
@@ -3299,9 +3454,57 @@ mod tests {
         assert_eq!(event["__typename"], "ConversationItemEvent");
         assert_eq!(event["conversationId"], "conversation_1");
         assert_eq!(event["itemId"], "item_1");
+        assert!(event["cursor"].is_null());
         assert_eq!(
             event["metadata"],
             json!({"stream_id":"assistant_stream:turn_1:initial"})
         );
+    }
+
+    #[tokio::test]
+    async fn subscription_streams_conversation_item_cursor_when_present() {
+        let state = GraphqlState::for_tests();
+        let subscriptions = state.subscriptions().clone();
+        let schema = build_schema(state);
+        let mut stream = schema.execute_stream(async_graphql::Request::new(
+            r#"
+            subscription {
+              conversationEvents(conversationId: "conversation_1") {
+                __typename
+                ... on ConversationItemEvent {
+                  itemId
+                  cursor
+                }
+              }
+            }
+            "#,
+        ));
+
+        let ready = stream.next().await.expect("ready response");
+        assert_eq!(
+            ready.data.into_json().expect("ready json")["conversationEvents"]["__typename"],
+            "SubscriptionReadyEvent"
+        );
+
+        subscriptions.publish(ConversationLiveEvent::Turn {
+            client_message_id: None,
+            event: Box::new(TurnStreamEvent::ConversationItem {
+                conversation_id: "conversation_1".to_string(),
+                item_id: "item_1".to_string(),
+                cursor: Some("conversation_item:1".to_string()),
+                turn_id: Some("turn_1".to_string()),
+                metadata: serde_json::json!({}),
+                item: Box::new(crate::TurnTranscriptItem::UserText {
+                    text: "Hello".to_string(),
+                }),
+            }),
+        });
+
+        let response = stream.next().await.expect("item response");
+        let data = response.data.into_json().expect("item json");
+        let event = &data["conversationEvents"];
+        assert_eq!(event["__typename"], "ConversationItemEvent");
+        assert_eq!(event["itemId"], "item_1");
+        assert_eq!(event["cursor"], "conversation_item:1");
     }
 }

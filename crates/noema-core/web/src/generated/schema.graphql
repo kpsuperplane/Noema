@@ -274,6 +274,10 @@ type ConversationItem {
 	"""
 	itemId: String!
 	"""
+	Opaque durable pagination cursor.
+	"""
+	cursor: String!
+	"""
 	Durable conversation turn id.
 	"""
 	turnId: String
@@ -300,6 +304,10 @@ type ConversationItemEvent {
 	"""
 	itemId: String!
 	"""
+	Opaque durable pagination cursor, absent for transient runtime rows.
+	"""
+	cursor: String
+	"""
 	Durable conversation turn id.
 	"""
 	turnId: String
@@ -314,21 +322,53 @@ type ConversationItemEvent {
 }
 
 """
-Started conversation with replay payload.
+Visible transcript page.
 """
-type ConversationStarted {
+type ConversationTranscriptPage {
+	"""
+	Visible transcript items in display order.
+	"""
+	items: [ConversationItem!]!
+	"""
+	Paging metadata for older reads.
+	"""
+	pageInfo: ConversationTranscriptPageInfo!
+}
+
+"""
+Visible transcript page metadata.
+"""
+type ConversationTranscriptPageInfo {
+	"""
+	Cursor before the first returned item.
+	"""
+	beforeCursor: String
+	"""
+	Whether more visible items exist before this page.
+	"""
+	hasMoreBefore: Boolean!
+	"""
+	Applied page size.
+	"""
+	limit: Int!
+}
+
+"""
+Input for reading a visible transcript page.
+"""
+input ConversationTranscriptPageInput {
 	"""
 	Durable Noema conversation id.
 	"""
 	conversationId: String!
 	"""
-	Provider used for the conversation.
+	Opaque cursor. When omitted, reads the latest page.
 	"""
-	provider: String!
+	cursor: String
 	"""
-	Visible replay items.
+	Page size. Defaults to 80 and must be within 1..=200.
 	"""
-	replay: [ConversationItem!]!
+	limit: Int
 }
 
 """
@@ -1070,9 +1110,9 @@ type MutationRoot {
 	"""
 	saveAgentModelPreference(input: SaveAgentModelPreferenceInput!): AgentModelPreference!
 	"""
-	Start or resume the primary conversation.
+	Ensure the primary conversation exists.
 	"""
-	startPrimaryConversation(cwd: String): ConversationStarted!
+	ensurePrimaryConversation(cwd: String): PrimaryConversation!
 	"""
 	Send a conversation turn.
 	"""
@@ -1253,6 +1293,20 @@ type PredicateProposal {
 	Last update timestamp.
 	"""
 	updatedAt: String!
+}
+
+"""
+Primary conversation identity.
+"""
+type PrimaryConversation {
+	"""
+	Durable Noema conversation id.
+	"""
+	conversationId: String!
+	"""
+	Provider used for the conversation.
+	"""
+	provider: String!
 }
 
 """
@@ -1490,6 +1544,14 @@ type QueryRoot {
 	Return a bounded graph-memory projection for local memory-management inspection.
 	"""
 	memoryGraph(input: MemoryGraphInput): MemoryGraph!
+	"""
+	Return the primary conversation identity without creating it or replaying transcript.
+	"""
+	primaryConversation: PrimaryConversation
+	"""
+	Return a cursor-based page of visible conversation transcript items.
+	"""
+	conversationTranscriptPage(input: ConversationTranscriptPageInput!): ConversationTranscriptPage!
 }
 
 """

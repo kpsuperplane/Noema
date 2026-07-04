@@ -99,6 +99,38 @@ impl NoemaStore {
         Ok(record)
     }
 
+    /// Return a human's active primary conversation without creating one.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when the embedded store read fails.
+    pub async fn primary_conversation_for_human(
+        &self,
+        human_id: &str,
+    ) -> Result<Option<ConversationRecord>, StoreError> {
+        self.ensure_default_actors().await?;
+        let mut response = self
+            .db
+            .query("SELECT primary_conversation_id FROM humans WHERE human_id = $human_id LIMIT 1;")
+            .bind(("human_id", human_id.to_string()))
+            .await?;
+        let rows: Vec<PrimaryConversationRow> = response.take(0)?;
+        let Some(Some(conversation_id)) = rows
+            .into_iter()
+            .next()
+            .map(|row| row.primary_conversation_id)
+        else {
+            return Ok(None);
+        };
+        if !self
+            .primary_conversation_matches_human(&conversation_id, human_id)
+            .await?
+        {
+            return Ok(None);
+        }
+        Ok(Some(ConversationRecord { conversation_id }))
+    }
+
     /// Return the next durable turn index for a conversation.
     ///
     /// # Errors

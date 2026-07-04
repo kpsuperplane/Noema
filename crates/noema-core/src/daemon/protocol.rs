@@ -151,6 +151,7 @@ pub(crate) enum TurnStreamEvent {
     ConversationItem {
         conversation_id: String,
         item_id: String,
+        cursor: Option<String>,
         turn_id: Option<String>,
         metadata: serde_json::Value,
         item: Box<TurnTranscriptItem>,

@@ -573,6 +573,7 @@ pub(super) fn send_conversation_item(
     let _ = item_tx.send(TurnStreamEvent::ConversationItem {
         conversation_id: record.conversation_id,
         item_id: record.item_id,
+        cursor: Some(record.cursor),
         turn_id: record.turn_id,
         metadata,
         item: Box::new(item),
@@ -598,6 +599,7 @@ pub(in crate::daemon) fn send_transient_turn_item(
     let _ = item_tx.send(TurnStreamEvent::ConversationItem {
         conversation_id: context.conversation_id.clone(),
         item_id: format!("transient:{runtime_item_id}"),
+        cursor: None,
         turn_id: Some(context.turn_id.clone()),
         metadata: json!({
             "turn_index": context.turn_index,

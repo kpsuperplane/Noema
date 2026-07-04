@@ -2,32 +2,29 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::{
-    NoemaStore, ReplayMode, TurnActivityStatus, TurnTranscriptItem,
-    {ConversationItemKind, ConversationItemRecord},
+    TurnActivityStatus, TurnTranscriptItem, {ConversationItemKind, ConversationItemRecord},
 };
 
 use super::DaemonError;
 
-pub(crate) async fn visible_conversation_replay(
-    repo: &NoemaStore,
-    conversation_id: &str,
-) -> Result<Vec<ConversationItemRecord>, DaemonError> {
-    Ok(repo
-        .list_conversation_items(conversation_id, ReplayMode::Visible)
-        .await?)
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct ConversationReplayItem {
     pub(crate) item_id: String,
+    pub(crate) cursor: String,
     pub(crate) turn_id: Option<String>,
     pub(crate) item: TurnTranscriptItem,
 }
 
 impl ConversationReplayItem {
-    pub(crate) fn new(item_id: String, turn_id: Option<String>, item: TurnTranscriptItem) -> Self {
+    pub(crate) fn new(
+        item_id: String,
+        cursor: String,
+        turn_id: Option<String>,
+        item: TurnTranscriptItem,
+    ) -> Self {
         Self {
             item_id,
+            cursor,
             turn_id,
             item,
         }
@@ -42,6 +39,7 @@ pub(crate) fn web_conversation_item_from_record(
     };
     Ok(Some(ConversationReplayItem::new(
         record.item_id,
+        record.cursor,
         record.turn_id,
         item,
     )))

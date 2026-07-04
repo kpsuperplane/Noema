@@ -24,9 +24,7 @@ pub(crate) use self::{
         persist_provider_account_status_from_attempt, reconcile_onboarding_provider_account,
         start_provider_auth_attempt_view_from_parts,
     },
-    replay::{
-        ConversationReplayItem, visible_conversation_replay, web_conversation_item_from_record,
-    },
+    replay::{ConversationReplayItem, web_conversation_item_from_record},
 };
 
 use super::protocol::DaemonError;
