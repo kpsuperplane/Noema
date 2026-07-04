@@ -4,7 +4,11 @@ use crate::{
 };
 use serde_json::{Value, json};
 
-use super::{actor::CodexRuntimeActor, turn::SuccessfulProviderTurn};
+use super::{
+    actor::CodexRuntimeActor,
+    tool_lifecycle::{LocalToolCall, local_tool_calls},
+    turn::SuccessfulProviderTurn,
+};
 use crate::daemon::{
     agent_name_tool::{
         AgentNameToolResult, AgentNameToolRuntimeContext, execute_update_own_name,
@@ -22,44 +26,56 @@ impl CodexRuntimeActor {
         turn: &SuccessfulProviderTurn,
         agent_identity: &AgentPromptIdentity,
     ) -> Vec<LocalToolResult> {
-        let mut results = Vec::new();
+        let calls = local_tool_calls(&turn.response.output);
+        let mut results = Vec::with_capacity(calls.len());
+        for call in &calls {
+            results.push(self.execute_local_tool(turn, agent_identity, call).await);
+        }
+        results
+    }
+
+    pub(super) async fn execute_local_tool(
+        &self,
+        turn: &SuccessfulProviderTurn,
+        agent_identity: &AgentPromptIdentity,
+        call: &LocalToolCall,
+    ) -> LocalToolResult {
         let gateway = CapabilityGateway {
             store: &self.store,
             system_errors: &self.system_errors,
         };
-        for (index, output) in turn.response.output.iter().enumerate() {
-            let GenerateOutputItem::ToolCall { id, name, payload } = output else {
-                continue;
+        if is_search_memory_tool(&call.name) {
+            let context = MemoryToolRuntimeContext {
+                conversation_id: turn.conversation_id.clone(),
+                turn_id: turn.turn_id.clone(),
+                turn_index: turn.turn_index,
+                call_site_id: format!("output_{}", call.output_index),
+                cwd: turn.cwd.clone(),
+                user_input: turn.user_input.clone(),
             };
-            if is_search_memory_tool(name) {
-                let context = MemoryToolRuntimeContext {
-                    conversation_id: turn.conversation_id.clone(),
-                    turn_id: turn.turn_id.clone(),
-                    turn_index: turn.turn_index,
-                    call_site_id: format!("output_{index}"),
-                    cwd: turn.cwd.clone(),
-                    user_input: turn.user_input.clone(),
-                };
-                results.push(LocalToolResult::Memory(
-                    execute_search_memory(&self.store, &context, id.clone(), payload).await,
-                ));
-            } else if is_update_own_name_tool(name) {
-                let context = AgentNameToolRuntimeContext {
-                    agent_id: agent_identity.agent_id.clone(),
-                };
-                results.push(LocalToolResult::AgentName(
-                    execute_update_own_name(&self.store, &context, id.clone(), payload).await,
-                ));
-            } else {
-                let proposal = GatewayToolProposal { name, payload };
-                results.push(LocalToolResult::Gateway {
-                    call_id: id.clone(),
-                    name: name.clone(),
-                    result: gateway.execute_tool_proposal(proposal).await,
-                });
+            LocalToolResult::Memory(
+                execute_search_memory(&self.store, &context, call.call_id.clone(), &call.payload)
+                    .await,
+            )
+        } else if is_update_own_name_tool(&call.name) {
+            let context = AgentNameToolRuntimeContext {
+                agent_id: agent_identity.agent_id.clone(),
+            };
+            LocalToolResult::AgentName(
+                execute_update_own_name(&self.store, &context, call.call_id.clone(), &call.payload)
+                    .await,
+            )
+        } else {
+            let proposal = GatewayToolProposal {
+                name: &call.name,
+                payload: &call.payload,
+            };
+            LocalToolResult::Gateway {
+                call_id: call.call_id.clone(),
+                name: call.name.clone(),
+                result: gateway.execute_tool_proposal(proposal).await,
             }
         }
-        results
     }
 }
 
