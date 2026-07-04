@@ -2,11 +2,11 @@ use crate::{
     ActorRef, ConversationItemKind, ConversationItemStatus, NewConversationItem,
     NewConversationTurn, PersistedAgentStatus, ReplayMode, SYSTEM_ERROR_RUNTIME_INVARIANT,
     SystemErrorEvent,
-    mcp::{mcp_tool_ineligibility, prompt_safe_mcp_tool_description},
     memory::extraction::{ExtractorMemoryProposal, ValidatedMemoryProposal},
     provider::{
         GenerateInput, GenerateOptions, GenerateRequest, GenerateResponse, GenerateResponseStatus,
         GenerateStreamEvent, GenerateToolCall, PromptCacheRetention, ProviderError,
+        ProviderToolCapabilities, ProviderToolFallbackMode,
     },
 };
 use serde_json::json;
@@ -18,6 +18,7 @@ use super::{
         agent_identity_after_local_tools, local_tool_result_action_item,
         local_tool_result_continuation_input,
     },
+    model_tools::build_model_tools,
     tool_lifecycle::local_tool_calls,
     transcript_persistence::{
         assistant_stream_id, handle_provider_stream_event, send_conversation_item,
@@ -38,7 +39,7 @@ use crate::daemon::{
 
 const MAX_PROVIDER_TOOL_CONTINUATIONS: usize = 6;
 
-fn mcp_health_status_label(status: crate::McpServerHealthStatus) -> &'static str {
+pub(super) fn mcp_health_status_label(status: crate::McpServerHealthStatus) -> &'static str {
     match status {
         crate::McpServerHealthStatus::Unknown => "unknown",
         crate::McpServerHealthStatus::Healthy => "healthy",
@@ -46,7 +47,7 @@ fn mcp_health_status_label(status: crate::McpServerHealthStatus) -> &'static str
     }
 }
 
-fn mcp_auth_status_label(status: crate::McpServerAuthStatus) -> &'static str {
+pub(super) fn mcp_auth_status_label(status: crate::McpServerAuthStatus) -> &'static str {
     match status {
         crate::McpServerAuthStatus::None => "none",
         crate::McpServerAuthStatus::NeedsAuth => "needs_auth",
@@ -940,47 +941,20 @@ impl CodexRuntimeActor {
         &self,
         include_agent_name_tool: bool,
     ) -> Result<String, DaemonError> {
-        let mut rows =
-            vec!["- builtin\tsearch_memory\tNoema built-in memory retrieval".to_string()];
-        if include_agent_name_tool {
-            rows.push("- builtin\tupdate_own_name\tNoema built-in agent naming".to_string());
-        }
-        let servers = self.store.list_mcp_servers().await?;
-        for server in servers {
-            if server.enabled
-                && (server.health_status != crate::McpServerHealthStatus::Healthy
-                    || !matches!(
-                        server.auth_status,
-                        crate::McpServerAuthStatus::None
-                            | crate::McpServerAuthStatus::Authenticated
-                    ))
-            {
-                rows.push(format!(
-                    "- unavailable_mcp\t{}\t{}\thealth={}\tauth={}",
-                    server.mcp_server_id,
-                    server.display_name,
-                    mcp_health_status_label(server.health_status),
-                    mcp_auth_status_label(server.auth_status),
-                ));
-            }
-            let tools = self
-                .store
-                .list_mcp_tools_for_server(&server.mcp_server_id)
-                .await?;
-            for tool in tools {
-                let calibration = self.store.get_tool_calibration(&tool.mcp_tool_id).await?;
-                if mcp_tool_ineligibility(&server, &tool, calibration.as_ref()).is_some() {
-                    continue;
-                }
-                let hint = prompt_safe_mcp_tool_description(tool.description.as_deref(), 96)
-                    .unwrap_or_else(|| "MCP tool".to_string());
-                rows.push(format!(
-                    "- mcp\tmcp.{}.{}\t{}",
-                    server.mcp_server_id, tool.name, hint
-                ));
-            }
-        }
-        Ok(build_model_available_tools_prompt(&rows))
+        let model_tools = build_model_tools(
+            &self.store,
+            include_agent_name_tool,
+            ProviderToolCapabilities {
+                fallback_mode: ProviderToolFallbackMode::BuiltinOnlyEnvelope,
+                ..ProviderToolCapabilities::default()
+            },
+        )
+        .await
+        .map_err(|error| DaemonError::Protocol(error.to_string()))?;
+        let _legacy_builtin_envelope_tools = &model_tools.legacy_builtin_envelope_tools;
+        let _native_tools = &model_tools.native;
+        let _unavailable_rows = &model_tools.unavailable_rows;
+        Ok(build_model_available_tools_prompt(&model_tools.prompt_rows))
     }
 
     fn schedule_background_context_compaction(

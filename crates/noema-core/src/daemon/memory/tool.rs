@@ -68,10 +68,6 @@ pub(in crate::daemon) fn is_search_memory_tool(name: &str) -> bool {
     name == SEARCH_MEMORY_TOOL
 }
 
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "wired into runtime model tools in Task 3")
-)]
 pub(in crate::daemon) fn search_memory_tool_spec() -> Result<NoemaToolSpec, ToolContractError> {
     NoemaToolSpec::new(
         SEARCH_MEMORY_TOOL,
