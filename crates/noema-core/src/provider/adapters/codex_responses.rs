@@ -20,10 +20,11 @@ use super::{
 use crate::{
     SYSTEM_ERROR_PROVIDER_MALFORMED_RESPONSE, SystemErrorEvent, SystemErrorLogger,
     provider::{
-        DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateInput, GenerateMessageRole, GenerateRequest,
-        GenerateResponse, GenerateResponseStatus, GenerateStreamEvent, GenerateToolResultInput,
-        ModelProvider, ParsedNoemaResponse, ProviderError, ProviderToolCapabilities,
-        ProviderToolFallbackMode, ProviderToolSchemaDialect, output_items_from_text,
+        DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateInput, GenerateMessageRole, GenerateOptions,
+        GenerateRequest, GenerateResponse, GenerateResponseStatus, GenerateStreamEvent,
+        GenerateToolResultInput, ModelProvider, ParsedNoemaResponse, PromptCacheRetention,
+        ProviderError, ProviderToolCapabilities, ProviderToolFallbackMode,
+        ProviderToolSchemaDialect, output_items_from_text,
         required_noema_response_from_text_with_native_tool_calls,
     },
 };
@@ -179,6 +180,8 @@ struct CodexResponsesRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     parallel_tool_calls: Option<bool>,
     store: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    prompt_cache_retention: Option<PromptCacheRetention>,
     stream: bool,
 }
 
@@ -194,22 +197,23 @@ impl CodexResponsesRequest {
         model: String,
         input: &GenerateInput,
         instructions: Option<String>,
-        max_output_tokens: Option<u32>,
-        temperature: Option<f32>,
-        require_noema_response: bool,
+        options: &GenerateOptions,
         tool_fields: CodexResponsesToolFields,
     ) -> Self {
         Self {
             model,
             input: codex_input_items(input),
             instructions,
-            max_output_tokens,
-            temperature,
-            text: require_noema_response.then(noema_response_text_format),
+            max_output_tokens: options.max_output_tokens,
+            temperature: options.temperature,
+            text: options
+                .require_noema_response
+                .then(noema_response_text_format),
             tools: tool_fields.tools,
             tool_choice: tool_fields.tool_choice,
             parallel_tool_calls: tool_fields.parallel_tool_calls,
             store: false,
+            prompt_cache_retention: options.prompt_cache_retention,
             stream: true,
         }
     }
@@ -297,8 +301,6 @@ impl CodexResponsesProvider {
             .instructions
             .clone()
             .filter(|instructions| !instructions.trim().is_empty());
-        let max_output_tokens = request.options.max_output_tokens;
-        let temperature = request.options.temperature;
         let tool_names = ResponsesToolNameMap::from_tools(&request.tools)?;
         let has_tools = !tool_names.tools.is_empty();
         let tool_fields = CodexResponsesToolFields {
@@ -310,9 +312,7 @@ impl CodexResponsesProvider {
             model.clone(),
             &request.input,
             instructions.clone(),
-            max_output_tokens,
-            temperature,
-            require_noema_response,
+            &request.options,
             tool_fields.clone(),
         );
         let diagnostics = ResponsesDiagnosticContext::new(
@@ -357,9 +357,7 @@ impl CodexResponsesProvider {
                     model.clone(),
                     &request.input,
                     instructions,
-                    max_output_tokens,
-                    temperature,
-                    require_noema_response,
+                    &request.options,
                     tool_fields,
                 );
                 self.transport
@@ -821,7 +819,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn sends_codex_transcript_messages_as_response_input_items_without_cache_retention() {
+    async fn sends_codex_prompt_cache_retention_when_requested() {
         let (base_url, request_rx) = spawn_server(
             200,
             "event: response.output_text.delta\n\
@@ -867,7 +865,7 @@ mod tests {
         assert_eq!(body["input"][1]["content"], "first durable answer");
         assert_eq!(body["input"][2]["role"], "user");
         assert_eq!(body["input"][2]["content"], "second durable question");
-        assert!(body.get("prompt_cache_retention").is_none());
+        assert_eq!(body["prompt_cache_retention"], "24h");
 
         assert_eq!(response.assistant_text(), "Hello again");
     }

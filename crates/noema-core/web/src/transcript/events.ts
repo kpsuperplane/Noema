@@ -248,6 +248,9 @@ function streamIdFromMetadata(metadata: unknown): string | undefined {
 }
 
 function markClientTurnEvent(event: string, fields: Record<string, unknown>) {
+  if (!clientTurnTimingEnabled()) {
+    return;
+  }
   const payload = {
     category: "turn_timing_client",
     event,
@@ -259,10 +262,27 @@ function markClientTurnEvent(event: string, fields: Record<string, unknown>) {
   };
   globalScope.__NOEMA_TURN_TIMINGS__ = globalScope.__NOEMA_TURN_TIMINGS__ ?? [];
   globalScope.__NOEMA_TURN_TIMINGS__.push(payload);
-  console.debug(
-    "[noema_turn_timing_client]",
-    JSON.stringify(payload)
-  );
+  console.debug("[noema_turn_timing_client]", JSON.stringify(payload));
+}
+
+function clientTurnTimingEnabled(): boolean {
+  const explicitValue = browserTurnTimingFlagValue();
+  if (explicitValue === null) {
+    return false;
+  }
+  return timingFlagEnabled(explicitValue);
+}
+
+function browserTurnTimingFlagValue(): string | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  const paramsValue = new URLSearchParams(window.location.search).get("noema_turn_timing");
+  return paramsValue ?? window.localStorage.getItem("NOEMA_TURN_TIMING");
+}
+
+function timingFlagEnabled(value: string): boolean {
+  return ["1", "true", "yes", "on"].includes(value.trim().toLowerCase());
 }
 
 function clientEventFields(event: ConversationEvent): Record<string, unknown> {

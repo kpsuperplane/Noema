@@ -645,6 +645,13 @@ impl CodexRuntimeActor {
                         "tool_call_count": response.tool_calls.len(),
                         "memory_proposal_count": response.memory_proposals.len(),
                         "response_status": format!("{:?}", response.response_status),
+                        "input_tokens": response.usage.as_ref().map(|usage| usage.input_tokens),
+                        "output_tokens": response.usage.as_ref().map(|usage| usage.output_tokens),
+                        "total_tokens": response.usage.as_ref().map(|usage| usage.total_tokens),
+                        "cached_input_tokens": response
+                            .usage
+                            .as_ref()
+                            .and_then(|usage| usage.cached_input_tokens),
                     }),
                 );
                 let result = self
@@ -1028,6 +1035,22 @@ impl CodexRuntimeActor {
                     "tool_call_count": continuation_response.tool_calls.len(),
                     "memory_proposal_count": continuation_response.memory_proposals.len(),
                     "response_status": format!("{:?}", continuation_response.response_status),
+                    "input_tokens": continuation_response
+                        .usage
+                        .as_ref()
+                        .map(|usage| usage.input_tokens),
+                    "output_tokens": continuation_response
+                        .usage
+                        .as_ref()
+                        .map(|usage| usage.output_tokens),
+                    "total_tokens": continuation_response
+                        .usage
+                        .as_ref()
+                        .map(|usage| usage.total_tokens),
+                    "cached_input_tokens": continuation_response
+                        .usage
+                        .as_ref()
+                        .and_then(|usage| usage.cached_input_tokens),
                 }),
             );
             let continuation_memory_proposals = continuation_response.memory_proposals.clone();

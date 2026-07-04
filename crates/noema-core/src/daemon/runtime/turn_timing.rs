@@ -8,6 +8,7 @@ use std::{
 };
 
 const DEFAULT_TIMING_PATH: &str = "/tmp/noema-turn-timings.jsonl";
+const TURN_TIMING_ENV: &str = "NOEMA_TURN_TIMING";
 
 #[derive(Debug, Clone)]
 pub(in crate::daemon) struct TurnTiming {
@@ -42,6 +43,9 @@ impl TurnTiming {
     }
 
     pub(in crate::daemon) fn mark(&self, event: &str, fields: Value) {
+        if !turn_timing_enabled() {
+            return;
+        }
         let mut payload = base_payload(event);
         payload["elapsed_ms"] = json!(self.inner.started_at.elapsed().as_millis());
         payload["conversation_id"] = json!(self.inner.conversation_id);
@@ -61,6 +65,9 @@ pub(crate) fn mark_graphql_turn_event(
     client_message_id: Option<&str>,
     fields: Value,
 ) {
+    if !turn_timing_enabled() {
+        return;
+    }
     let mut payload = base_payload(event);
     payload["conversation_id"] = json!(conversation_id);
     if let Some(client_message_id) = client_message_id {
@@ -91,6 +98,9 @@ fn merge_fields(payload: &mut Value, fields: Value) {
 }
 
 fn emit(payload: Value) {
+    if !turn_timing_enabled() {
+        return;
+    }
     let _guard = emit_lock()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -110,9 +120,43 @@ fn emit_lock() -> &'static Mutex<()> {
     LOCK.get_or_init(|| Mutex::new(()))
 }
 
+fn turn_timing_enabled() -> bool {
+    timing_enabled_from_env(std::env::var(TURN_TIMING_ENV).ok().as_deref())
+}
+
+fn timing_enabled_from_env(value: Option<&str>) -> bool {
+    let Some(value) = value else {
+        return false;
+    };
+    matches!(
+        value.trim().to_ascii_lowercase().as_str(),
+        "1" | "true" | "yes" | "on"
+    )
+}
+
 fn unix_ms() -> u128 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn timing_is_disabled_when_flag_is_missing_or_false() {
+        assert!(!timing_enabled_from_env(None));
+        assert!(!timing_enabled_from_env(Some("")));
+        assert!(!timing_enabled_from_env(Some("0")));
+        assert!(!timing_enabled_from_env(Some("false")));
+    }
+
+    #[test]
+    fn timing_is_enabled_for_truthy_flag_values() {
+        assert!(timing_enabled_from_env(Some("1")));
+        assert!(timing_enabled_from_env(Some("true")));
+        assert!(timing_enabled_from_env(Some("yes")));
+    }
 }
