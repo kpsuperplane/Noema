@@ -1,14 +1,16 @@
 //! Provider adapter for the OpenAI Responses API.
 
 use super::responses::{
-    ResponsesDiagnosticContext, ResponsesInput, ResponsesRequest, ResponsesTransport, header_value,
-    noema_response_text_format, normalize_base_url,
+    ResponsesDiagnosticContext, ResponsesInput, ResponsesRequest, ResponsesToolNameMap,
+    ResponsesTransport, header_value, noema_response_text_format, normalize_base_url,
+    responses_tool_choice,
 };
 use crate::{
     SYSTEM_ERROR_PROVIDER_MALFORMED_RESPONSE, SystemErrorEvent, SystemErrorLogger,
     provider::{
         DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateRequest, GenerateResponse,
         GenerateResponseStatus, ModelProvider, ParsedNoemaResponse, ProviderError,
+        ProviderToolCapabilities, ProviderToolFallbackMode, ProviderToolSchemaDialect,
         output_items_from_text, required_noema_response_from_text,
     },
 };
@@ -159,6 +161,19 @@ impl ModelProvider for OpenAiProvider {
         )
     }
 
+    fn tool_capabilities(&self, _model: Option<&str>) -> ProviderToolCapabilities {
+        ProviderToolCapabilities {
+            native_tools: true,
+            parallel_tool_calls: true,
+            tool_choice: true,
+            schema_dialect: ProviderToolSchemaDialect::OpenAiResponses,
+            strict_schema: false,
+            custom_tools: false,
+            native_tool_results: true,
+            fallback_mode: ProviderToolFallbackMode::NativeRequired,
+        }
+    }
+
     async fn generate(&self, request: GenerateRequest) -> Result<GenerateResponse, ProviderError> {
         if request.input.is_empty() {
             return Err(ProviderError::InvalidRequest {
@@ -177,6 +192,8 @@ impl ModelProvider for OpenAiProvider {
             });
         }
 
+        let tool_names = ResponsesToolNameMap::from_tools(&request.tools)?;
+        let has_tools = !tool_names.tools.is_empty();
         let body = ResponsesRequest {
             model: model.clone(),
             input: ResponsesInput::from(&request.input),
@@ -189,9 +206,9 @@ impl ModelProvider for OpenAiProvider {
                 .options
                 .require_noema_response
                 .then(noema_response_text_format),
-            tools: Vec::new(),
-            tool_choice: None,
-            parallel_tool_calls: None,
+            tools: tool_names.tools.clone(),
+            tool_choice: responses_tool_choice(request.tool_choice, has_tools),
+            parallel_tool_calls: has_tools.then_some(request.parallel_tool_calls),
             store: false,
             prompt_cache_retention: request.options.prompt_cache_retention,
         };
@@ -211,9 +228,25 @@ impl ModelProvider for OpenAiProvider {
                 diagnostics,
             )
             .await?;
+        let native_tool_calls = response.native_tool_calls_with_names(&tool_names)?;
         let text = match response.output_text() {
             Ok(text) => text,
             Err(error @ ProviderError::MalformedResponse { .. }) => {
+                if !native_tool_calls.is_empty() {
+                    let parsed = ParsedNoemaResponse {
+                        responses: Vec::new(),
+                        tool_calls: native_tool_calls,
+                        memory_proposals: Vec::new(),
+                        response_status: GenerateResponseStatus::NeedsTools,
+                    };
+                    return Ok(GenerateResponse::from_parsed(
+                        parsed,
+                        "openai",
+                        response.model.unwrap_or(model),
+                        response.id,
+                        response.usage.map(Into::into),
+                    ));
+                }
                 self.log_malformed_response_raw(
                     &error,
                     &model,
@@ -227,7 +260,7 @@ impl ModelProvider for OpenAiProvider {
         };
         let raw_text = text.clone();
 
-        let parsed = if request.options.require_noema_response {
+        let mut parsed = if request.options.require_noema_response {
             match required_noema_response_from_text(text) {
                 Ok(parsed) => parsed,
                 Err(error) => {
@@ -244,11 +277,19 @@ impl ModelProvider for OpenAiProvider {
         } else {
             ParsedNoemaResponse {
                 responses: output_items_from_text(text)?,
-                tool_calls: Vec::new(),
+                tool_calls: native_tool_calls.clone(),
                 memory_proposals: Vec::new(),
-                response_status: GenerateResponseStatus::Final,
+                response_status: if native_tool_calls.is_empty() {
+                    GenerateResponseStatus::Final
+                } else {
+                    GenerateResponseStatus::NeedsTools
+                },
             }
         };
+        if !native_tool_calls.is_empty() && request.options.require_noema_response {
+            parsed.tool_calls = native_tool_calls;
+            parsed.response_status = GenerateResponseStatus::NeedsTools;
+        }
 
         Ok(GenerateResponse::from_parsed(
             parsed,
@@ -308,8 +349,11 @@ impl OpenAiProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::provider::TokenUsage;
     use crate::provider::adapters::test_support::spawn_server;
+    use crate::provider::{
+        NoemaToolChoice, NoemaToolExecution, NoemaToolSpec, ProviderToolFallbackMode,
+        ProviderToolSchemaDialect, TokenUsage,
+    };
     use crate::{GenerateInput, PromptCacheRetention};
     use serde_json::Value;
 
@@ -397,6 +441,9 @@ mod tests {
         assert_eq!(body["max_output_tokens"], 32);
         assert_eq!(body["temperature"], 0.4);
         assert_eq!(body["prompt_cache_retention"], "24h");
+        assert!(body.get("tools").is_none());
+        assert!(body.get("tool_choice").is_none());
+        assert!(body.get("parallel_tool_calls").is_none());
 
         assert_eq!(response.assistant_text(), "Hello, world");
         assert_eq!(response.provider, "openai");
@@ -451,6 +498,121 @@ mod tests {
             "final"
         );
         assert_eq!(response.assistant_text(), "Hello");
+    }
+
+    #[tokio::test]
+    async fn request_sends_native_tool_specs_with_provider_safe_names_and_maps_calls_back() {
+        let (base_url, request_rx) = spawn_server(
+            200,
+            r#"{
+              "id": "resp_test",
+              "model": "gpt-test",
+              "output": [
+                {
+                  "type": "message",
+                  "content": [
+                    {"type": "output_text", "text": "{\"response_status\":\"final\",\"responses\":[{\"kind\":\"text\",\"phase\":\"final_answer\",\"text\":\"Done\"}],\"tool_calls\":[],\"memory_proposals\":[]}"}
+                  ]
+                },
+                {
+                  "type": "function_call",
+                  "id": "item_1",
+                  "call_id": "call_1",
+                  "name": "mcp_x2e_docs_x3a_read",
+                  "arguments": "{\"document_id\":\"doc_1\"}"
+                }
+              ]
+            }"#,
+        )
+        .await;
+
+        let provider = test_provider(base_url);
+        let response = provider
+            .generate(GenerateRequest {
+                conversation_id: None,
+                model: Some("gpt-test".to_string()),
+                input: GenerateInput::Text("Read it".to_string()),
+                instructions: None,
+                options: crate::provider::GenerateOptions {
+                    require_noema_response: true,
+                    ..crate::provider::GenerateOptions::default()
+                },
+                tools: vec![mcp_docs_read_tool()],
+                tool_choice: NoemaToolChoice::Required,
+                parallel_tool_calls: true,
+            })
+            .await
+            .expect("response");
+
+        let captured = request_rx.await.expect("captured request");
+        let body: Value = serde_json::from_str(&captured.body).expect("json body");
+        assert_eq!(body["tools"][0]["name"], "mcp_x2e_docs_x3a_read");
+        assert_eq!(body["tool_choice"], "required");
+        assert_eq!(body["parallel_tool_calls"], true);
+        assert_eq!(response.response_status, GenerateResponseStatus::NeedsTools);
+        assert_eq!(response.assistant_text(), "Done");
+        assert_eq!(response.tool_calls[0].name, "mcp.docs:read");
+        assert_eq!(response.tool_calls[0].payload["document_id"], "doc_1");
+    }
+
+    #[tokio::test]
+    async fn native_tool_only_required_response_returns_needs_tools() {
+        let (base_url, _request_rx) = spawn_server(
+            200,
+            r#"{
+              "id": "resp_test",
+              "model": "gpt-test",
+              "output": [
+                {
+                  "type": "function_call",
+                  "id": "item_1",
+                  "call_id": "call_1",
+                  "name": "search_memory",
+                  "arguments": "{\"query\":\"trains\"}"
+                }
+              ]
+            }"#,
+        )
+        .await;
+
+        let provider = test_provider(base_url);
+        let response = provider
+            .generate(GenerateRequest {
+                options: crate::provider::GenerateOptions {
+                    require_noema_response: true,
+                    ..crate::provider::GenerateOptions::default()
+                },
+                tools: vec![search_memory_tool()],
+                tool_choice: NoemaToolChoice::Auto,
+                parallel_tool_calls: false,
+                ..GenerateRequest::text("Search memory")
+            })
+            .await
+            .expect("native tool response");
+
+        assert_eq!(response.response_status, GenerateResponseStatus::NeedsTools);
+        assert!(response.assistant_text().is_empty());
+        assert_eq!(response.tool_calls.len(), 1);
+        assert_eq!(response.tool_calls[0].name, "search_memory");
+    }
+
+    #[tokio::test]
+    async fn rejects_provider_safe_tool_name_collisions_before_http_call() {
+        let provider = test_provider("http://127.0.0.1:1".to_string());
+        let error = provider
+            .generate(GenerateRequest {
+                tools: vec![collision_source_tool(), collision_target_tool()],
+                ..GenerateRequest::text("hello")
+            })
+            .await
+            .expect_err("collision rejected");
+
+        assert!(matches!(error, ProviderError::InvalidRequest { .. }));
+        assert!(
+            error
+                .to_string()
+                .contains("provider-safe tool name collision")
+        );
     }
 
     #[tokio::test]
@@ -584,6 +746,26 @@ mod tests {
     }
 
     #[test]
+    fn advertises_openai_responses_native_tool_capabilities() {
+        let provider = test_provider("http://127.0.0.1:1".to_string());
+
+        let capabilities = provider.tool_capabilities(Some("gpt-test"));
+
+        assert!(capabilities.native_tools);
+        assert!(capabilities.parallel_tool_calls);
+        assert!(capabilities.tool_choice);
+        assert!(capabilities.native_tool_results);
+        assert_eq!(
+            capabilities.schema_dialect,
+            ProviderToolSchemaDialect::OpenAiResponses
+        );
+        assert_eq!(
+            capabilities.fallback_mode,
+            ProviderToolFallbackMode::NativeRequired
+        );
+    }
+
+    #[test]
     fn configured_tool_classification_model_overrides_provider_default() {
         let provider = OpenAiProvider::new(OpenAiProviderConfig {
             api_key: "secret".to_string(),
@@ -615,5 +797,63 @@ mod tests {
             system_errors: None,
         })
         .expect("provider")
+    }
+
+    fn search_memory_tool() -> NoemaToolSpec {
+        NoemaToolSpec::new(
+            "search_memory",
+            "Search memory.",
+            serde_json::json!({
+                "type": "object",
+                "properties": {"query": {"type": "string"}},
+                "required": ["query"],
+                "additionalProperties": false
+            }),
+            NoemaToolExecution::LocalBuiltin,
+        )
+        .expect("tool")
+    }
+
+    fn mcp_docs_read_tool() -> NoemaToolSpec {
+        NoemaToolSpec::new(
+            "mcp.docs:read",
+            "Read docs.",
+            serde_json::json!({
+                "type": "object",
+                "properties": {"document_id": {"type": "string"}},
+                "required": ["document_id"],
+                "additionalProperties": false
+            }),
+            NoemaToolExecution::LocalBuiltin,
+        )
+        .expect("tool")
+    }
+
+    fn collision_source_tool() -> NoemaToolSpec {
+        NoemaToolSpec::new(
+            "mcp.docs",
+            "Read docs.",
+            serde_json::json!({
+                "type": "object",
+                "properties": {},
+                "additionalProperties": false
+            }),
+            NoemaToolExecution::LocalBuiltin,
+        )
+        .expect("tool")
+    }
+
+    fn collision_target_tool() -> NoemaToolSpec {
+        NoemaToolSpec::new(
+            "mcp_x2e_docs",
+            "Read docs.",
+            serde_json::json!({
+                "type": "object",
+                "properties": {},
+                "additionalProperties": false
+            }),
+            NoemaToolExecution::LocalBuiltin,
+        )
+        .expect("tool")
     }
 }

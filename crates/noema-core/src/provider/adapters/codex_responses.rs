@@ -13,8 +13,8 @@ use super::{
     },
     noema_response_stream::NoemaAssistantTextDeltaExtractor,
     responses::{
-        ResponsesDiagnosticContext, ResponsesTransport, noema_response_text_format,
-        normalize_base_url,
+        ResponsesDiagnosticContext, ResponsesTool, ResponsesToolNameMap, ResponsesTransport,
+        noema_response_text_format, normalize_base_url, responses_tool_choice,
     },
 };
 use crate::{
@@ -22,8 +22,8 @@ use crate::{
     provider::{
         DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateInput, GenerateMessageRole, GenerateRequest,
         GenerateResponse, GenerateResponseStatus, GenerateStreamEvent, ModelProvider,
-        ParsedNoemaResponse, ProviderError, output_items_from_text,
-        required_noema_response_from_text,
+        ParsedNoemaResponse, ProviderError, ProviderToolCapabilities, ProviderToolFallbackMode,
+        ProviderToolSchemaDialect, output_items_from_text, required_noema_response_from_text,
     },
 };
 
@@ -171,8 +171,21 @@ struct CodexResponsesRequest {
     temperature: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     text: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    tools: Vec<ResponsesTool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_choice: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    parallel_tool_calls: Option<bool>,
     store: bool,
     stream: bool,
+}
+
+#[derive(Debug, Clone, Default)]
+struct CodexResponsesToolFields {
+    tools: Vec<ResponsesTool>,
+    tool_choice: Option<&'static str>,
+    parallel_tool_calls: Option<bool>,
 }
 
 impl CodexResponsesRequest {
@@ -183,6 +196,7 @@ impl CodexResponsesRequest {
         max_output_tokens: Option<u32>,
         temperature: Option<f32>,
         require_noema_response: bool,
+        tool_fields: CodexResponsesToolFields,
     ) -> Self {
         Self {
             model,
@@ -191,6 +205,9 @@ impl CodexResponsesRequest {
             max_output_tokens,
             temperature,
             text: require_noema_response.then(noema_response_text_format),
+            tools: tool_fields.tools,
+            tool_choice: tool_fields.tool_choice,
+            parallel_tool_calls: tool_fields.parallel_tool_calls,
             store: false,
             stream: true,
         }
@@ -223,6 +240,13 @@ impl CodexResponsesProvider {
             .filter(|instructions| !instructions.trim().is_empty());
         let max_output_tokens = request.options.max_output_tokens;
         let temperature = request.options.temperature;
+        let tool_names = ResponsesToolNameMap::from_tools(&request.tools)?;
+        let has_tools = !tool_names.tools.is_empty();
+        let tool_fields = CodexResponsesToolFields {
+            tools: tool_names.tools.clone(),
+            tool_choice: responses_tool_choice(request.tool_choice, has_tools),
+            parallel_tool_calls: has_tools.then_some(request.parallel_tool_calls),
+        };
         let body = CodexResponsesRequest::new(
             model.clone(),
             &request.input,
@@ -230,6 +254,7 @@ impl CodexResponsesProvider {
             max_output_tokens,
             temperature,
             require_noema_response,
+            tool_fields.clone(),
         );
         let diagnostics = ResponsesDiagnosticContext::new(
             self.system_errors.clone(),
@@ -276,6 +301,7 @@ impl CodexResponsesProvider {
                     max_output_tokens,
                     temperature,
                     require_noema_response,
+                    tool_fields,
                 );
                 self.transport
                     .send_streaming(
@@ -289,9 +315,25 @@ impl CodexResponsesProvider {
             }
             Err(error) => return Err(error),
         };
+        let native_tool_calls = response.native_tool_calls_with_names(&tool_names)?;
         let text = match response.output_text() {
             Ok(text) => text,
             Err(error @ ProviderError::MalformedResponse { .. }) => {
+                if !native_tool_calls.is_empty() {
+                    let parsed = ParsedNoemaResponse {
+                        responses: Vec::new(),
+                        tool_calls: native_tool_calls,
+                        memory_proposals: Vec::new(),
+                        response_status: GenerateResponseStatus::NeedsTools,
+                    };
+                    return Ok(GenerateResponse::from_parsed(
+                        parsed,
+                        "codex",
+                        response.model.unwrap_or(model),
+                        response.id,
+                        response.usage.map(Into::into),
+                    ));
+                }
                 self.log_malformed_response_raw(
                     &error,
                     &model,
@@ -305,7 +347,7 @@ impl CodexResponsesProvider {
         };
         let raw_text = text.clone();
 
-        let parsed = if require_noema_response {
+        let mut parsed = if require_noema_response {
             match required_noema_response_from_text(text) {
                 Ok(parsed) => parsed,
                 Err(error) => {
@@ -322,11 +364,19 @@ impl CodexResponsesProvider {
         } else {
             ParsedNoemaResponse {
                 responses: output_items_from_text(text)?,
-                tool_calls: Vec::new(),
+                tool_calls: native_tool_calls.clone(),
                 memory_proposals: Vec::new(),
-                response_status: GenerateResponseStatus::Final,
+                response_status: if native_tool_calls.is_empty() {
+                    GenerateResponseStatus::Final
+                } else {
+                    GenerateResponseStatus::NeedsTools
+                },
             }
         };
+        if !native_tool_calls.is_empty() && require_noema_response {
+            parsed.tool_calls = native_tool_calls;
+            parsed.response_status = GenerateResponseStatus::NeedsTools;
+        }
 
         Ok(GenerateResponse::from_parsed(
             parsed,
@@ -411,6 +461,19 @@ impl ModelProvider for CodexResponsesProvider {
         )
     }
 
+    fn tool_capabilities(&self, _model: Option<&str>) -> ProviderToolCapabilities {
+        ProviderToolCapabilities {
+            native_tools: true,
+            parallel_tool_calls: true,
+            tool_choice: true,
+            schema_dialect: ProviderToolSchemaDialect::OpenAiResponses,
+            strict_schema: false,
+            custom_tools: false,
+            native_tool_results: true,
+            fallback_mode: ProviderToolFallbackMode::NativeRequired,
+        }
+    }
+
     async fn generate(&self, request: GenerateRequest) -> Result<GenerateResponse, ProviderError> {
         self.generate_with_events(request, &mut |_| {}).await
     }
@@ -430,7 +493,8 @@ mod tests {
     use crate::provider::adapters::codex_oauth::CodexOAuthTokens;
     use crate::provider::adapters::test_support::spawn_server;
     use crate::provider::{
-        GenerateMessage, GenerateMessageRole, GenerateOptions, PromptCacheRetention,
+        GenerateMessage, GenerateMessageRole, GenerateOptions, NoemaToolChoice, NoemaToolExecution,
+        NoemaToolSpec, PromptCacheRetention, ProviderToolFallbackMode, ProviderToolSchemaDialect,
     };
     use serde_json::Value;
     use tempfile::TempDir;
@@ -501,6 +565,32 @@ mod tests {
         );
     }
 
+    #[test]
+    fn advertises_codex_responses_native_tool_capabilities() {
+        let dir = TempDir::new().expect("temp dir");
+        let account_home = dir.path().join("providers/codex/default");
+        let provider = CodexResponsesProvider::new(CodexProviderConfig {
+            account_home: Some(account_home),
+            ..CodexProviderConfig::default()
+        })
+        .expect("provider");
+
+        let capabilities = provider.tool_capabilities(Some("gpt-test"));
+
+        assert!(capabilities.native_tools);
+        assert!(capabilities.parallel_tool_calls);
+        assert!(capabilities.tool_choice);
+        assert!(capabilities.native_tool_results);
+        assert_eq!(
+            capabilities.schema_dialect,
+            ProviderToolSchemaDialect::OpenAiResponses
+        );
+        assert_eq!(
+            capabilities.fallback_mode,
+            ProviderToolFallbackMode::NativeRequired
+        );
+    }
+
     #[tokio::test]
     async fn sends_codex_input_as_response_message_list() {
         let (base_url, request_rx) = spawn_server(
@@ -536,8 +626,45 @@ mod tests {
         assert_eq!(body["input"][0]["content"], "Hello?");
         assert_eq!(body["stream"], true);
         assert_eq!(body["store"], false);
+        assert!(body.get("tools").is_none());
+        assert!(body.get("tool_choice").is_none());
+        assert!(body.get("parallel_tool_calls").is_none());
 
         assert_eq!(response.assistant_text(), "Hello");
+    }
+
+    #[tokio::test]
+    async fn codex_request_sends_native_tool_specs_with_provider_safe_names() {
+        let response_body = "event: response.completed\n\
+             data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_test\",\"model\":\"gpt-test\",\"status\":\"completed\",\"output\":[{\"type\":\"function_call\",\"id\":\"item_1\",\"call_id\":\"call_1\",\"name\":\"mcp_x2e_docs_x3a_read\",\"arguments\":\"{\\\"document_id\\\":\\\"doc_1\\\"}\"}]}}\n\
+             \n";
+        let (base_url, request_rx) = spawn_server(200, response_body).await;
+        let (provider, _dir) = provider_with_tokens(base_url);
+
+        let response = provider
+            .generate(GenerateRequest {
+                conversation_id: None,
+                model: Some("gpt-test".to_string()),
+                input: GenerateInput::Text("Read it".to_string()),
+                instructions: None,
+                options: GenerateOptions {
+                    require_noema_response: true,
+                    ..GenerateOptions::default()
+                },
+                tools: vec![mcp_docs_read_tool()],
+                tool_choice: NoemaToolChoice::Required,
+                parallel_tool_calls: true,
+            })
+            .await
+            .expect("response");
+
+        let captured = request_rx.await.expect("captured request");
+        let body: Value = serde_json::from_str(&captured.body).expect("json body");
+        assert_eq!(body["tools"][0]["name"], "mcp_x2e_docs_x3a_read");
+        assert_eq!(body["tool_choice"], "required");
+        assert_eq!(body["parallel_tool_calls"], true);
+        assert_eq!(response.response_status, GenerateResponseStatus::NeedsTools);
+        assert_eq!(response.tool_calls[0].name, "mcp.docs:read");
     }
 
     #[tokio::test]
@@ -766,5 +893,20 @@ mod tests {
          data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_test\",\"model\":\"gpt-test\",\"status\":\"completed\"}}\n\
         \n"
         .to_string()
+    }
+
+    fn mcp_docs_read_tool() -> NoemaToolSpec {
+        NoemaToolSpec::new(
+            "mcp.docs:read",
+            "Read docs.",
+            serde_json::json!({
+                "type": "object",
+                "properties": {"document_id": {"type": "string"}},
+                "required": ["document_id"],
+                "additionalProperties": false
+            }),
+            NoemaToolExecution::LocalBuiltin,
+        )
+        .expect("tool")
     }
 }

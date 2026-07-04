@@ -12,8 +12,8 @@ use crate::{
     provider::{
         GenerateInput, GenerateMessageRole, GenerateRequest, GenerateResponse,
         GenerateResponseStatus, GenerateStreamEvent, ModelProvider, ParsedNoemaResponse,
-        ProviderContextMetadata, ProviderError, output_items_from_text,
-        required_noema_response_from_text,
+        ProviderContextMetadata, ProviderError, ProviderToolCapabilities, ProviderToolFallbackMode,
+        output_items_from_text, required_noema_response_from_text,
     },
 };
 
@@ -234,6 +234,13 @@ impl ModelProvider for FoundationLocalProvider {
         }
     }
 
+    fn tool_capabilities(&self, _model: Option<&str>) -> ProviderToolCapabilities {
+        ProviderToolCapabilities {
+            fallback_mode: ProviderToolFallbackMode::BuiltinOnlyEnvelope,
+            ..ProviderToolCapabilities::default()
+        }
+    }
+
     async fn count_tokens(
         &self,
         instructions: Option<&str>,
@@ -387,7 +394,10 @@ fn bridge_replay_turns(messages: &[crate::GenerateMessage]) -> Vec<BridgeReplayT
 mod tests {
     use super::*;
     use crate::GenerateInput;
-    use crate::provider::{AssistantTextPhase, GenerateStreamEvent};
+    use crate::provider::{
+        AssistantTextPhase, GenerateStreamEvent, ProviderToolFallbackMode,
+        ProviderToolSchemaDialect,
+    };
     use crate::{
         FoundationLocalProviderConfig, GenerateRequest, GenerateResponseItem,
         GenerateResponseStatus, ModelProvider, ProviderError,
@@ -434,6 +444,28 @@ mod tests {
 
         assert_eq!(metadata.context_window_tokens, Some(4_096));
         assert_eq!(metadata.default_output_reserve_tokens, Some(512));
+    }
+
+    #[test]
+    fn foundation_local_advertises_builtin_only_tool_fallback() {
+        let provider = FoundationLocalProvider::new(FoundationLocalProviderConfig {
+            default_profile: "default".to_string(),
+            bridge_path: None,
+            system_errors: None,
+        })
+        .expect("provider");
+
+        let capabilities = provider.tool_capabilities(Some("default"));
+
+        assert!(!capabilities.native_tools);
+        assert!(!capabilities.parallel_tool_calls);
+        assert!(!capabilities.tool_choice);
+        assert!(!capabilities.native_tool_results);
+        assert_eq!(capabilities.schema_dialect, ProviderToolSchemaDialect::None);
+        assert_eq!(
+            capabilities.fallback_mode,
+            ProviderToolFallbackMode::BuiltinOnlyEnvelope
+        );
     }
 
     #[test]

@@ -15,6 +15,7 @@ use reqwest::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::HashMap;
 
 /// JSON request body sent to a Responses-compatible endpoint.
 #[derive(Debug, Serialize)]
@@ -76,6 +77,104 @@ impl ResponsesTool {
             parameters,
         }
     }
+}
+
+/// Request-local provider-safe tool names for OpenAI-compatible adapters.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct ResponsesToolNameMap {
+    pub(crate) tools: Vec<ResponsesTool>,
+    provider_to_canonical: HashMap<String, String>,
+}
+
+impl ResponsesToolNameMap {
+    /// Lower canonical Noema tool names into provider-safe Responses tools.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ProviderError::InvalidRequest`] when two canonical names map
+    /// to the same provider-safe name.
+    pub(crate) fn from_tools(
+        tools: &[crate::provider::NoemaToolSpec],
+    ) -> Result<Self, ProviderError> {
+        let mut responses_tools = Vec::with_capacity(tools.len());
+        let mut provider_to_canonical = HashMap::with_capacity(tools.len());
+
+        for tool in tools {
+            let canonical = tool.name.as_str();
+            let provider_safe = provider_safe_tool_name(canonical);
+            if let Some(existing) = provider_to_canonical.get(&provider_safe) {
+                let message = if existing == canonical {
+                    format!("duplicate tool name {canonical}")
+                } else {
+                    format!(
+                        "provider-safe tool name collision: {existing} and {canonical} both map to {provider_safe}"
+                    )
+                };
+                return Err(ProviderError::InvalidRequest { message });
+            }
+
+            provider_to_canonical.insert(provider_safe.clone(), canonical.to_string());
+            responses_tools.push(ResponsesTool::function(
+                provider_safe,
+                tool.description.clone(),
+                tool.input_schema.as_value().clone(),
+            ));
+        }
+
+        Ok(Self {
+            tools: responses_tools,
+            provider_to_canonical,
+        })
+    }
+
+    fn canonical_name<'a>(&'a self, provider_name: &'a str) -> &'a str {
+        self.provider_to_canonical
+            .get(provider_name)
+            .map(String::as_str)
+            .unwrap_or(provider_name)
+    }
+}
+
+pub(crate) fn responses_tool_choice(
+    tool_choice: crate::provider::NoemaToolChoice,
+    has_tools: bool,
+) -> Option<&'static str> {
+    has_tools.then_some(match tool_choice {
+        crate::provider::NoemaToolChoice::Auto => "auto",
+        crate::provider::NoemaToolChoice::None => "none",
+        crate::provider::NoemaToolChoice::Required => "required",
+    })
+}
+
+fn provider_safe_tool_name(canonical: &str) -> String {
+    let mut encoded = String::with_capacity(canonical.len());
+    for byte in canonical.bytes() {
+        let character = byte as char;
+        if character.is_ascii_alphanumeric() || matches!(character, '_' | '-') {
+            encoded.push(character);
+        } else {
+            encoded.push_str(&format!("_x{byte:02x}_"));
+        }
+    }
+
+    const OPENAI_FUNCTION_NAME_MAX: usize = 64;
+    if encoded.len() <= OPENAI_FUNCTION_NAME_MAX {
+        return encoded;
+    }
+
+    const HASH_SUFFIX_LEN: usize = 18;
+    let mut prefix = encoded;
+    prefix.truncate(OPENAI_FUNCTION_NAME_MAX - HASH_SUFFIX_LEN);
+    format!("{prefix}_h{:016x}", fnv1a64(canonical.as_bytes()))
+}
+
+fn fnv1a64(bytes: &[u8]) -> u64 {
+    let mut hash = 0xcbf2_9ce4_8422_2325;
+    for byte in bytes {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    hash
 }
 
 pub(super) fn noema_response_text_format() -> Value {
@@ -256,6 +355,13 @@ impl ResponsesResponse {
     pub fn native_tool_calls(
         &self,
     ) -> Result<Vec<crate::provider::GenerateToolCall>, ProviderError> {
+        self.native_tool_calls_with_names(&ResponsesToolNameMap::default())
+    }
+
+    pub(crate) fn native_tool_calls_with_names(
+        &self,
+        tool_names: &ResponsesToolNameMap,
+    ) -> Result<Vec<crate::provider::GenerateToolCall>, ProviderError> {
         let mut calls = Vec::new();
         for item in &self.output {
             let ResponsesOutputItem::FunctionCall {
@@ -281,7 +387,7 @@ impl ResponsesResponse {
             }
             calls.push(crate::provider::GenerateToolCall {
                 id: call_id.clone().or_else(|| id.clone()),
-                name: name.clone(),
+                name: tool_names.canonical_name(name).to_string(),
                 payload,
             });
         }
@@ -829,5 +935,83 @@ mod tests {
 
         assert_eq!(calls.len(), 1);
         assert_eq!(calls[0].id.as_deref(), Some("item_1"));
+    }
+
+    #[test]
+    fn responses_tool_name_map_uses_provider_safe_names_and_maps_back() {
+        let tools = vec![
+            crate::provider::NoemaToolSpec::new(
+                "mcp.docs:read",
+                "Read docs.",
+                serde_json::json!({
+                    "type": "object",
+                    "properties": {"document_id": {"type": "string"}},
+                    "required": ["document_id"],
+                    "additionalProperties": false
+                }),
+                crate::provider::NoemaToolExecution::LocalBuiltin,
+            )
+            .expect("tool"),
+        ];
+        let tool_names = ResponsesToolNameMap::from_tools(&tools).expect("tool names");
+
+        assert_eq!(tool_names.tools[0].name, "mcp_x2e_docs_x3a_read");
+
+        let response: ResponsesResponse = serde_json::from_value(serde_json::json!({
+            "id": "resp_1",
+            "model": "gpt-test",
+            "output": [
+                {
+                    "type": "function_call",
+                    "id": "item_1",
+                    "call_id": "call_1",
+                    "name": "mcp_x2e_docs_x3a_read",
+                    "arguments": "{\"document_id\":\"doc_1\"}"
+                }
+            ]
+        }))
+        .expect("response");
+
+        let calls = response
+            .native_tool_calls_with_names(&tool_names)
+            .expect("tool calls");
+
+        assert_eq!(calls[0].name, "mcp.docs:read");
+    }
+
+    #[test]
+    fn responses_tool_name_map_rejects_provider_safe_name_collisions() {
+        let first = crate::provider::NoemaToolSpec::new(
+            "mcp.docs",
+            "Read docs.",
+            serde_json::json!({
+                "type": "object",
+                "properties": {},
+                "additionalProperties": false
+            }),
+            crate::provider::NoemaToolExecution::LocalBuiltin,
+        )
+        .expect("first tool");
+        let second = crate::provider::NoemaToolSpec::new(
+            "mcp_x2e_docs",
+            "Read docs.",
+            serde_json::json!({
+                "type": "object",
+                "properties": {},
+                "additionalProperties": false
+            }),
+            crate::provider::NoemaToolExecution::LocalBuiltin,
+        )
+        .expect("second tool");
+
+        let error =
+            ResponsesToolNameMap::from_tools(&[first, second]).expect_err("collision rejected");
+
+        assert!(matches!(error, ProviderError::InvalidRequest { .. }));
+        assert!(
+            error
+                .to_string()
+                .contains("provider-safe tool name collision")
+        );
     }
 }
