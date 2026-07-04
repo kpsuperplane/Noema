@@ -267,13 +267,18 @@ impl ResponsesResponse {
             else {
                 continue;
             };
-            let payload = serde_json::from_str(arguments).map_err(|source| {
+            let payload: Value = serde_json::from_str(arguments).map_err(|source| {
                 ProviderError::MalformedResponse {
                     message: format!(
                         "failed to parse native tool call arguments for {name}: {source}"
                     ),
                 }
             })?;
+            if !payload.is_object() {
+                return Err(ProviderError::MalformedResponse {
+                    message: format!("native tool call arguments for {name} must be a JSON object"),
+                });
+            }
             calls.push(crate::provider::GenerateToolCall {
                 id: call_id.clone().or_else(|| id.clone()),
                 name: name.clone(),
@@ -744,5 +749,85 @@ mod tests {
             calls[0].payload["scope_ids"],
             serde_json::json!(["human:local"])
         );
+    }
+
+    #[test]
+    fn responses_response_rejects_invalid_function_call_arguments_json() {
+        let response: ResponsesResponse = serde_json::from_value(serde_json::json!({
+            "id": "resp_1",
+            "model": "gpt-test",
+            "output": [
+                {
+                    "type": "function_call",
+                    "id": "item_1",
+                    "call_id": "call_1",
+                    "name": "search_memory",
+                    "arguments": "{\"query\":"
+                }
+            ]
+        }))
+        .expect("response");
+
+        let error = response
+            .native_tool_calls()
+            .expect_err("invalid arguments rejected");
+
+        assert!(matches!(error, ProviderError::MalformedResponse { .. }));
+        assert!(
+            error
+                .to_string()
+                .contains("failed to parse native tool call arguments for search_memory")
+        );
+    }
+
+    #[test]
+    fn responses_response_rejects_non_object_function_call_arguments() {
+        let response: ResponsesResponse = serde_json::from_value(serde_json::json!({
+            "id": "resp_1",
+            "model": "gpt-test",
+            "output": [
+                {
+                    "type": "function_call",
+                    "id": "item_1",
+                    "call_id": "call_1",
+                    "name": "search_memory",
+                    "arguments": "[]"
+                }
+            ]
+        }))
+        .expect("response");
+
+        let error = response
+            .native_tool_calls()
+            .expect_err("non-object arguments rejected");
+
+        assert!(matches!(error, ProviderError::MalformedResponse { .. }));
+        assert!(
+            error
+                .to_string()
+                .contains("native tool call arguments for search_memory must be a JSON object")
+        );
+    }
+
+    #[test]
+    fn responses_response_uses_item_id_when_function_call_id_is_missing() {
+        let response: ResponsesResponse = serde_json::from_value(serde_json::json!({
+            "id": "resp_1",
+            "model": "gpt-test",
+            "output": [
+                {
+                    "type": "function_call",
+                    "id": "item_1",
+                    "name": "search_memory",
+                    "arguments": "{\"query\":\"trains\"}"
+                }
+            ]
+        }))
+        .expect("response");
+
+        let calls = response.native_tool_calls().expect("tool calls");
+
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].id.as_deref(), Some("item_1"));
     }
 }
