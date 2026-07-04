@@ -13,6 +13,18 @@ use serde_json::{Value, json};
 const SEARCH_MEMORY_TOOL: &str = "search_memory";
 const DEFAULT_LIMIT: usize = 8;
 const MAX_LIMIT: usize = 16;
+const SEARCH_MEMORY_PURPOSE_VALUES: &[&str] = &[
+    "answer_human_question",
+    "draft_internal_content",
+    "general_personalization",
+    "manage_task",
+    "manage_calendar",
+    "draft_external_content",
+    "use_tool",
+    "proactive_suggestion",
+    "external_action",
+    "debug_audit",
+];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(in crate::daemon) struct MemoryToolRuntimeContext {
@@ -56,6 +68,10 @@ pub(in crate::daemon) fn is_search_memory_tool(name: &str) -> bool {
     name == SEARCH_MEMORY_TOOL
 }
 
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "wired into runtime model tools in Task 3")
+)]
 pub(in crate::daemon) fn search_memory_tool_spec() -> Result<NoemaToolSpec, ToolContractError> {
     NoemaToolSpec::new(
         SEARCH_MEMORY_TOOL,
@@ -74,24 +90,13 @@ pub(in crate::daemon) fn search_memory_tool_spec() -> Result<NoemaToolSpec, Tool
                 },
                 "purpose": {
                     "type": "string",
-                    "enum": [
-                        "answer_human_question",
-                        "draft_internal_content",
-                        "general_personalization",
-                        "manage_task",
-                        "manage_calendar",
-                        "draft_external_content",
-                        "use_tool",
-                        "proactive_suggestion",
-                        "external_action",
-                        "debug_audit"
-                    ],
+                    "enum": SEARCH_MEMORY_PURPOSE_VALUES,
                     "description": "Policy purpose for retrieval."
                 },
                 "limit": {
                     "type": "integer",
                     "minimum": 1,
-                    "maximum": 16,
+                    "maximum": MAX_LIMIT,
                     "description": "Maximum number of memory facts to return."
                 }
             },
@@ -305,25 +310,21 @@ mod tests {
         assert_eq!(spec.name.as_str(), SEARCH_MEMORY_TOOL);
         assert!(spec.description.contains("Search governed Noema memory"));
         assert_eq!(spec.input_schema.as_value()["required"], json!(["query"]));
+        assert_eq!(spec.input_schema.as_value()["additionalProperties"], false);
         assert_eq!(
             spec.input_schema.as_value()["properties"]["scope_ids"]["items"]["type"],
             "string"
         );
         assert_eq!(
-            spec.input_schema.as_value()["properties"]["purpose"]["enum"],
-            json!([
-                "answer_human_question",
-                "draft_internal_content",
-                "general_personalization",
-                "manage_task",
-                "manage_calendar",
-                "draft_external_content",
-                "use_tool",
-                "proactive_suggestion",
-                "external_action",
-                "debug_audit"
-            ])
+            spec.input_schema.as_value()["properties"]["limit"]["maximum"],
+            MAX_LIMIT
         );
+        let purpose_enum = &spec.input_schema.as_value()["properties"]["purpose"]["enum"];
+        assert_eq!(purpose_enum, &json!(SEARCH_MEMORY_PURPOSE_VALUES));
+        let purpose_values = purpose_enum.as_array().expect("purpose enum values");
+        for purpose in purpose_values {
+            parse_purpose(purpose.as_str()).expect("schema purpose accepted by runtime");
+        }
     }
 
     #[test]

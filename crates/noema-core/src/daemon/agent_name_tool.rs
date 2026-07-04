@@ -41,6 +41,10 @@ pub(super) fn is_update_own_name_tool(name: &str) -> bool {
     name == UPDATE_OWN_NAME_TOOL
 }
 
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "wired into runtime model tools in Task 3")
+)]
 pub(super) fn update_own_name_tool_spec() -> Result<NoemaToolSpec, ToolContractError> {
     NoemaToolSpec::new(
         UPDATE_OWN_NAME_TOOL,
@@ -52,6 +56,7 @@ pub(super) fn update_own_name_tool_spec() -> Result<NoemaToolSpec, ToolContractE
                     "type": "string",
                     "minLength": 1,
                     "maxLength": MAX_AGENT_NAME_CHARS,
+                    "pattern": ".*\\S.*",
                     "description": "The agent display name requested by the current user."
                 }
             },
@@ -178,6 +183,10 @@ mod tests {
         assert_eq!(
             spec.input_schema.as_value()["properties"]["name"]["maxLength"],
             MAX_AGENT_NAME_CHARS
+        );
+        assert_eq!(
+            spec.input_schema.as_value()["properties"]["name"]["pattern"],
+            r".*\S.*"
         );
     }
 
