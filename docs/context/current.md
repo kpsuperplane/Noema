@@ -69,12 +69,17 @@ The next storage slice should stay small and concrete:
   `memory_proposals[]`. `responses[]` may be empty only for
   `response_status: "needs_tools"` with one or more tool calls, so models can
   run routine single or multiple tools without filler commentary.
-- The next harness direction is the provider-neutral native tool plane in
-  `docs/superpowers/specs/2026-07-04-native-tool-plane-design.md`: executable
-  tool calls should move out of Noema-authored assistant JSON envelopes and
-  into provider-native tool channels wherever supported, with Noema-owned
-  canonical tool specs, schema normalization, provider capability declarations,
-  and explicit fallback policy for providers without native tool support.
+- The provider-neutral native tool plane has landed from
+  `docs/superpowers/specs/2026-07-04-native-tool-plane-design.md`: Noema now
+  builds canonical local/MCP tool specs, advertises them through provider-native
+  channels for OpenAI/Codex Responses providers, keeps Foundation Local on the
+  audited builtin-only JSON fallback, parses native `function_call` items into
+  canonical tool calls, and feeds local tool results back through stateless
+  native `function_call`/`function_call_output` continuation input with
+  provider call-id correlation preserved. OpenAI/Codex native call parsing
+  rejects malformed/non-object arguments, provider-safe name collisions, mixed
+  native plus legacy JSON tool calls, missing native `call_id`s, and
+  `final_answer` text in tool-waiting responses.
 - Derived search/vector indexes are rebuildable projections.
 - Graph or fuzzy retrieval can suggest candidates, but policy gates inclusion.
 - Pre-stable schema changes do not need migrations or backwards compatibility unless explicitly requested.
