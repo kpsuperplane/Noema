@@ -387,43 +387,72 @@ export const StartProviderAuthAttemptDocument = gql`
   }
 `;
 
-export const StartPrimaryConversationDocument = gql`
-  mutation StartPrimaryConversation {
-    startPrimaryConversation {
-      conversationId
-      provider
-      replay {
-        itemId
-        turnId
-        item {
-          __typename
-          ... on UserText {
-            text
-          }
-          ... on AssistantText {
-            text
-          }
-          ... on Activity {
-            id
-            activityKind
-            status
-            title
-            summary
-            metadata
-          }
-          ... on A2UiCard {
-            id
-            schema
-            payload
-          }
-          ... on ErrorNotice {
-            message
-            recoverable
-          }
-        }
+export const ConversationItemFields = gql`
+  fragment ConversationItemFields on ConversationItem {
+    itemId
+    cursor
+    turnId
+    item {
+      __typename
+      ... on UserText {
+        text
+      }
+      ... on AssistantText {
+        text
+      }
+      ... on Activity {
+        id
+        activityKind
+        status
+        title
+        summary
+        metadata
+      }
+      ... on A2UiCard {
+        id
+        schema
+        payload
+      }
+      ... on ErrorNotice {
+        message
+        recoverable
       }
     }
   }
+`;
+
+export const PrimaryConversationDocument = gql`
+  query PrimaryConversation {
+    primaryConversation {
+      conversationId
+      provider
+    }
+  }
+`;
+
+export const EnsurePrimaryConversationDocument = gql`
+  mutation EnsurePrimaryConversation {
+    ensurePrimaryConversation {
+      conversationId
+      provider
+    }
+  }
+`;
+
+export const ConversationTranscriptPageDocument = gql`
+  query ConversationTranscriptPage($input: ConversationTranscriptPageInput!) {
+    conversationTranscriptPage(input: $input) {
+      items {
+        ...ConversationItemFields
+      }
+      pageInfo {
+        beforeCursor
+        hasMoreBefore
+        limit
+      }
+    }
+  }
+  ${ConversationItemFields}
 `;
 
 export const SendConversationTurnDocument = gql`
@@ -443,6 +472,7 @@ export const ConversationEventsDocument = gql`
         conversationId
         clientMessageId
         itemId
+        cursor
         turnId
         metadata
         item {

@@ -21,10 +21,19 @@ export type TurnTranscriptItem =
   | { kind: "error_notice"; message: string; recoverable: boolean };
 
 export type TranscriptEntry =
-  | { id: string; itemId?: string; source?: TranscriptEntrySource; turnId?: string; type: "user"; text: string }
   | {
       id: string;
       itemId?: string;
+      cursor?: string | null;
+      source?: TranscriptEntrySource;
+      turnId?: string;
+      type: "user";
+      text: string;
+    }
+  | {
+      id: string;
+      itemId?: string;
+      cursor?: string | null;
       source?: TranscriptEntrySource;
       turnId?: string;
       type: "assistant";
@@ -42,6 +51,7 @@ export type TranscriptEntry =
   | {
       id: string;
       itemId?: string;
+      cursor?: string | null;
       source?: TranscriptEntrySource;
       turnId?: string;
       type: "activity";
@@ -50,6 +60,7 @@ export type TranscriptEntry =
   | {
       id: string;
       itemId?: string;
+      cursor?: string | null;
       source?: TranscriptEntrySource;
       turnId?: string;
       type: "card";
@@ -58,6 +69,7 @@ export type TranscriptEntry =
   | {
       id: string;
       itemId?: string;
+      cursor?: string | null;
       source?: TranscriptEntrySource;
       turnId?: string;
       type: "error";

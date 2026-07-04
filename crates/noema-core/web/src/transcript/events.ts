@@ -1,11 +1,11 @@
 import type { Dispatch, SetStateAction } from "react";
 import type {
   ConversationEventsSubscription,
-  StartPrimaryConversationMutation
+  ConversationTranscriptPageQuery
 } from "@/generated/graphql";
 import type { ConversationAgentStatus, TranscriptEntry, TurnTranscriptItem } from "@/shared/types";
 
-type ReplayItem = StartPrimaryConversationMutation["startPrimaryConversation"]["replay"][number];
+type ReplayItem = ConversationTranscriptPageQuery["conversationTranscriptPage"]["items"][number];
 type ConversationEvent = ConversationEventsSubscription["conversationEvents"];
 type GraphqlTranscriptItem = ReplayItem["item"];
 
@@ -51,7 +51,13 @@ export function handleConversationEvent(
     return;
   }
 
-  const entry = entryFromConversationItem(event.itemId, event.turnId ?? undefined, event.item, event.metadata);
+  const entry = entryFromConversationItem(
+    event.itemId,
+    event.cursor,
+    event.turnId ?? undefined,
+    event.item,
+    event.metadata
+  );
   if (!entry) {
     return;
   }
@@ -194,12 +200,18 @@ function appendAssistantTextDelta(
 }
 
 function entryFromReplayItem(item: ReplayItem): TranscriptEntry | null {
-  const entry = entryFromConversationItem(item.itemId, item.turnId ?? undefined, item.item);
+  const entry = entryFromConversationItem(
+    item.itemId,
+    item.cursor,
+    item.turnId ?? undefined,
+    item.item
+  );
   return entry ? { ...entry, source: "replay" } : null;
 }
 
 function entryFromConversationItem(
   itemId: string,
+  cursor: string | null | undefined,
   turnId: string | undefined,
   item: GraphqlTranscriptItem,
   metadata?: unknown
@@ -209,12 +221,13 @@ function entryFromConversationItem(
     return null;
   }
   if (transcriptItem.kind === "user_text") {
-    return { id: itemId, itemId, turnId, type: "user", text: transcriptItem.text };
+    return { id: itemId, itemId, cursor, turnId, type: "user", text: transcriptItem.text };
   }
   if (transcriptItem.kind === "assistant_text") {
     return {
       id: itemId,
       itemId,
+      cursor,
       turnId,
       type: "assistant",
       streamId: streamIdFromMetadata(metadata),
@@ -222,15 +235,16 @@ function entryFromConversationItem(
     };
   }
   if (transcriptItem.kind === "activity") {
-    return { id: itemId, itemId, turnId, type: "activity", item: transcriptItem };
+    return { id: itemId, itemId, cursor, turnId, type: "activity", item: transcriptItem };
   }
   if (transcriptItem.kind === "a2ui_card") {
-    return { id: itemId, itemId, turnId, type: "card", item: transcriptItem };
+    return { id: itemId, itemId, cursor, turnId, type: "card", item: transcriptItem };
   }
   if (transcriptItem.kind === "error_notice") {
     return {
       id: itemId,
       itemId,
+      cursor,
       turnId,
       type: "error",
       message: transcriptItem.message,
