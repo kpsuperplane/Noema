@@ -205,6 +205,7 @@ mod tests {
                 strict_schema: false,
                 custom_tools: false,
                 native_tool_results: true,
+                prompt_cache_retention: false,
                 fallback_mode: ProviderToolFallbackMode::NativeRequired,
             },
         )

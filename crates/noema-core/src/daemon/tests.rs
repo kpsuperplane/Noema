@@ -267,6 +267,7 @@ async fn native_provider_turn_request_includes_builtin_tools() {
             strict_schema: false,
             custom_tools: false,
             native_tool_results: true,
+            prompt_cache_retention: true,
             fallback_mode: ProviderToolFallbackMode::NativeRequired,
         },
         requests: Mutex::new(Vec::new()),
@@ -293,6 +294,10 @@ async fn native_provider_turn_request_includes_builtin_tools() {
         .iter()
         .find(|request| request.options.require_noema_response)
         .expect("agent request");
+    assert_eq!(
+        request.options.prompt_cache_retention,
+        Some(crate::PromptCacheRetention::TwentyFourHours)
+    );
     let tool_names = request
         .tools
         .iter()
@@ -469,10 +474,7 @@ async fn prompt_context_sends_prior_transcript_as_provider_messages() {
         .iter()
         .find(|request| request.options.require_noema_response)
         .expect("agent request");
-    assert_eq!(
-        request.options.prompt_cache_retention,
-        Some(crate::PromptCacheRetention::TwentyFourHours)
-    );
+    assert_eq!(request.options.prompt_cache_retention, None);
     let GenerateInput::Messages(messages) = &request.input else {
         panic!("expected transcript messages, got {:?}", request.input);
     };
@@ -3552,6 +3554,7 @@ async fn native_capable_provider_continuation_uses_native_tool_result_input() {
                 strict_schema: false,
                 custom_tools: false,
                 native_tool_results: true,
+                prompt_cache_retention: true,
                 fallback_mode: ProviderToolFallbackMode::NativeRequired,
             }),
     );

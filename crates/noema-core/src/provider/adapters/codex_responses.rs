@@ -22,10 +22,9 @@ use crate::{
     provider::{
         DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateInput, GenerateMessageRole, GenerateOptions,
         GenerateRequest, GenerateResponse, GenerateResponseStatus, GenerateStreamEvent,
-        GenerateToolResultInput, ModelProvider, ParsedNoemaResponse, PromptCacheRetention,
-        ProviderError, ProviderToolCapabilities, ProviderToolFallbackMode,
-        ProviderToolSchemaDialect, output_items_from_text,
-        required_noema_response_from_text_with_native_tool_calls,
+        GenerateToolResultInput, ModelProvider, ParsedNoemaResponse, ProviderError,
+        ProviderToolCapabilities, ProviderToolFallbackMode, ProviderToolSchemaDialect,
+        output_items_from_text, required_noema_response_from_text_with_native_tool_calls,
     },
 };
 
@@ -180,8 +179,6 @@ struct CodexResponsesRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     parallel_tool_calls: Option<bool>,
     store: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    prompt_cache_retention: Option<PromptCacheRetention>,
     stream: bool,
 }
 
@@ -213,7 +210,6 @@ impl CodexResponsesRequest {
             tool_choice: tool_fields.tool_choice,
             parallel_tool_calls: tool_fields.parallel_tool_calls,
             store: false,
-            prompt_cache_retention: options.prompt_cache_retention,
             stream: true,
         }
     }
@@ -540,6 +536,7 @@ impl ModelProvider for CodexResponsesProvider {
             strict_schema: false,
             custom_tools: false,
             native_tool_results: true,
+            prompt_cache_retention: false,
             fallback_mode: ProviderToolFallbackMode::NativeRequired,
         }
     }
@@ -651,6 +648,7 @@ mod tests {
         assert!(capabilities.parallel_tool_calls);
         assert!(capabilities.tool_choice);
         assert!(capabilities.native_tool_results);
+        assert!(!capabilities.prompt_cache_retention);
         assert_eq!(
             capabilities.schema_dialect,
             ProviderToolSchemaDialect::OpenAiResponses
@@ -819,7 +817,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn sends_codex_prompt_cache_retention_when_requested() {
+    async fn omits_codex_prompt_cache_retention_even_when_requested() {
         let (base_url, request_rx) = spawn_server(
             200,
             "event: response.output_text.delta\n\
@@ -865,7 +863,7 @@ mod tests {
         assert_eq!(body["input"][1]["content"], "first durable answer");
         assert_eq!(body["input"][2]["role"], "user");
         assert_eq!(body["input"][2]["content"], "second durable question");
-        assert_eq!(body["prompt_cache_retention"], "24h");
+        assert!(body.get("prompt_cache_retention").is_none());
 
         assert_eq!(response.assistant_text(), "Hello again");
     }

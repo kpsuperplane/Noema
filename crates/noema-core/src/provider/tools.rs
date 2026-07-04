@@ -318,6 +318,8 @@ pub struct ProviderToolCapabilities {
     pub custom_tools: bool,
     /// Whether native tool-result messages are supported.
     pub native_tool_results: bool,
+    /// Whether provider prompt-cache retention requests are supported.
+    pub prompt_cache_retention: bool,
     /// Default fallback behavior for unavailable native tools.
     pub fallback_mode: ProviderToolFallbackMode,
 }
@@ -332,6 +334,7 @@ impl Default for ProviderToolCapabilities {
             strict_schema: false,
             custom_tools: false,
             native_tool_results: false,
+            prompt_cache_retention: false,
             fallback_mode: ProviderToolFallbackMode::NoTools,
         }
     }

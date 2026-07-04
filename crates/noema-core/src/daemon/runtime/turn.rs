@@ -40,6 +40,14 @@ use crate::daemon::{
 
 const MAX_PROVIDER_TOOL_CONTINUATIONS: usize = 6;
 
+fn prompt_cache_retention_for(
+    tool_capabilities: ProviderToolCapabilities,
+) -> Option<PromptCacheRetention> {
+    tool_capabilities
+        .prompt_cache_retention
+        .then_some(PromptCacheRetention::TwentyFourHours)
+}
+
 pub(super) fn mcp_health_status_label(status: crate::McpServerHealthStatus) -> &'static str {
     match status {
         crate::McpServerHealthStatus::Unknown => "unknown",
@@ -171,6 +179,7 @@ impl CodexRuntimeActor {
             &agent_identity,
         );
         let provider = self.provider_for_kind(&conversation.provider_kind)?;
+        let tool_capabilities = provider.tool_capabilities(conversation.model.as_deref());
         let response = match provider
             .generate_streaming(
                 GenerateRequest {
@@ -180,7 +189,7 @@ impl CodexRuntimeActor {
                     instructions: Some(instructions),
                     options: GenerateOptions {
                         require_noema_response: true,
-                        prompt_cache_retention: Some(PromptCacheRetention::TwentyFourHours),
+                        prompt_cache_retention: prompt_cache_retention_for(tool_capabilities),
                         ..GenerateOptions::default()
                     },
                     tools: Vec::new(),
@@ -624,7 +633,7 @@ impl CodexRuntimeActor {
                     options: GenerateOptions {
                         max_output_tokens: planned_context.budget.output_reserve_tokens(),
                         require_noema_response: true,
-                        prompt_cache_retention: Some(PromptCacheRetention::TwentyFourHours),
+                        prompt_cache_retention: prompt_cache_retention_for(tool_capabilities),
                         ..GenerateOptions::default()
                     },
                     tools: model_tools.native.clone(),
@@ -1015,7 +1024,9 @@ impl CodexRuntimeActor {
                         instructions: Some(continuation_instructions),
                         options: GenerateOptions {
                             require_noema_response: true,
-                            prompt_cache_retention: Some(PromptCacheRetention::TwentyFourHours),
+                            prompt_cache_retention: prompt_cache_retention_for(
+                                turn.tool_capabilities,
+                            ),
                             ..GenerateOptions::default()
                         },
                         tools: turn.continuation_model_tools.native.clone(),
