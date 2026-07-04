@@ -21,8 +21,9 @@ use crate::{
     SYSTEM_ERROR_PROVIDER_MALFORMED_RESPONSE, SystemErrorEvent, SystemErrorLogger,
     provider::{
         DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateInput, GenerateMessageRole, GenerateRequest,
-        GenerateResponse, GenerateStreamEvent, ModelProvider, ProviderError,
-        output_items_from_text, required_output_items_from_text,
+        GenerateResponse, GenerateResponseStatus, GenerateStreamEvent, ModelProvider,
+        ParsedNoemaResponse, ProviderError, output_items_from_text,
+        required_noema_response_from_text,
     },
 };
 
@@ -304,9 +305,9 @@ impl CodexResponsesProvider {
         };
         let raw_text = text.clone();
 
-        let output = if require_noema_response {
-            match required_output_items_from_text(text) {
-                Ok(output) => output,
+        let parsed = if require_noema_response {
+            match required_noema_response_from_text(text) {
+                Ok(parsed) => parsed,
                 Err(error) => {
                     self.log_malformed_response(
                         &error,
@@ -319,16 +320,21 @@ impl CodexResponsesProvider {
                 }
             }
         } else {
-            output_items_from_text(text)?
+            ParsedNoemaResponse {
+                responses: output_items_from_text(text)?,
+                tool_calls: Vec::new(),
+                memory_proposals: Vec::new(),
+                response_status: GenerateResponseStatus::Final,
+            }
         };
 
-        Ok(GenerateResponse {
-            output,
-            provider: "codex".to_string(),
-            model: response.model.unwrap_or(model),
-            response_id: response.id,
-            usage: response.usage.map(Into::into),
-        })
+        Ok(GenerateResponse::from_parsed(
+            parsed,
+            "codex",
+            response.model.unwrap_or(model),
+            response.id,
+            response.usage.map(Into::into),
+        ))
     }
 
     fn log_malformed_response(
@@ -633,8 +639,10 @@ mod tests {
     async fn generate_streaming_required_noema_response_emits_only_assistant_text_deltas() {
         let response_body = format!(
             "{}{}{}",
-            sse_delta(r#"{"type":"noema_response","output":[{"kind":"assistant_text","text":"Hel"#),
-            sse_delta(r#"lo"},{"kind":"memory_proposals","proposals":[]}]}"#),
+            sse_delta(
+                r#"{"response_status":"final","responses":[{"kind":"text","phase":"final_answer","text":"Hel"#
+            ),
+            sse_delta(r#"lo"}],"tool_calls":[],"memory_proposals":[]}"#),
             sse_completed(),
         );
         let (base_url, request_rx) = spawn_server(200, response_body).await;
@@ -660,8 +668,8 @@ mod tests {
         assert_eq!(body["text"]["format"]["type"], "json_schema");
         assert_eq!(body["text"]["format"]["name"], "noema_response");
         assert_eq!(
-            body["text"]["format"]["schema"]["properties"]["type"]["const"],
-            "noema_response"
+            body["text"]["format"]["schema"]["properties"]["response_status"]["enum"][1],
+            "final"
         );
 
         assert_eq!(response.assistant_text(), "Hello");

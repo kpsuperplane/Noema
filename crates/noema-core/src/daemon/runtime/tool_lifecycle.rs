@@ -1,4 +1,4 @@
-use crate::provider::GenerateOutputItem;
+use crate::provider::{GenerateActionItem, GenerateToolCall};
 use serde_json::Value;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -9,29 +9,21 @@ pub(super) struct LocalToolCall {
     pub(super) payload: Value,
 }
 
-pub(super) fn local_tool_calls(output: &[GenerateOutputItem]) -> Vec<LocalToolCall> {
-    output
+pub(super) fn local_tool_calls(tool_calls: &[GenerateToolCall]) -> Vec<LocalToolCall> {
+    tool_calls
         .iter()
         .enumerate()
-        .filter_map(|(output_index, item)| match item {
-            GenerateOutputItem::ToolCall { id, name, payload } => Some(LocalToolCall {
-                output_index,
-                call_id: id.clone(),
-                name: name.clone(),
-                payload: payload.clone(),
-            }),
-            GenerateOutputItem::AssistantText { .. }
-            | GenerateOutputItem::MemoryProposals { .. }
-            | GenerateOutputItem::ToolResult { .. }
-            | GenerateOutputItem::ApprovalRequest { .. }
-            | GenerateOutputItem::ApprovalResult { .. }
-            | GenerateOutputItem::Structured { .. } => None,
+        .map(|(output_index, call)| LocalToolCall {
+            output_index,
+            call_id: call.id.clone(),
+            name: call.name.clone(),
+            payload: call.payload.clone(),
         })
         .collect()
 }
 
-pub(super) fn tool_call_output_item(call: &LocalToolCall) -> GenerateOutputItem {
-    GenerateOutputItem::ToolCall {
+pub(super) fn tool_call_action_item(call: &LocalToolCall) -> GenerateActionItem {
+    GenerateActionItem::ToolCall {
         id: call.call_id.clone(),
         name: call.name.clone(),
         payload: call.payload.clone(),
@@ -41,17 +33,13 @@ pub(super) fn tool_call_output_item(call: &LocalToolCall) -> GenerateOutputItem 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::provider::{AssistantTextPhase, GenerateOutputItem};
+    use crate::provider::GenerateToolCall;
     use serde_json::json;
 
     #[test]
     fn local_tool_calls_preserve_provider_output_indexes() {
-        let output = vec![
-            GenerateOutputItem::AssistantText {
-                phase: Some(AssistantTextPhase::Commentary),
-                text: "Checking memory.".to_string(),
-            },
-            GenerateOutputItem::ToolCall {
+        let tool_calls = vec![
+            GenerateToolCall {
                 id: Some("call_1".to_string()),
                 name: "search_memory".to_string(),
                 payload: json!({
@@ -60,14 +48,19 @@ mod tests {
                     "purpose": "answer_human_question"
                 }),
             },
-            GenerateOutputItem::MemoryProposals { proposals: vec![] },
+            GenerateToolCall {
+                id: Some("call_2".to_string()),
+                name: "mcp.web.search".to_string(),
+                payload: json!({"query": "second"}),
+            },
         ];
 
-        let calls = local_tool_calls(&output);
+        let calls = local_tool_calls(&tool_calls);
 
-        assert_eq!(calls.len(), 1);
-        assert_eq!(calls[0].output_index, 1);
+        assert_eq!(calls.len(), 2);
+        assert_eq!(calls[0].output_index, 0);
+        assert_eq!(calls[1].output_index, 1);
         assert_eq!(calls[0].call_id.as_deref(), Some("call_1"));
-        assert_eq!(calls[0].name, "search_memory");
+        assert_eq!(calls[1].name, "mcp.web.search");
     }
 }

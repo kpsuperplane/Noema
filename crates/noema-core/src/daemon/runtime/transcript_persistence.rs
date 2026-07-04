@@ -1,14 +1,17 @@
 use crate::{
     ActorRef, ConversationItemKind, ConversationItemRecord, ConversationItemStatus,
     NewConversationItem, PersistedAgentStatus,
-    provider::{AssistantTextPhase, GenerateOutputItem, GenerateResponse, GenerateStreamEvent},
+    provider::{
+        AssistantTextPhase, GenerateActionItem, GenerateResponse, GenerateResponseItem,
+        GenerateStreamEvent,
+    },
 };
 use serde_json::{Value, json};
 use tokio::sync::mpsc;
 
 use super::{
     actor::CodexRuntimeActor,
-    tool_lifecycle::{LocalToolCall, tool_call_output_item},
+    tool_lifecycle::{LocalToolCall, tool_call_action_item},
     turn::{ProviderActionOutput, ProviderActionTurn, ProviderAssistantResponse},
 };
 use crate::daemon::{
@@ -17,20 +20,20 @@ use crate::daemon::{
 };
 
 impl CodexRuntimeActor {
-    pub(super) async fn persist_provider_response_output_item(
+    pub(super) async fn persist_provider_response_item(
         &mut self,
         turn: &ProviderActionTurn,
         index: usize,
-        output: GenerateOutputItem,
+        item: GenerateResponseItem,
         provider_phase_has_tools: bool,
         assistant_response: &mut ProviderAssistantResponse,
         item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
     ) -> Result<(), DaemonError> {
-        match output {
-            GenerateOutputItem::AssistantText { phase, text } => {
+        match item {
+            GenerateResponseItem::Text { phase, text } => {
                 assistant_response.push_text(&text);
-                let effective_phase = AssistantTextPhase::effective_for_output(
-                    &GenerateOutputItem::AssistantText {
+                let effective_phase = AssistantTextPhase::effective_for_response_item(
+                    &GenerateResponseItem::Text {
                         phase,
                         text: text.clone(),
                     },
@@ -38,7 +41,7 @@ impl CodexRuntimeActor {
                 );
                 let metadata = json!({
                     "turn_index": turn.turn_index,
-                    "output_index": index,
+                    "response_index": index,
                     "stream_id": turn.stream_id,
                     "phase": effective_phase.as_str(),
                 });
@@ -70,22 +73,14 @@ impl CodexRuntimeActor {
                     TurnTranscriptItem::AssistantText { text },
                 );
             }
-            GenerateOutputItem::MemoryProposals { .. } => {}
-            output @ (GenerateOutputItem::ToolCall { .. }
-            | GenerateOutputItem::ToolResult { .. }
-            | GenerateOutputItem::ApprovalRequest { .. }
-            | GenerateOutputItem::ApprovalResult { .. }) => {
-                self.persist_provider_action_output_item(turn, index, output, item_tx)
-                    .await?;
-            }
-            GenerateOutputItem::Structured { schema, payload } => {
+            GenerateResponseItem::Structured { schema, payload } => {
                 let card_id = format!(
                     "provider_structured:{}:{}:{index}",
                     turn.conversation_id, turn.turn_index
                 );
                 let metadata = json!({
                     "turn_index": turn.turn_index,
-                    "output_index": index,
+                    "response_index": index,
                     "source": "provider_structured_output",
                 });
                 let structured_item = self
@@ -128,7 +123,7 @@ impl CodexRuntimeActor {
         call: &LocalToolCall,
         item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
     ) -> Result<(), DaemonError> {
-        let GenerateOutputItem::ToolCall { id, name, payload } = tool_call_output_item(call) else {
+        let GenerateActionItem::ToolCall { id, name, payload } = tool_call_action_item(call) else {
             return Ok(());
         };
         let display = tool_call_display(&name, &payload);
@@ -161,13 +156,13 @@ impl CodexRuntimeActor {
         response: GenerateResponse,
     ) -> Result<usize, DaemonError> {
         let mut persisted_count = 0usize;
-        for (index, output) in response.output.into_iter().enumerate() {
-            let GenerateOutputItem::AssistantText { text, .. } = output else {
+        for (index, output) in response.responses.into_iter().enumerate() {
+            let GenerateResponseItem::Text { text, .. } = output else {
                 continue;
             };
             let metadata = json!({
                 "turn_index": turn_index,
-                "output_index": index,
+                "response_index": index,
                 "provider": response.provider.clone(),
                 "source": "agent_onboarding",
             });
@@ -192,25 +187,25 @@ impl CodexRuntimeActor {
     pub(super) async fn persist_partial_provider_action_outputs(
         &mut self,
         turn: &ProviderActionTurn,
-        output: Vec<GenerateOutputItem>,
+        output: Vec<GenerateActionItem>,
         item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
     ) -> Result<(), DaemonError> {
         for (index, output) in output.into_iter().enumerate() {
-            self.persist_provider_action_output_item(turn, index, output, item_tx)
+            self.persist_provider_action_item(turn, index, output, item_tx)
                 .await?;
         }
         Ok(())
     }
 
-    pub(super) async fn persist_provider_action_output_item(
+    pub(super) async fn persist_provider_action_item(
         &mut self,
         turn: &ProviderActionTurn,
         index: usize,
-        output: GenerateOutputItem,
+        output: GenerateActionItem,
         item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
     ) -> Result<(), DaemonError> {
         match output {
-            GenerateOutputItem::ToolCall { id, name, payload } => {
+            GenerateActionItem::ToolCall { id, name, payload } => {
                 let display = tool_call_display(&name, &payload);
                 self.persist_provider_action_output(
                     turn,
@@ -232,7 +227,7 @@ impl CodexRuntimeActor {
                 )
                 .await?;
             }
-            GenerateOutputItem::ToolResult {
+            GenerateActionItem::ToolResult {
                 call_id,
                 name,
                 success,
@@ -268,7 +263,7 @@ impl CodexRuntimeActor {
                 )
                 .await?;
             }
-            GenerateOutputItem::ApprovalRequest {
+            GenerateActionItem::ApprovalRequest {
                 id,
                 method,
                 payload,
@@ -298,7 +293,7 @@ impl CodexRuntimeActor {
                 )
                 .await?;
             }
-            GenerateOutputItem::ApprovalResult {
+            GenerateActionItem::ApprovalResult {
                 request_id,
                 decision,
                 payload,
@@ -326,9 +321,6 @@ impl CodexRuntimeActor {
                 )
                 .await?;
             }
-            GenerateOutputItem::AssistantText { .. }
-            | GenerateOutputItem::MemoryProposals { .. }
-            | GenerateOutputItem::Structured { .. } => {}
         }
         Ok(())
     }

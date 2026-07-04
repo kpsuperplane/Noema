@@ -64,6 +64,11 @@ The next storage slice should stay small and concrete:
   `predicate_id` values against the current catalog before any graph write, so
   provider/schema mismatches surface as canonicalization failures rather than
   generic graph write failures.
+- Chat provider responses use an explicit object contract:
+  `response_status`, `responses[]`, `tool_calls[]`, and top-level
+  `memory_proposals[]`. `responses[]` may be empty only for
+  `response_status: "needs_tools"` with one or more tool calls, so models can
+  run routine single or multiple tools without filler commentary.
 - Derived search/vector indexes are rebuildable projections.
 - Graph or fuzzy retrieval can suggest candidates, but policy gates inclusion.
 - Pre-stable schema changes do not need migrations or backwards compatibility unless explicitly requested.

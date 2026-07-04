@@ -2424,10 +2424,13 @@ mod tests {
         ) -> Result<crate::provider::GenerateResponse, crate::provider::ProviderError> {
             self.requests.lock().expect("requests").push(request);
             Ok(crate::provider::GenerateResponse {
-                output: vec![crate::provider::GenerateOutputItem::AssistantText {
+                responses: vec![crate::provider::GenerateResponseItem::Text {
                     phase: None,
                     text: self.text.clone(),
                 }],
+                tool_calls: Vec::new(),
+                memory_proposals: Vec::new(),
+                response_status: crate::provider::GenerateResponseStatus::Final,
                 provider: "test".to_string(),
                 model: "test-autofill".to_string(),
                 response_id: None,

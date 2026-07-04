@@ -3,7 +3,7 @@ use crate::{
     NewConversationContextSummary, NoemaStore,
     daemon::protocol::DaemonError,
     provider::{
-        GenerateInput, GenerateOptions, GenerateOutputItem, GenerateRequest, GenerateResponse,
+        GenerateInput, GenerateOptions, GenerateRequest, GenerateResponse, GenerateResponseItem,
         GenerateStreamEvent, ProviderError,
     },
 };
@@ -292,16 +292,11 @@ async fn generate_compaction_summary(
 
 fn parse_compaction_summary(response: GenerateResponse) -> Result<String, ProviderError> {
     let text = response
-        .output
+        .responses
         .into_iter()
         .filter_map(|item| match item {
-            GenerateOutputItem::AssistantText { text, .. } => Some(text),
-            GenerateOutputItem::MemoryProposals { .. }
-            | GenerateOutputItem::ToolCall { .. }
-            | GenerateOutputItem::ToolResult { .. }
-            | GenerateOutputItem::ApprovalRequest { .. }
-            | GenerateOutputItem::ApprovalResult { .. }
-            | GenerateOutputItem::Structured { .. } => None,
+            GenerateResponseItem::Text { text, .. } => Some(text),
+            GenerateResponseItem::Structured { .. } => None,
         })
         .collect::<Vec<_>>()
         .join("\n\n")

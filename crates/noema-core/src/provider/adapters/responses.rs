@@ -51,11 +51,11 @@ pub(super) fn noema_response_text_format() -> Value {
             "schema": {
                 "type": "object",
                 "properties": {
-                    "type": {
+                    "response_status": {
                         "type": "string",
-                        "const": "noema_response"
+                        "enum": ["needs_tools", "final"]
                     },
-                    "output": {
+                    "responses": {
                         "type": "array",
                         "items": {
                             "type": "object",
@@ -63,12 +63,7 @@ pub(super) fn noema_response_text_format() -> Value {
                                 "kind": {
                                     "type": "string",
                                     "enum": [
-                                        "assistant_text",
-                                        "memory_proposals",
-                                        "tool_call",
-                                        "tool_result",
-                                        "approval_request",
-                                        "approval_result",
+                                        "text",
                                         "structured"
                                     ]
                                 }
@@ -76,9 +71,29 @@ pub(super) fn noema_response_text_format() -> Value {
                             "required": ["kind"],
                             "additionalProperties": true
                         }
+                    },
+                    "tool_calls": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "id": {"type": ["string", "null"]},
+                                "name": {"type": "string"},
+                                "payload": {"type": "object"}
+                            },
+                            "required": ["name", "payload"],
+                            "additionalProperties": false
+                        }
+                    },
+                    "memory_proposals": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
                     }
                 },
-                "required": ["type", "output"],
+                "required": ["response_status", "responses", "tool_calls", "memory_proposals"],
                 "additionalProperties": false
             }
         }

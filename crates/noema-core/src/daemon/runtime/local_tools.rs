@@ -1,6 +1,6 @@
 use crate::{
     capability::{CapabilityGateway, GatewayToolProposal, GatewayToolResult},
-    provider::GenerateOutputItem,
+    provider::GenerateActionItem,
 };
 use serde_json::{Value, json};
 
@@ -156,8 +156,8 @@ fn local_tool_result_payload(result: &LocalToolResult) -> Value {
     })
 }
 
-pub(super) fn local_tool_result_output_item(result: &LocalToolResult) -> GenerateOutputItem {
-    GenerateOutputItem::ToolResult {
+pub(super) fn local_tool_result_action_item(result: &LocalToolResult) -> GenerateActionItem {
+    GenerateActionItem::ToolResult {
         call_id: result.call_id().cloned(),
         name: Some(result.name().to_string()),
         success: Some(result.success()),

@@ -361,13 +361,13 @@ mod tests {
     fn response_from_sse_prefers_streamed_text_over_output_item_done_text() {
         let response = response_from_sse(
             "event: response.output_text.delta\n\
-             data: {\"type\":\"response.output_text.delta\",\"delta\":\"{\\\"type\\\":\\\"noema_response\\\",\\\"output\\\":[{\\\"kind\\\":\\\"assistant_text\\\",\\\"text\\\":\\\"Searching memory.\\\"},\"}\n\
+             data: {\"type\":\"response.output_text.delta\",\"delta\":\"{\\\"response_status\\\":\\\"needs_tools\\\",\\\"responses\\\":[{\\\"kind\\\":\\\"text\\\",\\\"phase\\\":\\\"commentary\\\",\\\"text\\\":\\\"Searching memory.\\\"}],\"}\n\
              \n\
              event: response.output_text.delta\n\
-             data: {\"type\":\"response.output_text.delta\",\"delta\":\"{\\\"kind\\\":\\\"tool_call\\\",\\\"id\\\":\\\"call_memory_1\\\",\\\"name\\\":\\\"search_memory\\\",\\\"payload\\\":{\\\"scope_ids\\\":[\\\"human:local\\\"],\\\"query\\\":\\\"\\\",\\\"purpose\\\":\\\"answer_human_question\\\",\\\"limit\\\":8}},\"}\n\
+             data: {\"type\":\"response.output_text.delta\",\"delta\":\"\\\"tool_calls\\\":[{\\\"id\\\":\\\"call_memory_1\\\",\\\"name\\\":\\\"search_memory\\\",\\\"payload\\\":{\\\"scope_ids\\\":[\\\"human:local\\\"],\\\"query\\\":\\\"\\\",\\\"purpose\\\":\\\"answer_human_question\\\",\\\"limit\\\":8}}],\"}\n\
              \n\
              event: response.output_text.delta\n\
-             data: {\"type\":\"response.output_text.delta\",\"delta\":\"{\\\"kind\\\":\\\"memory_proposals\\\",\\\"proposals\\\":[]}]}\"}\n\
+             data: {\"type\":\"response.output_text.delta\",\"delta\":\"\\\"memory_proposals\\\":[]}\"}\n\
              \n\
              event: response.output_item.done\n\
              data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"message\",\"content\":[{\"type\":\"output_text\",\"text\":\"Searching memory.\"}]}}\n\
@@ -380,7 +380,7 @@ mod tests {
 
         assert_eq!(
             response.output_text().expect("output text"),
-            "{\"type\":\"noema_response\",\"output\":[{\"kind\":\"assistant_text\",\"text\":\"Searching memory.\"},{\"kind\":\"tool_call\",\"id\":\"call_memory_1\",\"name\":\"search_memory\",\"payload\":{\"scope_ids\":[\"human:local\"],\"query\":\"\",\"purpose\":\"answer_human_question\",\"limit\":8}},{\"kind\":\"memory_proposals\",\"proposals\":[]}]}"
+            "{\"response_status\":\"needs_tools\",\"responses\":[{\"kind\":\"text\",\"phase\":\"commentary\",\"text\":\"Searching memory.\"}],\"tool_calls\":[{\"id\":\"call_memory_1\",\"name\":\"search_memory\",\"payload\":{\"scope_ids\":[\"human:local\"],\"query\":\"\",\"purpose\":\"answer_human_question\",\"limit\":8}}],\"memory_proposals\":[]}"
         );
     }
 

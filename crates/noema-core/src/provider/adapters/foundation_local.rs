@@ -10,8 +10,10 @@ use std::{
 use crate::{
     FoundationLocalProviderConfig,
     provider::{
-        GenerateInput, GenerateMessageRole, GenerateRequest, GenerateResponse, GenerateStreamEvent,
-        ModelProvider, ProviderContextMetadata, ProviderError, required_output_items_from_text,
+        GenerateInput, GenerateMessageRole, GenerateRequest, GenerateResponse,
+        GenerateResponseStatus, GenerateStreamEvent, ModelProvider, ParsedNoemaResponse,
+        ProviderContextMetadata, ProviderError, output_items_from_text,
+        required_noema_response_from_text,
     },
 };
 
@@ -302,9 +304,9 @@ impl ModelProvider for FoundationLocalProvider {
                 provider: FOUNDATION_LOCAL_PROVIDER.to_string(),
                 message: format!("Apple Foundation Models bridge generation failed: {error}"),
             })?;
-        let output = if require_noema_response {
-            match required_output_items_from_text(output_text.clone()) {
-                Ok(output) => output,
+        let parsed = if require_noema_response {
+            match required_noema_response_from_text(output_text.clone()) {
+                Ok(parsed) => parsed,
                 Err(error) => {
                     ResponsesDiagnosticContext::new(
                         self.config.system_errors.clone(),
@@ -320,18 +322,20 @@ impl ModelProvider for FoundationLocalProvider {
                 }
             }
         } else {
-            vec![crate::GenerateOutputItem::AssistantText {
-                phase: None,
-                text: output_text,
-            }]
+            ParsedNoemaResponse {
+                responses: output_items_from_text(output_text)?,
+                tool_calls: Vec::new(),
+                memory_proposals: Vec::new(),
+                response_status: GenerateResponseStatus::Final,
+            }
         };
-        Ok(GenerateResponse {
-            output,
-            provider: FOUNDATION_LOCAL_PROVIDER.to_string(),
+        Ok(GenerateResponse::from_parsed(
+            parsed,
+            FOUNDATION_LOCAL_PROVIDER,
             model,
-            response_id: None,
-            usage: None,
-        })
+            None,
+            None,
+        ))
     }
 }
 
@@ -383,10 +387,10 @@ fn bridge_replay_turns(messages: &[crate::GenerateMessage]) -> Vec<BridgeReplayT
 mod tests {
     use super::*;
     use crate::GenerateInput;
-    use crate::provider::GenerateStreamEvent;
+    use crate::provider::{AssistantTextPhase, GenerateStreamEvent};
     use crate::{
-        FoundationLocalProviderConfig, GenerateOutputItem, GenerateRequest, ModelProvider,
-        ProviderError,
+        FoundationLocalProviderConfig, GenerateRequest, GenerateResponseItem,
+        GenerateResponseStatus, ModelProvider, ProviderError,
     };
 
     #[tokio::test]
@@ -534,12 +538,13 @@ done
             .expect("generate");
 
         assert_eq!(
-            response.output,
-            vec![GenerateOutputItem::AssistantText {
+            response.responses,
+            vec![GenerateResponseItem::Text {
                 phase: None,
                 text: "bridge answer".to_string(),
             }]
         );
+        assert_eq!(response.response_status, GenerateResponseStatus::Final);
         assert_eq!(
             events,
             vec![GenerateStreamEvent::AssistantTextDelta {
@@ -550,7 +555,7 @@ done
 
     #[cfg(all(unix, target_os = "macos"))]
     #[tokio::test]
-    async fn generate_required_noema_response_parses_bridge_envelope() {
+    async fn generate_required_noema_response_parses_bridge_object() {
         let (_dir, bridge_path) = bridge_script(
             r#"#!/bin/sh
 while IFS= read -r line; do
@@ -558,7 +563,7 @@ while IFS= read -r line; do
     *'"id":"handshake"'*) printf '%s\n' '{"id":"handshake","payload":{"type":"handshake_ok","protocol_version":1}}' ;;
     *'"id":"health"'*) printf '%s\n' '{"id":"health","payload":{"type":"health","available":true,"profiles":[{"id":"default","label":"Default"}],"unavailable_reason":null}}' ;;
     *'"id":"create_session"'*) printf '%s\n' '{"id":"create_session","payload":{"type":"session_created","session_id":"session-1"}}' ;;
-    *'"id":"generate"'*) printf '%s\n' '{"id":"generate","payload":{"type":"generate_complete","text":"{\"type\":\"noema_response\",\"output\":[{\"kind\":\"assistant_text\",\"text\":\"bridge answer\"},{\"kind\":\"memory_proposals\",\"proposals\":[]}]}"}}' ;;
+    *'"id":"generate"'*) printf '%s\n' '{"id":"generate","payload":{"type":"generate_complete","text":"{\"response_status\":\"final\",\"responses\":[{\"kind\":\"text\",\"phase\":\"final_answer\",\"text\":\"bridge answer\"}],\"tool_calls\":[],\"memory_proposals\":[]}"}}' ;;
     *) printf '%s\n' '{"id":"unknown","payload":{"type":"error","code":"unsupported_request","message":"Unsupported request."}}' ;;
   esac
 done
@@ -586,20 +591,19 @@ done
             .expect("generate");
 
         assert_eq!(
-            response.output,
-            vec![
-                GenerateOutputItem::AssistantText {
-                    phase: None,
-                    text: "bridge answer".to_string(),
-                },
-                GenerateOutputItem::MemoryProposals { proposals: vec![] }
-            ]
+            response.responses,
+            vec![GenerateResponseItem::Text {
+                phase: Some(AssistantTextPhase::FinalAnswer),
+                text: "bridge answer".to_string(),
+            }]
         );
+        assert_eq!(response.response_status, GenerateResponseStatus::Final);
+        assert!(response.memory_proposals.is_empty());
     }
 
     #[cfg(all(unix, target_os = "macos"))]
     #[tokio::test]
-    async fn generate_required_noema_response_streams_only_assistant_text_from_envelope() {
+    async fn generate_required_noema_response_streams_only_assistant_text_from_object() {
         let (_dir, bridge_path) = bridge_script(
             r#"#!/bin/sh
 while IFS= read -r line; do
@@ -607,7 +611,7 @@ while IFS= read -r line; do
     *'"id":"handshake"'*) printf '%s\n' '{"id":"handshake","payload":{"type":"handshake_ok","protocol_version":1}}' ;;
     *'"id":"health"'*) printf '%s\n' '{"id":"health","payload":{"type":"health","available":true,"profiles":[{"id":"default","label":"Default"}],"unavailable_reason":null}}' ;;
     *'"id":"create_session"'*) printf '%s\n' '{"id":"create_session","payload":{"type":"session_created","session_id":"session-1"}}' ;;
-    *'"id":"generate"'*) printf '%s\n' '{"id":"generate","payload":{"type":"assistant_text_delta","delta":"{\"type\":\"noema_response\",\"output\":[{\"kind\":\"assistant_text\",\"text\":\"bridge answer\"},{\"kind\":\"memory_proposals\",\"proposals\":[]}]}"}}'; printf '%s\n' '{"id":"generate","payload":{"type":"generate_complete","text":"{\"type\":\"noema_response\",\"output\":[{\"kind\":\"assistant_text\",\"text\":\"bridge answer\"},{\"kind\":\"memory_proposals\",\"proposals\":[]}]}"}}' ;;
+    *'"id":"generate"'*) printf '%s\n' '{"id":"generate","payload":{"type":"assistant_text_delta","delta":"{\"response_status\":\"final\",\"responses\":[{\"kind\":\"text\",\"phase\":\"final_answer\",\"text\":\"bridge answer\"}],\"tool_calls\":[],\"memory_proposals\":[]}"}}'; printf '%s\n' '{"id":"generate","payload":{"type":"generate_complete","text":"{\"response_status\":\"final\",\"responses\":[{\"kind\":\"text\",\"phase\":\"final_answer\",\"text\":\"bridge answer\"}],\"tool_calls\":[],\"memory_proposals\":[]}"}}' ;;
     *) printf '%s\n' '{"id":"unknown","payload":{"type":"error","code":"unsupported_request","message":"Unsupported request."}}' ;;
   esac
 done
@@ -639,14 +643,11 @@ done
             .expect("generate");
 
         assert_eq!(
-            response.output,
-            vec![
-                GenerateOutputItem::AssistantText {
-                    phase: None,
-                    text: "bridge answer".to_string(),
-                },
-                GenerateOutputItem::MemoryProposals { proposals: vec![] }
-            ]
+            response.responses,
+            vec![GenerateResponseItem::Text {
+                phase: Some(AssistantTextPhase::FinalAnswer),
+                text: "bridge answer".to_string(),
+            }]
         );
         assert_eq!(
             events,

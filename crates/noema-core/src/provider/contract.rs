@@ -190,7 +190,7 @@ pub struct GenerateOptions {
     pub max_output_tokens: Option<u32>,
     /// Optional sampling temperature.
     pub temperature: Option<f32>,
-    /// Require a strict Noema response envelope with assistant text and memory proposals.
+    /// Require a strict Noema response object with response fields and memory proposals.
     pub require_noema_response: bool,
     /// Provider prompt-cache retention request when supported.
     pub prompt_cache_retention: Option<PromptCacheRetention>,
@@ -199,8 +199,14 @@ pub struct GenerateOptions {
 /// Structured response returned by a model provider.
 #[derive(Debug, Clone, PartialEq)]
 pub struct GenerateResponse {
-    /// Ordered output items returned by the provider.
-    pub output: Vec<GenerateOutputItem>,
+    /// User-visible response items returned by the provider.
+    pub responses: Vec<GenerateResponseItem>,
+    /// Tool calls requested by the provider.
+    pub tool_calls: Vec<GenerateToolCall>,
+    /// Memory proposals emitted by the provider.
+    pub memory_proposals: Vec<ExtractorMemoryProposal>,
+    /// Whether this response needs tool execution or completes the turn.
+    pub response_status: GenerateResponseStatus,
     /// Provider identifier that produced the response.
     pub provider: String,
     /// Model identifier used by the provider.
@@ -221,9 +227,9 @@ pub enum GenerateStreamEvent {
     },
     /// A non-empty memory proposal block has started streaming.
     MemoryProposalsStarted,
-    /// A provider tool call output item has started streaming.
+    /// A provider tool call item has started streaming.
     ToolCallStarted {
-        /// Zero-based index of the output item in the provider response.
+        /// Zero-based index of the tool call in the provider response.
         output_index: usize,
         /// Tool name reported by the provider.
         name: String,
@@ -231,40 +237,76 @@ pub enum GenerateStreamEvent {
 }
 
 impl GenerateResponse {
-    /// Return all assistant text output concatenated in order.
+    /// Build a provider response from a parsed Noema response object.
+    #[must_use]
+    pub fn from_parsed(
+        parsed: ParsedNoemaResponse,
+        provider: impl Into<String>,
+        model: impl Into<String>,
+        response_id: Option<String>,
+        usage: Option<TokenUsage>,
+    ) -> Self {
+        Self {
+            responses: parsed.responses,
+            tool_calls: parsed.tool_calls,
+            memory_proposals: parsed.memory_proposals,
+            response_status: parsed.response_status,
+            provider: provider.into(),
+            model: model.into(),
+            response_id,
+            usage,
+        }
+    }
+
+    /// Build a final text response for provider adapters and tests.
+    #[must_use]
+    pub fn final_text(
+        text: impl Into<String>,
+        provider: impl Into<String>,
+        model: impl Into<String>,
+    ) -> Self {
+        Self {
+            responses: vec![GenerateResponseItem::Text {
+                phase: None,
+                text: text.into(),
+            }],
+            tool_calls: Vec::new(),
+            memory_proposals: Vec::new(),
+            response_status: GenerateResponseStatus::Final,
+            provider: provider.into(),
+            model: model.into(),
+            response_id: None,
+            usage: None,
+        }
+    }
+
+    /// Return all text response items concatenated in order.
     #[must_use]
     pub fn assistant_text(&self) -> String {
-        self.output
+        self.responses
             .iter()
             .filter_map(|item| match item {
-                GenerateOutputItem::AssistantText { text, .. } => Some(text.as_str()),
-                GenerateOutputItem::MemoryProposals { .. }
-                | GenerateOutputItem::ToolCall { .. }
-                | GenerateOutputItem::ToolResult { .. }
-                | GenerateOutputItem::ApprovalRequest { .. }
-                | GenerateOutputItem::ApprovalResult { .. }
-                | GenerateOutputItem::Structured { .. } => None,
+                GenerateResponseItem::Text { text, .. } => Some(text.as_str()),
+                GenerateResponseItem::Structured { .. } => None,
             })
             .collect()
     }
 
-    /// Return all memory proposals emitted by the provider.
+    /// Return whether the response asks Noema to execute any tools.
     #[must_use]
-    pub fn memory_proposals(&self) -> Vec<ExtractorMemoryProposal> {
-        self.output
-            .iter()
-            .flat_map(|item| match item {
-                GenerateOutputItem::MemoryProposals { proposals } => proposals.as_slice(),
-                GenerateOutputItem::AssistantText { .. }
-                | GenerateOutputItem::ToolCall { .. }
-                | GenerateOutputItem::ToolResult { .. }
-                | GenerateOutputItem::ApprovalRequest { .. }
-                | GenerateOutputItem::ApprovalResult { .. }
-                | GenerateOutputItem::Structured { .. } => &[],
-            })
-            .cloned()
-            .collect()
+    pub fn has_tool_calls(&self) -> bool {
+        !self.tool_calls.is_empty()
     }
+}
+
+/// Provider-declared status for a Noema response.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GenerateResponseStatus {
+    /// The response contains tool calls that Noema should execute.
+    NeedsTools,
+    /// The response is the terminal assistant response for this turn.
+    Final,
 }
 
 /// User-visible phase for assistant text within one provider turn.
@@ -287,48 +329,64 @@ impl AssistantTextPhase {
         }
     }
 
-    /// Infer a display phase for old provider output that omitted phase.
+    /// Infer a display phase for provider text that omitted phase.
     #[must_use]
-    pub fn effective_for_output(
-        output: &GenerateOutputItem,
+    pub fn effective_for_response_item(
+        item: &GenerateResponseItem,
         provider_phase_has_tools: bool,
     ) -> Self {
-        match output {
-            GenerateOutputItem::AssistantText {
+        match item {
+            GenerateResponseItem::Text {
                 phase: Some(phase), ..
             } => *phase,
-            GenerateOutputItem::AssistantText { phase: None, .. } if provider_phase_has_tools => {
+            GenerateResponseItem::Text { phase: None, .. } if provider_phase_has_tools => {
                 Self::Commentary
             }
-            GenerateOutputItem::AssistantText { phase: None, .. } => Self::FinalAnswer,
-            GenerateOutputItem::MemoryProposals { .. }
-            | GenerateOutputItem::ToolCall { .. }
-            | GenerateOutputItem::ToolResult { .. }
-            | GenerateOutputItem::ApprovalRequest { .. }
-            | GenerateOutputItem::ApprovalResult { .. }
-            | GenerateOutputItem::Structured { .. } => Self::FinalAnswer,
+            GenerateResponseItem::Text { phase: None, .. } => Self::FinalAnswer,
+            GenerateResponseItem::Structured { .. } => Self::FinalAnswer,
         }
     }
 }
 
-/// Provider output item for rich responses.
+/// One user-visible response item.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
-pub enum GenerateOutputItem {
+pub enum GenerateResponseItem {
     /// Human-visible assistant text.
-    AssistantText {
+    Text {
         /// Whether the text is mid-turn commentary or the final answer.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         phase: Option<AssistantTextPhase>,
         /// Text to show in the transcript.
         text: String,
     },
-    /// Memory proposals emitted in the same provider call.
-    MemoryProposals {
-        /// Proposed memories. The daemon still validates and policy-gates them.
-        proposals: Vec<ExtractorMemoryProposal>,
+    /// Future rich structured output payload.
+    Structured {
+        /// Stable schema identifier for the payload.
+        schema: String,
+        /// Provider-produced payload for that schema.
+        payload: Value,
     },
-    /// Provider-reported tool invocation.
+}
+
+/// One provider-requested tool call.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GenerateToolCall {
+    /// Provider item id or tool-call id, when available.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// Tool or operation name.
+    pub name: String,
+    /// Provider payload for audit and replay.
+    #[serde(default)]
+    pub payload: Value,
+}
+
+/// Runtime action item persisted after provider output is interpreted.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum GenerateActionItem {
+    /// Runtime or provider-reported tool invocation.
     ToolCall {
         /// Provider item id or tool-call id, when available.
         id: Option<String>,
@@ -337,7 +395,7 @@ pub enum GenerateOutputItem {
         /// Provider payload for audit and replay.
         payload: Value,
     },
-    /// Provider-reported tool result.
+    /// Runtime or provider-reported tool result.
     ToolResult {
         /// Provider tool-call id, when available.
         call_id: Option<String>,
@@ -366,31 +424,27 @@ pub enum GenerateOutputItem {
         /// Provider response payload for audit and replay.
         payload: Value,
     },
-    /// Future rich structured output payload.
-    Structured {
-        /// Stable schema identifier for the payload.
-        schema: String,
-        /// Provider-produced payload for that schema.
-        payload: Value,
-    },
 }
 
-/// Parse a provider text payload into structured Noema output items.
+/// Parse a provider text payload into optional structured Noema response items.
 ///
-/// Providers that can only return text may emit a strict envelope:
-///
-/// ```json
-/// {"type":"noema_response","output":[{"kind":"assistant_text","text":"Hello"}]}
-/// ```
-///
-/// Text without this envelope is treated as one assistant text item.
+/// Text without a response object is treated as one assistant text item.
 ///
 /// # Errors
 ///
-/// Returns [`ProviderError::MalformedResponse`] when a Noema envelope is
-/// present but does not match the structured output contract.
-pub fn output_items_from_text(text: String) -> Result<Vec<GenerateOutputItem>, ProviderError> {
-    output_items_from_text_with_mode(text, false)
+/// Returns [`ProviderError::MalformedResponse`] when a response-shaped object
+/// is present but does not match the structured response contract.
+pub fn output_items_from_text(text: String) -> Result<Vec<GenerateResponseItem>, ProviderError> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return Err(ProviderError::MalformedResponse {
+            message: "provider produced empty output".to_string(),
+        });
+    }
+    if let Ok(Some(response)) = noema_response_from_text(trimmed.to_string()) {
+        return Ok(response.responses);
+    }
+    Ok(vec![GenerateResponseItem::Text { phase: None, text }])
 }
 
 /// Parse a provider text payload that must be a Noema structured response.
@@ -398,18 +452,23 @@ pub fn output_items_from_text(text: String) -> Result<Vec<GenerateOutputItem>, P
 /// # Errors
 ///
 /// Returns [`ProviderError::MalformedResponse`] when the payload is not a
-/// strict `noema_response` envelope containing assistant text and memory
-/// proposals.
-pub fn required_output_items_from_text(
+/// strict Noema response object contract.
+pub fn required_noema_response_from_text(
     text: String,
-) -> Result<Vec<GenerateOutputItem>, ProviderError> {
-    output_items_from_text_with_mode(text, true)
+) -> Result<ParsedNoemaResponse, ProviderError> {
+    noema_response_from_text_with_mode(text, true)
 }
 
-fn output_items_from_text_with_mode(
+/// Parse provider text into a Noema structured response when it contains the
+/// response object contract.
+///
+/// # Errors
+///
+/// Returns [`ProviderError::MalformedResponse`] when a response-shaped object
+/// is present but invalid.
+pub fn noema_response_from_text(
     text: String,
-    require_noema_response: bool,
-) -> Result<Vec<GenerateOutputItem>, ProviderError> {
+) -> Result<Option<ParsedNoemaResponse>, ProviderError> {
     let trimmed = text.trim();
     if trimmed.is_empty() {
         return Err(ProviderError::MalformedResponse {
@@ -418,55 +477,37 @@ fn output_items_from_text_with_mode(
     }
 
     if let Ok(value) = serde_json::from_str::<Value>(trimmed) {
-        if let Some(output) = output_items_from_structured_value(value, require_noema_response)? {
-            return Ok(output);
-        }
-        if require_noema_response {
-            return Err(ProviderError::MalformedResponse {
-                message: "provider did not return a Noema structured response envelope".to_string(),
-            });
-        }
+        return noema_response_from_structured_value(value, false);
     }
 
-    if require_noema_response {
-        if let Some(output) = embedded_required_noema_response_output(trimmed)? {
-            return Ok(output);
-        }
-
-        return Ok(vec![
-            GenerateOutputItem::AssistantText { phase: None, text },
-            GenerateOutputItem::MemoryProposals {
-                proposals: Vec::new(),
-            },
-        ]);
-    }
-
-    Ok(vec![GenerateOutputItem::AssistantText {
-        phase: None,
-        text,
-    }])
+    embedded_required_noema_response(trimmed)
 }
 
-fn embedded_required_noema_response_output(
-    text: &str,
-) -> Result<Option<Vec<GenerateOutputItem>>, ProviderError> {
-    let mut output = None;
-    for candidate in balanced_json_object_candidates(text) {
-        let Ok(value) = serde_json::from_str::<Value>(candidate) else {
-            continue;
-        };
-        let Some(candidate_output) = output_items_from_structured_value(value, true)? else {
-            continue;
-        };
-        if output.is_some() {
-            return Err(ProviderError::MalformedResponse {
-                message: "provider returned multiple Noema structured response envelopes"
-                    .to_string(),
-            });
-        }
-        output = Some(candidate_output);
+#[derive(Debug, Clone, PartialEq)]
+/// Parsed provider-facing Noema response object before provider metadata is attached.
+pub struct ParsedNoemaResponse {
+    /// User-visible response items returned by the provider.
+    pub responses: Vec<GenerateResponseItem>,
+    /// Tool calls requested by the provider.
+    pub tool_calls: Vec<GenerateToolCall>,
+    /// Memory proposals emitted by the provider.
+    pub memory_proposals: Vec<ExtractorMemoryProposal>,
+    /// Whether this response needs tool execution or completes the turn.
+    pub response_status: GenerateResponseStatus,
+}
+
+impl ParsedNoemaResponse {
+    /// Return all text response items concatenated in order.
+    #[must_use]
+    pub fn assistant_text(&self) -> String {
+        self.responses
+            .iter()
+            .filter_map(|item| match item {
+                GenerateResponseItem::Text { text, .. } => Some(text.as_str()),
+                GenerateResponseItem::Structured { .. } => None,
+            })
+            .collect()
     }
-    Ok(output)
 }
 
 fn balanced_json_object_candidates(text: &str) -> Vec<&str> {
@@ -511,66 +552,164 @@ fn balanced_json_object_candidates(text: &str) -> Vec<&str> {
     candidates
 }
 
-fn output_items_from_structured_value(
+fn noema_response_from_text_with_mode(
+    text: String,
+    require_noema_response: bool,
+) -> Result<ParsedNoemaResponse, ProviderError> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return Err(ProviderError::MalformedResponse {
+            message: "provider produced empty output".to_string(),
+        });
+    }
+
+    if let Ok(value) = serde_json::from_str::<Value>(trimmed) {
+        if let Some(response) = noema_response_from_structured_value(value, require_noema_response)?
+        {
+            return Ok(response);
+        }
+        if require_noema_response {
+            return Err(ProviderError::MalformedResponse {
+                message: "provider did not return a Noema structured response object".to_string(),
+            });
+        }
+    }
+
+    if require_noema_response && let Some(response) = embedded_required_noema_response(trimmed)? {
+        return Ok(response);
+    }
+
+    Err(ProviderError::MalformedResponse {
+        message: "provider did not return a Noema structured response object".to_string(),
+    })
+}
+
+fn noema_response_from_structured_value(
     value: Value,
     require_noema_response: bool,
-) -> Result<Option<Vec<GenerateOutputItem>>, ProviderError> {
-    let is_explicit_envelope = value.get("type").and_then(Value::as_str) == Some("noema_response");
-    if !is_explicit_envelope {
+) -> Result<Option<ParsedNoemaResponse>, ProviderError> {
+    if !looks_like_noema_response_object(&value) && !require_noema_response {
         return Ok(None);
     }
 
-    let envelope: GenerateOutputEnvelope =
+    let response_object: NoemaResponseObject =
         serde_json::from_value(value).map_err(|source| ProviderError::MalformedResponse {
             message: format!("invalid Noema structured response: {source}"),
         })?;
-    if envelope.output.is_empty() {
-        return Err(ProviderError::MalformedResponse {
-            message: "Noema structured response contained no output items".to_string(),
-        });
-    }
+    let parsed = ParsedNoemaResponse {
+        responses: response_object.responses,
+        tool_calls: response_object.tool_calls,
+        memory_proposals: response_object.memory_proposals,
+        response_status: response_object.response_status,
+    };
     if require_noema_response {
-        validate_required_noema_response_output(&envelope.output)?;
+        validate_required_noema_response(&parsed)?;
     }
-    Ok(Some(envelope.output))
+    Ok(Some(parsed))
+}
+
+fn looks_like_noema_response_object(value: &Value) -> bool {
+    value.get("response_status").is_some()
+        || value.get("responses").is_some()
+        || value.get("tool_calls").is_some()
+        || value.get("memory_proposals").is_some()
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct GenerateOutputEnvelope {
-    #[serde(rename = "type")]
-    _envelope_type: String,
-    output: Vec<GenerateOutputItem>,
+struct NoemaResponseObject {
+    response_status: GenerateResponseStatus,
+    responses: Vec<GenerateResponseItem>,
+    tool_calls: Vec<GenerateToolCall>,
+    memory_proposals: Vec<ExtractorMemoryProposal>,
 }
 
-fn validate_required_noema_response_output(
-    output: &[GenerateOutputItem],
-) -> Result<(), ProviderError> {
-    let has_assistant_text = output.iter().any(|item| match item {
-        GenerateOutputItem::AssistantText { text, .. } => !text.trim().is_empty(),
-        GenerateOutputItem::MemoryProposals { .. }
-        | GenerateOutputItem::ToolCall { .. }
-        | GenerateOutputItem::ToolResult { .. }
-        | GenerateOutputItem::ApprovalRequest { .. }
-        | GenerateOutputItem::ApprovalResult { .. }
-        | GenerateOutputItem::Structured { .. } => false,
-    });
-    if !has_assistant_text {
-        return Err(ProviderError::MalformedResponse {
-            message: "Noema structured response did not include assistant_text".to_string(),
-        });
-    }
-
-    let has_memory_proposals = output
-        .iter()
-        .any(|item| matches!(item, GenerateOutputItem::MemoryProposals { .. }));
-    if !has_memory_proposals {
-        return Err(ProviderError::MalformedResponse {
-            message: "Noema structured response did not include memory_proposals".to_string(),
-        });
+fn validate_required_noema_response(response: &ParsedNoemaResponse) -> Result<(), ProviderError> {
+    match response.response_status {
+        GenerateResponseStatus::Final => {
+            if !response.tool_calls.is_empty() {
+                return Err(ProviderError::MalformedResponse {
+                    message: "Noema final response cannot include tool_calls".to_string(),
+                });
+            }
+            if !has_non_empty_response_item(&response.responses) {
+                return Err(ProviderError::MalformedResponse {
+                    message: "Noema final response did not include any response items".to_string(),
+                });
+            }
+            if response.responses.iter().any(is_commentary_text_response) {
+                return Err(ProviderError::MalformedResponse {
+                    message: "Noema final response cannot include commentary text".to_string(),
+                });
+            }
+        }
+        GenerateResponseStatus::NeedsTools => {
+            if response.tool_calls.is_empty() {
+                return Err(ProviderError::MalformedResponse {
+                    message: "Noema needs_tools response did not include tool_calls".to_string(),
+                });
+            }
+            if response.responses.iter().any(is_final_answer_text_response) {
+                return Err(ProviderError::MalformedResponse {
+                    message: "Noema needs_tools response cannot include final_answer text"
+                        .to_string(),
+                });
+            }
+        }
     }
 
     Ok(())
+}
+
+fn has_non_empty_response_item(responses: &[GenerateResponseItem]) -> bool {
+    responses.iter().any(|item| match item {
+        GenerateResponseItem::Text { text, .. } => !text.trim().is_empty(),
+        GenerateResponseItem::Structured { .. } => true,
+    })
+}
+
+fn is_commentary_text_response(item: &GenerateResponseItem) -> bool {
+    matches!(
+        item,
+        GenerateResponseItem::Text {
+            phase: Some(AssistantTextPhase::Commentary),
+            ..
+        }
+    )
+}
+
+fn is_final_answer_text_response(item: &GenerateResponseItem) -> bool {
+    matches!(
+        item,
+        GenerateResponseItem::Text {
+            phase: Some(AssistantTextPhase::FinalAnswer),
+            ..
+        }
+    )
+}
+
+fn embedded_required_noema_response(
+    text: &str,
+) -> Result<Option<ParsedNoemaResponse>, ProviderError> {
+    let mut output = None;
+    for candidate in balanced_json_object_candidates(text) {
+        let Ok(value) = serde_json::from_str::<Value>(candidate) else {
+            continue;
+        };
+        if !looks_like_noema_response_object(&value) {
+            continue;
+        }
+        let Some(candidate_output) = noema_response_from_structured_value(value, true)? else {
+            continue;
+        };
+        if output.is_some() {
+            return Err(ProviderError::MalformedResponse {
+                message: "provider returned multiple Noema structured response objects".to_string(),
+            });
+        }
+        output = Some(candidate_output);
+    }
+    Ok(output)
 }
 
 /// Provider-reported token counts.
@@ -649,7 +788,7 @@ pub enum ProviderError {
         message: String,
     },
 
-    /// The provider failed after completing some durable output items.
+    /// The provider failed after completing some durable action items.
     #[error("{provider} provider returned partial output: {message}")]
     PartialResponse {
         /// Provider name.
@@ -658,8 +797,8 @@ pub enum ProviderError {
         model: String,
         /// Failure message.
         message: String,
-        /// Completed output items that should still be persisted for audit.
-        output: Vec<GenerateOutputItem>,
+        /// Completed action items that should still be persisted for audit.
+        output: Vec<GenerateActionItem>,
     },
 
     /// A provider-specific protocol failed.
@@ -695,6 +834,7 @@ pub enum ProviderError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     struct EchoProvider;
 
@@ -706,7 +846,10 @@ mod tests {
             let text = request.input.render_for_token_count();
 
             Ok(GenerateResponse {
-                output: vec![GenerateOutputItem::AssistantText { phase: None, text }],
+                responses: vec![GenerateResponseItem::Text { phase: None, text }],
+                tool_calls: Vec::new(),
+                memory_proposals: Vec::new(),
+                response_status: GenerateResponseStatus::Final,
                 provider: "mock".to_string(),
                 model: request.model.unwrap_or_else(|| "mock-model".to_string()),
                 response_id: Some("mock-response".to_string()),
@@ -763,24 +906,23 @@ mod tests {
     }
 
     #[test]
-    fn parses_noema_structured_response_envelope() {
+    fn output_items_from_text_parses_response_object_responses() {
         let output = output_items_from_text(
-            r#"{"type":"noema_response","output":[{"kind":"assistant_text","text":"Hello"}]}"#
-                .to_string(),
+            r#"{"response_status":"final","responses":[{"kind":"text","phase":"final_answer","text":"Hello"}],"tool_calls":[],"memory_proposals":[]}"#.to_string(),
         )
         .expect("structured output");
 
         assert_eq!(
             output,
-            vec![GenerateOutputItem::AssistantText {
-                phase: None,
+            vec![GenerateResponseItem::Text {
+                phase: Some(AssistantTextPhase::FinalAnswer),
                 text: "Hello".to_string()
             }]
         );
     }
 
     #[test]
-    fn treats_implicit_output_array_as_plain_assistant_text_when_envelope_is_optional() {
+    fn output_items_from_text_treats_unrelated_json_as_plain_text() {
         let output = output_items_from_text(
             r#"{"output":[{"kind":"tool_call","id":"call_1","name":"search_memory","payload":{"query":"trains"}}]}"#
                 .to_string(),
@@ -789,7 +931,7 @@ mod tests {
 
         assert_eq!(
             output,
-            vec![GenerateOutputItem::AssistantText {
+            vec![GenerateResponseItem::Text {
                 phase: None,
                 text: r#"{"output":[{"kind":"tool_call","id":"call_1","name":"search_memory","payload":{"query":"trains"}}]}"#
                     .to_string()
@@ -798,103 +940,87 @@ mod tests {
     }
 
     #[test]
-    fn required_noema_response_rejects_implicit_output_array() {
-        let error = required_output_items_from_text(
+    fn required_noema_response_rejects_old_output_array_contract() {
+        let error = required_noema_response_from_text(
             r#"{"output":[{"kind":"assistant_text","text":"Hello"},{"kind":"memory_proposals","proposals":[]}]}"#
                 .to_string(),
         )
         .unwrap_err();
 
-        assert!(matches!(
-            error,
-            ProviderError::MalformedResponse { message }
-                if message == "provider did not return a Noema structured response envelope"
-        ));
+        assert!(matches!(error, ProviderError::MalformedResponse { .. }));
     }
 
     #[test]
-    fn parses_provider_action_output_items() {
-        let output = output_items_from_text(
-            r#"{"type":"noema_response","output":[{"kind":"assistant_text","text":"Done"},{"kind":"tool_call","id":"call_1","name":"search_memory","payload":{"query":"trains"}},{"kind":"approval_result","request_id":"approval_1","decision":"decline","payload":{"reason":"test"}}]}"#
+    fn required_noema_response_accepts_object_contract_final_text() {
+        let response = required_noema_response_from_text(
+            r#"{"response_status":"final","responses":[{"kind":"text","phase":"final_answer","text":"Done."}],"tool_calls":[],"memory_proposals":[]}"#
                 .to_string(),
         )
-        .expect("structured output");
+        .expect("required structured response");
 
-        assert!(matches!(
-            &output[1],
-            GenerateOutputItem::ToolCall { id: Some(id), name, .. }
-                if id == "call_1" && name == "search_memory"
-        ));
-        assert!(matches!(
-            &output[2],
-            GenerateOutputItem::ApprovalResult {
-                request_id: Some(id),
-                decision,
-                ..
-            } if id == "approval_1" && decision == "decline"
-        ));
-    }
-
-    #[test]
-    fn required_noema_response_accepts_assistant_text_and_memory_proposals() {
-        let output = required_output_items_from_text(
-            r#"{"type":"noema_response","output":[{"kind":"assistant_text","text":"Hello"},{"kind":"memory_proposals","proposals":[]}]}"#
-                .to_string(),
-        )
-        .expect("required structured output");
-
-        assert_eq!(output.len(), 2);
+        assert_eq!(response.response_status, GenerateResponseStatus::Final);
         assert_eq!(
-            output[0],
-            GenerateOutputItem::AssistantText {
-                phase: None,
-                text: "Hello".to_string()
-            }
-        );
-        assert!(matches!(
-            output[1],
-            GenerateOutputItem::MemoryProposals { ref proposals } if proposals.is_empty()
-        ));
-    }
-
-    #[test]
-    fn required_noema_response_accepts_assistant_text_phase() {
-        let output = required_output_items_from_text(
-            r#"{"type":"noema_response","output":[{"kind":"assistant_text","phase":"commentary","text":"Checking that now."},{"kind":"memory_proposals","proposals":[]}]}"#
-                .to_string(),
-        )
-        .expect("required structured output");
-
-        assert_eq!(
-            output[0],
-            GenerateOutputItem::AssistantText {
-                phase: Some(AssistantTextPhase::Commentary),
-                text: "Checking that now.".to_string(),
-            }
-        );
-    }
-
-    #[test]
-    fn required_noema_response_keeps_missing_assistant_text_phase_compatible() {
-        let output = required_output_items_from_text(
-            r#"{"type":"noema_response","output":[{"kind":"assistant_text","text":"Done."},{"kind":"memory_proposals","proposals":[]}]}"#
-                .to_string(),
-        )
-        .expect("required structured output");
-
-        assert_eq!(
-            output[0],
-            GenerateOutputItem::AssistantText {
-                phase: None,
+            response.responses,
+            vec![GenerateResponseItem::Text {
+                phase: Some(AssistantTextPhase::FinalAnswer),
                 text: "Done.".to_string(),
-            }
+            }]
         );
+        assert!(response.tool_calls.is_empty());
+        assert!(response.memory_proposals.is_empty());
+    }
+
+    #[test]
+    fn required_noema_response_accepts_silent_tool_calls() {
+        let response = required_noema_response_from_text(
+            r#"{"response_status":"needs_tools","responses":[],"tool_calls":[{"id":"call_1","name":"search_memory","payload":{"scope_ids":["human:local"],"query":"","purpose":"answer_human_question","limit":8}}],"memory_proposals":[]}"#
+                .to_string(),
+        )
+        .expect("silent tool call response");
+
+        assert_eq!(response.response_status, GenerateResponseStatus::NeedsTools);
+        assert!(response.responses.is_empty());
+        assert_eq!(response.tool_calls.len(), 1);
+        assert_eq!(response.tool_calls[0].id.as_deref(), Some("call_1"));
+        assert_eq!(response.tool_calls[0].name, "search_memory");
+    }
+
+    #[test]
+    fn required_noema_response_accepts_multiple_silent_tool_calls() {
+        let response = required_noema_response_from_text(
+            r#"{"response_status":"needs_tools","responses":[],"tool_calls":[{"id":"call_1","name":"search_memory","payload":{"query":"trains"}},{"id":"call_2","name":"mcp.docs.read","payload":{"document_id":"doc_1"}}],"memory_proposals":[]}"#
+                .to_string(),
+        )
+        .expect("multiple silent tool call response");
+
+        assert_eq!(response.response_status, GenerateResponseStatus::NeedsTools);
+        assert!(response.responses.is_empty());
+        assert_eq!(
+            response
+                .tool_calls
+                .iter()
+                .map(|call| call.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["search_memory", "mcp.docs.read"]
+        );
+    }
+
+    #[test]
+    fn required_noema_response_accepts_memory_proposals() {
+        let response = required_noema_response_from_text(
+            r#"{"response_status":"final","responses":[{"kind":"text","phase":"final_answer","text":"Hello"}],"tool_calls":[],"memory_proposals":[{"content":"Kevin is debugging Foundation Local.","memory_type":"note","title":"Foundation Local debugging","confidence":0.9,"sensitivity":"normal","subjects":[{"id":"human:local","kind":"human","name":"Kevin","role":"about"}],"retrieval_hints":{"topics":["foundation local"],"keywords":["debugging"],"summary":"Kevin is debugging Foundation Local."},"risk_flags":[]}]}"#
+                .to_string(),
+        )
+        .expect("required structured output should tolerate invalid proposal fields");
+
+        assert_eq!(response.memory_proposals.len(), 1);
+        assert_eq!(response.memory_proposals[0].evidence_excerpt, "");
     }
 
     #[test]
     fn assistant_text_phase_defaults_to_final_without_runtime_tools() {
-        let phase = AssistantTextPhase::effective_for_output(
-            &GenerateOutputItem::AssistantText {
+        let phase = AssistantTextPhase::effective_for_response_item(
+            &GenerateResponseItem::Text {
                 phase: None,
                 text: "Done.".to_string(),
             },
@@ -905,8 +1031,8 @@ mod tests {
 
     #[test]
     fn assistant_text_phase_defaults_to_commentary_with_runtime_tools() {
-        let phase = AssistantTextPhase::effective_for_output(
-            &GenerateOutputItem::AssistantText {
+        let phase = AssistantTextPhase::effective_for_response_item(
+            &GenerateResponseItem::Text {
                 phase: None,
                 text: "Checking that now.".to_string(),
             },
@@ -916,102 +1042,9 @@ mod tests {
     }
 
     #[test]
-    fn required_noema_response_keeps_answer_when_memory_proposal_omits_evidence() {
-        let output = required_output_items_from_text(
-            r#"{"type":"noema_response","output":[{"kind":"assistant_text","text":"Hello"},{"kind":"memory_proposals","proposals":[{"content":"Kevin is debugging Foundation Local.","memory_type":"note","title":"Foundation Local debugging","confidence":0.9,"sensitivity":"normal","subjects":[{"id":"human:local","kind":"human","name":"Kevin","role":"about"}],"retrieval_hints":{"topics":["foundation local"],"keywords":["debugging"],"summary":"Kevin is debugging Foundation Local."},"risk_flags":[]}]}]}"#
-                .to_string(),
-        )
-        .expect("required structured output should tolerate invalid proposal fields");
-
-        assert_eq!(output.len(), 2);
-        assert_eq!(
-            output[0],
-            GenerateOutputItem::AssistantText {
-                phase: None,
-                text: "Hello".to_string()
-            }
-        );
-        assert!(matches!(
-            &output[1],
-            GenerateOutputItem::MemoryProposals { proposals }
-                if proposals.len() == 1 && proposals[0].evidence_excerpt.is_empty()
-        ));
-    }
-
-    #[test]
-    fn required_noema_response_accepts_tool_calls_with_memory_proposals() {
-        let output = required_output_items_from_text(
-            r#"{"type":"noema_response","output":[{"kind":"assistant_text","text":"I will check memory."},{"kind":"tool_call","id":"call_1","name":"search_memory","payload":{"query":"trains"}},{"kind":"memory_proposals","proposals":[]}]}"#
-                .to_string(),
-        )
-        .expect("required structured output");
-
-        assert!(matches!(
-            &output[1],
-            GenerateOutputItem::ToolCall { id: Some(id), name, .. }
-                if id == "call_1" && name == "search_memory"
-        ));
-    }
-
-    #[test]
-    fn required_noema_response_recovers_envelope_after_leading_prose() {
-        let output = required_output_items_from_text(
-            "Searching Dex now.{\"type\":\"noema_response\",\"output\":[{\"kind\":\"tool_call\",\"id\":\"call_1\",\"name\":\"mcp.dex.search\",\"payload\":{\"query\":\"Gautam\"}},{\"kind\":\"assistant_text\",\"text\":\"Searching Dex now.\"},{\"kind\":\"memory_proposals\",\"proposals\":[]}]}"
-                .to_string(),
-        )
-        .expect("embedded envelope");
-
-        assert!(matches!(
-            &output[0],
-            GenerateOutputItem::ToolCall { id: Some(id), name, .. }
-                if id == "call_1" && name == "mcp.dex.search"
-        ));
-        assert!(matches!(
-            &output[1],
-            GenerateOutputItem::AssistantText { text, .. } if text == "Searching Dex now."
-        ));
-    }
-
-    #[test]
-    fn required_noema_response_treats_plain_text_as_assistant_text_with_empty_memory_proposals() {
-        let output = required_output_items_from_text(
-            "No. I didn't actually call a Notion write tool.".to_string(),
-        )
-        .expect("plain text fallback");
-
-        assert_eq!(
-            output,
-            vec![
-                GenerateOutputItem::AssistantText {
-                    phase: None,
-                    text: "No. I didn't actually call a Notion write tool.".to_string(),
-                },
-                GenerateOutputItem::MemoryProposals { proposals: vec![] },
-            ]
-        );
-    }
-
-    #[test]
-    fn required_noema_response_recovers_envelope_before_trailing_prose() {
-        let output = required_output_items_from_text(
-            r#"{"type":"noema_response","output":[{"kind":"assistant_text","text":"Hello"},{"kind":"memory_proposals","proposals":[]}]} trailing prose"#
-                .to_string(),
-        )
-        .expect("embedded envelope");
-
-        assert_eq!(
-            output[0],
-            GenerateOutputItem::AssistantText {
-                phase: None,
-                text: "Hello".to_string()
-            }
-        );
-    }
-
-    #[test]
-    fn required_noema_response_requires_memory_proposals_item() {
-        let error = required_output_items_from_text(
-            r#"{"type":"noema_response","output":[{"kind":"assistant_text","text":"Hello"}]}"#
+    fn required_noema_response_rejects_final_without_responses() {
+        let error = required_noema_response_from_text(
+            r#"{"response_status":"final","responses":[],"tool_calls":[],"memory_proposals":[]}"#
                 .to_string(),
         )
         .unwrap_err();
@@ -1019,19 +1052,114 @@ mod tests {
         assert!(matches!(
             error,
             ProviderError::MalformedResponse { message }
-                if message == "Noema structured response did not include memory_proposals"
+                if message == "Noema final response did not include any response items"
         ));
     }
 
     #[test]
-    fn required_noema_response_rejects_concatenated_stream_duplicate() {
-        let duplicate = r#"{"type":"noema_response","output":[{"kind":"assistant_text","text":"Searching memory."},{"kind":"tool_call","id":"call_1","name":"search_memory","payload":{"scope_ids":["human:local"],"query":"","purpose":"answer_human_question","limit":8}},{"kind":"memory_proposals","proposals":[]}]}"#;
-        let error = required_output_items_from_text(format!("{duplicate}{duplicate}")).unwrap_err();
+    fn required_noema_response_rejects_tool_calls_in_final_response() {
+        let error = required_noema_response_from_text(
+            r#"{"response_status":"final","responses":[{"kind":"text","phase":"final_answer","text":"Done."}],"tool_calls":[{"id":"call_1","name":"search_memory","payload":{}}],"memory_proposals":[]}"#
+                .to_string(),
+        )
+        .unwrap_err();
 
         assert!(matches!(
             error,
             ProviderError::MalformedResponse { message }
-                if message == "provider returned multiple Noema structured response envelopes"
+                if message == "Noema final response cannot include tool_calls"
         ));
+    }
+
+    #[test]
+    fn required_noema_response_rejects_final_answer_in_needs_tools_response() {
+        let error = required_noema_response_from_text(
+            r#"{"response_status":"needs_tools","responses":[{"kind":"text","phase":"final_answer","text":"Done."}],"tool_calls":[{"id":"call_1","name":"search_memory","payload":{}}],"memory_proposals":[]}"#
+                .to_string(),
+        )
+        .unwrap_err();
+
+        assert!(matches!(
+            error,
+            ProviderError::MalformedResponse { message }
+                if message == "Noema needs_tools response cannot include final_answer text"
+        ));
+    }
+
+    #[test]
+    fn required_noema_response_rejects_plain_text() {
+        let error = required_noema_response_from_text(
+            "No. I didn't actually call a Notion write tool.".to_string(),
+        )
+        .unwrap_err();
+
+        assert!(matches!(
+            error,
+            ProviderError::MalformedResponse { message }
+                if message == "provider did not return a Noema structured response object"
+        ));
+    }
+
+    #[test]
+    fn required_noema_response_recovers_object_after_leading_prose() {
+        let response = required_noema_response_from_text(
+            r#"Searching Dex now.{"response_status":"needs_tools","responses":[{"kind":"text","phase":"commentary","text":"Searching Dex now."}],"tool_calls":[{"id":"call_1","name":"mcp.dex.search","payload":{"query":"Gautam"}}],"memory_proposals":[]}"#
+                .to_string(),
+        )
+        .expect("embedded response object");
+
+        assert_eq!(
+            response.responses[0],
+            GenerateResponseItem::Text {
+                phase: Some(AssistantTextPhase::Commentary),
+                text: "Searching Dex now.".to_string(),
+            },
+        );
+        assert_eq!(response.tool_calls[0].name, "mcp.dex.search");
+    }
+
+    #[test]
+    fn required_noema_response_recovers_object_before_trailing_prose() {
+        let response = required_noema_response_from_text(
+            r#"{"response_status":"final","responses":[{"kind":"text","phase":"final_answer","text":"Hello"}],"tool_calls":[],"memory_proposals":[]} trailing prose"#
+                .to_string(),
+        )
+        .expect("embedded response object");
+
+        assert_eq!(response.assistant_text(), "Hello");
+    }
+
+    #[test]
+    fn required_noema_response_rejects_concatenated_stream_duplicate() {
+        let duplicate = r#"{"response_status":"needs_tools","responses":[],"tool_calls":[{"id":"call_1","name":"search_memory","payload":{"scope_ids":["human:local"],"query":"","purpose":"answer_human_question","limit":8}}],"memory_proposals":[]}"#;
+        let error =
+            required_noema_response_from_text(format!("{duplicate}{duplicate}")).unwrap_err();
+
+        assert!(matches!(
+            error,
+            ProviderError::MalformedResponse { message }
+                if message == "provider returned multiple Noema structured response objects"
+        ));
+    }
+
+    #[test]
+    fn action_items_serialize_tool_result_shape() {
+        let item = GenerateActionItem::ToolResult {
+            call_id: Some("call_1".to_string()),
+            name: Some("search_memory".to_string()),
+            success: Some(true),
+            payload: json!({"ok": true}),
+        };
+
+        assert_eq!(
+            serde_json::to_value(item).expect("json"),
+            json!({
+                "kind": "tool_result",
+                "call_id": "call_1",
+                "name": "search_memory",
+                "success": true,
+                "payload": {"ok": true}
+            })
+        );
     }
 }

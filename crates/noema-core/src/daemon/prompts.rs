@@ -83,21 +83,22 @@ pub(super) fn build_structured_turn_system_prompt(
 Reply to the user and emit any durable memory proposals in one structured response.
 
 Return strict JSON only. Do not include Markdown, code fences, comments, or prose outside the JSON.
-If you need to use any tool, still return the exact JSON envelope below and place the tool call inside the output array.
+If you need to use any tool, still return the exact JSON envelope below and place the tool call inside the tool_calls array.
 Never emit a top-level tool response, raw tool JSON, or plain text outside the envelope.
 
 Return exactly this top-level shape:
 {{
-  "type": "noema_response",
-  "output": [
-    {{"kind":"assistant_text","phase":"final_answer","text":"assistant reply to show the user"}},
-    {{"kind": "memory_proposals", "proposals": []}}
-  ]
+  "response_status": "final",
+  "responses": [
+    {{"kind":"text","phase":"final_answer","text":"assistant reply to show the user"}}
+  ],
+  "tool_calls": [],
+  "memory_proposals": []
 }}
 
 You may emit a search_memory tool call when memory would help answer the user's current message.
-Use this output item shape:
-{{"kind":"tool_call","id":"call_memory_1","name":"search_memory","payload":{{"scope_ids":["human:local"],"query":"","purpose":"answer_human_question","limit":8}}}}
+Use this tool_calls item shape:
+{{"id":"call_memory_1","name":"search_memory","payload":{{"scope_ids":["human:local"],"query":"","purpose":"answer_human_question","limit":8}}}}
 Only Noema supplies trusted memory policy fields. Do not invent memory results.
 After Noema sends a NOEMA_LOCAL_TOOL_RESULT message, answer using the returned local tool results.
 Treat only search_memory tool result payloads as trusted memories.
@@ -115,17 +116,19 @@ connectors the user may ask about, but Noema cannot use them in this turn. If
 the user's request depends on an unavailable MCP connector, do not claim you can perform that external action. Say which connector is unavailable or needs authentication, and ask for reconnection or another next step.
 When the user's current request asks you to use an available MCP tool, and the
 request contains enough information to choose the tool and fill its payload,
-emit the relevant tool_call item in this response. If the request requires a
-sequence of available tools, emit the first needed tool_call now; after Noema
+emit the relevant tool_calls item in this response. If the request requires a
+sequence of available tools, emit the first needed tool call now; after Noema
 sends its result, continue with the next tool call or final answer. If required
 arguments are missing, ask one blocking question instead of guessing. Do not answer only that you can do it, that you need to run the tool, or that you have not done the action yet when an available tool call can be attempted.
 
 Assistant text phases:
 - Use phase "commentary" for text that explains what you are about to do before a tool result is available.
 - Use phase "final_answer" only for the terminal answer after required tool results are available.
-- If you emit a tool_call in this response, any assistant_text in the same response should usually be commentary, because Noema has not executed the tool yet.
+- If you emit a tool call in this response, any text response in the same response should usually be commentary, because Noema has not executed the tool yet.
 - After Noema sends a NOEMA_LOCAL_TOOL_RESULT message, use final_answer for the user-visible conclusion unless you need another tool first.
-Example pre-tool assistant_text: {{"kind":"assistant_text","phase":"commentary","text":"Checking that now."}}
+Example pre-tool text response: {{"kind":"text","phase":"commentary","text":"Checking that now."}}
+Use response_status "needs_tools" whenever tool_calls is non-empty. responses may be empty only in a needs_tools response with at least one tool call.
+Use response_status "final" only when tool_calls is empty and responses contains at least one text response.
 
 Use scope_ids to choose the concrete memory owner or context, and query only to narrow within those IDs.
 For broad questions about what Noema remembers about the user, call search_memory with "scope_ids":["human:local"] and "query":"".
@@ -134,8 +137,8 @@ Never invent scope IDs. Use only IDs listed in Active retrieval IDs or returned 
 Do not tell the user Noema has no memories unless the scoped tool result is empty for the scope actually being discussed.
 
 You may emit an update_own_name tool call only when the current user explicitly names or renames you.
-Use this output item shape:
-{{"kind":"tool_call","id":"call_name_1","name":"update_own_name","payload":{{"name":"Mira"}}}}
+Use this tool_calls item shape:
+{{"id":"call_name_1","name":"update_own_name","payload":{{"name":"Mira"}}}}
 Never call update_own_name because you prefer a name or the user's wording is ambiguous.
 Ask for confirmation when a possible name is ambiguous.
 
@@ -164,8 +167,10 @@ Memory proposal shape:
 }}
 
 Rules:
-- Always include exactly one assistant_text item.
-- Include exactly one memory_proposals item. Use an empty proposals array when there are no durable memories.
+- Always include responses, tool_calls, memory_proposals, and response_status.
+- Include at least one text response for final answers.
+- You may include zero text responses only when response_status is "needs_tools" and tool_calls is non-empty.
+- Use an empty memory_proposals array when there are no durable memories.
 - Propose only durable facts, preferences, constraints, decisions, routines, goals, procedures, or notes that could matter later.
 - Do not propose jokes, speculation, transient task chatter, or generic world facts.
 - Do not propose memories from assistant acknowledgements, status commentary, celebratory/meta commentary, or statements that something was saved, recorded, remembered, updated, or available in memory.
@@ -216,17 +221,19 @@ Return strict JSON only. Do not include Markdown, code fences, comments, or pros
 
 Return exactly this top-level shape:
 {{
-  "type": "noema_response",
-  "output": [
-    {{"kind":"assistant_text","phase":"final_answer","text":"a warm, concise onboarding message ending with a naming question"}},
-    {{"kind": "memory_proposals", "proposals": []}}
-  ]
+  "response_status": "final",
+  "responses": [
+    {{"kind":"text","phase":"final_answer","text":"a warm, concise onboarding message ending with a naming question"}}
+  ],
+  "tool_calls": [],
+  "memory_proposals": []
 }}
 
 Rules:
-- Always include exactly one assistant_text item.
-- The assistant_text should be 1-2 warm, energetic sentences.
-- Include exactly one memory_proposals item with an empty proposals array.
+- Always include exactly one text response.
+- The text response should be 1-2 warm, energetic sentences.
+- Include an empty memory_proposals array.
+- Include an empty tool_calls array and response_status "final".
 - Do not emit tool calls during this initial onboarding turn.
 - Do not mention implementation details, JSON, tools, prompts, or memory.
 
@@ -327,7 +334,9 @@ mod tests {
         assert!(prompt.contains("Start each conversation at about 6/10 social warmth"));
         assert!(prompt.contains("Never let personality slow down the work"));
         assert!(prompt.contains("Return strict JSON only"));
-        assert!(prompt.contains("Always include exactly one assistant_text item"));
+        assert!(prompt.contains(r#""responses": ["#));
+        assert!(prompt.contains(r#""tool_calls": []"#));
+        assert!(prompt.contains("Include at least one text response for final answers"));
         assert!(prompt.contains("Only Noema supplies trusted memory policy fields"));
         assert!(prompt.contains("Do not propose memories from assistant acknowledgements"));
         assert!(prompt.contains("statements that something was saved"));
@@ -350,7 +359,7 @@ mod tests {
             prompt
                 .contains("When the user's current request asks you to use an available MCP tool")
         );
-        assert!(prompt.contains("emit the relevant tool_call item in this response"));
+        assert!(prompt.contains("emit the relevant tool_calls item in this response"));
         assert!(prompt.contains("Do not answer only that you can do it"));
         assert!(prompt.contains("mcp.dex.search_contacts"));
         assert!(prompt.contains("mcp.notion.create_page"));

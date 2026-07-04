@@ -7,8 +7,9 @@ use super::responses::{
 use crate::{
     SYSTEM_ERROR_PROVIDER_MALFORMED_RESPONSE, SystemErrorEvent, SystemErrorLogger,
     provider::{
-        DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateRequest, GenerateResponse, ModelProvider,
-        ProviderError, output_items_from_text, required_output_items_from_text,
+        DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateRequest, GenerateResponse,
+        GenerateResponseStatus, ModelProvider, ParsedNoemaResponse, ProviderError,
+        output_items_from_text, required_noema_response_from_text,
     },
 };
 use reqwest::header::{HeaderMap, HeaderName};
@@ -223,9 +224,9 @@ impl ModelProvider for OpenAiProvider {
         };
         let raw_text = text.clone();
 
-        let output = if request.options.require_noema_response {
-            match required_output_items_from_text(text) {
-                Ok(output) => output,
+        let parsed = if request.options.require_noema_response {
+            match required_noema_response_from_text(text) {
+                Ok(parsed) => parsed,
                 Err(error) => {
                     self.log_malformed_response(
                         &error,
@@ -238,16 +239,21 @@ impl ModelProvider for OpenAiProvider {
                 }
             }
         } else {
-            output_items_from_text(text)?
+            ParsedNoemaResponse {
+                responses: output_items_from_text(text)?,
+                tool_calls: Vec::new(),
+                memory_proposals: Vec::new(),
+                response_status: GenerateResponseStatus::Final,
+            }
         };
 
-        Ok(GenerateResponse {
-            output,
-            provider: "openai".to_string(),
-            model: response.model.unwrap_or(model),
-            response_id: response.id,
-            usage: response.usage.map(Into::into),
-        })
+        Ok(GenerateResponse::from_parsed(
+            parsed,
+            "openai",
+            response.model.unwrap_or(model),
+            response.id,
+            response.usage.map(Into::into),
+        ))
     }
 }
 
@@ -411,7 +417,7 @@ mod tests {
               "output": [{
                 "type": "message",
                 "content": [
-                  {"type": "output_text", "text": "{\"type\":\"noema_response\",\"output\":[{\"kind\":\"assistant_text\",\"text\":\"Hello\"},{\"kind\":\"memory_proposals\",\"proposals\":[]}]}"}
+                  {"type": "output_text", "text": "{\"response_status\":\"final\",\"responses\":[{\"kind\":\"text\",\"phase\":\"final_answer\",\"text\":\"Hello\"}],\"tool_calls\":[],\"memory_proposals\":[]}"}
                 ]
               }]
             }"#,
@@ -435,8 +441,8 @@ mod tests {
         assert_eq!(body["text"]["format"]["type"], "json_schema");
         assert_eq!(body["text"]["format"]["name"], "noema_response");
         assert_eq!(
-            body["text"]["format"]["schema"]["properties"]["type"]["const"],
-            "noema_response"
+            body["text"]["format"]["schema"]["properties"]["response_status"]["enum"][1],
+            "final"
         );
         assert_eq!(response.assistant_text(), "Hello");
     }

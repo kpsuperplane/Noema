@@ -6,6 +6,7 @@ use crate::provider::GenerateStreamEvent;
 pub(crate) struct NoemaAssistantTextDeltaExtractor {
     stack: Vec<JsonContext>,
     string: Option<JsonStringReader>,
+    response_count: usize,
     memory_proposals_started_emitted: bool,
 }
 
@@ -19,11 +20,10 @@ impl NoemaAssistantTextDeltaExtractor {
 
         for ch in delta.chars() {
             if self.string.is_some() {
-                let stream_visible = self
-                    .string
-                    .as_ref()
-                    .is_some_and(|reader| matches!(reader.target, JsonStringTarget::ItemText))
-                    && self.current_item_is_assistant();
+                let stream_visible =
+                    self.string.as_ref().is_some_and(|reader| {
+                        matches!(reader.target, JsonStringTarget::ResponseText)
+                    }) && self.current_item_is_assistant();
                 let closed = self
                     .string
                     .as_mut()
@@ -65,12 +65,17 @@ impl NoemaAssistantTextDeltaExtractor {
         }
         let role = match self.stack.last_mut() {
             None => JsonObjectRole::Root,
-            Some(JsonContext::Array(JsonArrayRole::Output { next_index })) => {
-                let output_index = *next_index;
+            Some(JsonContext::Array(JsonArrayRole::Responses { next_index })) => {
                 *next_index += 1;
-                JsonObjectRole::OutputItem(OutputItemState {
+                self.response_count += 1;
+                JsonObjectRole::ResponseItem(ResponseItemState::default())
+            }
+            Some(JsonContext::Array(JsonArrayRole::ToolCalls { next_index })) => {
+                let output_index = self.response_count + *next_index;
+                *next_index += 1;
+                JsonObjectRole::ToolCall(ToolCallState {
                     output_index,
-                    ..OutputItemState::default()
+                    ..ToolCallState::default()
                 })
             }
             Some(_) => JsonObjectRole::Nested,
@@ -86,13 +91,19 @@ impl NoemaAssistantTextDeltaExtractor {
         let role = if self
             .stack
             .last()
-            .is_some_and(|context| context.is_root_output_value())
+            .is_some_and(|context| context.is_root_responses_value())
         {
-            JsonArrayRole::Output { next_index: 0 }
+            JsonArrayRole::Responses { next_index: 0 }
         } else if self
             .stack
             .last()
-            .is_some_and(|context| context.is_current_memory_proposals_value())
+            .is_some_and(|context| context.is_root_tool_calls_value())
+        {
+            JsonArrayRole::ToolCalls { next_index: 0 }
+        } else if self
+            .stack
+            .last()
+            .is_some_and(|context| context.is_root_memory_proposals_value())
         {
             JsonArrayRole::MemoryProposals
         } else {
@@ -133,9 +144,9 @@ impl NoemaAssistantTextDeltaExtractor {
             return JsonStringTarget::Ignored;
         };
         match (&context.role, key) {
-            (JsonObjectRole::OutputItem(_), "text") => JsonStringTarget::ItemText,
-            (JsonObjectRole::OutputItem(_), "kind") => JsonStringTarget::ItemKind,
-            (JsonObjectRole::OutputItem(_), "name") => JsonStringTarget::ItemName,
+            (JsonObjectRole::ResponseItem(_), "text") => JsonStringTarget::ResponseText,
+            (JsonObjectRole::ResponseItem(_), "kind") => JsonStringTarget::ResponseKind,
+            (JsonObjectRole::ToolCall(_), "name") => JsonStringTarget::ToolCallName,
             _ => JsonStringTarget::Value,
         }
     }
@@ -153,29 +164,26 @@ impl NoemaAssistantTextDeltaExtractor {
                     context.expecting_key = false;
                 }
             }
-            JsonStringTarget::ItemKind => {
-                if let Some(item) = self.current_item_mut() {
+            JsonStringTarget::ResponseKind => {
+                if let Some(item) = self.current_response_item_mut() {
                     item.kind = Some(reader.decoded);
-                    if item.is_assistant() && !item.buffered_text.is_empty() {
+                    if item.is_text() && !item.buffered_text.is_empty() {
                         visible_delta.push_str(&std::mem::take(&mut item.buffered_text));
                     }
-                    if let Some(event) = item.tool_call_started_event() {
+                }
+                self.complete_scalar_value();
+            }
+            JsonStringTarget::ToolCallName => {
+                if let Some(tool_call) = self.current_tool_call_mut() {
+                    tool_call.name = Some(reader.decoded);
+                    if let Some(event) = tool_call.started_event() {
                         on_event(event);
                     }
                 }
                 self.complete_scalar_value();
             }
-            JsonStringTarget::ItemName => {
-                if let Some(item) = self.current_item_mut() {
-                    item.name = Some(reader.decoded);
-                    if let Some(event) = item.tool_call_started_event() {
-                        on_event(event);
-                    }
-                }
-                self.complete_scalar_value();
-            }
-            JsonStringTarget::ItemText => {
-                if let Some(item) = self.current_item_mut()
+            JsonStringTarget::ResponseText => {
+                if let Some(item) = self.current_response_item_mut()
                     && item.kind.is_none()
                 {
                     item.buffered_text.push_str(&reader.decoded);
@@ -189,19 +197,29 @@ impl NoemaAssistantTextDeltaExtractor {
     fn current_item_is_assistant(&self) -> bool {
         self.stack.last().is_some_and(|context| match context {
             JsonContext::Object(JsonObjectContext {
-                role: JsonObjectRole::OutputItem(item),
+                role: JsonObjectRole::ResponseItem(item),
                 ..
-            }) => item.is_assistant(),
+            }) => item.is_text(),
             JsonContext::Object(_) | JsonContext::Array(_) => false,
         })
     }
 
-    fn current_item_mut(&mut self) -> Option<&mut OutputItemState> {
+    fn current_response_item_mut(&mut self) -> Option<&mut ResponseItemState> {
         match self.stack.last_mut()? {
             JsonContext::Object(JsonObjectContext {
-                role: JsonObjectRole::OutputItem(item),
+                role: JsonObjectRole::ResponseItem(item),
                 ..
             }) => Some(item),
+            JsonContext::Object(_) | JsonContext::Array(_) => None,
+        }
+    }
+
+    fn current_tool_call_mut(&mut self) -> Option<&mut ToolCallState> {
+        match self.stack.last_mut()? {
+            JsonContext::Object(JsonObjectContext {
+                role: JsonObjectRole::ToolCall(tool_call),
+                ..
+            }) => Some(tool_call),
             JsonContext::Object(_) | JsonContext::Array(_) => None,
         }
     }
@@ -214,25 +232,36 @@ pub(crate) enum JsonContext {
 }
 
 impl JsonContext {
-    fn is_root_output_value(&self) -> bool {
+    fn is_root_responses_value(&self) -> bool {
         matches!(
             self,
             Self::Object(JsonObjectContext {
                 role: JsonObjectRole::Root,
                 pending_key: Some(key),
                 ..
-            }) if key == "output"
+            }) if key == "responses"
         )
     }
 
-    fn is_current_memory_proposals_value(&self) -> bool {
+    fn is_root_tool_calls_value(&self) -> bool {
         matches!(
             self,
             Self::Object(JsonObjectContext {
-                role: JsonObjectRole::OutputItem(item),
+                role: JsonObjectRole::Root,
                 pending_key: Some(key),
                 ..
-            }) if key == "proposals" && item.is_memory_proposals()
+            }) if key == "tool_calls"
+        )
+    }
+
+    fn is_root_memory_proposals_value(&self) -> bool {
+        matches!(
+            self,
+            Self::Object(JsonObjectContext {
+                role: JsonObjectRole::Root,
+                pending_key: Some(key),
+                ..
+            }) if key == "memory_proposals"
         )
     }
 }
@@ -247,48 +276,48 @@ pub(crate) struct JsonObjectContext {
 #[derive(Debug)]
 pub(crate) enum JsonObjectRole {
     Root,
-    OutputItem(OutputItemState),
+    ResponseItem(ResponseItemState),
+    ToolCall(ToolCallState),
     Nested,
 }
 
 #[derive(Debug)]
 pub(crate) enum JsonArrayRole {
-    Output { next_index: usize },
+    Responses { next_index: usize },
+    ToolCalls { next_index: usize },
     MemoryProposals,
     Nested,
 }
 
 #[derive(Debug, Default)]
-pub(crate) struct OutputItemState {
-    output_index: usize,
+pub(crate) struct ResponseItemState {
     kind: Option<String>,
-    name: Option<String>,
     buffered_text: String,
-    tool_call_started_emitted: bool,
 }
 
-impl OutputItemState {
-    fn is_assistant(&self) -> bool {
-        self.kind.as_deref() == Some("assistant_text")
+impl ResponseItemState {
+    fn is_text(&self) -> bool {
+        self.kind.as_deref() == Some("text")
     }
+}
 
-    fn is_memory_proposals(&self) -> bool {
-        self.kind.as_deref() == Some("memory_proposals")
-    }
+#[derive(Debug, Default)]
+pub(crate) struct ToolCallState {
+    output_index: usize,
+    name: Option<String>,
+    started_emitted: bool,
+}
 
-    fn is_tool_call(&self) -> bool {
-        self.kind.as_deref() == Some("tool_call")
-    }
-
-    fn tool_call_started_event(&mut self) -> Option<GenerateStreamEvent> {
-        if !self.is_tool_call() || self.tool_call_started_emitted {
+impl ToolCallState {
+    fn started_event(&mut self) -> Option<GenerateStreamEvent> {
+        if self.started_emitted {
             return None;
         }
         let name = self.name.as_deref()?.trim();
         if name.is_empty() {
             return None;
         }
-        self.tool_call_started_emitted = true;
+        self.started_emitted = true;
         Some(GenerateStreamEvent::ToolCallStarted {
             output_index: self.output_index,
             name: name.to_string(),
@@ -401,9 +430,9 @@ impl JsonStringReader {
 #[derive(Debug)]
 enum JsonStringTarget {
     Key,
-    ItemKind,
-    ItemName,
-    ItemText,
+    ResponseKind,
+    ToolCallName,
+    ResponseText,
     Value,
     Ignored,
 }
@@ -423,12 +452,12 @@ mod tests {
         let mut extractor = NoemaAssistantTextDeltaExtractor::default();
         let mut events = Vec::new();
         extractor.push_delta(
-            r#"{"type":"noema_response","output":[{"kind":"assistant_text","text":"Hi"#,
+            r#"{"response_status":"final","responses":[{"kind":"text","text":"Hi"#,
             &mut |event| events.push(event),
         );
         extractor.push_delta("\\nthere\\u00", &mut |event| events.push(event));
         extractor.push_delta(
-            "21\"},{\"kind\":\"memory_proposals\",\"proposals\":[]}]}",
+            "21\"}],\"tool_calls\":[],\"memory_proposals\":[]}",
             &mut |event| events.push(event),
         );
 
@@ -439,8 +468,8 @@ mod tests {
     #[test]
     fn noema_assistant_text_delta_extractor_handles_text_before_kind() {
         let streamed_text = extract_streamed_text(&[
-            r#"{"type":"noema_response","output":[{"text":"Hel"#,
-            r#"lo","kind":"assistant_text"},{"kind":"memory_proposals","proposals":[]}]}"#,
+            r#"{"response_status":"final","responses":[{"text":"Hel"#,
+            r#"lo","kind":"text"}],"tool_calls":[],"memory_proposals":[]}"#,
         ]);
 
         assert_eq!(streamed_text, "Hello");
@@ -451,11 +480,11 @@ mod tests {
         let mut extractor = NoemaAssistantTextDeltaExtractor::default();
         let mut events = Vec::new();
         extractor.push_delta(
-            r#"{"type":"noema_response","output":[{"kind":"assistant_text","phase":"commentary","text":"Checking"#,
+            r#"{"response_status":"needs_tools","responses":[{"kind":"text","phase":"commentary","text":"Checking"#,
             &mut |event| events.push(event),
         );
         extractor.push_delta(
-            r#" now."},{"kind":"memory_proposals","proposals":[]}]} "#,
+            r#" now."}],"tool_calls":[{"id":"call_1","name":"search_memory","payload":{}}],"memory_proposals":[]} "#,
             &mut |event| events.push(event),
         );
 
@@ -468,8 +497,8 @@ mod tests {
     #[test]
     fn noema_assistant_text_delta_extractor_streams_multiple_assistant_items() {
         let streamed_text = extract_streamed_text(&[
-            r#"{"type":"noema_response","output":[{"kind":"assistant_text","text":"Hel"#,
-            r#"lo"},{"kind":"assistant_text","text":" again"},{"kind":"memory_proposals","proposals":[]}]}"#,
+            r#"{"response_status":"final","responses":[{"kind":"text","text":"Hel"#,
+            r#"lo"},{"kind":"text","text":" again"}],"tool_calls":[],"memory_proposals":[]}"#,
         ]);
 
         assert_eq!(streamed_text, "Hello again");
@@ -478,9 +507,8 @@ mod tests {
     #[test]
     fn noema_assistant_text_delta_extractor_ignores_nested_payload_text() {
         let streamed_text = extract_streamed_text(&[
-            r#"{"type":"noema_response","output":[{"kind":"tool_result","id":"tool_1","name":"search_memory","payload":{"kind":"assistant_text","text":"wrong"}}"#,
-            r#",{"kind":"structured","schema":"test","payload":{"output":[{"kind":"assistant_text","text":"also wrong"}]}}"#,
-            r#",{"text":"right","kind":"assistant_text"},{"kind":"memory_proposals","proposals":[]}]}"#,
+            r#"{"response_status":"final","responses":[{"kind":"structured","schema":"test","payload":{"responses":[{"kind":"text","text":"also wrong"}]}}"#,
+            r#",{"text":"right","kind":"text"}],"tool_calls":[],"memory_proposals":[]}"#,
         ]);
 
         assert_eq!(streamed_text, "right");
@@ -491,13 +519,12 @@ mod tests {
         let mut extractor = NoemaAssistantTextDeltaExtractor::default();
         let mut events = Vec::new();
         extractor.push_delta(
-            r#"{"type":"noema_response","output":[{"kind":"assistant_text","text":"Hello"},"#,
+            r#"{"response_status":"final","responses":[{"kind":"text","text":"Hello"}],"tool_calls":[],"memory_proposals":"#,
             &mut |event| events.push(event),
         );
-        extractor.push_delta(
-            r#"{"kind":"memory_proposals","proposals":[{"proposal":{"content":"Kevin likes trains.""#,
-            &mut |event| events.push(event),
-        );
+        extractor.push_delta(r#"[{"content":"Kevin likes trains.""#, &mut |event| {
+            events.push(event)
+        });
 
         assert_eq!(
             events,
@@ -515,13 +542,10 @@ mod tests {
         let mut extractor = NoemaAssistantTextDeltaExtractor::default();
         let mut events = Vec::new();
         extractor.push_delta(
-            r#"{"type":"noema_response","output":[{"kind":"assistant_text","text":"Hello"},"#,
+            r#"{"response_status":"final","responses":[{"kind":"text","text":"Hello"}],"tool_calls":[],"memory_proposals":"#,
             &mut |event| events.push(event),
         );
-        extractor.push_delta(
-            r#"{"kind":"memory_proposals","proposals":[]}]} "#,
-            &mut |event| events.push(event),
-        );
+        extractor.push_delta(r#"[]} "#, &mut |event| events.push(event));
 
         assert_eq!(
             events,
@@ -536,11 +560,11 @@ mod tests {
         let mut extractor = NoemaAssistantTextDeltaExtractor::default();
         let mut events = Vec::new();
         extractor.push_delta(
-            r#"{"type":"noema_response","output":[{"kind":"assistant_text","text":"Need tool"},"#,
+            r#"{"response_status":"needs_tools","responses":[{"kind":"text","phase":"commentary","text":"Need tool"}],"#,
             &mut |event| events.push(event),
         );
         extractor.push_delta(
-            r#"{"kind":"tool_call","id":"call_1","name":"search_memory","payload":{"query":"trains""#,
+            r#""tool_calls":[{"id":"call_1","name":"search_memory","payload":{"query":"trains""#,
             &mut |event| events.push(event),
         );
 
@@ -563,11 +587,29 @@ mod tests {
         let mut extractor = NoemaAssistantTextDeltaExtractor::default();
         let mut events = Vec::new();
         extractor.push_delta(
-            r#"{"type":"noema_response","output":[{"kind":"structured","schema":"test","payload":{"kind":"tool_call","name":"wrong"}}]}"#,
+            r#"{"response_status":"final","responses":[{"kind":"structured","schema":"test","payload":{"name":"wrong"}}],"tool_calls":[],"memory_proposals":[]}"#,
             &mut |event| events.push(event),
         );
 
         assert_eq!(events, Vec::<GenerateStreamEvent>::new());
+    }
+
+    #[test]
+    fn noema_assistant_text_delta_extractor_emits_silent_tool_call_started() {
+        let mut extractor = NoemaAssistantTextDeltaExtractor::default();
+        let mut events = Vec::new();
+        extractor.push_delta(
+            r#"{"response_status":"needs_tools","responses":[],"tool_calls":[{"id":"call_1","name":"search_memory","payload":{}}],"memory_proposals":[]}"#,
+            &mut |event| events.push(event),
+        );
+
+        assert_eq!(
+            events,
+            vec![GenerateStreamEvent::ToolCallStarted {
+                output_index: 0,
+                name: "search_memory".to_string(),
+            }]
+        );
     }
 
     fn extract_streamed_text(chunks: &[&str]) -> String {

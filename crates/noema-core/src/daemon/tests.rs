@@ -11,7 +11,8 @@ use crate::{
     ActorRef,
     memory::{ClaimRetrievalRequest, MemoryStatus, Sensitivity, UseMode},
     provider::{
-        GenerateInput, GenerateOutputItem, GenerateRequest, GenerateResponse, GenerateStreamEvent,
+        AssistantTextPhase, GenerateActionItem, GenerateInput, GenerateRequest, GenerateResponse,
+        GenerateResponseItem, GenerateResponseStatus, GenerateStreamEvent, GenerateToolCall,
         ProviderError,
     },
     {ConversationItemKind, ConversationItemStatus, ReplayMode},
@@ -32,6 +33,22 @@ use tokio::sync::{mpsc, oneshot};
 const RESTART_CONTEXT_TEST_PHASE_ENV: &str = "NOEMA_RESTART_CONTEXT_TEST_PHASE";
 const RESTART_CONTEXT_TEST_HOME_ENV: &str = "NOEMA_RESTART_CONTEXT_TEST_HOME";
 const RESTART_CONTEXT_TEST_CONVERSATION_FILE: &str = "restart_context_conversation_id";
+
+#[derive(Debug, Clone)]
+enum GenerateOutputItem {
+    AssistantText {
+        phase: Option<AssistantTextPhase>,
+        text: String,
+    },
+    ToolCall {
+        id: Option<String>,
+        name: String,
+        payload: serde_json::Value,
+    },
+    MemoryProposals {
+        proposals: Vec<crate::ExtractorMemoryProposal>,
+    },
+}
 
 fn answer_claim_request() -> ClaimRetrievalRequest {
     ClaimRetrievalRequest {
@@ -1062,9 +1079,10 @@ async fn failed_initial_name_onboarding_logs_runtime_invariant() {
     );
     assert_eq!(events[0]["raw"]["persisted_count"], 0);
     assert_eq!(
-        events[0]["raw"]["provider_response"]["output"][0]["kind"],
-        "memory_proposals"
+        events[0]["raw"]["provider_response"]["responses"],
+        json!([])
     );
+    assert!(events[0]["raw"]["provider_response"]["memory_proposals"].is_array());
     handle.shutdown().await;
 }
 
@@ -4315,13 +4333,11 @@ impl FakeCodexProvider {
         let instructions = request.instructions.unwrap_or_default();
         if input.contains("Noema's memory claim canonicalizer") {
             let text = canonicalization_response_text(&input, self.scenario);
-            return Ok(GenerateResponse {
-                output: vec![GenerateOutputItem::AssistantText { phase: None, text }],
-                provider: "codex".to_string(),
+            return Ok(fake_generate_response(
+                vec![GenerateOutputItem::AssistantText { phase: None, text }],
+                "codex",
                 model,
-                response_id: Some("fake-response".to_string()),
-                usage: None,
-            });
+            ));
         }
         let output = match self.scenario {
             FakeCodexScenario::Simple => assistant_with_no_memories("fake answer"),
@@ -4429,7 +4445,7 @@ impl FakeCodexProvider {
                     provider: "codex".to_string(),
                     model,
                     message: "tool failed later".to_string(),
-                    output: vec![search_memory_tool_call(
+                    output: vec![search_memory_action_item(
                         "call_1",
                         json!({"arguments": {"query": "trains"}}),
                     )],
@@ -4960,13 +4976,7 @@ impl FakeCodexProvider {
             ),
         };
 
-        Ok(GenerateResponse {
-            output,
-            provider: "codex".to_string(),
-            model,
-            response_id: Some("fake-response".to_string()),
-            usage: None,
-        })
+        Ok(fake_generate_response(output, "codex", model))
     }
 }
 
@@ -4992,36 +5002,29 @@ impl super::runtime::RuntimeModelProvider for FakeCodexProvider {
     ) -> Pin<Box<dyn Future<Output = Result<GenerateResponse, ProviderError>> + Send + 'a>> {
         Box::pin(async move {
             let response = self.generate_response(request)?;
-            for (index, output) in response.output.iter().enumerate() {
-                match output {
-                    GenerateOutputItem::AssistantText { text, .. } => {
-                        let mut chunk = String::new();
-                        for character in text.chars() {
-                            chunk.push(character);
-                            if chunk.chars().count() == 4 {
-                                on_event(GenerateStreamEvent::AssistantTextDelta { delta: chunk });
-                                chunk = String::new();
-                            }
-                        }
-                        if !chunk.is_empty() {
+            for response_item in &response.responses {
+                if let GenerateResponseItem::Text { text, .. } = response_item {
+                    let mut chunk = String::new();
+                    for character in text.chars() {
+                        chunk.push(character);
+                        if chunk.chars().count() == 4 {
                             on_event(GenerateStreamEvent::AssistantTextDelta { delta: chunk });
+                            chunk = String::new();
                         }
                     }
-                    GenerateOutputItem::MemoryProposals { proposals } if !proposals.is_empty() => {
-                        on_event(GenerateStreamEvent::MemoryProposalsStarted);
+                    if !chunk.is_empty() {
+                        on_event(GenerateStreamEvent::AssistantTextDelta { delta: chunk });
                     }
-                    GenerateOutputItem::ToolCall { name, .. } => {
-                        on_event(GenerateStreamEvent::ToolCallStarted {
-                            output_index: index,
-                            name: name.clone(),
-                        });
-                    }
-                    GenerateOutputItem::MemoryProposals { .. }
-                    | GenerateOutputItem::ToolResult { .. }
-                    | GenerateOutputItem::ApprovalRequest { .. }
-                    | GenerateOutputItem::ApprovalResult { .. }
-                    | GenerateOutputItem::Structured { .. } => {}
                 }
+            }
+            if !response.memory_proposals.is_empty() {
+                on_event(GenerateStreamEvent::MemoryProposalsStarted);
+            }
+            for (index, tool_call) in response.tool_calls.iter().enumerate() {
+                on_event(GenerateStreamEvent::ToolCallStarted {
+                    output_index: response.responses.len() + index,
+                    name: tool_call.name.clone(),
+                });
             }
             Ok(response)
         })
@@ -5041,28 +5044,21 @@ impl super::runtime::RuntimeModelProvider for RecordingFakeProvider {
                 .push(request.clone());
             let mut response = self.inner.generate_response(request)?;
             response.provider = self.provider_kind.clone();
-            for (index, output) in response.output.iter().enumerate() {
-                match output {
-                    GenerateOutputItem::AssistantText { text, .. } => {
-                        on_event(GenerateStreamEvent::AssistantTextDelta {
-                            delta: text.clone(),
-                        });
-                    }
-                    GenerateOutputItem::MemoryProposals { proposals } if !proposals.is_empty() => {
-                        on_event(GenerateStreamEvent::MemoryProposalsStarted);
-                    }
-                    GenerateOutputItem::ToolCall { name, .. } => {
-                        on_event(GenerateStreamEvent::ToolCallStarted {
-                            output_index: index,
-                            name: name.clone(),
-                        });
-                    }
-                    GenerateOutputItem::MemoryProposals { .. }
-                    | GenerateOutputItem::ToolResult { .. }
-                    | GenerateOutputItem::ApprovalRequest { .. }
-                    | GenerateOutputItem::ApprovalResult { .. }
-                    | GenerateOutputItem::Structured { .. } => {}
+            for response_item in &response.responses {
+                if let GenerateResponseItem::Text { text, .. } = response_item {
+                    on_event(GenerateStreamEvent::AssistantTextDelta {
+                        delta: text.clone(),
+                    });
                 }
+            }
+            if !response.memory_proposals.is_empty() {
+                on_event(GenerateStreamEvent::MemoryProposalsStarted);
+            }
+            for (index, tool_call) in response.tool_calls.iter().enumerate() {
+                on_event(GenerateStreamEvent::ToolCallStarted {
+                    output_index: response.responses.len() + index,
+                    name: tool_call.name.clone(),
+                });
             }
             Ok(response)
         })
@@ -5080,13 +5076,11 @@ impl super::runtime::RuntimeModelProvider for CapturingProvider {
                 .lock()
                 .expect("requests")
                 .push(request.clone());
-            Ok(GenerateResponse {
-                output: assistant_with_no_memories("fake answer"),
-                provider: "test".to_string(),
-                model: request.model.unwrap_or_else(|| "fake-model".to_string()),
-                response_id: None,
-                usage: None,
-            })
+            Ok(fake_generate_response(
+                assistant_with_no_memories("fake answer"),
+                "test",
+                request.model.unwrap_or_else(|| "fake-model".to_string()),
+            ))
         })
     }
 }
@@ -5156,13 +5150,11 @@ impl super::runtime::RuntimeModelProvider for MetadataCapturingProvider {
                     request_id: None,
                 });
             }
-            Ok(GenerateResponse {
-                output: assistant_with_no_memories("fake answer"),
-                provider: "test".to_string(),
-                model: request.model.unwrap_or_else(|| "fake-model".to_string()),
-                response_id: None,
-                usage: None,
-            })
+            Ok(fake_generate_response(
+                assistant_with_no_memories("fake answer"),
+                "test",
+                request.model.unwrap_or_else(|| "fake-model".to_string()),
+            ))
         })
     }
 }
@@ -5189,14 +5181,53 @@ impl super::runtime::RuntimeModelProvider for BlockingOnceProvider {
                     provider: "test".to_string(),
                     message: "release signal dropped".to_string(),
                 })?;
-            Ok(GenerateResponse {
-                output: assistant_with_no_memories("slow answer"),
-                provider: "test".to_string(),
-                model: "blocking-once".to_string(),
-                response_id: None,
-                usage: None,
-            })
+            Ok(fake_generate_response(
+                assistant_with_no_memories("slow answer"),
+                "test",
+                "blocking-once".to_string(),
+            ))
         })
+    }
+}
+
+fn fake_generate_response(
+    output: Vec<GenerateOutputItem>,
+    provider: &str,
+    model: String,
+) -> GenerateResponse {
+    let mut responses = Vec::new();
+    let mut tool_calls = Vec::new();
+    let mut memory_proposals = Vec::new();
+
+    for item in output {
+        match item {
+            GenerateOutputItem::AssistantText { phase, text } => {
+                responses.push(GenerateResponseItem::Text { phase, text });
+            }
+            GenerateOutputItem::ToolCall { id, name, payload } => {
+                tool_calls.push(GenerateToolCall { id, name, payload });
+            }
+            GenerateOutputItem::MemoryProposals { proposals } => {
+                memory_proposals.extend(proposals);
+            }
+        }
+    }
+
+    let response_status = if tool_calls.is_empty() {
+        GenerateResponseStatus::Final
+    } else {
+        GenerateResponseStatus::NeedsTools
+    };
+
+    GenerateResponse {
+        responses,
+        tool_calls,
+        memory_proposals,
+        response_status,
+        provider: provider.to_string(),
+        model,
+        response_id: Some("fake-response".to_string()),
+        usage: None,
     }
 }
 
@@ -5212,6 +5243,14 @@ fn assistant_with_no_memories(text: &str) -> Vec<GenerateOutputItem> {
 
 fn search_memory_tool_call(id: &str, payload: serde_json::Value) -> GenerateOutputItem {
     GenerateOutputItem::ToolCall {
+        id: Some(id.to_string()),
+        name: "search_memory".to_string(),
+        payload,
+    }
+}
+
+fn search_memory_action_item(id: &str, payload: serde_json::Value) -> GenerateActionItem {
+    GenerateActionItem::ToolCall {
         id: Some(id.to_string()),
         name: "search_memory".to_string(),
         payload,

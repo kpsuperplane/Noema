@@ -16,8 +16,10 @@ pub mod contract;
 pub mod model_catalog;
 
 pub use contract::{
-    AssistantTextPhase, DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateInput, GenerateMessage,
-    GenerateMessageRole, GenerateOptions, GenerateOutputItem, GenerateRequest, GenerateResponse,
-    GenerateStreamEvent, ModelProvider, PromptCacheRetention, ProviderContextMetadata,
-    ProviderError, TokenUsage, output_items_from_text, required_output_items_from_text,
+    AssistantTextPhase, DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateActionItem, GenerateInput,
+    GenerateMessage, GenerateMessageRole, GenerateOptions, GenerateRequest, GenerateResponse,
+    GenerateResponseItem, GenerateResponseStatus, GenerateStreamEvent, GenerateToolCall,
+    ModelProvider, ParsedNoemaResponse, PromptCacheRetention, ProviderContextMetadata,
+    ProviderError, TokenUsage, noema_response_from_text, output_items_from_text,
+    required_noema_response_from_text,
 };

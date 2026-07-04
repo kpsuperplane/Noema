@@ -5,8 +5,8 @@ use crate::{
     mcp::{mcp_tool_ineligibility, prompt_safe_mcp_tool_description},
     memory::extraction::{ExtractorMemoryProposal, ValidatedMemoryProposal},
     provider::{
-        GenerateInput, GenerateOptions, GenerateOutputItem, GenerateRequest, GenerateResponse,
-        GenerateStreamEvent, PromptCacheRetention, ProviderError,
+        GenerateInput, GenerateOptions, GenerateRequest, GenerateResponse, GenerateResponseStatus,
+        GenerateStreamEvent, GenerateToolCall, PromptCacheRetention, ProviderError,
     },
 };
 use serde_json::json;
@@ -15,8 +15,8 @@ use tokio::sync::mpsc;
 use super::{
     actor::CodexRuntimeActor,
     local_tools::{
-        agent_identity_after_local_tools, local_tool_result_continuation_input,
-        local_tool_result_output_item,
+        agent_identity_after_local_tools, local_tool_result_action_item,
+        local_tool_result_continuation_input,
     },
     tool_lifecycle::local_tool_calls,
     transcript_persistence::{
@@ -203,7 +203,10 @@ impl CodexRuntimeActor {
                 "total_tokens": usage.total_tokens,
                 "cached_input_tokens": usage.cached_input_tokens,
             })),
-            "output": &response.output,
+            "responses": &response.responses,
+            "tool_calls": &response.tool_calls,
+            "memory_proposals": &response.memory_proposals,
+            "response_status": response.response_status,
         });
         let persisted_count = self
             .persist_agent_initiated_provider_response(
@@ -595,8 +598,8 @@ impl CodexRuntimeActor {
         turn: SuccessfulProviderTurn,
         item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
     ) -> Result<(), DaemonError> {
-        let initial_memory_proposals = turn.response.memory_proposals();
-        let initial_output_count = turn.response.output.len();
+        let initial_memory_proposals = turn.response.memory_proposals.clone();
+        let initial_response_count = turn.response.responses.len();
         let action_turn = ProviderActionTurn {
             conversation_id: turn.conversation_id.clone(),
             turn_id: turn.turn_id.clone(),
@@ -606,16 +609,13 @@ impl CodexRuntimeActor {
             stream_id: Some(turn.initial_stream_id.clone()),
         };
         let mut initial_assistant_response = ProviderAssistantResponse::default();
-        let initial_tool_calls = local_tool_calls(&turn.response.output);
+        let initial_tool_calls = local_tool_calls(&turn.response.tool_calls);
         let initial_phase_has_tools = !initial_tool_calls.is_empty();
-        for (index, output) in turn.response.output.iter().cloned().enumerate() {
-            if matches!(output, GenerateOutputItem::ToolCall { .. }) {
-                continue;
-            }
-            self.persist_provider_response_output_item(
+        for (index, response_item) in turn.response.responses.iter().cloned().enumerate() {
+            self.persist_provider_response_item(
                 &action_turn,
                 index,
-                output,
+                response_item,
                 initial_phase_has_tools,
                 &mut initial_assistant_response,
                 item_tx,
@@ -640,7 +640,7 @@ impl CodexRuntimeActor {
             });
         }
 
-        let mut next_output_index = initial_output_count;
+        let mut next_output_index = initial_response_count + initial_tool_calls.len();
         let local_action_turn = ProviderActionTurn {
             conversation_id: turn.conversation_id.clone(),
             turn_id: turn.turn_id.clone(),
@@ -653,7 +653,7 @@ impl CodexRuntimeActor {
         for call in &initial_tool_calls {
             self.persist_provider_tool_call_started(
                 &local_action_turn,
-                call.output_index,
+                initial_response_count + call.output_index,
                 call,
                 item_tx,
             )
@@ -661,10 +661,10 @@ impl CodexRuntimeActor {
             let result = self
                 .execute_local_tool(&turn, &turn.agent_identity, call)
                 .await;
-            self.persist_provider_action_output_item(
+            self.persist_provider_action_item(
                 &local_action_turn,
                 next_output_index,
-                local_tool_result_output_item(&result),
+                local_tool_result_action_item(&result),
                 item_tx,
             )
             .await?;
@@ -746,7 +746,7 @@ impl CodexRuntimeActor {
                     &mut on_continuation_event,
                 )
                 .await?;
-            let continuation_memory_proposals = continuation_response.memory_proposals();
+            let continuation_memory_proposals = continuation_response.memory_proposals.clone();
             let mut continuation_assistant_response = ProviderAssistantResponse::default();
             let continuation_action_turn = ProviderActionTurn {
                 conversation_id: turn.conversation_id.clone(),
@@ -756,23 +756,27 @@ impl CodexRuntimeActor {
                 provider: continuation_response.provider.clone(),
                 stream_id: Some(continuation_stream_id.clone()),
             };
-            let continuation_outputs_for_tools = continuation_response
-                .output
+            let continuation_tool_call_items = continuation_response
+                .tool_calls
                 .iter()
-                .filter(|output| !is_disallowed_continuation_output(output))
+                .filter(|call| !is_disallowed_continuation_tool_call(call))
                 .cloned()
                 .collect::<Vec<_>>();
-            let continuation_output_count = continuation_outputs_for_tools.len();
-            let continuation_tool_calls = local_tool_calls(&continuation_outputs_for_tools);
+            let continuation_response_count = continuation_response.responses.len();
+            let continuation_tool_calls =
+                if continuation_response.response_status == GenerateResponseStatus::NeedsTools {
+                    local_tool_calls(&continuation_tool_call_items)
+                } else {
+                    Vec::new()
+                };
             let continuation_phase_has_tools = !continuation_tool_calls.is_empty();
-            for (offset, output) in continuation_outputs_for_tools.iter().cloned().enumerate() {
-                if matches!(output, GenerateOutputItem::ToolCall { .. }) {
-                    continue;
-                }
-                self.persist_provider_response_output_item(
+            for (offset, response_item) in
+                continuation_response.responses.iter().cloned().enumerate()
+            {
+                self.persist_provider_response_item(
                     &continuation_action_turn,
                     continuation_output_base + offset,
-                    output,
+                    response_item,
                     continuation_phase_has_tools,
                     &mut continuation_assistant_response,
                     item_tx,
@@ -794,7 +798,7 @@ impl CodexRuntimeActor {
                     proposals: continuation_memory_proposals,
                 });
             }
-            next_output_index += continuation_output_count;
+            next_output_index += continuation_response_count + continuation_tool_calls.len();
 
             let continuation_turn = SuccessfulProviderTurn {
                 conversation_id: turn.conversation_id.clone(),
@@ -807,11 +811,14 @@ impl CodexRuntimeActor {
                 model: turn.model.clone(),
                 initial_stream_id: continuation_stream_id.clone(),
                 response: GenerateResponse {
-                    output: continuation_outputs_for_tools,
-                    provider: continuation_response.provider,
-                    model: continuation_response.model,
-                    response_id: continuation_response.response_id,
-                    usage: continuation_response.usage,
+                    responses: continuation_response.responses.clone(),
+                    tool_calls: continuation_tool_call_items,
+                    memory_proposals: continuation_response.memory_proposals.clone(),
+                    response_status: continuation_response.response_status,
+                    provider: continuation_response.provider.clone(),
+                    model: continuation_response.model.clone(),
+                    response_id: continuation_response.response_id.clone(),
+                    usage: continuation_response.usage.clone(),
                 },
                 explicit_memory_outcome: ExplicitMemoryOutcome::None,
                 agent_identity: continuation_agent_identity,
@@ -830,7 +837,7 @@ impl CodexRuntimeActor {
             for call in &continuation_tool_calls {
                 self.persist_provider_tool_call_started(
                     &local_action_turn,
-                    continuation_output_base + call.output_index,
+                    continuation_output_base + continuation_response_count + call.output_index,
                     call,
                     item_tx,
                 )
@@ -838,10 +845,10 @@ impl CodexRuntimeActor {
                 let result = self
                     .execute_local_tool(&continuation_turn, &continuation_turn.agent_identity, call)
                     .await;
-                self.persist_provider_action_output_item(
+                self.persist_provider_action_item(
                     &local_action_turn,
                     next_output_index,
-                    local_tool_result_output_item(&result),
+                    local_tool_result_action_item(&result),
                     item_tx,
                 )
                 .await?;
@@ -1128,9 +1135,6 @@ pub(in crate::daemon) struct ProviderActionOutput {
     pub(in crate::daemon) display: serde_json::Value,
 }
 
-fn is_disallowed_continuation_output(output: &GenerateOutputItem) -> bool {
-    matches!(
-        output,
-        GenerateOutputItem::ToolCall { name, .. } if is_update_own_name_tool(name)
-    )
+fn is_disallowed_continuation_tool_call(call: &GenerateToolCall) -> bool {
+    is_update_own_name_tool(&call.name)
 }
