@@ -69,6 +69,12 @@ The next storage slice should stay small and concrete:
   `memory_proposals[]`. `responses[]` may be empty only for
   `response_status: "needs_tools"` with one or more tool calls, so models can
   run routine single or multiple tools without filler commentary.
+- The next harness direction is the provider-neutral native tool plane in
+  `docs/superpowers/specs/2026-07-04-native-tool-plane-design.md`: executable
+  tool calls should move out of Noema-authored assistant JSON envelopes and
+  into provider-native tool channels wherever supported, with Noema-owned
+  canonical tool specs, schema normalization, provider capability declarations,
+  and explicit fallback policy for providers without native tool support.
 - Derived search/vector indexes are rebuildable projections.
 - Graph or fuzzy retrieval can suggest candidates, but policy gates inclusion.
 - Pre-stable schema changes do not need migrations or backwards compatibility unless explicitly requested.
