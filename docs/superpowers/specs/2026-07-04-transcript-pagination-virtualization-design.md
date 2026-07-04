@@ -20,7 +20,7 @@ transcript rows, and renders every row into the DOM.
 That model is not viable once a transcript may span months or years. The
 existing store already records a monotonic `sequence_index` for each
 conversation item and indexes `(conversation_id, sequence_index)`, making it the
-right cursor for durable transcript pagination.
+right internal source for durable transcript pagination cursors.
 
 ## Non-Goals
 
@@ -56,8 +56,9 @@ transcript order so the frontend can merge pages directly into its normal
 append-order model.
 
 `conversationEvents` remains the live source for current turn updates. Durable
-conversation item events include the item `sequenceIndex` so live appends can
-dedupe and order correctly against paged replay.
+conversation item events include an opaque item `cursor` so live appends can
+dedupe and align correctly against paged replay without exposing the store's
+raw append-order index to clients.
 
 The frontend keeps Apollo for GraphQL queries, mutations, subscriptions, codegen,
 and cache transport. Add `@tanstack/react-virtual` only for transcript row
@@ -88,8 +89,9 @@ type Mutation {
 }
 ```
 
-Add `sequenceIndex: Int!` to `ConversationItem` and durable
-`ConversationItemEvent`.
+Add `cursor: String!` to `ConversationItem` and durable `ConversationItemEvent`.
+The first cursor implementation may encode the store's `sequence_index`, but
+clients must treat the value as opaque.
 
 Add a transcript page result:
 
@@ -101,8 +103,6 @@ type ConversationTranscriptPage {
 
 type ConversationTranscriptPageInfo {
   beforeCursor: String
-  oldestSequenceIndex: Int
-  newestSequenceIndex: Int
   hasMoreBefore: Boolean!
   limit: Int!
 }
@@ -125,8 +125,7 @@ semantics are fixed:
   internally, then reverse them before returning.
 - non-null cursor reads fetch visible items before the decoded cursor position,
   also returning ascending order.
-- the first cursor format is an opaque encoding of the oldest loaded
-  `sequenceIndex`; clients must pass it back unchanged rather than parse it.
+- clients must pass cursors back unchanged rather than parse them.
 - `pageInfo.beforeCursor` is the cursor to pass when fetching the next older
   page; it is null when the returned page has no items.
 - limits are clamped server-side to a small safe range.
@@ -148,8 +147,8 @@ On chat boot:
 
 Older pages load when the virtualized viewport approaches the first rendered
 row. The request uses the current oldest page cursor. The loaded page is
-prepended into the transcript window, deduped by durable `itemId`, and sorted by
-`sequenceIndex`.
+prepended into the transcript window, deduped by durable `itemId`, and kept in
+server-returned transcript order.
 
 Live subscription events append to the same transcript window. Durable live
 items are deduped by `itemId`; optimistic user entries continue to be replaced
@@ -160,7 +159,6 @@ The transcript window model owns:
 - loaded durable replay entries
 - durable live entries
 - optimistic local entries
-- oldest and newest loaded sequence indexes
 - oldest page cursor
 - latest-page loading state
 - older-page loading and retry state
@@ -207,7 +205,9 @@ the top loading affordance becomes retryable.
 
 Overlapping latest, older, and live data is expected. The merge model dedupes by
 durable `itemId`, preserves optimistic replacement by `clientMessageId`, and
-uses `sequenceIndex` as the durable order authority.
+uses server-returned page order plus live append order as the client-side order
+authority. The backend remains responsible for deriving that order from durable
+conversation item append order.
 
 If a subscription item arrives before the latest page finishes loading, the
 window model preserves that live item and merges it once replay arrives.
@@ -230,12 +230,12 @@ GraphQL tests:
 - `conversationTranscriptPage` supports null-cursor latest reads and non-null
   cursor older-page reads
 - invalid limits and malformed cursors are rejected
-- `sequenceIndex` appears on transcript page items
-- durable subscription item events expose `sequenceIndex`
+- `cursor` appears on transcript page items
+- durable subscription item events expose `cursor`
 
 Frontend model tests:
 
-- pages merge in sequence order
+- pages merge in server-returned transcript order
 - overlapping pages dedupe by `itemId`
 - durable live items replace optimistic entries through `clientMessageId`
 - live-before-replay data is preserved and merged
