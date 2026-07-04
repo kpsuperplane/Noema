@@ -41,6 +41,7 @@ const styles = stylex.create({
     overflow: "hidden"
   },
   viewport: {
+    "--chat-transcript-top-fade": "calc(var(--shell-deck-header-height, 44px) + 56px)",
     width: "100%",
     height: "100%",
     minWidth: 0,
@@ -48,7 +49,11 @@ const styles = stylex.create({
     overflowAnchor: "none",
     overflowX: "hidden",
     overflowY: "auto",
-    overscrollBehavior: "contain"
+    overscrollBehavior: "contain",
+    maskImage:
+      "linear-gradient(to bottom, transparent 0, black var(--chat-transcript-top-fade), black calc(100% - var(--chat-transcript-bottom-fade, 128px)), transparent 100%)",
+    WebkitMaskImage:
+      "linear-gradient(to bottom, transparent 0, black var(--chat-transcript-top-fade), black calc(100% - var(--chat-transcript-bottom-fade, 128px)), transparent 100%)"
   },
   content: {
     display: "flex",
@@ -60,8 +65,8 @@ const styles = stylex.create({
     justifyContent: "flex-end",
     gap: 12,
     marginInline: "auto",
-    paddingTop: "calc(var(--shell-deck-header-height, 44px) + 24px)",
-    paddingBottom: "max(56px, calc(var(--chat-composer-dock-height, 0px) - 12px))",
+    paddingTop: 24,
+    paddingBottom: "max(56px, calc(var(--chat-composer-dock-height, 0px) - 16px))",
     paddingInline: 2
   },
   item: {

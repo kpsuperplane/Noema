@@ -96,7 +96,8 @@ export function ChatSurface({
   const rootStyle = React.useMemo(
     () =>
       ({
-        "--chat-composer-dock-height": `${composerDockHeight}px`
+        "--chat-composer-dock-height": `${composerDockHeight}px`,
+        "--chat-transcript-bottom-fade": `calc(${composerDockHeight}px + 72px)`
       }) as React.CSSProperties,
     [composerDockHeight]
   );
@@ -161,7 +162,7 @@ const styles = stylex.create({
     overflow: "hidden"
   },
   emptyContentLayer: {
-    paddingTop: "var(--shell-deck-header-height, 44px)",
+    paddingTop: 24,
     paddingBottom: "var(--chat-composer-dock-height)"
   },
   composerDock: {
