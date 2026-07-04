@@ -409,7 +409,8 @@ mod tests {
         );
         let calls = response.native_tool_calls().expect("native calls");
         assert_eq!(calls.len(), 1);
-        assert_eq!(calls[0].id.as_deref(), Some("call_1"));
+        assert_eq!(calls[0].id.as_deref(), Some("item_1"));
+        assert_eq!(calls[0].provider_call_id.as_deref(), Some("call_1"));
         assert_eq!(calls[0].name, "search_memory");
         assert_eq!(calls[0].payload["query"], "trains");
     }
