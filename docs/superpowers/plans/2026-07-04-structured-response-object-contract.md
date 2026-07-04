@@ -4,7 +4,7 @@
 
 **Goal:** Replace Noema's ordered provider `output` array contract with an explicit object contract using `responses`, `tool_calls`, `response_status`, and top-level `memory_proposals`.
 
-**Architecture:** The provider-facing Noema response envelope should describe semantic intent, not transcript ordering. Model-visible outputs live in `responses[]`, executable actions live in `tool_calls[]`, memory candidates live in `memory_proposals[]`, and the daemon projects those fields into transcript rows and runtime tool lifecycle rows. Empty `responses` is valid for intermediate tool-only turns so the assistant can run routine tool calls without filler commentary.
+**Architecture:** The provider-facing Noema response object should describe semantic intent, not transcript ordering. Model-visible outputs live in `responses[]`, executable actions live in `tool_calls[]`, memory candidates live in `memory_proposals[]`, and the daemon projects those fields into transcript rows and runtime tool lifecycle rows. Empty `responses` is valid for intermediate tool-only turns so the assistant can run routine tool calls without filler commentary.
 
 **Tech Stack:** Rust provider contract and daemon runtime, serde JSON parsing, existing Noema streaming extractor, SurrealDB-backed transcript persistence, existing React transcript renderer.
 
@@ -16,7 +16,6 @@ The required provider response shape becomes:
 
 ```json
 {
-  "type": "noema_response",
   "response_status": "final",
   "responses": [
     {
@@ -34,7 +33,6 @@ Silent intermediate tool use is valid:
 
 ```json
 {
-  "type": "noema_response",
   "response_status": "needs_tools",
   "responses": [],
   "tool_calls": [
@@ -57,7 +55,6 @@ Commentary before tools is also valid:
 
 ```json
 {
-  "type": "noema_response",
   "response_status": "needs_tools",
   "responses": [
     {
@@ -84,7 +81,6 @@ Commentary before tools is also valid:
 
 Validation invariants:
 
-- `type` must be `"noema_response"`.
 - `response_status` must be `"needs_tools"` or `"final"`.
 - `responses` must be an array. It may be empty only when `response_status` is `"needs_tools"` and `tool_calls` is non-empty.
 - `tool_calls` must be an array. It may contain multiple independent calls.
@@ -108,7 +104,7 @@ Frontend transcript rendering should not need changes. The daemon still persists
   - Add `GenerateToolCall` for `tool_calls[]`.
   - Change `GenerateResponse` from `output: Vec<GenerateOutputItem>` to explicit fields.
   - Keep a small runtime-only action enum for tool results, approvals, and provider action persistence.
-  - Parse the new object envelope and reject old required `output` envelopes.
+  - Parse the new response object and reject old required `output` objects.
 - Modify: `crates/noema-core/src/provider.rs`
   - Re-export the new contract types.
 - Modify: `crates/noema-core/src/provider/adapters/noema_response_stream.rs`
@@ -153,7 +149,7 @@ Frontend transcript rendering should not need changes. The daemon still persists
 - Modify: `crates/noema-core/src/provider/contract.rs`
 - Modify: `crates/noema-core/src/provider.rs`
 
-- [ ] **Step 1: Write failing contract tests for the new envelope**
+- [ ] **Step 1: Write failing contract tests for the new response object**
 
 Add these tests to `crates/noema-core/src/provider/contract.rs` inside the existing `#[cfg(test)] mod tests`.
 
@@ -161,7 +157,7 @@ Add these tests to `crates/noema-core/src/provider/contract.rs` inside the exist
 #[test]
 fn required_noema_response_accepts_object_contract_final_text() {
     let response = required_noema_response_from_text(
-        r#"{"type":"noema_response","response_status":"final","responses":[{"kind":"text","phase":"final_answer","text":"Done."}],"tool_calls":[],"memory_proposals":[]}"#
+        r#"{"response_status":"final","responses":[{"kind":"text","phase":"final_answer","text":"Done."}],"tool_calls":[],"memory_proposals":[]}"#
             .to_string(),
     )
     .expect("required structured response");
@@ -181,7 +177,7 @@ fn required_noema_response_accepts_object_contract_final_text() {
 #[test]
 fn required_noema_response_accepts_silent_tool_calls() {
     let response = required_noema_response_from_text(
-        r#"{"type":"noema_response","response_status":"needs_tools","responses":[],"tool_calls":[{"id":"call_1","name":"search_memory","payload":{"scope_ids":["human:local"],"query":"","purpose":"answer_human_question","limit":8}}],"memory_proposals":[]}"#
+        r#"{"response_status":"needs_tools","responses":[],"tool_calls":[{"id":"call_1","name":"search_memory","payload":{"scope_ids":["human:local"],"query":"","purpose":"answer_human_question","limit":8}}],"memory_proposals":[]}"#
             .to_string(),
     )
     .expect("silent tool call response");
@@ -196,7 +192,7 @@ fn required_noema_response_accepts_silent_tool_calls() {
 #[test]
 fn required_noema_response_rejects_final_without_responses() {
     let error = required_noema_response_from_text(
-        r#"{"type":"noema_response","response_status":"final","responses":[],"tool_calls":[],"memory_proposals":[]}"#
+        r#"{"response_status":"final","responses":[],"tool_calls":[],"memory_proposals":[]}"#
             .to_string(),
     )
     .unwrap_err();
@@ -211,7 +207,7 @@ fn required_noema_response_rejects_final_without_responses() {
 #[test]
 fn required_noema_response_rejects_tool_calls_in_final_response() {
     let error = required_noema_response_from_text(
-        r#"{"type":"noema_response","response_status":"final","responses":[{"kind":"text","phase":"final_answer","text":"Done."}],"tool_calls":[{"id":"call_1","name":"search_memory","payload":{}}],"memory_proposals":[]}"#
+        r#"{"response_status":"final","responses":[{"kind":"text","phase":"final_answer","text":"Done."}],"tool_calls":[{"id":"call_1","name":"search_memory","payload":{}}],"memory_proposals":[]}"#
             .to_string(),
     )
     .unwrap_err();
@@ -226,7 +222,7 @@ fn required_noema_response_rejects_tool_calls_in_final_response() {
 #[test]
 fn required_noema_response_rejects_old_output_array_contract() {
     let error = required_noema_response_from_text(
-        r#"{"type":"noema_response","output":[{"kind":"assistant_text","text":"old"}]}"#
+        r#"{"output":[{"kind":"assistant_text","text":"old"}]}"#
             .to_string(),
     )
     .unwrap_err();
@@ -448,20 +444,20 @@ Keep `output_items_from_text` only for non-required plain text compatibility. Ad
 /// # Errors
 ///
 /// Returns [`ProviderError::MalformedResponse`] when the payload is not a
-/// strict `noema_response` object contract.
+/// strict Noema response object contract.
 pub fn required_noema_response_from_text(
     text: String,
 ) -> Result<ParsedNoemaResponse, ProviderError> {
     noema_response_from_text_with_mode(text, true)
 }
 
-/// Parse provider text into a Noema structured response when it contains an
-/// explicit envelope.
+/// Parse provider text into a Noema structured response when it contains the
+/// response object contract.
 ///
 /// # Errors
 ///
-/// Returns [`ProviderError::MalformedResponse`] when an explicit envelope is
-/// present but invalid.
+/// Returns [`ProviderError::MalformedResponse`] when a response-shaped object
+/// is present but invalid.
 pub fn noema_response_from_text(text: String) -> Result<Option<ParsedNoemaResponse>, ProviderError> {
     let trimmed = text.trim();
     if trimmed.is_empty() {
@@ -476,7 +472,7 @@ pub fn noema_response_from_text(text: String) -> Result<Option<ParsedNoemaRespon
 }
 ```
 
-Add this parsed envelope type:
+Add this parsed response type:
 
 ```rust
 #[derive(Debug, Clone, PartialEq)]
@@ -488,16 +484,14 @@ pub struct ParsedNoemaResponse {
 }
 ```
 
-- [ ] **Step 2: Add serde envelope structs**
+- [ ] **Step 2: Add serde response object structs**
 
 Replace `GenerateOutputEnvelope` with:
 
 ```rust
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct NoemaResponseEnvelope {
-    #[serde(rename = "type")]
-    _envelope_type: String,
+struct NoemaResponseObject {
     response_status: GenerateResponseStatus,
     responses: Vec<GenerateResponseItem>,
     tool_calls: Vec<GenerateToolCall>,
@@ -505,7 +499,7 @@ struct NoemaResponseEnvelope {
 }
 ```
 
-- [ ] **Step 3: Implement object envelope parsing**
+- [ ] **Step 3: Implement response object parsing**
 
 Add:
 
@@ -527,7 +521,7 @@ fn noema_response_from_text_with_mode(
         }
         if require_noema_response {
             return Err(ProviderError::MalformedResponse {
-                message: "provider did not return a Noema structured response envelope".to_string(),
+                message: "provider did not return a Noema structured response object".to_string(),
             });
         }
     }
@@ -539,7 +533,7 @@ fn noema_response_from_text_with_mode(
     }
 
     Err(ProviderError::MalformedResponse {
-        message: "provider did not return a Noema structured response envelope".to_string(),
+        message: "provider did not return a Noema structured response object".to_string(),
     })
 }
 
@@ -547,29 +541,35 @@ fn noema_response_from_structured_value(
     value: Value,
     require_noema_response: bool,
 ) -> Result<Option<ParsedNoemaResponse>, ProviderError> {
-    let is_explicit_envelope = value.get("type").and_then(Value::as_str) == Some("noema_response");
-    if !is_explicit_envelope {
+    if !looks_like_noema_response_object(&value) && !require_noema_response {
         return Ok(None);
     }
 
-    let envelope: NoemaResponseEnvelope =
+    let response_object: NoemaResponseObject =
         serde_json::from_value(value).map_err(|source| ProviderError::MalformedResponse {
             message: format!("invalid Noema structured response: {source}"),
         })?;
     let parsed = ParsedNoemaResponse {
-        responses: envelope.responses,
-        tool_calls: envelope.tool_calls,
-        memory_proposals: envelope.memory_proposals,
-        response_status: envelope.response_status,
+        responses: response_object.responses,
+        tool_calls: response_object.tool_calls,
+        memory_proposals: response_object.memory_proposals,
+        response_status: response_object.response_status,
     };
     if require_noema_response {
         validate_required_noema_response(&parsed)?;
     }
     Ok(Some(parsed))
 }
+
+fn looks_like_noema_response_object(value: &Value) -> bool {
+    value.get("response_status").is_some()
+        || value.get("responses").is_some()
+        || value.get("tool_calls").is_some()
+        || value.get("memory_proposals").is_some()
+}
 ```
 
-- [ ] **Step 4: Implement envelope validation**
+- [ ] **Step 4: Implement response object validation**
 
 Replace `validate_required_noema_response_output` with:
 
@@ -659,7 +659,7 @@ pub fn output_items_from_text(text: String) -> Result<Vec<GenerateResponseItem>,
 }
 ```
 
-- [ ] **Step 6: Parse embedded required envelopes**
+- [ ] **Step 6: Parse embedded required response objects**
 
 Replace `embedded_required_noema_response_output` with:
 
@@ -672,12 +672,15 @@ fn embedded_required_noema_response(
         let Ok(value) = serde_json::from_str::<Value>(candidate) else {
             continue;
         };
+        if !looks_like_noema_response_object(&value) {
+            continue;
+        }
         let Some(candidate_output) = noema_response_from_structured_value(value, true)? else {
             continue;
         };
         if output.is_some() {
             return Err(ProviderError::MalformedResponse {
-                message: "provider returned multiple Noema structured response envelopes"
+                message: "provider returned multiple Noema structured response objects"
                     .to_string(),
             });
         }
@@ -857,7 +860,7 @@ Add these tests to `noema_response_stream.rs`:
 #[test]
 fn noema_stream_extractor_streams_text_from_responses_array() {
     let streamed_text = extract_streamed_text(&[
-        r#"{"type":"noema_response","response_status":"final","responses":[{"kind":"text","phase":"final_answer","text":"Hel"#,
+        r#"{"response_status":"final","responses":[{"kind":"text","phase":"final_answer","text":"Hel"#,
         r#"lo"}],"tool_calls":[],"memory_proposals":[]}"#,
     ]);
 
@@ -869,7 +872,7 @@ fn noema_stream_extractor_emits_tool_call_started_from_tool_calls_array() {
     let mut extractor = NoemaAssistantTextDeltaExtractor::default();
     let mut events = Vec::new();
     extractor.push_delta(
-        r#"{"type":"noema_response","response_status":"needs_tools","responses":[],"tool_calls":[{"id":"call_1","name":"search_memory","payload":{}}],"memory_proposals":[]}"#,
+        r#"{"response_status":"needs_tools","responses":[],"tool_calls":[{"id":"call_1","name":"search_memory","payload":{}}],"memory_proposals":[]}"#,
         &mut |event| events.push(event),
     );
 
@@ -889,7 +892,7 @@ fn noema_stream_extractor_emits_memory_started_from_top_level_memory_proposals()
     let mut extractor = NoemaAssistantTextDeltaExtractor::default();
     let mut events = Vec::new();
     extractor.push_delta(
-        r#"{"type":"noema_response","response_status":"final","responses":[{"kind":"text","phase":"final_answer","text":"Saved."}],"tool_calls":[],"memory_proposals":[{"#,
+        r#"{"response_status":"final","responses":[{"kind":"text","phase":"final_answer","text":"Saved."}],"tool_calls":[],"memory_proposals":[{"#,
         &mut |event| events.push(event),
     );
 
@@ -1099,7 +1102,6 @@ In `build_structured_turn_system_prompt`, replace the current JSON shape block w
 ```rust
 Return exactly this top-level shape:
 {{
-  "type": "noema_response",
   "response_status": "final",
   "responses": [
     {{"kind":"text","phase":"final_answer","text":"assistant reply to show the user"}}
@@ -1130,7 +1132,7 @@ Response and tool-call rules:
 - Use phase "final_answer" only for terminal answer text in a final response.
 - You may emit multiple independent tool calls in tool_calls when they do not depend on each other's results.
 - If a later tool call depends on an earlier tool result, emit only the ready tool call now; after Noema sends a NOEMA_LOCAL_TOOL_RESULT message, continue with the next tool call or final answer.
-Example silent tool response: {{"type":"noema_response","response_status":"needs_tools","responses":[],"tool_calls":[{{"id":"call_1","name":"mcp.web.search","payload":{{"query":"example"}}}}],"memory_proposals":[]}}
+Example silent tool response: {{"response_status":"needs_tools","responses":[],"tool_calls":[{{"id":"call_1","name":"mcp.web.search","payload":{{"query":"example"}}}}],"memory_proposals":[]}}
 ```
 
 - [ ] **Step 5: Replace the memory proposal rules**
@@ -1157,7 +1159,6 @@ In `build_initial_name_onboarding_system_prompt`, use:
 ```rust
 Return exactly this top-level shape:
 {{
-  "type": "noema_response",
   "response_status": "final",
   "responses": [
     {{"kind":"text","phase":"final_answer","text":"a warm, concise onboarding message ending with a naming question"}}
