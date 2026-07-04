@@ -6,10 +6,14 @@ use crate::{
     SystemErrorLogger,
     mcp::{
         McpClientError, McpClientRuntime, McpTransport, SseMcpTransport, StdioMcpTransport,
-        StreamableHttpMcpTransport, mcp_tool_ineligibility, secrets::read_mcp_secrets,
+        StreamableHttpMcpTransport, mcp_tool_ineligibility,
+        secrets::{
+            McpOAuthStoredCredentials, McpSecretMaterial, read_mcp_secrets, write_mcp_secrets,
+        },
     },
 };
 use serde_json::{Value, json};
+use std::path::Path;
 
 /// Runtime gateway facade.
 pub struct CapabilityGateway<'a> {
@@ -99,8 +103,8 @@ impl CapabilityGateway<'_> {
             return Err(reason.gateway_error());
         }
 
-        let secrets = read_mcp_secrets(&self.store.mcp_server_home(&server.mcp_server_id))
-            .map_err(|_| "mcp_secrets_unavailable")?;
+        let server_home = self.store.mcp_server_home(&server.mcp_server_id);
+        let mut secrets = read_mcp_secrets(&server_home).map_err(|_| "mcp_secrets_unavailable")?;
         let arguments = tool_arguments_from_payload(payload)?;
         let result = match server.transport_kind {
             McpTransportKind::Stdio => {
@@ -119,7 +123,19 @@ impl CapabilityGateway<'_> {
                         Some(self.system_errors.clone()),
                         Some(server.mcp_server_id.clone()),
                     );
-                call_mcp_transport_tool(transport, &tool.name, arguments.clone()).await
+                let (result, transport) = call_mcp_transport_tool_returning_transport(
+                    transport,
+                    &tool.name,
+                    arguments.clone(),
+                )
+                .await;
+                persist_refreshed_oauth_credentials(
+                    &server_home,
+                    &mut secrets,
+                    transport.oauth_credentials(),
+                )
+                .map_err(|_| "mcp_secrets_unavailable")?;
+                result
             }
             McpTransportKind::StreamableHttp => {
                 let transport = StreamableHttpMcpTransport::from_server_config(&server, &secrets)
@@ -128,7 +144,19 @@ impl CapabilityGateway<'_> {
                         Some(self.system_errors.clone()),
                         Some(server.mcp_server_id.clone()),
                     );
-                call_mcp_transport_tool(transport, &tool.name, arguments.clone()).await
+                let (result, transport) = call_mcp_transport_tool_returning_transport(
+                    transport,
+                    &tool.name,
+                    arguments.clone(),
+                )
+                .await;
+                persist_refreshed_oauth_credentials(
+                    &server_home,
+                    &mut secrets,
+                    transport.oauth_credentials(),
+                )
+                .map_err(|_| "mcp_secrets_unavailable")?;
+                result
             }
         };
         match result {
@@ -269,6 +297,34 @@ where
 {
     let mut runtime = McpClientRuntime::new(transport);
     runtime.call_tool(tool_name, arguments).await
+}
+
+async fn call_mcp_transport_tool_returning_transport<T>(
+    transport: T,
+    tool_name: &str,
+    arguments: Value,
+) -> (Result<Value, McpClientError>, T)
+where
+    T: McpTransport,
+{
+    let mut runtime = McpClientRuntime::new(transport);
+    let result = runtime.call_tool(tool_name, arguments).await;
+    (result, runtime.into_inner())
+}
+
+fn persist_refreshed_oauth_credentials(
+    server_home: &Path,
+    secrets: &mut McpSecretMaterial,
+    credentials: Option<&McpOAuthStoredCredentials>,
+) -> std::io::Result<()> {
+    let Some(credentials) = credentials else {
+        return Ok(());
+    };
+    if secrets.oauth_credentials.as_ref() == Some(credentials) {
+        return Ok(());
+    }
+    secrets.oauth_credentials = Some(credentials.clone());
+    write_mcp_secrets(server_home, secrets)
 }
 
 #[cfg(test)]

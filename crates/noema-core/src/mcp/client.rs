@@ -128,6 +128,12 @@ where
         Self { transport }
     }
 
+    /// Return the underlying transport after a runtime operation.
+    #[must_use]
+    pub fn into_inner(self) -> T {
+        self.transport
+    }
+
     /// Initialize the transport and list discovered MCP tools.
     ///
     /// This method performs only metadata discovery. It does not call or invoke

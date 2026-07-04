@@ -1,6 +1,11 @@
 //! Disk-backed MCP secret storage.
 
-use std::{collections::BTreeMap, fs, io, path::Path};
+use std::{
+    collections::BTreeMap,
+    fs, io,
+    path::Path,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use serde::{Deserialize, Serialize};
 
@@ -53,6 +58,18 @@ pub struct McpOAuthStoredCredentials {
     pub client_id: String,
     /// Serialized OAuth token response returned by the MCP OAuth server.
     pub token_response: serde_json::Value,
+    /// Unix timestamp when the token response was received.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub token_received_at: Option<u64>,
+}
+
+/// Current Unix timestamp in seconds for OAuth token receipt bookkeeping.
+#[must_use]
+pub(crate) fn now_epoch_seconds() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
 }
 
 /// Write MCP secrets under one server's private home directory.

@@ -192,7 +192,10 @@ The next storage slice should stay small and concrete:
   OAuth client credentials. Servers originally authenticated through hosted
   browser OAuth, such as Dex, are detected from persisted OAuth credential refs
   and restart the browser authorization flow for reauthentication instead of
-  prompting for OAuth client ID/secret material.
+  prompting for OAuth client ID/secret material. Browser OAuth credentials now
+  persist token receipt time, refresh near expiry before tool calls, preserve
+  refresh tokens when providers omit unchanged refresh material, and write
+  refreshed credentials back to the MCP secret file.
   Web Settings also exposes MCPs, Trusted Identities, and Approvals surfaces
   backed by GraphQL read models where live data exists.
 - Routed web surfaces learn shell-owned deck state through

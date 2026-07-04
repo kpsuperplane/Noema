@@ -12,7 +12,7 @@ use url::Url;
 use crate::{
     McpTransportKind, StoreError,
     mcp::{
-        secrets::{McpOAuthStoredCredentials, McpSecretMaterial},
+        secrets::{McpOAuthStoredCredentials, McpSecretMaterial, now_epoch_seconds},
         setup::{McpServerSetupResult, NewMcpServerSetup},
     },
 };
@@ -413,6 +413,7 @@ pub async fn oauth_secret_material(
                 "MCP OAuth credentials could not be stored: {error}"
             ))
         })?,
+        token_received_at: Some(now_epoch_seconds()),
     });
     Ok(base)
 }
