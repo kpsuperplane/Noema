@@ -178,6 +178,8 @@ struct CodexResponsesRequest {
     tool_choice: Option<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     parallel_tool_calls: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    prompt_cache_key: Option<String>,
     store: bool,
     stream: bool,
 }
@@ -195,6 +197,7 @@ impl CodexResponsesRequest {
         input: &GenerateInput,
         instructions: Option<String>,
         options: &GenerateOptions,
+        prompt_cache_key: Option<String>,
         tool_fields: CodexResponsesToolFields,
     ) -> Self {
         Self {
@@ -209,10 +212,16 @@ impl CodexResponsesRequest {
             tools: tool_fields.tools,
             tool_choice: tool_fields.tool_choice,
             parallel_tool_calls: tool_fields.parallel_tool_calls,
+            prompt_cache_key,
             store: false,
             stream: true,
         }
     }
+}
+
+fn prompt_cache_key_from_conversation_id(conversation_id: Option<&str>) -> Option<String> {
+    let conversation_id = conversation_id?.trim();
+    (!conversation_id.is_empty()).then(|| conversation_id.to_string())
 }
 
 #[derive(Debug, Serialize)]
@@ -304,11 +313,14 @@ impl CodexResponsesProvider {
             tool_choice: responses_tool_choice(request.tool_choice, has_tools),
             parallel_tool_calls: has_tools.then_some(request.parallel_tool_calls),
         };
+        let prompt_cache_key =
+            prompt_cache_key_from_conversation_id(request.conversation_id.as_deref());
         let body = CodexResponsesRequest::new(
             model.clone(),
             &request.input,
             instructions.clone(),
             &request.options,
+            prompt_cache_key.clone(),
             tool_fields.clone(),
         );
         let diagnostics = ResponsesDiagnosticContext::new(
@@ -354,6 +366,7 @@ impl CodexResponsesProvider {
                     &request.input,
                     instructions,
                     &request.options,
+                    prompt_cache_key,
                     tool_fields,
                 );
                 self.transport
@@ -866,6 +879,34 @@ mod tests {
         assert!(body.get("prompt_cache_retention").is_none());
 
         assert_eq!(response.assistant_text(), "Hello again");
+    }
+
+    #[tokio::test]
+    async fn sends_codex_prompt_cache_key_for_conversation_requests() {
+        let (base_url, request_rx) = spawn_server(
+            200,
+            "event: response.output_text.delta\n\
+             data: {\"type\":\"response.output_text.delta\",\"delta\":\"Hello\"}\n\
+             \n\
+             event: response.completed\n\
+             data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_test\",\"model\":\"gpt-test\",\"status\":\"completed\"}}\n\
+             \n",
+        )
+        .await;
+        let (provider, _dir) = provider_with_tokens(base_url);
+
+        let response = provider
+            .generate(GenerateRequest {
+                conversation_id: Some("conversation:cacheable".to_string()),
+                ..GenerateRequest::text("Hello?")
+            })
+            .await
+            .expect("response");
+
+        let captured = request_rx.await.expect("captured request");
+        let body: Value = serde_json::from_str(&captured.body).expect("json body");
+        assert_eq!(body["prompt_cache_key"], "conversation:cacheable");
+        assert_eq!(response.assistant_text(), "Hello");
     }
 
     #[tokio::test]
