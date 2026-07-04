@@ -97,7 +97,7 @@ export function ChatSurface({
     () =>
       ({
         "--chat-composer-dock-height": `${composerDockHeight}px`,
-        "--chat-transcript-bottom-fade": `calc(${composerDockHeight}px + 72px)`
+        "--chat-transcript-bottom-fade": `calc(${composerDockHeight}px + 8px)`
       }) as React.CSSProperties,
     [composerDockHeight]
   );
