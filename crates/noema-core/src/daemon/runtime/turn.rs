@@ -704,8 +704,25 @@ impl CodexRuntimeActor {
             let continuation_agent_identity =
                 agent_identity_after_local_tools(&turn.agent_identity, &all_local_tool_results);
             let continuation_result_refs = continuation_tool_results.iter().collect::<Vec<_>>();
-            let continuation_input =
-                local_tool_result_continuation_input(&continuation_result_refs);
+            let continuation_input = if turn.tool_capabilities.native_tool_results {
+                continuation_result_refs
+                    .iter()
+                    .map(|result| result.native_tool_result_input())
+                    .collect::<Option<Vec<_>>>()
+                    .map_or_else(
+                        || {
+                            GenerateInput::Text(
+                                local_tool_result_continuation_input(&continuation_result_refs)
+                                    .to_string(),
+                            )
+                        },
+                        GenerateInput::NativeToolResults,
+                    )
+            } else {
+                GenerateInput::Text(
+                    local_tool_result_continuation_input(&continuation_result_refs).to_string(),
+                )
+            };
             let continuation_instructions = build_local_tool_result_continuation_system_prompt(
                 &turn.conversation_id,
                 turn.turn_index,
@@ -760,7 +777,7 @@ impl CodexRuntimeActor {
                     GenerateRequest {
                         conversation_id: Some(turn.conversation_id.clone()),
                         model: turn.model.clone(),
-                        input: GenerateInput::Text(continuation_input.to_string()),
+                        input: continuation_input,
                         instructions: Some(continuation_instructions),
                         options: GenerateOptions {
                             require_noema_response: true,

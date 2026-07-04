@@ -4,8 +4,8 @@ use super::sse::SseAccumulator;
 use crate::{
     SYSTEM_ERROR_PROVIDER_MALFORMED_RESPONSE, SystemErrorEvent, SystemErrorLogger,
     provider::{
-        GenerateInput, GenerateMessageRole, GenerateStreamEvent, PromptCacheRetention,
-        ProviderError, TokenUsage,
+        GenerateInput, GenerateMessageRole, GenerateStreamEvent, GenerateToolResultInput,
+        PromptCacheRetention, ProviderError, TokenUsage,
     },
 };
 use futures_util::StreamExt;
@@ -241,28 +241,49 @@ pub(super) fn noema_response_text_format() -> Value {
 pub enum ResponsesInput {
     /// Plain text input.
     Text(String),
-    /// Role-tagged input messages.
-    Messages(Vec<ResponsesInputMessage>),
+    /// Structured Responses input items.
+    Items(Vec<ResponsesInputItem>),
 }
 
 impl From<&GenerateInput> for ResponsesInput {
     fn from(value: &GenerateInput) -> Self {
         match value {
             GenerateInput::Text(text) => Self::Text(text.clone()),
-            GenerateInput::Messages(messages) => Self::Messages(
+            GenerateInput::Messages(messages) => Self::Items(
                 messages
                     .iter()
                     .filter(|message| !message.content.trim().is_empty())
-                    .map(|message| ResponsesInputMessage {
-                        role: match message.role {
-                            GenerateMessageRole::User => "user",
-                            GenerateMessageRole::Assistant => "assistant",
-                        },
-                        content: message.content.clone(),
+                    .map(|message| {
+                        ResponsesInputItem::Message(ResponsesInputMessage {
+                            role: match message.role {
+                                GenerateMessageRole::User => "user",
+                                GenerateMessageRole::Assistant => "assistant",
+                            },
+                            content: message.content.clone(),
+                        })
                     })
                     .collect(),
             ),
+            GenerateInput::NativeToolResults(results) => {
+                Self::Items(results.iter().map(ResponsesInputItem::from).collect())
+            }
         }
+    }
+}
+
+/// One Responses API input item.
+#[derive(Debug, Serialize)]
+#[serde(untagged)]
+pub enum ResponsesInputItem {
+    /// Provider role message.
+    Message(ResponsesInputMessage),
+    /// Native function-call output.
+    FunctionCallOutput(ResponsesFunctionCallOutput),
+}
+
+impl From<&GenerateToolResultInput> for ResponsesInputItem {
+    fn from(value: &GenerateToolResultInput) -> Self {
+        Self::FunctionCallOutput(ResponsesFunctionCallOutput::from(value))
     }
 }
 
@@ -273,6 +294,31 @@ pub struct ResponsesInputMessage {
     pub role: &'static str,
     /// Message text.
     pub content: String,
+}
+
+/// One Responses API native function-call output input item.
+#[derive(Debug, Serialize)]
+pub struct ResponsesFunctionCallOutput {
+    #[serde(rename = "type")]
+    kind: &'static str,
+    call_id: String,
+    output: String,
+}
+
+impl ResponsesFunctionCallOutput {
+    fn new(result: &GenerateToolResultInput) -> Self {
+        Self {
+            kind: "function_call_output",
+            call_id: result.call_id.clone(),
+            output: result.output_json_string(),
+        }
+    }
+}
+
+impl From<&GenerateToolResultInput> for ResponsesFunctionCallOutput {
+    fn from(result: &GenerateToolResultInput) -> Self {
+        Self::new(result)
+    }
 }
 
 /// Parsed Responses-compatible API response.
@@ -386,7 +432,8 @@ impl ResponsesResponse {
                 });
             }
             calls.push(crate::provider::GenerateToolCall {
-                id: call_id.clone().or_else(|| id.clone()),
+                id: id.clone(),
+                provider_call_id: call_id.clone().or_else(|| id.clone()),
                 name: tool_names.canonical_name(name).to_string(),
                 payload,
             });
@@ -848,7 +895,8 @@ mod tests {
         let calls = response.native_tool_calls().expect("tool calls");
 
         assert_eq!(calls.len(), 1);
-        assert_eq!(calls[0].id.as_deref(), Some("call_1"));
+        assert_eq!(calls[0].id.as_deref(), Some("item_1"));
+        assert_eq!(calls[0].provider_call_id.as_deref(), Some("call_1"));
         assert_eq!(calls[0].name, "search_memory");
         assert_eq!(calls[0].payload["query"], "trains");
         assert_eq!(
@@ -935,6 +983,33 @@ mod tests {
 
         assert_eq!(calls.len(), 1);
         assert_eq!(calls[0].id.as_deref(), Some("item_1"));
+        assert_eq!(calls[0].provider_call_id.as_deref(), Some("item_1"));
+    }
+
+    #[test]
+    fn responses_input_serializes_native_tool_results() {
+        let input =
+            GenerateInput::NativeToolResults(vec![crate::provider::GenerateToolResultInput {
+                call_id: "call_1".to_string(),
+                name: "search_memory".to_string(),
+                success: true,
+                payload: serde_json::json!({"facts": ["Kevin likes trains"]}),
+            }]);
+
+        let value = serde_json::to_value(ResponsesInput::from(&input)).expect("serialize");
+
+        assert_eq!(value[0]["type"], "function_call_output");
+        assert_eq!(value[0]["call_id"], "call_1");
+        let output: Value =
+            serde_json::from_str(value[0]["output"].as_str().expect("output string"))
+                .expect("output json");
+        assert_eq!(output["call_id"], "call_1");
+        assert_eq!(output["name"], "search_memory");
+        assert_eq!(output["success"], true);
+        assert_eq!(
+            output["payload"]["facts"],
+            serde_json::json!(["Kevin likes trains"])
+        );
     }
 
     #[test]

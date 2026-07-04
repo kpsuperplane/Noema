@@ -1,6 +1,6 @@
 use crate::{
     capability::{CapabilityGateway, GatewayToolProposal, GatewayToolResult},
-    provider::GenerateActionItem,
+    provider::{GenerateActionItem, GenerateToolResultInput},
 };
 use serde_json::{Value, json};
 
@@ -38,18 +38,30 @@ impl CodexRuntimeActor {
                 cwd: turn.cwd.clone(),
                 user_input: turn.user_input.clone(),
             };
-            LocalToolResult::Memory(
-                execute_search_memory(&self.store, &context, call.call_id.clone(), &call.payload)
-                    .await,
-            )
+            LocalToolResult::Memory {
+                provider_call_id: call.provider_call_id.clone(),
+                result: execute_search_memory(
+                    &self.store,
+                    &context,
+                    call.call_id.clone(),
+                    &call.payload,
+                )
+                .await,
+            }
         } else if is_update_own_name_tool(&call.name) {
             let context = AgentNameToolRuntimeContext {
                 agent_id: agent_identity.agent_id.clone(),
             };
-            LocalToolResult::AgentName(
-                execute_update_own_name(&self.store, &context, call.call_id.clone(), &call.payload)
-                    .await,
-            )
+            LocalToolResult::AgentName {
+                provider_call_id: call.provider_call_id.clone(),
+                result: execute_update_own_name(
+                    &self.store,
+                    &context,
+                    call.call_id.clone(),
+                    &call.payload,
+                )
+                .await,
+            }
         } else {
             let proposal = GatewayToolProposal {
                 name: &call.name,
@@ -57,6 +69,7 @@ impl CodexRuntimeActor {
             };
             LocalToolResult::Gateway {
                 call_id: call.call_id.clone(),
+                provider_call_id: call.provider_call_id.clone(),
                 name: call.name.clone(),
                 result: gateway.execute_tool_proposal(proposal).await,
             }
@@ -66,10 +79,17 @@ impl CodexRuntimeActor {
 
 #[derive(Debug, Clone)]
 pub(super) enum LocalToolResult {
-    Memory(MemoryToolResult),
-    AgentName(AgentNameToolResult),
+    Memory {
+        provider_call_id: Option<String>,
+        result: MemoryToolResult,
+    },
+    AgentName {
+        provider_call_id: Option<String>,
+        result: AgentNameToolResult,
+    },
     Gateway {
         call_id: Option<String>,
+        provider_call_id: Option<String>,
         name: String,
         result: GatewayToolResult,
     },
@@ -78,42 +98,65 @@ pub(super) enum LocalToolResult {
 impl LocalToolResult {
     fn call_id(&self) -> Option<&String> {
         match self {
-            Self::Memory(result) => result.call_id.as_ref(),
-            Self::AgentName(result) => result.call_id.as_ref(),
+            Self::Memory { result, .. } => result.call_id.as_ref(),
+            Self::AgentName { result, .. } => result.call_id.as_ref(),
             Self::Gateway { call_id, .. } => call_id.as_ref(),
+        }
+    }
+
+    fn provider_call_id(&self) -> Option<&String> {
+        match self {
+            Self::Memory {
+                provider_call_id, ..
+            }
+            | Self::AgentName {
+                provider_call_id, ..
+            }
+            | Self::Gateway {
+                provider_call_id, ..
+            } => provider_call_id.as_ref(),
         }
     }
 
     fn name(&self) -> &str {
         match self {
-            Self::Memory(result) => &result.name,
-            Self::AgentName(result) => &result.name,
+            Self::Memory { result, .. } => &result.name,
+            Self::AgentName { result, .. } => &result.name,
             Self::Gateway { name, .. } => name,
         }
     }
 
     fn success(&self) -> bool {
         match self {
-            Self::Memory(result) => result.success,
-            Self::AgentName(result) => result.success,
+            Self::Memory { result, .. } => result.success,
+            Self::AgentName { result, .. } => result.success,
             Self::Gateway { result, .. } => result.success,
         }
     }
 
     fn payload(&self) -> &Value {
         match self {
-            Self::Memory(result) => &result.payload,
-            Self::AgentName(result) => &result.payload,
+            Self::Memory { result, .. } => &result.payload,
+            Self::AgentName { result, .. } => &result.payload,
             Self::Gateway { result, .. } => &result.payload,
         }
     }
 
     pub(super) fn requires_provider_continuation(&self) -> bool {
         match self {
-            Self::Memory(_) => true,
-            Self::AgentName(_) => false,
+            Self::Memory { .. } => true,
+            Self::AgentName { .. } => false,
             Self::Gateway { result, .. } => result.requires_provider_continuation,
         }
+    }
+
+    pub(super) fn native_tool_result_input(&self) -> Option<GenerateToolResultInput> {
+        Some(GenerateToolResultInput {
+            call_id: self.provider_call_id()?.clone(),
+            name: self.name().to_string(),
+            success: self.success(),
+            payload: self.payload().clone(),
+        })
     }
 }
 
@@ -123,7 +166,7 @@ pub(super) fn agent_identity_after_local_tools(
 ) -> AgentPromptIdentity {
     let mut agent_identity = current.clone();
     for result in results {
-        let LocalToolResult::AgentName(result) = result else {
+        let LocalToolResult::AgentName { result, .. } = result else {
             continue;
         };
         if result.success {
@@ -150,6 +193,7 @@ pub(super) fn local_tool_result_continuation_input(results: &[&LocalToolResult])
 fn local_tool_result_payload(result: &LocalToolResult) -> Value {
     json!({
         "call_id": result.call_id(),
+        "provider_call_id": result.provider_call_id(),
         "name": result.name(),
         "success": result.success(),
         "payload": result.payload(),
@@ -159,6 +203,7 @@ fn local_tool_result_payload(result: &LocalToolResult) -> Value {
 pub(super) fn local_tool_result_action_item(result: &LocalToolResult) -> GenerateActionItem {
     GenerateActionItem::ToolResult {
         call_id: result.call_id().cloned(),
+        provider_call_id: result.provider_call_id().cloned(),
         name: Some(result.name().to_string()),
         success: Some(result.success()),
         payload: result.payload().clone(),

@@ -43,6 +43,7 @@ enum GenerateOutputItem {
     },
     ToolCall {
         id: Option<String>,
+        provider_call_id: Option<String>,
         name: String,
         payload: serde_json::Value,
     },
@@ -3464,6 +3465,76 @@ async fn runtime_actor_executes_search_memory_as_local_tool_result() {
 }
 
 #[tokio::test]
+async fn native_capable_provider_continuation_uses_native_tool_result_input() {
+    let provider = Arc::new(
+        RecordingFakeProvider::new("codex", FakeCodexScenario::NativeSearchMemoryContinuation)
+            .with_tool_capabilities(ProviderToolCapabilities {
+                native_tools: true,
+                parallel_tool_calls: true,
+                tool_choice: true,
+                schema_dialect: crate::provider::ProviderToolSchemaDialect::OpenAiResponses,
+                strict_schema: false,
+                custom_tools: false,
+                native_tool_results: true,
+                fallback_mode: ProviderToolFallbackMode::NativeRequired,
+            }),
+    );
+    let store = crate::store::tests::test_store().await;
+    store.ensure_default_actors().await.expect("actors");
+    let handle =
+        CodexRuntimeHandle::spawn_with_provider_kind(provider.clone(), store.clone(), "codex")
+            .await
+            .expect("runtime");
+    let conversation_id = handle
+        .start_conversation(None)
+        .await
+        .expect("conversation")
+        .conversation_id;
+
+    let items = collect_turn(
+        &handle,
+        conversation_id,
+        "What do you remember about trains?".to_string(),
+    )
+    .await
+    .expect("turn");
+    handle.shutdown().await;
+
+    assert!(
+        items.iter().any(|item| {
+            matches!(
+                item,
+                TurnTranscriptItem::AssistantText { text }
+                    if text == "native tool result received"
+            )
+        }),
+        "expected native continuation final answer: {items:?}"
+    );
+    let requests = provider.requests();
+    assert_eq!(
+        requests.len(),
+        2,
+        "expected initial request and continuation"
+    );
+    let GenerateInput::NativeToolResults(results) = &requests[1].input else {
+        panic!(
+            "expected native tool-result input, got {:?}",
+            requests[1].input
+        );
+    };
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].call_id, "call_native_1");
+    assert_eq!(results[0].name, "search_memory");
+    assert!(results[0].success);
+    assert!(
+        !requests[1]
+            .input
+            .render_for_token_count()
+            .contains("NOEMA_LOCAL_TOOL_RESULT")
+    );
+}
+
+#[tokio::test]
 async fn runtime_actor_continues_after_continuation_tool_call() {
     let handle = test_runtime_handle(fake_provider(
         FakeCodexScenario::ChainedSearchMemoryContinuation,
@@ -4267,6 +4338,7 @@ struct RecordingFakeProvider {
     provider_kind: String,
     inner: FakeCodexProvider,
     requests: Mutex<Vec<GenerateRequest>>,
+    tool_capabilities: ProviderToolCapabilities,
 }
 
 impl RecordingFakeProvider {
@@ -4275,7 +4347,16 @@ impl RecordingFakeProvider {
             provider_kind: provider_kind.to_string(),
             inner: FakeCodexProvider::new(scenario),
             requests: Mutex::new(Vec::new()),
+            tool_capabilities: ProviderToolCapabilities {
+                fallback_mode: ProviderToolFallbackMode::BuiltinOnlyEnvelope,
+                ..ProviderToolCapabilities::default()
+            },
         }
+    }
+
+    fn with_tool_capabilities(mut self, tool_capabilities: ProviderToolCapabilities) -> Self {
+        self.tool_capabilities = tool_capabilities;
+        self
     }
 
     fn requests(&self) -> Vec<GenerateRequest> {
@@ -4341,6 +4422,7 @@ enum FakeCodexScenario {
     FailedMcpToolResultContinuation,
     InvalidSearchMemory,
     SearchMemoryContinuation,
+    NativeSearchMemoryContinuation,
     ChainedSearchMemoryContinuation,
     SearchMemoryProfileContinuation,
     UpdateOwnNameContinuation,
@@ -4608,6 +4690,34 @@ impl FakeCodexProvider {
                     assistant_with_no_memories("fake answer")
                 }
             }
+            FakeCodexScenario::NativeSearchMemoryContinuation => match &request.input {
+                GenerateInput::NativeToolResults(results) => {
+                    if results.iter().any(|result| {
+                        result.call_id == "call_native_1" && result.name == "search_memory"
+                    }) {
+                        assistant_with_no_memories("native tool result received")
+                    } else {
+                        assistant_with_no_memories("wrong native tool result")
+                    }
+                }
+                _ if input.contains("NOEMA_LOCAL_TOOL_RESULT") => {
+                    assistant_with_no_memories("legacy tool result received")
+                }
+                _ if input.contains("What do you remember about trains?") => vec![
+                    GenerateOutputItem::AssistantText {
+                        phase: None,
+                        text: "Searching memory.".to_string(),
+                    },
+                    GenerateOutputItem::ToolCall {
+                        id: Some("item_native_1".to_string()),
+                        provider_call_id: Some("call_native_1".to_string()),
+                        name: "search_memory".to_string(),
+                        payload: json!({"arguments": {"query": "trains"}}),
+                    },
+                    GenerateOutputItem::MemoryProposals { proposals: vec![] },
+                ],
+                _ => assistant_with_no_memories("fake answer"),
+            },
             FakeCodexScenario::ChainedSearchMemoryContinuation => {
                 if input.contains("call_2") {
                     assistant_with_no_memories("I checked both memory topics.")
@@ -5053,6 +5163,7 @@ fn current_user_input(input: &GenerateInput) -> String {
                 || input.render_for_token_count(),
                 |message| message.content.clone(),
             ),
+        GenerateInput::NativeToolResults(_) => input.render_for_token_count(),
     }
 }
 
@@ -5101,8 +5212,8 @@ impl super::runtime::RuntimeModelProvider for FakeCodexProvider {
 }
 
 impl super::runtime::RuntimeModelProvider for RecordingFakeProvider {
-    fn tool_capabilities(&self, model: Option<&str>) -> ProviderToolCapabilities {
-        self.inner.tool_capabilities(model)
+    fn tool_capabilities(&self, _model: Option<&str>) -> ProviderToolCapabilities {
+        self.tool_capabilities
     }
 
     fn generate_streaming<'a>(
@@ -5281,8 +5392,18 @@ fn fake_generate_response(
             GenerateOutputItem::AssistantText { phase, text } => {
                 responses.push(GenerateResponseItem::Text { phase, text });
             }
-            GenerateOutputItem::ToolCall { id, name, payload } => {
-                tool_calls.push(GenerateToolCall { id, name, payload });
+            GenerateOutputItem::ToolCall {
+                id,
+                provider_call_id,
+                name,
+                payload,
+            } => {
+                tool_calls.push(GenerateToolCall {
+                    id,
+                    provider_call_id,
+                    name,
+                    payload,
+                });
             }
             GenerateOutputItem::MemoryProposals { proposals } => {
                 memory_proposals.extend(proposals);
@@ -5321,6 +5442,7 @@ fn assistant_with_no_memories(text: &str) -> Vec<GenerateOutputItem> {
 fn search_memory_tool_call(id: &str, payload: serde_json::Value) -> GenerateOutputItem {
     GenerateOutputItem::ToolCall {
         id: Some(id.to_string()),
+        provider_call_id: None,
         name: "search_memory".to_string(),
         payload,
     }
@@ -5329,6 +5451,7 @@ fn search_memory_tool_call(id: &str, payload: serde_json::Value) -> GenerateOutp
 fn search_memory_action_item(id: &str, payload: serde_json::Value) -> GenerateActionItem {
     GenerateActionItem::ToolCall {
         id: Some(id.to_string()),
+        provider_call_id: None,
         name: "search_memory".to_string(),
         payload,
     }
@@ -5337,6 +5460,7 @@ fn search_memory_action_item(id: &str, payload: serde_json::Value) -> GenerateAc
 fn update_own_name_tool_call(id: &str, payload: serde_json::Value) -> GenerateOutputItem {
     GenerateOutputItem::ToolCall {
         id: Some(id.to_string()),
+        provider_call_id: None,
         name: "update_own_name".to_string(),
         payload,
     }
@@ -5345,6 +5469,7 @@ fn update_own_name_tool_call(id: &str, payload: serde_json::Value) -> GenerateOu
 fn mcp_tool_call(id: &str, name: &str, payload: serde_json::Value) -> GenerateOutputItem {
     GenerateOutputItem::ToolCall {
         id: Some(id.to_string()),
+        provider_call_id: None,
         name: name.to_string(),
         payload,
     }

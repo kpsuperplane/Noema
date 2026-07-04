@@ -21,9 +21,9 @@ use crate::{
     SYSTEM_ERROR_PROVIDER_MALFORMED_RESPONSE, SystemErrorEvent, SystemErrorLogger,
     provider::{
         DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateInput, GenerateMessageRole, GenerateRequest,
-        GenerateResponse, GenerateResponseStatus, GenerateStreamEvent, ModelProvider,
-        ParsedNoemaResponse, ProviderError, ProviderToolCapabilities, ProviderToolFallbackMode,
-        ProviderToolSchemaDialect, output_items_from_text,
+        GenerateResponse, GenerateResponseStatus, GenerateStreamEvent, GenerateToolResultInput,
+        ModelProvider, ParsedNoemaResponse, ProviderError, ProviderToolCapabilities,
+        ProviderToolFallbackMode, ProviderToolSchemaDialect, output_items_from_text,
         required_noema_response_from_text_with_native_tool_calls,
     },
 };
@@ -163,7 +163,7 @@ fn normalize_config(mut config: CodexProviderConfig) -> Result<CodexProviderConf
 #[derive(Debug, Serialize)]
 struct CodexResponsesRequest {
     model: String,
-    input: Vec<CodexInputMessage>,
+    input: Vec<CodexInputItem>,
     #[serde(skip_serializing_if = "Option::is_none")]
     instructions: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -201,7 +201,7 @@ impl CodexResponsesRequest {
     ) -> Self {
         Self {
             model,
-            input: codex_input_messages(input),
+            input: codex_input_items(input),
             instructions,
             max_output_tokens,
             temperature,
@@ -216,9 +216,40 @@ impl CodexResponsesRequest {
 }
 
 #[derive(Debug, Serialize)]
+#[serde(untagged)]
+enum CodexInputItem {
+    Message(CodexInputMessage),
+    FunctionCallOutput(CodexFunctionCallOutput),
+}
+
+impl From<&GenerateToolResultInput> for CodexInputItem {
+    fn from(value: &GenerateToolResultInput) -> Self {
+        Self::FunctionCallOutput(CodexFunctionCallOutput::from(value))
+    }
+}
+
+#[derive(Debug, Serialize)]
 struct CodexInputMessage {
     role: &'static str,
     content: String,
+}
+
+#[derive(Debug, Serialize)]
+struct CodexFunctionCallOutput {
+    #[serde(rename = "type")]
+    kind: &'static str,
+    call_id: String,
+    output: String,
+}
+
+impl From<&GenerateToolResultInput> for CodexFunctionCallOutput {
+    fn from(value: &GenerateToolResultInput) -> Self {
+        Self {
+            kind: "function_call_output",
+            call_id: value.call_id.clone(),
+            output: value.output_json_string(),
+        }
+    }
 }
 
 impl CodexResponsesProvider {
@@ -431,23 +462,28 @@ impl CodexResponsesProvider {
     }
 }
 
-fn codex_input_messages(input: &GenerateInput) -> Vec<CodexInputMessage> {
+fn codex_input_items(input: &GenerateInput) -> Vec<CodexInputItem> {
     match input {
-        GenerateInput::Text(text) => vec![CodexInputMessage {
+        GenerateInput::Text(text) => vec![CodexInputItem::Message(CodexInputMessage {
             role: "user",
             content: text.clone(),
-        }],
+        })],
         GenerateInput::Messages(messages) => messages
             .iter()
             .filter(|message| !message.content.trim().is_empty())
-            .map(|message| CodexInputMessage {
-                role: match message.role {
-                    GenerateMessageRole::User => "user",
-                    GenerateMessageRole::Assistant => "assistant",
-                },
-                content: message.content.clone(),
+            .map(|message| {
+                CodexInputItem::Message(CodexInputMessage {
+                    role: match message.role {
+                        GenerateMessageRole::User => "user",
+                        GenerateMessageRole::Assistant => "assistant",
+                    },
+                    content: message.content.clone(),
+                })
             })
             .collect(),
+        GenerateInput::NativeToolResults(results) => {
+            results.iter().map(CodexInputItem::from).collect()
+        }
     }
 }
 
@@ -696,7 +732,11 @@ mod tests {
         assert_eq!(response.response_status, GenerateResponseStatus::NeedsTools);
         assert_eq!(response.assistant_text(), "Checking.");
         assert_eq!(response.tool_calls.len(), 1);
-        assert_eq!(response.tool_calls[0].id.as_deref(), Some("call_1"));
+        assert_eq!(response.tool_calls[0].id.as_deref(), Some("item_1"));
+        assert_eq!(
+            response.tool_calls[0].provider_call_id.as_deref(),
+            Some("call_1")
+        );
         assert_eq!(response.tool_calls[0].name, "search_memory");
         assert_eq!(response.tool_calls[0].payload["query"], "trains");
     }

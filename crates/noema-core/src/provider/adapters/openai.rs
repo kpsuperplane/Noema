@@ -550,6 +550,11 @@ mod tests {
         assert_eq!(body["parallel_tool_calls"], true);
         assert_eq!(response.response_status, GenerateResponseStatus::NeedsTools);
         assert_eq!(response.assistant_text(), "Reading docs.");
+        assert_eq!(response.tool_calls[0].id.as_deref(), Some("item_1"));
+        assert_eq!(
+            response.tool_calls[0].provider_call_id.as_deref(),
+            Some("call_1")
+        );
         assert_eq!(response.tool_calls[0].name, "mcp.docs:read");
         assert_eq!(response.tool_calls[0].payload["document_id"], "doc_1");
     }

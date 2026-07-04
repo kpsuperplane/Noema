@@ -123,7 +123,13 @@ impl CodexRuntimeActor {
         call: &LocalToolCall,
         item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
     ) -> Result<(), DaemonError> {
-        let GenerateActionItem::ToolCall { id, name, payload } = tool_call_action_item(call) else {
+        let GenerateActionItem::ToolCall {
+            id,
+            provider_call_id,
+            name,
+            payload,
+        } = tool_call_action_item(call)
+        else {
             return Ok(());
         };
         let display = tool_call_display(&name, &payload);
@@ -138,6 +144,7 @@ impl CodexRuntimeActor {
                 summary: display_summary(&display, "target"),
                 payload: json!({
                     "id": id,
+                    "provider_call_id": provider_call_id,
                     "name": name,
                     "payload": payload,
                 }),
@@ -205,7 +212,12 @@ impl CodexRuntimeActor {
         item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
     ) -> Result<(), DaemonError> {
         match output {
-            GenerateActionItem::ToolCall { id, name, payload } => {
+            GenerateActionItem::ToolCall {
+                id,
+                provider_call_id,
+                name,
+                payload,
+            } => {
                 let display = tool_call_display(&name, &payload);
                 self.persist_provider_action_output(
                     turn,
@@ -218,6 +230,7 @@ impl CodexRuntimeActor {
                         summary: display_summary(&display, "target"),
                         payload: json!({
                             "id": id,
+                            "provider_call_id": provider_call_id,
                             "name": name,
                             "payload": payload,
                         }),
@@ -229,6 +242,7 @@ impl CodexRuntimeActor {
             }
             GenerateActionItem::ToolResult {
                 call_id,
+                provider_call_id,
                 name,
                 success,
                 payload,
@@ -253,6 +267,7 @@ impl CodexRuntimeActor {
                         summary: display_summary(&display, "result"),
                         payload: json!({
                             "call_id": call_id,
+                            "provider_call_id": provider_call_id,
                             "name": name,
                             "success": success,
                             "payload": payload,

@@ -5,6 +5,7 @@ use serde_json::Value;
 pub(super) struct LocalToolCall {
     pub(super) output_index: usize,
     pub(super) call_id: Option<String>,
+    pub(super) provider_call_id: Option<String>,
     pub(super) name: String,
     pub(super) payload: Value,
 }
@@ -16,6 +17,7 @@ pub(super) fn local_tool_calls(tool_calls: &[GenerateToolCall]) -> Vec<LocalTool
         .map(|(output_index, call)| LocalToolCall {
             output_index,
             call_id: call.id.clone(),
+            provider_call_id: call.provider_call_id.clone(),
             name: call.name.clone(),
             payload: call.payload.clone(),
         })
@@ -25,6 +27,7 @@ pub(super) fn local_tool_calls(tool_calls: &[GenerateToolCall]) -> Vec<LocalTool
 pub(super) fn tool_call_action_item(call: &LocalToolCall) -> GenerateActionItem {
     GenerateActionItem::ToolCall {
         id: call.call_id.clone(),
+        provider_call_id: call.provider_call_id.clone(),
         name: call.name.clone(),
         payload: call.payload.clone(),
     }
@@ -41,6 +44,7 @@ mod tests {
         let tool_calls = vec![
             GenerateToolCall {
                 id: Some("call_1".to_string()),
+                provider_call_id: Some("provider_call_1".to_string()),
                 name: "search_memory".to_string(),
                 payload: json!({
                     "scope_ids": ["human:local"],
@@ -50,6 +54,7 @@ mod tests {
             },
             GenerateToolCall {
                 id: Some("call_2".to_string()),
+                provider_call_id: None,
                 name: "mcp.web.search".to_string(),
                 payload: json!({"query": "second"}),
             },
@@ -61,6 +66,10 @@ mod tests {
         assert_eq!(calls[0].output_index, 0);
         assert_eq!(calls[1].output_index, 1);
         assert_eq!(calls[0].call_id.as_deref(), Some("call_1"));
+        assert_eq!(
+            calls[0].provider_call_id.as_deref(),
+            Some("provider_call_1")
+        );
         assert_eq!(calls[1].name, "mcp.web.search");
     }
 }

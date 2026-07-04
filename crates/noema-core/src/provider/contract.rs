@@ -131,6 +131,8 @@ pub enum GenerateInput {
     Text(String),
     /// Role-tagged conversation messages.
     Messages(Vec<GenerateMessage>),
+    /// Provider-native tool result items for same-turn continuations.
+    NativeToolResults(Vec<GenerateToolResultInput>),
 }
 
 impl GenerateInput {
@@ -142,6 +144,7 @@ impl GenerateInput {
             Self::Messages(messages) => messages
                 .iter()
                 .all(|message| message.content.trim().is_empty()),
+            Self::NativeToolResults(results) => results.is_empty(),
         }
     }
 
@@ -157,7 +160,38 @@ impl GenerateInput {
                 .map(|message| format!("{}: {}", message.role.as_str(), message.content))
                 .collect::<Vec<_>>()
                 .join("\n"),
+            Self::NativeToolResults(results) => {
+                serde_json::to_string(results).unwrap_or_else(|_| "[]".to_string())
+            }
         }
+    }
+}
+
+/// Provider-neutral native tool result input for same-turn continuation.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GenerateToolResultInput {
+    /// Provider-native tool call id used by the provider to correlate results.
+    pub call_id: String,
+    /// Tool or operation name.
+    pub name: String,
+    /// Whether the local execution succeeded.
+    pub success: bool,
+    /// Runtime payload returned by Noema.
+    #[serde(default)]
+    pub payload: Value,
+}
+
+impl GenerateToolResultInput {
+    /// Render the result body expected inside provider-native function output.
+    #[must_use]
+    pub fn output_json_string(&self) -> String {
+        serde_json::json!({
+            "call_id": self.call_id,
+            "name": self.name,
+            "success": self.success,
+            "payload": self.payload,
+        })
+        .to_string()
     }
 }
 
@@ -390,6 +424,9 @@ pub struct GenerateToolCall {
     /// Provider item id or tool-call id, when available.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
+    /// Provider-native call id used to correlate native tool results.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_call_id: Option<String>,
     /// Tool or operation name.
     pub name: String,
     /// Provider payload for audit and replay.
@@ -405,6 +442,9 @@ pub enum GenerateActionItem {
     ToolCall {
         /// Provider item id or tool-call id, when available.
         id: Option<String>,
+        /// Provider-native call id for result correlation, when distinct.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        provider_call_id: Option<String>,
         /// Tool or operation name.
         name: String,
         /// Provider payload for audit and replay.
@@ -414,6 +454,9 @@ pub enum GenerateActionItem {
     ToolResult {
         /// Provider tool-call id, when available.
         call_id: Option<String>,
+        /// Provider-native call id used for result correlation, when distinct.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        provider_call_id: Option<String>,
         /// Tool or operation name, when available.
         name: Option<String>,
         /// Whether the result succeeded, when known.
@@ -988,6 +1031,19 @@ mod tests {
     }
 
     #[test]
+    fn generate_tool_call_preserves_provider_call_id_separately() {
+        let call = GenerateToolCall {
+            id: Some("item_1".to_string()),
+            provider_call_id: Some("call_1".to_string()),
+            name: "search_memory".to_string(),
+            payload: json!({"query": "trains"}),
+        };
+
+        assert_eq!(call.id.as_deref(), Some("item_1"));
+        assert_eq!(call.provider_call_id.as_deref(), Some("call_1"));
+    }
+
+    #[test]
     fn output_items_from_text_parses_response_object_responses() {
         let output = output_items_from_text(
             r#"{"response_status":"final","responses":[{"kind":"text","phase":"final_answer","text":"Hello"}],"tool_calls":[],"memory_proposals":[]}"#.to_string(),
@@ -1228,6 +1284,7 @@ mod tests {
     fn action_items_serialize_tool_result_shape() {
         let item = GenerateActionItem::ToolResult {
             call_id: Some("call_1".to_string()),
+            provider_call_id: Some("provider_call_1".to_string()),
             name: Some("search_memory".to_string()),
             success: Some(true),
             payload: json!({"ok": true}),
@@ -1238,6 +1295,7 @@ mod tests {
             json!({
                 "kind": "tool_result",
                 "call_id": "call_1",
+                "provider_call_id": "provider_call_1",
                 "name": "search_memory",
                 "success": true,
                 "payload": {"ok": true}

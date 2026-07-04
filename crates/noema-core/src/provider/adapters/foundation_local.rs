@@ -373,6 +373,10 @@ fn foundation_prompt_parts(input: &GenerateInput) -> FoundationPrompt {
                 generate_input: messages[last_user_index].content.clone(),
             }
         }
+        GenerateInput::NativeToolResults(_) => FoundationPrompt {
+            replay_turns: Vec::new(),
+            generate_input: input.render_for_token_count(),
+        },
     }
 }
 
