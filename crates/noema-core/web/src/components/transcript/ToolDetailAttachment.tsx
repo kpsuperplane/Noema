@@ -1,7 +1,7 @@
 import * as stylex from "@stylexjs/stylex";
 import { WrenchIcon } from "lucide-react";
 import { statusLabel } from "@/shared/format";
-import { formatToolDetail, toolMarkerLabel } from "./markerModel";
+import { toolDetailRows, toolMarkerLabel } from "./markerModel";
 import type { ToolMarkerGroup } from "./renderModel";
 import { TranscriptAttachmentCard } from "./TranscriptAttachmentCard";
 import { ToolDetailRow } from "./ToolDetailRow";
@@ -24,6 +24,9 @@ export function ToolDetailAttachment({ id, marker }: { id: string; marker: ToolM
   const failed = result?.status === "FAILED";
   const title = toolMarkerLabel(marker);
   const description = result?.summary ?? call?.summary ?? statusLabel(result?.status ?? call?.status ?? "COMPLETED");
+  const rows = toolDetailRows(marker);
+  const status = statusLabel(result?.status ?? call?.status ?? "COMPLETED");
+  const showStatus = rows.length === 0 || failed || !result;
 
   return (
     <TranscriptAttachmentCard
@@ -34,11 +37,10 @@ export function ToolDetailAttachment({ id, marker }: { id: string; marker: ToolM
       tone={failed ? "error" : "info"}
     >
       <dl {...stylex.props(styles.details)}>
-        {call ? <ToolDetailRow label="Call" value={formatToolDetail(call.title, call.metadata)} /> : null}
-        {result ? (
-          <ToolDetailRow label="Result" value={formatToolDetail(result.summary ?? result.title, result.metadata)} />
-        ) : null}
-        <ToolDetailRow label="Status" value={statusLabel(result?.status ?? call?.status ?? "COMPLETED")} />
+        {rows.map((row, index) => (
+          <ToolDetailRow key={`${row.label}:${index}`} label={row.label} value={row.value} />
+        ))}
+        {showStatus ? <ToolDetailRow label="Status" value={status} /> : null}
       </dl>
     </TranscriptAttachmentCard>
   );

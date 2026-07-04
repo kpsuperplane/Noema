@@ -2,6 +2,7 @@ import type { MemoryCardData } from "@/memory/cards";
 import type { TurnTranscriptItem } from "@/shared/types";
 import type { ToolMarkerGroup } from "./renderModel";
 type MemoryDetailRowData = { label: string; value: string };
+export type ToolDetailRowData = { label: string; value: string };
 type MemoryClaimOutcome = {
   claimId?: string;
   outcome: "created" | "reinforced" | "needs_review" | "disputed" | "related" | "superseded";
@@ -188,6 +189,26 @@ export function formatToolDetail(fallback: string, metadata: unknown): string {
   return preview.join("\n");
 }
 
+export function toolDetailRows(marker: ToolMarkerGroup): ToolDetailRowData[] {
+  const rows: ToolDetailRowData[] = [];
+  const call = marker.call?.item;
+  const result = marker.result?.item;
+
+  appendToolDisplayRows(rows, call?.metadata, ["purpose", "access", "scope", "approval"]);
+  appendToolPayloadRow(rows, "Input", toolActionPayload(call?.metadata));
+
+  const resultPreview = toolPayloadPreview(toolActionPayload(result?.metadata));
+  const resultDisplay = toolDisplayString(result?.metadata, "result");
+  if (resultDisplay && !isLowInformationToolDetail(resultDisplay)) {
+    rows.push({ label: "Result", value: resultDisplay });
+  }
+  if (resultPreview) {
+    rows.push({ label: result?.status === "FAILED" ? "Error" : "Output", value: resultPreview });
+  }
+
+  return dedupeToolDetailRows(rows);
+}
+
 function safeToolMetadataPreview(metadata: unknown): string[] {
   if (!isRecord(metadata)) {
     return [];
@@ -264,6 +285,126 @@ function appendDisplayRow(rows: string[], label: string, value: string | null) {
   if (value) {
     rows.push(`${label}: ${value}`);
   }
+}
+
+function appendToolDisplayRows(rows: ToolDetailRowData[], metadata: unknown, keys: string[]) {
+  if (!isRecord(metadata) || !isRecord(metadata.display)) {
+    return;
+  }
+  for (const key of keys) {
+    const value = stringValue(metadata.display[key]);
+    if (value && !isLowInformationToolDetail(value)) {
+      rows.push({ label: humanToolDetailLabel(key), value });
+    }
+  }
+}
+
+function appendToolPayloadRow(rows: ToolDetailRowData[], label: string, payload: unknown) {
+  const preview = toolPayloadPreview(payload);
+  if (preview) {
+    rows.push({ label, value: preview });
+  }
+}
+
+function toolActionPayload(metadata: unknown): unknown {
+  if (!isRecord(metadata) || !isRecord(metadata.action)) {
+    return undefined;
+  }
+  const payload = metadata.action.payload;
+  if (isRecord(payload) && Object.keys(payload).length === 1 && "arguments" in payload) {
+    return payload.arguments;
+  }
+  return payload;
+}
+
+function toolPayloadPreview(payload: unknown): string | null {
+  if (payload === null || payload === undefined || isEmptyJsonContainer(payload)) {
+    return null;
+  }
+
+  const contentText = toolContentText(payload);
+  if (contentText) {
+    return contentText;
+  }
+
+  return formatJsonPreview(payload);
+}
+
+function toolContentText(payload: unknown): string | null {
+  if (!isRecord(payload) || !Array.isArray(payload.content)) {
+    return null;
+  }
+  const text = payload.content
+    .flatMap((item): string[] => {
+      if (typeof item === "string" && item.trim()) {
+        return [item.trim()];
+      }
+      if (isRecord(item) && typeof item.text === "string" && item.text.trim()) {
+        return [item.text.trim()];
+      }
+      return [];
+    })
+    .join("\n\n")
+    .trim();
+  return text || null;
+}
+
+function formatJsonPreview(value: unknown): string {
+  if (typeof value === "string") {
+    return value;
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  try {
+    const preview = JSON.stringify(value, null, 2);
+    return preview.length > 4000 ? `${preview.slice(0, 4000)}\n...` : preview;
+  } catch {
+    return "Unavailable";
+  }
+}
+
+function isEmptyJsonContainer(value: unknown): boolean {
+  if (Array.isArray(value)) {
+    return value.length === 0;
+  }
+  return isRecord(value) && Object.keys(value).length === 0;
+}
+
+function isLowInformationToolDetail(value: string): boolean {
+  return (
+    value === "Use an enabled connected tool" ||
+    value === "Uses a connected tool" ||
+    value === "Completed" ||
+    value === "Done"
+  );
+}
+
+function humanToolDetailLabel(key: string): string {
+  switch (key) {
+    case "purpose":
+      return "Purpose";
+    case "access":
+      return "Access";
+    case "scope":
+      return "Scope";
+    case "approval":
+      return "Approval";
+    default:
+      return key;
+  }
+}
+
+function dedupeToolDetailRows(rows: ToolDetailRowData[]): ToolDetailRowData[] {
+  const seen = new Set<string>();
+  return rows.filter((row) => {
+    const key = `${row.label}\n${row.value}`;
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
 }
 
 function toolDisplayString(metadata: unknown, key: string): string | undefined {

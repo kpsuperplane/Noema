@@ -1,6 +1,12 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { formatToolDetail, memoryCardsFromClaimOutcomes, memoryDetailItems, toolMarkerName } from "./markerModel";
+import {
+  formatToolDetail,
+  memoryCardsFromClaimOutcomes,
+  memoryDetailItems,
+  toolDetailRows,
+  toolMarkerName
+} from "./markerModel";
 import type { TurnTranscriptItem } from "@/shared/types";
 import type { ToolMarkerGroup } from "./renderModel";
 
@@ -60,6 +66,80 @@ describe("toolMarkerName", () => {
     };
 
     assert.equal(toolMarkerName(marker), "Search memory");
+  });
+});
+
+describe("toolDetailRows", () => {
+  test("shows concrete tool input and output without generic display filler", () => {
+    const marker: ToolMarkerGroup = {
+      id: "tool_call:1",
+      call: {
+        id: "call-entry",
+        type: "activity",
+        item: {
+          kind: "activity",
+          id: "activity:1",
+          activity_kind: "tool_call",
+          status: "COMPLETED",
+          title: "Tool call: mcp.dex.search_contacts",
+          summary: null,
+          metadata: {
+            provider: "codex",
+            action: {
+              id: "call_123",
+              name: "mcp.dex.search_contacts",
+              payload: {
+                query: "Gautam"
+              }
+            },
+            display: {
+              name: "Dex search contacts",
+              purpose: "Use an enabled connected tool",
+              access: "Uses a connected tool"
+            }
+          }
+        }
+      },
+      result: {
+        id: "result-entry",
+        type: "activity",
+        item: {
+          kind: "activity",
+          id: "activity:2",
+          activity_kind: "tool_result",
+          status: "COMPLETED",
+          title: "Tool result: mcp.dex.search_contacts",
+          summary: "Completed",
+          metadata: {
+            action: {
+              id: "call_123",
+              name: "mcp.dex.search_contacts",
+              success: true,
+              payload: {
+                content: [{ type: "text", text: "Found Gautam's contact." }]
+              }
+            },
+            display: {
+              name: "Dex search contacts",
+              access: "Uses a connected tool",
+              result: "Completed"
+            }
+          }
+        }
+      }
+    };
+
+    const rows = toolDetailRows(marker);
+
+    assert.deepEqual(
+      rows.map((row) => row.label),
+      ["Input", "Output"]
+    );
+    assert.match(rows[0]?.value ?? "", /"query": "Gautam"/);
+    assert.equal(rows[1]?.value, "Found Gautam's contact.");
+    assert.doesNotMatch(rows.map((row) => row.value).join("\n"), /call_123/);
+    assert.doesNotMatch(rows.map((row) => row.value).join("\n"), /Use an enabled connected tool/);
+    assert.doesNotMatch(rows.map((row) => row.value).join("\n"), /Uses a connected tool/);
   });
 });
 
