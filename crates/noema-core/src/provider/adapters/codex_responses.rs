@@ -23,7 +23,8 @@ use crate::{
         DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateInput, GenerateMessageRole, GenerateRequest,
         GenerateResponse, GenerateResponseStatus, GenerateStreamEvent, ModelProvider,
         ParsedNoemaResponse, ProviderError, ProviderToolCapabilities, ProviderToolFallbackMode,
-        ProviderToolSchemaDialect, output_items_from_text, required_noema_response_from_text,
+        ProviderToolSchemaDialect, output_items_from_text,
+        required_noema_response_from_text_with_native_tool_calls,
     },
 };
 
@@ -347,8 +348,11 @@ impl CodexResponsesProvider {
         };
         let raw_text = text.clone();
 
-        let mut parsed = if require_noema_response {
-            match required_noema_response_from_text(text) {
+        let parsed = if require_noema_response {
+            match required_noema_response_from_text_with_native_tool_calls(
+                text,
+                native_tool_calls.clone(),
+            ) {
                 Ok(parsed) => parsed,
                 Err(error) => {
                     self.log_malformed_response(
@@ -373,10 +377,6 @@ impl CodexResponsesProvider {
                 },
             }
         };
-        if !native_tool_calls.is_empty() && require_noema_response {
-            parsed.tool_calls = native_tool_calls;
-            parsed.response_status = GenerateResponseStatus::NeedsTools;
-        }
 
         Ok(GenerateResponse::from_parsed(
             parsed,
@@ -668,6 +668,40 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn codex_sse_mixed_streamed_text_and_function_call_returns_needs_tools() {
+        let response_body = "event: response.output_text.delta\n\
+             data: {\"type\":\"response.output_text.delta\",\"delta\":\"{\\\"response_status\\\":\\\"needs_tools\\\",\\\"responses\\\":[{\\\"kind\\\":\\\"text\\\",\\\"phase\\\":\\\"commentary\\\",\\\"text\\\":\\\"Checking.\\\"}],\\\"tool_calls\\\":[],\\\"memory_proposals\\\":[]}\"}\n\
+             \n\
+             event: response.output_item.done\n\
+             data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"function_call\",\"id\":\"item_1\",\"call_id\":\"call_1\",\"name\":\"search_memory\",\"arguments\":\"{\\\"query\\\":\\\"trains\\\"}\"}}\n\
+             \n\
+             event: response.completed\n\
+             data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_test\",\"model\":\"gpt-test\",\"status\":\"completed\",\"output\":null}}\n\
+             \n";
+        let (base_url, _request_rx) = spawn_server(200, response_body).await;
+        let (provider, _dir) = provider_with_tokens(base_url);
+
+        let response = provider
+            .generate(GenerateRequest {
+                options: GenerateOptions {
+                    require_noema_response: true,
+                    ..GenerateOptions::default()
+                },
+                tools: vec![search_memory_tool()],
+                ..GenerateRequest::text("Search memory")
+            })
+            .await
+            .expect("response");
+
+        assert_eq!(response.response_status, GenerateResponseStatus::NeedsTools);
+        assert_eq!(response.assistant_text(), "Checking.");
+        assert_eq!(response.tool_calls.len(), 1);
+        assert_eq!(response.tool_calls[0].id.as_deref(), Some("call_1"));
+        assert_eq!(response.tool_calls[0].name, "search_memory");
+        assert_eq!(response.tool_calls[0].payload["query"], "trains");
+    }
+
+    #[tokio::test]
     async fn sends_codex_transcript_messages_as_response_input_items_without_cache_retention() {
         let (base_url, request_rx) = spawn_server(
             200,
@@ -903,6 +937,21 @@ mod tests {
                 "type": "object",
                 "properties": {"document_id": {"type": "string"}},
                 "required": ["document_id"],
+                "additionalProperties": false
+            }),
+            NoemaToolExecution::LocalBuiltin,
+        )
+        .expect("tool")
+    }
+
+    fn search_memory_tool() -> NoemaToolSpec {
+        NoemaToolSpec::new(
+            "search_memory",
+            "Search memory.",
+            serde_json::json!({
+                "type": "object",
+                "properties": {"query": {"type": "string"}},
+                "required": ["query"],
                 "additionalProperties": false
             }),
             NoemaToolExecution::LocalBuiltin,

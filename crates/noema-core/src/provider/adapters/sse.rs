@@ -83,7 +83,11 @@ impl SseAccumulator {
         }
 
         if !self.output_text.is_empty() {
-            self.output_values.clear();
+            self.output_values.retain(|item| {
+                item.get("type")
+                    .and_then(Value::as_str)
+                    .is_none_or(|kind| kind != "message")
+            });
             self.output_values.push(serde_json::json!({
                 "type": "message",
                 "content": [{"type": "output_text", "text": self.output_text}]
@@ -382,6 +386,32 @@ mod tests {
             response.output_text().expect("output text"),
             "{\"response_status\":\"needs_tools\",\"responses\":[{\"kind\":\"text\",\"phase\":\"commentary\",\"text\":\"Searching memory.\"}],\"tool_calls\":[{\"id\":\"call_memory_1\",\"name\":\"search_memory\",\"payload\":{\"scope_ids\":[\"human:local\"],\"query\":\"\",\"purpose\":\"answer_human_question\",\"limit\":8}}],\"memory_proposals\":[]}"
         );
+    }
+
+    #[test]
+    fn response_from_sse_preserves_function_call_items_with_streamed_text() {
+        let response = response_from_sse(
+            "event: response.output_text.delta\n\
+             data: {\"type\":\"response.output_text.delta\",\"delta\":\"{\\\"response_status\\\":\\\"needs_tools\\\",\\\"responses\\\":[{\\\"kind\\\":\\\"text\\\",\\\"phase\\\":\\\"commentary\\\",\\\"text\\\":\\\"Checking.\\\"}],\\\"tool_calls\\\":[],\\\"memory_proposals\\\":[]}\"}\n\
+             \n\
+             event: response.output_item.done\n\
+             data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"function_call\",\"id\":\"item_1\",\"call_id\":\"call_1\",\"name\":\"search_memory\",\"arguments\":\"{\\\"query\\\":\\\"trains\\\"}\"}}\n\
+             \n\
+             event: response.completed\n\
+             data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_test\",\"status\":\"completed\",\"output\":null}}\n\
+             \n",
+        )
+        .expect("sse response");
+
+        assert_eq!(
+            response.output_text().expect("output text"),
+            "{\"response_status\":\"needs_tools\",\"responses\":[{\"kind\":\"text\",\"phase\":\"commentary\",\"text\":\"Checking.\"}],\"tool_calls\":[],\"memory_proposals\":[]}"
+        );
+        let calls = response.native_tool_calls().expect("native calls");
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].id.as_deref(), Some("call_1"));
+        assert_eq!(calls[0].name, "search_memory");
+        assert_eq!(calls[0].payload["query"], "trains");
     }
 
     #[test]

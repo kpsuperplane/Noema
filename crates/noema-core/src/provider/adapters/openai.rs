@@ -11,7 +11,7 @@ use crate::{
         DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateRequest, GenerateResponse,
         GenerateResponseStatus, ModelProvider, ParsedNoemaResponse, ProviderError,
         ProviderToolCapabilities, ProviderToolFallbackMode, ProviderToolSchemaDialect,
-        output_items_from_text, required_noema_response_from_text,
+        output_items_from_text, required_noema_response_from_text_with_native_tool_calls,
     },
 };
 use reqwest::header::{HeaderMap, HeaderName};
@@ -260,8 +260,11 @@ impl ModelProvider for OpenAiProvider {
         };
         let raw_text = text.clone();
 
-        let mut parsed = if request.options.require_noema_response {
-            match required_noema_response_from_text(text) {
+        let parsed = if request.options.require_noema_response {
+            match required_noema_response_from_text_with_native_tool_calls(
+                text,
+                native_tool_calls.clone(),
+            ) {
                 Ok(parsed) => parsed,
                 Err(error) => {
                     self.log_malformed_response(
@@ -286,10 +289,6 @@ impl ModelProvider for OpenAiProvider {
                 },
             }
         };
-        if !native_tool_calls.is_empty() && request.options.require_noema_response {
-            parsed.tool_calls = native_tool_calls;
-            parsed.response_status = GenerateResponseStatus::NeedsTools;
-        }
 
         Ok(GenerateResponse::from_parsed(
             parsed,
@@ -511,7 +510,7 @@ mod tests {
                 {
                   "type": "message",
                   "content": [
-                    {"type": "output_text", "text": "{\"response_status\":\"final\",\"responses\":[{\"kind\":\"text\",\"phase\":\"final_answer\",\"text\":\"Done\"}],\"tool_calls\":[],\"memory_proposals\":[]}"}
+                    {"type": "output_text", "text": "{\"response_status\":\"needs_tools\",\"responses\":[{\"kind\":\"text\",\"phase\":\"commentary\",\"text\":\"Reading docs.\"}],\"tool_calls\":[],\"memory_proposals\":[]}"}
                   ]
                 },
                 {
@@ -550,7 +549,7 @@ mod tests {
         assert_eq!(body["tool_choice"], "required");
         assert_eq!(body["parallel_tool_calls"], true);
         assert_eq!(response.response_status, GenerateResponseStatus::NeedsTools);
-        assert_eq!(response.assistant_text(), "Done");
+        assert_eq!(response.assistant_text(), "Reading docs.");
         assert_eq!(response.tool_calls[0].name, "mcp.docs:read");
         assert_eq!(response.tool_calls[0].payload["document_id"], "doc_1");
     }
@@ -594,6 +593,145 @@ mod tests {
         assert!(response.assistant_text().is_empty());
         assert_eq!(response.tool_calls.len(), 1);
         assert_eq!(response.tool_calls[0].name, "search_memory");
+    }
+
+    #[tokio::test]
+    async fn native_required_needs_tools_text_with_empty_envelope_tool_calls_succeeds() {
+        let (base_url, _request_rx) = spawn_server(
+            200,
+            r#"{
+              "id": "resp_test",
+              "model": "gpt-test",
+              "output": [
+                {
+                  "type": "message",
+                  "content": [
+                    {"type": "output_text", "text": "{\"response_status\":\"needs_tools\",\"responses\":[{\"kind\":\"text\",\"phase\":\"commentary\",\"text\":\"Checking memory.\"}],\"tool_calls\":[],\"memory_proposals\":[]}"}
+                  ]
+                },
+                {
+                  "type": "function_call",
+                  "id": "item_1",
+                  "call_id": "call_1",
+                  "name": "search_memory",
+                  "arguments": "{\"query\":\"trains\"}"
+                }
+              ]
+            }"#,
+        )
+        .await;
+
+        let provider = test_provider(base_url);
+        let response = provider
+            .generate(GenerateRequest {
+                options: crate::provider::GenerateOptions {
+                    require_noema_response: true,
+                    ..crate::provider::GenerateOptions::default()
+                },
+                tools: vec![search_memory_tool()],
+                ..GenerateRequest::text("Search memory")
+            })
+            .await
+            .expect("native tool response");
+
+        assert_eq!(response.response_status, GenerateResponseStatus::NeedsTools);
+        assert_eq!(response.assistant_text(), "Checking memory.");
+        assert_eq!(response.tool_calls.len(), 1);
+        assert_eq!(response.tool_calls[0].name, "search_memory");
+    }
+
+    #[tokio::test]
+    async fn native_required_response_rejects_final_answer_text() {
+        let (base_url, _request_rx) = spawn_server(
+            200,
+            r#"{
+              "id": "resp_test",
+              "model": "gpt-test",
+              "output": [
+                {
+                  "type": "message",
+                  "content": [
+                    {"type": "output_text", "text": "{\"response_status\":\"final\",\"responses\":[{\"kind\":\"text\",\"phase\":\"final_answer\",\"text\":\"Done.\"}],\"tool_calls\":[],\"memory_proposals\":[]}"}
+                  ]
+                },
+                {
+                  "type": "function_call",
+                  "id": "item_1",
+                  "call_id": "call_1",
+                  "name": "search_memory",
+                  "arguments": "{\"query\":\"trains\"}"
+                }
+              ]
+            }"#,
+        )
+        .await;
+
+        let provider = test_provider(base_url);
+        let error = provider
+            .generate(GenerateRequest {
+                options: crate::provider::GenerateOptions {
+                    require_noema_response: true,
+                    ..crate::provider::GenerateOptions::default()
+                },
+                tools: vec![search_memory_tool()],
+                ..GenerateRequest::text("Search memory")
+            })
+            .await
+            .expect_err("final answer rejected");
+
+        assert!(matches!(error, ProviderError::MalformedResponse { .. }));
+        assert!(
+            error
+                .to_string()
+                .contains("native tool response cannot include final_answer text")
+        );
+    }
+
+    #[tokio::test]
+    async fn native_required_response_rejects_legacy_json_tool_calls() {
+        let (base_url, _request_rx) = spawn_server(
+            200,
+            r#"{
+              "id": "resp_test",
+              "model": "gpt-test",
+              "output": [
+                {
+                  "type": "message",
+                  "content": [
+                    {"type": "output_text", "text": "{\"response_status\":\"needs_tools\",\"responses\":[{\"kind\":\"text\",\"phase\":\"commentary\",\"text\":\"Checking.\"}],\"tool_calls\":[{\"id\":\"legacy_1\",\"name\":\"search_memory\",\"payload\":{\"query\":\"legacy\"}}],\"memory_proposals\":[]}"}
+                  ]
+                },
+                {
+                  "type": "function_call",
+                  "id": "item_1",
+                  "call_id": "call_1",
+                  "name": "search_memory",
+                  "arguments": "{\"query\":\"trains\"}"
+                }
+              ]
+            }"#,
+        )
+        .await;
+
+        let provider = test_provider(base_url);
+        let error = provider
+            .generate(GenerateRequest {
+                options: crate::provider::GenerateOptions {
+                    require_noema_response: true,
+                    ..crate::provider::GenerateOptions::default()
+                },
+                tools: vec![search_memory_tool()],
+                ..GenerateRequest::text("Search memory")
+            })
+            .await
+            .expect_err("legacy tool calls rejected");
+
+        assert!(matches!(error, ProviderError::MalformedResponse { .. }));
+        assert!(
+            error
+                .to_string()
+                .contains("native tool response cannot include legacy JSON tool_calls")
+        );
     }
 
     #[tokio::test]

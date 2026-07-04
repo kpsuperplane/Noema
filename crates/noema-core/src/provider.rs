@@ -23,7 +23,7 @@ pub use contract::{
     GenerateResponseItem, GenerateResponseStatus, GenerateStreamEvent, GenerateToolCall,
     ModelProvider, ParsedNoemaResponse, PromptCacheRetention, ProviderContextMetadata,
     ProviderError, TokenUsage, noema_response_from_text, output_items_from_text,
-    required_noema_response_from_text,
+    required_noema_response_from_text, required_noema_response_from_text_with_native_tool_calls,
 };
 
 pub use tools::{
