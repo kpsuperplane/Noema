@@ -66,7 +66,7 @@ const styles = stylex.create({
     gap: 12,
     marginInline: "auto",
     paddingTop: 24,
-    paddingBottom: "max(56px, calc(var(--chat-composer-dock-height, 0px) - 16px))",
+    paddingBottom: "max(80px, calc(var(--chat-composer-dock-height, 0px) + 16px))",
     paddingInline: 2
   },
   item: {
