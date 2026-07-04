@@ -383,6 +383,7 @@ const styles = stylex.create({
     padding: 0
   },
   contentDeck: {
+    "--shell-deck-header-height": "44px",
     position: "absolute",
     zIndex: 30,
     display: "grid",
@@ -446,6 +447,7 @@ const styles = stylex.create({
     borderBottomStyle: "solid",
     borderBottomColor: "transparent",
     backgroundColor: "var(--background)",
+    minHeight: "var(--shell-deck-header-height)",
     paddingBlock: 4,
     paddingInline: 16
   },
@@ -454,7 +456,7 @@ const styles = stylex.create({
     top: "100%",
     right: 0,
     left: 0,
-    height: 48,
+    height: 72,
     pointerEvents: "none",
     background: "linear-gradient(to bottom, var(--background), rgb(255 255 255 / 0))"
   },
@@ -507,7 +509,7 @@ const styles = stylex.create({
   },
   routeContent: {
     minHeight: 0,
-    overflow: "hidden"
+    overflow: "visible"
   },
   routeContentInactive: {
     pointerEvents: "none"

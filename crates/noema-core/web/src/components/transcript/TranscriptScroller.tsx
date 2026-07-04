@@ -60,8 +60,8 @@ const styles = stylex.create({
     justifyContent: "flex-end",
     gap: 12,
     marginInline: "auto",
-    paddingTop: 24,
-    paddingBottom: "calc(var(--chat-composer-dock-height, 0px) + 24px)",
+    paddingTop: "calc(var(--shell-deck-header-height, 44px) + 24px)",
+    paddingBottom: "max(56px, calc(var(--chat-composer-dock-height, 0px) - 12px))",
     paddingInline: 2
   },
   item: {

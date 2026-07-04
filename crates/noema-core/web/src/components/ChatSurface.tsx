@@ -150,7 +150,8 @@ const styles = stylex.create({
     display: "grid",
     gridTemplateRows: "minmax(0, 1fr)",
     minHeight: 0,
-    height: "100%",
+    height: "calc(100% + var(--shell-deck-header-height, 44px))",
+    marginTop: "calc(var(--shell-deck-header-height, 44px) * -1)",
     width: "100%",
     overflow: "hidden"
   },
@@ -160,6 +161,7 @@ const styles = stylex.create({
     overflow: "hidden"
   },
   emptyContentLayer: {
+    paddingTop: "var(--shell-deck-header-height, 44px)",
     paddingBottom: "var(--chat-composer-dock-height)"
   },
   composerDock: {
@@ -176,14 +178,14 @@ const styles = stylex.create({
   },
   composerScrim: {
     position: "absolute",
-    top: -58,
+    top: -96,
     right: 0,
     bottom: 0,
     left: 0,
     zIndex: 0,
     pointerEvents: "none",
     background:
-      "linear-gradient(to bottom, rgb(255 255 255 / 0), rgb(255 255 255 / 0.92) 58px, var(--background) 104px)"
+      "linear-gradient(to bottom, rgb(255 255 255 / 0), rgb(255 255 255 / 0.74) 42px, var(--background) 96px)"
   },
   composerLayer: {
     position: "relative",
