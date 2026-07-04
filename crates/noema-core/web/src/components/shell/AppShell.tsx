@@ -332,7 +332,6 @@ const styles = stylex.create({
   root: {
     position: "relative",
     height: "100dvh",
-    minHeight: "100vh",
     overflow: "hidden",
     color: "var(--foreground)"
   },

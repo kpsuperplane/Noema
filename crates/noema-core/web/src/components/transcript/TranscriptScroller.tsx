@@ -7,6 +7,7 @@ type ScrollToEndOptions = {
 };
 
 type TranscriptScrollerContextValue = {
+  contentRef: React.RefObject<HTMLDivElement | null>;
   viewportRef: React.RefObject<HTMLDivElement | null>;
   scrollToEnd: (options?: ScrollToEndOptions) => void;
 };
@@ -128,6 +129,7 @@ const styles = stylex.create({
 });
 
 export function TranscriptScrollerProvider({ children }: TranscriptScrollerProviderProps) {
+  const contentRef = React.useRef<HTMLDivElement | null>(null);
   const viewportRef = React.useRef<HTMLDivElement | null>(null);
   const scrollToEnd = React.useCallback(({ behavior = "auto" }: ScrollToEndOptions = {}) => {
     const viewport = viewportRef.current;
@@ -136,7 +138,7 @@ export function TranscriptScrollerProvider({ children }: TranscriptScrollerProvi
     }
     viewport.scrollTo({ top: viewport.scrollHeight, behavior });
   }, []);
-  const value = React.useMemo(() => ({ viewportRef, scrollToEnd }), [scrollToEnd]);
+  const value = React.useMemo(() => ({ contentRef, viewportRef, scrollToEnd }), [scrollToEnd]);
 
   return <TranscriptScrollerContext.Provider value={value}>{children}</TranscriptScrollerContext.Provider>;
 }
@@ -150,7 +152,7 @@ export function useTranscriptScroller() {
 }
 
 export function TranscriptScroller({ children, onViewportScroll, "aria-label": ariaLabel }: TranscriptScrollerProps) {
-  const { viewportRef, scrollToEnd } = useTranscriptScroller();
+  const { contentRef, viewportRef, scrollToEnd } = useTranscriptScroller();
   const [stuckToBottom, setStuckToBottom] = React.useState(true);
   const handleScroll = React.useCallback(
     (event: React.UIEvent<HTMLDivElement>) => {
@@ -174,7 +176,7 @@ export function TranscriptScroller({ children, onViewportScroll, "aria-label": a
         onScroll={handleScroll}
         role="log"
       >
-        <div {...stylex.props(styles.content)}>{children}</div>
+        <div ref={contentRef} {...stylex.props(styles.content)}>{children}</div>
       </div>
       <button
         type="button"

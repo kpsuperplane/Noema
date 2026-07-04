@@ -27,7 +27,6 @@ const styles = stylex.create({
   root: {
     display: "grid",
     height: "100dvh",
-    minHeight: "100vh",
     gridTemplateRows: "64px minmax(0, 1fr)",
     overflow: "hidden",
     backgroundColor: "var(--background)"

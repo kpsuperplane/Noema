@@ -24,10 +24,12 @@ export function TranscriptBottomFollower({
   followBottomRef: React.MutableRefObject<boolean>;
   scrollKey: string;
 }) {
-  const { scrollToEnd, viewportRef } = useTranscriptScroller();
+  const { contentRef, scrollToEnd, viewportRef } = useTranscriptScroller();
   const previousMetricsRef = React.useRef<ScrollMetrics | null>(null);
   const completedArrivalKeyRef = React.useRef("");
   const activeScrollAnimationRef = React.useRef<ActiveScrollAnimation | null>(null);
+  const resizeSyncFrameRef = React.useRef<number | null>(null);
+  const resizeSyncTimeoutRef = React.useRef<number | null>(null);
 
   React.useLayoutEffect(() => {
     const viewport = viewportRef.current;
@@ -70,6 +72,63 @@ export function TranscriptBottomFollower({
 
     scrollToEnd({ behavior: "auto" });
   }, [followBottomRef, scrollKey, scrollToEnd, viewportRef]);
+
+  React.useLayoutEffect(() => {
+    const viewport = viewportRef.current;
+    const content = contentRef.current;
+    if (!viewport || typeof ResizeObserver === "undefined") {
+      return;
+    }
+
+    function syncToBottom() {
+      if (!viewport || !followBottomRef.current || activeScrollAnimationRef.current) {
+        return;
+      }
+
+      scrollToEnd({ behavior: "auto" });
+      previousMetricsRef.current = readScrollMetrics(viewport);
+    }
+
+    function scheduleSyncToBottom() {
+      if (resizeSyncFrameRef.current !== null) {
+        window.cancelAnimationFrame(resizeSyncFrameRef.current);
+      }
+      if (resizeSyncTimeoutRef.current !== null) {
+        window.clearTimeout(resizeSyncTimeoutRef.current);
+      }
+
+      resizeSyncFrameRef.current = window.requestAnimationFrame(() => {
+        resizeSyncFrameRef.current = null;
+        syncToBottom();
+        resizeSyncTimeoutRef.current = window.setTimeout(() => {
+          resizeSyncTimeoutRef.current = null;
+          syncToBottom();
+        }, 120);
+      });
+    }
+
+    const observer = new ResizeObserver(scheduleSyncToBottom);
+    observer.observe(viewport);
+    if (content) {
+      observer.observe(content);
+    }
+    window.visualViewport?.addEventListener("resize", scheduleSyncToBottom);
+    window.visualViewport?.addEventListener("scroll", scheduleSyncToBottom);
+
+    return () => {
+      observer.disconnect();
+      window.visualViewport?.removeEventListener("resize", scheduleSyncToBottom);
+      window.visualViewport?.removeEventListener("scroll", scheduleSyncToBottom);
+      if (resizeSyncFrameRef.current !== null) {
+        window.cancelAnimationFrame(resizeSyncFrameRef.current);
+        resizeSyncFrameRef.current = null;
+      }
+      if (resizeSyncTimeoutRef.current !== null) {
+        window.clearTimeout(resizeSyncTimeoutRef.current);
+        resizeSyncTimeoutRef.current = null;
+      }
+    };
+  }, [contentRef, followBottomRef, scrollToEnd, viewportRef]);
 
   React.useLayoutEffect(() => {
     const viewport = viewportRef.current;

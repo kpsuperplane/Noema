@@ -25,7 +25,7 @@ export function initialSeenArrivalMessageIds(entries: RenderTranscriptEntry[]): 
 }
 
 export function isScrolledToBottom(element: HTMLElement) {
-  return element.scrollHeight - element.scrollTop - element.clientHeight <= 8;
+  return element.scrollHeight - element.scrollTop - element.clientHeight < 80;
 }
 
 function renderedEntryScrollFingerprint(entry: RenderTranscriptEntry): string {
