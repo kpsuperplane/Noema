@@ -252,6 +252,12 @@ The next storage slice should stay small and concrete:
   continuation or the runtime limit is hit. Continuations hide the one-shot
   `update_own_name` tool while preserving normal `search_memory` and calibrated
   MCP tool use.
+- Assistant text and runtime tool execution are distinct transcript concepts.
+  Provider `assistant_text` items may carry `commentary` or `final_answer`
+  phase metadata, while visible tool markers are emitted from Noema runtime
+  execution start/result timing rather than from provider output array order.
+  This keeps GPT 5.4 and GPT 5.5 provider ordering differences from changing
+  whether a tool appears to have run before the assistant's pre-tool message.
 - New graph memory direction: durable memories are strict graph claims over
   entities and promoted predicate records. Conversation items are direct
   provenance sources. Specialized evidence relations replace broad memory audit
