@@ -35,11 +35,47 @@ pub struct ResponsesRequest {
     /// Optional Responses text controls such as JSON schema output format.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub text: Option<Value>,
+    /// Native Responses API tool definitions.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tools: Vec<ResponsesTool>,
+    /// Responses API tool-choice policy.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_choice: Option<&'static str>,
+    /// Whether parallel independent tool calls are allowed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parallel_tool_calls: Option<bool>,
     /// Whether the upstream should store this response.
     pub store: bool,
     /// Provider prompt-cache retention request when supported.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prompt_cache_retention: Option<PromptCacheRetention>,
+}
+
+/// Native Responses API tool definition.
+#[derive(Debug, Clone, Serialize)]
+pub struct ResponsesTool {
+    #[serde(rename = "type")]
+    kind: &'static str,
+    name: String,
+    description: String,
+    parameters: Value,
+}
+
+impl ResponsesTool {
+    /// Build a native function tool definition.
+    #[must_use]
+    pub fn function(
+        name: impl Into<String>,
+        description: impl Into<String>,
+        parameters: Value,
+    ) -> Self {
+        Self {
+            kind: "function",
+            name: name.into(),
+            description: description.into(),
+            parameters,
+        }
+    }
 }
 
 pub(super) fn noema_response_text_format() -> Value {
@@ -211,6 +247,42 @@ impl ResponsesResponse {
         })
     }
 
+    /// Collect provider-native function-call output items.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ProviderError::MalformedResponse`] when a function-call item
+    /// contains invalid JSON arguments.
+    pub fn native_tool_calls(
+        &self,
+    ) -> Result<Vec<crate::provider::GenerateToolCall>, ProviderError> {
+        let mut calls = Vec::new();
+        for item in &self.output {
+            let ResponsesOutputItem::FunctionCall {
+                id,
+                call_id,
+                name,
+                arguments,
+            } = item
+            else {
+                continue;
+            };
+            let payload = serde_json::from_str(arguments).map_err(|source| {
+                ProviderError::MalformedResponse {
+                    message: format!(
+                        "failed to parse native tool call arguments for {name}: {source}"
+                    ),
+                }
+            })?;
+            calls.push(crate::provider::GenerateToolCall {
+                id: call_id.clone().or_else(|| id.clone()),
+                name: name.clone(),
+                payload,
+            });
+        }
+        Ok(calls)
+    }
+
     pub(super) fn from_stream_parts(
         id: Option<String>,
         model: Option<String>,
@@ -248,6 +320,13 @@ impl ResponsesResponse {
 enum ResponsesOutputItem {
     #[serde(rename = "message")]
     Message { content: Vec<ResponsesContent> },
+    #[serde(rename = "function_call")]
+    FunctionCall {
+        id: Option<String>,
+        call_id: Option<String>,
+        name: String,
+        arguments: String,
+    },
     #[serde(other)]
     Other,
 }
@@ -594,5 +673,76 @@ trait EmptyStringExt {
 impl EmptyStringExt for String {
     fn if_empty_then(self, fallback: impl FnOnce() -> String) -> String {
         if self.is_empty() { fallback() } else { self }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn responses_request_serializes_native_tools() {
+        let body = ResponsesRequest {
+            model: "gpt-test".to_string(),
+            input: ResponsesInput::Text("hi".to_string()),
+            instructions: None,
+            max_output_tokens: None,
+            temperature: None,
+            text: None,
+            tools: vec![ResponsesTool::function(
+                "search_memory",
+                "Search governed Noema memory.",
+                serde_json::json!({
+                    "type": "object",
+                    "properties": {"query": {"type": "string"}},
+                    "required": ["query"],
+                    "additionalProperties": false
+                }),
+            )],
+            tool_choice: Some("auto"),
+            parallel_tool_calls: Some(false),
+            store: false,
+            prompt_cache_retention: None,
+        };
+
+        let value = serde_json::to_value(body).expect("serialize");
+
+        assert_eq!(value["tools"][0]["type"], "function");
+        assert_eq!(value["tools"][0]["name"], "search_memory");
+        assert_eq!(
+            value["tools"][0]["parameters"]["required"],
+            serde_json::json!(["query"])
+        );
+        assert_eq!(value["tool_choice"], "auto");
+        assert_eq!(value["parallel_tool_calls"], false);
+    }
+
+    #[test]
+    fn responses_response_parses_function_call_output_items() {
+        let response: ResponsesResponse = serde_json::from_value(serde_json::json!({
+            "id": "resp_1",
+            "model": "gpt-test",
+            "output": [
+                {
+                    "type": "function_call",
+                    "id": "item_1",
+                    "call_id": "call_1",
+                    "name": "search_memory",
+                    "arguments": "{\"query\":\"trains\",\"scope_ids\":[\"human:local\"]}"
+                }
+            ]
+        }))
+        .expect("response");
+
+        let calls = response.native_tool_calls().expect("tool calls");
+
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].id.as_deref(), Some("call_1"));
+        assert_eq!(calls[0].name, "search_memory");
+        assert_eq!(calls[0].payload["query"], "trains");
+        assert_eq!(
+            calls[0].payload["scope_ids"],
+            serde_json::json!(["human:local"])
+        );
     }
 }

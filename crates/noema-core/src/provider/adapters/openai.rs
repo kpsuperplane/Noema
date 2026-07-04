@@ -189,6 +189,9 @@ impl ModelProvider for OpenAiProvider {
                 .options
                 .require_noema_response
                 .then(noema_response_text_format),
+            tools: Vec::new(),
+            tool_choice: None,
+            parallel_tool_calls: None,
             store: false,
             prompt_cache_retention: request.options.prompt_cache_retention,
         };
