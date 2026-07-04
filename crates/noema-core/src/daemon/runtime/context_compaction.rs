@@ -295,7 +295,7 @@ fn parse_compaction_summary(response: GenerateResponse) -> Result<String, Provid
         .output
         .into_iter()
         .filter_map(|item| match item {
-            GenerateOutputItem::AssistantText { text } => Some(text),
+            GenerateOutputItem::AssistantText { text, .. } => Some(text),
             GenerateOutputItem::MemoryProposals { .. }
             | GenerateOutputItem::ToolCall { .. }
             | GenerateOutputItem::ToolResult { .. }

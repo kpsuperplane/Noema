@@ -4185,7 +4185,7 @@ impl FakeCodexProvider {
         if input.contains("Noema's memory claim canonicalizer") {
             let text = canonicalization_response_text(&input, self.scenario);
             return Ok(GenerateResponse {
-                output: vec![GenerateOutputItem::AssistantText { text }],
+                output: vec![GenerateOutputItem::AssistantText { phase: None, text }],
                 provider: "codex".to_string(),
                 model,
                 response_id: Some("fake-response".to_string()),
@@ -4258,6 +4258,7 @@ impl FakeCodexProvider {
                             json!({"arguments": {"query": "trains"}}),
                         ),
                         GenerateOutputItem::AssistantText {
+                            phase: None,
                             text: "fake answer".to_string(),
                         },
                         GenerateOutputItem::MemoryProposals { proposals: vec![] },
@@ -4327,6 +4328,7 @@ impl FakeCodexProvider {
                 if input.contains("NOEMA_LOCAL_TOOL_RESULT") {
                     vec![
                         GenerateOutputItem::AssistantText {
+                            phase: None,
                             text: "I found your train memory.".to_string(),
                         },
                         GenerateOutputItem::MemoryProposals {
@@ -4346,6 +4348,7 @@ impl FakeCodexProvider {
                 } else if input.contains("Please remember I'm a big fan of trains") {
                     vec![
                         GenerateOutputItem::AssistantText {
+                            phase: None,
                             text: "fake answer".to_string(),
                         },
                         GenerateOutputItem::MemoryProposals {
@@ -4355,6 +4358,7 @@ impl FakeCodexProvider {
                 } else if input.contains("What do you remember about trains?") {
                     vec![
                         GenerateOutputItem::AssistantText {
+                            phase: None,
                             text: "Searching memory.".to_string(),
                         },
                         search_memory_tool_call(
@@ -4373,6 +4377,7 @@ impl FakeCodexProvider {
                 } else if input.contains("call_1") {
                     vec![
                         GenerateOutputItem::AssistantText {
+                            phase: None,
                             text: "I need one more memory check.".to_string(),
                         },
                         search_memory_tool_call(
@@ -4384,6 +4389,7 @@ impl FakeCodexProvider {
                 } else if input.contains("Check memory twice before answering.") {
                     vec![
                         GenerateOutputItem::AssistantText {
+                            phase: None,
                             text: "Checking memory first.".to_string(),
                         },
                         search_memory_tool_call(
@@ -4400,6 +4406,7 @@ impl FakeCodexProvider {
                 if input.contains("NOEMA_LOCAL_TOOL_RESULT") {
                     vec![
                         GenerateOutputItem::AssistantText {
+                            phase: None,
                             text: "I remember that you like planes.".to_string(),
                         },
                         GenerateOutputItem::MemoryProposals { proposals: vec![] },
@@ -4407,6 +4414,7 @@ impl FakeCodexProvider {
                 } else if input.contains("What memories do you have of me?") {
                     vec![
                         GenerateOutputItem::AssistantText {
+                            phase: None,
                             text: "Searching memory.".to_string(),
                         },
                         search_memory_tool_call(
@@ -4458,6 +4466,7 @@ impl FakeCodexProvider {
                     vec![
                         update_own_name_tool_call("call_name_2", json!({"name": "Fred"})),
                         GenerateOutputItem::AssistantText {
+                            phase: None,
                             text: "Fred it is.".to_string(),
                         },
                         GenerateOutputItem::MemoryProposals { proposals: vec![] },
@@ -4497,6 +4506,7 @@ impl FakeCodexProvider {
                 } else if input.contains("Search before saving the assistant note.") {
                     vec![
                         GenerateOutputItem::AssistantText {
+                            phase: None,
                             text: "I will search memory before saving a note.".to_string(),
                         },
                         search_memory_tool_call(
@@ -4525,9 +4535,11 @@ impl FakeCodexProvider {
                 if input.contains("Emit two assistant notes and save the second.") {
                     vec![
                         GenerateOutputItem::AssistantText {
+                            phase: None,
                             text: "First assistant item should not own the evidence.".to_string(),
                         },
                         GenerateOutputItem::AssistantText {
+                            phase: None,
                             text: "Second assistant item contains the durable note.".to_string(),
                         },
                         GenerateOutputItem::MemoryProposals {
@@ -4552,9 +4564,11 @@ impl FakeCodexProvider {
                 if input.contains("Emit split assistant evidence and try to save it.") {
                     vec![
                         GenerateOutputItem::AssistantText {
+                            phase: None,
                             text: "first assistant text".to_string(),
                         },
                         GenerateOutputItem::AssistantText {
+                            phase: None,
                             text: "second assistant text".to_string(),
                         },
                         GenerateOutputItem::MemoryProposals {
@@ -4579,6 +4593,7 @@ impl FakeCodexProvider {
                 if input.contains("My API key is sk-testSecretToken123456789.") {
                     vec![
                         GenerateOutputItem::AssistantText {
+                            phase: None,
                             text: "fake answer".to_string(),
                         },
                         GenerateOutputItem::MemoryProposals {
@@ -4603,6 +4618,7 @@ impl FakeCodexProvider {
                 if input.contains("I prefer malformed canonicalizer tests.") {
                     vec![
                         GenerateOutputItem::AssistantText {
+                            phase: None,
                             text: "fake answer".to_string(),
                         },
                         GenerateOutputItem::MemoryProposals {
@@ -4627,6 +4643,7 @@ impl FakeCodexProvider {
                 if input.contains("I prefer canonical entity validation.") {
                     vec![
                         GenerateOutputItem::AssistantText {
+                            phase: None,
                             text: "fake answer".to_string(),
                         },
                         GenerateOutputItem::MemoryProposals {
@@ -4651,6 +4668,7 @@ impl FakeCodexProvider {
                 if input.contains("I like partial write trains and need one failing note.") {
                     vec![
                         GenerateOutputItem::AssistantText {
+                            phase: None,
                             text: "fake answer".to_string(),
                         },
                         GenerateOutputItem::MemoryProposals {
@@ -4686,6 +4704,7 @@ impl FakeCodexProvider {
             }
             FakeCodexScenario::InvalidMemoryProposal => vec![
                 GenerateOutputItem::AssistantText {
+                    phase: None,
                     text: "fake answer".to_string(),
                 },
                 GenerateOutputItem::MemoryProposals {
@@ -4706,6 +4725,7 @@ impl FakeCodexProvider {
                 if input.contains("one bad proposal fixture") {
                     vec![
                         GenerateOutputItem::AssistantText {
+                            phase: None,
                             text: "fake answer".to_string(),
                         },
                         GenerateOutputItem::MemoryProposals {
@@ -4743,6 +4763,7 @@ impl FakeCodexProvider {
                 if input == "Nice" {
                     vec![
                         GenerateOutputItem::AssistantText {
+                            phase: None,
                             text: "Tiny but important onboarding victory. Fred has a plane-shaped sticky note now."
                                 .to_string(),
                         },
@@ -4814,7 +4835,7 @@ impl super::runtime::RuntimeModelProvider for FakeCodexProvider {
             let response = self.generate_response(request)?;
             for (index, output) in response.output.iter().enumerate() {
                 match output {
-                    GenerateOutputItem::AssistantText { text } => {
+                    GenerateOutputItem::AssistantText { text, .. } => {
                         let mut chunk = String::new();
                         for character in text.chars() {
                             chunk.push(character);
@@ -4863,7 +4884,7 @@ impl super::runtime::RuntimeModelProvider for RecordingFakeProvider {
             response.provider = self.provider_kind.clone();
             for (index, output) in response.output.iter().enumerate() {
                 match output {
-                    GenerateOutputItem::AssistantText { text } => {
+                    GenerateOutputItem::AssistantText { text, .. } => {
                         on_event(GenerateStreamEvent::AssistantTextDelta {
                             delta: text.clone(),
                         });
@@ -5023,6 +5044,7 @@ impl super::runtime::RuntimeModelProvider for BlockingOnceProvider {
 fn assistant_with_no_memories(text: &str) -> Vec<GenerateOutputItem> {
     vec![
         GenerateOutputItem::AssistantText {
+            phase: None,
             text: text.to_string(),
         },
         GenerateOutputItem::MemoryProposals { proposals: vec![] },
@@ -5249,6 +5271,7 @@ fn memory_extraction_output(
             })
         };
         return vec![GenerateOutputItem::AssistantText {
+            phase: None,
             text: serde_json::to_string(&decision).expect("semantic decision json"),
         }];
     }
@@ -5348,6 +5371,7 @@ fn memory_extraction_output(
             })
         };
         return vec![GenerateOutputItem::AssistantText {
+            phase: None,
             text: serde_json::to_string(&response).expect("canonicalizer json"),
         }];
     }
@@ -5391,6 +5415,7 @@ fn memory_extraction_output(
             }))
         };
         return vec![GenerateOutputItem::AssistantText {
+            phase: None,
             text: serde_json::to_string(&json!({"proposals": [proposal]})).expect("extractor json"),
         }];
     }
@@ -5398,6 +5423,7 @@ fn memory_extraction_output(
     if input.contains("Ice cream is one of my favorite desserts.") {
         return vec![
             GenerateOutputItem::AssistantText {
+                phase: None,
                 text: "fake answer".to_string(),
             },
             GenerateOutputItem::MemoryProposals {
@@ -5419,6 +5445,7 @@ fn memory_extraction_output(
     if input.contains("I like planes. I hate ice cream.") {
         return vec![
             GenerateOutputItem::AssistantText {
+                phase: None,
                 text: "fake answer".to_string(),
             },
             GenerateOutputItem::MemoryProposals {
@@ -5453,6 +5480,7 @@ fn memory_extraction_output(
     if input.contains("I like planes.") {
         return vec![
             GenerateOutputItem::AssistantText {
+                phase: None,
                 text: "fake answer".to_string(),
             },
             GenerateOutputItem::MemoryProposals {
@@ -5474,6 +5502,7 @@ fn memory_extraction_output(
     if input.contains("I like ice cream. I collect model aircraft.") {
         return vec![
             GenerateOutputItem::AssistantText {
+                phase: None,
                 text: "fake answer".to_string(),
             },
             GenerateOutputItem::MemoryProposals {
@@ -5508,6 +5537,7 @@ fn memory_extraction_output(
     if input.contains("I like ice cream.") {
         return vec![
             GenerateOutputItem::AssistantText {
+                phase: None,
                 text: "fake answer".to_string(),
             },
             GenerateOutputItem::MemoryProposals {
@@ -5529,6 +5559,7 @@ fn memory_extraction_output(
     if input.contains("I hate ice cream. I collect model aircraft.") {
         return vec![
             GenerateOutputItem::AssistantText {
+                phase: None,
                 text: "fake answer".to_string(),
             },
             GenerateOutputItem::MemoryProposals {
@@ -5563,6 +5594,7 @@ fn memory_extraction_output(
     if input.contains("I hate ice cream.") {
         return vec![
             GenerateOutputItem::AssistantText {
+                phase: None,
                 text: "fake answer".to_string(),
             },
             GenerateOutputItem::MemoryProposals {
@@ -5584,6 +5616,7 @@ fn memory_extraction_output(
     if input.contains("I prefer same-call memory proposals.") {
         return vec![
             GenerateOutputItem::AssistantText {
+                phase: None,
                 text: "fake answer".to_string(),
             },
             GenerateOutputItem::MemoryProposals {
@@ -5605,6 +5638,7 @@ fn memory_extraction_output(
     if input.contains("I prefer dark mode.") {
         return vec![
             GenerateOutputItem::AssistantText {
+                phase: None,
                 text: "fake answer".to_string(),
             },
             GenerateOutputItem::MemoryProposals {
@@ -5626,6 +5660,7 @@ fn memory_extraction_output(
     if input.contains("I love planes.") {
         return vec![
             GenerateOutputItem::AssistantText {
+                phase: None,
                 text: "fake answer".to_string(),
             },
             GenerateOutputItem::MemoryProposals {
@@ -5648,6 +5683,7 @@ fn memory_extraction_output(
     {
         return vec![
             GenerateOutputItem::AssistantText {
+                phase: None,
                 text: "fake answer".to_string(),
             },
             GenerateOutputItem::MemoryProposals {
@@ -5669,6 +5705,7 @@ fn memory_extraction_output(
     if input.contains("I prefer automatic memory extraction in chat.") {
         return vec![
             GenerateOutputItem::AssistantText {
+                phase: None,
                 text: "fake answer".to_string(),
             },
             GenerateOutputItem::MemoryProposals {
@@ -5690,6 +5727,7 @@ fn memory_extraction_output(
     if input.contains("Please remember I'm a big fan of trains") {
         return vec![
             GenerateOutputItem::AssistantText {
+                phase: None,
                 text: "fake answer".to_string(),
             },
             GenerateOutputItem::MemoryProposals {

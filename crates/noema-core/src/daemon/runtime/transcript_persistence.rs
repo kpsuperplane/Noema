@@ -25,7 +25,7 @@ impl CodexRuntimeActor {
         item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
     ) -> Result<(), DaemonError> {
         match output {
-            GenerateOutputItem::AssistantText { text } => {
+            GenerateOutputItem::AssistantText { text, .. } => {
                 assistant_response.push_text(&text);
                 let metadata = json!({
                     "turn_index": turn.turn_index,
@@ -120,7 +120,7 @@ impl CodexRuntimeActor {
     ) -> Result<usize, DaemonError> {
         let mut persisted_count = 0usize;
         for (index, output) in response.output.into_iter().enumerate() {
-            let GenerateOutputItem::AssistantText { text } = output else {
+            let GenerateOutputItem::AssistantText { text, .. } = output else {
                 continue;
             };
             let metadata = json!({

@@ -320,7 +320,10 @@ impl ModelProvider for FoundationLocalProvider {
                 }
             }
         } else {
-            vec![crate::GenerateOutputItem::AssistantText { text: output_text }]
+            vec![crate::GenerateOutputItem::AssistantText {
+                phase: None,
+                text: output_text,
+            }]
         };
         Ok(GenerateResponse {
             output,
@@ -533,6 +536,7 @@ done
         assert_eq!(
             response.output,
             vec![GenerateOutputItem::AssistantText {
+                phase: None,
                 text: "bridge answer".to_string(),
             }]
         );
@@ -585,6 +589,7 @@ done
             response.output,
             vec![
                 GenerateOutputItem::AssistantText {
+                    phase: None,
                     text: "bridge answer".to_string(),
                 },
                 GenerateOutputItem::MemoryProposals { proposals: vec![] }
@@ -637,6 +642,7 @@ done
             response.output,
             vec![
                 GenerateOutputItem::AssistantText {
+                    phase: None,
                     text: "bridge answer".to_string(),
                 },
                 GenerateOutputItem::MemoryProposals { proposals: vec![] }

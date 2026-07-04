@@ -237,7 +237,7 @@ impl GenerateResponse {
         self.output
             .iter()
             .filter_map(|item| match item {
-                GenerateOutputItem::AssistantText { text } => Some(text.as_str()),
+                GenerateOutputItem::AssistantText { text, .. } => Some(text.as_str()),
                 GenerateOutputItem::MemoryProposals { .. }
                 | GenerateOutputItem::ToolCall { .. }
                 | GenerateOutputItem::ToolResult { .. }
@@ -267,12 +267,59 @@ impl GenerateResponse {
     }
 }
 
+/// User-visible phase for assistant text within one provider turn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AssistantTextPhase {
+    /// Mid-turn assistant text such as preamble, status, or progress narration.
+    Commentary,
+    /// Terminal answer text for the current user-visible turn.
+    FinalAnswer,
+}
+
+impl AssistantTextPhase {
+    /// Return a stable storage string.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Commentary => "commentary",
+            Self::FinalAnswer => "final_answer",
+        }
+    }
+
+    /// Infer a display phase for old provider output that omitted phase.
+    #[must_use]
+    pub fn effective_for_output(
+        output: &GenerateOutputItem,
+        provider_phase_has_tools: bool,
+    ) -> Self {
+        match output {
+            GenerateOutputItem::AssistantText {
+                phase: Some(phase), ..
+            } => *phase,
+            GenerateOutputItem::AssistantText { phase: None, .. } if provider_phase_has_tools => {
+                Self::Commentary
+            }
+            GenerateOutputItem::AssistantText { phase: None, .. } => Self::FinalAnswer,
+            GenerateOutputItem::MemoryProposals { .. }
+            | GenerateOutputItem::ToolCall { .. }
+            | GenerateOutputItem::ToolResult { .. }
+            | GenerateOutputItem::ApprovalRequest { .. }
+            | GenerateOutputItem::ApprovalResult { .. }
+            | GenerateOutputItem::Structured { .. } => Self::FinalAnswer,
+        }
+    }
+}
+
 /// Provider output item for rich responses.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum GenerateOutputItem {
     /// Human-visible assistant text.
     AssistantText {
+        /// Whether the text is mid-turn commentary or the final answer.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        phase: Option<AssistantTextPhase>,
         /// Text to show in the transcript.
         text: String,
     },
@@ -387,14 +434,14 @@ fn output_items_from_text_with_mode(
         }
 
         return Ok(vec![
-            GenerateOutputItem::AssistantText { text },
+            GenerateOutputItem::AssistantText { phase: None, text },
             GenerateOutputItem::MemoryProposals {
                 proposals: Vec::new(),
             },
         ]);
     }
 
-    Ok(vec![GenerateOutputItem::AssistantText { text }])
+    Ok(vec![GenerateOutputItem::AssistantText { phase: None, text }])
 }
 
 fn embedded_required_noema_response_output(
@@ -497,7 +544,7 @@ fn validate_required_noema_response_output(
     output: &[GenerateOutputItem],
 ) -> Result<(), ProviderError> {
     let has_assistant_text = output.iter().any(|item| match item {
-        GenerateOutputItem::AssistantText { text } => !text.trim().is_empty(),
+        GenerateOutputItem::AssistantText { text, .. } => !text.trim().is_empty(),
         GenerateOutputItem::MemoryProposals { .. }
         | GenerateOutputItem::ToolCall { .. }
         | GenerateOutputItem::ToolResult { .. }
@@ -656,7 +703,7 @@ mod tests {
             let text = request.input.render_for_token_count();
 
             Ok(GenerateResponse {
-                output: vec![GenerateOutputItem::AssistantText { text }],
+                output: vec![GenerateOutputItem::AssistantText { phase: None, text }],
                 provider: "mock".to_string(),
                 model: request.model.unwrap_or_else(|| "mock-model".to_string()),
                 response_id: Some("mock-response".to_string()),
@@ -723,6 +770,7 @@ mod tests {
         assert_eq!(
             output,
             vec![GenerateOutputItem::AssistantText {
+                phase: None,
                 text: "Hello".to_string()
             }]
         );
@@ -739,6 +787,7 @@ mod tests {
         assert_eq!(
             output,
             vec![GenerateOutputItem::AssistantText {
+                phase: None,
                 text: r#"{"output":[{"kind":"tool_call","id":"call_1","name":"search_memory","payload":{"query":"trains"}}]}"#
                     .to_string()
             }]
@@ -795,6 +844,7 @@ mod tests {
         assert_eq!(
             output[0],
             GenerateOutputItem::AssistantText {
+                phase: None,
                 text: "Hello".to_string()
             }
         );
@@ -802,6 +852,64 @@ mod tests {
             output[1],
             GenerateOutputItem::MemoryProposals { ref proposals } if proposals.is_empty()
         ));
+    }
+
+    #[test]
+    fn required_noema_response_accepts_assistant_text_phase() {
+        let output = required_output_items_from_text(
+            r#"{"type":"noema_response","output":[{"kind":"assistant_text","phase":"commentary","text":"Checking that now."},{"kind":"memory_proposals","proposals":[]}]}"#
+                .to_string(),
+        )
+        .expect("required structured output");
+
+        assert_eq!(
+            output[0],
+            GenerateOutputItem::AssistantText {
+                phase: Some(AssistantTextPhase::Commentary),
+                text: "Checking that now.".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn required_noema_response_keeps_missing_assistant_text_phase_compatible() {
+        let output = required_output_items_from_text(
+            r#"{"type":"noema_response","output":[{"kind":"assistant_text","text":"Done."},{"kind":"memory_proposals","proposals":[]}]}"#
+                .to_string(),
+        )
+        .expect("required structured output");
+
+        assert_eq!(
+            output[0],
+            GenerateOutputItem::AssistantText {
+                phase: None,
+                text: "Done.".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn assistant_text_phase_defaults_to_final_without_runtime_tools() {
+        let phase = AssistantTextPhase::effective_for_output(
+            &GenerateOutputItem::AssistantText {
+                phase: None,
+                text: "Done.".to_string(),
+            },
+            false,
+        );
+        assert_eq!(phase, AssistantTextPhase::FinalAnswer);
+    }
+
+    #[test]
+    fn assistant_text_phase_defaults_to_commentary_with_runtime_tools() {
+        let phase = AssistantTextPhase::effective_for_output(
+            &GenerateOutputItem::AssistantText {
+                phase: None,
+                text: "Checking that now.".to_string(),
+            },
+            true,
+        );
+        assert_eq!(phase, AssistantTextPhase::Commentary);
     }
 
     #[test]
@@ -816,6 +924,7 @@ mod tests {
         assert_eq!(
             output[0],
             GenerateOutputItem::AssistantText {
+                phase: None,
                 text: "Hello".to_string()
             }
         );
@@ -856,7 +965,7 @@ mod tests {
         ));
         assert!(matches!(
             &output[1],
-            GenerateOutputItem::AssistantText { text } if text == "Searching Dex now."
+            GenerateOutputItem::AssistantText { text, .. } if text == "Searching Dex now."
         ));
     }
 
@@ -871,6 +980,7 @@ mod tests {
             output,
             vec![
                 GenerateOutputItem::AssistantText {
+                    phase: None,
                     text: "No. I didn't actually call a Notion write tool.".to_string(),
                 },
                 GenerateOutputItem::MemoryProposals { proposals: vec![] },
@@ -889,6 +999,7 @@ mod tests {
         assert_eq!(
             output[0],
             GenerateOutputItem::AssistantText {
+                phase: None,
                 text: "Hello".to_string()
             }
         );

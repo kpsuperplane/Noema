@@ -2425,6 +2425,7 @@ mod tests {
             self.requests.lock().expect("requests").push(request);
             Ok(crate::provider::GenerateResponse {
                 output: vec![crate::provider::GenerateOutputItem::AssistantText {
+                    phase: None,
                     text: self.text.clone(),
                 }],
                 provider: "test".to_string(),
