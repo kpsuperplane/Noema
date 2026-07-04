@@ -34,6 +34,8 @@ import {
   isAgentStatusEvent,
   isAssistantTextDeltaEvent,
   isTurnCompletedEvent,
+  markConversationEventReceived,
+  markConversationEventScheduled,
   removeStaleStartedMemoryExtractions,
   type ConversationEvent
 } from "@/transcript/events";
@@ -334,6 +336,7 @@ export function App() {
   ]);
 
   const applyConversationEvent = React.useCallback((event: ConversationEvent) => {
+    markConversationEventReceived(event);
     if (isTurnCompletedEvent(event)) {
       setTranscriptWindow((current) => ({
         ...current,
@@ -342,8 +345,10 @@ export function App() {
       setPending(false);
       setAwaitingAssistantTurn(false);
       setAgentStatus("IDLE");
+      markConversationEventScheduled(event);
     } else if (isAgentStatusEvent(event)) {
       setAgentStatus(event.status);
+      markConversationEventScheduled(event);
     } else if (isAssistantTextDeltaEvent(event)) {
       setAwaitingAssistantTurn(false);
       setTranscriptWindow((current) => ({
@@ -355,6 +360,7 @@ export function App() {
           delta: event.delta
         })
       }));
+      markConversationEventScheduled(event);
     } else {
       const entry = entryFromConversationEvent(event);
       if (entry) {
@@ -369,6 +375,7 @@ export function App() {
             })
           );
         }
+        markConversationEventScheduled(event, { entryType: entry.type });
       }
     }
     if (shouldRefreshLocalStatusForConversationEvent(event)) {

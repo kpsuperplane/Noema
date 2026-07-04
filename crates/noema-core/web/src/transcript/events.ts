@@ -17,52 +17,29 @@ export function entryFromConversationEvent(event: ConversationEvent): Transcript
     return null;
   }
 
-  markClientTurnEvent("client_conversation_event_received", clientEventFields(event));
-  const entry = entryFromConversationItem(
+  return entryFromConversationItem(
     event.itemId,
     event.cursor,
     event.turnId ?? undefined,
     event.item,
     event.metadata
   );
-  if (entry) {
-    markClientTurnEvent("client_transcript_entry_scheduled", {
-      ...clientEventFields(event),
-      entry_type: entry.type
-    });
-  }
-  return entry;
 }
 
 export function isTurnCompletedEvent(event: ConversationEvent): boolean {
-  if (event.__typename === "TurnCompletedEvent") {
-    markClientTurnEvent("client_conversation_event_received", clientEventFields(event));
-    markClientTurnEvent("client_turn_completed_scheduled", clientEventFields(event));
-    return true;
-  }
-  return false;
+  return event.__typename === "TurnCompletedEvent";
 }
 
 export function isAgentStatusEvent(
   event: ConversationEvent
 ): event is Extract<ConversationEvent, { __typename: "AgentStatusEvent" }> {
-  if (event.__typename === "AgentStatusEvent") {
-    markClientTurnEvent("client_conversation_event_received", clientEventFields(event));
-    markClientTurnEvent("client_agent_status_scheduled", clientEventFields(event));
-    return true;
-  }
-  return false;
+  return event.__typename === "AgentStatusEvent";
 }
 
 export function isAssistantTextDeltaEvent(
   event: ConversationEvent
 ): event is Extract<ConversationEvent, { __typename: "AssistantTextDeltaEvent" }> {
-  if (event.__typename === "AssistantTextDeltaEvent") {
-    markClientTurnEvent("client_conversation_event_received", clientEventFields(event));
-    markClientTurnEvent("client_assistant_delta_scheduled", clientEventFields(event));
-    return true;
-  }
-  return false;
+  return event.__typename === "AssistantTextDeltaEvent";
 }
 
 export function removeStaleStartedMemoryExtractions(current: TranscriptEntry[]): TranscriptEntry[] {
@@ -114,6 +91,34 @@ export function appendAssistantTextDeltaEntry(
       ? { ...candidate, text: `${candidate.text}${event.delta}` }
       : candidate
   );
+}
+
+export function markConversationEventReceived(event: ConversationEvent) {
+  markClientTurnEvent("client_conversation_event_received", clientEventFields(event));
+}
+
+export function markConversationEventScheduled(
+  event: ConversationEvent,
+  options: { entryType?: TranscriptEntry["type"] } = {}
+) {
+  if (event.__typename === "TurnCompletedEvent") {
+    markClientTurnEvent("client_turn_completed_scheduled", clientEventFields(event));
+    return;
+  }
+  if (event.__typename === "AgentStatusEvent") {
+    markClientTurnEvent("client_agent_status_scheduled", clientEventFields(event));
+    return;
+  }
+  if (event.__typename === "AssistantTextDeltaEvent") {
+    markClientTurnEvent("client_assistant_delta_scheduled", clientEventFields(event));
+    return;
+  }
+  if (event.__typename === "ConversationItemEvent" && options.entryType) {
+    markClientTurnEvent("client_transcript_entry_scheduled", {
+      ...clientEventFields(event),
+      entry_type: options.entryType
+    });
+  }
 }
 
 function entryFromReplayItem(item: ReplayItem): TranscriptEntry | null {
