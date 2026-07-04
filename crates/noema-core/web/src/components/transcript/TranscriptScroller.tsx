@@ -1,6 +1,8 @@
 import * as React from "react";
 import * as stylex from "@stylexjs/stylex";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { ArrowDownIcon } from "lucide-react";
+import { renderedEntryMessageId, type RenderTranscriptEntry } from "./renderModel";
 
 type ScrollToEndOptions = {
   behavior?: ScrollBehavior;
@@ -17,7 +19,12 @@ type TranscriptScrollerProviderProps = {
 };
 
 type TranscriptScrollerProps = {
-  children: React.ReactNode;
+  entries: RenderTranscriptEntry[];
+  hasMoreBefore: boolean;
+  loadingBefore: boolean;
+  loadBeforeError: string | null;
+  renderEntry: (entry: RenderTranscriptEntry, index: number) => React.ReactNode;
+  onLoadBefore: () => void;
   "aria-label"?: string;
   onViewportScroll?: React.UIEventHandler<HTMLDivElement>;
 };
@@ -57,30 +64,67 @@ const styles = stylex.create({
       "linear-gradient(to bottom, transparent 0, black var(--chat-transcript-top-fade), black calc(100% - var(--chat-transcript-bottom-fade, 128px)), transparent 100%)"
   },
   content: {
-    display: "flex",
     width: "var(--chat-column-width)",
     maxWidth: "100%",
     minWidth: 0,
     minHeight: "100%",
-    flexDirection: "column",
-    justifyContent: "flex-end",
-    gap: 12,
     marginInline: "auto",
     paddingTop: 24,
     paddingBottom: "max(80px, calc(var(--chat-composer-dock-height, 0px) + 16px))",
     paddingInline: 2
   },
+  virtualSizer: {
+    position: "relative",
+    width: "100%",
+    minHeight: "100%"
+  },
+  virtualRow: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    width: "100%"
+  },
+  loadBeforeStatus: {
+    display: "flex",
+    minHeight: 28,
+    alignItems: "center",
+    justifyContent: "center",
+    color: "var(--noema-text-tertiary)",
+    fontSize: 12,
+    lineHeight: "16px"
+  },
+  loadBeforeButton: {
+    borderWidth: 0,
+    backgroundColor: "transparent",
+    color: "var(--noema-text-secondary)",
+    cursor: "pointer",
+    font: "inherit",
+    paddingBlock: 4,
+    paddingInline: 8,
+    textDecorationLine: "underline",
+    textUnderlineOffset: 3,
+    ":hover": {
+      color: "var(--noema-text-primary)"
+    },
+    ":focus-visible": {
+      borderRadius: 6,
+      outlineWidth: 3,
+      outlineStyle: "solid",
+      outlineColor: "color-mix(in srgb, var(--noema-pine-500) 24%, transparent)"
+    }
+  },
   item: {
     display: "flex",
     width: "100%",
     minWidth: 0,
-    flexShrink: 0
+    flexShrink: 0,
+    marginTop: 12
   },
   itemEnd: {
     justifyContent: "flex-end"
   },
   compact: {
-    marginTop: -8
+    marginTop: 4
   },
   scrollButton: {
     position: "absolute",
@@ -151,9 +195,29 @@ export function useTranscriptScroller() {
   return context;
 }
 
-export function TranscriptScroller({ children, onViewportScroll, "aria-label": ariaLabel }: TranscriptScrollerProps) {
+export function TranscriptScroller({
+  entries,
+  hasMoreBefore,
+  loadingBefore,
+  loadBeforeError,
+  renderEntry,
+  onLoadBefore,
+  onViewportScroll,
+  "aria-label": ariaLabel
+}: TranscriptScrollerProps) {
   const { contentRef, viewportRef, scrollToEnd } = useTranscriptScroller();
   const [stuckToBottom, setStuckToBottom] = React.useState(true);
+  // TanStack Virtual exposes imperative measurement functions that React Compiler cannot memoize.
+  // eslint-disable-next-line react-hooks/incompatible-library
+  const rowVirtualizer = useVirtualizer({
+    count: entries.length,
+    getScrollElement: () => viewportRef.current,
+    estimateSize: () => 96,
+    overscan: 8,
+    getItemKey: (index) => renderedEntryMessageId(entries[index])
+  });
+  const virtualItems = rowVirtualizer.getVirtualItems();
+  const totalSize = rowVirtualizer.getTotalSize();
   const handleScroll = React.useCallback(
     (event: React.UIEvent<HTMLDivElement>) => {
       const viewport = event.currentTarget;
@@ -163,6 +227,16 @@ export function TranscriptScroller({ children, onViewportScroll, "aria-label": a
     },
     [onViewportScroll]
   );
+
+  React.useEffect(() => {
+    const first = virtualItems[0];
+    if (!first || !hasMoreBefore || loadingBefore) {
+      return;
+    }
+    if (first.index <= 3) {
+      onLoadBefore();
+    }
+  }, [hasMoreBefore, loadingBefore, onLoadBefore, virtualItems]);
 
   return (
     <div {...stylex.props(styles.root)}>
@@ -176,7 +250,35 @@ export function TranscriptScroller({ children, onViewportScroll, "aria-label": a
         onScroll={handleScroll}
         role="log"
       >
-        <div ref={contentRef} {...stylex.props(styles.content)}>{children}</div>
+        <div ref={contentRef} {...stylex.props(styles.content)}>
+          {hasMoreBefore || loadingBefore || loadBeforeError ? (
+            <div {...stylex.props(styles.loadBeforeStatus)} role={loadBeforeError ? "alert" : "status"}>
+              {loadBeforeError ? (
+                <button type="button" {...stylex.props(styles.loadBeforeButton)} onClick={onLoadBefore}>
+                  Retry loading earlier messages
+                </button>
+              ) : loadingBefore ? (
+                "Loading earlier messages"
+              ) : null}
+            </div>
+          ) : null}
+          <div {...stylex.props(styles.virtualSizer)} style={{ height: `${totalSize}px` }}>
+            {virtualItems.map((virtualItem) => {
+              const entry = entries[virtualItem.index];
+              return (
+                <div
+                  key={virtualItem.key}
+                  ref={rowVirtualizer.measureElement}
+                  data-index={virtualItem.index}
+                  {...stylex.props(styles.virtualRow)}
+                  style={{ transform: `translateY(${virtualItem.start}px)` }}
+                >
+                  {renderEntry(entry, virtualItem.index)}
+                </div>
+              );
+            })}
+          </div>
+        </div>
       </div>
       <button
         type="button"

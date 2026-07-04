@@ -53,10 +53,6 @@ export function Transcript({
   onLoadOlderTranscript: () => void;
 }) {
   void awaitingAssistantTurn;
-  void loadingOlderTranscript;
-  void hasMoreTranscriptBefore;
-  void transcriptPageError;
-  void onLoadOlderTranscript;
   const renderedEntries = renderableTranscriptEntries(entries, pending, agentStatus);
   const [seenArrivalMessageIds, setSeenArrivalMessageIds] = React.useState<ReadonlySet<string>>(() =>
     initialSeenArrivalMessageIds(renderedEntries)
@@ -110,8 +106,15 @@ export function Transcript({
 
   return (
     <TranscriptScrollerProvider>
-      <TranscriptScroller aria-label="Conversation transcript" onViewportScroll={handleViewportScroll}>
-        {renderedEntries.map((entry, index) => {
+      <TranscriptScroller
+        aria-label="Conversation transcript"
+        entries={renderedEntries}
+        hasMoreBefore={hasMoreTranscriptBefore}
+        loadingBefore={loadingOlderTranscript}
+        loadBeforeError={transcriptPageError}
+        onLoadBefore={onLoadOlderTranscript}
+        onViewportScroll={handleViewportScroll}
+        renderEntry={(entry, index) => {
           const lane = transcriptLane(entry);
           const previousEntry = renderedEntries[index - 1];
           const previousLane = previousEntry ? transcriptLane(previousEntry) : null;
@@ -139,8 +142,8 @@ export function Transcript({
               </RenderedTranscriptEntryFrame>
             </TranscriptScrollerItem>
           );
-        })}
-      </TranscriptScroller>
+        }}
+      />
       <TranscriptBottomFollower
         arrivalScrollKey={arrivalScrollKey}
         followBottomRef={followBottomRef}
