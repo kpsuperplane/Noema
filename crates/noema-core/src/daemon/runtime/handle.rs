@@ -224,11 +224,23 @@ impl CodexRuntimeHandle {
             .map_err(|_| DaemonError::Protocol("daemon runtime stopped".to_string()))?
     }
 
+    #[cfg(test)]
     pub(crate) async fn turn(
         &self,
         conversation_id: String,
         input: String,
         item_tx: mpsc::UnboundedSender<TurnStreamEvent>,
+    ) -> Result<(), DaemonError> {
+        self.turn_with_client_message_id(conversation_id, input, item_tx, None)
+            .await
+    }
+
+    pub(crate) async fn turn_with_client_message_id(
+        &self,
+        conversation_id: String,
+        input: String,
+        item_tx: mpsc::UnboundedSender<TurnStreamEvent>,
+        client_message_id: Option<String>,
     ) -> Result<(), DaemonError> {
         let (reply, reply_rx) = oneshot::channel();
         self.sender
@@ -236,6 +248,7 @@ impl CodexRuntimeHandle {
                 conversation_id,
                 input,
                 item_tx,
+                client_message_id,
                 reply,
             })
             .await
@@ -356,6 +369,7 @@ pub(super) enum CodexRuntimeCommand {
         conversation_id: String,
         input: String,
         item_tx: mpsc::UnboundedSender<TurnStreamEvent>,
+        client_message_id: Option<String>,
         reply: oneshot::Sender<Result<(), DaemonError>>,
     },
     GenerateOnce {

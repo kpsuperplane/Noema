@@ -63,9 +63,13 @@ impl CodexRuntimeActor {
                     conversation_id,
                     input,
                     item_tx,
+                    client_message_id,
                     reply,
                 } => {
-                    let _ = reply.send(self.turn(conversation_id, input, item_tx).await);
+                    let _ = reply.send(
+                        self.turn(conversation_id, input, item_tx, client_message_id)
+                            .await,
+                    );
                 }
                 CodexRuntimeCommand::GenerateOnce { request, reply } => {
                     let provider = match self.default_provider() {

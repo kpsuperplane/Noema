@@ -149,7 +149,7 @@ impl LocalToolResult {
         }
     }
 
-    fn name(&self) -> &str {
+    pub(super) fn name(&self) -> &str {
         match self {
             Self::Memory { result, .. } => &result.name,
             Self::AgentName { result, .. } => &result.name,
@@ -157,7 +157,7 @@ impl LocalToolResult {
         }
     }
 
-    fn success(&self) -> bool {
+    pub(super) fn success(&self) -> bool {
         match self {
             Self::Memory { result, .. } => result.success,
             Self::AgentName { result, .. } => result.success,

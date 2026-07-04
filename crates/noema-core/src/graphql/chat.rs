@@ -2,7 +2,10 @@ use async_graphql::{Enum, InputObject, Json, Result, SimpleObject, Union};
 use futures_util::Stream;
 use serde_json::Value;
 
-use crate::{AgentStatus, TurnActivityStatus, TurnTranscriptItem, daemon::TurnStreamEvent};
+use crate::{
+    AgentStatus, TurnActivityStatus, TurnTranscriptItem,
+    daemon::{TurnStreamEvent, mark_graphql_turn_event},
+};
 
 use super::{
     ConversationLiveEvent, ConversationSubscriptionRegistry, errors::graphql_error,
@@ -376,9 +379,28 @@ pub(super) async fn send_conversation_turn(
     let published_client_message_id = client_message_id.clone();
     let input_text = input.input;
     let completion_conversation_id = conversation_id.clone();
+    mark_graphql_turn_event(
+        "graphql_turn_received",
+        &conversation_id,
+        client_message_id.as_deref(),
+        serde_json::json!({
+            "input_chars": input_text.chars().count(),
+        }),
+    );
 
     tokio::spawn(async move {
-        let completion = runtime.turn(completion_conversation_id, input_text, item_tx);
+        mark_graphql_turn_event(
+            "graphql_runtime_task_started",
+            &completion_conversation_id,
+            published_client_message_id.as_deref(),
+            serde_json::json!({}),
+        );
+        let completion = runtime.turn_with_client_message_id(
+            completion_conversation_id,
+            input_text,
+            item_tx,
+            published_client_message_id.clone(),
+        );
         tokio::pin!(completion);
         let mut published_error_notice = false;
         loop {
@@ -387,6 +409,7 @@ pub(super) async fn send_conversation_turn(
                     if turn_event_is_error_notice(&event) {
                         published_error_notice = true;
                     }
+                    mark_graphql_published_turn_event(&event, published_client_message_id.as_deref());
                     subscriptions.publish(ConversationLiveEvent::Turn {
                         client_message_id: published_client_message_id.clone(),
                         event: Box::new(event),
@@ -397,6 +420,7 @@ pub(super) async fn send_conversation_turn(
                         if turn_event_is_error_notice(&event) {
                             published_error_notice = true;
                         }
+                        mark_graphql_published_turn_event(&event, published_client_message_id.as_deref());
                         subscriptions.publish(ConversationLiveEvent::Turn {
                             client_message_id: published_client_message_id.clone(),
                             event: Box::new(event),
@@ -508,7 +532,7 @@ fn publish_turn_terminal_events(
     published_error_notice: bool,
     result: std::result::Result<(), crate::DaemonError>,
 ) {
-    if let Err(error) = result
+    if let Err(ref error) = result
         && !published_error_notice
     {
         let error_item_id = client_message_id.as_ref().map_or_else(
@@ -532,10 +556,95 @@ fn publish_turn_terminal_events(
         });
     }
 
+    mark_graphql_turn_event(
+        "graphql_turn_completed",
+        &conversation_id,
+        client_message_id.as_deref(),
+        serde_json::json!({
+            "success": result.is_ok(),
+            "published_error_notice": published_error_notice,
+        }),
+    );
     subscriptions.publish(ConversationLiveEvent::Completed {
         conversation_id,
         client_message_id,
     });
+}
+
+fn mark_graphql_published_turn_event(event: &TurnStreamEvent, client_message_id: Option<&str>) {
+    match event {
+        TurnStreamEvent::ConversationItem {
+            conversation_id,
+            item_id,
+            turn_id,
+            item,
+            ..
+        } => {
+            let (item_kind, activity_kind, status) = match item.as_ref() {
+                TurnTranscriptItem::UserText { .. } => ("user_text", None, None),
+                TurnTranscriptItem::AssistantText { .. } => ("assistant_text", None, None),
+                TurnTranscriptItem::Activity {
+                    activity_kind,
+                    status,
+                    ..
+                } => (
+                    "activity",
+                    Some(activity_kind.as_str()),
+                    Some(activity_status_label(*status)),
+                ),
+                TurnTranscriptItem::A2uiCard { schema, .. } => {
+                    ("a2ui_card", Some(schema.as_str()), None)
+                }
+                TurnTranscriptItem::ErrorNotice { .. } => ("error_notice", None, None),
+            };
+            mark_graphql_turn_event(
+                "graphql_publish_conversation_item",
+                conversation_id,
+                client_message_id,
+                serde_json::json!({
+                    "item_id": item_id,
+                    "turn_id": turn_id,
+                    "item_kind": item_kind,
+                    "activity_kind": activity_kind,
+                    "status": status,
+                }),
+            );
+        }
+        TurnStreamEvent::AssistantTextDelta {
+            conversation_id,
+            turn_id,
+            stream_id,
+            delta,
+        } => mark_graphql_turn_event(
+            "graphql_publish_assistant_delta",
+            conversation_id,
+            client_message_id,
+            serde_json::json!({
+                "turn_id": turn_id,
+                "stream_id": stream_id,
+                "delta_chars": delta.chars().count(),
+            }),
+        ),
+        TurnStreamEvent::AgentStatusChanged {
+            conversation_id,
+            status,
+        } => mark_graphql_turn_event(
+            "graphql_publish_agent_status",
+            conversation_id,
+            client_message_id,
+            serde_json::json!({
+                "status": format!("{status:?}"),
+            }),
+        ),
+    }
+}
+
+fn activity_status_label(status: TurnActivityStatus) -> &'static str {
+    match status {
+        TurnActivityStatus::Started => "started",
+        TurnActivityStatus::Completed => "completed",
+        TurnActivityStatus::Failed => "failed",
+    }
 }
 
 fn turn_event_is_error_notice(event: &TurnStreamEvent) -> bool {

@@ -9,6 +9,7 @@ mod prompt_context;
 mod tool_lifecycle;
 pub(in crate::daemon) mod transcript_persistence;
 pub(in crate::daemon) mod turn;
+pub(crate) mod turn_timing;
 
 pub(crate) use handle::CodexRuntimeHandle;
 #[cfg(test)]

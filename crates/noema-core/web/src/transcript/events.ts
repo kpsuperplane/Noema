@@ -22,8 +22,10 @@ export function handleConversationEvent(
     setAwaitingAssistantTurn: Dispatch<SetStateAction<boolean>>;
   }
 ) {
+  markClientTurnEvent("client_conversation_event_received", clientEventFields(event));
   if (event.__typename === "TurnCompletedEvent") {
     setters.setTranscript((current) => removeStaleStartedMemoryExtractions(current));
+    markClientTurnEvent("client_turn_completed_scheduled", clientEventFields(event));
     setters.setPending(false);
     setters.setAwaitingAssistantTurn(false);
     setters.setAgentStatus("IDLE");
@@ -31,6 +33,7 @@ export function handleConversationEvent(
   }
   if (event.__typename === "AgentStatusEvent") {
     setters.setAgentStatus(event.status);
+    markClientTurnEvent("client_agent_status_scheduled", clientEventFields(event));
     return;
   }
   if (event.__typename === "AssistantTextDeltaEvent") {
@@ -41,6 +44,7 @@ export function handleConversationEvent(
       streamId: event.streamId,
       delta: event.delta
     });
+    markClientTurnEvent("client_assistant_delta_scheduled", clientEventFields(event));
     return;
   }
   if (event.__typename !== "ConversationItemEvent") {
@@ -56,6 +60,10 @@ export function handleConversationEvent(
   } else {
     upsertTranscriptEntry(setters.setTranscript, entry);
   }
+  markClientTurnEvent("client_transcript_entry_scheduled", {
+    ...clientEventFields(event),
+    entry_type: entry.type
+  });
 }
 
 export function pushTranscript(
@@ -237,6 +245,63 @@ function streamIdFromMetadata(metadata: unknown): string | undefined {
     return undefined;
   }
   return typeof metadata.stream_id === "string" ? metadata.stream_id : undefined;
+}
+
+function markClientTurnEvent(event: string, fields: Record<string, unknown>) {
+  const payload = {
+    category: "turn_timing_client",
+    event,
+    unix_ms: Date.now(),
+    ...fields
+  };
+  const globalScope = globalThis as typeof globalThis & {
+    __NOEMA_TURN_TIMINGS__?: Array<Record<string, unknown>>;
+  };
+  globalScope.__NOEMA_TURN_TIMINGS__ = globalScope.__NOEMA_TURN_TIMINGS__ ?? [];
+  globalScope.__NOEMA_TURN_TIMINGS__.push(payload);
+  console.debug(
+    "[noema_turn_timing_client]",
+    JSON.stringify(payload)
+  );
+}
+
+function clientEventFields(event: ConversationEvent): Record<string, unknown> {
+  if (event.__typename === "ConversationItemEvent") {
+    return {
+      graphql_event: event.__typename,
+      conversation_id: event.conversationId,
+      client_message_id: event.clientMessageId,
+      item_id: event.itemId,
+      turn_id: event.turnId,
+      item_kind: event.item.__typename
+    };
+  }
+  if (event.__typename === "AssistantTextDeltaEvent") {
+    return {
+      graphql_event: event.__typename,
+      conversation_id: event.conversationId,
+      turn_id: event.deltaTurnId,
+      stream_id: event.streamId,
+      delta_chars: event.delta.length
+    };
+  }
+  if (event.__typename === "AgentStatusEvent") {
+    return {
+      graphql_event: event.__typename,
+      conversation_id: event.conversationId,
+      status: event.status
+    };
+  }
+  if (event.__typename === "TurnCompletedEvent") {
+    return {
+      graphql_event: event.__typename,
+      conversation_id: event.conversationId,
+      client_message_id: event.clientMessageId
+    };
+  }
+  return {
+    graphql_event: event.__typename,
+  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

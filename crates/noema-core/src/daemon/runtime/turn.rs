@@ -23,6 +23,7 @@ use super::{
     transcript_persistence::{
         assistant_stream_id, handle_provider_stream_event, send_conversation_item,
     },
+    turn_timing::TurnTiming,
 };
 use crate::daemon::{
     agent_name_tool::is_update_own_name_tool,
@@ -253,7 +254,9 @@ impl CodexRuntimeActor {
         conversation_id: String,
         input: String,
         item_tx: mpsc::UnboundedSender<TurnStreamEvent>,
+        client_message_id: Option<String>,
     ) -> Result<(), DaemonError> {
+        let pre_turn_started_at = std::time::Instant::now();
         let conversation = self
             .hydrate_active_conversation(&conversation_id, None)
             .await?;
@@ -266,15 +269,40 @@ impl CodexRuntimeActor {
                 metadata: json!({ "turn_index": turn_index }),
             })
             .await?;
+        let timing = TurnTiming::new(
+            conversation_id.clone(),
+            turn.turn_id.clone(),
+            turn_index,
+            client_message_id,
+        );
+        timing.mark(
+            "runtime_turn_started",
+            json!({
+                "hydrate_and_create_turn_ms": pre_turn_started_at.elapsed().as_millis(),
+                "input_chars": input.chars().count(),
+                "provider_kind": conversation.provider_kind,
+                "model": conversation.model,
+            }),
+        );
         let provider = self.provider_for_kind(&conversation.provider_kind)?;
         let tool_capabilities = provider.tool_capabilities(conversation.model.as_deref());
         let agent_identity = self
             .agent_identity_for_conversation(&conversation_id)
             .await?;
+        let tools_started_at = std::time::Instant::now();
         let model_tools = self.model_tools(true, tool_capabilities).await?;
         let continuation_model_tools = self.model_tools(false, tool_capabilities).await?;
         let rendered_tools = render_available_tools(&model_tools);
         let rendered_continuation_tools = render_available_tools(&continuation_model_tools);
+        timing.mark(
+            "runtime_model_tools_ready",
+            json!({
+                "duration_ms": tools_started_at.elapsed().as_millis(),
+                "native_tool_count": model_tools.native.len(),
+                "legacy_builtin_tool_count": model_tools.legacy_builtin_envelope_tools.len(),
+                "continuation_native_tool_count": continuation_model_tools.native.len(),
+            }),
+        );
         self.update_conversation_agent_status(
             &conversation_id,
             PersistedAgentStatus::InputReceived,
@@ -287,6 +315,8 @@ impl CodexRuntimeActor {
             &item_tx,
         )
         .await?;
+        timing.mark("runtime_status_thinking", json!({}));
+        let prompt_started_at = std::time::Instant::now();
         let mut planned_context =
             super::prompt_context::plan_prompt_context(super::prompt_context::PromptPlanRequest {
                 store: &self.store,
@@ -303,6 +333,16 @@ impl CodexRuntimeActor {
                 current_input: &input,
             })
             .await?;
+        timing.mark(
+            "runtime_prompt_context_planned",
+            json!({
+                "duration_ms": prompt_started_at.elapsed().as_millis(),
+                "fits": planned_context.fits,
+                "estimated_prompt_tokens": planned_context.estimated_input_tokens,
+                "budget_input_tokens": planned_context.budget.available_input_tokens(),
+                "budget_output_reserve_tokens": planned_context.budget.output_reserve_tokens(),
+            }),
+        );
         let user_metadata = json!({ "turn_index": turn_index });
         let user_item = self
             .store
@@ -327,8 +367,10 @@ impl CodexRuntimeActor {
                 text: input.clone(),
             },
         );
+        timing.mark("runtime_user_item_persisted", json!({}));
         let explicit_memory_outcome =
             if let Some(explicit_content) = explicit_memory_content(&input) {
+                timing.mark("runtime_explicit_memory_started", json!({}));
                 let memory_context = ConversationMemoryContext {
                     turn_index,
                     conversation_id: conversation_id.clone(),
@@ -344,7 +386,17 @@ impl CodexRuntimeActor {
             } else {
                 ExplicitMemoryOutcome::None
             };
+        if explicit_memory_outcome.was_attempted() {
+            timing.mark(
+                "runtime_explicit_memory_finished",
+                json!({
+                    "outcome": format!("{explicit_memory_outcome:?}"),
+                }),
+            );
+        }
         if super::context_compaction::should_compact_foreground(&planned_context) {
+            let compaction_started_at = std::time::Instant::now();
+            timing.mark("runtime_foreground_compaction_started", json!({}));
             let compaction_result = super::context_compaction::compact_context_with_retry(
                 super::context_compaction::CompactionRequest {
                     store: &self.store,
@@ -378,6 +430,13 @@ impl CodexRuntimeActor {
                 self.conversations.remove(&conversation_id);
                 return Err(error);
             }
+            timing.mark(
+                "runtime_foreground_compaction_finished",
+                json!({
+                    "duration_ms": compaction_started_at.elapsed().as_millis(),
+                }),
+            );
+            let prompt_replan_started_at = std::time::Instant::now();
             planned_context = super::prompt_context::plan_prompt_context(
                 super::prompt_context::PromptPlanRequest {
                     store: &self.store,
@@ -395,7 +454,17 @@ impl CodexRuntimeActor {
                 },
             )
             .await?;
+            timing.mark(
+                "runtime_prompt_context_replanned_after_compaction",
+                json!({
+                    "duration_ms": prompt_replan_started_at.elapsed().as_millis(),
+                    "fits": planned_context.fits,
+                    "estimated_prompt_tokens": planned_context.estimated_input_tokens,
+                }),
+            );
             if !planned_context.fits {
+                let smaller_compaction_started_at = std::time::Instant::now();
+                timing.mark("runtime_smaller_compaction_started", json!({}));
                 let smaller_compaction = super::context_compaction::compact_active_summary_smaller(
                     super::context_compaction::CompactionRequest {
                         store: &self.store,
@@ -429,6 +498,13 @@ impl CodexRuntimeActor {
                     self.conversations.remove(&conversation_id);
                     return Err(error);
                 }
+                timing.mark(
+                    "runtime_smaller_compaction_finished",
+                    json!({
+                        "duration_ms": smaller_compaction_started_at.elapsed().as_millis(),
+                    }),
+                );
+                let prompt_replan_started_at = std::time::Instant::now();
                 planned_context = super::prompt_context::plan_prompt_context(
                     super::prompt_context::PromptPlanRequest {
                         store: &self.store,
@@ -446,6 +522,14 @@ impl CodexRuntimeActor {
                     },
                 )
                 .await?;
+                timing.mark(
+                    "runtime_prompt_context_replanned_after_smaller_compaction",
+                    json!({
+                        "duration_ms": prompt_replan_started_at.elapsed().as_millis(),
+                        "fits": planned_context.fits,
+                        "estimated_prompt_tokens": planned_context.estimated_input_tokens,
+                    }),
+                );
             }
             if !planned_context.fits {
                 let error = ProviderError::InvalidRequest {
@@ -471,6 +555,8 @@ impl CodexRuntimeActor {
         let agent_identity_for_background = agent_identity.clone();
 
         let initial_stream_id = assistant_stream_id(&turn.turn_id, "initial");
+        let mut initial_stream_seen = false;
+        let mut initial_assistant_delta_seen = false;
         let initial_event_context = ConversationMemoryContext {
             turn_index,
             conversation_id: conversation_id.clone(),
@@ -482,6 +568,34 @@ impl CodexRuntimeActor {
             cwd: conversation.cwd.clone(),
         };
         let mut on_initial_event = |event| {
+            if !initial_stream_seen {
+                timing.mark(
+                    "provider_initial_first_stream_event",
+                    provider_stream_event_fields(&event),
+                );
+                initial_stream_seen = true;
+            }
+            if matches!(&event, GenerateStreamEvent::AssistantTextDelta { .. })
+                && !initial_assistant_delta_seen
+            {
+                timing.mark(
+                    "provider_initial_first_assistant_delta",
+                    provider_stream_event_fields(&event),
+                );
+                initial_assistant_delta_seen = true;
+            }
+            if matches!(&event, GenerateStreamEvent::ToolCallStarted { .. }) {
+                timing.mark(
+                    "provider_initial_tool_call_started_streamed",
+                    provider_stream_event_fields(&event),
+                );
+            }
+            if matches!(&event, GenerateStreamEvent::MemoryProposalsStarted) {
+                timing.mark(
+                    "provider_initial_memory_proposals_started_streamed",
+                    json!({}),
+                );
+            }
             handle_provider_stream_event(
                 event,
                 &item_tx,
@@ -491,6 +605,15 @@ impl CodexRuntimeActor {
             );
         };
 
+        timing.mark(
+            "provider_initial_request_started",
+            json!({
+                "native_tool_count": model_tools.native.len(),
+                "parallel_tool_calls": !model_tools.native.is_empty()
+                    && tool_capabilities.parallel_tool_calls,
+            }),
+        );
+        let initial_provider_started_at = std::time::Instant::now();
         match provider
             .generate_streaming(
                 GenerateRequest {
@@ -514,6 +637,16 @@ impl CodexRuntimeActor {
             .await
         {
             Ok(response) => {
+                timing.mark(
+                    "provider_initial_response_completed",
+                    json!({
+                        "duration_ms": initial_provider_started_at.elapsed().as_millis(),
+                        "response_count": response.responses.len(),
+                        "tool_call_count": response.tool_calls.len(),
+                        "memory_proposal_count": response.memory_proposals.len(),
+                        "response_status": format!("{:?}", response.response_status),
+                    }),
+                );
                 let result = self
                     .persist_successful_provider_turn(
                         SuccessfulProviderTurn {
@@ -535,6 +668,7 @@ impl CodexRuntimeActor {
                             rendered_continuation_tools,
                         },
                         &item_tx,
+                        &timing,
                     )
                     .await;
                 if let Err(error) = result {
@@ -563,9 +697,17 @@ impl CodexRuntimeActor {
                     rendered_tools: rendered_tools.clone(),
                 });
 
+                timing.mark("runtime_turn_ok", json!({}));
                 Ok(())
             }
             Err(error) => {
+                timing.mark(
+                    "provider_initial_response_failed",
+                    json!({
+                        "duration_ms": initial_provider_started_at.elapsed().as_millis(),
+                        "error": error.to_string(),
+                    }),
+                );
                 let partial_output = match &error {
                     ProviderError::PartialResponse {
                         provider, output, ..
@@ -607,6 +749,7 @@ impl CodexRuntimeActor {
                 self.record_turn_failure(&error_context, error_message, &item_tx)
                     .await?;
                 self.conversations.remove(&conversation_id);
+                timing.mark("runtime_turn_failed", json!({}));
                 Err(error.into())
             }
         }
@@ -616,7 +759,10 @@ impl CodexRuntimeActor {
         &mut self,
         turn: SuccessfulProviderTurn,
         item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
+        timing: &TurnTiming,
     ) -> Result<(), DaemonError> {
+        let persist_started_at = std::time::Instant::now();
+        timing.mark("runtime_persist_successful_turn_started", json!({}));
         let initial_memory_proposals = turn.response.memory_proposals.clone();
         let initial_response_count = turn.response.responses.len();
         let action_turn = ProviderActionTurn {
@@ -640,6 +786,13 @@ impl CodexRuntimeActor {
                 item_tx,
             )
             .await?;
+            timing.mark(
+                "runtime_assistant_response_item_persisted",
+                json!({
+                    "phase": "initial",
+                    "response_index": index,
+                }),
+            );
         }
 
         let mut provider_memory_batches = Vec::new();
@@ -670,6 +823,14 @@ impl CodexRuntimeActor {
         };
         let mut local_tool_results = Vec::new();
         for call in &initial_tool_calls {
+            timing.mark(
+                "runtime_tool_call_started",
+                json!({
+                    "phase": "initial",
+                    "tool_name": call.name,
+                    "output_index": call.output_index,
+                }),
+            );
             self.persist_provider_tool_call_started(
                 &local_action_turn,
                 initial_response_count + call.output_index,
@@ -677,9 +838,28 @@ impl CodexRuntimeActor {
                 item_tx,
             )
             .await?;
+            let tool_started_at = std::time::Instant::now();
+            timing.mark(
+                "runtime_tool_execution_started",
+                json!({
+                    "phase": "initial",
+                    "tool_name": call.name,
+                    "output_index": call.output_index,
+                }),
+            );
             let result = self
                 .execute_local_tool(&turn, &turn.agent_identity, call)
                 .await;
+            timing.mark(
+                "runtime_tool_execution_completed",
+                json!({
+                    "phase": "initial",
+                    "tool_name": result.name(),
+                    "duration_ms": tool_started_at.elapsed().as_millis(),
+                    "success": result.success(),
+                    "requires_provider_continuation": result.requires_provider_continuation(),
+                }),
+            );
             self.persist_provider_action_item(
                 &local_action_turn,
                 next_output_index,
@@ -687,6 +867,14 @@ impl CodexRuntimeActor {
                 item_tx,
             )
             .await?;
+            timing.mark(
+                "runtime_tool_result_persisted",
+                json!({
+                    "phase": "initial",
+                    "tool_name": result.name(),
+                    "success": result.success(),
+                }),
+            );
             next_output_index += 1;
             local_tool_results.push(result);
         }
@@ -745,6 +933,8 @@ impl CodexRuntimeActor {
             let continuation_stream_id =
                 assistant_stream_id(&turn.turn_id, &continuation_stream_suffix);
             let continuation_output_base = next_output_index;
+            let mut continuation_stream_seen = false;
+            let mut continuation_assistant_delta_seen = false;
             let continuation_event_context = ConversationMemoryContext {
                 turn_index: turn.turn_index,
                 conversation_id: turn.conversation_id.clone(),
@@ -763,6 +953,34 @@ impl CodexRuntimeActor {
                 ) {
                     return;
                 }
+                if !continuation_stream_seen {
+                    timing.mark(
+                        "provider_continuation_first_stream_event",
+                        continuation_provider_stream_event_fields(continuation_step, &event),
+                    );
+                    continuation_stream_seen = true;
+                }
+                if matches!(&event, GenerateStreamEvent::AssistantTextDelta { .. })
+                    && !continuation_assistant_delta_seen
+                {
+                    timing.mark(
+                        "provider_continuation_first_assistant_delta",
+                        continuation_provider_stream_event_fields(continuation_step, &event),
+                    );
+                    continuation_assistant_delta_seen = true;
+                }
+                if matches!(&event, GenerateStreamEvent::ToolCallStarted { .. }) {
+                    timing.mark(
+                        "provider_continuation_tool_call_started_streamed",
+                        continuation_provider_stream_event_fields(continuation_step, &event),
+                    );
+                }
+                if matches!(&event, GenerateStreamEvent::MemoryProposalsStarted) {
+                    timing.mark(
+                        "provider_continuation_memory_proposals_started_streamed",
+                        json!({ "continuation_step": continuation_step }),
+                    );
+                }
                 handle_provider_stream_event(
                     event,
                     item_tx,
@@ -772,6 +990,15 @@ impl CodexRuntimeActor {
                 );
             };
             let provider = self.provider_for_kind(&turn.provider_kind)?;
+            timing.mark(
+                "provider_continuation_request_started",
+                json!({
+                    "continuation_step": continuation_step,
+                    "tool_result_count": continuation_result_refs.len(),
+                    "native_tool_count": turn.continuation_model_tools.native.len(),
+                }),
+            );
+            let continuation_provider_started_at = std::time::Instant::now();
             let continuation_response = provider
                 .generate_streaming(
                     GenerateRequest {
@@ -792,6 +1019,17 @@ impl CodexRuntimeActor {
                     &mut on_continuation_event,
                 )
                 .await?;
+            timing.mark(
+                "provider_continuation_response_completed",
+                json!({
+                    "continuation_step": continuation_step,
+                    "duration_ms": continuation_provider_started_at.elapsed().as_millis(),
+                    "response_count": continuation_response.responses.len(),
+                    "tool_call_count": continuation_response.tool_calls.len(),
+                    "memory_proposal_count": continuation_response.memory_proposals.len(),
+                    "response_status": format!("{:?}", continuation_response.response_status),
+                }),
+            );
             let continuation_memory_proposals = continuation_response.memory_proposals.clone();
             let mut continuation_assistant_response = ProviderAssistantResponse::default();
             let continuation_action_turn = ProviderActionTurn {
@@ -828,6 +1066,14 @@ impl CodexRuntimeActor {
                     item_tx,
                 )
                 .await?;
+                timing.mark(
+                    "runtime_assistant_response_item_persisted",
+                    json!({
+                        "phase": "continuation",
+                        "continuation_step": continuation_step,
+                        "response_index": continuation_output_base + offset,
+                    }),
+                );
             }
             if !continuation_memory_proposals.is_empty() {
                 provider_memory_batches.push(ProviderMemoryProposalBatch {
@@ -883,6 +1129,15 @@ impl CodexRuntimeActor {
                 stream_id: None,
             };
             for call in &continuation_tool_calls {
+                timing.mark(
+                    "runtime_tool_call_started",
+                    json!({
+                        "phase": "continuation",
+                        "continuation_step": continuation_step,
+                        "tool_name": call.name,
+                        "output_index": call.output_index,
+                    }),
+                );
                 self.persist_provider_tool_call_started(
                     &local_action_turn,
                     continuation_output_base + continuation_response_count + call.output_index,
@@ -890,9 +1145,30 @@ impl CodexRuntimeActor {
                     item_tx,
                 )
                 .await?;
+                let tool_started_at = std::time::Instant::now();
+                timing.mark(
+                    "runtime_tool_execution_started",
+                    json!({
+                        "phase": "continuation",
+                        "continuation_step": continuation_step,
+                        "tool_name": call.name,
+                        "output_index": call.output_index,
+                    }),
+                );
                 let result = self
                     .execute_local_tool(&continuation_turn, &continuation_turn.agent_identity, call)
                     .await;
+                timing.mark(
+                    "runtime_tool_execution_completed",
+                    json!({
+                        "phase": "continuation",
+                        "continuation_step": continuation_step,
+                        "tool_name": result.name(),
+                        "duration_ms": tool_started_at.elapsed().as_millis(),
+                        "success": result.success(),
+                        "requires_provider_continuation": result.requires_provider_continuation(),
+                    }),
+                );
                 self.persist_provider_action_item(
                     &local_action_turn,
                     next_output_index,
@@ -900,6 +1176,15 @@ impl CodexRuntimeActor {
                     item_tx,
                 )
                 .await?;
+                timing.mark(
+                    "runtime_tool_result_persisted",
+                    json!({
+                        "phase": "continuation",
+                        "continuation_step": continuation_step,
+                        "tool_name": result.name(),
+                        "success": result.success(),
+                    }),
+                );
                 next_output_index += 1;
                 local_tool_results.push(result);
             }
@@ -919,6 +1204,13 @@ impl CodexRuntimeActor {
         }
 
         if !turn.explicit_memory_outcome.was_attempted() && !provider_memory_batches.is_empty() {
+            let memory_started_at = std::time::Instant::now();
+            timing.mark(
+                "runtime_provider_memory_persistence_started",
+                json!({
+                    "batch_count": provider_memory_batches.len(),
+                }),
+            );
             let memory_provider = self.provider_for_kind(&turn.provider_kind)?;
             self.persist_provider_memory_proposals(
                 provider_memory_batches,
@@ -926,15 +1218,28 @@ impl CodexRuntimeActor {
                 item_tx,
             )
             .await?;
+            timing.mark(
+                "runtime_provider_memory_persistence_completed",
+                json!({
+                    "duration_ms": memory_started_at.elapsed().as_millis(),
+                }),
+            );
         }
 
         self.store.complete_conversation_turn(&turn.turn_id).await?;
+        timing.mark(
+            "runtime_turn_persistence_completed",
+            json!({
+                "duration_ms": persist_started_at.elapsed().as_millis(),
+            }),
+        );
         self.update_conversation_agent_status(
             &turn.conversation_id,
             PersistedAgentStatus::Idle,
             item_tx,
         )
         .await?;
+        timing.mark("runtime_status_idle", json!({}));
 
         if let Some(conversation) = self.conversations.get_mut(&turn.conversation_id) {
             conversation.next_turn_index = conversation.next_turn_index.saturating_add(1);
@@ -1063,6 +1368,32 @@ fn render_available_tools(model_tools: &ModelTools) -> String {
     rows.extend(model_tools.prompt_rows.iter().cloned());
     rows.extend(model_tools.unavailable_rows.iter().cloned());
     build_model_available_tools_prompt(&rows)
+}
+
+fn provider_stream_event_fields(event: &GenerateStreamEvent) -> serde_json::Value {
+    match event {
+        GenerateStreamEvent::AssistantTextDelta { delta } => json!({
+            "stream_event": "assistant_text_delta",
+            "delta_chars": delta.chars().count(),
+        }),
+        GenerateStreamEvent::MemoryProposalsStarted => json!({
+            "stream_event": "memory_proposals_started",
+        }),
+        GenerateStreamEvent::ToolCallStarted { output_index, name } => json!({
+            "stream_event": "tool_call_started",
+            "output_index": output_index,
+            "tool_name": name,
+        }),
+    }
+}
+
+fn continuation_provider_stream_event_fields(
+    continuation_step: usize,
+    event: &GenerateStreamEvent,
+) -> serde_json::Value {
+    let mut fields = provider_stream_event_fields(event);
+    fields["continuation_step"] = json!(continuation_step);
+    fields
 }
 
 #[derive(Debug)]
