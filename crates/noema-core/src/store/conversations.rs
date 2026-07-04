@@ -3,15 +3,19 @@ use serde_json::Value;
 use surrealdb::types::SurrealValue;
 
 use crate::{
-    ConversationItemKind, ConversationItemRecord, ConversationItemStatus, ConversationRecord,
-    ConversationTurnRecord, NewConversation, NewConversationItem, NewConversationTurn,
-    PersistedAgentStatus as AgentStatus, ReplayMode,
+    ConversationItemKind, ConversationItemPage, ConversationItemRecord, ConversationItemStatus,
+    ConversationRecord, ConversationTurnRecord, NewConversation, NewConversationItem,
+    NewConversationTurn, PersistedAgentStatus as AgentStatus, ReplayMode,
 };
 
 use super::{
     NoemaStore, StoreError,
     ids::{allocate_id, now_string, record_fragment},
 };
+
+const CONVERSATION_ITEM_CURSOR_PREFIX: &str = "conversation_item:";
+const DEFAULT_TRANSCRIPT_PAGE_LIMIT: i64 = 80;
+const MAX_TRANSCRIPT_PAGE_LIMIT: i64 = 200;
 
 impl NoemaStore {
     /// Create a durable conversation row.
@@ -223,6 +227,7 @@ impl NoemaStore {
             conversation_id: item.conversation_id,
             turn_id: item.turn_id,
             sequence_index,
+            cursor: conversation_item_cursor(sequence_index),
             kind: item.kind,
             status: item.status,
             content_text: item.content_text,
@@ -260,6 +265,84 @@ impl NoemaStore {
             .await?;
         let rows: Vec<ConversationItemRow> = response.take(0)?;
         rows.into_iter().map(conversation_item_from_row).collect()
+    }
+
+    /// Return a bounded page of visible conversation items in transcript order.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when the conversation is missing, the cursor is
+    /// malformed, the embedded store read fails, or stored enums are invalid.
+    pub async fn list_visible_conversation_item_page(
+        &self,
+        conversation_id: &str,
+        cursor: Option<&str>,
+        limit: i64,
+    ) -> Result<ConversationItemPage, StoreError> {
+        self.require_conversation(conversation_id).await?;
+        let limit = if limit == 0 {
+            DEFAULT_TRANSCRIPT_PAGE_LIMIT
+        } else {
+            clamp_transcript_page_limit(limit)
+        };
+        let fetch_limit = limit.saturating_add(1);
+
+        let mut rows = if let Some(cursor) = cursor {
+            let before_sequence_index = sequence_index_from_conversation_item_cursor(cursor)?;
+            let mut response = self
+                .db
+                .query(
+                    r#"
+                    SELECT item_id, conversation_id, turn_id, kind, status, content_text, payload_json, sequence_index
+                    FROM conversation_items
+                    WHERE conversation_id = $conversation_id
+                      AND deleted_at = NONE
+                      AND sequence_index < $before_sequence_index
+                    ORDER BY sequence_index DESC
+                    LIMIT $limit;
+                    "#,
+                )
+                .bind(("conversation_id", conversation_id.to_string()))
+                .bind(("before_sequence_index", before_sequence_index))
+                .bind(("limit", fetch_limit))
+                .await?;
+            response.take::<Vec<ConversationItemRow>>(0)?
+        } else {
+            let mut response = self
+                .db
+                .query(
+                    r#"
+                    SELECT item_id, conversation_id, turn_id, kind, status, content_text, payload_json, sequence_index
+                    FROM conversation_items
+                    WHERE conversation_id = $conversation_id
+                      AND deleted_at = NONE
+                    ORDER BY sequence_index DESC
+                    LIMIT $limit;
+                    "#,
+                )
+                .bind(("conversation_id", conversation_id.to_string()))
+                .bind(("limit", fetch_limit))
+                .await?;
+            response.take::<Vec<ConversationItemRow>>(0)?
+        };
+
+        let has_more_before = i64::try_from(rows.len()).unwrap_or(i64::MAX) > limit;
+        if has_more_before {
+            rows.truncate(usize::try_from(limit).unwrap_or(usize::MAX));
+        }
+        rows.reverse();
+        let items = rows
+            .into_iter()
+            .map(conversation_item_from_row)
+            .collect::<Result<Vec<_>, _>>()?;
+        let before_cursor = items.first().map(|item| item.cursor.clone());
+
+        Ok(ConversationItemPage {
+            items,
+            before_cursor,
+            has_more_before,
+            limit,
+        })
     }
 
     /// Return recent text transcript items for provider context.
@@ -663,14 +746,39 @@ struct ConversationItemRow {
     payload_json: Value,
 }
 
+fn conversation_item_cursor(sequence_index: i64) -> String {
+    format!("{CONVERSATION_ITEM_CURSOR_PREFIX}{sequence_index}")
+}
+
+fn sequence_index_from_conversation_item_cursor(cursor: &str) -> Result<i64, StoreError> {
+    let raw = cursor
+        .strip_prefix(CONVERSATION_ITEM_CURSOR_PREFIX)
+        .ok_or_else(|| StoreError::Schema(format!("invalid conversation item cursor: {cursor}")))?;
+    let sequence_index = raw
+        .parse::<i64>()
+        .map_err(|_| StoreError::Schema(format!("invalid conversation item cursor: {cursor}")))?;
+    if sequence_index < 1 {
+        return Err(StoreError::Schema(format!(
+            "invalid conversation item cursor: {cursor}"
+        )));
+    }
+    Ok(sequence_index)
+}
+
+fn clamp_transcript_page_limit(limit: i64) -> i64 {
+    limit.clamp(1, MAX_TRANSCRIPT_PAGE_LIMIT)
+}
+
 fn conversation_item_from_row(
     row: ConversationItemRow,
 ) -> Result<ConversationItemRecord, StoreError> {
+    let cursor = conversation_item_cursor(row.sequence_index);
     Ok(ConversationItemRecord {
         item_id: row.item_id,
         conversation_id: row.conversation_id,
         turn_id: row.turn_id,
         sequence_index: row.sequence_index,
+        cursor,
         kind: ConversationItemKind::parse(&row.kind).map_err(memory_enum_error)?,
         status: ConversationItemStatus::parse(&row.status).map_err(memory_enum_error)?,
         content_text: row.content_text,

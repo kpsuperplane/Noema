@@ -2,8 +2,8 @@ mod records;
 mod status;
 
 pub use records::{
-    ConversationItemRecord, ConversationRecord, ConversationTurnRecord, NewConversation,
-    NewConversationItem, NewConversationTurn, ReplayMode,
+    ConversationItemPage, ConversationItemRecord, ConversationRecord, ConversationTurnRecord,
+    NewConversation, NewConversationItem, NewConversationTurn, ReplayMode,
 };
 pub use status::{
     AgentStatus, ConversationContextSummaryStatus, ConversationItemKind, ConversationItemStatus,

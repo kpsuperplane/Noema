@@ -44,8 +44,9 @@ pub use config::{
 };
 pub use conversation::{
     AgentStatus as PersistedAgentStatus, ConversationContextSummaryStatus, ConversationItemKind,
-    ConversationItemRecord, ConversationItemStatus, ConversationRecord, ConversationTurnRecord,
-    ConversationTurnStatus, NewConversation, NewConversationItem, NewConversationTurn, ReplayMode,
+    ConversationItemPage, ConversationItemRecord, ConversationItemStatus, ConversationRecord,
+    ConversationTurnRecord, ConversationTurnStatus, NewConversation, NewConversationItem,
+    NewConversationTurn, ReplayMode,
 };
 pub use daemon::{
     AgentStatus, DaemonError, DaemonWebServerConfig, StartedConversation, TurnActivityStatus,

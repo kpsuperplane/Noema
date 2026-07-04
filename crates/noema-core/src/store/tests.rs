@@ -1078,6 +1078,212 @@ async fn conversation_items_replay_exposes_sequence_index() {
 }
 
 #[tokio::test]
+async fn conversation_items_latest_page_returns_newest_visible_items_in_ascending_order() {
+    let store = test_store().await;
+    store.ensure_default_actors().await.expect("actors");
+    let conversation = store
+        .create_conversation(NewConversation::local_chat(None, None))
+        .await
+        .expect("conversation");
+    let turn = store
+        .create_conversation_turn(NewConversationTurn {
+            conversation_id: conversation.conversation_id.clone(),
+            trigger_item_id: None,
+            metadata: json!({ "turn_index": 1 }),
+        })
+        .await
+        .expect("turn");
+
+    for label in ["one", "two", "three", "four"] {
+        store
+            .append_conversation_item(NewConversationItem {
+                conversation_id: conversation.conversation_id.clone(),
+                turn_id: Some(turn.turn_id.clone()),
+                parent_item_id: None,
+                kind: ConversationItemKind::UserText,
+                status: ConversationItemStatus::Completed,
+                author: ActorRef::human("human:local"),
+                content_text: Some(label.to_string()),
+                payload_json: json!({}),
+                metadata: json!({ "turn_index": 1 }),
+            })
+            .await
+            .expect("item");
+    }
+
+    let page = store
+        .list_visible_conversation_item_page(&conversation.conversation_id, None, 2)
+        .await
+        .expect("latest page");
+
+    assert_eq!(
+        page.items
+            .iter()
+            .map(|item| item.content_text.as_deref())
+            .collect::<Vec<_>>(),
+        vec![Some("three"), Some("four")]
+    );
+    assert!(page.has_more_before);
+    assert_eq!(
+        page.before_cursor,
+        page.items.first().map(|item| item.cursor.clone())
+    );
+    assert_eq!(page.limit, 2);
+}
+
+#[tokio::test]
+async fn conversation_items_cursor_page_returns_items_before_cursor() {
+    let store = test_store().await;
+    store.ensure_default_actors().await.expect("actors");
+    let conversation = store
+        .create_conversation(NewConversation::local_chat(None, None))
+        .await
+        .expect("conversation");
+    let turn = store
+        .create_conversation_turn(NewConversationTurn {
+            conversation_id: conversation.conversation_id.clone(),
+            trigger_item_id: None,
+            metadata: json!({ "turn_index": 1 }),
+        })
+        .await
+        .expect("turn");
+
+    for label in ["one", "two", "three", "four"] {
+        store
+            .append_conversation_item(NewConversationItem {
+                conversation_id: conversation.conversation_id.clone(),
+                turn_id: Some(turn.turn_id.clone()),
+                parent_item_id: None,
+                kind: ConversationItemKind::UserText,
+                status: ConversationItemStatus::Completed,
+                author: ActorRef::human("human:local"),
+                content_text: Some(label.to_string()),
+                payload_json: json!({}),
+                metadata: json!({ "turn_index": 1 }),
+            })
+            .await
+            .expect("item");
+    }
+
+    let latest = store
+        .list_visible_conversation_item_page(&conversation.conversation_id, None, 2)
+        .await
+        .expect("latest page");
+    let older = store
+        .list_visible_conversation_item_page(
+            &conversation.conversation_id,
+            latest.before_cursor.as_deref(),
+            2,
+        )
+        .await
+        .expect("older page");
+
+    assert_eq!(
+        older
+            .items
+            .iter()
+            .map(|item| item.content_text.as_deref())
+            .collect::<Vec<_>>(),
+        vec![Some("one"), Some("two")]
+    );
+    assert!(!older.has_more_before);
+    assert_eq!(
+        older.before_cursor,
+        older.items.first().map(|item| item.cursor.clone())
+    );
+}
+
+#[tokio::test]
+async fn conversation_items_page_excludes_deleted_items() {
+    let store = test_store().await;
+    store.ensure_default_actors().await.expect("actors");
+    let conversation = store
+        .create_conversation(NewConversation::local_chat(None, None))
+        .await
+        .expect("conversation");
+    let turn = store
+        .create_conversation_turn(NewConversationTurn {
+            conversation_id: conversation.conversation_id.clone(),
+            trigger_item_id: None,
+            metadata: json!({ "turn_index": 1 }),
+        })
+        .await
+        .expect("turn");
+
+    let deleted = store
+        .append_conversation_item(NewConversationItem {
+            conversation_id: conversation.conversation_id.clone(),
+            turn_id: Some(turn.turn_id.clone()),
+            parent_item_id: None,
+            kind: ConversationItemKind::UserText,
+            status: ConversationItemStatus::Completed,
+            author: ActorRef::human("human:local"),
+            content_text: Some("deleted".to_string()),
+            payload_json: json!({}),
+            metadata: json!({ "turn_index": 1 }),
+        })
+        .await
+        .expect("deleted item");
+    store
+        .append_conversation_item(NewConversationItem {
+            conversation_id: conversation.conversation_id.clone(),
+            turn_id: Some(turn.turn_id),
+            parent_item_id: None,
+            kind: ConversationItemKind::UserText,
+            status: ConversationItemStatus::Completed,
+            author: ActorRef::human("human:local"),
+            content_text: Some("visible".to_string()),
+            payload_json: json!({}),
+            metadata: json!({ "turn_index": 1 }),
+        })
+        .await
+        .expect("visible item");
+
+    store
+        .db()
+        .query(
+            "UPDATE conversation_items SET deleted_at = 'test-deleted' WHERE item_id = $item_id;",
+        )
+        .bind(("item_id", deleted.item_id))
+        .await
+        .expect("soft delete")
+        .check()
+        .expect("checked soft delete");
+
+    let page = store
+        .list_visible_conversation_item_page(&conversation.conversation_id, None, 10)
+        .await
+        .expect("page");
+
+    assert_eq!(page.items.len(), 1);
+    assert_eq!(page.items[0].content_text.as_deref(), Some("visible"));
+}
+
+#[tokio::test]
+async fn conversation_items_page_rejects_malformed_cursor() {
+    let store = test_store().await;
+    store.ensure_default_actors().await.expect("actors");
+    let conversation = store
+        .create_conversation(NewConversation::local_chat(None, None))
+        .await
+        .expect("conversation");
+
+    let error = store
+        .list_visible_conversation_item_page(
+            &conversation.conversation_id,
+            Some("not-a-cursor"),
+            10,
+        )
+        .await
+        .expect_err("malformed cursor should fail");
+
+    assert!(
+        matches!(error, StoreError::Schema(ref message) if message.contains("invalid conversation item cursor")),
+        "{error:?}"
+    );
+}
+
+#[tokio::test]
 async fn context_summary_lifecycle_supersedes_previous_active_checkpoint() {
     let store = test_store().await;
     store.ensure_default_actors().await.expect("actors");

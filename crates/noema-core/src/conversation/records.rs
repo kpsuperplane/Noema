@@ -112,6 +112,8 @@ pub struct ConversationItemRecord {
     pub turn_id: Option<String>,
     /// Append-order sequence inside the conversation.
     pub sequence_index: i64,
+    /// Opaque pagination cursor derived from append order.
+    pub cursor: String,
     /// Semantic item kind.
     pub kind: ConversationItemKind,
     /// Item execution status.
@@ -120,6 +122,19 @@ pub struct ConversationItemRecord {
     pub content_text: Option<String>,
     /// Structured item payload.
     pub payload_json: Value,
+}
+
+/// Bounded visible conversation item page returned to product replay callers.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ConversationItemPage {
+    /// Visible items in ascending transcript order.
+    pub items: Vec<ConversationItemRecord>,
+    /// Cursor to pass when fetching the next older page.
+    pub before_cursor: Option<String>,
+    /// Whether older visible items exist before this page.
+    pub has_more_before: bool,
+    /// Effective clamped item limit.
+    pub limit: i64,
 }
 
 /// Replay visibility mode for conversation items.
