@@ -33,7 +33,7 @@ export function Transcript({
   entries,
   loadingOlderTranscript,
   hasMoreTranscriptBefore,
-  transcriptPageError,
+  olderTranscriptPageError,
   pending,
   awaitingAssistantTurn,
   agentStatus,
@@ -44,7 +44,7 @@ export function Transcript({
   entries: TranscriptEntry[];
   loadingOlderTranscript: boolean;
   hasMoreTranscriptBefore: boolean;
-  transcriptPageError: string | null;
+  olderTranscriptPageError: string | null;
   pending: boolean;
   awaitingAssistantTurn: boolean;
   agentStatus: ConversationAgentStatus;
@@ -111,7 +111,7 @@ export function Transcript({
         entries={renderedEntries}
         hasMoreBefore={hasMoreTranscriptBefore}
         loadingBefore={loadingOlderTranscript}
-        loadBeforeError={transcriptPageError}
+        loadBeforeError={olderTranscriptPageError}
         onLoadBefore={onLoadOlderTranscript}
         onViewportScroll={handleViewportScroll}
         renderEntry={(entry, index) => {

@@ -38,7 +38,7 @@ export type ChatSurfaceProps = {
   transcript: TranscriptEntry[];
   loadingOlderTranscript: boolean;
   hasMoreTranscriptBefore: boolean;
-  transcriptPageError: string | null;
+  olderTranscriptPageError: string | null;
   pending: boolean;
   agentStatus: ConversationAgentStatus;
   awaitingAssistantTurn: boolean;
@@ -57,7 +57,7 @@ export function ChatSurface({
   transcript,
   loadingOlderTranscript,
   hasMoreTranscriptBefore,
-  transcriptPageError,
+  olderTranscriptPageError,
   pending,
   agentStatus,
   awaitingAssistantTurn,
@@ -125,7 +125,7 @@ export function ChatSurface({
             entries={transcript}
             loadingOlderTranscript={loadingOlderTranscript}
             hasMoreTranscriptBefore={hasMoreTranscriptBefore}
-            transcriptPageError={transcriptPageError}
+            olderTranscriptPageError={olderTranscriptPageError}
             pending={pending}
             agentStatus={agentStatus}
             awaitingAssistantTurn={awaitingAssistantTurn}

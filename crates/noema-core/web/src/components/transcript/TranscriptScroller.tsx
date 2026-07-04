@@ -36,6 +36,12 @@ type TranscriptScrollerItemProps = React.HTMLAttributes<HTMLDivElement> & {
   scrollAnchor?: boolean;
 };
 
+type PrependAnchor = {
+  key: React.Key;
+  offset: number;
+  oldestKey: React.Key;
+};
+
 const TranscriptScrollerContext = React.createContext<TranscriptScrollerContextValue | null>(null);
 
 const styles = stylex.create({
@@ -207,6 +213,9 @@ export function TranscriptScroller({
 }: TranscriptScrollerProps) {
   const { contentRef, viewportRef, scrollToEnd } = useTranscriptScroller();
   const [stuckToBottom, setStuckToBottom] = React.useState(true);
+  const pendingPrependAnchorRef = React.useRef<PrependAnchor | null>(null);
+  const nearTopLoadArmedRef = React.useRef(true);
+  const requestedOldestKeyRef = React.useRef<React.Key | null>(null);
   // TanStack Virtual exposes imperative measurement functions that React Compiler cannot memoize.
   // eslint-disable-next-line react-hooks/incompatible-library
   const rowVirtualizer = useVirtualizer({
@@ -218,6 +227,7 @@ export function TranscriptScroller({
   });
   const virtualItems = rowVirtualizer.getVirtualItems();
   const totalSize = rowVirtualizer.getTotalSize();
+  const oldestEntryKey = entries[0] ? renderedEntryMessageId(entries[0]) : null;
   const handleScroll = React.useCallback(
     (event: React.UIEvent<HTMLDivElement>) => {
       const viewport = event.currentTarget;
@@ -230,25 +240,59 @@ export function TranscriptScroller({
 
   React.useEffect(() => {
     const first = virtualItems[0];
-    if (!first || !hasMoreBefore || loadingBefore) {
+    if (!first || !hasMoreBefore || loadingBefore || !oldestEntryKey) {
       return;
     }
-    if (first.index <= 3) {
-      onLoadBefore();
+    if (first.index > 3) {
+      nearTopLoadArmedRef.current = true;
+      return;
     }
-  }, [hasMoreBefore, loadingBefore, onLoadBefore, virtualItems]);
+    if (!nearTopLoadArmedRef.current) {
+      return;
+    }
+    if (requestedOldestKeyRef.current === oldestEntryKey) {
+      return;
+    }
+
+    pendingPrependAnchorRef.current = capturePrependAnchor(viewportRef.current, virtualItems, oldestEntryKey);
+    nearTopLoadArmedRef.current = false;
+    requestedOldestKeyRef.current = oldestEntryKey;
+    onLoadBefore();
+  }, [hasMoreBefore, loadingBefore, oldestEntryKey, onLoadBefore, viewportRef, virtualItems]);
+
+  React.useLayoutEffect(() => {
+    const anchor = pendingPrependAnchorRef.current;
+    const viewport = viewportRef.current;
+    if (!anchor || !viewport) {
+      return;
+    }
+    if (oldestEntryKey === anchor.oldestKey) {
+      return;
+    }
+
+    const anchorIndex = entries.findIndex((entry) => renderedEntryMessageId(entry) === anchor.key);
+    if (anchorIndex === -1) {
+      pendingPrependAnchorRef.current = null;
+      return;
+    }
+
+    const offset = rowVirtualizer.getOffsetForIndex(anchorIndex, "start")?.[0];
+    if (offset === undefined) {
+      return;
+    }
+
+    pendingPrependAnchorRef.current = null;
+    rowVirtualizer.scrollToOffset(Math.max(0, offset + anchor.offset), { align: "start" });
+  }, [entries, oldestEntryKey, rowVirtualizer, viewportRef]);
 
   return (
     <div {...stylex.props(styles.root)}>
       <div
         ref={viewportRef}
         {...stylex.props(styles.viewport)}
-        aria-atomic="false"
         aria-label={ariaLabel}
-        aria-live="polite"
-        aria-relevant="additions text"
         onScroll={handleScroll}
-        role="log"
+        role="region"
       >
         <div ref={contentRef} {...stylex.props(styles.content)}>
           {hasMoreBefore || loadingBefore || loadBeforeError ? (
@@ -294,6 +338,28 @@ export function TranscriptScroller({
       </button>
     </div>
   );
+}
+
+function capturePrependAnchor(
+  viewport: HTMLDivElement | null,
+  virtualItems: ReturnType<ReturnType<typeof useVirtualizer>["getVirtualItems"]>,
+  oldestKey: React.Key
+): PrependAnchor | null {
+  if (!viewport) {
+    return null;
+  }
+
+  const scrollTop = viewport.scrollTop;
+  const firstVisible = virtualItems.find((item) => item.end > scrollTop) ?? virtualItems[0];
+  if (!firstVisible) {
+    return null;
+  }
+
+  return {
+    key: firstVisible.key,
+    offset: scrollTop - firstVisible.start,
+    oldestKey
+  };
 }
 
 export function TranscriptScrollerItem({

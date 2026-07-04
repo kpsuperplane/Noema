@@ -119,7 +119,7 @@ export function App() {
   const transcript = transcriptWindowEntries(transcriptWindow);
   const [loadingLatestTranscript, setLoadingLatestTranscript] = React.useState(false);
   const [loadingOlderTranscript, setLoadingOlderTranscript] = React.useState(false);
-  const [transcriptPageError, setTranscriptPageError] = React.useState<string | null>(null);
+  const [olderTranscriptPageError, setOlderTranscriptPageError] = React.useState<string | null>(null);
   const [latestTranscriptRetryTick, setLatestTranscriptRetryTick] = React.useState(0);
   const [draft, setDraft] = React.useState("");
   const [pending, setPending] = React.useState(false);
@@ -200,8 +200,8 @@ export function App() {
         setLoadingLatestTranscript(true);
       } else {
         setLoadingOlderTranscript(true);
+        setOlderTranscriptPageError(null);
       }
-      setTranscriptPageError(null);
       try {
         const result = await apolloClient.query({
           query: ConversationTranscriptPageDocument,
@@ -232,11 +232,12 @@ export function App() {
             window.clearTimeout(latestTranscriptRetryTimeoutRef.current);
             latestTranscriptRetryTimeoutRef.current = null;
           }
+        } else {
+          setOlderTranscriptPageError(null);
         }
         return true;
       } catch (error: unknown) {
         const message = error instanceof Error ? error.message : "Noema could not load chat history.";
-        setTranscriptPageError(message);
         if (placement === "latest") {
           latestTranscriptLoadedConversationRef.current = null;
           latestTranscriptRetryBlockedConversationRef.current = conversationId;
@@ -250,11 +251,12 @@ export function App() {
           latestTranscriptRetryTimeoutRef.current = window.setTimeout(() => {
             if (latestTranscriptRetryBlockedConversationRef.current === conversationId) {
               latestTranscriptRetryBlockedConversationRef.current = null;
-              setTranscriptPageError(null);
               setLatestTranscriptRetryTick((current) => current + 1);
             }
             latestTranscriptRetryTimeoutRef.current = null;
           }, 3000);
+        } else {
+          setOlderTranscriptPageError(message);
         }
         return false;
       } finally {
@@ -580,7 +582,7 @@ export function App() {
       transcript={transcript}
       loadingOlderTranscript={loadingOlderTranscript}
       hasMoreTranscriptBefore={transcriptWindow.hasMoreBefore}
-      transcriptPageError={transcriptPageError}
+      olderTranscriptPageError={olderTranscriptPageError}
       pending={pending}
       agentStatus={agentStatus}
       awaitingAssistantTurn={awaitingAssistantTurn}
