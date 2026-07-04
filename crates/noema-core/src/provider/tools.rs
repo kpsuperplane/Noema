@@ -11,6 +11,12 @@ pub struct ToolName(String);
 
 impl ToolName {
     /// Validate and construct a tool name.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ToolContractError`] when the name is empty, has leading or
+    /// trailing whitespace, or contains characters outside the provider-visible
+    /// tool-name grammar.
     pub fn new(value: impl Into<String>) -> Result<Self, ToolContractError> {
         let value = value.into();
         let trimmed = value.trim();
@@ -104,6 +110,11 @@ pub struct NoemaToolSpec {
 
 impl NoemaToolSpec {
     /// Validate and construct a canonical tool specification.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ToolContractError`] when the name, description, or input schema
+    /// violates the canonical provider-neutral tool contract.
     pub fn new(
         name: impl AsRef<str>,
         description: impl Into<String>,
@@ -129,7 +140,11 @@ impl NoemaToolSpec {
     }
 
     /// Attach an optional output schema to this tool specification.
-    #[must_use]
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ToolContractError`] when the output schema root is not a JSON
+    /// object schema.
     pub fn with_output_schema(mut self, schema: Value) -> Result<Self, ToolContractError> {
         self.output_schema = Some(NoemaToolSchema::new_output(self.name.as_str(), schema)?);
         Ok(self)
@@ -144,16 +159,31 @@ pub struct NoemaToolSchema {
 
 impl NoemaToolSchema {
     /// Validate and construct a tool schema.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ToolContractError`] when the schema root is not a JSON object
+    /// schema.
     pub fn new(tool_name: &str, value: Value) -> Result<Self, ToolContractError> {
         Self::new_input(tool_name, value)
     }
 
     /// Validate and construct an input schema.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ToolContractError`] when the schema root is not a JSON object
+    /// schema.
     pub fn new_input(tool_name: &str, value: Value) -> Result<Self, ToolContractError> {
         Self::new_with_kind(tool_name, "input", value)
     }
 
     /// Validate and construct an output schema.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ToolContractError`] when the schema root is not a JSON object
+    /// schema.
     pub fn new_output(tool_name: &str, value: Value) -> Result<Self, ToolContractError> {
         Self::new_with_kind(tool_name, "output", value)
     }
@@ -258,21 +288,16 @@ pub enum ProviderToolSchemaDialect {
 }
 
 /// Tool selection policy requested by Noema.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum NoemaToolChoice {
     /// Let the provider choose whether to call a tool.
+    #[default]
     Auto,
     /// Prevent tool calls for this request.
     None,
     /// Require at least one tool call.
     Required,
-}
-
-impl Default for NoemaToolChoice {
-    fn default() -> Self {
-        Self::Auto
-    }
 }
 
 /// Provider/model native tool-calling capabilities.
