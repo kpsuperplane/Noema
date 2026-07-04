@@ -44,6 +44,7 @@ enum GenerateOutputItem {
     ToolCall {
         id: Option<String>,
         provider_call_id: Option<String>,
+        provider_name: Option<String>,
         name: String,
         payload: serde_json::Value,
     },
@@ -3523,8 +3524,11 @@ async fn native_capable_provider_continuation_uses_native_tool_result_input() {
         );
     };
     assert_eq!(results.len(), 1);
+    assert_eq!(results[0].id.as_deref(), Some("item_native_1"));
     assert_eq!(results[0].call_id, "call_native_1");
     assert_eq!(results[0].name, "search_memory");
+    assert_eq!(results[0].provider_name.as_deref(), Some("search_memory"));
+    assert_eq!(results[0].arguments["arguments"]["query"], "trains");
     assert!(results[0].success);
     assert!(
         !requests[1]
@@ -4711,6 +4715,7 @@ impl FakeCodexProvider {
                     GenerateOutputItem::ToolCall {
                         id: Some("item_native_1".to_string()),
                         provider_call_id: Some("call_native_1".to_string()),
+                        provider_name: Some("search_memory".to_string()),
                         name: "search_memory".to_string(),
                         payload: json!({"arguments": {"query": "trains"}}),
                     },
@@ -5395,12 +5400,14 @@ fn fake_generate_response(
             GenerateOutputItem::ToolCall {
                 id,
                 provider_call_id,
+                provider_name,
                 name,
                 payload,
             } => {
                 tool_calls.push(GenerateToolCall {
                     id,
                     provider_call_id,
+                    provider_name,
                     name,
                     payload,
                 });
@@ -5443,6 +5450,7 @@ fn search_memory_tool_call(id: &str, payload: serde_json::Value) -> GenerateOutp
     GenerateOutputItem::ToolCall {
         id: Some(id.to_string()),
         provider_call_id: None,
+        provider_name: None,
         name: "search_memory".to_string(),
         payload,
     }
@@ -5452,6 +5460,7 @@ fn search_memory_action_item(id: &str, payload: serde_json::Value) -> GenerateAc
     GenerateActionItem::ToolCall {
         id: Some(id.to_string()),
         provider_call_id: None,
+        provider_name: None,
         name: "search_memory".to_string(),
         payload,
     }
@@ -5461,6 +5470,7 @@ fn update_own_name_tool_call(id: &str, payload: serde_json::Value) -> GenerateOu
     GenerateOutputItem::ToolCall {
         id: Some(id.to_string()),
         provider_call_id: None,
+        provider_name: None,
         name: "update_own_name".to_string(),
         payload,
     }
@@ -5470,6 +5480,7 @@ fn mcp_tool_call(id: &str, name: &str, payload: serde_json::Value) -> GenerateOu
     GenerateOutputItem::ToolCall {
         id: Some(id.to_string()),
         provider_call_id: None,
+        provider_name: None,
         name: name.to_string(),
         payload,
     }

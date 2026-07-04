@@ -265,7 +265,16 @@ impl From<&GenerateInput> for ResponsesInput {
                     .collect(),
             ),
             GenerateInput::NativeToolResults(results) => {
-                Self::Items(results.iter().map(ResponsesInputItem::from).collect())
+                let mut items = Vec::with_capacity(results.len().saturating_mul(2));
+                for result in results {
+                    items.push(ResponsesInputItem::FunctionCall(
+                        ResponsesFunctionCall::from(result),
+                    ));
+                    items.push(ResponsesInputItem::FunctionCallOutput(
+                        ResponsesFunctionCallOutput::from(result),
+                    ));
+                }
+                Self::Items(items)
             }
         }
     }
@@ -277,6 +286,8 @@ impl From<&GenerateInput> for ResponsesInput {
 pub enum ResponsesInputItem {
     /// Provider role message.
     Message(ResponsesInputMessage),
+    /// Prior native function call context.
+    FunctionCall(ResponsesFunctionCall),
     /// Native function-call output.
     FunctionCallOutput(ResponsesFunctionCallOutput),
 }
@@ -294,6 +305,33 @@ pub struct ResponsesInputMessage {
     pub role: &'static str,
     /// Message text.
     pub content: String,
+}
+
+/// One Responses API native function-call context input item.
+#[derive(Debug, Serialize)]
+pub struct ResponsesFunctionCall {
+    #[serde(rename = "type")]
+    kind: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    id: Option<String>,
+    call_id: String,
+    name: String,
+    arguments: String,
+}
+
+impl From<&GenerateToolResultInput> for ResponsesFunctionCall {
+    fn from(result: &GenerateToolResultInput) -> Self {
+        Self {
+            kind: "function_call",
+            id: result.id.clone(),
+            call_id: result.call_id.clone(),
+            name: result
+                .provider_name
+                .clone()
+                .unwrap_or_else(|| result.name.clone()),
+            arguments: result.arguments.to_string(),
+        }
+    }
 }
 
 /// One Responses API native function-call output input item.
@@ -419,6 +457,11 @@ impl ResponsesResponse {
             else {
                 continue;
             };
+            let Some(call_id) = call_id.as_ref().filter(|value| !value.trim().is_empty()) else {
+                return Err(ProviderError::MalformedResponse {
+                    message: format!("native tool call {name} is missing call_id"),
+                });
+            };
             let payload: Value = serde_json::from_str(arguments).map_err(|source| {
                 ProviderError::MalformedResponse {
                     message: format!(
@@ -433,7 +476,8 @@ impl ResponsesResponse {
             }
             calls.push(crate::provider::GenerateToolCall {
                 id: id.clone(),
-                provider_call_id: call_id.clone().or_else(|| id.clone()),
+                provider_call_id: Some(call_id.clone()),
+                provider_name: Some(name.clone()),
                 name: tool_names.canonical_name(name).to_string(),
                 payload,
             });
@@ -877,6 +921,21 @@ mod tests {
 
     #[test]
     fn responses_response_parses_function_call_output_items() {
+        let tools = vec![
+            crate::provider::NoemaToolSpec::new(
+                "mcp.docs:read",
+                "Read docs.",
+                serde_json::json!({
+                    "type": "object",
+                    "properties": {"document_id": {"type": "string"}},
+                    "required": ["document_id"],
+                    "additionalProperties": false
+                }),
+                crate::provider::NoemaToolExecution::LocalBuiltin,
+            )
+            .expect("tool"),
+        ];
+        let tool_names = ResponsesToolNameMap::from_tools(&tools).expect("tool names");
         let response: ResponsesResponse = serde_json::from_value(serde_json::json!({
             "id": "resp_1",
             "model": "gpt-test",
@@ -885,24 +944,26 @@ mod tests {
                     "type": "function_call",
                     "id": "item_1",
                     "call_id": "call_1",
-                    "name": "search_memory",
-                    "arguments": "{\"query\":\"trains\",\"scope_ids\":[\"human:local\"]}"
+                    "name": "mcp_x2e_docs_x3a_read",
+                    "arguments": "{\"document_id\":\"doc_1\"}"
                 }
             ]
         }))
         .expect("response");
 
-        let calls = response.native_tool_calls().expect("tool calls");
+        let calls = response
+            .native_tool_calls_with_names(&tool_names)
+            .expect("tool calls");
 
         assert_eq!(calls.len(), 1);
         assert_eq!(calls[0].id.as_deref(), Some("item_1"));
         assert_eq!(calls[0].provider_call_id.as_deref(), Some("call_1"));
-        assert_eq!(calls[0].name, "search_memory");
-        assert_eq!(calls[0].payload["query"], "trains");
         assert_eq!(
-            calls[0].payload["scope_ids"],
-            serde_json::json!(["human:local"])
+            calls[0].provider_name.as_deref(),
+            Some("mcp_x2e_docs_x3a_read")
         );
+        assert_eq!(calls[0].name, "mcp.docs:read");
+        assert_eq!(calls[0].payload["document_id"], "doc_1");
     }
 
     #[test]
@@ -964,7 +1025,7 @@ mod tests {
     }
 
     #[test]
-    fn responses_response_uses_item_id_when_function_call_id_is_missing() {
+    fn responses_response_rejects_missing_function_call_id() {
         let response: ResponsesResponse = serde_json::from_value(serde_json::json!({
             "id": "resp_1",
             "model": "gpt-test",
@@ -979,37 +1040,51 @@ mod tests {
         }))
         .expect("response");
 
-        let calls = response.native_tool_calls().expect("tool calls");
+        let error = response
+            .native_tool_calls()
+            .expect_err("missing call_id rejected");
 
-        assert_eq!(calls.len(), 1);
-        assert_eq!(calls[0].id.as_deref(), Some("item_1"));
-        assert_eq!(calls[0].provider_call_id.as_deref(), Some("item_1"));
+        assert!(matches!(error, ProviderError::MalformedResponse { .. }));
+        assert!(
+            error
+                .to_string()
+                .contains("native tool call search_memory is missing call_id")
+        );
     }
 
     #[test]
     fn responses_input_serializes_native_tool_results() {
         let input =
             GenerateInput::NativeToolResults(vec![crate::provider::GenerateToolResultInput {
+                id: Some("item_1".to_string()),
                 call_id: "call_1".to_string(),
-                name: "search_memory".to_string(),
+                name: "mcp.docs:read".to_string(),
+                provider_name: Some("mcp_x2e_docs_x3a_read".to_string()),
+                arguments: serde_json::json!({"document_id": "doc_1"}),
                 success: true,
-                payload: serde_json::json!({"facts": ["Kevin likes trains"]}),
+                payload: serde_json::json!({"title": "Docs"}),
             }]);
 
         let value = serde_json::to_value(ResponsesInput::from(&input)).expect("serialize");
 
-        assert_eq!(value[0]["type"], "function_call_output");
+        assert_eq!(value[0]["type"], "function_call");
+        assert_eq!(value[0]["id"], "item_1");
         assert_eq!(value[0]["call_id"], "call_1");
+        assert_eq!(value[0]["name"], "mcp_x2e_docs_x3a_read");
+        let arguments: Value =
+            serde_json::from_str(value[0]["arguments"].as_str().expect("arguments string"))
+                .expect("arguments json");
+        assert_eq!(arguments["document_id"], "doc_1");
+        assert_eq!(value[1]["type"], "function_call_output");
+        assert_eq!(value[1]["call_id"], "call_1");
         let output: Value =
-            serde_json::from_str(value[0]["output"].as_str().expect("output string"))
+            serde_json::from_str(value[1]["output"].as_str().expect("output string"))
                 .expect("output json");
         assert_eq!(output["call_id"], "call_1");
-        assert_eq!(output["name"], "search_memory");
+        assert_eq!(output["name"], "mcp.docs:read");
+        assert_eq!(output["provider_name"], "mcp_x2e_docs_x3a_read");
         assert_eq!(output["success"], true);
-        assert_eq!(
-            output["payload"]["facts"],
-            serde_json::json!(["Kevin likes trains"])
-        );
+        assert_eq!(output["payload"]["title"], "Docs");
     }
 
     #[test]

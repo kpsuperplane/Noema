@@ -39,7 +39,10 @@ impl CodexRuntimeActor {
                 user_input: turn.user_input.clone(),
             };
             LocalToolResult::Memory {
+                call_id: call.call_id.clone(),
                 provider_call_id: call.provider_call_id.clone(),
+                provider_name: call.provider_name.clone(),
+                arguments: call.payload.clone(),
                 result: execute_search_memory(
                     &self.store,
                     &context,
@@ -53,7 +56,10 @@ impl CodexRuntimeActor {
                 agent_id: agent_identity.agent_id.clone(),
             };
             LocalToolResult::AgentName {
+                call_id: call.call_id.clone(),
                 provider_call_id: call.provider_call_id.clone(),
+                provider_name: call.provider_name.clone(),
+                arguments: call.payload.clone(),
                 result: execute_update_own_name(
                     &self.store,
                     &context,
@@ -70,7 +76,9 @@ impl CodexRuntimeActor {
             LocalToolResult::Gateway {
                 call_id: call.call_id.clone(),
                 provider_call_id: call.provider_call_id.clone(),
+                provider_name: call.provider_name.clone(),
                 name: call.name.clone(),
+                arguments: call.payload.clone(),
                 result: gateway.execute_tool_proposal(proposal).await,
             }
         }
@@ -80,17 +88,25 @@ impl CodexRuntimeActor {
 #[derive(Debug, Clone)]
 pub(super) enum LocalToolResult {
     Memory {
+        call_id: Option<String>,
         provider_call_id: Option<String>,
+        provider_name: Option<String>,
+        arguments: Value,
         result: MemoryToolResult,
     },
     AgentName {
+        call_id: Option<String>,
         provider_call_id: Option<String>,
+        provider_name: Option<String>,
+        arguments: Value,
         result: AgentNameToolResult,
     },
     Gateway {
         call_id: Option<String>,
         provider_call_id: Option<String>,
+        provider_name: Option<String>,
         name: String,
+        arguments: Value,
         result: GatewayToolResult,
     },
 }
@@ -98,8 +114,7 @@ pub(super) enum LocalToolResult {
 impl LocalToolResult {
     fn call_id(&self) -> Option<&String> {
         match self {
-            Self::Memory { result, .. } => result.call_id.as_ref(),
-            Self::AgentName { result, .. } => result.call_id.as_ref(),
+            Self::Memory { call_id, .. } | Self::AgentName { call_id, .. } => call_id.as_ref(),
             Self::Gateway { call_id, .. } => call_id.as_ref(),
         }
     }
@@ -115,6 +130,22 @@ impl LocalToolResult {
             | Self::Gateway {
                 provider_call_id, ..
             } => provider_call_id.as_ref(),
+        }
+    }
+
+    fn provider_name(&self) -> Option<&String> {
+        match self {
+            Self::Memory { provider_name, .. }
+            | Self::AgentName { provider_name, .. }
+            | Self::Gateway { provider_name, .. } => provider_name.as_ref(),
+        }
+    }
+
+    fn arguments(&self) -> &Value {
+        match self {
+            Self::Memory { arguments, .. }
+            | Self::AgentName { arguments, .. }
+            | Self::Gateway { arguments, .. } => arguments,
         }
     }
 
@@ -152,8 +183,11 @@ impl LocalToolResult {
 
     pub(super) fn native_tool_result_input(&self) -> Option<GenerateToolResultInput> {
         Some(GenerateToolResultInput {
+            id: self.call_id().cloned(),
             call_id: self.provider_call_id()?.clone(),
             name: self.name().to_string(),
+            provider_name: self.provider_name().cloned(),
+            arguments: self.arguments().clone(),
             success: self.success(),
             payload: self.payload().clone(),
         })
@@ -194,6 +228,7 @@ fn local_tool_result_payload(result: &LocalToolResult) -> Value {
     json!({
         "call_id": result.call_id(),
         "provider_call_id": result.provider_call_id(),
+        "provider_name": result.provider_name(),
         "name": result.name(),
         "success": result.success(),
         "payload": result.payload(),
@@ -204,6 +239,7 @@ pub(super) fn local_tool_result_action_item(result: &LocalToolResult) -> Generat
     GenerateActionItem::ToolResult {
         call_id: result.call_id().cloned(),
         provider_call_id: result.provider_call_id().cloned(),
+        provider_name: result.provider_name().cloned(),
         name: Some(result.name().to_string()),
         success: Some(result.success()),
         payload: result.payload().clone(),

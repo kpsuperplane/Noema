@@ -170,10 +170,19 @@ impl GenerateInput {
 /// Provider-neutral native tool result input for same-turn continuation.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GenerateToolResultInput {
+    /// Provider item id for the original function-call item, when available.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
     /// Provider-native tool call id used by the provider to correlate results.
     pub call_id: String,
-    /// Tool or operation name.
+    /// Canonical Noema tool or operation name.
     pub name: String,
+    /// Provider-visible tool or operation name, when different from canonical.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_name: Option<String>,
+    /// Original provider tool arguments.
+    #[serde(default)]
+    pub arguments: Value,
     /// Whether the local execution succeeded.
     pub success: bool,
     /// Runtime payload returned by Noema.
@@ -188,6 +197,7 @@ impl GenerateToolResultInput {
         serde_json::json!({
             "call_id": self.call_id,
             "name": self.name,
+            "provider_name": self.provider_name,
             "success": self.success,
             "payload": self.payload,
         })
@@ -427,7 +437,10 @@ pub struct GenerateToolCall {
     /// Provider-native call id used to correlate native tool results.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider_call_id: Option<String>,
-    /// Tool or operation name.
+    /// Provider-visible tool or operation name, when different from canonical.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_name: Option<String>,
+    /// Canonical Noema tool or operation name.
     pub name: String,
     /// Provider payload for audit and replay.
     #[serde(default)]
@@ -445,6 +458,9 @@ pub enum GenerateActionItem {
         /// Provider-native call id for result correlation, when distinct.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         provider_call_id: Option<String>,
+        /// Provider-visible tool or operation name, when distinct.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        provider_name: Option<String>,
         /// Tool or operation name.
         name: String,
         /// Provider payload for audit and replay.
@@ -457,6 +473,9 @@ pub enum GenerateActionItem {
         /// Provider-native call id used for result correlation, when distinct.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         provider_call_id: Option<String>,
+        /// Provider-visible tool or operation name, when distinct.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        provider_name: Option<String>,
         /// Tool or operation name, when available.
         name: Option<String>,
         /// Whether the result succeeded, when known.
@@ -1035,6 +1054,7 @@ mod tests {
         let call = GenerateToolCall {
             id: Some("item_1".to_string()),
             provider_call_id: Some("call_1".to_string()),
+            provider_name: Some("search_memory".to_string()),
             name: "search_memory".to_string(),
             payload: json!({"query": "trains"}),
         };
@@ -1285,6 +1305,7 @@ mod tests {
         let item = GenerateActionItem::ToolResult {
             call_id: Some("call_1".to_string()),
             provider_call_id: Some("provider_call_1".to_string()),
+            provider_name: Some("search_memory".to_string()),
             name: Some("search_memory".to_string()),
             success: Some(true),
             payload: json!({"ok": true}),
@@ -1296,6 +1317,7 @@ mod tests {
                 "kind": "tool_result",
                 "call_id": "call_1",
                 "provider_call_id": "provider_call_1",
+                "provider_name": "search_memory",
                 "name": "search_memory",
                 "success": true,
                 "payload": {"ok": true}

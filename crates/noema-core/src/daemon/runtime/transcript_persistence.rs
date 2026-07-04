@@ -126,6 +126,7 @@ impl CodexRuntimeActor {
         let GenerateActionItem::ToolCall {
             id,
             provider_call_id,
+            provider_name,
             name,
             payload,
         } = tool_call_action_item(call)
@@ -145,6 +146,7 @@ impl CodexRuntimeActor {
                 payload: json!({
                     "id": id,
                     "provider_call_id": provider_call_id,
+                    "provider_name": provider_name,
                     "name": name,
                     "payload": payload,
                 }),
@@ -215,6 +217,7 @@ impl CodexRuntimeActor {
             GenerateActionItem::ToolCall {
                 id,
                 provider_call_id,
+                provider_name,
                 name,
                 payload,
             } => {
@@ -231,6 +234,7 @@ impl CodexRuntimeActor {
                         payload: json!({
                             "id": id,
                             "provider_call_id": provider_call_id,
+                            "provider_name": provider_name,
                             "name": name,
                             "payload": payload,
                         }),
@@ -243,6 +247,7 @@ impl CodexRuntimeActor {
             GenerateActionItem::ToolResult {
                 call_id,
                 provider_call_id,
+                provider_name,
                 name,
                 success,
                 payload,
@@ -268,6 +273,7 @@ impl CodexRuntimeActor {
                         payload: json!({
                             "call_id": call_id,
                             "provider_call_id": provider_call_id,
+                            "provider_name": provider_name,
                             "name": name,
                             "success": success,
                             "payload": payload,

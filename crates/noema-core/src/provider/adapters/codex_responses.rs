@@ -219,6 +219,7 @@ impl CodexResponsesRequest {
 #[serde(untagged)]
 enum CodexInputItem {
     Message(CodexInputMessage),
+    FunctionCall(CodexFunctionCall),
     FunctionCallOutput(CodexFunctionCallOutput),
 }
 
@@ -232,6 +233,32 @@ impl From<&GenerateToolResultInput> for CodexInputItem {
 struct CodexInputMessage {
     role: &'static str,
     content: String,
+}
+
+#[derive(Debug, Serialize)]
+struct CodexFunctionCall {
+    #[serde(rename = "type")]
+    kind: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    id: Option<String>,
+    call_id: String,
+    name: String,
+    arguments: String,
+}
+
+impl From<&GenerateToolResultInput> for CodexFunctionCall {
+    fn from(value: &GenerateToolResultInput) -> Self {
+        Self {
+            kind: "function_call",
+            id: value.id.clone(),
+            call_id: value.call_id.clone(),
+            name: value
+                .provider_name
+                .clone()
+                .unwrap_or_else(|| value.name.clone()),
+            arguments: value.arguments.to_string(),
+        }
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -482,7 +509,16 @@ fn codex_input_items(input: &GenerateInput) -> Vec<CodexInputItem> {
             })
             .collect(),
         GenerateInput::NativeToolResults(results) => {
-            results.iter().map(CodexInputItem::from).collect()
+            let mut items = Vec::with_capacity(results.len().saturating_mul(2));
+            for result in results {
+                items.push(CodexInputItem::FunctionCall(CodexFunctionCall::from(
+                    result,
+                )));
+                items.push(CodexInputItem::FunctionCallOutput(
+                    CodexFunctionCallOutput::from(result),
+                ));
+            }
+            items
         }
     }
 }
@@ -667,6 +703,49 @@ mod tests {
         assert!(body.get("parallel_tool_calls").is_none());
 
         assert_eq!(response.assistant_text(), "Hello");
+    }
+
+    #[tokio::test]
+    async fn sends_codex_native_tool_result_input_with_call_context() {
+        let (base_url, request_rx) = spawn_server(
+            200,
+            "event: response.output_text.delta\n\
+             data: {\"type\":\"response.output_text.delta\",\"delta\":\"Done\"}\n\
+             \n\
+             event: response.completed\n\
+             data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_test\",\"model\":\"gpt-test\",\"status\":\"completed\",\"usage\":{\"input_tokens\":2,\"output_tokens\":1,\"total_tokens\":3}}}\n\
+             \n",
+        )
+        .await;
+        let (provider, _dir) = provider_with_tokens(base_url);
+
+        let response = provider
+            .generate(GenerateRequest {
+                input: GenerateInput::NativeToolResults(vec![
+                    crate::provider::GenerateToolResultInput {
+                        id: Some("item_1".to_string()),
+                        call_id: "call_1".to_string(),
+                        name: "mcp.docs:read".to_string(),
+                        provider_name: Some("mcp_x2e_docs_x3a_read".to_string()),
+                        arguments: serde_json::json!({"document_id": "doc_1"}),
+                        success: true,
+                        payload: serde_json::json!({"title": "Docs"}),
+                    },
+                ]),
+                ..GenerateRequest::text("ignored")
+            })
+            .await
+            .expect("response");
+
+        let captured = request_rx.await.expect("captured request");
+        let body: Value = serde_json::from_str(&captured.body).expect("json body");
+        assert_eq!(body["input"][0]["type"], "function_call");
+        assert_eq!(body["input"][0]["id"], "item_1");
+        assert_eq!(body["input"][0]["call_id"], "call_1");
+        assert_eq!(body["input"][0]["name"], "mcp_x2e_docs_x3a_read");
+        assert_eq!(body["input"][1]["type"], "function_call_output");
+        assert_eq!(body["input"][1]["call_id"], "call_1");
+        assert_eq!(response.assistant_text(), "Done");
     }
 
     #[tokio::test]
