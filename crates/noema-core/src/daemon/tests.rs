@@ -531,7 +531,7 @@ async fn foreground_context_compaction_chunks_backlog_to_fit_provider_window() {
     let store = crate::store::tests::test_store().await;
     store.ensure_default_actors().await.expect("actors");
     let provider = Arc::new(MetadataCapturingProvider {
-        context_window_tokens: 4_096,
+        context_window_tokens: 5_500,
         fail_compaction: false,
         fail_token_count: false,
         enforce_context_window: true,
@@ -980,6 +980,26 @@ async fn runtime_prompt_includes_unnamed_agent_onboarding() {
     assert!(items.iter().any(|item| matches!(
         item,
         TurnTranscriptItem::AssistantText { text } if text == "saw unnamed identity"
+    )));
+}
+
+#[tokio::test]
+async fn runtime_provider_prompt_includes_assistant_text_phase_contract() {
+    let handle = test_runtime_handle(fake_provider(FakeCodexScenario::PromptPhaseContract)).await;
+
+    let conversation_id = handle
+        .start_conversation(None)
+        .await
+        .expect("conversation")
+        .conversation_id;
+    let items = collect_turn(&handle, conversation_id, "hello".to_string())
+        .await
+        .expect("turn");
+    handle.shutdown().await;
+
+    assert!(items.iter().any(|item| matches!(
+        item,
+        TurnTranscriptItem::AssistantText { text } if text == "saw phase contract"
     )));
 }
 
@@ -4101,7 +4121,7 @@ struct MetadataCapturingProvider {
 impl Default for MetadataCapturingProvider {
     fn default() -> Self {
         Self {
-            context_window_tokens: 4_096,
+            context_window_tokens: 5_500,
             fail_compaction: false,
             fail_token_count: false,
             enforce_context_window: false,
@@ -4121,6 +4141,7 @@ enum FakeCodexScenario {
     Simple,
     RestartContext,
     IdentityPromptCheck,
+    PromptPhaseContract,
     InitialNameOnboarding,
     InitialNameOnboardingNoAssistant,
     TurnError,
@@ -4217,6 +4238,17 @@ impl FakeCodexProvider {
                     "saw unnamed identity"
                 } else {
                     "missing unnamed identity"
+                })
+            }
+            FakeCodexScenario::PromptPhaseContract => {
+                let saw_phase_contract = instructions.contains(r#""phase":"commentary""#)
+                    && instructions.contains(r#""phase":"final_answer""#)
+                    && instructions.contains("Use phase \"commentary\" for text that explains what you are about to do before a tool result is available.")
+                    && instructions.contains("Use phase \"final_answer\" only for the terminal answer after required tool results are available.");
+                assistant_with_no_memories(if saw_phase_contract {
+                    "saw phase contract"
+                } else {
+                    "missing phase contract"
                 })
             }
             FakeCodexScenario::InitialNameOnboarding => {

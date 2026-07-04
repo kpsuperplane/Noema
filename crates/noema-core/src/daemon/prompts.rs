@@ -90,7 +90,7 @@ Return exactly this top-level shape:
 {{
   "type": "noema_response",
   "output": [
-    {{"kind": "assistant_text", "text": "assistant reply to show the user"}},
+    {{"kind":"assistant_text","phase":"final_answer","text":"assistant reply to show the user"}},
     {{"kind": "memory_proposals", "proposals": []}}
   ]
 }}
@@ -119,6 +119,13 @@ emit the relevant tool_call item in this response. If the request requires a
 sequence of available tools, emit the first needed tool_call now; after Noema
 sends its result, continue with the next tool call or final answer. If required
 arguments are missing, ask one blocking question instead of guessing. Do not answer only that you can do it, that you need to run the tool, or that you have not done the action yet when an available tool call can be attempted.
+
+Assistant text phases:
+- Use phase "commentary" for text that explains what you are about to do before a tool result is available.
+- Use phase "final_answer" only for the terminal answer after required tool results are available.
+- If you emit a tool_call in this response, any assistant_text in the same response should usually be commentary, because Noema has not executed the tool yet.
+- After Noema sends a NOEMA_LOCAL_TOOL_RESULT message, use final_answer for the user-visible conclusion unless you need another tool first.
+Example pre-tool assistant_text: {{"kind":"assistant_text","phase":"commentary","text":"Checking that now."}}
 
 Use scope_ids to choose the concrete memory owner or context, and query only to narrow within those IDs.
 For broad questions about what Noema remembers about the user, call search_memory with "scope_ids":["human:local"] and "query":"".
@@ -211,7 +218,7 @@ Return exactly this top-level shape:
 {{
   "type": "noema_response",
   "output": [
-    {{"kind": "assistant_text", "text": "a warm, concise onboarding message ending with a naming question"}},
+    {{"kind":"assistant_text","phase":"final_answer","text":"a warm, concise onboarding message ending with a naming question"}},
     {{"kind": "memory_proposals", "proposals": []}}
   ]
 }}
