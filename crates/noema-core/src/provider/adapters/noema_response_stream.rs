@@ -447,6 +447,25 @@ mod tests {
     }
 
     #[test]
+    fn noema_assistant_text_delta_extractor_ignores_assistant_text_phase() {
+        let mut extractor = NoemaAssistantTextDeltaExtractor::default();
+        let mut events = Vec::new();
+        extractor.push_delta(
+            r#"{"type":"noema_response","output":[{"kind":"assistant_text","phase":"commentary","text":"Checking"#,
+            &mut |event| events.push(event),
+        );
+        extractor.push_delta(
+            r#" now."},{"kind":"memory_proposals","proposals":[]}]} "#,
+            &mut |event| events.push(event),
+        );
+
+        assert_eq!(
+            assistant_text_from_events(&events),
+            "Checking now.".to_string()
+        );
+    }
+
+    #[test]
     fn noema_assistant_text_delta_extractor_streams_multiple_assistant_items() {
         let streamed_text = extract_streamed_text(&[
             r#"{"type":"noema_response","output":[{"kind":"assistant_text","text":"Hel"#,
