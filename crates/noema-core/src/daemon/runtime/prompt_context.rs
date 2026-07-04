@@ -2,7 +2,8 @@ use crate::{
     ConversationContextSummaryRecord, ConversationItemKind, ConversationItemRecord, GenerateInput,
     GenerateMessage, GenerateMessageRole, NoemaStore,
     daemon::{
-        agent_onboarding::AgentPromptIdentity, prompts::build_structured_turn_system_prompt,
+        agent_onboarding::AgentPromptIdentity,
+        prompts::{PromptToolExposure, build_structured_turn_system_prompt},
         protocol::DaemonError,
     },
 };
@@ -41,6 +42,8 @@ pub(super) struct PromptPlanRequest<'a> {
     pub(super) cwd: Option<&'a str>,
     pub(super) agent_identity: &'a AgentPromptIdentity,
     pub(super) rendered_tools: &'a str,
+    pub(super) native_tools_available: bool,
+    pub(super) legacy_builtin_envelope_tools: &'a [String],
     pub(super) current_input: &'a str,
 }
 
@@ -52,6 +55,8 @@ struct LoadedPromptPlanRequest<'a> {
     cwd: Option<&'a str>,
     agent_identity: &'a AgentPromptIdentity,
     rendered_tools: &'a str,
+    native_tools_available: bool,
+    legacy_builtin_envelope_tools: &'a [String],
     current_input: &'a str,
     context: PromptContext,
 }
@@ -97,6 +102,8 @@ pub(super) async fn plan_prompt_context(
         cwd: request.cwd,
         agent_identity: request.agent_identity,
         rendered_tools: request.rendered_tools,
+        native_tools_available: request.native_tools_available,
+        legacy_builtin_envelope_tools: request.legacy_builtin_envelope_tools,
         current_input: request.current_input,
         context,
     })
@@ -113,6 +120,10 @@ async fn plan_loaded_prompt_context(
         &request.context.rendered_context,
         request.agent_identity,
         request.rendered_tools,
+        PromptToolExposure {
+            native_tools_available: request.native_tools_available,
+            legacy_builtin_envelope_tools: request.legacy_builtin_envelope_tools,
+        },
     );
     let input = build_turn_input(&request.context.transcript_items, request.current_input);
     let metadata = request.provider.context_metadata(request.model_profile);

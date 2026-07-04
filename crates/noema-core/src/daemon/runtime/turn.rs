@@ -29,7 +29,7 @@ use crate::daemon::{
     agent_onboarding::AgentPromptIdentity,
     memory::pipeline::{AssistantEvidenceItem, ConversationMemoryContext, explicit_memory_content},
     prompts::{
-        build_initial_name_onboarding_system_prompt,
+        PromptToolExposure, build_initial_name_onboarding_system_prompt,
         build_local_tool_result_continuation_system_prompt, build_model_available_tools_prompt,
     },
     protocol::{
@@ -298,6 +298,8 @@ impl CodexRuntimeActor {
                 cwd: conversation.cwd.as_deref(),
                 agent_identity: &agent_identity,
                 rendered_tools: &rendered_tools,
+                native_tools_available: !model_tools.native.is_empty(),
+                legacy_builtin_envelope_tools: &model_tools.legacy_builtin_envelope_tools,
                 current_input: &input,
             })
             .await?;
@@ -387,6 +389,8 @@ impl CodexRuntimeActor {
                     cwd: conversation.cwd.as_deref(),
                     agent_identity: &agent_identity,
                     rendered_tools: &rendered_tools,
+                    native_tools_available: !model_tools.native.is_empty(),
+                    legacy_builtin_envelope_tools: &model_tools.legacy_builtin_envelope_tools,
                     current_input: &input,
                 },
             )
@@ -436,6 +440,8 @@ impl CodexRuntimeActor {
                         cwd: conversation.cwd.as_deref(),
                         agent_identity: &agent_identity,
                         rendered_tools: &rendered_tools,
+                        native_tools_available: !model_tools.native.is_empty(),
+                        legacy_builtin_envelope_tools: &model_tools.legacy_builtin_envelope_tools,
                         current_input: &input,
                     },
                 )
@@ -707,6 +713,12 @@ impl CodexRuntimeActor {
                 &turn.user_input,
                 &continuation_agent_identity,
                 &turn.rendered_continuation_tools,
+                PromptToolExposure {
+                    native_tools_available: !turn.continuation_model_tools.native.is_empty(),
+                    legacy_builtin_envelope_tools: &turn
+                        .continuation_model_tools
+                        .legacy_builtin_envelope_tools,
+                },
             );
             let continuation_stream_suffix = if continuation_step == 0 {
                 "continuation".to_string()
@@ -990,6 +1002,8 @@ impl CodexRuntimeActor {
                     cwd: cwd.as_deref(),
                     agent_identity: &agent_identity,
                     rendered_tools: &rendered_tools,
+                    native_tools_available: false,
+                    legacy_builtin_envelope_tools: &[],
                     current_input: "",
                 },
             )

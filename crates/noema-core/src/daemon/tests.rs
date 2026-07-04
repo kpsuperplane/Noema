@@ -298,6 +298,9 @@ async fn native_provider_turn_request_includes_builtin_tools() {
         .collect::<Vec<_>>();
     assert!(tool_names.contains(&"search_memory"));
     assert!(request.parallel_tool_calls);
+    let instructions = request.instructions.as_deref().expect("instructions");
+    assert!(instructions.contains("Executable tools are provided through the native tool channel"));
+    assert!(!instructions.contains("emit the relevant tool_calls item in this response"));
 }
 
 #[tokio::test]

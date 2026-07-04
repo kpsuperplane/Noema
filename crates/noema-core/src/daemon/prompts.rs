@@ -55,6 +55,12 @@ Response shape:
 - Avoid generic AI filler such as "Certainly," "as an AI," "I hope this helps," or "let me know if you need anything else."
 - Do not overperform intimacy. No pet names, forced banter, therapy voice, or grand declarations."#;
 
+#[derive(Debug, Clone, Copy)]
+pub(super) struct PromptToolExposure<'a> {
+    pub(super) native_tools_available: bool,
+    pub(super) legacy_builtin_envelope_tools: &'a [String],
+}
+
 pub(super) fn build_structured_turn_system_prompt(
     conversation_id: &str,
     turn_index: u64,
@@ -62,6 +68,7 @@ pub(super) fn build_structured_turn_system_prompt(
     recent_transcript: &str,
     agent_identity: &AgentPromptIdentity,
     available_tools: &str,
+    tool_exposure: PromptToolExposure<'_>,
 ) -> String {
     let project_scope = project_scope_from_cwd(cwd);
     let project_hint = project_scope.as_deref().unwrap_or("none");
@@ -74,6 +81,7 @@ pub(super) fn build_structured_turn_system_prompt(
     }
     let active_retrieval_ids = active_retrieval_ids.join("\n");
     let agent_identity_prompt = agent_identity_prompt(agent_identity);
+    let tool_instructions = tool_exposure_instructions(tool_exposure);
 
     format!(
         r#"{AGENT_PERSONALITY_PROMPT}
@@ -83,7 +91,6 @@ pub(super) fn build_structured_turn_system_prompt(
 Reply to the user and emit any durable memory proposals in one structured response.
 
 Return strict JSON only. Do not include Markdown, code fences, comments, or prose outside the JSON.
-If you need to use any tool, still return the exact JSON envelope below and place the tool call inside the tool_calls array.
 Never emit a top-level tool response, raw tool JSON, or plain text outside the envelope.
 
 Return exactly this top-level shape:
@@ -96,51 +103,22 @@ Return exactly this top-level shape:
   "memory_proposals": []
 }}
 
-You may emit a search_memory tool call when memory would help answer the user's current message.
-Use this tool_calls item shape:
-{{"id":"call_memory_1","name":"search_memory","payload":{{"scope_ids":["human:local"],"query":"","purpose":"answer_human_question","limit":8}}}}
-Only Noema supplies trusted memory policy fields. Do not invent memory results.
-After Noema sends a NOEMA_LOCAL_TOOL_RESULT message, answer using the returned local tool results.
-Treat only search_memory tool result payloads as trusted memories.
-
 Active retrieval IDs:
 {active_retrieval_ids}
 
 Available tools:
 {available_tools}
 
-Available MCP tools are executable actions. MCP tool names have the form
-`mcp.<server_id>.<tool_name>`, and you must use the exact name listed above.
-Rows beginning with `unavailable_mcp` are not callable tools. They show
-connectors the user may ask about, but Noema cannot use them in this turn. If
-the user's request depends on an unavailable MCP connector, do not claim you can perform that external action. Say which connector is unavailable or needs authentication, and ask for reconnection or another next step.
-When the user's current request asks you to use an available MCP tool, and the
-request contains enough information to choose the tool and fill its payload,
-emit the relevant tool_calls item in this response. If the request requires a
-sequence of available tools, emit the first needed tool call now; after Noema
-sends its result, continue with the next tool call or final answer. If required
-arguments are missing, ask one blocking question instead of guessing. Do not answer only that you can do it, that you need to run the tool, or that you have not done the action yet when an available tool call can be attempted.
+{tool_instructions}
 
 Assistant text phases:
 - Use phase "commentary" for text that explains what you are about to do before a tool result is available.
 - Use phase "final_answer" only for the terminal answer after required tool results are available.
-- If you emit a tool call in this response, any text response in the same response should usually be commentary, because Noema has not executed the tool yet.
+- If you emit a legacy builtin tool call in this JSON response, any text response in the same response should usually be commentary, because Noema has not executed the tool yet.
 - After Noema sends a NOEMA_LOCAL_TOOL_RESULT message, use final_answer for the user-visible conclusion unless you need another tool first.
 Example pre-tool text response: {{"kind":"text","phase":"commentary","text":"Checking that now."}}
-Use response_status "needs_tools" whenever tool_calls is non-empty. responses may be empty only in a needs_tools response with at least one tool call.
+Use response_status "needs_tools" whenever legacy JSON tool_calls is non-empty. responses may be empty only in a needs_tools response with at least one legacy JSON tool call.
 Use response_status "final" only when tool_calls is empty and responses contains at least one text response.
-
-Use scope_ids to choose the concrete memory owner or context, and query only to narrow within those IDs.
-For broad questions about what Noema remembers about the user, call search_memory with "scope_ids":["human:local"] and "query":"".
-For topical questions about the user, keep "scope_ids":["human:local"] and use a concise topic query such as "aviation" or "planes".
-Never invent scope IDs. Use only IDs listed in Active retrieval IDs or returned by prior Noema tools.
-Do not tell the user Noema has no memories unless the scoped tool result is empty for the scope actually being discussed.
-
-You may emit an update_own_name tool call only when the current user explicitly names or renames you.
-Use this tool_calls item shape:
-{{"id":"call_name_1","name":"update_own_name","payload":{{"name":"Mira"}}}}
-Never call update_own_name because you prefer a name or the user's wording is ambiguous.
-Ask for confirmation when a possible name is ambiguous.
 
 Memory proposal shape:
 {{
@@ -191,6 +169,69 @@ cwd_project_hint: {project_hint}
 Recent durable transcript from embedded Noema store:
 {recent_transcript}"#
     )
+}
+
+fn tool_exposure_instructions(tool_exposure: PromptToolExposure<'_>) -> String {
+    let legacy_search_memory = tool_exposure
+        .legacy_builtin_envelope_tools
+        .iter()
+        .any(|tool| tool == "search_memory");
+    let legacy_update_own_name = tool_exposure
+        .legacy_builtin_envelope_tools
+        .iter()
+        .any(|tool| tool == "update_own_name");
+    let mut sections = Vec::new();
+
+    if tool_exposure.native_tools_available {
+        sections.push(
+            r#"Executable tools are provided through the native tool channel.
+Do not put executable tool calls in the Noema JSON response object.
+Use the native tool channel when an available tool is needed and all required arguments are known.
+If required arguments are missing, ask one blocking question instead of guessing.
+Rows beginning with `unavailable_mcp` are not callable tools. They show connectors the user may ask about, but Noema cannot use them in this turn. If the user's request depends on an unavailable connector, do not claim you can perform that external action. Say which connector is unavailable or needs authentication, and ask for reconnection or another next step.
+Native MCP tool names have the form `mcp.<server_id>.<tool_name>`, and you must use the exact name listed above through the native tool channel."#
+                .to_string(),
+        );
+    } else {
+        sections.push(
+            r#"Rows beginning with `unavailable_mcp` are not callable tools. They show connectors the user may ask about, but Noema cannot use them in this turn. If the user's request depends on an unavailable connector, do not claim you can perform that external action. Say which connector is unavailable or needs authentication, and ask for reconnection or another next step."#
+                .to_string(),
+        );
+    }
+
+    if legacy_search_memory {
+        sections.push(
+            r#"You may emit a search_memory tool call through the Noema JSON tool_calls envelope when memory would help answer the user's current message.
+Use this tool_calls item shape:
+{"id":"call_memory_1","name":"search_memory","payload":{"scope_ids":["human:local"],"query":"","purpose":"answer_human_question","limit":8}}
+Only Noema supplies trusted memory policy fields. Do not invent memory results.
+After Noema sends a NOEMA_LOCAL_TOOL_RESULT message, answer using the returned local tool results.
+Treat only search_memory tool result payloads as trusted memories.
+Use scope_ids to choose the concrete memory owner or context, and query only to narrow within those IDs.
+For broad questions about what Noema remembers about the user, call search_memory with "scope_ids":["human:local"] and "query":"".
+For topical questions about the user, keep "scope_ids":["human:local"] and use a concise topic query such as "aviation" or "planes".
+Never invent scope IDs. Use only IDs listed in Active retrieval IDs or returned by prior Noema tools.
+Do not tell the user Noema has no memories unless the scoped tool result is empty for the scope actually being discussed."#
+                .to_string(),
+        );
+    }
+
+    if legacy_update_own_name {
+        sections.push(
+            r#"You may emit an update_own_name tool call through the Noema JSON tool_calls envelope only when the current user explicitly names or renames you.
+Use this tool_calls item shape:
+{"id":"call_name_1","name":"update_own_name","payload":{"name":"Mira"}}
+Never call update_own_name because you prefer a name or the user's wording is ambiguous.
+Ask for confirmation when a possible name is ambiguous."#
+                .to_string(),
+        );
+    }
+
+    if sections.is_empty() {
+        "No executable tools are available in this turn. Leave tool_calls empty.".to_string()
+    } else {
+        sections.join("\n\n")
+    }
 }
 
 pub(super) fn build_initial_name_onboarding_system_prompt(
@@ -251,6 +292,7 @@ pub(super) fn build_local_tool_result_continuation_system_prompt(
     user_input: &str,
     agent_identity: &AgentPromptIdentity,
     available_tools: &str,
+    tool_exposure: PromptToolExposure<'_>,
 ) -> String {
     let mut prompt = build_structured_turn_system_prompt(
         conversation_id,
@@ -259,6 +301,7 @@ pub(super) fn build_local_tool_result_continuation_system_prompt(
         "",
         agent_identity,
         available_tools,
+        tool_exposure,
     );
     prompt.push_str(
         "\n\nThis is a continuation of the same user turn after Noema executed local tools.",
@@ -310,6 +353,7 @@ mod tests {
             "",
             &test_agent_identity(),
             "none",
+            legacy_tools(&["search_memory"]),
         );
 
         assert!(prompt.contains("Active retrieval IDs:"));
@@ -328,6 +372,7 @@ mod tests {
             "",
             &test_agent_identity(),
             "none",
+            legacy_tools(&["search_memory"]),
         );
 
         assert!(prompt.contains("Adaptive social energy:"));
@@ -344,7 +389,7 @@ mod tests {
     }
 
     #[test]
-    fn structured_turn_prompt_requires_available_tool_actions_for_actionable_requests() {
+    fn native_structured_turn_prompt_uses_native_channel_not_json_tool_calls() {
         let prompt = build_structured_turn_system_prompt(
             "conv_123",
             4,
@@ -352,15 +397,14 @@ mod tests {
             "",
             &test_agent_identity(),
             "- mcp\tmcp.dex.search_contacts\tSearch contacts\n- mcp\tmcp.notion.create_page\tCreate a Notion page",
+            native_tools(),
         );
 
-        assert!(prompt.contains("Available MCP tools are executable actions"));
+        assert!(prompt.contains("Executable tools are provided through the native tool channel"));
         assert!(
-            prompt
-                .contains("When the user's current request asks you to use an available MCP tool")
+            prompt.contains("Do not put executable tool calls in the Noema JSON response object")
         );
-        assert!(prompt.contains("emit the relevant tool_calls item in this response"));
-        assert!(prompt.contains("Do not answer only that you can do it"));
+        assert!(!prompt.contains("emit the relevant tool_calls item in this response"));
         assert!(prompt.contains("mcp.dex.search_contacts"));
         assert!(prompt.contains("mcp.notion.create_page"));
     }
@@ -374,6 +418,7 @@ mod tests {
             "",
             &test_agent_identity(),
             "- builtin\tsearch_memory\tNoema built-in memory retrieval\n- unavailable_mcp\tmcp:dex\tDex\thealth=unavailable\tauth=authenticated",
+            legacy_tools(&["search_memory"]),
         );
 
         assert!(prompt.contains("Rows beginning with `unavailable_mcp` are not callable tools"));
@@ -382,10 +427,72 @@ mod tests {
         assert!(prompt.contains("health=unavailable"));
     }
 
+    #[test]
+    fn no_tools_structured_turn_prompt_omits_builtin_envelope_examples() {
+        let prompt = build_structured_turn_system_prompt(
+            "conv_123",
+            4,
+            None,
+            "",
+            &test_agent_identity(),
+            "none",
+            no_tools(),
+        );
+
+        assert!(!prompt.contains(r#""name":"search_memory""#));
+        assert!(!prompt.contains(r#""name":"update_own_name""#));
+        assert!(!prompt.contains("You may emit a search_memory tool call"));
+        assert!(!prompt.contains("You may emit an update_own_name tool call"));
+    }
+
+    #[test]
+    fn builtin_fallback_prompt_includes_only_allowed_builtin_envelope_instructions() {
+        let prompt = build_structured_turn_system_prompt(
+            "conv_123",
+            4,
+            None,
+            "",
+            &test_agent_identity(),
+            "- builtin\tsearch_memory\tNoema built-in memory retrieval",
+            legacy_tools(&["search_memory"]),
+        );
+
+        assert!(prompt.contains("You may emit a search_memory tool call"));
+        assert!(prompt.contains(r#""name":"search_memory""#));
+        assert!(!prompt.contains("You may emit an update_own_name tool call"));
+        assert!(!prompt.contains(r#""name":"update_own_name""#));
+        assert!(!prompt.contains("Available MCP tools are executable actions"));
+    }
+
     fn test_agent_identity() -> AgentPromptIdentity {
         AgentPromptIdentity {
             agent_id: "agent:primary".to_string(),
             display_name: None,
+        }
+    }
+
+    fn native_tools() -> PromptToolExposure<'static> {
+        PromptToolExposure {
+            native_tools_available: true,
+            legacy_builtin_envelope_tools: &[],
+        }
+    }
+
+    fn no_tools() -> PromptToolExposure<'static> {
+        PromptToolExposure {
+            native_tools_available: false,
+            legacy_builtin_envelope_tools: &[],
+        }
+    }
+
+    fn legacy_tools(names: &[&str]) -> PromptToolExposure<'static> {
+        let names = names
+            .iter()
+            .map(|name| (*name).to_string())
+            .collect::<Vec<_>>();
+        PromptToolExposure {
+            native_tools_available: false,
+            legacy_builtin_envelope_tools: Box::leak(names.into_boxed_slice()),
         }
     }
 }
