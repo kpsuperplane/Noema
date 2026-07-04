@@ -1,13 +1,14 @@
 use crate::{
     ActorRef, ConversationItemKind, ConversationItemRecord, ConversationItemStatus,
     NewConversationItem, PersistedAgentStatus,
-    provider::{GenerateOutputItem, GenerateResponse, GenerateStreamEvent},
+    provider::{AssistantTextPhase, GenerateOutputItem, GenerateResponse, GenerateStreamEvent},
 };
 use serde_json::{Value, json};
 use tokio::sync::mpsc;
 
 use super::{
     actor::CodexRuntimeActor,
+    tool_lifecycle::{LocalToolCall, tool_call_output_item},
     turn::{ProviderActionOutput, ProviderActionTurn, ProviderAssistantResponse},
 };
 use crate::daemon::{
@@ -21,16 +22,25 @@ impl CodexRuntimeActor {
         turn: &ProviderActionTurn,
         index: usize,
         output: GenerateOutputItem,
+        provider_phase_has_tools: bool,
         assistant_response: &mut ProviderAssistantResponse,
         item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
     ) -> Result<(), DaemonError> {
         match output {
-            GenerateOutputItem::AssistantText { text, .. } => {
+            GenerateOutputItem::AssistantText { phase, text } => {
                 assistant_response.push_text(&text);
+                let effective_phase = AssistantTextPhase::effective_for_output(
+                    &GenerateOutputItem::AssistantText {
+                        phase,
+                        text: text.clone(),
+                    },
+                    provider_phase_has_tools,
+                );
                 let metadata = json!({
                     "turn_index": turn.turn_index,
                     "output_index": index,
                     "stream_id": turn.stream_id,
+                    "phase": effective_phase.as_str(),
                 });
                 let assistant_item = self
                     .store
@@ -109,6 +119,38 @@ impl CodexRuntimeActor {
             }
         }
         Ok(())
+    }
+
+    pub(super) async fn persist_provider_tool_call_started(
+        &mut self,
+        turn: &ProviderActionTurn,
+        index: usize,
+        call: &LocalToolCall,
+        item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
+    ) -> Result<(), DaemonError> {
+        let GenerateOutputItem::ToolCall { id, name, payload } = tool_call_output_item(call) else {
+            return Ok(());
+        };
+        let display = tool_call_display(&name, &payload);
+        self.persist_provider_action_output(
+            turn,
+            ProviderActionOutput {
+                index,
+                kind: ConversationItemKind::ToolCall,
+                status: ConversationItemStatus::Running,
+                action_kind: "tool_call",
+                title: format!("Tool call: {name}"),
+                summary: display_summary(&display, "target"),
+                payload: json!({
+                    "id": id,
+                    "name": name,
+                    "payload": payload,
+                }),
+                display,
+            },
+            item_tx,
+        )
+        .await
     }
 
     pub(super) async fn persist_agent_initiated_provider_response(
@@ -558,7 +600,7 @@ pub(super) fn handle_provider_stream_event(
     item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
     context: &ConversationMemoryContext,
     stream_id: &str,
-    output_index_base: usize,
+    _output_index_base: usize,
 ) {
     match event {
         GenerateStreamEvent::AssistantTextDelta { delta } => send_assistant_text_delta(
@@ -571,14 +613,7 @@ pub(super) fn handle_provider_stream_event(
         GenerateStreamEvent::MemoryProposalsStarted => {
             send_memory_proposals_started_transient(context, item_tx);
         }
-        GenerateStreamEvent::ToolCallStarted { output_index, name } => {
-            send_tool_call_started_transient(
-                context,
-                item_tx,
-                output_index_base + output_index,
-                &name,
-            );
-        }
+        GenerateStreamEvent::ToolCallStarted { .. } => {}
     }
 }
 
@@ -599,35 +634,6 @@ fn send_memory_proposals_started_transient(
         json!({
             "turn_index": context.turn_index,
             "source": "provider_stream",
-        }),
-    );
-    send_transient_turn_item(context, activity, item_tx);
-}
-
-fn send_tool_call_started_transient(
-    context: &ConversationMemoryContext,
-    item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
-    output_index: usize,
-    name: &str,
-) {
-    let activity_id = format!(
-        "tool_call:{}:{}:{}",
-        context.conversation_id, context.turn_index, output_index
-    );
-    let activity = typed_memory_activity(
-        &activity_id,
-        "tool_call",
-        TurnActivityStatus::Started,
-        &format!("Tool call: {name}"),
-        Some("preparing tool"),
-        json!({
-            "turn_index": context.turn_index,
-            "output_index": output_index,
-            "source": "provider_structured_output",
-            "display": tool_call_display(name, &json!({})),
-            "action": {
-                "name": name,
-            },
         }),
     );
     send_transient_turn_item(context, activity, item_tx);

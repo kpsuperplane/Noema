@@ -3119,7 +3119,7 @@ async fn runtime_actor_persists_provider_tool_items_as_action_rows() {
             )
         })
         .expect("started tool call marker");
-    let completed_tool_position = items
+    let completed_result_position = items
         .iter()
         .position(|item| {
             matches!(
@@ -3129,15 +3129,15 @@ async fn runtime_actor_persists_provider_tool_items_as_action_rows() {
                     activity_kind,
                     status,
                     ..
-                } if activity_kind == "tool_call"
+                } if activity_kind == "tool_result"
                     && *status == TurnActivityStatus::Completed
-                    && id.starts_with("tool_call:")
+                    && id.starts_with("tool_result:")
             )
         })
-        .expect("completed tool call marker");
+        .expect("completed tool result marker");
     assert!(
-        started_tool_position < completed_tool_position,
-        "tool call should appear as started before it completes"
+        started_tool_position < completed_result_position,
+        "tool call should appear as started before its result completes"
     );
 
     let replay = store
@@ -3147,7 +3147,7 @@ async fn runtime_actor_persists_provider_tool_items_as_action_rows() {
     assert!(
         replay.iter().any(|item| {
             item.kind == ConversationItemKind::ToolCall
-                && item.status == ConversationItemStatus::Completed
+                && item.status == ConversationItemStatus::Running
                 && item.payload_json["activity_kind"] == "tool_call"
                 && item.payload_json["metadata"]["action"]["name"] == "search_memory"
         }),
@@ -3162,9 +3162,119 @@ async fn runtime_actor_persists_provider_tool_items_as_action_rows() {
         .position(|item| item.kind == ConversationItemKind::AssistantText)
         .expect("assistant item");
     assert!(
-        tool_position < assistant_position,
-        "tool call should replay before assistant text"
+        assistant_position < tool_position,
+        "assistant commentary should replay before runtime tool execution: {replay:?}"
     );
+}
+
+#[tokio::test]
+async fn runtime_displays_commentary_before_tool_lifecycle_when_provider_orders_tool_first() {
+    let handle =
+        test_runtime_handle(fake_provider(FakeCodexScenario::ToolCallBeforeCommentary)).await;
+    let conversation_id = handle
+        .start_conversation(None)
+        .await
+        .expect("conversation")
+        .conversation_id;
+
+    let items = collect_turn(&handle, conversation_id, "Check memory.".to_string())
+        .await
+        .expect("turn");
+    handle.shutdown().await;
+
+    let commentary_position = items
+        .iter()
+        .position(|item| {
+            matches!(item, TurnTranscriptItem::AssistantText { text } if text == "Checking memory.")
+        })
+        .expect("commentary item");
+    let tool_started_position = items
+        .iter()
+        .position(|item| {
+            matches!(
+                item,
+                TurnTranscriptItem::Activity {
+                    activity_kind,
+                    status: TurnActivityStatus::Started,
+                    title,
+                    ..
+                } if activity_kind == "tool_call" && title == "Tool call: search_memory"
+            )
+        })
+        .expect("tool started item");
+    let tool_result_position = items
+        .iter()
+        .position(|item| {
+            matches!(
+                item,
+                TurnTranscriptItem::Activity {
+                    activity_kind,
+                    status: TurnActivityStatus::Completed,
+                    title,
+                    ..
+                } if activity_kind == "tool_result" && title == "Tool result: search_memory"
+            )
+        })
+        .expect("tool result item");
+
+    assert!(
+        commentary_position < tool_started_position,
+        "commentary should describe intent before runtime tool execution starts: {items:?}"
+    );
+    assert!(
+        tool_started_position < tool_result_position,
+        "tool lifecycle should start before its result: {items:?}"
+    );
+}
+
+#[tokio::test]
+async fn runtime_keeps_commentary_before_tool_lifecycle_when_provider_orders_text_first() {
+    let handle =
+        test_runtime_handle(fake_provider(FakeCodexScenario::SearchMemoryContinuation)).await;
+    let conversation_id = handle
+        .start_conversation(None)
+        .await
+        .expect("conversation")
+        .conversation_id;
+
+    let items = collect_turn(
+        &handle,
+        conversation_id,
+        "What do you remember about trains?".to_string(),
+    )
+    .await
+    .expect("turn");
+    handle.shutdown().await;
+
+    let commentary_position = items
+        .iter()
+        .position(|item| {
+            matches!(item, TurnTranscriptItem::AssistantText { text } if text == "Searching memory.")
+        })
+        .expect("commentary item");
+    let tool_started_position = items
+        .iter()
+        .position(|item| {
+            matches!(
+                item,
+                TurnTranscriptItem::Activity {
+                    activity_kind,
+                    status: TurnActivityStatus::Started,
+                    title,
+                    ..
+                } if activity_kind == "tool_call" && title == "Tool call: search_memory"
+            )
+        })
+        .expect("tool started item");
+    let final_position = items
+        .iter()
+        .rposition(|item| {
+            matches!(item, TurnTranscriptItem::AssistantText { text } if text == "I found your train memory.")
+        })
+        .expect("final answer item");
+
+    assert!(commentary_position < tool_started_position, "{items:?}");
+    assert!(tool_started_position < final_position, "{items:?}");
 }
 
 #[tokio::test]
@@ -3405,7 +3515,6 @@ async fn update_own_name_tool_does_not_start_repeated_continuation_tool_calls() 
                 item,
                 TurnTranscriptItem::Activity {
                     activity_kind,
-                    status: TurnActivityStatus::Completed,
                     title,
                     ..
                 } if activity_kind == "tool_call" && title == "Tool call: update_own_name"
@@ -4146,6 +4255,7 @@ enum FakeCodexScenario {
     InitialNameOnboardingNoAssistant,
     TurnError,
     ToolItem,
+    ToolCallBeforeCommentary,
     ToolItemThenFailure,
     UncalibratedMcpToolCall,
     FailedMcpToolResultContinuation,
@@ -4292,6 +4402,23 @@ impl FakeCodexProvider {
                         GenerateOutputItem::AssistantText {
                             phase: None,
                             text: "fake answer".to_string(),
+                        },
+                        GenerateOutputItem::MemoryProposals { proposals: vec![] },
+                    ]
+                }
+            }
+            FakeCodexScenario::ToolCallBeforeCommentary => {
+                if input.contains("NOEMA_LOCAL_TOOL_RESULT") {
+                    assistant_with_no_memories("The memory check is complete.")
+                } else {
+                    vec![
+                        search_memory_tool_call(
+                            "call_1",
+                            json!({"arguments": {"query": "trains"}}),
+                        ),
+                        GenerateOutputItem::AssistantText {
+                            phase: Some(crate::provider::AssistantTextPhase::Commentary),
+                            text: "Checking memory.".to_string(),
                         },
                         GenerateOutputItem::MemoryProposals { proposals: vec![] },
                     ]

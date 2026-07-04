@@ -441,7 +441,10 @@ fn output_items_from_text_with_mode(
         ]);
     }
 
-    Ok(vec![GenerateOutputItem::AssistantText { phase: None, text }])
+    Ok(vec![GenerateOutputItem::AssistantText {
+        phase: None,
+        text,
+    }])
 }
 
 fn embedded_required_noema_response_output(

@@ -18,6 +18,7 @@ use super::{
         agent_identity_after_local_tools, local_tool_result_continuation_input,
         local_tool_result_output_item,
     },
+    tool_lifecycle::local_tool_calls,
     transcript_persistence::{
         assistant_stream_id, handle_provider_stream_event, send_conversation_item,
     },
@@ -605,11 +606,17 @@ impl CodexRuntimeActor {
             stream_id: Some(turn.initial_stream_id.clone()),
         };
         let mut initial_assistant_response = ProviderAssistantResponse::default();
+        let initial_tool_calls = local_tool_calls(&turn.response.output);
+        let initial_phase_has_tools = !initial_tool_calls.is_empty();
         for (index, output) in turn.response.output.iter().cloned().enumerate() {
+            if matches!(output, GenerateOutputItem::ToolCall { .. }) {
+                continue;
+            }
             self.persist_provider_response_output_item(
                 &action_turn,
                 index,
                 output,
+                initial_phase_has_tools,
                 &mut initial_assistant_response,
                 item_tx,
             )
@@ -633,30 +640,38 @@ impl CodexRuntimeActor {
             });
         }
 
-        let local_tool_results = self.execute_local_tools(&turn, &turn.agent_identity).await;
-        let mut all_local_tool_results = local_tool_results.clone();
-        let has_local_tool_results = !local_tool_results.is_empty();
         let mut next_output_index = initial_output_count;
-        if has_local_tool_results {
-            let local_action_turn = ProviderActionTurn {
-                conversation_id: turn.conversation_id.clone(),
-                turn_id: turn.turn_id.clone(),
-                turn_index: turn.turn_index,
-                user_item_id: turn.user_item_id.clone(),
-                provider: "noema_local".to_string(),
-                stream_id: None,
-            };
-            for (offset, result) in local_tool_results.iter().enumerate() {
-                self.persist_provider_action_output_item(
-                    &local_action_turn,
-                    next_output_index + offset,
-                    local_tool_result_output_item(result),
-                    item_tx,
-                )
-                .await?;
-            }
-            next_output_index += local_tool_results.len();
+        let local_action_turn = ProviderActionTurn {
+            conversation_id: turn.conversation_id.clone(),
+            turn_id: turn.turn_id.clone(),
+            turn_index: turn.turn_index,
+            user_item_id: turn.user_item_id.clone(),
+            provider: "noema_local".to_string(),
+            stream_id: None,
+        };
+        let mut local_tool_results = Vec::new();
+        for call in &initial_tool_calls {
+            self.persist_provider_tool_call_started(
+                &local_action_turn,
+                call.output_index,
+                call,
+                item_tx,
+            )
+            .await?;
+            let result = self
+                .execute_local_tool(&turn, &turn.agent_identity, call)
+                .await;
+            self.persist_provider_action_output_item(
+                &local_action_turn,
+                next_output_index,
+                local_tool_result_output_item(&result),
+                item_tx,
+            )
+            .await?;
+            next_output_index += 1;
+            local_tool_results.push(result);
         }
+        let mut all_local_tool_results = local_tool_results.clone();
 
         let mut continuation_tool_results = local_tool_results
             .iter()
@@ -748,11 +763,17 @@ impl CodexRuntimeActor {
                 .cloned()
                 .collect::<Vec<_>>();
             let continuation_output_count = continuation_outputs_for_tools.len();
+            let continuation_tool_calls = local_tool_calls(&continuation_outputs_for_tools);
+            let continuation_phase_has_tools = !continuation_tool_calls.is_empty();
             for (offset, output) in continuation_outputs_for_tools.iter().cloned().enumerate() {
+                if matches!(output, GenerateOutputItem::ToolCall { .. }) {
+                    continue;
+                }
                 self.persist_provider_response_output_item(
                     &continuation_action_turn,
                     continuation_output_base + offset,
                     output,
+                    continuation_phase_has_tools,
                     &mut continuation_assistant_response,
                     item_tx,
                 )
@@ -797,35 +818,42 @@ impl CodexRuntimeActor {
                 rendered_tools: turn.rendered_tools.clone(),
                 rendered_continuation_tools: turn.rendered_continuation_tools.clone(),
             };
-            let local_tool_results = self
-                .execute_local_tools(&continuation_turn, &continuation_turn.agent_identity)
-                .await;
+            let mut local_tool_results = Vec::new();
+            let local_action_turn = ProviderActionTurn {
+                conversation_id: turn.conversation_id.clone(),
+                turn_id: turn.turn_id.clone(),
+                turn_index: turn.turn_index,
+                user_item_id: turn.user_item_id.clone(),
+                provider: "noema_local".to_string(),
+                stream_id: None,
+            };
+            for call in &continuation_tool_calls {
+                self.persist_provider_tool_call_started(
+                    &local_action_turn,
+                    continuation_output_base + call.output_index,
+                    call,
+                    item_tx,
+                )
+                .await?;
+                let result = self
+                    .execute_local_tool(&continuation_turn, &continuation_turn.agent_identity, call)
+                    .await;
+                self.persist_provider_action_output_item(
+                    &local_action_turn,
+                    next_output_index,
+                    local_tool_result_output_item(&result),
+                    item_tx,
+                )
+                .await?;
+                next_output_index += 1;
+                local_tool_results.push(result);
+            }
             continuation_tool_results = local_tool_results
                 .iter()
                 .filter(|result| result.requires_provider_continuation())
                 .cloned()
                 .collect::<Vec<_>>();
             all_local_tool_results.extend(local_tool_results.clone());
-            if !local_tool_results.is_empty() {
-                let local_action_turn = ProviderActionTurn {
-                    conversation_id: turn.conversation_id.clone(),
-                    turn_id: turn.turn_id.clone(),
-                    turn_index: turn.turn_index,
-                    user_item_id: turn.user_item_id.clone(),
-                    provider: "noema_local".to_string(),
-                    stream_id: None,
-                };
-                for (offset, result) in local_tool_results.iter().enumerate() {
-                    self.persist_provider_action_output_item(
-                        &local_action_turn,
-                        next_output_index + offset,
-                        local_tool_result_output_item(result),
-                        item_tx,
-                    )
-                    .await?;
-                }
-                next_output_index += local_tool_results.len();
-            }
         }
         if !continuation_tool_results.is_empty() {
             return Err(ProviderError::ProtocolError {

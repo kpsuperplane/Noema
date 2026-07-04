@@ -5,9 +5,7 @@ use crate::{
 use serde_json::{Value, json};
 
 use super::{
-    actor::CodexRuntimeActor,
-    tool_lifecycle::{LocalToolCall, local_tool_calls},
-    turn::SuccessfulProviderTurn,
+    actor::CodexRuntimeActor, tool_lifecycle::LocalToolCall, turn::SuccessfulProviderTurn,
 };
 use crate::daemon::{
     agent_name_tool::{
@@ -21,19 +19,6 @@ use crate::daemon::{
 };
 
 impl CodexRuntimeActor {
-    pub(super) async fn execute_local_tools(
-        &self,
-        turn: &SuccessfulProviderTurn,
-        agent_identity: &AgentPromptIdentity,
-    ) -> Vec<LocalToolResult> {
-        let calls = local_tool_calls(&turn.response.output);
-        let mut results = Vec::with_capacity(calls.len());
-        for call in &calls {
-            results.push(self.execute_local_tool(turn, agent_identity, call).await);
-        }
-        results
-    }
-
     pub(super) async fn execute_local_tool(
         &self,
         turn: &SuccessfulProviderTurn,
