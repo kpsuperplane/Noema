@@ -65,6 +65,27 @@ export function ChatSurface({
 }: ChatSurfaceProps) {
   const { visibility } = useShellSurface();
   const composerRef = React.useRef<HTMLTextAreaElement>(null);
+  const composerDockRef = React.useRef<HTMLDivElement>(null);
+  const [composerDockHeight, setComposerDockHeight] = React.useState(96);
+
+  React.useLayoutEffect(() => {
+    const dock = composerDockRef.current;
+    if (!dock || typeof ResizeObserver === "undefined") {
+      return;
+    }
+
+    const syncComposerDockHeight = () => {
+      setComposerDockHeight(Math.ceil(dock.getBoundingClientRect().height));
+    };
+
+    syncComposerDockHeight();
+    const observer = new ResizeObserver(syncComposerDockHeight);
+    observer.observe(dock);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, []);
 
   React.useEffect(() => {
     if (shouldFocusChatComposer({ ready, visibility })) {
@@ -72,34 +93,50 @@ export function ChatSurface({
     }
   }, [ready, visibility]);
 
+  const rootStyle = React.useMemo(
+    () =>
+      ({
+        "--chat-composer-dock-height": `${composerDockHeight}px`
+      }) as React.CSSProperties,
+    [composerDockHeight]
+  );
+
   return (
     <section
       data-slot="chat-surface"
       {...stylex.props(styles.root)}
+      style={rootStyle}
       aria-label="Noema chat"
     >
-      {transcript.length === 0 ? (
-        <EmptyState onPick={onPickStarter} />
-      ) : (
-        <Transcript
-          entries={transcript}
-          pending={pending}
-          agentStatus={agentStatus}
-          awaitingAssistantTurn={awaitingAssistantTurn}
-          expandedActivities={expandedActivities}
-          onToggleActivity={onToggleActivity}
-        />
-      )}
+      <div {...stylex.props(styles.contentLayer, transcript.length === 0 && styles.emptyContentLayer)}>
+        {transcript.length === 0 ? (
+          <EmptyState onPick={onPickStarter} />
+        ) : (
+          <Transcript
+            entries={transcript}
+            pending={pending}
+            agentStatus={agentStatus}
+            awaitingAssistantTurn={awaitingAssistantTurn}
+            expandedActivities={expandedActivities}
+            onToggleActivity={onToggleActivity}
+          />
+        )}
+      </div>
 
-      <Composer
-        ref={composerRef}
-        value={draft}
-        ready={ready}
-        pending={pending}
-        placeholder={composerPlaceholder({ ready, agentName })}
-        onChange={onDraftChange}
-        onSubmit={onSubmit}
-      />
+      <div ref={composerDockRef} data-slot="chat-composer-dock" {...stylex.props(styles.composerDock)}>
+        <div aria-hidden="true" data-slot="chat-composer-scrim" {...stylex.props(styles.composerScrim)} />
+        <div {...stylex.props(styles.composerLayer)}>
+          <Composer
+            ref={composerRef}
+            value={draft}
+            ready={ready}
+            pending={pending}
+            placeholder={composerPlaceholder({ ready, agentName })}
+            onChange={onDraftChange}
+            onSubmit={onSubmit}
+          />
+        </div>
+      </div>
     </section>
   );
 }
@@ -111,14 +148,46 @@ const styles = stylex.create({
       "@media (max-width: 760px)": "calc(100% - 40px)"
     },
     display: "grid",
-    gridTemplateRows: "minmax(0, 1fr) auto",
+    gridTemplateRows: "minmax(0, 1fr)",
     minHeight: 0,
     height: "100%",
     width: "100%",
-    overflow: "hidden",
+    overflow: "hidden"
+  },
+  contentLayer: {
+    gridArea: "1 / 1",
+    minHeight: 0,
+    overflow: "hidden"
+  },
+  emptyContentLayer: {
+    paddingBottom: "var(--chat-composer-dock-height)"
+  },
+  composerDock: {
+    position: "relative",
+    zIndex: 2,
+    display: "grid",
+    gridArea: "1 / 1",
+    alignSelf: "end",
     paddingBottom: {
       default: 22,
       "@media (hover: none) and (pointer: coarse)": "max(18px, env(safe-area-inset-bottom))"
-    }
+    },
+    pointerEvents: "none"
+  },
+  composerScrim: {
+    position: "absolute",
+    top: -58,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    zIndex: 0,
+    pointerEvents: "none",
+    background:
+      "linear-gradient(to bottom, rgb(255 255 255 / 0), rgb(255 255 255 / 0.92) 58px, var(--background) 104px)"
+  },
+  composerLayer: {
+    position: "relative",
+    zIndex: 1,
+    pointerEvents: "auto"
   }
 });

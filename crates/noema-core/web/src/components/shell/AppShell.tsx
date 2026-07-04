@@ -308,6 +308,7 @@ export function AppShell({
               <ShellBreadcrumbLabel breadcrumb={breadcrumb} />
             </div>
           </div>
+          <div aria-hidden="true" data-slot="shell-header-scrim" {...stylex.props(styles.headerScrim)} />
         </header>
 
         <ShellSurfaceProvider value={{ visibility: deckNavigation.surfaceVisibility }}>
@@ -436,15 +437,26 @@ const styles = stylex.create({
     }
   },
   deckHeader: {
+    position: "relative",
+    zIndex: 2,
     display: "flex",
     alignItems: "center",
     gap: 12,
     borderBottomWidth: 1,
     borderBottomStyle: "solid",
-    borderBottomColor: "var(--border-subtle)",
-    backgroundColor: "rgb(255 255 255 / 0.95)",
+    borderBottomColor: "transparent",
+    backgroundColor: "var(--background)",
     paddingBlock: 4,
     paddingInline: 16
+  },
+  headerScrim: {
+    position: "absolute",
+    top: "100%",
+    right: 0,
+    left: 0,
+    height: 48,
+    pointerEvents: "none",
+    background: "linear-gradient(to bottom, var(--background), rgb(255 255 255 / 0))"
   },
   headerOffset: {
     display: "flex",
