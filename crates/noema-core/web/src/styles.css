@@ -229,6 +229,12 @@ html[data-tauri-runtime="true"] #root {
   }
 }
 
+@keyframes tool-marker-spinner-rotate {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 @keyframes marker-text-glimmer {
   from {
     background-position: 130% 0;

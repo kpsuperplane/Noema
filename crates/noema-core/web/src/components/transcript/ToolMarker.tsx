@@ -91,6 +91,15 @@ const styles = stylex.create({
   running: {
     color: "var(--noema-pine-600)"
   },
+  runningSpinner: {
+    animationDuration: "900ms",
+    animationIterationCount: "infinite",
+    animationName: "tool-marker-spinner-rotate",
+    animationTimingFunction: "linear",
+    "@media (prefers-reduced-motion: reduce)": {
+      animationName: "none"
+    }
+  },
   complete: {
     color: "var(--noema-pine-600)"
   },
@@ -176,7 +185,7 @@ export function ToolMarker({
 function ToolStatusIcon({ status }: { status: ToolMarkerCallStatus }) {
   if (status === "running") {
     return (
-      <span {...stylex.props(styles.statusIcon, styles.running)}>
+      <span {...stylex.props(styles.statusIcon, styles.running, styles.runningSpinner)}>
         <Loader2Icon aria-hidden="true" size={14} strokeWidth={2} />
       </span>
     );
