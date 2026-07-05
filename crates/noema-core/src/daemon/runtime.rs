@@ -11,6 +11,4 @@ pub(in crate::daemon) mod transcript_persistence;
 pub(in crate::daemon) mod turn;
 pub(crate) mod turn_timing;
 
-pub(crate) use handle::CodexRuntimeHandle;
-#[cfg(test)]
-pub(crate) use handle::RuntimeModelProvider;
+pub(crate) use handle::{CodexRuntimeHandle, RuntimeModelProvider};

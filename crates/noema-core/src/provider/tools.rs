@@ -236,6 +236,8 @@ pub enum NoemaToolExecution {
     LocalBuiltin,
     /// First-party public web search executed by the Noema runtime.
     WebSearch,
+    /// First-party public web fetch executed by the Noema runtime.
+    WebFetch,
     /// Tool executed through a calibrated MCP server.
     Mcp {
         /// Persisted MCP server id.

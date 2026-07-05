@@ -15,8 +15,6 @@ pub(crate) use protocol::TurnStreamEvent;
 pub use protocol::{
     AgentStatus, DaemonError, StartedConversation, TurnActivityStatus, TurnTranscriptItem,
 };
-pub(crate) use runtime::CodexRuntimeHandle;
-#[cfg(test)]
-pub(crate) use runtime::RuntimeModelProvider;
 pub(crate) use runtime::turn_timing::mark_graphql_turn_event;
+pub(crate) use runtime::{CodexRuntimeHandle, RuntimeModelProvider};
 pub use web_server::{DaemonWebServerConfig, run_daemon_web};

@@ -38,6 +38,8 @@ pub mod search;
 pub mod store;
 /// Developer diagnostic system error logging.
 pub mod system_errors;
+/// First-party public web fetch tool.
+pub mod web_fetch;
 
 pub use capability::{CapabilityGateway, GatewayToolProposal, GatewayToolResult};
 pub use config::{

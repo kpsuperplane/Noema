@@ -172,6 +172,9 @@ fn prompt_rows(native_tools: &[NoemaToolSpec]) -> Vec<String> {
             NoemaToolExecution::WebSearch => {
                 format!("- web\t{}\t{}", tool.name, tool.description)
             }
+            NoemaToolExecution::WebFetch => {
+                format!("- web\t{}\t{}", tool.name, tool.description)
+            }
             NoemaToolExecution::Mcp { .. } => {
                 format!("- mcp\t{}\t{}", tool.name, tool.description)
             }
