@@ -22,6 +22,8 @@ import {
   transcriptScrollKey
 } from "./scrollModel";
 import { StructuredCard } from "./StructuredCard";
+import { toolMarkerExpandable } from "./markerModel";
+import { ToolDetailAttachment } from "./ToolDetailAttachment";
 import { ToolMarker } from "./ToolMarker";
 import { TranscriptBottomFollower, ARRIVAL_SCROLL_SETTLE_DURATION_MS } from "./TranscriptBottomFollower";
 import { TranscriptRow } from "./TranscriptRow";
@@ -183,14 +185,23 @@ function renderTranscriptRenderEntry(
     );
   }
   if (entry.kind === "tool_marker") {
+    const open = expandedActivities.has(entry.id);
     return (
-      <TranscriptRow lane="assistant" showAvatar={showAvatar}>
-        <ToolMarker
-          data={{ kind: "tool", marker: entry.marker }}
-          open={expandedActivities.has(entry.id)}
-          onToggle={() => onToggleActivity(entry.id)}
-        />
-      </TranscriptRow>
+      <>
+        <TranscriptRow lane="assistant" showAvatar={showAvatar}>
+          <ToolMarker
+            data={{ kind: "tool", marker: entry.marker }}
+            open={open}
+            onToggle={() => onToggleActivity(entry.id)}
+            renderDetail={false}
+          />
+        </TranscriptRow>
+        {open && toolMarkerExpandable(entry.marker) ? (
+          <TranscriptRow lane="assistant" showAvatar={false}>
+            <ToolDetailAttachment id={`${entry.marker.id}-details`} marker={entry.marker} />
+          </TranscriptRow>
+        ) : null}
+      </>
     );
   }
   if (entry.kind === "typing") {

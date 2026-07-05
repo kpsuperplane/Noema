@@ -149,11 +149,13 @@ const styles = stylex.create({
 export function ToolMarker({
   data,
   open,
-  onToggle
+  onToggle,
+  renderDetail = true
 }: {
   data: ToolMarkerData;
   open: boolean;
   onToggle: () => void;
+  renderDetail?: boolean;
 }) {
   const calls = toolMarkerCalls(data);
   const call = calls[0];
@@ -181,7 +183,7 @@ export function ToolMarker({
             <ToolMarkerRowContent call={call} open={false} />
           </div>
         )}
-        {call.expandable && open && call.resultDetail ? (
+        {renderDetail && call.expandable && open && call.resultDetail ? (
           <div {...stylex.props(styles.detail)}>{call.resultDetail}</div>
         ) : null}
       </div>
