@@ -1,6 +1,5 @@
 import React from "react";
 
-const shellNavSwipeEdgePx = 28;
 const shellNavSwipeIntentPx = 8;
 const shellNavSwipeVelocityThreshold = 0.45;
 const shellNavSwipeMaxDeckOffsetPx = 252;
@@ -47,6 +46,14 @@ function shellNavSwipeEnabled() {
   return window.matchMedia("(max-width: 760px)").matches;
 }
 
+function targetAllowsShellNavSwipe(target: EventTarget | null) {
+  if (!(target instanceof Element)) {
+    return true;
+  }
+
+  return !target.closest("input, textarea, select, [contenteditable='true']");
+}
+
 function shouldStartShellNavSwipe(
   event: React.PointerEvent<HTMLElement>,
   navOpen: boolean
@@ -59,7 +66,7 @@ function shouldStartShellNavSwipe(
     return false;
   }
 
-  return navOpen || event.clientX <= shellNavSwipeEdgePx;
+  return navOpen || targetAllowsShellNavSwipe(event.target);
 }
 
 function shellNavSwipeOffset(mode: ShellNavSwipeMode, deltaX: number) {
