@@ -194,16 +194,14 @@ export function toolDetailRows(marker: ToolMarkerGroup): ToolDetailRowData[] {
   const call = marker.call?.item;
   const result = marker.result?.item;
 
-  appendToolDisplayRows(rows, call?.metadata, ["purpose", "access", "scope", "approval"]);
-  appendToolPayloadRow(rows, "Input", toolActionPayload(call?.metadata));
+  rows.push(...toolPayloadRows("Input", toolActionPayload(call?.metadata)));
 
   const resultPreview = toolPayloadPreview(toolActionPayload(result?.metadata));
   const resultDisplay = toolDisplayString(result?.metadata, "result");
-  if (resultDisplay && !isLowInformationToolDetail(resultDisplay)) {
-    rows.push({ label: "Result", value: resultDisplay });
-  }
   if (resultPreview) {
     rows.push({ label: result?.status === "FAILED" ? "Error" : "Output", value: resultPreview });
+  } else if (resultDisplay && !isLowInformationToolDetail(resultDisplay)) {
+    rows.push({ label: "Result", value: resultDisplay });
   }
 
   return dedupeToolDetailRows(rows);
@@ -291,25 +289,6 @@ function appendDisplayRow(rows: string[], label: string, value: string | null) {
   }
 }
 
-function appendToolDisplayRows(rows: ToolDetailRowData[], metadata: unknown, keys: string[]) {
-  if (!isRecord(metadata) || !isRecord(metadata.display)) {
-    return;
-  }
-  for (const key of keys) {
-    const value = stringValue(metadata.display[key]);
-    if (value && !isLowInformationToolDetail(value)) {
-      rows.push({ label: humanToolDetailLabel(key), value });
-    }
-  }
-}
-
-function appendToolPayloadRow(rows: ToolDetailRowData[], label: string, payload: unknown) {
-  const preview = toolPayloadPreview(payload);
-  if (preview) {
-    rows.push({ label, value: preview });
-  }
-}
-
 function toolActionPayload(metadata: unknown): unknown {
   if (!isRecord(metadata) || !isRecord(metadata.action)) {
     return undefined;
@@ -321,6 +300,34 @@ function toolActionPayload(metadata: unknown): unknown {
   return payload;
 }
 
+function toolPayloadRows(fallbackLabel: string, payload: unknown): ToolDetailRowData[] {
+  if (payload === null || payload === undefined || isEmptyJsonContainer(payload)) {
+    return [];
+  }
+  if (!isRecord(payload)) {
+    const value = toolPayloadPreview(payload);
+    return value ? [{ label: fallbackLabel, value }] : [];
+  }
+
+  const directRow = directPayloadRow(payload);
+  if (directRow) {
+    return [directRow];
+  }
+
+  const scalarSummary = conciseScalarSummary(payload);
+  return scalarSummary ? [{ label: fallbackLabel, value: scalarSummary }] : [];
+}
+
+function directPayloadRow(payload: Record<string, unknown>): ToolDetailRowData | null {
+  for (const key of ["query", "name", "url", "path", "error"]) {
+    const value = stringValue(payload[key]);
+    if (value) {
+      return { label: humanPayloadLabel(key), value: truncateToolDetail(value) };
+    }
+  }
+  return null;
+}
+
 function toolPayloadPreview(payload: unknown): string | null {
   if (payload === null || payload === undefined || isEmptyJsonContainer(payload)) {
     return null;
@@ -328,10 +335,18 @@ function toolPayloadPreview(payload: unknown): string | null {
 
   const contentText = toolContentText(payload);
   if (contentText) {
-    return contentText;
+    return truncateToolDetail(contentText);
   }
 
-  return formatJsonPreview(payload);
+  if (isRecord(payload)) {
+    const directRow = directPayloadRow(payload);
+    if (directRow) {
+      return directRow.value;
+    }
+    return conciseScalarSummary(payload);
+  }
+
+  return formatScalarPreview(payload);
 }
 
 function toolContentText(payload: unknown): string | null {
@@ -353,19 +368,57 @@ function toolContentText(payload: unknown): string | null {
   return text || null;
 }
 
-function formatJsonPreview(value: unknown): string {
+function conciseScalarSummary(value: Record<string, unknown>): string | null {
+  const parts = Object.entries(value)
+    .flatMap(([key, rawValue]): string[] => {
+      const value = scalarPreview(rawValue);
+      return value ? [`${key}: ${value}`] : [];
+    })
+    .slice(0, 3);
+  const summary = parts.join(", ");
+  return summary ? truncateToolDetail(summary) : null;
+}
+
+function formatScalarPreview(value: unknown): string | null {
   if (typeof value === "string") {
-    return value;
+    return truncateToolDetail(value);
   }
   if (typeof value === "number" || typeof value === "boolean") {
     return String(value);
   }
-  try {
-    const preview = JSON.stringify(value, null, 2);
-    return preview.length > 4000 ? `${preview.slice(0, 4000)}\n...` : preview;
-  } catch {
-    return "Unavailable";
+  return null;
+}
+
+function scalarPreview(value: unknown): string | null {
+  if (typeof value === "string") {
+    return truncateToolDetail(value);
   }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  return null;
+}
+
+function humanPayloadLabel(key: string): string {
+  switch (key) {
+    case "query":
+      return "Query";
+    case "name":
+      return "Name";
+    case "url":
+      return "URL";
+    case "path":
+      return "Path";
+    case "error":
+      return "Error";
+    default:
+      return key;
+  }
+}
+
+function truncateToolDetail(value: string): string {
+  const trimmed = value.trim();
+  return trimmed.length > 280 ? `${trimmed.slice(0, 280)}...` : trimmed;
 }
 
 function isEmptyJsonContainer(value: unknown): boolean {
@@ -382,21 +435,6 @@ function isLowInformationToolDetail(value: string): boolean {
     value === "Completed" ||
     value === "Done"
   );
-}
-
-function humanToolDetailLabel(key: string): string {
-  switch (key) {
-    case "purpose":
-      return "Purpose";
-    case "access":
-      return "Access";
-    case "scope":
-      return "Scope";
-    case "approval":
-      return "Approval";
-    default:
-      return key;
-  }
 }
 
 function dedupeToolDetailRows(rows: ToolDetailRowData[]): ToolDetailRowData[] {

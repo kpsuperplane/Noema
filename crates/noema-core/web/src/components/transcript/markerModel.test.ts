@@ -133,11 +133,10 @@ describe("toolDetailRows", () => {
 
     const rows = toolDetailRows(marker);
 
-    assert.deepEqual(
-      rows.map((row) => row.label),
-      ["Input", "Output"]
-    );
-    assert.match(rows[0]?.value ?? "", /"query": "Gautam"/);
+    assert.deepEqual(rows, [
+      { label: "Query", value: "Gautam" },
+      { label: "Output", value: "Found Gautam's contact." }
+    ]);
     assert.equal(rows[1]?.value, "Found Gautam's contact.");
     assert.doesNotMatch(rows.map((row) => row.value).join("\n"), /call_123/);
     assert.doesNotMatch(rows.map((row) => row.value).join("\n"), /Use an enabled connected tool/);
