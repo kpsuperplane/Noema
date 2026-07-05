@@ -163,6 +163,7 @@ describe("toolMarkerLabel", () => {
               payload: {
                 provider: "duckduckgo_public",
                 provider_contract: "best_effort_public",
+                query: "rust language",
                 summary: "Found 1 web result",
                 results: [{ rank: 1, title: "Rust", url: "https://www.rust-lang.org/", snippet: "Rust language." }]
               }
@@ -180,10 +181,71 @@ describe("toolMarkerLabel", () => {
 
     assert.equal(toolMarkerLabel(marker), "Used Search web");
     assert.equal(toolMarkerTarget(marker), "Web search: rust language");
+    assert.equal(toolMarkerExpandable(marker), false);
+    assert.deepEqual(toolDetailRows(marker), []);
   });
 });
 
 describe("toolDetailRows", () => {
+  test("keeps failed web search markers expandable with error detail", () => {
+    const marker: ToolMarkerGroup = {
+      id: "tool_call:web",
+      call: {
+        id: "call-entry",
+        type: "activity",
+        item: {
+          kind: "activity",
+          id: "activity:web-call",
+          activity_kind: "tool_call",
+          status: "COMPLETED",
+          title: "Tool call: web.search",
+          summary: "Web search: rust language",
+          metadata: {
+            action: {
+              name: "web.search",
+              payload: { query: "rust language" }
+            },
+            display: {
+              name: "Search web",
+              target: "Web search: rust language"
+            }
+          }
+        }
+      },
+      result: {
+        id: "result-entry",
+        type: "activity",
+        item: {
+          kind: "activity",
+          id: "activity:web-result",
+          activity_kind: "tool_result",
+          status: "FAILED",
+          title: "Tool result: web.search",
+          summary: "search provider request failed",
+          metadata: {
+            action: {
+              name: "web.search",
+              success: false,
+              payload: {
+                error: "search provider request failed"
+              }
+            },
+            display: {
+              name: "Search web",
+              result: "search provider request failed"
+            }
+          }
+        }
+      }
+    };
+
+    assert.equal(toolMarkerExpandable(marker), true);
+    assert.deepEqual(toolDetailRows(marker), [
+      { label: "Query", value: "rust language" },
+      { label: "Error", value: "search provider request failed" }
+    ]);
+  });
+
   test("shows concrete tool input and output without generic display filler", () => {
     const marker: ToolMarkerGroup = {
       id: "tool_call:1",

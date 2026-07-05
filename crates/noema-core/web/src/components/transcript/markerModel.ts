@@ -190,6 +190,10 @@ export function formatToolDetail(fallback: string, metadata: unknown): string {
 }
 
 export function toolDetailRows(marker: ToolMarkerGroup): ToolDetailRowData[] {
+  if (isSuccessfulWebSearchMarker(marker)) {
+    return [];
+  }
+
   const rows: ToolDetailRowData[] = [];
   const call = marker.call?.item;
   const result = marker.result?.item;
@@ -256,6 +260,11 @@ function toolNameFromMetadata(metadata: unknown): string | null {
     return readableToolName(metadata.tool_name);
   }
   return null;
+}
+
+function isSuccessfulWebSearchMarker(marker: ToolMarkerGroup): boolean {
+  const toolName = toolNameFromMetadata(marker.call?.item.metadata) ?? toolNameFromMetadata(marker.result?.item.metadata);
+  return toolName === "Search web" && marker.result?.item.status === "COMPLETED";
 }
 
 export function toolMarkerTarget(marker: ToolMarkerGroup): string | undefined {
