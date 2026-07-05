@@ -14,7 +14,8 @@ use super::{
     noema_response_stream::NoemaAssistantTextDeltaExtractor,
     responses::{
         ResponsesDiagnosticContext, ResponsesTool, ResponsesToolNameMap, ResponsesTransport,
-        noema_response_text_format, normalize_base_url, responses_tool_choice,
+        noema_response_text_format, normalize_base_url, provider_safe_tool_name,
+        responses_tool_choice,
     },
 };
 use crate::{
@@ -283,7 +284,7 @@ impl From<&GenerateToolResultInput> for CodexFunctionCall {
             name: value
                 .provider_name
                 .clone()
-                .unwrap_or_else(|| value.name.clone()),
+                .unwrap_or_else(|| provider_safe_tool_name(&value.name)),
             arguments: value.arguments.to_string(),
         }
     }
@@ -298,7 +299,7 @@ impl From<&GenerateToolCallInput> for CodexFunctionCall {
             name: value
                 .provider_name
                 .clone()
-                .unwrap_or_else(|| value.name.clone()),
+                .unwrap_or_else(|| provider_safe_tool_name(&value.name)),
             arguments: value.arguments.to_string(),
         }
     }
@@ -855,6 +856,45 @@ mod tests {
             body["input"][2]["output"]
                 .as_str()
                 .is_some_and(|output| output.contains("Momo"))
+        );
+    }
+
+    #[tokio::test]
+    async fn sends_codex_typed_history_with_provider_safe_fallback_names() {
+        let (base_url, request_rx) = spawn_server(
+            200,
+            "event: response.output_text.delta\n\
+             data: {\"type\":\"response.output_text.delta\",\"delta\":\"Done\"}\n\
+             \n\
+             event: response.completed\n\
+             data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_test\",\"model\":\"gpt-test\",\"status\":\"completed\"}}\n\
+             \n",
+        )
+        .await;
+        let (provider, _dir) = provider_with_tokens(base_url);
+
+        provider
+            .generate(GenerateRequest {
+                input: GenerateInput::Items(vec![crate::provider::GenerateInputItem::ToolCall(
+                    crate::provider::GenerateToolCallInput {
+                        id: None,
+                        call_id: "call_1".to_string(),
+                        name: "mcp.dex:search contacts".to_string(),
+                        provider_name: None,
+                        arguments: serde_json::json!({"query": "Gautam"}),
+                    },
+                )]),
+                ..GenerateRequest::text("ignored")
+            })
+            .await
+            .expect("response");
+
+        let captured = request_rx.await.expect("captured request");
+        let body: Value = serde_json::from_str(&captured.body).expect("json body");
+        assert_eq!(body["input"][0]["type"], "function_call");
+        assert_eq!(
+            body["input"][0]["name"],
+            "mcp_x2e_dex_x3a_search_x20_contacts"
         );
     }
 

@@ -147,7 +147,7 @@ pub(crate) fn responses_tool_choice(
     })
 }
 
-fn provider_safe_tool_name(canonical: &str) -> String {
+pub(crate) fn provider_safe_tool_name(canonical: &str) -> String {
     let mut encoded = String::with_capacity(canonical.len());
     for byte in canonical.bytes() {
         let character = byte as char;
@@ -356,7 +356,7 @@ impl From<&GenerateToolResultInput> for ResponsesFunctionCall {
             name: result
                 .provider_name
                 .clone()
-                .unwrap_or_else(|| result.name.clone()),
+                .unwrap_or_else(|| provider_safe_tool_name(&result.name)),
             arguments: result.arguments.to_string(),
         }
     }
@@ -371,7 +371,7 @@ impl From<&GenerateToolCallInput> for ResponsesFunctionCall {
             name: call
                 .provider_name
                 .clone()
-                .unwrap_or_else(|| call.name.clone()),
+                .unwrap_or_else(|| provider_safe_tool_name(&call.name)),
             arguments: call.arguments.to_string(),
         }
     }
@@ -1170,6 +1170,24 @@ mod tests {
                 .expect("output json");
         assert_eq!(output["name"], "update_own_name");
         assert_eq!(output["payload"]["display_name"], "Momo");
+    }
+
+    #[test]
+    fn responses_input_encodes_unsafe_typed_history_tool_names() {
+        let input = GenerateInput::Items(vec![crate::provider::GenerateInputItem::ToolCall(
+            crate::provider::GenerateToolCallInput {
+                id: None,
+                call_id: "call_1".to_string(),
+                name: "mcp.dex:search contacts".to_string(),
+                provider_name: None,
+                arguments: serde_json::json!({"query": "Gautam"}),
+            },
+        )]);
+
+        let value = serde_json::to_value(ResponsesInput::from(&input)).expect("serialize");
+
+        assert_eq!(value[0]["type"], "function_call");
+        assert_eq!(value[0]["name"], "mcp_x2e_dex_x3a_search_x20_contacts");
     }
 
     #[test]
