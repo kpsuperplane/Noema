@@ -19,6 +19,7 @@ import {
   type ShellBreadcrumb,
   type ShellMenuItem
 } from "./shellNavigation";
+import { useShellNavSwipe } from "./useShellNavSwipe";
 
 export type ShellAttention = {
   tone: "warning";
@@ -40,6 +41,7 @@ export const shellTauriDesktopChromeOffset = "72px";
 
 type ShellRootStyle = React.CSSProperties &
   Record<"--shell-sidebar-width" | "--shell-desktop-chrome-offset", string>;
+type ShellContentDeckStyle = React.CSSProperties;
 
 export function shellDesktopChromeOffsetForRuntime(isDesktop = isTauriRuntime()) {
   return isDesktop ? shellTauriDesktopChromeOffset : shellBrowserDesktopChromeOffset;
@@ -127,6 +129,23 @@ function ShellBreadcrumbLabel({ breadcrumb }: { breadcrumb: ShellBreadcrumb }) {
   );
 }
 
+function shellContentDeckStyle({
+  dragging,
+  offsetPx
+}: {
+  dragging: boolean;
+  offsetPx: number;
+}): ShellContentDeckStyle | undefined {
+  if (!dragging) {
+    return undefined;
+  }
+
+  return {
+    transform: `translateX(${offsetPx}px)`,
+    transition: "none"
+  };
+}
+
 export function AppShell({
   route,
   status,
@@ -186,6 +205,11 @@ export function AppShell({
     toggleSidebarCollapsed,
     settleSurfaceVisibility
   } = useDeckNavigation(onNavigate);
+  const navSwipe = useShellNavSwipe({
+    navOpen: deckNavigation.navOpen,
+    openNav,
+    closeNav
+  });
 
   const selectShellMenuItem = React.useCallback(
     (item: ShellMenuItem) => {
@@ -211,10 +235,12 @@ export function AppShell({
     <main
       data-slot="shell-root"
       data-nav-open={deckNavigation.navOpen}
+      data-nav-swipe-active={navSwipe.dragging ? "true" : undefined}
       data-sidebar-collapsed={deckNavigation.sidebarCollapsed}
       data-tauri-runtime={isDesktopRuntime}
       style={rootStyle}
       {...stylex.props(styles.root, isDesktopRuntime ? styles.desktopRoot : styles.browserRoot)}
+      {...navSwipe.pointerHandlers}
     >
       <aside
         id="noema-shell-sidebar"
@@ -262,7 +288,9 @@ export function AppShell({
       <section
         data-slot="shell-content-deck"
         data-nav-open={deckNavigation.navOpen}
+        data-nav-swipe-active={navSwipe.dragging ? "true" : undefined}
         aria-label={activeLabel}
+        style={shellContentDeckStyle(navSwipe)}
         {...stylex.props(
           styles.contentDeck,
           deckNavigation.sidebarCollapsed ? styles.contentDeckCollapsed : styles.contentDeckExpanded,
@@ -389,6 +417,7 @@ const styles = stylex.create({
     minHeight: 0,
     gridTemplateRows: "auto minmax(0, 1fr)",
     overflow: "hidden",
+    touchAction: "pan-y",
     borderWidth: 1,
     borderStyle: "solid",
     borderColor: "var(--border-subtle)",
