@@ -240,7 +240,7 @@ fn tool_call_input_item(item: &ConversationItemRecord) -> Option<GenerateInputIt
         action_string(action, "provider_call_id").or_else(|| action_string(action, "id"))?;
     let name = action_string(action, "name")?;
     Some(GenerateInputItem::ToolCall(GenerateToolCallInput {
-        id: action_string(action, "id"),
+        id: provider_function_call_item_id(action),
         call_id,
         provider_name: action_string(action, "provider_name"),
         name,
@@ -254,7 +254,7 @@ fn tool_result_input_item(item: &ConversationItemRecord) -> Option<GenerateInput
         action_string(action, "provider_call_id").or_else(|| action_string(action, "call_id"))?;
     let name = action_string(action, "name")?;
     Some(GenerateInputItem::ToolResult(GenerateToolResultInput {
-        id: action_string(action, "call_id"),
+        id: provider_function_call_item_id(action),
         call_id,
         provider_name: action_string(action, "provider_name"),
         name,
@@ -276,6 +276,10 @@ fn action_string(action: &Value, key: &str) -> Option<String> {
         .map(ToOwned::to_owned)
 }
 
+fn provider_function_call_item_id(action: &Value) -> Option<String> {
+    action_string(action, "id").filter(|id| id.starts_with("fc"))
+}
+
 fn render_prompt_context(summary: Option<&ConversationContextSummaryRecord>) -> String {
     match summary {
         Some(summary) => format!(
@@ -283,5 +287,46 @@ fn render_prompt_context(summary: Option<&ConversationContextSummaryRecord>) -> 
             summary.summary_text
         ),
         None => "none".to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        ConversationItemKind, ConversationItemRecord, ConversationItemStatus,
+        provider::GenerateInputItem,
+    };
+
+    #[test]
+    fn persisted_local_tool_call_id_is_not_replayed_as_provider_item_id() {
+        let item = ConversationItemRecord {
+            item_id: "item:1".to_string(),
+            conversation_id: "conversation:1".to_string(),
+            turn_id: None,
+            sequence_index: 1,
+            cursor: "conversation_item:1".to_string(),
+            kind: ConversationItemKind::ToolCall,
+            status: ConversationItemStatus::Completed,
+            content_text: Some("Tool call: update_own_name".to_string()),
+            payload_json: serde_json::json!({
+                "metadata": {
+                    "action": {
+                        "id": "call_name_1",
+                        "provider_call_id": null,
+                        "provider_name": null,
+                        "name": "update_own_name",
+                        "payload": {"name": "Momo"}
+                    }
+                }
+            }),
+        };
+
+        let Some(GenerateInputItem::ToolCall(call)) = input_item_from_transcript_item(&item) else {
+            panic!("expected tool call input item");
+        };
+
+        assert_eq!(call.id, None);
+        assert_eq!(call.call_id, "call_name_1");
     }
 }
