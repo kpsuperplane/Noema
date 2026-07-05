@@ -389,8 +389,8 @@ const styles = stylex.create({
   },
   sidebarCollapseButton: {
     position: "absolute",
-    top: 12,
-    left: "calc(0.75rem + var(--shell-desktop-chrome-offset))",
+    top: 16,
+    left: "calc(16px + var(--shell-desktop-chrome-offset))",
     zIndex: 40,
     backgroundColor: "transparent",
     ":hover": {

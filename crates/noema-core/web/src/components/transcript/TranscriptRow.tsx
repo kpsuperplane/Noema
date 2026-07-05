@@ -10,7 +10,8 @@ const styles = stylex.create({
     maxWidth: 760,
     minWidth: 0,
     gap: 8,
-    fontSize: 14
+    fontSize: 14,
+    alignItems: "flex-end",
   },
   human: {
     flexDirection: "row-reverse"
