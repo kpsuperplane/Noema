@@ -12,7 +12,7 @@ The first slice should:
 - Let the model propose the URL to fetch.
 - Show the URL in normal chat tool markers.
 - Fetch only public `http` and `https` URLs through Rust-owned networking.
-- Extract readable page content as markdown with `readability-rs`.
+- Extract readable page content as markdown with `readabilityrs`.
 - Summarize long extracted markdown before returning it to the agent.
 - Make summarization visible and configurable from the web UI.
 - Keep a provider boundary so future fetch providers can be added without
@@ -158,7 +158,7 @@ parse and canonicalize URL
 -> re-check each redirect target before following
 -> cap response bytes while streaming
 -> accept HTML and plain text content types only
--> extract HTML to markdown with readability-rs
+-> extract HTML to markdown with readabilityrs
 -> summarize if the extracted markdown is large
 -> return normalized tool output
 ```
@@ -174,13 +174,13 @@ Network defaults:
 - hard `max_chars` cap: 20,000
 
 `direct_http` allows ordinary public `http` and `https` domain URLs in the
-first slice because Noema performs local DNS resolution, IP classification, and
-redirect validation before connecting. This differs from hosted-proxy designs
-where a remote provider performs final DNS resolution and `http` domain names
-are riskier to preflight locally.
+first slice because Noema performs local URL/DNS/IP preflight and validates
+each redirect target before following it. True connection-level DNS pinning is
+deferred; the first slice should document that remaining hardening gap rather
+than imply `reqwest` cannot re-resolve internally.
 
 The first slice should fail with a structured tool result if
-`readability-rs` cannot extract useful markdown from HTML. A plain text
+`readabilityrs` cannot extract useful markdown from HTML. A plain text
 response can skip Readability and return normalized text as markdown-shaped
 content.
 
@@ -263,7 +263,7 @@ This means:
   other non-public targets are blocked before network egress.
 - Redirects are limited and each redirect target is validated before
   following.
-- DNS resolution and IP classification happen in Noema before connecting.
+- DNS resolution and IP classification happen in Noema as preflight checks.
 - Fetched content re-enters as `external_content` and `tool_output`.
 - Extracted page text and summaries are data, not instructions.
 - The full raw page body is not persisted by default.
@@ -394,7 +394,7 @@ Unit tests:
 - URL policy accepts ordinary public HTTP(S) URLs.
 - Redirect validation rejects redirect chains that land on blocked targets.
 - Response byte cap is enforced while streaming.
-- HTML extraction uses `readability-rs` and returns markdown.
+- HTML extraction uses `readabilityrs` and returns markdown.
 - Plain text responses are normalized without Readability.
 - Size policy chooses raw, single-pass summary, chunked summary, or refusal.
 - Summarizer prompt ignores page instructions and preserves provenance
@@ -435,7 +435,7 @@ Live e2e:
 
 - Add public URL policy and tests.
 - Add bounded Rust HTTP fetch with redirect re-checks.
-- Add `readability-rs` extraction to markdown.
+- Add `readabilityrs` extraction to markdown.
 - Add safe structured failures for unsupported or unextractable pages.
 
 ### Phase 3: Summarization
