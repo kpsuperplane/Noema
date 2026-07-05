@@ -31,7 +31,7 @@ import { TranscriptScroller, TranscriptScrollerItem, TranscriptScrollerProvider,
 import { TypingMessage } from "./TypingMessage";
 import type { ConversationAgentStatus } from "@/shared/types";
 
-const TOOL_DETAIL_EXIT_DURATION_MS = 160;
+const TOOL_DETAIL_EXIT_DURATION_MS = 400;
 
 export function Transcript({
   entries,
