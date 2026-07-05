@@ -17,6 +17,7 @@ use crate::daemon::{
         MemoryToolResult, MemoryToolRuntimeContext, execute_search_memory, is_search_memory_tool,
     },
 };
+use crate::search::tool::{WebSearchToolResult, execute_web_search, is_web_search_tool};
 
 impl CodexRuntimeActor {
     pub(super) async fn execute_local_tool(
@@ -68,6 +69,19 @@ impl CodexRuntimeActor {
                 )
                 .await,
             }
+        } else if is_web_search_tool(&call.name) {
+            LocalToolResult::WebSearch {
+                call_id: call.call_id.clone(),
+                provider_call_id: call.provider_call_id.clone(),
+                provider_name: call.provider_name.clone(),
+                arguments: call.payload.clone(),
+                result: execute_web_search(
+                    &self.search_provider,
+                    call.call_id.clone(),
+                    &call.payload,
+                )
+                .await,
+            }
         } else {
             let proposal = GatewayToolProposal {
                 name: &call.name,
@@ -101,6 +115,13 @@ pub(super) enum LocalToolResult {
         arguments: Value,
         result: AgentNameToolResult,
     },
+    WebSearch {
+        call_id: Option<String>,
+        provider_call_id: Option<String>,
+        provider_name: Option<String>,
+        arguments: Value,
+        result: WebSearchToolResult,
+    },
     Gateway {
         call_id: Option<String>,
         provider_call_id: Option<String>,
@@ -114,7 +135,9 @@ pub(super) enum LocalToolResult {
 impl LocalToolResult {
     fn call_id(&self) -> Option<&String> {
         match self {
-            Self::Memory { call_id, .. } | Self::AgentName { call_id, .. } => call_id.as_ref(),
+            Self::Memory { call_id, .. }
+            | Self::AgentName { call_id, .. }
+            | Self::WebSearch { call_id, .. } => call_id.as_ref(),
             Self::Gateway { call_id, .. } => call_id.as_ref(),
         }
     }
@@ -127,6 +150,9 @@ impl LocalToolResult {
             | Self::AgentName {
                 provider_call_id, ..
             }
+            | Self::WebSearch {
+                provider_call_id, ..
+            }
             | Self::Gateway {
                 provider_call_id, ..
             } => provider_call_id.as_ref(),
@@ -137,6 +163,7 @@ impl LocalToolResult {
         match self {
             Self::Memory { provider_name, .. }
             | Self::AgentName { provider_name, .. }
+            | Self::WebSearch { provider_name, .. }
             | Self::Gateway { provider_name, .. } => provider_name.as_ref(),
         }
     }
@@ -145,6 +172,7 @@ impl LocalToolResult {
         match self {
             Self::Memory { arguments, .. }
             | Self::AgentName { arguments, .. }
+            | Self::WebSearch { arguments, .. }
             | Self::Gateway { arguments, .. } => arguments,
         }
     }
@@ -153,6 +181,7 @@ impl LocalToolResult {
         match self {
             Self::Memory { result, .. } => &result.name,
             Self::AgentName { result, .. } => &result.name,
+            Self::WebSearch { result, .. } => &result.name,
             Self::Gateway { name, .. } => name,
         }
     }
@@ -161,6 +190,7 @@ impl LocalToolResult {
         match self {
             Self::Memory { result, .. } => result.success,
             Self::AgentName { result, .. } => result.success,
+            Self::WebSearch { result, .. } => result.success,
             Self::Gateway { result, .. } => result.success,
         }
     }
@@ -169,13 +199,14 @@ impl LocalToolResult {
         match self {
             Self::Memory { result, .. } => &result.payload,
             Self::AgentName { result, .. } => &result.payload,
+            Self::WebSearch { result, .. } => &result.payload,
             Self::Gateway { result, .. } => &result.payload,
         }
     }
 
     pub(super) fn requires_provider_continuation(&self) -> bool {
         match self {
-            Self::Memory { .. } => true,
+            Self::Memory { .. } | Self::WebSearch { .. } => true,
             Self::AgentName { .. } => false,
             Self::Gateway { result, .. } => result.requires_provider_continuation,
         }

@@ -84,6 +84,10 @@ The next storage slice should stay small and concrete:
   after the active context checkpoint. OpenAI/Codex adapters replay that history
   as native Responses `function_call`/`function_call_output` input items, while
   Foundation Local receives a conservative assistant-text replay fallback.
+- The first web-search slice is a first-party `web.search` native tool, not an
+  MCP: the only initial provider is a Rust-only best-effort DuckDuckGo public
+  adapter, model-proposed queries are visible in normal chat markers, and
+  results return as normalized search metadata without fetching pages.
 - Derived search/vector indexes are rebuildable projections.
 - Graph or fuzzy retrieval can suggest candidates, but policy gates inclusion.
 - Pre-stable schema changes do not need migrations or backwards compatibility unless explicitly requested.

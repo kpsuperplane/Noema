@@ -32,6 +32,8 @@ pub mod paths;
 pub mod provider;
 /// Shared runtime host for daemon and desktop client surfaces.
 pub mod runtime_host;
+/// First-party governed web search capability.
+pub mod search;
 /// Embedded canonical structured store.
 pub mod store;
 /// Developer diagnostic system error logging.

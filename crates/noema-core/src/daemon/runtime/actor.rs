@@ -12,6 +12,7 @@ pub(in crate::daemon) struct CodexRuntimeActor {
     pub(in crate::daemon) providers: HashMap<String, Arc<dyn RuntimeModelProvider>>,
     pub(in crate::daemon) store: NoemaStore,
     pub(in crate::daemon) system_errors: SystemErrorLogger,
+    pub(in crate::daemon) search_provider: crate::search::types::SearchRuntimeProvider,
     pub(in crate::daemon) conversations: HashMap<String, ActiveConversation>,
 }
 
@@ -27,8 +28,22 @@ impl CodexRuntimeActor {
             providers,
             store,
             system_errors,
+            search_provider: crate::search::types::SearchRuntimeProvider::default(),
             conversations: HashMap::new(),
         })
+    }
+
+    #[cfg(test)]
+    pub(in crate::daemon) async fn new_with_search_provider(
+        default_provider_kind: String,
+        providers: HashMap<String, Arc<dyn RuntimeModelProvider>>,
+        store: NoemaStore,
+        system_errors: SystemErrorLogger,
+        search_provider: crate::search::types::SearchRuntimeProvider,
+    ) -> Result<Self, DaemonError> {
+        let mut actor = Self::new(default_provider_kind, providers, store, system_errors).await?;
+        actor.search_provider = search_provider;
+        Ok(actor)
     }
 
     pub(in crate::daemon) fn provider_for_kind(

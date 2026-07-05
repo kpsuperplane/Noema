@@ -144,6 +144,39 @@ impl CodexRuntimeHandle {
     }
 
     #[cfg(test)]
+    pub(crate) async fn spawn_with_provider_and_search_provider(
+        provider: Arc<dyn RuntimeModelProvider>,
+        store: NoemaStore,
+        search_provider: crate::search::types::SearchRuntimeProvider,
+    ) -> Result<Self, DaemonError> {
+        let provider_kind = "codex".to_string();
+        let system_errors = store.system_error_logger();
+        let providers = HashMap::from([(provider_kind.clone(), provider)]);
+        let Some(default_provider) = providers.get(&provider_kind) else {
+            return Err(DaemonError::Provider(ProviderError::ProviderUnavailable {
+                provider: provider_kind,
+                message: "default provider is not available in this daemon".to_string(),
+            }));
+        };
+        let tool_classification_model = default_provider.default_tool_classification_model();
+        let (sender, receiver) = mpsc::channel(16);
+        let actor = CodexRuntimeActor::new_with_search_provider(
+            provider_kind.clone(),
+            providers,
+            store,
+            system_errors,
+            search_provider,
+        )
+        .await?;
+        tokio::spawn(actor.run(receiver));
+        Ok(Self {
+            sender,
+            default_provider_kind: provider_kind,
+            tool_classification_model,
+        })
+    }
+
+    #[cfg(test)]
     pub(crate) async fn spawn_with_provider_map<I>(
         default_provider_kind: impl Into<String>,
         providers: I,

@@ -234,6 +234,8 @@ impl<'de> Deserialize<'de> for NoemaToolSchema {
 pub enum NoemaToolExecution {
     /// Builtin tool executed by the local Noema runtime.
     LocalBuiltin,
+    /// First-party public web search executed by the Noema runtime.
+    WebSearch,
     /// Tool executed through a calibrated MCP server.
     Mcp {
         /// Persisted MCP server id.
@@ -423,6 +425,27 @@ mod tests {
         assert_eq!(spec.name.as_str(), "search_memory");
         assert_eq!(spec.description, "Search governed Noema memory.");
         assert!(matches!(spec.execution, NoemaToolExecution::LocalBuiltin));
+    }
+
+    #[test]
+    fn canonical_tool_spec_accepts_web_search_execution_kind() {
+        let spec = NoemaToolSpec::new(
+            "web.search",
+            "Search the public web using Noema's configured search provider.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string"}
+                },
+                "required": ["query"],
+                "additionalProperties": false
+            }),
+            NoemaToolExecution::WebSearch,
+        )
+        .expect("web search tool spec");
+
+        assert_eq!(spec.name.as_str(), "web.search");
+        assert!(matches!(spec.execution, NoemaToolExecution::WebSearch));
     }
 
     #[test]

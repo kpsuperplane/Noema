@@ -10,6 +10,7 @@ use crate::{
         NoemaToolExecution, NoemaToolSpec, ProviderToolCapabilities, ProviderToolFallbackMode,
         ToolContractError,
     },
+    search::tool::web_search_tool_spec,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -26,10 +27,12 @@ pub(super) async fn build_model_tools(
     capabilities: ProviderToolCapabilities,
 ) -> Result<ModelTools, ToolContractError> {
     let builtin_tools = builtin_tool_specs(include_agent_name_tool)?;
+    let web_search_tool = web_search_tool_spec()?;
     let unavailable_rows = unavailable_mcp_rows(store).await?;
 
     if capabilities.native_tools {
         let mut native = builtin_tools.clone();
+        native.push(web_search_tool);
         let mut prompt_rows = prompt_rows(&native);
         for mcp_tool in calibrated_mcp_tool_specs(store).await? {
             prompt_rows.push(format!(
@@ -166,6 +169,9 @@ fn prompt_rows(native_tools: &[NoemaToolSpec]) -> Vec<String> {
             NoemaToolExecution::LocalBuiltin => {
                 format!("- builtin\t{}\t{}", tool.name, tool.description)
             }
+            NoemaToolExecution::WebSearch => {
+                format!("- web\t{}\t{}", tool.name, tool.description)
+            }
             NoemaToolExecution::Mcp { .. } => {
                 format!("- mcp\t{}\t{}", tool.name, tool.description)
             }
@@ -219,8 +225,17 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(
             names,
-            vec!["search_memory", "update_own_name", "mcp.mcp:docs.read"]
+            vec![
+                "search_memory",
+                "update_own_name",
+                "web.search",
+                "mcp.mcp:docs.read"
+            ]
         );
+        assert!(tools.native.iter().any(|tool| {
+            tool.name.as_str() == "web.search"
+                && matches!(tool.execution, NoemaToolExecution::WebSearch)
+        }));
         assert!(tools.native.iter().any(|tool| {
             tool.name.as_str() == "mcp.mcp:docs.read"
                 && tool

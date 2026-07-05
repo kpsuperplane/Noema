@@ -3543,6 +3543,56 @@ async fn runtime_actor_executes_search_memory_as_local_tool_result() {
 }
 
 #[tokio::test]
+async fn runtime_actor_executes_web_search_as_local_tool_result() {
+    let search_provider = crate::search::types::SearchRuntimeProvider::Static {
+        response: crate::search::types::SearchResponse {
+            provider: "duckduckgo_public".to_string(),
+            provider_contract: "best_effort_public".to_string(),
+            query: String::new(),
+            summary: "Found 1 web result".to_string(),
+            results: vec![crate::search::types::SearchResult {
+                rank: 1,
+                title: "Rust Programming Language".to_string(),
+                url: "https://www.rust-lang.org/".to_string(),
+                snippet: "A language empowering everyone to build reliable software.".to_string(),
+            }],
+        },
+    };
+    let (handle, store) = test_runtime_handle_with_search_provider(
+        Arc::new(fake_provider(FakeCodexScenario::NativeWebSearch)),
+        search_provider,
+    )
+    .await;
+    let conversation = handle.start_conversation(None).await.expect("conversation");
+
+    collect_turn(
+        &handle,
+        conversation.conversation_id.clone(),
+        "Search the web for Rust.".to_string(),
+    )
+    .await
+    .expect("turn");
+
+    let items = store
+        .list_conversation_items(&conversation.conversation_id, ReplayMode::Audit)
+        .await
+        .expect("items");
+
+    assert!(items.iter().any(|item| {
+        matches!(item.kind, ConversationItemKind::ToolCall)
+            && item.payload_json["metadata"]["action"]["name"] == "web.search"
+            && item.payload_json["metadata"]["display"]["target"] == "Web search: rust language"
+    }));
+    assert!(items.iter().any(|item| {
+        matches!(item.kind, ConversationItemKind::ToolResult)
+            && item.payload_json["metadata"]["action"]["name"] == "web.search"
+            && item.payload_json["metadata"]["action"]["success"] == true
+            && item.payload_json["metadata"]["action"]["payload"]["provider"] == "duckduckgo_public"
+    }));
+    handle.shutdown().await;
+}
+
+#[tokio::test]
 async fn native_capable_provider_continuation_uses_native_tool_result_input() {
     let provider = Arc::new(
         RecordingFakeProvider::new("codex", FakeCodexScenario::NativeSearchMemoryContinuation)
@@ -3614,6 +3664,64 @@ async fn native_capable_provider_continuation_uses_native_tool_result_input() {
             .render_for_token_count()
             .contains("NOEMA_LOCAL_TOOL_RESULT")
     );
+}
+
+#[tokio::test]
+async fn web_search_result_is_sent_as_native_tool_result_input() {
+    let search_provider = crate::search::types::SearchRuntimeProvider::Static {
+        response: crate::search::types::SearchResponse {
+            provider: "duckduckgo_public".to_string(),
+            provider_contract: "best_effort_public".to_string(),
+            query: String::new(),
+            summary: "Found 1 web result".to_string(),
+            results: vec![crate::search::types::SearchResult {
+                rank: 1,
+                title: "Rust Programming Language".to_string(),
+                url: "https://www.rust-lang.org/".to_string(),
+                snippet: "A language empowering everyone to build reliable software.".to_string(),
+            }],
+        },
+    };
+    let provider = Arc::new(
+        RecordingFakeProvider::new("codex", FakeCodexScenario::NativeWebSearchContinuation)
+            .with_tool_capabilities(ProviderToolCapabilities {
+                native_tools: true,
+                parallel_tool_calls: true,
+                native_tool_results: true,
+                schema_dialect: ProviderToolSchemaDialect::OpenAiResponses,
+                fallback_mode: ProviderToolFallbackMode::NativeRequired,
+                ..ProviderToolCapabilities::default()
+            }),
+    );
+    let (handle, _store) =
+        test_runtime_handle_with_search_provider(provider.clone(), search_provider).await;
+    let conversation = handle.start_conversation(None).await.expect("conversation");
+
+    collect_turn(
+        &handle,
+        conversation.conversation_id.clone(),
+        "Search for Rust.".to_string(),
+    )
+    .await
+    .expect("turn");
+
+    let requests = provider.requests();
+    assert!(requests.iter().any(|request| {
+        let GenerateInput::NativeToolResults(results) = &request.input else {
+            return false;
+        };
+        results.iter().any(|result| {
+            result.name == "web.search"
+                && result.success
+                && result.payload["provider"] == "duckduckgo_public"
+                && result
+                    .payload
+                    .get("results")
+                    .and_then(serde_json::Value::as_array)
+                    .is_some_and(|results| !results.is_empty())
+        })
+    }));
+    handle.shutdown().await;
 }
 
 #[tokio::test]
@@ -4395,6 +4503,26 @@ async fn test_runtime_handle_with_store(
     (handle, store)
 }
 
+async fn test_runtime_handle_with_search_provider(
+    provider: Arc<dyn super::runtime::RuntimeModelProvider>,
+    search_provider: crate::search::types::SearchRuntimeProvider,
+) -> (CodexRuntimeHandle, crate::NoemaStore) {
+    let home = tempfile::tempdir().expect("temp noema home");
+    let paths = crate::NoemaPaths::from_noema_home(home.path()).expect("paths");
+    let store = crate::NoemaStore::open(&crate::StoreConfig::from_paths(&paths))
+        .await
+        .expect("store");
+    std::mem::forget(home);
+    let handle = CodexRuntimeHandle::spawn_with_provider_and_search_provider(
+        provider,
+        store.clone(),
+        search_provider,
+    )
+    .await
+    .expect("runtime");
+    (handle, store)
+}
+
 async fn append_test_text_item(store: &crate::NoemaStore, conversation_id: &str, text: &str) {
     append_test_text_item_with_kind(store, conversation_id, ConversationItemKind::UserText, text)
         .await;
@@ -4551,6 +4679,8 @@ enum FakeCodexScenario {
     InvalidSearchMemory,
     SearchMemoryContinuation,
     NativeSearchMemoryContinuation,
+    NativeWebSearch,
+    NativeWebSearchContinuation,
     ChainedSearchMemoryContinuation,
     SearchMemoryProfileContinuation,
     UpdateOwnNameContinuation,
@@ -4847,6 +4977,44 @@ impl FakeCodexProvider {
                     GenerateOutputItem::MemoryProposals { proposals: vec![] },
                 ],
                 _ => assistant_with_no_memories("fake answer"),
+            },
+            FakeCodexScenario::NativeWebSearch => {
+                if input.contains("NOEMA_LOCAL_TOOL_RESULT") {
+                    assistant_with_no_memories("web search result received")
+                } else {
+                    vec![
+                        web_search_tool_call(
+                            "call_web_1",
+                            json!({
+                                "query": "rust language",
+                                "reason": "answer the user's request",
+                                "max_results": 3
+                            }),
+                        ),
+                        GenerateOutputItem::MemoryProposals { proposals: vec![] },
+                    ]
+                }
+            }
+            FakeCodexScenario::NativeWebSearchContinuation => match &request.input {
+                GenerateInput::NativeToolResults(results)
+                    if results.iter().any(|result| result.name == "web.search") =>
+                {
+                    assistant_with_no_memories("I found a current web result.")
+                }
+                GenerateInput::NativeToolResults(_) => {
+                    assistant_with_no_memories("wrong web search tool result")
+                }
+                _ => vec![
+                    web_search_tool_call(
+                        "call_web_1",
+                        json!({
+                            "query": "rust language",
+                            "reason": "answer the current question",
+                            "max_results": 3
+                        }),
+                    ),
+                    GenerateOutputItem::MemoryProposals { proposals: vec![] },
+                ],
             },
             FakeCodexScenario::ChainedSearchMemoryContinuation => {
                 if input.contains("call_2") {
@@ -5613,6 +5781,16 @@ fn search_memory_tool_call(id: &str, payload: serde_json::Value) -> GenerateOutp
         provider_call_id: None,
         provider_name: None,
         name: "search_memory".to_string(),
+        payload,
+    }
+}
+
+fn web_search_tool_call(id: &str, payload: serde_json::Value) -> GenerateOutputItem {
+    GenerateOutputItem::ToolCall {
+        id: Some(id.to_string()),
+        provider_call_id: Some(id.to_string()),
+        provider_name: Some("web.search".to_string()),
+        name: "web.search".to_string(),
         payload,
     }
 }

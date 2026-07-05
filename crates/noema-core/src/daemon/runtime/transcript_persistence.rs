@@ -770,6 +770,27 @@ fn tool_call_display(name: &str, payload: &Value) -> Value {
                 |query| format!("Memory search: {query}"),
             )),
         );
+    } else if name == "web.search" {
+        insert_display_value(
+            &mut display,
+            "purpose",
+            arguments
+                .get("reason")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToString::to_string),
+        );
+        let query = arguments
+            .get("query")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        insert_display_value(
+            &mut display,
+            "target",
+            query.map(|query| format!("Web search: {query}")),
+        );
     } else if name == "update_own_name" {
         insert_display_value(
             &mut display,
@@ -803,6 +824,28 @@ fn tool_result_display(name: Option<&str>, success: Option<bool>, payload: &Valu
             &mut display,
             "result",
             Some(memory_search_result_label(payload)),
+        );
+    } else if name == "web.search" {
+        insert_display_value(
+            &mut display,
+            "result",
+            Some(web_search_result_label(success, payload)),
+        );
+        insert_display_value(
+            &mut display,
+            "provider",
+            payload
+                .get("provider")
+                .and_then(Value::as_str)
+                .map(web_search_provider_label),
+        );
+        insert_display_value(
+            &mut display,
+            "reliability",
+            payload
+                .get("provider_contract")
+                .and_then(Value::as_str)
+                .map(web_search_contract_label),
         );
     } else if name == "update_own_name" {
         let result = payload
@@ -839,6 +882,7 @@ fn readable_tool_name(name: &str) -> String {
     match name {
         "search_memory" => "Search memory".to_string(),
         "update_own_name" => "Update agent name".to_string(),
+        "web.search" => "Search web".to_string(),
         other => other
             .split('.')
             .next_back()
@@ -867,6 +911,7 @@ fn tool_access_label(name: &str) -> &'static str {
     match name {
         "search_memory" => "Reads memory",
         "update_own_name" => "Updates agent profile",
+        "web.search" => "Searches public web",
         _ => "Uses a connected tool",
     }
 }
@@ -929,6 +974,31 @@ fn memory_search_result_label(payload: &Value) -> String {
     result
 }
 
+fn web_search_result_label(success: Option<bool>, payload: &Value) -> String {
+    if let Some(error) = payload.get("error").and_then(Value::as_str) {
+        return format!("Failed: {error}");
+    }
+    payload
+        .get("summary")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .unwrap_or_else(|| success_result_label(success, payload))
+}
+
+fn web_search_provider_label(provider: &str) -> String {
+    match provider {
+        "duckduckgo_public" => "DuckDuckGo public search".to_string(),
+        other => other.replace('_', " "),
+    }
+}
+
+fn web_search_contract_label(contract: &str) -> String {
+    match contract {
+        "best_effort_public" => "Best effort".to_string(),
+        other => other.replace('_', " "),
+    }
+}
+
 fn success_result_label(success: Option<bool>, payload: &Value) -> String {
     if let Some(error) = payload.get("error").and_then(Value::as_str) {
         return format!("Failed: {error}");
@@ -953,4 +1023,45 @@ fn insert_display_value(display: &mut Value, key: &str, value: Option<String>) {
 
 pub(super) fn assistant_stream_id(turn_id: &str, segment: &str) -> String {
     format!("assistant_stream:{turn_id}:{segment}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn web_search_tool_call_display_shows_visible_query() {
+        let display = tool_call_display(
+            "web.search",
+            &json!({
+                "query": "rust language",
+                "reason": "answer current question",
+                "max_results": 3
+            }),
+        );
+
+        assert_eq!(display["name"], "Search web");
+        assert_eq!(display["access"], "Searches public web");
+        assert_eq!(display["target"], "Web search: rust language");
+        assert_eq!(display["purpose"], "answer current question");
+    }
+
+    #[test]
+    fn web_search_tool_result_display_shows_provider_and_count() {
+        let display = tool_result_display(
+            Some("web.search"),
+            Some(true),
+            &json!({
+                "provider": "duckduckgo_public",
+                "provider_contract": "best_effort_public",
+                "summary": "Found 2 web results",
+                "results": [{}, {}]
+            }),
+        );
+
+        assert_eq!(display["name"], "Search web");
+        assert_eq!(display["result"], "Found 2 web results");
+        assert_eq!(display["provider"], "DuckDuckGo public search");
+        assert_eq!(display["reliability"], "Best effort");
+    }
 }
