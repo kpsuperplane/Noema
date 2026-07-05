@@ -8,6 +8,7 @@ import {
   memoryCardsFromClaimOutcomes,
   memoryMarkerLabel,
   metadataCount,
+  toolMarkerExpandable,
   toolMarkerName,
   toolMarkerPending,
   toolMarkerTarget
@@ -33,9 +34,10 @@ type ToolMarkerCall = {
   key: string;
   name: string;
   status: ToolMarkerCallStatus;
+  expandable: boolean;
   target?: string;
   errorMessage?: string;
-  resultDetail: ReactNode;
+  resultDetail?: ReactNode;
 };
 
 const styles = stylex.create({
@@ -72,7 +74,10 @@ const styles = stylex.create({
     paddingInline: 0,
     textAlign: "left",
     transitionDuration: "120ms",
-    transitionProperty: "opacity",
+    transitionProperty: "opacity"
+  },
+  rowButton: {
+    cursor: "pointer",
     ":hover": {
       opacity: 0.72
     }
@@ -136,7 +141,8 @@ const styles = stylex.create({
     transform: "rotate(180deg)"
   },
   detail: {
-    minWidth: 0
+    minWidth: 0,
+    marginLeft: 22
   }
 });
 
@@ -155,30 +161,52 @@ export function ToolMarker({
   return (
     <div {...stylex.props(styles.root)}>
       <div {...stylex.props(styles.frame)} data-slot="tool-marker">
-        <button
-          type="button"
-          {...stylex.props(styles.row)}
-          aria-expanded={open}
-          data-slot="tool-marker-row"
-          onClick={onToggle}
-          title={call.status === "error" ? call.errorMessage : undefined}
-        >
-          <ToolStatusIcon status={call.status} />
-          <span {...stylex.props(styles.text, styles.name)} data-slot="tool-marker-name">
-            {call.name}
-          </span>
-          {call.target ? (
-            <span {...stylex.props(styles.text, styles.target)} data-slot="tool-marker-target">
-              {call.target}
-            </span>
-          ) : null}
-          <span {...stylex.props(styles.chevron, open && styles.chevronOpen)} aria-hidden="true">
-            <ChevronDownIcon size={14} strokeWidth={2} />
-          </span>
-        </button>
-        {open ? <div {...stylex.props(styles.detail)}>{call.resultDetail}</div> : null}
+        {call.expandable ? (
+          <button
+            type="button"
+            {...stylex.props(styles.row, styles.rowButton)}
+            aria-expanded={open}
+            data-slot="tool-marker-row"
+            onClick={onToggle}
+            title={call.status === "error" ? call.errorMessage : undefined}
+          >
+            <ToolMarkerRowContent call={call} open={open} />
+          </button>
+        ) : (
+          <div
+            {...stylex.props(styles.row)}
+            data-slot="tool-marker-row"
+            title={call.status === "error" ? call.errorMessage : undefined}
+          >
+            <ToolMarkerRowContent call={call} open={false} />
+          </div>
+        )}
+        {call.expandable && open && call.resultDetail ? (
+          <div {...stylex.props(styles.detail)}>{call.resultDetail}</div>
+        ) : null}
       </div>
     </div>
+  );
+}
+
+function ToolMarkerRowContent({ call, open }: { call: ToolMarkerCall; open: boolean }) {
+  return (
+    <>
+      <ToolStatusIcon status={call.status} />
+      <span {...stylex.props(styles.text, styles.name)} data-slot="tool-marker-name">
+        {call.name}
+      </span>
+      {call.target ? (
+        <span {...stylex.props(styles.text, styles.target)} data-slot="tool-marker-target">
+          {call.target}
+        </span>
+      ) : null}
+      {call.expandable ? (
+        <span {...stylex.props(styles.chevron, open && styles.chevronOpen)} aria-hidden="true">
+          <ChevronDownIcon size={14} strokeWidth={2} />
+        </span>
+      ) : null}
+    </>
   );
 }
 
@@ -221,14 +249,19 @@ function toolMarkerCalls(data: ToolMarkerData): ToolMarkerCall[] {
 
 function activityToolMarkerCall(marker: ToolMarkerGroup): ToolMarkerCall {
   const target = toolMarkerTarget(marker);
+  const expandable = toolMarkerExpandable(marker);
   const errorMessage =
     marker.result?.item.status === "FAILED" ? marker.result.item.summary ?? marker.result.item.title : undefined;
   const call: ToolMarkerCall = {
     key: marker.id,
     name: toolMarkerName(marker),
     status: toolMarkerStatus(marker),
-    resultDetail: <ToolDetailAttachment id={`${marker.id}-details`} marker={marker} />
+    expandable
   };
+
+  if (expandable) {
+    call.resultDetail = <ToolDetailAttachment id={`${marker.id}-details`} marker={marker} />;
+  }
 
   if (target) {
     call.target = target;
@@ -253,6 +286,7 @@ function memoryToolMarkerCall(marker: Extract<ToolMarkerData, { kind: "memory" }
     key: marker.id,
     name: label,
     status: memoryToolMarkerStatus(marker, failed),
+    expandable: true,
     resultDetail: (
       <MemoryDetailAttachment
         id={`${marker.id}-details`}

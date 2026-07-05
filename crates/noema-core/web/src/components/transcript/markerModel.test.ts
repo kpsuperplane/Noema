@@ -5,7 +5,9 @@ import {
   memoryCardsFromClaimOutcomes,
   memoryDetailItems,
   toolDetailRows,
-  toolMarkerName
+  toolMarkerExpandable,
+  toolMarkerName,
+  toolMarkerTarget
 } from "./markerModel";
 import type { TurnTranscriptItem } from "@/shared/types";
 import type { ToolMarkerGroup } from "./renderModel";
@@ -140,6 +142,63 @@ describe("toolDetailRows", () => {
     assert.doesNotMatch(rows.map((row) => row.value).join("\n"), /call_123/);
     assert.doesNotMatch(rows.map((row) => row.value).join("\n"), /Use an enabled connected tool/);
     assert.doesNotMatch(rows.map((row) => row.value).join("\n"), /Uses a connected tool/);
+  });
+
+  test("treats generic completed tool metadata as non-expandable", () => {
+    const marker: ToolMarkerGroup = {
+      id: "tool_call:1",
+      call: {
+        id: "call-entry",
+        type: "activity",
+        item: {
+          kind: "activity",
+          id: "activity:1",
+          activity_kind: "tool_call",
+          status: "COMPLETED",
+          title: "Tool call: mcp.dex.search_contacts",
+          summary: null,
+          metadata: {
+            action: {
+              name: "mcp.dex.search_contacts",
+              payload: {}
+            },
+            display: {
+              name: "Dex search contacts",
+              purpose: "Use an enabled connected tool",
+              access: "Uses a connected tool"
+            }
+          }
+        }
+      },
+      result: {
+        id: "result-entry",
+        type: "activity",
+        item: {
+          kind: "activity",
+          id: "activity:2",
+          activity_kind: "tool_result",
+          status: "COMPLETED",
+          title: "Tool result: mcp.dex.search_contacts",
+          summary: "Completed",
+          metadata: {
+            action: {
+              name: "mcp.dex.search_contacts",
+              success: true,
+              payload: {}
+            },
+            display: {
+              name: "Dex search contacts",
+              access: "Uses a connected tool",
+              result: "Completed"
+            }
+          }
+        }
+      }
+    };
+
+    assert.deepEqual(toolDetailRows(marker), []);
+    assert.equal(toolMarkerExpandable(marker), false);
+    assert.equal(toolMarkerTarget(marker), undefined);
   });
 });
 

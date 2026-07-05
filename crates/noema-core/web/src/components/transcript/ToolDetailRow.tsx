@@ -3,22 +3,23 @@ import * as stylex from "@stylexjs/stylex";
 const styles = stylex.create({
   root: {
     display: "grid",
-    gap: 2
+    gap: 1
   },
   label: {
     color: "var(--text-faint)",
     fontFamily: "var(--font-mono)",
-    fontSize: 10,
+    fontSize: 9,
     letterSpacing: "0.08em",
     textTransform: "uppercase"
   },
   value: {
-    maxHeight: 160,
+    maxHeight: 88,
     margin: 0,
     overflow: "auto",
     overflowWrap: "break-word",
     color: "var(--text-muted)",
-    fontSize: 13,
+    fontSize: 12,
+    lineHeight: 1.35,
     whiteSpace: "pre-wrap"
   }
 });

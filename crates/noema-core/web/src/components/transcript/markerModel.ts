@@ -209,6 +209,10 @@ export function toolDetailRows(marker: ToolMarkerGroup): ToolDetailRowData[] {
   return dedupeToolDetailRows(rows);
 }
 
+export function toolMarkerExpandable(marker: ToolMarkerGroup): boolean {
+  return toolDetailRows(marker).length > 0;
+}
+
 function safeToolMetadataPreview(metadata: unknown): string[] {
   if (!isRecord(metadata)) {
     return [];
@@ -258,9 +262,9 @@ function toolNameFromMetadata(metadata: unknown): string | null {
 
 export function toolMarkerTarget(marker: ToolMarkerGroup): string | undefined {
   return (
-    toolDisplayString(marker.result?.item.metadata, "result") ??
-    toolDisplayString(marker.result?.item.metadata, "target") ??
-    toolDisplayString(marker.call?.item.metadata, "target")
+    usefulToolDisplayString(marker.result?.item.metadata, "result") ??
+    usefulToolDisplayString(marker.result?.item.metadata, "target") ??
+    usefulToolDisplayString(marker.call?.item.metadata, "target")
   );
 }
 
@@ -412,6 +416,11 @@ function toolDisplayString(metadata: unknown, key: string): string | undefined {
     return undefined;
   }
   return stringValue(metadata.display[key]) ?? undefined;
+}
+
+function usefulToolDisplayString(metadata: unknown, key: string): string | undefined {
+  const value = toolDisplayString(metadata, key);
+  return value && !isLowInformationToolDetail(value) ? value : undefined;
 }
 
 function readableToolName(name: string): string {
