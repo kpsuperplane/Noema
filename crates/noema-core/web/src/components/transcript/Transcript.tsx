@@ -27,7 +27,7 @@ import { ToolDetailAttachment } from "./ToolDetailAttachment";
 import { ToolMarker } from "./ToolMarker";
 import { TranscriptBottomFollower, ARRIVAL_SCROLL_SETTLE_DURATION_MS } from "./TranscriptBottomFollower";
 import { TranscriptRow } from "./TranscriptRow";
-import { TranscriptScroller, TranscriptScrollerItem, TranscriptScrollerProvider } from "./TranscriptScroller";
+import { TranscriptScroller, TranscriptScrollerItem, TranscriptScrollerProvider, useTranscriptScroller } from "./TranscriptScroller";
 import { TypingMessage } from "./TypingMessage";
 import type { ConversationAgentStatus } from "@/shared/types";
 
@@ -142,7 +142,14 @@ export function Transcript({
               scrollAnchor={shouldAnchorRenderedEntry(entry)}
             >
               <RenderedTranscriptEntryFrame lane={lane}>
-                {renderTranscriptRenderEntry(entry, expandedActivities, onToggleActivity, showAvatar, animateText)}
+                {renderTranscriptRenderEntry(
+                  entry,
+                  expandedActivities,
+                  onToggleActivity,
+                  showAvatar,
+                  animateText,
+                  followBottomRef
+                )}
               </RenderedTranscriptEntryFrame>
             </TranscriptScrollerItem>
           );
@@ -168,7 +175,8 @@ function renderTranscriptRenderEntry(
   expandedActivities: Set<string>,
   onToggleActivity: (id: string) => void,
   showAvatar: boolean,
-  animateText: boolean
+  animateText: boolean,
+  followBottomRef: React.MutableRefObject<boolean>
 ) {
   if (entry.kind === "memory_marker") {
     return (
@@ -198,7 +206,11 @@ function renderTranscriptRenderEntry(
             renderDetail={false}
           />
         </TranscriptRow>
-        <AnimatedToolDetailRow open={open && toolMarkerExpandable(entry.marker)} marker={entry.marker} />
+        <AnimatedToolDetailRow
+          open={open && toolMarkerExpandable(entry.marker)}
+          marker={entry.marker}
+          followBottomRef={followBottomRef}
+        />
       </>
     );
   }
@@ -248,11 +260,14 @@ function renderTranscriptEntry(
 
 function AnimatedToolDetailRow({
   open,
-  marker
+  marker,
+  followBottomRef
 }: {
   open: boolean;
   marker: Extract<RenderTranscriptEntry, { kind: "tool_marker" }>["marker"];
+  followBottomRef: React.MutableRefObject<boolean>;
 }) {
+  const { scrollToEnd } = useTranscriptScroller();
   const [rendered, setRendered] = React.useState(open);
   const [phase, setPhase] = React.useState<"entering" | "current" | "exiting">(() => (open ? "entering" : "exiting"));
 
@@ -260,12 +275,12 @@ function AnimatedToolDetailRow({
     let animationFrame: number | null = null;
     let timeout: number | null = null;
 
-    if (open) {
+    if (open && (!rendered || phase === "exiting")) {
       animationFrame = window.requestAnimationFrame(() => {
         setRendered(true);
         setPhase("entering");
       });
-    } else if (rendered) {
+    } else if (!open && rendered) {
       animationFrame = window.requestAnimationFrame(() => {
         setPhase("exiting");
       });
@@ -282,7 +297,15 @@ function AnimatedToolDetailRow({
         window.clearTimeout(timeout);
       }
     };
-  }, [open, rendered]);
+  }, [open, phase, rendered]);
+
+  React.useLayoutEffect(() => {
+    if (!rendered || !open || !followBottomRef.current) {
+      return;
+    }
+
+    scrollToEnd({ behavior: "auto" });
+  }, [followBottomRef, open, rendered, scrollToEnd]);
 
   if (!rendered) {
     return null;
