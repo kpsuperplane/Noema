@@ -80,6 +80,10 @@ The next storage slice should stay small and concrete:
   rejects malformed/non-object arguments, provider-safe name collisions, mixed
   native plus legacy JSON tool calls, missing native `call_id`s, and
   `final_answer` text in tool-waiting responses.
+- Durable model context now includes typed tool call and tool result history
+  after the active context checkpoint. OpenAI/Codex adapters replay that history
+  as native Responses `function_call`/`function_call_output` input items, while
+  Foundation Local receives a conservative assistant-text replay fallback.
 - Derived search/vector indexes are rebuildable projections.
 - Graph or fuzzy retrieval can suggest candidates, but policy gates inclusion.
 - Pre-stable schema changes do not need migrations or backwards compatibility unless explicitly requested.
