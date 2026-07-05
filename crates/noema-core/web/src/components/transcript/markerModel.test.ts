@@ -6,6 +6,7 @@ import {
   memoryDetailItems,
   toolDetailRows,
   toolMarkerExpandable,
+  toolMarkerLabel,
   toolMarkerName,
   toolMarkerTarget
 } from "./markerModel";
@@ -43,6 +44,31 @@ describe("formatToolDetail", () => {
     assert.doesNotMatch(detail, /Call ID:/);
     assert.doesNotMatch(detail, /call_123/);
   });
+
+  test("shows web search display metadata with visible query details", () => {
+    const detail = formatToolDetail("Tool call: web.search", {
+      action: {
+        name: "web.search",
+        payload: {
+          query: "rust language",
+          reason: "answer current question"
+        }
+      },
+      display: {
+        name: "Search web",
+        access: "Searches public web",
+        target: "Web search: rust language",
+        provider: "DuckDuckGo public search",
+        reliability: "Best effort"
+      }
+    });
+
+    assert.match(detail, /Search web/);
+    assert.match(detail, /Access: Searches public web/);
+    assert.match(detail, /Target: Web search: rust language/);
+    assert.match(detail, /Provider: DuckDuckGo public search/);
+    assert.match(detail, /Reliability: Best effort/);
+  });
 });
 
 describe("toolMarkerName", () => {
@@ -68,6 +94,92 @@ describe("toolMarkerName", () => {
     };
 
     assert.equal(toolMarkerName(marker), "Search memory");
+  });
+
+  test("labels raw web search tool names for users", () => {
+    const marker: ToolMarkerGroup = {
+      id: "tool_call:web",
+      call: {
+        id: "entry:web",
+        type: "activity",
+        item: {
+          kind: "activity",
+          id: "activity:web",
+          activity_kind: "tool_call",
+          status: "COMPLETED",
+          title: "Tool call: web.search",
+          summary: "Web search: rust language",
+          metadata: {
+            action: { name: "web.search" }
+          }
+        }
+      }
+    };
+
+    assert.equal(toolMarkerName(marker), "Search web");
+  });
+});
+
+describe("toolMarkerLabel", () => {
+  test("web search marker target prefers result summary", () => {
+    const marker: ToolMarkerGroup = {
+      id: "tool_call:web",
+      call: {
+        id: "call-entry",
+        type: "activity",
+        item: {
+          kind: "activity",
+          id: "activity:web-call",
+          activity_kind: "tool_call",
+          status: "COMPLETED",
+          title: "Tool call: web.search",
+          summary: "Web search: rust language",
+          metadata: {
+            action: {
+              name: "web.search",
+              payload: { query: "rust language" }
+            },
+            display: {
+              name: "Search web",
+              target: "Web search: rust language"
+            }
+          }
+        }
+      },
+      result: {
+        id: "result-entry",
+        type: "activity",
+        item: {
+          kind: "activity",
+          id: "activity:web-result",
+          activity_kind: "tool_result",
+          status: "COMPLETED",
+          title: "Tool result: web.search",
+          summary: "Found 1 web result",
+          metadata: {
+            action: {
+              name: "web.search",
+              success: true,
+              payload: {
+                provider: "duckduckgo_public",
+                provider_contract: "best_effort_public",
+                summary: "Found 1 web result",
+                results: [{ rank: 1, title: "Rust", url: "https://www.rust-lang.org/", snippet: "Rust language." }]
+              }
+            },
+            display: {
+              name: "Search web",
+              result: "Found 1 web result",
+              provider: "DuckDuckGo public search",
+              reliability: "Best effort"
+            }
+          }
+        }
+      }
+    };
+
+    assert.equal(toolMarkerLabel(marker), "Used Search web");
+    assert.equal(toolMarkerTarget(marker), "Found 1 web result");
   });
 });
 

@@ -277,8 +277,11 @@ function displayToolMetadataPreview(display: Record<string, unknown> | null): st
   }
   appendDisplayRow(rows, "Purpose", stringValue(display.purpose));
   appendDisplayRow(rows, "Access", stringValue(display.access));
+  appendDisplayRow(rows, "Target", stringValue(display.target));
   appendDisplayRow(rows, "Scope", stringValue(display.scope));
   appendDisplayRow(rows, "Approval", stringValue(display.approval));
+  appendDisplayRow(rows, "Provider", stringValue(display.provider));
+  appendDisplayRow(rows, "Reliability", stringValue(display.reliability));
   appendDisplayRow(rows, "Result", stringValue(display.result));
   return rows;
 }
@@ -465,6 +468,9 @@ function readableToolName(name: string): string {
   const trimmed = name.trim();
   if (trimmed === "search_memory") {
     return "Search memory";
+  }
+  if (trimmed === "web.search") {
+    return "Search web";
   }
   if (trimmed === "update_own_name") {
     return "Update agent name";
