@@ -1685,7 +1685,70 @@ bun run build
 
 Expected: all pass. No browser inspection is required because this is not a frontend UI layout change.
 
-- [ ] **Step 6: Run ship checklist before final commit**
+- [ ] **Step 6: Verify against the running agent on port 3737**
+
+Run this against the already-running Noema web daemon:
+
+```bash
+CONVERSATION_ID="$(
+  curl -sS \
+    -H 'content-type: application/json' \
+    -H 'origin: http://127.0.0.1:3737' \
+    --data '{"query":"mutation { ensurePrimaryConversation { conversationId provider } }"}' \
+    http://127.0.0.1:3737/graphql \
+  | jq -r '.data.ensurePrimaryConversation.conversationId'
+)"
+
+CLIENT_MESSAGE_ID="web-search-e2e-$(date +%s)"
+
+curl -sS \
+  -H 'content-type: application/json' \
+  -H 'origin: http://127.0.0.1:3737' \
+  --data "$(jq -nc --arg conversationId "$CONVERSATION_ID" --arg clientMessageId "$CLIENT_MESSAGE_ID" '{
+    query: "mutation SendConversationTurn($input: SendConversationTurnInput!) { sendConversationTurn(input: $input) { conversationId clientMessageId } }",
+    variables: {
+      input: {
+        conversationId: $conversationId,
+        input: "Use web.search to search the web for the official Rust programming language website and summarize the top result.",
+        clientMessageId: $clientMessageId
+      }
+    }
+  }')" \
+  http://127.0.0.1:3737/graphql
+
+for _ in $(seq 1 60); do
+  TRANSCRIPT="$(
+    curl -sS \
+      -H 'content-type: application/json' \
+      -H 'origin: http://127.0.0.1:3737' \
+      --data "$(jq -nc --arg conversationId "$CONVERSATION_ID" '{
+        query: "query Transcript($input: ConversationTranscriptPageInput!) { conversationTranscriptPage(input: $input) { items { item { __typename ... on ActivityTranscriptItem { activityKind status title metadata } ... on AssistantTextTranscriptItem { text } } } } }",
+        variables: { input: { conversationId: $conversationId, limit: 80 } }
+      }')" \
+      http://127.0.0.1:3737/graphql
+  )"
+  echo "$TRANSCRIPT" | jq -e '
+    any(.data.conversationTranscriptPage.items[].item; .title? == "Tool call: web.search")
+    and any(.data.conversationTranscriptPage.items[].item; .title? == "Tool result: web.search")
+    and any(.data.conversationTranscriptPage.items[].item; .metadata?.display?.target? | startswith("Web search:"))
+  ' >/dev/null && break
+  sleep 2
+done
+
+echo "$TRANSCRIPT" | jq -e '
+  any(.data.conversationTranscriptPage.items[].item; .title? == "Tool call: web.search")
+  and any(.data.conversationTranscriptPage.items[].item; .title? == "Tool result: web.search")
+  and any(.data.conversationTranscriptPage.items[].item; .metadata?.display?.target? | startswith("Web search:"))
+'
+```
+
+Expected: final `jq` exits 0. Add this exact note to the implementation summary:
+
+```text
+verified web.search working end2end by calling the running agent at :3737
+```
+
+- [ ] **Step 7: Run ship checklist before final commit**
 
 Run:
 
@@ -1698,7 +1761,7 @@ git diff --cached --name-status
 
 Expected: no whitespace errors. Staged files should be limited to web-search implementation files, generated frontend GraphQL types only if changed by `bun run gen:types`, and `docs/context/current.md`.
 
-- [ ] **Step 7: Commit Task 5**
+- [ ] **Step 8: Commit Task 5**
 
 Run:
 
@@ -1720,4 +1783,5 @@ git commit -m "feat(search): add rust duckduckgo web search"
 - Tool result marker shows provider, reliability, and result count/summary.
 - Search results are normalized metadata only: rank, title, URL, snippet.
 - Failed searches persist as failed tool results and can be explained by the provider.
+- The final implementation summary includes: `verified web.search working end2end by calling the running agent at :3737`.
 - Rust and frontend validation commands pass.
