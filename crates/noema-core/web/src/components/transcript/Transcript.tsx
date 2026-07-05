@@ -31,6 +31,8 @@ import { TranscriptScroller, TranscriptScrollerItem, TranscriptScrollerProvider 
 import { TypingMessage } from "./TypingMessage";
 import type { ConversationAgentStatus } from "@/shared/types";
 
+const TOOL_DETAIL_EXIT_DURATION_MS = 160;
+
 export function Transcript({
   entries,
   loadingOlderTranscript,
@@ -196,11 +198,7 @@ function renderTranscriptRenderEntry(
             renderDetail={false}
           />
         </TranscriptRow>
-        {open && toolMarkerExpandable(entry.marker) ? (
-          <TranscriptRow lane="assistant" showAvatar={false}>
-            <ToolDetailAttachment id={`${entry.marker.id}-details`} marker={entry.marker} />
-          </TranscriptRow>
-        ) : null}
+        <AnimatedToolDetailRow open={open && toolMarkerExpandable(entry.marker)} marker={entry.marker} />
       </>
     );
   }
@@ -246,4 +244,67 @@ function renderTranscriptEntry(
     );
   }
   return <ErrorNotice message={entry.message} recoverable={entry.recoverable} />;
+}
+
+function AnimatedToolDetailRow({
+  open,
+  marker
+}: {
+  open: boolean;
+  marker: Extract<RenderTranscriptEntry, { kind: "tool_marker" }>["marker"];
+}) {
+  const [rendered, setRendered] = React.useState(open);
+  const [phase, setPhase] = React.useState<"entering" | "current" | "exiting">(() => (open ? "entering" : "exiting"));
+
+  React.useEffect(() => {
+    let animationFrame: number | null = null;
+    let timeout: number | null = null;
+
+    if (open) {
+      animationFrame = window.requestAnimationFrame(() => {
+        setRendered(true);
+        setPhase("entering");
+      });
+    } else if (rendered) {
+      animationFrame = window.requestAnimationFrame(() => {
+        setPhase("exiting");
+      });
+      timeout = window.setTimeout(() => {
+        setRendered(false);
+      }, TOOL_DETAIL_EXIT_DURATION_MS);
+    }
+
+    return () => {
+      if (animationFrame !== null) {
+        window.cancelAnimationFrame(animationFrame);
+      }
+      if (timeout !== null) {
+        window.clearTimeout(timeout);
+      }
+    };
+  }, [open, rendered]);
+
+  if (!rendered) {
+    return null;
+  }
+
+  return (
+    <div
+      data-slot="tool-detail-row-motion"
+      data-state={phase}
+      onAnimationEnd={() => {
+        if (phase === "entering") {
+          setPhase("current");
+        } else if (phase === "exiting") {
+          setRendered(false);
+        }
+      }}
+    >
+      <div data-slot="tool-detail-row-motion-inner">
+        <TranscriptRow lane="assistant" showAvatar={false}>
+          <ToolDetailAttachment id={`${marker.id}-details`} marker={marker} />
+        </TranscriptRow>
+      </div>
+    </div>
+  );
 }

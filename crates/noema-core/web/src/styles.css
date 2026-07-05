@@ -102,6 +102,26 @@ html[data-tauri-runtime="true"] #root {
   will-change: opacity;
 }
 
+[data-slot="tool-detail-row-motion"] {
+  display: grid;
+  grid-template-rows: 1fr;
+  overflow: hidden;
+  transform-origin: top left;
+}
+
+[data-slot="tool-detail-row-motion-inner"] {
+  min-height: 0;
+  overflow: hidden;
+}
+
+[data-slot="tool-detail-row-motion"][data-state="entering"] {
+  animation: tool-detail-row-enter 180ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+
+[data-slot="tool-detail-row-motion"][data-state="exiting"] {
+  animation: tool-detail-row-exit 160ms cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
 [data-slot="marker"][data-pending] {
   --marker-glimmer-base: var(--text-muted);
   --marker-glimmer-flare: color-mix(in srgb, var(--pure-white) 76%, var(--marker-glimmer-base) 24%);
@@ -235,6 +255,34 @@ html[data-tauri-runtime="true"] #root {
   }
 }
 
+@keyframes tool-detail-row-enter {
+  from {
+    grid-template-rows: 0fr;
+    opacity: 0;
+    transform: translateY(-4px) scale(0.99);
+  }
+
+  to {
+    grid-template-rows: 1fr;
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes tool-detail-row-exit {
+  from {
+    grid-template-rows: 1fr;
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+
+  to {
+    grid-template-rows: 0fr;
+    opacity: 0;
+    transform: translateY(-4px) scale(0.99);
+  }
+}
+
 @keyframes marker-text-glimmer {
   from {
     background-position: 130% 0;
@@ -258,6 +306,11 @@ html[data-tauri-runtime="true"] #root {
 
   [data-slot="message-scroller-item"][data-arrival="true"] [data-slot="message-arrival-inner"] > * {
     animation: none;
+  }
+
+  [data-slot="tool-detail-row-motion"][data-state="entering"],
+  [data-slot="tool-detail-row-motion"][data-state="exiting"] {
+    animation-duration: 1ms;
   }
 
   [data-slot="marker"][data-pending] [data-slot="marker-content"] {
