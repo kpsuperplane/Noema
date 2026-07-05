@@ -11,7 +11,7 @@ use crate::{
 use super::{
     context_window::{ContextBudget, estimate_text_tokens},
     handle::RuntimeModelProvider,
-    prompt_context::PlannedPromptContext,
+    prompt_context::{PlannedPromptContext, input_item_from_transcript_item},
 };
 
 const BACKGROUND_COMPACTION_THRESHOLD_NUMERATOR: u32 = 7;
@@ -372,17 +372,23 @@ fn render_compaction_transcript(items: &[ConversationItemRecord]) -> String {
     items
         .iter()
         .filter_map(|item| {
-            let text = item.content_text.as_deref()?;
-            let role = match item.kind {
-                crate::ConversationItemKind::UserText => "User",
-                crate::ConversationItemKind::AssistantText => "Noema",
-                crate::ConversationItemKind::Activity
-                | crate::ConversationItemKind::ToolCall
-                | crate::ConversationItemKind::ToolResult
-                | crate::ConversationItemKind::ApprovalRequest
-                | crate::ConversationItemKind::ApprovalResult
-                | crate::ConversationItemKind::A2uiCard
-                | crate::ConversationItemKind::ErrorNotice => return None,
+            let input_item = input_item_from_transcript_item(item)?;
+            let (role, text) = match input_item {
+                crate::provider::GenerateInputItem::Message(message) => {
+                    let role = match message.role {
+                        crate::GenerateMessageRole::User => "User",
+                        crate::GenerateMessageRole::Assistant => "Noema",
+                    };
+                    (role, message.content)
+                }
+                crate::provider::GenerateInputItem::ToolCall(call) => (
+                    "Noema tool call",
+                    crate::provider::GenerateInputItem::ToolCall(call).render_for_token_count(),
+                ),
+                crate::provider::GenerateInputItem::ToolResult(result) => (
+                    "Noema tool result",
+                    crate::provider::GenerateInputItem::ToolResult(result).render_for_token_count(),
+                ),
             };
             Some(format!("[{}] {role}: {text}", item.sequence_index))
         })
@@ -602,6 +608,61 @@ mod tests {
         ]);
 
         assert_eq!(transcript, "[1] User: hello\n[2] Noema: hi");
+    }
+
+    #[test]
+    fn compaction_transcript_includes_tool_call_and_result_history() {
+        let transcript = render_compaction_transcript(&[
+            ConversationItemRecord {
+                item_id: "item:1".to_string(),
+                conversation_id: "conversation:1".to_string(),
+                turn_id: None,
+                sequence_index: 1,
+                cursor: "conversation_item:1".to_string(),
+                kind: ConversationItemKind::ToolCall,
+                status: ConversationItemStatus::Completed,
+                content_text: Some("Tool call: update_own_name".to_string()),
+                payload_json: serde_json::json!({
+                    "metadata": {
+                        "action": {
+                            "id": "call_name_1",
+                            "provider_call_id": null,
+                            "provider_name": null,
+                            "name": "update_own_name",
+                            "payload": {"name": "Momo"}
+                        }
+                    }
+                }),
+            },
+            ConversationItemRecord {
+                item_id: "item:2".to_string(),
+                conversation_id: "conversation:1".to_string(),
+                turn_id: None,
+                sequence_index: 2,
+                cursor: "conversation_item:2".to_string(),
+                kind: ConversationItemKind::ToolResult,
+                status: ConversationItemStatus::Completed,
+                content_text: Some("Tool result: update_own_name".to_string()),
+                payload_json: serde_json::json!({
+                    "metadata": {
+                        "action": {
+                            "call_id": "call_name_1",
+                            "provider_call_id": null,
+                            "provider_name": null,
+                            "name": "update_own_name",
+                            "success": true,
+                            "payload": {"display_name": "Momo"}
+                        }
+                    }
+                }),
+            },
+        ]);
+
+        assert!(transcript.contains("Noema tool call"));
+        assert!(transcript.contains("\"type\":\"function_call\""));
+        assert!(transcript.contains("Noema tool result"));
+        assert!(transcript.contains("\"type\":\"function_call_output\""));
+        assert!(transcript.contains("Momo"));
     }
 
     #[test]

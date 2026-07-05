@@ -131,6 +131,8 @@ pub enum GenerateInput {
     Text(String),
     /// Role-tagged conversation messages.
     Messages(Vec<GenerateMessage>),
+    /// Ordered provider-neutral input items.
+    Items(Vec<GenerateInputItem>),
     /// Provider-native tool result items for same-turn continuations.
     NativeToolResults(Vec<GenerateToolResultInput>),
 }
@@ -144,6 +146,7 @@ impl GenerateInput {
             Self::Messages(messages) => messages
                 .iter()
                 .all(|message| message.content.trim().is_empty()),
+            Self::Items(items) => items.iter().all(GenerateInputItem::is_empty),
             Self::NativeToolResults(results) => results.is_empty(),
         }
     }
@@ -160,11 +163,86 @@ impl GenerateInput {
                 .map(|message| format!("{}: {}", message.role.as_str(), message.content))
                 .collect::<Vec<_>>()
                 .join("\n"),
+            Self::Items(items) => items
+                .iter()
+                .filter(|item| !item.is_empty())
+                .map(GenerateInputItem::render_for_token_count)
+                .collect::<Vec<_>>()
+                .join("\n"),
             Self::NativeToolResults(results) => {
                 serde_json::to_string(results).unwrap_or_else(|_| "[]".to_string())
             }
         }
     }
+}
+
+/// One provider-neutral input item in durable model-visible history.
+#[derive(Debug, Clone, PartialEq)]
+pub enum GenerateInputItem {
+    /// Role-tagged text message.
+    Message(GenerateMessage),
+    /// Historical provider/model tool call.
+    ToolCall(GenerateToolCallInput),
+    /// Historical local tool result.
+    ToolResult(GenerateToolResultInput),
+}
+
+impl GenerateInputItem {
+    /// Return whether this item has no model-visible content.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        match self {
+            Self::Message(message) => message.content.trim().is_empty(),
+            Self::ToolCall(call) => call.call_id.trim().is_empty() || call.name.trim().is_empty(),
+            Self::ToolResult(result) => {
+                result.call_id.trim().is_empty() || result.name.trim().is_empty()
+            }
+        }
+    }
+
+    /// Render this item for providers or token counters that need text.
+    #[must_use]
+    pub fn render_for_token_count(&self) -> String {
+        match self {
+            Self::Message(message) => format!("{}: {}", message.role.as_str(), message.content),
+            Self::ToolCall(call) => serde_json::json!({
+                "type": "function_call",
+                "id": call.id,
+                "call_id": call.call_id,
+                "name": call.provider_name.as_ref().unwrap_or(&call.name),
+                "canonical_name": call.name,
+                "arguments": call.arguments,
+            })
+            .to_string(),
+            Self::ToolResult(result) => serde_json::json!({
+                "type": "function_call_output",
+                "call_id": result.call_id,
+                "name": result.name,
+                "provider_name": result.provider_name,
+                "success": result.success,
+                "payload": result.payload,
+            })
+            .to_string(),
+        }
+    }
+}
+
+/// Provider-neutral native tool-call input for durable history replay.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GenerateToolCallInput {
+    /// Provider item id for the original function-call item, when available.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// Provider-native tool call id used by the provider to correlate results.
+    pub call_id: String,
+    /// Canonical Noema tool or operation name.
+    pub name: String,
+    /// Provider-visible tool or operation name, when different from canonical.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_name: Option<String>,
+    /// Original provider tool arguments.
+    #[serde(default)]
+    pub arguments: Value,
 }
 
 /// Provider-neutral native tool result input for same-turn continuation.

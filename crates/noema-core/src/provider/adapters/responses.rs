@@ -4,8 +4,9 @@ use super::sse::SseAccumulator;
 use crate::{
     SYSTEM_ERROR_PROVIDER_MALFORMED_RESPONSE, SystemErrorEvent, SystemErrorLogger,
     provider::{
-        GenerateInput, GenerateMessageRole, GenerateStreamEvent, GenerateToolResultInput,
-        PromptCacheRetention, ProviderError, TokenUsage,
+        GenerateInput, GenerateInputItem, GenerateMessageRole, GenerateStreamEvent,
+        GenerateToolCallInput, GenerateToolResultInput, PromptCacheRetention, ProviderError,
+        TokenUsage,
     },
 };
 use futures_util::StreamExt;
@@ -264,6 +265,13 @@ impl From<&GenerateInput> for ResponsesInput {
                     })
                     .collect(),
             ),
+            GenerateInput::Items(items) => Self::Items(
+                items
+                    .iter()
+                    .filter(|item| !item.is_empty())
+                    .map(ResponsesInputItem::from)
+                    .collect(),
+            ),
             GenerateInput::NativeToolResults(results) => {
                 let mut items = Vec::with_capacity(results.len().saturating_mul(2));
                 for result in results {
@@ -295,6 +303,26 @@ pub enum ResponsesInputItem {
 impl From<&GenerateToolResultInput> for ResponsesInputItem {
     fn from(value: &GenerateToolResultInput) -> Self {
         Self::FunctionCallOutput(ResponsesFunctionCallOutput::from(value))
+    }
+}
+
+impl From<&GenerateInputItem> for ResponsesInputItem {
+    fn from(value: &GenerateInputItem) -> Self {
+        match value {
+            GenerateInputItem::Message(message) => Self::Message(ResponsesInputMessage {
+                role: match message.role {
+                    GenerateMessageRole::User => "user",
+                    GenerateMessageRole::Assistant => "assistant",
+                },
+                content: message.content.clone(),
+            }),
+            GenerateInputItem::ToolCall(call) => {
+                Self::FunctionCall(ResponsesFunctionCall::from(call))
+            }
+            GenerateInputItem::ToolResult(result) => {
+                Self::FunctionCallOutput(ResponsesFunctionCallOutput::from(result))
+            }
+        }
     }
 }
 
@@ -330,6 +358,21 @@ impl From<&GenerateToolResultInput> for ResponsesFunctionCall {
                 .clone()
                 .unwrap_or_else(|| result.name.clone()),
             arguments: result.arguments.to_string(),
+        }
+    }
+}
+
+impl From<&GenerateToolCallInput> for ResponsesFunctionCall {
+    fn from(call: &GenerateToolCallInput) -> Self {
+        Self {
+            kind: "function_call",
+            id: call.id.clone(),
+            call_id: call.call_id.clone(),
+            name: call
+                .provider_name
+                .clone()
+                .unwrap_or_else(|| call.name.clone()),
+            arguments: call.arguments.to_string(),
         }
     }
 }
@@ -1085,6 +1128,48 @@ mod tests {
         assert_eq!(output["provider_name"], "mcp_x2e_docs_x3a_read");
         assert_eq!(output["success"], true);
         assert_eq!(output["payload"]["title"], "Docs");
+    }
+
+    #[test]
+    fn responses_input_serializes_typed_history_items() {
+        let input = GenerateInput::Items(vec![
+            crate::provider::GenerateInputItem::Message(crate::GenerateMessage {
+                role: crate::GenerateMessageRole::User,
+                content: "Rename yourself to Momo".to_string(),
+            }),
+            crate::provider::GenerateInputItem::ToolCall(crate::provider::GenerateToolCallInput {
+                id: Some("item_1".to_string()),
+                call_id: "call_1".to_string(),
+                name: "update_own_name".to_string(),
+                provider_name: None,
+                arguments: serde_json::json!({"name": "Momo"}),
+            }),
+            crate::provider::GenerateInputItem::ToolResult(
+                crate::provider::GenerateToolResultInput {
+                    id: Some("item_1".to_string()),
+                    call_id: "call_1".to_string(),
+                    name: "update_own_name".to_string(),
+                    provider_name: None,
+                    arguments: serde_json::Value::Null,
+                    success: true,
+                    payload: serde_json::json!({"display_name": "Momo"}),
+                },
+            ),
+        ]);
+
+        let value = serde_json::to_value(ResponsesInput::from(&input)).expect("serialize");
+
+        assert_eq!(value[0]["role"], "user");
+        assert_eq!(value[1]["type"], "function_call");
+        assert_eq!(value[1]["call_id"], "call_1");
+        assert_eq!(value[1]["name"], "update_own_name");
+        assert_eq!(value[2]["type"], "function_call_output");
+        assert_eq!(value[2]["call_id"], "call_1");
+        let output: Value =
+            serde_json::from_str(value[2]["output"].as_str().expect("output string"))
+                .expect("output json");
+        assert_eq!(output["name"], "update_own_name");
+        assert_eq!(output["payload"]["display_name"], "Momo");
     }
 
     #[test]

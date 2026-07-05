@@ -3755,6 +3755,49 @@ async fn update_own_name_tool_does_not_start_repeated_continuation_tool_calls() 
 }
 
 #[tokio::test]
+async fn update_own_name_tool_history_is_visible_before_later_turns() {
+    let (handle, store) =
+        test_runtime_handle_with_store(fake_provider(FakeCodexScenario::UpdateOwnNameThenYay))
+            .await;
+
+    let conversation_id = handle
+        .start_conversation(None)
+        .await
+        .expect("conversation")
+        .conversation_id;
+    collect_turn(
+        &handle,
+        conversation_id.clone(),
+        "Let's rename you to Momo".to_string(),
+    )
+    .await
+    .expect("rename turn");
+    let items = collect_turn(&handle, conversation_id, "Yay".to_string())
+        .await
+        .expect("yay turn");
+    handle.shutdown().await;
+
+    let agent = store
+        .get_agent("agent:primary")
+        .await
+        .expect("agent")
+        .expect("agent exists");
+    assert_eq!(agent.display_name.as_deref(), Some("Momo"));
+    assert!(!items.iter().any(|item| matches!(
+        item,
+        TurnTranscriptItem::Activity {
+            activity_kind,
+            title,
+            ..
+        } if activity_kind == "tool_call" && title == "Tool call: update_own_name"
+    )));
+    assert!(items.iter().any(|item| matches!(
+        item,
+        TurnTranscriptItem::AssistantText { text } if text == "yay acknowledged after saved name"
+    )));
+}
+
+#[tokio::test]
 async fn ambiguous_name_suggestion_asks_confirmation_without_tool_call() {
     let (handle, store) =
         test_runtime_handle_with_store(fake_provider(FakeCodexScenario::AmbiguousUpdateOwnName))
@@ -4511,6 +4554,7 @@ enum FakeCodexScenario {
     ChainedSearchMemoryContinuation,
     SearchMemoryProfileContinuation,
     UpdateOwnNameContinuation,
+    UpdateOwnNameThenYay,
     RepeatedUpdateOwnNameContinuation,
     AmbiguousUpdateOwnName,
     UpdateOwnNameThenIdentityCheck,
@@ -4894,6 +4938,28 @@ impl FakeCodexProvider {
                     ]
                 }
             }
+            FakeCodexScenario::UpdateOwnNameThenYay => {
+                if input.contains("Let's rename you to Momo") {
+                    vec![
+                        update_own_name_tool_call("call_name_1", json!({"name": "Momo"})),
+                        GenerateOutputItem::MemoryProposals { proposals: vec![] },
+                    ]
+                } else if input == "Yay" {
+                    if rendered_input.contains("function_call_output")
+                        && rendered_input.contains("update_own_name")
+                        && rendered_input.contains("Momo")
+                    {
+                        assistant_with_no_memories("yay acknowledged after saved name")
+                    } else {
+                        vec![
+                            update_own_name_tool_call("call_name_2", json!({"name": "Momo"})),
+                            GenerateOutputItem::MemoryProposals { proposals: vec![] },
+                        ]
+                    }
+                } else {
+                    assistant_with_no_memories("fake answer")
+                }
+            }
             FakeCodexScenario::RepeatedUpdateOwnNameContinuation => {
                 if input.contains("NOEMA_LOCAL_TOOL_RESULT") {
                     vec![
@@ -5249,6 +5315,20 @@ fn current_user_input(input: &GenerateInput) -> String {
                 || input.render_for_token_count(),
                 |message| message.content.clone(),
             ),
+        GenerateInput::Items(items) => items
+            .iter()
+            .rev()
+            .find_map(|item| match item {
+                crate::provider::GenerateInputItem::Message(message)
+                    if message.role == crate::provider::GenerateMessageRole::User =>
+                {
+                    Some(message.content.clone())
+                }
+                crate::provider::GenerateInputItem::Message(_)
+                | crate::provider::GenerateInputItem::ToolCall(_)
+                | crate::provider::GenerateInputItem::ToolResult(_) => None,
+            })
+            .unwrap_or_else(|| input.render_for_token_count()),
         GenerateInput::NativeToolResults(_) => input.render_for_token_count(),
     }
 }

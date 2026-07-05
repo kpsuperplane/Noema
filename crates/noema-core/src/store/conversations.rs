@@ -446,7 +446,8 @@ impl NoemaStore {
         rows.into_iter().map(conversation_item_from_row).collect()
     }
 
-    /// Return all text transcript items after a compacted context checkpoint.
+    /// Return all transcript items after a compacted context checkpoint that
+    /// can contribute to model context.
     ///
     /// # Errors
     ///
@@ -467,7 +468,7 @@ impl NoemaStore {
                 WHERE conversation_id = $conversation_id
                   AND deleted_at = NONE
                   AND sequence_index > $after_sequence_index
-                  AND kind IN ['user_text', 'assistant_text']
+                  AND kind IN ['user_text', 'assistant_text', 'tool_call', 'tool_result']
                 ORDER BY sequence_index ASC;
                 "#,
             )

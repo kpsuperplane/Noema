@@ -10,7 +10,7 @@ use std::{
 use crate::{
     FoundationLocalProviderConfig,
     provider::{
-        GenerateInput, GenerateMessageRole, GenerateRequest, GenerateResponse,
+        GenerateInput, GenerateInputItem, GenerateMessageRole, GenerateRequest, GenerateResponse,
         GenerateResponseStatus, GenerateStreamEvent, ModelProvider, ParsedNoemaResponse,
         ProviderContextMetadata, ProviderError, ProviderToolCapabilities, ProviderToolFallbackMode,
         output_items_from_text, required_noema_response_from_text,
@@ -373,11 +373,54 @@ fn foundation_prompt_parts(input: &GenerateInput) -> FoundationPrompt {
                 generate_input: messages[last_user_index].content.clone(),
             }
         }
+        GenerateInput::Items(items) => {
+            let last_user_index = items.iter().rposition(|item| {
+                matches!(
+                    item,
+                    GenerateInputItem::Message(message)
+                        if message.role == GenerateMessageRole::User
+                )
+            });
+            let Some(last_user_index) = last_user_index else {
+                return FoundationPrompt {
+                    replay_turns: bridge_replay_input_items(items),
+                    generate_input: String::new(),
+                };
+            };
+            let generate_input = match &items[last_user_index] {
+                GenerateInputItem::Message(message) => message.content.clone(),
+                GenerateInputItem::ToolCall(_) | GenerateInputItem::ToolResult(_) => String::new(),
+            };
+            FoundationPrompt {
+                replay_turns: bridge_replay_input_items(&items[..last_user_index]),
+                generate_input,
+            }
+        }
         GenerateInput::NativeToolResults(_) => FoundationPrompt {
             replay_turns: Vec::new(),
             generate_input: input.render_for_token_count(),
         },
     }
+}
+
+fn bridge_replay_input_items(items: &[GenerateInputItem]) -> Vec<BridgeReplayTurn> {
+    items
+        .iter()
+        .filter(|item| !item.is_empty())
+        .map(|item| match item {
+            GenerateInputItem::Message(message) => BridgeReplayTurn {
+                role: match message.role {
+                    GenerateMessageRole::User => BridgeRole::User,
+                    GenerateMessageRole::Assistant => BridgeRole::Assistant,
+                },
+                text: message.content.clone(),
+            },
+            GenerateInputItem::ToolCall(_) | GenerateInputItem::ToolResult(_) => BridgeReplayTurn {
+                role: BridgeRole::Assistant,
+                text: item.render_for_token_count(),
+            },
+        })
+        .collect()
 }
 
 fn bridge_replay_turns(messages: &[crate::GenerateMessage]) -> Vec<BridgeReplayTurn> {

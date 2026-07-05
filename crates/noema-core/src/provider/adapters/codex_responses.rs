@@ -20,11 +20,12 @@ use super::{
 use crate::{
     SYSTEM_ERROR_PROVIDER_MALFORMED_RESPONSE, SystemErrorEvent, SystemErrorLogger,
     provider::{
-        DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateInput, GenerateMessageRole, GenerateOptions,
-        GenerateRequest, GenerateResponse, GenerateResponseStatus, GenerateStreamEvent,
-        GenerateToolResultInput, ModelProvider, ParsedNoemaResponse, ProviderError,
-        ProviderToolCapabilities, ProviderToolFallbackMode, ProviderToolSchemaDialect,
-        output_items_from_text, required_noema_response_from_text_with_native_tool_calls,
+        DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateInput, GenerateInputItem, GenerateMessageRole,
+        GenerateOptions, GenerateRequest, GenerateResponse, GenerateResponseStatus,
+        GenerateStreamEvent, GenerateToolCallInput, GenerateToolResultInput, ModelProvider,
+        ParsedNoemaResponse, ProviderError, ProviderToolCapabilities, ProviderToolFallbackMode,
+        ProviderToolSchemaDialect, output_items_from_text,
+        required_noema_response_from_text_with_native_tool_calls,
     },
 };
 
@@ -238,6 +239,24 @@ impl From<&GenerateToolResultInput> for CodexInputItem {
     }
 }
 
+impl From<&GenerateInputItem> for CodexInputItem {
+    fn from(value: &GenerateInputItem) -> Self {
+        match value {
+            GenerateInputItem::Message(message) => Self::Message(CodexInputMessage {
+                role: match message.role {
+                    GenerateMessageRole::User => "user",
+                    GenerateMessageRole::Assistant => "assistant",
+                },
+                content: message.content.clone(),
+            }),
+            GenerateInputItem::ToolCall(call) => Self::FunctionCall(CodexFunctionCall::from(call)),
+            GenerateInputItem::ToolResult(result) => {
+                Self::FunctionCallOutput(CodexFunctionCallOutput::from(result))
+            }
+        }
+    }
+}
+
 #[derive(Debug, Serialize)]
 struct CodexInputMessage {
     role: &'static str,
@@ -257,6 +276,21 @@ struct CodexFunctionCall {
 
 impl From<&GenerateToolResultInput> for CodexFunctionCall {
     fn from(value: &GenerateToolResultInput) -> Self {
+        Self {
+            kind: "function_call",
+            id: value.id.clone(),
+            call_id: value.call_id.clone(),
+            name: value
+                .provider_name
+                .clone()
+                .unwrap_or_else(|| value.name.clone()),
+            arguments: value.arguments.to_string(),
+        }
+    }
+}
+
+impl From<&GenerateToolCallInput> for CodexFunctionCall {
+    fn from(value: &GenerateToolCallInput) -> Self {
         Self {
             kind: "function_call",
             id: value.id.clone(),
@@ -515,6 +549,11 @@ fn codex_input_items(input: &GenerateInput) -> Vec<CodexInputItem> {
                 })
             })
             .collect(),
+        GenerateInput::Items(items) => items
+            .iter()
+            .filter(|item| !item.is_empty())
+            .map(CodexInputItem::from)
+            .collect(),
         GenerateInput::NativeToolResults(results) => {
             let mut items = Vec::with_capacity(results.len().saturating_mul(2));
             for result in results {
@@ -755,6 +794,68 @@ mod tests {
         assert_eq!(body["input"][1]["type"], "function_call_output");
         assert_eq!(body["input"][1]["call_id"], "call_1");
         assert_eq!(response.assistant_text(), "Done");
+    }
+
+    #[tokio::test]
+    async fn sends_codex_typed_history_items_as_native_response_items() {
+        let (base_url, request_rx) = spawn_server(
+            200,
+            "event: response.output_text.delta\n\
+             data: {\"type\":\"response.output_text.delta\",\"delta\":\"Done\"}\n\
+             \n\
+             event: response.completed\n\
+             data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_test\",\"model\":\"gpt-test\",\"status\":\"completed\"}}\n\
+             \n",
+        )
+        .await;
+        let (provider, _dir) = provider_with_tokens(base_url);
+
+        provider
+            .generate(GenerateRequest {
+                input: GenerateInput::Items(vec![
+                    crate::provider::GenerateInputItem::Message(crate::GenerateMessage {
+                        role: crate::GenerateMessageRole::User,
+                        content: "Rename yourself to Momo".to_string(),
+                    }),
+                    crate::provider::GenerateInputItem::ToolCall(
+                        crate::provider::GenerateToolCallInput {
+                            id: Some("item_1".to_string()),
+                            call_id: "call_1".to_string(),
+                            name: "update_own_name".to_string(),
+                            provider_name: None,
+                            arguments: serde_json::json!({"name": "Momo"}),
+                        },
+                    ),
+                    crate::provider::GenerateInputItem::ToolResult(
+                        crate::provider::GenerateToolResultInput {
+                            id: Some("item_1".to_string()),
+                            call_id: "call_1".to_string(),
+                            name: "update_own_name".to_string(),
+                            provider_name: None,
+                            arguments: Value::Null,
+                            success: true,
+                            payload: serde_json::json!({"display_name": "Momo"}),
+                        },
+                    ),
+                ]),
+                ..GenerateRequest::text("ignored")
+            })
+            .await
+            .expect("response");
+
+        let captured = request_rx.await.expect("captured request");
+        let body: Value = serde_json::from_str(&captured.body).expect("json body");
+        assert_eq!(body["input"][0]["role"], "user");
+        assert_eq!(body["input"][1]["type"], "function_call");
+        assert_eq!(body["input"][1]["call_id"], "call_1");
+        assert_eq!(body["input"][1]["name"], "update_own_name");
+        assert_eq!(body["input"][2]["type"], "function_call_output");
+        assert_eq!(body["input"][2]["call_id"], "call_1");
+        assert!(
+            body["input"][2]["output"]
+                .as_str()
+                .is_some_and(|output| output.contains("Momo"))
+        );
     }
 
     #[tokio::test]

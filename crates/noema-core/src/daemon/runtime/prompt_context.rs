@@ -6,7 +6,9 @@ use crate::{
         prompts::{PromptToolExposure, build_structured_turn_system_prompt},
         protocol::DaemonError,
     },
+    provider::{GenerateInputItem, GenerateToolCallInput, GenerateToolResultInput},
 };
+use serde_json::Value;
 
 use super::{
     context_window::{ContextBudget, estimate_text_tokens},
@@ -168,39 +170,110 @@ fn build_turn_input(
     transcript_items: &[ConversationItemRecord],
     current_input: &str,
 ) -> GenerateInput {
-    let mut messages = transcript_items
+    let mut has_structured_items = false;
+    let mut items = transcript_items
         .iter()
-        .filter_map(message_from_transcript_item)
+        .filter_map(input_item_from_transcript_item)
         .collect::<Vec<_>>();
     if !current_input.trim().is_empty() {
-        messages.push(GenerateMessage {
+        items.push(GenerateInputItem::Message(GenerateMessage {
             role: GenerateMessageRole::User,
             content: current_input.to_string(),
-        });
+        }));
     }
-    GenerateInput::Messages(messages)
+    for item in &items {
+        if !matches!(item, GenerateInputItem::Message(_)) {
+            has_structured_items = true;
+            break;
+        }
+    }
+    if has_structured_items {
+        GenerateInput::Items(items)
+    } else {
+        GenerateInput::Messages(
+            items
+                .into_iter()
+                .filter_map(|item| match item {
+                    GenerateInputItem::Message(message) => Some(message),
+                    GenerateInputItem::ToolCall(_) | GenerateInputItem::ToolResult(_) => None,
+                })
+                .collect(),
+        )
+    }
 }
 
-fn message_from_transcript_item(item: &ConversationItemRecord) -> Option<GenerateMessage> {
-    let role = match item.kind {
-        ConversationItemKind::UserText => GenerateMessageRole::User,
-        ConversationItemKind::AssistantText => GenerateMessageRole::Assistant,
+pub(super) fn input_item_from_transcript_item(
+    item: &ConversationItemRecord,
+) -> Option<GenerateInputItem> {
+    match item.kind {
+        ConversationItemKind::UserText => text_message_item(item, GenerateMessageRole::User),
+        ConversationItemKind::AssistantText => {
+            text_message_item(item, GenerateMessageRole::Assistant)
+        }
+        ConversationItemKind::ToolCall => tool_call_input_item(item),
+        ConversationItemKind::ToolResult => tool_result_input_item(item),
         ConversationItemKind::Activity
         | ConversationItemKind::A2uiCard
-        | ConversationItemKind::ToolCall
-        | ConversationItemKind::ToolResult
         | ConversationItemKind::ApprovalRequest
         | ConversationItemKind::ApprovalResult
-        | ConversationItemKind::ErrorNotice => return None,
-    };
+        | ConversationItemKind::ErrorNotice => None,
+    }
+}
+
+fn text_message_item(
+    item: &ConversationItemRecord,
+    role: GenerateMessageRole,
+) -> Option<GenerateInputItem> {
     let content = item.content_text.as_deref()?.trim();
     if content.is_empty() {
         return None;
     }
-    Some(GenerateMessage {
+    Some(GenerateInputItem::Message(GenerateMessage {
         role,
         content: content.to_string(),
-    })
+    }))
+}
+
+fn tool_call_input_item(item: &ConversationItemRecord) -> Option<GenerateInputItem> {
+    let action = item.payload_json.pointer("/metadata/action")?;
+    let call_id =
+        action_string(action, "provider_call_id").or_else(|| action_string(action, "id"))?;
+    let name = action_string(action, "name")?;
+    Some(GenerateInputItem::ToolCall(GenerateToolCallInput {
+        id: action_string(action, "id"),
+        call_id,
+        provider_name: action_string(action, "provider_name"),
+        name,
+        arguments: action.get("payload").cloned().unwrap_or(Value::Null),
+    }))
+}
+
+fn tool_result_input_item(item: &ConversationItemRecord) -> Option<GenerateInputItem> {
+    let action = item.payload_json.pointer("/metadata/action")?;
+    let call_id =
+        action_string(action, "provider_call_id").or_else(|| action_string(action, "call_id"))?;
+    let name = action_string(action, "name")?;
+    Some(GenerateInputItem::ToolResult(GenerateToolResultInput {
+        id: action_string(action, "call_id"),
+        call_id,
+        provider_name: action_string(action, "provider_name"),
+        name,
+        arguments: Value::Null,
+        success: action
+            .get("success")
+            .and_then(Value::as_bool)
+            .unwrap_or(item.status == crate::ConversationItemStatus::Completed),
+        payload: action.get("payload").cloned().unwrap_or(Value::Null),
+    }))
+}
+
+fn action_string(action: &Value, key: &str) -> Option<String> {
+    action
+        .get(key)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
 }
 
 fn render_prompt_context(summary: Option<&ConversationContextSummaryRecord>) -> String {
