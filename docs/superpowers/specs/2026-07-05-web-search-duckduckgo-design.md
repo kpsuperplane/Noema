@@ -27,11 +27,16 @@ The first slice is pure internet search:
 Noema should separate the stable `web.search` capability from the concrete
 search provider.
 
-Initial providers:
+Initial provider:
 
 | Provider | Role | Notes |
 | --- | --- | --- |
 | `duckduckgo_public` | Default out-of-box provider | Rust-only, no API key, best-effort, unofficial public search path. |
+
+Future provider candidates:
+
+| Provider | Role | Notes |
+| --- | --- | --- |
 | `brave_search` | Future recommended hosted provider | API key, provider contract, better reliability, simple pricing. |
 | `websurfx` | Future free Rust self-hosted candidate | Rust service, optional endpoint adapter after evaluation. |
 | `searxng` | Future free self-hosted candidate | Mature, but Python service; optional endpoint adapter only. |
