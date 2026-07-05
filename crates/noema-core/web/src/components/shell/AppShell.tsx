@@ -405,6 +405,7 @@ const styles = stylex.create({
     inset: 0,
     zIndex: 20,
     cursor: "default",
+    touchAction: "pan-y",
     backgroundColor: "transparent",
     borderWidth: 0,
     padding: 0
