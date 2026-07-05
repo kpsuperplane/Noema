@@ -15,19 +15,24 @@ use tokio::sync::{mpsc, oneshot};
 use super::actor::CodexRuntimeActor;
 use crate::daemon::protocol::{DaemonError, StartedConversation, TurnStreamEvent};
 
-pub(crate) trait RuntimeModelProvider: std::fmt::Debug + Send + Sync {
+/// Model provider interface used by the daemon runtime and auxiliary tools.
+pub trait RuntimeModelProvider: std::fmt::Debug + Send + Sync {
+    /// Return the provider's default model for tool-classification style tasks.
     fn default_tool_classification_model(&self) -> Option<String> {
         None
     }
 
+    /// Return context metadata for an optional model override.
     fn context_metadata(&self, _model: Option<&str>) -> ProviderContextMetadata {
         ProviderContextMetadata::default()
     }
 
+    /// Return provider tool capabilities for an optional model override.
     fn tool_capabilities(&self, _model: Option<&str>) -> ProviderToolCapabilities {
         ProviderToolCapabilities::default()
     }
 
+    /// Count provider tokens for optional instructions and input.
     fn count_tokens<'a>(
         &'a self,
         instructions: Option<&'a str>,
@@ -38,6 +43,7 @@ pub(crate) trait RuntimeModelProvider: std::fmt::Debug + Send + Sync {
         Box::pin(async { Ok(None) })
     }
 
+    /// Generate a response while optionally emitting stream events.
     fn generate_streaming<'a>(
         &'a self,
         request: GenerateRequest,

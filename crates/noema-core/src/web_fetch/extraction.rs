@@ -4,12 +4,12 @@ use crate::web_fetch::types::FetchError;
 use readabilityrs::{Article, Readability, ReadabilityOptions};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct ExtractedContent {
+pub struct ExtractedContent {
     pub title: Option<String>,
     pub markdown: String,
 }
 
-pub(crate) fn extract_readable_content(
+pub fn extract_readable_content(
     html: &str,
     final_url: &str,
 ) -> Result<ExtractedContent, FetchError> {
@@ -41,7 +41,8 @@ pub(crate) fn extract_readable_content(
     Ok(ExtractedContent { title, markdown })
 }
 
-pub(crate) fn normalize_plain_text(text: &str) -> ExtractedContent {
+#[must_use]
+pub fn normalize_plain_text(text: &str) -> ExtractedContent {
     ExtractedContent {
         title: None,
         markdown: normalize_newlines(text),

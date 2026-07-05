@@ -18,8 +18,24 @@ const MAX_REDIRECTS: usize = 3;
 const MAX_RESPONSE_BYTES: usize = 750 * 1024;
 const USER_AGENT: &str = "NoemaWebFetch/0.1 (+https://github.com/kpsuperplane/Noema)";
 
-pub(crate) async fn fetch_direct_http(
-    client: &Client,
+#[derive(Debug, Clone)]
+pub struct DirectHttpClient {
+    client: Client,
+}
+
+impl Default for DirectHttpClient {
+    fn default() -> Self {
+        Self {
+            client: Client::builder()
+                .redirect(reqwest::redirect::Policy::none())
+                .build()
+                .expect("direct web fetch client"),
+        }
+    }
+}
+
+pub async fn fetch_direct_http(
+    client: &DirectHttpClient,
     request: &FetchRequest,
     context: &FetchRuntimeContext,
 ) -> Result<FetchResponse, FetchError> {
@@ -29,7 +45,7 @@ pub(crate) async fn fetch_direct_http(
 
 #[cfg(test)]
 async fn fetch_direct_http_unchecked_initial_url(
-    client: &Client,
+    client: &DirectHttpClient,
     request: &FetchRequest,
     context: &FetchRuntimeContext,
 ) -> Result<FetchResponse, FetchError> {
@@ -42,7 +58,7 @@ async fn fetch_direct_http_unchecked_initial_url(
 }
 
 async fn fetch_direct_http_checked(
-    client: &Client,
+    client: &DirectHttpClient,
     request: &FetchRequest,
     context: &FetchRuntimeContext,
     mut checked: CheckedUrl,
@@ -51,6 +67,7 @@ async fn fetch_direct_http_checked(
 
     for redirect_count in 0..=MAX_REDIRECTS {
         let response = client
+            .client
             .get(checked.url.clone())
             .header(header::USER_AGENT, USER_AGENT)
             .header(
@@ -257,6 +274,75 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn direct_http_client_rejects_blocked_redirect_without_auto_following() {
+        let url = serve_once(
+            "HTTP/1.1 302 Found\r\nlocation: http://127.0.0.1/private\r\ncontent-length: 0\r\n\r\n",
+        )
+        .await;
+        let request = FetchRequest {
+            url,
+            reason: None,
+            max_chars: 20_000,
+        };
+        let error = fetch_direct_http_unchecked_initial_url(
+            &DirectHttpClient::default(),
+            &request,
+            &test_context(),
+        )
+        .await
+        .expect_err("blocked redirect");
+
+        assert!(matches!(error, FetchError::RedirectBlocked));
+    }
+
+    #[tokio::test]
+    async fn rejects_response_body_over_byte_cap() {
+        let body = "x".repeat(MAX_RESPONSE_BYTES + 1);
+        let url = serve_once(&format!(
+            "HTTP/1.1 200 OK\r\ncontent-type: text/plain\r\ncontent-length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        ))
+        .await;
+        let request = FetchRequest {
+            url,
+            reason: None,
+            max_chars: 20_000,
+        };
+        let error =
+            fetch_direct_http_unchecked_initial_url(&test_client(), &request, &test_context())
+                .await
+                .expect_err("size cap");
+
+        assert!(matches!(error, FetchError::ResponseTooLarge));
+    }
+
+    #[tokio::test]
+    async fn summarizes_large_plain_text() {
+        let body = "large page sentence.\n".repeat(450);
+        let url = serve_once(&format!(
+            "HTTP/1.1 200 OK\r\ncontent-type: text/plain\r\ncontent-length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        ))
+        .await;
+        let request = FetchRequest {
+            url,
+            reason: None,
+            max_chars: 20_000,
+        };
+        let response =
+            fetch_direct_http_unchecked_initial_url(&test_client(), &request, &test_context())
+                .await
+                .expect("summary");
+
+        assert_eq!(response.content_kind, FetchContentKind::Summary);
+        assert_eq!(response.summary_strategy, FetchSummaryStrategy::SinglePass);
+        assert_eq!(response.content, "summary");
+        assert!(response.raw_excerpt.is_some());
+    }
+
+    #[tokio::test]
     async fn rejects_unsupported_content_type() {
         let url = serve_once(
             "HTTP/1.1 200 OK\r\ncontent-type: application/octet-stream\r\ncontent-length: 4\r\n\r\nnope",
@@ -296,11 +382,8 @@ mod tests {
         }
     }
 
-    fn test_client() -> Client {
-        Client::builder()
-            .redirect(reqwest::redirect::Policy::none())
-            .build()
-            .expect("client")
+    fn test_client() -> DirectHttpClient {
+        DirectHttpClient::default()
     }
 
     #[derive(Debug)]

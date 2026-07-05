@@ -9,13 +9,14 @@ use crate::{
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum SummaryDecision {
+pub enum SummaryDecision {
     Raw,
     Summarize(FetchSummaryStrategy),
     Refuse,
 }
 
-pub(crate) fn summary_strategy_for_chars(chars: usize) -> SummaryDecision {
+#[must_use]
+pub fn summary_strategy_for_chars(chars: usize) -> SummaryDecision {
     if chars <= RAW_MARKDOWN_LIMIT_CHARS {
         SummaryDecision::Raw
     } else if chars <= SINGLE_PASS_SUMMARY_LIMIT_CHARS {
@@ -27,11 +28,12 @@ pub(crate) fn summary_strategy_for_chars(chars: usize) -> SummaryDecision {
     }
 }
 
-pub(crate) fn raw_excerpt(markdown: &str) -> String {
+#[must_use]
+pub fn raw_excerpt(markdown: &str) -> String {
     markdown.chars().take(RAW_EXCERPT_CHARS).collect()
 }
 
-pub(crate) async fn summarize_markdown(
+pub async fn summarize_markdown(
     context: &FetchRuntimeContext,
     url: &str,
     title: Option<&str>,
@@ -111,9 +113,26 @@ fn chunk_markdown(markdown: &str, chunk_chars: usize) -> Vec<String> {
     let mut chunks = Vec::new();
     let mut current = String::new();
     for line in markdown.lines() {
-        if current.chars().count() + line.chars().count() + 1 > chunk_chars && !current.is_empty() {
-            chunks.push(current);
-            current = String::new();
+        let line_chars = line.chars().count();
+        if line_chars > chunk_chars {
+            if !current.is_empty() {
+                chunks.push(std::mem::take(&mut current));
+            }
+            let mut oversized_line_chunk = String::new();
+            for character in line.chars() {
+                if oversized_line_chunk.chars().count() == chunk_chars {
+                    chunks.push(std::mem::take(&mut oversized_line_chunk));
+                }
+                oversized_line_chunk.push(character);
+            }
+            if !oversized_line_chunk.is_empty() {
+                chunks.push(oversized_line_chunk);
+            }
+            continue;
+        }
+
+        if current.chars().count() + line_chars + 1 > chunk_chars && !current.is_empty() {
+            chunks.push(std::mem::take(&mut current));
         }
         current.push_str(line);
         current.push('\n');
@@ -154,6 +173,23 @@ mod tests {
         assert_eq!(
             summary_strategy_for_chars(1_000_001),
             SummaryDecision::Refuse
+        );
+    }
+
+    #[test]
+    fn hard_splits_oversized_single_line_chunks() {
+        let markdown = "a".repeat(250_001);
+
+        let chunks = chunk_markdown(&markdown, 60_000);
+
+        assert!(chunks.len() > 1);
+        assert!(chunks.iter().all(|chunk| chunk.chars().count() <= 60_000));
+        assert_eq!(
+            chunks
+                .iter()
+                .map(|chunk| chunk.chars().count())
+                .sum::<usize>(),
+            markdown.len()
         );
     }
 }

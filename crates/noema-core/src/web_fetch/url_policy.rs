@@ -5,19 +5,17 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, ToSocketAddrs};
 use url::{Host, Url};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct CheckedUrl {
+pub struct CheckedUrl {
     pub url: Url,
     pub resolved_ips: Vec<IpAddr>,
 }
 
-pub(crate) async fn validate_public_web_fetch_url(raw_url: &str) -> Result<CheckedUrl, FetchError> {
+pub async fn validate_public_web_fetch_url(raw_url: &str) -> Result<CheckedUrl, FetchError> {
     let url = Url::parse(raw_url).map_err(|_| FetchError::MalformedUrl)?;
     validate_public_web_fetch_url_parsed(url).await
 }
 
-pub(crate) async fn validate_public_web_fetch_url_parsed(
-    url: Url,
-) -> Result<CheckedUrl, FetchError> {
+pub async fn validate_public_web_fetch_url_parsed(url: Url) -> Result<CheckedUrl, FetchError> {
     if !matches!(url.scheme(), "http" | "https") {
         return Err(FetchError::UnsupportedScheme);
     }
@@ -68,7 +66,8 @@ pub(crate) async fn validate_public_web_fetch_url_parsed(
     Ok(CheckedUrl { url, resolved_ips })
 }
 
-pub(crate) fn is_blocked_hostname(host: &str) -> bool {
+#[must_use]
+pub fn is_blocked_hostname(host: &str) -> bool {
     let normalized = host.trim_matches('.').to_ascii_lowercase();
     normalized == "localhost"
         || normalized.ends_with(".localhost")
@@ -79,7 +78,8 @@ pub(crate) fn is_blocked_hostname(host: &str) -> bool {
         || normalized.ends_with(".example")
 }
 
-pub(crate) fn is_public_ip(ip: IpAddr) -> bool {
+#[must_use]
+pub fn is_public_ip(ip: IpAddr) -> bool {
     match ip {
         IpAddr::V4(ip) => is_public_ipv4(ip),
         IpAddr::V6(ip) => is_public_ipv6(ip),

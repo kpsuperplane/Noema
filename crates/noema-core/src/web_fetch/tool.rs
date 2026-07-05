@@ -10,7 +10,7 @@ use crate::{
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-pub(crate) const WEB_FETCH_TOOL: &str = "web.fetch";
+pub const WEB_FETCH_TOOL: &str = "web.fetch";
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -23,18 +23,19 @@ struct WebFetchArguments {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct WebFetchToolResult {
+pub struct WebFetchToolResult {
     pub call_id: Option<String>,
     pub name: String,
     pub success: bool,
     pub payload: Value,
 }
 
-pub(crate) fn is_web_fetch_tool(name: &str) -> bool {
+#[must_use]
+pub fn is_web_fetch_tool(name: &str) -> bool {
     name == WEB_FETCH_TOOL
 }
 
-pub(crate) fn web_fetch_tool_spec() -> Result<NoemaToolSpec, ToolContractError> {
+pub fn web_fetch_tool_spec() -> Result<NoemaToolSpec, ToolContractError> {
     NoemaToolSpec::new(
         WEB_FETCH_TOOL,
         "Fetch and read a public web page using Noema's configured web fetch provider.",
@@ -66,7 +67,7 @@ pub(crate) fn web_fetch_tool_spec() -> Result<NoemaToolSpec, ToolContractError> 
     )
 }
 
-pub(crate) async fn execute_web_fetch(
+pub async fn execute_web_fetch(
     provider: &WebFetchRuntimeProvider,
     context: &FetchRuntimeContext,
     call_id: Option<String>,
@@ -98,7 +99,7 @@ async fn execute_web_fetch_inner(
     provider.fetch(&request, context).await
 }
 
-pub(crate) fn parse_web_fetch_arguments(payload: &Value) -> Result<FetchRequest, FetchError> {
+pub fn parse_web_fetch_arguments(payload: &Value) -> Result<FetchRequest, FetchError> {
     let argument_value = if let Some(arguments) = payload.get("arguments") {
         reject_nested_outer_fields(payload)?;
         arguments.clone()
@@ -153,7 +154,8 @@ fn reject_nested_outer_fields(payload: &Value) -> Result<(), FetchError> {
     }
 }
 
-pub(crate) fn safe_error_message(error: &FetchError) -> String {
+#[must_use]
+pub fn safe_error_message(error: &FetchError) -> String {
     match error {
         FetchError::InvalidArguments(message) => message.clone(),
         FetchError::UnsupportedScheme => {

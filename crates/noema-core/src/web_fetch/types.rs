@@ -1,31 +1,31 @@
 //! Provider-neutral web fetch types.
 
 use crate::daemon::RuntimeModelProvider;
-use reqwest::Client;
+use crate::web_fetch::direct_http::DirectHttpClient;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use thiserror::Error;
 
-pub(crate) const DIRECT_HTTP_PROVIDER_ID: &str = "direct_http";
-pub(crate) const EXTRACTION_READABILITYRS: &str = "readability_rs";
-pub(crate) const DEFAULT_MAX_CHARS: usize = 20_000;
-pub(crate) const HARD_MAX_CHARS: usize = 20_000;
-pub(crate) const MAX_URL_CHARS: usize = 2048;
-pub(crate) const MAX_REASON_CHARS: usize = 500;
-pub(crate) const RAW_MARKDOWN_LIMIT_CHARS: usize = 8_000;
-pub(crate) const SINGLE_PASS_SUMMARY_LIMIT_CHARS: usize = 250_000;
-pub(crate) const CHUNKED_SUMMARY_LIMIT_CHARS: usize = 1_000_000;
-pub(crate) const RAW_EXCERPT_CHARS: usize = 2_000;
+pub const DIRECT_HTTP_PROVIDER_ID: &str = "direct_http";
+pub const EXTRACTION_READABILITYRS: &str = "readability_rs";
+pub const DEFAULT_MAX_CHARS: usize = 20_000;
+pub const HARD_MAX_CHARS: usize = 20_000;
+pub const MAX_URL_CHARS: usize = 2048;
+pub const MAX_REASON_CHARS: usize = 500;
+pub const RAW_MARKDOWN_LIMIT_CHARS: usize = 8_000;
+pub const SINGLE_PASS_SUMMARY_LIMIT_CHARS: usize = 250_000;
+pub const CHUNKED_SUMMARY_LIMIT_CHARS: usize = 1_000_000;
+pub const RAW_EXCERPT_CHARS: usize = 2_000;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct FetchRequest {
+pub struct FetchRequest {
     pub url: String,
     pub reason: Option<String>,
     pub max_chars: usize,
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct FetchRuntimeContext {
+pub struct FetchRuntimeContext {
     pub summarizer_provider_kind: String,
     pub summarizer_provider: Arc<dyn RuntimeModelProvider>,
     pub summarizer_model: String,
@@ -33,21 +33,21 @@ pub(crate) struct FetchRuntimeContext {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum FetchContentKind {
+pub enum FetchContentKind {
     RawMarkdown,
     Summary,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum FetchSummaryStrategy {
+pub enum FetchSummaryStrategy {
     NotSummarized,
     SinglePass,
     Chunked,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub(crate) struct FetchResponse {
+pub struct FetchResponse {
     pub provider: String,
     pub url: String,
     pub final_url: String,
@@ -65,7 +65,7 @@ pub(crate) struct FetchResponse {
 }
 
 #[derive(Debug, Error)]
-pub(crate) enum FetchError {
+pub enum FetchError {
     #[error("{0}")]
     InvalidArguments(String),
     #[error("unsupported URL scheme")]
@@ -97,9 +97,9 @@ pub(crate) enum FetchError {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) enum WebFetchRuntimeProvider {
+pub enum WebFetchRuntimeProvider {
     DirectHttp {
-        client: Client,
+        client: DirectHttpClient,
     },
     #[cfg(test)]
     Static {
@@ -110,16 +110,13 @@ pub(crate) enum WebFetchRuntimeProvider {
 impl Default for WebFetchRuntimeProvider {
     fn default() -> Self {
         Self::DirectHttp {
-            client: Client::builder()
-                .redirect(reqwest::redirect::Policy::none())
-                .build()
-                .expect("direct web fetch client"),
+            client: DirectHttpClient::default(),
         }
     }
 }
 
 impl WebFetchRuntimeProvider {
-    pub(crate) async fn fetch(
+    pub async fn fetch(
         &self,
         request: &FetchRequest,
         context: &FetchRuntimeContext,
