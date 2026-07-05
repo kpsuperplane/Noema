@@ -2,6 +2,7 @@ import React from "react";
 
 const shellNavSwipeIntentPx = 8;
 const shellNavSwipeVelocityThreshold = 0.45;
+const shellNavSwipeVelocityMaxAgeMs = 120;
 const shellNavSwipeMaxDeckOffsetPx = 252;
 const shellNavSwipeDeckOffsetViewportRatio = 0.72;
 
@@ -14,6 +15,8 @@ type ShellNavSwipeDrag = {
   startY: number;
   lastX: number;
   lastTime: number;
+  velocityX: number;
+  velocityTime: number;
   offsetPx: number;
   captured: boolean;
 };
@@ -129,6 +132,8 @@ export function useShellNavSwipe({
         startY: event.clientY,
         lastX: event.clientX,
         lastTime: now,
+        velocityX: 0,
+        velocityTime: now,
         offsetPx: 0,
         captured: false
       };
@@ -165,6 +170,9 @@ export function useShellNavSwipe({
     event.preventDefault();
 
     const now = typeof performance === "undefined" ? Date.now() : performance.now();
+    const elapsed = Math.max(1, now - drag.lastTime);
+    drag.velocityX = (event.clientX - drag.lastX) / elapsed;
+    drag.velocityTime = now;
     drag.lastX = event.clientX;
     drag.lastTime = now;
     drag.offsetPx = shellNavSwipeOffset(drag.mode, deltaX);
@@ -180,7 +188,11 @@ export function useShellNavSwipe({
 
       const now = typeof performance === "undefined" ? Date.now() : performance.now();
       const elapsed = Math.max(1, now - drag.lastTime);
-      const velocityX = (event.clientX - drag.lastX) / elapsed;
+      const releaseVelocityX = (event.clientX - drag.lastX) / elapsed;
+      const velocityX =
+        now - drag.velocityTime <= shellNavSwipeVelocityMaxAgeMs
+          ? drag.velocityX
+          : releaseVelocityX;
       const captured = drag.captured;
       const commit = shouldCommitShellNavSwipe({
         mode: drag.mode,
