@@ -259,6 +259,14 @@ function toolNameFromMetadata(metadata: unknown): string | null {
 }
 
 export function toolMarkerTarget(marker: ToolMarkerGroup): string | undefined {
+  const toolName = toolNameFromMetadata(marker.call?.item.metadata) ?? toolNameFromMetadata(marker.result?.item.metadata);
+  if (toolName === "Search web") {
+    return (
+      usefulToolDisplayString(marker.call?.item.metadata, "target") ??
+      usefulToolDisplayString(marker.result?.item.metadata, "result") ??
+      usefulToolDisplayString(marker.result?.item.metadata, "target")
+    );
+  }
   return (
     usefulToolDisplayString(marker.result?.item.metadata, "result") ??
     usefulToolDisplayString(marker.result?.item.metadata, "target") ??

@@ -4,6 +4,7 @@ use crate::search::types::{
     BEST_EFFORT_PUBLIC_CONTRACT, DUCKDUCKGO_PUBLIC_PROVIDER_ID, SearchError, SearchRequest,
     SearchResponse, SearchResult,
 };
+use futures_util::StreamExt;
 use reqwest::Client;
 use scraper::{Html, Selector};
 use std::time::Duration;
@@ -18,7 +19,15 @@ pub(crate) async fn search_duckduckgo_public(
     client: &Client,
     request: &SearchRequest,
 ) -> Result<SearchResponse, SearchError> {
-    let mut url = Url::parse(DUCKDUCKGO_HTML_ENDPOINT).map_err(|_| SearchError::Parse)?;
+    search_duckduckgo_public_with_endpoint(client, request, DUCKDUCKGO_HTML_ENDPOINT).await
+}
+
+async fn search_duckduckgo_public_with_endpoint(
+    client: &Client,
+    request: &SearchRequest,
+    endpoint: &str,
+) -> Result<SearchResponse, SearchError> {
+    let mut url = Url::parse(endpoint).map_err(|_| SearchError::Parse)?;
     url.query_pairs_mut().append_pair("q", &request.query);
     let response = client
         .get(url)
@@ -35,12 +44,22 @@ pub(crate) async fn search_duckduckgo_public(
     if !status.is_success() {
         return Err(SearchError::Http);
     }
-    let bytes = response.bytes().await.map_err(map_reqwest_error)?;
-    if bytes.len() > MAX_BODY_BYTES {
-        return Err(SearchError::Parse);
-    }
+    let bytes = read_bounded_body(response).await?;
     let html = std::str::from_utf8(&bytes).map_err(|_| SearchError::Parse)?;
     parse_duckduckgo_html(&request.query, html, request.max_results)
+}
+
+async fn read_bounded_body(response: reqwest::Response) -> Result<Vec<u8>, SearchError> {
+    let mut bytes = Vec::new();
+    let mut stream = response.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(map_reqwest_error)?;
+        if bytes.len().saturating_add(chunk.len()) > MAX_BODY_BYTES {
+            return Err(SearchError::Parse);
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    Ok(bytes)
 }
 
 pub(crate) fn parse_duckduckgo_html(
@@ -131,6 +150,10 @@ fn map_reqwest_error(error: reqwest::Error) -> SearchError {
 mod tests {
     use super::*;
     use crate::search::types::{BEST_EFFORT_PUBLIC_CONTRACT, DUCKDUCKGO_PUBLIC_PROVIDER_ID};
+    use tokio::{
+        io::{AsyncReadExt, AsyncWriteExt},
+        net::TcpListener,
+    };
 
     #[test]
     fn parses_duckduckgo_html_results() {
@@ -170,5 +193,53 @@ mod tests {
 
         assert!(response.results.is_empty());
         assert_eq!(response.summary, "No web results found");
+    }
+
+    #[tokio::test]
+    async fn search_rejects_body_that_exceeds_cap_while_reading() {
+        let endpoint = spawn_oversized_response_server().await;
+        let request = SearchRequest {
+            query: "rust search".to_string(),
+            reason: None,
+            max_results: 5,
+        };
+
+        let error = search_duckduckgo_public_with_endpoint(&Client::new(), &request, &endpoint)
+            .await
+            .expect_err("oversized body rejected");
+
+        assert!(matches!(error, SearchError::Parse));
+    }
+
+    async fn spawn_oversized_response_server() -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let addr = listener.local_addr().expect("local addr");
+        tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.expect("accept");
+            let mut buffer = [0_u8; 1024];
+            loop {
+                let read = socket.read(&mut buffer).await.expect("read request");
+                if read == 0
+                    || buffer[..read]
+                        .windows(4)
+                        .any(|window| window == b"\r\n\r\n")
+                {
+                    break;
+                }
+            }
+            let headers = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: text/html\r\ncontent-length: {}\r\n\r\n",
+                MAX_BODY_BYTES + 1
+            );
+            socket
+                .write_all(headers.as_bytes())
+                .await
+                .expect("write headers");
+            socket
+                .write_all(&vec![b'a'; MAX_BODY_BYTES + 1])
+                .await
+                .expect("write body");
+        });
+        format!("http://{addr}/html/")
     }
 }

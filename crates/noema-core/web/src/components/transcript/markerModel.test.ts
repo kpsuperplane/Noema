@@ -121,7 +121,7 @@ describe("toolMarkerName", () => {
 });
 
 describe("toolMarkerLabel", () => {
-  test("web search marker target prefers result summary", () => {
+  test("completed web search marker target keeps the query visible", () => {
     const marker: ToolMarkerGroup = {
       id: "tool_call:web",
       call: {
@@ -179,7 +179,7 @@ describe("toolMarkerLabel", () => {
     };
 
     assert.equal(toolMarkerLabel(marker), "Used Search web");
-    assert.equal(toolMarkerTarget(marker), "Found 1 web result");
+    assert.equal(toolMarkerTarget(marker), "Web search: rust language");
   });
 });
 
