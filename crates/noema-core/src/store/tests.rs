@@ -651,6 +651,37 @@ async fn auxiliary_model_preferences_web_fetch_summarizer_round_trips() {
 }
 
 #[tokio::test]
+async fn auxiliary_model_preferences_tool_progress_audit_round_trips() {
+    let store = test_store().await;
+    let account = store
+        .ensure_default_provider_account()
+        .await
+        .expect("account");
+
+    let saved = store
+        .upsert_auxiliary_model_preference(crate::NewAuxiliaryModelPreference {
+            task_id: crate::store::TOOL_PROGRESS_AUDIT_TASK_ID.to_string(),
+            provider_kind: account.provider_kind.clone(),
+            provider_account_id: account.provider_account_id.clone(),
+            model_profile: "gpt-5.4-mini".to_string(),
+        })
+        .await
+        .expect("save preference");
+
+    assert_eq!(saved.task_id, crate::store::TOOL_PROGRESS_AUDIT_TASK_ID);
+    assert_eq!(saved.provider_kind, account.provider_kind);
+    assert_eq!(saved.provider_account_id, account.provider_account_id);
+    assert_eq!(saved.model_profile, "gpt-5.4-mini");
+
+    let loaded = store
+        .get_auxiliary_model_preference(crate::store::TOOL_PROGRESS_AUDIT_TASK_ID)
+        .await
+        .expect("load preference")
+        .expect("preference exists");
+    assert_eq!(loaded, saved);
+}
+
+#[tokio::test]
 async fn auxiliary_model_preferences_rejects_unknown_provider_account() {
     let store = test_store().await;
 

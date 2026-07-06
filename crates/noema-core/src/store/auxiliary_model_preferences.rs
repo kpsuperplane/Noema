@@ -6,6 +6,16 @@ use super::{NoemaStore, StoreError};
 /// Auxiliary model preference task id for `web.fetch` summarization.
 pub const WEB_FETCH_SUMMARIZER_TASK_ID: &str = "web_fetch_summarizer";
 
+/// Auxiliary model preference task id for provider tool-continuation progress audits.
+pub const TOOL_PROGRESS_AUDIT_TASK_ID: &str = "tool_progress_audit";
+
+fn supported_auxiliary_model_task_id(task_id: &str) -> bool {
+    matches!(
+        task_id,
+        WEB_FETCH_SUMMARIZER_TASK_ID | TOOL_PROGRESS_AUDIT_TASK_ID
+    )
+}
+
 /// New or updated auxiliary model preference.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NewAuxiliaryModelPreference {
@@ -69,7 +79,7 @@ impl NoemaStore {
         &self,
         preference: NewAuxiliaryModelPreference,
     ) -> Result<AuxiliaryModelPreferenceRecord, StoreError> {
-        if preference.task_id != WEB_FETCH_SUMMARIZER_TASK_ID {
+        if !supported_auxiliary_model_task_id(&preference.task_id) {
             return Err(StoreError::InvalidEnum {
                 kind: "auxiliary_model_preference_task_id",
                 value: preference.task_id,

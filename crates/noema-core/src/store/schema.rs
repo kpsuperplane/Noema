@@ -40,7 +40,7 @@ DEFINE FIELD OVERWRITE updated_at ON TABLE agent_runtime_preferences TYPE dateti
 DEFINE INDEX IF NOT EXISTS agent_runtime_preferences_agent_id ON TABLE agent_runtime_preferences COLUMNS agent_id UNIQUE;
 
 DEFINE TABLE IF NOT EXISTS auxiliary_model_preferences SCHEMAFULL;
-DEFINE FIELD OVERWRITE task_id ON TABLE auxiliary_model_preferences TYPE string ASSERT $value INSIDE ['web_fetch_summarizer'];
+DEFINE FIELD OVERWRITE task_id ON TABLE auxiliary_model_preferences TYPE string ASSERT $value INSIDE ['web_fetch_summarizer', 'tool_progress_audit'];
 DEFINE FIELD OVERWRITE provider_kind ON TABLE auxiliary_model_preferences TYPE string ASSERT $value INSIDE ['codex', 'openai', 'foundation_local'];
 DEFINE FIELD OVERWRITE provider_account_id ON TABLE auxiliary_model_preferences TYPE string;
 DEFINE FIELD OVERWRITE model_profile ON TABLE auxiliary_model_preferences TYPE string ASSERT $value != '';
