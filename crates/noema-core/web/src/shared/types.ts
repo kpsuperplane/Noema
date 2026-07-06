@@ -38,6 +38,7 @@ export type TranscriptEntry =
       turnId?: string;
       type: "assistant";
       streamId?: string;
+      responseIndex?: number;
       text: string;
     }
   | {
@@ -46,6 +47,7 @@ export type TranscriptEntry =
       turnId?: string;
       type: "assistant_stream";
       streamId: string;
+      responseIndex?: number;
       text: string;
     }
   | {

@@ -58,7 +58,6 @@ export function appendAssistantTextDeltaEntry(
   event: { turnId: string; streamId: string; responseIndex: number; delta: string; conversationId: string }
 ): TranscriptEntry[] {
   void event.conversationId;
-  void event.responseIndex;
   const completedIndex = current.findIndex((candidate) => {
     if (candidate.type !== "assistant") {
       return false;
@@ -83,6 +82,7 @@ export function appendAssistantTextDeltaEntry(
         turnId: event.turnId,
         type: "assistant_stream",
         streamId: event.streamId,
+        responseIndex: event.responseIndex,
         text: event.delta
       }
     ];
@@ -154,6 +154,7 @@ function entryFromConversationItem(
       turnId,
       type: "assistant",
       streamId: streamIdFromMetadata(metadata),
+      responseIndex: responseIndexFromMetadata(metadata),
       text: transcriptItem.text
     };
   }
@@ -182,6 +183,13 @@ function streamIdFromMetadata(metadata: unknown): string | undefined {
     return undefined;
   }
   return typeof metadata.stream_id === "string" ? metadata.stream_id : undefined;
+}
+
+function responseIndexFromMetadata(metadata: unknown): number | undefined {
+  if (!isRecord(metadata)) {
+    return undefined;
+  }
+  return typeof metadata.response_index === "number" ? metadata.response_index : undefined;
 }
 
 function markClientTurnEvent(event: string, fields: Record<string, unknown>) {

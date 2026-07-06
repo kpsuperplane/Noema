@@ -92,6 +92,10 @@ The next storage slice should stay small and concrete:
   envelopes. The live structured-response delta extractor also stops emitting
   visible assistant deltas after the first completed top-level envelope so the
   web UI does not temporarily show duplicate streamed bubbles before replay.
+  The web transcript also carries assistant `responseIndex` and uses
+  `(turnId,responseIndex)` as a fallback replacement key so finalized assistant
+  items remove their ephemeral stream bubbles even when stream metadata is
+  missing or mismatched.
 - The provider-neutral native tool plane has landed from
   `docs/superpowers/specs/2026-07-04-native-tool-plane-design.md`: Noema now
   builds canonical local/MCP tool specs, advertises them through provider-native

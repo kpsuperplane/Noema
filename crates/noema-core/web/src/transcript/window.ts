@@ -89,11 +89,19 @@ function mergeEntriesByItemId(
   const incomingAssistantByStreamId = new Map(
     incoming.flatMap((entry) => (entry.type === "assistant" && entry.streamId ? [[entry.streamId, entry]] : []))
   );
+  const incomingAssistantByTurnResponse = new Map(
+    incoming.flatMap((entry) => {
+      const key = assistantTurnResponseKey(entry);
+      return entry.type === "assistant" && key ? [[key, entry]] : [];
+    })
+  );
   const seenItemIds = new Set<string>();
 
   return baseEntries.flatMap((entry) => {
     if (entry.type === "assistant_stream") {
-      const replacement = incomingAssistantByStreamId.get(entry.streamId);
+      const replacement =
+        incomingAssistantByStreamId.get(entry.streamId) ??
+        incomingAssistantByTurnResponse.get(assistantTurnResponseKey(entry) ?? "");
       const replacementItemId = replacement ? transcriptEntryItemId(replacement) : undefined;
       if (!replacement) {
         return [entry];
@@ -133,4 +141,11 @@ function removeOptimisticEntriesWithDurableItemIds(
 
 function transcriptEntryItemId(entry: TranscriptEntry): string | undefined {
   return "itemId" in entry ? entry.itemId : undefined;
+}
+
+function assistantTurnResponseKey(entry: TranscriptEntry): string | undefined {
+  if ((entry.type !== "assistant" && entry.type !== "assistant_stream") || !entry.turnId) {
+    return undefined;
+  }
+  return typeof entry.responseIndex === "number" ? `${entry.turnId}:${entry.responseIndex}` : undefined;
 }
