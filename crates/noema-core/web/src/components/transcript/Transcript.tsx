@@ -160,37 +160,11 @@ export function Transcript({
       <TranscriptBottomFollower
         arrivalScrollKey={arrivalScrollKey}
         followBottomRef={followBottomRef}
-        scrollKey={scrollKey}
-      />
-      <SentMessageBottomFollower
-        followBottomRef={followBottomRef}
         sentMessageScrollRequest={sentMessageScrollRequest}
+        scrollKey={scrollKey}
       />
     </TranscriptScrollerProvider>
   );
-}
-
-function SentMessageBottomFollower({
-  followBottomRef,
-  sentMessageScrollRequest
-}: {
-  followBottomRef: React.MutableRefObject<boolean>;
-  sentMessageScrollRequest: number;
-}) {
-  const { scrollToEnd } = useTranscriptScroller();
-  const completedScrollRequestRef = React.useRef(0);
-
-  React.useLayoutEffect(() => {
-    if (sentMessageScrollRequest <= completedScrollRequestRef.current) {
-      return;
-    }
-
-    completedScrollRequestRef.current = sentMessageScrollRequest;
-    followBottomRef.current = true;
-    scrollToEnd({ behavior: "auto" });
-  }, [followBottomRef, scrollToEnd, sentMessageScrollRequest]);
-
-  return null;
 }
 
 function transcriptLane(entry: RenderTranscriptEntry) {

@@ -18,15 +18,18 @@ type ActiveScrollAnimation = {
 export function TranscriptBottomFollower({
   arrivalScrollKey,
   followBottomRef,
+  sentMessageScrollRequest,
   scrollKey
 }: {
   arrivalScrollKey: string;
   followBottomRef: React.MutableRefObject<boolean>;
+  sentMessageScrollRequest: number;
   scrollKey: string;
 }) {
   const { contentRef, scrollToEnd, viewportRef } = useTranscriptScroller();
   const previousMetricsRef = React.useRef<ScrollMetrics | null>(null);
   const completedArrivalKeyRef = React.useRef("");
+  const completedSentMessageScrollRequestRef = React.useRef(sentMessageScrollRequest);
   const activeScrollAnimationRef = React.useRef<ActiveScrollAnimation | null>(null);
   const resizeSyncFrameRef = React.useRef<number | null>(null);
   const resizeSyncTimeoutRef = React.useRef<number | null>(null);
@@ -72,6 +75,20 @@ export function TranscriptBottomFollower({
 
     scrollToEnd({ behavior: "auto" });
   }, [followBottomRef, scrollKey, scrollToEnd, viewportRef]);
+
+  React.useLayoutEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport || sentMessageScrollRequest <= completedSentMessageScrollRequestRef.current) {
+      return;
+    }
+
+    completedSentMessageScrollRequestRef.current = sentMessageScrollRequest;
+    activeScrollAnimationRef.current?.cancel();
+    activeScrollAnimationRef.current = null;
+    followBottomRef.current = true;
+    scrollToEnd({ behavior: "auto" });
+    previousMetricsRef.current = readScrollMetrics(viewport);
+  }, [followBottomRef, scrollToEnd, sentMessageScrollRequest, viewportRef]);
 
   React.useLayoutEffect(() => {
     const viewport = viewportRef.current;
