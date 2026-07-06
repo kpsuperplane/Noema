@@ -6,6 +6,7 @@ pub(in crate::daemon) mod handle;
 pub(in crate::daemon) mod local_tools;
 mod model_tools;
 mod progress;
+mod progress_audit;
 mod prompt_context;
 mod tool_lifecycle;
 pub(in crate::daemon) mod transcript_persistence;
