@@ -4,9 +4,9 @@
 @import "./theme/noema-neutral.css";
 
 :root {
-  --skeleton-glimmer-base: rgb(128 128 128 / 0.16);
-  --skeleton-glimmer-flare: rgb(128 128 128 / 0.08);
-  --skeleton-glimmer-line: rgb(128 128 128 / 0.12);
+  --skeleton-glimmer-base: rgb(128 128 128 / 0.07);
+  --skeleton-glimmer-flare: rgb(128 128 128 / 0.03);
+  --skeleton-glimmer-line: rgb(128 128 128 / 0.05);
 }
 
 * {
