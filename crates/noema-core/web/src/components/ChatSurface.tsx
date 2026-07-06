@@ -43,6 +43,7 @@ export type ChatSurfaceProps = {
   agentStatus: ConversationAgentStatus;
   awaitingAssistantTurn: boolean;
   expandedActivities: Set<string>;
+  sentMessageScrollRequest: number;
   draft: string;
   ready: boolean;
   agentName: string | null;
@@ -62,6 +63,7 @@ export function ChatSurface({
   agentStatus,
   awaitingAssistantTurn,
   expandedActivities,
+  sentMessageScrollRequest,
   draft,
   ready,
   agentName,
@@ -130,6 +132,7 @@ export function ChatSurface({
             agentStatus={agentStatus}
             awaitingAssistantTurn={awaitingAssistantTurn}
             expandedActivities={expandedActivities}
+            sentMessageScrollRequest={sentMessageScrollRequest}
             onToggleActivity={onToggleActivity}
             onLoadOlderTranscript={onLoadOlderTranscript}
           />

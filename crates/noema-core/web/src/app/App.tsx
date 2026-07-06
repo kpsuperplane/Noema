@@ -125,6 +125,7 @@ export function App() {
   const [pending, setPending] = React.useState(false);
   const [awaitingAssistantTurn, setAwaitingAssistantTurn] = React.useState(false);
   const [expandedActivities, setExpandedActivities] = React.useState<Set<string>>(new Set());
+  const [sentMessageScrollRequest, setSentMessageScrollRequest] = React.useState(0);
   const startingConversationRef = React.useRef(false);
   const latestTranscriptLoadedConversationRef = React.useRef<string | null>(null);
   const latestTranscriptRetryBlockedConversationRef = React.useRef<string | null>(null);
@@ -556,6 +557,7 @@ export function App() {
     setPending(true);
     setAwaitingAssistantTurn(false);
     setAgentStatus("INPUT_RECEIVED");
+    setSentMessageScrollRequest((current) => current + 1);
     setTranscriptWindow((current) => appendOptimisticEntry(current, { id: clientMessageId, type: "user", text: input }));
 
     try {
@@ -587,6 +589,7 @@ export function App() {
       agentStatus={agentStatus}
       awaitingAssistantTurn={awaitingAssistantTurn}
       expandedActivities={expandedActivities}
+      sentMessageScrollRequest={sentMessageScrollRequest}
       draft={draft}
       ready={ready}
       agentName={agentName}

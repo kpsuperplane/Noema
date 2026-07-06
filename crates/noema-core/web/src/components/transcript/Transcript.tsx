@@ -42,6 +42,7 @@ export function Transcript({
   awaitingAssistantTurn,
   agentStatus,
   expandedActivities,
+  sentMessageScrollRequest,
   onToggleActivity,
   onLoadOlderTranscript
 }: {
@@ -53,6 +54,7 @@ export function Transcript({
   awaitingAssistantTurn: boolean;
   agentStatus: ConversationAgentStatus;
   expandedActivities: Set<string>;
+  sentMessageScrollRequest: number;
   onToggleActivity: (id: string) => void;
   onLoadOlderTranscript: () => void;
 }) {
@@ -160,8 +162,35 @@ export function Transcript({
         followBottomRef={followBottomRef}
         scrollKey={scrollKey}
       />
+      <SentMessageBottomFollower
+        followBottomRef={followBottomRef}
+        sentMessageScrollRequest={sentMessageScrollRequest}
+      />
     </TranscriptScrollerProvider>
   );
+}
+
+function SentMessageBottomFollower({
+  followBottomRef,
+  sentMessageScrollRequest
+}: {
+  followBottomRef: React.MutableRefObject<boolean>;
+  sentMessageScrollRequest: number;
+}) {
+  const { scrollToEnd } = useTranscriptScroller();
+  const completedScrollRequestRef = React.useRef(0);
+
+  React.useLayoutEffect(() => {
+    if (sentMessageScrollRequest <= completedScrollRequestRef.current) {
+      return;
+    }
+
+    completedScrollRequestRef.current = sentMessageScrollRequest;
+    followBottomRef.current = true;
+    scrollToEnd({ behavior: "auto" });
+  }, [followBottomRef, scrollToEnd, sentMessageScrollRequest]);
+
+  return null;
 }
 
 function transcriptLane(entry: RenderTranscriptEntry) {
