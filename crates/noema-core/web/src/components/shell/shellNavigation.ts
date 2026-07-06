@@ -4,6 +4,7 @@ import {
   Brain,
   CheckSquare,
   Fingerprint,
+  Gauge,
   Globe,
   House,
   PlugZap,
@@ -22,6 +23,7 @@ export type ShellMenuItemId =
   | "settings.agents"
   | "settings.tools.web"
   | "settings.tools.mcps"
+  | "settings.safety.usage"
   | "settings.safety.approvals"
   | "settings.safety.identities"
   | "settings.system.providers"
@@ -89,6 +91,15 @@ export const shellSettingsEntries: ShellSettingsEntry[] = [
     item: { section: "tools-mcps", itemId: "settings.tools.mcps", label: "MCPs", icon: PlugZap }
   },
   { kind: "group", label: "Safety" },
+  {
+    kind: "section",
+    item: {
+      section: "safety-usage",
+      itemId: "settings.safety.usage",
+      label: "Usage",
+      icon: Gauge
+    }
+  },
   {
     kind: "section",
     item: {

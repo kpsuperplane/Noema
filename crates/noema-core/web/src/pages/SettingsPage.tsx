@@ -3,6 +3,7 @@ import { ApprovalsSettingsPane } from "@/components/settings/ApprovalsSettingsPa
 import { McpSettingsPane } from "@/components/settings/McpSettingsPane";
 import { ProvidersSettingsPane } from "@/components/settings/ProvidersSettingsPane";
 import { TrustedIdentitiesSettingsPane } from "@/components/settings/TrustedIdentitiesSettingsPane";
+import { UsageSettingsPane } from "@/components/settings/UsageSettingsPane";
 import { WebSettingsPane } from "@/components/settings/WebSettingsPane";
 import type { SettingsSection } from "@/app/routes";
 import * as stylex from "@stylexjs/stylex";
@@ -23,6 +24,10 @@ const settingsSectionCopy: Record<SettingsSection, { title: string; description:
   "tools-mcps": {
     title: "MCPs",
     description: "Review third-party MCP servers mediated by the Noema capability gateway."
+  },
+  "safety-usage": {
+    title: "Usage",
+    description: "Review runtime usage limits and model-assisted progress checks."
   },
   "safety-approvals": {
     title: "Approvals",
@@ -71,6 +76,8 @@ function SettingsSectionPane({ section }: { section: SettingsSection }) {
       return <WebSettingsPane />;
     case "tools-mcps":
       return <McpSettingsPane />;
+    case "safety-usage":
+      return <UsageSettingsPane />;
     case "safety-approvals":
       return <ApprovalsSettingsPane />;
     case "safety-identities":

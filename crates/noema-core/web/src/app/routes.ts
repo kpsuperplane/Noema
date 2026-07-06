@@ -4,6 +4,7 @@ export type SettingsSection =
   | "agents"
   | "tools-web"
   | "tools-mcps"
+  | "safety-usage"
   | "safety-approvals"
   | "safety-identities"
   | "system-providers";
@@ -32,6 +33,9 @@ export function routeFromPathname(pathname: string): AppRoute {
   if (pathname === "/settings/tools/mcps") {
     return { kind: "settings", section: "tools-mcps" };
   }
+  if (pathname === "/settings/safety/usage") {
+    return { kind: "settings", section: "safety-usage" };
+  }
   if (pathname === "/settings/safety/approvals") {
     return { kind: "settings", section: "safety-approvals" };
   }
@@ -59,6 +63,8 @@ export function pathForRoute(route: AppRoute): string {
         return "/settings/tools/web";
       case "tools-mcps":
         return "/settings/tools/mcps";
+      case "safety-usage":
+        return "/settings/safety/usage";
       case "safety-approvals":
         return "/settings/safety/approvals";
       case "safety-identities":
