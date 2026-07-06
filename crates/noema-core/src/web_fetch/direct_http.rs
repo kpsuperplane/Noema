@@ -12,7 +12,12 @@ use crate::web_fetch::{
 use futures_util::StreamExt;
 use reqwest::{Client, StatusCode, header};
 #[cfg(test)]
-use url::Url;
+use std::net::SocketAddr;
+use std::time::Duration;
+#[cfg(not(test))]
+use url::Host;
+#[cfg(test)]
+use url::{Host, Url};
 
 const MAX_REDIRECTS: usize = 3;
 const MAX_RESPONSE_BYTES: usize = 750 * 1024;
@@ -20,17 +25,27 @@ const USER_AGENT: &str = "NoemaWebFetch/0.1 (+https://github.com/kpsuperplane/No
 
 #[derive(Debug, Clone)]
 pub struct DirectHttpClient {
-    client: Client,
+    request_timeout: Duration,
 }
 
 impl Default for DirectHttpClient {
     fn default() -> Self {
         Self {
-            client: Client::builder()
-                .redirect(reqwest::redirect::Policy::none())
-                .build()
-                .expect("direct web fetch client"),
+            request_timeout: Duration::from_secs(30),
         }
+    }
+}
+
+impl DirectHttpClient {
+    fn client_for_checked_url(&self, checked: &CheckedUrl) -> Result<Client, FetchError> {
+        let mut builder = Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .connect_timeout(self.request_timeout);
+        if matches!(checked.url.host(), Some(Host::Domain(_))) {
+            let host = checked.url.host_str().ok_or(FetchError::MalformedUrl)?;
+            builder = builder.resolve_to_addrs(host, &checked.resolved_addrs);
+        }
+        builder.build().map_err(|_| FetchError::Http)
     }
 }
 
@@ -50,7 +65,21 @@ async fn fetch_direct_http_unchecked_initial_url(
     context: &FetchRuntimeContext,
 ) -> Result<FetchResponse, FetchError> {
     let url = Url::parse(&request.url).map_err(|_| FetchError::MalformedUrl)?;
-    let checked = CheckedUrl { url };
+    let port = url
+        .port_or_known_default()
+        .ok_or(FetchError::MalformedUrl)?;
+    let ip = url
+        .host()
+        .and_then(|host| match host {
+            Host::Ipv4(ip) => Some(ip.into()),
+            Host::Ipv6(ip) => Some(ip.into()),
+            Host::Domain(host) => host.parse().ok(),
+        })
+        .ok_or(FetchError::MalformedUrl)?;
+    let checked = CheckedUrl {
+        url,
+        resolved_addrs: vec![SocketAddr::new(ip, port)],
+    };
     fetch_direct_http_checked(client, request, context, checked).await
 }
 
@@ -63,8 +92,8 @@ async fn fetch_direct_http_checked(
     let original_url = checked.url.to_string();
 
     for redirect_count in 0..=MAX_REDIRECTS {
-        let response = client
-            .client
+        let request_client = client.client_for_checked_url(&checked)?;
+        let response = request_client
             .get(checked.url.clone())
             .header(header::USER_AGENT, USER_AGENT)
             .header(
@@ -72,7 +101,7 @@ async fn fetch_direct_http_checked(
                 "text/html,text/plain,text/markdown;q=0.9,*/*;q=0.1",
             )
             .header(header::ACCEPT_LANGUAGE, "en-US,en;q=0.9")
-            .timeout(std::time::Duration::from_secs(30))
+            .timeout(client.request_timeout)
             .send()
             .await
             .map_err(map_reqwest_error)?;
@@ -296,6 +325,37 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn direct_http_client_pins_domain_requests_to_checked_addresses() {
+        let body = "<html><head><title>Pinned</title></head><body><article><h1>Pinned DNS</h1><p>Fetched through the pre-vetted socket address.</p></article></body></html>";
+        let addr = serve_once_addr(&format!(
+            "HTTP/1.1 200 OK\r\ncontent-type: text/html\r\ncontent-length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        ))
+        .await;
+        let request = FetchRequest {
+            url: format!("http://example.com:{}/", addr.port()),
+            reason: None,
+            max_chars: 20_000,
+        };
+        let checked = CheckedUrl {
+            url: Url::parse(&request.url).expect("url"),
+            resolved_addrs: vec![addr],
+        };
+        let response = fetch_direct_http_checked(
+            &DirectHttpClient::default(),
+            &request,
+            &test_context(),
+            checked,
+        )
+        .await
+        .expect("fetch through pinned address");
+
+        assert_eq!(response.title.as_deref(), Some("Pinned"));
+        assert_eq!(response.final_url, request.url);
+    }
+
+    #[tokio::test]
     async fn rejects_response_body_over_byte_cap() {
         let body = "x".repeat(MAX_RESPONSE_BYTES + 1);
         let url = serve_once(&format!(
@@ -385,6 +445,11 @@ mod tests {
     }
 
     async fn serve_once(response: &str) -> String {
+        let addr = serve_once_addr(response).await;
+        format!("http://{addr}/")
+    }
+
+    async fn serve_once_addr(response: &str) -> SocketAddr {
         let response = response.to_string();
         let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
         let addr = listener.local_addr().expect("addr");
@@ -394,7 +459,7 @@ mod tests {
             let _ = stream.read(&mut buffer).await;
             stream.write_all(response.as_bytes()).await.expect("write");
         });
-        format!("http://{addr}/")
+        addr
     }
 
     fn test_context() -> FetchRuntimeContext {

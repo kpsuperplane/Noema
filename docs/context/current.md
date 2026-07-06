@@ -88,6 +88,15 @@ The next storage slice should stay small and concrete:
   MCP: the only initial provider is a Rust-only best-effort DuckDuckGo public
   adapter, model-proposed queries are visible in normal chat markers, and
   results return as normalized search metadata without fetching pages.
+- The first web-fetch slice is a first-party `web.fetch` native tool, not an
+  MCP: the initial provider directly fetches public HTTP(S) pages with strict
+  URL/redirect/private-address policy checks, extracts readable article content
+  through `readabilityrs` markdown output, summarizes large pages through a
+  configurable auxiliary model preference, and shows compact normal chat
+  markers. The summarizer defaults to the Codex/OpenAI tool-classification
+  default model (`gpt-5.4-mini`) when no web UI preference is saved. End-to-end
+  verification covered the running local agent at `:3737` calling `web.fetch`
+  against `https://www.rust-lang.org/`.
 - Derived search/vector indexes are rebuildable projections.
 - Graph or fuzzy retrieval can suggest candidates, but policy gates inclusion.
 - Pre-stable schema changes do not need migrations or backwards compatibility unless explicitly requested.

@@ -1,4 +1,5 @@
 use crate::provider::{GenerateActionItem, GenerateToolCall};
+use crate::web_fetch::tool::{WEB_FETCH_TOOL, sanitize_web_fetch_payload_for_storage};
 use serde_json::Value;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -21,7 +22,11 @@ pub(super) fn local_tool_calls(tool_calls: &[GenerateToolCall]) -> Vec<LocalTool
             provider_call_id: call.provider_call_id.clone(),
             provider_name: call.provider_name.clone(),
             name: call.name.clone(),
-            payload: call.payload.clone(),
+            payload: if call.name == WEB_FETCH_TOOL {
+                sanitize_web_fetch_payload_for_storage(&call.payload)
+            } else {
+                call.payload.clone()
+            },
         })
         .collect()
 }
@@ -80,5 +85,27 @@ mod tests {
             Some("provider_search_memory")
         );
         assert_eq!(calls[1].name, "mcp.web.search");
+    }
+
+    #[test]
+    fn local_tool_calls_redact_sensitive_web_fetch_urls_before_persistence() {
+        let tool_calls = vec![GenerateToolCall {
+            id: Some("call_1".to_string()),
+            provider_call_id: Some("provider_call_1".to_string()),
+            provider_name: Some("provider_web_fetch".to_string()),
+            name: WEB_FETCH_TOOL.to_string(),
+            payload: json!({
+                "url": "https://user:secret@example.com/private#fragment",
+                "reason": "read"
+            }),
+        }];
+
+        let calls = local_tool_calls(&tool_calls);
+
+        assert_eq!(
+            calls[0].payload["url"],
+            crate::web_fetch::tool::REDACTED_SENSITIVE_WEB_FETCH_URL
+        );
+        assert_eq!(calls[0].payload["__noema_rejected_sensitive_url"], true);
     }
 }

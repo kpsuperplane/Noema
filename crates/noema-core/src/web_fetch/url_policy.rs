@@ -1,12 +1,13 @@
 //! Public web-fetch URL policy.
 
 use crate::web_fetch::types::FetchError;
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, ToSocketAddrs};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, ToSocketAddrs};
 use url::{Host, Url};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CheckedUrl {
     pub url: Url,
+    pub resolved_addrs: Vec<SocketAddr>,
 }
 
 pub async fn validate_public_web_fetch_url(raw_url: &str) -> Result<CheckedUrl, FetchError> {
@@ -18,13 +19,22 @@ pub async fn validate_public_web_fetch_url_parsed(url: Url) -> Result<CheckedUrl
     if !matches!(url.scheme(), "http" | "https") {
         return Err(FetchError::UnsupportedScheme);
     }
+    if url_has_sensitive_components(&url) {
+        return Err(FetchError::BlockedTarget);
+    }
+    let port = url
+        .port_or_known_default()
+        .ok_or(FetchError::MalformedUrl)?;
     if let Some(host) = url.host()
         && let Some(ip) = ip_from_url_host(host)
     {
         if !is_public_ip(ip) {
             return Err(FetchError::BlockedTarget);
         }
-        return Ok(CheckedUrl { url });
+        return Ok(CheckedUrl {
+            url,
+            resolved_addrs: vec![SocketAddr::new(ip, port)],
+        });
     }
     let host = url.host_str().ok_or(FetchError::MalformedUrl)?;
     if is_blocked_hostname(host) || is_alternate_ipv4_literal(host).is_some() {
@@ -34,29 +44,37 @@ pub async fn validate_public_web_fetch_url_parsed(url: Url) -> Result<CheckedUrl
         if !is_public_ip(ip) {
             return Err(FetchError::BlockedTarget);
         }
-        return Ok(CheckedUrl { url });
+        return Ok(CheckedUrl {
+            url,
+            resolved_addrs: vec![SocketAddr::new(ip, port)],
+        });
     }
 
     let lookup_host = host.to_string();
-    let port = url
-        .port_or_known_default()
-        .ok_or(FetchError::MalformedUrl)?;
-    let resolved_ips = tokio::task::spawn_blocking(move || {
+    let resolved_addrs = tokio::task::spawn_blocking(move || {
         (lookup_host.as_str(), port)
             .to_socket_addrs()
-            .map(|addrs| addrs.map(|addr| addr.ip()).collect::<Vec<_>>())
+            .map(|addrs| addrs.collect::<Vec<_>>())
     })
     .await
     .map_err(|_| FetchError::Dns)?
     .map_err(|_| FetchError::Dns)?;
 
-    if resolved_ips.is_empty() {
+    if resolved_addrs.is_empty() {
         return Err(FetchError::Dns);
     }
-    if resolved_ips.iter().any(|ip| !is_public_ip(*ip)) {
+    if resolved_addrs.iter().any(|addr| !is_public_ip(addr.ip())) {
         return Err(FetchError::BlockedTarget);
     }
-    Ok(CheckedUrl { url })
+    Ok(CheckedUrl {
+        url,
+        resolved_addrs,
+    })
+}
+
+#[must_use]
+pub fn url_has_sensitive_components(url: &Url) -> bool {
+    !url.username().is_empty() || url.password().is_some() || url.fragment().is_some()
 }
 
 #[must_use]
@@ -80,14 +98,18 @@ pub fn is_public_ip(ip: IpAddr) -> bool {
 }
 
 fn is_public_ipv4(ip: Ipv4Addr) -> bool {
+    let [a, b, _, _] = ip.octets();
     !(ip.is_private()
         || ip.is_loopback()
         || ip.is_link_local()
         || ip.is_broadcast()
         || ip.is_documentation()
         || ip.is_unspecified()
-        || ip.octets()[0] == 100 && (64..=127).contains(&ip.octets()[1])
-        || ip.octets()[0] >= 224)
+        || a == 0
+        || a == 100 && (64..=127).contains(&b)
+        || a == 192 && b == 0
+        || a == 198 && matches!(b, 18 | 19)
+        || a >= 224)
 }
 
 fn is_public_ipv6(ip: Ipv6Addr) -> bool {
@@ -98,6 +120,7 @@ fn is_public_ipv6(ip: Ipv6Addr) -> bool {
         || ip.is_unspecified()
         || ip.is_unique_local()
         || ip.is_unicast_link_local()
+        || ip.is_multicast()
         || is_ipv6_documentation(ip)
     {
         return false;
@@ -137,6 +160,7 @@ mod tests {
 
         assert_eq!(checked.url.scheme(), "https");
         assert_eq!(checked.url.host_str(), Some("www.rust-lang.org"));
+        assert!(!checked.resolved_addrs.is_empty());
     }
 
     #[tokio::test]
@@ -166,6 +190,9 @@ mod tests {
             "http://192.168.1.1/",
             "http://169.254.169.254/",
             "http://0.0.0.0/",
+            "http://0.1.2.3/",
+            "http://198.18.0.1/",
+            "http://198.19.255.255/",
         ] {
             let error = validate_public_web_fetch_url(url).await.expect_err(url);
             assert!(matches!(error, FetchError::BlockedTarget), "{url}: {error}");
@@ -183,6 +210,7 @@ mod tests {
             "http://[::ffff:127.0.0.1]/",
             "http://[::ffff:169.254.169.254]/",
             "http://[::ffff:10.0.0.1]/",
+            "http://[ff02::1]/",
         ] {
             let error = validate_public_web_fetch_url(url).await.expect_err(url);
             assert!(matches!(error, FetchError::BlockedTarget), "{url}: {error}");
@@ -196,5 +224,16 @@ mod tests {
             .expect_err("alternate IPv4 rejected");
 
         assert!(matches!(error, FetchError::BlockedTarget | FetchError::Dns));
+    }
+
+    #[tokio::test]
+    async fn rejects_credentials_and_fragments() {
+        for url in [
+            "https://user:secret@example.com/",
+            "https://example.com/path#secret",
+        ] {
+            let error = validate_public_web_fetch_url(url).await.expect_err(url);
+            assert!(matches!(error, FetchError::BlockedTarget), "{url}: {error}");
+        }
     }
 }

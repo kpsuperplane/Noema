@@ -806,7 +806,8 @@ fn tool_call_display(name: &str, payload: &Value) -> Value {
             .get("url")
             .and_then(Value::as_str)
             .map(str::trim)
-            .filter(|value| !value.is_empty());
+            .filter(|value| !value.is_empty())
+            .map(crate::web_fetch::tool::sanitized_web_fetch_display_url);
         insert_display_value(
             &mut display,
             "target",
@@ -1162,6 +1163,22 @@ mod tests {
             "Fetched web page: https://example.com/page"
         );
         assert_eq!(display["purpose"], "read public documentation");
+    }
+
+    #[test]
+    fn web_fetch_tool_call_display_redacts_sensitive_url_components() {
+        let display = tool_call_display(
+            "web.fetch",
+            &json!({
+                "url": "https://user:secret@example.com/page#token",
+                "reason": "read public documentation"
+            }),
+        );
+
+        assert_eq!(
+            display["target"],
+            "Fetched web page: [redacted sensitive web.fetch URL]"
+        );
     }
 
     #[test]

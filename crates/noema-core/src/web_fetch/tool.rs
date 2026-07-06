@@ -9,8 +9,10 @@ use crate::{
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
+use url::Url;
 
 pub const WEB_FETCH_TOOL: &str = "web.fetch";
+pub const REDACTED_SENSITIVE_WEB_FETCH_URL: &str = "[redacted sensitive web.fetch URL]";
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -20,6 +22,8 @@ struct WebFetchArguments {
     reason: Option<String>,
     #[serde(default)]
     max_chars: Option<usize>,
+    #[serde(default, rename = "__noema_rejected_sensitive_url")]
+    rejected_sensitive_url: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -108,6 +112,11 @@ pub fn parse_web_fetch_arguments(payload: &Value) -> Result<FetchRequest, FetchE
     };
     let mut arguments: WebFetchArguments = serde_json::from_value(argument_value)
         .map_err(|error| FetchError::InvalidArguments(format!("invalid arguments: {error}")))?;
+    if arguments.rejected_sensitive_url {
+        return Err(FetchError::InvalidArguments(
+            "url must not include credentials or fragments".to_string(),
+        ));
+    }
 
     arguments.url = arguments.url.trim().to_string();
     if arguments.url.is_empty() {
@@ -139,6 +148,61 @@ pub fn parse_web_fetch_arguments(payload: &Value) -> Result<FetchRequest, FetchE
             .unwrap_or(DEFAULT_MAX_CHARS)
             .clamp(1000, HARD_MAX_CHARS),
     })
+}
+
+#[must_use]
+pub fn sanitize_web_fetch_payload_for_storage(payload: &Value) -> Value {
+    sanitize_web_fetch_url_field(payload)
+}
+
+#[must_use]
+pub fn sanitized_web_fetch_display_url(raw_url: &str) -> String {
+    let trimmed = raw_url.trim();
+    if trimmed == REDACTED_SENSITIVE_WEB_FETCH_URL {
+        return REDACTED_SENSITIVE_WEB_FETCH_URL.to_string();
+    }
+    let Ok(url) = Url::parse(trimmed) else {
+        return trimmed.to_string();
+    };
+    if crate::web_fetch::url_policy::url_has_sensitive_components(&url) {
+        return REDACTED_SENSITIVE_WEB_FETCH_URL.to_string();
+    }
+    trimmed.to_string()
+}
+
+fn sanitize_web_fetch_url_field(payload: &Value) -> Value {
+    let mut sanitized = payload.clone();
+    if let Some(object) = sanitized.as_object_mut() {
+        if let Some(arguments) = object.get_mut("arguments") {
+            sanitize_web_fetch_url_field_in_object(arguments);
+        } else {
+            sanitize_web_fetch_url_field_in_object(&mut sanitized);
+        }
+    }
+    sanitized
+}
+
+fn sanitize_web_fetch_url_field_in_object(value: &mut Value) {
+    let Some(object) = value.as_object_mut() else {
+        return;
+    };
+    let Some(url_value) = object.get_mut("url") else {
+        return;
+    };
+    let Some(url) = url_value.as_str() else {
+        return;
+    };
+    let Ok(parsed) = Url::parse(url.trim()) else {
+        return;
+    };
+    if !crate::web_fetch::url_policy::url_has_sensitive_components(&parsed) {
+        return;
+    }
+    *url_value = Value::String(REDACTED_SENSITIVE_WEB_FETCH_URL.to_string());
+    object.insert(
+        "__noema_rejected_sensitive_url".to_string(),
+        Value::Bool(true),
+    );
 }
 
 fn reject_nested_outer_fields(payload: &Value) -> Result<(), FetchError> {
@@ -231,6 +295,51 @@ mod tests {
             parse_web_fetch_arguments(&json!({"url": "   "})).expect_err("empty URL rejected");
 
         assert_eq!(safe_error_message(&error), "url is required");
+    }
+
+    #[test]
+    fn rejects_sanitized_sensitive_url_marker() {
+        let error = parse_web_fetch_arguments(&json!({
+            "url": REDACTED_SENSITIVE_WEB_FETCH_URL,
+            "__noema_rejected_sensitive_url": true
+        }))
+        .expect_err("sensitive URL rejected");
+
+        assert_eq!(
+            safe_error_message(&error),
+            "url must not include credentials or fragments"
+        );
+    }
+
+    #[test]
+    fn redacts_sensitive_url_components_for_storage() {
+        let sanitized = sanitize_web_fetch_payload_for_storage(&json!({
+            "arguments": {
+                "url": "https://user:secret@example.com/path#token",
+                "reason": "read"
+            }
+        }));
+
+        assert_eq!(
+            sanitized["arguments"]["url"],
+            REDACTED_SENSITIVE_WEB_FETCH_URL
+        );
+        assert_eq!(
+            sanitized["arguments"]["__noema_rejected_sensitive_url"],
+            true
+        );
+    }
+
+    #[test]
+    fn display_url_redacts_sensitive_components() {
+        assert_eq!(
+            sanitized_web_fetch_display_url("https://example.com/path#token"),
+            REDACTED_SENSITIVE_WEB_FETCH_URL
+        );
+        assert_eq!(
+            sanitized_web_fetch_display_url("https://example.com/path"),
+            "https://example.com/path"
+        );
     }
 
     #[test]
