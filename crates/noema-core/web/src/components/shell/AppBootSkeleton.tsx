@@ -145,6 +145,7 @@ const styles = stylex.create({
       default: "min(860px, calc(100% - 48px))",
       "@media (max-width: 760px)": "calc(100% - 40px)"
     },
+    "--chat-composer-dock-height": "96px",
     position: "relative",
     display: "grid",
     minHeight: 0,
@@ -156,8 +157,10 @@ const styles = stylex.create({
     bottom: 0,
     left: 0,
     display: "grid",
+    height: "var(--chat-composer-dock-height)",
+    alignItems: "end",
     justifyItems: "center",
-    padding: "24px 24px 22px",
+    padding: "18px 24px 22px",
     background:
       "linear-gradient(to bottom, rgb(255 255 255 / 0), rgb(255 255 255 / 0.74) 42px, var(--background) 96px)"
   },
