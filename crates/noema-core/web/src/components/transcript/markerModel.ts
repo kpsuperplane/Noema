@@ -274,12 +274,11 @@ function isSuccessfulCanonicalToolResult(metadata: unknown, toolName: string): b
   if (!isRecord(metadata) || !isRecord(metadata.action)) {
     return false;
   }
-  return canonicalToolNameFromMetadata(metadata) === toolName && metadata.action.success === true;
+  return actionToolNameFromMetadata(metadata) === toolName && metadata.action.success === true;
 }
 
 export function toolMarkerTarget(marker: ToolMarkerGroup): string | undefined {
-  const toolName = canonicalToolNameFromMetadata(marker.call?.item.metadata) ?? canonicalToolNameFromMetadata(marker.result?.item.metadata);
-  if (toolName === "web.search" || toolName === "web.fetch") {
+  if (isSuccessfulWebSearchMarker(marker) || isSuccessfulWebFetchMarker(marker)) {
     return (
       usefulToolDisplayString(marker.call?.item.metadata, "target") ??
       usefulToolDisplayString(marker.result?.item.metadata, "result") ??
@@ -293,22 +292,12 @@ export function toolMarkerTarget(marker: ToolMarkerGroup): string | undefined {
   );
 }
 
-function canonicalToolNameFromMetadata(metadata: unknown): string | null {
-  if (!isRecord(metadata)) {
+function actionToolNameFromMetadata(metadata: unknown): string | null {
+  if (!isRecord(metadata) || !isRecord(metadata.action)) {
     return null;
   }
 
-  const action = metadata.action;
-  if (isRecord(action) && typeof action.name === "string" && action.name.trim()) {
-    return action.name.trim();
-  }
-  if (typeof metadata.name === "string" && metadata.name.trim()) {
-    return metadata.name.trim();
-  }
-  if (typeof metadata.tool_name === "string" && metadata.tool_name.trim()) {
-    return metadata.tool_name.trim();
-  }
-  return null;
+  return typeof metadata.action.name === "string" && metadata.action.name.trim() ? metadata.action.name.trim() : null;
 }
 
 function displayToolMetadataPreview(display: Record<string, unknown> | null): string[] {

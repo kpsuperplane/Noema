@@ -397,6 +397,7 @@ describe("toolDetailRows", () => {
     };
 
     assert.equal(toolMarkerExpandable(marker), true);
+    assert.equal(toolMarkerTarget(marker), "Failed: web fetch request failed");
     assert.deepEqual(toolDetailRows(marker), [
       { label: "URL", value: "https://example.com/page" },
       { label: "Error", value: "web fetch request failed" }
@@ -461,6 +462,66 @@ describe("toolDetailRows", () => {
     assert.deepEqual(toolDetailRows(marker), [
       { label: "Query", value: "Kevin" },
       { label: "Output", value: "Found Kevin's contact." }
+    ]);
+  });
+
+  test("does not compact markers with top-level web fetch name but no action name", () => {
+    const marker: ToolMarkerGroup = {
+      id: "tool_call:top-level-fetch-name",
+      call: {
+        id: "call-entry",
+        type: "activity",
+        item: {
+          kind: "activity",
+          id: "activity:top-level-fetch-name-call",
+          activity_kind: "tool_call",
+          status: "COMPLETED",
+          title: "Tool call",
+          summary: "Fetched web page: https://example.com/page",
+          metadata: {
+            name: "web.fetch",
+            action: {
+              payload: { url: "https://example.com/page" }
+            },
+            display: {
+              name: "Fetch web",
+              target: "Fetched web page: https://example.com/page"
+            }
+          }
+        }
+      },
+      result: {
+        id: "result-entry",
+        type: "activity",
+        item: {
+          kind: "activity",
+          id: "activity:top-level-fetch-name-result",
+          activity_kind: "tool_result",
+          status: "COMPLETED",
+          title: "Tool result",
+          summary: "Fetched 42 chars",
+          metadata: {
+            name: "web.fetch",
+            action: {
+              success: true,
+              payload: {
+                content: [{ type: "text", text: "Fetched body preview." }]
+              }
+            },
+            display: {
+              name: "Fetch web",
+              result: "Fetched 42 chars"
+            }
+          }
+        }
+      }
+    };
+
+    assert.equal(toolMarkerTarget(marker), "Fetched 42 chars");
+    assert.equal(toolMarkerExpandable(marker), true);
+    assert.deepEqual(toolDetailRows(marker), [
+      { label: "URL", value: "https://example.com/page" },
+      { label: "Output", value: "Fetched body preview." }
     ]);
   });
 
