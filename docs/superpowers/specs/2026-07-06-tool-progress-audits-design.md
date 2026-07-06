@@ -183,9 +183,9 @@ Allowed `confidence` values:
 - `medium`
 - `high`
 
-Invalid audit output is treated as audit unavailable. The runtime then falls
-back to deterministic guardrails and records the parse failure in system
-diagnostics.
+Invalid audit output is treated as audit execution failure. The runtime records
+the parse failure in system diagnostics, makes one no-tools finalization
+attempt, and falls back to the latest progress summary if finalization fails.
 
 ## Runtime Decisions
 
@@ -199,7 +199,10 @@ At each continuation boundary:
 6. Run the auxiliary audit model when available.
 7. Apply the audit decision.
 8. Continue, finalize, ask the human, or checkpoint.
-9. Stop gracefully at the hard ceiling with the latest progress summary.
+9. If the hard ceiling is reached or the audit execution fails, make one
+   no-tools finalization attempt so the agent can deliver a coherent final
+   message to the user.
+10. Stop gracefully if finalization fails, using the latest progress summary.
 
 Decision behavior:
 
@@ -210,7 +213,10 @@ Decision behavior:
 - `checkpoint`: persist a visible pause summary. Until durable run checkpoints
   exist, this is a graceful stop with enough context for a follow-up user turn.
 
-The runtime should not allow the audit model to override hard safety stops.
+Hard-ceiling and audit-failure finalization must disable provider tool use. The
+agent gets one opportunity to explain what it accomplished, what remains, and
+whether the user should continue in a new turn. The runtime should not allow the
+audit model or the finalization attempt to override hard safety stops.
 
 ## Transcript Markers
 
@@ -248,10 +254,14 @@ Graceful outcomes:
 
 - repeated identical calls: stop with a concise loop explanation
 - repeated failures: stop with the failing tool category and next useful action
-- audit unavailable: continue only while deterministic guardrails remain healthy
-- hard ceiling reached: stop with the latest progress summary and say the turn
-  was paused to avoid an unbounded tool loop
-- provider audit failure: log diagnostics and use deterministic fallback
+- audit unavailable before execution, such as no usable configured model:
+  continue only while deterministic guardrails remain healthy
+- audit execution failure: give the agent one no-tools finalization attempt,
+  then stop with the latest progress summary if that attempt fails
+- hard ceiling reached: give the agent one no-tools finalization attempt, then
+  stop with the latest progress summary if that attempt fails
+- provider audit failure details: log diagnostics and keep raw errors out of
+  the default transcript
 
 Raw provider and MCP diagnostics should continue to live in system diagnostics,
 not default chat transcript text.
@@ -286,9 +296,13 @@ Unit and focused integration tests should cover:
 - unavailable audit model falls back to deterministic guardrails
 - progress digest stays within the configured size budget and excludes raw tool
   payloads
-- invalid audit JSON is handled as audit unavailable
+- invalid audit JSON is handled as audit execution failure
 - `continue`, `finalize`, `ask_human`, and `checkpoint` map to the expected
   runtime behavior
+- hard ceiling triggers exactly one no-tools finalization attempt before the
+  graceful stop path
+- audit execution failure triggers exactly one no-tools finalization attempt
+  before the graceful stop path
 - progress-check transcript markers are emitted and updated
 
 ## Open Implementation Notes
