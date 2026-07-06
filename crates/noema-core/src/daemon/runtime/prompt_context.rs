@@ -300,7 +300,7 @@ fn provider_function_call_item_id(action: &Value) -> Option<String> {
 fn render_prompt_context(summary: Option<&ConversationContextSummaryRecord>) -> Option<String> {
     summary.map(|summary| {
         format!(
-            "Compacted conversation context:\n{}\n\nRecent transcript after compacted checkpoint: sent as role-tagged provider input messages",
+            "Compacted conversation context:\n{}\n\nRecent transcript after this compacted checkpoint follows in subsequent messages.",
             summary.summary_text
         )
     })

@@ -540,6 +540,77 @@ async fn prompt_context_uses_active_summary_and_post_checkpoint_items() {
 }
 
 #[tokio::test]
+async fn compacted_summary_is_replayed_as_input_checkpoint_not_instruction_text() {
+    let store = crate::store::tests::test_store().await;
+    store.ensure_default_actors().await.expect("actors");
+    let provider = Arc::new(MetadataCapturingProvider::default());
+    let runtime = CodexRuntimeHandle::spawn_with_provider_kind(
+        provider.clone(),
+        store.clone(),
+        "foundation_local",
+    )
+    .await
+    .expect("runtime");
+    let started = runtime
+        .start_conversation(None)
+        .await
+        .expect("conversation");
+
+    append_test_text_item(&store, &started.conversation_id, "covered user").await;
+    append_test_text_item(&store, &started.conversation_id, "covered assistant").await;
+    store
+        .insert_conversation_context_summary(crate::NewConversationContextSummary {
+            conversation_id: started.conversation_id.clone(),
+            provider_kind: "foundation_local".to_string(),
+            model_profile: None,
+            summary_text: "Summary: compacted checkpoint facts.".to_string(),
+            covered_item_start_sequence: 1,
+            covered_item_end_sequence: 2,
+            source_item_ids: vec!["item:1".to_string(), "item:2".to_string()],
+            input_token_estimate: 400,
+            summary_token_estimate: 16,
+            compaction_provider_kind: "foundation_local".to_string(),
+            compaction_model_profile: None,
+            status: crate::ConversationContextSummaryStatus::Active,
+            error_code: None,
+            error_message: None,
+        })
+        .await
+        .expect("summary");
+    append_test_text_item(&store, &started.conversation_id, "post checkpoint user").await;
+
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    runtime
+        .turn(started.conversation_id, "current turn".to_string(), tx)
+        .await
+        .expect("turn");
+    while rx.recv().await.is_some() {}
+    runtime.shutdown().await;
+
+    let requests = provider.requests.lock().expect("requests");
+    let request = requests
+        .iter()
+        .find(|request| request.options.require_noema_response)
+        .expect("agent request");
+    let instructions = request.instructions.as_deref().expect("instructions");
+    assert!(!instructions.contains("compacted checkpoint facts"));
+    let input_texts = input_message_texts(&request.input);
+    assert_eq!(
+        input_texts.first().map(String::as_str),
+        Some(
+            "Compacted conversation context:\nSummary: compacted checkpoint facts.\n\nRecent transcript after this compacted checkpoint follows in subsequent messages."
+        )
+    );
+    assert!(
+        input_texts
+            .iter()
+            .any(|text| text == "post checkpoint user")
+    );
+    assert!(input_texts.iter().any(|text| text == "current turn"));
+    assert!(!input_texts.iter().any(|text| text == "covered user"));
+}
+
+#[tokio::test]
 async fn prompt_context_keeps_all_post_checkpoint_items_for_budgeting() {
     let store = crate::store::tests::test_store().await;
     store.ensure_default_actors().await.expect("actors");
