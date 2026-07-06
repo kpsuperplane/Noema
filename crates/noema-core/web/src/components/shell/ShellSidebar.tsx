@@ -172,17 +172,21 @@ function ShellSidebarNav({
     >
       <ShellSidebarHeader attention={visibleAttention} />
       <div {...stylex.props(styles.sideNavBody)}>
-        {menuLevel.items.map((item) => (
-          <ShellSidebarNavItem
-            key={item.itemId}
-            item={item}
-            active={item.itemId === menuLevel.activeItemId}
-            primaryAgentNamed={primaryAgentNamed}
-            primaryAgentLabel={primaryAgentLabel}
-            interactive={interactive}
-            onSelectItem={onSelectItem}
-          />
-        ))}
+        {menuLevel.items.map((entry) =>
+          entry.kind === "group" ? (
+            <ShellSidebarGroupLabel key={`group-${entry.label}`} label={entry.label} />
+          ) : (
+            <ShellSidebarNavItem
+              key={entry.item.itemId}
+              item={entry.item}
+              active={entry.item.itemId === menuLevel.activeItemId}
+              primaryAgentNamed={primaryAgentNamed}
+              primaryAgentLabel={primaryAgentLabel}
+              interactive={interactive}
+              onSelectItem={onSelectItem}
+            />
+          )
+        )}
       </div>
       <div data-slot="shell-sidebar-footer" {...stylex.props(styles.footer)}>
         <ShellSidebarNavItem
@@ -204,6 +208,17 @@ function ShellSidebarHeader({ attention }: { attention: React.ReactNode }) {
     <div {...stylex.props(styles.header)}>
       <div {...stylex.props(styles.dragRegionSpacer)} data-tauri-drag-region />
       {attention}
+    </div>
+  );
+}
+
+function ShellSidebarGroupLabel({ label }: { label: string }) {
+  return (
+    <div
+      data-slot="shell-menu-group-label"
+      {...stylex.props(styles.groupLabel)}
+    >
+      {label}
     </div>
   );
 }
@@ -312,6 +327,16 @@ const styles = stylex.create({
     overscrollBehavior: "contain",
     paddingBlock: 2,
     scrollbarWidth: "none"
+  },
+  groupLabel: {
+    paddingBlock: 10,
+    paddingInline: 10,
+    fontSize: 11,
+    fontWeight: 600,
+    lineHeight: 1.2,
+    letterSpacing: 0,
+    color: "var(--muted-foreground)",
+    textTransform: "uppercase"
   },
   footer: {
     display: "grid",

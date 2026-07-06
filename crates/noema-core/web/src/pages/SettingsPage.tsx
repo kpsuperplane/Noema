@@ -3,6 +3,7 @@ import { ApprovalsSettingsPane } from "@/components/settings/ApprovalsSettingsPa
 import { McpSettingsPane } from "@/components/settings/McpSettingsPane";
 import { ProvidersSettingsPane } from "@/components/settings/ProvidersSettingsPane";
 import { TrustedIdentitiesSettingsPane } from "@/components/settings/TrustedIdentitiesSettingsPane";
+import { WebSettingsPane } from "@/components/settings/WebSettingsPane";
 import type { SettingsSection } from "@/app/routes";
 import * as stylex from "@stylexjs/stylex";
 
@@ -11,26 +12,30 @@ type SettingsSurfaceProps = {
 };
 
 const settingsSectionCopy: Record<SettingsSection, { title: string; description: string }> = {
-  providers: {
-    title: "Providers",
-    description:
-      "Review the provider account Noema uses for chat. Secret credential material stays outside the UI."
-  },
   agents: {
     title: "Agents",
-    description: "Review the agents currently registered in Noema. This tab is read-only for now."
+    description: "Review the agents currently registered in Noema and choose their runtime models."
   },
-  mcps: {
+  "tools-web": {
+    title: "Web",
+    description: "Review first-party web search and fetch behavior."
+  },
+  "tools-mcps": {
     title: "MCPs",
     description: "Review third-party MCP servers mediated by the Noema capability gateway."
   },
-  "trusted-identities": {
-    title: "Trusted identities",
-    description: "Review identity selectors used to resolve tool-result ownership."
-  },
-  approvals: {
+  "safety-approvals": {
     title: "Approvals",
     description: "Review pending MCP approval checkpoints."
+  },
+  "safety-identities": {
+    title: "Identities",
+    description: "Review identity selectors used to resolve tool-result ownership."
+  },
+  "system-providers": {
+    title: "Providers",
+    description:
+      "Review the provider account Noema uses for chat. Secret credential material stays outside the UI."
   }
 };
 
@@ -62,13 +67,15 @@ function SettingsSectionPane({ section }: { section: SettingsSection }) {
   switch (section) {
     case "agents":
       return <AgentsSettingsPane />;
-    case "mcps":
+    case "tools-web":
+      return <WebSettingsPane />;
+    case "tools-mcps":
       return <McpSettingsPane />;
-    case "trusted-identities":
-      return <TrustedIdentitiesSettingsPane />;
-    case "approvals":
+    case "safety-approvals":
       return <ApprovalsSettingsPane />;
-    case "providers":
+    case "safety-identities":
+      return <TrustedIdentitiesSettingsPane />;
+    case "system-providers":
       return <ProvidersSettingsPane />;
   }
 }

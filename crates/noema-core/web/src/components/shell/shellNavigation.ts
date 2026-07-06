@@ -4,6 +4,7 @@ import {
   Brain,
   CheckSquare,
   Fingerprint,
+  Globe,
   House,
   PlugZap,
   ServerCog,
@@ -18,11 +19,12 @@ export type ShellMenuItemId =
   | "home"
   | "memory"
   | "settings"
-  | "settings.providers"
   | "settings.agents"
-  | "settings.mcps"
-  | "settings.trusted-identities"
-  | "settings.approvals"
+  | "settings.tools.web"
+  | "settings.tools.mcps"
+  | "settings.safety.approvals"
+  | "settings.safety.identities"
+  | "settings.system.providers"
   | "settings.go-back";
 
 export type ShellMenuSelectionBehavior = "close-reveal" | "keep-reveal-open";
@@ -35,12 +37,24 @@ export type ShellMenuItem = {
   icon: LucideIcon;
 };
 
+export type ShellMenuGroupLabel = {
+  kind: "group";
+  label: string;
+};
+
+export type ShellMenuItemEntry = {
+  kind: "item";
+  item: ShellMenuItem;
+};
+
+export type ShellMenuEntry = ShellMenuGroupLabel | ShellMenuItemEntry;
+
 export type ShellMenuLevel = {
   levelId: ShellMenuLevelId;
   ariaLabel: string;
   title: string;
   activeItemId: ShellMenuItemId;
-  items: ShellMenuItem[];
+  items: ShellMenuEntry[];
   bottomItem: ShellMenuItem;
   supportsAttention: boolean;
 };
@@ -56,18 +70,58 @@ export type ShellSettingsSection = {
   icon: LucideIcon;
 };
 
-export const shellSettingsSections: ShellSettingsSection[] = [
-  { section: "providers", itemId: "settings.providers", label: "Providers", icon: ServerCog },
-  { section: "agents", itemId: "settings.agents", label: "Agents", icon: Bot },
-  { section: "mcps", itemId: "settings.mcps", label: "MCPs", icon: PlugZap },
+export type ShellSettingsEntry =
+  | { kind: "section"; item: ShellSettingsSection }
+  | { kind: "group"; label: string };
+
+export const shellSettingsEntries: ShellSettingsEntry[] = [
   {
-    section: "trusted-identities",
-    itemId: "settings.trusted-identities",
-    label: "Trusted identities",
-    icon: Fingerprint
+    kind: "section",
+    item: { section: "agents", itemId: "settings.agents", label: "Agents", icon: Bot }
   },
-  { section: "approvals", itemId: "settings.approvals", label: "Approvals", icon: CheckSquare }
+  { kind: "group", label: "Tools" },
+  {
+    kind: "section",
+    item: { section: "tools-web", itemId: "settings.tools.web", label: "Web", icon: Globe }
+  },
+  {
+    kind: "section",
+    item: { section: "tools-mcps", itemId: "settings.tools.mcps", label: "MCPs", icon: PlugZap }
+  },
+  { kind: "group", label: "Safety" },
+  {
+    kind: "section",
+    item: {
+      section: "safety-approvals",
+      itemId: "settings.safety.approvals",
+      label: "Approvals",
+      icon: CheckSquare
+    }
+  },
+  {
+    kind: "section",
+    item: {
+      section: "safety-identities",
+      itemId: "settings.safety.identities",
+      label: "Identities",
+      icon: Fingerprint
+    }
+  },
+  { kind: "group", label: "System" },
+  {
+    kind: "section",
+    item: {
+      section: "system-providers",
+      itemId: "settings.system.providers",
+      label: "Providers",
+      icon: ServerCog
+    }
+  }
 ];
+
+export const shellSettingsSections = shellSettingsEntries.flatMap((entry) =>
+  entry.kind === "section" ? [entry.item] : []
+);
 
 export function activeL0ItemId(route: AppRoute): Extract<ShellMenuItemId, "home" | "memory"> {
   if (route.kind === "memory_home" || route.kind === "memory_graph") {
@@ -77,7 +131,10 @@ export function activeL0ItemId(route: AppRoute): Extract<ShellMenuItemId, "home"
 }
 
 export function settingsItemIdForSection(section: SettingsSection): ShellMenuItemId {
-  return `settings.${section}` as ShellMenuItemId;
+  return (
+    shellSettingsSections.find((candidate) => candidate.section === section)?.itemId ??
+    "settings.agents"
+  );
 }
 
 export function shellMenuLevelForRoute(route: AppRoute): ShellMenuLevel {
@@ -87,13 +144,21 @@ export function shellMenuLevelForRoute(route: AppRoute): ShellMenuLevel {
       ariaLabel: "Settings",
       title: "Settings",
       activeItemId: settingsItemIdForSection(route.section),
-      items: shellSettingsSections.map((item) => ({
-        itemId: item.itemId,
-        label: item.label,
-        route: { kind: "settings", section: item.section },
-        action: "navigate",
-        icon: item.icon
-      })),
+      items: shellSettingsEntries.map((entry) => {
+        if (entry.kind === "group") {
+          return { kind: "group", label: entry.label };
+        }
+        return {
+          kind: "item",
+          item: {
+            itemId: entry.item.itemId,
+            label: entry.item.label,
+            route: { kind: "settings", section: entry.item.section },
+            action: "navigate",
+            icon: entry.item.icon
+          }
+        };
+      }),
       bottomItem: {
         itemId: "settings.go-back",
         label: "Go back",
@@ -110,19 +175,31 @@ export function shellMenuLevelForRoute(route: AppRoute): ShellMenuLevel {
     title: "Noema",
     activeItemId: activeL0ItemId(route),
     items: [
-      { itemId: "home", label: "Home", route: { kind: "chat" }, action: "navigate", icon: House },
       {
-        itemId: "memory",
-        label: "Memory",
-        route: { kind: "memory_home" },
-        action: "navigate",
-        icon: Brain
+        kind: "item",
+        item: {
+          itemId: "home",
+          label: "Home",
+          route: { kind: "chat" },
+          action: "navigate",
+          icon: House
+        }
+      },
+      {
+        kind: "item",
+        item: {
+          itemId: "memory",
+          label: "Memory",
+          route: { kind: "memory_home" },
+          action: "navigate",
+          icon: Brain
+        }
       }
     ],
     bottomItem: {
       itemId: "settings",
       label: "Settings",
-      route: { kind: "settings", section: "providers" },
+      route: { kind: "settings", section: "agents" },
       action: "navigate",
       icon: Settings
     },
@@ -134,7 +211,7 @@ export function breadcrumbForRoute(route: AppRoute): ShellBreadcrumb {
   if (route.kind === "settings") {
     const current =
       shellSettingsSections.find((section) => section.section === route.section)?.label ??
-      "Providers";
+      "Agents";
     return { parent: "Settings", current };
   }
 
