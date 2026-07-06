@@ -1,11 +1,12 @@
 import React from "react";
 
 export type SettingsSection =
-  | "providers"
   | "agents"
-  | "mcps"
-  | "trusted-identities"
-  | "approvals";
+  | "tools-web"
+  | "tools-mcps"
+  | "safety-approvals"
+  | "safety-identities"
+  | "system-providers";
 
 export type AppRoute =
   | { kind: "chat" }
@@ -22,20 +23,23 @@ export function routeFromPathname(pathname: string): AppRoute {
   if (pathname === "/memory/graph") {
     return { kind: "memory_graph" };
   }
-  if (pathname === "/settings" || pathname === "/settings/providers") {
-    return { kind: "settings", section: "providers" };
-  }
-  if (pathname === "/settings/agents") {
+  if (pathname === "/settings" || pathname === "/settings/agents") {
     return { kind: "settings", section: "agents" };
   }
-  if (pathname === "/settings/mcps") {
-    return { kind: "settings", section: "mcps" };
+  if (pathname === "/settings/tools/web") {
+    return { kind: "settings", section: "tools-web" };
   }
-  if (pathname === "/settings/trusted-identities") {
-    return { kind: "settings", section: "trusted-identities" };
+  if (pathname === "/settings/tools/mcps") {
+    return { kind: "settings", section: "tools-mcps" };
   }
-  if (pathname === "/settings/approvals") {
-    return { kind: "settings", section: "approvals" };
+  if (pathname === "/settings/safety/approvals") {
+    return { kind: "settings", section: "safety-approvals" };
+  }
+  if (pathname === "/settings/safety/identities") {
+    return { kind: "settings", section: "safety-identities" };
+  }
+  if (pathname === "/settings/system/providers") {
+    return { kind: "settings", section: "system-providers" };
   }
   return { kind: "chat" };
 }
@@ -48,7 +52,20 @@ export function pathForRoute(route: AppRoute): string {
     return "/memory/graph";
   }
   if (route.kind === "settings") {
-    return `/settings/${route.section}`;
+    switch (route.section) {
+      case "agents":
+        return "/settings/agents";
+      case "tools-web":
+        return "/settings/tools/web";
+      case "tools-mcps":
+        return "/settings/tools/mcps";
+      case "safety-approvals":
+        return "/settings/safety/approvals";
+      case "safety-identities":
+        return "/settings/safety/identities";
+      case "system-providers":
+        return "/settings/system/providers";
+    }
   }
   return "/";
 }
