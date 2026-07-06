@@ -86,14 +86,25 @@ function mergeEntriesByItemId(
       return itemId === undefined ? [] : [[itemId, entry]];
     })
   );
-  const incomingAssistantStreamIds = new Set(
-    incoming.flatMap((entry) => (entry.type === "assistant" && entry.streamId ? [entry.streamId] : []))
+  const incomingAssistantByStreamId = new Map(
+    incoming.flatMap((entry) => (entry.type === "assistant" && entry.streamId ? [[entry.streamId, entry]] : []))
   );
   const seenItemIds = new Set<string>();
 
   return baseEntries.flatMap((entry) => {
-    if (entry.type === "assistant_stream" && incomingAssistantStreamIds.has(entry.streamId)) {
-      return [];
+    if (entry.type === "assistant_stream") {
+      const replacement = incomingAssistantByStreamId.get(entry.streamId);
+      const replacementItemId = replacement ? transcriptEntryItemId(replacement) : undefined;
+      if (!replacement) {
+        return [entry];
+      }
+      if (replacementItemId) {
+        if (seenItemIds.has(replacementItemId)) {
+          return [];
+        }
+        seenItemIds.add(replacementItemId);
+      }
+      return [replacement];
     }
     const itemId = transcriptEntryItemId(entry);
     if (itemId === undefined) {

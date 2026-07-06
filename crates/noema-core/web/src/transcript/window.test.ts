@@ -176,4 +176,61 @@ describe("transcript window model", () => {
       ["item:1"]
     );
   });
+
+  test("keeps following memory marker beneath finalized streamed assistant message", () => {
+    const current: TranscriptWindowState = {
+      durableEntries: [
+        {
+          id: "stream:1",
+          turnId: "turn:1",
+          type: "assistant_stream",
+          streamId: "stream:1",
+          text: "hello"
+        },
+        {
+          id: "memory:item:1",
+          itemId: "memory:item:1",
+          turnId: "turn:1",
+          type: "activity",
+          item: {
+            kind: "activity",
+            id: "memory_extraction:conversation:1",
+            activity_kind: "memory_extraction",
+            status: "STARTED",
+            title: "Memory proposed",
+            summary: "memory proposal is streaming",
+            metadata: {}
+          }
+        }
+      ],
+      optimisticEntries: [],
+      beforeCursor: null,
+      hasMoreBefore: false
+    };
+
+    const merged = mergeDurableEntries(
+      current,
+      [
+        {
+          id: "assistant:item:1",
+          itemId: "assistant:item:1",
+          cursor: "c1",
+          turnId: "turn:1",
+          type: "assistant",
+          streamId: "stream:1",
+          text: "hello there"
+        }
+      ],
+      {
+        beforeCursor: null,
+        hasMoreBefore: false,
+        placement: "append"
+      }
+    );
+
+    assert.deepEqual(
+      transcriptWindowEntries(merged).map((entry) => entry.id),
+      ["assistant:item:1", "memory:item:1"]
+    );
+  });
 });
