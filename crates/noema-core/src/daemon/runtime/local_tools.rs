@@ -332,6 +332,28 @@ pub(super) fn local_tool_result_continuation_input(results: &[&LocalToolResult])
     })
 }
 
+fn local_tool_result_payload(result: &LocalToolResult) -> Value {
+    json!({
+        "call_id": result.call_id(),
+        "provider_call_id": result.provider_call_id(),
+        "provider_name": result.provider_name(),
+        "name": result.name(),
+        "success": result.success(),
+        "payload": result.payload(),
+    })
+}
+
+pub(super) fn local_tool_result_action_item(result: &LocalToolResult) -> GenerateActionItem {
+    GenerateActionItem::ToolResult {
+        call_id: result.call_id().cloned(),
+        provider_call_id: result.provider_call_id().cloned(),
+        provider_name: result.provider_name().cloned(),
+        name: Some(result.name().to_string()),
+        success: Some(result.success()),
+        payload: result.payload().clone(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::{
@@ -542,27 +564,5 @@ mod tests {
             requests[0].model.as_deref(),
             Some(DEFAULT_TOOL_CLASSIFICATION_MODEL)
         );
-    }
-}
-
-fn local_tool_result_payload(result: &LocalToolResult) -> Value {
-    json!({
-        "call_id": result.call_id(),
-        "provider_call_id": result.provider_call_id(),
-        "provider_name": result.provider_name(),
-        "name": result.name(),
-        "success": result.success(),
-        "payload": result.payload(),
-    })
-}
-
-pub(super) fn local_tool_result_action_item(result: &LocalToolResult) -> GenerateActionItem {
-    GenerateActionItem::ToolResult {
-        call_id: result.call_id().cloned(),
-        provider_call_id: result.provider_call_id().cloned(),
-        provider_name: result.provider_name().cloned(),
-        name: Some(result.name().to_string()),
-        success: Some(result.success()),
-        payload: result.payload().clone(),
     }
 }

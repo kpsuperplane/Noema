@@ -103,7 +103,7 @@ pub enum WebFetchRuntimeProvider {
     },
     #[cfg(test)]
     Static {
-        response: FetchResponse,
+        response: Box<FetchResponse>,
     },
 }
 
@@ -127,7 +127,7 @@ impl WebFetchRuntimeProvider {
             }
             #[cfg(test)]
             Self::Static { response } => {
-                let mut response = response.clone();
+                let mut response = response.as_ref().clone();
                 response.url = request.url.clone();
                 response.returned_chars = response.content.chars().count();
                 Ok(response)

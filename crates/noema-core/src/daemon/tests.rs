@@ -3743,7 +3743,7 @@ async fn native_provider_can_call_web_fetch_and_continue() {
         truncated: false,
     };
     let web_fetch_provider = crate::web_fetch::types::WebFetchRuntimeProvider::Static {
-        response: fetch_response,
+        response: Box::new(fetch_response),
     };
     let provider = Arc::new(
         RecordingFakeProvider::new("codex", FakeCodexScenario::NativeWebFetchContinuation)
