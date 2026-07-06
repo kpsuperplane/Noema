@@ -86,16 +86,6 @@ export function AgentsSettingsPaneContent({
     return <p {...stylex.props(styles.mutedText)}>Loading agents...</p>;
   }
 
-  if (error) {
-    return (
-      <div {...stylex.props(styles.card)}>
-        <p {...stylex.props(styles.mutedText)}>
-          Agent metadata could not be loaded.
-        </p>
-      </div>
-    );
-  }
-
   return (
     <div {...stylex.props(styles.list)}>
       {saveError ? (
@@ -115,12 +105,18 @@ export function AgentsSettingsPaneContent({
           setEditingWebFetch(false);
         }}
       />
-      {agents.length === 0 ? (
+      {error ? (
+        <div {...stylex.props(styles.card)}>
+          <p {...stylex.props(styles.mutedText)}>
+            Agent metadata could not be loaded.
+          </p>
+        </div>
+      ) : agents.length === 0 ? (
         <div {...stylex.props(styles.card)}>
           <p {...stylex.props(styles.mutedText)}>No agents were found.</p>
         </div>
       ) : null}
-      {agents.map((agent) => {
+      {error ? null : agents.map((agent) => {
         const displayName = agentDisplayName(agent);
         const badgeLabel = agentBadgeLabel(agent);
         const rows = agentMetadataRows(agent);
@@ -277,28 +273,55 @@ function ModelPreferenceEditor({
   onSave: (input: ModelPreferenceSaveInput) => Promise<unknown>;
 }) {
   const providerOptions = useMemo(() => options, [options]);
-  const preferredProvider = preference?.providerAccountId;
-  const initialProvider =
-    preferredProvider &&
-    providerOptions.some((option) => option.providerAccountId === preferredProvider)
-      ? preferredProvider
-      : (providerOptions[0]?.providerAccountId ?? "");
-  const [providerAccountId, setProviderAccountId] = useState(initialProvider);
+  const selectionSeed = useMemo(
+    () => modelSelectionSeed(providerOptions, preference ?? null, defaultModelProfile),
+    [providerOptions, preference, defaultModelProfile]
+  );
+  const initialSelection = useMemo(
+    () => resolveInitialModelSelection(providerOptions, preference ?? null, defaultModelProfile),
+    [providerOptions, preference, defaultModelProfile]
+  );
+
+  return (
+    <ModelPreferenceEditorFields
+      key={selectionSeed}
+      providerOptions={providerOptions}
+      initialSelection={initialSelection}
+      defaultModelProfile={defaultModelProfile}
+      saving={saving}
+      onCancel={onCancel}
+      onSave={onSave}
+    />
+  );
+}
+
+function ModelPreferenceEditorFields({
+  providerOptions,
+  initialSelection,
+  defaultModelProfile,
+  saving,
+  onCancel,
+  onSave
+}: {
+  providerOptions: readonly AgentModelProviderOption[];
+  initialSelection: ModelPreferenceSaveInput;
+  defaultModelProfile?: string;
+  saving: boolean;
+  onCancel: () => void;
+  onSave: (input: ModelPreferenceSaveInput) => Promise<unknown>;
+}) {
+  const [providerAccountId, setProviderAccountId] = useState(initialSelection.providerAccountId);
+  const [modelProfile, setModelProfile] = useState(initialSelection.modelProfile);
+
   const selectedProvider = useMemo(
     () =>
       providerOptions.find((option) => option.providerAccountId === providerAccountId) ??
       providerOptions[0],
     [providerOptions, providerAccountId]
   );
-  const preferredProfile = preference?.modelProfile ?? defaultModelProfile;
-  const initialProfile =
-    preferredProfile &&
-    selectedProvider?.profiles.some((profile) => profile.id === preferredProfile)
-      ? preferredProfile
-      : (selectedProvider?.profiles[0]?.id ?? "");
-  const [modelProfile, setModelProfile] = useState(initialProfile);
 
   const profiles = selectedProvider?.profiles ?? [];
+  const effectiveProviderAccountId = selectedProvider?.providerAccountId ?? "";
   const selectedProfileAvailable = profiles.some((profile) => profile.id === modelProfile);
   const effectiveProfile = selectedProfileAvailable ? modelProfile : profiles[0]?.id ?? "";
   const selectedProfile = profiles.find((profile) => profile.id === effectiveProfile);
@@ -321,7 +344,11 @@ function ModelPreferenceEditor({
     return Array.from(new Set(messages));
   }, [providerOptions]);
   const canSave = Boolean(
-    providerAccountId && effectiveProfile && !providerDisabled && !profileDisabled && !saving
+    effectiveProviderAccountId &&
+    effectiveProfile &&
+    !providerDisabled &&
+    !profileDisabled &&
+    !saving
   );
 
   return (
@@ -331,7 +358,7 @@ function ModelPreferenceEditor({
         event.preventDefault();
         if (canSave) {
           void onSave({
-            providerAccountId,
+            providerAccountId: effectiveProviderAccountId,
             modelProfile: effectiveProfile
           });
         }
@@ -342,13 +369,13 @@ function ModelPreferenceEditor({
           <span {...stylex.props(styles.fieldLabel)}>Provider</span>
           <select
             {...stylex.props(styles.select)}
-            value={providerAccountId}
+            value={effectiveProviderAccountId}
             onChange={(event) => {
               const nextProvider = providerOptions.find(
                 (option) => option.providerAccountId === event.target.value
               );
               setProviderAccountId(event.target.value);
-              setModelProfile(nextProvider?.profiles[0]?.id ?? "");
+              setModelProfile(nextProvider ? defaultProfileForProvider(nextProvider, defaultModelProfile) : "");
             }}
           >
             {providerOptions.length === 0 ? (
@@ -409,6 +436,61 @@ function ModelPreferenceEditor({
       </div>
     </form>
   );
+}
+
+function modelSelectionSeed(
+  options: readonly AgentModelProviderOption[],
+  preference: ModelPreference | null,
+  defaultModelProfile?: string
+) {
+  const optionSeed = options
+    .map((option) => {
+      const profiles = option.profiles.map((profile) => profile.id).join(",");
+      return `${option.providerAccountId}:${profiles}`;
+    })
+    .join("|");
+  return [
+    preference?.providerAccountId ?? "",
+    preference?.modelProfile ?? "",
+    defaultModelProfile ?? "",
+    optionSeed
+  ].join("::");
+}
+
+function resolveInitialModelSelection(
+  options: readonly AgentModelProviderOption[],
+  preference: ModelPreference | null,
+  defaultModelProfile?: string
+) {
+  const preferredProvider = preference
+    ? options.find((option) => option.providerAccountId === preference.providerAccountId)
+    : null;
+  const provider = preferredProvider ?? options[0];
+  if (!provider) {
+    return { providerAccountId: "", modelProfile: "" };
+  }
+  const preferredProfile =
+    preferredProvider &&
+    provider.profiles.some((profile) => profile.id === preference?.modelProfile)
+      ? preference?.modelProfile
+      : null;
+  return {
+    providerAccountId: provider.providerAccountId,
+    modelProfile: preferredProfile ?? defaultProfileForProvider(provider, defaultModelProfile)
+  };
+}
+
+function defaultProfileForProvider(
+  provider: AgentModelProviderOption,
+  defaultModelProfile?: string
+) {
+  if (
+    defaultModelProfile &&
+    provider.profiles.some((profile) => profile.id === defaultModelProfile)
+  ) {
+    return defaultModelProfile;
+  }
+  return provider.profiles[0]?.id ?? "";
 }
 
 function webFetchSummarizerRows(settings: WebFetchSummarizerSettings | null) {
