@@ -8,6 +8,7 @@ pub(crate) struct NoemaAssistantTextDeltaExtractor {
     string: Option<JsonStringReader>,
     response_count: usize,
     memory_proposals_started_emitted: bool,
+    root_completed: bool,
 }
 
 impl NoemaAssistantTextDeltaExtractor {
@@ -19,6 +20,9 @@ impl NoemaAssistantTextDeltaExtractor {
         let mut visible_delta = IndexedVisibleDelta::default();
 
         for ch in delta.chars() {
+            if self.root_completed && self.stack.is_empty() {
+                continue;
+            }
             if self.string.is_some() {
                 let stream_visible =
                     self.string.as_ref().is_some_and(|reader| {
@@ -115,7 +119,17 @@ impl NoemaAssistantTextDeltaExtractor {
     }
 
     fn pop_container(&mut self) {
+        let popped_root = matches!(
+            self.stack.last(),
+            Some(JsonContext::Object(JsonObjectContext {
+                role: JsonObjectRole::Root,
+                ..
+            }))
+        );
         self.stack.pop();
+        if popped_root {
+            self.root_completed = true;
+        }
         self.complete_scalar_value();
     }
 
@@ -572,6 +586,14 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert_eq!(deltas, vec![(0, "one".to_string()), (1, "two".to_string())]);
+    }
+
+    #[test]
+    fn noema_assistant_text_delta_extractor_ignores_duplicate_top_level_envelope() {
+        let duplicate = r#"{"response_status":"final","responses":[{"kind":"text","text":"same"}],"tool_calls":[],"memory_proposals":[]}"#;
+        let streamed_text = extract_streamed_text(&[duplicate, duplicate]);
+
+        assert_eq!(streamed_text, "same");
     }
 
     #[test]

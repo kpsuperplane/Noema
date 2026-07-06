@@ -81,7 +81,9 @@ The next storage slice should stay small and concrete:
   bubbles inside one `responses[]` array in a single JSON envelope, and the
   required-response parser tolerates exact duplicate envelopes as idempotent
   stream/provider duplication while still rejecting conflicting multiple
-  envelopes.
+  envelopes. The live structured-response delta extractor also stops emitting
+  visible assistant deltas after the first completed top-level envelope so the
+  web UI does not temporarily show duplicate streamed bubbles before replay.
 - The provider-neutral native tool plane has landed from
   `docs/superpowers/specs/2026-07-04-native-tool-plane-design.md`: Noema now
   builds canonical local/MCP tool specs, advertises them through provider-native
