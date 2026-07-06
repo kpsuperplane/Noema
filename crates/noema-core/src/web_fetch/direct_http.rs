@@ -50,10 +50,7 @@ async fn fetch_direct_http_unchecked_initial_url(
     context: &FetchRuntimeContext,
 ) -> Result<FetchResponse, FetchError> {
     let url = Url::parse(&request.url).map_err(|_| FetchError::MalformedUrl)?;
-    let checked = CheckedUrl {
-        url,
-        resolved_ips: Vec::new(),
-    };
+    let checked = CheckedUrl { url };
     fetch_direct_http_checked(client, request, context, checked).await
 }
 
@@ -136,17 +133,19 @@ async fn fetch_direct_http_checked(
         };
         let raw_chars = extracted.markdown.chars().count();
         let decision = summary_strategy_for_chars(raw_chars);
-        let (content_kind, content, raw_excerpt_value, summary_strategy, summary_model) =
+        let (content_kind, content, raw_excerpt_value, summary_strategy, summary_model, truncated) =
             match decision {
                 SummaryDecision::Raw => {
                     let content: String =
                         extracted.markdown.chars().take(request.max_chars).collect();
+                    let truncated = raw_chars > content.chars().count();
                     (
                         FetchContentKind::RawMarkdown,
                         content,
                         None,
                         FetchSummaryStrategy::NotSummarized,
                         None,
+                        truncated,
                     )
                 }
                 SummaryDecision::Summarize(strategy) => {
@@ -164,6 +163,7 @@ async fn fetch_direct_http_checked(
                         Some(raw_excerpt(&extracted.markdown)),
                         strategy,
                         Some(context.summarizer_model.clone()),
+                        false,
                     )
                 }
                 SummaryDecision::Refuse => return Err(FetchError::PageTooLarge),
@@ -183,7 +183,7 @@ async fn fetch_direct_http_checked(
             raw_chars,
             summary_model,
             summary_strategy,
-            truncated: false,
+            truncated,
         });
     }
 
@@ -340,6 +340,29 @@ mod tests {
         assert_eq!(response.summary_strategy, FetchSummaryStrategy::SinglePass);
         assert_eq!(response.content, "summary");
         assert!(response.raw_excerpt.is_some());
+    }
+
+    #[tokio::test]
+    async fn marks_raw_markdown_truncated_when_limited_by_max_chars() {
+        let body = "plain text content that is long enough to truncate";
+        let url = serve_once(&format!(
+            "HTTP/1.1 200 OK\r\ncontent-type: text/plain\r\ncontent-length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        ))
+        .await;
+        let request = FetchRequest {
+            url,
+            reason: None,
+            max_chars: 10,
+        };
+        let response =
+            fetch_direct_http_unchecked_initial_url(&test_client(), &request, &test_context())
+                .await
+                .expect("fetch");
+
+        assert_eq!(response.content, "plain text");
+        assert!(response.truncated);
     }
 
     #[tokio::test]

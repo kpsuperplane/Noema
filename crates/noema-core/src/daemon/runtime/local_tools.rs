@@ -1,6 +1,6 @@
 use crate::{
     capability::{CapabilityGateway, GatewayToolProposal, GatewayToolResult},
-    provider::{GenerateActionItem, GenerateToolResultInput},
+    provider::{DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateActionItem, GenerateToolResultInput},
 };
 use serde_json::{Value, json};
 
@@ -18,6 +18,10 @@ use crate::daemon::{
     },
 };
 use crate::search::tool::{WebSearchToolResult, execute_web_search, is_web_search_tool};
+use crate::web_fetch::{
+    tool::{WebFetchToolResult, execute_web_fetch, is_web_fetch_tool},
+    types::FetchRuntimeContext,
+};
 
 impl CodexRuntimeActor {
     pub(super) async fn execute_local_tool(
@@ -82,6 +86,33 @@ impl CodexRuntimeActor {
                 )
                 .await,
             }
+        } else if is_web_fetch_tool(&call.name) {
+            let summarizer_provider = self
+                .provider_for_kind(&turn.provider_kind)
+                .unwrap_or_else(|_| self.default_provider().expect("runtime default provider"));
+            let summarizer_model = turn
+                .model
+                .clone()
+                .or_else(|| summarizer_provider.default_tool_classification_model())
+                .unwrap_or_else(|| DEFAULT_TOOL_CLASSIFICATION_MODEL.to_string());
+            let context = FetchRuntimeContext {
+                summarizer_provider_kind: turn.provider_kind.clone(),
+                summarizer_provider,
+                summarizer_model,
+            };
+            LocalToolResult::WebFetch {
+                call_id: call.call_id.clone(),
+                provider_call_id: call.provider_call_id.clone(),
+                provider_name: call.provider_name.clone(),
+                arguments: call.payload.clone(),
+                result: execute_web_fetch(
+                    &self.web_fetch_provider,
+                    &context,
+                    call.call_id.clone(),
+                    &call.payload,
+                )
+                .await,
+            }
         } else {
             let proposal = GatewayToolProposal {
                 name: &call.name,
@@ -122,6 +153,13 @@ pub(super) enum LocalToolResult {
         arguments: Value,
         result: WebSearchToolResult,
     },
+    WebFetch {
+        call_id: Option<String>,
+        provider_call_id: Option<String>,
+        provider_name: Option<String>,
+        arguments: Value,
+        result: WebFetchToolResult,
+    },
     Gateway {
         call_id: Option<String>,
         provider_call_id: Option<String>,
@@ -137,7 +175,8 @@ impl LocalToolResult {
         match self {
             Self::Memory { call_id, .. }
             | Self::AgentName { call_id, .. }
-            | Self::WebSearch { call_id, .. } => call_id.as_ref(),
+            | Self::WebSearch { call_id, .. }
+            | Self::WebFetch { call_id, .. } => call_id.as_ref(),
             Self::Gateway { call_id, .. } => call_id.as_ref(),
         }
     }
@@ -153,6 +192,9 @@ impl LocalToolResult {
             | Self::WebSearch {
                 provider_call_id, ..
             }
+            | Self::WebFetch {
+                provider_call_id, ..
+            }
             | Self::Gateway {
                 provider_call_id, ..
             } => provider_call_id.as_ref(),
@@ -164,6 +206,7 @@ impl LocalToolResult {
             Self::Memory { provider_name, .. }
             | Self::AgentName { provider_name, .. }
             | Self::WebSearch { provider_name, .. }
+            | Self::WebFetch { provider_name, .. }
             | Self::Gateway { provider_name, .. } => provider_name.as_ref(),
         }
     }
@@ -173,6 +216,7 @@ impl LocalToolResult {
             Self::Memory { arguments, .. }
             | Self::AgentName { arguments, .. }
             | Self::WebSearch { arguments, .. }
+            | Self::WebFetch { arguments, .. }
             | Self::Gateway { arguments, .. } => arguments,
         }
     }
@@ -182,6 +226,7 @@ impl LocalToolResult {
             Self::Memory { result, .. } => &result.name,
             Self::AgentName { result, .. } => &result.name,
             Self::WebSearch { result, .. } => &result.name,
+            Self::WebFetch { result, .. } => &result.name,
             Self::Gateway { name, .. } => name,
         }
     }
@@ -191,6 +236,7 @@ impl LocalToolResult {
             Self::Memory { result, .. } => result.success,
             Self::AgentName { result, .. } => result.success,
             Self::WebSearch { result, .. } => result.success,
+            Self::WebFetch { result, .. } => result.success,
             Self::Gateway { result, .. } => result.success,
         }
     }
@@ -200,13 +246,14 @@ impl LocalToolResult {
             Self::Memory { result, .. } => &result.payload,
             Self::AgentName { result, .. } => &result.payload,
             Self::WebSearch { result, .. } => &result.payload,
+            Self::WebFetch { result, .. } => &result.payload,
             Self::Gateway { result, .. } => &result.payload,
         }
     }
 
     pub(super) fn requires_provider_continuation(&self) -> bool {
         match self {
-            Self::Memory { .. } | Self::WebSearch { .. } => true,
+            Self::Memory { .. } | Self::WebSearch { .. } | Self::WebFetch { .. } => true,
             Self::AgentName { .. } => false,
             Self::Gateway { result, .. } => result.requires_provider_continuation,
         }

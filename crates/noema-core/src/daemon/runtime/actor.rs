@@ -13,6 +13,7 @@ pub(in crate::daemon) struct CodexRuntimeActor {
     pub(in crate::daemon) store: NoemaStore,
     pub(in crate::daemon) system_errors: SystemErrorLogger,
     pub(in crate::daemon) search_provider: crate::search::types::SearchRuntimeProvider,
+    pub(in crate::daemon) web_fetch_provider: crate::web_fetch::types::WebFetchRuntimeProvider,
     pub(in crate::daemon) conversations: HashMap<String, ActiveConversation>,
 }
 
@@ -29,6 +30,7 @@ impl CodexRuntimeActor {
             store,
             system_errors,
             search_provider: crate::search::types::SearchRuntimeProvider::default(),
+            web_fetch_provider: crate::web_fetch::types::WebFetchRuntimeProvider::default(),
             conversations: HashMap::new(),
         })
     }
@@ -43,6 +45,27 @@ impl CodexRuntimeActor {
     ) -> Result<Self, DaemonError> {
         let mut actor = Self::new(default_provider_kind, providers, store, system_errors).await?;
         actor.search_provider = search_provider;
+        Ok(actor)
+    }
+
+    #[cfg(test)]
+    pub(in crate::daemon) async fn new_with_search_and_fetch_provider(
+        default_provider_kind: String,
+        providers: HashMap<String, Arc<dyn RuntimeModelProvider>>,
+        store: NoemaStore,
+        system_errors: SystemErrorLogger,
+        search_provider: crate::search::types::SearchRuntimeProvider,
+        web_fetch_provider: crate::web_fetch::types::WebFetchRuntimeProvider,
+    ) -> Result<Self, DaemonError> {
+        let mut actor = Self::new_with_search_provider(
+            default_provider_kind,
+            providers,
+            store,
+            system_errors,
+            search_provider,
+        )
+        .await?;
+        actor.web_fetch_provider = web_fetch_provider;
         Ok(actor)
     }
 

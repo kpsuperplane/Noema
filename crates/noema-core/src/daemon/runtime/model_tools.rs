@@ -11,6 +11,7 @@ use crate::{
         ToolContractError,
     },
     search::tool::web_search_tool_spec,
+    web_fetch::tool::web_fetch_tool_spec,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -28,11 +29,13 @@ pub(super) async fn build_model_tools(
 ) -> Result<ModelTools, ToolContractError> {
     let builtin_tools = builtin_tool_specs(include_agent_name_tool)?;
     let web_search_tool = web_search_tool_spec()?;
+    let web_fetch_tool = web_fetch_tool_spec()?;
     let unavailable_rows = unavailable_mcp_rows(store).await?;
 
     if capabilities.native_tools {
         let mut native = builtin_tools.clone();
         native.push(web_search_tool);
+        native.push(web_fetch_tool);
         let mut prompt_rows = prompt_rows(&native);
         for mcp_tool in calibrated_mcp_tool_specs(store).await? {
             prompt_rows.push(format!(
@@ -232,12 +235,17 @@ mod tests {
                 "search_memory",
                 "update_own_name",
                 "web.search",
+                "web.fetch",
                 "mcp.mcp:docs.read"
             ]
         );
         assert!(tools.native.iter().any(|tool| {
             tool.name.as_str() == "web.search"
                 && matches!(tool.execution, NoemaToolExecution::WebSearch)
+        }));
+        assert!(tools.native.iter().any(|tool| {
+            tool.name.as_str() == "web.fetch"
+                && matches!(tool.execution, NoemaToolExecution::WebFetch)
         }));
         assert!(tools.native.iter().any(|tool| {
             tool.name.as_str() == "mcp.mcp:docs.read"
@@ -250,6 +258,12 @@ mod tests {
                 .prompt_rows
                 .iter()
                 .any(|row| { row == "- mcp\tmcp.mcp:docs.read\tRead a document." })
+        );
+        assert!(
+            tools
+                .prompt_rows
+                .iter()
+                .any(|row| row.contains("\tweb.fetch\t"))
         );
         assert!(
             tools

@@ -3725,6 +3725,70 @@ async fn web_search_result_is_sent_as_native_tool_result_input() {
 }
 
 #[tokio::test]
+async fn native_provider_can_call_web_fetch_and_continue() {
+    let fetch_response = crate::web_fetch::types::FetchResponse {
+        provider: crate::web_fetch::types::DIRECT_HTTP_PROVIDER_ID.to_string(),
+        url: String::new(),
+        final_url: "https://example.com/page".to_string(),
+        title: Some("Example Page".to_string()),
+        format: "markdown".to_string(),
+        extraction: crate::web_fetch::types::EXTRACTION_READABILITYRS.to_string(),
+        content_kind: crate::web_fetch::types::FetchContentKind::RawMarkdown,
+        content: "Example fetched page content.".to_string(),
+        raw_excerpt: None,
+        raw_chars: 29,
+        returned_chars: 29,
+        summary_model: None,
+        summary_strategy: crate::web_fetch::types::FetchSummaryStrategy::NotSummarized,
+        truncated: false,
+    };
+    let web_fetch_provider = crate::web_fetch::types::WebFetchRuntimeProvider::Static {
+        response: fetch_response,
+    };
+    let provider = Arc::new(
+        RecordingFakeProvider::new("codex", FakeCodexScenario::NativeWebFetchContinuation)
+            .with_tool_capabilities(ProviderToolCapabilities {
+                native_tools: true,
+                parallel_tool_calls: true,
+                native_tool_results: true,
+                schema_dialect: ProviderToolSchemaDialect::OpenAiResponses,
+                fallback_mode: ProviderToolFallbackMode::NativeRequired,
+                ..ProviderToolCapabilities::default()
+            }),
+    );
+    let (handle, _store) =
+        test_runtime_handle_with_search_and_fetch_providers(provider.clone(), web_fetch_provider)
+            .await;
+    let conversation = handle.start_conversation(None).await.expect("conversation");
+
+    let items = collect_turn(
+        &handle,
+        conversation.conversation_id.clone(),
+        "Fetch the example page.".to_string(),
+    )
+    .await
+    .expect("turn");
+
+    assert!(items.iter().any(|item| matches!(
+        item,
+        TurnTranscriptItem::AssistantText { text } if text == "I read the fetched page."
+    )));
+    let requests = provider.requests();
+    assert!(requests.iter().any(|request| {
+        let GenerateInput::NativeToolResults(results) = &request.input else {
+            return false;
+        };
+        results.iter().any(|result| {
+            result.name == "web.fetch"
+                && result.success
+                && result.payload["provider"] == crate::web_fetch::types::DIRECT_HTTP_PROVIDER_ID
+                && result.payload["content"] == "Example fetched page content."
+        })
+    }));
+    handle.shutdown().await;
+}
+
+#[tokio::test]
 async fn runtime_actor_continues_after_continuation_tool_call() {
     let handle = test_runtime_handle(fake_provider(
         FakeCodexScenario::ChainedSearchMemoryContinuation,
@@ -4523,6 +4587,36 @@ async fn test_runtime_handle_with_search_provider(
     (handle, store)
 }
 
+async fn test_runtime_handle_with_search_and_fetch_providers(
+    provider: Arc<dyn super::runtime::RuntimeModelProvider>,
+    web_fetch_provider: crate::web_fetch::types::WebFetchRuntimeProvider,
+) -> (CodexRuntimeHandle, crate::NoemaStore) {
+    let search_provider = crate::search::types::SearchRuntimeProvider::Static {
+        response: crate::search::types::SearchResponse {
+            provider: "duckduckgo_public".to_string(),
+            provider_contract: "best_effort_public".to_string(),
+            query: String::new(),
+            summary: "Found 0 web results".to_string(),
+            results: Vec::new(),
+        },
+    };
+    let home = tempfile::tempdir().expect("temp noema home");
+    let paths = crate::NoemaPaths::from_noema_home(home.path()).expect("paths");
+    let store = crate::NoemaStore::open(&crate::StoreConfig::from_paths(&paths))
+        .await
+        .expect("store");
+    std::mem::forget(home);
+    let handle = CodexRuntimeHandle::spawn_with_provider_and_search_fetch_providers(
+        provider,
+        store.clone(),
+        search_provider,
+        web_fetch_provider,
+    )
+    .await
+    .expect("runtime");
+    (handle, store)
+}
+
 async fn append_test_text_item(store: &crate::NoemaStore, conversation_id: &str, text: &str) {
     append_test_text_item_with_kind(store, conversation_id, ConversationItemKind::UserText, text)
         .await;
@@ -4681,6 +4775,7 @@ enum FakeCodexScenario {
     NativeSearchMemoryContinuation,
     NativeWebSearch,
     NativeWebSearchContinuation,
+    NativeWebFetchContinuation,
     ChainedSearchMemoryContinuation,
     SearchMemoryProfileContinuation,
     UpdateOwnNameContinuation,
@@ -5011,6 +5106,27 @@ impl FakeCodexProvider {
                             "query": "rust language",
                             "reason": "answer the current question",
                             "max_results": 3
+                        }),
+                    ),
+                    GenerateOutputItem::MemoryProposals { proposals: vec![] },
+                ],
+            },
+            FakeCodexScenario::NativeWebFetchContinuation => match &request.input {
+                GenerateInput::NativeToolResults(results)
+                    if results.iter().any(|result| result.name == "web.fetch") =>
+                {
+                    assistant_with_no_memories("I read the fetched page.")
+                }
+                GenerateInput::NativeToolResults(_) => {
+                    assistant_with_no_memories("wrong web fetch tool result")
+                }
+                _ => vec![
+                    web_fetch_tool_call(
+                        "call_fetch_1",
+                        json!({
+                            "url": "https://example.com/page",
+                            "reason": "answer the current question",
+                            "max_chars": 5000
                         }),
                     ),
                     GenerateOutputItem::MemoryProposals { proposals: vec![] },
@@ -5791,6 +5907,16 @@ fn web_search_tool_call(id: &str, payload: serde_json::Value) -> GenerateOutputI
         provider_call_id: Some(id.to_string()),
         provider_name: Some("web.search".to_string()),
         name: "web.search".to_string(),
+        payload,
+    }
+}
+
+fn web_fetch_tool_call(id: &str, payload: serde_json::Value) -> GenerateOutputItem {
+    GenerateOutputItem::ToolCall {
+        id: Some(id.to_string()),
+        provider_call_id: Some(id.to_string()),
+        provider_name: Some("web.fetch".to_string()),
+        name: "web.fetch".to_string(),
         payload,
     }
 }

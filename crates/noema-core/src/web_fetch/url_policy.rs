@@ -7,7 +7,6 @@ use url::{Host, Url};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CheckedUrl {
     pub url: Url,
-    pub resolved_ips: Vec<IpAddr>,
 }
 
 pub async fn validate_public_web_fetch_url(raw_url: &str) -> Result<CheckedUrl, FetchError> {
@@ -25,10 +24,7 @@ pub async fn validate_public_web_fetch_url_parsed(url: Url) -> Result<CheckedUrl
         if !is_public_ip(ip) {
             return Err(FetchError::BlockedTarget);
         }
-        return Ok(CheckedUrl {
-            url,
-            resolved_ips: vec![ip],
-        });
+        return Ok(CheckedUrl { url });
     }
     let host = url.host_str().ok_or(FetchError::MalformedUrl)?;
     if is_blocked_hostname(host) || is_alternate_ipv4_literal(host).is_some() {
@@ -38,10 +34,7 @@ pub async fn validate_public_web_fetch_url_parsed(url: Url) -> Result<CheckedUrl
         if !is_public_ip(ip) {
             return Err(FetchError::BlockedTarget);
         }
-        return Ok(CheckedUrl {
-            url,
-            resolved_ips: vec![ip],
-        });
+        return Ok(CheckedUrl { url });
     }
 
     let lookup_host = host.to_string();
@@ -63,7 +56,7 @@ pub async fn validate_public_web_fetch_url_parsed(url: Url) -> Result<CheckedUrl
     if resolved_ips.iter().any(|ip| !is_public_ip(*ip)) {
         return Err(FetchError::BlockedTarget);
     }
-    Ok(CheckedUrl { url, resolved_ips })
+    Ok(CheckedUrl { url })
 }
 
 #[must_use]
@@ -98,11 +91,21 @@ fn is_public_ipv4(ip: Ipv4Addr) -> bool {
 }
 
 fn is_public_ipv6(ip: Ipv6Addr) -> bool {
-    !(ip.is_loopback()
+    if let Some(ipv4) = ip.to_ipv4_mapped() {
+        return is_public_ipv4(ipv4);
+    }
+    if ip.is_loopback()
         || ip.is_unspecified()
         || ip.is_unique_local()
         || ip.is_unicast_link_local()
-        || is_ipv6_documentation(ip))
+        || is_ipv6_documentation(ip)
+    {
+        return false;
+    }
+    if let Some(ipv4) = ip.to_ipv4() {
+        return is_public_ipv4(ipv4);
+    }
+    true
 }
 
 fn is_ipv6_documentation(ip: Ipv6Addr) -> bool {
@@ -177,6 +180,9 @@ mod tests {
             "http://[fd00::1]/",
             "http://[fe80::1]/",
             "http://[2001:db8::1]/",
+            "http://[::ffff:127.0.0.1]/",
+            "http://[::ffff:169.254.169.254]/",
+            "http://[::ffff:10.0.0.1]/",
         ] {
             let error = validate_public_web_fetch_url(url).await.expect_err(url);
             assert!(matches!(error, FetchError::BlockedTarget), "{url}: {error}");
