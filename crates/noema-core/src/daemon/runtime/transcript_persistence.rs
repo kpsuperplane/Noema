@@ -157,6 +157,56 @@ impl CodexRuntimeActor {
         .await
     }
 
+    pub(super) async fn persist_progress_audit_started(
+        &mut self,
+        turn: &ProviderActionTurn,
+        index: usize,
+        item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
+    ) -> Result<(), DaemonError> {
+        let display = progress_audit_display("Checking progress", "running", None);
+        self.persist_provider_action_output(
+            turn,
+            ProviderActionOutput {
+                index,
+                kind: ConversationItemKind::Activity,
+                status: ConversationItemStatus::Running,
+                action_kind: "progress_audit",
+                title: "Checking progress".to_string(),
+                summary: Some("Checking progress".to_string()),
+                payload: json!({ "kind": "progress_audit", "status": "running" }),
+                display,
+            },
+            item_tx,
+        )
+        .await
+    }
+
+    pub(super) async fn persist_progress_audit_completed(
+        &mut self,
+        turn: &ProviderActionTurn,
+        index: usize,
+        label: &str,
+        summary: &str,
+        item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
+    ) -> Result<(), DaemonError> {
+        let display = progress_audit_display(label, "completed", Some(summary));
+        self.persist_provider_action_output(
+            turn,
+            ProviderActionOutput {
+                index,
+                kind: ConversationItemKind::Activity,
+                status: ConversationItemStatus::Completed,
+                action_kind: "progress_audit",
+                title: label.to_string(),
+                summary: Some(summary.to_string()),
+                payload: json!({ "kind": "progress_audit", "status": "completed", "label": label }),
+                display,
+            },
+            item_tx,
+        )
+        .await
+    }
+
     pub(super) async fn persist_agent_initiated_provider_response(
         &mut self,
         conversation_id: &str,
@@ -903,6 +953,16 @@ fn tool_result_display(name: Option<&str>, success: Option<bool>, payload: &Valu
     display
 }
 
+fn progress_audit_display(label: &str, status: &str, summary: Option<&str>) -> Value {
+    let mut display = json!({
+        "name": label,
+        "access": "Reviews tool progress",
+        "status": status,
+    });
+    insert_display_value(&mut display, "summary", summary.map(str::to_string));
+    display
+}
+
 fn display_summary(display: &Value, key: &str) -> Option<String> {
     display
         .get(key)
@@ -1235,5 +1295,24 @@ mod tests {
         );
         assert_eq!(summary_display["model"], "gpt-5.4-mini");
         assert!(!summary_display.to_string().contains("secret"));
+    }
+
+    #[test]
+    fn progress_audit_display_labels_running_and_completed_states() {
+        let running = progress_audit_display("Checking progress", "running", None);
+        assert_eq!(running["name"], "Checking progress");
+        assert_eq!(running["status"], "running");
+
+        let completed = progress_audit_display(
+            "Still making progress",
+            "completed",
+            Some("Found new sources and is preparing the write step."),
+        );
+        assert_eq!(completed["name"], "Still making progress");
+        assert_eq!(completed["status"], "completed");
+        assert_eq!(
+            completed["summary"],
+            "Found new sources and is preparing the write step."
+        );
     }
 }
