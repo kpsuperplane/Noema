@@ -22,7 +22,7 @@ export function TranscriptLoadingSkeleton() {
                 <span
                   key={`${row.role}-${rowIndex}-${lineIndex}`}
                   data-slot="skeleton-glimmer"
-                  {...stylex.props(styles.line, row.role === "user" && styles.userLine)}
+                  {...stylex.props(styles.line)}
                   style={{ width: `${Math.round(lineWidth * 100)}%` }}
                 />
               ))}
@@ -63,9 +63,6 @@ const styles = stylex.create({
     height: 10,
     minWidth: 72,
     borderRadius: 6,
-    backgroundColor: "color-mix(in srgb, var(--pure-white) 36%, var(--color-skeleton) 64%)"
-  },
-  userLine: {
-    backgroundColor: "color-mix(in srgb, var(--pure-white) 46%, var(--primary) 54%)"
+    backgroundColor: "var(--skeleton-glimmer-line)"
   }
 });

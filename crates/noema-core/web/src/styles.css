@@ -3,6 +3,12 @@
 @import "@astryxdesign/theme-neutral/theme.css";
 @import "./theme/noema-neutral.css";
 
+:root {
+  --skeleton-glimmer-base: rgb(128 128 128 / 0.16);
+  --skeleton-glimmer-flare: rgb(128 128 128 / 0.08);
+  --skeleton-glimmer-line: rgb(128 128 128 / 0.12);
+}
+
 * {
   box-sizing: border-box;
 }
@@ -162,13 +168,14 @@ html[data-tauri-runtime="true"] #root {
 }
 
 [data-slot="skeleton-glimmer"] {
+  background-color: var(--skeleton-glimmer-base);
   background-image: linear-gradient(
     105deg,
-    var(--color-skeleton) 0%,
-    var(--color-skeleton) 34%,
-    color-mix(in srgb, var(--pure-white) 72%, var(--color-skeleton) 28%) 50%,
-    var(--color-skeleton) 66%,
-    var(--color-skeleton) 100%
+    var(--skeleton-glimmer-base) 0%,
+    var(--skeleton-glimmer-base) 34%,
+    var(--skeleton-glimmer-flare) 50%,
+    var(--skeleton-glimmer-base) 66%,
+    var(--skeleton-glimmer-base) 100%
   );
   background-size: 230% 100%;
   background-position: 130% 0;
@@ -337,5 +344,6 @@ html[data-tauri-runtime="true"] #root {
   [data-slot="skeleton-glimmer"] {
     animation: none;
     background-image: none;
+    background-color: var(--skeleton-glimmer-base);
   }
 }

@@ -112,13 +112,13 @@ const styles = stylex.create({
     width: 72,
     height: 13,
     borderRadius: 7,
-    backgroundColor: "var(--color-skeleton)"
+    backgroundColor: "var(--skeleton-glimmer-base)"
   },
   sidebarSubtitle: {
     width: 104,
     height: 10,
     borderRadius: 6,
-    backgroundColor: "var(--color-skeleton)"
+    backgroundColor: "var(--skeleton-glimmer-base)"
   },
   sidebarNav: {
     display: "grid",
@@ -128,7 +128,7 @@ const styles = stylex.create({
   sidebarItem: {
     height: 36,
     borderRadius: 8,
-    backgroundColor: "var(--color-skeleton)"
+    backgroundColor: "var(--skeleton-glimmer-base)"
   },
   sidebarItemActive: {
     opacity: 0.9
@@ -136,7 +136,7 @@ const styles = stylex.create({
   sidebarFooter: {
     height: 36,
     borderRadius: 8,
-    backgroundColor: "var(--color-skeleton)"
+    backgroundColor: "var(--skeleton-glimmer-base)"
   },
   deck: {
     display: "grid",
@@ -171,13 +171,13 @@ const styles = stylex.create({
     width: 32,
     height: 32,
     borderRadius: 8,
-    backgroundColor: "var(--color-skeleton)"
+    backgroundColor: "var(--skeleton-glimmer-base)"
   },
   headerTitle: {
     width: 72,
     height: 14,
     borderRadius: 7,
-    backgroundColor: "var(--color-skeleton)"
+    backgroundColor: "var(--skeleton-glimmer-base)"
   },
   chatSurface: {
     position: "relative",
@@ -211,7 +211,7 @@ const styles = stylex.create({
     height: 32,
     flexShrink: 0,
     borderRadius: "50%",
-    backgroundColor: "var(--color-skeleton)"
+    backgroundColor: "var(--skeleton-glimmer-base)"
   },
   messageStack: {
     display: "flex",
@@ -229,7 +229,7 @@ const styles = stylex.create({
     gap: 8,
     borderRadius: 14,
     padding: "12px 14px",
-    backgroundColor: "var(--color-skeleton)"
+    backgroundColor: "var(--skeleton-glimmer-base)"
   },
   messageBubbleHuman: {
     width: "min(330px, 72%)"
@@ -237,7 +237,7 @@ const styles = stylex.create({
   messageLine: {
     height: 10,
     borderRadius: 6,
-    backgroundColor: "color-mix(in srgb, var(--pure-white) 36%, var(--color-skeleton) 64%)"
+    backgroundColor: "var(--skeleton-glimmer-line)"
   },
   composerDock: {
     position: "absolute",
@@ -254,7 +254,7 @@ const styles = stylex.create({
     width: "min(860px, calc(100% - 48px))",
     height: 56,
     borderRadius: 18,
-    backgroundColor: "var(--color-skeleton)",
+    backgroundColor: "var(--skeleton-glimmer-base)",
     "@media (max-width: 760px)": {
       width: "calc(100% - 40px)"
     }
