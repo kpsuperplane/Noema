@@ -481,6 +481,10 @@ The next storage slice should stay small and concrete:
 - For UI work, optimize for restrained, polished, information-dense interfaces rather than decorative complexity.
 - Treat raw `~/.codex/sessions` as private memory source material. Summarize, do not quote, unless asked.
 - The user is a big fan of trains; train or rail references are welcome when they fit the context.
+- Stable prompt-cache work treats OpenAI and Codex Responses as separate dialects:
+  OpenAI can request `reasoning.encrypted_content` once adapter tests cover it,
+  while Codex must keep encrypted-reasoning include gated off until live/provider
+  verification confirms the request field and replay shape.
 
 ## Task Modes
 

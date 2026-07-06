@@ -1082,6 +1082,57 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn codex_omits_encrypted_reasoning_include_until_verified() {
+        let (base_url, request_rx) = spawn_server(
+            200,
+            "event: response.output_text.delta\n\
+             data: {\"type\":\"response.output_text.delta\",\"delta\":\"Hello\"}\n\
+             \n\
+             event: response.completed\n\
+             data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_test\",\"model\":\"gpt-test\",\"status\":\"completed\"}}\n\
+             \n",
+        )
+        .await;
+        let (provider, _dir) = provider_with_tokens(base_url);
+
+        provider
+            .generate(GenerateRequest {
+                conversation_id: Some("conversation:codex-reasoning".to_string()),
+                ..GenerateRequest::text("Hello?")
+            })
+            .await
+            .expect("response");
+
+        let captured = request_rx.await.expect("captured request");
+        let body: Value = serde_json::from_str(&captured.body).expect("json body");
+        assert!(body.get("include").is_none());
+    }
+
+    #[tokio::test]
+    async fn codex_parses_encrypted_reasoning_items_when_returned() {
+        let (base_url, _request_rx) = spawn_server(
+            200,
+            "event: response.completed\n\
+             data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_test\",\"model\":\"gpt-test\",\"status\":\"completed\",\"output\":[{\"type\":\"reasoning\",\"id\":\"rs_1\",\"encrypted_content\":\"opaque-codex-reasoning\"},{\"type\":\"message\",\"content\":[{\"type\":\"output_text\",\"text\":\"Done\"}]}]}}\n\
+             \n",
+        )
+        .await;
+        let (provider, _dir) = provider_with_tokens(base_url);
+
+        let response = provider
+            .generate(GenerateRequest::text("Hello?"))
+            .await
+            .expect("response");
+
+        assert_eq!(response.assistant_text(), "Done");
+        assert_eq!(response.reasoning_items.len(), 1);
+        assert_eq!(
+            response.reasoning_items[0].encrypted_content.as_deref(),
+            Some("opaque-codex-reasoning")
+        );
+    }
+
+    #[tokio::test]
     async fn forwards_codex_streaming_text_deltas() {
         let (base_url, request_rx) = spawn_server(
             200,
