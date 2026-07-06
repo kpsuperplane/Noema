@@ -163,17 +163,20 @@ The next storage slice should stay small and concrete:
   deck aside rather than rendering a separate drawer/sidebar copy.
 - The web shell exposes Settings as a bottom-anchored L0 sidebar item that
   opens a route-derived L1 Settings submenu inside the same shell. `/settings`
-  and `/settings/providers` default to Providers, while section routes such as
-  `/settings/mcps` are deep-linkable and restore the Settings submenu after
-  refresh. Settings contains Providers, Agents, MCPs, Trusted identities, and
-  Approvals surfaces backed by existing GraphQL read models where live data
-  exists. The placeholder Audit settings surface has been removed until audit
-  event persistence lands. Agent management actions are not exposed yet.
+  and `/settings/agents` default to Agents. Settings now uses grouped live
+  sections: Agents; Tools with Web and MCPs; Safety with Approvals and
+  Identities; and System with Providers. The Web page owns first-party
+  `web.search` and `web.fetch` status plus the fetch summarizer model
+  preference. Settings routes are canonical nested paths such as
+  `/settings/tools/web`, `/settings/safety/approvals`, and
+  `/settings/system/providers`; old flat settings paths are not supported.
+  The placeholder Audit settings surface has been removed until audit event
+  persistence lands. Agent management actions are not exposed yet.
 - Frontend docs now distinguish currently addressable routes from target
   surfaces: `routes.ts` owns `/`, `/memory`, `/memory/graph`, `/settings`, and
-  `/settings/{providers,agents,mcps,trusted-identities,approvals}`. Older
-  `/setup`, `/chat/:id`, memory detail/review, and `/inspect` paths are target
-  routes until product routing implements them.
+  `/settings/{agents,tools/web,tools/mcps,safety/approvals,safety/identities,system/providers}`.
+  Older `/setup`, `/chat/:id`, memory detail/review, and `/inspect` paths are
+  target routes until product routing implements them.
 - The first third-party MCP control-plane slice has landed. Third-party MCPs
   route through a Noema-owned Capability Gateway rather than raw model tool
   handles. MCP setup is a mandatory metadata-only calibration flow: tools get
