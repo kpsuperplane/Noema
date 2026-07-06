@@ -1146,6 +1146,27 @@ async fn runtime_provider_prompt_includes_assistant_text_phase_contract() {
 }
 
 #[tokio::test]
+async fn runtime_provider_prompt_allows_markdown_in_assistant_text() {
+    let handle =
+        test_runtime_handle(fake_provider(FakeCodexScenario::PromptMarkdownContract)).await;
+
+    let conversation_id = handle
+        .start_conversation(None)
+        .await
+        .expect("conversation")
+        .conversation_id;
+    let items = collect_turn(&handle, conversation_id, "hello".to_string())
+        .await
+        .expect("turn");
+    handle.shutdown().await;
+
+    assert!(items.iter().any(|item| matches!(
+        item,
+        TurnTranscriptItem::AssistantText { text } if text == "saw markdown contract"
+    )));
+}
+
+#[tokio::test]
 async fn start_primary_conversation_generates_initial_name_onboarding_message() {
     let (handle, store) =
         test_runtime_handle_with_store(fake_provider(FakeCodexScenario::InitialNameOnboarding))
@@ -4865,6 +4886,7 @@ enum FakeCodexScenario {
     RestartContext,
     IdentityPromptCheck,
     PromptPhaseContract,
+    PromptMarkdownContract,
     InitialNameOnboarding,
     InitialNameOnboardingNoAssistant,
     TurnError,
@@ -4978,6 +5000,18 @@ impl FakeCodexProvider {
                     "saw phase contract"
                 } else {
                     "missing phase contract"
+                })
+            }
+            FakeCodexScenario::PromptMarkdownContract => {
+                let saw_markdown_contract = instructions.contains(
+                    "User-visible assistant text may use Markdown when it makes the answer clearer.",
+                ) && instructions.contains(
+                    "Keep Markdown inside responses[].text; the outer response must remain strict JSON.",
+                );
+                assistant_with_no_memories(if saw_markdown_contract {
+                    "saw markdown contract"
+                } else {
+                    "missing markdown contract"
                 })
             }
             FakeCodexScenario::InitialNameOnboarding => {

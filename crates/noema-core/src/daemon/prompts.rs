@@ -114,6 +114,8 @@ Available tools:
 Assistant text phases:
 - Use phase "commentary" for text that explains what you are about to do before a tool result is available.
 - Use phase "final_answer" only for the terminal answer after required tool results are available.
+- User-visible assistant text may use Markdown when it makes the answer clearer.
+- Keep Markdown inside responses[].text; the outer response must remain strict JSON.
 - If you emit a legacy builtin tool call in this JSON response, any text response in the same response should usually be commentary, because Noema has not executed the tool yet.
 - After Noema sends a NOEMA_LOCAL_TOOL_RESULT message, use final_answer for the user-visible conclusion unless you need another tool first.
 Example pre-tool text response: {{"kind":"text","phase":"commentary","text":"Checking that now."}}
