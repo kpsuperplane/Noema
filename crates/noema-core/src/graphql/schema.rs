@@ -34,6 +34,9 @@ use super::{
         GraphqlStartProviderAuthAttemptInput,
     },
     provider_accounts::{self, GraphqlProviderAccount},
+    web_fetch_settings::{
+        self, GraphqlSaveWebFetchSummarizerPreferenceInput, GraphqlWebFetchSettings,
+    },
 };
 
 /// Concrete GraphQL schema type used by the web server.
@@ -369,6 +372,12 @@ impl QueryRoot {
         agents::agents(state).await
     }
 
+    /// Return web fetch settings safe to show in Settings.
+    async fn web_fetch_settings(&self, ctx: &Context<'_>) -> Result<GraphqlWebFetchSettings> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        web_fetch_settings::web_fetch_settings(state).await
+    }
+
     /// List MCP server metadata safe to show in Settings.
     async fn mcp_servers(&self, ctx: &Context<'_>) -> Result<Vec<GraphqlMcpServer>> {
         let state = ctx.data_unchecked::<GraphqlState>();
@@ -512,6 +521,16 @@ impl MutationRoot {
     ) -> Result<GraphqlAgentModelPreference> {
         let state = ctx.data_unchecked::<GraphqlState>();
         agents::save_agent_model_preference(state, input).await
+    }
+
+    /// Save the web fetch summarizer model/provider preference.
+    async fn save_web_fetch_summarizer_preference(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlSaveWebFetchSummarizerPreferenceInput,
+    ) -> Result<GraphqlAgentModelPreference> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        web_fetch_settings::save_web_fetch_summarizer_preference(state, input).await
     }
 
     /// Ensure the primary conversation exists.
@@ -676,6 +695,11 @@ mod tests {
         assert!(sdl.contains("type AgentModelPreference"));
         assert!(sdl.contains("type AgentModelProviderOption"));
         assert!(sdl.contains("type AgentModelProfileOption"));
+        assert!(sdl.contains("webFetchSettings"));
+        assert!(sdl.contains("type WebFetchSettings"));
+        assert!(sdl.contains("type WebFetchSummarizerSettings"));
+        assert!(sdl.contains("saveWebFetchSummarizerPreference"));
+        assert!(sdl.contains("SaveWebFetchSummarizerPreferenceInput"));
         assert!(sdl.contains("agentId"));
         assert!(sdl.contains("displayName"));
         assert!(sdl.contains("isPrimary"));
@@ -991,6 +1015,230 @@ mod tests {
                 .as_array()
                 .expect("codex profiles")
                 .is_empty()
+        );
+    }
+
+    #[tokio::test]
+    async fn web_fetch_settings_query_defaults_to_tool_model_and_returns_options() {
+        use crate::store::tests::test_store;
+
+        let store = test_store().await;
+        let codex = store
+            .ensure_default_provider_account()
+            .await
+            .expect("codex account");
+        store
+            .update_provider_account_metadata(
+                &codex.provider_account_id,
+                serde_json::json!({
+                    "profiles": [
+                        { "id": "gpt-5.4-mini", "label": "GPT-5.4 Mini" },
+                        { "id": "gpt-5.5", "label": "GPT-5.5" }
+                    ]
+                }),
+            )
+            .await
+            .expect("codex metadata");
+
+        let schema = build_schema(GraphqlState::for_tests_with_store(store));
+        let response = schema
+            .execute(async_graphql::Request::new(
+                r#"
+                {
+                  webFetchSettings {
+                    summarizer {
+                      defaultModelProfile
+                      modelPreference {
+                        providerKind
+                      }
+                      modelOptions {
+                        providerKind
+                        providerAccountId
+                        providerDisplayName
+                        status
+                        disabledReason
+                        profiles {
+                          id
+                          label
+                          disabledReason
+                        }
+                      }
+                    }
+                  }
+                }
+                "#,
+            ))
+            .await;
+
+        assert!(response.errors.is_empty(), "{:?}", response.errors);
+        let data = response.data.into_json().expect("json");
+        let summarizer = &data["webFetchSettings"]["summarizer"];
+        assert_eq!(summarizer["defaultModelProfile"], "gpt-5.4-mini");
+        assert_eq!(summarizer["modelPreference"], serde_json::Value::Null);
+        assert_eq!(summarizer["modelOptions"][0]["providerKind"], "codex");
+        assert_eq!(
+            summarizer["modelOptions"][0]["profiles"][0]["id"],
+            "gpt-5.4-mini"
+        );
+    }
+
+    #[tokio::test]
+    async fn save_web_fetch_summarizer_preference_persists_valid_codex_profile() {
+        use crate::store::tests::test_store;
+
+        let store = test_store().await;
+        let codex = store
+            .ensure_default_provider_account()
+            .await
+            .expect("codex account");
+        store
+            .update_provider_account_status(
+                &codex.provider_account_id,
+                crate::ProviderAccountStatus::Authenticated,
+                None,
+                None,
+            )
+            .await
+            .expect("codex authenticated");
+        store
+            .update_provider_account_metadata(
+                &codex.provider_account_id,
+                serde_json::json!({
+                    "profiles": [
+                        { "id": "gpt-5.4-mini", "label": "GPT-5.4 Mini" }
+                    ]
+                }),
+            )
+            .await
+            .expect("codex metadata");
+
+        let schema = build_schema(GraphqlState::for_tests_with_store(store.clone()));
+        let response = schema
+            .execute(async_graphql::Request::new(format!(
+                r#"
+                mutation {{
+                  saveWebFetchSummarizerPreference(input: {{
+                    providerAccountId: "{}"
+                    modelProfile: "gpt-5.4-mini"
+                  }}) {{
+                    providerKind
+                    providerAccountId
+                    modelProfile
+                  }}
+                }}
+                "#,
+                codex.provider_account_id
+            )))
+            .await;
+
+        assert!(response.errors.is_empty(), "{:?}", response.errors);
+        let saved = store
+            .get_auxiliary_model_preference(crate::WEB_FETCH_SUMMARIZER_TASK_ID)
+            .await
+            .expect("preference read")
+            .expect("preference saved");
+        assert_eq!(saved.provider_kind, "codex");
+        assert_eq!(saved.provider_account_id, codex.provider_account_id);
+        assert_eq!(saved.model_profile, "gpt-5.4-mini");
+    }
+
+    #[tokio::test]
+    async fn save_web_fetch_summarizer_preference_rejects_unavailable_provider() {
+        use crate::store::tests::test_store;
+
+        let store = test_store().await;
+        let foundation = store
+            .ensure_default_foundation_local_provider_account()
+            .await
+            .expect("foundation account");
+        store
+            .update_provider_account_status(
+                &foundation.provider_account_id,
+                crate::ProviderAccountStatus::Unavailable,
+                Some("unsupported_platform"),
+                Some("/Users/alice/.secret/token.txt failed with token abc123"),
+            )
+            .await
+            .expect("status");
+
+        let schema = build_schema(GraphqlState::for_tests_with_store(store.clone()));
+        let response = schema
+            .execute(async_graphql::Request::new(format!(
+                r#"
+                mutation {{
+                  saveWebFetchSummarizerPreference(input: {{
+                    providerAccountId: "{}"
+                    modelProfile: "default"
+                  }}) {{
+                    providerKind
+                  }}
+                }}
+                "#,
+                foundation.provider_account_id
+            )))
+            .await;
+
+        assert_eq!(response.errors.len(), 1);
+        let message = response.errors[0].message.as_str();
+        assert_eq!(message, "Provider is unavailable on this platform.");
+        assert!(!message.contains("/Users/alice"));
+        assert!(!message.contains("abc123"));
+        assert!(
+            store
+                .get_auxiliary_model_preference(crate::WEB_FETCH_SUMMARIZER_TASK_ID)
+                .await
+                .expect("preference read")
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn save_web_fetch_summarizer_preference_rejects_unavailable_profile() {
+        use crate::store::tests::test_store;
+
+        let store = test_store().await;
+        let codex = store
+            .ensure_default_provider_account()
+            .await
+            .expect("codex account");
+        store
+            .update_provider_account_status(
+                &codex.provider_account_id,
+                crate::ProviderAccountStatus::Authenticated,
+                None,
+                None,
+            )
+            .await
+            .expect("codex authenticated");
+
+        let schema = build_schema(GraphqlState::for_tests_with_store(store.clone()));
+        let response = schema
+            .execute(async_graphql::Request::new(format!(
+                r#"
+                mutation {{
+                  saveWebFetchSummarizerPreference(input: {{
+                    providerAccountId: "{}"
+                    modelProfile: "gpt-5.4-mini"
+                  }}) {{
+                    providerKind
+                  }}
+                }}
+                "#,
+                codex.provider_account_id
+            )))
+            .await;
+
+        assert_eq!(response.errors.len(), 1);
+        assert_eq!(
+            response.errors[0].message,
+            "model profile is not available for provider"
+        );
+        assert!(
+            store
+                .get_auxiliary_model_preference(crate::WEB_FETCH_SUMMARIZER_TASK_ID)
+                .await
+                .expect("preference read")
+                .is_none()
         );
     }
 

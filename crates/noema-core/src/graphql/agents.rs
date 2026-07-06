@@ -123,7 +123,7 @@ pub(super) async fn agents(state: &GraphqlState) -> Result<Vec<GraphqlAgent>> {
     Ok(output)
 }
 
-async fn refresh_missing_model_profiles(
+pub(super) async fn refresh_missing_model_profiles(
     state: &GraphqlState,
     store: &crate::NoemaStore,
     accounts: &[ProviderAccountRecord],
@@ -179,7 +179,9 @@ pub(super) async fn save_agent_model_preference(
     })
 }
 
-fn option_from_account(account: &ProviderAccountRecord) -> GraphqlAgentModelProviderOption {
+pub(super) fn option_from_account(
+    account: &ProviderAccountRecord,
+) -> GraphqlAgentModelProviderOption {
     let disabled_reason = provider_disabled_reason(account);
     GraphqlAgentModelProviderOption {
         provider_kind: account.provider_kind.clone(),
@@ -191,7 +193,7 @@ fn option_from_account(account: &ProviderAccountRecord) -> GraphqlAgentModelProv
     }
 }
 
-fn provider_disabled_reason(account: &ProviderAccountRecord) -> Option<String> {
+pub(super) fn provider_disabled_reason(account: &ProviderAccountRecord) -> Option<String> {
     match account.status {
         ProviderAccountStatus::Authenticated => None,
         ProviderAccountStatus::Unknown if account.provider_kind == "foundation_local" => {
@@ -218,7 +220,7 @@ fn unavailable_provider_reason(account: &ProviderAccountRecord) -> String {
     .to_string()
 }
 
-fn profiles_from_account(
+pub(super) fn profiles_from_account(
     account: &ProviderAccountRecord,
     disabled_reason: Option<&str>,
 ) -> Vec<GraphqlAgentModelProfileOption> {

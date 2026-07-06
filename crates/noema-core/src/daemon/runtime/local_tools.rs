@@ -19,7 +19,7 @@ use crate::daemon::{
 };
 use crate::search::tool::{WebSearchToolResult, execute_web_search, is_web_search_tool};
 use crate::web_fetch::{
-    tool::{WebFetchToolResult, execute_web_fetch, is_web_fetch_tool},
+    tool::{WEB_FETCH_TOOL, WebFetchToolResult, execute_web_fetch, is_web_fetch_tool},
     types::FetchRuntimeContext,
 };
 
@@ -87,31 +87,29 @@ impl CodexRuntimeActor {
                 .await,
             }
         } else if is_web_fetch_tool(&call.name) {
-            let summarizer_provider = self
-                .provider_for_kind(&turn.provider_kind)
-                .unwrap_or_else(|_| self.default_provider().expect("runtime default provider"));
-            let summarizer_model = turn
-                .model
-                .clone()
-                .or_else(|| summarizer_provider.default_tool_classification_model())
-                .unwrap_or_else(|| DEFAULT_TOOL_CLASSIFICATION_MODEL.to_string());
-            let context = FetchRuntimeContext {
-                summarizer_provider_kind: turn.provider_kind.clone(),
-                summarizer_provider,
-                summarizer_model,
+            let result = match self.web_fetch_runtime_context().await {
+                Ok(context) => {
+                    execute_web_fetch(
+                        &self.web_fetch_provider,
+                        &context,
+                        call.call_id.clone(),
+                        &call.payload,
+                    )
+                    .await
+                }
+                Err(message) => WebFetchToolResult {
+                    call_id: call.call_id.clone(),
+                    name: WEB_FETCH_TOOL.to_string(),
+                    success: false,
+                    payload: json!({ "error": message }),
+                },
             };
             LocalToolResult::WebFetch {
                 call_id: call.call_id.clone(),
                 provider_call_id: call.provider_call_id.clone(),
                 provider_name: call.provider_name.clone(),
                 arguments: call.payload.clone(),
-                result: execute_web_fetch(
-                    &self.web_fetch_provider,
-                    &context,
-                    call.call_id.clone(),
-                    &call.payload,
-                )
-                .await,
+                result,
             }
         } else {
             let proposal = GatewayToolProposal {
@@ -127,6 +125,41 @@ impl CodexRuntimeActor {
                 result: gateway.execute_tool_proposal(proposal).await,
             }
         }
+    }
+
+    async fn web_fetch_runtime_context(&self) -> Result<FetchRuntimeContext, String> {
+        if let Some(preference) = self
+            .store
+            .get_auxiliary_model_preference(crate::WEB_FETCH_SUMMARIZER_TASK_ID)
+            .await
+            .map_err(|_| "web.fetch summarizer preference could not be read".to_string())?
+        {
+            let summarizer_provider =
+                self.provider_for_kind(&preference.provider_kind)
+                    .map_err(|_| {
+                        format!(
+                            "web.fetch summarizer provider '{}' is not available in this daemon",
+                            preference.provider_kind
+                        )
+                    })?;
+            return Ok(FetchRuntimeContext {
+                summarizer_provider_kind: preference.provider_kind,
+                summarizer_provider,
+                summarizer_model: preference.model_profile,
+            });
+        }
+
+        let summarizer_provider = self.default_provider().map_err(|_| {
+            "web.fetch summarizer provider is not available in this daemon".to_string()
+        })?;
+        let summarizer_model = summarizer_provider
+            .default_tool_classification_model()
+            .unwrap_or_else(|| DEFAULT_TOOL_CLASSIFICATION_MODEL.to_string());
+        Ok(FetchRuntimeContext {
+            summarizer_provider_kind: self.default_provider_kind.clone(),
+            summarizer_provider,
+            summarizer_model,
+        })
     }
 }
 
@@ -300,6 +333,136 @@ pub(super) fn local_tool_result_continuation_input(results: &[&LocalToolResult])
             .map(|result| local_tool_result_payload(result))
             .collect::<Vec<_>>(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{collections::HashMap, future::Future, pin::Pin, sync::Arc};
+
+    use crate::{
+        NewAuxiliaryModelPreference, ProviderError, WEB_FETCH_SUMMARIZER_TASK_ID,
+        daemon::runtime::{actor::CodexRuntimeActor, handle::RuntimeModelProvider},
+        provider::{
+            GenerateRequest, GenerateResponse, GenerateStreamEvent, ProviderToolCapabilities,
+        },
+    };
+
+    #[derive(Debug)]
+    struct LocalToolTestProvider {
+        default_tool_model: Option<String>,
+    }
+
+    impl RuntimeModelProvider for LocalToolTestProvider {
+        fn default_tool_classification_model(&self) -> Option<String> {
+            self.default_tool_model.clone()
+        }
+
+        fn tool_capabilities(&self, _model: Option<&str>) -> ProviderToolCapabilities {
+            ProviderToolCapabilities::default()
+        }
+
+        fn generate_streaming<'a>(
+            &'a self,
+            _request: GenerateRequest,
+            _on_event: &'a mut (dyn FnMut(GenerateStreamEvent) + Send),
+        ) -> Pin<Box<dyn Future<Output = Result<GenerateResponse, ProviderError>> + Send + 'a>>
+        {
+            Box::pin(async {
+                Err(ProviderError::ProviderUnavailable {
+                    provider: "test".to_string(),
+                    message: "test provider does not generate".to_string(),
+                })
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn web_fetch_runtime_context_uses_saved_summarizer_preference() {
+        let store = crate::store::tests::test_store().await;
+        let account = store
+            .ensure_default_foundation_local_provider_account()
+            .await
+            .expect("foundation account");
+        store
+            .upsert_auxiliary_model_preference(NewAuxiliaryModelPreference {
+                task_id: WEB_FETCH_SUMMARIZER_TASK_ID.to_string(),
+                provider_kind: "foundation_local".to_string(),
+                provider_account_id: account.provider_account_id,
+                model_profile: "custom-fetch-summary".to_string(),
+            })
+            .await
+            .expect("preference");
+        let actor = CodexRuntimeActor::new(
+            "codex".to_string(),
+            HashMap::from([
+                (
+                    "codex".to_string(),
+                    Arc::new(LocalToolTestProvider {
+                        default_tool_model: Some("codex-tool-default".to_string()),
+                    }) as Arc<dyn RuntimeModelProvider>,
+                ),
+                (
+                    "foundation_local".to_string(),
+                    Arc::new(LocalToolTestProvider {
+                        default_tool_model: Some("foundation-tool-default".to_string()),
+                    }) as Arc<dyn RuntimeModelProvider>,
+                ),
+            ]),
+            store.clone(),
+            store.system_error_logger(),
+        )
+        .await
+        .expect("actor");
+
+        let context = actor
+            .web_fetch_runtime_context()
+            .await
+            .expect("web fetch context");
+
+        assert_eq!(context.summarizer_provider_kind, "foundation_local");
+        assert_eq!(context.summarizer_model, "custom-fetch-summary");
+    }
+
+    #[tokio::test]
+    async fn web_fetch_runtime_context_rejects_saved_provider_missing_from_runtime() {
+        let store = crate::store::tests::test_store().await;
+        let account = store
+            .ensure_default_foundation_local_provider_account()
+            .await
+            .expect("foundation account");
+        store
+            .upsert_auxiliary_model_preference(NewAuxiliaryModelPreference {
+                task_id: WEB_FETCH_SUMMARIZER_TASK_ID.to_string(),
+                provider_kind: "foundation_local".to_string(),
+                provider_account_id: account.provider_account_id,
+                model_profile: "default".to_string(),
+            })
+            .await
+            .expect("preference");
+        let actor = CodexRuntimeActor::new(
+            "codex".to_string(),
+            HashMap::from([(
+                "codex".to_string(),
+                Arc::new(LocalToolTestProvider {
+                    default_tool_model: Some("codex-tool-default".to_string()),
+                }) as Arc<dyn RuntimeModelProvider>,
+            )]),
+            store.clone(),
+            store.system_error_logger(),
+        )
+        .await
+        .expect("actor");
+
+        let message = actor
+            .web_fetch_runtime_context()
+            .await
+            .expect_err("missing provider should fail");
+
+        assert_eq!(
+            message,
+            "web.fetch summarizer provider 'foundation_local' is not available in this daemon"
+        );
+    }
 }
 
 fn local_tool_result_payload(result: &LocalToolResult) -> Value {

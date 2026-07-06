@@ -39,6 +39,15 @@ DEFINE FIELD OVERWRITE created_at ON TABLE agent_runtime_preferences TYPE dateti
 DEFINE FIELD OVERWRITE updated_at ON TABLE agent_runtime_preferences TYPE datetime DEFAULT time::now();
 DEFINE INDEX IF NOT EXISTS agent_runtime_preferences_agent_id ON TABLE agent_runtime_preferences COLUMNS agent_id UNIQUE;
 
+DEFINE TABLE IF NOT EXISTS auxiliary_model_preferences SCHEMAFULL;
+DEFINE FIELD OVERWRITE task_id ON TABLE auxiliary_model_preferences TYPE string ASSERT $value INSIDE ['web_fetch_summarizer'];
+DEFINE FIELD OVERWRITE provider_kind ON TABLE auxiliary_model_preferences TYPE string ASSERT $value INSIDE ['codex', 'openai', 'foundation_local'];
+DEFINE FIELD OVERWRITE provider_account_id ON TABLE auxiliary_model_preferences TYPE string;
+DEFINE FIELD OVERWRITE model_profile ON TABLE auxiliary_model_preferences TYPE string ASSERT $value != '';
+DEFINE FIELD OVERWRITE created_at ON TABLE auxiliary_model_preferences TYPE datetime DEFAULT time::now();
+DEFINE FIELD OVERWRITE updated_at ON TABLE auxiliary_model_preferences TYPE datetime DEFAULT time::now();
+DEFINE INDEX IF NOT EXISTS auxiliary_model_preferences_task_id ON TABLE auxiliary_model_preferences COLUMNS task_id UNIQUE;
+
 DEFINE TABLE IF NOT EXISTS provider_accounts SCHEMAFULL;
 DEFINE FIELD OVERWRITE provider_account_id ON TABLE provider_accounts TYPE string;
 DEFINE FIELD OVERWRITE provider_kind ON TABLE provider_accounts TYPE string ASSERT $value INSIDE ['codex', 'openai', 'foundation_local'];

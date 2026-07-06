@@ -619,6 +619,86 @@ async fn agent_runtime_preference_rejects_unknown_provider_account() {
 }
 
 #[tokio::test]
+async fn auxiliary_model_preferences_web_fetch_summarizer_round_trips() {
+    let store = test_store().await;
+    let account = store
+        .ensure_default_provider_account()
+        .await
+        .expect("codex account");
+
+    let saved = store
+        .upsert_auxiliary_model_preference(crate::NewAuxiliaryModelPreference {
+            task_id: crate::WEB_FETCH_SUMMARIZER_TASK_ID.to_string(),
+            provider_kind: "codex".to_string(),
+            provider_account_id: account.provider_account_id.clone(),
+            model_profile: "gpt-5.4-mini".to_string(),
+        })
+        .await
+        .expect("save preference");
+
+    assert_eq!(saved.task_id, crate::WEB_FETCH_SUMMARIZER_TASK_ID);
+    assert_eq!(saved.provider_kind, "codex");
+    assert_eq!(saved.provider_account_id, account.provider_account_id);
+    assert_eq!(saved.model_profile, "gpt-5.4-mini");
+
+    let loaded = store
+        .get_auxiliary_model_preference(crate::WEB_FETCH_SUMMARIZER_TASK_ID)
+        .await
+        .expect("load preference")
+        .expect("preference exists");
+
+    assert_eq!(loaded, saved);
+}
+
+#[tokio::test]
+async fn auxiliary_model_preferences_rejects_unknown_provider_account() {
+    let store = test_store().await;
+
+    let error = store
+        .upsert_auxiliary_model_preference(crate::NewAuxiliaryModelPreference {
+            task_id: crate::WEB_FETCH_SUMMARIZER_TASK_ID.to_string(),
+            provider_kind: "codex".to_string(),
+            provider_account_id: "provider_account:codex:missing".to_string(),
+            model_profile: "gpt-5.4-mini".to_string(),
+        })
+        .await
+        .expect_err("unknown provider account should fail");
+
+    assert!(matches!(
+        error,
+        StoreError::ProviderAccountNotFound { provider_account_id }
+            if provider_account_id == "provider_account:codex:missing"
+    ));
+}
+
+#[tokio::test]
+async fn auxiliary_model_preferences_rejects_provider_kind_mismatch() {
+    let store = test_store().await;
+    let account = store
+        .ensure_default_provider_account()
+        .await
+        .expect("codex account");
+
+    let error = store
+        .upsert_auxiliary_model_preference(crate::NewAuxiliaryModelPreference {
+            task_id: crate::WEB_FETCH_SUMMARIZER_TASK_ID.to_string(),
+            provider_kind: "openai".to_string(),
+            provider_account_id: account.provider_account_id,
+            model_profile: "gpt-5.4-mini".to_string(),
+        })
+        .await
+        .expect_err("provider mismatch should fail");
+
+    assert!(matches!(
+        error,
+        StoreError::InvalidEnum {
+            kind: "auxiliary_model_preference_provider_kind",
+            value
+        } if value == "openai"
+    ));
+}
+
+#[tokio::test]
 async fn default_primary_agent_starts_unnamed() {
     let store = test_store().await;
 

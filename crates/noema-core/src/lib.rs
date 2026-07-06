@@ -100,18 +100,19 @@ pub use provider::{
 };
 pub use runtime_host::{NoemaRuntimeHost, RuntimeHostError};
 pub use store::{
-    AgentRecord, AgentRuntimePreferenceRecord, ClaimRetrievalResult, ClaimStatus, ClaimSummary,
-    ClaimWriteOutcome, ConsolidationMatch, ConsolidationMatchRequest,
-    ConversationContextSummaryRecord, EntityCandidate, EntityType, EvidenceAuthority,
-    EvidenceCandidate, McpApprovalRequestRecord, McpServerAuthStatus, McpServerHealthStatus,
-    McpServerRecord, McpToolRecord, MemoryClaimDetail, MemoryClaimEvidence, MemoryClaimFilter,
-    MemoryClaimRecord, MemoryGraph, MemoryGraphEdge, MemoryGraphFilter, MemoryGraphNode,
-    MemoryGraphSummary, NewAgent, NewAgentRuntimePreference, NewClaimCandidate,
-    NewConversationContextSummary, NewMcpApprovalRequest, NewMcpServer, NewMcpTool,
-    NewToolCalibration, NewTrustedIdentitySelector, NoemaStore, PredicateProposalCandidate,
-    PredicateProposalFilter, PredicateProposalRecord, PredicateRecord, RelatedClaimCandidate,
-    RelatedClaimRecord, RetrievedClaim, StoreConfig, StoreError, SupersedeClaimCandidate,
-    ToolCalibrationRecord, TrustedIdentitySelectorEffect, TrustedIdentitySelectorRecord,
+    AgentRecord, AgentRuntimePreferenceRecord, AuxiliaryModelPreferenceRecord,
+    ClaimRetrievalResult, ClaimStatus, ClaimSummary, ClaimWriteOutcome, ConsolidationMatch,
+    ConsolidationMatchRequest, ConversationContextSummaryRecord, EntityCandidate, EntityType,
+    EvidenceAuthority, EvidenceCandidate, McpApprovalRequestRecord, McpServerAuthStatus,
+    McpServerHealthStatus, McpServerRecord, McpToolRecord, MemoryClaimDetail, MemoryClaimEvidence,
+    MemoryClaimFilter, MemoryClaimRecord, MemoryGraph, MemoryGraphEdge, MemoryGraphFilter,
+    MemoryGraphNode, MemoryGraphSummary, NewAgent, NewAgentRuntimePreference,
+    NewAuxiliaryModelPreference, NewClaimCandidate, NewConversationContextSummary,
+    NewMcpApprovalRequest, NewMcpServer, NewMcpTool, NewToolCalibration,
+    NewTrustedIdentitySelector, NoemaStore, PredicateProposalCandidate, PredicateProposalFilter,
+    PredicateProposalRecord, PredicateRecord, RelatedClaimCandidate, RelatedClaimRecord,
+    RetrievedClaim, StoreConfig, StoreError, SupersedeClaimCandidate, ToolCalibrationRecord,
+    TrustedIdentitySelectorEffect, TrustedIdentitySelectorRecord, WEB_FETCH_SUMMARIZER_TASK_ID,
 };
 pub use system_errors::{
     SYSTEM_ERROR_MCP_MALFORMED_RESPONSE, SYSTEM_ERROR_MCP_TOOL_CALL_FAILURE,

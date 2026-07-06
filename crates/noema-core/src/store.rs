@@ -2,6 +2,7 @@
 
 mod agent_runtime_preferences;
 mod agents;
+mod auxiliary_model_preferences;
 mod claims;
 mod context_summaries;
 mod conversations;
@@ -19,6 +20,9 @@ pub(crate) mod tests;
 
 pub use agent_runtime_preferences::{AgentRuntimePreferenceRecord, NewAgentRuntimePreference};
 pub use agents::{AgentRecord, NewAgent};
+pub use auxiliary_model_preferences::{
+    AuxiliaryModelPreferenceRecord, NewAuxiliaryModelPreference, WEB_FETCH_SUMMARIZER_TASK_ID,
+};
 pub use claims::{
     ClaimStatus, ClaimSummary, ClaimWriteOutcome, ConsolidationMatch, ConsolidationMatchRequest,
     EvidenceAuthority, EvidenceCandidate, MemoryClaimDetail, MemoryClaimEvidence,
