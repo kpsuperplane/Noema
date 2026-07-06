@@ -3,6 +3,7 @@ import * as stylex from "@stylexjs/stylex";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ArrowDownIcon } from "lucide-react";
 import { renderedEntryMessageId, type RenderTranscriptEntry } from "./renderModel";
+import { BOTTOM_SCROLL_THRESHOLD_PX } from "./scrollModel";
 
 type ScrollToEndOptions = {
   behavior?: ScrollBehavior;
@@ -222,6 +223,9 @@ export function TranscriptScroller({
     count: entries.length,
     getScrollElement: () => viewportRef.current,
     estimateSize: () => 96,
+    anchorTo: "end",
+    followOnAppend: "auto",
+    scrollEndThreshold: BOTTOM_SCROLL_THRESHOLD_PX,
     overscan: 8,
     getItemKey: (index) => renderedEntryMessageId(entries[index])
   });
@@ -232,7 +236,7 @@ export function TranscriptScroller({
     (event: React.UIEvent<HTMLDivElement>) => {
       const viewport = event.currentTarget;
       const distance = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight;
-      setStuckToBottom(distance < 80);
+      setStuckToBottom(distance < BOTTOM_SCROLL_THRESHOLD_PX);
       onViewportScroll?.(event);
     },
     [onViewportScroll]

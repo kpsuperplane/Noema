@@ -6,6 +6,8 @@ import {
 } from "./renderModel";
 import type { TranscriptEntry } from "@/shared/types";
 
+export const BOTTOM_SCROLL_THRESHOLD_PX = 80;
+
 export function transcriptScrollKey(entries: RenderTranscriptEntry[]): string {
   return entries.map(renderedEntryScrollFingerprint).join("|");
 }
@@ -25,7 +27,7 @@ export function initialSeenArrivalMessageIds(entries: RenderTranscriptEntry[]): 
 }
 
 export function isScrolledToBottom(element: HTMLElement) {
-  return element.scrollHeight - element.scrollTop - element.clientHeight < 80;
+  return element.scrollHeight - element.scrollTop - element.clientHeight < BOTTOM_SCROLL_THRESHOLD_PX;
 }
 
 function renderedEntryScrollFingerprint(entry: RenderTranscriptEntry): string {
