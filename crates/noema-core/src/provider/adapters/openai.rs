@@ -212,6 +212,11 @@ impl ModelProvider for OpenAiProvider {
             tools: tool_names.tools.clone(),
             tool_choice: responses_tool_choice(request.tool_choice, has_tools),
             parallel_tool_calls: has_tools.then_some(request.parallel_tool_calls),
+            include: if self.tool_capabilities(Some(&model)).encrypted_reasoning {
+                vec!["reasoning.encrypted_content"]
+            } else {
+                Vec::new()
+            },
             prompt_cache_key: prompt_cache_key_from_conversation_id(
                 request.conversation_id.as_deref(),
             ),
@@ -248,10 +253,11 @@ impl ModelProvider for OpenAiProvider {
                     return Ok(GenerateResponse::from_parsed(
                         parsed,
                         "openai",
-                        response.model.unwrap_or(model),
-                        response.id,
-                        response.usage.map(Into::into),
-                    ));
+                        response.model.clone().unwrap_or(model),
+                        response.id.clone(),
+                        response.usage.clone().map(Into::into),
+                    )
+                    .with_reasoning_items(response.reasoning_items()));
                 }
                 self.log_malformed_response_raw(
                     &error,
@@ -299,10 +305,11 @@ impl ModelProvider for OpenAiProvider {
         Ok(GenerateResponse::from_parsed(
             parsed,
             "openai",
-            response.model.unwrap_or(model),
-            response.id,
-            response.usage.map(Into::into),
-        ))
+            response.model.clone().unwrap_or(model),
+            response.id.clone(),
+            response.usage.clone().map(Into::into),
+        )
+        .with_reasoning_items(response.reasoning_items()))
     }
 }
 
@@ -536,6 +543,50 @@ mod tests {
         assert_eq!(body["prompt_cache_key"], "conversation:cacheable");
         assert_eq!(body["store"], false);
         assert_eq!(response.assistant_text(), "Hello");
+    }
+
+    #[tokio::test]
+    async fn openai_requests_and_parses_encrypted_reasoning_items() {
+        let (base_url, request_rx) = spawn_server(
+            200,
+            r#"{
+              "id": "resp_test",
+              "model": "gpt-test",
+              "output": [
+                {
+                  "type": "reasoning",
+                  "id": "rs_1",
+                  "encrypted_content": "opaque-openai-reasoning"
+                },
+                {
+                  "type": "message",
+                  "content": [{"type": "output_text", "text": "Done"}]
+                }
+              ]
+            }"#,
+        )
+        .await;
+        let provider = test_provider(base_url);
+
+        let response = provider
+            .generate(GenerateRequest {
+                conversation_id: Some("conversation:reasoning".to_string()),
+                model: Some("gpt-test".to_string()),
+                input: GenerateInput::Text("Think privately.".to_string()),
+                ..GenerateRequest::text("ignored")
+            })
+            .await
+            .expect("response");
+
+        let captured = request_rx.await.expect("captured request");
+        let body: Value = serde_json::from_str(&captured.body).expect("json body");
+        assert_eq!(body["include"][0], "reasoning.encrypted_content");
+        assert_eq!(response.reasoning_items.len(), 1);
+        assert_eq!(response.reasoning_items[0].id.as_deref(), Some("rs_1"));
+        assert_eq!(
+            response.reasoning_items[0].encrypted_content.as_deref(),
+            Some("opaque-openai-reasoning")
+        );
     }
 
     #[tokio::test]

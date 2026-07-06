@@ -5928,6 +5928,7 @@ fn current_user_input(input: &GenerateInput) -> String {
                     Some(message.content.clone())
                 }
                 crate::provider::GenerateInputItem::Message(_)
+                | crate::provider::GenerateInputItem::Reasoning(_)
                 | crate::provider::GenerateInputItem::ToolCall(_)
                 | crate::provider::GenerateInputItem::ToolResult(_) => None,
             })
@@ -5947,7 +5948,9 @@ fn input_message_texts(input: &GenerateInput) -> Vec<String> {
             .iter()
             .filter_map(|item| match item {
                 GenerateInputItem::Message(message) => Some(message.content.clone()),
-                GenerateInputItem::ToolCall(_) | GenerateInputItem::ToolResult(_) => None,
+                GenerateInputItem::Reasoning(_)
+                | GenerateInputItem::ToolCall(_)
+                | GenerateInputItem::ToolResult(_) => None,
             })
             .collect(),
         GenerateInput::NativeToolResults(_) => Vec::new(),
@@ -6217,6 +6220,7 @@ fn fake_generate_response(
         responses,
         tool_calls,
         memory_proposals,
+        reasoning_items: Vec::new(),
         response_status,
         provider: provider.to_string(),
         model,

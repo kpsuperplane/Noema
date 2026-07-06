@@ -4,9 +4,9 @@ use super::sse::SseAccumulator;
 use crate::{
     SYSTEM_ERROR_PROVIDER_MALFORMED_RESPONSE, SystemErrorEvent, SystemErrorLogger,
     provider::{
-        GenerateInput, GenerateInputItem, GenerateMessageRole, GenerateStreamEvent,
-        GenerateToolCallInput, GenerateToolResultInput, PromptCacheRetention, ProviderError,
-        TokenUsage,
+        GenerateInput, GenerateInputItem, GenerateMessageRole, GenerateReasoningInput,
+        GenerateReasoningItem, GenerateStreamEvent, GenerateToolCallInput, GenerateToolResultInput,
+        PromptCacheRetention, ProviderError, TokenUsage,
     },
 };
 use futures_util::StreamExt;
@@ -46,6 +46,9 @@ pub struct ResponsesRequest {
     /// Whether parallel independent tool calls are allowed.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parallel_tool_calls: Option<bool>,
+    /// Additional provider output fields to include in responses.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub include: Vec<&'static str>,
     /// Provider prompt-cache key used to bind reusable prefixes to a conversation.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prompt_cache_key: Option<String>,
@@ -304,6 +307,8 @@ impl From<&GenerateInput> for ResponsesInput {
 pub enum ResponsesInputItem {
     /// Provider role message.
     Message(ResponsesInputMessage),
+    /// Provider-encrypted reasoning context.
+    Reasoning(ResponsesReasoningItem),
     /// Prior native function call context.
     FunctionCall(ResponsesFunctionCall),
     /// Native function-call output.
@@ -326,12 +331,35 @@ impl From<&GenerateInputItem> for ResponsesInputItem {
                 },
                 content: message.content.clone(),
             }),
+            GenerateInputItem::Reasoning(reasoning) => {
+                Self::Reasoning(ResponsesReasoningItem::from(reasoning))
+            }
             GenerateInputItem::ToolCall(call) => {
                 Self::FunctionCall(ResponsesFunctionCall::from(call))
             }
             GenerateInputItem::ToolResult(result) => {
                 Self::FunctionCallOutput(ResponsesFunctionCallOutput::from(result))
             }
+        }
+    }
+}
+
+/// One Responses API encrypted reasoning input item.
+#[derive(Debug, Serialize)]
+pub struct ResponsesReasoningItem {
+    #[serde(rename = "type")]
+    kind: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    id: Option<String>,
+    encrypted_content: String,
+}
+
+impl From<&GenerateReasoningInput> for ResponsesReasoningItem {
+    fn from(reasoning: &GenerateReasoningInput) -> Self {
+        Self {
+            kind: "reasoning",
+            id: reasoning.id.clone(),
+            encrypted_content: reasoning.encrypted_content.clone(),
         }
     }
 }
@@ -538,6 +566,26 @@ impl ResponsesResponse {
         Ok(calls)
     }
 
+    /// Collect encrypted reasoning output items for stateless replay.
+    #[must_use]
+    pub fn reasoning_items(&self) -> Vec<GenerateReasoningItem> {
+        self.output
+            .iter()
+            .filter_map(|item| match item {
+                ResponsesOutputItem::Reasoning {
+                    id,
+                    encrypted_content,
+                } => encrypted_content
+                    .as_ref()
+                    .map(|encrypted_content| GenerateReasoningItem {
+                        id: id.clone(),
+                        encrypted_content: Some(encrypted_content.clone()),
+                    }),
+                _ => None,
+            })
+            .collect()
+    }
+
     pub(super) fn from_stream_parts(
         id: Option<String>,
         model: Option<String>,
@@ -581,6 +629,11 @@ enum ResponsesOutputItem {
         call_id: Option<String>,
         name: String,
         arguments: String,
+    },
+    #[serde(rename = "reasoning")]
+    Reasoning {
+        id: Option<String>,
+        encrypted_content: Option<String>,
     },
     #[serde(other)]
     Other,
@@ -956,6 +1009,7 @@ mod tests {
             )],
             tool_choice: Some("auto"),
             parallel_tool_calls: Some(false),
+            include: Vec::new(),
             prompt_cache_key: None,
             store: false,
             prompt_cache_retention: None,
@@ -1191,6 +1245,23 @@ mod tests {
                 .expect("output json");
         assert_eq!(output["name"], "update_own_name");
         assert_eq!(output["payload"]["display_name"], "Momo");
+    }
+
+    #[test]
+    fn serializes_reasoning_history_item_for_replay() {
+        let input =
+            GenerateInput::Items(vec![GenerateInputItem::Reasoning(GenerateReasoningInput {
+                id: Some("rs_1".to_string()),
+                encrypted_content: "opaque-openai-reasoning".to_string(),
+            })]);
+
+        let ResponsesInput::Items(items) = ResponsesInput::from(&input) else {
+            panic!("expected items");
+        };
+        let value = serde_json::to_value(&items[0]).expect("json");
+        assert_eq!(value["type"], "reasoning");
+        assert_eq!(value["id"], "rs_1");
+        assert_eq!(value["encrypted_content"], "opaque-openai-reasoning");
     }
 
     #[test]

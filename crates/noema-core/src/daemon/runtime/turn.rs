@@ -1257,6 +1257,7 @@ impl CodexRuntimeActor {
                     responses: continuation_response.responses.clone(),
                     tool_calls: continuation_tool_call_items,
                     memory_proposals: continuation_response.memory_proposals.clone(),
+                    reasoning_items: continuation_response.reasoning_items.clone(),
                     response_status: continuation_response.response_status,
                     provider: continuation_response.provider.clone(),
                     model: continuation_response.model.clone(),

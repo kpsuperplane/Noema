@@ -19,10 +19,11 @@ pub mod tools;
 
 pub use contract::{
     AssistantTextPhase, DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateActionItem, GenerateInput,
-    GenerateInputItem, GenerateMessage, GenerateMessageRole, GenerateOptions, GenerateRequest,
-    GenerateResponse, GenerateResponseItem, GenerateResponseStatus, GenerateStreamEvent,
-    GenerateToolCall, GenerateToolCallInput, GenerateToolResultInput, ModelProvider,
-    ParsedNoemaResponse, PromptCacheRetention, ProviderContextMetadata, ProviderError, TokenUsage,
+    GenerateInputItem, GenerateMessage, GenerateMessageRole, GenerateOptions,
+    GenerateReasoningInput, GenerateReasoningItem, GenerateRequest, GenerateResponse,
+    GenerateResponseItem, GenerateResponseStatus, GenerateStreamEvent, GenerateToolCall,
+    GenerateToolCallInput, GenerateToolResultInput, ModelProvider, ParsedNoemaResponse,
+    PromptCacheRetention, ProviderContextMetadata, ProviderError, TokenUsage,
     noema_response_from_text, output_items_from_text, required_noema_response_from_text,
     required_noema_response_from_text_with_native_tool_calls,
 };

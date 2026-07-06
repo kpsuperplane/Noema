@@ -396,7 +396,9 @@ fn foundation_prompt_parts(input: &GenerateInput) -> FoundationPrompt {
             };
             let generate_input = match &items[last_user_index] {
                 GenerateInputItem::Message(message) => message.content.clone(),
-                GenerateInputItem::ToolCall(_) | GenerateInputItem::ToolResult(_) => String::new(),
+                GenerateInputItem::Reasoning(_)
+                | GenerateInputItem::ToolCall(_)
+                | GenerateInputItem::ToolResult(_) => String::new(),
             };
             FoundationPrompt {
                 replay_turns: bridge_replay_input_items(&items[..last_user_index]),
@@ -422,7 +424,9 @@ fn bridge_replay_input_items(items: &[GenerateInputItem]) -> Vec<BridgeReplayTur
                 },
                 text: message.content.clone(),
             },
-            GenerateInputItem::ToolCall(_) | GenerateInputItem::ToolResult(_) => BridgeReplayTurn {
+            GenerateInputItem::Reasoning(_)
+            | GenerateInputItem::ToolCall(_)
+            | GenerateInputItem::ToolResult(_) => BridgeReplayTurn {
                 role: BridgeRole::Assistant,
                 text: item.render_for_token_count(),
             },

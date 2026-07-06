@@ -198,7 +198,9 @@ fn build_turn_input(
                 .into_iter()
                 .filter_map(|item| match item {
                     GenerateInputItem::Message(message) => Some(message),
-                    GenerateInputItem::ToolCall(_) | GenerateInputItem::ToolResult(_) => None,
+                    GenerateInputItem::Reasoning(_)
+                    | GenerateInputItem::ToolCall(_)
+                    | GenerateInputItem::ToolResult(_) => None,
                 })
                 .collect(),
         )

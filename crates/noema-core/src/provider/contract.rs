@@ -181,6 +181,8 @@ impl GenerateInput {
 pub enum GenerateInputItem {
     /// Role-tagged text message.
     Message(GenerateMessage),
+    /// Provider-encrypted reasoning context for stateless replay.
+    Reasoning(GenerateReasoningInput),
     /// Historical provider/model tool call.
     ToolCall(GenerateToolCallInput),
     /// Historical local tool result.
@@ -193,6 +195,7 @@ impl GenerateInputItem {
     pub fn is_empty(&self) -> bool {
         match self {
             Self::Message(message) => message.content.trim().is_empty(),
+            Self::Reasoning(reasoning) => reasoning.encrypted_content.trim().is_empty(),
             Self::ToolCall(call) => call.call_id.trim().is_empty() || call.name.trim().is_empty(),
             Self::ToolResult(result) => {
                 result.call_id.trim().is_empty() || result.name.trim().is_empty()
@@ -205,6 +208,12 @@ impl GenerateInputItem {
     pub fn render_for_token_count(&self) -> String {
         match self {
             Self::Message(message) => format!("{}: {}", message.role.as_str(), message.content),
+            Self::Reasoning(reasoning) => serde_json::json!({
+                "type": "reasoning",
+                "id": reasoning.id,
+                "encrypted_content": reasoning.encrypted_content,
+            })
+            .to_string(),
             Self::ToolCall(call) => serde_json::json!({
                 "type": "function_call",
                 "id": call.id,
@@ -225,6 +234,16 @@ impl GenerateInputItem {
             .to_string(),
         }
     }
+}
+
+/// Provider-neutral encrypted reasoning item for stateless replay.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GenerateReasoningInput {
+    /// Provider reasoning item id, when available.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// Opaque provider-encrypted reasoning payload.
+    pub encrypted_content: String,
 }
 
 /// Provider-neutral native tool-call input for durable history replay.
@@ -342,6 +361,8 @@ pub struct GenerateResponse {
     pub tool_calls: Vec<GenerateToolCall>,
     /// Memory proposals emitted by the provider.
     pub memory_proposals: Vec<ExtractorMemoryProposal>,
+    /// Opaque encrypted reasoning items returned by the provider for replay.
+    pub reasoning_items: Vec<GenerateReasoningItem>,
     /// Whether this response needs tool execution or completes the turn.
     pub response_status: GenerateResponseStatus,
     /// Provider identifier that produced the response.
@@ -352,6 +373,16 @@ pub struct GenerateResponse {
     pub response_id: Option<String>,
     /// Token usage reported by the provider when available.
     pub usage: Option<TokenUsage>,
+}
+
+/// Encrypted reasoning item returned by a provider response.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GenerateReasoningItem {
+    /// Provider reasoning item id, when available.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// Opaque provider-encrypted reasoning payload.
+    pub encrypted_content: Option<String>,
 }
 
 /// Ephemeral events emitted while a provider response is still generating.
@@ -389,6 +420,7 @@ impl GenerateResponse {
             responses: parsed.responses,
             tool_calls: parsed.tool_calls,
             memory_proposals: parsed.memory_proposals,
+            reasoning_items: Vec::new(),
             response_status: parsed.response_status,
             provider: provider.into(),
             model: model.into(),
@@ -411,12 +443,20 @@ impl GenerateResponse {
             }],
             tool_calls: Vec::new(),
             memory_proposals: Vec::new(),
+            reasoning_items: Vec::new(),
             response_status: GenerateResponseStatus::Final,
             provider: provider.into(),
             model: model.into(),
             response_id: None,
             usage: None,
         }
+    }
+
+    /// Attach provider-encrypted reasoning items to this response.
+    #[must_use]
+    pub fn with_reasoning_items(mut self, reasoning_items: Vec<GenerateReasoningItem>) -> Self {
+        self.reasoning_items = reasoning_items;
+        self
     }
 
     /// Return all text response items concatenated in order.
@@ -1076,6 +1116,7 @@ mod tests {
                 responses: vec![GenerateResponseItem::Text { phase: None, text }],
                 tool_calls: Vec::new(),
                 memory_proposals: Vec::new(),
+                reasoning_items: Vec::new(),
                 response_status: GenerateResponseStatus::Final,
                 provider: "mock".to_string(),
                 model: request.model.unwrap_or_else(|| "mock-model".to_string()),

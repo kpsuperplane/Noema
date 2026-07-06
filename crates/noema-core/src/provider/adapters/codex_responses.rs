@@ -22,11 +22,11 @@ use crate::{
     SYSTEM_ERROR_PROVIDER_MALFORMED_RESPONSE, SystemErrorEvent, SystemErrorLogger,
     provider::{
         DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateInput, GenerateInputItem, GenerateMessageRole,
-        GenerateOptions, GenerateRequest, GenerateResponse, GenerateResponseStatus,
-        GenerateStreamEvent, GenerateToolCallInput, GenerateToolResultInput, ModelProvider,
-        ParsedNoemaResponse, ProviderError, ProviderToolCapabilities, ProviderToolFallbackMode,
-        ProviderToolSchemaDialect, output_items_from_text,
-        required_noema_response_from_text_with_native_tool_calls,
+        GenerateOptions, GenerateReasoningInput, GenerateRequest, GenerateResponse,
+        GenerateResponseStatus, GenerateStreamEvent, GenerateToolCallInput,
+        GenerateToolResultInput, ModelProvider, ParsedNoemaResponse, ProviderError,
+        ProviderToolCapabilities, ProviderToolFallbackMode, ProviderToolSchemaDialect,
+        output_items_from_text, required_noema_response_from_text_with_native_tool_calls,
     },
 };
 
@@ -229,6 +229,7 @@ impl CodexResponsesRequest {
 #[serde(untagged)]
 enum CodexInputItem {
     Message(CodexInputMessage),
+    Reasoning(CodexReasoningItem),
     FunctionCall(CodexFunctionCall),
     FunctionCallOutput(CodexFunctionCallOutput),
 }
@@ -249,10 +250,32 @@ impl From<&GenerateInputItem> for CodexInputItem {
                 },
                 content: message.content.clone(),
             }),
+            GenerateInputItem::Reasoning(reasoning) => {
+                Self::Reasoning(CodexReasoningItem::from(reasoning))
+            }
             GenerateInputItem::ToolCall(call) => Self::FunctionCall(CodexFunctionCall::from(call)),
             GenerateInputItem::ToolResult(result) => {
                 Self::FunctionCallOutput(CodexFunctionCallOutput::from(result))
             }
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct CodexReasoningItem {
+    #[serde(rename = "type")]
+    kind: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    id: Option<String>,
+    encrypted_content: String,
+}
+
+impl From<&GenerateReasoningInput> for CodexReasoningItem {
+    fn from(value: &GenerateReasoningInput) -> Self {
+        Self {
+            kind: "reasoning",
+            id: value.id.clone(),
+            encrypted_content: value.encrypted_content.clone(),
         }
     }
 }
@@ -429,10 +452,11 @@ impl CodexResponsesProvider {
                     return Ok(GenerateResponse::from_parsed(
                         parsed,
                         "codex",
-                        response.model.unwrap_or(model),
-                        response.id,
-                        response.usage.map(Into::into),
-                    ));
+                        response.model.clone().unwrap_or(model),
+                        response.id.clone(),
+                        response.usage.clone().map(Into::into),
+                    )
+                    .with_reasoning_items(response.reasoning_items()));
                 }
                 self.log_malformed_response_raw(
                     &error,
@@ -480,10 +504,11 @@ impl CodexResponsesProvider {
         Ok(GenerateResponse::from_parsed(
             parsed,
             "codex",
-            response.model.unwrap_or(model),
-            response.id,
-            response.usage.map(Into::into),
-        ))
+            response.model.clone().unwrap_or(model),
+            response.id.clone(),
+            response.usage.clone().map(Into::into),
+        )
+        .with_reasoning_items(response.reasoning_items()))
     }
 
     fn log_malformed_response(

@@ -381,6 +381,7 @@ fn render_compaction_transcript(items: &[ConversationItemRecord]) -> String {
                     };
                     (role, message.content)
                 }
+                crate::provider::GenerateInputItem::Reasoning(_) => return None,
                 crate::provider::GenerateInputItem::ToolCall(call) => (
                     "Noema tool call",
                     crate::provider::GenerateInputItem::ToolCall(call).render_for_token_count(),
