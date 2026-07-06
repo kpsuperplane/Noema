@@ -115,6 +115,23 @@ If a provider does not support encrypted reasoning, Noema should continue with
 the existing stateless transcript replay behavior rather than failing normal
 chat.
 
+### Provider Verification
+
+OpenAI Responses and Codex Responses are similar but not identical APIs. Noema
+must verify request and response behavior independently for each adapter instead
+of assuming a field accepted by one provider is accepted by the other.
+
+Implementation must separately validate:
+
+- whether the provider accepts `include: ["reasoning.encrypted_content"]`
+- the exact shape of returned reasoning output items
+- the exact shape required to replay encrypted reasoning items as input
+- whether `prompt_cache_key` and `prompt_cache_retention` are accepted
+- how provider errors report unsupported request fields
+
+Unsupported optional fields should be gated by provider capabilities rather than
+sent optimistically in normal chat requests.
+
 ### Prompt Cache Controls
 
 OpenAI Responses requests should send:
@@ -139,7 +156,8 @@ Add regression tests that verify:
   appear in stable instructions.
 - Compaction changes the replay prefix only at the summary checkpoint.
 - OpenAI requests include `prompt_cache_key` for conversation requests.
-- Responses requests can include `reasoning.encrypted_content`.
+- OpenAI and Codex adapter tests independently cover accepted
+  `reasoning.encrypted_content` request fields or provider-specific fallbacks.
 - Provider `reasoning` items with encrypted content are parsed, persisted, and
   replayed in order.
 
@@ -152,4 +170,3 @@ Add regression tests that verify:
    providers.
 5. Persist and replay encrypted reasoning items.
 6. Keep compaction as the only normal cache reset for long conversations.
-
