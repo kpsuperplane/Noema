@@ -152,13 +152,10 @@ impl CodexRuntimeActor {
         let summarizer_provider = self.default_provider().map_err(|_| {
             "web.fetch summarizer provider is not available in this daemon".to_string()
         })?;
-        let summarizer_model = summarizer_provider
-            .default_tool_classification_model()
-            .unwrap_or_else(|| DEFAULT_TOOL_CLASSIFICATION_MODEL.to_string());
         Ok(FetchRuntimeContext {
             summarizer_provider_kind: self.default_provider_kind.clone(),
             summarizer_provider,
-            summarizer_model,
+            summarizer_model: DEFAULT_TOOL_CLASSIFICATION_MODEL.to_string(),
         })
     }
 }
@@ -337,19 +334,27 @@ pub(super) fn local_tool_result_continuation_input(results: &[&LocalToolResult])
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashMap, future::Future, pin::Pin, sync::Arc};
+    use std::{
+        collections::HashMap,
+        future::Future,
+        pin::Pin,
+        sync::{Arc, Mutex},
+    };
 
     use crate::{
         NewAuxiliaryModelPreference, ProviderError, WEB_FETCH_SUMMARIZER_TASK_ID,
         daemon::runtime::{actor::CodexRuntimeActor, handle::RuntimeModelProvider},
         provider::{
-            GenerateRequest, GenerateResponse, GenerateStreamEvent, ProviderToolCapabilities,
+            DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateRequest, GenerateResponse,
+            GenerateResponseItem, GenerateResponseStatus, GenerateStreamEvent,
+            ProviderToolCapabilities,
         },
     };
 
     #[derive(Debug)]
     struct LocalToolTestProvider {
         default_tool_model: Option<String>,
+        requests: Arc<Mutex<Vec<GenerateRequest>>>,
     }
 
     impl RuntimeModelProvider for LocalToolTestProvider {
@@ -363,16 +368,50 @@ mod tests {
 
         fn generate_streaming<'a>(
             &'a self,
-            _request: GenerateRequest,
+            request: GenerateRequest,
             _on_event: &'a mut (dyn FnMut(GenerateStreamEvent) + Send),
         ) -> Pin<Box<dyn Future<Output = Result<GenerateResponse, ProviderError>> + Send + 'a>>
         {
-            Box::pin(async {
-                Err(ProviderError::ProviderUnavailable {
+            Box::pin(async move {
+                self.requests
+                    .lock()
+                    .expect("requests")
+                    .push(request.clone());
+                Ok(GenerateResponse {
+                    responses: vec![GenerateResponseItem::Text {
+                        phase: None,
+                        text: "summarized page".to_string(),
+                    }],
+                    tool_calls: Vec::new(),
+                    memory_proposals: Vec::new(),
+                    response_status: GenerateResponseStatus::Final,
                     provider: "test".to_string(),
-                    message: "test provider does not generate".to_string(),
+                    model: request
+                        .model
+                        .unwrap_or_else(|| "missing-test-model".to_string()),
+                    response_id: None,
+                    usage: None,
                 })
             })
+        }
+    }
+
+    impl LocalToolTestProvider {
+        fn new(default_tool_model: Option<&str>) -> Self {
+            Self {
+                default_tool_model: default_tool_model.map(str::to_string),
+                requests: Arc::new(Mutex::new(Vec::new())),
+            }
+        }
+
+        fn with_requests(
+            default_tool_model: Option<&str>,
+            requests: Arc<Mutex<Vec<GenerateRequest>>>,
+        ) -> Self {
+            Self {
+                default_tool_model: default_tool_model.map(str::to_string),
+                requests,
+            }
         }
     }
 
@@ -397,15 +436,13 @@ mod tests {
             HashMap::from([
                 (
                     "codex".to_string(),
-                    Arc::new(LocalToolTestProvider {
-                        default_tool_model: Some("codex-tool-default".to_string()),
-                    }) as Arc<dyn RuntimeModelProvider>,
+                    Arc::new(LocalToolTestProvider::new(Some("codex-tool-default")))
+                        as Arc<dyn RuntimeModelProvider>,
                 ),
                 (
                     "foundation_local".to_string(),
-                    Arc::new(LocalToolTestProvider {
-                        default_tool_model: Some("foundation-tool-default".to_string()),
-                    }) as Arc<dyn RuntimeModelProvider>,
+                    Arc::new(LocalToolTestProvider::new(Some("foundation-tool-default")))
+                        as Arc<dyn RuntimeModelProvider>,
                 ),
             ]),
             store.clone(),
@@ -443,9 +480,8 @@ mod tests {
             "codex".to_string(),
             HashMap::from([(
                 "codex".to_string(),
-                Arc::new(LocalToolTestProvider {
-                    default_tool_model: Some("codex-tool-default".to_string()),
-                }) as Arc<dyn RuntimeModelProvider>,
+                Arc::new(LocalToolTestProvider::new(Some("codex-tool-default")))
+                    as Arc<dyn RuntimeModelProvider>,
             )]),
             store.clone(),
             store.system_error_logger(),
@@ -461,6 +497,50 @@ mod tests {
         assert_eq!(
             message,
             "web.fetch summarizer provider 'foundation_local' is not available in this daemon"
+        );
+    }
+
+    #[tokio::test]
+    async fn web_fetch_runtime_context_no_preference_summarizes_with_spec_default_model() {
+        let store = crate::store::tests::test_store().await;
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let actor = CodexRuntimeActor::new(
+            "codex".to_string(),
+            HashMap::from([(
+                "codex".to_string(),
+                Arc::new(LocalToolTestProvider::with_requests(
+                    Some("configured-tool-override"),
+                    Arc::clone(&requests),
+                )) as Arc<dyn RuntimeModelProvider>,
+            )]),
+            store.clone(),
+            store.system_error_logger(),
+        )
+        .await
+        .expect("actor");
+
+        let context = actor
+            .web_fetch_runtime_context()
+            .await
+            .expect("web fetch context");
+        let markdown = format!("{}\n", "Long page paragraph.".repeat(600));
+        let summary = crate::web_fetch::summarize::summarize_markdown(
+            &context,
+            "https://example.com/page",
+            Some("Example Page"),
+            &markdown,
+            2_000,
+        )
+        .await
+        .expect("summarization");
+
+        assert_eq!(summary, "summarized page");
+        assert_eq!(context.summarizer_model, DEFAULT_TOOL_CLASSIFICATION_MODEL);
+        let requests = requests.lock().expect("requests");
+        assert_eq!(requests.len(), 1);
+        assert_eq!(
+            requests[0].model.as_deref(),
+            Some(DEFAULT_TOOL_CLASSIFICATION_MODEL)
         );
     }
 }
