@@ -5278,19 +5278,6 @@ impl FakeCodexProvider {
                     assistant_with_no_memories(
                         "I gathered partial results and paused before the tool loop could run too long.",
                     )
-                } else if input_text.contains("NOEMA_LOCAL_TOOL_RESULT")
-                    || matches!(
-                        request.input,
-                        crate::provider::GenerateInput::NativeToolResults(_)
-                    )
-                {
-                    vec![
-                        search_memory_tool_call(
-                            "call_loop",
-                            json!({"arguments": {"query": loop_query}}),
-                        ),
-                        GenerateOutputItem::MemoryProposals { proposals: vec![] },
-                    ]
                 } else {
                     vec![
                         search_memory_tool_call(
