@@ -359,6 +359,8 @@ pub struct GenerateResponse {
 pub enum GenerateStreamEvent {
     /// Incremental human-visible assistant text.
     AssistantTextDelta {
+        /// Zero-based index of the response item being streamed.
+        response_index: usize,
         /// Text delta received from the provider.
         delta: String,
     },

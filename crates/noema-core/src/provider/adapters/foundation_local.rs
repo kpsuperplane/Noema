@@ -289,7 +289,10 @@ impl ModelProvider for FoundationLocalProvider {
             if require_noema_response {
                 noema_delta_extractor.push_delta(&delta, on_event);
             } else {
-                on_event(GenerateStreamEvent::AssistantTextDelta { delta });
+                on_event(GenerateStreamEvent::AssistantTextDelta {
+                    response_index: 0,
+                    delta,
+                });
             }
         };
         let key = FoundationSessionKey {
@@ -646,6 +649,7 @@ done
         assert_eq!(
             events,
             vec![GenerateStreamEvent::AssistantTextDelta {
+                response_index: 0,
                 delta: "bridge ".to_string(),
             }]
         );
@@ -756,6 +760,7 @@ done
         assert_eq!(
             events,
             vec![GenerateStreamEvent::AssistantTextDelta {
+                response_index: 0,
                 delta: "bridge answer".to_string(),
             }]
         );

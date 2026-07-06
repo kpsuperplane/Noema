@@ -227,6 +227,10 @@ type AssistantTextDeltaEvent {
 	"""
 	streamId: String!
 	"""
+	Zero-based response item index within the provider response.
+	"""
+	responseIndex: Int!
+	"""
 	Assistant text delta.
 	"""
 	delta: String!

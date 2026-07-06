@@ -1,6 +1,6 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { renderableTranscriptEntries } from "./renderModel";
+import { renderedEntryMessageId, renderableTranscriptEntries } from "./renderModel";
 import type { TranscriptEntry } from "@/shared/types";
 
 describe("renderableTranscriptEntries", () => {
@@ -53,5 +53,35 @@ describe("renderableTranscriptEntries", () => {
     assert.equal(toolMarkers[0]?.marker.call?.id, "call-entry");
     assert.equal(toolMarkers[0]?.marker.result?.id, "result-entry");
     assert.equal(rendered.some((entry) => entry.kind === "entry" && entry.entry.id === "assistant-entry"), true);
+  });
+
+  test("uses durable item ids for finalized assistant messages with stream ids", () => {
+    const rendered = renderableTranscriptEntries(
+      [
+        {
+          id: "assistant:item:1",
+          itemId: "assistant:item:1",
+          turnId: "turn:1",
+          type: "assistant",
+          streamId: "assistant_stream:turn:1:initial:response:0",
+          text: "first"
+        },
+        {
+          id: "assistant:item:2",
+          itemId: "assistant:item:2",
+          turnId: "turn:1",
+          type: "assistant",
+          streamId: "assistant_stream:turn:1:initial:response:1",
+          text: "second"
+        }
+      ],
+      false,
+      "IDLE"
+    );
+
+    assert.deepEqual(rendered.map((entry) => renderedEntryMessageId(entry)), [
+      "assistant:item:1",
+      "assistant:item:2"
+    ]);
   });
 });

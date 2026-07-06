@@ -372,7 +372,7 @@ impl CodexResponsesProvider {
         let mut noema_delta_extractor = NoemaAssistantTextDeltaExtractor::default();
         let mut forward_event = |event| {
             if require_noema_response {
-                if let GenerateStreamEvent::AssistantTextDelta { delta } = event {
+                if let GenerateStreamEvent::AssistantTextDelta { delta, .. } = event {
                     noema_delta_extractor.push_delta(&delta, on_event);
                 }
             } else {
@@ -1084,9 +1084,11 @@ mod tests {
             events,
             vec![
                 GenerateStreamEvent::AssistantTextDelta {
+                    response_index: 0,
                     delta: "Hel".to_string()
                 },
                 GenerateStreamEvent::AssistantTextDelta {
+                    response_index: 0,
                     delta: "lo".to_string()
                 }
             ]
@@ -1135,9 +1137,11 @@ mod tests {
             events,
             vec![
                 GenerateStreamEvent::AssistantTextDelta {
+                    response_index: 0,
                     delta: "Hel".to_string()
                 },
                 GenerateStreamEvent::AssistantTextDelta {
+                    response_index: 0,
                     delta: "lo".to_string()
                 }
             ]

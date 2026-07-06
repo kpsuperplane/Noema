@@ -3832,6 +3832,7 @@ mod tests {
                 conversation_id: "conversation_1".to_string(),
                 turn_id: "turn_1".to_string(),
                 stream_id: "assistant_stream:turn_1:initial".to_string(),
+                response_index: 0,
                 delta: "Hel".to_string(),
             }),
         });

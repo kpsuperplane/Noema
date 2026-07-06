@@ -1647,8 +1647,12 @@ fn render_available_tools(model_tools: &ModelTools) -> String {
 
 fn provider_stream_event_fields(event: &GenerateStreamEvent) -> serde_json::Value {
     match event {
-        GenerateStreamEvent::AssistantTextDelta { delta } => json!({
+        GenerateStreamEvent::AssistantTextDelta {
+            response_index,
+            delta,
+        } => json!({
             "stream_event": "assistant_text_delta",
+            "response_index": response_index,
             "delta_chars": delta.chars().count(),
         }),
         GenerateStreamEvent::MemoryProposalsStarted => json!({

@@ -159,6 +159,7 @@ impl SseAccumulator {
                 if let Some(delta) = value.get("delta").and_then(Value::as_str) {
                     self.output_text.push_str(delta);
                     on_event(GenerateStreamEvent::AssistantTextDelta {
+                        response_index: 0,
                         delta: delta.to_string(),
                     });
                 }
@@ -332,9 +333,11 @@ mod tests {
             events,
             vec![
                 GenerateStreamEvent::AssistantTextDelta {
+                    response_index: 0,
                     delta: "Hel".to_string()
                 },
                 GenerateStreamEvent::AssistantTextDelta {
+                    response_index: 0,
                     delta: "lo".to_string()
                 }
             ]
@@ -439,6 +442,7 @@ mod tests {
         assert_eq!(
             events,
             vec![GenerateStreamEvent::AssistantTextDelta {
+                response_index: 0,
                 delta: format!("caf{accent}")
             }]
         );
@@ -475,6 +479,7 @@ mod tests {
         assert_eq!(
             events,
             vec![GenerateStreamEvent::AssistantTextDelta {
+                response_index: 0,
                 delta: "Hi".to_string()
             }]
         );

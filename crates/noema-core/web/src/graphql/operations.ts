@@ -583,6 +583,7 @@ export const ConversationEventsDocument = gql`
         conversationId
         deltaTurnId: turnId
         streamId
+        responseIndex
         delta
       }
       ... on AgentStatusEvent {

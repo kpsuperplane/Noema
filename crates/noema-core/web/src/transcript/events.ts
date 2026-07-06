@@ -55,9 +55,10 @@ export function removeStaleStartedMemoryExtractions(current: TranscriptEntry[]):
 
 export function appendAssistantTextDeltaEntry(
   current: TranscriptEntry[],
-  event: { turnId: string; streamId: string; delta: string; conversationId: string }
+  event: { turnId: string; streamId: string; responseIndex: number; delta: string; conversationId: string }
 ): TranscriptEntry[] {
   void event.conversationId;
+  void event.responseIndex;
   const completedIndex = current.findIndex((candidate) => {
     if (candidate.type !== "assistant") {
       return false;

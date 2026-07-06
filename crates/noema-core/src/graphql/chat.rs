@@ -303,6 +303,8 @@ pub struct GraphqlAssistantTextDeltaEvent {
     pub turn_id: String,
     /// Runtime stream id.
     pub stream_id: String,
+    /// Zero-based response item index within the provider response.
+    pub response_index: usize,
     /// Assistant text delta.
     pub delta: String,
 }
@@ -579,10 +581,11 @@ pub(super) fn conversation_events(
                         },
                     );
                 }
-                    crate::daemon::TurnStreamEvent::AssistantTextDelta {
+                        crate::daemon::TurnStreamEvent::AssistantTextDelta {
                             conversation_id,
                             turn_id,
                             stream_id,
+                            response_index,
                             delta,
                         } => {
                     yield GraphqlConversationEvent::AssistantTextDelta(
@@ -590,6 +593,7 @@ pub(super) fn conversation_events(
                             conversation_id,
                             turn_id,
                             stream_id,
+                            response_index,
                             delta,
                         },
                     );
@@ -701,6 +705,7 @@ fn mark_graphql_published_turn_event(event: &TurnStreamEvent, client_message_id:
             conversation_id,
             turn_id,
             stream_id,
+            response_index,
             delta,
         } => mark_graphql_turn_event(
             "graphql_publish_assistant_delta",
@@ -709,6 +714,7 @@ fn mark_graphql_published_turn_event(event: &TurnStreamEvent, client_message_id:
             serde_json::json!({
                 "turn_id": turn_id,
                 "stream_id": stream_id,
+                "response_index": response_index,
                 "delta_chars": delta.chars().count(),
             }),
         ),

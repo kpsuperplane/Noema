@@ -160,6 +160,7 @@ pub(crate) enum TurnStreamEvent {
         conversation_id: String,
         turn_id: String,
         stream_id: String,
+        response_index: usize,
         delta: String,
     },
     AgentStatusChanged {

@@ -177,6 +177,64 @@ describe("transcript window model", () => {
     );
   });
 
+  test("replaces multiple assistant stream entries with matching durable assistant entries", () => {
+    const current: TranscriptWindowState = {
+      durableEntries: [
+        {
+          id: "stream:0",
+          turnId: "turn:1",
+          type: "assistant_stream",
+          streamId: "assistant_stream:turn:1:initial:response:0",
+          text: "first"
+        },
+        {
+          id: "stream:1",
+          turnId: "turn:1",
+          type: "assistant_stream",
+          streamId: "assistant_stream:turn:1:initial:response:1",
+          text: "second"
+        }
+      ],
+      optimisticEntries: [],
+      beforeCursor: null,
+      hasMoreBefore: false
+    };
+
+    const merged = mergeDurableEntries(
+      current,
+      [
+        {
+          id: "assistant:item:1",
+          itemId: "assistant:item:1",
+          cursor: "c1",
+          turnId: "turn:1",
+          type: "assistant",
+          streamId: "assistant_stream:turn:1:initial:response:0",
+          text: "first"
+        },
+        {
+          id: "assistant:item:2",
+          itemId: "assistant:item:2",
+          cursor: "c2",
+          turnId: "turn:1",
+          type: "assistant",
+          streamId: "assistant_stream:turn:1:initial:response:1",
+          text: "second"
+        }
+      ],
+      {
+        beforeCursor: null,
+        hasMoreBefore: false,
+        placement: "append"
+      }
+    );
+
+    assert.deepEqual(
+      transcriptWindowEntries(merged).map((entry) => entry.id),
+      ["assistant:item:1", "assistant:item:2"]
+    );
+  });
+
   test("keeps following memory marker beneath finalized streamed assistant message", () => {
     const current: TranscriptWindowState = {
       durableEntries: [

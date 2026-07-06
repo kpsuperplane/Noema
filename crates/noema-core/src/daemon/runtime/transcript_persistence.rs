@@ -39,10 +39,14 @@ impl CodexRuntimeActor {
                     },
                     provider_phase_has_tools,
                 );
+                let stream_id = turn
+                    .stream_id
+                    .as_deref()
+                    .map(|stream_id| assistant_response_stream_id(stream_id, index));
                 let metadata = json!({
                     "turn_index": turn.turn_index,
                     "response_index": index,
-                    "stream_id": turn.stream_id,
+                    "stream_id": stream_id,
                     "phase": effective_phase.as_str(),
                 });
                 let assistant_item = self
@@ -668,11 +672,15 @@ pub(super) fn handle_provider_stream_event(
     output_index_base: usize,
 ) {
     match event {
-        GenerateStreamEvent::AssistantTextDelta { delta } => send_assistant_text_delta(
+        GenerateStreamEvent::AssistantTextDelta {
+            response_index,
+            delta,
+        } => send_assistant_text_delta(
             item_tx,
             &context.conversation_id,
             &context.turn_id,
-            stream_id,
+            &assistant_response_stream_id(stream_id, response_index),
+            response_index,
             delta,
         ),
         GenerateStreamEvent::MemoryProposalsStarted => {
@@ -747,12 +755,14 @@ fn send_assistant_text_delta(
     conversation_id: &str,
     turn_id: &str,
     stream_id: &str,
+    response_index: usize,
     delta: String,
 ) {
     let _ = item_tx.send(TurnStreamEvent::AssistantTextDelta {
         conversation_id: conversation_id.to_string(),
         turn_id: turn_id.to_string(),
         stream_id: stream_id.to_string(),
+        response_index,
         delta,
     });
 }
@@ -1163,6 +1173,10 @@ fn insert_display_value(display: &mut Value, key: &str, value: Option<String>) {
 
 pub(super) fn assistant_stream_id(turn_id: &str, segment: &str) -> String {
     format!("assistant_stream:{turn_id}:{segment}")
+}
+
+fn assistant_response_stream_id(stream_id: &str, response_index: usize) -> String {
+    format!("{stream_id}:response:{response_index}")
 }
 
 #[cfg(test)]

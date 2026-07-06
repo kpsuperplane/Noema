@@ -447,6 +447,7 @@ function AppContent() {
           conversationId: event.conversationId,
           turnId: event.deltaTurnId,
           streamId: event.streamId,
+          responseIndex: event.responseIndex,
           delta: event.delta
         })
       }));

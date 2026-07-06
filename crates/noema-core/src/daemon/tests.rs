@@ -5818,18 +5818,24 @@ impl super::runtime::RuntimeModelProvider for FakeCodexProvider {
     ) -> Pin<Box<dyn Future<Output = Result<GenerateResponse, ProviderError>> + Send + 'a>> {
         Box::pin(async move {
             let response = self.generate_response(request)?;
-            for response_item in &response.responses {
+            for (response_index, response_item) in response.responses.iter().enumerate() {
                 if let GenerateResponseItem::Text { text, .. } = response_item {
                     let mut chunk = String::new();
                     for character in text.chars() {
                         chunk.push(character);
                         if chunk.chars().count() == 4 {
-                            on_event(GenerateStreamEvent::AssistantTextDelta { delta: chunk });
+                            on_event(GenerateStreamEvent::AssistantTextDelta {
+                                response_index,
+                                delta: chunk,
+                            });
                             chunk = String::new();
                         }
                     }
                     if !chunk.is_empty() {
-                        on_event(GenerateStreamEvent::AssistantTextDelta { delta: chunk });
+                        on_event(GenerateStreamEvent::AssistantTextDelta {
+                            response_index,
+                            delta: chunk,
+                        });
                     }
                 }
             }
@@ -5864,9 +5870,10 @@ impl super::runtime::RuntimeModelProvider for RecordingFakeProvider {
                 .push(request.clone());
             let mut response = self.inner.generate_response(request)?;
             response.provider = self.provider_kind.clone();
-            for response_item in &response.responses {
+            for (response_index, response_item) in response.responses.iter().enumerate() {
                 if let GenerateResponseItem::Text { text, .. } = response_item {
                     on_event(GenerateStreamEvent::AssistantTextDelta {
+                        response_index,
                         delta: text.clone(),
                     });
                 }

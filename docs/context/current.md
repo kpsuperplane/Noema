@@ -74,6 +74,10 @@ The next storage slice should stay small and concrete:
   Normal capitalization still applies for proper names, acronyms, code,
   commands, headings, quoted text, formal artifacts, high-stakes topics, and
   polished deliverables.
+- Casual assistant replies may use multiple `responses[]` text items as
+  separate chat bubbles. Provider streaming, GraphQL, and the web transcript use
+  per-response-item stream ids so split replies stream and finalize without
+  collapsing into one bubble.
 - The provider-neutral native tool plane has landed from
   `docs/superpowers/specs/2026-07-04-native-tool-plane-design.md`: Noema now
   builds canonical local/MCP tool specs, advertises them through provider-native
