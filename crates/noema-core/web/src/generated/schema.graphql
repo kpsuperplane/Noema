@@ -1110,6 +1110,10 @@ type MutationRoot {
 	"""
 	saveAgentModelPreference(input: SaveAgentModelPreferenceInput!): AgentModelPreference!
 	"""
+	Save the web fetch summarizer model/provider preference.
+	"""
+	saveWebFetchSummarizerPreference(input: SaveWebFetchSummarizerPreferenceInput!): AgentModelPreference!
+	"""
 	Ensure the primary conversation exists.
 	"""
 	ensurePrimaryConversation(cwd: String): PrimaryConversation!
@@ -1505,6 +1509,10 @@ type QueryRoot {
 	"""
 	agents: [Agent!]!
 	"""
+	Return web fetch settings safe to show in Settings.
+	"""
+	webFetchSettings: WebFetchSettings!
+	"""
 	List MCP server metadata safe to show in Settings.
 	"""
 	mcpServers: [McpServer!]!
@@ -1612,6 +1620,20 @@ input SaveToolCalibrationInput {
 	Tool metadata fingerprint reviewed by the actor.
 	"""
 	reviewedMetadataFingerprint: String
+}
+
+"""
+Input for saving the web fetch summarizer preference.
+"""
+input SaveWebFetchSummarizerPreferenceInput {
+	"""
+	Provider account id to use.
+	"""
+	providerAccountId: String!
+	"""
+	Provider-specific model id or profile id.
+	"""
+	modelProfile: String!
 }
 
 """
@@ -1856,6 +1878,34 @@ type UserText {
 	Text authored by the user.
 	"""
 	text: String!
+}
+
+"""
+Web fetch settings safe to expose in Settings.
+"""
+type WebFetchSettings {
+	"""
+	Web fetch summarizer settings.
+	"""
+	summarizer: WebFetchSummarizerSettings!
+}
+
+"""
+Web fetch summarizer model settings.
+"""
+type WebFetchSummarizerSettings {
+	"""
+	Built-in default model profile used when no preference is configured.
+	"""
+	defaultModelProfile: String!
+	"""
+	Current persisted summarizer model preference, when configured.
+	"""
+	modelPreference: AgentModelPreference
+	"""
+	Provider/profile options available for the summarizer.
+	"""
+	modelOptions: [AgentModelProviderOption!]!
 }
 
 """

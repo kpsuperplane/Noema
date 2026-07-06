@@ -84,6 +84,43 @@ export const SaveAgentModelPreferenceDocument = gql`
   }
 `;
 
+export const WebFetchSettingsDocument = gql`
+  query WebFetchSettings {
+    webFetchSettings {
+      summarizer {
+        defaultModelProfile
+        modelPreference {
+          providerKind
+          providerAccountId
+          modelProfile
+        }
+        modelOptions {
+          providerKind
+          providerAccountId
+          providerDisplayName
+          status
+          disabledReason
+          profiles {
+            id
+            label
+            disabledReason
+          }
+        }
+      }
+    }
+  }
+`;
+
+export const SaveWebFetchSummarizerPreferenceDocument = gql`
+  mutation SaveWebFetchSummarizerPreference($input: SaveWebFetchSummarizerPreferenceInput!) {
+    saveWebFetchSummarizerPreference(input: $input) {
+      providerKind
+      providerAccountId
+      modelProfile
+    }
+  }
+`;
+
 export const McpSettingsDocument = gql`
   query McpSettings {
     mcpServers {
