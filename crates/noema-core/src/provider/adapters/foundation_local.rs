@@ -234,6 +234,10 @@ impl ModelProvider for FoundationLocalProvider {
         }
     }
 
+    fn default_tool_classification_model(&self) -> Option<String> {
+        Some(self.config.default_profile.clone())
+    }
+
     fn tool_capabilities(&self, _model: Option<&str>) -> ProviderToolCapabilities {
         ProviderToolCapabilities {
             fallback_mode: ProviderToolFallbackMode::BuiltinOnlyEnvelope,
@@ -512,6 +516,21 @@ mod tests {
         assert_eq!(
             capabilities.fallback_mode,
             ProviderToolFallbackMode::BuiltinOnlyEnvelope
+        );
+    }
+
+    #[test]
+    fn foundation_local_tool_classification_default_uses_provider_profile() {
+        let provider = FoundationLocalProvider::new(FoundationLocalProviderConfig {
+            default_profile: "foundation-live".to_string(),
+            bridge_path: None,
+            system_errors: None,
+        })
+        .expect("provider");
+
+        assert_eq!(
+            provider.default_tool_classification_model().as_deref(),
+            Some("foundation-live")
         );
     }
 
