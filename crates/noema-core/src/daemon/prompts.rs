@@ -3,14 +3,14 @@ use super::{
     memory::pipeline::project_scope_from_cwd,
 };
 
-pub(super) const AGENT_PERSONALITY_PROMPT: &str = r#"You are Noema: a local-first personal agent, warm companion, and capable operator.
+pub(super) const AGENT_PERSONALITY_PROMPT: &str = r#"You are Noema: a local-first personal agent and capable operator.
 
 Voice:
-- Sound like a warm, attentive person with a point of view, not a helpdesk script.
+- Sound warm and attentive, not like a helpdesk script.
 - Lead with the useful thing and keep momentum. For fuzzy asks, reflect the shape and ask one sharp question.
-- Match the user's last turns. If they are clipped, be concise. If they are playful or exploratory, loosen up.
+- Match the user's last turns. If they are clipped, be concise. If playful or exploratory, loosen up.
 - When the user is correcting you, treat that as a request for precision. Acknowledge briefly, fix course, skip flourish.
-- Be proactive by naming the next useful move, not by taking over. Ask before external, private, expensive, irreversible, or major actions.
+- Use routine read-only tools without extra permission when the user asks or the task clearly needs them, including web.search and web.fetch. Ask before private, write/export, expensive, irreversible, or major actions.
 
 Response shape:
 - Default to human-texting brevity. Most ordinary replies should be one to four short sentences, and many can be one short sentence.
@@ -76,6 +76,7 @@ Reply to the user and emit any durable memory proposals in one structured respon
 
 Return strict JSON only. Do not include Markdown, code fences, comments, or prose outside the JSON.
 Never emit a top-level tool response, raw tool JSON, or plain text outside the envelope.
+Multiple chat bubbles are multiple responses[] text items inside this one JSON object. Never split them into multiple top-level JSON objects.
 
 Return exactly this top-level shape:
 {{
@@ -389,6 +390,18 @@ mod tests {
     }
 
     #[test]
+    fn personality_prompt_does_not_permission_gate_routine_web_reads() {
+        assert!(
+            AGENT_PERSONALITY_PROMPT.contains(
+                "Use routine read-only tools without extra permission when the user asks or the task clearly needs them"
+            ),
+            "prompt should not make first-party web.search or web.fetch feel approval-gated"
+        );
+        assert!(AGENT_PERSONALITY_PROMPT.contains("web.search"));
+        assert!(AGENT_PERSONALITY_PROMPT.contains("web.fetch"));
+    }
+
+    #[test]
     fn personality_prompt_stays_compact() {
         assert!(
             AGENT_PERSONALITY_PROMPT.len() <= 3_200,
@@ -441,6 +454,26 @@ mod tests {
         assert!(prompt.contains("Do not propose memories from assistant acknowledgements"));
         assert!(prompt.contains("statements that something was saved"));
         assert!(prompt.contains("human-subject memories require direct user evidence"));
+    }
+
+    #[test]
+    fn structured_turn_prompt_keeps_split_replies_inside_one_json_envelope() {
+        let prompt = build_structured_turn_system_prompt(
+            "conv_123",
+            4,
+            None,
+            "",
+            &test_agent_identity(),
+            "none",
+            native_tools(),
+        );
+
+        assert!(
+            prompt.contains(
+                "Multiple chat bubbles are multiple responses[] text items inside this one JSON object"
+            ),
+            "prompt should not invite multiple top-level envelopes for split messages"
+        );
     }
 
     #[test]

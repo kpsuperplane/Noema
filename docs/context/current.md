@@ -77,7 +77,11 @@ The next storage slice should stay small and concrete:
 - Casual assistant replies may use multiple `responses[]` text items as
   separate chat bubbles. Provider streaming, GraphQL, and the web transcript use
   per-response-item stream ids so split replies stream and finalize without
-  collapsing into one bubble.
+  collapsing into one bubble. Prompt guidance now explicitly keeps split chat
+  bubbles inside one `responses[]` array in a single JSON envelope, and the
+  required-response parser tolerates exact duplicate envelopes as idempotent
+  stream/provider duplication while still rejecting conflicting multiple
+  envelopes.
 - The provider-neutral native tool plane has landed from
   `docs/superpowers/specs/2026-07-04-native-tool-plane-design.md`: Noema now
   builds canonical local/MCP tool specs, advertises them through provider-native
@@ -96,7 +100,11 @@ The next storage slice should stay small and concrete:
 - The first web-search slice is a first-party `web.search` native tool, not an
   MCP: the only initial provider is a Rust-only best-effort DuckDuckGo public
   adapter, model-proposed queries are visible in normal chat markers, and
-  results return as normalized search metadata without fetching pages.
+  results return as normalized search metadata without fetching pages. Routine
+  first-party read-only web tools such as `web.search` and public `web.fetch`
+  should not be permission-gated when the user asks for current information or
+  the task clearly needs them; private, write/export, expensive, irreversible,
+  and major actions still require confirmation or policy approval.
 - The first web-fetch slice is a first-party `web.fetch` native tool, not an
   MCP: the initial provider directly fetches public HTTP(S) pages with strict
   URL/redirect/private-address policy checks, extracts readable article content

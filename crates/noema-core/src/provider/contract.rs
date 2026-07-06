@@ -926,7 +926,10 @@ fn embedded_noema_response(
         else {
             continue;
         };
-        if output.is_some() {
+        if let Some(existing_output) = &output {
+            if existing_output == &candidate_output {
+                continue;
+            }
             return Err(ProviderError::MalformedResponse {
                 message: "provider returned multiple Noema structured response objects".to_string(),
             });
@@ -1368,10 +1371,24 @@ mod tests {
     }
 
     #[test]
-    fn required_noema_response_rejects_concatenated_stream_duplicate() {
-        let duplicate = r#"{"response_status":"needs_tools","responses":[],"tool_calls":[{"id":"call_1","name":"search_memory","payload":{"scope_ids":["human:local"],"query":"","purpose":"answer_human_question","limit":8}}],"memory_proposals":[]}"#;
-        let error =
-            required_noema_response_from_text(format!("{duplicate}{duplicate}")).unwrap_err();
+    fn required_noema_response_accepts_exact_concatenated_stream_duplicate() {
+        let duplicate = r#"{"response_status":"final","responses":[{"kind":"text","phase":"final_answer","text":"hm, I don’t have fresh recent-opening data unless I search the web. Want me to check current Seattle restaurant openings now?"}],"tool_calls":[],"memory_proposals":[]}"#;
+        let response =
+            required_noema_response_from_text(format!("{duplicate}{duplicate}")).unwrap();
+
+        assert_eq!(response.response_status, GenerateResponseStatus::Final);
+        assert_eq!(
+            response.assistant_text(),
+            "hm, I don’t have fresh recent-opening data unless I search the web. Want me to check current Seattle restaurant openings now?"
+        );
+        assert!(response.tool_calls.is_empty());
+    }
+
+    #[test]
+    fn required_noema_response_rejects_conflicting_concatenated_stream_responses() {
+        let first = r#"{"response_status":"final","responses":[{"kind":"text","phase":"final_answer","text":"One."}],"tool_calls":[],"memory_proposals":[]}"#;
+        let second = r#"{"response_status":"final","responses":[{"kind":"text","phase":"final_answer","text":"Two."}],"tool_calls":[],"memory_proposals":[]}"#;
+        let error = required_noema_response_from_text(format!("{first}{second}")).unwrap_err();
 
         assert!(matches!(
             error,
