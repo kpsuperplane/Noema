@@ -1114,6 +1114,10 @@ type MutationRoot {
 	"""
 	saveWebFetchSummarizerPreference(input: SaveWebFetchSummarizerPreferenceInput!): AgentModelPreference!
 	"""
+	Save the tool progress audit model/provider preference.
+	"""
+	saveToolProgressAuditPreference(input: SaveToolProgressAuditPreferenceInput!): AgentModelPreference!
+	"""
 	Ensure the primary conversation exists.
 	"""
 	ensurePrimaryConversation(cwd: String): PrimaryConversation!
@@ -1513,6 +1517,10 @@ type QueryRoot {
 	"""
 	webFetchSettings: WebFetchSettings!
 	"""
+	Return Safety usage settings safe to show in Settings.
+	"""
+	usageSettings: UsageSettings!
+	"""
 	List MCP server metadata safe to show in Settings.
 	"""
 	mcpServers: [McpServer!]!
@@ -1620,6 +1628,20 @@ input SaveToolCalibrationInput {
 	Tool metadata fingerprint reviewed by the actor.
 	"""
 	reviewedMetadataFingerprint: String
+}
+
+"""
+Input for saving the progress audit preference.
+"""
+input SaveToolProgressAuditPreferenceInput {
+	"""
+	Provider account id to use.
+	"""
+	providerAccountId: String!
+	"""
+	Provider-specific model id or profile id.
+	"""
+	modelProfile: String!
 }
 
 """
@@ -1790,6 +1812,24 @@ type ToolCalibrationSuggestion {
 }
 
 """
+Tool-continuation progress audit model settings.
+"""
+type ToolProgressAuditSettings {
+	"""
+	Codex/OpenAI default model profile used when no preference is configured.
+	"""
+	defaultModelProfile: String!
+	"""
+	Current persisted audit model preference, when configured.
+	"""
+	modelPreference: AgentModelPreference
+	"""
+	Provider/profile options available for progress audits.
+	"""
+	modelOptions: [AgentModelProviderOption!]!
+}
+
+"""
 Transcript item union.
 """
 union TranscriptItem = UserText | AssistantText | Activity | A2UiCard | ErrorNotice
@@ -1868,6 +1908,16 @@ type TurnCompletedEvent {
 	Frontend-generated id for optimistic UI correlation.
 	"""
 	clientMessageId: String
+}
+
+"""
+Safety usage settings safe to expose in Settings.
+"""
+type UsageSettings {
+	"""
+	Tool-continuation progress audit model settings.
+	"""
+	progressAudit: ToolProgressAuditSettings!
 }
 
 """

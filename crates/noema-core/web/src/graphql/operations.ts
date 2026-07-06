@@ -121,6 +121,43 @@ export const SaveWebFetchSummarizerPreferenceDocument = gql`
   }
 `;
 
+export const UsageSettingsDocument = gql`
+  query UsageSettings {
+    usageSettings {
+      progressAudit {
+        defaultModelProfile
+        modelPreference {
+          providerKind
+          providerAccountId
+          modelProfile
+        }
+        modelOptions {
+          providerKind
+          providerAccountId
+          providerDisplayName
+          status
+          disabledReason
+          profiles {
+            id
+            label
+            disabledReason
+          }
+        }
+      }
+    }
+  }
+`;
+
+export const SaveToolProgressAuditPreferenceDocument = gql`
+  mutation SaveToolProgressAuditPreference($input: SaveToolProgressAuditPreferenceInput!) {
+    saveToolProgressAuditPreference(input: $input) {
+      providerKind
+      providerAccountId
+      modelProfile
+    }
+  }
+`;
+
 export const McpSettingsDocument = gql`
   query McpSettings {
     mcpServers {

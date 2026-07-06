@@ -34,6 +34,7 @@ use super::{
         GraphqlStartProviderAuthAttemptInput,
     },
     provider_accounts::{self, GraphqlProviderAccount},
+    usage_settings::{self, GraphqlSaveToolProgressAuditPreferenceInput, GraphqlUsageSettings},
     web_fetch_settings::{
         self, GraphqlSaveWebFetchSummarizerPreferenceInput, GraphqlWebFetchSettings,
     },
@@ -378,6 +379,12 @@ impl QueryRoot {
         web_fetch_settings::web_fetch_settings(state).await
     }
 
+    /// Return Safety usage settings safe to show in Settings.
+    async fn usage_settings(&self, ctx: &Context<'_>) -> Result<GraphqlUsageSettings> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        usage_settings::usage_settings(state).await
+    }
+
     /// List MCP server metadata safe to show in Settings.
     async fn mcp_servers(&self, ctx: &Context<'_>) -> Result<Vec<GraphqlMcpServer>> {
         let state = ctx.data_unchecked::<GraphqlState>();
@@ -531,6 +538,16 @@ impl MutationRoot {
     ) -> Result<GraphqlAgentModelPreference> {
         let state = ctx.data_unchecked::<GraphqlState>();
         web_fetch_settings::save_web_fetch_summarizer_preference(state, input).await
+    }
+
+    /// Save the tool progress audit model/provider preference.
+    async fn save_tool_progress_audit_preference(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlSaveToolProgressAuditPreferenceInput,
+    ) -> Result<GraphqlAgentModelPreference> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        usage_settings::save_tool_progress_audit_preference(state, input).await
     }
 
     /// Ensure the primary conversation exists.
@@ -1134,6 +1151,116 @@ mod tests {
         assert!(response.errors.is_empty(), "{:?}", response.errors);
         let saved = store
             .get_auxiliary_model_preference(crate::WEB_FETCH_SUMMARIZER_TASK_ID)
+            .await
+            .expect("preference read")
+            .expect("preference saved");
+        assert_eq!(saved.provider_kind, "codex");
+        assert_eq!(saved.provider_account_id, codex.provider_account_id);
+        assert_eq!(saved.model_profile, "gpt-5.4-mini");
+    }
+
+    #[tokio::test]
+    async fn usage_settings_query_exposes_progress_audit_default() {
+        use crate::store::tests::test_store;
+
+        let store = test_store().await;
+        let codex = store
+            .ensure_default_provider_account()
+            .await
+            .expect("codex account");
+        store
+            .update_provider_account_metadata(
+                &codex.provider_account_id,
+                serde_json::json!({
+                    "profiles": [
+                        { "id": "gpt-5.4-mini", "label": "GPT-5.4 Mini" },
+                        { "id": "gpt-5.5", "label": "GPT-5.5" }
+                    ]
+                }),
+            )
+            .await
+            .expect("codex metadata");
+
+        let schema = build_schema(GraphqlState::for_tests_with_store(store));
+        let response = schema
+            .execute(async_graphql::Request::new(
+                r#"
+                {
+                  usageSettings {
+                    progressAudit {
+                      defaultModelProfile
+                      modelPreference { providerKind }
+                      modelOptions { providerKind profiles { id } }
+                    }
+                  }
+                }
+                "#,
+            ))
+            .await;
+
+        assert!(response.errors.is_empty(), "{:?}", response.errors);
+        let data = response.data.into_json().expect("json");
+        let audit = &data["usageSettings"]["progressAudit"];
+        assert_eq!(audit["defaultModelProfile"], "gpt-5.4-mini");
+        assert_eq!(audit["modelPreference"], serde_json::Value::Null);
+        assert_eq!(
+            audit["modelOptions"][0]["profiles"][0]["id"],
+            "gpt-5.4-mini"
+        );
+    }
+
+    #[tokio::test]
+    async fn save_tool_progress_audit_preference_persists_valid_codex_profile() {
+        use crate::store::tests::test_store;
+
+        let store = test_store().await;
+        let codex = store
+            .ensure_default_provider_account()
+            .await
+            .expect("codex account");
+        store
+            .update_provider_account_status(
+                &codex.provider_account_id,
+                crate::ProviderAccountStatus::Authenticated,
+                None,
+                None,
+            )
+            .await
+            .expect("codex authenticated");
+        store
+            .update_provider_account_metadata(
+                &codex.provider_account_id,
+                serde_json::json!({
+                    "profiles": [
+                        { "id": "gpt-5.4-mini", "label": "GPT-5.4 Mini" }
+                    ]
+                }),
+            )
+            .await
+            .expect("codex metadata");
+
+        let schema = build_schema(GraphqlState::for_tests_with_store(store.clone()));
+        let response = schema
+            .execute(async_graphql::Request::new(format!(
+                r#"
+                mutation {{
+                  saveToolProgressAuditPreference(input: {{
+                    providerAccountId: "{}"
+                    modelProfile: "gpt-5.4-mini"
+                  }}) {{
+                    providerKind
+                    providerAccountId
+                    modelProfile
+                  }}
+                }}
+                "#,
+                codex.provider_account_id
+            )))
+            .await;
+
+        assert!(response.errors.is_empty(), "{:?}", response.errors);
+        let saved = store
+            .get_auxiliary_model_preference(crate::store::TOOL_PROGRESS_AUDIT_TASK_ID)
             .await
             .expect("preference read")
             .expect("preference saved");
