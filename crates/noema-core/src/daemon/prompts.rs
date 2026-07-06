@@ -310,6 +310,10 @@ pub(super) fn build_local_tool_result_continuation_system_prompt(
     );
     prompt.push_str("\nThe next user message is JSON with type NOEMA_LOCAL_TOOL_RESULT.");
     prompt.push_str("\nUse those results to answer the original user message, or emit another tool call when another tool result is needed before answering.");
+    prompt.push_str("\nIf a failed tool result gives a clear correction for the arguments of the already-requested action, try the corrected tool call in the same turn.");
+    prompt.push_str("\nDo not ask for permission just to retry the same authorized action with corrected arguments.");
+    prompt.push_str("\nDo not retry blindly. Ask one blocking question when the correction is ambiguous, would repeat the same failed arguments, would change the requested action, or would require data you do not have.");
+    prompt.push_str("\nDo not invent missing IDs, names, or values. Use only the original user message, available tool metadata, prior tool arguments, and tool results.");
     prompt.push_str("\nDo not emit update_own_name in this continuation.");
     prompt.push_str("\n\nOriginal user message:\n");
     prompt.push_str(user_input);
@@ -464,6 +468,25 @@ mod tests {
         assert!(!prompt.contains("You may emit an update_own_name tool call"));
         assert!(!prompt.contains(r#""name":"update_own_name""#));
         assert!(!prompt.contains("Available MCP tools are executable actions"));
+    }
+
+    #[test]
+    fn local_tool_result_continuation_prompt_encourages_clear_tool_repair() {
+        let prompt = build_local_tool_result_continuation_system_prompt(
+            "conv_123",
+            4,
+            None,
+            "Create the Notion page",
+            &test_agent_identity(),
+            "- mcp\tmcp.notion.create_pages\tCreate Notion pages",
+            native_tools(),
+        );
+
+        assert!(prompt.contains("If a failed tool result gives a clear correction"));
+        assert!(prompt.contains("try the corrected tool call in the same turn"));
+        assert!(prompt.contains("Do not ask for permission just to retry"));
+        assert!(prompt.contains("Do not retry blindly"));
+        assert!(prompt.contains("Do not invent missing IDs, names, or values"));
     }
 
     fn test_agent_identity() -> AgentPromptIdentity {
