@@ -97,6 +97,15 @@ The next storage slice should stay small and concrete:
   default model (`gpt-5.4-mini`) when no web UI preference is saved. End-to-end
   verification covered the running local agent at `:3737` calling `web.fetch`
   against `https://www.rust-lang.org/`.
+- Provider tool continuations now use a progress-audited continuation policy:
+  the runtime allows longer same-turn tool chains, builds a bounded progress
+  digest instead of sending raw tool history to the audit model, surfaces
+  visible progress-check activity markers every 20 continuation steps, and
+  gives the agent one no-tools finalization attempt when the hard ceiling or
+  audit execution fails. The auxiliary audit model preference is configurable;
+  Codex/OpenAI default to `gpt-5.4-mini`, while Foundation Local must use a
+  provider-native profile. The model picker lives in Settings > Safety > Usage
+  at `/settings/safety/usage`.
 - Derived search/vector indexes are rebuildable projections.
 - Graph or fuzzy retrieval can suggest candidates, but policy gates inclusion.
 - Pre-stable schema changes do not need migrations or backwards compatibility unless explicitly requested.
