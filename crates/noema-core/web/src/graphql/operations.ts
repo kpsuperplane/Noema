@@ -64,6 +64,7 @@ export const AgentsDocument = gql`
         providerDisplayName
         status
         disabledReason
+        defaultModelProfile
         profiles {
           id
           label
@@ -100,6 +101,7 @@ export const WebFetchSettingsDocument = gql`
           providerDisplayName
           status
           disabledReason
+          defaultModelProfile
           profiles {
             id
             label
@@ -137,6 +139,7 @@ export const UsageSettingsDocument = gql`
           providerDisplayName
           status
           disabledReason
+          defaultModelProfile
           profiles {
             id
             label

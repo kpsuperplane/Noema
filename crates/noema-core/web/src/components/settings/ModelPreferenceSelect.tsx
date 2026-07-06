@@ -144,6 +144,12 @@ function defaultProfileForProvider(
   defaultModelProfile?: string
 ) {
   if (
+    provider.defaultModelProfile &&
+    provider.profiles.some((profile) => profile.id === provider.defaultModelProfile)
+  ) {
+    return provider.defaultModelProfile;
+  }
+  if (
     defaultModelProfile &&
     provider.profiles.some((profile) => profile.id === defaultModelProfile)
   ) {

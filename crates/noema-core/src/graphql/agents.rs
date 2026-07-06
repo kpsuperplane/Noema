@@ -3,7 +3,9 @@ use serde_json::Value;
 
 use crate::{
     AgentRecord, AgentRuntimePreferenceRecord, NewAgentRuntimePreference, ProviderAccountRecord,
-    ProviderAccountStatus, provider::model_catalog::refresh_provider_model_profiles,
+    ProviderAccountStatus,
+    config::DEFAULT_FOUNDATION_LOCAL_PROFILE,
+    provider::{DEFAULT_TOOL_CLASSIFICATION_MODEL, model_catalog::refresh_provider_model_profiles},
 };
 
 use super::{errors::graphql_error, schema::GraphqlState};
@@ -46,6 +48,8 @@ pub struct GraphqlAgentModelProviderOption {
     pub status: super::onboarding::GraphqlProviderAccountStatus,
     /// Available profiles or model ids.
     pub profiles: Vec<GraphqlAgentModelProfileOption>,
+    /// Provider-specific default profile for auxiliary model preferences.
+    pub default_model_profile: Option<String>,
     /// Why this provider is disabled, when unavailable.
     pub disabled_reason: Option<String>,
 }
@@ -183,12 +187,15 @@ pub(super) fn option_from_account(
     account: &ProviderAccountRecord,
 ) -> GraphqlAgentModelProviderOption {
     let disabled_reason = provider_disabled_reason(account);
+    let profiles = profiles_from_account(account, disabled_reason.as_deref());
+    let default_model_profile = default_model_profile_for_provider(account, &profiles);
     GraphqlAgentModelProviderOption {
         provider_kind: account.provider_kind.clone(),
         provider_account_id: account.provider_account_id.clone(),
         provider_display_name: account.display_name.clone(),
         status: account.status.into(),
-        profiles: profiles_from_account(account, disabled_reason.as_deref()),
+        profiles,
+        default_model_profile,
         disabled_reason,
     }
 }
@@ -218,6 +225,26 @@ fn unavailable_provider_reason(account: &ProviderAccountRecord) -> String {
         _ => "Provider is unavailable on this machine.",
     }
     .to_string()
+}
+
+fn default_model_profile_for_provider(
+    account: &ProviderAccountRecord,
+    profiles: &[GraphqlAgentModelProfileOption],
+) -> Option<String> {
+    let first_profile = || profiles.first().map(|profile| profile.id.clone());
+    match account.provider_kind.as_str() {
+        "codex" | "openai" => profiles
+            .iter()
+            .find(|profile| profile.id == DEFAULT_TOOL_CLASSIFICATION_MODEL)
+            .map(|profile| profile.id.clone())
+            .or_else(first_profile),
+        "foundation_local" => profiles
+            .iter()
+            .find(|profile| profile.id == DEFAULT_FOUNDATION_LOCAL_PROFILE)
+            .map(|profile| profile.id.clone())
+            .or_else(first_profile),
+        _ => first_profile(),
+    }
 }
 
 pub(super) fn profiles_from_account(

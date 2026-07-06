@@ -10,6 +10,7 @@ export type ModelProviderOption = {
   providerDisplayName: string;
   status: string;
   disabledReason?: string | null;
+  defaultModelProfile?: string | null;
   profiles: readonly ModelProfileOption[];
 };
 

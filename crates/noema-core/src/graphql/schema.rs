@@ -1210,6 +1210,70 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn usage_settings_query_exposes_provider_specific_progress_audit_defaults() {
+        use crate::store::tests::test_store;
+
+        let store = test_store().await;
+        let codex = store
+            .ensure_default_provider_account()
+            .await
+            .expect("codex account");
+        store
+            .update_provider_account_metadata(
+                &codex.provider_account_id,
+                serde_json::json!({
+                    "profiles": [
+                        { "id": "gpt-5.4-mini", "label": "GPT-5.4 Mini" },
+                        { "id": "gpt-5.5", "label": "GPT-5.5" }
+                    ]
+                }),
+            )
+            .await
+            .expect("codex metadata");
+        store
+            .ensure_default_foundation_local_provider_account()
+            .await
+            .expect("foundation account");
+
+        let schema = build_schema(GraphqlState::for_tests_with_store(store));
+        let response = schema
+            .execute(async_graphql::Request::new(
+                r#"
+                {
+                  usageSettings {
+                    progressAudit {
+                      modelOptions {
+                        providerKind
+                        defaultModelProfile
+                        profiles { id }
+                      }
+                    }
+                  }
+                }
+                "#,
+            ))
+            .await;
+
+        assert!(response.errors.is_empty(), "{:?}", response.errors);
+        let data = response.data.into_json().expect("json");
+        let options = data["usageSettings"]["progressAudit"]["modelOptions"]
+            .as_array()
+            .expect("model options");
+        let codex = options
+            .iter()
+            .find(|option| option["providerKind"] == "codex")
+            .expect("codex option");
+        let foundation = options
+            .iter()
+            .find(|option| option["providerKind"] == "foundation_local")
+            .expect("foundation option");
+
+        assert_eq!(codex["defaultModelProfile"], "gpt-5.4-mini");
+        assert_eq!(foundation["defaultModelProfile"], "default");
+        assert_ne!(foundation["defaultModelProfile"], "gpt-5.4-mini");
+    }
+
+    #[tokio::test]
     async fn save_tool_progress_audit_preference_persists_valid_codex_profile() {
         use crate::store::tests::test_store;
 

@@ -133,6 +133,10 @@ type AgentModelProviderOption {
 	"""
 	profiles: [AgentModelProfileOption!]!
 	"""
+	Provider-specific default profile for auxiliary model preferences.
+	"""
+	defaultModelProfile: String
+	"""
 	Why this provider is disabled, when unavailable.
 	"""
 	disabledReason: String
