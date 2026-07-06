@@ -46,11 +46,21 @@ pub struct ResponsesRequest {
     /// Whether parallel independent tool calls are allowed.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parallel_tool_calls: Option<bool>,
+    /// Provider prompt-cache key used to bind reusable prefixes to a conversation.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt_cache_key: Option<String>,
     /// Whether the upstream should store this response.
     pub store: bool,
     /// Provider prompt-cache retention request when supported.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prompt_cache_retention: Option<PromptCacheRetention>,
+}
+
+pub(crate) fn prompt_cache_key_from_conversation_id(
+    conversation_id: Option<&str>,
+) -> Option<String> {
+    let conversation_id = conversation_id?.trim();
+    (!conversation_id.is_empty()).then(|| conversation_id.to_string())
 }
 
 /// Native Responses API tool definition.
@@ -946,6 +956,7 @@ mod tests {
             )],
             tool_choice: Some("auto"),
             parallel_tool_calls: Some(false),
+            prompt_cache_key: None,
             store: false,
             prompt_cache_retention: None,
         };
@@ -960,6 +971,16 @@ mod tests {
         );
         assert_eq!(value["tool_choice"], "auto");
         assert_eq!(value["parallel_tool_calls"], false);
+    }
+
+    #[test]
+    fn prompt_cache_key_uses_non_empty_conversation_id() {
+        assert_eq!(
+            prompt_cache_key_from_conversation_id(Some(" conversation:cacheable ")).as_deref(),
+            Some("conversation:cacheable")
+        );
+        assert_eq!(prompt_cache_key_from_conversation_id(Some("  ")), None);
+        assert_eq!(prompt_cache_key_from_conversation_id(None), None);
     }
 
     #[test]

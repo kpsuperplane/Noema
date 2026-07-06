@@ -3,7 +3,7 @@
 use super::responses::{
     ResponsesDiagnosticContext, ResponsesInput, ResponsesRequest, ResponsesToolNameMap,
     ResponsesTransport, header_value, noema_response_text_format, normalize_base_url,
-    responses_tool_choice,
+    prompt_cache_key_from_conversation_id, responses_tool_choice,
 };
 use crate::{
     SYSTEM_ERROR_PROVIDER_MALFORMED_RESPONSE, SystemErrorEvent, SystemErrorLogger,
@@ -210,6 +210,9 @@ impl ModelProvider for OpenAiProvider {
             tools: tool_names.tools.clone(),
             tool_choice: responses_tool_choice(request.tool_choice, has_tools),
             parallel_tool_calls: has_tools.then_some(request.parallel_tool_calls),
+            prompt_cache_key: prompt_cache_key_from_conversation_id(
+                request.conversation_id.as_deref(),
+            ),
             store: false,
             prompt_cache_retention: request.options.prompt_cache_retention,
         };
@@ -497,6 +500,39 @@ mod tests {
             body["text"]["format"]["schema"]["properties"]["response_status"]["enum"][1],
             "final"
         );
+        assert_eq!(response.assistant_text(), "Hello");
+    }
+
+    #[tokio::test]
+    async fn sends_openai_prompt_cache_key_for_conversation_requests() {
+        let (base_url, request_rx) = spawn_server(
+            200,
+            r#"{
+              "id": "resp_test",
+              "model": "gpt-test",
+              "output": [{
+                "type": "message",
+                "content": [
+                  {"type": "output_text", "text": "Hello"}
+                ]
+              }]
+            }"#,
+        )
+        .await;
+
+        let provider = test_provider(base_url);
+        let response = provider
+            .generate(GenerateRequest {
+                conversation_id: Some("conversation:cacheable".to_string()),
+                ..GenerateRequest::text("Hello?")
+            })
+            .await
+            .expect("response");
+
+        let captured = request_rx.await.expect("captured request");
+        let body: Value = serde_json::from_str(&captured.body).expect("json body");
+        assert_eq!(body["prompt_cache_key"], "conversation:cacheable");
+        assert_eq!(body["store"], false);
         assert_eq!(response.assistant_text(), "Hello");
     }
 

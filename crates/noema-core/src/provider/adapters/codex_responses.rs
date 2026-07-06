@@ -14,8 +14,8 @@ use super::{
     noema_response_stream::NoemaAssistantTextDeltaExtractor,
     responses::{
         ResponsesDiagnosticContext, ResponsesTool, ResponsesToolNameMap, ResponsesTransport,
-        noema_response_text_format, normalize_base_url, provider_safe_tool_name,
-        responses_tool_choice,
+        noema_response_text_format, normalize_base_url, prompt_cache_key_from_conversation_id,
+        provider_safe_tool_name, responses_tool_choice,
     },
 };
 use crate::{
@@ -219,11 +219,6 @@ impl CodexResponsesRequest {
             stream: true,
         }
     }
-}
-
-fn prompt_cache_key_from_conversation_id(conversation_id: Option<&str>) -> Option<String> {
-    let conversation_id = conversation_id?.trim();
-    (!conversation_id.is_empty()).then(|| conversation_id.to_string())
 }
 
 #[derive(Debug, Serialize)]
