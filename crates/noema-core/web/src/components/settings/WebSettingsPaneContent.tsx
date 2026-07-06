@@ -1,9 +1,6 @@
-import { useState } from "react";
 import { Badge } from "@astryxdesign/core/Badge";
-import { Button } from "@astryxdesign/core/Button";
 import * as stylex from "@stylexjs/stylex";
-import { Settings2 } from "lucide-react";
-import { ModelPreferenceEditor } from "./ModelPreferenceEditor";
+import { ModelPreferenceSelect } from "./ModelPreferenceSelect";
 import {
   modelPreferenceLabel,
   modelProfileLabel,
@@ -37,8 +34,6 @@ export function WebSettingsPaneContent({
   saveError: string | null;
   onSaveWebFetchSummarizerPreference: (input: ModelPreferenceSaveInput) => Promise<unknown>;
 }) {
-  const [editingFetchSummarizer, setEditingFetchSummarizer] = useState(false);
-
   return (
     <div {...stylex.props(styles.stack)}>
       <section {...stylex.props(styles.card)} aria-labelledby="web-search-settings-title">
@@ -76,14 +71,8 @@ export function WebSettingsPaneContent({
           loading={loading}
           error={error}
           saveError={saveError}
-          editing={editingFetchSummarizer}
           saving={saving}
-          onToggleEditing={() => setEditingFetchSummarizer((current) => !current)}
-          onCancel={() => setEditingFetchSummarizer(false)}
-          onSave={async (input) => {
-            await onSaveWebFetchSummarizerPreference(input);
-            setEditingFetchSummarizer(false);
-          }}
+          onSave={onSaveWebFetchSummarizerPreference}
         />
       </section>
     </div>
@@ -95,20 +84,14 @@ function FetchSummarizerCard({
   loading,
   error,
   saveError,
-  editing,
   saving,
-  onToggleEditing,
-  onCancel,
   onSave
 }: {
   settings: WebFetchSummarizerSettings | null;
   loading: boolean;
   error: string | null;
   saveError: string | null;
-  editing: boolean;
   saving: boolean;
-  onToggleEditing: () => void;
-  onCancel: () => void;
   onSave: (input: ModelPreferenceSaveInput) => Promise<unknown>;
 }) {
   const preference = settings?.modelPreference ?? null;
@@ -123,16 +106,14 @@ function FetchSummarizerCard({
           <h3 {...stylex.props(styles.subcardTitle)}>Fetch summarizer</h3>
           {!preference && settings ? <Badge variant="neutral" label="Default" /> : null}
         </div>
-        <Button
-          type="button"
-          variant="secondary"
-          size="sm"
-          label="Model"
-          icon={<Settings2 {...stylex.props(styles.icon)} aria-hidden="true" />}
-          aria-label={`${editing ? "Close" : "Edit"} model settings for fetch summarizer`}
-          aria-expanded={editing}
-          onClick={onToggleEditing}
+        <ModelPreferenceSelect
+          options={settings?.modelOptions ?? []}
+          preference={preference}
+          defaultModelProfile={settings?.defaultModelProfile}
+          saving={saving}
+          ariaLabel="Model settings for fetch summarizer"
           isDisabled={unavailable}
+          onSave={onSave}
         />
       </div>
       {loading ? (
@@ -152,16 +133,6 @@ function FetchSummarizerCard({
             ))}
           </dl>
           {warning ? <p {...stylex.props(styles.warningText)}>{warning}</p> : null}
-          {editing && settings ? (
-            <ModelPreferenceEditor
-              options={settings.modelOptions}
-              preference={preference}
-              defaultModelProfile={settings.defaultModelProfile}
-              saving={saving}
-              onCancel={onCancel}
-              onSave={onSave}
-            />
-          ) : null}
         </>
       )}
     </div>
@@ -297,9 +268,5 @@ const styles = stylex.create({
     fontSize: 13,
     lineHeight: 1.45,
     color: "var(--muted-foreground)"
-  },
-  icon: {
-    width: 14,
-    height: 14
   }
 });

@@ -1,9 +1,6 @@
-import { useState } from "react";
 import { Badge } from "@astryxdesign/core/Badge";
-import { Button } from "@astryxdesign/core/Button";
 import * as stylex from "@stylexjs/stylex";
-import { Settings2 } from "lucide-react";
-import { ModelPreferenceEditor } from "./ModelPreferenceEditor";
+import { ModelPreferenceSelect } from "./ModelPreferenceSelect";
 import type {
   ModelPreference,
   ModelPreferenceSaveInput,
@@ -43,8 +40,6 @@ export function AgentsSettingsPaneContent({
   saveError: string | null;
   onSaveModelPreference: (input: SaveAgentModelPreferenceInput) => Promise<unknown>;
 }) {
-  const [editingAgentId, setEditingAgentId] = useState<string | null>(null);
-
   if (loading) {
     return <p {...stylex.props(styles.mutedText)}>Loading agents...</p>;
   }
@@ -72,7 +67,6 @@ export function AgentsSettingsPaneContent({
         const badgeLabel = agentBadgeLabel(agent);
         const rows = agentMetadataRows(agent);
         const warning = selectedModelWarning(agent);
-        const editing = editingAgentId === agent.agentId;
         return (
           <article
             key={agent.agentId}
@@ -85,15 +79,17 @@ export function AgentsSettingsPaneContent({
                 </h2>
                 {badgeLabel ? <Badge variant="neutral" label={badgeLabel} /> : null}
               </div>
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                label="Model"
-                icon={<Settings2 {...stylex.props(styles.icon)} aria-hidden="true" />}
-                aria-label={`${editing ? "Close" : "Edit"} model settings for ${displayName}`}
-                aria-expanded={editing}
-                onClick={() => setEditingAgentId(editing ? null : agent.agentId)}
+              <ModelPreferenceSelect
+                options={agent.modelOptions ?? []}
+                preference={agent.modelPreference ?? null}
+                saving={saving}
+                ariaLabel={`Model settings for ${displayName}`}
+                onSave={(input) =>
+                  onSaveModelPreference({
+                    agentId: agent.agentId,
+                    ...input
+                  })
+                }
               />
             </div>
             <dl {...stylex.props(styles.definitionList)}>
@@ -110,21 +106,6 @@ export function AgentsSettingsPaneContent({
               ))}
             </dl>
             {warning ? <p {...stylex.props(styles.warningText)}>{warning}</p> : null}
-            {editing ? (
-              <ModelPreferenceEditor
-                options={agent.modelOptions ?? []}
-                preference={agent.modelPreference ?? null}
-                saving={saving}
-                onCancel={() => setEditingAgentId(null)}
-                onSave={async (input) => {
-                  await onSaveModelPreference({
-                    agentId: agent.agentId,
-                    ...input
-                  });
-                  setEditingAgentId(null);
-                }}
-              />
-            ) : null}
           </article>
         );
       })}
@@ -220,9 +201,5 @@ const styles = stylex.create({
     fontSize: 14,
     lineHeight: 1.5,
     color: "rgb(180, 83, 9)"
-  },
-  icon: {
-    width: 16,
-    height: 16
   }
 });
