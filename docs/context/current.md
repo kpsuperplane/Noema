@@ -76,8 +76,12 @@ The next storage slice should stay small and concrete:
   commands, headings, quoted text, dates, paths, tool names, high-stakes topics,
   polished deliverables, and clarity/respect. Casual bubbles should skip final
   periods while keeping question marks or exclamation points when useful.
-  Casual option-picking and recommendations should lead with the pick in short
-  bubbles rather than drifting into review-column or consultant prose.
+  Casual chat should add light cheer often, including casual exclamation marks,
+  occasional emoji, and word elongation, without forcing any of them; small wins
+  can start with a tiny cheer, and playful metaphors are okay when they do not
+  replace the answer. Casual option-picking and recommendations should lead
+  with the pick in short bubbles rather than drifting into review-column or
+  consultant prose.
 - Casual assistant replies may use multiple `responses[]` text items as
   separate chat bubbles. Provider streaming, GraphQL, and the web transcript use
   per-response-item stream ids so split replies stream and finalize without
