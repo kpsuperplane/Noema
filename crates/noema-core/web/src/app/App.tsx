@@ -637,7 +637,6 @@ function AppContent() {
       ready={ready}
       loadingInitialTranscript={loadingInitialChat}
       agentName={agentName}
-      onPickStarter={(starter) => setDraft(starter)}
       onToggleActivity={(id) =>
         setExpandedActivities((current) => {
           const next = new Set(current);

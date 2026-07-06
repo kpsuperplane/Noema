@@ -1,8 +1,8 @@
 import React from "react";
 import * as stylex from "@stylexjs/stylex";
 import { Composer } from "./Composer";
-import { EmptyState } from "./EmptyState";
 import { Transcript } from "./Transcript";
+import { TranscriptLoadingSkeleton } from "./transcript/TranscriptLoadingSkeleton";
 import {
   type ShellSurfaceVisibility,
   useShellSurface
@@ -48,7 +48,6 @@ export type ChatSurfaceProps = {
   ready: boolean;
   loadingInitialTranscript?: boolean;
   agentName: string | null;
-  onPickStarter: (starter: string) => void;
   onToggleActivity: (id: string) => void;
   onDraftChange: (value: string) => void;
   onLoadOlderTranscript: () => void;
@@ -69,7 +68,6 @@ export function ChatSurface({
   ready,
   loadingInitialTranscript = false,
   agentName,
-  onPickStarter,
   onToggleActivity,
   onDraftChange,
   onLoadOlderTranscript,
@@ -121,11 +119,9 @@ export function ChatSurface({
       style={rootStyle}
       aria-label="Noema chat"
     >
-      <div {...stylex.props(styles.contentLayer, transcript.length === 0 && styles.emptyContentLayer)}>
-        {loadingInitialTranscript ? (
-          <ChatLoadingSkeleton />
-        ) : transcript.length === 0 ? (
-          <EmptyState onPick={onPickStarter} />
+      <div {...stylex.props(styles.contentLayer)}>
+        {loadingInitialTranscript || transcript.length === 0 ? (
+          <TranscriptLoadingSkeleton />
         ) : (
           <Transcript
             entries={transcript}
@@ -161,22 +157,6 @@ export function ChatSurface({
   );
 }
 
-function ChatLoadingSkeleton() {
-  return (
-    <div {...stylex.props(styles.loadingRoot)} aria-label="Loading chat">
-      <div data-slot="skeleton-glimmer" {...stylex.props(styles.loadingEyebrow)} />
-      <div data-slot="skeleton-glimmer" {...stylex.props(styles.loadingTitle)} />
-      <div data-slot="skeleton-glimmer" {...stylex.props(styles.loadingLine)} />
-      <div data-slot="skeleton-glimmer" {...stylex.props(styles.loadingLine, styles.loadingLineShort)} />
-      <div {...stylex.props(styles.loadingStarters)}>
-        <div data-slot="skeleton-glimmer" {...stylex.props(styles.loadingStarter)} />
-        <div data-slot="skeleton-glimmer" {...stylex.props(styles.loadingStarter)} />
-        <div data-slot="skeleton-glimmer" {...stylex.props(styles.loadingStarter)} />
-      </div>
-    </div>
-  );
-}
-
 const styles = stylex.create({
   root: {
     "--chat-column-width": {
@@ -195,10 +175,6 @@ const styles = stylex.create({
     gridArea: "1 / 1",
     minHeight: 0,
     overflow: "hidden"
-  },
-  emptyContentLayer: {
-    paddingTop: 24,
-    paddingBottom: "var(--chat-composer-dock-height)"
   },
   composerDock: {
     position: "relative",
@@ -227,53 +203,5 @@ const styles = stylex.create({
     position: "relative",
     zIndex: 1,
     pointerEvents: "auto"
-  },
-  loadingRoot: {
-    display: "grid",
-    minHeight: "56vh",
-    alignContent: "center",
-    justifyItems: "center",
-    gap: 14,
-    paddingInline: 20
-  },
-  loadingEyebrow: {
-    width: 72,
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: "var(--color-skeleton)"
-  },
-  loadingTitle: {
-    width: "min(520px, 82vw)",
-    height: 58,
-    borderRadius: 8,
-    backgroundColor: "var(--color-skeleton)",
-    "@media (max-width: 760px)": {
-      width: "min(360px, 78vw)",
-      height: 44
-    }
-  },
-  loadingLine: {
-    width: "min(560px, 76vw)",
-    height: 18,
-    borderRadius: 7,
-    backgroundColor: "var(--color-skeleton)"
-  },
-  loadingLineShort: {
-    width: "min(390px, 62vw)"
-  },
-  loadingStarters: {
-    display: "grid",
-    width: "min(720px, 100%)",
-    gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-    gap: 10,
-    marginTop: 10,
-    "@media (max-width: 760px)": {
-      gridTemplateColumns: "1fr"
-    }
-  },
-  loadingStarter: {
-    height: 54,
-    borderRadius: 8,
-    backgroundColor: "var(--color-skeleton)"
   }
 });
