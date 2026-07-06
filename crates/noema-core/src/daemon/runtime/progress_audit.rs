@@ -1,8 +1,11 @@
 use serde::Deserialize;
 
+use std::sync::Arc;
+
 use crate::provider::{GenerateInput, GenerateOptions, GenerateRequest, GenerateResponseItem};
 
 use super::actor::CodexRuntimeActor;
+use super::handle::RuntimeModelProvider;
 use super::progress::ContinuationProgressDigest;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -26,44 +29,29 @@ pub(super) enum ProgressAuditError {
     ExecutionFailed(String),
 }
 
+struct ProgressAuditModel {
+    provider: Arc<dyn RuntimeModelProvider>,
+    model_profile: String,
+}
+
 impl CodexRuntimeActor {
     pub(super) async fn run_progress_audit(
         &self,
         digest: &ContinuationProgressDigest,
     ) -> Result<ProgressAuditOutcome, ProgressAuditError> {
-        let Some(preference) = self
-            .store
-            .get_auxiliary_model_preference(crate::store::TOOL_PROGRESS_AUDIT_TASK_ID)
-            .await
-            .map_err(|_| {
-                ProgressAuditError::Unavailable(
-                    "progress audit preference could not be read".to_string(),
-                )
-            })?
-        else {
-            return Err(ProgressAuditError::Unavailable(
-                "progress audit model is not configured".to_string(),
-            ));
-        };
-        let provider = self
-            .provider_for_kind(&preference.provider_kind)
-            .map_err(|_| {
-                ProgressAuditError::Unavailable(format!(
-                    "progress audit provider '{}' is not available",
-                    preference.provider_kind
-                ))
-            })?;
+        let audit_model = self.progress_audit_model().await?;
         let input = serde_json::to_string(digest).map_err(|error| {
             ProgressAuditError::ExecutionFailed(format!(
                 "progress digest could not be serialized: {error}"
             ))
         })?;
         let mut ignore_event = |_| {};
-        let response = provider
+        let response = audit_model
+            .provider
             .generate_streaming(
                 GenerateRequest {
                     conversation_id: None,
-                    model: Some(preference.model_profile),
+                    model: Some(audit_model.model_profile),
                     input: GenerateInput::Text(input),
                     instructions: Some(build_progress_audit_prompt()),
                     options: GenerateOptions {
@@ -88,6 +76,48 @@ impl CodexRuntimeActor {
             .collect::<Vec<_>>()
             .join("");
         parse_progress_audit_response(&text)
+    }
+
+    async fn progress_audit_model(&self) -> Result<ProgressAuditModel, ProgressAuditError> {
+        if let Some(preference) = self
+            .store
+            .get_auxiliary_model_preference(crate::store::TOOL_PROGRESS_AUDIT_TASK_ID)
+            .await
+            .map_err(|_| {
+                ProgressAuditError::Unavailable(
+                    "progress audit preference could not be read".to_string(),
+                )
+            })?
+        {
+            let provider = self
+                .provider_for_kind(&preference.provider_kind)
+                .map_err(|_| {
+                    ProgressAuditError::Unavailable(format!(
+                        "progress audit provider '{}' is not available",
+                        preference.provider_kind
+                    ))
+                })?;
+            return Ok(ProgressAuditModel {
+                provider,
+                model_profile: preference.model_profile,
+            });
+        }
+
+        let provider_kind = self.default_provider_kind.clone();
+        let provider = self.provider_for_kind(&provider_kind).map_err(|_| {
+            ProgressAuditError::Unavailable(format!(
+                "progress audit default provider '{provider_kind}' is not available"
+            ))
+        })?;
+        let model_profile = provider.default_tool_classification_model().ok_or_else(|| {
+            ProgressAuditError::Unavailable(format!(
+                "progress audit default provider '{provider_kind}' has no tool-classification model"
+            ))
+        })?;
+        Ok(ProgressAuditModel {
+            provider,
+            model_profile,
+        })
     }
 }
 
@@ -153,6 +183,83 @@ struct RawProgressAuditResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::daemon::runtime::handle::RuntimeModelProvider;
+    use crate::provider::{GenerateRequest, GenerateResponse, GenerateStreamEvent, ProviderError};
+    use std::{
+        collections::HashMap,
+        future::Future,
+        pin::Pin,
+        sync::{Arc, Mutex},
+    };
+
+    #[derive(Debug)]
+    struct ProgressAuditTestProvider {
+        default_model: Option<String>,
+        requests: Arc<Mutex<Vec<GenerateRequest>>>,
+    }
+
+    impl ProgressAuditTestProvider {
+        fn new(default_model: Option<&str>) -> Self {
+            Self {
+                default_model: default_model.map(str::to_string),
+                requests: Arc::new(Mutex::new(Vec::new())),
+            }
+        }
+    }
+
+    impl RuntimeModelProvider for ProgressAuditTestProvider {
+        fn default_tool_classification_model(&self) -> Option<String> {
+            self.default_model.clone()
+        }
+
+        fn generate_streaming<'a>(
+            &'a self,
+            request: GenerateRequest,
+            _on_event: &'a mut (dyn FnMut(GenerateStreamEvent) + Send),
+        ) -> Pin<Box<dyn Future<Output = Result<GenerateResponse, ProviderError>> + Send + 'a>>
+        {
+            Box::pin(async move {
+                self.requests
+                    .lock()
+                    .expect("requests")
+                    .push(request.clone());
+                Ok(GenerateResponse::final_text(
+                    r#"{"decision":"continue","confidence":"high","user_summary":"Still making progress.","reason":"new results","next_goal":null}"#,
+                    "test",
+                    request.model.unwrap_or_else(|| "missing-model".to_string()),
+                ))
+            })
+        }
+    }
+
+    fn test_digest() -> ContinuationProgressDigest {
+        ContinuationProgressDigest {
+            user_goal: "Research healthy restaurants.".to_string(),
+            current_goal: None,
+            step: 20,
+            window: Default::default(),
+            whole_turn: Default::default(),
+            recent_events: Vec::new(),
+        }
+    }
+
+    async fn test_actor(
+        provider_kind: &str,
+        provider: Arc<ProgressAuditTestProvider>,
+    ) -> CodexRuntimeActor {
+        let store = crate::store::tests::test_store().await;
+        CodexRuntimeActor::new(
+            provider_kind.to_string(),
+            HashMap::from([(
+                provider_kind.to_string(),
+                provider as Arc<dyn RuntimeModelProvider>,
+            )]),
+            store.clone(),
+            store.system_error_logger(),
+        )
+        .await
+        .expect("actor")
+    }
 
     #[test]
     fn audit_prompt_demands_strict_untrusted_json_classification() {
@@ -192,5 +299,37 @@ mod tests {
         assert!(prompt.contains("Do not call tools"));
         assert!(prompt.contains(r#"response_status "final""#));
         assert!(prompt.contains("no tool_calls"));
+    }
+
+    #[tokio::test]
+    async fn audit_uses_default_provider_tool_model_without_saved_preference() {
+        let provider = Arc::new(ProgressAuditTestProvider::new(Some("gpt-5.4-mini")));
+        let actor = test_actor("codex", provider.clone()).await;
+
+        let outcome = actor
+            .run_progress_audit(&test_digest())
+            .await
+            .expect("audit");
+
+        assert_eq!(outcome.decision, ProgressAuditDecision::Continue);
+        let requests = provider.requests.lock().expect("requests");
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].model.as_deref(), Some("gpt-5.4-mini"));
+        assert!(requests[0].tools.is_empty());
+        assert!(!requests[0].parallel_tool_calls);
+    }
+
+    #[tokio::test]
+    async fn audit_default_can_use_foundation_native_profile() {
+        let provider = Arc::new(ProgressAuditTestProvider::new(Some("default")));
+        let actor = test_actor("foundation_local", provider.clone()).await;
+
+        actor
+            .run_progress_audit(&test_digest())
+            .await
+            .expect("audit");
+
+        let requests = provider.requests.lock().expect("requests");
+        assert_eq!(requests[0].model.as_deref(), Some("default"));
     }
 }
