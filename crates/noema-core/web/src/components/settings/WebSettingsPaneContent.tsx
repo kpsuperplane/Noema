@@ -1,12 +1,7 @@
 import { Badge } from "@astryxdesign/core/Badge";
 import * as stylex from "@stylexjs/stylex";
 import { ModelPreferenceSelect } from "./ModelPreferenceSelect";
-import {
-  modelPreferenceLabel,
-  modelProfileLabel,
-  providerPreferenceLabel,
-  selectedPreferenceWarning
-} from "./modelPreferenceMetadata";
+import { selectedPreferenceWarning } from "./modelPreferenceMetadata";
 import type {
   ModelPreference,
   ModelPreferenceSaveInput,
@@ -95,7 +90,6 @@ function FetchSummarizerCard({
   onSave: (input: ModelPreferenceSaveInput) => Promise<unknown>;
 }) {
   const preference = settings?.modelPreference ?? null;
-  const rows = webFetchSummarizerRows(settings);
   const warning = settings ? selectedPreferenceWarning(preference, settings.modelOptions) : null;
   const unavailable = Boolean(error) || !settings;
 
@@ -127,11 +121,6 @@ function FetchSummarizerCard({
               Noema could not save the fetch summarizer model.
             </p>
           ) : null}
-          <dl {...stylex.props(styles.definitionList)}>
-            {rows.map((row) => (
-              <MetadataRow key={row.label} label={row.label} value={row.value} />
-            ))}
-          </dl>
           {warning ? <p {...stylex.props(styles.warningText)}>{warning}</p> : null}
         </>
       )}
@@ -146,26 +135,6 @@ function MetadataRow({ label, value }: { label: string; value: string }) {
       <dd {...stylex.props(styles.definitionValue)}>{value}</dd>
     </div>
   );
-}
-
-function webFetchSummarizerRows(settings: WebFetchSummarizerSettings | null) {
-  if (!settings) {
-    return [{ label: "Model", value: "Unavailable" }];
-  }
-  const preference = settings.modelPreference ?? null;
-  if (!preference) {
-    return [
-      { label: "Provider", value: "Default provider" },
-      {
-        label: "Model",
-        value: `${modelProfileLabel(settings.defaultModelProfile, settings.modelOptions)} (default)`
-      }
-    ];
-  }
-  return [
-    { label: "Provider", value: providerPreferenceLabel(preference, settings.modelOptions) },
-    { label: "Model", value: modelPreferenceLabel(preference, settings.modelOptions) }
-  ];
 }
 
 const styles = stylex.create({

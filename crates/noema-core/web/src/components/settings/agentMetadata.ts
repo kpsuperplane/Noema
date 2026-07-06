@@ -34,29 +34,6 @@ export function agentBadgeLabel(agent: Pick<AgentLike, "isPrimary">) {
   return agent.isPrimary ? "Primary" : null;
 }
 
-export function selectedModelLabel(agent: AgentLike) {
-  const preference = agent.modelPreference;
-  if (!preference) {
-    return "System default";
-  }
-  const provider = agent.modelOptions?.find(
-    (option) => option.providerAccountId === preference.providerAccountId
-  );
-  const profile = provider?.profiles.find((candidate) => candidate.id === preference.modelProfile);
-  return profile?.label ?? preference.modelProfile;
-}
-
-export function selectedProviderLabel(agent: AgentLike) {
-  const preference = agent.modelPreference;
-  if (!preference) {
-    return "System default";
-  }
-  const provider = agent.modelOptions?.find(
-    (option) => option.providerAccountId === preference.providerAccountId
-  );
-  return provider?.providerDisplayName ?? preference.providerKind;
-}
-
 export function selectedModelWarning(agent: AgentLike) {
   const preference = agent.modelPreference;
   if (!preference) {
@@ -77,8 +54,6 @@ export function selectedModelWarning(agent: AgentLike) {
 
 export function agentMetadataRows(agent: AgentLike): AgentMetadataRow[] {
   return [
-    { label: "Agent id", value: agent.agentId },
-    { label: "Provider", value: selectedProviderLabel(agent) },
-    { label: "Model", value: selectedModelLabel(agent) }
+    { label: "Agent id", value: agent.agentId }
   ];
 }
