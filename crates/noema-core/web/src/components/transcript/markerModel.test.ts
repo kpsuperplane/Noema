@@ -118,6 +118,29 @@ describe("toolMarkerName", () => {
 
     assert.equal(toolMarkerName(marker), "Search web");
   });
+
+  test("labels raw web fetch tool names for users", () => {
+    const marker: ToolMarkerGroup = {
+      id: "tool_call:web-fetch",
+      call: {
+        id: "entry:web-fetch",
+        type: "activity",
+        item: {
+          kind: "activity",
+          id: "activity:web-fetch",
+          activity_kind: "tool_call",
+          status: "COMPLETED",
+          title: "Tool call: web.fetch",
+          summary: "Fetched web page: https://example.com/page",
+          metadata: {
+            action: { name: "web.fetch" }
+          }
+        }
+      }
+    };
+
+    assert.equal(toolMarkerName(marker), "Fetch web");
+  });
 });
 
 describe("toolMarkerLabel", () => {
@@ -184,6 +207,81 @@ describe("toolMarkerLabel", () => {
     assert.equal(toolMarkerExpandable(marker), false);
     assert.deepEqual(toolDetailRows(marker), []);
   });
+
+  test("completed web fetch marker target keeps the fetched URL visible", () => {
+    const marker: ToolMarkerGroup = {
+      id: "tool_call:web-fetch",
+      call: {
+        id: "call-entry",
+        type: "activity",
+        item: {
+          kind: "activity",
+          id: "activity:web-fetch-call",
+          activity_kind: "tool_call",
+          status: "COMPLETED",
+          title: "Tool call: web.fetch",
+          summary: "Fetched web page: https://example.com/page",
+          metadata: {
+            action: {
+              name: "web.fetch",
+              payload: {
+                url: "https://example.com/page",
+                reason: "read public docs"
+              }
+            },
+            display: {
+              name: "Fetch web",
+              target: "Fetched web page: https://example.com/page",
+              purpose: "read public docs"
+            }
+          }
+        }
+      },
+      result: {
+        id: "result-entry",
+        type: "activity",
+        item: {
+          kind: "activity",
+          id: "activity:web-fetch-result",
+          activity_kind: "tool_result",
+          status: "COMPLETED",
+          title: "Tool result: web.fetch",
+          summary: "Fetched 12,840 chars",
+          metadata: {
+            action: {
+              name: "web.fetch",
+              success: true,
+              payload: {
+                provider: "direct_http",
+                url: "https://example.com/page",
+                final_url: "https://example.com/page",
+                title: "Example",
+                format: "markdown",
+                extraction: "readability_rs",
+                content_kind: "raw_markdown",
+                content: "Fetched page body that should stay out of compact rows.",
+                raw_excerpt: "Fetched page excerpt that should stay out of compact rows.",
+                raw_chars: 12840,
+                returned_chars: 12840,
+                summary_model: null,
+                summary_strategy: "not_summarized",
+                truncated: false
+              }
+            },
+            display: {
+              name: "Fetch web",
+              result: "Fetched 12,840 chars"
+            }
+          }
+        }
+      }
+    };
+
+    assert.equal(toolMarkerLabel(marker), "Used Fetch web");
+    assert.equal(toolMarkerTarget(marker), "Fetched web page: https://example.com/page");
+    assert.equal(toolMarkerExpandable(marker), false);
+    assert.deepEqual(toolDetailRows(marker), []);
+  });
 });
 
 describe("toolDetailRows", () => {
@@ -243,6 +341,65 @@ describe("toolDetailRows", () => {
     assert.deepEqual(toolDetailRows(marker), [
       { label: "Query", value: "rust language" },
       { label: "Error", value: "search provider request failed" }
+    ]);
+  });
+
+  test("keeps failed web fetch markers expandable with safe error detail", () => {
+    const marker: ToolMarkerGroup = {
+      id: "tool_call:web-fetch",
+      call: {
+        id: "call-entry",
+        type: "activity",
+        item: {
+          kind: "activity",
+          id: "activity:web-fetch-call",
+          activity_kind: "tool_call",
+          status: "COMPLETED",
+          title: "Tool call: web.fetch",
+          summary: "Fetched web page: https://example.com/page",
+          metadata: {
+            action: {
+              name: "web.fetch",
+              payload: { url: "https://example.com/page" }
+            },
+            display: {
+              name: "Fetch web",
+              target: "Fetched web page: https://example.com/page"
+            }
+          }
+        }
+      },
+      result: {
+        id: "result-entry",
+        type: "activity",
+        item: {
+          kind: "activity",
+          id: "activity:web-fetch-result",
+          activity_kind: "tool_result",
+          status: "FAILED",
+          title: "Tool result: web.fetch",
+          summary: "Failed: web fetch request failed",
+          metadata: {
+            action: {
+              name: "web.fetch",
+              success: false,
+              payload: {
+                error: "web fetch request failed"
+              }
+            },
+            display: {
+              name: "Fetch web",
+              result: "Failed: web fetch request failed"
+            }
+          }
+        }
+      }
+    };
+
+    assert.equal(toolMarkerExpandable(marker), true);
+    assert.deepEqual(toolDetailRows(marker), [
+      { label: "URL", value: "https://example.com/page" },
+      { label: "Error", value: "web fetch request failed" }
     ]);
   });
 

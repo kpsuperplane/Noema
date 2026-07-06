@@ -190,7 +190,7 @@ export function formatToolDetail(fallback: string, metadata: unknown): string {
 }
 
 export function toolDetailRows(marker: ToolMarkerGroup): ToolDetailRowData[] {
-  if (isSuccessfulWebSearchMarker(marker)) {
+  if (isSuccessfulCompactWebMarker(marker)) {
     return [];
   }
 
@@ -262,14 +262,14 @@ function toolNameFromMetadata(metadata: unknown): string | null {
   return null;
 }
 
-function isSuccessfulWebSearchMarker(marker: ToolMarkerGroup): boolean {
+function isSuccessfulCompactWebMarker(marker: ToolMarkerGroup): boolean {
   const toolName = toolNameFromMetadata(marker.call?.item.metadata) ?? toolNameFromMetadata(marker.result?.item.metadata);
-  return toolName === "Search web" && marker.result?.item.status === "COMPLETED";
+  return (toolName === "Search web" || toolName === "Fetch web") && marker.result?.item.status === "COMPLETED";
 }
 
 export function toolMarkerTarget(marker: ToolMarkerGroup): string | undefined {
   const toolName = toolNameFromMetadata(marker.call?.item.metadata) ?? toolNameFromMetadata(marker.result?.item.metadata);
-  if (toolName === "Search web") {
+  if (toolName === "Search web" || toolName === "Fetch web") {
     return (
       usefulToolDisplayString(marker.call?.item.metadata, "target") ??
       usefulToolDisplayString(marker.result?.item.metadata, "result") ??
@@ -488,6 +488,9 @@ function readableToolName(name: string): string {
   }
   if (trimmed === "web.search") {
     return "Search web";
+  }
+  if (trimmed === "web.fetch") {
+    return "Fetch web";
   }
   if (trimmed === "update_own_name") {
     return "Update agent name";

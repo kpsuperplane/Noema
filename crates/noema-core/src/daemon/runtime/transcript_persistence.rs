@@ -791,6 +791,27 @@ fn tool_call_display(name: &str, payload: &Value) -> Value {
             "target",
             query.map(|query| format!("Web search: {query}")),
         );
+    } else if name == "web.fetch" {
+        insert_display_value(
+            &mut display,
+            "purpose",
+            arguments
+                .get("reason")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToString::to_string),
+        );
+        let url = arguments
+            .get("url")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        insert_display_value(
+            &mut display,
+            "target",
+            url.map(|url| format!("Fetched web page: {url}")),
+        );
     } else if name == "update_own_name" {
         insert_display_value(
             &mut display,
@@ -847,6 +868,22 @@ fn tool_result_display(name: Option<&str>, success: Option<bool>, payload: &Valu
                 .and_then(Value::as_str)
                 .map(web_search_contract_label),
         );
+    } else if name == "web.fetch" {
+        insert_display_value(
+            &mut display,
+            "result",
+            Some(web_fetch_result_label(success, payload)),
+        );
+        insert_display_value(
+            &mut display,
+            "model",
+            payload
+                .get("summary_model")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToString::to_string),
+        );
     } else if name == "update_own_name" {
         let result = payload
             .get("display_name")
@@ -883,6 +920,7 @@ fn readable_tool_name(name: &str) -> String {
         "search_memory" => "Search memory".to_string(),
         "update_own_name" => "Update agent name".to_string(),
         "web.search" => "Search web".to_string(),
+        "web.fetch" => "Fetch web".to_string(),
         other => other
             .split('.')
             .next_back()
@@ -912,6 +950,7 @@ fn tool_access_label(name: &str) -> &'static str {
         "search_memory" => "Reads memory",
         "update_own_name" => "Updates agent profile",
         "web.search" => "Searches public web",
+        "web.fetch" => "Fetches public web pages",
         _ => "Uses a connected tool",
     }
 }
@@ -999,6 +1038,46 @@ fn web_search_contract_label(contract: &str) -> String {
     }
 }
 
+fn web_fetch_result_label(success: Option<bool>, payload: &Value) -> String {
+    if let Some(error) = payload.get("error").and_then(Value::as_str) {
+        return format!("Failed: {error}");
+    }
+
+    let raw_chars = payload.get("raw_chars").and_then(Value::as_u64);
+    let returned_chars = payload.get("returned_chars").and_then(Value::as_u64);
+    if payload
+        .get("content_kind")
+        .and_then(Value::as_str)
+        .is_some_and(|content_kind| content_kind == "summary")
+        && raw_chars.is_some()
+        && returned_chars.is_some()
+    {
+        return format!(
+            "Summarized {} chars to {} chars",
+            format_count(raw_chars.unwrap_or_default()),
+            format_count(returned_chars.unwrap_or_default())
+        );
+    }
+
+    if let Some(chars) = returned_chars.or(raw_chars) {
+        return format!("Fetched {} chars", format_count(chars));
+    }
+
+    success_result_label(success, payload)
+}
+
+fn format_count(count: u64) -> String {
+    let digits = count.to_string();
+    let mut formatted = String::with_capacity(digits.len() + digits.len() / 3);
+    for (index, digit) in digits.chars().rev().enumerate() {
+        if index > 0 && index % 3 == 0 {
+            formatted.push(',');
+        }
+        formatted.push(digit);
+    }
+    formatted.chars().rev().collect()
+}
+
 fn success_result_label(success: Option<bool>, payload: &Value) -> String {
     if let Some(error) = payload.get("error").and_then(Value::as_str) {
         return format!("Failed: {error}");
@@ -1063,5 +1142,81 @@ mod tests {
         assert_eq!(display["result"], "Found 2 web results");
         assert_eq!(display["provider"], "DuckDuckGo public search");
         assert_eq!(display["reliability"], "Best effort");
+    }
+
+    #[test]
+    fn web_fetch_tool_call_display_shows_visible_url() {
+        let display = tool_call_display(
+            "web.fetch",
+            &json!({
+                "url": "https://example.com/page",
+                "reason": "read public documentation",
+                "max_chars": 4000
+            }),
+        );
+
+        assert_eq!(display["name"], "Fetch web");
+        assert_eq!(display["access"], "Fetches public web pages");
+        assert_eq!(
+            display["target"],
+            "Fetched web page: https://example.com/page"
+        );
+        assert_eq!(display["purpose"], "read public documentation");
+    }
+
+    #[test]
+    fn web_fetch_tool_result_display_shows_raw_and_summary_counts() {
+        let raw_display = tool_result_display(
+            Some("web.fetch"),
+            Some(true),
+            &json!({
+                "provider": "direct_http",
+                "url": "https://example.com/page",
+                "final_url": "https://example.com/page",
+                "title": "Example",
+                "format": "markdown",
+                "extraction": "readability_rs",
+                "content_kind": "raw_markdown",
+                "content": "secret raw fetched body",
+                "raw_excerpt": "secret raw excerpt",
+                "raw_chars": 183421,
+                "returned_chars": 12840,
+                "summary_model": null,
+                "summary_strategy": "not_summarized",
+                "truncated": true
+            }),
+        );
+        assert_eq!(raw_display["name"], "Fetch web");
+        assert_eq!(raw_display["access"], "Fetches public web pages");
+        assert_eq!(raw_display["result"], "Fetched 12,840 chars");
+        assert!(raw_display.get("model").is_none());
+        assert!(!raw_display.to_string().contains("secret raw"));
+
+        let summary_display = tool_result_display(
+            Some("web.fetch"),
+            Some(true),
+            &json!({
+                "provider": "direct_http",
+                "url": "https://example.com/long",
+                "final_url": "https://example.com/long",
+                "title": "Long Example",
+                "format": "markdown",
+                "extraction": "readability_rs",
+                "content_kind": "summary",
+                "content": "secret summary text",
+                "raw_excerpt": "secret raw excerpt",
+                "raw_chars": 183421,
+                "returned_chars": 4972,
+                "summary_model": "gpt-5.4-mini",
+                "summary_strategy": "single_pass",
+                "truncated": false
+            }),
+        );
+        assert_eq!(
+            summary_display["result"],
+            "Summarized 183,421 chars to 4,972 chars"
+        );
+        assert_eq!(summary_display["model"], "gpt-5.4-mini");
+        assert!(!summary_display.to_string().contains("secret"));
     }
 }
