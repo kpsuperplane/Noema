@@ -268,8 +268,11 @@ not default chat transcript text.
 
 ## Settings
 
-Settings should expose the audit model alongside other auxiliary model controls,
-using the same model picker component where possible.
+Settings should expose the audit model under a new Safety settings page:
+`Settings > Safety > Usage`, with route `/settings/safety/usage`. This keeps
+runtime budget and self-monitoring controls with safety/governance behavior
+rather than first-party Web tools. The page should use the same model picker
+component as other auxiliary model controls where possible.
 
 The UI should show:
 
@@ -277,6 +280,9 @@ The UI should show:
 - effective provider-specific default
 - available provider/profile options
 - disabled reasons when a provider account or profile cannot be used
+
+The Web settings page should continue to own `web.search`, `web.fetch`, and the
+fetch summarizer model. It should not render the tool progress audit control.
 
 The copy should not imply `gpt-5.4-mini` is globally valid. It is only the
 Codex/OpenAI default.

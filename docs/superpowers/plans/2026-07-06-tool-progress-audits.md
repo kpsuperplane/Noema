@@ -16,11 +16,15 @@
 - Modify `crates/noema-core/src/store/schema.rs`: allow `tool_progress_audit` in `auxiliary_model_preferences.task_id`.
 - Modify `crates/noema-core/src/store.rs`: re-export the new task id.
 - Modify `crates/noema-core/src/store/tests.rs`: add store tests for the new task id.
-- Modify `crates/noema-core/src/graphql/web_fetch_settings.rs`: rename the GraphQL settings concept from web-fetch-only to web-tools auxiliary settings by adding progress audit fields alongside summarizer fields.
-- Modify `crates/noema-core/src/graphql/schema.rs`: expose progress audit preference mutation and tests.
-- Modify `crates/noema-core/web/src/graphql/operations.ts`: query/save the progress audit model preference.
-- Modify `crates/noema-core/web/src/components/settings/WebSettingsPane.tsx`: pass progress audit settings and save handler into content.
-- Modify `crates/noema-core/web/src/components/settings/WebSettingsPaneContent.tsx`: render a "Tool progress audit" model picker card.
+- Create `crates/noema-core/src/graphql/usage_settings.rs`: expose Safety > Usage progress audit model settings and save resolver.
+- Modify `crates/noema-core/src/graphql.rs`: register the usage settings resolver module.
+- Modify `crates/noema-core/src/graphql/schema.rs`: expose `usageSettings`, progress audit preference mutation, and tests.
+- Modify `crates/noema-core/web/src/graphql/operations.ts`: query/save the Safety > Usage progress audit model preference.
+- Modify `crates/noema-core/web/src/app/routes.ts`: add `/settings/safety/usage`.
+- Modify `crates/noema-core/web/src/components/shell/shellNavigation.ts`: add Safety > Usage navigation.
+- Modify `crates/noema-core/web/src/pages/SettingsPage.tsx`: route `safety-usage` to a new settings pane.
+- Create `crates/noema-core/web/src/components/settings/UsageSettingsPane.tsx`: load/save usage settings.
+- Create `crates/noema-core/web/src/components/settings/UsageSettingsPaneContent.tsx`: render a "Tool progress audit" model picker card.
 - Create `crates/noema-core/src/daemon/runtime/progress.rs`: continuation policy, digest builder, event summaries, fingerprints, and deterministic guardrail decisions.
 - Create `crates/noema-core/src/daemon/runtime/progress_audit.rs`: auxiliary model resolution, strict audit prompt, JSON parser, and no-tools finalization prompt helpers.
 - Modify `crates/noema-core/src/daemon/runtime.rs`: register the new modules.
@@ -155,18 +159,19 @@ git commit -m "feat: add progress audit model preference"
 ## Task 2: Expose Progress Audit Model Settings
 
 **Files:**
-- Modify: `crates/noema-core/src/graphql/web_fetch_settings.rs`
+- Create: `crates/noema-core/src/graphql/usage_settings.rs`
+- Modify: `crates/noema-core/src/graphql.rs`
 - Modify: `crates/noema-core/src/graphql/schema.rs`
 - Modify: `crates/noema-core/web/src/graphql/operations.ts`
 - Modify generated files by running codegen: `crates/noema-core/web/src/generated/graphql.ts`, `crates/noema-core/web/src/generated/schema.graphql`
 
 - [ ] **Step 1: Add failing GraphQL tests**
 
-In `crates/noema-core/src/graphql/schema.rs`, add these tests after `web_fetch_settings_query_defaults_to_tool_model_and_returns_options`:
+In `crates/noema-core/src/graphql/schema.rs`, add these tests near the existing settings GraphQL tests:
 
 ```rust
 #[tokio::test]
-async fn web_fetch_settings_query_exposes_progress_audit_default() {
+async fn usage_settings_query_exposes_progress_audit_default() {
     use crate::store::tests::test_store;
 
     let store = test_store().await;
@@ -192,7 +197,7 @@ async fn web_fetch_settings_query_exposes_progress_audit_default() {
         .execute(async_graphql::Request::new(
             r#"
             {
-              webFetchSettings {
+              usageSettings {
                 progressAudit {
                   defaultModelProfile
                   modelPreference { providerKind }
@@ -206,7 +211,7 @@ async fn web_fetch_settings_query_exposes_progress_audit_default() {
 
     assert!(response.errors.is_empty(), "{:?}", response.errors);
     let data = response.data.into_json().expect("json");
-    let audit = &data["webFetchSettings"]["progressAudit"];
+    let audit = &data["usageSettings"]["progressAudit"];
     assert_eq!(audit["defaultModelProfile"], "gpt-5.4-mini");
     assert_eq!(audit["modelPreference"], serde_json::Value::Null);
     assert_eq!(audit["modelOptions"][0]["profiles"][0]["id"], "gpt-5.4-mini");
@@ -278,32 +283,40 @@ async fn save_tool_progress_audit_preference_persists_valid_codex_profile() {
 Run:
 
 ```bash
-cargo test -p noema-core web_fetch_settings_query_exposes_progress_audit_default save_tool_progress_audit_preference_persists_valid_codex_profile --no-fail-fast
+cargo test -p noema-core usage_settings_query_exposes_progress_audit_default save_tool_progress_audit_preference_persists_valid_codex_profile --no-fail-fast
 ```
 
-Expected: fail because `progressAudit` and `saveToolProgressAuditPreference` are absent.
+Expected: fail because `usageSettings` and `saveToolProgressAuditPreference` are absent.
 
 - [ ] **Step 3: Add GraphQL types and resolver**
 
-In `crates/noema-core/src/graphql/web_fetch_settings.rs`, update imports:
+Create `crates/noema-core/src/graphql/usage_settings.rs`:
 
 ```rust
+use async_graphql::{InputObject, Result, SimpleObject};
+
 use crate::{
-    NewAuxiliaryModelPreference, TOOL_PROGRESS_AUDIT_TASK_ID, WEB_FETCH_SUMMARIZER_TASK_ID,
+    NewAuxiliaryModelPreference, TOOL_PROGRESS_AUDIT_TASK_ID,
     provider::DEFAULT_TOOL_CLASSIFICATION_MODEL,
 };
-```
 
-Add a progress-audit field to `GraphqlWebFetchSettings`:
+use super::{
+    agents::{
+        GraphqlAgentModelPreference, GraphqlAgentModelProviderOption, option_from_account,
+        profiles_from_account, provider_disabled_reason, refresh_missing_model_profiles,
+    },
+    errors::graphql_error,
+    schema::GraphqlState,
+};
 
-```rust
-/// Tool-continuation progress audit model settings.
-pub progress_audit: GraphqlToolProgressAuditSettings,
-```
+/// Safety usage settings safe to expose in Settings.
+#[derive(Clone, Debug, SimpleObject)]
+#[graphql(name = "UsageSettings")]
+pub struct GraphqlUsageSettings {
+    /// Tool-continuation progress audit model settings.
+    pub progress_audit: GraphqlToolProgressAuditSettings,
+}
 
-Add these types below `GraphqlWebFetchSummarizerSettings`:
-
-```rust
 /// Tool-continuation progress audit model settings.
 #[derive(Clone, Debug, SimpleObject)]
 #[graphql(name = "ToolProgressAuditSettings")]
@@ -325,67 +338,43 @@ pub struct GraphqlSaveToolProgressAuditPreferenceInput {
     /// Provider-specific model id or profile id.
     pub model_profile: String,
 }
-```
 
-In `web_fetch_settings`, load both preferences and return both settings:
+pub(super) async fn usage_settings(state: &GraphqlState) -> Result<GraphqlUsageSettings> {
+    let store = state.store()?;
+    super::provider_accounts::refresh_foundation_local_availability(state).await;
+    let mut accounts = store
+        .active_default_provider_accounts()
+        .await
+        .map_err(graphql_error)?;
+    refresh_missing_model_profiles(state, store, &accounts).await;
+    accounts = store
+        .active_default_provider_accounts()
+        .await
+        .map_err(graphql_error)?;
+    let preference = store
+        .get_auxiliary_model_preference(TOOL_PROGRESS_AUDIT_TASK_ID)
+        .await
+        .map_err(graphql_error)?;
+    Ok(GraphqlUsageSettings {
+        progress_audit: GraphqlToolProgressAuditSettings {
+            default_model_profile: DEFAULT_TOOL_CLASSIFICATION_MODEL.to_string(),
+            model_preference: preference.map(|preference| GraphqlAgentModelPreference {
+                provider_kind: preference.provider_kind,
+                provider_account_id: preference.provider_account_id,
+                model_profile: preference.model_profile,
+            }),
+            model_options: accounts.iter().map(option_from_account).collect(),
+        },
+    })
+}
 
-```rust
-let summarizer_preference = store
-    .get_auxiliary_model_preference(WEB_FETCH_SUMMARIZER_TASK_ID)
-    .await
-    .map_err(graphql_error)?;
-let audit_preference = store
-    .get_auxiliary_model_preference(TOOL_PROGRESS_AUDIT_TASK_ID)
-    .await
-    .map_err(graphql_error)?;
-let model_options = accounts.iter().map(option_from_account).collect::<Vec<_>>();
-Ok(GraphqlWebFetchSettings {
-    summarizer: GraphqlWebFetchSummarizerSettings {
-        default_model_profile: DEFAULT_TOOL_CLASSIFICATION_MODEL.to_string(),
-        model_preference: summarizer_preference.map(|preference| GraphqlAgentModelPreference {
-            provider_kind: preference.provider_kind,
-            provider_account_id: preference.provider_account_id,
-            model_profile: preference.model_profile,
-        }),
-        model_options: model_options.clone(),
-    },
-    progress_audit: GraphqlToolProgressAuditSettings {
-        default_model_profile: DEFAULT_TOOL_CLASSIFICATION_MODEL.to_string(),
-        model_preference: audit_preference.map(|preference| GraphqlAgentModelPreference {
-            provider_kind: preference.provider_kind,
-            provider_account_id: preference.provider_account_id,
-            model_profile: preference.model_profile,
-        }),
-        model_options,
-    },
-})
-```
-
-Add a shared save helper and the public resolver:
-
-```rust
 pub(super) async fn save_tool_progress_audit_preference(
     state: &GraphqlState,
     input: GraphqlSaveToolProgressAuditPreferenceInput,
 ) -> Result<GraphqlAgentModelPreference> {
-    save_auxiliary_model_preference(
-        state,
-        TOOL_PROGRESS_AUDIT_TASK_ID,
-        input.provider_account_id,
-        input.model_profile,
-    )
-    .await
-}
-
-async fn save_auxiliary_model_preference(
-    state: &GraphqlState,
-    task_id: &str,
-    provider_account_id: String,
-    model_profile: String,
-) -> Result<GraphqlAgentModelPreference> {
     let store = state.store()?;
     let account = store
-        .get_provider_account(&provider_account_id)
+        .get_provider_account(&input.provider_account_id)
         .await
         .map_err(graphql_error)?
         .ok_or_else(|| async_graphql::Error::new("provider account not found"))?;
@@ -398,17 +387,21 @@ async fn save_auxiliary_model_preference(
         return Err(async_graphql::Error::new(reason));
     }
     let profiles = profiles_from_account(&account, None);
-    if profiles.is_empty() || !profiles.iter().any(|profile| profile.id == model_profile) {
+    if profiles.is_empty()
+        || !profiles
+            .iter()
+            .any(|profile| profile.id == input.model_profile)
+    {
         return Err(async_graphql::Error::new(
             "model profile is not available for provider",
         ));
     }
     let saved = store
         .upsert_auxiliary_model_preference(NewAuxiliaryModelPreference {
-            task_id: task_id.to_string(),
+            task_id: TOOL_PROGRESS_AUDIT_TASK_ID.to_string(),
             provider_kind: account.provider_kind,
             provider_account_id: account.provider_account_id,
-            model_profile,
+            model_profile: input.model_profile,
         })
         .await
         .map_err(graphql_error)?;
@@ -420,24 +413,23 @@ async fn save_auxiliary_model_preference(
 }
 ```
 
-Then rewrite `save_web_fetch_summarizer_preference` to call the helper:
+In `crates/noema-core/src/graphql.rs`, register:
 
 ```rust
-pub(super) async fn save_web_fetch_summarizer_preference(
-    state: &GraphqlState,
-    input: GraphqlSaveWebFetchSummarizerPreferenceInput,
-) -> Result<GraphqlAgentModelPreference> {
-    save_auxiliary_model_preference(
-        state,
-        WEB_FETCH_SUMMARIZER_TASK_ID,
-        input.provider_account_id,
-        input.model_profile,
-    )
-    .await
+mod usage_settings;
+```
+
+In `crates/noema-core/src/graphql/schema.rs`, import `GraphqlUsageSettings` and `GraphqlSaveToolProgressAuditPreferenceInput` from `usage_settings`, add this root query:
+
+```rust
+/// Safety usage settings.
+async fn usage_settings(&self, ctx: &Context<'_>) -> Result<GraphqlUsageSettings> {
+    let state = ctx.data_unchecked::<GraphqlState>();
+    usage_settings::usage_settings(state).await
 }
 ```
 
-In `crates/noema-core/src/graphql/schema.rs`, import the new input type and add this mutation method near `save_web_fetch_summarizer_preference`:
+Add this mutation near the other settings mutations:
 
 ```rust
 /// Save the tool progress audit model/provider preference.
@@ -447,15 +439,18 @@ async fn save_tool_progress_audit_preference(
     input: GraphqlSaveToolProgressAuditPreferenceInput,
 ) -> Result<GraphqlAgentModelPreference> {
     let state = ctx.data_unchecked::<GraphqlState>();
-    web_fetch_settings::save_tool_progress_audit_preference(state, input).await
+    usage_settings::save_tool_progress_audit_preference(state, input).await
 }
 ```
 
 - [ ] **Step 4: Update web GraphQL operations and generated types**
 
-In `crates/noema-core/web/src/graphql/operations.ts`, add `progressAudit` to `WebFetchSettingsDocument`:
+In `crates/noema-core/web/src/graphql/operations.ts`, add a new query:
 
-```graphql
+```ts
+export const UsageSettingsDocument = gql`
+  query UsageSettings {
+    usageSettings {
       progressAudit {
         defaultModelProfile
         modelPreference {
@@ -476,6 +471,9 @@ In `crates/noema-core/web/src/graphql/operations.ts`, add `progressAudit` to `We
           }
         }
       }
+    }
+  }
+`;
 ```
 
 Add the mutation:
@@ -505,7 +503,7 @@ Expected: generated GraphQL files update without errors.
 Run:
 
 ```bash
-cargo test -p noema-core web_fetch_settings_query_exposes_progress_audit_default save_tool_progress_audit_preference_persists_valid_codex_profile --no-fail-fast
+cargo test -p noema-core usage_settings_query_exposes_progress_audit_default save_tool_progress_audit_preference_persists_valid_codex_profile --no-fail-fast
 ```
 
 Expected: pass.
@@ -515,15 +513,18 @@ Expected: pass.
 Run:
 
 ```bash
-git add crates/noema-core/src/graphql/web_fetch_settings.rs crates/noema-core/src/graphql/schema.rs crates/noema-core/web/src/graphql/operations.ts crates/noema-core/web/src/generated/graphql.ts crates/noema-core/web/src/generated/schema.graphql
+git add crates/noema-core/src/graphql/usage_settings.rs crates/noema-core/src/graphql.rs crates/noema-core/src/graphql/schema.rs crates/noema-core/web/src/graphql/operations.ts crates/noema-core/web/src/generated/graphql.ts crates/noema-core/web/src/generated/schema.graphql
 git commit -m "feat: expose progress audit model settings"
 ```
 
-## Task 3: Render Progress Audit Settings
+## Task 3: Add Safety Usage Settings Page
 
 **Files:**
-- Modify: `crates/noema-core/web/src/components/settings/WebSettingsPane.tsx`
-- Modify: `crates/noema-core/web/src/components/settings/WebSettingsPaneContent.tsx`
+- Modify: `crates/noema-core/web/src/app/routes.ts`
+- Modify: `crates/noema-core/web/src/components/shell/shellNavigation.ts`
+- Modify: `crates/noema-core/web/src/pages/SettingsPage.tsx`
+- Create: `crates/noema-core/web/src/components/settings/UsageSettingsPane.tsx`
+- Create: `crates/noema-core/web/src/components/settings/UsageSettingsPaneContent.tsx`
 
 - [ ] **Step 1: Inspect current web typecheck before editing**
 
@@ -535,105 +536,178 @@ cd crates/noema-core/web && bun run typecheck
 
 Expected: pass before this task starts. If it fails, record the existing failure and continue only if it is unrelated to settings types.
 
-- [ ] **Step 2: Update `WebSettingsPane.tsx` data plumbing**
+- [ ] **Step 2: Add the route and shell navigation entry**
 
-Use the existing summarizer mutation pattern. Add an Apollo mutation for `SaveToolProgressAuditPreferenceDocument`, pass `webFetchResult.data?.webFetchSettings.progressAudit ?? null`, and pass a new `onSaveToolProgressAuditPreference` prop into `WebSettingsPaneContent`.
-
-The new handler should have this shape:
+In `crates/noema-core/web/src/app/routes.ts`, add the section id:
 
 ```ts
-const [saveToolProgressAuditPreference, toolProgressAuditSave] = useMutation(
-  SaveToolProgressAuditPreferenceDocument,
-  {
-    refetchQueries: [WebFetchSettingsDocument]
-  }
-);
-
-const handleSaveToolProgressAuditPreference = React.useCallback(
-  (input: ModelPreferenceSaveInput) =>
-    saveToolProgressAuditPreference({
-      variables: {
-        input: {
-          providerAccountId: input.providerAccountId,
-          modelProfile: input.modelProfile
-        }
-      }
-    }),
-  [saveToolProgressAuditPreference]
-);
+  | "safety-usage"
 ```
 
-- [ ] **Step 3: Update `WebSettingsPaneContent.tsx` types and render**
-
-Add a type alias:
+Add pathname parsing:
 
 ```ts
+  if (pathname === "/settings/safety/usage") {
+    return { kind: "settings", section: "safety-usage" };
+  }
+```
+
+Add route serialization:
+
+```ts
+      case "safety-usage":
+        return "/settings/safety/usage";
+```
+
+In `crates/noema-core/web/src/components/shell/shellNavigation.ts`, import `Gauge` from `lucide-react`, add item id `"settings.safety.usage"`, and add this item under the `Safety` group before Approvals:
+
+```ts
+  {
+    kind: "section",
+    item: {
+      section: "safety-usage",
+      itemId: "settings.safety.usage",
+      label: "Usage",
+      icon: Gauge
+    }
+  }
+```
+
+- [ ] **Step 3: Add Settings page routing**
+
+In `crates/noema-core/web/src/pages/SettingsPage.tsx`, import the pane:
+
+```ts
+import { UsageSettingsPane } from "@/components/settings/UsageSettingsPane";
+```
+
+Add copy:
+
+```ts
+  "safety-usage": {
+    title: "Usage",
+    description: "Review runtime usage limits and model-assisted progress checks."
+  },
+```
+
+Add the switch case:
+
+```tsx
+    case "safety-usage":
+      return <UsageSettingsPane />;
+```
+
+- [ ] **Step 4: Create the Safety Usage pane**
+
+Create `crates/noema-core/web/src/components/settings/UsageSettingsPane.tsx`:
+
+```ts
+import { useMutation, useQuery } from "@apollo/client";
+import React from "react";
+import {
+  SaveToolProgressAuditPreferenceDocument,
+  UsageSettingsDocument,
+  type UsageSettingsQuery
+} from "@/generated/graphql";
+import { UsageSettingsPaneContent } from "./UsageSettingsPaneContent";
+import type { ModelPreferenceSaveInput } from "./modelPreferenceTypes";
+
+export { UsageSettingsPaneContent } from "./UsageSettingsPaneContent";
+
+export function UsageSettingsPane() {
+  const usageResult = useQuery<UsageSettingsQuery>(UsageSettingsDocument, {
+    fetchPolicy: "cache-and-network"
+  });
+  const [saveToolProgressAuditPreference, saveResult] = useMutation(
+    SaveToolProgressAuditPreferenceDocument,
+    {
+      refetchQueries: [{ query: UsageSettingsDocument }]
+    }
+  );
+
+  const handleSaveToolProgressAuditPreference = React.useCallback(
+    (input: ModelPreferenceSaveInput) =>
+      saveToolProgressAuditPreference({
+        variables: {
+          input: {
+            providerAccountId: input.providerAccountId,
+            modelProfile: input.modelProfile
+          }
+        }
+      }),
+    [saveToolProgressAuditPreference]
+  );
+
+  return (
+    <UsageSettingsPaneContent
+      progressAudit={usageResult.data?.usageSettings.progressAudit ?? null}
+      loading={usageResult.loading}
+      error={usageResult.error?.message ?? null}
+      saving={saveResult.loading}
+      saveError={saveResult.error?.message ?? null}
+      onSaveToolProgressAuditPreference={handleSaveToolProgressAuditPreference}
+    />
+  );
+}
+```
+
+Create `crates/noema-core/web/src/components/settings/UsageSettingsPaneContent.tsx`:
+
+```tsx
+import { Badge } from "@astryxdesign/core/Badge";
+import * as stylex from "@stylexjs/stylex";
+import { ModelPreferenceSelect } from "./ModelPreferenceSelect";
+import { selectedPreferenceWarning } from "./modelPreferenceMetadata";
+import type {
+  ModelPreference,
+  ModelPreferenceSaveInput,
+  ModelProviderOption
+} from "./modelPreferenceTypes";
+
 export type ToolProgressAuditSettings = {
   defaultModelProfile: string;
   modelPreference?: ModelPreference | null;
   modelOptions: readonly ModelProviderOption[];
 };
-```
 
-Add props:
-
-```ts
-toolProgressAudit: ToolProgressAuditSettings | null;
-auditSaving: boolean;
-auditSaveError: string | null;
-onSaveToolProgressAuditPreference: (input: ModelPreferenceSaveInput) => Promise<unknown>;
-```
-
-Render this subcard below `FetchSummarizerCard`:
-
-```tsx
-<ToolProgressAuditCard
-  settings={toolProgressAudit}
-  loading={loading}
-  error={error}
-  saveError={auditSaveError}
-  saving={auditSaving}
-  onSave={onSaveToolProgressAuditPreference}
-/>
-```
-
-Add a component using the same structure as `FetchSummarizerCard`:
-
-```tsx
-function ToolProgressAuditCard({
-  settings,
+export function UsageSettingsPaneContent({
+  progressAudit,
   loading,
   error,
-  saveError,
   saving,
-  onSave
+  saveError,
+  onSaveToolProgressAuditPreference
 }: {
-  settings: ToolProgressAuditSettings | null;
+  progressAudit: ToolProgressAuditSettings | null;
   loading: boolean;
   error: string | null;
-  saveError: string | null;
   saving: boolean;
-  onSave: (input: ModelPreferenceSaveInput) => Promise<unknown>;
+  saveError: string | null;
+  onSaveToolProgressAuditPreference: (input: ModelPreferenceSaveInput) => Promise<unknown>;
 }) {
-  const preference = settings?.modelPreference ?? null;
-  const warning = settings ? selectedPreferenceWarning(preference, settings.modelOptions) : null;
-  const unavailable = Boolean(error) || !settings;
+  const preference = progressAudit?.modelPreference ?? null;
+  const warning = progressAudit
+    ? selectedPreferenceWarning(preference, progressAudit.modelOptions)
+    : null;
+  const unavailable = Boolean(error) || !progressAudit;
 
   return (
-    <div {...stylex.props(styles.subcard)}>
+    <section {...stylex.props(styles.card)} aria-labelledby="usage-progress-audit-title">
       <div {...stylex.props(styles.cardHeader)}>
         <div {...stylex.props(styles.titleRow)}>
-          <h3 {...stylex.props(styles.subcardTitle)}>Tool progress audit</h3>
-          {!preference && settings ? <Badge variant="neutral" label="Default" /> : null}
+          <h2 id="usage-progress-audit-title" {...stylex.props(styles.cardTitle)}>
+            Tool progress audit
+          </h2>
+          {!preference && progressAudit ? <Badge variant="neutral" label="Default" /> : null}
         </div>
         <ModelPreferenceSelect
-          options={settings?.modelOptions ?? []}
+          options={progressAudit?.modelOptions ?? []}
           preference={preference}
-          defaultModelProfile={settings?.defaultModelProfile}
+          defaultModelProfile={progressAudit?.defaultModelProfile}
           saving={saving}
           ariaLabel="Model settings for tool progress audit"
           isDisabled={unavailable}
-          onSave={onSave}
+          onSave={onSaveToolProgressAuditPreference}
         />
       </div>
       {loading ? (
@@ -650,12 +724,64 @@ function ToolProgressAuditCard({
           {warning ? <p {...stylex.props(styles.warningText)}>{warning}</p> : null}
         </>
       )}
-    </div>
+    </section>
   );
 }
+
+const styles = stylex.create({
+  card: {
+    display: "grid",
+    gap: 12,
+    borderWidth: 1,
+    borderStyle: "solid",
+    borderColor: "var(--border-subtle)",
+    borderRadius: 6,
+    backgroundColor: "white",
+    padding: 16
+  },
+  cardHeader: {
+    display: "flex",
+    flexWrap: "wrap",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12
+  },
+  titleRow: {
+    display: "flex",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: 12
+  },
+  cardTitle: {
+    margin: 0,
+    fontFamily: "var(--font-heading)",
+    fontSize: 20,
+    lineHeight: 1.25,
+    letterSpacing: 0,
+    color: "var(--foreground)"
+  },
+  mutedText: {
+    margin: 0,
+    fontSize: 13,
+    lineHeight: 1.5,
+    color: "var(--muted-foreground)"
+  },
+  saveError: {
+    margin: 0,
+    fontSize: 13,
+    lineHeight: 1.5,
+    color: "var(--destructive)"
+  },
+  warningText: {
+    margin: 0,
+    fontSize: 13,
+    lineHeight: 1.5,
+    color: "var(--warning-foreground)"
+  }
+});
 ```
 
-- [ ] **Step 4: Verify frontend typecheck**
+- [ ] **Step 5: Verify frontend typecheck**
 
 Run:
 
@@ -665,13 +791,13 @@ cd crates/noema-core/web && bun run typecheck
 
 Expected: pass.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 Run:
 
 ```bash
-git add crates/noema-core/web/src/components/settings/WebSettingsPane.tsx crates/noema-core/web/src/components/settings/WebSettingsPaneContent.tsx
-git commit -m "feat: show progress audit model settings"
+git add crates/noema-core/web/src/app/routes.ts crates/noema-core/web/src/components/shell/shellNavigation.ts crates/noema-core/web/src/pages/SettingsPage.tsx crates/noema-core/web/src/components/settings/UsageSettingsPane.tsx crates/noema-core/web/src/components/settings/UsageSettingsPaneContent.tsx
+git commit -m "feat: add usage settings page"
 ```
 
 ## Task 4: Add Progress Digest And Guardrails
@@ -1688,7 +1814,8 @@ Add this bullet near the provider tool continuation section in `docs/context/cur
   gives the agent one no-tools finalization attempt when the hard ceiling or
   audit execution fails. The auxiliary audit model preference is configurable;
   Codex/OpenAI default to `gpt-5.4-mini`, while Foundation Local must use a
-  provider-native profile.
+  provider-native profile. The model picker lives in Settings > Safety > Usage
+  at `/settings/safety/usage`.
 ```
 
 - [ ] **Step 2: Run formatting check**
