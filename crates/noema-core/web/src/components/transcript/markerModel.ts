@@ -190,7 +190,7 @@ export function formatToolDetail(fallback: string, metadata: unknown): string {
 }
 
 export function toolDetailRows(marker: ToolMarkerGroup): ToolDetailRowData[] {
-  if (isSuccessfulCompactWebMarker(marker)) {
+  if (isSuccessfulWebSearchMarker(marker) || isSuccessfulWebFetchMarker(marker)) {
     return [];
   }
 
@@ -262,14 +262,24 @@ function toolNameFromMetadata(metadata: unknown): string | null {
   return null;
 }
 
-function isSuccessfulCompactWebMarker(marker: ToolMarkerGroup): boolean {
-  const toolName = toolNameFromMetadata(marker.call?.item.metadata) ?? toolNameFromMetadata(marker.result?.item.metadata);
-  return (toolName === "Search web" || toolName === "Fetch web") && marker.result?.item.status === "COMPLETED";
+function isSuccessfulWebSearchMarker(marker: ToolMarkerGroup): boolean {
+  return isSuccessfulCanonicalToolResult(marker.result?.item.metadata, "web.search");
+}
+
+function isSuccessfulWebFetchMarker(marker: ToolMarkerGroup): boolean {
+  return isSuccessfulCanonicalToolResult(marker.result?.item.metadata, "web.fetch");
+}
+
+function isSuccessfulCanonicalToolResult(metadata: unknown, toolName: string): boolean {
+  if (!isRecord(metadata) || !isRecord(metadata.action)) {
+    return false;
+  }
+  return canonicalToolNameFromMetadata(metadata) === toolName && metadata.action.success === true;
 }
 
 export function toolMarkerTarget(marker: ToolMarkerGroup): string | undefined {
-  const toolName = toolNameFromMetadata(marker.call?.item.metadata) ?? toolNameFromMetadata(marker.result?.item.metadata);
-  if (toolName === "Search web" || toolName === "Fetch web") {
+  const toolName = canonicalToolNameFromMetadata(marker.call?.item.metadata) ?? canonicalToolNameFromMetadata(marker.result?.item.metadata);
+  if (toolName === "web.search" || toolName === "web.fetch") {
     return (
       usefulToolDisplayString(marker.call?.item.metadata, "target") ??
       usefulToolDisplayString(marker.result?.item.metadata, "result") ??
@@ -281,6 +291,24 @@ export function toolMarkerTarget(marker: ToolMarkerGroup): string | undefined {
     usefulToolDisplayString(marker.result?.item.metadata, "target") ??
     usefulToolDisplayString(marker.call?.item.metadata, "target")
   );
+}
+
+function canonicalToolNameFromMetadata(metadata: unknown): string | null {
+  if (!isRecord(metadata)) {
+    return null;
+  }
+
+  const action = metadata.action;
+  if (isRecord(action) && typeof action.name === "string" && action.name.trim()) {
+    return action.name.trim();
+  }
+  if (typeof metadata.name === "string" && metadata.name.trim()) {
+    return metadata.name.trim();
+  }
+  if (typeof metadata.tool_name === "string" && metadata.tool_name.trim()) {
+    return metadata.tool_name.trim();
+  }
+  return null;
 }
 
 function displayToolMetadataPreview(display: Record<string, unknown> | null): string[] {

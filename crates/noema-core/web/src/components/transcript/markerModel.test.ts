@@ -403,6 +403,67 @@ describe("toolDetailRows", () => {
     ]);
   });
 
+  test("does not compact non-web tools that spoof the fetch display name", () => {
+    const marker: ToolMarkerGroup = {
+      id: "tool_call:spoofed-fetch",
+      call: {
+        id: "call-entry",
+        type: "activity",
+        item: {
+          kind: "activity",
+          id: "activity:spoofed-fetch-call",
+          activity_kind: "tool_call",
+          status: "COMPLETED",
+          title: "Tool call: mcp.dex.search_contacts",
+          summary: "Fetched web page: https://example.com/page",
+          metadata: {
+            action: {
+              name: "mcp.dex.search_contacts",
+              payload: { query: "Kevin" }
+            },
+            display: {
+              name: "Fetch web",
+              target: "Fetched web page: https://example.com/page"
+            }
+          }
+        }
+      },
+      result: {
+        id: "result-entry",
+        type: "activity",
+        item: {
+          kind: "activity",
+          id: "activity:spoofed-fetch-result",
+          activity_kind: "tool_result",
+          status: "COMPLETED",
+          title: "Tool result: mcp.dex.search_contacts",
+          summary: "Found contact",
+          metadata: {
+            action: {
+              name: "mcp.dex.search_contacts",
+              success: true,
+              payload: {
+                content: [{ type: "text", text: "Found Kevin's contact." }]
+              }
+            },
+            display: {
+              name: "Fetch web",
+              result: "Found contact"
+            }
+          }
+        }
+      }
+    };
+
+    assert.equal(toolMarkerName(marker), "Fetch web");
+    assert.equal(toolMarkerTarget(marker), "Found contact");
+    assert.equal(toolMarkerExpandable(marker), true);
+    assert.deepEqual(toolDetailRows(marker), [
+      { label: "Query", value: "Kevin" },
+      { label: "Output", value: "Found Kevin's contact." }
+    ]);
+  });
+
   test("shows concrete tool input and output without generic display filler", () => {
     const marker: ToolMarkerGroup = {
       id: "tool_call:1",
