@@ -1,10 +1,5 @@
 import * as stylex from "@stylexjs/stylex";
-
-const previewMessages = [
-  { lane: "assistant", lines: [0.72, 0.48] },
-  { lane: "human", lines: [0.54] },
-  { lane: "assistant", lines: [0.84, 0.66, 0.36] }
-] as const;
+import { TranscriptLoadingSkeleton } from "@/components/transcript/TranscriptLoadingSkeleton";
 
 export function AppBootSkeleton() {
   return (
@@ -29,47 +24,13 @@ export function AppBootSkeleton() {
           <div data-slot="skeleton-glimmer" {...stylex.props(styles.headerTitle)} />
         </header>
         <div {...stylex.props(styles.chatSurface)}>
-          <div {...stylex.props(styles.transcriptPreview)}>
-            {previewMessages.map((message, index) =>
-              renderSkeletonMessage(message.lane, message.lines, index)
-            )}
-          </div>
+          <TranscriptLoadingSkeleton />
           <div {...stylex.props(styles.composerDock)}>
             <div data-slot="skeleton-glimmer" {...stylex.props(styles.composer)} />
           </div>
         </div>
       </section>
     </main>
-  );
-}
-
-function renderSkeletonMessage(
-  lane: "assistant" | "human",
-  lines: readonly number[],
-  rowIndex: number
-) {
-  return (
-    <div
-      key={`${lane}-${rowIndex}`}
-      {...stylex.props(styles.messageRow, lane === "human" && styles.messageRowHuman)}
-    >
-      <div data-slot="skeleton-glimmer" {...stylex.props(styles.avatar)} />
-      <div {...stylex.props(styles.messageStack, lane === "human" && styles.messageStackHuman)}>
-        <div
-          {...stylex.props(styles.messageBubble, lane === "human" && styles.messageBubbleHuman)}
-          data-slot="skeleton-glimmer"
-        >
-          {lines.map((lineWidth, index) => (
-            <div
-              key={`${lane}-${rowIndex}-${index}`}
-              data-slot="skeleton-glimmer"
-              {...stylex.props(styles.messageLine)}
-              style={{ width: `${Math.round(lineWidth * 100)}%` }}
-            />
-          ))}
-        </div>
-      </div>
-    </div>
   );
 }
 
@@ -180,64 +141,14 @@ const styles = stylex.create({
     backgroundColor: "var(--skeleton-glimmer-base)"
   },
   chatSurface: {
+    "--chat-column-width": {
+      default: "min(860px, calc(100% - 48px))",
+      "@media (max-width: 760px)": "calc(100% - 40px)"
+    },
     position: "relative",
     display: "grid",
     minHeight: 0,
     overflow: "hidden"
-  },
-  transcriptPreview: {
-    display: "grid",
-    alignContent: "end",
-    gap: 18,
-    minHeight: 0,
-    padding: "64px 24px 132px",
-    overflow: "hidden",
-    "@media (max-width: 760px)": {
-      paddingInline: 20
-    }
-  },
-  messageRow: {
-    display: "flex",
-    width: "min(760px, 100%)",
-    alignItems: "flex-end",
-    gap: 8,
-    marginInline: "auto"
-  },
-  messageRowHuman: {
-    flexDirection: "row-reverse"
-  },
-  avatar: {
-    width: 32,
-    height: 32,
-    flexShrink: 0,
-    borderRadius: "50%",
-    backgroundColor: "var(--skeleton-glimmer-base)"
-  },
-  messageStack: {
-    display: "flex",
-    flex: 1,
-    minWidth: 0,
-    flexDirection: "column"
-  },
-  messageStackHuman: {
-    alignItems: "flex-end"
-  },
-  messageBubble: {
-    display: "grid",
-    width: "min(420px, 82%)",
-    minHeight: 42,
-    gap: 8,
-    borderRadius: 14,
-    padding: "12px 14px",
-    backgroundColor: "var(--skeleton-glimmer-base)"
-  },
-  messageBubbleHuman: {
-    width: "min(330px, 72%)"
-  },
-  messageLine: {
-    height: 10,
-    borderRadius: 6,
-    backgroundColor: "var(--skeleton-glimmer-line)"
   },
   composerDock: {
     position: "absolute",

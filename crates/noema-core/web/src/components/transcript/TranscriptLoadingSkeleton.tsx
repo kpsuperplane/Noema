@@ -12,22 +12,26 @@ export function TranscriptLoadingSkeleton() {
     <div {...stylex.props(styles.root)} aria-label="Loading chat">
       <div {...stylex.props(styles.stack)}>
         {rows.map((row, rowIndex) => (
-          <TranscriptChatBubble
+          <div
             key={`${row.role}-${rowIndex}`}
-            role={row.role}
-            showAvatar={row.showAvatar}
+            {...stylex.props(styles.row, row.role === "user" && styles.rowEnd)}
           >
-            <div {...stylex.props(styles.lines)}>
-              {row.lines.map((lineWidth, lineIndex) => (
-                <span
-                  key={`${row.role}-${rowIndex}-${lineIndex}`}
-                  data-slot="skeleton-glimmer"
-                  {...stylex.props(styles.line)}
-                  style={{ width: `${Math.round(lineWidth * 100)}%` }}
-                />
-              ))}
-            </div>
-          </TranscriptChatBubble>
+            <TranscriptChatBubble
+              role={row.role}
+              showAvatar={row.showAvatar}
+            >
+              <div {...stylex.props(styles.lines)}>
+                {row.lines.map((lineWidth, lineIndex) => (
+                  <span
+                    key={`${row.role}-${rowIndex}-${lineIndex}`}
+                    data-slot="skeleton-glimmer"
+                    {...stylex.props(styles.line)}
+                    style={{ width: `${Math.round(lineWidth * 100)}%` }}
+                  />
+                ))}
+              </div>
+            </TranscriptChatBubble>
+          </div>
         ))}
       </div>
     </div>
@@ -40,7 +44,7 @@ const styles = stylex.create({
     height: "100%",
     minHeight: 0,
     alignContent: "end",
-    padding: "64px 24px calc(var(--chat-composer-dock-height) + 42px)",
+    padding: "64px 24px calc(var(--chat-composer-dock-height, 90px) + 42px)",
     overflow: "hidden",
     "@media (max-width: 760px)": {
       paddingInline: 20
@@ -48,9 +52,20 @@ const styles = stylex.create({
   },
   stack: {
     display: "grid",
+    width: "var(--chat-column-width)",
+    maxWidth: "100%",
+    minWidth: 0,
+    gap: 18,
+    marginInline: "auto",
+    paddingInline: 2
+  },
+  row: {
+    display: "flex",
     width: "100%",
-    justifyItems: "stretch",
-    gap: 18
+    minWidth: 0
+  },
+  rowEnd: {
+    justifyContent: "flex-end"
   },
   lines: {
     display: "grid",
