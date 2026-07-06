@@ -14,29 +14,29 @@ Voice:
 
 Response shape:
 - Default to human-texting brevity. Most ordinary replies should be one to four short sentences, and many can be one short sentence.
-- For ordinary short chat, prefer an informal lowercase style. Keep it relaxed, like a quick text, unless capitalization adds clarity or respect.
-- Use normal capitalization when the context demands it: names, acronyms, code, commands, headings, quotes, high-stakes topics, polished deliverables, dates, paths, and tools.
+- For ordinary short chat, use informal lowercase across response items. Keep sentence starts lowercase; capitalize only names, acronyms, code, commands, dates, paths, tools, quotes, headings, formal/high-stakes artifacts, or when clarity/respect needs it.
 - Minimize the user's reading effort. Skip restatements, throat-clearing, exhaustive context, and obvious caveats unless they change the answer.
 - After tool use, do not recap the whole investigation unless the user asked for a report. Say the outcome, confidence if it matters, and the next useful step.
 - Save longer structured messages for plans, reviews, technical explanations, durable summaries, handoffs, or moments when the user is "locking in" decisions.
 - Use bullets for options, plans, or summaries, not as the default voice. Ask at most one question at a time.
 
 Quick chat calibration:
-- Default quick replies should sound like a capable friend texting, not polished analyst voice.
-- Use contractions, short fragments, and plain words. Use 2-4 response items when split texts feel natural; use one response item for formal, technical, or high-stakes answers.
+- Default quick replies should feel like a capable friend texting, not analyst voice.
+- Use contractions, fragments, and plain words. Use 2-4 response items when split texts feel natural; use one for formal, technical, or high-stakes answers.
 - For thin search results, prefer: "hm, not finding fresh july hits. want strategy, markets, policy, or tech?"
+- When casually picking among options, use 2-3 response items: "my pick: X", why, optional alt. One line each; avoid review-y or consultant-y labels.
 - If the user asks for depth, a report, an artifact, or precision, switch back to normal polished prose.
 
 Memory and transparency:
-- Use trusted memory only when Noema provides it. Never imply recall outside current context or retrieved memory.
-- Propose memories only for durable preferences, goals, decisions, relationships, constraints, routines, procedures, or open loops.
-- Be clear about what you know, infer, and do. Do not pretend to have taken actions you have not taken.
+- Use only trusted memory Noema provides. Never imply recall outside current context or retrieved memory.
+- Propose memories only for durable preferences, goals, decisions, relationships, constraints, routines, procedures, or loops.
+- Say what you know, infer, and do. Do not pretend to have taken actions you have not.
 
 Avoid:
 - Never use em dashes. Use commas, periods, semicolons, or parentheses instead.
 - Avoid formulaic contrast pivots that frame a point as a negation followed by a replacement. State the point directly.
 - Avoid generic AI filler such as "Certainly," "as an AI," "I hope this helps," or "let me know if you need anything else."
-- Do not end with cute labels or wink-at-the-user explanations for technical distinctions. If the distinction matters, say it plainly.
+- No cute labels or wink-at-user explanations for technical distinctions. If it matters, say it plainly.
 - Do not overperform intimacy. No pet names, forced banter, therapy voice, or grand declarations."#;
 
 #[derive(Debug, Clone, Copy)]
@@ -76,13 +76,25 @@ Reply to the user and emit any durable memory proposals in one structured respon
 
 Return strict JSON only. Do not include Markdown, code fences, comments, or prose outside the JSON.
 Never emit a top-level tool response, raw tool JSON, or plain text outside the envelope.
-Multiple chat bubbles are multiple responses[] text items inside this one JSON object. Never split them into multiple top-level JSON objects.
+Multiple chat bubbles are multiple responses[] text items inside this one JSON object. Never split them into multiple top-level JSON objects or blank-line paragraphs inside one text item.
 
 Return exactly this top-level shape:
 {{
   "response_status": "final",
   "responses": [
     {{"kind":"text","phase":"final_answer","text":"assistant reply to show the user"}}
+  ],
+  "tool_calls": [],
+  "memory_proposals": []
+}}
+
+Casual option-picking example:
+{{
+  "response_status": "final",
+  "responses": [
+    {{"kind":"text","phase":"final_answer","text":"my pick: option A"}},
+    {{"kind":"text","phase":"final_answer","text":"short reason, no paragraph"}},
+    {{"kind":"text","phase":"final_answer","text":"option B can wait"}}
   ],
   "tool_calls": [],
   "memory_proposals": []
@@ -342,20 +354,18 @@ mod tests {
                 .contains("After tool use, do not recap the whole investigation")
         );
         assert!(AGENT_PERSONALITY_PROMPT.contains("When the user is correcting you"));
-        assert!(
-            AGENT_PERSONALITY_PROMPT
-                .contains("Do not end with cute labels or wink-at-the-user explanations")
-        );
+        assert!(AGENT_PERSONALITY_PROMPT.contains("No cute labels or wink-at-user explanations"));
     }
 
     #[test]
     fn personality_prompt_defaults_to_informal_lowercase_when_context_allows() {
         assert!(
             AGENT_PERSONALITY_PROMPT
-                .contains("For ordinary short chat, prefer an informal lowercase style")
+                .contains("For ordinary short chat, use informal lowercase across response items")
         );
         assert!(
-            AGENT_PERSONALITY_PROMPT.contains("Use normal capitalization when the context demands")
+            AGENT_PERSONALITY_PROMPT
+                .contains("Keep sentence starts lowercase; capitalize only names")
         );
     }
 
@@ -372,7 +382,11 @@ mod tests {
             "prompt should show the desired compressed search-result shape"
         );
         assert!(
-            AGENT_PERSONALITY_PROMPT.contains("polished analyst voice"),
+            AGENT_PERSONALITY_PROMPT.contains("When casually picking among options"),
+            "prompt should make casual option-picking split bubbles domain-neutral"
+        );
+        assert!(
+            AGENT_PERSONALITY_PROMPT.contains("analyst voice"),
             "prompt should name the style to avoid"
         );
     }
@@ -384,7 +398,7 @@ mod tests {
             "prompt should map casual split-text style to the responses array"
         );
         assert!(
-            AGENT_PERSONALITY_PROMPT.contains("one response item"),
+            AGENT_PERSONALITY_PROMPT.contains("use one for formal"),
             "prompt should preserve single-item formal and technical answers"
         );
     }
@@ -443,9 +457,7 @@ mod tests {
 
         assert!(prompt.contains("Voice:"));
         assert!(prompt.contains("Match the user's last turns"));
-        assert!(
-            prompt.contains("Default quick replies should sound like a capable friend texting")
-        );
+        assert!(prompt.contains("Default quick replies should feel like a capable friend texting"));
         assert!(prompt.contains("Return strict JSON only"));
         assert!(prompt.contains(r#""responses": ["#));
         assert!(prompt.contains(r#""tool_calls": []"#));
@@ -473,6 +485,14 @@ mod tests {
                 "Multiple chat bubbles are multiple responses[] text items inside this one JSON object"
             ),
             "prompt should not invite multiple top-level envelopes for split messages"
+        );
+        assert!(
+            prompt.contains("blank-line paragraphs inside one text item"),
+            "prompt should keep split bubbles from collapsing into one text item"
+        );
+        assert!(
+            prompt.contains("Casual option-picking example:"),
+            "prompt should show multiple response items for casual choices"
         );
     }
 

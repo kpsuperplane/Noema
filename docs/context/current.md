@@ -71,9 +71,12 @@ The next storage slice should stay small and concrete:
   run routine single or multiple tools without filler commentary.
 - The primary agent's ordinary chat voice should default to informal
   human-texting brevity, including lowercase short replies when context allows.
-  Normal capitalization still applies for proper names, acronyms, code,
-  commands, headings, quoted text, formal artifacts, high-stakes topics, and
-  polished deliverables.
+  In casual mode, lowercase sentence starts should stay consistent across
+  split response items; capitalization is reserved for names, acronyms, code,
+  commands, headings, quoted text, dates, paths, tool names, high-stakes topics,
+  polished deliverables, and clarity/respect. Casual option-picking and
+  recommendations should lead with the pick in short bubbles rather than
+  drifting into review-column or consultant prose.
 - Casual assistant replies may use multiple `responses[]` text items as
   separate chat bubbles. Provider streaming, GraphQL, and the web transcript use
   per-response-item stream ids so split replies stream and finalize without
