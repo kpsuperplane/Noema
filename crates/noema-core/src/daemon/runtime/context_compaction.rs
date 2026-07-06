@@ -568,7 +568,7 @@ mod tests {
             context: crate::daemon::runtime::prompt_context::PromptContext {
                 active_summary: None,
                 transcript_items: Vec::new(),
-                rendered_context: String::new(),
+                rendered_context: None,
             },
             instructions: String::new(),
             input: crate::GenerateInput::Text(String::new()),

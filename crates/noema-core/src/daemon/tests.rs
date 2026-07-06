@@ -11,9 +11,9 @@ use crate::{
     ActorRef,
     memory::{ClaimRetrievalRequest, MemoryStatus, Sensitivity, UseMode},
     provider::{
-        AssistantTextPhase, GenerateActionItem, GenerateInput, GenerateRequest, GenerateResponse,
-        GenerateResponseItem, GenerateResponseStatus, GenerateStreamEvent, GenerateToolCall,
-        ProviderError, ProviderToolCapabilities, ProviderToolFallbackMode,
+        AssistantTextPhase, GenerateActionItem, GenerateInput, GenerateInputItem, GenerateRequest,
+        GenerateResponse, GenerateResponseItem, GenerateResponseStatus, GenerateStreamEvent,
+        GenerateToolCall, ProviderError, ProviderToolCapabilities, ProviderToolFallbackMode,
         ProviderToolSchemaDialect,
     },
     {ConversationItemKind, ConversationItemStatus, ReplayMode},
@@ -311,6 +311,134 @@ async fn native_provider_turn_request_includes_builtin_tools() {
 }
 
 #[tokio::test]
+async fn normal_turn_instructions_are_stable_across_turns() {
+    let store = crate::store::tests::test_store().await;
+    store.ensure_default_actors().await.expect("actors");
+    let provider = Arc::new(MetadataCapturingProvider {
+        context_window_tokens: 20_000,
+        fail_compaction: false,
+        fail_token_count: false,
+        enforce_context_window: false,
+        requests: Mutex::new(Vec::new()),
+    });
+    let runtime = CodexRuntimeHandle::spawn_with_provider(provider.clone(), store)
+        .await
+        .expect("runtime");
+    let started = runtime
+        .start_conversation(None)
+        .await
+        .expect("conversation");
+
+    let (first_tx, mut first_rx) = tokio::sync::mpsc::unbounded_channel();
+    runtime
+        .turn(
+            started.conversation_id.clone(),
+            "first durable question".to_string(),
+            first_tx,
+        )
+        .await
+        .expect("first turn");
+    while first_rx.recv().await.is_some() {}
+
+    let (second_tx, mut second_rx) = tokio::sync::mpsc::unbounded_channel();
+    runtime
+        .turn(
+            started.conversation_id,
+            "second durable question".to_string(),
+            second_tx,
+        )
+        .await
+        .expect("second turn");
+    while second_rx.recv().await.is_some() {}
+    runtime.shutdown().await;
+
+    let requests = provider.requests.lock().expect("requests");
+    let agent_requests = requests
+        .iter()
+        .filter(|request| request.options.require_noema_response)
+        .collect::<Vec<_>>();
+    assert_eq!(agent_requests.len(), 2);
+
+    let first_instructions = agent_requests[0]
+        .instructions
+        .as_deref()
+        .expect("first instructions");
+    let second_instructions = agent_requests[1]
+        .instructions
+        .as_deref()
+        .expect("second instructions");
+    assert_eq!(first_instructions, second_instructions);
+    assert!(!first_instructions.contains("conversation_id:"));
+    assert!(!first_instructions.contains("turn_index:"));
+    assert!(!first_instructions.contains("cwd_project_hint:"));
+    assert!(!first_instructions.contains("Recent durable transcript"));
+    assert!(!first_instructions.contains("first durable question"));
+    assert!(!second_instructions.contains("second durable question"));
+}
+
+#[tokio::test]
+async fn normal_turn_input_replays_previous_turn_as_prefix() {
+    let store = crate::store::tests::test_store().await;
+    store.ensure_default_actors().await.expect("actors");
+    let provider = Arc::new(MetadataCapturingProvider {
+        context_window_tokens: 20_000,
+        fail_compaction: false,
+        fail_token_count: false,
+        enforce_context_window: false,
+        requests: Mutex::new(Vec::new()),
+    });
+    let runtime = CodexRuntimeHandle::spawn_with_provider(provider.clone(), store)
+        .await
+        .expect("runtime");
+    let started = runtime
+        .start_conversation(None)
+        .await
+        .expect("conversation");
+
+    let (first_tx, mut first_rx) = tokio::sync::mpsc::unbounded_channel();
+    runtime
+        .turn(
+            started.conversation_id.clone(),
+            "first durable question".to_string(),
+            first_tx,
+        )
+        .await
+        .expect("first turn");
+    while first_rx.recv().await.is_some() {}
+
+    let (second_tx, mut second_rx) = tokio::sync::mpsc::unbounded_channel();
+    runtime
+        .turn(
+            started.conversation_id,
+            "second durable question".to_string(),
+            second_tx,
+        )
+        .await
+        .expect("second turn");
+    while second_rx.recv().await.is_some() {}
+    runtime.shutdown().await;
+
+    let requests = provider.requests.lock().expect("requests");
+    let agent_requests = requests
+        .iter()
+        .filter(|request| request.options.require_noema_response)
+        .collect::<Vec<_>>();
+    assert_eq!(agent_requests.len(), 2);
+
+    let first_items = input_message_texts(&agent_requests[0].input);
+    let second_items = input_message_texts(&agent_requests[1].input);
+    assert_eq!(first_items, vec!["first durable question".to_string()]);
+    assert!(second_items.starts_with(&[
+        "first durable question".to_string(),
+        "fake answer".to_string(),
+    ]));
+    assert_eq!(
+        second_items.last().map(String::as_str),
+        Some("second durable question")
+    );
+}
+
+#[tokio::test]
 async fn prompt_context_uses_active_summary_and_post_checkpoint_items() {
     let store = crate::store::tests::test_store().await;
     store.ensure_default_actors().await.expect("actors");
@@ -364,12 +492,14 @@ async fn prompt_context_uses_active_summary_and_post_checkpoint_items() {
         .find(|request| request.options.require_noema_response)
         .expect("agent request");
     let instructions = request.instructions.as_deref().expect("instructions");
-    assert!(instructions.contains("Compacted conversation context:"));
-    assert!(instructions.contains("rolling durable compaction"));
+    assert!(!instructions.contains("Compacted conversation context:"));
+    assert!(!instructions.contains("rolling durable compaction"));
     assert!(!instructions.contains("current turn"));
     assert!(!instructions.contains("covered user"));
     assert!(!instructions.contains("post checkpoint user"));
     let input = request.input.render_for_token_count();
+    assert!(input.contains("Compacted conversation context:"));
+    assert!(input.contains("rolling durable compaction"));
     assert!(input.contains("post checkpoint user"));
     assert!(input.contains("current turn"));
     assert!(!input.contains("covered user"));
@@ -4970,8 +5100,7 @@ impl FakeCodexProvider {
                 let saw_context = rendered_input.contains("first durable question")
                     && rendered_input.contains("fake answer")
                     && input.contains("second durable question")
-                    && instructions
-                        .contains("Recent durable transcript from embedded Noema store:")
+                    && !instructions.contains("Recent durable transcript")
                     && !instructions.contains("first durable question");
                 assistant_with_no_memories(if saw_context {
                     "saw durable context"
@@ -5800,6 +5929,24 @@ fn current_user_input(input: &GenerateInput) -> String {
             })
             .unwrap_or_else(|| input.render_for_token_count()),
         GenerateInput::NativeToolResults(_) => input.render_for_token_count(),
+    }
+}
+
+fn input_message_texts(input: &GenerateInput) -> Vec<String> {
+    match input {
+        GenerateInput::Text(text) => vec![text.clone()],
+        GenerateInput::Messages(messages) => messages
+            .iter()
+            .map(|message| message.content.clone())
+            .collect(),
+        GenerateInput::Items(items) => items
+            .iter()
+            .filter_map(|item| match item {
+                GenerateInputItem::Message(message) => Some(message.content.clone()),
+                GenerateInputItem::ToolCall(_) | GenerateInputItem::ToolResult(_) => None,
+            })
+            .collect(),
+        GenerateInput::NativeToolResults(_) => Vec::new(),
     }
 }
 

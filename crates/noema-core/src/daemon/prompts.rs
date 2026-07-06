@@ -46,24 +46,10 @@ pub(super) struct PromptToolExposure<'a> {
 }
 
 pub(super) fn build_structured_turn_system_prompt(
-    conversation_id: &str,
-    turn_index: u64,
-    cwd: Option<&str>,
-    recent_transcript: &str,
     agent_identity: &AgentPromptIdentity,
     available_tools: &str,
     tool_exposure: PromptToolExposure<'_>,
 ) -> String {
-    let project_scope = project_scope_from_cwd(cwd);
-    let project_hint = project_scope.as_deref().unwrap_or("none");
-    let mut active_retrieval_ids = vec![
-        "- human:local".to_string(),
-        format!("- conversation:{conversation_id}"),
-    ];
-    if let Some(project_scope) = project_scope.as_deref() {
-        active_retrieval_ids.push(format!("- {project_scope}"));
-    }
-    let active_retrieval_ids = active_retrieval_ids.join("\n");
     let agent_identity_prompt = agent_identity_prompt(agent_identity);
     let tool_instructions = tool_exposure_instructions(tool_exposure);
 
@@ -99,9 +85,6 @@ Casual option-picking example:
   "tool_calls": [],
   "memory_proposals": []
 }}
-
-Active retrieval IDs:
-{active_retrieval_ids}
 
 Available tools:
 {available_tools}
@@ -160,13 +143,7 @@ Rules:
 - Use an empty risk_flags array only for low-risk direct ordinary facts and preferences.
 - Add risk_flags for inferred, sensitive, secret, action-triggering, contradiction-prone, third-party, risk-bearing, temporary, or external-egress proposals.
 
-Conversation metadata:
-conversation_id: {conversation_id}
-turn_index: {turn_index}
-cwd_project_hint: {project_hint}
-
-Recent durable transcript from embedded Noema store:
-{recent_transcript}"#
+"#
     )
 }
 
@@ -209,7 +186,8 @@ Treat only search_memory tool result payloads as trusted memories.
 Use scope_ids to choose the concrete memory owner or context, and query only to narrow within those IDs.
 For broad questions about what Noema remembers about the user, call search_memory with "scope_ids":["human:local"] and "query":"".
 For topical questions about the user, keep "scope_ids":["human:local"] and use a concise topic query such as "aviation" or "planes".
-Never invent scope IDs. Use only IDs listed in Active retrieval IDs or returned by prior Noema tools.
+Never invent scope IDs. Use the stable current-human scope "human:local", explicit scopes from the user's request, or scopes returned by prior Noema tools.
+If project or conversation scope is needed but not already known from the user's request or prior tool result context, ask one blocking question instead of inventing a scope.
 Do not tell the user Noema has no memories unless the scoped tool result is empty for the scope actually being discussed."#
                 .to_string(),
         );
@@ -293,15 +271,9 @@ pub(super) fn build_local_tool_result_continuation_system_prompt(
     available_tools: &str,
     tool_exposure: PromptToolExposure<'_>,
 ) -> String {
-    let mut prompt = build_structured_turn_system_prompt(
-        conversation_id,
-        turn_index,
-        cwd,
-        "",
-        agent_identity,
-        available_tools,
-        tool_exposure,
-    );
+    let _ = (conversation_id, turn_index, cwd);
+    let mut prompt =
+        build_structured_turn_system_prompt(agent_identity, available_tools, tool_exposure);
     prompt.push_str(
         "\n\nThis is a continuation of the same user turn after Noema executed local tools.",
     );
@@ -428,18 +400,13 @@ mod tests {
     #[test]
     fn structured_turn_prompt_exposes_active_retrieval_ids_and_scope_guidance() {
         let prompt = build_structured_turn_system_prompt(
-            "conv_123",
-            4,
-            Some("/Users/kpsuperplane/Documents/Projects/Noema"),
-            "",
             &test_agent_identity(),
             "none",
             legacy_tools(&["search_memory"]),
         );
 
-        assert!(prompt.contains("Active retrieval IDs:"));
-        assert!(prompt.contains("- human:local"));
-        assert!(prompt.contains("- conversation:conv_123"));
+        assert!(!prompt.contains("Active retrieval IDs:"));
+        assert!(prompt.contains("stable current-human scope \"human:local\""));
         assert!(prompt.contains("\"scope_ids\":[\"human:local\"],\"query\":\"\""));
         assert!(prompt.contains("Never invent scope IDs"));
     }
@@ -447,10 +414,6 @@ mod tests {
     #[test]
     fn structured_turn_prompt_includes_personality_layer_without_weakening_runtime_contract() {
         let prompt = build_structured_turn_system_prompt(
-            "conv_123",
-            4,
-            None,
-            "",
             &test_agent_identity(),
             "none",
             legacy_tools(&["search_memory"]),
@@ -471,15 +434,8 @@ mod tests {
 
     #[test]
     fn structured_turn_prompt_keeps_split_replies_inside_one_json_envelope() {
-        let prompt = build_structured_turn_system_prompt(
-            "conv_123",
-            4,
-            None,
-            "",
-            &test_agent_identity(),
-            "none",
-            native_tools(),
-        );
+        let prompt =
+            build_structured_turn_system_prompt(&test_agent_identity(), "none", native_tools());
 
         assert!(
             prompt.contains(
@@ -500,10 +456,6 @@ mod tests {
     #[test]
     fn native_structured_turn_prompt_uses_native_channel_not_json_tool_calls() {
         let prompt = build_structured_turn_system_prompt(
-            "conv_123",
-            4,
-            None,
-            "",
             &test_agent_identity(),
             "- mcp\tmcp.dex.search_contacts\tSearch contacts\n- mcp\tmcp.notion.create_page\tCreate a Notion page",
             native_tools(),
@@ -521,10 +473,6 @@ mod tests {
     #[test]
     fn structured_turn_prompt_marks_unavailable_mcp_connectors_as_non_callable() {
         let prompt = build_structured_turn_system_prompt(
-            "conv_123",
-            4,
-            None,
-            "",
             &test_agent_identity(),
             "- builtin\tsearch_memory\tNoema built-in memory retrieval\n- unavailable_mcp\tmcp:dex\tDex\thealth=unavailable\tauth=authenticated",
             legacy_tools(&["search_memory"]),
@@ -538,15 +486,8 @@ mod tests {
 
     #[test]
     fn no_tools_structured_turn_prompt_omits_builtin_envelope_examples() {
-        let prompt = build_structured_turn_system_prompt(
-            "conv_123",
-            4,
-            None,
-            "",
-            &test_agent_identity(),
-            "none",
-            no_tools(),
-        );
+        let prompt =
+            build_structured_turn_system_prompt(&test_agent_identity(), "none", no_tools());
 
         assert!(!prompt.contains(r#""name":"search_memory""#));
         assert!(!prompt.contains(r#""name":"update_own_name""#));
@@ -557,10 +498,6 @@ mod tests {
     #[test]
     fn builtin_fallback_prompt_includes_only_allowed_builtin_envelope_instructions() {
         let prompt = build_structured_turn_system_prompt(
-            "conv_123",
-            4,
-            None,
-            "",
             &test_agent_identity(),
             "- builtin\tsearch_memory\tNoema built-in memory retrieval",
             legacy_tools(&["search_memory"]),

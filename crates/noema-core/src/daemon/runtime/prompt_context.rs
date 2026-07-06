@@ -20,7 +20,7 @@ use super::{
 pub(super) struct PromptContext {
     pub(super) active_summary: Option<ConversationContextSummaryRecord>,
     pub(super) transcript_items: Vec<ConversationItemRecord>,
-    pub(super) rendered_context: String,
+    pub(super) rendered_context: Option<String>,
 }
 
 /// Prompt context plus context-window fit decision.
@@ -40,8 +40,6 @@ pub(super) struct PromptPlanRequest<'a> {
     pub(super) conversation_id: &'a str,
     pub(super) provider_kind: &'a str,
     pub(super) model_profile: Option<&'a str>,
-    pub(super) turn_index: u64,
-    pub(super) cwd: Option<&'a str>,
     pub(super) agent_identity: &'a AgentPromptIdentity,
     pub(super) rendered_tools: &'a str,
     pub(super) native_tools_available: bool,
@@ -51,10 +49,7 @@ pub(super) struct PromptPlanRequest<'a> {
 
 struct LoadedPromptPlanRequest<'a> {
     provider: &'a dyn RuntimeModelProvider,
-    conversation_id: &'a str,
     model_profile: Option<&'a str>,
-    turn_index: u64,
-    cwd: Option<&'a str>,
     agent_identity: &'a AgentPromptIdentity,
     rendered_tools: &'a str,
     native_tools_available: bool,
@@ -98,10 +93,7 @@ pub(super) async fn plan_prompt_context(
     .await?;
     plan_loaded_prompt_context(LoadedPromptPlanRequest {
         provider: request.provider,
-        conversation_id: request.conversation_id,
         model_profile: request.model_profile,
-        turn_index: request.turn_index,
-        cwd: request.cwd,
         agent_identity: request.agent_identity,
         rendered_tools: request.rendered_tools,
         native_tools_available: request.native_tools_available,
@@ -116,10 +108,6 @@ async fn plan_loaded_prompt_context(
     request: LoadedPromptPlanRequest<'_>,
 ) -> Result<PlannedPromptContext, DaemonError> {
     let instructions = build_structured_turn_system_prompt(
-        request.conversation_id,
-        request.turn_index,
-        request.cwd,
-        &request.context.rendered_context,
         request.agent_identity,
         request.rendered_tools,
         PromptToolExposure {
@@ -127,7 +115,11 @@ async fn plan_loaded_prompt_context(
             legacy_builtin_envelope_tools: request.legacy_builtin_envelope_tools,
         },
     );
-    let input = build_turn_input(&request.context.transcript_items, request.current_input);
+    let input = build_turn_input(
+        request.context.rendered_context.as_deref(),
+        &request.context.transcript_items,
+        request.current_input,
+    );
     let metadata = request.provider.context_metadata(request.model_profile);
     let budget = ContextBudget::from_metadata(metadata);
     let estimated_input_tokens = count_tokens_or_estimate(
@@ -167,14 +159,25 @@ async fn count_tokens_or_estimate(
 }
 
 fn build_turn_input(
+    rendered_context: Option<&str>,
     transcript_items: &[ConversationItemRecord],
     current_input: &str,
 ) -> GenerateInput {
     let mut has_structured_items = false;
-    let mut items = transcript_items
-        .iter()
-        .filter_map(input_item_from_transcript_item)
+    let mut items = rendered_context
+        .map(|content| {
+            GenerateInputItem::Message(GenerateMessage {
+                role: GenerateMessageRole::Assistant,
+                content: content.to_string(),
+            })
+        })
+        .into_iter()
         .collect::<Vec<_>>();
+    items.extend(
+        transcript_items
+            .iter()
+            .filter_map(input_item_from_transcript_item),
+    );
     if !current_input.trim().is_empty() {
         items.push(GenerateInputItem::Message(GenerateMessage {
             role: GenerateMessageRole::User,
@@ -280,14 +283,13 @@ fn provider_function_call_item_id(action: &Value) -> Option<String> {
     action_string(action, "id").filter(|id| id.starts_with("fc"))
 }
 
-fn render_prompt_context(summary: Option<&ConversationContextSummaryRecord>) -> String {
-    match summary {
-        Some(summary) => format!(
+fn render_prompt_context(summary: Option<&ConversationContextSummaryRecord>) -> Option<String> {
+    summary.map(|summary| {
+        format!(
             "Compacted conversation context:\n{}\n\nRecent transcript after compacted checkpoint: sent as role-tagged provider input messages",
             summary.summary_text
-        ),
-        None => "none".to_string(),
-    }
+        )
+    })
 }
 
 #[cfg(test)]
