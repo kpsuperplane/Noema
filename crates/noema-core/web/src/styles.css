@@ -161,16 +161,6 @@ html[data-tauri-runtime="true"] #root {
   -webkit-text-fill-color: transparent;
 }
 
-@keyframes message-word-fade-in {
-  from {
-    opacity: 0;
-  }
-
-  to {
-    opacity: 1;
-  }
-}
-
 @keyframes shell-sidebar-menu-enter-forward {
   from {
     opacity: 0.4;
