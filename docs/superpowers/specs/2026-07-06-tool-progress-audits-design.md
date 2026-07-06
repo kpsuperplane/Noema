@@ -78,28 +78,47 @@ Initial defaults:
 The runtime still enforces the absolute ceiling. The ceiling is a final
 invariant for safety, not the normal user experience for long work.
 
-## Progress Snapshot
+## Progress Digest
 
 At each audit boundary, the runtime builds a compact
-`ContinuationProgressSnapshot` from structured evidence:
+`ContinuationProgressDigest` from structured evidence. The digest should be
+small enough to keep the audit model fast and predictable; the audit prompt
+must not include full tool payloads, full result bodies, raw transcript text, or
+the complete list of tool calls from the last 20 steps.
 
-- original user request
-- conversation id and turn index
-- continuation step number
-- tool calls and tool results since the last audit
-- whole-turn tool counts by name
-- repeated argument fingerprints
+Recommended digest shape:
+
+```rust
+struct ContinuationProgressDigest {
+    user_goal: String,                  // short truncated original request
+    current_goal: Option<String>,       // latest rolling goal summary
+    step: usize,
+    window: ProgressWindowDigest,
+    whole_turn: ProgressTurnDigest,
+    recent_events: Vec<ProgressEvent>,  // capped at 3 to 5 brief summaries
+}
+```
+
+The window and whole-turn digests should prefer counters over text:
+
+- tool counts by name
 - success and failure counts
-- failure streaks
-- successful side-effect summaries, where available
-- result novelty signals such as new URLs, new MCP resources, or new object ids
-- elapsed time
-- provider usage counters when available
-- the latest assistant-visible goal or summary, if available
+- current failure streak
+- repeated argument fingerprint count
+- novel result count, such as new URLs, resource ids, or object ids
+- successful side-effect count
+- elapsed time bucket, not necessarily exact timing
+- provider token usage bucket when available
 
-The snapshot must avoid raw transcript sprawl. It should include enough evidence
-for the audit model to judge progress, while keeping sensitive provider ids,
-raw tool diagnostics, and large payloads out of the prompt.
+`recent_events` should be short model-facing summaries produced by the runtime
+from normalized tool metadata. Each event should be capped to a small character
+budget, for example 160 to 240 characters. The whole digest should have a
+target budget around 1,000 to 1,500 tokens, with deterministic truncation that
+keeps counters, the current goal, and the newest high-signal events first.
+
+When tool results are large, the audit receives only their existing normalized
+summary, result kind, success flag, and novelty or side-effect signals. Sensitive
+provider ids, raw tool diagnostics, and large payloads stay out of the prompt.
 
 ## Auxiliary Audit Model
 
@@ -134,7 +153,7 @@ auxiliary compression/classification work is separately configurable.
 ## Audit Prompt And Contract
 
 The audit prompt should treat tool outputs as untrusted data. It should ask the
-model to classify progress from the runtime snapshot, not to execute tools or
+model to classify progress from the runtime digest, not to execute tools or
 answer the user directly.
 
 The model must return strict JSON:
@@ -265,6 +284,8 @@ Unit and focused integration tests should cover:
 - Foundation Local does not default to `gpt-5.4-mini`
 - saved auxiliary audit model preference is used when available
 - unavailable audit model falls back to deterministic guardrails
+- progress digest stays within the configured size budget and excludes raw tool
+  payloads
 - invalid audit JSON is handled as audit unavailable
 - `continue`, `finalize`, `ask_human`, and `checkpoint` map to the expected
   runtime behavior
