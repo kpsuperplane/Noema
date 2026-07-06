@@ -15,10 +15,16 @@ use tokio::sync::mpsc;
 use super::{
     actor::CodexRuntimeActor,
     local_tools::{
-        agent_identity_after_local_tools, local_tool_result_action_item,
+        LocalToolResult, agent_identity_after_local_tools, local_tool_result_action_item,
         local_tool_result_continuation_input,
     },
     model_tools::{ModelTools, build_model_tools},
+    progress::{
+        ContinuationProgressTracker, DeterministicProgressStop, MAX_PROVIDER_TOOL_CONTINUATIONS,
+    },
+    progress_audit::{
+        ProgressAuditDecision, ProgressAuditError, build_no_tools_finalization_prompt,
+    },
     tool_lifecycle::local_tool_calls,
     transcript_persistence::{
         assistant_stream_id, handle_provider_stream_event, send_conversation_item,
@@ -37,8 +43,6 @@ use crate::daemon::{
         AgentStatus, DaemonError, StartedConversation, TurnStreamEvent, TurnTranscriptItem,
     },
 };
-
-const MAX_PROVIDER_TOOL_CONTINUATIONS: usize = 6;
 
 fn prompt_cache_retention_for(
     tool_capabilities: ProviderToolCapabilities,
@@ -895,6 +899,8 @@ impl CodexRuntimeActor {
             local_tool_results.push(result);
         }
         let mut all_local_tool_results = local_tool_results.clone();
+        let mut progress_tracker = ContinuationProgressTracker::new(&turn.user_input);
+        progress_tracker.observe_results(&local_tool_results);
 
         let mut continuation_tool_results = local_tool_results
             .iter()
@@ -904,6 +910,124 @@ impl CodexRuntimeActor {
         for continuation_step in 0..MAX_PROVIDER_TOOL_CONTINUATIONS {
             if continuation_tool_results.is_empty() {
                 break;
+            }
+            let continuation_step_number = continuation_step + 1;
+            progress_tracker.mark_continuation_step(continuation_step_number);
+            if let Some(stop) = progress_tracker.deterministic_stop() {
+                let reason = match stop {
+                    DeterministicProgressStop::RepeatedArguments => "repeated tool arguments",
+                    DeterministicProgressStop::FailureStreak => "repeated tool failures",
+                };
+                self.finalize_after_progress_stop(
+                    &turn,
+                    &all_local_tool_results,
+                    next_output_index,
+                    reason,
+                    item_tx,
+                    timing,
+                )
+                .await?;
+                continuation_tool_results.clear();
+                break;
+            }
+            if ContinuationProgressTracker::should_audit(continuation_step_number) {
+                let audit_turn = ProviderActionTurn {
+                    conversation_id: turn.conversation_id.clone(),
+                    turn_id: turn.turn_id.clone(),
+                    turn_index: turn.turn_index,
+                    user_item_id: turn.user_item_id.clone(),
+                    provider: "noema_local".to_string(),
+                    stream_id: None,
+                };
+                self.persist_progress_audit_started(&audit_turn, next_output_index, item_tx)
+                    .await?;
+                next_output_index += 1;
+                let digest = progress_tracker.digest(continuation_step_number);
+                match self.run_progress_audit(&digest).await {
+                    Ok(outcome) => {
+                        let label = match outcome.decision {
+                            ProgressAuditDecision::Continue => "Still making progress",
+                            ProgressAuditDecision::Finalize => "Ready to wrap up",
+                            ProgressAuditDecision::AskHuman => "Needs your input",
+                            ProgressAuditDecision::Checkpoint => "Paused with checkpoint",
+                        };
+                        self.persist_progress_audit_completed(
+                            &audit_turn,
+                            next_output_index,
+                            label,
+                            &outcome.user_summary,
+                            item_tx,
+                        )
+                        .await?;
+                        next_output_index += 1;
+                        progress_tracker.update_current_goal(outcome.next_goal.clone());
+                        progress_tracker.reset_window();
+                        match outcome.decision {
+                            ProgressAuditDecision::Continue => {}
+                            ProgressAuditDecision::Finalize => {
+                                self.finalize_after_progress_stop(
+                                    &turn,
+                                    &all_local_tool_results,
+                                    next_output_index,
+                                    "progress audit requested final answer",
+                                    item_tx,
+                                    timing,
+                                )
+                                .await?;
+                                continuation_tool_results.clear();
+                                break;
+                            }
+                            ProgressAuditDecision::AskHuman | ProgressAuditDecision::Checkpoint => {
+                                self.persist_progress_pause_message(
+                                    &turn,
+                                    next_output_index,
+                                    &outcome.user_summary,
+                                    item_tx,
+                                )
+                                .await?;
+                                continuation_tool_results.clear();
+                                break;
+                            }
+                        }
+                    }
+                    Err(ProgressAuditError::Unavailable(message)) => {
+                        self.persist_progress_audit_completed(
+                            &audit_turn,
+                            next_output_index,
+                            "Progress check unavailable",
+                            &message,
+                            item_tx,
+                        )
+                        .await?;
+                        next_output_index += 1;
+                        progress_tracker.reset_window();
+                    }
+                    Err(ProgressAuditError::ExecutionFailed(message)) => {
+                        self.persist_progress_audit_completed(
+                            &audit_turn,
+                            next_output_index,
+                            "Progress check unavailable",
+                            "The progress check failed, so I am pausing safely.",
+                            item_tx,
+                        )
+                        .await?;
+                        next_output_index += 1;
+                        self.finalize_after_progress_stop(
+                            &turn,
+                            &all_local_tool_results,
+                            next_output_index,
+                            &message,
+                            item_tx,
+                            timing,
+                        )
+                        .await?;
+                        continuation_tool_results.clear();
+                        break;
+                    }
+                }
+                if continuation_tool_results.is_empty() {
+                    break;
+                }
             }
             let continuation_agent_identity =
                 agent_identity_after_local_tools(&turn.agent_identity, &all_local_tool_results);
@@ -1227,14 +1351,19 @@ impl CodexRuntimeActor {
                 .filter(|result| result.requires_provider_continuation())
                 .cloned()
                 .collect::<Vec<_>>();
+            progress_tracker.observe_results(&local_tool_results);
             all_local_tool_results.extend(local_tool_results.clone());
         }
         if !continuation_tool_results.is_empty() {
-            return Err(ProviderError::ProtocolError {
-                provider: turn.provider_kind.clone(),
-                message: "tool continuation limit exceeded".to_string(),
-            }
-            .into());
+            self.finalize_after_progress_stop(
+                &turn,
+                &all_local_tool_results,
+                next_output_index,
+                "maximum provider tool continuations reached",
+                item_tx,
+                timing,
+            )
+            .await?;
         }
 
         if !turn.explicit_memory_outcome.was_attempted() && !provider_memory_batches.is_empty() {
@@ -1295,6 +1424,118 @@ impl CodexRuntimeActor {
             conversation_id: conversation_id.to_string(),
             status: AgentStatus::from(status),
         });
+        Ok(())
+    }
+
+    async fn finalize_after_progress_stop(
+        &mut self,
+        turn: &SuccessfulProviderTurn,
+        results: &[LocalToolResult],
+        index: usize,
+        reason: &str,
+        item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
+        timing: &TurnTiming,
+    ) -> Result<(), DaemonError> {
+        let result_refs = results.iter().collect::<Vec<_>>();
+        let provider = self.provider_for_kind(&turn.provider_kind)?;
+        let mut ignore_event = |_| {};
+        timing.mark(
+            "provider_progress_finalization_request_started",
+            json!({
+                "reason": reason,
+                "tool_result_count": result_refs.len(),
+            }),
+        );
+        let started_at = std::time::Instant::now();
+        let response = provider
+            .generate_streaming(
+                GenerateRequest {
+                    conversation_id: Some(turn.conversation_id.clone()),
+                    model: turn.model.clone(),
+                    input: GenerateInput::Text(
+                        local_tool_result_continuation_input(&result_refs).to_string(),
+                    ),
+                    instructions: Some(build_no_tools_finalization_prompt(reason)),
+                    options: GenerateOptions {
+                        require_noema_response: true,
+                        prompt_cache_retention: prompt_cache_retention_for(turn.tool_capabilities),
+                        ..GenerateOptions::default()
+                    },
+                    tools: Vec::new(),
+                    tool_choice: Default::default(),
+                    parallel_tool_calls: false,
+                },
+                &mut ignore_event,
+            )
+            .await?;
+        timing.mark(
+            "provider_progress_finalization_response_completed",
+            json!({
+                "duration_ms": started_at.elapsed().as_millis(),
+                "response_count": response.responses.len(),
+                "ignored_tool_call_count": response.tool_calls.len(),
+                "memory_proposal_count": response.memory_proposals.len(),
+            }),
+        );
+
+        let action_turn = ProviderActionTurn {
+            conversation_id: turn.conversation_id.clone(),
+            turn_id: turn.turn_id.clone(),
+            turn_index: turn.turn_index,
+            user_item_id: turn.user_item_id.clone(),
+            provider: response.provider.clone(),
+            stream_id: None,
+        };
+        let mut assistant_response = ProviderAssistantResponse::default();
+        for (offset, response_item) in response.responses.into_iter().enumerate() {
+            self.persist_provider_response_item(
+                &action_turn,
+                index + offset,
+                response_item,
+                false,
+                &mut assistant_response,
+                item_tx,
+            )
+            .await?;
+        }
+        Ok(())
+    }
+
+    async fn persist_progress_pause_message(
+        &mut self,
+        turn: &SuccessfulProviderTurn,
+        index: usize,
+        summary: &str,
+        item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
+    ) -> Result<(), DaemonError> {
+        let metadata = json!({
+            "turn_index": turn.turn_index,
+            "response_index": index,
+            "phase": "final_answer",
+            "source": "progress_audit_pause",
+        });
+        let assistant_item = self
+            .store
+            .append_conversation_item(NewConversationItem {
+                conversation_id: turn.conversation_id.clone(),
+                turn_id: Some(turn.turn_id.clone()),
+                parent_item_id: Some(turn.user_item_id.clone()),
+                kind: ConversationItemKind::AssistantText,
+                status: ConversationItemStatus::Completed,
+                author: ActorRef::agent("agent:primary"),
+                content_text: Some(summary.to_string()),
+                payload_json: json!({}),
+                metadata: metadata.clone(),
+            })
+            .await?;
+        send_conversation_item(
+            item_tx,
+            assistant_item,
+            metadata,
+            TurnTranscriptItem::AssistantText {
+                text: summary.to_string(),
+            },
+        );
         Ok(())
     }
 

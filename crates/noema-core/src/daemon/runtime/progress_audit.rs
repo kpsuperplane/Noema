@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use serde::Deserialize;
 
 use crate::provider::{GenerateInput, GenerateOptions, GenerateRequest, GenerateResponseItem};

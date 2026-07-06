@@ -3831,6 +3831,109 @@ async fn runtime_actor_continues_after_continuation_tool_call() {
 }
 
 #[tokio::test]
+async fn hard_ceiling_gets_one_no_tools_finalization_attempt() {
+    let provider = Arc::new(RecordingFakeProvider::new(
+        "codex",
+        FakeCodexScenario::LongContinuationThenFinalization,
+    ));
+    let (handle, _store) = test_runtime_handle_with_search_provider(
+        provider.clone(),
+        crate::search::types::SearchRuntimeProvider::Static {
+            response: crate::search::types::SearchResponse {
+                provider: "test".to_string(),
+                provider_contract: "test".to_string(),
+                query: "restaurants".to_string(),
+                summary: "Found 1 test result".to_string(),
+                results: vec![],
+            },
+        },
+    )
+    .await;
+    let conversation = handle.start_conversation(None).await.expect("conversation");
+
+    collect_turn(
+        &handle,
+        conversation.conversation_id,
+        "Research healthy restaurants and keep going.".to_string(),
+    )
+    .await
+    .expect("turn");
+    handle.shutdown().await;
+
+    let requests = provider.requests();
+    let finalization_requests = requests
+        .iter()
+        .filter(|request| {
+            request.tools.is_empty()
+                && !request.parallel_tool_calls
+                && request
+                    .instructions
+                    .as_deref()
+                    .is_some_and(|instructions| instructions.contains("must stop now"))
+        })
+        .count();
+    assert_eq!(finalization_requests, 1);
+}
+
+#[tokio::test]
+async fn audit_execution_failure_gets_one_no_tools_finalization_attempt() {
+    let provider = Arc::new(RecordingFakeProvider::new(
+        "codex",
+        FakeCodexScenario::ProgressAuditFailsThenFinalization,
+    ));
+    let (handle, store) = test_runtime_handle_with_search_provider(
+        provider.clone(),
+        crate::search::types::SearchRuntimeProvider::Static {
+            response: crate::search::types::SearchResponse {
+                provider: "test".to_string(),
+                provider_contract: "test".to_string(),
+                query: "restaurants".to_string(),
+                summary: "Found 1 test result".to_string(),
+                results: vec![],
+            },
+        },
+    )
+    .await;
+    let codex = store
+        .ensure_default_provider_account()
+        .await
+        .expect("codex account");
+    store
+        .upsert_auxiliary_model_preference(crate::NewAuxiliaryModelPreference {
+            task_id: crate::store::TOOL_PROGRESS_AUDIT_TASK_ID.to_string(),
+            provider_kind: "codex".to_string(),
+            provider_account_id: codex.provider_account_id,
+            model_profile: "gpt-5.4-mini".to_string(),
+        })
+        .await
+        .expect("audit preference");
+    let conversation = handle.start_conversation(None).await.expect("conversation");
+
+    collect_turn(
+        &handle,
+        conversation.conversation_id,
+        "Research healthy restaurants and keep going.".to_string(),
+    )
+    .await
+    .expect("turn");
+    handle.shutdown().await;
+
+    let requests = provider.requests();
+    let finalization_requests = requests
+        .iter()
+        .filter(|request| {
+            request.tools.is_empty()
+                && !request.parallel_tool_calls
+                && request
+                    .instructions
+                    .as_deref()
+                    .is_some_and(|instructions| instructions.contains("must stop now"))
+        })
+        .count();
+    assert_eq!(finalization_requests, 1);
+}
+
+#[tokio::test]
 async fn update_own_name_tool_updates_agent_without_continuation_turn() {
     let (handle, store) =
         test_runtime_handle_with_store(fake_provider(FakeCodexScenario::UpdateOwnNameContinuation))
@@ -4777,6 +4880,8 @@ enum FakeCodexScenario {
     NativeWebSearchContinuation,
     NativeWebFetchContinuation,
     ChainedSearchMemoryContinuation,
+    LongContinuationThenFinalization,
+    ProgressAuditFailsThenFinalization,
     SearchMemoryProfileContinuation,
     UpdateOwnNameContinuation,
     UpdateOwnNameThenYay,
@@ -5161,6 +5266,66 @@ impl FakeCodexProvider {
                     ]
                 } else {
                     assistant_with_no_memories("fake answer")
+                }
+            }
+            FakeCodexScenario::LongContinuationThenFinalization => {
+                let input_text = request.input.render_for_token_count();
+                let loop_query = format!("restaurants {}", input_text.len());
+                if request.tools.is_empty()
+                    && !request.parallel_tool_calls
+                    && instructions.contains("must stop now")
+                {
+                    assistant_with_no_memories(
+                        "I gathered partial results and paused before the tool loop could run too long.",
+                    )
+                } else if input_text.contains("NOEMA_LOCAL_TOOL_RESULT")
+                    || matches!(
+                        request.input,
+                        crate::provider::GenerateInput::NativeToolResults(_)
+                    )
+                {
+                    vec![
+                        search_memory_tool_call(
+                            "call_loop",
+                            json!({"arguments": {"query": loop_query}}),
+                        ),
+                        GenerateOutputItem::MemoryProposals { proposals: vec![] },
+                    ]
+                } else {
+                    vec![
+                        search_memory_tool_call(
+                            "call_loop",
+                            json!({"arguments": {"query": loop_query}}),
+                        ),
+                        GenerateOutputItem::MemoryProposals { proposals: vec![] },
+                    ]
+                }
+            }
+            FakeCodexScenario::ProgressAuditFailsThenFinalization => {
+                let input_text = request.input.render_for_token_count();
+                let loop_query = format!("restaurants {}", input_text.len());
+                if request.tools.is_empty()
+                    && instructions.contains(
+                        "You are auditing whether a Noema tool-continuation loop is making progress.",
+                    )
+                {
+                    return Err(crate::provider::ProviderError::ProtocolError {
+                        provider: "codex".to_string(),
+                        message: "audit failed".to_string(),
+                    });
+                }
+                if request.tools.is_empty() && instructions.contains("must stop now") {
+                    assistant_with_no_memories(
+                        "The progress check failed, so I am pausing with the useful work gathered so far.",
+                    )
+                } else {
+                    vec![
+                        search_memory_tool_call(
+                            "call_loop",
+                            json!({"arguments": {"query": loop_query}}),
+                        ),
+                        GenerateOutputItem::MemoryProposals { proposals: vec![] },
+                    ]
                 }
             }
             FakeCodexScenario::SearchMemoryProfileContinuation => {
