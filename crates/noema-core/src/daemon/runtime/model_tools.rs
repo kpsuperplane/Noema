@@ -218,6 +218,8 @@ mod tests {
                 custom_tools: false,
                 native_tool_results: true,
                 prompt_cache_retention: false,
+                prompt_cache_key: false,
+                encrypted_reasoning: false,
                 fallback_mode: ProviderToolFallbackMode::NativeRequired,
             },
         )

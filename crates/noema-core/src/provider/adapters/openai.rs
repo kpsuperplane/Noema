@@ -171,6 +171,8 @@ impl ModelProvider for OpenAiProvider {
             custom_tools: false,
             native_tool_results: true,
             prompt_cache_retention: true,
+            prompt_cache_key: true,
+            encrypted_reasoning: true,
             fallback_mode: ProviderToolFallbackMode::NativeRequired,
         }
     }
@@ -936,6 +938,8 @@ mod tests {
         assert!(capabilities.tool_choice);
         assert!(capabilities.native_tool_results);
         assert!(capabilities.prompt_cache_retention);
+        assert!(capabilities.prompt_cache_key);
+        assert!(capabilities.encrypted_reasoning);
         assert_eq!(
             capabilities.schema_dialect,
             ProviderToolSchemaDialect::OpenAiResponses

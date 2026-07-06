@@ -324,6 +324,10 @@ pub struct ProviderToolCapabilities {
     pub native_tool_results: bool,
     /// Whether provider prompt-cache retention requests are supported.
     pub prompt_cache_retention: bool,
+    /// Whether provider requests support a stable prompt cache key.
+    pub prompt_cache_key: bool,
+    /// Whether provider requests support encrypted reasoning include/replay.
+    pub encrypted_reasoning: bool,
     /// Default fallback behavior for unavailable native tools.
     pub fallback_mode: ProviderToolFallbackMode,
 }
@@ -339,6 +343,8 @@ impl Default for ProviderToolCapabilities {
             custom_tools: false,
             native_tool_results: false,
             prompt_cache_retention: false,
+            prompt_cache_key: false,
+            encrypted_reasoning: false,
             fallback_mode: ProviderToolFallbackMode::NoTools,
         }
     }

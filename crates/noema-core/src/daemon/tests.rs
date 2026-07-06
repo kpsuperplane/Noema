@@ -268,6 +268,8 @@ async fn native_provider_turn_request_includes_builtin_tools() {
             custom_tools: false,
             native_tool_results: true,
             prompt_cache_retention: true,
+            prompt_cache_key: false,
+            encrypted_reasoning: false,
             fallback_mode: ProviderToolFallbackMode::NativeRequired,
         },
         requests: Mutex::new(Vec::new()),
@@ -3756,6 +3758,8 @@ async fn native_capable_provider_continuation_uses_native_tool_result_input() {
                 custom_tools: false,
                 native_tool_results: true,
                 prompt_cache_retention: true,
+                prompt_cache_key: false,
+                encrypted_reasoning: false,
                 fallback_mode: ProviderToolFallbackMode::NativeRequired,
             }),
     );

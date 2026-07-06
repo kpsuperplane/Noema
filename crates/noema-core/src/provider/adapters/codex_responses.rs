@@ -162,6 +162,10 @@ fn normalize_config(mut config: CodexProviderConfig) -> Result<CodexProviderConf
     Ok(config)
 }
 
+fn codex_encrypted_reasoning_supported() -> bool {
+    false
+}
+
 #[derive(Debug, Serialize)]
 struct CodexResponsesRequest {
     model: String,
@@ -585,6 +589,8 @@ impl ModelProvider for CodexResponsesProvider {
             custom_tools: false,
             native_tool_results: true,
             prompt_cache_retention: false,
+            prompt_cache_key: true,
+            encrypted_reasoning: codex_encrypted_reasoning_supported(),
             fallback_mode: ProviderToolFallbackMode::NativeRequired,
         }
     }
@@ -696,7 +702,12 @@ mod tests {
         assert!(capabilities.parallel_tool_calls);
         assert!(capabilities.tool_choice);
         assert!(capabilities.native_tool_results);
+        assert!(capabilities.prompt_cache_key);
         assert!(!capabilities.prompt_cache_retention);
+        assert_eq!(
+            capabilities.encrypted_reasoning,
+            codex_encrypted_reasoning_supported()
+        );
         assert_eq!(
             capabilities.schema_dialect,
             ProviderToolSchemaDialect::OpenAiResponses
