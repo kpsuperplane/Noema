@@ -786,6 +786,12 @@ impl CodexRuntimeActor {
             provider: turn.response.provider.clone(),
             stream_id: Some(turn.initial_stream_id.clone()),
         };
+        self.persist_provider_reasoning_items(
+            &turn.conversation_id,
+            &turn.turn_id,
+            &turn.response.reasoning_items,
+        )
+        .await?;
         let mut initial_assistant_response = ProviderAssistantResponse::default();
         let initial_tool_calls = local_tool_calls(&turn.response.tool_calls);
         let initial_phase_has_tools = !initial_tool_calls.is_empty();
@@ -1191,6 +1197,12 @@ impl CodexRuntimeActor {
                 provider: continuation_response.provider.clone(),
                 stream_id: Some(continuation_stream_id.clone()),
             };
+            self.persist_provider_reasoning_items(
+                &turn.conversation_id,
+                &turn.turn_id,
+                &continuation_response.reasoning_items,
+            )
+            .await?;
             let continuation_tool_call_items = continuation_response
                 .tool_calls
                 .iter()
@@ -1480,6 +1492,12 @@ impl CodexRuntimeActor {
             provider: response.provider.clone(),
             stream_id: None,
         };
+        self.persist_provider_reasoning_items(
+            &turn.conversation_id,
+            &turn.turn_id,
+            &response.reasoning_items,
+        )
+        .await?;
         let mut assistant_response = ProviderAssistantResponse::default();
         for (offset, response_item) in response.responses.into_iter().enumerate() {
             self.persist_provider_response_item(

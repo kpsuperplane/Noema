@@ -6,7 +6,9 @@ use crate::{
         prompts::{PromptToolExposure, build_structured_turn_system_prompt},
         protocol::DaemonError,
     },
-    provider::{GenerateInputItem, GenerateToolCallInput, GenerateToolResultInput},
+    provider::{
+        GenerateInputItem, GenerateReasoningInput, GenerateToolCallInput, GenerateToolResultInput,
+    },
 };
 use serde_json::Value;
 
@@ -217,12 +219,22 @@ pub(super) fn input_item_from_transcript_item(
         }
         ConversationItemKind::ToolCall => tool_call_input_item(item),
         ConversationItemKind::ToolResult => tool_result_input_item(item),
+        ConversationItemKind::Reasoning => reasoning_input_item(item),
         ConversationItemKind::Activity
         | ConversationItemKind::A2uiCard
         | ConversationItemKind::ApprovalRequest
         | ConversationItemKind::ApprovalResult
         | ConversationItemKind::ErrorNotice => None,
     }
+}
+
+fn reasoning_input_item(item: &ConversationItemRecord) -> Option<GenerateInputItem> {
+    let value = item.payload_json.pointer("/provider_reasoning")?;
+    let encrypted_content = action_string(value, "encrypted_content")?;
+    Some(GenerateInputItem::Reasoning(GenerateReasoningInput {
+        id: action_string(value, "id"),
+        encrypted_content,
+    }))
 }
 
 fn text_message_item(

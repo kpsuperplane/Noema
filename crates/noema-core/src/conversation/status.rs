@@ -128,6 +128,8 @@ pub enum ConversationItemKind {
     ToolCall,
     /// A tool invocation result.
     ToolResult,
+    /// Provider-encrypted reasoning state used only for stateless provider replay.
+    Reasoning,
     /// A request for human approval.
     ApprovalRequest,
     /// A recorded approval decision.
@@ -147,6 +149,7 @@ impl ConversationItemKind {
             Self::A2uiCard => "a2ui_card",
             Self::ToolCall => "tool_call",
             Self::ToolResult => "tool_result",
+            Self::Reasoning => "reasoning",
             Self::ApprovalRequest => "approval_request",
             Self::ApprovalResult => "approval_result",
             Self::ErrorNotice => "error_notice",
@@ -166,6 +169,7 @@ impl ConversationItemKind {
             "a2ui_card" => Ok(Self::A2uiCard),
             "tool_call" => Ok(Self::ToolCall),
             "tool_result" => Ok(Self::ToolResult),
+            "reasoning" => Ok(Self::Reasoning),
             "approval_request" => Ok(Self::ApprovalRequest),
             "approval_result" => Ok(Self::ApprovalResult),
             "error_notice" => Ok(Self::ErrorNotice),

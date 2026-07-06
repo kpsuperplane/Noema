@@ -11,10 +11,10 @@ use crate::{
     ActorRef,
     memory::{ClaimRetrievalRequest, MemoryStatus, Sensitivity, UseMode},
     provider::{
-        AssistantTextPhase, GenerateActionItem, GenerateInput, GenerateInputItem, GenerateRequest,
-        GenerateResponse, GenerateResponseItem, GenerateResponseStatus, GenerateStreamEvent,
-        GenerateToolCall, ProviderError, ProviderToolCapabilities, ProviderToolFallbackMode,
-        ProviderToolSchemaDialect,
+        AssistantTextPhase, GenerateActionItem, GenerateInput, GenerateInputItem,
+        GenerateReasoningItem, GenerateRequest, GenerateResponse, GenerateResponseItem,
+        GenerateResponseStatus, GenerateStreamEvent, GenerateToolCall, ProviderError,
+        ProviderToolCapabilities, ProviderToolFallbackMode, ProviderToolSchemaDialect,
     },
     {ConversationItemKind, ConversationItemStatus, ReplayMode},
 };
@@ -438,6 +438,38 @@ async fn normal_turn_input_replays_previous_turn_as_prefix() {
         second_items.last().map(String::as_str),
         Some("second durable question")
     );
+}
+
+#[tokio::test]
+async fn runtime_persists_and_replays_encrypted_reasoning_items() {
+    let handle = test_runtime_handle(fake_provider(FakeCodexScenario::ReasoningReplay)).await;
+    let conversation_id = handle
+        .start_conversation(None)
+        .await
+        .expect("conversation")
+        .conversation_id;
+
+    let first_items = collect_turn(&handle, conversation_id.clone(), "first".to_string())
+        .await
+        .expect("first turn");
+    assert!(first_items.iter().any(|item| {
+        matches!(
+            item,
+            TurnTranscriptItem::AssistantText { text, .. } if text == "first answer"
+        )
+    }));
+
+    let second_items = collect_turn(&handle, conversation_id, "second".to_string())
+        .await
+        .expect("second turn");
+    assert!(second_items.iter().any(|item| {
+        matches!(
+            item,
+            TurnTranscriptItem::AssistantText { text, .. } if text == "saw encrypted reasoning"
+        )
+    }));
+
+    handle.shutdown().await;
 }
 
 #[tokio::test]
@@ -4893,6 +4925,7 @@ async fn append_test_text_item_with_kind(
         | ConversationItemKind::A2uiCard
         | ConversationItemKind::ToolCall
         | ConversationItemKind::ToolResult
+        | ConversationItemKind::Reasoning
         | ConversationItemKind::ApprovalRequest
         | ConversationItemKind::ApprovalResult
         | ConversationItemKind::ErrorNotice => ActorRef::agent("agent:primary"),
@@ -5017,6 +5050,7 @@ struct BlockingOnceProvider {
 #[derive(Debug, Clone, Copy)]
 enum FakeCodexScenario {
     Simple,
+    ReasoningReplay,
     RestartContext,
     IdentityPromptCheck,
     PromptPhaseContract,
@@ -5100,6 +5134,38 @@ impl FakeCodexProvider {
         }
         let output = match self.scenario {
             FakeCodexScenario::Simple => assistant_with_no_memories("fake answer"),
+            FakeCodexScenario::ReasoningReplay => {
+                let saw_reasoning_replay = match &request.input {
+                    GenerateInput::Items(items) => items.iter().any(|item| {
+                        matches!(
+                            item,
+                            GenerateInputItem::Reasoning(reasoning)
+                                if reasoning.encrypted_content == "opaque-turn-one"
+                        )
+                    }),
+                    _ => false,
+                };
+                let mut response = fake_generate_response(
+                    vec![GenerateOutputItem::AssistantText {
+                        phase: None,
+                        text: if saw_reasoning_replay {
+                            "saw encrypted reasoning"
+                        } else {
+                            "first answer"
+                        }
+                        .to_string(),
+                    }],
+                    "codex",
+                    model,
+                );
+                if !saw_reasoning_replay {
+                    response.reasoning_items.push(GenerateReasoningItem {
+                        id: Some("rs_fake_1".to_string()),
+                        encrypted_content: Some("opaque-turn-one".to_string()),
+                    });
+                }
+                return Ok(response);
+            }
             FakeCodexScenario::RestartContext => {
                 let saw_context = rendered_input.contains("first durable question")
                     && rendered_input.contains("fake answer")

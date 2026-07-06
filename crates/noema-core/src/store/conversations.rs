@@ -468,7 +468,7 @@ impl NoemaStore {
                 WHERE conversation_id = $conversation_id
                   AND deleted_at = NONE
                   AND sequence_index > $after_sequence_index
-                  AND kind IN ['user_text', 'assistant_text', 'tool_call', 'tool_result']
+                  AND kind IN ['user_text', 'assistant_text', 'tool_call', 'tool_result', 'reasoning']
                 ORDER BY sequence_index ASC;
                 "#,
             )

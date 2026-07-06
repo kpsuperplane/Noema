@@ -192,7 +192,7 @@ DEFINE FIELD OVERWRITE conversation_id ON TABLE conversation_items TYPE string;
 DEFINE FIELD OVERWRITE turn_id ON TABLE conversation_items TYPE option<string>;
 DEFINE FIELD OVERWRITE parent_item_id ON TABLE conversation_items TYPE option<string>;
 DEFINE FIELD OVERWRITE sequence_index ON TABLE conversation_items TYPE int;
-DEFINE FIELD OVERWRITE kind ON TABLE conversation_items TYPE string ASSERT $value INSIDE ['user_text', 'assistant_text', 'activity', 'a2ui_card', 'tool_call', 'tool_result', 'approval_request', 'approval_result', 'error_notice'];
+DEFINE FIELD OVERWRITE kind ON TABLE conversation_items TYPE string ASSERT $value INSIDE ['user_text', 'assistant_text', 'activity', 'a2ui_card', 'tool_call', 'tool_result', 'reasoning', 'approval_request', 'approval_result', 'error_notice'];
 DEFINE FIELD OVERWRITE status ON TABLE conversation_items TYPE string ASSERT $value INSIDE ['pending', 'running', 'completed', 'failed', 'cancelled', 'interrupted'];
 DEFINE FIELD OVERWRITE author_actor_id ON TABLE conversation_items TYPE string;
 DEFINE FIELD OVERWRITE content_text ON TABLE conversation_items TYPE option<string>;

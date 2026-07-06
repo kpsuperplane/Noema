@@ -2,8 +2,8 @@ use crate::{
     ActorRef, ConversationItemKind, ConversationItemRecord, ConversationItemStatus,
     NewConversationItem, PersistedAgentStatus,
     provider::{
-        AssistantTextPhase, GenerateActionItem, GenerateResponse, GenerateResponseItem,
-        GenerateStreamEvent,
+        AssistantTextPhase, GenerateActionItem, GenerateReasoningItem, GenerateResponse,
+        GenerateResponseItem, GenerateStreamEvent,
     },
 };
 use serde_json::{Value, json};
@@ -20,6 +20,42 @@ use crate::daemon::{
 };
 
 impl CodexRuntimeActor {
+    pub(super) async fn persist_provider_reasoning_items(
+        &mut self,
+        conversation_id: &str,
+        turn_id: &str,
+        reasoning_items: &[GenerateReasoningItem],
+    ) -> Result<(), DaemonError> {
+        for reasoning in reasoning_items {
+            let Some(encrypted_content) = reasoning
+                .encrypted_content
+                .as_deref()
+                .filter(|value| !value.trim().is_empty())
+            else {
+                continue;
+            };
+            self.store
+                .append_conversation_item(NewConversationItem {
+                    conversation_id: conversation_id.to_string(),
+                    turn_id: Some(turn_id.to_string()),
+                    parent_item_id: None,
+                    kind: ConversationItemKind::Reasoning,
+                    status: ConversationItemStatus::Completed,
+                    author: ActorRef::agent("agent:primary"),
+                    content_text: None,
+                    payload_json: json!({
+                        "provider_reasoning": {
+                            "id": reasoning.id.clone(),
+                            "encrypted_content": encrypted_content,
+                        }
+                    }),
+                    metadata: json!({}),
+                })
+                .await?;
+        }
+        Ok(())
+    }
+
     pub(super) async fn persist_provider_response_item(
         &mut self,
         turn: &ProviderActionTurn,
