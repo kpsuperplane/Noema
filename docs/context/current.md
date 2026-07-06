@@ -69,6 +69,11 @@ The next storage slice should stay small and concrete:
   `memory_proposals[]`. `responses[]` may be empty only for
   `response_status: "needs_tools"` with one or more tool calls, so models can
   run routine single or multiple tools without filler commentary.
+- The primary agent's ordinary chat voice should default to informal
+  human-texting brevity, including lowercase short replies when context allows.
+  Normal capitalization still applies for proper names, acronyms, code,
+  commands, headings, quoted text, formal artifacts, high-stakes topics, and
+  polished deliverables.
 - The provider-neutral native tool plane has landed from
   `docs/superpowers/specs/2026-07-04-native-tool-plane-design.md`: Noema now
   builds canonical local/MCP tool specs, advertises them through provider-native
