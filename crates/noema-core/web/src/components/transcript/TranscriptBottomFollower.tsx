@@ -2,6 +2,7 @@ import * as React from "react";
 import { useTranscriptScroller } from "./TranscriptScroller";
 
 export const ARRIVAL_SCROLL_SETTLE_DURATION_MS = 260;
+const INITIAL_SCROLL_SETTLE_DURATION_MS = 600;
 const SCROLL_REVEAL_DURATION_MS = 240;
 
 type ScrollMetrics = {
@@ -30,9 +31,68 @@ export function TranscriptBottomFollower({
   const previousMetricsRef = React.useRef<ScrollMetrics | null>(null);
   const completedArrivalKeyRef = React.useRef("");
   const completedSentMessageScrollRequestRef = React.useRef(sentMessageScrollRequest);
+  const initialBottomLockActiveRef = React.useRef(false);
+  const initialBottomLockCompletedRef = React.useRef(false);
+  const initialBottomLockTimeoutRef = React.useRef<number | null>(null);
   const activeScrollAnimationRef = React.useRef<ActiveScrollAnimation | null>(null);
   const resizeSyncFrameRef = React.useRef<number | null>(null);
   const resizeSyncTimeoutRef = React.useRef<number | null>(null);
+
+  React.useLayoutEffect(() => {
+    return () => {
+      if (initialBottomLockTimeoutRef.current !== null) {
+        window.clearTimeout(initialBottomLockTimeoutRef.current);
+        initialBottomLockTimeoutRef.current = null;
+      }
+      if (resizeSyncFrameRef.current !== null) {
+        window.cancelAnimationFrame(resizeSyncFrameRef.current);
+        resizeSyncFrameRef.current = null;
+      }
+      if (resizeSyncTimeoutRef.current !== null) {
+        window.clearTimeout(resizeSyncTimeoutRef.current);
+        resizeSyncTimeoutRef.current = null;
+      }
+    };
+  }, []);
+
+  React.useLayoutEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport || !scrollKey || initialBottomLockCompletedRef.current) {
+      return;
+    }
+
+    initialBottomLockCompletedRef.current = true;
+    initialBottomLockActiveRef.current = true;
+    followBottomRef.current = true;
+    scrollToEnd({ behavior: "auto" });
+    previousMetricsRef.current = readScrollMetrics(viewport);
+
+    resizeSyncFrameRef.current = window.requestAnimationFrame(() => {
+      resizeSyncFrameRef.current = null;
+      if (!initialBottomLockActiveRef.current) {
+        return;
+      }
+
+      followBottomRef.current = true;
+      scrollToEnd({ behavior: "auto" });
+      previousMetricsRef.current = readScrollMetrics(viewport);
+      resizeSyncTimeoutRef.current = window.setTimeout(() => {
+        resizeSyncTimeoutRef.current = null;
+        if (!initialBottomLockActiveRef.current) {
+          return;
+        }
+
+        followBottomRef.current = true;
+        scrollToEnd({ behavior: "auto" });
+        previousMetricsRef.current = readScrollMetrics(viewport);
+      }, 120);
+    });
+
+    initialBottomLockTimeoutRef.current = window.setTimeout(() => {
+      initialBottomLockActiveRef.current = false;
+      initialBottomLockTimeoutRef.current = null;
+    }, INITIAL_SCROLL_SETTLE_DURATION_MS);
+  }, [followBottomRef, scrollKey, scrollToEnd, viewportRef]);
 
   React.useLayoutEffect(() => {
     const viewport = viewportRef.current;
@@ -69,7 +129,11 @@ export function TranscriptBottomFollower({
 
   React.useLayoutEffect(() => {
     const viewport = viewportRef.current;
-    if (!viewport || !followBottomRef.current || activeScrollAnimationRef.current) {
+    if (
+      !viewport ||
+      (!followBottomRef.current && !initialBottomLockActiveRef.current) ||
+      activeScrollAnimationRef.current
+    ) {
       return;
     }
 
@@ -97,12 +161,27 @@ export function TranscriptBottomFollower({
       return;
     }
 
+    function cancelInitialBottomLock() {
+      initialBottomLockActiveRef.current = false;
+      if (initialBottomLockTimeoutRef.current !== null) {
+        window.clearTimeout(initialBottomLockTimeoutRef.current);
+        initialBottomLockTimeoutRef.current = null;
+      }
+    }
+
     function syncToBottom() {
-      if (!viewport || !followBottomRef.current || activeScrollAnimationRef.current) {
+      if (
+        !viewport ||
+        (!followBottomRef.current && !initialBottomLockActiveRef.current) ||
+        activeScrollAnimationRef.current
+      ) {
         return;
       }
 
       scrollToEnd({ behavior: "auto" });
+      if (initialBottomLockActiveRef.current) {
+        followBottomRef.current = true;
+      }
       previousMetricsRef.current = readScrollMetrics(viewport);
     }
 
@@ -129,13 +208,23 @@ export function TranscriptBottomFollower({
     if (content) {
       observer.observe(content);
     }
+    viewport.addEventListener("pointerdown", cancelInitialBottomLock, { passive: true });
+    viewport.addEventListener("wheel", cancelInitialBottomLock, { passive: true });
+    viewport.addEventListener("touchmove", cancelInitialBottomLock, { passive: true });
     window.visualViewport?.addEventListener("resize", scheduleSyncToBottom);
     window.visualViewport?.addEventListener("scroll", scheduleSyncToBottom);
 
     return () => {
       observer.disconnect();
+      viewport.removeEventListener("pointerdown", cancelInitialBottomLock);
+      viewport.removeEventListener("wheel", cancelInitialBottomLock);
+      viewport.removeEventListener("touchmove", cancelInitialBottomLock);
       window.visualViewport?.removeEventListener("resize", scheduleSyncToBottom);
       window.visualViewport?.removeEventListener("scroll", scheduleSyncToBottom);
+      if (initialBottomLockTimeoutRef.current !== null) {
+        window.clearTimeout(initialBottomLockTimeoutRef.current);
+        initialBottomLockTimeoutRef.current = null;
+      }
       if (resizeSyncFrameRef.current !== null) {
         window.cancelAnimationFrame(resizeSyncFrameRef.current);
         resizeSyncFrameRef.current = null;
