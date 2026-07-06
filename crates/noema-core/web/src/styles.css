@@ -161,6 +161,20 @@ html[data-tauri-runtime="true"] #root {
   -webkit-text-fill-color: transparent;
 }
 
+[data-slot="skeleton-glimmer"] {
+  background-image: linear-gradient(
+    105deg,
+    var(--color-skeleton) 0%,
+    var(--color-skeleton) 34%,
+    color-mix(in srgb, var(--pure-white) 72%, var(--color-skeleton) 28%) 50%,
+    var(--color-skeleton) 66%,
+    var(--color-skeleton) 100%
+  );
+  background-size: 230% 100%;
+  background-position: 130% 0;
+  animation: skeleton-glimmer 2s cubic-bezier(0.45, 0, 0.2, 1) infinite;
+}
+
 @keyframes shell-sidebar-menu-enter-forward {
   from {
     opacity: 0.4;
@@ -283,6 +297,16 @@ html[data-tauri-runtime="true"] #root {
   }
 }
 
+@keyframes skeleton-glimmer {
+  from {
+    background-position: 130% 0;
+  }
+
+  to {
+    background-position: -30% 0;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   [data-slot="message-scroller-item"][data-arrival="true"] [data-slot="message-arrival-content"] {
     display: block;
@@ -308,5 +332,10 @@ html[data-tauri-runtime="true"] #root {
     background: none;
     color: var(--marker-glimmer-base);
     -webkit-text-fill-color: currentColor;
+  }
+
+  [data-slot="skeleton-glimmer"] {
+    animation: none;
+    background-image: none;
   }
 }

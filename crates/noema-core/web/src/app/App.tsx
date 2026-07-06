@@ -1,6 +1,11 @@
 import React from "react";
-import { useApolloClient, useMutation, useQuery, useSubscription } from "@apollo/client/react";
-import * as stylex from "@stylexjs/stylex";
+import {
+  useApolloClient,
+  useMutation,
+  useQuery,
+  useSubscription,
+  useSuspenseQuery
+} from "@apollo/client/react";
 import {
   ConversationEventsDocument,
   ConversationTranscriptPageDocument,
@@ -16,8 +21,8 @@ import {
 } from "@/generated/graphql";
 import { ChatSurface } from "@/components/ChatSurface";
 import { AppShell } from "@/components/shell/AppShell";
+import { AppBootBoundary } from "@/components/shell/AppBootBoundary";
 import { SetupFrame } from "@/components/shell/SetupFrame";
-import { ErrorMarker } from "@/components/ErrorMarker";
 import {
   isProviderAuthAttemptPending,
   Onboarding,
@@ -95,13 +100,22 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 export function App() {
+  return (
+    <AppBootBoundary>
+      <AppContent />
+    </AppBootBoundary>
+  );
+}
+
+function AppContent() {
   const { route, navigate, goBackFromSettings } = useBrowserRoute();
   const apolloClient = useApolloClient();
-  const localStatus = useQuery(LocalStatusDocument);
-  const onboardingStatus = useQuery(OnboardingStatusDocument);
+  const localStatus = useSuspenseQuery(LocalStatusDocument);
+  const onboardingStatus = useSuspenseQuery(OnboardingStatusDocument);
   const [startProviderAuthAttempt] = useMutation(StartProviderAuthAttemptDocument);
-  const onboarding = onboardingStatus.data?.onboardingStatus ?? null;
-  const onboarded = onboarding?.isUserOnboarded ?? false;
+  const onboarding = onboardingStatus.data.onboardingStatus;
+  const refetchOnboarding = onboardingStatus.refetch;
+  const onboarded = onboarding.isUserOnboarded;
   const chatRoute = route.kind === "chat";
   const primaryConversation = useQuery(PrimaryConversationDocument, {
     skip: !chatRoute || !onboarded,
@@ -121,6 +135,8 @@ export function App() {
   const [loadingOlderTranscript, setLoadingOlderTranscript] = React.useState(false);
   const [olderTranscriptPageError, setOlderTranscriptPageError] = React.useState<string | null>(null);
   const [latestTranscriptRetryTick, setLatestTranscriptRetryTick] = React.useState(0);
+  const [latestTranscriptLoadedConversationId, setLatestTranscriptLoadedConversationId] = React.useState<string | null>(null);
+  const [latestTranscriptRetryBlockedConversationId, setLatestTranscriptRetryBlockedConversationId] = React.useState<string | null>(null);
   const [draft, setDraft] = React.useState("");
   const [pending, setPending] = React.useState(false);
   const [awaitingAssistantTurn, setAwaitingAssistantTurn] = React.useState(false);
@@ -134,11 +150,24 @@ export function App() {
   const lastProcessedConversationEventRef = React.useRef<ConversationEvent | null>(null);
   const localStatusRefetchRef = React.useRef(localStatus.refetch);
 
-  const status = localStatus.data?.localStatus ?? null;
+  const status = localStatus.data.localStatus;
   const agentName = status?.primaryAgentDisplayName ?? null;
   const displayedOnboardingError = onboardingError ?? onboardingStatus.error?.message ?? null;
   const authAttemptId = authAttempt?.attemptId;
   const authAttemptStatus = authAttempt?.status;
+
+  const refetchOnboardingStatus = React.useCallback(
+    () =>
+      new Promise<void>((resolve, reject) => {
+        React.startTransition(() => {
+          void refetchOnboarding().then(
+            () => resolve(),
+            (error: unknown) => reject(error)
+          );
+        });
+      }),
+    [refetchOnboarding]
+  );
 
   const pushTranscriptWindowError = React.useCallback((message: string) => {
     setTranscriptWindow((current) =>
@@ -229,6 +258,8 @@ export function App() {
         if (placement === "latest") {
           latestTranscriptRetryBlockedConversationRef.current = null;
           latestTranscriptErrorVisibleConversationRef.current = null;
+          setLatestTranscriptLoadedConversationId(conversationId);
+          setLatestTranscriptRetryBlockedConversationId(null);
           if (latestTranscriptRetryTimeoutRef.current !== null) {
             window.clearTimeout(latestTranscriptRetryTimeoutRef.current);
             latestTranscriptRetryTimeoutRef.current = null;
@@ -242,6 +273,8 @@ export function App() {
         if (placement === "latest") {
           latestTranscriptLoadedConversationRef.current = null;
           latestTranscriptRetryBlockedConversationRef.current = conversationId;
+          setLatestTranscriptLoadedConversationId(null);
+          setLatestTranscriptRetryBlockedConversationId(conversationId);
           if (latestTranscriptErrorVisibleConversationRef.current !== conversationId) {
             latestTranscriptErrorVisibleConversationRef.current = conversationId;
             pushTranscriptWindowError(message);
@@ -252,6 +285,7 @@ export function App() {
           latestTranscriptRetryTimeoutRef.current = window.setTimeout(() => {
             if (latestTranscriptRetryBlockedConversationRef.current === conversationId) {
               latestTranscriptRetryBlockedConversationRef.current = null;
+              setLatestTranscriptRetryBlockedConversationId(null);
               setLatestTranscriptRetryTick((current) => current + 1);
             }
             latestTranscriptRetryTimeoutRef.current = null;
@@ -435,7 +469,9 @@ export function App() {
       }
     }
     if (shouldRefreshLocalStatusForConversationEvent(event)) {
-      void localStatusRefetchRef.current();
+      React.startTransition(() => {
+        void localStatusRefetchRef.current();
+      });
     }
   }, []);
 
@@ -457,7 +493,7 @@ export function App() {
   }, [applyConversationEvent, conversationEvents.data]);
 
   async function connectProvider() {
-    const step = onboarding?.steps.find((candidate) => candidate.id === "connect_provider_account");
+    const step = onboarding.steps.find((candidate) => candidate.id === "connect_provider_account");
     if (!step?.providerKind || !step.providerAccountId || !step.authMethod) {
       setOnboardingError("No provider account is available to connect.");
       return;
@@ -480,7 +516,7 @@ export function App() {
       }
       setAuthAttempt(attempt);
       if (attempt.status === "COMPLETED") {
-        await onboardingStatus.refetch();
+        await refetchOnboardingStatus();
       }
     } catch (error: unknown) {
       setOnboardingError(error instanceof Error ? error.message : "Failed to start provider login");
@@ -506,13 +542,13 @@ export function App() {
         }
         setAuthAttempt(next);
         if (next.status === "COMPLETED") {
-          await onboardingStatus.refetch();
+          await refetchOnboardingStatus();
         }
       } catch (error: unknown) {
         setOnboardingError(error instanceof Error ? error.message : "Failed to check provider login");
       }
     },
-    [apolloClient, authAttempt?.attemptId, onboardingStatus]
+    [apolloClient, authAttempt?.attemptId, refetchOnboardingStatus]
   );
 
   React.useEffect(() => {
@@ -577,8 +613,15 @@ export function App() {
   }
 
   const ready = socketState === "ready" && conversationId !== null;
-  const waitingForConversationDecision =
-    chatRoute && onboarding?.isUserOnboarded === true && !conversationId && transcript.length === 0;
+  const waitingForConversationDecision = chatRoute && onboarded && !conversationId && transcript.length === 0;
+  const waitingForInitialTranscript =
+    chatRoute &&
+    onboarded &&
+    conversationId !== null &&
+    transcript.length === 0 &&
+    latestTranscriptLoadedConversationId !== conversationId &&
+    latestTranscriptRetryBlockedConversationId !== conversationId;
+  const loadingInitialChat = waitingForConversationDecision || waitingForInitialTranscript;
   const chatView = (
     <ChatSurface
       transcript={transcript}
@@ -592,6 +635,7 @@ export function App() {
       sentMessageScrollRequest={sentMessageScrollRequest}
       draft={draft}
       ready={ready}
+      loadingInitialTranscript={loadingInitialChat}
       agentName={agentName}
       onPickStarter={(starter) => setDraft(starter)}
       onToggleActivity={(id) =>
@@ -610,32 +654,6 @@ export function App() {
       onSubmit={(value) => void sendMessage(value)}
     />
   );
-
-  if (waitingForConversationDecision) {
-    return null;
-  }
-
-  if (!onboarding) {
-    return (
-      <SetupFrame>
-        <section
-          {...stylex.props(styles.setupStatus)}
-          aria-label="Noema onboarding"
-        >
-          <div {...stylex.props(styles.setupStatusContent)}>
-            <p {...stylex.props(styles.setupEyebrow)}>First run</p>
-            <h1 {...stylex.props(styles.setupTitle)}>
-              Checking setup
-            </h1>
-            <p {...stylex.props(styles.setupDescription)}>
-              Noema is checking whether chat can start.
-            </p>
-            {displayedOnboardingError ? <ErrorMarker message={displayedOnboardingError} /> : null}
-          </div>
-        </section>
-      </SetupFrame>
-    );
-  }
 
   if (!onboarding.isUserOnboarded) {
     return (
@@ -708,50 +726,3 @@ export function App() {
     </AppShell>
   );
 }
-
-const styles = stylex.create({
-  setupStatus: {
-    display: "grid",
-    width: "min(760px, 100%)",
-    minHeight: "100%",
-    alignContent: "center",
-    marginInline: "auto",
-    paddingInline: 24,
-    "@media (max-width: 760px)": {
-      alignContent: "start",
-      paddingInline: 20
-    }
-  },
-  setupStatusContent: {
-    display: "grid",
-    minWidth: 0,
-    gap: 14,
-    paddingBlock: 18
-  },
-  setupEyebrow: {
-    margin: 0,
-    fontFamily: "var(--font-mono)",
-    fontSize: 11,
-    letterSpacing: "0.12em",
-    color: "var(--text-accent)",
-    textTransform: "uppercase"
-  },
-  setupTitle: {
-    margin: 0,
-    fontFamily: "var(--font-heading)",
-    fontSize: 34,
-    lineHeight: 1.1,
-    letterSpacing: 0,
-    color: "var(--foreground)",
-    overflowWrap: "anywhere",
-    "@media (max-width: 760px)": {
-      fontSize: 30
-    }
-  },
-  setupDescription: {
-    margin: 0,
-    maxWidth: 560,
-    color: "var(--muted-foreground)",
-    overflowWrap: "anywhere"
-  }
-});
