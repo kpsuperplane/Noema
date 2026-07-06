@@ -13,6 +13,32 @@ const styles = stylex.create({
     fontSize: "inherit",
     lineHeight: "inherit"
   },
+  userMarkdown: {
+    "--color-text-primary": "currentColor",
+    "--color-text-secondary": "color-mix(in srgb, currentColor 80%, transparent)",
+    "--color-text-disabled": "color-mix(in srgb, currentColor 62%, transparent)",
+    "--color-text-accent": "currentColor",
+    "--color-border": "color-mix(in srgb, currentColor 24%, transparent)",
+    "--color-border-emphasized": "color-mix(in srgb, currentColor 48%, transparent)",
+    "--color-background-muted": "color-mix(in srgb, currentColor 12%, transparent)",
+    "--color-background-surface": "color-mix(in srgb, black 10%, transparent)",
+    "--color-accent-muted": "color-mix(in srgb, currentColor 16%, transparent)",
+    "--color-overlay-hover": "color-mix(in srgb, currentColor 14%, transparent)",
+    "--color-syntax-background": "color-mix(in srgb, black 16%, transparent)",
+    "--color-syntax-keyword": "currentColor",
+    "--color-syntax-string": "color-mix(in srgb, currentColor 88%, transparent)",
+    "--color-syntax-comment": "color-mix(in srgb, currentColor 66%, transparent)",
+    "--color-syntax-number": "color-mix(in srgb, currentColor 88%, transparent)",
+    "--color-syntax-function": "currentColor",
+    "--color-syntax-type": "currentColor",
+    "--color-syntax-variable": "currentColor",
+    "--color-syntax-operator": "color-mix(in srgb, currentColor 74%, transparent)",
+    "--color-syntax-constant": "color-mix(in srgb, currentColor 88%, transparent)",
+    "--color-syntax-tag": "currentColor",
+    "--color-syntax-attribute": "color-mix(in srgb, currentColor 88%, transparent)",
+    "--color-syntax-property": "color-mix(in srgb, currentColor 88%, transparent)",
+    "--color-syntax-punctuation": "color-mix(in srgb, currentColor 66%, transparent)"
+  },
   userLink: {
     color: "currentColor",
     fontWeight: 600,
@@ -47,7 +73,7 @@ export function Message({
         density="compact"
         headingLevelStart={3}
         isStreaming={animate}
-        xstyle={markdownXStyle(styles.markdown)}
+        xstyle={markdownXStyle(styles.markdown, role === "user" && styles.userMarkdown)}
       >
         {text}
       </Markdown>
@@ -55,7 +81,7 @@ export function Message({
   );
 }
 
-function markdownXStyle(xstyle: unknown): MarkdownXStyle {
+function markdownXStyle(...xstyle: unknown[]): MarkdownXStyle {
   return xstyle as unknown as MarkdownXStyle;
 }
 
