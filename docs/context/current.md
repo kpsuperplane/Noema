@@ -95,7 +95,9 @@ The next storage slice should stay small and concrete:
   The web transcript also carries assistant `responseIndex` and uses
   `(turnId,responseIndex)` as a fallback replacement key so finalized assistant
   items remove their ephemeral stream bubbles even when stream metadata is
-  missing or mismatched.
+  missing or mismatched. Finalized assistant messages that came from a stream
+  keep the stream id as their render identity so React updates the streamed
+  bubble in place instead of remounting it and replaying the text animation.
 - The provider-neutral native tool plane has landed from
   `docs/superpowers/specs/2026-07-04-native-tool-plane-design.md`: Noema now
   builds canonical local/MCP tool specs, advertises them through provider-native

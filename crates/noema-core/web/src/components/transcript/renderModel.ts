@@ -186,7 +186,7 @@ export function renderedEntryMessageId(entry: RenderTranscriptEntry): string {
 }
 
 export function transcriptEntryRenderId(entry: TranscriptEntry): string {
-  if (entry.type === "assistant_stream" && entry.streamId) {
+  if ((entry.type === "assistant_stream" || entry.type === "assistant") && entry.streamId) {
     return entry.streamId;
   }
   return entry.id;

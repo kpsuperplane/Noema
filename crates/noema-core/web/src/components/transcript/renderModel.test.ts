@@ -55,7 +55,7 @@ describe("renderableTranscriptEntries", () => {
     assert.equal(rendered.some((entry) => entry.kind === "entry" && entry.entry.id === "assistant-entry"), true);
   });
 
-  test("uses durable item ids for finalized assistant messages with stream ids", () => {
+  test("keeps stream ids for finalized assistant message render identity", () => {
     const rendered = renderableTranscriptEntries(
       [
         {
@@ -80,8 +80,8 @@ describe("renderableTranscriptEntries", () => {
     );
 
     assert.deepEqual(rendered.map((entry) => renderedEntryMessageId(entry)), [
-      "assistant:item:1",
-      "assistant:item:2"
+      "assistant_stream:turn:1:initial:response:0",
+      "assistant_stream:turn:1:initial:response:1"
     ]);
   });
 });
