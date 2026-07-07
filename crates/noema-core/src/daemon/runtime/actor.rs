@@ -87,6 +87,20 @@ impl CodexRuntimeActor {
         self.provider_for_kind(&self.default_provider_kind)
     }
 
+    #[allow(dead_code)]
+    pub(in crate::daemon) async fn resolved_web_search_provider(
+        &self,
+    ) -> Result<super::web_tools::ResolvedWebSearchProvider, crate::StoreError> {
+        super::web_tools::resolve_web_search_provider(&self.store).await
+    }
+
+    #[allow(dead_code)]
+    pub(in crate::daemon) async fn resolved_web_fetch_provider(
+        &self,
+    ) -> Result<super::web_tools::ResolvedWebFetchProvider, crate::StoreError> {
+        super::web_tools::resolve_web_fetch_provider(&self.store).await
+    }
+
     pub(super) async fn run(mut self, mut receiver: mpsc::Receiver<CodexRuntimeCommand>) {
         while let Some(command) = receiver.recv().await {
             match command {

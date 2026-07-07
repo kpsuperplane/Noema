@@ -1,0 +1,489 @@
+#![cfg_attr(not(test), allow(dead_code))]
+
+use crate::provider::{CapabilityId, ProviderCapabilityStatus};
+use crate::{NoemaStore, StoreError};
+
+const WEB_SEARCH_TOOL: &str = "web.search";
+const WEB_FETCH_TOOL: &str = "web.fetch";
+const SYSTEM_ACCOUNT_KEY: &str = "system";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(in crate::daemon) struct ResolvedWebSearchProvider {
+    pub provider_account_id: String,
+    pub provider_kind: String,
+    pub account_key: String,
+    pub fallback_from: Option<String>,
+    pub fallback_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(in crate::daemon) struct ResolvedWebFetchProvider {
+    pub provider_account_id: String,
+    pub provider_kind: String,
+    pub account_key: String,
+    pub fallback_from: Option<String>,
+    pub fallback_reason: Option<String>,
+}
+
+pub(in crate::daemon) async fn resolve_web_search_provider(
+    store: &NoemaStore,
+) -> Result<ResolvedWebSearchProvider, StoreError> {
+    resolve_bound_provider(store, WEB_SEARCH_TOOL, WEB_SEARCH_TOOL)
+        .await
+        .map(Into::into)
+}
+
+pub(in crate::daemon) async fn resolve_web_fetch_provider(
+    store: &NoemaStore,
+) -> Result<ResolvedWebFetchProvider, StoreError> {
+    resolve_bound_provider(store, WEB_FETCH_TOOL, WEB_FETCH_TOOL)
+        .await
+        .map(Into::into)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ResolvedProvider {
+    provider_account_id: String,
+    provider_kind: String,
+    account_key: String,
+    fallback_from: Option<String>,
+    fallback_reason: Option<String>,
+}
+
+async fn resolve_bound_provider(
+    store: &NoemaStore,
+    tool_name: &str,
+    capability_id: &str,
+) -> Result<ResolvedProvider, StoreError> {
+    let Some(expected_capability) = capability_enum(capability_id) else {
+        return Ok(default_provider(tool_name));
+    };
+    let Some(binding) = store
+        .provider_capability_binding(tool_name, capability_id)
+        .await?
+    else {
+        return Ok(default_provider(tool_name));
+    };
+
+    match load_provider_account(store, &binding.provider_account_id).await? {
+        Some(account) => {
+            let Some(capability) = account
+                .capabilities
+                .iter()
+                .find(|capability| capability.capability_id == expected_capability)
+            else {
+                return Ok(fallback_provider(
+                    tool_name,
+                    binding.provider_account_id,
+                    format!("bound provider account does not declare {capability_id}"),
+                ));
+            };
+
+            if capability.status != ProviderCapabilityStatus::Available {
+                return Ok(fallback_provider(
+                    tool_name,
+                    binding.provider_account_id,
+                    format!(
+                        "bound provider capability {capability_id} is {}",
+                        capability.status.as_str()
+                    ),
+                ));
+            }
+
+            Ok(ResolvedProvider {
+                provider_account_id: account.provider_account_id,
+                provider_kind: account.provider_kind,
+                account_key: account.account_key,
+                fallback_from: None,
+                fallback_reason: None,
+            })
+        }
+        None => Ok(fallback_provider(
+            tool_name,
+            binding.provider_account_id,
+            "bound provider account is no longer available".to_string(),
+        )),
+    }
+}
+
+async fn load_provider_account(
+    store: &NoemaStore,
+    provider_account_id: &str,
+) -> Result<Option<crate::ProviderAccountRecord>, StoreError> {
+    if let Some(account) = store.get_provider_account(provider_account_id).await? {
+        return Ok(Some(account));
+    }
+
+    Ok(store
+        .system_provider_accounts()
+        .into_iter()
+        .find(|account| account.provider_account_id == provider_account_id))
+}
+
+fn default_provider(tool_name: &str) -> ResolvedProvider {
+    match tool_name {
+        WEB_SEARCH_TOOL => ResolvedProvider {
+            provider_account_id: format!(
+                "provider_account:{}:{SYSTEM_ACCOUNT_KEY}",
+                crate::search::types::DUCKDUCKGO_PUBLIC_PROVIDER_ID
+            ),
+            provider_kind: crate::search::types::DUCKDUCKGO_PUBLIC_PROVIDER_ID.to_string(),
+            account_key: SYSTEM_ACCOUNT_KEY.to_string(),
+            fallback_from: None,
+            fallback_reason: None,
+        },
+        WEB_FETCH_TOOL => ResolvedProvider {
+            provider_account_id: format!(
+                "provider_account:{}:{SYSTEM_ACCOUNT_KEY}",
+                crate::web_fetch::types::DIRECT_HTTP_PROVIDER_ID
+            ),
+            provider_kind: crate::web_fetch::types::DIRECT_HTTP_PROVIDER_ID.to_string(),
+            account_key: SYSTEM_ACCOUNT_KEY.to_string(),
+            fallback_from: None,
+            fallback_reason: None,
+        },
+        _ => unreachable!("unsupported web tool provider resolver"),
+    }
+}
+
+fn fallback_provider(
+    tool_name: &str,
+    provider_account_id: String,
+    fallback_reason: String,
+) -> ResolvedProvider {
+    let mut fallback = default_provider(tool_name);
+    fallback.fallback_from = Some(provider_account_id);
+    fallback.fallback_reason = Some(fallback_reason);
+    fallback
+}
+
+fn capability_enum(capability_id: &str) -> Option<CapabilityId> {
+    match capability_id {
+        "web.search" => Some(CapabilityId::WebSearch),
+        "web.fetch" => Some(CapabilityId::WebFetch),
+        _ => None,
+    }
+}
+
+impl From<ResolvedProvider> for ResolvedWebSearchProvider {
+    fn from(resolved: ResolvedProvider) -> Self {
+        Self {
+            provider_account_id: resolved.provider_account_id,
+            provider_kind: resolved.provider_kind,
+            account_key: resolved.account_key,
+            fallback_from: resolved.fallback_from,
+            fallback_reason: resolved.fallback_reason,
+        }
+    }
+}
+
+impl From<ResolvedProvider> for ResolvedWebFetchProvider {
+    fn from(resolved: ResolvedProvider) -> Self {
+        Self {
+            provider_account_id: resolved.provider_account_id,
+            provider_kind: resolved.provider_kind,
+            account_key: resolved.account_key,
+            fallback_from: resolved.fallback_from,
+            fallback_reason: resolved.fallback_reason,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        ProviderAccountStatus, ProviderAuthMethod,
+        daemon::runtime::actor::CodexRuntimeActor,
+        provider::{CapabilityId, ProviderCapabilityStatus},
+    };
+    use crate::store::tests::test_store;
+    use std::collections::HashMap;
+
+    #[tokio::test]
+    async fn resolves_duckduckgo_default_without_binding() {
+        let store = test_store().await;
+        let resolved = resolve_web_search_provider(&store).await.expect("resolve");
+
+        assert_eq!(
+            resolved.provider_account_id,
+            "provider_account:duckduckgo_public:system"
+        );
+        assert_eq!(resolved.provider_kind, "duckduckgo_public");
+        assert_eq!(resolved.account_key, "system");
+        assert!(resolved.fallback_from.is_none());
+        assert!(resolved.fallback_reason.is_none());
+    }
+
+    #[tokio::test]
+    async fn resolves_direct_http_default_without_binding() {
+        let store = test_store().await;
+        let resolved = resolve_web_fetch_provider(&store).await.expect("resolve");
+
+        assert_eq!(
+            resolved.provider_account_id,
+            "provider_account:direct_http:system"
+        );
+        assert_eq!(resolved.provider_kind, "direct_http");
+        assert_eq!(resolved.account_key, "system");
+        assert!(resolved.fallback_from.is_none());
+        assert!(resolved.fallback_reason.is_none());
+    }
+
+    #[tokio::test]
+    async fn resolves_bound_openai_web_search_provider_when_available() {
+        let store = test_store().await;
+        insert_provider_account(
+            &store,
+            "provider_account:openai:test",
+            "openai",
+            "test",
+            ProviderAccountStatus::Authenticated,
+        )
+        .await;
+        store
+            .upsert_provider_capability_binding(
+                WEB_SEARCH_TOOL,
+                WEB_SEARCH_TOOL,
+                "provider_account:openai:test",
+            )
+            .await
+            .expect("save binding");
+
+        let resolved = resolve_web_search_provider(&store).await.expect("resolve");
+
+        assert_eq!(resolved.provider_account_id, "provider_account:openai:test");
+        assert_eq!(resolved.provider_kind, "openai");
+        assert_eq!(resolved.account_key, "test");
+        assert!(resolved.fallback_from.is_none());
+        assert!(resolved.fallback_reason.is_none());
+    }
+
+    #[tokio::test]
+    async fn falls_back_when_bound_provider_account_is_missing() {
+        let store = test_store().await;
+        insert_binding_row(
+            &store,
+            WEB_SEARCH_TOOL,
+            WEB_SEARCH_TOOL,
+            "provider_account:openai:missing",
+        )
+        .await;
+
+        let resolved = resolve_web_search_provider(&store).await.expect("resolve");
+
+        assert_eq!(
+            resolved.provider_account_id,
+            "provider_account:duckduckgo_public:system"
+        );
+        assert_eq!(
+            resolved.fallback_from.as_deref(),
+            Some("provider_account:openai:missing")
+        );
+        assert_eq!(
+            resolved.fallback_reason.as_deref(),
+            Some("bound provider account is no longer available")
+        );
+    }
+
+    #[tokio::test]
+    async fn falls_back_when_bound_account_lacks_requested_capability() {
+        let store = test_store().await;
+        let account = store
+            .ensure_default_provider_account()
+            .await
+            .expect("codex account");
+        insert_binding_row(
+            &store,
+            WEB_SEARCH_TOOL,
+            WEB_SEARCH_TOOL,
+            &account.provider_account_id,
+        )
+        .await;
+
+        let resolved = resolve_web_search_provider(&store).await.expect("resolve");
+
+        assert_eq!(
+            resolved.provider_account_id,
+            "provider_account:duckduckgo_public:system"
+        );
+        assert_eq!(
+            resolved.fallback_from.as_deref(),
+            Some(account.provider_account_id.as_str())
+        );
+        assert_eq!(
+            resolved.fallback_reason.as_deref(),
+            Some("bound provider account does not declare web.search")
+        );
+    }
+
+    #[tokio::test]
+    async fn falls_back_when_bound_capability_is_not_available() {
+        let store = test_store().await;
+        insert_provider_account(
+            &store,
+            "provider_account:openai:test",
+            "openai",
+            "test",
+            ProviderAccountStatus::Unknown,
+        )
+        .await;
+        store
+            .upsert_provider_capability_binding(
+                WEB_SEARCH_TOOL,
+                WEB_SEARCH_TOOL,
+                "provider_account:openai:test",
+            )
+            .await
+            .expect("save binding");
+
+        let resolved = resolve_web_search_provider(&store).await.expect("resolve");
+
+        assert_eq!(
+            resolved.provider_account_id,
+            "provider_account:duckduckgo_public:system"
+        );
+        assert_eq!(
+            resolved.fallback_from.as_deref(),
+            Some("provider_account:openai:test")
+        );
+        assert_eq!(
+            resolved.fallback_reason.as_deref(),
+            Some("bound provider capability web.search is account_dependent")
+        );
+    }
+
+    #[tokio::test]
+    async fn actor_accessor_uses_same_resolution_logic() {
+        let store = test_store().await;
+        insert_provider_account(
+            &store,
+            "provider_account:openai:test",
+            "openai",
+            "test",
+            ProviderAccountStatus::Authenticated,
+        )
+        .await;
+        store
+            .upsert_provider_capability_binding(
+                WEB_SEARCH_TOOL,
+                WEB_SEARCH_TOOL,
+                "provider_account:openai:test",
+            )
+            .await
+            .expect("save binding");
+        let actor = CodexRuntimeActor::new(
+            "codex".to_string(),
+            HashMap::new(),
+            store.clone(),
+            store.system_error_logger(),
+        )
+        .await
+        .expect("actor");
+
+        let resolved = actor.resolved_web_search_provider().await.expect("resolve");
+
+        assert_eq!(resolved.provider_account_id, "provider_account:openai:test");
+        assert_eq!(resolved.provider_kind, "openai");
+    }
+
+    #[tokio::test]
+    async fn fetch_actor_accessor_uses_same_resolution_logic() {
+        let store = test_store().await;
+        let actor = CodexRuntimeActor::new(
+            "codex".to_string(),
+            HashMap::new(),
+            store.clone(),
+            store.system_error_logger(),
+        )
+        .await
+        .expect("actor");
+
+        let resolved = actor.resolved_web_fetch_provider().await.expect("resolve");
+
+        assert_eq!(
+            resolved.provider_account_id,
+            "provider_account:direct_http:system"
+        );
+        assert_eq!(resolved.provider_kind, "direct_http");
+    }
+
+    async fn insert_provider_account(
+        store: &NoemaStore,
+        provider_account_id: &str,
+        provider_kind: &str,
+        account_key: &str,
+        status: ProviderAccountStatus,
+    ) {
+        let record_id = format!("{provider_kind}_{account_key}");
+        store
+            .db()
+            .query(
+                r#"
+                UPSERT type::record('provider_accounts', $record_id) SET
+                  provider_account_id = $provider_account_id,
+                  provider_kind = $provider_kind,
+                  account_key = $account_key,
+                  display_name = $display_name,
+                  auth_method = $auth_method,
+                  is_active = true,
+                  is_default = false,
+                  status = $status,
+                  metadata = {},
+                  updated_at = time::now();
+                "#,
+            )
+            .bind(("record_id", record_id))
+            .bind(("provider_account_id", provider_account_id.to_string()))
+            .bind(("provider_kind", provider_kind.to_string()))
+            .bind(("account_key", account_key.to_string()))
+            .bind(("display_name", format!("{provider_kind} {account_key}")))
+            .bind(("auth_method", ProviderAuthMethod::SecretInput.as_str().to_string()))
+            .bind(("status", status.as_str().to_string()))
+            .await
+            .expect("insert provider account")
+            .check()
+            .expect("provider account check");
+    }
+
+    async fn insert_binding_row(
+        store: &NoemaStore,
+        tool_name: &str,
+        capability_id: &str,
+        provider_account_id: &str,
+    ) {
+        let binding_id = format!("provider_capability_binding:{tool_name}:{capability_id}");
+        let record_id = format!("{}_{}", tool_name.replace('.', "_"), capability_id.replace('.', "_"));
+        store
+            .db()
+            .query(
+                r#"
+                UPSERT type::record('provider_capability_bindings', $record_id) SET
+                  binding_id = $binding_id,
+                  tool_name = $tool_name,
+                  capability_id = $capability_id,
+                  provider_account_id = $provider_account_id,
+                  updated_at = time::now();
+                "#,
+            )
+            .bind(("record_id", record_id))
+            .bind(("binding_id", binding_id))
+            .bind(("tool_name", tool_name.to_string()))
+            .bind(("capability_id", capability_id.to_string()))
+            .bind(("provider_account_id", provider_account_id.to_string()))
+            .await
+            .expect("insert binding")
+            .check()
+            .expect("binding check");
+    }
+
+    #[test]
+    fn provider_capability_status_strings_distinguish_available_and_account_dependent() {
+        assert_ne!(
+            ProviderCapabilityStatus::Available.as_str(),
+            ProviderCapabilityStatus::AccountDependent.as_str()
+        );
+        assert_eq!(CapabilityId::WebSearch.as_str(), WEB_SEARCH_TOOL);
+        assert_eq!(CapabilityId::WebFetch.as_str(), WEB_FETCH_TOOL);
+    }
+}

@@ -12,6 +12,7 @@ mod tool_lifecycle;
 pub(in crate::daemon) mod transcript_persistence;
 pub(in crate::daemon) mod turn;
 pub(crate) mod turn_timing;
+mod web_tools;
 
 pub(crate) use handle::CodexRuntimeHandle;
 pub use handle::RuntimeModelProvider;
