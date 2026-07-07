@@ -1,6 +1,13 @@
-use rusqlite::{OptionalExtension, params};
+use rusqlite::{OptionalExtension, TransactionBehavior, params};
 
-use super::{McpToolRecord, NewMcpTool, rows::mcp_tool_from_row};
+use super::{
+    McpToolRecord, NewMcpTool,
+    calibrations::{
+        invalidate_tool_calibration_review_on_connection,
+        update_mcp_server_enabled_from_calibrations_on_connection,
+    },
+    rows::mcp_tool_from_row,
+};
 use crate::store::{
     NoemaStore, StoreError,
     ids::now_string,
@@ -18,10 +25,6 @@ impl NoemaStore {
         tool: NewMcpTool,
     ) -> Result<McpToolRecord, StoreError> {
         let discovered_at = now_string();
-        let previous = self.get_mcp_tool(&tool.mcp_tool_id).await?;
-        let metadata_changed = previous
-            .as_ref()
-            .is_some_and(|existing| existing.metadata_fingerprint != tool.metadata_fingerprint);
         let input_schema_json = json_to_string(&tool.input_schema)?;
         let output_schema_json = tool
             .output_schema
@@ -31,7 +34,18 @@ impl NoemaStore {
         let annotations_json = json_to_string(&tool.annotations)?;
 
         self.with_connection(|conn| {
-            conn.execute(
+            let transaction = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            let previous = transaction
+                .query_row(
+                    "SELECT mcp_server_id, metadata_fingerprint FROM mcp_tools WHERE mcp_tool_id = ?1 LIMIT 1",
+                    params![&tool.mcp_tool_id],
+                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+                )
+                .optional()?;
+            let metadata_changed = previous
+                .as_ref()
+                .is_some_and(|(_, fingerprint)| fingerprint != &tool.metadata_fingerprint);
+            transaction.execute(
                 format!(
                     r#"
                     INSERT INTO mcp_tools (
@@ -55,30 +69,49 @@ impl NoemaStore {
                 )
                 .as_str(),
                 params![
-                    tool.mcp_tool_id,
-                    tool.mcp_server_id,
-                    tool.name,
-                    tool.description,
+                    &tool.mcp_tool_id,
+                    &tool.mcp_server_id,
+                    &tool.name,
+                    &tool.description,
                     input_schema_json,
                     output_schema_json,
                     annotations_json,
-                    tool.metadata_fingerprint,
+                    &tool.metadata_fingerprint,
                     discovered_at,
                 ],
             )?;
-            Ok(())
+            if metadata_changed {
+                invalidate_tool_calibration_review_on_connection(&transaction, &tool.mcp_tool_id)?;
+                if let Some((previous_server_id, _)) = previous.as_ref()
+                    && previous_server_id != &tool.mcp_server_id
+                {
+                    update_mcp_server_enabled_from_calibrations_on_connection(
+                        &transaction,
+                        previous_server_id,
+                    )?;
+                }
+                update_mcp_server_enabled_from_calibrations_on_connection(
+                    &transaction,
+                    &tool.mcp_server_id,
+                )?;
+            }
+            let saved = transaction
+                .query_row(
+                    MCP_TOOL_SELECT_BY_ID,
+                    params![&tool.mcp_tool_id],
+                    mcp_tool_from_row,
+                )
+                .optional()?
+                .ok_or_else(|| {
+                    StoreError::Schema(format!(
+                        "missing MCP tool after upsert: {}",
+                        tool.mcp_tool_id
+                    ))
+                })?;
+            transaction.commit()?;
+            Ok(saved)
         })
-        .await?;
-        if metadata_changed {
-            self.invalidate_tool_calibration_review(&tool.mcp_tool_id)
-                .await?;
-        }
-        self.get_mcp_tool(&tool.mcp_tool_id).await?.ok_or_else(|| {
-            StoreError::Schema(format!(
-                "missing MCP tool after upsert: {}",
-                tool.mcp_tool_id
-            ))
-        })
+        .await
     }
 
     /// Return one MCP tool by durable id.

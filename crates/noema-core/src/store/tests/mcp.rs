@@ -525,6 +525,56 @@ async fn batch_calibration_rolls_back_saved_rows_and_enabled_state_on_mid_batch_
 }
 
 #[tokio::test]
+async fn batch_calibration_rolls_back_after_partial_write_failure() {
+    let store = test_store_with_mcp_tool().await;
+    upsert_google_tool(&store, "write_doc", json!({}), "fingerprint_write").await;
+
+    let error = store
+        .save_tool_calibrations(vec![
+            ready_google_calibration(
+                "read_doc",
+                "read_doc",
+                McpTrustClassification::Trusted,
+                McpTrustClassification::None,
+                "fingerprint_1",
+            ),
+            ready_google_calibration(
+                "write_doc",
+                "write_doc",
+                McpTrustClassification::None,
+                McpTrustClassification::Trusted,
+                "stale_fingerprint",
+            ),
+        ])
+        .await
+        .expect_err("stale second calibration should fail whole batch");
+
+    assert!(error.to_string().contains("does not match current"));
+    assert!(
+        store
+            .get_tool_calibration("mcp_tool:google:read_doc")
+            .await
+            .expect("read calibration")
+            .is_none()
+    );
+    assert!(
+        store
+            .get_tool_calibration("mcp_tool:google:write_doc")
+            .await
+            .expect("write calibration")
+            .is_none()
+    );
+    assert!(
+        !store
+            .get_mcp_server("mcp_server:google")
+            .await
+            .expect("get server")
+            .expect("server")
+            .enabled
+    );
+}
+
+#[tokio::test]
 async fn calibration_id_cannot_move_between_tools() {
     let store = test_store_with_mcp_tool().await;
     upsert_google_tool(
@@ -578,6 +628,14 @@ async fn rediscovered_tool_metadata_invalidates_reviewed_calibration() {
     assert_eq!(calibration.status, McpCalibrationStatus::NeedsReview);
     assert_eq!(calibration.reviewed_by, None);
     assert_eq!(calibration.reviewed_metadata_fingerprint, None);
+    assert!(
+        !store
+            .get_mcp_server("mcp_server:google")
+            .await
+            .expect("get server")
+            .expect("server")
+            .enabled
+    );
 }
 
 #[tokio::test]

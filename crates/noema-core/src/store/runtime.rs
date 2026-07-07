@@ -94,10 +94,10 @@ impl NoemaStore {
 
     pub(crate) async fn with_connection<T>(
         &self,
-        work: impl FnOnce(&Connection) -> Result<T, StoreError>,
+        work: impl FnOnce(&mut Connection) -> Result<T, StoreError>,
     ) -> Result<T, StoreError> {
-        let conn = self.conn.lock().await;
-        work(&conn)
+        let mut conn = self.conn.lock().await;
+        work(&mut conn)
     }
 
     /// Return the private home directory for one MCP server.

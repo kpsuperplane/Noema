@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use rusqlite::{OptionalExtension, params};
+use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 
 use super::{NewToolCalibration, ToolCalibrationRecord, rows::tool_calibration_from_row};
 use crate::{
@@ -22,69 +22,11 @@ impl NoemaStore {
         &self,
         calibration: NewToolCalibration,
     ) -> Result<ToolCalibrationRecord, StoreError> {
-        self.validate_tool_calibration(&calibration).await?;
-        let mcp_tool_id = calibration.mcp_tool_id.clone();
-        let saved = self.write_tool_calibration_row(&calibration).await?;
-        if let Some(tool) = self.get_mcp_tool(&mcp_tool_id).await? {
-            self.update_mcp_server_enabled_from_calibrations(&tool.mcp_server_id)
-                .await?;
-        }
-        Ok(saved)
-    }
-
-    async fn write_tool_calibration_row(
-        &self,
-        calibration: &NewToolCalibration,
-    ) -> Result<ToolCalibrationRecord, StoreError> {
-        let mcp_tool_id = calibration.mcp_tool_id.clone();
-        let owner_extractors_json = serialize_json(&calibration.owner_extractors)?;
-        self.with_connection(|conn| {
-            conn.execute(
-                format!(
-                    r#"
-                    INSERT INTO tool_calibrations (
-                      calibration_id, mcp_tool_id, read_classification,
-                      write_classification, export_classification, owner_extractors_json,
-                      status, reviewed_by, reviewed_metadata_fingerprint, updated_at
-                    )
-                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, {})
-                    ON CONFLICT(calibration_id) DO UPDATE SET
-                      mcp_tool_id = excluded.mcp_tool_id,
-                      read_classification = excluded.read_classification,
-                      write_classification = excluded.write_classification,
-                      export_classification = excluded.export_classification,
-                      owner_extractors_json = excluded.owner_extractors_json,
-                      status = excluded.status,
-                      reviewed_by = excluded.reviewed_by,
-                      reviewed_metadata_fingerprint = excluded.reviewed_metadata_fingerprint,
-                      updated_at = excluded.updated_at
-                    "#,
-                    now_timestamp_sql()
-                )
-                .as_str(),
-                params![
-                    calibration.calibration_id,
-                    calibration.mcp_tool_id,
-                    calibration.read_classification.as_str(),
-                    calibration.write_classification.as_str(),
-                    calibration.export_classification.as_str(),
-                    owner_extractors_json,
-                    calibration.status.as_str(),
-                    calibration.reviewed_by,
-                    calibration.reviewed_metadata_fingerprint,
-                ],
-            )?;
-            Ok(())
-        })
-        .await?;
-        self.get_tool_calibration(&mcp_tool_id)
+        self.save_tool_calibrations(vec![calibration])
             .await?
-            .ok_or_else(|| {
-                StoreError::Schema(format!(
-                    "missing tool calibration after save: {}",
-                    mcp_tool_id
-                ))
-            })
+            .into_iter()
+            .next()
+            .ok_or_else(|| StoreError::Schema("missing tool calibration after save".to_string()))
     }
 
     /// Save reviewed calibrations for multiple MCP tools after validating the full batch.
@@ -99,183 +41,40 @@ impl NoemaStore {
         calibrations: Vec<NewToolCalibration>,
     ) -> Result<Vec<ToolCalibrationRecord>, StoreError> {
         reject_duplicate_calibrations_in_batch(&calibrations)?;
-        for calibration in &calibrations {
-            self.validate_tool_calibration(calibration).await?;
-        }
-
-        let mut server_ids = BTreeSet::new();
-        for calibration in &calibrations {
-            if let Some(tool) = self.get_mcp_tool(&calibration.mcp_tool_id).await? {
-                server_ids.insert(tool.mcp_server_id);
-            }
-        }
-
-        let mut saved = Vec::with_capacity(calibrations.len());
-        for calibration in &calibrations {
-            saved.push(self.write_tool_calibration_row(calibration).await?);
-        }
-
-        for server_id in server_ids {
-            self.update_mcp_server_enabled_from_calibrations(&server_id)
-                .await?;
-        }
-        Ok(saved)
-    }
-
-    async fn update_mcp_server_enabled_from_calibrations(
-        &self,
-        mcp_server_id: &str,
-    ) -> Result<(), StoreError> {
-        let tools = self.list_mcp_tools_for_server(mcp_server_id).await?;
-        let mut enabled = false;
-        for tool in tools {
-            if self
-                .get_tool_calibration(&tool.mcp_tool_id)
-                .await?
-                .is_some_and(|calibration| calibration.status == McpCalibrationStatus::Ready)
-            {
-                enabled = true;
-                break;
-            }
-        }
         self.with_connection(|conn| {
-            conn.execute(
-                format!(
-                    r#"
-                    UPDATE mcp_servers SET
-                      enabled = ?2,
-                      updated_at = {}
-                    WHERE mcp_server_id = ?1
-                    "#,
-                    now_timestamp_sql()
-                )
-                .as_str(),
-                params![mcp_server_id, super::rows::bool_to_i64(enabled)],
-            )?;
-            Ok(())
-        })
-        .await
-    }
+            let transaction = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            let mut server_ids = BTreeSet::new();
+            for calibration in &calibrations {
+                let mcp_server_id =
+                    validate_tool_calibration_on_connection(&transaction, calibration)?;
+                server_ids.insert(mcp_server_id);
+            }
 
-    async fn validate_tool_calibration(
-        &self,
-        calibration: &NewToolCalibration,
-    ) -> Result<(), StoreError> {
-        let tool = self
-            .get_mcp_tool(&calibration.mcp_tool_id)
-            .await?
-            .ok_or_else(|| {
-                StoreError::Schema(format!(
-                    "cannot calibrate missing MCP tool: {}",
-                    calibration.mcp_tool_id
-                ))
-            })?;
-
-        if let Some(existing) = self
-            .get_tool_calibration_by_calibration_id(&calibration.calibration_id)
-            .await?
-            && existing.mcp_tool_id != calibration.mcp_tool_id
-        {
-            return Err(StoreError::Schema(format!(
-                "tool calibration {} already belongs to {}",
-                calibration.calibration_id, existing.mcp_tool_id
-            )));
-        }
-
-        if let Some(existing) = self.get_tool_calibration(&calibration.mcp_tool_id).await?
-            && existing.calibration_id != calibration.calibration_id
-        {
-            return Err(StoreError::Schema(format!(
-                "MCP tool {} already has calibration {}",
-                calibration.mcp_tool_id, existing.calibration_id
-            )));
-        }
-
-        if calibration.status.requires_reviewed_metadata() {
-            calibration
-                .reviewed_by
-                .as_deref()
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
+            let mut saved = Vec::with_capacity(calibrations.len());
+            for calibration in &calibrations {
+                write_tool_calibration_row(&transaction, calibration)?;
+                let saved_calibration = get_tool_calibration_on_connection(
+                    &transaction,
+                    TOOL_CALIBRATION_SELECT_BY_TOOL_ID,
+                    &calibration.mcp_tool_id,
+                )?
                 .ok_or_else(|| {
-                    StoreError::Schema(
-                        "reviewed MCP tool calibration requires reviewed_by".to_string(),
-                    )
+                    StoreError::Schema(format!(
+                        "missing tool calibration after save: {}",
+                        calibration.mcp_tool_id
+                    ))
                 })?;
-            let reviewed_fingerprint = calibration
-                .reviewed_metadata_fingerprint
-                .as_deref()
-                .ok_or_else(|| {
-                    StoreError::Schema(
-                        "reviewed MCP tool calibration requires reviewed_metadata_fingerprint"
-                            .to_string(),
-                    )
-                })?;
-            if reviewed_fingerprint != tool.metadata_fingerprint {
-                return Err(StoreError::Schema(format!(
-                    "reviewed metadata fingerprint does not match current MCP tool metadata for {}",
-                    calibration.mcp_tool_id
-                )));
+                saved.push(saved_calibration);
             }
-            if calibration.status == McpCalibrationStatus::Ready
-                && !calibration.has_enabled_classification()
-            {
-                return Err(StoreError::Schema(format!(
-                    "ready MCP tool calibration requires at least one non-none classification: {}",
-                    calibration.mcp_tool_id
-                )));
+
+            for server_id in server_ids {
+                update_mcp_server_enabled_from_calibrations_on_connection(
+                    &transaction,
+                    &server_id,
+                )?;
             }
-            if calibration.status == McpCalibrationStatus::Ready
-                && calibration.has_mixed_classification()
-                && calibration.owner_extractors.is_empty()
-            {
-                return Err(StoreError::Schema(format!(
-                    "ready mixed MCP tool calibration requires an owner extractor: {}",
-                    calibration.mcp_tool_id
-                )));
-            }
-        }
-
-        Ok(())
-    }
-
-    async fn get_tool_calibration_by_calibration_id(
-        &self,
-        calibration_id: &str,
-    ) -> Result<Option<ToolCalibrationRecord>, StoreError> {
-        self.with_connection(|conn| {
-            conn.query_row(
-                TOOL_CALIBRATION_SELECT_BY_CALIBRATION_ID,
-                params![calibration_id],
-                tool_calibration_from_row,
-            )
-            .optional()
-            .map_err(StoreError::Sqlite)
-        })
-        .await
-    }
-
-    pub(super) async fn invalidate_tool_calibration_review(
-        &self,
-        mcp_tool_id: &str,
-    ) -> Result<(), StoreError> {
-        self.with_connection(|conn| {
-            conn.execute(
-                format!(
-                    r#"
-                    UPDATE tool_calibrations SET
-                      status = 'needs_review',
-                      reviewed_by = NULL,
-                      reviewed_metadata_fingerprint = NULL,
-                      updated_at = {}
-                    WHERE mcp_tool_id = ?1
-                    "#,
-                    now_timestamp_sql()
-                )
-                .as_str(),
-                params![mcp_tool_id],
-            )?;
-            Ok(())
+            transaction.commit()?;
+            Ok(saved)
         })
         .await
     }
@@ -301,6 +100,203 @@ impl NoemaStore {
         })
         .await
     }
+}
+
+pub(super) fn invalidate_tool_calibration_review_on_connection(
+    conn: &Connection,
+    mcp_tool_id: &str,
+) -> Result<(), StoreError> {
+    conn.execute(
+        format!(
+            r#"
+            UPDATE tool_calibrations SET
+              status = 'needs_review',
+              reviewed_by = NULL,
+              reviewed_metadata_fingerprint = NULL,
+              updated_at = {}
+            WHERE mcp_tool_id = ?1
+            "#,
+            now_timestamp_sql()
+        )
+        .as_str(),
+        params![mcp_tool_id],
+    )?;
+    Ok(())
+}
+
+pub(super) fn update_mcp_server_enabled_from_calibrations_on_connection(
+    conn: &Connection,
+    mcp_server_id: &str,
+) -> Result<(), StoreError> {
+    let enabled = conn.query_row(
+        r#"
+        SELECT EXISTS (
+          SELECT 1
+          FROM mcp_tools t
+          JOIN tool_calibrations c ON c.mcp_tool_id = t.mcp_tool_id
+          WHERE t.mcp_server_id = ?1
+            AND c.status = 'ready'
+          LIMIT 1
+        )
+        "#,
+        params![mcp_server_id],
+        |row| row.get::<_, i64>(0),
+    )? != 0;
+    conn.execute(
+        format!(
+            r#"
+            UPDATE mcp_servers SET
+              enabled = ?2,
+              updated_at = {}
+            WHERE mcp_server_id = ?1
+            "#,
+            now_timestamp_sql()
+        )
+        .as_str(),
+        params![mcp_server_id, super::rows::bool_to_i64(enabled)],
+    )?;
+    Ok(())
+}
+
+fn write_tool_calibration_row(
+    conn: &Connection,
+    calibration: &NewToolCalibration,
+) -> Result<(), StoreError> {
+    let owner_extractors_json = serialize_json(&calibration.owner_extractors)?;
+    conn.execute(
+        format!(
+            r#"
+            INSERT INTO tool_calibrations (
+              calibration_id, mcp_tool_id, read_classification,
+              write_classification, export_classification, owner_extractors_json,
+              status, reviewed_by, reviewed_metadata_fingerprint, updated_at
+            )
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, {})
+            ON CONFLICT(calibration_id) DO UPDATE SET
+              mcp_tool_id = excluded.mcp_tool_id,
+              read_classification = excluded.read_classification,
+              write_classification = excluded.write_classification,
+              export_classification = excluded.export_classification,
+              owner_extractors_json = excluded.owner_extractors_json,
+              status = excluded.status,
+              reviewed_by = excluded.reviewed_by,
+              reviewed_metadata_fingerprint = excluded.reviewed_metadata_fingerprint,
+              updated_at = excluded.updated_at
+            "#,
+            now_timestamp_sql()
+        )
+        .as_str(),
+        params![
+            calibration.calibration_id,
+            calibration.mcp_tool_id,
+            calibration.read_classification.as_str(),
+            calibration.write_classification.as_str(),
+            calibration.export_classification.as_str(),
+            owner_extractors_json,
+            calibration.status.as_str(),
+            calibration.reviewed_by,
+            calibration.reviewed_metadata_fingerprint,
+        ],
+    )?;
+    Ok(())
+}
+
+fn validate_tool_calibration_on_connection(
+    conn: &Connection,
+    calibration: &NewToolCalibration,
+) -> Result<String, StoreError> {
+    let tool = conn
+        .query_row(
+            "SELECT mcp_server_id, metadata_fingerprint FROM mcp_tools WHERE mcp_tool_id = ?1 LIMIT 1",
+            params![calibration.mcp_tool_id],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+        )
+        .optional()?
+        .ok_or_else(|| {
+            StoreError::Schema(format!(
+                "cannot calibrate missing MCP tool: {}",
+                calibration.mcp_tool_id
+            ))
+        })?;
+
+    if let Some(existing) = get_tool_calibration_on_connection(
+        conn,
+        TOOL_CALIBRATION_SELECT_BY_CALIBRATION_ID,
+        &calibration.calibration_id,
+    )? && existing.mcp_tool_id != calibration.mcp_tool_id
+    {
+        return Err(StoreError::Schema(format!(
+            "tool calibration {} already belongs to {}",
+            calibration.calibration_id, existing.mcp_tool_id
+        )));
+    }
+
+    if let Some(existing) = get_tool_calibration_on_connection(
+        conn,
+        TOOL_CALIBRATION_SELECT_BY_TOOL_ID,
+        &calibration.mcp_tool_id,
+    )? && existing.calibration_id != calibration.calibration_id
+    {
+        return Err(StoreError::Schema(format!(
+            "MCP tool {} already has calibration {}",
+            calibration.mcp_tool_id, existing.calibration_id
+        )));
+    }
+
+    if calibration.status.requires_reviewed_metadata() {
+        calibration
+            .reviewed_by
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                StoreError::Schema("reviewed MCP tool calibration requires reviewed_by".to_string())
+            })?;
+        let reviewed_fingerprint = calibration
+            .reviewed_metadata_fingerprint
+            .as_deref()
+            .ok_or_else(|| {
+                StoreError::Schema(
+                    "reviewed MCP tool calibration requires reviewed_metadata_fingerprint"
+                        .to_string(),
+                )
+            })?;
+        if reviewed_fingerprint != tool.1 {
+            return Err(StoreError::Schema(format!(
+                "reviewed metadata fingerprint does not match current MCP tool metadata for {}",
+                calibration.mcp_tool_id
+            )));
+        }
+        if calibration.status == McpCalibrationStatus::Ready
+            && !calibration.has_enabled_classification()
+        {
+            return Err(StoreError::Schema(format!(
+                "ready MCP tool calibration requires at least one non-none classification: {}",
+                calibration.mcp_tool_id
+            )));
+        }
+        if calibration.status == McpCalibrationStatus::Ready
+            && calibration.has_mixed_classification()
+            && calibration.owner_extractors.is_empty()
+        {
+            return Err(StoreError::Schema(format!(
+                "ready mixed MCP tool calibration requires an owner extractor: {}",
+                calibration.mcp_tool_id
+            )));
+        }
+    }
+
+    Ok(tool.0)
+}
+
+fn get_tool_calibration_on_connection(
+    conn: &Connection,
+    sql: &str,
+    id: &str,
+) -> Result<Option<ToolCalibrationRecord>, StoreError> {
+    conn.query_row(sql, params![id], tool_calibration_from_row)
+        .optional()
+        .map_err(StoreError::Sqlite)
 }
 
 const TOOL_CALIBRATION_SELECT_BY_CALIBRATION_ID: &str = r#"
