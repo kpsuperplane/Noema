@@ -27,12 +27,21 @@ body {
 
 button,
 [role="button"],
+[role="checkbox"],
+[role="combobox"],
+[role="menuitem"],
+[role="option"],
+[role="radio"],
+[role="switch"],
+[role="tab"],
+label,
+select,
 summary {
-  cursor: default;
+  cursor: default !important;
 }
 
 a[href] {
-  cursor: pointer;
+  cursor: pointer !important;
 }
 
 @media (hover: none) and (pointer: coarse) {

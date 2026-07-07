@@ -105,7 +105,6 @@ const styles = stylex.create({
     borderWidth: 0,
     backgroundColor: "transparent",
     color: "var(--noema-text-secondary)",
-    cursor: "pointer",
     font: "inherit",
     paddingBlock: 4,
     paddingInline: 8,

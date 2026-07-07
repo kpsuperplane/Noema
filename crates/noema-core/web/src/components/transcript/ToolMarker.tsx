@@ -77,7 +77,6 @@ const styles = stylex.create({
     transitionProperty: "opacity"
   },
   rowButton: {
-    cursor: "pointer",
     ":hover": {
       opacity: 0.72
     }
