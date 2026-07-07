@@ -15,8 +15,8 @@ This slice includes:
 
 - Provider kind `exa`.
 - Exa capability declaration for `web.search` and `web.fetch`.
-- A default Exa provider account metadata path derived from `EXA_API_KEY`
-  availability.
+- A default Exa provider account visible in provider settings.
+- Secret input from Settings for Exa's API key.
 - Runtime Exa adapters for search and fetch.
 - Web tool binding support through the existing GraphQL and Settings surfaces.
 - Focused unit tests for capability declaration, provider resolution, request
@@ -24,10 +24,11 @@ This slice includes:
 
 This slice does not include:
 
-- A new secret-entry UI.
 - Multiple Exa accounts.
 - Exa crawl, research, answer, Websets, monitors, or MCP support.
 - New model-visible tool arguments for provider selection.
+- A generalized multi-field credential framework beyond the narrow
+  `secret_input` provider account path needed for Exa.
 
 ## External API Shape
 
@@ -47,15 +48,16 @@ content result into markdown-like text using Exa's `text` field.
 Exa is a provider because it supplies useful capabilities to Noema. It is not a
 model provider in this slice.
 
-The default account metadata is:
+The default account metadata is always exposed so the user has somewhere to
+enter credentials:
 
 - `provider_account_id`: `provider_account:exa:default`
 - `provider_kind`: `exa`
 - `account_key`: `default`
 - `display_name`: `Exa`
 - `auth_method`: `secret_input`
-- `status`: `authenticated` when `EXA_API_KEY` is non-empty, otherwise
-  `unauthenticated`
+- `status`: `authenticated` when a saved Exa key or non-empty `EXA_API_KEY`
+  is available, otherwise `unauthenticated`
 
 The account declares:
 
@@ -92,31 +94,68 @@ safe existing error categories without exposing Exa response bodies.
 
 ## Credential Handling
 
-Use `EXA_API_KEY` for this slice. The key is read from process environment at
-runtime and is not persisted in SurrealDB.
+Settings can save, replace, and clear the Exa API key for
+`provider_account:exa:default`. The key is stored under the provider account
+home, not in SurrealDB:
+
+```text
+${NOEMA_HOME:-$HOME/.noema}/providers/exa/default/api_key.json
+```
+
+The file should be created with the same private account-home behavior used by
+other Noema-owned provider credentials. The JSON shape can stay minimal:
+
+```json
+{ "api_key": "..." }
+```
+
+Runtime credential resolution checks the saved provider-account key first, then
+falls back to `EXA_API_KEY` for developer convenience and existing terminal
+workflows. SurrealDB stores only non-secret account metadata and status.
 
 The implementation must not log, persist, or surface the key. Tests may use
 fake values such as `secret`.
 
-This keeps the feature shippable while leaving first-class secret input and
-provider-account credential storage for a later provider-auth slice.
+Saving a non-empty key writes it and marks the account `authenticated` as
+credential-present. Noema should not perform a save-time Exa probe because the
+current Exa docs do not expose a free status endpoint, and probing search or
+contents could spend credits. Runtime `401` or `403` responses should update
+the account to `unauthenticated` with a safe error code/message. Clearing the
+key should remove the secret file and mark the account authenticated only if
+`EXA_API_KEY` is still available; otherwise it should mark the account
+unauthenticated.
 
 ## Settings And GraphQL
 
-The existing `webToolSettings` query and `saveWebToolProviderBinding` mutation
-should work without schema changes once the Exa provider account and
-capabilities exist.
+Add small GraphQL mutations for `secret_input` provider accounts, scoped to the
+selected provider account:
 
-Settings should show Exa as a selectable option for Search and Fetch when
-`EXA_API_KEY` is available. If an already-saved Exa binding later becomes
-unauthenticated because the environment key is missing, the runtime should fall
-back through the existing safe fallback metadata.
+- `saveProviderSecretInput(providerAccountId, secret)`
+- `clearProviderSecret(providerAccountId)`
+
+The mutations must validate that the target account exists, is active, and uses
+`secret_input`. For this slice, only `provider_kind = "exa"` is supported. The
+save resolver rejects blank secrets, writes the secret file, updates safe
+provider status metadata, and returns the refreshed `ProviderAccount`.
+
+`providerAccounts` should expose Exa in `/settings/system/providers` whether
+or not a key is configured. The UI should render a password input and Save
+button for Exa's `secret_input` account, plus a clear/remove action when a
+saved key exists. The UI must never echo the saved secret. It can show only
+status, last checked time, and safe provider error text.
+
+The existing `webToolSettings` query and `saveWebToolProviderBinding` mutation
+should continue to own Search and Fetch provider selection. Exa should be a
+selectable Search and Fetch provider when its capability status is available.
+If Exa is unauthenticated, it can still appear in provider settings for setup,
+but web tool provider selection should disable it using the existing disabled
+option model and a safe disabled reason.
 
 ## Security And Privacy
 
-`web.search` sends the search query to Exa. `web.fetch` sends the requested URL
-to Exa and receives extracted page text. The provider capability metadata should
-make these data flows visible.
+`web.search` sends the search query to Exa. `web.fetch` sends the requested
+URL to Exa and receives extracted page text. The provider capability metadata
+should make these data flows visible.
 
 Noema's existing `web.fetch` URL validation remains authoritative before
 runtime execution. Exa fetch must not weaken scheme, private-address,
@@ -126,12 +165,22 @@ Search and fetch normalization must avoid storing raw provider response bodies
 inside transcript display metadata. Normalized payloads may include only the
 existing tool result fields.
 
+Secret-input handling must treat API keys as write-only. GraphQL responses,
+frontend state persisted outside React memory, logs, transcript metadata,
+provider metadata, and test snapshots must not contain the key.
+
 ## Testing
 
 Focused tests should cover:
 
 - Exa capabilities include both `web.search` and `web.fetch`.
-- Exa account status derives from `EXA_API_KEY` without persisting the secret.
+- Exa account is listed even when no key is configured.
+- Exa account status derives from saved secret or `EXA_API_KEY` without
+  persisting the secret in SurrealDB.
+- Settings secret save writes the provider-account secret file, rejects blank
+  input, updates safe status metadata, and does not return the secret.
+- Settings secret clear removes the provider-account secret file and updates
+  safe status metadata.
 - `webToolSettings` exposes Exa as a provider option when authenticated.
 - Exa search request serialization uses `/search`, `x-api-key`, query, and
   `numResults`.
