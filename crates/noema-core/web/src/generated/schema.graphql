@@ -246,6 +246,14 @@ type AutofillToolCalibrationsResult {
 	suggestions: [ToolCalibrationSuggestion!]!
 }
 
+type CapabilityFeatures {
+	citations: Boolean!
+	directUrlFetch: Boolean!
+	jsRendering: Boolean!
+	authenticatedContext: Boolean!
+	resultPersistence: String!
+}
+
 """
 Continue setup after adding authentication material.
 """
@@ -1381,6 +1389,10 @@ type ProviderAccount {
 	Last non-secret provider error message.
 	"""
 	lastErrorMessage: String
+	"""
+	Provider capabilities available through this account.
+	"""
+	capabilities: [ProviderCapability!]!
 }
 
 """
@@ -1505,6 +1517,17 @@ enum ProviderAuthMethod {
 	No auth required.
 	"""
 	NONE
+}
+
+"""
+Provider capability metadata safe to show in Settings.
+"""
+type ProviderCapability {
+	capabilityId: String!
+	status: String!
+	reliabilityContract: String!
+	dataFlowClass: String!
+	features: CapabilityFeatures!
 }
 
 type QueryRoot {

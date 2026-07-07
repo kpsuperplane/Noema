@@ -13,7 +13,7 @@ use super::{
     errors::graphql_error, onboarding::GraphqlProviderAccountStatus, schema::GraphqlState,
 };
 
-/// Provider account metadata safe to show in Settings.
+/// Provider capability metadata safe to show in Settings.
 #[derive(Clone, Debug, SimpleObject)]
 #[graphql(name = "ProviderCapability")]
 pub struct GraphqlProviderCapability {
@@ -55,6 +55,7 @@ impl From<ProviderCapability> for GraphqlProviderCapability {
     }
 }
 
+/// Provider account metadata safe to show in Settings.
 #[derive(Clone, Debug, SimpleObject)]
 #[graphql(name = "ProviderAccount")]
 pub struct GraphqlProviderAccount {
