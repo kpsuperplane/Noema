@@ -3,6 +3,8 @@
 #[doc(hidden)]
 pub mod direct_http;
 #[doc(hidden)]
+pub mod exa;
+#[doc(hidden)]
 pub mod extraction;
 #[doc(hidden)]
 pub mod summarize;

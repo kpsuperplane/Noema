@@ -101,6 +101,9 @@ pub enum WebFetchRuntimeProvider {
     DirectHttp {
         client: DirectHttpClient,
     },
+    Exa {
+        client: crate::web_fetch::exa::ExaFetchClient,
+    },
     #[cfg(test)]
     Static {
         response: Box<FetchResponse>,
@@ -125,6 +128,7 @@ impl WebFetchRuntimeProvider {
             Self::DirectHttp { client } => {
                 crate::web_fetch::direct_http::fetch_direct_http(client, request, context).await
             }
+            Self::Exa { client } => crate::web_fetch::exa::fetch_exa(client, request).await,
             #[cfg(test)]
             Self::Static { response } => {
                 let mut response = response.as_ref().clone();
