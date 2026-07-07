@@ -1134,6 +1134,10 @@ type MutationRoot {
 	"""
 	saveWebFetchSummarizerPreference(input: SaveWebFetchSummarizerPreferenceInput!): AgentModelPreference!
 	"""
+	Save the provider binding for one web tool capability.
+	"""
+	saveWebToolProviderBinding(input: SaveWebToolProviderBindingInput!): WebToolBindingSettings!
+	"""
 	Save the tool progress audit model/provider preference.
 	"""
 	saveToolProgressAuditPreference(input: SaveToolProgressAuditPreferenceInput!): AgentModelPreference!
@@ -1556,6 +1560,10 @@ type QueryRoot {
 	"""
 	webFetchSettings: WebFetchSettings!
 	"""
+	Return web tool provider bindings safe to show in Settings.
+	"""
+	webToolSettings: WebToolSettings!
+	"""
 	Return Safety usage settings safe to show in Settings.
 	"""
 	usageSettings: UsageSettings!
@@ -1695,6 +1703,12 @@ input SaveWebFetchSummarizerPreferenceInput {
 	Provider-specific model id or profile id.
 	"""
 	modelProfile: String!
+}
+
+input SaveWebToolProviderBindingInput {
+	toolName: String!
+	capabilityId: String!
+	providerAccountId: String!
 }
 
 """
@@ -1995,6 +2009,30 @@ type WebFetchSummarizerSettings {
 	Provider/profile options available for the summarizer.
 	"""
 	modelOptions: [AgentModelProviderOption!]!
+}
+
+type WebToolBindingSettings {
+	toolName: String!
+	capabilityId: String!
+	activeProviderAccountId: String!
+	providerOptions: [WebToolProviderOption!]!
+}
+
+type WebToolProviderOption {
+	providerAccountId: String!
+	providerKind: String!
+	accountKey: String!
+	displayName: String!
+	capabilityId: String!
+	reliabilityContract: String!
+	dataFlowClass: String!
+	citations: Boolean!
+	directUrlFetch: Boolean!
+}
+
+type WebToolSettings {
+	search: WebToolBindingSettings!
+	fetch: WebToolBindingSettings!
 }
 
 """

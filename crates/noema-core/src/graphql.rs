@@ -18,6 +18,7 @@ mod schema;
 mod subscriptions;
 mod usage_settings;
 mod web_fetch_settings;
+mod web_tool_settings;
 
 pub use mcp::complete_mcp_server_oauth_setup;
 pub(crate) use runtime_state::GraphqlRuntimeState;

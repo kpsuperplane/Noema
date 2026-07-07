@@ -40,6 +40,10 @@ use super::{
     web_fetch_settings::{
         self, GraphqlSaveWebFetchSummarizerPreferenceInput, GraphqlWebFetchSettings,
     },
+    web_tool_settings::{
+        self, GraphqlSaveWebToolProviderBindingInput, GraphqlWebToolBindingSettings,
+        GraphqlWebToolSettings,
+    },
 };
 
 const _: fn(GraphqlProviderCapability, GraphqlCapabilityFeatures) = |_, _| {};
@@ -383,6 +387,12 @@ impl QueryRoot {
         web_fetch_settings::web_fetch_settings(state).await
     }
 
+    /// Return web tool provider bindings safe to show in Settings.
+    async fn web_tool_settings(&self, ctx: &Context<'_>) -> Result<GraphqlWebToolSettings> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        web_tool_settings::web_tool_settings(state).await
+    }
+
     /// Return Safety usage settings safe to show in Settings.
     async fn usage_settings(&self, ctx: &Context<'_>) -> Result<GraphqlUsageSettings> {
         let state = ctx.data_unchecked::<GraphqlState>();
@@ -542,6 +552,16 @@ impl MutationRoot {
     ) -> Result<GraphqlAgentModelPreference> {
         let state = ctx.data_unchecked::<GraphqlState>();
         web_fetch_settings::save_web_fetch_summarizer_preference(state, input).await
+    }
+
+    /// Save the provider binding for one web tool capability.
+    async fn save_web_tool_provider_binding(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlSaveWebToolProviderBindingInput,
+    ) -> Result<GraphqlWebToolBindingSettings> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        web_tool_settings::save_web_tool_provider_binding(state, input).await
     }
 
     /// Save the tool progress audit model/provider preference.
@@ -719,8 +739,14 @@ mod tests {
         assert!(sdl.contains("webFetchSettings"));
         assert!(sdl.contains("type WebFetchSettings"));
         assert!(sdl.contains("type WebFetchSummarizerSettings"));
+        assert!(sdl.contains("webToolSettings"));
+        assert!(sdl.contains("type WebToolSettings"));
+        assert!(sdl.contains("type WebToolBindingSettings"));
+        assert!(sdl.contains("type WebToolProviderOption"));
         assert!(sdl.contains("saveWebFetchSummarizerPreference"));
         assert!(sdl.contains("SaveWebFetchSummarizerPreferenceInput"));
+        assert!(sdl.contains("saveWebToolProviderBinding"));
+        assert!(sdl.contains("SaveWebToolProviderBindingInput"));
         assert!(sdl.contains("agentId"));
         assert!(sdl.contains("displayName"));
         assert!(sdl.contains("isPrimary"));
@@ -1100,6 +1126,120 @@ mod tests {
         assert_eq!(
             summarizer["modelOptions"][0]["profiles"][0]["id"],
             "gpt-5.4-mini"
+        );
+    }
+
+    #[tokio::test]
+    async fn web_tool_settings_query_returns_default_system_bindings() {
+        use crate::store::tests::test_store;
+
+        let store = test_store().await;
+        let schema = build_schema(GraphqlState::for_tests_with_store(store));
+        let response = schema
+            .execute(async_graphql::Request::new(
+                r#"
+                {
+                  webToolSettings {
+                    search {
+                      toolName
+                      capabilityId
+                      activeProviderAccountId
+                      providerOptions {
+                        providerAccountId
+                        providerKind
+                      }
+                    }
+                    fetch {
+                      toolName
+                      capabilityId
+                      activeProviderAccountId
+                      providerOptions {
+                        providerAccountId
+                        providerKind
+                      }
+                    }
+                  }
+                }
+                "#,
+            ))
+            .await;
+
+        assert!(response.errors.is_empty(), "{:?}", response.errors);
+        let data = response.data.into_json().expect("json");
+        assert_eq!(
+            data["webToolSettings"]["search"]["activeProviderAccountId"],
+            "provider_account:duckduckgo_public:system"
+        );
+        assert_eq!(
+            data["webToolSettings"]["fetch"]["activeProviderAccountId"],
+            "provider_account:direct_http:system"
+        );
+        assert_eq!(
+            data["webToolSettings"]["search"]["providerOptions"][0]["providerKind"],
+            "duckduckgo_public"
+        );
+        assert_eq!(
+            data["webToolSettings"]["fetch"]["providerOptions"][0]["providerKind"],
+            "direct_http"
+        );
+    }
+
+    #[tokio::test]
+    async fn save_web_tool_provider_binding_mutation_returns_saved_binding() {
+        use crate::{ProviderAccountStatus, store::tests::test_store};
+
+        let store = test_store().await;
+        store
+            .db()
+            .query(
+                r#"
+                UPSERT type::record('provider_accounts', 'openai_default') SET
+                  provider_account_id = 'provider_account:openai:default',
+                  provider_kind = 'openai',
+                  account_key = 'default',
+                  display_name = 'OpenAI default',
+                  auth_method = 'secret_input',
+                  is_active = true,
+                  is_default = true,
+                  status = $status,
+                  metadata = {},
+                  updated_at = time::now();
+                "#,
+            )
+            .bind((
+                "status",
+                ProviderAccountStatus::Authenticated.as_str().to_string(),
+            ))
+            .await
+            .expect("insert provider account")
+            .check()
+            .expect("provider account check");
+
+        let schema = build_schema(GraphqlState::for_tests_with_store(store));
+        let response = schema
+            .execute(async_graphql::Request::new(
+                r#"
+                mutation {
+                  saveWebToolProviderBinding(input: {
+                    toolName: "web.search"
+                    capabilityId: "web.search"
+                    providerAccountId: "provider_account:openai:default"
+                  }) {
+                    toolName
+                    capabilityId
+                    activeProviderAccountId
+                  }
+                }
+                "#,
+            ))
+            .await;
+
+        assert!(response.errors.is_empty(), "{:?}", response.errors);
+        let data = response.data.into_json().expect("json");
+        assert_eq!(data["saveWebToolProviderBinding"]["toolName"], "web.search");
+        assert_eq!(
+            data["saveWebToolProviderBinding"]["activeProviderAccountId"],
+            "provider_account:openai:default"
         );
     }
 
