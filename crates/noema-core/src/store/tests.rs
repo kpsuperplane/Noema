@@ -175,6 +175,94 @@ async fn sqlite_agent_model_preference_round_trip() {
 }
 
 #[tokio::test]
+async fn sqlite_memory_service_defaults_to_managed() {
+    let store = test_store().await;
+
+    let settings = store.memory_service_settings().await.expect("settings");
+    let status = store.memory_service_status().await.expect("status");
+
+    assert_eq!(settings.mode, crate::MemoryServiceMode::Managed);
+    assert_eq!(settings.base_url, "http://127.0.0.1:6767");
+    assert_eq!(settings.port, Some(6767));
+    assert_eq!(status.status, crate::MemoryServiceStatus::NotConfigured);
+}
+
+#[tokio::test]
+async fn sqlite_memory_service_settings_round_trip_external() {
+    let store = test_store().await;
+
+    store
+        .save_memory_service_settings(crate::SaveMemoryServiceSettings {
+            mode: crate::MemoryServiceMode::External,
+            base_url: "http://127.0.0.1:7777".to_string(),
+            port: None,
+            provider_account_id: Some("provider_account:openai:default".to_string()),
+            provider_kind: Some("openai".to_string()),
+            model_profile: Some("gpt-5.1".to_string()),
+            reasoning_effort: Some(crate::provider::ReasoningEffort::Low),
+        })
+        .await
+        .expect("save settings");
+
+    let settings = store.memory_service_settings().await.expect("settings");
+    assert_eq!(settings.mode, crate::MemoryServiceMode::External);
+    assert_eq!(settings.base_url, "http://127.0.0.1:7777");
+    assert_eq!(
+        settings.reasoning_effort,
+        Some(crate::provider::ReasoningEffort::Low)
+    );
+}
+
+#[tokio::test]
+async fn sqlite_memory_service_status_and_ingest_jobs_round_trip() {
+    let store = test_store().await;
+
+    store
+        .save_memory_service_status(crate::MemoryServiceStatusRecord {
+            status_id: "default".to_string(),
+            status: crate::MemoryServiceStatus::Ready,
+            checked_at: Some("2026-07-07T12:00:00.000Z".to_string()),
+            last_error_code: None,
+            last_error_message: None,
+        })
+        .await
+        .expect("save status");
+
+    let status = store.memory_service_status().await.expect("status");
+    assert_eq!(status.status, crate::MemoryServiceStatus::Ready);
+    assert_eq!(
+        status.checked_at.as_deref(),
+        Some("2026-07-07T12:00:00.000Z")
+    );
+
+    let job = store
+        .insert_memory_ingest_job(crate::NewMemoryIngestJob {
+            job_id: "memory_ingest_job:test".to_string(),
+            conversation_id: "conversation:test".to_string(),
+            turn_id: "turn:test".to_string(),
+            supermemory_conversation_id: "sm-conversation:test".to_string(),
+        })
+        .await
+        .expect("insert job");
+    assert_eq!(job.status, "queued");
+
+    let submitted = store
+        .mark_memory_ingest_job_submitted("memory_ingest_job:test")
+        .await
+        .expect("mark submitted");
+    assert_eq!(submitted.status, "submitted");
+    assert_eq!(submitted.error_code, None);
+
+    let failed = store
+        .mark_memory_ingest_job_failed("memory_ingest_job:test", "http_500", "server failed")
+        .await
+        .expect("mark failed");
+    assert_eq!(failed.status, "failed");
+    assert_eq!(failed.error_code.as_deref(), Some("http_500"));
+    assert_eq!(failed.error_message.as_deref(), Some("server failed"));
+}
+
+#[tokio::test]
 async fn sqlite_conversation_items_page_in_sequence_order() {
     let store = test_store().await;
     store.ensure_default_actors().await.expect("actors");
