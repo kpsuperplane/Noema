@@ -103,6 +103,30 @@ impl NoemaPaths {
         self.root.join("db")
     }
 
+    /// Path to the canonical SQLite database file.
+    #[must_use]
+    pub fn sqlite_db_path(&self) -> PathBuf {
+        self.db_dir().join("noema.sqlite3")
+    }
+
+    /// Path to Supermemory-owned state.
+    #[must_use]
+    pub fn supermemory_dir(&self) -> PathBuf {
+        self.root.join("supermemory")
+    }
+
+    /// Path to Supermemory managed data.
+    #[must_use]
+    pub fn supermemory_data_dir(&self) -> PathBuf {
+        self.supermemory_dir().join("data")
+    }
+
+    /// Path to Supermemory secret files.
+    #[must_use]
+    pub fn supermemory_secrets_dir(&self) -> PathBuf {
+        self.supermemory_dir().join("secrets")
+    }
+
     /// Path to the provider credential root.
     #[must_use]
     pub fn providers_dir(&self) -> PathBuf {
@@ -197,6 +221,16 @@ mod tests {
         let paths = NoemaPaths::from_noema_home("/tmp/custom-noema").expect("paths");
 
         assert_eq!(paths.db_dir(), PathBuf::from("/tmp/custom-noema/db"));
+    }
+
+    #[test]
+    fn sqlite_db_path_lives_under_db_dir() {
+        let paths = NoemaPaths::from_noema_home("/tmp/noema").expect("paths");
+
+        assert_eq!(
+            paths.sqlite_db_path(),
+            PathBuf::from("/tmp/noema/db/noema.sqlite3")
+        );
     }
 
     #[test]

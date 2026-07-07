@@ -9,6 +9,12 @@ pub enum StoreError {
     /// Embedded SurrealDB operation failed.
     #[error("embedded store operation failed: {0}")]
     Surreal(Box<surrealdb::Error>),
+    /// SQLite operation failed.
+    #[error("sqlite store operation failed: {0}")]
+    Sqlite(#[from] rusqlite::Error),
+    /// JSON encoding or decoding failed.
+    #[error("store JSON encoding failed: {0}")]
+    Json(#[from] serde_json::Error),
     /// Schema bootstrap returned an invalid result.
     #[error("store schema bootstrap failed: {0}")]
     Schema(String),

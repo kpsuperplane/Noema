@@ -1,4 +1,4 @@
-//! Embedded SurrealDB-backed canonical Noema store.
+//! SQLite-backed canonical Noema store.
 
 mod agent_runtime_preferences;
 mod agents;
@@ -9,12 +9,14 @@ mod conversations;
 mod error;
 mod ids;
 mod mcp;
+mod memory_service;
 mod ontology;
 mod provider_accounts;
 mod provider_capability_bindings;
 mod retrieval;
 mod runtime;
 mod schema;
+mod sqlite;
 
 #[cfg(test)]
 pub(crate) mod tests;
@@ -39,6 +41,10 @@ pub use mcp::{
     McpToolRecord, NewMcpApprovalRequest, NewMcpServer, NewMcpTool, NewToolCalibration,
     NewTrustedIdentitySelector, ToolCalibrationRecord, TrustedIdentitySelectorEffect,
     TrustedIdentitySelectorRecord,
+};
+pub use memory_service::{
+    MemoryIngestJobRecord, MemoryServiceMode, MemoryServiceSettingsRecord, MemoryServiceStatus,
+    MemoryServiceStatusRecord, NewMemoryIngestJob, SaveMemoryServiceSettings,
 };
 pub use ontology::{
     EntityCandidate, EntityType, PredicateProposalCandidate, PredicateProposalFilter,

@@ -1,21 +1,21 @@
 use std::{fs, path::PathBuf, sync::Arc};
 
+use rusqlite::Connection;
 use surrealdb::{
     Surreal,
     engine::local::{Db, RocksDb},
-    types::SurrealValue,
 };
 use tokio::sync::Mutex;
 
 use super::{
     error::StoreError,
-    schema::{NOEMA_DATABASE, NOEMA_NAMESPACE, STORE_SCHEMA_SQL, STORE_SCHEMA_VERSION},
+    schema::{STORE_SCHEMA_SQL, STORE_SCHEMA_VERSION},
 };
 
-/// Configuration for the embedded Noema store.
+/// Configuration for the local Noema store.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoreConfig {
-    /// Directory used by the embedded database.
+    /// Path to the SQLite database file.
     pub path: PathBuf,
     /// Root directory for Noema state.
     pub noema_home: PathBuf,
@@ -26,15 +26,17 @@ impl StoreConfig {
     #[must_use]
     pub fn from_paths(paths: &crate::NoemaPaths) -> Self {
         Self {
-            path: paths.db_dir(),
+            path: paths.sqlite_db_path(),
             noema_home: paths.root().to_path_buf(),
         }
     }
 }
 
-/// Server-owned embedded canonical store.
+/// Server-owned local canonical store.
 #[derive(Debug, Clone)]
 pub struct NoemaStore {
+    pub(super) conn: Arc<Mutex<Connection>>,
+    // Transitional compatibility for repository modules ported in later tasks.
     pub(super) db: Surreal<Db>,
     pub(super) noema_home: PathBuf,
     pub(super) append_item_lock: Arc<Mutex<()>>,
@@ -46,15 +48,22 @@ impl NoemaStore {
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError`] when the database directory cannot be prepared or
-    /// SurrealDB cannot be opened or bootstrapped.
+    /// Returns [`StoreError`] when the database path cannot be prepared or
+    /// SQLite cannot be opened or bootstrapped.
     pub async fn open(config: &StoreConfig) -> Result<Self, StoreError> {
-        fs::create_dir_all(&config.path).map_err(StoreError::PreparePath)?;
-        let db = Surreal::new::<RocksDb>(config.path.as_path()).await?;
-        db.use_ns(NOEMA_NAMESPACE).use_db(NOEMA_DATABASE).await?;
+        if let Some(parent) = config.path.parent() {
+            fs::create_dir_all(parent).map_err(StoreError::PreparePath)?;
+        }
+        let conn = Connection::open(&config.path)?;
+        conn.pragma_update(None, "foreign_keys", true)?;
+        conn.execute_batch(STORE_SCHEMA_SQL)?;
         debug_assert_eq!(STORE_SCHEMA_VERSION, 1);
-        db.query(STORE_SCHEMA_SQL).await?.check()?;
+
+        let surreal_compat_path = config.noema_home.join("db").join("surrealdb-compat");
+        fs::create_dir_all(&surreal_compat_path).map_err(StoreError::PreparePath)?;
+        let db = Surreal::new::<RocksDb>(surreal_compat_path.as_path()).await?;
         Ok(Self {
+            conn: Arc::new(Mutex::new(conn)),
             db,
             noema_home: config.noema_home.clone(),
             append_item_lock: Arc::new(Mutex::new(())),
@@ -62,11 +71,26 @@ impl NoemaStore {
         })
     }
 
-    /// Access the embedded SurrealDB client for repository modules.
+    /// Access the transitional SurrealDB client for repository modules.
     #[must_use]
     #[allow(dead_code)]
     pub(crate) fn db(&self) -> &Surreal<Db> {
         &self.db
+    }
+
+    #[cfg(test)]
+    #[must_use]
+    #[allow(dead_code)]
+    pub(crate) fn connection_for_tests(&self) -> Arc<Mutex<Connection>> {
+        self.conn.clone()
+    }
+
+    pub(crate) async fn with_connection<T>(
+        &self,
+        work: impl FnOnce(&Connection) -> Result<T, StoreError>,
+    ) -> Result<T, StoreError> {
+        let conn = self.conn.lock().await;
+        work(&conn)
     }
 
     /// Return the private home directory for one MCP server.
@@ -99,24 +123,23 @@ impl NoemaStore {
     ///
     /// Returns [`StoreError`] when the schema marker cannot be queried.
     pub async fn schema_version(&self) -> Result<i64, StoreError> {
-        #[derive(serde::Deserialize, SurrealValue)]
-        struct Row {
-            version: i64,
-        }
-
-        let row: Option<Row> = self.db.select(("schema_state", "current")).await?;
-        row.map(|row| row.version)
-            .ok_or_else(|| StoreError::Schema("missing schema_state:current".to_string()))
+        self.with_connection(|conn| {
+            conn.query_row(
+                "SELECT version FROM schema_state WHERE name = 'sqlite_store_v1'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .map_err(StoreError::Sqlite)
+        })
+        .await
     }
 
-    /// Close the embedded store handle.
+    /// Close the local store handle.
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError`] when SurrealDB fails to invalidate the local
-    /// connection.
+    /// This currently has no fallible SQLite shutdown work.
     pub async fn close(self) -> Result<(), StoreError> {
-        self.db.invalidate().await?;
         Ok(())
     }
 }
