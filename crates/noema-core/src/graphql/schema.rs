@@ -982,6 +982,67 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn provider_accounts_query_includes_created_exa_accounts() {
+        use crate::{NoemaPaths, store::tests::test_store};
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let store = test_store().await;
+        let state = GraphqlState::for_tests_with_store_and_paths(
+            store,
+            NoemaPaths::from_noema_home(dir.path()).expect("paths"),
+        );
+        let schema = build_schema(state);
+
+        let create_response = schema
+            .execute(async_graphql::Request::new(
+                r#"
+                mutation {
+                  createProviderAccount(input: {
+                    providerKind: "exa"
+                    displayName: "Research"
+                    secret: "secret-key"
+                  }) {
+                    providerAccountId
+                  }
+                }
+                "#,
+            ))
+            .await;
+        assert!(
+            create_response.errors.is_empty(),
+            "{:?}",
+            create_response.errors
+        );
+
+        let response = schema
+            .execute(async_graphql::Request::new(
+                r#"
+                {
+                  providerAccounts {
+                    providerKind
+                    displayName
+                    authMethod
+                    isDefault
+                  }
+                }
+                "#,
+            ))
+            .await;
+
+        assert!(response.errors.is_empty(), "{:?}", response.errors);
+        let accounts = response.data.into_json().expect("json")["providerAccounts"]
+            .as_array()
+            .expect("accounts")
+            .clone();
+        assert!(accounts.iter().any(|account| {
+            account["providerKind"] == "exa"
+                && account["displayName"] == "Research"
+                && account["authMethod"] == "secret_input"
+                && account["isDefault"] == false
+        }));
+    }
+
+    #[tokio::test]
     async fn provider_accounts_query_returns_all_active_default_accounts() {
         use crate::store::tests::test_store;
 

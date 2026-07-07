@@ -155,7 +155,7 @@ pub(super) async fn provider_accounts(state: &GraphqlState) -> Result<Vec<Graphq
     refresh_foundation_local_availability(state).await;
     let store = state.store()?;
     let accounts = store
-        .active_default_provider_accounts()
+        .active_provider_accounts()
         .await
         .map_err(graphql_error)?;
     Ok(accounts.into_iter().map(Into::into).collect())
