@@ -1,6 +1,7 @@
 import { Badge } from "@astryxdesign/core/Badge";
 import { Button } from "@astryxdesign/core/Button";
 import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
+import { Selector, type SelectorOptionType } from "@astryxdesign/core/Selector";
 import * as stylex from "@stylexjs/stylex";
 import { AlertTriangle, KeyRound, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -145,6 +146,14 @@ function AddProviderAccountCard({
   const [displayName, setDisplayName] = useState("");
   const [secret, setSecret] = useState("");
   const canSubmit = Boolean(selectedCatalogEntry) && secret.trim().length > 0;
+  const providerOptions = useMemo<SelectorOptionType[]>(
+    () =>
+      catalog.map((entry) => ({
+        value: entry.providerKind,
+        label: entry.displayName
+      })),
+    [catalog]
+  );
 
   return (
     <form
@@ -171,21 +180,19 @@ function AddProviderAccountCard({
         ) : null}
       </div>
       <div {...stylex.props(styles.formGrid)}>
-        <label {...stylex.props(styles.field)}>
+        <div {...stylex.props(styles.field)}>
           <span {...stylex.props(styles.fieldLabel)}>Provider</span>
-          <select
-            {...stylex.props(styles.input)}
+          <Selector
+            isLabelHidden
+            label="Provider"
+            options={providerOptions}
+            placeholder="Select provider"
             value={selectedProviderKind}
-            disabled={mutationSaving || catalog.length === 0}
-            onChange={(event) => onSelectProviderKind(event.currentTarget.value)}
-          >
-            {catalog.map((entry) => (
-              <option key={entry.providerKind} value={entry.providerKind}>
-                {entry.displayName}
-              </option>
-            ))}
-          </select>
-        </label>
+            width="100%"
+            isDisabled={mutationSaving || catalog.length === 0}
+            onChange={onSelectProviderKind}
+          />
+        </div>
         <label {...stylex.props(styles.field)}>
           <span {...stylex.props(styles.fieldLabel)}>Account name</span>
           <input

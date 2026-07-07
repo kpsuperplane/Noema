@@ -1,4 +1,5 @@
 import { Badge } from "@astryxdesign/core/Badge";
+import { Selector, type SelectorOptionType } from "@astryxdesign/core/Selector";
 import { useMemo } from "react";
 import * as stylex from "@stylexjs/stylex";
 import { ModelPreferenceSelect } from "./ModelPreferenceSelect";
@@ -278,6 +279,14 @@ function WebProviderSelect({
   }) => Promise<unknown>;
 }) {
   const providerOptions = useMemo(() => settings?.providerOptions ?? [], [settings]);
+  const selectorOptions = useMemo<SelectorOptionType[]>(
+    () =>
+      providerOptions.map((option) => ({
+        value: option.providerAccountId,
+        label: option.displayName
+      })),
+    [providerOptions]
+  );
   const selectedValue = useMemo(() => {
     if (!settings) {
       return "";
@@ -292,33 +301,27 @@ function WebProviderSelect({
   }, [providerOptions, settings]);
 
   return (
-    <label {...stylex.props(styles.selector)}>
+    <div {...stylex.props(styles.selector)}>
       <span {...stylex.props(styles.fieldLabel)}>Provider</span>
-      <select
-        {...stylex.props(styles.select)}
-        aria-label={ariaLabel}
-        value={selectedValue}
-        disabled={isDisabled || saving || providerOptions.length === 0}
-        onChange={(event) => {
-          if (!settings || event.currentTarget.value === selectedValue) {
+      <Selector
+        isLabelHidden
+        label={ariaLabel}
+        options={selectorOptions}
+        placeholder={providerOptions.length === 0 ? "No providers available" : "Select provider"}
+        value={selectedValue || undefined}
+        isDisabled={isDisabled || saving || providerOptions.length === 0}
+        onChange={(value) => {
+          if (!settings || value === selectedValue) {
             return;
           }
           void onSave({
             toolName: settings.toolName,
             capabilityId: settings.capabilityId,
-            providerAccountId: event.currentTarget.value
+            providerAccountId: value
           });
         }}
-      >
-        {providerOptions.length === 0 ? <option value="">No providers available</option> : null}
-        {providerOptions.map((option) => (
-          <option key={option.providerAccountId} value={option.providerAccountId}>
-            {option.displayName}
-          </option>
-        ))}
-      </select>
-      {saving ? <span {...stylex.props(styles.savingText)}>Saving...</span> : null}
-    </label>
+      />
+    </div>
   );
 }
 
@@ -460,19 +463,6 @@ const styles = stylex.create({
     lineHeight: 1.3,
     color: "var(--muted-foreground)"
   },
-  select: {
-    minHeight: 36,
-    maxWidth: 320,
-    minWidth: 220,
-    borderWidth: 1,
-    borderStyle: "solid",
-    borderColor: "var(--border)",
-    borderRadius: 6,
-    backgroundColor: "white",
-    paddingInline: 10,
-    fontSize: 14,
-    color: "var(--foreground)"
-  },
   mutedText: {
     margin: 0,
     fontSize: 14,
@@ -495,11 +485,6 @@ const styles = stylex.create({
     margin: 0,
     fontSize: 13,
     lineHeight: 1.45,
-    color: "var(--muted-foreground)"
-  },
-  savingText: {
-    fontSize: 12,
-    lineHeight: 1.3,
     color: "var(--muted-foreground)"
   }
 });

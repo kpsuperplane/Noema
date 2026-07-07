@@ -2,6 +2,7 @@ import * as React from "react";
 import { useMutation, useQuery } from "@apollo/client/react";
 import { Loader2 } from "lucide-react";
 import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
+import { Selector } from "@astryxdesign/core/Selector";
 import * as stylex from "@stylexjs/stylex";
 import {
   AutofillToolCalibrationsDocument,
@@ -450,20 +451,17 @@ function SelectField<T extends readonly string[]>({
   onChange: (value: T[number]) => void;
 }) {
   return (
-    <label {...stylex.props(styles.field)}>
+    <div {...stylex.props(styles.field)}>
       <span>{label}</span>
-      <select
-        {...stylex.props(styles.select)}
+      <Selector
+        isLabelHidden
+        label={label}
+        options={[...options]}
         value={value}
-        onChange={(event) => onChange(event.currentTarget.value as T[number])}
-      >
-        {options.map((option) => (
-          <option key={option} value={option}>
-            {option}
-          </option>
-        ))}
-      </select>
-    </label>
+        width="100%"
+        onChange={(nextValue) => onChange(nextValue as T[number])}
+      />
+    </div>
   );
 }
 
@@ -597,20 +595,6 @@ const styles = stylex.create({
     gap: 8,
     fontSize: 14,
     fontWeight: 500,
-    lineHeight: 1.5,
-    color: "var(--foreground)"
-  },
-  select: {
-    height: 36,
-    minWidth: 0,
-    borderWidth: 1,
-    borderStyle: "solid",
-    borderColor: "var(--border-subtle)",
-    borderRadius: 6,
-    backgroundColor: "white",
-    paddingInline: 8,
-    fontSize: 14,
-    fontWeight: 400,
     lineHeight: 1.5,
     color: "var(--foreground)"
   },
