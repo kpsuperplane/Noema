@@ -130,6 +130,16 @@ The next storage slice should stay small and concrete:
   default model (`gpt-5.4-mini`) when no web UI preference is saved. End-to-end
   verification covered the running local agent at `:3737` calling `web.fetch`
   against `https://www.rust-lang.org/`.
+- Providers should be understood broadly as service integrations that can
+  supply one or more Noema capabilities, not only as model vendors. A provider
+  account may supply `model.generate`, `model.classify`, `web.search`,
+  `web.fetch`, or future capabilities such as `web.crawl`; stable model-visible
+  tools such as `web.search` and `web.fetch` stay provider-neutral, with
+  Noema-owned bindings selecting the backend capability. OpenAI hosted web
+  search is a future `web.search` provider option, while Codex product-native
+  web search should not be treated as a backend until there is a documented
+  callable provider API. Firecrawl is only an illustrative future provider
+  example, not planned implementation in the current slice.
 - Provider tool continuations now use a progress-audited continuation policy:
   the runtime allows longer same-turn tool chains, builds a bounded progress
   digest instead of sending raw tool history to the audit model, surfaces
