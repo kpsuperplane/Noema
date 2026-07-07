@@ -236,18 +236,43 @@ pub(super) fn noema_response_text_format() -> Value {
                     "responses": {
                         "type": "array",
                         "items": {
-                            "type": "object",
-                            "properties": {
-                                "kind": {
-                                    "type": "string",
-                                    "enum": [
-                                        "text",
-                                        "structured"
-                                    ]
+                            "oneOf": [
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "kind": {
+                                            "type": "string",
+                                            "enum": ["text"]
+                                        },
+                                        "phase": {
+                                            "type": "string",
+                                            "enum": ["commentary", "final_answer"]
+                                        },
+                                        "text": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": ["kind", "phase", "text"],
+                                    "additionalProperties": false
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "kind": {
+                                            "type": "string",
+                                            "enum": ["structured"]
+                                        },
+                                        "schema": {
+                                            "type": "string"
+                                        },
+                                        "payload": {
+                                            "type": "object"
+                                        }
+                                    },
+                                    "required": ["kind", "schema", "payload"],
+                                    "additionalProperties": false
                                 }
-                            },
-                            "required": ["kind"],
-                            "additionalProperties": true
+                            ]
                         }
                     },
                     "tool_calls": {
@@ -1066,6 +1091,24 @@ mod tests {
 
         assert_eq!(value["tools"][0]["type"], "web_search");
         assert_eq!(value["store"], false);
+    }
+
+    #[test]
+    fn noema_response_text_format_requires_text_response_text() {
+        let value = noema_response_text_format();
+        let one_of = value["format"]["schema"]["properties"]["responses"]["items"]["oneOf"]
+            .as_array()
+            .expect("responses items oneOf");
+        let text_schema = one_of
+            .iter()
+            .find(|schema| schema["properties"]["kind"]["enum"] == serde_json::json!(["text"]))
+            .expect("text response schema");
+
+        assert_eq!(
+            text_schema["required"],
+            serde_json::json!(["kind", "phase", "text"])
+        );
+        assert_eq!(text_schema["additionalProperties"], false);
     }
 
     #[test]
