@@ -132,6 +132,7 @@ export const AgentsDocument = gql`
         providerKind
         providerAccountId
         modelProfile
+        reasoningEffort
       }
       modelOptions {
         providerKind
@@ -144,6 +145,8 @@ export const AgentsDocument = gql`
           id
           label
           disabledReason
+          reasoningEfforts
+          defaultReasoningEffort
         }
       }
     }
@@ -156,6 +159,7 @@ export const SaveAgentModelPreferenceDocument = gql`
       providerKind
       providerAccountId
       modelProfile
+      reasoningEffort
     }
   }
 `;
@@ -169,6 +173,7 @@ export const WebFetchSettingsDocument = gql`
           providerKind
           providerAccountId
           modelProfile
+          reasoningEffort
         }
         modelOptions {
           providerKind
@@ -181,6 +186,8 @@ export const WebFetchSettingsDocument = gql`
             id
             label
             disabledReason
+            reasoningEfforts
+            defaultReasoningEffort
           }
         }
       }
@@ -194,6 +201,7 @@ export const SaveWebFetchSummarizerPreferenceDocument = gql`
       providerKind
       providerAccountId
       modelProfile
+      reasoningEffort
     }
   }
 `;
@@ -267,6 +275,7 @@ export const UsageSettingsDocument = gql`
           providerKind
           providerAccountId
           modelProfile
+          reasoningEffort
         }
         modelOptions {
           providerKind
@@ -279,6 +288,8 @@ export const UsageSettingsDocument = gql`
             id
             label
             disabledReason
+            reasoningEfforts
+            defaultReasoningEffort
           }
         }
       }
@@ -292,6 +303,7 @@ export const SaveToolProgressAuditPreferenceDocument = gql`
       providerKind
       providerAccountId
       modelProfile
+      reasoningEffort
     }
   }
 `;

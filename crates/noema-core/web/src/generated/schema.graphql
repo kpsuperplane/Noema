@@ -88,6 +88,10 @@ type AgentModelPreference {
 	Provider-specific model id or profile id.
 	"""
 	modelProfile: String!
+	"""
+	Optional explicit reasoning effort for reasoning-capable model profiles.
+	"""
+	reasoningEffort: ReasoningEffort
 }
 
 """
@@ -102,6 +106,14 @@ type AgentModelProfileOption {
 	User-facing label.
 	"""
 	label: String!
+	"""
+	Reasoning efforts available for this profile.
+	"""
+	reasoningEfforts: [ReasoningEffort!]!
+	"""
+	Default reasoning effort for this profile, when advertised by metadata.
+	"""
+	defaultReasoningEffort: ReasoningEffort
 	"""
 	Why this option is disabled, when unavailable.
 	"""
@@ -1682,6 +1694,15 @@ type QueryRoot {
 	conversationTranscriptPage(input: ConversationTranscriptPageInput!): ConversationTranscriptPage!
 }
 
+enum ReasoningEffort {
+	NONE
+	MINIMAL
+	LOW
+	MEDIUM
+	HIGH
+	XHIGH
+}
+
 """
 Input for saving an agent model preference.
 """
@@ -1698,6 +1719,10 @@ input SaveAgentModelPreferenceInput {
 	Provider-specific model id or profile id.
 	"""
 	modelProfile: String!
+	"""
+	Optional explicit reasoning effort for reasoning-capable model profiles.
+	"""
+	reasoningEffort: ReasoningEffort
 }
 
 """
@@ -1754,6 +1779,10 @@ input SaveToolProgressAuditPreferenceInput {
 	Provider-specific model id or profile id.
 	"""
 	modelProfile: String!
+	"""
+	Optional explicit reasoning effort for reasoning-capable model profiles.
+	"""
+	reasoningEffort: ReasoningEffort
 }
 
 """
@@ -1768,6 +1797,10 @@ input SaveWebFetchSummarizerPreferenceInput {
 	Provider-specific model id or profile id.
 	"""
 	modelProfile: String!
+	"""
+	Optional explicit reasoning effort for reasoning-capable model profiles.
+	"""
+	reasoningEffort: ReasoningEffort
 }
 
 input SaveWebToolProviderBindingInput {

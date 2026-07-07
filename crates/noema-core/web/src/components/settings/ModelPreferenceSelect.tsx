@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import * as stylex from "@stylexjs/stylex";
+import type { ReasoningEffort } from "@/generated/graphql";
 import type {
   ModelPreference,
   ModelPreferenceSaveInput,
@@ -32,6 +33,17 @@ export function ModelPreferenceSelect({
     selection.providerAccountId && selection.modelProfile
       ? modelOptionValue(selection)
       : "";
+  const selectedProvider = providerOptions.find(
+    (provider) => provider.providerAccountId === selection.providerAccountId
+  );
+  const selectedProfile = selectedProvider?.profiles.find(
+    (profile) => profile.id === selection.modelProfile
+  );
+  const reasoningEfforts = selectedProfile?.reasoningEfforts ?? [];
+  const requiresReasoning = reasoningEfforts.length > 0;
+  const selectedReasoningEffort =
+    selection.reasoningEffort ??
+    (requiresReasoning ? selectedProfile?.defaultReasoningEffort ?? null : null);
   const hasEnabledChoice = providerOptions.some(
     (provider) =>
       !provider.disabledReason &&
@@ -39,55 +51,98 @@ export function ModelPreferenceSelect({
   );
 
   return (
-    <label {...stylex.props(styles.selector)}>
-      <span {...stylex.props(styles.fieldLabel)}>Model</span>
-      <select
-        {...stylex.props(styles.select)}
-        aria-label={ariaLabel}
-        value={selectedValue}
-        disabled={isDisabled || saving || !hasEnabledChoice}
-        onChange={(event) => {
-          const nextSelection = parseModelOptionValue(event.target.value);
-          if (!nextSelection || modelOptionValue(nextSelection) === selectedValue) {
-            return;
-          }
-          void onSave(nextSelection);
-        }}
-      >
-        {selectedValue ? null : (
-          <option value="">
-            {providerOptions.length === 0 ? "No models available" : "Select a model"}
-          </option>
-        )}
-        {providerOptions.map((provider) => (
-          <optgroup
-            key={provider.providerAccountId}
-            label={provider.providerDisplayName}
-            disabled={Boolean(provider.disabledReason)}
-          >
-            {provider.profiles.length === 0 ? (
-              <option value="" disabled>
-                No models available
-              </option>
-            ) : (
-              provider.profiles.map((profile) => (
-                <option
-                  key={`${provider.providerAccountId}:${profile.id}`}
-                  value={modelOptionValue({
-                    providerAccountId: provider.providerAccountId,
-                    modelProfile: profile.id
-                  })}
-                  disabled={Boolean(provider.disabledReason || profile.disabledReason)}
-                >
-                  {profile.label}
+    <div {...stylex.props(styles.selector)}>
+      <label {...stylex.props(styles.selector)}>
+        <span {...stylex.props(styles.fieldLabel)}>Model</span>
+        <select
+          {...stylex.props(styles.select)}
+          aria-label={ariaLabel}
+          value={selectedValue}
+          disabled={isDisabled || saving || !hasEnabledChoice}
+          onChange={(event) => {
+            const nextSelection = parseModelOptionValue(event.target.value);
+            if (!nextSelection || modelOptionValue(nextSelection) === selectedValue) {
+              return;
+            }
+            const provider = providerOptions.find(
+              (candidate) =>
+                candidate.providerAccountId === nextSelection.providerAccountId
+            );
+            const profile = provider?.profiles.find(
+              (candidate) => candidate.id === nextSelection.modelProfile
+            );
+            const efforts = profile?.reasoningEfforts ?? [];
+            if (efforts.length === 0) {
+              void onSave({ ...nextSelection, reasoningEffort: null });
+              return;
+            }
+            const effort = profile?.defaultReasoningEffort ?? efforts[0] ?? null;
+            if (effort) {
+              void onSave({ ...nextSelection, reasoningEffort: effort });
+            }
+          }}
+        >
+          {selectedValue ? null : (
+            <option value="">
+              {providerOptions.length === 0 ? "No models available" : "Select a model"}
+            </option>
+          )}
+          {providerOptions.map((provider) => (
+            <optgroup
+              key={provider.providerAccountId}
+              label={provider.providerDisplayName}
+              disabled={Boolean(provider.disabledReason)}
+            >
+              {provider.profiles.length === 0 ? (
+                <option value="" disabled>
+                  No models available
                 </option>
-              ))
-            )}
-          </optgroup>
-        ))}
-      </select>
+              ) : (
+                provider.profiles.map((profile) => (
+                  <option
+                    key={`${provider.providerAccountId}:${profile.id}`}
+                    value={modelOptionValue({
+                      providerAccountId: provider.providerAccountId,
+                      modelProfile: profile.id
+                    })}
+                    disabled={Boolean(provider.disabledReason || profile.disabledReason)}
+                  >
+                    {profile.label}
+                  </option>
+                ))
+              )}
+            </optgroup>
+          ))}
+        </select>
+      </label>
+      {requiresReasoning ? (
+        <label {...stylex.props(styles.selector)}>
+          <span {...stylex.props(styles.fieldLabel)}>Reasoning</span>
+          <select
+            {...stylex.props(styles.select)}
+            aria-label={`${ariaLabel} reasoning`}
+            value={selectedReasoningEffort ?? ""}
+            disabled={isDisabled || saving}
+            onChange={(event) => {
+              const reasoningEffort = event.target.value as ReasoningEffort;
+              void onSave({
+                providerAccountId: selection.providerAccountId,
+                modelProfile: selection.modelProfile,
+                reasoningEffort
+              });
+            }}
+          >
+            {reasoningEfforts.map((effort) => (
+              <option key={effort} value={effort}>
+                {reasoningEffortLabel(effort)}
+              </option>
+            ))}
+          </select>
+          <span {...stylex.props(styles.helpText)}>Required for this custom model.</span>
+        </label>
+      ) : null}
       {saving ? <span {...stylex.props(styles.savingText)}>Saving...</span> : null}
-    </label>
+    </div>
   );
 }
 
@@ -120,13 +175,13 @@ function resolveInitialModelSelection(
   options: readonly ModelProviderOption[],
   preference: ModelPreference | null,
   defaultModelProfile?: string
-) {
+): ModelPreferenceSaveInput {
   const preferredProvider = preference
     ? options.find((option) => option.providerAccountId === preference.providerAccountId)
     : null;
   const provider = preferredProvider ?? options[0];
   if (!provider) {
-    return { providerAccountId: "", modelProfile: "" };
+    return { providerAccountId: "", modelProfile: "", reasoningEffort: null };
   }
   const preferredProfile =
     preferredProvider &&
@@ -135,7 +190,8 @@ function resolveInitialModelSelection(
       : null;
   return {
     providerAccountId: provider.providerAccountId,
-    modelProfile: preferredProfile ?? defaultProfileForProvider(provider, defaultModelProfile)
+    modelProfile: preferredProfile ?? defaultProfileForProvider(provider, defaultModelProfile),
+    reasoningEffort: preferredProfile ? preference?.reasoningEffort ?? null : null
   };
 }
 
@@ -156,6 +212,23 @@ function defaultProfileForProvider(
     return defaultModelProfile;
   }
   return provider.profiles[0]?.id ?? "";
+}
+
+function reasoningEffortLabel(value: ReasoningEffort): string {
+  switch (value) {
+    case "NONE":
+      return "None";
+    case "MINIMAL":
+      return "Minimal";
+    case "LOW":
+      return "Low";
+    case "MEDIUM":
+      return "Medium";
+    case "HIGH":
+      return "High";
+    case "XHIGH":
+      return "XHigh";
+  }
 }
 
 const styles = stylex.create({
@@ -186,6 +259,11 @@ const styles = stylex.create({
     color: "var(--foreground)"
   },
   savingText: {
+    fontSize: 12,
+    lineHeight: 1.3,
+    color: "var(--muted-foreground)"
+  },
+  helpText: {
     fontSize: 12,
     lineHeight: 1.3,
     color: "var(--muted-foreground)"

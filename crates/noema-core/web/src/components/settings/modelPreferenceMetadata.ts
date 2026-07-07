@@ -17,5 +17,15 @@ export function selectedPreferenceWarning(
   if (!profile) {
     return "Selected model is not available.";
   }
+  if (preference.reasoningEffort) {
+    const hasReasoningEffort = profile.reasoningEfforts.some(
+      (effort) => effort === preference.reasoningEffort
+    );
+    if (!hasReasoningEffort) {
+      return "Selected reasoning effort is not available.";
+    }
+  } else if (profile.reasoningEfforts.length > 0) {
+    return "Selected model requires a reasoning effort.";
+  }
   return profile.disabledReason ?? provider.disabledReason ?? null;
 }

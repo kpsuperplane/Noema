@@ -34,7 +34,8 @@ export function UsageSettingsPane() {
           variables: {
             input: {
               providerAccountId: input.providerAccountId,
-              modelProfile: input.modelProfile
+              modelProfile: input.modelProfile,
+              reasoningEffort: input.reasoningEffort ?? null
             }
           }
         })
