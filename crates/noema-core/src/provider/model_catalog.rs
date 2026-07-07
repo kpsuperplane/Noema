@@ -18,6 +18,7 @@ use crate::{
 
 const MODEL_CATALOG_TIMEOUT_SECONDS: u64 = 20;
 const CODEX_MODELS_CLIENT_VERSION: &str = "0.142.3";
+const MODEL_METADATA_VERSION: u64 = 2;
 
 /// Best-effort refresh of provider model profiles for Settings.
 ///
@@ -34,7 +35,7 @@ pub async fn refresh_provider_model_profiles(
     paths: &NoemaPaths,
     account: &ProviderAccountRecord,
 ) -> Result<(), ProviderError> {
-    if has_metadata_profiles(account) || !should_refresh_model_profiles(account) {
+    if metadata_profiles_are_current(account) || !should_refresh_model_profiles(account) {
         return Ok(());
     }
 
@@ -56,6 +57,10 @@ pub async fn refresh_provider_model_profiles(
     metadata.insert(
         "models_source".to_string(),
         Value::String(format!("{}_models_endpoint", account.provider_kind)),
+    );
+    metadata.insert(
+        "models_metadata_version".to_string(),
+        Value::from(MODEL_METADATA_VERSION),
     );
 
     store
@@ -93,12 +98,23 @@ fn should_refresh_model_profiles(account: &ProviderAccountRecord) -> bool {
     }
 }
 
-fn has_metadata_profiles(account: &ProviderAccountRecord) -> bool {
-    account
+fn metadata_profiles_are_current(account: &ProviderAccountRecord) -> bool {
+    let has_profiles = account
         .metadata
         .get("profiles")
         .and_then(Value::as_array)
-        .is_some_and(|profiles| !profiles.is_empty())
+        .is_some_and(|profiles| !profiles.is_empty());
+    if !has_profiles {
+        return false;
+    }
+    if account.provider_kind != "codex" {
+        return true;
+    }
+    account
+        .metadata
+        .get("models_metadata_version")
+        .and_then(Value::as_u64)
+        == Some(MODEL_METADATA_VERSION)
 }
 
 async fn fetch_codex_model_profiles(
@@ -393,6 +409,86 @@ mod tests {
         assert_eq!(updated.status, ProviderAccountStatus::Authenticated);
         assert_eq!(updated.metadata["profiles"][0]["id"], "gpt-live");
         assert_eq!(updated.metadata["profiles"][0]["label"], "GPT Live");
+        assert_eq!(updated.metadata["models_metadata_version"], 2);
+    }
+
+    #[tokio::test]
+    async fn codex_catalog_refresh_replaces_stale_profiles_without_reasoning_metadata() {
+        let home = TempDir::new().expect("temp noema home");
+        let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
+        let store = NoemaStore::open(&StoreConfig::from_paths(&paths))
+            .await
+            .expect("open store");
+        let (base_url, request_rx) = spawn_server(
+            200,
+            json!({
+                "models": [
+                    {
+                        "slug": "gpt-live",
+                        "display_name": "GPT Live",
+                        "visibility": "list",
+                        "default_reasoning_level": "medium",
+                        "supported_reasoning_levels": ["low", "medium", "high", "xhigh"]
+                    }
+                ]
+            })
+            .to_string(),
+        )
+        .await;
+        let created = store
+            .ensure_default_provider_account()
+            .await
+            .expect("default account");
+        store
+            .update_provider_account_metadata(
+                &created.provider_account_id,
+                json!({
+                    "base_url": base_url,
+                    "profiles": [{
+                        "id": "gpt-live",
+                        "label": "GPT Live"
+                    }],
+                    "models_source": "codex_models_endpoint"
+                }),
+            )
+            .await
+            .expect("set stale metadata");
+        CodexTokenStore::new(paths.provider_account_home("codex", "default"))
+            .write(&CodexOAuthTokens {
+                access_token: "access-token".to_string(),
+                refresh_token: "refresh-token".to_string(),
+                last_refresh: 123,
+            })
+            .expect("write tokens");
+        let account = store
+            .get_provider_account(&created.provider_account_id)
+            .await
+            .expect("get account")
+            .expect("account exists");
+
+        refresh_provider_model_profiles(&store, &paths, &account)
+            .await
+            .expect("refresh profiles");
+
+        let request = request_rx.await.expect("captured request");
+        assert_eq!(
+            request.path,
+            format!("/models?client_version={CODEX_MODELS_CLIENT_VERSION}")
+        );
+        let updated = store
+            .get_provider_account(&created.provider_account_id)
+            .await
+            .expect("get updated account")
+            .expect("updated account exists");
+        assert_eq!(
+            updated.metadata["profiles"][0]["reasoning_efforts"],
+            json!(["low", "medium", "high", "xhigh"])
+        );
+        assert_eq!(
+            updated.metadata["profiles"][0]["default_reasoning_effort"],
+            "medium"
+        );
+        assert_eq!(updated.metadata["models_metadata_version"], 2);
     }
 
     #[derive(Debug)]
