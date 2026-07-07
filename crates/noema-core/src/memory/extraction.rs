@@ -135,6 +135,7 @@ impl MemoryExtractionSubject {
     }
 }
 
+#[cfg(test)]
 pub(crate) fn memory_extraction_subject_implies_local_human(
     subject: &MemoryExtractionSubject,
     evidence_excerpt: &str,

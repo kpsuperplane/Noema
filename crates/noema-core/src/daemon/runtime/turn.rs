@@ -2,7 +2,6 @@ use crate::{
     ActorRef, ConversationItemKind, ConversationItemStatus, NewConversationItem,
     NewConversationTurn, PersistedAgentStatus, ReplayMode, SYSTEM_ERROR_RUNTIME_INVARIANT,
     SystemErrorEvent,
-    memory::extraction::{ExtractorMemoryProposal, ValidatedMemoryProposal},
     provider::{
         GenerateInput, GenerateOptions, GenerateRequest, GenerateResponse, GenerateResponseStatus,
         GenerateStreamEvent, GenerateToolCall, PromptCacheRetention, ProviderError,
@@ -34,7 +33,7 @@ use super::{
 use crate::daemon::{
     agent_name_tool::is_update_own_name_tool,
     agent_onboarding::AgentPromptIdentity,
-    memory::pipeline::{AssistantEvidenceItem, ConversationMemoryContext, explicit_memory_content},
+    memory::context::ConversationMemoryContext,
     prompts::{
         PromptToolExposure, build_initial_name_onboarding_system_prompt,
         build_local_tool_result_continuation_system_prompt, build_model_available_tools_prompt,
@@ -224,7 +223,6 @@ impl CodexRuntimeActor {
             })),
             "responses": &response.responses,
             "tool_calls": &response.tool_calls,
-            "memory_proposals": &response.memory_proposals,
             "response_status": response.response_status,
         });
         let persisted_count = self
@@ -380,32 +378,6 @@ impl CodexRuntimeActor {
             },
         );
         timing.mark("runtime_user_item_persisted", json!({}));
-        let explicit_memory_outcome =
-            if let Some(explicit_content) = explicit_memory_content(&input) {
-                timing.mark("runtime_explicit_memory_started", json!({}));
-                let memory_context = ConversationMemoryContext {
-                    turn_index,
-                    conversation_id: conversation_id.clone(),
-                    turn_id: turn.turn_id.clone(),
-                    user_item_id: user_item_id.clone(),
-                    assistant_item_id: None,
-                    assistant_items: Vec::new(),
-                    user_content: input.clone(),
-                    cwd: conversation.cwd.clone(),
-                };
-                self.persist_explicit_memory_claim(&memory_context, &explicit_content, &item_tx)
-                    .await?
-            } else {
-                ExplicitMemoryOutcome::None
-            };
-        if explicit_memory_outcome.was_attempted() {
-            timing.mark(
-                "runtime_explicit_memory_finished",
-                json!({
-                    "outcome": format!("{explicit_memory_outcome:?}"),
-                }),
-            );
-        }
         if super::context_compaction::should_compact_foreground(&planned_context) {
             let compaction_started_at = std::time::Instant::now();
             timing.mark("runtime_foreground_compaction_started", json!({}));
@@ -429,9 +401,6 @@ impl CodexRuntimeActor {
                     turn_id: turn.turn_id.clone(),
                     user_item_id: user_item_id.clone(),
                     assistant_item_id: None,
-                    assistant_items: Vec::new(),
-                    user_content: input.clone(),
-                    cwd: conversation.cwd.clone(),
                 };
                 self.record_turn_failure_notice(
                     &error_context,
@@ -496,9 +465,6 @@ impl CodexRuntimeActor {
                         turn_id: turn.turn_id.clone(),
                         user_item_id: user_item_id.clone(),
                         assistant_item_id: None,
-                        assistant_items: Vec::new(),
-                        user_content: input.clone(),
-                        cwd: conversation.cwd.clone(),
                     };
                     self.record_turn_failure_notice(
                         &error_context,
@@ -552,9 +518,6 @@ impl CodexRuntimeActor {
                     turn_id: turn.turn_id.clone(),
                     user_item_id: user_item_id.clone(),
                     assistant_item_id: None,
-                    assistant_items: Vec::new(),
-                    user_content: input.clone(),
-                    cwd: conversation.cwd.clone(),
                 };
                 self.record_turn_failure_notice(&error_context, error.to_string(), true, &item_tx)
                     .await?;
@@ -573,9 +536,6 @@ impl CodexRuntimeActor {
             turn_id: turn.turn_id.clone(),
             user_item_id: user_item_id.clone(),
             assistant_item_id: None,
-            assistant_items: Vec::new(),
-            user_content: input.clone(),
-            cwd: conversation.cwd.clone(),
         };
         let mut on_initial_event = |event| {
             if !initial_stream_seen {
@@ -598,12 +558,6 @@ impl CodexRuntimeActor {
                 timing.mark(
                     "provider_initial_tool_call_started_streamed",
                     provider_stream_event_fields(&event),
-                );
-            }
-            if matches!(&event, GenerateStreamEvent::MemoryProposalsStarted) {
-                timing.mark(
-                    "provider_initial_memory_proposals_started_streamed",
-                    json!({}),
                 );
             }
             handle_provider_stream_event(
@@ -654,7 +608,6 @@ impl CodexRuntimeActor {
                         "duration_ms": initial_provider_started_at.elapsed().as_millis(),
                         "response_count": response.responses.len(),
                         "tool_call_count": response.tool_calls.len(),
-                        "memory_proposal_count": response.memory_proposals.len(),
                         "response_status": format!("{:?}", response.response_status),
                         "input_tokens": response.usage.as_ref().map(|usage| usage.input_tokens),
                         "output_tokens": response.usage.as_ref().map(|usage| usage.output_tokens),
@@ -679,7 +632,6 @@ impl CodexRuntimeActor {
                             reasoning_effort: conversation.reasoning_effort,
                             initial_stream_id: initial_stream_id.clone(),
                             response,
-                            explicit_memory_outcome,
                             agent_identity,
                             tool_capabilities,
                             continuation_model_tools,
@@ -697,9 +649,6 @@ impl CodexRuntimeActor {
                         turn_id: turn.turn_id,
                         user_item_id,
                         assistant_item_id: None,
-                        assistant_items: Vec::new(),
-                        user_content: input,
-                        cwd: conversation.cwd.clone(),
                     };
                     self.record_turn_failure(&failure_context, error.to_string(), &item_tx)
                         .await?;
@@ -749,9 +698,6 @@ impl CodexRuntimeActor {
                     turn_id: turn.turn_id.clone(),
                     user_item_id: user_item_id.clone(),
                     assistant_item_id: None,
-                    assistant_items: Vec::new(),
-                    user_content: input.clone(),
-                    cwd: conversation.cwd.clone(),
                 };
                 if let Some((provider, output)) = partial_output {
                     let action_turn = ProviderActionTurn {
@@ -785,7 +731,6 @@ impl CodexRuntimeActor {
     ) -> Result<(), DaemonError> {
         let persist_started_at = std::time::Instant::now();
         timing.mark("runtime_persist_successful_turn_started", json!({}));
-        let initial_memory_proposals = turn.response.memory_proposals.clone();
         let initial_response_count = turn.response.responses.len();
         let action_turn = ProviderActionTurn {
             conversation_id: turn.conversation_id.clone(),
@@ -827,23 +772,6 @@ impl CodexRuntimeActor {
                     "response_index": index,
                 }),
             );
-        }
-
-        let mut provider_memory_batches = Vec::new();
-        if !initial_memory_proposals.is_empty() {
-            provider_memory_batches.push(ProviderMemoryProposalBatch {
-                context: ConversationMemoryContext {
-                    turn_index: turn.turn_index,
-                    conversation_id: turn.conversation_id.clone(),
-                    turn_id: turn.turn_id.clone(),
-                    user_item_id: turn.user_item_id.clone(),
-                    assistant_item_id: initial_assistant_response.item_id.clone(),
-                    assistant_items: initial_assistant_response.items.clone(),
-                    user_content: turn.user_input.clone(),
-                    cwd: turn.cwd.clone(),
-                },
-                proposals: initial_memory_proposals,
-            });
         }
 
         let mut next_output_index = initial_response_count + initial_tool_calls.len();
@@ -1101,9 +1029,6 @@ impl CodexRuntimeActor {
                 turn_id: turn.turn_id.clone(),
                 user_item_id: turn.user_item_id.clone(),
                 assistant_item_id: None,
-                assistant_items: Vec::new(),
-                user_content: turn.user_input.clone(),
-                cwd: turn.cwd.clone(),
             };
             let mut on_continuation_event = |event| {
                 if matches!(
@@ -1133,12 +1058,6 @@ impl CodexRuntimeActor {
                     timing.mark(
                         "provider_continuation_tool_call_started_streamed",
                         continuation_provider_stream_event_fields(continuation_step, &event),
-                    );
-                }
-                if matches!(&event, GenerateStreamEvent::MemoryProposalsStarted) {
-                    timing.mark(
-                        "provider_continuation_memory_proposals_started_streamed",
-                        json!({ "continuation_step": continuation_step }),
                     );
                 }
                 handle_provider_stream_event(
@@ -1189,7 +1108,6 @@ impl CodexRuntimeActor {
                     "duration_ms": continuation_provider_started_at.elapsed().as_millis(),
                     "response_count": continuation_response.responses.len(),
                     "tool_call_count": continuation_response.tool_calls.len(),
-                    "memory_proposal_count": continuation_response.memory_proposals.len(),
                     "response_status": format!("{:?}", continuation_response.response_status),
                     "input_tokens": continuation_response
                         .usage
@@ -1209,7 +1127,6 @@ impl CodexRuntimeActor {
                         .and_then(|usage| usage.cached_input_tokens),
                 }),
             );
-            let continuation_memory_proposals = continuation_response.memory_proposals.clone();
             let mut continuation_assistant_response = ProviderAssistantResponse::default();
             let continuation_action_turn = ProviderActionTurn {
                 conversation_id: turn.conversation_id.clone(),
@@ -1266,21 +1183,6 @@ impl CodexRuntimeActor {
                     }),
                 );
             }
-            if !continuation_memory_proposals.is_empty() {
-                provider_memory_batches.push(ProviderMemoryProposalBatch {
-                    context: ConversationMemoryContext {
-                        turn_index: turn.turn_index,
-                        conversation_id: turn.conversation_id.clone(),
-                        turn_id: turn.turn_id.clone(),
-                        user_item_id: turn.user_item_id.clone(),
-                        assistant_item_id: continuation_assistant_response.item_id.clone(),
-                        assistant_items: continuation_assistant_response.items.clone(),
-                        user_content: turn.user_input.clone(),
-                        cwd: turn.cwd.clone(),
-                    },
-                    proposals: continuation_memory_proposals,
-                });
-            }
             next_output_index += continuation_response_count + continuation_tool_calls.len();
 
             let continuation_turn = SuccessfulProviderTurn {
@@ -1305,7 +1207,6 @@ impl CodexRuntimeActor {
                     response_id: continuation_response.response_id.clone(),
                     usage: continuation_response.usage.clone(),
                 },
-                explicit_memory_outcome: ExplicitMemoryOutcome::None,
                 agent_identity: continuation_agent_identity,
                 tool_capabilities: turn.tool_capabilities,
                 continuation_model_tools: turn.continuation_model_tools.clone(),
@@ -1404,29 +1305,6 @@ impl CodexRuntimeActor {
             .await?;
         }
 
-        if !turn.explicit_memory_outcome.was_attempted() && !provider_memory_batches.is_empty() {
-            let memory_started_at = std::time::Instant::now();
-            timing.mark(
-                "runtime_provider_memory_persistence_started",
-                json!({
-                    "batch_count": provider_memory_batches.len(),
-                }),
-            );
-            let memory_provider = self.provider_for_kind(&turn.provider_kind)?;
-            self.persist_provider_memory_proposals(
-                provider_memory_batches,
-                memory_provider,
-                item_tx,
-            )
-            .await?;
-            timing.mark(
-                "runtime_provider_memory_persistence_completed",
-                json!({
-                    "duration_ms": memory_started_at.elapsed().as_millis(),
-                }),
-            );
-        }
-
         self.store.complete_conversation_turn(&turn.turn_id).await?;
         timing.mark(
             "runtime_turn_persistence_completed",
@@ -1513,7 +1391,6 @@ impl CodexRuntimeActor {
                 "duration_ms": started_at.elapsed().as_millis(),
                 "response_count": response.responses.len(),
                 "ignored_tool_call_count": response.tool_calls.len(),
-                "memory_proposal_count": response.memory_proposals.len(),
             }),
         );
 
@@ -1706,7 +1583,7 @@ fn provider_stream_event_fields(event: &GenerateStreamEvent) -> serde_json::Valu
             "delta_chars": delta.chars().count(),
         }),
         GenerateStreamEvent::MemoryProposalsStarted => json!({
-            "stream_event": "memory_proposals_started",
+            "stream_event": "ignored_memory_proposals_started",
         }),
         GenerateStreamEvent::ToolCallStarted { output_index, name } => json!({
             "stream_event": "tool_call_started",
@@ -1749,7 +1626,6 @@ pub(in crate::daemon) struct SuccessfulProviderTurn {
     pub(in crate::daemon) reasoning_effort: Option<crate::provider::ReasoningEffort>,
     pub(in crate::daemon) initial_stream_id: String,
     pub(in crate::daemon) response: GenerateResponse,
-    pub(in crate::daemon) explicit_memory_outcome: ExplicitMemoryOutcome,
     pub(in crate::daemon) agent_identity: AgentPromptIdentity,
     pub(in crate::daemon) tool_capabilities: ProviderToolCapabilities,
     pub(in crate::daemon) continuation_model_tools: ModelTools,
@@ -1757,17 +1633,10 @@ pub(in crate::daemon) struct SuccessfulProviderTurn {
     pub(in crate::daemon) rendered_continuation_tools: String,
 }
 
-#[derive(Debug)]
-pub(in crate::daemon) struct ProviderMemoryProposalBatch {
-    pub(in crate::daemon) context: ConversationMemoryContext,
-    pub(in crate::daemon) proposals: Vec<ExtractorMemoryProposal>,
-}
-
 #[derive(Debug, Default)]
 pub(in crate::daemon) struct ProviderAssistantResponse {
     pub(in crate::daemon) item_id: Option<String>,
     pub(in crate::daemon) text: String,
-    pub(in crate::daemon) items: Vec<AssistantEvidenceItem>,
 }
 
 impl ProviderAssistantResponse {
@@ -1776,26 +1645,6 @@ impl ProviderAssistantResponse {
             self.text.push_str("\n\n");
         }
         self.text.push_str(text);
-    }
-}
-
-#[derive(Debug)]
-pub(in crate::daemon) struct ValidatedProviderMemoryProposal {
-    pub(in crate::daemon) context: ConversationMemoryContext,
-    pub(in crate::daemon) proposal: ValidatedMemoryProposal,
-    pub(in crate::daemon) proposal_index: usize,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(in crate::daemon) enum ExplicitMemoryOutcome {
-    None,
-    Saved,
-    Failed,
-}
-
-impl ExplicitMemoryOutcome {
-    pub(in crate::daemon) fn was_attempted(&self) -> bool {
-        !matches!(self, Self::None)
     }
 }
 

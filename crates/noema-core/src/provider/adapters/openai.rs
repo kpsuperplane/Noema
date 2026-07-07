@@ -496,7 +496,7 @@ mod tests {
               "output": [{
                 "type": "message",
                 "content": [
-                  {"type": "output_text", "text": "{\"response_status\":\"final\",\"responses\":[{\"kind\":\"text\",\"phase\":\"final_answer\",\"text\":\"Hello\"}],\"tool_calls\":[],\"memory_proposals\":[]}"}
+                  {"type": "output_text", "text": "{\"response_status\":\"final\",\"responses\":[{\"kind\":\"text\",\"phase\":\"final_answer\",\"text\":\"Hello\"}],\"tool_calls\":[]}"}
                 ]
               }]
             }"#,
@@ -802,7 +802,7 @@ mod tests {
                 {
                   "type": "message",
                   "content": [
-                    {"type": "output_text", "text": "{\"response_status\":\"needs_tools\",\"responses\":[{\"kind\":\"text\",\"phase\":\"commentary\",\"text\":\"Reading docs.\"}],\"tool_calls\":[],\"memory_proposals\":[]}"}
+                    {"type": "output_text", "text": "{\"response_status\":\"needs_tools\",\"responses\":[{\"kind\":\"text\",\"phase\":\"commentary\",\"text\":\"Reading docs.\"}],\"tool_calls\":[]}"}
                   ]
                 },
                 {
@@ -903,7 +903,7 @@ mod tests {
                 {
                   "type": "message",
                   "content": [
-                    {"type": "output_text", "text": "{\"response_status\":\"needs_tools\",\"responses\":[{\"kind\":\"text\",\"phase\":\"commentary\",\"text\":\"Checking memory.\"}],\"tool_calls\":[],\"memory_proposals\":[]}"}
+                    {"type": "output_text", "text": "{\"response_status\":\"needs_tools\",\"responses\":[{\"kind\":\"text\",\"phase\":\"commentary\",\"text\":\"Checking memory.\"}],\"tool_calls\":[]}"}
                   ]
                 },
                 {
@@ -948,7 +948,7 @@ mod tests {
                 {
                   "type": "message",
                   "content": [
-                    {"type": "output_text", "text": "{\"response_status\":\"final\",\"responses\":[{\"kind\":\"text\",\"phase\":\"final_answer\",\"text\":\"Done.\"}],\"tool_calls\":[],\"memory_proposals\":[]}"}
+                    {"type": "output_text", "text": "{\"response_status\":\"final\",\"responses\":[{\"kind\":\"text\",\"phase\":\"final_answer\",\"text\":\"Done.\"}],\"tool_calls\":[]}"}
                   ]
                 },
                 {
@@ -995,7 +995,7 @@ mod tests {
                 {
                   "type": "message",
                   "content": [
-                    {"type": "output_text", "text": "{\"response_status\":\"needs_tools\",\"responses\":[{\"kind\":\"text\",\"phase\":\"commentary\",\"text\":\"Checking.\"}],\"tool_calls\":[{\"id\":\"legacy_1\",\"name\":\"search_memory\",\"payload\":{\"query\":\"legacy\"}}],\"memory_proposals\":[]}"}
+                    {"type": "output_text", "text": "{\"response_status\":\"needs_tools\",\"responses\":[{\"kind\":\"text\",\"phase\":\"commentary\",\"text\":\"Checking.\"}],\"tool_calls\":[{\"id\":\"legacy_1\",\"name\":\"search_memory\",\"payload\":{\"query\":\"legacy\"}}]}"}
                   ]
                 },
                 {

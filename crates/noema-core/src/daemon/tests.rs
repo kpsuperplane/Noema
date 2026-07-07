@@ -1,15 +1,8 @@
 use super::*;
-use super::{
-    memory::pipeline::{
-        ConversationMemoryContext, explicit_memory_content, infer_chat_sensitivity,
-        provider_memory_write_proposal,
-    },
-    protocol::TurnStreamEvent,
-    runtime::CodexRuntimeHandle,
-};
+use super::{protocol::TurnStreamEvent, runtime::CodexRuntimeHandle};
 use crate::{
     ActorRef,
-    memory::{ClaimRetrievalRequest, MemoryStatus, Sensitivity, UseMode},
+    memory::{ClaimRetrievalRequest, Sensitivity, UseMode},
     provider::{
         AssistantTextPhase, GenerateActionItem, GenerateInput, GenerateInputItem,
         GenerateReasoningItem, GenerateRequest, GenerateResponse, GenerateResponseItem,
@@ -212,6 +205,46 @@ async fn runtime_turn_streams_durable_assistant_item_and_idle_status() {
         item.item_id == assistant_item_id
             && item.kind == ConversationItemKind::AssistantText
             && item.status == ConversationItemStatus::Completed
+    }));
+}
+
+#[tokio::test]
+async fn slash_remember_is_ordinary_chat_text() {
+    let (handle, store) =
+        test_runtime_handle_with_store(fake_provider(FakeCodexScenario::Simple)).await;
+
+    let conversation = handle.start_conversation(None).await.expect("conversation");
+    let conversation_id = conversation.conversation_id.clone();
+    collect_turn(
+        &handle,
+        conversation_id.clone(),
+        "/remember I like trains".to_string(),
+    )
+    .await
+    .expect("turn response");
+    handle.shutdown().await;
+
+    let items = store
+        .list_visible_conversation_item_page(&conversation_id, None, 20)
+        .await
+        .expect("items");
+    assert!(
+        items
+            .items
+            .iter()
+            .any(|item| item.content_text.as_deref() == Some("/remember I like trains"))
+    );
+    assert!(!items.items.iter().any(|item| {
+        item.payload_json
+            .get("activity_kind")
+            .and_then(serde_json::Value::as_str)
+            == Some("memory_save")
+    }));
+    assert!(!items.items.iter().any(|item| {
+        item.payload_json
+            .get("activity_kind")
+            .and_then(serde_json::Value::as_str)
+            == Some("memory_extraction")
     }));
 }
 
@@ -1681,7 +1714,11 @@ async fn failed_initial_name_onboarding_logs_runtime_invariant() {
         events[0]["raw"]["provider_response"]["responses"],
         json!([])
     );
-    assert!(events[0]["raw"]["provider_response"]["memory_proposals"].is_array());
+    assert!(
+        events[0]["raw"]["provider_response"]
+            .get("memory_proposals")
+            .is_none()
+    );
     handle.shutdown().await;
 }
 
@@ -1807,91 +1844,6 @@ async fn restart_context_read_phase(home: &std::path::Path) {
         ]
     );
     reopened_store.close().await.expect("close reopened store");
-}
-
-#[test]
-fn explicit_memory_parser_accepts_only_slash_commands() {
-    assert_eq!(
-        explicit_memory_content("/remember Kevin likes concise inspection output").as_deref(),
-        Some("Kevin likes concise inspection output")
-    );
-    assert_eq!(
-        explicit_memory_content("/remember: Kevin likes durable memory").as_deref(),
-        Some("Kevin likes durable memory")
-    );
-    assert_eq!(
-        explicit_memory_content("remember this: Kevin prefers inspectable memory"),
-        None
-    );
-    assert_eq!(
-        explicit_memory_content(" remember that: project decisions belong to projects "),
-        None
-    );
-    assert_eq!(
-        explicit_memory_content("remember: Kevin likes durable memory"),
-        None
-    );
-    assert_eq!(explicit_memory_content("hello remember this: nope"), None);
-    assert_eq!(explicit_memory_content("> remember this: quoted"), None);
-    assert_eq!(explicit_memory_content("don't remember this: nope"), None);
-    assert_eq!(explicit_memory_content("/remember"), None);
-}
-
-#[test]
-fn deterministic_sensitivity_classifier_fails_closed_for_common_secrets() {
-    assert_eq!(
-        infer_chat_sensitivity("my API key is sk-test1234567890"),
-        Sensitivity::Secret
-    );
-    assert_eq!(
-        infer_chat_sensitivity("my doctor diagnosed this last week"),
-        Sensitivity::Sensitive
-    );
-    assert_eq!(
-        infer_chat_sensitivity("Kevin prefers CLI memory inspection"),
-        Sensitivity::Normal
-    );
-}
-
-#[test]
-fn provider_write_proposal_risk_flags_use_stable_snake_case_labels() {
-    let write_proposal = provider_memory_write_proposal(
-        &crate::memory::extraction::ValidatedMemoryProposal {
-            proposal: proposal(json!({
-                "content": "The user has a temporary secret.",
-                "memory_type": "note",
-                "title": "Temporary secret",
-                "confidence": 0.81,
-                "sensitivity": "secret",
-                "subjects": [{"id": "human:local", "kind": "human", "name": "Kevin", "role": "about"}],
-                "retrieval_hints": {"topics": ["security"], "keywords": ["temporary secret"], "summary": "The user has a temporary secret."},
-                "risk_flags": ["security_risk", "temporary_context"],
-                "evidence_excerpt": "This temporary secret matters."
-            })),
-            status: MemoryStatus::Candidate,
-        },
-        &ConversationMemoryContext {
-            conversation_id: "conversation:test".to_string(),
-            turn_id: "turn:test".to_string(),
-            turn_index: 1,
-            user_item_id: "item:provider".to_string(),
-            assistant_item_id: None,
-            assistant_items: Vec::new(),
-            user_content: "This temporary secret matters.".to_string(),
-            cwd: None,
-        },
-        0,
-        "ordinary_chat",
-    );
-
-    assert_eq!(
-        write_proposal.risk_flags,
-        vec!["security_risk".to_string(), "temporary_context".to_string()]
-    );
-    assert_eq!(
-        write_proposal.metadata["risk_flags"],
-        json!(["security_risk", "temporary_context"])
-    );
 }
 
 #[tokio::test]

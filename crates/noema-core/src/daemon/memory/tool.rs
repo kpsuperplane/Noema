@@ -2,7 +2,7 @@
 use crate::memory::{ClaimRetrievalRequest, Sensitivity, UseMode};
 use crate::{
     NoemaStore,
-    daemon::memory::pipeline::project_scope_from_cwd,
+    daemon::memory::context::project_scope_from_cwd,
     memory::Purpose,
     provider::{NoemaToolExecution, NoemaToolSpec, ToolContractError},
     store::StoreError,

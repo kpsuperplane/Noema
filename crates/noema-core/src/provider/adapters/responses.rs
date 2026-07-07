@@ -297,16 +297,9 @@ pub(super) fn noema_response_text_format() -> Value {
                             "required": ["name", "payload"],
                             "additionalProperties": false
                         }
-                    },
-                    "memory_proposals": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
                     }
                 },
-                "required": ["response_status", "responses", "tool_calls", "memory_proposals"],
+                "required": ["response_status", "responses", "tool_calls"],
                 "additionalProperties": false
             }
         }

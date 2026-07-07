@@ -18,7 +18,7 @@ use super::{
     },
 };
 use crate::daemon::{
-    memory::pipeline::{AssistantEvidenceItem, ConversationMemoryContext, typed_memory_activity},
+    memory::context::ConversationMemoryContext,
     protocol::{DaemonError, TurnActivityStatus, TurnStreamEvent, TurnTranscriptItem},
 };
 
@@ -167,10 +167,6 @@ impl CodexRuntimeActor {
                 if assistant_response.item_id.is_none() {
                     assistant_response.item_id = Some(assistant_item.item_id.clone());
                 }
-                assistant_response.items.push(AssistantEvidenceItem {
-                    item_id: assistant_item.item_id.clone(),
-                    text: text.clone(),
-                });
                 send_conversation_item(
                     item_tx,
                     assistant_item,
@@ -786,9 +782,7 @@ pub(super) fn handle_provider_stream_event(
             response_index,
             delta,
         ),
-        GenerateStreamEvent::MemoryProposalsStarted => {
-            send_memory_proposals_started_transient(context, item_tx);
-        }
+        GenerateStreamEvent::MemoryProposalsStarted => {}
         GenerateStreamEvent::ToolCallStarted { output_index, name } => {
             send_tool_call_started_transient(
                 context,
@@ -828,28 +822,6 @@ fn send_tool_call_started_transient(
             "display": display,
         }),
     };
-    send_transient_turn_item(context, activity, item_tx);
-}
-
-fn send_memory_proposals_started_transient(
-    context: &ConversationMemoryContext,
-    item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
-) {
-    let activity_id = format!(
-        "memory_extraction:{}:{}",
-        context.conversation_id, context.turn_index
-    );
-    let activity = typed_memory_activity(
-        &activity_id,
-        "memory_extraction",
-        TurnActivityStatus::Started,
-        "Memory proposed",
-        Some("memory proposal is streaming"),
-        json!({
-            "turn_index": context.turn_index,
-            "source": "provider_stream",
-        }),
-    );
     send_transient_turn_item(context, activity, item_tx);
 }
 

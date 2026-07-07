@@ -387,7 +387,7 @@ mod tests {
 
         assert_eq!(
             response.output_text().expect("output text"),
-            "{\"response_status\":\"needs_tools\",\"responses\":[{\"kind\":\"text\",\"phase\":\"commentary\",\"text\":\"Searching memory.\"}],\"tool_calls\":[{\"id\":\"call_memory_1\",\"name\":\"search_memory\",\"payload\":{\"scope_ids\":[\"human:local\"],\"query\":\"\",\"purpose\":\"answer_human_question\",\"limit\":8}}],\"memory_proposals\":[]}"
+            "{\"response_status\":\"needs_tools\",\"responses\":[{\"kind\":\"text\",\"phase\":\"commentary\",\"text\":\"Searching memory.\"}],\"tool_calls\":[{\"id\":\"call_memory_1\",\"name\":\"search_memory\",\"payload\":{\"scope_ids\":[\"human:local\"],\"query\":\"\",\"purpose\":\"answer_human_question\",\"limit\":8}}]}"
         );
     }
 
@@ -408,7 +408,7 @@ mod tests {
 
         assert_eq!(
             response.output_text().expect("output text"),
-            "{\"response_status\":\"needs_tools\",\"responses\":[{\"kind\":\"text\",\"phase\":\"commentary\",\"text\":\"Checking.\"}],\"tool_calls\":[],\"memory_proposals\":[]}"
+            "{\"response_status\":\"needs_tools\",\"responses\":[{\"kind\":\"text\",\"phase\":\"commentary\",\"text\":\"Checking.\"}],\"tool_calls\":[]}"
         );
         let calls = response.native_tool_calls().expect("native calls");
         assert_eq!(calls.len(), 1);

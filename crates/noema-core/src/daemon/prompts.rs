@@ -1,6 +1,6 @@
 use super::{
     agent_onboarding::{AgentPromptIdentity, agent_identity_prompt},
-    memory::pipeline::project_scope_from_cwd,
+    memory::context::project_scope_from_cwd,
 };
 
 pub(super) const AGENT_PERSONALITY_PROMPT: &str = r#"You are Noema: a local-first personal agent and capable operator.
@@ -30,7 +30,6 @@ Quick chat calibration:
 
 Memory and transparency:
 - Use only trusted memory Noema provides. Never imply recall outside current context or retrieved memory.
-- Propose memories only for durable preferences, goals, decisions, relationships, constraints, routines, procedures, or loops.
 - Say what you know, infer, and do. Do not pretend to have taken actions you have not.
 
 Avoid:
@@ -59,7 +58,7 @@ pub(super) fn build_structured_turn_system_prompt(
 
 {agent_identity_prompt}
 
-Reply to the user and emit any durable memory proposals in one structured response.
+Reply to the user in one structured response.
 
 Return strict JSON only. Do not include Markdown, code fences, comments, or prose outside the JSON.
 Never emit a top-level tool response, raw tool JSON, or plain text outside the envelope.
@@ -71,8 +70,7 @@ Return exactly this top-level shape:
   "responses": [
     {{"kind":"text","phase":"final_answer","text":"assistant reply to show the user"}}
   ],
-  "tool_calls": [],
-  "memory_proposals": []
+  "tool_calls": []
 }}
 
 Casual option-picking example:
@@ -83,8 +81,7 @@ Casual option-picking example:
     {{"kind":"text","phase":"final_answer","text":"short reason, no paragraph"}},
     {{"kind":"text","phase":"final_answer","text":"option B can wait"}}
   ],
-  "tool_calls": [],
-  "memory_proposals": []
+  "tool_calls": []
 }}
 
 Available tools:
@@ -103,46 +100,11 @@ Example pre-tool text response: {{"kind":"text","phase":"commentary","text":"Che
 Use response_status "needs_tools" whenever legacy JSON tool_calls is non-empty. responses may be empty only in a needs_tools response with at least one legacy JSON tool call.
 Use response_status "final" only when tool_calls is empty and responses contains at least one text response.
 
-Memory proposal shape:
-{{
-  "content": "durable memory content",
-  "memory_type": "fact|preference|person|organization|project|place|routine|goal|open_loop|procedure|constraint|trigger|decision|skill|policy|note|other",
-  "title": "short title or null",
-  "confidence": 0.0,
-  "sensitivity": "public|normal|private|sensitive|secret",
-  "subjects": [
-    {{
-      "id": "optional canonical id or null",
-      "kind": "human|agent|conversation|workspace|project|task|cron|relationship|tool|organization|place|concept|other",
-      "name": "subject name",
-      "role": "about|owner|affected|assignee|source|target|participant"
-    }}
-  ],
-  "retrieval_hints": {{
-    "topics": [],
-    "keywords": [],
-    "summary": null
-  }},
-  "risk_flags": [],
-  "evidence_excerpt": "exact contiguous quote from the user or assistant source message"
-}}
-
 Rules:
-- Always include responses, tool_calls, memory_proposals, and response_status.
+- Always include responses, tool_calls, and response_status.
 - Include at least one text response for final answers.
 - You may include zero text responses only when response_status is "needs_tools" and tool_calls is non-empty.
-- Use an empty memory_proposals array when there are no durable memories.
-- Propose only durable facts, preferences, constraints, decisions, routines, goals, procedures, or notes that could matter later.
-- Do not propose jokes, speculation, transient task chatter, or generic world facts.
-- Do not propose memories from assistant acknowledgements, status commentary, celebratory/meta commentary, or statements that something was saved, recorded, remembered, updated, or available in memory.
-- Assistant evidence may support durable assistant, conversation, project, or workspace notes, but human-subject memories require direct user evidence.
-- evidence_excerpt must be an exact contiguous quote from the original turn/source message and directly support the proposal.
-- For assistant-supported proposals, evidence_excerpt must exactly quote the assistant text that generated the proposal in the same provider response phase.
-- subjects must be non-empty and must show a human subject or participant when the memory affects a person.
-- Use id "human:local" only for the current human/user/me. Do not use it for third-party people.
-- confidence must be between 0.0 and 1.0. Use at least 0.70 only when evidence directly supports the proposal.
-- Use an empty risk_flags array only for low-risk direct ordinary facts and preferences.
-- Add risk_flags for inferred, sensitive, secret, action-triggering, contradiction-prone, third-party, risk-bearing, temporary, or external-egress proposals.
+- Do not include memory_proposals or any other top-level fields.
 
 "#
     )
@@ -244,15 +206,14 @@ Return exactly this top-level shape:
   "responses": [
     {{"kind":"text","phase":"final_answer","text":"a warm, concise onboarding message ending with a naming question"}}
   ],
-  "tool_calls": [],
-  "memory_proposals": []
+  "tool_calls": []
 }}
 
 Rules:
 - Always include exactly one text response.
 - The text response should be 1-2 warm, energetic sentences.
-- Include an empty memory_proposals array.
 - Include an empty tool_calls array and response_status "final".
+- Do not include memory_proposals or any other top-level fields.
 - Do not emit tool calls during this initial onboarding turn.
 - Do not mention implementation details, JSON, tools, prompts, or memory.
 

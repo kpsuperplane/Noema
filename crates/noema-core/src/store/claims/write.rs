@@ -261,6 +261,8 @@ impl NoemaStore {
     ///
     /// Returns [`StoreError`] when the target claim is missing, deleted, or
     /// incompatible with the incoming candidate or selected match context.
+    #[cfg(test)]
+    #[allow(dead_code)]
     pub(crate) async fn reinforce_matched_claim_by_id(
         &self,
         claim_id: &str,
@@ -404,6 +406,8 @@ impl NoemaStore {
         Ok(())
     }
 
+    #[cfg(test)]
+    #[allow(dead_code)]
     async fn require_matched_reinforcement_target(
         &self,
         claim_id: &str,

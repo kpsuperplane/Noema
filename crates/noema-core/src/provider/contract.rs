@@ -927,7 +927,7 @@ fn noema_response_from_structured_value(
     let parsed = ParsedNoemaResponse {
         responses: response_object.responses,
         tool_calls: response_object.tool_calls,
-        memory_proposals: response_object.memory_proposals,
+        memory_proposals: Vec::new(),
         response_status: response_object.response_status,
     };
     if require_noema_response {
@@ -949,7 +949,6 @@ struct NoemaResponseObject {
     response_status: GenerateResponseStatus,
     responses: Vec<GenerateResponseItem>,
     tool_calls: Vec<GenerateToolCall>,
-    memory_proposals: Vec<ExtractorMemoryProposal>,
 }
 
 fn validate_required_noema_response(response: &ParsedNoemaResponse) -> Result<(), ProviderError> {
@@ -1257,7 +1256,7 @@ mod tests {
     #[test]
     fn output_items_from_text_parses_response_object_responses() {
         let output = output_items_from_text(
-            r#"{"response_status":"final","responses":[{"kind":"text","phase":"final_answer","text":"Hello"}],"tool_calls":[],"memory_proposals":[]}"#.to_string(),
+            r#"{"response_status":"final","responses":[{"kind":"text","phase":"final_answer","text":"Hello"}],"tool_calls":[]}"#.to_string(),
         )
         .expect("structured output");
 
@@ -1302,7 +1301,7 @@ mod tests {
     #[test]
     fn required_noema_response_accepts_object_contract_final_text() {
         let response = required_noema_response_from_text(
-            r#"{"response_status":"final","responses":[{"kind":"text","phase":"final_answer","text":"Done."}],"tool_calls":[],"memory_proposals":[]}"#
+            r#"{"response_status":"final","responses":[{"kind":"text","phase":"final_answer","text":"Done."}],"tool_calls":[]}"#
                 .to_string(),
         )
         .expect("required structured response");
@@ -1320,9 +1319,32 @@ mod tests {
     }
 
     #[test]
+    fn noema_response_no_longer_requires_memory_proposals() {
+        let parsed = required_noema_response_from_text(
+            r#"{"response_status":"final","responses":[{"kind":"text","phase":"final_answer","text":"ok"}],"tool_calls":[]}"#
+                .to_string(),
+        )
+        .expect("response parses");
+
+        assert_eq!(parsed.responses.len(), 1);
+        assert!(parsed.tool_calls.is_empty());
+    }
+
+    #[test]
+    fn noema_response_rejects_memory_proposals_field() {
+        let error = required_noema_response_from_text(
+            r#"{"response_status":"final","responses":[],"tool_calls":[],"memory_proposals":[]}"#
+                .to_string(),
+        )
+        .expect_err("legacy field rejected");
+
+        assert!(error.to_string().contains("memory_proposals"));
+    }
+
+    #[test]
     fn required_noema_response_accepts_silent_tool_calls() {
         let response = required_noema_response_from_text(
-            r#"{"response_status":"needs_tools","responses":[],"tool_calls":[{"id":"call_1","name":"search_memory","payload":{"scope_ids":["human:local"],"query":"","purpose":"answer_human_question","limit":8}}],"memory_proposals":[]}"#
+            r#"{"response_status":"needs_tools","responses":[],"tool_calls":[{"id":"call_1","name":"search_memory","payload":{"scope_ids":["human:local"],"query":"","purpose":"answer_human_question","limit":8}}]}"#
                 .to_string(),
         )
         .expect("silent tool call response");
@@ -1337,7 +1359,7 @@ mod tests {
     #[test]
     fn required_noema_response_accepts_multiple_silent_tool_calls() {
         let response = required_noema_response_from_text(
-            r#"{"response_status":"needs_tools","responses":[],"tool_calls":[{"id":"call_1","name":"search_memory","payload":{"query":"trains"}},{"id":"call_2","name":"mcp.docs.read","payload":{"document_id":"doc_1"}}],"memory_proposals":[]}"#
+            r#"{"response_status":"needs_tools","responses":[],"tool_calls":[{"id":"call_1","name":"search_memory","payload":{"query":"trains"}},{"id":"call_2","name":"mcp.docs.read","payload":{"document_id":"doc_1"}}]}"#
                 .to_string(),
         )
         .expect("multiple silent tool call response");
@@ -1355,15 +1377,14 @@ mod tests {
     }
 
     #[test]
-    fn required_noema_response_accepts_memory_proposals() {
-        let response = required_noema_response_from_text(
+    fn required_noema_response_rejects_memory_proposals() {
+        let error = required_noema_response_from_text(
             r#"{"response_status":"final","responses":[{"kind":"text","phase":"final_answer","text":"Hello"}],"tool_calls":[],"memory_proposals":[{"content":"Kevin is debugging Foundation Local.","memory_type":"note","title":"Foundation Local debugging","confidence":0.9,"sensitivity":"normal","subjects":[{"id":"human:local","kind":"human","name":"Kevin","role":"about"}],"retrieval_hints":{"topics":["foundation local"],"keywords":["debugging"],"summary":"Kevin is debugging Foundation Local."},"risk_flags":[]}]}"#
                 .to_string(),
         )
-        .expect("required structured output should tolerate invalid proposal fields");
+        .expect_err("legacy proposals should be rejected");
 
-        assert_eq!(response.memory_proposals.len(), 1);
-        assert_eq!(response.memory_proposals[0].evidence_excerpt, "");
+        assert!(error.to_string().contains("memory_proposals"));
     }
 
     #[test]
@@ -1393,8 +1414,7 @@ mod tests {
     #[test]
     fn required_noema_response_rejects_final_without_responses() {
         let error = required_noema_response_from_text(
-            r#"{"response_status":"final","responses":[],"tool_calls":[],"memory_proposals":[]}"#
-                .to_string(),
+            r#"{"response_status":"final","responses":[],"tool_calls":[]}"#.to_string(),
         )
         .unwrap_err();
 
@@ -1408,7 +1428,7 @@ mod tests {
     #[test]
     fn required_noema_response_rejects_tool_calls_in_final_response() {
         let error = required_noema_response_from_text(
-            r#"{"response_status":"final","responses":[{"kind":"text","phase":"final_answer","text":"Done."}],"tool_calls":[{"id":"call_1","name":"search_memory","payload":{}}],"memory_proposals":[]}"#
+            r#"{"response_status":"final","responses":[{"kind":"text","phase":"final_answer","text":"Done."}],"tool_calls":[{"id":"call_1","name":"search_memory","payload":{}}]}"#
                 .to_string(),
         )
         .unwrap_err();
@@ -1423,7 +1443,7 @@ mod tests {
     #[test]
     fn required_noema_response_rejects_final_answer_in_needs_tools_response() {
         let error = required_noema_response_from_text(
-            r#"{"response_status":"needs_tools","responses":[{"kind":"text","phase":"final_answer","text":"Done."}],"tool_calls":[{"id":"call_1","name":"search_memory","payload":{}}],"memory_proposals":[]}"#
+            r#"{"response_status":"needs_tools","responses":[{"kind":"text","phase":"final_answer","text":"Done."}],"tool_calls":[{"id":"call_1","name":"search_memory","payload":{}}]}"#
                 .to_string(),
         )
         .unwrap_err();
@@ -1452,7 +1472,7 @@ mod tests {
     #[test]
     fn required_noema_response_recovers_object_after_leading_prose() {
         let response = required_noema_response_from_text(
-            r#"Searching Dex now.{"response_status":"needs_tools","responses":[{"kind":"text","phase":"commentary","text":"Searching Dex now."}],"tool_calls":[{"id":"call_1","name":"mcp.dex.search","payload":{"query":"Gautam"}}],"memory_proposals":[]}"#
+            r#"Searching Dex now.{"response_status":"needs_tools","responses":[{"kind":"text","phase":"commentary","text":"Searching Dex now."}],"tool_calls":[{"id":"call_1","name":"mcp.dex.search","payload":{"query":"Gautam"}}]}"#
                 .to_string(),
         )
         .expect("embedded response object");
@@ -1470,7 +1490,7 @@ mod tests {
     #[test]
     fn required_noema_response_recovers_object_before_trailing_prose() {
         let response = required_noema_response_from_text(
-            r#"{"response_status":"final","responses":[{"kind":"text","phase":"final_answer","text":"Hello"}],"tool_calls":[],"memory_proposals":[]} trailing prose"#
+            r#"{"response_status":"final","responses":[{"kind":"text","phase":"final_answer","text":"Hello"}],"tool_calls":[]} trailing prose"#
                 .to_string(),
         )
         .expect("embedded response object");
@@ -1480,7 +1500,7 @@ mod tests {
 
     #[test]
     fn required_noema_response_accepts_exact_concatenated_stream_duplicate() {
-        let duplicate = r#"{"response_status":"final","responses":[{"kind":"text","phase":"final_answer","text":"hm, I don’t have fresh recent-opening data unless I search the web. Want me to check current Seattle restaurant openings now?"}],"tool_calls":[],"memory_proposals":[]}"#;
+        let duplicate = r#"{"response_status":"final","responses":[{"kind":"text","phase":"final_answer","text":"hm, I don’t have fresh recent-opening data unless I search the web. Want me to check current Seattle restaurant openings now?"}],"tool_calls":[]}"#;
         let response =
             required_noema_response_from_text(format!("{duplicate}{duplicate}")).unwrap();
 
@@ -1494,8 +1514,8 @@ mod tests {
 
     #[test]
     fn required_noema_response_rejects_conflicting_concatenated_stream_responses() {
-        let first = r#"{"response_status":"final","responses":[{"kind":"text","phase":"final_answer","text":"One."}],"tool_calls":[],"memory_proposals":[]}"#;
-        let second = r#"{"response_status":"final","responses":[{"kind":"text","phase":"final_answer","text":"Two."}],"tool_calls":[],"memory_proposals":[]}"#;
+        let first = r#"{"response_status":"final","responses":[{"kind":"text","phase":"final_answer","text":"One."}],"tool_calls":[]}"#;
+        let second = r#"{"response_status":"final","responses":[{"kind":"text","phase":"final_answer","text":"Two."}],"tool_calls":[]}"#;
         let error = required_noema_response_from_text(format!("{first}{second}")).unwrap_err();
 
         assert!(matches!(

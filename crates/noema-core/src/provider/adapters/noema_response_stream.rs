@@ -7,7 +7,6 @@ pub(crate) struct NoemaAssistantTextDeltaExtractor {
     stack: Vec<JsonContext>,
     string: Option<JsonStringReader>,
     response_count: usize,
-    memory_proposals_started_emitted: bool,
     root_completed: bool,
 }
 
@@ -57,14 +56,7 @@ impl NoemaAssistantTextDeltaExtractor {
         visible_delta.flush(on_event);
     }
 
-    fn push_object(&mut self, on_event: &mut (dyn FnMut(GenerateStreamEvent) + Send)) {
-        if self.stack.last().is_some_and(|context| {
-            matches!(context, JsonContext::Array(JsonArrayRole::MemoryProposals))
-        }) && !self.memory_proposals_started_emitted
-        {
-            self.memory_proposals_started_emitted = true;
-            on_event(GenerateStreamEvent::MemoryProposalsStarted);
-        }
+    fn push_object(&mut self, _on_event: &mut (dyn FnMut(GenerateStreamEvent) + Send)) {
         let role = match self.stack.last_mut() {
             None => JsonObjectRole::Root,
             Some(JsonContext::Array(JsonArrayRole::Responses { next_index })) => {
@@ -106,12 +98,6 @@ impl NoemaAssistantTextDeltaExtractor {
             .is_some_and(|context| context.is_root_tool_calls_value())
         {
             JsonArrayRole::ToolCalls { next_index: 0 }
-        } else if self
-            .stack
-            .last()
-            .is_some_and(|context| context.is_root_memory_proposals_value())
-        {
-            JsonArrayRole::MemoryProposals
         } else {
             JsonArrayRole::Nested
         };
@@ -282,17 +268,6 @@ impl JsonContext {
             }) if key == "tool_calls"
         )
     }
-
-    fn is_root_memory_proposals_value(&self) -> bool {
-        matches!(
-            self,
-            Self::Object(JsonObjectContext {
-                role: JsonObjectRole::Root,
-                pending_key: Some(key),
-                ..
-            }) if key == "memory_proposals"
-        )
-    }
 }
 
 #[derive(Debug)]
@@ -314,7 +289,6 @@ pub(crate) enum JsonObjectRole {
 pub(crate) enum JsonArrayRole {
     Responses { next_index: usize },
     ToolCalls { next_index: usize },
-    MemoryProposals,
     Nested,
 }
 
@@ -516,10 +490,7 @@ mod tests {
             &mut |event| events.push(event),
         );
         extractor.push_delta("\\nthere\\u00", &mut |event| events.push(event));
-        extractor.push_delta(
-            "21\"}],\"tool_calls\":[],\"memory_proposals\":[]}",
-            &mut |event| events.push(event),
-        );
+        extractor.push_delta("21\"}],\"tool_calls\":[]}", &mut |event| events.push(event));
 
         let streamed_text = assistant_text_from_events(&events);
         assert_eq!(streamed_text, "Hi\nthere!");
@@ -529,7 +500,7 @@ mod tests {
     fn noema_assistant_text_delta_extractor_handles_text_before_kind() {
         let streamed_text = extract_streamed_text(&[
             r#"{"response_status":"final","responses":[{"text":"Hel"#,
-            r#"lo","kind":"text"}],"tool_calls":[],"memory_proposals":[]}"#,
+            r#"lo","kind":"text"}],"tool_calls":[]}"#,
         ]);
 
         assert_eq!(streamed_text, "Hello");
@@ -544,7 +515,7 @@ mod tests {
             &mut |event| events.push(event),
         );
         extractor.push_delta(
-            r#" now."}],"tool_calls":[{"id":"call_1","name":"search_memory","payload":{}}],"memory_proposals":[]} "#,
+            r#" now."}],"tool_calls":[{"id":"call_1","name":"search_memory","payload":{}}]} "#,
             &mut |event| events.push(event),
         );
 
@@ -558,7 +529,7 @@ mod tests {
     fn noema_assistant_text_delta_extractor_streams_multiple_assistant_items() {
         let streamed_text = extract_streamed_text(&[
             r#"{"response_status":"final","responses":[{"kind":"text","text":"Hel"#,
-            r#"lo"},{"kind":"text","text":" again"}],"tool_calls":[],"memory_proposals":[]}"#,
+            r#"lo"},{"kind":"text","text":" again"}],"tool_calls":[]}"#,
         ]);
 
         assert_eq!(streamed_text, "Hello again");
@@ -569,7 +540,7 @@ mod tests {
         let mut extractor = NoemaAssistantTextDeltaExtractor::default();
         let mut events = Vec::new();
         extractor.push_delta(
-            r#"{"response_status":"final","responses":[{"kind":"text","text":"one"},{"kind":"text","text":"two"}],"tool_calls":[],"memory_proposals":[]}"#,
+            r#"{"response_status":"final","responses":[{"kind":"text","text":"one"},{"kind":"text","text":"two"}],"tool_calls":[]}"#,
             &mut |event| events.push(event),
         );
 
@@ -590,7 +561,7 @@ mod tests {
 
     #[test]
     fn noema_assistant_text_delta_extractor_ignores_duplicate_top_level_envelope() {
-        let duplicate = r#"{"response_status":"final","responses":[{"kind":"text","text":"same"}],"tool_calls":[],"memory_proposals":[]}"#;
+        let duplicate = r#"{"response_status":"final","responses":[{"kind":"text","text":"same"}],"tool_calls":[]}"#;
         let streamed_text = extract_streamed_text(&[duplicate, duplicate]);
 
         assert_eq!(streamed_text, "same");
@@ -600,14 +571,14 @@ mod tests {
     fn noema_assistant_text_delta_extractor_ignores_nested_payload_text() {
         let streamed_text = extract_streamed_text(&[
             r#"{"response_status":"final","responses":[{"kind":"structured","schema":"test","payload":{"responses":[{"kind":"text","text":"also wrong"}]}}"#,
-            r#",{"text":"right","kind":"text"}],"tool_calls":[],"memory_proposals":[]}"#,
+            r#",{"text":"right","kind":"text"}],"tool_calls":[]}"#,
         ]);
 
         assert_eq!(streamed_text, "right");
     }
 
     #[test]
-    fn noema_assistant_text_delta_extractor_emits_memory_started_for_non_empty_proposals() {
+    fn noema_assistant_text_delta_extractor_ignores_memory_proposals() {
         let mut extractor = NoemaAssistantTextDeltaExtractor::default();
         let mut events = Vec::new();
         extractor.push_delta(
@@ -620,13 +591,10 @@ mod tests {
 
         assert_eq!(
             events,
-            vec![
-                GenerateStreamEvent::AssistantTextDelta {
-                    response_index: 0,
-                    delta: "Hello".to_string()
-                },
-                GenerateStreamEvent::MemoryProposalsStarted,
-            ]
+            vec![GenerateStreamEvent::AssistantTextDelta {
+                response_index: 0,
+                delta: "Hello".to_string()
+            }]
         );
     }
 
@@ -682,7 +650,7 @@ mod tests {
         let mut extractor = NoemaAssistantTextDeltaExtractor::default();
         let mut events = Vec::new();
         extractor.push_delta(
-            r#"{"response_status":"final","responses":[{"kind":"structured","schema":"test","payload":{"name":"wrong"}}],"tool_calls":[],"memory_proposals":[]}"#,
+            r#"{"response_status":"final","responses":[{"kind":"structured","schema":"test","payload":{"name":"wrong"}}],"tool_calls":[]}"#,
             &mut |event| events.push(event),
         );
 
@@ -694,7 +662,7 @@ mod tests {
         let mut extractor = NoemaAssistantTextDeltaExtractor::default();
         let mut events = Vec::new();
         extractor.push_delta(
-            r#"{"response_status":"needs_tools","responses":[],"tool_calls":[{"id":"call_1","name":"search_memory","payload":{}}],"memory_proposals":[]}"#,
+            r#"{"response_status":"needs_tools","responses":[],"tool_calls":[{"id":"call_1","name":"search_memory","payload":{}}]}"#,
             &mut |event| events.push(event),
         );
 

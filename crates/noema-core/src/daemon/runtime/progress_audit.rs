@@ -142,7 +142,7 @@ pub(super) fn build_no_tools_finalization_prompt(reason: &str) -> String {
         r#"The tool-continuation loop must stop now because: {reason}.
 Deliver one concise final message to the user using only gathered context.
 Do not call tools. Explain what was accomplished, what remains, and whether the user should continue in a new turn.
-Return strict Noema response JSON with response_status "final", at least one final_answer text response, no tool_calls, and memory_proposals as an empty array unless a durable memory is directly supported."#
+Return strict Noema response JSON with response_status "final", at least one final_answer text response, no tool_calls, and no memory_proposals field."#
     )
 }
 

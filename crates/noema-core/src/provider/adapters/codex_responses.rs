@@ -1238,7 +1238,7 @@ mod tests {
             sse_delta(
                 r#"{"response_status":"final","responses":[{"kind":"text","phase":"final_answer","text":"Hel"#
             ),
-            sse_delta(r#"lo"}],"tool_calls":[],"memory_proposals":[]}"#),
+            sse_delta(r#"lo"}],"tool_calls":[]}"#),
             sse_completed(),
         );
         let (base_url, request_rx) = spawn_server(200, response_body).await;

@@ -595,11 +595,8 @@ mod tests {
         daemon::{
             agent_onboarding::AgentPromptIdentity,
             runtime::{
-                actor::CodexRuntimeActor,
-                handle::RuntimeModelProvider,
-                model_tools::ModelTools,
-                tool_lifecycle::LocalToolCall,
-                turn::{ExplicitMemoryOutcome, SuccessfulProviderTurn},
+                actor::CodexRuntimeActor, handle::RuntimeModelProvider, model_tools::ModelTools,
+                tool_lifecycle::LocalToolCall, turn::SuccessfulProviderTurn,
             },
         },
         provider::{
@@ -698,7 +695,6 @@ mod tests {
                 response_id: None,
                 usage: None,
             },
-            explicit_memory_outcome: ExplicitMemoryOutcome::None,
             agent_identity: AgentPromptIdentity {
                 agent_id: "agent:primary".to_string(),
                 display_name: None,
