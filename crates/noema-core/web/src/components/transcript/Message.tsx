@@ -1,6 +1,10 @@
+import * as React from "react";
+import { ContextMenu } from "@astryxdesign/core/ContextMenu";
 import { Markdown, type MarkdownProps } from "@astryxdesign/core/Markdown";
 import * as stylex from "@stylexjs/stylex";
 import type { ReactNode } from "react";
+import type { ProviderUsageDebug } from "./debugUsage";
+import { ProviderUsageDebugDialog } from "./ProviderUsageDebugDialog";
 import { TranscriptChatBubble } from "./TranscriptChatBubble";
 
 type MarkdownXStyle = MarkdownProps["xstyle"];
@@ -57,14 +61,17 @@ export function Message({
   animate,
   role,
   text,
-  showAvatar
+  showAvatar,
+  debugUsage = null
 }: {
   animate: boolean;
   role: "user" | "assistant";
   text: string;
   showAvatar: boolean;
+  debugUsage?: ProviderUsageDebug | null;
 }) {
-  return (
+  const [debugOpen, setDebugOpen] = React.useState(false);
+  const bubble = (
     <TranscriptChatBubble role={role} showAvatar={showAvatar}>
       <Markdown
         autolink="gfm"
@@ -78,6 +85,26 @@ export function Message({
         {text}
       </Markdown>
     </TranscriptChatBubble>
+  );
+
+  if (role !== "assistant" || !debugUsage) {
+    return bubble;
+  }
+
+  return (
+    <>
+      <ContextMenu
+        items={[
+          {
+            label: "Debug",
+            onClick: () => setDebugOpen(true)
+          }
+        ]}
+      >
+        {bubble}
+      </ContextMenu>
+      <ProviderUsageDebugDialog debug={debugUsage} open={debugOpen} onOpenChange={setDebugOpen} />
+    </>
   );
 }
 

@@ -30,6 +30,7 @@ import { TranscriptRow } from "./TranscriptRow";
 import { TranscriptScroller, TranscriptScrollerItem, TranscriptScrollerProvider, useTranscriptScroller } from "./TranscriptScroller";
 import { TypingMessage } from "./TypingMessage";
 import type { ConversationAgentStatus } from "@/shared/types";
+import { parseProviderUsageDebug } from "./debugUsage";
 
 const TOOL_DETAIL_EXIT_DURATION_MS = 400;
 
@@ -234,7 +235,15 @@ function renderTranscriptEntry(
     return <Message animate={animateText} role="user" text={entry.text} showAvatar={showAvatar} />;
   }
   if (entry.type === "assistant") {
-    return <Message animate={animateText} role="assistant" text={entry.text} showAvatar={showAvatar} />;
+    return (
+      <Message
+        animate={animateText}
+        role="assistant"
+        text={entry.text}
+        showAvatar={showAvatar}
+        debugUsage={parseProviderUsageDebug(entry.metadata)}
+      />
+    );
   }
   if (entry.type === "assistant_stream") {
     return <Message animate={animateText} role="assistant" text={entry.text} showAvatar={showAvatar} />;
