@@ -1,7 +1,9 @@
+#[cfg(test)]
+use crate::memory::{ClaimRetrievalRequest, Sensitivity, UseMode};
 use crate::{
     NoemaStore,
     daemon::memory::pipeline::project_scope_from_cwd,
-    memory::{ClaimRetrievalRequest, Purpose, Sensitivity, UseMode},
+    memory::Purpose,
     provider::{NoemaToolExecution, NoemaToolSpec, ToolContractError},
     store::StoreError,
 };
@@ -48,6 +50,8 @@ pub(in crate::daemon) struct MemoryToolResult {
 pub(in crate::daemon) enum MemoryToolError {
     #[error("{0}")]
     InvalidArguments(String),
+    #[error("{0}")]
+    Unavailable(String),
     #[error(transparent)]
     Store(#[from] StoreError),
 }
@@ -104,12 +108,13 @@ pub(in crate::daemon) fn search_memory_tool_spec() -> Result<NoemaToolSpec, Tool
 }
 
 pub(in crate::daemon) async fn execute_search_memory(
-    store: &NoemaStore,
+    _store: &NoemaStore,
+    client: Option<&crate::SupermemoryClient>,
     context: &MemoryToolRuntimeContext,
     call_id: Option<String>,
     payload: &Value,
 ) -> MemoryToolResult {
-    match execute_search_memory_inner(store, context, call_id.as_deref(), payload).await {
+    match execute_search_memory_inner(client, context, call_id.as_deref(), payload).await {
         Ok(payload) => MemoryToolResult {
             call_id,
             name: SEARCH_MEMORY_TOOL.to_string(),
@@ -128,47 +133,57 @@ pub(in crate::daemon) async fn execute_search_memory(
 }
 
 async fn execute_search_memory_inner(
-    store: &NoemaStore,
+    client: Option<&crate::SupermemoryClient>,
     context: &MemoryToolRuntimeContext,
     _call_id: Option<&str>,
     payload: &Value,
 ) -> Result<Value, MemoryToolError> {
     let arguments = parse_arguments(payload)?;
     validate_scope_ids(context, &arguments)?;
-    let request = build_request(context, &arguments)?;
-    let retrieval = store
-        .retrieve_claims_scoped(
-            &request,
-            arguments.query.trim(),
-            &arguments.scope_ids,
-            arguments.limit(),
-        )
-        .await?;
-    let memories = retrieval
-        .included
-        .into_iter()
-        .map(|claim| {
-            json!({
-                "id": claim.claim_id,
-                "kind": "claim",
-                "fact": claim.fact,
-                "predicate_id": claim.predicate_id,
-                "rank_score": claim.rank_score,
-            })
-        })
-        .collect::<Vec<_>>();
-    let omissions = if retrieval.redacted_omission_count == 0 {
-        Vec::new()
+    let client = client
+        .ok_or_else(|| MemoryToolError::Unavailable("memory service unavailable".to_string()))?;
+    let tags = if arguments.scope_ids.is_empty() {
+        trusted_active_scope_ids(context)
     } else {
-        vec![json!({
-            "reason": "policy_restricted_context",
-            "count": retrieval.redacted_omission_count,
-        })]
+        arguments.scope_ids.clone()
     };
+    let mut memories = Vec::new();
+    for scope_id in tags {
+        let container_tag = container_tag_for_scope(&scope_id)?;
+        let response = client
+            .search_memories(crate::SupermemorySearchRequest {
+                query: arguments.query.clone(),
+                container_tag: container_tag.clone(),
+                limit: arguments.limit() as u16,
+            })
+            .await
+            .map_err(|error| MemoryToolError::Unavailable(error.to_string()))?;
+        for result in response.results {
+            memories.push(json!({
+                "id": result.id,
+                "kind": "supermemory",
+                "memory": result.memory,
+                "score": result.similarity,
+                "updated_at": result.updated_at,
+                "scope_id": scope_id,
+                "container_tag": container_tag,
+                "metadata": result.metadata,
+            }));
+        }
+    }
+    memories.sort_by(|left, right| {
+        let left_score = left["score"].as_f64().unwrap_or(0.0);
+        let right_score = right["score"].as_f64().unwrap_or(0.0);
+        right_score
+            .partial_cmp(&left_score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| left["id"].as_str().cmp(&right["id"].as_str()))
+    });
+    memories.truncate(arguments.limit());
 
     Ok(json!({
         "memories": memories,
-        "omissions": omissions,
+        "omissions": [],
         "scope_ids": arguments.scope_ids,
     }))
 }
@@ -207,6 +222,28 @@ fn trusted_active_scope_ids(context: &MemoryToolRuntimeContext) -> Vec<String> {
     ids
 }
 
+fn container_tag_for_scope(scope_id: &str) -> Result<String, MemoryToolError> {
+    let allowed_prefix = [
+        "human:",
+        "conversation:",
+        "project:",
+        "workspace:",
+        "agent:",
+    ]
+    .iter()
+    .any(|prefix| scope_id.starts_with(prefix));
+    let valid_chars = scope_id
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | ':'));
+    if allowed_prefix && valid_chars {
+        Ok(scope_id.to_string())
+    } else {
+        Err(MemoryToolError::InvalidArguments(format!(
+            "unsupported scope_id: {scope_id}"
+        )))
+    }
+}
+
 fn validate_scope_ids(
     context: &MemoryToolRuntimeContext,
     arguments: &SearchMemoryArguments,
@@ -224,6 +261,7 @@ fn validate_scope_ids(
     Ok(())
 }
 
+#[cfg(test)]
 fn build_request(
     context: &MemoryToolRuntimeContext,
     arguments: &SearchMemoryArguments,
@@ -248,6 +286,7 @@ fn build_request(
     })
 }
 
+#[cfg(test)]
 fn runtime_purpose(value: Option<&str>) -> Result<Purpose, MemoryToolError> {
     parse_purpose(value)?;
     Ok(Purpose::AnswerHumanQuestion)
@@ -274,6 +313,7 @@ fn parse_purpose(value: Option<&str>) -> Result<Purpose, MemoryToolError> {
 fn safe_error_message(error: &MemoryToolError) -> String {
     match error {
         MemoryToolError::InvalidArguments(message) => message.clone(),
+        MemoryToolError::Unavailable(message) => message.clone(),
         MemoryToolError::Store(_) => "memory retrieval failed".to_string(),
     }
 }
@@ -321,6 +361,24 @@ mod tests {
         for purpose in purpose_values {
             parse_purpose(purpose.as_str()).expect("schema purpose accepted by runtime");
         }
+    }
+
+    #[test]
+    fn supermemory_container_tag_preserves_safe_scope_ids() {
+        assert_eq!(
+            container_tag_for_scope("human:local").expect("tag"),
+            "human:local"
+        );
+        assert_eq!(
+            container_tag_for_scope("conversation:abc_123").expect("tag"),
+            "conversation:abc_123"
+        );
+    }
+
+    #[test]
+    fn supermemory_container_tag_rejects_unknown_scope_shape() {
+        let error = container_tag_for_scope("not allowed").expect_err("invalid");
+        assert!(error.to_string().contains("unsupported scope_id"));
     }
 
     #[test]

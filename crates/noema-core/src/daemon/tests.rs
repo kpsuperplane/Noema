@@ -21,6 +21,7 @@ use crate::{
 use serde::Deserialize;
 use serde_json::json;
 use std::{
+    collections::HashMap,
     future::Future,
     path::PathBuf,
     pin::Pin,
@@ -29,7 +30,11 @@ use std::{
     time::Duration,
 };
 use surrealdb::types::SurrealValue;
-use tokio::sync::{mpsc, oneshot};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::TcpListener,
+    sync::{Mutex as AsyncMutex, mpsc, oneshot},
+};
 
 const RESTART_CONTEXT_TEST_PHASE_ENV: &str = "NOEMA_RESTART_CONTEXT_TEST_PHASE";
 const RESTART_CONTEXT_TEST_HOME_ENV: &str = "NOEMA_RESTART_CONTEXT_TEST_HOME";
@@ -3957,8 +3962,21 @@ async fn runtime_actor_persists_provider_tool_items_before_turn_failure() {
 
 #[tokio::test]
 async fn runtime_actor_executes_search_memory_as_local_tool_result() {
-    let handle =
-        test_runtime_handle(fake_provider(FakeCodexScenario::SearchMemoryContinuation)).await;
+    let (handle, _store, _server) = test_runtime_handle_with_supermemory(
+        fake_provider(FakeCodexScenario::SearchMemoryContinuation),
+        json!({
+            "results": [{
+                "id": "mem_train",
+                "memory": "Kevin likes trains.",
+                "metadata": {"source": "test"},
+                "updatedAt": "2026-07-07T12:00:00.000Z",
+                "similarity": 0.91
+            }],
+            "timing": 2,
+            "total": 1
+        }),
+    )
+    .await;
 
     let conversation = handle.start_conversation(None).await.expect("conversation");
     let conversation_id = conversation.conversation_id.clone();
@@ -3999,9 +4017,14 @@ async fn runtime_actor_executes_search_memory_as_local_tool_result() {
             && metadata["action"]["payload"]["memories"]
                 .as_array()
                 .is_some_and(|memories| memories.iter().any(|memory| {
-                    memory["kind"] == "claim"
-                        && memory["fact"] == "Kevin likes trains."
-                        && memory["predicate_id"] == "likes"
+                    memory["kind"] == "supermemory"
+                        && memory["memory"] == "Kevin likes trains."
+                        && memory["scope_id"]
+                            .as_str()
+                            .is_some_and(|scope_id| scope_id.starts_with("conversation:"))
+                        && memory["container_tag"]
+                            .as_str()
+                            .is_some_and(|tag| tag.starts_with("conversation:"))
                 }))
             && metadata["action"]["payload"].get("unavailable").is_none()
     )));
@@ -4080,12 +4103,19 @@ async fn native_capable_provider_continuation_uses_native_tool_result_input() {
                 fallback_mode: ProviderToolFallbackMode::NativeRequired,
             }),
     );
-    let store = crate::store::tests::test_store().await;
-    store.ensure_default_actors().await.expect("actors");
-    let handle =
-        CodexRuntimeHandle::spawn_with_provider_kind(provider.clone(), store.clone(), "codex")
-            .await
-            .expect("runtime");
+    let (handle, _store, _server) = spawn_runtime_with_supermemory_provider(
+        provider.clone(),
+        json!({
+            "results": [{
+                "id": "mem_native_train",
+                "memory": "Kevin likes trains.",
+                "metadata": {},
+                "updatedAt": "2026-07-07T12:00:00.000Z",
+                "similarity": 0.9
+            }]
+        }),
+    )
+    .await;
     let conversation_id = handle
         .start_conversation(None)
         .await
@@ -4262,9 +4292,10 @@ async fn native_provider_can_call_web_fetch_and_continue() {
 
 #[tokio::test]
 async fn runtime_actor_continues_after_continuation_tool_call() {
-    let handle = test_runtime_handle(fake_provider(
-        FakeCodexScenario::ChainedSearchMemoryContinuation,
-    ))
+    let (handle, _store, _server) = test_runtime_handle_with_supermemory(
+        fake_provider(FakeCodexScenario::ChainedSearchMemoryContinuation),
+        json!({"results": []}),
+    )
     .await;
 
     let conversation_id = handle
@@ -4637,9 +4668,18 @@ async fn runtime_prompt_includes_stored_agent_name_after_update() {
 
 #[tokio::test]
 async fn search_memory_profile_continuation_uses_scoped_empty_query() {
-    let (handle, store) = test_runtime_handle_with_store(fake_provider(
-        FakeCodexScenario::SearchMemoryProfileContinuation,
-    ))
+    let (handle, store, server) = test_runtime_handle_with_supermemory(
+        fake_provider(FakeCodexScenario::SearchMemoryProfileContinuation),
+        json!({
+            "results": [{
+                "id": "mem_plane",
+                "memory": "Kevin likes planes.",
+                "metadata": {"source": "test"},
+                "updatedAt": "2026-07-07T12:00:00.000Z",
+                "similarity": 0.93
+            }]
+        }),
+    )
     .await;
 
     let conversation = handle.start_conversation(None).await.expect("conversation");
@@ -4676,20 +4716,31 @@ async fn search_memory_profile_continuation_uses_scoped_empty_query() {
                     .as_array()
                     .is_some_and(|memories| {
                         memories.iter().any(|memory| {
-                            memory["kind"] == "claim"
-                                && memory["fact"] == "Kevin likes planes."
-                                && memory["predicate_id"] == "likes"
+                            memory["kind"] == "supermemory"
+                                && memory["memory"] == "Kevin likes planes."
+                                && memory["scope_id"] == "human:local"
+                                && memory["container_tag"] == "human:local"
                         })
                     })
         }),
         "expected persisted successful scoped profile tool result, got {replay:?}"
     );
+    let request_bodies = server.request_bodies().await;
+    assert!(
+        request_bodies.iter().any(|body| {
+            body["q"] == "" && body["containerTag"] == "human:local" && body["limit"] == 8
+        }),
+        "expected scoped empty-query Supermemory search, got {request_bodies:?}"
+    );
 }
 
 #[tokio::test]
-async fn search_memory_tool_returns_empty_graph_result_without_unavailable() {
-    let handle =
-        test_runtime_handle(fake_provider(FakeCodexScenario::SearchMemoryContinuation)).await;
+async fn search_memory_tool_returns_empty_supermemory_result_without_unavailable() {
+    let (handle, _store, _server) = test_runtime_handle_with_supermemory(
+        fake_provider(FakeCodexScenario::SearchMemoryContinuation),
+        json!({"results": []}),
+    )
+    .await;
 
     let conversation_id = handle
         .start_conversation(None)
@@ -5162,6 +5213,65 @@ async fn test_runtime_handle_with_store(
     (handle, store)
 }
 
+async fn test_runtime_handle_with_supermemory(
+    provider: FakeCodexProvider,
+    response: serde_json::Value,
+) -> (CodexRuntimeHandle, crate::NoemaStore, FakeSupermemoryServer) {
+    let home = tempfile::tempdir().expect("temp noema home");
+    let paths = crate::NoemaPaths::from_noema_home(home.path()).expect("paths");
+    let store = crate::NoemaStore::open(&crate::StoreConfig::from_paths(&paths))
+        .await
+        .expect("store");
+    let server = FakeSupermemoryServer::start(response, 8).await;
+    store
+        .save_memory_service_settings(crate::SaveMemoryServiceSettings {
+            mode: crate::MemoryServiceMode::External,
+            base_url: server.base_url(),
+            port: None,
+            provider_account_id: None,
+            provider_kind: None,
+            model_profile: None,
+            reasoning_effort: None,
+        })
+        .await
+        .expect("save memory settings");
+    std::mem::forget(home);
+    let handle = CodexRuntimeHandle::spawn_with_provider(Arc::new(provider), store.clone())
+        .await
+        .expect("runtime");
+    (handle, store, server)
+}
+
+async fn spawn_runtime_with_supermemory_provider(
+    provider: Arc<dyn super::runtime::RuntimeModelProvider>,
+    response: serde_json::Value,
+) -> (CodexRuntimeHandle, crate::NoemaStore, FakeSupermemoryServer) {
+    let home = tempfile::tempdir().expect("temp noema home");
+    let paths = crate::NoemaPaths::from_noema_home(home.path()).expect("paths");
+    let store = crate::NoemaStore::open(&crate::StoreConfig::from_paths(&paths))
+        .await
+        .expect("store");
+    store.ensure_default_actors().await.expect("actors");
+    let server = FakeSupermemoryServer::start(response, 8).await;
+    store
+        .save_memory_service_settings(crate::SaveMemoryServiceSettings {
+            mode: crate::MemoryServiceMode::External,
+            base_url: server.base_url(),
+            port: None,
+            provider_account_id: None,
+            provider_kind: None,
+            model_profile: None,
+            reasoning_effort: None,
+        })
+        .await
+        .expect("save memory settings");
+    std::mem::forget(home);
+    let handle = CodexRuntimeHandle::spawn_with_provider_kind(provider, store.clone(), "codex")
+        .await
+        .expect("runtime");
+    (handle, store, server)
+}
+
 async fn test_runtime_handle_with_search_provider(
     provider: Arc<dyn super::runtime::RuntimeModelProvider>,
     search_provider: crate::search::types::SearchRuntimeProvider,
@@ -5180,6 +5290,84 @@ async fn test_runtime_handle_with_search_provider(
     .await
     .expect("runtime");
     (handle, store)
+}
+
+struct FakeSupermemoryServer {
+    base_url: String,
+    state: Arc<AsyncMutex<FakeSupermemoryState>>,
+}
+
+#[derive(Default)]
+struct FakeSupermemoryState {
+    bodies: Vec<serde_json::Value>,
+}
+
+impl FakeSupermemoryServer {
+    async fn start(response: serde_json::Value, max_requests: usize) -> Self {
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let base_url = format!("http://{}", listener.local_addr().expect("local addr"));
+        let state = Arc::new(AsyncMutex::new(FakeSupermemoryState::default()));
+        let server_state = Arc::clone(&state);
+
+        tokio::spawn(async move {
+            for _ in 0..max_requests {
+                let Ok((mut stream, _)) = listener.accept().await else {
+                    break;
+                };
+                let mut buffer = vec![0_u8; 8192];
+                let read = stream.read(&mut buffer).await.expect("read");
+                let request = String::from_utf8_lossy(&buffer[..read]);
+                let Some((head, body)) = request.split_once("\r\n\r\n") else {
+                    continue;
+                };
+                let mut lines = head.lines();
+                let request_line = lines.next().expect("request line");
+                assert_eq!(request_line, "POST /v4/search HTTP/1.1");
+
+                let mut headers = HashMap::new();
+                for line in lines {
+                    if let Some((name, value)) = line.split_once(':') {
+                        headers.insert(name.to_ascii_lowercase(), value.trim().to_string());
+                    }
+                }
+                let content_length = headers
+                    .get("content-length")
+                    .and_then(|value| value.parse::<usize>().ok())
+                    .unwrap_or(0);
+                let mut body_bytes = body.as_bytes().to_vec();
+                while body_bytes.len() < content_length {
+                    let read = stream.read(&mut buffer).await.expect("read body");
+                    if read == 0 {
+                        break;
+                    }
+                    body_bytes.extend_from_slice(&buffer[..read]);
+                }
+                let body_json = serde_json::from_slice(&body_bytes).expect("request body JSON");
+                server_state.lock().await.bodies.push(body_json);
+
+                let response_body = serde_json::to_vec(&response).expect("response JSON");
+                let response_head = format!(
+                    "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n",
+                    response_body.len()
+                );
+                stream
+                    .write_all(response_head.as_bytes())
+                    .await
+                    .expect("write head");
+                stream.write_all(&response_body).await.expect("write body");
+            }
+        });
+
+        Self { base_url, state }
+    }
+
+    fn base_url(&self) -> String {
+        self.base_url.clone()
+    }
+
+    async fn request_bodies(&self) -> Vec<serde_json::Value> {
+        self.state.lock().await.bodies.clone()
+    }
 }
 
 async fn test_runtime_handle_with_search_and_fetch_providers(
