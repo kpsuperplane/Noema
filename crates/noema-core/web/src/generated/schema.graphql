@@ -1327,6 +1327,10 @@ type PrimaryConversation {
 	Provider used for the conversation.
 	"""
 	provider: String!
+	"""
+	Latest visible transcript page for this conversation.
+	"""
+	latestTranscriptPage(limit: Int): ConversationTranscriptPage!
 }
 
 """

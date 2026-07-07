@@ -499,6 +499,52 @@ export const ConversationItemFields = gql`
   }
 `;
 
+export const ConversationTranscriptPageFields = gql`
+  fragment ConversationTranscriptPageFields on ConversationTranscriptPage {
+    items {
+      ...ConversationItemFields
+    }
+    pageInfo {
+      beforeCursor
+      hasMoreBefore
+      limit
+    }
+  }
+  ${ConversationItemFields}
+`;
+
+export const ChatBootDocument = gql`
+  query ChatBoot($transcriptLimit: Int = 80) {
+    localStatus {
+      localService
+      assistantConnection
+      memoryStorage
+      primaryAgentDisplayName
+    }
+    onboardingStatus {
+      isUserOnboarded
+      steps {
+        id
+        status
+        providerKind
+        providerAccountId
+        accountKey
+        displayName
+        providerAccountStatus
+        authMethod
+      }
+    }
+    primaryConversation {
+      conversationId
+      provider
+      latestTranscriptPage(limit: $transcriptLimit) {
+        ...ConversationTranscriptPageFields
+      }
+    }
+  }
+  ${ConversationTranscriptPageFields}
+`;
+
 export const PrimaryConversationDocument = gql`
   query PrimaryConversation {
     primaryConversation {
@@ -520,17 +566,10 @@ export const EnsurePrimaryConversationDocument = gql`
 export const ConversationTranscriptPageDocument = gql`
   query ConversationTranscriptPage($input: ConversationTranscriptPageInput!) {
     conversationTranscriptPage(input: $input) {
-      items {
-        ...ConversationItemFields
-      }
-      pageInfo {
-        beforeCursor
-        hasMoreBefore
-        limit
-      }
+      ...ConversationTranscriptPageFields
     }
   }
-  ${ConversationItemFields}
+  ${ConversationTranscriptPageFields}
 `;
 
 export const SendConversationTurnDocument = gql`
