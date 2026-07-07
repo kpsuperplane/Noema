@@ -49,6 +49,24 @@ a[href] {
   cursor: pointer !important;
 }
 
+.astryx-date-input,
+.astryx-date-range-input,
+.astryx-date-time-input,
+.astryx-multi-selector,
+.astryx-selector {
+  transition-property: background-color, border-color, box-shadow;
+}
+
+@media (hover: hover) {
+  .astryx-date-input:not(:has(:disabled)):hover:not(:focus-within),
+  .astryx-date-range-input:not(:has(:disabled)):hover:not(:focus-within),
+  .astryx-date-time-input:not(:has(:disabled)):hover:not(:focus-within),
+  .astryx-multi-selector:not(:has(:disabled)):hover:not(:focus-within),
+  .astryx-selector:not(:has(:disabled)):hover:not(:focus-within) {
+    background-color: color-mix(in srgb, var(--color-background-surface) 96%, var(--color-text-primary));
+  }
+}
+
 @media (hover: none) and (pointer: coarse) {
   input,
   select,
