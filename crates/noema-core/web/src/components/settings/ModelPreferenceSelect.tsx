@@ -127,7 +127,6 @@ export function ModelPreferenceSelect({
           ) : null}
         </div>
       </div>
-      {saving ? <span {...stylex.props(styles.savingText)}>Saving...</span> : null}
     </div>
   );
 }
@@ -240,11 +239,6 @@ const styles = stylex.create({
   fieldLabel: {
     fontSize: 12,
     fontWeight: 600,
-    lineHeight: 1.3,
-    color: "var(--muted-foreground)"
-  },
-  savingText: {
-    fontSize: 12,
     lineHeight: 1.3,
     color: "var(--muted-foreground)"
   }
