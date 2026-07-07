@@ -321,10 +321,34 @@ mod tests {
     }
 
     #[test]
-    fn firecrawl_is_not_declared() {
-        let capabilities =
-            capabilities_for_provider_account("firecrawl", "default", ProviderAccountStatus::Authenticated);
+    fn unknown_and_checking_accounts_are_account_dependent() {
+        for account_status in [
+            ProviderAccountStatus::Unknown,
+            ProviderAccountStatus::Checking,
+        ] {
+            let capabilities =
+                capabilities_for_provider_account("openai", "default", account_status);
 
-        assert!(capabilities.is_empty());
+            assert!(!capabilities.is_empty());
+            assert!(capabilities
+                .iter()
+                .all(|capability| capability.status == ProviderCapabilityStatus::AccountDependent));
+        }
+    }
+
+    #[test]
+    fn unauthenticated_and_unavailable_accounts_are_unavailable() {
+        for account_status in [
+            ProviderAccountStatus::Unauthenticated,
+            ProviderAccountStatus::Unavailable,
+        ] {
+            let capabilities =
+                capabilities_for_provider_account("openai", "default", account_status);
+
+            assert!(!capabilities.is_empty());
+            assert!(capabilities
+                .iter()
+                .all(|capability| capability.status == ProviderCapabilityStatus::Unavailable));
+        }
     }
 }
