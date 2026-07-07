@@ -6,12 +6,13 @@ pub(super) struct EmbeddedAsset {
 }
 
 pub(super) fn embedded_asset(path: &str) -> Option<EmbeddedAsset> {
-    let (content_type, name) = match path {
-        "/assets/app.js" => ("application/javascript; charset=utf-8", "app.js"),
-        "/assets/styles.css" => ("text/css; charset=utf-8", "styles.css"),
-        "/assets/noema-mark.svg" => ("image/svg+xml; charset=utf-8", "noema-mark.svg"),
-        path if is_spa_entry_path(path) => ("text/html; charset=utf-8", "index.html"),
-        _ => return None,
+    let (content_type, name) = if let Some(name) = static_asset_name(path) {
+        (content_type_for_asset_name(name)?, name)
+    } else {
+        match path {
+            path if is_spa_entry_path(path) => ("text/html; charset=utf-8", "index.html"),
+            _ => return None,
+        }
     };
 
     Some(EmbeddedAsset {
@@ -40,18 +41,44 @@ pub(super) fn is_spa_entry_path(path: &str) -> bool {
         .is_some_and(|segment| !segment.contains('.'))
 }
 
+fn static_asset_name(path: &str) -> Option<&str> {
+    let name = path.strip_prefix("/assets/")?;
+    if name.is_empty()
+        || name.contains('/')
+        || name.contains('\\')
+        || name == "."
+        || name == ".."
+        || name.contains("..")
+    {
+        return None;
+    }
+    Some(name)
+}
+
+fn content_type_for_asset_name(name: &str) -> Option<&'static str> {
+    if name.ends_with(".js") {
+        return Some("application/javascript; charset=utf-8");
+    }
+    if name.ends_with(".css") {
+        return Some("text/css; charset=utf-8");
+    }
+    if name.ends_with(".svg") {
+        return Some("image/svg+xml; charset=utf-8");
+    }
+    if name.ends_with(".html") {
+        return Some("text/html; charset=utf-8");
+    }
+    None
+}
+
 /// Resolve a web asset's bytes for release builds: embed them into the binary.
 #[cfg(not(debug_assertions))]
 pub(super) fn asset_body(name: &str) -> Option<Cow<'static, [u8]>> {
-    let body: &'static [u8] = match name {
-        "index.html" => include_bytes!("../../../target/web-assets/index.html"),
-        "app.js" => include_bytes!("../../../target/web-assets/app.js"),
-        "styles.css" => include_bytes!("../../../target/web-assets/styles.css"),
-        "noema-mark.svg" => include_bytes!("../../../target/web-assets/noema-mark.svg"),
-        _ => return None,
-    };
-    Some(Cow::Borrowed(body))
+    release_asset_body(name)
 }
+
+#[cfg(not(debug_assertions))]
+include!(concat!(env!("OUT_DIR"), "/web_assets.rs"));
 
 /// Resolve a web asset's bytes for debug builds: read them from disk at runtime.
 ///
@@ -62,4 +89,41 @@ pub(super) fn asset_body(name: &str) -> Option<Cow<'static, [u8]>> {
 pub(super) fn asset_body(name: &str) -> Option<Cow<'static, [u8]>> {
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target/web-assets");
     std::fs::read(dir.join(name)).ok().map(Cow::Owned)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{content_type_for_asset_name, embedded_asset, static_asset_name};
+
+    #[test]
+    fn static_asset_paths_resolve_to_safe_names() {
+        assert_eq!(static_asset_name("/assets/app.js"), Some("app.js"));
+        assert_eq!(static_asset_name("/assets/route-chunk.js"), Some("route-chunk.js"));
+        assert_eq!(static_asset_name("/assets/styles.css"), Some("styles.css"));
+        assert_eq!(static_asset_name("/assets/nested/chunk.js"), None);
+        assert_eq!(static_asset_name("/assets/../chunk.js"), None);
+        assert_eq!(static_asset_name("/assets"), None);
+    }
+
+    #[test]
+    fn static_asset_content_types_are_known() {
+        assert_eq!(
+            content_type_for_asset_name("route-chunk.js"),
+            Some("application/javascript; charset=utf-8")
+        );
+        assert_eq!(
+            content_type_for_asset_name("styles.css"),
+            Some("text/css; charset=utf-8")
+        );
+        assert_eq!(
+            content_type_for_asset_name("noema-mark.svg"),
+            Some("image/svg+xml; charset=utf-8")
+        );
+        assert_eq!(content_type_for_asset_name("data.bin"), None);
+    }
+
+    #[test]
+    fn unknown_static_extensions_do_not_fall_back_to_spa_entry() {
+        assert!(embedded_asset("/assets/data.bin").is_none());
+    }
 }

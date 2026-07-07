@@ -20,7 +20,7 @@ use url::Host;
 use url::{Host, Url};
 
 const MAX_REDIRECTS: usize = 3;
-const MAX_RESPONSE_BYTES: usize = 750 * 1024;
+const MAX_RESPONSE_BYTES: usize = 5 * 1024 * 1024;
 const USER_AGENT: &str = "NoemaWebFetch/0.1 (+https://github.com/kpsuperplane/Noema)";
 
 #[derive(Debug, Clone)]
@@ -375,6 +375,34 @@ mod tests {
                 .expect_err("size cap");
 
         assert!(matches!(error, FetchError::ResponseTooLarge));
+    }
+
+    #[tokio::test]
+    async fn extracts_readable_article_from_large_html_shell() {
+        let shell = "var ignored = 1;\n".repeat(60_000);
+        let body = format!(
+            "<html><head><title>Readable</title><script>{shell}</script></head><body><article><h1>Readable Article</h1><p>This is the useful page text.</p></article></body></html>"
+        );
+        let url = serve_once(&format!(
+            "HTTP/1.1 200 OK\r\ncontent-type: text/html\r\ncontent-length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        ))
+        .await;
+        let request = FetchRequest {
+            url,
+            reason: None,
+            max_chars: 20_000,
+        };
+        let response =
+            fetch_direct_http_unchecked_initial_url(&test_client(), &request, &test_context())
+                .await
+                .expect("fetch");
+
+        assert_eq!(response.content_kind, FetchContentKind::RawMarkdown);
+        assert_eq!(response.title.as_deref(), Some("Readable"));
+        assert!(response.content.contains("Readable Article"));
+        assert!(response.content.contains("useful page text"));
     }
 
     #[tokio::test]

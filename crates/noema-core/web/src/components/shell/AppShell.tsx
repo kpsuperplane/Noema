@@ -392,9 +392,10 @@ const styles = stylex.create({
     top: 16,
     left: "calc(16px + var(--shell-desktop-chrome-offset))",
     zIndex: 40,
+    cursor: 'default',
     backgroundColor: "transparent",
     ":hover": {
-      backgroundColor: "rgb(0 0 0 / 0.05)"
+      backgroundColor: "rgb(0 0 0 / 0.05)",
     },
     "@media (max-width: 760px)": {
       display: "none"

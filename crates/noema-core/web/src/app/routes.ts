@@ -1,5 +1,3 @@
-import React from "react";
-
 export type SettingsSection =
   | "agents"
   | "tools-web"
@@ -16,6 +14,18 @@ export type AppRoute =
   | { kind: "settings"; section: SettingsSection };
 
 export type NonSettingsAppRoute = Exclude<AppRoute, { kind: "settings" }>;
+
+export type AppPath =
+  | "/"
+  | "/memory"
+  | "/memory/graph"
+  | "/settings/agents"
+  | "/settings/tools/web"
+  | "/settings/tools/mcps"
+  | "/settings/safety/usage"
+  | "/settings/safety/approvals"
+  | "/settings/safety/identities"
+  | "/settings/system/providers";
 
 export function routeFromPathname(pathname: string): AppRoute {
   if (pathname === "/memory") {
@@ -48,7 +58,7 @@ export function routeFromPathname(pathname: string): AppRoute {
   return { kind: "chat" };
 }
 
-export function pathForRoute(route: AppRoute): string {
+export function pathForRoute(route: AppRoute): AppPath {
   if (route.kind === "memory_home") {
     return "/memory";
   }
@@ -98,66 +108,4 @@ export function shouldReplaceHistoryEntryForNavigation(
   nextRoute: AppRoute
 ) {
   return currentRoute.kind === "settings" && nextRoute.kind === "settings";
-}
-
-export function useBrowserRoute() {
-  const [route, setRoute] = React.useState(() => routeFromPathname(window.location.pathname));
-  const previousAppRouteRef = React.useRef<NonSettingsAppRoute>(
-    shouldRememberAsPreviousAppRoute(route) ? route : { kind: "chat" }
-  );
-  const canGoBackFromSettingsRef = React.useRef(false);
-
-  React.useEffect(() => {
-    const onPopState = () => {
-      const nextRoute = routeFromPathname(window.location.pathname);
-      if (shouldRememberAsPreviousAppRoute(nextRoute)) {
-        previousAppRouteRef.current = nextRoute;
-        canGoBackFromSettingsRef.current = false;
-      }
-      setRoute(nextRoute);
-    };
-    window.addEventListener("popstate", onPopState);
-    return () => window.removeEventListener("popstate", onPopState);
-  }, []);
-
-  const navigate = React.useCallback((nextRoute: AppRoute) => {
-    setRoute((currentRoute) => {
-      if (shouldRememberAsPreviousAppRoute(currentRoute)) {
-        previousAppRouteRef.current = currentRoute;
-      }
-      if (nextRoute.kind === "settings") {
-        canGoBackFromSettingsRef.current =
-          canGoBackFromSettingsRef.current || shouldRememberAsPreviousAppRoute(currentRoute);
-      } else {
-        canGoBackFromSettingsRef.current = false;
-      }
-      const nextPath = pathForRoute(nextRoute);
-      if (shouldReplaceHistoryEntryForNavigation(currentRoute, nextRoute)) {
-        window.history.replaceState({}, "", nextPath);
-      } else {
-        window.history.pushState({}, "", nextPath);
-      }
-      return routeFromPathname(nextPath);
-    });
-  }, []);
-
-  const goBackFromSettings = React.useCallback(() => {
-    const action = settingsBackNavigation(canGoBackFromSettingsRef.current);
-    canGoBackFromSettingsRef.current = false;
-
-    if (action.kind === "history-back") {
-      window.history.back();
-      return;
-    }
-
-    const nextPath = pathForRoute(action.route);
-    window.history.pushState({}, "", nextPath);
-    setRoute(routeFromPathname(nextPath));
-  }, []);
-
-  return {
-    route,
-    navigate,
-    goBackFromSettings
-  };
 }

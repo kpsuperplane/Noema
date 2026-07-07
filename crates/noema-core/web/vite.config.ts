@@ -1,5 +1,6 @@
 import path from "node:path";
 import react from "@vitejs/plugin-react";
+import { tanstackRouter } from "@tanstack/router-plugin/vite";
 import { defineConfig } from "vite";
 
 const stylexPlugin = [
@@ -17,6 +18,10 @@ const stylexPlugin = [
 
 export default defineConfig({
   plugins: [
+    tanstackRouter({
+      target: "react",
+      autoCodeSplitting: true
+    }),
     react({
       babel: {
         plugins: [stylexPlugin]
@@ -33,9 +38,9 @@ export default defineConfig({
   build: {
     outDir: "../target/web-assets",
     emptyOutDir: true,
+    cssCodeSplit: false,
     rollupOptions: {
       output: {
-        inlineDynamicImports: true,
         entryFileNames: "app.js",
         chunkFileNames: "[name].js",
         assetFileNames: (assetInfo) => {

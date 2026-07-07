@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import react from "@vitejs/plugin-react";
+import { tanstackRouter } from "@tanstack/router-plugin/vite";
 import { defineConfig } from "vite";
 
 const stylexPlugin = [
@@ -18,6 +19,10 @@ const stylexPlugin = [
 
 export default defineConfig({
   plugins: [
+    tanstackRouter({
+      target: "react",
+      autoCodeSplitting: true
+    }),
     react({
       babel: {
         plugins: [stylexPlugin]
@@ -51,6 +56,7 @@ export default defineConfig({
   build: {
     outDir: "dist-tauri",
     emptyOutDir: true,
+    cssCodeSplit: false,
     rollupOptions: {
       output: {
         entryFileNames: "assets/app.js",

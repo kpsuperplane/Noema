@@ -4,6 +4,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { ArrowDownIcon } from "lucide-react";
 import { renderedEntryMessageId, type RenderTranscriptEntry } from "./renderModel";
 import { BOTTOM_SCROLL_THRESHOLD_PX } from "./scrollModel";
+import { shouldLoadBeforeFromVirtualItems } from "./transcriptScrollerModel";
 
 type ScrollToEndOptions = {
   behavior?: ScrollBehavior;
@@ -214,9 +215,11 @@ export function TranscriptScroller({
 }: TranscriptScrollerProps) {
   const { contentRef, viewportRef, scrollToEnd } = useTranscriptScroller();
   const [stuckToBottom, setStuckToBottom] = React.useState(true);
+  const [userScrolledTowardStart, setUserScrolledTowardStart] = React.useState(false);
   const pendingPrependAnchorRef = React.useRef<PrependAnchor | null>(null);
   const nearTopLoadArmedRef = React.useRef(true);
   const requestedOldestKeyRef = React.useRef<React.Key | null>(null);
+  const touchStartYRef = React.useRef<number | null>(null);
   // TanStack Virtual exposes imperative measurement functions that React Compiler cannot memoize.
   // eslint-disable-next-line react-hooks/incompatible-library
   const rowVirtualizer = useVirtualizer({
@@ -241,6 +244,38 @@ export function TranscriptScroller({
     },
     [onViewportScroll]
   );
+  const markUserScrolledTowardStart = React.useCallback(() => {
+    setUserScrolledTowardStart(true);
+  }, []);
+  const handleWheel = React.useCallback(
+    (event: React.WheelEvent<HTMLDivElement>) => {
+      if (event.deltaY < 0) {
+        markUserScrolledTowardStart();
+      }
+    },
+    [markUserScrolledTowardStart]
+  );
+  const handleKeyDown = React.useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      if (event.key === "ArrowUp" || event.key === "PageUp" || event.key === "Home") {
+        markUserScrolledTowardStart();
+      }
+    },
+    [markUserScrolledTowardStart]
+  );
+  const handleTouchStart = React.useCallback((event: React.TouchEvent<HTMLDivElement>) => {
+    touchStartYRef.current = event.touches[0]?.clientY ?? null;
+  }, []);
+  const handleTouchMove = React.useCallback(
+    (event: React.TouchEvent<HTMLDivElement>) => {
+      const startY = touchStartYRef.current;
+      const currentY = event.touches[0]?.clientY;
+      if (startY !== null && currentY !== undefined && currentY > startY) {
+        markUserScrolledTowardStart();
+      }
+    },
+    [markUserScrolledTowardStart]
+  );
 
   React.useEffect(() => {
     const first = virtualItems[0];
@@ -254,7 +289,17 @@ export function TranscriptScroller({
     if (!nearTopLoadArmedRef.current) {
       return;
     }
-    if (requestedOldestKeyRef.current === oldestEntryKey) {
+    if (
+      !shouldLoadBeforeFromVirtualItems({
+        virtualItems,
+        hasMoreBefore,
+        loadingBefore,
+        oldestEntryKey,
+        requestedOldestKey: requestedOldestKeyRef.current?.toString() ?? null,
+        nearTopLoadArmed: nearTopLoadArmedRef.current,
+        userScrolledTowardStart
+      })
+    ) {
       return;
     }
 
@@ -262,7 +307,7 @@ export function TranscriptScroller({
     nearTopLoadArmedRef.current = false;
     requestedOldestKeyRef.current = oldestEntryKey;
     onLoadBefore();
-  }, [hasMoreBefore, loadingBefore, oldestEntryKey, onLoadBefore, viewportRef, virtualItems]);
+  }, [hasMoreBefore, loadingBefore, oldestEntryKey, onLoadBefore, userScrolledTowardStart, viewportRef, virtualItems]);
 
   React.useLayoutEffect(() => {
     const anchor = pendingPrependAnchorRef.current;
@@ -295,8 +340,13 @@ export function TranscriptScroller({
         ref={viewportRef}
         {...stylex.props(styles.viewport)}
         aria-label={ariaLabel}
+        onKeyDown={handleKeyDown}
         onScroll={handleScroll}
+        onTouchMove={handleTouchMove}
+        onTouchStart={handleTouchStart}
+        onWheel={handleWheel}
         role="region"
+        tabIndex={0}
       >
         <div ref={contentRef} {...stylex.props(styles.content)}>
           {hasMoreBefore || loadingBefore || loadBeforeError ? (

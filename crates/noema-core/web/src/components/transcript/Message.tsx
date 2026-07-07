@@ -87,7 +87,7 @@ export function Message({
     </TranscriptChatBubble>
   );
 
-  if (role !== "assistant" || !debugUsage) {
+  if (role !== "assistant") {
     return bubble;
   }
 
@@ -97,7 +97,12 @@ export function Message({
         items={[
           {
             label: "Debug",
-            onClick: () => setDebugOpen(true)
+            isDisabled: !debugUsage,
+            onClick: () => {
+              if (debugUsage) {
+                setDebugOpen(true);
+              }
+            }
           }
         ]}
       >

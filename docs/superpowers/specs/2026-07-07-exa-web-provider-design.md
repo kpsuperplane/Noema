@@ -129,11 +129,9 @@ other Noema-owned provider credentials. The JSON shape can stay minimal:
 { "api_key": "..." }
 ```
 
-Runtime credential resolution checks the saved provider-account key first. It
-may fall back to `EXA_API_KEY` only for an already-created Exa account, for
-developer convenience and existing terminal workflows. `EXA_API_KEY` alone must
-not cause an Exa account to be listed. SurrealDB stores only non-secret account
-metadata and status.
+Runtime credential resolution reads only the saved provider-account key.
+Noema should not read `EXA_API_KEY` for Exa. SurrealDB stores only non-secret
+account metadata and status.
 
 The implementation must not log, persist, or surface the key. Tests may use
 fake values such as `secret`.
@@ -143,8 +141,7 @@ credential-present. Noema should not perform a save-time Exa probe because the
 current Exa docs do not expose a free status endpoint, and probing search or
 contents could spend credits. Runtime `401` or `403` responses should update
 the account to `unauthenticated` with a safe error code/message. Clearing the
-key should remove the secret file and mark the account unauthenticated unless
-`EXA_API_KEY` is still available for that already-created account.
+key should remove the secret file and mark the account unauthenticated.
 
 ## Settings And GraphQL
 
@@ -169,8 +166,8 @@ secret file, updates safe provider status metadata, and returns the refreshed
 `ProviderAccount`.
 
 `providerAccounts` should list only created provider accounts. It must not
-manufacture an Exa account from the provider catalog or from `EXA_API_KEY`.
-The Providers settings pane should show an Add Provider Account control. Choosing
+manufacture an Exa account from the provider catalog. The Providers settings
+pane should show an Add Provider Account control. Choosing
 Exa opens a form with optional account display name and required API key. After
 creation, the account card should render write-only secret replacement and clear
 actions. The UI must never echo the saved secret. It can show only status, last
@@ -212,8 +209,8 @@ Focused tests should cover:
 - Exa is not returned by `providerAccounts` until the user creates an account.
 - Creating an Exa account accepts an optional display name, generates a stable
   account key, writes the secret file, and returns a safe provider account.
-- Exa account status derives from saved secret or `EXA_API_KEY` without
-  persisting the secret in SurrealDB, but only for already-created accounts.
+- Exa account status derives only from the saved provider-account secret
+  without persisting the secret in SurrealDB.
 - Settings secret save writes the provider-account secret file, rejects blank
   input, updates safe status metadata, and does not return the secret.
 - Settings secret clear removes the provider-account secret file and updates

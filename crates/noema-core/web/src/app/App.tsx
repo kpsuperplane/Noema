@@ -5,6 +5,7 @@ import {
   useSubscription,
   useSuspenseQuery
 } from "@apollo/client/react";
+import { useLocation, useNavigate, useRouter } from "@tanstack/react-router";
 import {
   ChatBootDocument,
   ConversationEventsDocument,
@@ -19,17 +20,22 @@ import {
 } from "@/generated/graphql";
 import { ChatSurface } from "@/components/ChatSurface";
 import { AppShell } from "@/components/shell/AppShell";
-import { AppBootBoundary } from "@/components/shell/AppBootBoundary";
 import { SetupFrame } from "@/components/shell/SetupFrame";
 import {
   isProviderAuthAttemptPending,
   Onboarding,
   PROVIDER_AUTH_POLL_INTERVAL_MS
 } from "@/components/Onboarding";
-import { MemoryGraphPage } from "@/pages/MemoryGraphPage";
-import { MemoryHomePage } from "@/pages/MemoryHomePage";
-import { SettingsSurface } from "@/pages/SettingsPage";
-import { useBrowserRoute } from "./routes";
+import { AppRuntimeProvider } from "./AppRuntimeContext";
+import {
+  pathForRoute,
+  routeFromPathname,
+  settingsBackNavigation,
+  shouldRememberAsPreviousAppRoute,
+  shouldReplaceHistoryEntryForNavigation,
+  type AppRoute,
+  type NonSettingsAppRoute
+} from "./routes";
 import {
   appendAssistantTextDeltaEntry,
   entriesFromReplay,
@@ -99,16 +105,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-export function App() {
-  return (
-    <AppBootBoundary>
-      <AppContent />
-    </AppBootBoundary>
+export function AppRoot({ children }: { children: React.ReactNode }) {
+  const location = useLocation();
+  const router = useRouter();
+  const routerNavigate = useNavigate();
+  const route = routeFromPathname(location.pathname);
+  const previousAppRouteRef = React.useRef<NonSettingsAppRoute>(
+    shouldRememberAsPreviousAppRoute(route) ? route : { kind: "chat" }
   );
-}
-
-function AppContent() {
-  const { route, navigate, goBackFromSettings } = useBrowserRoute();
+  const canGoBackFromSettingsRef = React.useRef(false);
   const apolloClient = useApolloClient();
   const boot = useSuspenseQuery(ChatBootDocument, {
     variables: { transcriptLimit: 80 },
@@ -147,6 +152,45 @@ function AppContent() {
   const latestTranscriptErrorVisibleConversationRef = React.useRef<string | null>(null);
   const lastProcessedConversationEventRef = React.useRef<ConversationEvent | null>(null);
   const localStatusRefetchRef = React.useRef(boot.refetch);
+
+  React.useEffect(() => {
+    if (shouldRememberAsPreviousAppRoute(route)) {
+      previousAppRouteRef.current = route;
+      canGoBackFromSettingsRef.current = false;
+    }
+  }, [route]);
+
+  const navigate = React.useCallback(
+    (nextRoute: AppRoute) => {
+      if (shouldRememberAsPreviousAppRoute(route)) {
+        previousAppRouteRef.current = route;
+      }
+      if (nextRoute.kind === "settings") {
+        canGoBackFromSettingsRef.current =
+          canGoBackFromSettingsRef.current || shouldRememberAsPreviousAppRoute(route);
+      } else {
+        canGoBackFromSettingsRef.current = false;
+      }
+
+      void routerNavigate({
+        to: pathForRoute(nextRoute),
+        replace: shouldReplaceHistoryEntryForNavigation(route, nextRoute)
+      });
+    },
+    [route, routerNavigate]
+  );
+
+  const goBackFromSettings = React.useCallback(() => {
+    const action = settingsBackNavigation(canGoBackFromSettingsRef.current);
+    canGoBackFromSettingsRef.current = false;
+
+    if (action.kind === "history-back") {
+      router.history.back();
+      return;
+    }
+
+    void routerNavigate({ to: pathForRoute(action.route) });
+  }, [router.history, routerNavigate]);
 
   const status = boot.data.localStatus;
   const agentName = status?.primaryAgentDisplayName ?? null;
@@ -682,57 +726,25 @@ function AppContent() {
     );
   }
 
-  if (route.kind === "memory_home") {
-    return (
-      <AppShell
-        route={route}
-        status={status}
-        socketState={socketState}
-        onNavigate={navigate}
-        goBackFromSettings={goBackFromSettings}
-      >
-        <MemoryHomePage onOpenGraph={() => navigate({ kind: "memory_graph" })} />
-      </AppShell>
-    );
-  }
-
-  if (route.kind === "memory_graph") {
-    return (
-      <AppShell
-        route={route}
-        status={status}
-        socketState={socketState}
-        onNavigate={navigate}
-        goBackFromSettings={goBackFromSettings}
-      >
-        <MemoryGraphPage />
-      </AppShell>
-    );
-  }
-
-  if (route.kind === "settings") {
-    return (
-      <AppShell
-        route={route}
-        status={status}
-        socketState={socketState}
-        onNavigate={navigate}
-        goBackFromSettings={goBackFromSettings}
-      >
-        <SettingsSurface section={route.section} />
-      </AppShell>
-    );
-  }
+  const openMemoryGraph = () => navigate({ kind: "memory_graph" });
 
   return (
-    <AppShell
-      route={route}
-      status={status}
-      socketState={socketState}
-      onNavigate={navigate}
-      goBackFromSettings={goBackFromSettings}
+    <AppRuntimeProvider
+      value={{
+        chatView,
+        openMemoryGraph,
+        settingsSection: route.kind === "settings" ? route.section : null
+      }}
     >
-      {chatView}
-    </AppShell>
+      <AppShell
+        route={route}
+        status={status}
+        socketState={socketState}
+        onNavigate={navigate}
+        goBackFromSettings={goBackFromSettings}
+      >
+        {children}
+      </AppShell>
+    </AppRuntimeProvider>
   );
 }
