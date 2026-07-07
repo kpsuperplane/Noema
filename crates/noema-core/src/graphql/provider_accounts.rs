@@ -1,4 +1,4 @@
-use async_graphql::{Result, SimpleObject};
+use async_graphql::{InputObject, Result, SimpleObject};
 
 use crate::{
     FoundationLocalProvider, FoundationLocalProviderConfig, ProviderAccountRecord,
@@ -8,6 +8,7 @@ use crate::{
         ProviderCapability, ResultPersistencePolicy,
         adapters::foundation_bridge_process::FoundationBridgeError,
     },
+    store::NewProviderAccount,
 };
 
 use super::{
@@ -60,6 +61,8 @@ impl From<ProviderCapability> for GraphqlProviderCapability {
 #[derive(Clone, Debug, SimpleObject)]
 #[graphql(name = "ProviderAccount")]
 pub struct GraphqlProviderAccount {
+    /// Stable provider account id.
+    pub provider_account_id: String,
     /// Provider family, such as `codex`.
     pub provider_kind: String,
     /// Provider-local account key.
@@ -89,6 +92,7 @@ pub struct GraphqlProviderAccount {
 impl From<ProviderAccountRecord> for GraphqlProviderAccount {
     fn from(account: ProviderAccountRecord) -> Self {
         Self {
+            provider_account_id: account.provider_account_id,
             provider_kind: account.provider_kind,
             account_key: account.account_key,
             display_name: account.display_name,
@@ -103,6 +107,40 @@ impl From<ProviderAccountRecord> for GraphqlProviderAccount {
             capabilities: account.capabilities.into_iter().map(Into::into).collect(),
         }
     }
+}
+
+/// Provider type that can be added in Settings.
+#[derive(Clone, Debug, SimpleObject)]
+#[graphql(name = "ProviderAccountCatalogEntry")]
+pub struct GraphqlProviderAccountCatalogEntry {
+    pub provider_kind: String,
+    pub display_name: String,
+    pub auth_method: String,
+    pub capabilities: Vec<GraphqlProviderCapability>,
+}
+
+/// Input for creating a provider account.
+#[derive(Clone, Debug, InputObject)]
+#[graphql(name = "CreateProviderAccountInput")]
+pub struct GraphqlCreateProviderAccountInput {
+    pub provider_kind: String,
+    pub display_name: Option<String>,
+    pub secret: String,
+}
+
+/// Input for saving a write-only provider secret.
+#[derive(Clone, Debug, InputObject)]
+#[graphql(name = "ProviderSecretInput")]
+pub struct GraphqlProviderSecretInput {
+    pub provider_account_id: String,
+    pub secret: String,
+}
+
+/// Input for clearing a write-only provider secret.
+#[derive(Clone, Debug, InputObject)]
+#[graphql(name = "ClearProviderSecretInput")]
+pub struct GraphqlClearProviderSecretInput {
+    pub provider_account_id: String,
 }
 
 const fn auth_method_label(method: ProviderAuthMethod) -> &'static str {
@@ -121,6 +159,160 @@ pub(super) async fn provider_accounts(state: &GraphqlState) -> Result<Vec<Graphq
         .await
         .map_err(graphql_error)?;
     Ok(accounts.into_iter().map(Into::into).collect())
+}
+
+pub(super) async fn provider_account_catalog(
+    state: &GraphqlState,
+) -> Result<Vec<GraphqlProviderAccountCatalogEntry>> {
+    let store = state.store()?;
+    Ok(store
+        .provider_account_catalog()
+        .into_iter()
+        .map(|entry| GraphqlProviderAccountCatalogEntry {
+            provider_kind: entry.provider_kind,
+            display_name: entry.display_name,
+            auth_method: entry.auth_method.as_str().to_string(),
+            capabilities: entry.capabilities.into_iter().map(Into::into).collect(),
+        })
+        .collect())
+}
+
+pub(super) async fn create_provider_account(
+    state: &GraphqlState,
+    input: GraphqlCreateProviderAccountInput,
+) -> Result<GraphqlProviderAccount> {
+    if input.provider_kind != "exa" {
+        return Err(async_graphql::Error::new("unsupported provider kind"));
+    }
+    reject_blank_secret(&input.secret)?;
+    let store = state.store()?;
+    let account = store
+        .create_provider_account(NewProviderAccount {
+            provider_kind: input.provider_kind,
+            display_name: input.display_name,
+            auth_method: ProviderAuthMethod::SecretInput,
+            status: ProviderAccountStatus::Unauthenticated,
+            metadata: serde_json::json!({"secretConfigured": false}),
+        })
+        .await
+        .map_err(graphql_error)?;
+    save_secret_for_account(state, account, &input.secret).await
+}
+
+pub(super) async fn save_provider_secret_input(
+    state: &GraphqlState,
+    input: GraphqlProviderSecretInput,
+) -> Result<GraphqlProviderAccount> {
+    reject_blank_secret(&input.secret)?;
+    let account = secret_input_account(state, &input.provider_account_id).await?;
+    save_secret_for_account(state, account, &input.secret).await
+}
+
+pub(super) async fn clear_provider_secret(
+    state: &GraphqlState,
+    input: GraphqlClearProviderSecretInput,
+) -> Result<GraphqlProviderAccount> {
+    let store = state.store()?;
+    let account = secret_input_account(state, &input.provider_account_id).await?;
+    let paths = state.paths()?;
+    let secret_store = crate::provider::secret_input::SecretInputStore::new(
+        paths.provider_account_home(&account.provider_kind, &account.account_key),
+    );
+    secret_store
+        .clear_api_key()
+        .map_err(|error| async_graphql::Error::new(error.to_string()))?;
+    store
+        .update_provider_account_status(
+            &account.provider_account_id,
+            ProviderAccountStatus::Unauthenticated,
+            None,
+            None,
+        )
+        .await
+        .map_err(graphql_error)?;
+    store
+        .update_provider_account_metadata(
+            &account.provider_account_id,
+            serde_json::json!({"secretConfigured": false}),
+        )
+        .await
+        .map_err(graphql_error)?;
+    refreshed_provider_account(store, &account.provider_account_id).await
+}
+
+async fn save_secret_for_account(
+    state: &GraphqlState,
+    account: ProviderAccountRecord,
+    secret: &str,
+) -> Result<GraphqlProviderAccount> {
+    let store = state.store()?;
+    let paths = state.paths()?;
+    let secret_store = crate::provider::secret_input::SecretInputStore::new(
+        paths.provider_account_home(&account.provider_kind, &account.account_key),
+    );
+    secret_store
+        .save_api_key(secret)
+        .map_err(|error| async_graphql::Error::new(error.to_string()))?;
+    store
+        .update_provider_account_status(
+            &account.provider_account_id,
+            ProviderAccountStatus::Authenticated,
+            None,
+            None,
+        )
+        .await
+        .map_err(graphql_error)?;
+    store
+        .update_provider_account_metadata(
+            &account.provider_account_id,
+            serde_json::json!({"secretConfigured": true}),
+        )
+        .await
+        .map_err(graphql_error)?;
+    refreshed_provider_account(store, &account.provider_account_id).await
+}
+
+async fn secret_input_account(
+    state: &GraphqlState,
+    provider_account_id: &str,
+) -> Result<ProviderAccountRecord> {
+    let store = state.store()?;
+    let account = store
+        .get_provider_account(provider_account_id)
+        .await
+        .map_err(graphql_error)?
+        .ok_or_else(|| async_graphql::Error::new("provider account not found"))?;
+    if !account.is_active {
+        return Err(async_graphql::Error::new("provider account not found"));
+    }
+    if account.provider_kind != "exa" {
+        return Err(async_graphql::Error::new("unsupported provider kind"));
+    }
+    if account.auth_method != ProviderAuthMethod::SecretInput {
+        return Err(async_graphql::Error::new(
+            "provider account auth method mismatch",
+        ));
+    }
+    Ok(account)
+}
+
+async fn refreshed_provider_account(
+    store: &crate::NoemaStore,
+    provider_account_id: &str,
+) -> Result<GraphqlProviderAccount> {
+    store
+        .get_provider_account(provider_account_id)
+        .await
+        .map_err(graphql_error)?
+        .map(Into::into)
+        .ok_or_else(|| async_graphql::Error::new("provider account not found"))
+}
+
+fn reject_blank_secret(secret: &str) -> Result<()> {
+    if secret.trim().is_empty() {
+        return Err(async_graphql::Error::new("api key is required"));
+    }
+    Ok(())
 }
 
 pub(super) async fn refresh_foundation_local_availability(state: &GraphqlState) {

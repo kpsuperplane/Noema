@@ -16,6 +16,8 @@ pub mod capabilities;
 pub mod contract;
 /// Provider model/profile catalog refresh helpers.
 pub mod model_catalog;
+/// Write-only secret-input provider account storage.
+pub mod secret_input;
 /// Provider-neutral native tool contracts.
 pub mod tools;
 

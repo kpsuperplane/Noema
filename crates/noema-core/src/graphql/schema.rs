@@ -34,7 +34,9 @@ use super::{
         GraphqlStartProviderAuthAttemptInput,
     },
     provider_accounts::{
-        self, GraphqlCapabilityFeatures, GraphqlProviderAccount, GraphqlProviderCapability,
+        self, GraphqlCapabilityFeatures, GraphqlClearProviderSecretInput,
+        GraphqlCreateProviderAccountInput, GraphqlProviderAccount,
+        GraphqlProviderAccountCatalogEntry, GraphqlProviderCapability, GraphqlProviderSecretInput,
     },
     usage_settings::{self, GraphqlSaveToolProgressAuditPreferenceInput, GraphqlUsageSettings},
     web_fetch_settings::{
@@ -80,6 +82,20 @@ impl GraphqlState {
     pub fn for_tests_with_store(store: crate::NoemaStore) -> Self {
         Self {
             runtime_state: GraphqlRuntimeState::for_tests_with_store(store),
+            mcp_setup_outcomes: None,
+            mcp_browser_oauth_supported: false,
+        }
+    }
+
+    /// Build test state backed by a real embedded store and path root.
+    #[cfg(test)]
+    #[must_use]
+    pub fn for_tests_with_store_and_paths(
+        store: crate::NoemaStore,
+        paths: crate::NoemaPaths,
+    ) -> Self {
+        Self {
+            runtime_state: GraphqlRuntimeState::for_tests_with_store_and_paths(store, paths),
             mcp_setup_outcomes: None,
             mcp_browser_oauth_supported: false,
         }
@@ -375,6 +391,15 @@ impl QueryRoot {
         provider_accounts::provider_accounts(state).await
     }
 
+    /// List provider account types that can be added in Settings.
+    async fn provider_account_catalog(
+        &self,
+        ctx: &Context<'_>,
+    ) -> Result<Vec<GraphqlProviderAccountCatalogEntry>> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        provider_accounts::provider_account_catalog(state).await
+    }
+
     /// List agent metadata safe to show in Settings.
     async fn agents(&self, ctx: &Context<'_>) -> Result<Vec<GraphqlAgent>> {
         let state = ctx.data_unchecked::<GraphqlState>();
@@ -532,6 +557,36 @@ impl MutationRoot {
     ) -> Result<GraphqlProviderAuthAttempt> {
         let state = ctx.data_unchecked::<GraphqlState>();
         onboarding::start_provider_auth_attempt(state, input).await
+    }
+
+    /// Create a user-managed provider account.
+    async fn create_provider_account(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlCreateProviderAccountInput,
+    ) -> Result<GraphqlProviderAccount> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        provider_accounts::create_provider_account(state, input).await
+    }
+
+    /// Save a write-only provider account secret.
+    async fn save_provider_secret_input(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlProviderSecretInput,
+    ) -> Result<GraphqlProviderAccount> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        provider_accounts::save_provider_secret_input(state, input).await
+    }
+
+    /// Clear a write-only provider account secret.
+    async fn clear_provider_secret(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlClearProviderSecretInput,
+    ) -> Result<GraphqlProviderAccount> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        provider_accounts::clear_provider_secret(state, input).await
     }
 
     /// Save one agent's model/provider preference.
@@ -800,6 +855,7 @@ mod tests {
                 r#"
                 {
                   providerAccounts {
+                    providerAccountId
                     providerKind
                     accountKey
                     displayName
@@ -820,6 +876,10 @@ mod tests {
         assert!(response.errors.is_empty(), "{:?}", response.errors);
         let data = response.data.into_json().expect("json");
         let account = &data["providerAccounts"][0];
+        assert_eq!(
+            account["providerAccountId"],
+            "provider_account:codex:default"
+        );
         assert_eq!(account["providerKind"], "codex");
         assert_eq!(account["accountKey"], "default");
         assert_eq!(account["displayName"], "Codex");
@@ -831,11 +891,94 @@ mod tests {
         assert_eq!(account["lastErrorMessage"], "Codex credentials are usable");
 
         let json_text = serde_json::to_string(&data).expect("provider json");
-        assert!(!json_text.contains("provider_account:codex:default"));
         assert!(!json_text.contains("auth.json"));
         assert!(!json_text.contains("codex_tokens.json"));
         assert!(!json_text.contains("api_key"));
         assert!(!json_text.contains("token"));
+    }
+
+    #[tokio::test]
+    async fn provider_account_catalog_lists_exa() {
+        use crate::store::tests::test_store;
+
+        let store = test_store().await;
+        let schema = build_schema(GraphqlState::for_tests_with_store(store));
+
+        let response = schema
+            .execute(async_graphql::Request::new(
+                r#"
+                {
+                  providerAccountCatalog {
+                    providerKind
+                    displayName
+                    authMethod
+                    capabilities { capabilityId }
+                  }
+                  providerAccounts { providerKind }
+                }
+                "#,
+            ))
+            .await;
+
+        assert!(response.errors.is_empty(), "{:?}", response.errors);
+        let data = response.data.into_json().expect("json");
+        assert_eq!(data["providerAccountCatalog"][0]["providerKind"], "exa");
+        assert!(
+            data["providerAccounts"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|account| { account["providerKind"] != "exa" })
+        );
+    }
+
+    #[tokio::test]
+    async fn create_exa_provider_account_stores_secret_without_returning_it() {
+        use crate::{NoemaPaths, store::tests::test_store};
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let store = test_store().await;
+        let state = GraphqlState::for_tests_with_store_and_paths(
+            store,
+            NoemaPaths::from_noema_home(dir.path()).expect("paths"),
+        );
+        let schema = build_schema(state);
+
+        let response = schema
+            .execute(async_graphql::Request::new(
+                r#"
+                mutation {
+                  createProviderAccount(input: {
+                    providerKind: "exa"
+                    displayName: "Research"
+                    secret: "secret-key"
+                  }) {
+                    providerAccountId
+                    providerKind
+                    accountKey
+                    displayName
+                    authMethod
+                    status
+                    lastErrorMessage
+                  }
+                }
+                "#,
+            ))
+            .await;
+
+        assert!(response.errors.is_empty(), "{:?}", response.errors);
+        let value = response.data.into_json().expect("json");
+        let account = &value["createProviderAccount"];
+        assert_eq!(account["providerKind"], "exa");
+        assert_eq!(account["displayName"], "Research");
+        assert_eq!(account["status"], "AUTHENTICATED");
+        assert!(!value.to_string().contains("secret-key"));
+        let account_key = account["accountKey"].as_str().expect("account key");
+        assert!(
+            dir.path()
+                .join(format!("providers/exa/{account_key}/api_key.json"))
+                .is_file()
+        );
     }
 
     #[tokio::test]
