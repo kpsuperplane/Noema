@@ -26,6 +26,11 @@ body {
 }
 
 button,
+.astryx-date-input,
+.astryx-date-range-input,
+.astryx-date-time-input,
+.astryx-multi-selector,
+.astryx-selector,
 [role="button"],
 [role="checkbox"],
 [role="combobox"],
