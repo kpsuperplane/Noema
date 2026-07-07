@@ -6,6 +6,8 @@
 
 /// Neutral provider account metadata types.
 pub mod accounts;
+/// Provider capability declarations and behavior metadata.
+pub mod capabilities;
 /// Concrete model provider adapters and transport helpers.
 pub mod adapters;
 /// Provider authentication support.
@@ -26,6 +28,11 @@ pub use contract::{
     PromptCacheRetention, ProviderContextMetadata, ProviderError, TokenUsage,
     noema_response_from_text, output_items_from_text, required_noema_response_from_text,
     required_noema_response_from_text_with_native_tool_calls,
+};
+
+pub use capabilities::{
+    CapabilityFeatures, CapabilityId, DataFlowClass, ProviderCapability, ProviderCapabilityStatus,
+    ReliabilityContract, ResultPersistencePolicy, capabilities_for_provider_account,
 };
 
 pub use tools::{
