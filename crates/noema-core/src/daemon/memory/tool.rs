@@ -159,15 +159,18 @@ async fn execute_search_memory_inner(
             .await
             .map_err(|error| MemoryToolError::Unavailable(error.to_string()))?;
         for result in response.results {
+            let Some(memory) = result.memory else {
+                continue;
+            };
             memories.push(json!({
                 "id": result.id,
                 "kind": "supermemory",
-                "memory": result.memory,
+                "memory": memory,
                 "score": result.similarity,
                 "updated_at": result.updated_at,
                 "scope_id": scope_id,
                 "container_tag": container_tag,
-                "metadata": result.metadata,
+                "metadata": result.metadata.unwrap_or_else(|| json!({})),
             }));
         }
     }

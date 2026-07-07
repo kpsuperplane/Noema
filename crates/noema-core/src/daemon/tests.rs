@@ -4036,6 +4036,127 @@ async fn runtime_actor_executes_search_memory_as_local_tool_result() {
 }
 
 #[tokio::test]
+async fn search_memory_skips_supermemory_results_without_memory() {
+    let (handle, _store, _server) = test_runtime_handle_with_supermemory(
+        fake_provider(FakeCodexScenario::SearchMemoryContinuation),
+        json!({
+            "results": [
+                {
+                    "id": "mem_missing_text",
+                    "metadata": {"source": "test"},
+                    "updatedAt": "2026-07-07T12:00:00.000Z",
+                    "similarity": 0.99
+                },
+                {
+                    "id": "mem_train",
+                    "memory": "Kevin likes trains.",
+                    "metadata": {"source": "test"},
+                    "updatedAt": "2026-07-07T12:00:00.000Z",
+                    "similarity": 0.91
+                }
+            ],
+            "timing": 2,
+            "total": 2
+        }),
+    )
+    .await;
+
+    let conversation = handle.start_conversation(None).await.expect("conversation");
+    let conversation_id = conversation.conversation_id.clone();
+    collect_turn(
+        &handle,
+        conversation_id.clone(),
+        "/remember I'm a big fan of trains".to_string(),
+    )
+    .await
+    .expect("seed turn");
+
+    let items = collect_turn(
+        &handle,
+        conversation_id,
+        "What do you remember about trains?".to_string(),
+    )
+    .await
+    .expect("search turn");
+    handle.shutdown().await;
+
+    let payload = items
+        .iter()
+        .find_map(|item| match item {
+            TurnTranscriptItem::Activity {
+                activity_kind,
+                status: TurnActivityStatus::Completed,
+                title,
+                metadata,
+                ..
+            } if activity_kind == "tool_result" && title == "Tool result: search_memory" => {
+                Some(&metadata["action"]["payload"])
+            }
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("search_memory tool result, got {items:?}"));
+    let memories = payload["memories"].as_array().expect("memories");
+    assert!(!memories.is_empty());
+    assert!(memories.iter().all(|memory| {
+        memory["id"] == "mem_train" && memory["memory"] == "Kevin likes trains."
+    }));
+}
+
+#[tokio::test]
+async fn search_memory_defaults_missing_supermemory_metadata_to_empty_object() {
+    let (handle, _store, _server) = test_runtime_handle_with_supermemory(
+        fake_provider(FakeCodexScenario::SearchMemoryContinuation),
+        json!({
+            "results": [{
+                "id": "mem_train",
+                "memory": "Kevin likes trains.",
+                "updatedAt": "2026-07-07T12:00:00.000Z",
+                "similarity": 0.91
+            }],
+            "timing": 2,
+            "total": 1
+        }),
+    )
+    .await;
+
+    let conversation = handle.start_conversation(None).await.expect("conversation");
+    let conversation_id = conversation.conversation_id.clone();
+    collect_turn(
+        &handle,
+        conversation_id.clone(),
+        "/remember I'm a big fan of trains".to_string(),
+    )
+    .await
+    .expect("seed turn");
+
+    let items = collect_turn(
+        &handle,
+        conversation_id,
+        "What do you remember about trains?".to_string(),
+    )
+    .await
+    .expect("search turn");
+    handle.shutdown().await;
+
+    let payload = items
+        .iter()
+        .find_map(|item| match item {
+            TurnTranscriptItem::Activity {
+                activity_kind,
+                status: TurnActivityStatus::Completed,
+                title,
+                metadata,
+                ..
+            } if activity_kind == "tool_result" && title == "Tool result: search_memory" => {
+                Some(&metadata["action"]["payload"])
+            }
+            _ => None,
+        })
+        .expect("search_memory tool result");
+    assert_eq!(payload["memories"][0]["metadata"], json!({}));
+}
+
+#[tokio::test]
 async fn runtime_actor_executes_web_search_as_local_tool_result() {
     let search_provider = crate::search::types::SearchRuntimeProvider::Static {
         response: crate::search::types::SearchResponse {

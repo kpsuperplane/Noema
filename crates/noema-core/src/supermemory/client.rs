@@ -120,10 +120,11 @@ pub struct SupermemorySearchResult {
     /// Supermemory memory id.
     pub id: String,
     /// Memory text.
-    pub memory: String,
+    #[serde(default)]
+    pub memory: Option<String>,
     /// Supermemory metadata payload.
     #[serde(default)]
-    pub metadata: serde_json::Value,
+    pub metadata: Option<serde_json::Value>,
     /// Last updated timestamp from Supermemory.
     #[serde(rename = "updatedAt")]
     pub updated_at: Option<String>,
