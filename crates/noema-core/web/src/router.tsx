@@ -1,4 +1,5 @@
 import { createRouter } from "@tanstack/react-router";
+import { useAppRuntime } from "./app/AppRuntimeContext";
 import { routeTree } from "./routeTree.gen";
 
 export const router = createRouter({
@@ -18,7 +19,7 @@ function RoutePending() {
 }
 
 function NotFoundRoute() {
-  return null;
+  return useAppRuntime().chatView;
 }
 
 declare module "@tanstack/react-router" {

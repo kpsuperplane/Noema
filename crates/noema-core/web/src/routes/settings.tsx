@@ -1,7 +1,9 @@
-import { createFileRoute, redirect } from "@tanstack/react-router";
+import { createFileRoute, Outlet } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/settings")({
-  beforeLoad: () => {
-    throw redirect({ to: "/settings/agents" });
-  }
+  component: SettingsLayoutRoute
 });
+
+function SettingsLayoutRoute() {
+  return <Outlet />;
+}

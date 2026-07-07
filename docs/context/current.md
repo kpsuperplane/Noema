@@ -200,6 +200,8 @@ The next storage slice should stay small and concrete:
   `conversationEvents`.
 - Frontend build and lint use Bun from `crates/noema-core/web`.
 - Web GraphQL schema and operation types are generated with `bun run gen:types`.
+  TanStack Router file routes are generated with `bun run gen:routes`, and the
+  normal dev/build/lint scripts run both generators before Vite or TypeScript.
 - The web UI uses Astryx as its component foundation, with a Noema-owned
   Neutral-derived theme and StyleX for Noema-specific layout and state styling.
   Noema-owned shell and domain components remain responsible for chat, memory,
@@ -229,10 +231,20 @@ The next storage slice should stay small and concrete:
   The placeholder Audit settings surface has been removed until audit event
   persistence lands. Agent management actions are not exposed yet.
 - Frontend docs now distinguish currently addressable routes from target
-  surfaces: `routes.ts` owns `/`, `/memory`, `/memory/graph`, `/settings`, and
+  surfaces: TanStack Router owns `/`, `/memory`, `/memory/graph`, `/settings`,
+  and
   `/settings/{agents,tools/web,tools/mcps,safety/approvals,safety/identities,system/providers}`.
-  Older `/setup`, `/chat/:id`, memory detail/review, and `/inspect` paths are
-  target routes until product routing implements them.
+  `routes.ts` remains a shell route mapping helper for breadcrumbs, sidebar
+  selection, and canonical path generation. Older `/setup`, `/chat/:id`, memory
+  detail/review, and `/inspect` paths are target routes until product routing
+  implements them.
+- The web UI uses TanStack Router file-based routes with Vite automatic route
+  code splitting. Chat and the shell stay in the initial bundle; memory graph
+  and settings surfaces load through route chunks. The daemon web asset resolver
+  serves emitted `/assets/*.js`, `.css`, `.svg`, and `.html` files from
+  `target/web-assets` in debug and embeds the generated asset table for release
+  builds, so route chunks work in the Rust-served web UI as well as the Tauri
+  asset bundle.
 - The first third-party MCP control-plane slice has landed. Third-party MCPs
   route through a Noema-owned Capability Gateway rather than raw model tool
   handles. MCP setup is a mandatory metadata-only calibration flow: tools get

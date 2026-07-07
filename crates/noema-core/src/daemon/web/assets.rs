@@ -96,9 +96,27 @@ mod tests {
     use super::{content_type_for_asset_name, embedded_asset, static_asset_name};
 
     #[test]
+    fn emitted_chunk_like_files_are_served_from_assets() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target/web-assets");
+        std::fs::create_dir_all(&dir).expect("create web asset dir");
+        let asset_path = dir.join("__noema_asset_test_chunk.js");
+        std::fs::write(&asset_path, b"export {};").expect("write test chunk");
+
+        let asset = embedded_asset("/assets/__noema_asset_test_chunk.js")
+            .expect("test chunk should resolve");
+        assert_eq!(asset.content_type, "application/javascript; charset=utf-8");
+        assert_eq!(asset.body.as_ref(), b"export {};");
+
+        std::fs::remove_file(asset_path).expect("remove test chunk");
+    }
+
+    #[test]
     fn static_asset_paths_resolve_to_safe_names() {
         assert_eq!(static_asset_name("/assets/app.js"), Some("app.js"));
-        assert_eq!(static_asset_name("/assets/route-chunk.js"), Some("route-chunk.js"));
+        assert_eq!(
+            static_asset_name("/assets/route-chunk.js"),
+            Some("route-chunk.js")
+        );
         assert_eq!(static_asset_name("/assets/styles.css"), Some("styles.css"));
         assert_eq!(static_asset_name("/assets/nested/chunk.js"), None);
         assert_eq!(static_asset_name("/assets/../chunk.js"), None);

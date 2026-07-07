@@ -1,3 +1,5 @@
+//! Generates release-time web asset includes for the daemon.
+
 use std::env;
 use std::fs;
 use std::io;
@@ -9,7 +11,10 @@ fn main() -> io::Result<()> {
     println!("cargo:rerun-if-changed={}", asset_dir.display());
 
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("out dir"));
-    fs::write(out_dir.join("web_assets.rs"), release_asset_table(&asset_dir)?)?;
+    fs::write(
+        out_dir.join("web_assets.rs"),
+        release_asset_table(&asset_dir)?,
+    )?;
     Ok(())
 }
 
