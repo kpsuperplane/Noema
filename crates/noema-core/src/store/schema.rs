@@ -50,7 +50,7 @@ DEFINE INDEX IF NOT EXISTS auxiliary_model_preferences_task_id ON TABLE auxiliar
 
 DEFINE TABLE IF NOT EXISTS provider_accounts SCHEMAFULL;
 DEFINE FIELD OVERWRITE provider_account_id ON TABLE provider_accounts TYPE string;
-DEFINE FIELD OVERWRITE provider_kind ON TABLE provider_accounts TYPE string ASSERT $value INSIDE ['codex', 'openai', 'foundation_local'];
+DEFINE FIELD OVERWRITE provider_kind ON TABLE provider_accounts TYPE string ASSERT $value INSIDE ['codex', 'openai', 'foundation_local', 'exa'];
 DEFINE FIELD OVERWRITE account_key ON TABLE provider_accounts TYPE string;
 DEFINE FIELD OVERWRITE display_name ON TABLE provider_accounts TYPE string;
 DEFINE FIELD OVERWRITE auth_method ON TABLE provider_accounts TYPE string ASSERT $value INSIDE ['oauth_device_code', 'secret_input', 'external_manual', 'none'];

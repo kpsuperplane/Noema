@@ -559,6 +559,59 @@ async fn provider_accounts_include_derived_capabilities() {
 }
 
 #[tokio::test]
+async fn provider_account_catalog_lists_exa_without_creating_account() {
+    let store = test_store().await;
+
+    let catalog = store.provider_account_catalog();
+    let exa = catalog
+        .iter()
+        .find(|entry| entry.provider_kind == "exa")
+        .expect("exa catalog entry");
+    assert_eq!(exa.display_name, "Exa");
+    assert_eq!(exa.auth_method, crate::ProviderAuthMethod::SecretInput);
+    assert!(exa.capabilities.iter().any(|capability| {
+        capability.capability_id == crate::provider::CapabilityId::WebSearch
+    }));
+    assert!(
+        store
+            .active_provider_account("exa")
+            .await
+            .expect("read")
+            .is_none()
+    );
+}
+
+#[tokio::test]
+async fn create_provider_account_generates_stable_key_and_capabilities() {
+    let store = test_store().await;
+
+    let account = store
+        .create_provider_account(crate::store::NewProviderAccount {
+            provider_kind: "exa".to_string(),
+            display_name: Some("Research Search".to_string()),
+            auth_method: crate::ProviderAuthMethod::SecretInput,
+            status: crate::ProviderAccountStatus::Authenticated,
+            metadata: serde_json::json!({ "secretConfigured": true }),
+        })
+        .await
+        .expect("created account");
+
+    assert_eq!(account.provider_kind, "exa");
+    assert_eq!(account.display_name, "Research Search");
+    assert!(account.account_key.starts_with("acct_"));
+    assert_eq!(
+        account.provider_account_id,
+        format!("provider_account:exa:{}", account.account_key)
+    );
+    assert!(!account.is_default);
+    assert!(
+        account.capabilities.iter().any(|capability| {
+            capability.capability_id == crate::provider::CapabilityId::WebFetch
+        })
+    );
+}
+
+#[tokio::test]
 async fn provider_capability_binding_round_trips_web_search() {
     let store = test_store().await;
     store.ensure_default_actors().await.expect("actors");

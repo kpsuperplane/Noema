@@ -249,6 +249,38 @@ pub fn capabilities_for_provider_account(
                 result_persistence: ResultPersistencePolicy::CompactContent,
             },
         }],
+        "exa" => vec![
+            ProviderCapability {
+                provider_kind: provider_kind.to_string(),
+                account_key: account_key.to_string(),
+                capability_id: CapabilityId::WebSearch,
+                status,
+                reliability_contract: ReliabilityContract::HostedProvider,
+                data_flow_class: DataFlowClass::TrustedExternalSearchQuery,
+                features: CapabilityFeatures {
+                    citations: true,
+                    direct_url_fetch: false,
+                    js_rendering: false,
+                    authenticated_context: false,
+                    result_persistence: ResultPersistencePolicy::CompactMetadata,
+                },
+            },
+            ProviderCapability {
+                provider_kind: provider_kind.to_string(),
+                account_key: account_key.to_string(),
+                capability_id: CapabilityId::WebFetch,
+                status,
+                reliability_contract: ReliabilityContract::HostedProvider,
+                data_flow_class: DataFlowClass::ExternalWebFetch,
+                features: CapabilityFeatures {
+                    citations: true,
+                    direct_url_fetch: true,
+                    js_rendering: false,
+                    authenticated_context: false,
+                    result_persistence: ResultPersistencePolicy::CompactContent,
+                },
+            },
+        ],
         _ => Vec::new(),
     }
 }
@@ -357,6 +389,37 @@ mod tests {
         );
         assert_eq!(fetch[0].capability_id, CapabilityId::WebFetch);
         assert!(fetch[0].features.direct_url_fetch);
+    }
+
+    #[test]
+    fn exa_account_declares_search_and_fetch_only() {
+        let capabilities = capabilities_for_provider_account(
+            "exa",
+            "research",
+            ProviderAccountStatus::Authenticated,
+        );
+        let ids = capabilities
+            .iter()
+            .map(|capability| capability.capability_id.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(ids, vec!["web.search", "web.fetch"]);
+        assert!(capabilities.iter().all(|capability| {
+            capability.provider_kind == "exa"
+                && capability.account_key == "research"
+                && capability.reliability_contract == ReliabilityContract::HostedProvider
+        }));
+        assert!(capabilities.iter().any(|capability| {
+            capability.capability_id == CapabilityId::WebSearch
+                && capability.data_flow_class == DataFlowClass::TrustedExternalSearchQuery
+                && capability.features.citations
+                && !capability.features.direct_url_fetch
+        }));
+        assert!(capabilities.iter().any(|capability| {
+            capability.capability_id == CapabilityId::WebFetch
+                && capability.data_flow_class == DataFlowClass::ExternalWebFetch
+                && capability.features.direct_url_fetch
+        }));
     }
 
     #[test]

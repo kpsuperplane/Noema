@@ -5,10 +5,38 @@ use surrealdb::types::SurrealValue;
 use crate::{
     ProviderAccountRecord, ProviderAccountStatus, ProviderAuthMethod,
     provider::capabilities_for_provider_account,
-    store::ids::{invalid_enum, now_string},
+    store::ids::{allocate_id, invalid_enum, now_string},
 };
 
 use super::{NoemaStore, StoreError, agents::agent_record_fragment};
+
+/// Provider type shown in the Settings add-account catalog.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProviderAccountCatalogEntry {
+    /// Stable provider family identifier.
+    pub provider_kind: String,
+    /// Human-readable provider type name.
+    pub display_name: String,
+    /// Authentication method used for newly created accounts.
+    pub auth_method: ProviderAuthMethod,
+    /// Capabilities this provider type can supply after account creation.
+    pub capabilities: Vec<crate::provider::ProviderCapability>,
+}
+
+/// New user-created provider account metadata.
+#[derive(Debug, Clone, PartialEq)]
+pub struct NewProviderAccount {
+    /// Stable provider family identifier.
+    pub provider_kind: String,
+    /// Optional user-facing account name.
+    pub display_name: Option<String>,
+    /// Authentication method for this account.
+    pub auth_method: ProviderAuthMethod,
+    /// Initial safe account status.
+    pub status: ProviderAccountStatus,
+    /// Non-secret provider account metadata.
+    pub metadata: Value,
+}
 
 impl NoemaStore {
     /// Return built-in system provider accounts exposed without durable rows.
@@ -18,6 +46,21 @@ impl NoemaStore {
             system_provider_account("duckduckgo_public", "DuckDuckGo public search"),
             system_provider_account("direct_http", "Direct HTTP web fetch"),
         ]
+    }
+
+    /// Return provider types that can be added by the user.
+    #[must_use]
+    pub fn provider_account_catalog(&self) -> Vec<ProviderAccountCatalogEntry> {
+        vec![ProviderAccountCatalogEntry {
+            provider_kind: "exa".to_string(),
+            display_name: "Exa".to_string(),
+            auth_method: ProviderAuthMethod::SecretInput,
+            capabilities: capabilities_for_provider_account(
+                "exa",
+                "catalog",
+                ProviderAccountStatus::Authenticated,
+            ),
+        }]
     }
 
     /// Create or refresh the built-in local human and primary agent.
@@ -184,6 +227,107 @@ impl NoemaStore {
             .collect::<Result<Vec<_>, _>>()?;
         accounts.sort_by(|left, right| left.provider_kind.cmp(&right.provider_kind));
         Ok(accounts)
+    }
+
+    /// Return all active created provider accounts in stable Settings order.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when the embedded store read fails or a stored
+    /// enum is invalid.
+    pub async fn active_provider_accounts(&self) -> Result<Vec<ProviderAccountRecord>, StoreError> {
+        let mut response = self
+            .db
+            .query(
+                r#"
+                SELECT provider_account_id, provider_kind, account_key, display_name,
+                  auth_method, is_active, is_default, status, last_checked_at,
+                  last_authenticated_at, last_error_code, last_error_message, metadata
+                FROM provider_accounts
+                WHERE is_active = true;
+                "#,
+            )
+            .await?;
+        let rows: Vec<ProviderAccountRow> = response.take(0)?;
+        let mut accounts = rows
+            .into_iter()
+            .map(provider_account_from_row)
+            .collect::<Result<Vec<_>, _>>()?;
+        accounts.sort_by(|left, right| {
+            left.provider_kind
+                .cmp(&right.provider_kind)
+                .then(left.display_name.cmp(&right.display_name))
+                .then(left.account_key.cmp(&right.account_key))
+        });
+        Ok(accounts)
+    }
+
+    /// Create a user-managed provider account.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when the provider kind or auth method is not
+    /// supported, or when the embedded store write/read fails.
+    pub async fn create_provider_account(
+        &self,
+        input: NewProviderAccount,
+    ) -> Result<ProviderAccountRecord, StoreError> {
+        if input.provider_kind != "exa" {
+            return Err(StoreError::InvalidEnum {
+                kind: "provider_kind",
+                value: input.provider_kind,
+            });
+        }
+        if input.auth_method != ProviderAuthMethod::SecretInput {
+            return Err(StoreError::InvalidEnum {
+                kind: "provider_auth_method",
+                value: input.auth_method.as_str().to_string(),
+            });
+        }
+
+        let account_key = generated_account_key(&input.provider_kind);
+        let provider_account_id = format!("provider_account:{}:{account_key}", input.provider_kind);
+        let record_id = format!("{}_{}", input.provider_kind, account_key);
+        let display_name = input
+            .display_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("Exa")
+            .to_string();
+
+        self.db
+            .query(
+                r#"
+                CREATE type::record('provider_accounts', $record_id) SET
+                  provider_account_id = $provider_account_id,
+                  provider_kind = $provider_kind,
+                  account_key = $account_key,
+                  display_name = $display_name,
+                  auth_method = $auth_method,
+                  is_active = true,
+                  is_default = false,
+                  status = $status,
+                  metadata = $metadata,
+                  updated_at = time::now();
+                "#,
+            )
+            .bind(("record_id", record_id))
+            .bind(("provider_account_id", provider_account_id.clone()))
+            .bind(("provider_kind", input.provider_kind))
+            .bind(("account_key", account_key))
+            .bind(("display_name", display_name))
+            .bind(("auth_method", input.auth_method.as_str().to_string()))
+            .bind(("status", input.status.as_str().to_string()))
+            .bind(("metadata", input.metadata))
+            .await?
+            .check()?;
+
+        self.get_provider_account(&provider_account_id)
+            .await?
+            .ok_or(StoreError::ProviderAccountNotFound {
+                provider_account_id,
+            })
     }
 
     /// Return one provider account by id.
@@ -360,6 +504,24 @@ fn system_provider_account(provider_kind: &str, display_name: &str) -> ProviderA
         metadata: serde_json::json!({}),
         capabilities: capabilities_for_provider_account(provider_kind, &account_key, status),
     }
+}
+
+fn generated_account_key(provider_kind: &str) -> String {
+    let allocated = allocate_id("provider_account");
+    let suffix = allocated
+        .rsplit(':')
+        .next()
+        .unwrap_or("account")
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() {
+                character
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+    format!("acct_{provider_kind}_{suffix}")
 }
 
 fn parse_provider_auth_method(value: &str) -> Result<ProviderAuthMethod, StoreError> {
