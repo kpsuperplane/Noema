@@ -305,7 +305,11 @@ pub(super) fn profiles_from_account(
     account: &ProviderAccountRecord,
     disabled_reason: Option<&str>,
 ) -> Vec<GraphqlAgentModelProfileOption> {
-    let metadata_profiles = metadata_profiles(&account.metadata, disabled_reason);
+    let metadata_profiles = metadata_profiles(
+        &account.metadata,
+        disabled_reason,
+        account.provider_kind == "openai",
+    );
     if !metadata_profiles.is_empty() {
         return metadata_profiles;
     }
@@ -334,6 +338,7 @@ fn profile_options(
 fn metadata_profiles(
     metadata: &Value,
     disabled_reason: Option<&str>,
+    supports_reasoning_effort: bool,
 ) -> Vec<GraphqlAgentModelProfileOption> {
     metadata
         .get("profiles")
@@ -350,21 +355,29 @@ fn metadata_profiles(
                 .and_then(Value::as_str)
                 .filter(|label| !label.trim().is_empty())
                 .unwrap_or(id);
-            let reasoning_efforts = profile
-                .get("reasoning_efforts")
-                .and_then(Value::as_array)
-                .into_iter()
-                .flatten()
-                .filter_map(Value::as_str)
-                .filter_map(reasoning_effort_from_metadata)
-                .map(GraphqlReasoningEffort::from)
-                .collect::<Vec<_>>();
-            let default_reasoning_effort = profile
-                .get("default_reasoning_effort")
-                .and_then(Value::as_str)
-                .and_then(reasoning_effort_from_metadata)
-                .map(GraphqlReasoningEffort::from)
-                .filter(|effort| reasoning_efforts.contains(effort));
+            let reasoning_efforts = if supports_reasoning_effort {
+                profile
+                    .get("reasoning_efforts")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(Value::as_str)
+                    .filter_map(reasoning_effort_from_metadata)
+                    .map(GraphqlReasoningEffort::from)
+                    .collect::<Vec<_>>()
+            } else {
+                Vec::new()
+            };
+            let default_reasoning_effort = supports_reasoning_effort
+                .then(|| {
+                    profile
+                        .get("default_reasoning_effort")
+                        .and_then(Value::as_str)
+                        .and_then(reasoning_effort_from_metadata)
+                        .map(GraphqlReasoningEffort::from)
+                        .filter(|effort| reasoning_efforts.contains(effort))
+                })
+                .flatten();
             Some(GraphqlAgentModelProfileOption {
                 id: id.to_string(),
                 label: label.to_string(),

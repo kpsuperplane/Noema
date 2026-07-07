@@ -831,27 +831,43 @@ mod tests {
         assert!(sdl.contains("MemoryGraphInput"));
     }
 
-    async fn schema_with_reasoning_codex_profile() -> (GraphqlSchema, String) {
+    async fn schema_with_reasoning_openai_profile() -> (GraphqlSchema, String) {
         use crate::store::tests::test_store;
 
         let store = test_store().await;
         store.ensure_default_actors().await.expect("actors");
-        let account = store
-            .ensure_default_provider_account()
-            .await
-            .expect("account");
+        let account_id = "provider_account:openai:reasoning";
         store
-            .update_provider_account_status(
-                &account.provider_account_id,
-                crate::ProviderAccountStatus::Authenticated,
-                None,
-                None,
+            .db()
+            .query(
+                r#"
+                UPSERT type::record('provider_accounts', 'openai_reasoning') SET
+                  provider_account_id = $provider_account_id,
+                  provider_kind = 'openai',
+                  account_key = 'reasoning',
+                  display_name = 'OpenAI reasoning',
+                  auth_method = 'secret_input',
+                  is_active = true,
+                  is_default = true,
+                  status = $status,
+                  metadata = {},
+                  updated_at = time::now();
+                "#,
             )
+            .bind(("provider_account_id", account_id.to_string()))
+            .bind((
+                "status",
+                crate::ProviderAccountStatus::Authenticated
+                    .as_str()
+                    .to_string(),
+            ))
             .await
-            .expect("status");
+            .expect("insert openai provider account")
+            .check()
+            .expect("openai provider account check");
         store
             .update_provider_account_metadata(
-                &account.provider_account_id,
+                account_id,
                 serde_json::json!({
                     "profiles": [{
                         "id": "gpt-5.5",
@@ -863,10 +879,9 @@ mod tests {
             )
             .await
             .expect("metadata");
-        let account_id = account.provider_account_id;
         (
             build_schema(GraphqlState::for_tests_with_store(store)),
-            account_id,
+            account_id.to_string(),
         )
     }
 
@@ -1390,30 +1405,7 @@ mod tests {
 
     #[tokio::test]
     async fn agents_query_exposes_profile_reasoning_efforts() {
-        use crate::store::tests::test_store;
-
-        let store = test_store().await;
-        store.ensure_default_actors().await.expect("actors");
-        let account = store
-            .ensure_default_provider_account()
-            .await
-            .expect("account");
-        store
-            .update_provider_account_metadata(
-                &account.provider_account_id,
-                serde_json::json!({
-                    "profiles": [{
-                        "id": "gpt-5.5",
-                        "label": "GPT-5.5",
-                        "reasoning_efforts": ["low", "medium", "high"],
-                        "default_reasoning_effort": "medium"
-                    }]
-                }),
-            )
-            .await
-            .expect("metadata");
-
-        let schema = build_schema(GraphqlState::for_tests_with_store(store));
+        let (schema, _) = schema_with_reasoning_openai_profile().await;
         let response = schema
             .execute(
                 r#"
@@ -1439,6 +1431,127 @@ mod tests {
             serde_json::json!(["LOW", "MEDIUM", "HIGH"])
         );
         assert_eq!(profile["defaultReasoningEffort"], "MEDIUM");
+    }
+
+    #[tokio::test]
+    async fn codex_profile_metadata_reasoning_efforts_are_ignored() {
+        use crate::store::tests::test_store;
+
+        let store = test_store().await;
+        store.ensure_default_actors().await.expect("actors");
+        let account = store
+            .ensure_default_provider_account()
+            .await
+            .expect("codex account");
+        store
+            .update_provider_account_status(
+                &account.provider_account_id,
+                crate::ProviderAccountStatus::Authenticated,
+                None,
+                None,
+            )
+            .await
+            .expect("status");
+        store
+            .update_provider_account_metadata(
+                &account.provider_account_id,
+                serde_json::json!({
+                    "profiles": [{
+                        "id": "gpt-5.5",
+                        "label": "GPT-5.5",
+                        "reasoning_efforts": ["low", "medium", "high"],
+                        "default_reasoning_effort": "medium"
+                    }]
+                }),
+            )
+            .await
+            .expect("metadata");
+
+        let schema = build_schema(GraphqlState::for_tests_with_store(store));
+        let response = schema
+            .execute(
+                r#"
+              query {
+                agents {
+                  modelOptions {
+                    providerKind
+                    providerAccountId
+                    profiles {
+                      id
+                      reasoningEfforts
+                      defaultReasoningEffort
+                    }
+                  }
+                }
+              }
+            "#,
+            )
+            .await;
+        assert!(response.errors.is_empty(), "{:?}", response.errors);
+        let data = response.data.into_json().expect("json");
+        let codex_option = data["agents"][0]["modelOptions"]
+            .as_array()
+            .expect("model options")
+            .iter()
+            .find(|option| option["providerKind"] == "codex")
+            .expect("codex option");
+        let profile = &codex_option["profiles"][0];
+        assert_eq!(profile["reasoningEfforts"], serde_json::json!([]));
+        assert_eq!(profile["defaultReasoningEffort"], serde_json::Value::Null);
+
+        let account_id = codex_option["providerAccountId"]
+            .as_str()
+            .expect("provider account id");
+        let save_without_reasoning = schema
+            .execute(format!(
+                r#"
+            mutation {{
+              saveAgentModelPreference(input: {{
+                agentId: "agent:primary",
+                providerAccountId: "{account_id}",
+                modelProfile: "gpt-5.5"
+              }}) {{
+                modelProfile
+                reasoningEffort
+              }}
+            }}
+            "#
+            ))
+            .await;
+        assert!(
+            save_without_reasoning.errors.is_empty(),
+            "{:?}",
+            save_without_reasoning.errors
+        );
+        let data = save_without_reasoning.data.into_json().expect("json");
+        assert_eq!(data["saveAgentModelPreference"]["modelProfile"], "gpt-5.5");
+        assert_eq!(
+            data["saveAgentModelPreference"]["reasoningEffort"],
+            serde_json::Value::Null
+        );
+
+        let save_with_reasoning = schema
+            .execute(format!(
+                r#"
+            mutation {{
+              saveAgentModelPreference(input: {{
+                agentId: "agent:primary",
+                providerAccountId: "{account_id}",
+                modelProfile: "gpt-5.5",
+                reasoningEffort: HIGH
+              }}) {{
+                modelProfile
+              }}
+            }}
+            "#
+            ))
+            .await;
+        assert!(!save_with_reasoning.errors.is_empty());
+        assert!(
+            save_with_reasoning.errors[0]
+                .message
+                .contains("reasoning effort is not available")
+        );
     }
 
     #[tokio::test]
@@ -1726,7 +1839,7 @@ mod tests {
 
     #[tokio::test]
     async fn save_web_fetch_summarizer_preference_persists_reasoning_effort() {
-        let (schema, account_id) = schema_with_reasoning_codex_profile().await;
+        let (schema, account_id) = schema_with_reasoning_openai_profile().await;
         let response = schema
             .execute(format!(
                 r#"
@@ -1927,7 +2040,7 @@ mod tests {
 
     #[tokio::test]
     async fn save_tool_progress_audit_preference_persists_reasoning_effort() {
-        let (schema, account_id) = schema_with_reasoning_codex_profile().await;
+        let (schema, account_id) = schema_with_reasoning_openai_profile().await;
         let response = schema
             .execute(format!(
                 r#"
@@ -2104,7 +2217,7 @@ mod tests {
 
     #[tokio::test]
     async fn save_agent_model_preference_requires_reasoning_for_reasoning_profile() {
-        let (schema, account_id) = schema_with_reasoning_codex_profile().await;
+        let (schema, account_id) = schema_with_reasoning_openai_profile().await;
         let response = schema
             .execute(format!(
                 r#"
@@ -2126,7 +2239,7 @@ mod tests {
 
     #[tokio::test]
     async fn save_agent_model_preference_persists_reasoning_effort() {
-        let (schema, account_id) = schema_with_reasoning_codex_profile().await;
+        let (schema, account_id) = schema_with_reasoning_openai_profile().await;
         let response = schema
             .execute(format!(
                 r#"

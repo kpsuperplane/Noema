@@ -186,10 +186,12 @@ impl ModelProvider for OpenAiProvider {
             });
         }
 
-        let model = request
+        let request_model = request
             .model
             .filter(|model| !model.trim().is_empty())
-            .unwrap_or_else(|| self.config.default_model.clone());
+            .map(|model| model.trim().to_string());
+        let using_config_default_model = request_model.is_none();
+        let model = request_model.unwrap_or_else(|| self.config.default_model.clone());
 
         if model.trim().is_empty() {
             return Err(ProviderError::InvalidRequest {
@@ -214,7 +216,11 @@ impl ModelProvider for OpenAiProvider {
             reasoning: request
                 .options
                 .reasoning_effort
-                .or(self.config.reasoning_effort)
+                .or_else(|| {
+                    using_config_default_model
+                        .then_some(self.config.reasoning_effort)
+                        .flatten()
+                })
                 .map(|effort| ResponsesReasoning { effort }),
             tools: tool_names.tools.clone(),
             tool_choice: responses_tool_choice(request.tool_choice, has_tools),
@@ -647,6 +653,142 @@ mod tests {
         let captured = request_rx.await.expect("captured request");
         let request: Value = serde_json::from_str(&captured.body).expect("json body");
         assert_eq!(request["reasoning"]["effort"], "high");
+    }
+
+    #[tokio::test]
+    async fn config_default_model_sends_config_reasoning_effort() {
+        let (base_url, request_rx) = spawn_server(
+            200,
+            r#"{
+              "id": "resp_reasoning",
+              "model": "default-model",
+              "output": [{
+                "type": "message",
+                "content": [{"type": "output_text", "text": "ok"}]
+              }]
+            }"#,
+        )
+        .await;
+
+        let provider = OpenAiProvider::new(OpenAiProviderConfig {
+            api_key: "secret".to_string(),
+            base_url,
+            organization_id: None,
+            project_id: None,
+            default_model: "default-model".to_string(),
+            tool_classification_model: None,
+            reasoning_effort: Some(crate::provider::ReasoningEffort::Medium),
+            timeout_seconds: DEFAULT_OPENAI_TIMEOUT_SECONDS,
+            system_errors: None,
+        })
+        .expect("provider");
+
+        provider
+            .generate(GenerateRequest {
+                conversation_id: None,
+                model: None,
+                input: GenerateInput::Text("Hello?".to_string()),
+                ..GenerateRequest::text("ignored")
+            })
+            .await
+            .expect("response");
+
+        let captured = request_rx.await.expect("captured request");
+        let request: Value = serde_json::from_str(&captured.body).expect("json body");
+        assert_eq!(request["model"], "default-model");
+        assert_eq!(request["reasoning"]["effort"], "medium");
+    }
+
+    #[tokio::test]
+    async fn request_model_without_request_reasoning_does_not_send_config_reasoning_effort() {
+        let (base_url, request_rx) = spawn_server(
+            200,
+            r#"{
+              "id": "resp_reasoning",
+              "model": "request-model",
+              "output": [{
+                "type": "message",
+                "content": [{"type": "output_text", "text": "ok"}]
+              }]
+            }"#,
+        )
+        .await;
+
+        let provider = OpenAiProvider::new(OpenAiProviderConfig {
+            api_key: "secret".to_string(),
+            base_url,
+            organization_id: None,
+            project_id: None,
+            default_model: "default-model".to_string(),
+            tool_classification_model: None,
+            reasoning_effort: Some(crate::provider::ReasoningEffort::High),
+            timeout_seconds: DEFAULT_OPENAI_TIMEOUT_SECONDS,
+            system_errors: None,
+        })
+        .expect("provider");
+
+        provider
+            .generate(GenerateRequest {
+                conversation_id: None,
+                model: Some("request-model".to_string()),
+                input: GenerateInput::Text("Hello?".to_string()),
+                ..GenerateRequest::text("ignored")
+            })
+            .await
+            .expect("response");
+
+        let captured = request_rx.await.expect("captured request");
+        let request: Value = serde_json::from_str(&captured.body).expect("json body");
+        assert_eq!(request["model"], "request-model");
+        assert!(request.get("reasoning").is_none());
+    }
+
+    #[tokio::test]
+    async fn request_model_with_request_reasoning_sends_request_reasoning_effort() {
+        let (base_url, request_rx) = spawn_server(
+            200,
+            r#"{
+              "id": "resp_reasoning",
+              "model": "request-model",
+              "output": [{
+                "type": "message",
+                "content": [{"type": "output_text", "text": "ok"}]
+              }]
+            }"#,
+        )
+        .await;
+
+        let provider = OpenAiProvider::new(OpenAiProviderConfig {
+            api_key: "secret".to_string(),
+            base_url,
+            organization_id: None,
+            project_id: None,
+            default_model: "default-model".to_string(),
+            tool_classification_model: None,
+            reasoning_effort: Some(crate::provider::ReasoningEffort::Medium),
+            timeout_seconds: DEFAULT_OPENAI_TIMEOUT_SECONDS,
+            system_errors: None,
+        })
+        .expect("provider");
+
+        provider
+            .generate(GenerateRequest {
+                conversation_id: None,
+                model: Some("request-model".to_string()),
+                input: GenerateInput::Text("Hello?".to_string()),
+                options: crate::provider::GenerateOptions {
+                    reasoning_effort: Some(crate::provider::ReasoningEffort::Low),
+                    ..crate::provider::GenerateOptions::default()
+                },
+                ..GenerateRequest::text("ignored")
+            })
+            .await
+            .expect("response");
+
+        let captured = request_rx.await.expect("captured request");
+        let request: Value = serde_json::from_str(&captured.body).expect("json body");
+        assert_eq!(request["model"], "request-model");
+        assert_eq!(request["reasoning"]["effort"], "low");
     }
 
     #[tokio::test]
