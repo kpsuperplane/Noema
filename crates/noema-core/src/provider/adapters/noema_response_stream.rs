@@ -551,8 +551,7 @@ mod tests {
                     response_index,
                     delta,
                 } => Some((response_index, delta)),
-                GenerateStreamEvent::MemoryProposalsStarted
-                | GenerateStreamEvent::ToolCallStarted { .. } => None,
+                GenerateStreamEvent::ToolCallStarted { .. } => None,
             })
             .collect::<Vec<_>>();
 
@@ -575,46 +574,6 @@ mod tests {
         ]);
 
         assert_eq!(streamed_text, "right");
-    }
-
-    #[test]
-    fn noema_assistant_text_delta_extractor_ignores_memory_proposals() {
-        let mut extractor = NoemaAssistantTextDeltaExtractor::default();
-        let mut events = Vec::new();
-        extractor.push_delta(
-            r#"{"response_status":"final","responses":[{"kind":"text","text":"Hello"}],"tool_calls":[],"memory_proposals":"#,
-            &mut |event| events.push(event),
-        );
-        extractor.push_delta(r#"[{"content":"Kevin likes trains.""#, &mut |event| {
-            events.push(event)
-        });
-
-        assert_eq!(
-            events,
-            vec![GenerateStreamEvent::AssistantTextDelta {
-                response_index: 0,
-                delta: "Hello".to_string()
-            }]
-        );
-    }
-
-    #[test]
-    fn noema_assistant_text_delta_extractor_does_not_emit_memory_started_for_empty_proposals() {
-        let mut extractor = NoemaAssistantTextDeltaExtractor::default();
-        let mut events = Vec::new();
-        extractor.push_delta(
-            r#"{"response_status":"final","responses":[{"kind":"text","text":"Hello"}],"tool_calls":[],"memory_proposals":"#,
-            &mut |event| events.push(event),
-        );
-        extractor.push_delta(r#"[]} "#, &mut |event| events.push(event));
-
-        assert_eq!(
-            events,
-            vec![GenerateStreamEvent::AssistantTextDelta {
-                response_index: 0,
-                delta: "Hello".to_string()
-            }]
-        );
     }
 
     #[test]
@@ -689,7 +648,6 @@ mod tests {
             .iter()
             .filter_map(|event| match event {
                 GenerateStreamEvent::AssistantTextDelta { delta, .. } => Some(delta.as_str()),
-                GenerateStreamEvent::MemoryProposalsStarted => None,
                 GenerateStreamEvent::ToolCallStarted { .. } => None,
             })
             .collect()

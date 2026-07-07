@@ -49,26 +49,12 @@ The next storage slice should stay small and concrete:
 - Memory is governed context, not hidden model state.
 - Canonical memory claims own truth, policy, provenance, lifecycle, and
   evidence.
-- Memory writes should consolidate before creating or updating graph claims:
-  exact fingerprints prevent duplicate claims, repeated support reinforces
-  existing claims with evidence, and conflicts create reviewable disputed state
-  instead of silently overwriting truth.
-- The long-term future-write memory consolidation pipeline has landed: all
-  explicit and provider memory writes use a shared proposal/canonicalization
-  path, promoted predicates are validated before active claims, unknown
-  predicates create review-gated predicate proposals, bounded match search
-  supports conservative consolidation, and GraphQL exposes predicate
-  proposal inspection.
-- The claim canonicalizer prompt must spell out the exact strict JSON contract
-  consumed by the parser. Runtime canonicalization validates promoted
-  `predicate_id` values against the current catalog before any graph write, so
-  provider/schema mismatches surface as canonicalization failures rather than
-  generic graph write failures.
 - Chat provider responses use an explicit object contract:
-  `response_status`, `responses[]`, `tool_calls[]`, and top-level
-  `memory_proposals[]`. `responses[]` may be empty only for
-  `response_status: "needs_tools"` with one or more tool calls, so models can
-  run routine single or multiple tools without filler commentary.
+  `response_status`, `responses[]`, and `tool_calls[]`. The legacy
+  `memory_proposals` field is rejected at the provider parser boundary.
+  `responses[]` may be empty only for `response_status: "needs_tools"` with
+  one or more tool calls, so models can run routine single or multiple tools
+  without filler commentary.
 - The primary agent's ordinary chat voice should default to informal
   human-texting brevity, including lowercase short replies when context allows.
   In casual mode, lowercase sentence starts should stay consistent across
@@ -329,7 +315,7 @@ The next storage slice should stay small and concrete:
   files: store MCP persistence, daemon memory work, config loading/resolution,
   conversation domain types, and MCP trusted identity helpers are split into
   nearby submodules with root files acting as stable facades.
-- Memory extraction, consolidation, errors, and shared memory types now live
+- Memory retrieval policy, shared memory errors, and shared memory types live
   under the `memory` module tree. Provider-neutral contracts, account metadata,
   and auth support live under `provider`, while concrete adapters and response
   stream helpers live under `provider::adapters`; the old top-level `providers`
@@ -351,8 +337,7 @@ The next storage slice should stay small and concrete:
   turn plus subsequent prompts.
 - The local `search_memory` tool supports validated concrete `scope_ids`.
   Empty `query` is allowed only for scoped reads, and `query` narrows within
-  scope rather than broadening it. Memory write activities expose canonical
-  claim outcome previews so chat markers can name the saved or reinforced fact.
+  scope rather than broadening it.
 - Owner-facing memory management surfaces should show the owner's memory facts
   directly rather than redacting them. Normal chat transcript markers should
   surface user-meaningful tool and memory summaries (purpose, access, scope,
@@ -387,29 +372,17 @@ The next storage slice should stay small and concrete:
   active/confirmed claims by simple fact/hint text matching, applies predicate
   `use_mode` plus sensitivity/context policy gates, and reports redacted
   omission counts without writing retrieval packets yet.
-- Explicit `/remember` chat commands now create or reinforce SurrealDB graph
-  claims before provider generation, using the user conversation item as
-  explicit-human evidence. Natural English `remember:` prefixes are ordinary
-  chat text, not command grammar.
-- Provider-structured ordinary memory proposals now route through SurrealDB
-  graph claims instead of the legacy memory persistence path. Validation and
-  persistence record conversation item provenance, accept user or assistant
-  evidence, track response phases and assistant items, reject split assistant
-  evidence that cannot map to one item, and report created versus reinforced
-  claims, partial versus full failure, and failed proposal diagnostics.
+- `/remember` has no special command behavior in chat and is persisted as
+  ordinary user text. Provider responses no longer include memory proposals or
+  trigger graph claim writes; memory graph/store and GraphQL inspection APIs
+  remain available for later product slices.
 - Required Noema provider responses should be enforced as close to the provider
   boundary as the transport allows. The OpenAI and Codex Responses adapters send
   a `text.format` JSON schema for the `noema_response` envelope, while the
   parser still recovers from common non-strict text shapes: prose-wrapped single
-  envelopes and plain assistant-text fallbacks with empty memory proposals.
+  envelopes and plain assistant-text fallbacks.
   Duplicate structured envelopes remain malformed because they indicate stream
   assembly corruption.
-- Provider memory extraction output is treated as fallible draft data. Invalid
-  extractor proposals are discarded before canonicalization; all-invalid batches
-  produce no user-facing memory activity, while mixed batches persist valid
-  proposals and record rejected draft counts in metadata. Assistant evidence may
-  support non-human notes, but human-subject memories require direct user
-  evidence.
 - Local-human canonicalization is deterministic: explicit aliases are local;
   same-name Kevin is local for direct or first-person local assertions and
   non-local for named third-party evidence. Note fallback objects use opaque

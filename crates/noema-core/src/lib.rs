@@ -20,7 +20,7 @@ pub mod home;
 pub mod ids;
 /// Third-party MCP control-plane types.
 pub mod mcp;
-/// Memory extraction, consolidation, and graph retrieval policy model.
+/// Memory graph retrieval policy model.
 pub mod memory;
 /// Neutral concrete object and actor references.
 pub mod objects;
@@ -67,21 +67,7 @@ pub use mcp::{
     McpCalibrationStatus, McpTransportKind, McpTrustClassification, OwnerExtractor,
     OwnerExtractorSource, TrustedIdentitySelectorKind, normalize_trusted_identity_value,
 };
-pub use memory::consolidation::{
-    CanonicalClaimCandidate, CanonicalClaimStatus, CanonicalEntity, ConsolidationDecision,
-    ConsolidationDecisionKind, MemoryConsolidationError, MemoryWriteProposal,
-    MemoryWriteSourceKind, PredicateResolution, ProposedPredicate,
-    build_claim_canonicalization_prompt, build_consolidation_prompt,
-    parse_canonicalization_response, parse_consolidation_decision,
-};
 pub use memory::error::MemoryPersistenceError;
-pub use memory::extraction::{
-    ExtractorMemoryProposal, ExtractorMemoryResponse, MIN_MEMORY_EXTRACTION_CONFIDENCE,
-    MemoryExtractionError, MemoryExtractionRetrievalHints, MemoryExtractionRiskFlag,
-    MemoryExtractionSubject, MemoryExtractionSubjectKind, MemoryExtractionSubjectRole,
-    ValidatedMemoryProposal, build_memory_extraction_prompt, decide_memory_proposal_status,
-    parse_memory_extraction_proposals, validate_memory_extraction_response,
-};
 pub use memory::types::MemoryType;
 pub use objects::{ActorKind, ActorRef, ObjectRef, ObjectType};
 pub use onboarding::{

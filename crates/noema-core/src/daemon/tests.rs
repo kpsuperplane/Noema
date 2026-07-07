@@ -2,7 +2,6 @@ use super::*;
 use super::{protocol::TurnStreamEvent, runtime::CodexRuntimeHandle};
 use crate::{
     ActorRef,
-    memory::{ClaimRetrievalRequest, Sensitivity, UseMode},
     provider::{
         AssistantTextPhase, GenerateActionItem, GenerateInput, GenerateInputItem,
         GenerateReasoningItem, GenerateRequest, GenerateResponse, GenerateResponseItem,
@@ -11,7 +10,6 @@ use crate::{
     },
     {ConversationItemKind, ConversationItemStatus, ReplayMode},
 };
-use serde::Deserialize;
 use serde_json::json;
 use std::{
     collections::HashMap,
@@ -22,7 +20,6 @@ use std::{
     sync::{Arc, Mutex},
     time::Duration,
 };
-use surrealdb::types::SurrealValue;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpListener,
@@ -46,21 +43,6 @@ enum GenerateOutputItem {
         name: String,
         payload: serde_json::Value,
     },
-    MemoryProposals {
-        proposals: Vec<crate::ExtractorMemoryProposal>,
-    },
-}
-
-fn answer_claim_request() -> ClaimRetrievalRequest {
-    ClaimRetrievalRequest {
-        requesting_agent_id: "agent:primary".to_string(),
-        active_human_ids: vec!["human:local".to_string()],
-        active_object_ids: Vec::new(),
-        use_mode: UseMode::Answer,
-        explicit_memory_request: true,
-        sensitivity_ceiling: Sensitivity::Normal,
-        approved_secret_access: false,
-    }
 }
 
 #[tokio::test]
@@ -1714,11 +1696,6 @@ async fn failed_initial_name_onboarding_logs_runtime_invariant() {
         events[0]["raw"]["provider_response"]["responses"],
         json!([])
     );
-    assert!(
-        events[0]["raw"]["provider_response"]
-            .get("memory_proposals")
-            .is_none()
-    );
     handle.shutdown().await;
 }
 
@@ -1844,1806 +1821,6 @@ async fn restart_context_read_phase(home: &std::path::Path) {
         ]
     );
     reopened_store.close().await.expect("close reopened store");
-}
-
-#[tokio::test]
-async fn explicit_remember_creates_claim_with_source_evidence() {
-    let (handle, store) =
-        test_runtime_handle_with_store(fake_provider(FakeCodexScenario::MemoryExtraction)).await;
-
-    let conversation = handle.start_conversation(None).await.expect("conversation");
-    let conversation_id = conversation.conversation_id.clone();
-    let items = collect_turn(
-        &handle,
-        conversation_id.clone(),
-        "/remember Kevin prefers CLI memory inspection.".to_string(),
-    )
-    .await
-    .expect("turn");
-    assert_eq!(assistant_text(&items), "fake answer");
-    let claim_id = items
-        .iter()
-        .find_map(|item| match item {
-            TurnTranscriptItem::Activity {
-                activity_kind,
-                status: TurnActivityStatus::Completed,
-                title,
-                summary: Some(summary),
-                metadata,
-                ..
-            } if activity_kind == "memory_extraction"
-                && title == "Explicit memory saved"
-                && summary == "saved memory"
-                && metadata["trigger"] == "explicit_remember"
-                && metadata["predicate_id"] == "prefers" =>
-            {
-                metadata["claim_id"].as_str().map(str::to_string)
-            }
-            _ => None,
-        })
-        .expect("completed explicit memory activity with claim id");
-    assert!(claim_id.starts_with("claim:"));
-    assert_no_failed_memory_extraction(&items);
-    let claims = store
-        .retrieve_claims(&answer_claim_request(), "CLI memory inspection", 8)
-        .await
-        .expect("retrieve explicit claim");
-    assert!(
-        claims.included.iter().any(|claim| {
-            claim.claim_id == claim_id
-                && claim.fact == "Kevin prefers CLI memory inspection."
-                && claim.predicate_id == "prefers"
-        }),
-        "expected explicit claim in retrieval, got {claims:?}"
-    );
-    assert!(
-        !items.iter().any(|item| {
-            matches!(
-                item,
-                TurnTranscriptItem::A2uiCard { schema, .. } if schema == "memory_cards"
-            )
-        }),
-        "explicit memory should not emit a success-looking memory card: {items:?}"
-    );
-    handle.shutdown().await;
-}
-
-#[tokio::test]
-async fn explicit_remember_write_failure_suppresses_generic_unavailable_activity() {
-    let (handle, store) =
-        test_runtime_handle_with_store(fake_provider(FakeCodexScenario::MemoryExtraction)).await;
-    store
-        .db()
-        .query("DELETE predicates WHERE predicate_id = 'likes';")
-        .await
-        .expect("delete likes predicate")
-        .check()
-        .expect("delete likes predicate check");
-
-    let conversation = handle.start_conversation(None).await.expect("conversation");
-    let items = collect_turn(
-        &handle,
-        conversation.conversation_id,
-        "/remember I like trains.".to_string(),
-    )
-    .await
-    .expect("turn");
-    assert_eq!(assistant_text(&items), "fake answer");
-    assert!(items.iter().any(|item| {
-        matches!(
-            item,
-            TurnTranscriptItem::Activity {
-                activity_kind,
-                status: TurnActivityStatus::Failed,
-                title,
-                metadata,
-                ..
-            } if activity_kind == "memory_extraction"
-                && title == "Explicit memory save failed"
-                && metadata["trigger"] == "explicit_remember"
-        )
-    }));
-    assert!(
-        !items.iter().any(|item| {
-            matches!(
-                item,
-                TurnTranscriptItem::Activity {
-                    activity_kind,
-                    status: TurnActivityStatus::Failed,
-                    title,
-                    metadata,
-                    ..
-                } if activity_kind == "memory_extraction"
-                    && title == "Memory extraction unavailable"
-                    && metadata["trigger"] == "ordinary_chat"
-            )
-        }),
-        "explicit write failure should not emit generic unavailable activity: {items:?}"
-    );
-    handle.shutdown().await;
-}
-
-#[tokio::test]
-async fn repeated_explicit_memory_reinforces_one_claim() {
-    let (handle, store) =
-        test_runtime_handle_with_store(fake_provider(FakeCodexScenario::MemoryExtraction)).await;
-
-    let conversation = handle.start_conversation(None).await.expect("conversation");
-    let conversation_id = conversation.conversation_id.clone();
-
-    let _first_items = collect_turn(
-        &handle,
-        conversation_id.clone(),
-        "/remember I like ice cream.".to_string(),
-    )
-    .await
-    .expect("first turn");
-    let second_items = collect_turn(
-        &handle,
-        conversation_id,
-        "/remember I LIKE   ICE CREAM".to_string(),
-    )
-    .await
-    .expect("second turn");
-    let claim_activity = second_items
-        .iter()
-        .find_map(|item| match item {
-            TurnTranscriptItem::Activity {
-                activity_kind,
-                status: TurnActivityStatus::Completed,
-                title,
-                metadata,
-                ..
-            } if activity_kind == "memory_extraction" && title == "Explicit memory saved" => {
-                Some(metadata)
-            }
-            _ => None,
-        })
-        .expect("second explicit memory activity");
-    assert_eq!(claim_activity["evidence_count"], 2);
-    assert_eq!(
-        claim_activity["claim_outcomes"][0]["outcome"],
-        json!("reinforced")
-    );
-    assert_eq!(
-        claim_activity["claim_outcomes"][0]["fact_preview"],
-        json!("Kevin likes ice cream.")
-    );
-    assert_no_failed_memory_extraction(&second_items);
-
-    let claims = store
-        .retrieve_claims(&answer_claim_request(), "ice cream", 8)
-        .await
-        .expect("retrieve reinforced claim");
-    assert_eq!(claims.included.len(), 1, "expected one claim: {claims:?}");
-    assert_eq!(claims.included[0].fact, "Kevin likes ice cream.");
-    assert_eq!(claims.included[0].predicate_id, "likes");
-    handle.shutdown().await;
-}
-
-#[tokio::test]
-async fn explicit_memory_saved_activity_includes_claim_outcome() {
-    let handle = test_runtime_handle(fake_provider(FakeCodexScenario::MemoryExtraction)).await;
-    let conversation = handle.start_conversation(None).await.expect("conversation");
-
-    let items = collect_turn(
-        &handle,
-        conversation.conversation_id,
-        "/remember I like planes.".to_string(),
-    )
-    .await
-    .expect("turn");
-
-    let metadata = items
-        .iter()
-        .find_map(|item| match item {
-            TurnTranscriptItem::Activity {
-                activity_kind,
-                status: TurnActivityStatus::Completed,
-                title,
-                metadata,
-                ..
-            } if activity_kind == "memory_extraction" && title == "Explicit memory saved" => {
-                Some(metadata)
-            }
-            _ => None,
-        })
-        .expect("explicit memory activity metadata");
-
-    assert_eq!(
-        metadata["claim_outcomes"][0]["fact_preview"],
-        json!("Kevin likes planes.")
-    );
-    assert_eq!(metadata["claim_outcomes"][0]["outcome"], json!("created"));
-    assert_eq!(
-        metadata["claim_outcomes"][0]["sensitivity"],
-        json!("normal")
-    );
-    handle.shutdown().await;
-}
-
-fn assert_no_failed_memory_extraction(items: &[TurnTranscriptItem]) {
-    assert!(
-        !items.iter().any(|item| {
-            matches!(
-                item,
-                TurnTranscriptItem::Activity {
-                    activity_kind,
-                    status: TurnActivityStatus::Failed,
-                    ..
-                } if activity_kind == "memory_extraction"
-            )
-        }),
-        "explicit memory turn should not emit any failed memory_extraction activity: {items:?}"
-    );
-}
-
-#[tokio::test]
-async fn runtime_actor_persists_ordinary_provider_memory_as_graph_claim() {
-    let (handle, store) =
-        test_runtime_handle_with_store(fake_provider(FakeCodexScenario::MemoryExtraction)).await;
-
-    let conversation = handle.start_conversation(None).await.expect("conversation");
-    let items = collect_turn(
-        &handle,
-        conversation.conversation_id,
-        "I prefer automatic memory extraction in chat.".to_string(),
-    )
-    .await
-    .expect("turn");
-    assert_eq!(assistant_text(&items), "fake answer");
-    let claim_id = items
-        .iter()
-        .find_map(|item| match item {
-            TurnTranscriptItem::Activity {
-                activity_kind,
-                status: TurnActivityStatus::Completed,
-                title,
-                summary: Some(summary),
-                metadata,
-                ..
-            } if activity_kind == "memory_extraction"
-                && title == "Memory saved"
-                && summary == "saved 1 memory"
-                && metadata["source"] == "provider_structured_output"
-                && metadata["proposal_count"] == 1
-                && metadata["created_claim_count"] == 1
-                && metadata["reinforced_claim_count"] == 0 =>
-            {
-                metadata["claim_ids"][0].as_str().map(str::to_string)
-            }
-            _ => None,
-        })
-        .expect("completed provider memory activity with claim id");
-    assert_no_failed_memory_extraction(&items);
-    let claims = store
-        .retrieve_claims(&answer_claim_request(), "automatic memory extraction", 8)
-        .await
-        .expect("retrieve ordinary provider claim");
-    assert!(
-        !items.iter().any(|item| {
-            matches!(
-                item,
-                TurnTranscriptItem::A2uiCard { schema, .. } if schema == "memory_proposals"
-            )
-        }),
-        "provider proposals should not emit a memory_proposals card: {items:?}"
-    );
-    assert!(
-        claims.included.iter().any(|claim| {
-            claim.claim_id == claim_id
-                && claim.fact == "Kevin prefers automatic memory extraction in chat."
-                && claim.predicate_id == "prefers"
-        }),
-        "expected ordinary provider claim in retrieval, got {claims:?}"
-    );
-    handle.shutdown().await;
-}
-
-#[tokio::test]
-async fn provider_memory_canonicalization_uses_selected_conversation_provider() {
-    let store = crate::store::tests::test_store().await;
-    store.ensure_default_actors().await.expect("actors");
-    store
-        .update_agent_display_name("agent:primary", "Noema")
-        .await
-        .expect("name primary");
-    let foundation = store
-        .ensure_default_foundation_local_provider_account()
-        .await
-        .expect("foundation account");
-    store
-        .upsert_agent_runtime_preference(crate::NewAgentRuntimePreference {
-            agent_id: "agent:primary".to_string(),
-            provider_kind: "foundation_local".to_string(),
-            provider_account_id: foundation.provider_account_id,
-            model_profile: "default".to_string(),
-            reasoning_effort: None,
-        })
-        .await
-        .expect("preference");
-
-    let codex_provider = Arc::new(RecordingFakeProvider::new(
-        "codex",
-        FakeCodexScenario::MalformedCanonicalizer,
-    ));
-    let foundation_provider = Arc::new(RecordingFakeProvider::new(
-        "foundation_local",
-        FakeCodexScenario::MemoryExtraction,
-    ));
-    let handle = CodexRuntimeHandle::spawn_with_provider_map(
-        "codex",
-        vec![
-            (
-                "codex".to_string(),
-                codex_provider.clone() as Arc<dyn super::runtime::RuntimeModelProvider>,
-            ),
-            (
-                "foundation_local".to_string(),
-                foundation_provider.clone() as Arc<dyn super::runtime::RuntimeModelProvider>,
-            ),
-        ],
-        store.clone(),
-    )
-    .await
-    .expect("runtime");
-
-    let conversation = handle
-        .start_primary_conversation(None)
-        .await
-        .expect("conversation");
-    let items = collect_turn(
-        &handle,
-        conversation.conversation_id.clone(),
-        "I prefer automatic memory extraction in chat.".to_string(),
-    )
-    .await
-    .expect("turn");
-
-    assert!(
-        items.iter().any(|item| {
-            matches!(
-                item,
-                TurnTranscriptItem::Activity {
-                    activity_kind,
-                    status: TurnActivityStatus::Completed,
-                    title,
-                    ..
-                } if activity_kind == "memory_extraction" && title == "Memory saved"
-            )
-        }),
-        "selected provider should canonicalize and persist memory: {items:?}"
-    );
-    assert!(
-        codex_provider.requests().is_empty(),
-        "default provider should not receive memory canonicalization requests"
-    );
-    assert!(
-        foundation_provider.requests().iter().any(|request| {
-            request
-                .input
-                .render_for_token_count()
-                .contains("Noema's memory claim canonicalizer")
-        }),
-        "selected provider should receive memory canonicalization requests"
-    );
-    handle.shutdown().await;
-}
-
-#[tokio::test]
-async fn provider_memory_mislabelled_secret_stays_candidate_and_unretrievable() {
-    let (handle, store) =
-        test_runtime_handle_with_store(fake_provider(FakeCodexScenario::MislabelledSecretMemory))
-            .await;
-
-    let conversation = handle.start_conversation(None).await.expect("conversation");
-    let (result, events) = collect_turn_events(
-        &handle,
-        conversation.conversation_id,
-        "My API key is sk-testSecretToken123456789.".to_string(),
-    )
-    .await;
-    result.expect("turn");
-    let claim_id = memory_persisted_claim_id(&events);
-
-    let stored = claim_status_and_sensitivity(&store, &claim_id).await;
-    assert_eq!(stored.status, "candidate");
-    assert_eq!(stored.sensitivity, "secret");
-
-    let claims = store
-        .retrieve_claims(&answer_claim_request(), "api key", 8)
-        .await
-        .expect("retrieve api key claim");
-    assert!(claims.included.is_empty(), "unexpected claims: {claims:?}");
-    handle.shutdown().await;
-}
-
-#[tokio::test]
-async fn provider_memory_malformed_canonicalizer_response_fails_without_fallback_claim() {
-    let (handle, store) =
-        test_runtime_handle_with_store(fake_provider(FakeCodexScenario::MalformedCanonicalizer))
-            .await;
-
-    let conversation = handle.start_conversation(None).await.expect("conversation");
-    let items = collect_turn(
-        &handle,
-        conversation.conversation_id,
-        "I prefer malformed canonicalizer tests.".to_string(),
-    )
-    .await
-    .expect("turn should complete despite malformed canonicalizer response");
-
-    assert_eq!(assistant_text(&items), "fake answer");
-    assert!(items.iter().any(|item| {
-        matches!(
-            item,
-            TurnTranscriptItem::Activity {
-                activity_kind,
-                status: TurnActivityStatus::Failed,
-                title,
-                summary: Some(summary),
-                metadata,
-                ..
-            } if activity_kind == "memory_extraction"
-                && title == "Memory update failed"
-                && summary.contains("memory could not be prepared")
-                && metadata["failed_proposal_count"] == 1
-                && metadata["failed_proposals"][0]["error"]
-                    .as_str()
-                    .is_some_and(|error| error.contains("memory canonicalization failed"))
-        )
-    }));
-    assert!(
-        !items.iter().any(|item| {
-            matches!(
-                item,
-                TurnTranscriptItem::Activity {
-                    activity_kind,
-                    status: TurnActivityStatus::Completed,
-                    title,
-                    ..
-                } if activity_kind == "memory_extraction"
-                    && title == "Memory saved"
-            )
-        }),
-        "malformed canonicalizer response should not persist fallback memory: {items:?}"
-    );
-
-    let claims = store
-        .retrieve_claims(&answer_claim_request(), "malformed canonicalizer tests", 8)
-        .await
-        .expect("retrieve malformed canonicalizer claim");
-    assert!(claims.included.is_empty(), "unexpected claims: {claims:?}");
-    handle.shutdown().await;
-}
-
-#[tokio::test]
-async fn provider_memory_mismatched_canonical_entity_fails_without_fallback_claim() {
-    let (handle, store) =
-        test_runtime_handle_with_store(fake_provider(FakeCodexScenario::MismatchedCanonicalEntity))
-            .await;
-
-    let conversation = handle.start_conversation(None).await.expect("conversation");
-    let items = collect_turn(
-        &handle,
-        conversation.conversation_id,
-        "I prefer canonical entity validation.".to_string(),
-    )
-    .await
-    .expect("turn should complete despite mismatched canonical entity");
-
-    assert_eq!(assistant_text(&items), "fake answer");
-    assert!(items.iter().any(|item| {
-        matches!(
-            item,
-            TurnTranscriptItem::Activity {
-                activity_kind,
-                status: TurnActivityStatus::Failed,
-                title,
-                metadata,
-                ..
-            } if activity_kind == "memory_extraction"
-                && title == "Memory update failed"
-                && metadata["source"] == "provider_structured_output"
-                && metadata["proposal_count"] == 1
-                && metadata["failed_proposal_count"] == 1
-                && metadata["failed_proposals"][0]["error"]
-                    .as_str()
-                    .is_some_and(|error| error.contains("invalid canonical entity metadata"))
-        )
-    }));
-    assert!(
-        !items.iter().any(|item| {
-            matches!(
-                item,
-                TurnTranscriptItem::Activity {
-                    activity_kind,
-                    status: TurnActivityStatus::Completed,
-                    title,
-                    ..
-                } if activity_kind == "memory_extraction"
-                    && title == "Memory saved"
-            )
-        }),
-        "invalid canonical entity metadata should not persist fallback memory: {items:?}"
-    );
-
-    let claims = store
-        .retrieve_claims(&answer_claim_request(), "canonical entity validation", 8)
-        .await
-        .expect("retrieve invalid canonical entity claim");
-    assert!(claims.included.is_empty(), "unexpected claims: {claims:?}");
-
-    if let Some(local_human) = maybe_entity_row(&store, "human:local").await {
-        assert_eq!(local_human.entity_type, "human");
-        assert_eq!(local_human.canonical_name, "Local human");
-    }
-    handle.shutdown().await;
-}
-
-#[tokio::test]
-async fn provider_memory_unknown_promoted_predicate_fails_before_graph_write() {
-    let (handle, _store) =
-        test_runtime_handle_with_store(fake_provider(FakeCodexScenario::UnknownCanonicalPredicate))
-            .await;
-
-    let conversation = handle.start_conversation(None).await.expect("conversation");
-    let items = collect_turn(
-        &handle,
-        conversation.conversation_id,
-        "I prefer automatic memory extraction in chat.".to_string(),
-    )
-    .await
-    .expect("turn should complete despite unknown promoted predicate");
-
-    assert_eq!(assistant_text(&items), "fake answer");
-    assert!(
-        items.iter().any(|item| {
-            matches!(
-                item,
-                TurnTranscriptItem::Activity {
-                    activity_kind,
-                    status: TurnActivityStatus::Failed,
-                    title,
-                    metadata,
-                    ..
-                } if activity_kind == "memory_extraction"
-                    && title == "Memory update failed"
-                    && metadata["source"] == "provider_structured_output"
-                    && metadata["proposal_count"] == 1
-                    && metadata["failed_proposal_count"] == 1
-                    && metadata["failed_proposals"][0]["error"]
-                        .as_str()
-                        .is_some_and(|error| error.contains("unknown promoted predicate_id adores"))
-            )
-        }),
-        "unexpected memory activity items: {items:?}"
-    );
-    handle.shutdown().await;
-}
-
-#[tokio::test]
-async fn provider_memory_validation_rejection_is_discarded_without_failure_activity() {
-    let (handle, _store) =
-        test_runtime_handle_with_store(fake_provider(FakeCodexScenario::InvalidMemoryProposal))
-            .await;
-
-    let conversation = handle.start_conversation(None).await.expect("conversation");
-    let (result, events) = collect_turn_events(
-        &handle,
-        conversation.conversation_id,
-        "Please produce an invalid memory proposal.".to_string(),
-    )
-    .await;
-    result.expect("turn should complete despite rejected memory proposal");
-    let items = transcript_items_from_events(events);
-
-    assert_eq!(assistant_text(&items), "fake answer");
-    assert!(
-        !items.iter().any(|item| {
-            matches!(
-                item,
-                TurnTranscriptItem::Activity {
-                    activity_kind,
-                    status: TurnActivityStatus::Completed | TurnActivityStatus::Failed,
-                    ..
-                } if activity_kind == "memory_extraction"
-            )
-        }),
-        "fully rejected provider memory proposals should not create a terminal memory activity: {items:?}"
-    );
-    handle.shutdown().await;
-}
-
-#[tokio::test]
-async fn provider_memory_discards_invalid_extraction_proposal_and_persists_valid_one() {
-    let (handle, store) = test_runtime_handle_with_store(fake_provider(
-        FakeCodexScenario::MixedInvalidMemoryProposal,
-    ))
-    .await;
-
-    let conversation = handle.start_conversation(None).await.expect("conversation");
-    let items = collect_turn(
-        &handle,
-        conversation.conversation_id,
-        "I like planes, but please include one bad proposal fixture.".to_string(),
-    )
-    .await
-    .expect("turn should persist valid memory despite one rejected proposal");
-
-    assert_eq!(assistant_text(&items), "fake answer");
-    assert!(items.iter().any(|item| {
-        matches!(
-            item,
-            TurnTranscriptItem::Activity {
-                activity_kind,
-                status: TurnActivityStatus::Completed,
-                title,
-                metadata,
-                ..
-            } if activity_kind == "memory_extraction"
-                && title == "Memory saved"
-                && metadata["proposal_count"] == 2
-                && metadata["validated_proposal_count"] == 1
-                && metadata["rejected_extraction_proposal_count"] == 1
-                && metadata["failed_proposal_count"] == 0
-        )
-    }));
-    assert!(
-        !items.iter().any(|item| {
-            matches!(
-                item,
-                TurnTranscriptItem::Activity {
-                    activity_kind,
-                    status: TurnActivityStatus::Failed,
-                    ..
-                } if activity_kind == "memory_extraction"
-            )
-        }),
-        "one rejected extractor proposal should not make the memory activity fail: {items:?}"
-    );
-
-    let claims = store
-        .retrieve_claims(&answer_claim_request(), "planes", 8)
-        .await
-        .expect("retrieve valid memory claim");
-    assert!(
-        claims
-            .included
-            .iter()
-            .any(|claim| claim.fact == "Kevin likes planes."),
-        "valid proposal should persist: {claims:?}"
-    );
-    handle.shutdown().await;
-}
-
-#[tokio::test]
-async fn provider_memory_discards_local_human_preference_from_assistant_status_chatter() {
-    let (handle, store) = test_runtime_handle_with_store(fake_provider(
-        FakeCodexScenario::AssistantStatusChatterMemory,
-    ))
-    .await;
-
-    let conversation = handle.start_conversation(None).await.expect("conversation");
-    let (result, events) =
-        collect_turn_events(&handle, conversation.conversation_id, "Nice".to_string()).await;
-    result.expect("turn should complete despite rejected status-chatter memory proposal");
-    let items = transcript_items_from_events(events.clone());
-
-    assert_eq!(
-        assistant_text(&items),
-        "Tiny but important onboarding victory. Fred has a plane-shaped sticky note now."
-    );
-    let proposed_index =
-        memory_extraction_event_index(&events, TurnActivityStatus::Started, "Memory proposed")
-            .expect("streamed memory proposal marker");
-    let assistant_item_index = assistant_text_item_event_index(
-        &events,
-        "Tiny but important onboarding victory. Fred has a plane-shaped sticky note now.",
-    )
-    .expect("persisted assistant text item");
-    assert!(
-        proposed_index < assistant_item_index,
-        "streamed proposal marker should not wait for provider response persistence: {events:?}"
-    );
-    assert!(
-        !items.iter().any(|item| {
-            matches!(
-                item,
-                TurnTranscriptItem::Activity {
-                    activity_kind,
-                    status: TurnActivityStatus::Completed | TurnActivityStatus::Failed,
-                    ..
-                } if activity_kind == "memory_extraction"
-            )
-        }),
-        "assistant status chatter should not create a terminal memory activity: {items:?}"
-    );
-
-    let claims = store
-        .retrieve_claims(&answer_claim_request(), "planes", 8)
-        .await
-        .expect("retrieve plane claims");
-    assert!(claims.included.is_empty(), "unexpected claims: {claims:?}");
-    handle.shutdown().await;
-}
-
-#[tokio::test]
-async fn provider_memory_graph_write_failure_persists_failed_activity() {
-    let (handle, store) =
-        test_runtime_handle_with_store(fake_provider(FakeCodexScenario::MemoryExtraction)).await;
-    store
-        .db()
-        .query("DELETE predicates WHERE predicate_id = 'prefers';")
-        .await
-        .expect("delete prefers predicate")
-        .check()
-        .expect("delete prefers predicate check");
-
-    let conversation = handle.start_conversation(None).await.expect("conversation");
-    let items = collect_turn(
-        &handle,
-        conversation.conversation_id,
-        "I prefer automatic memory extraction in chat.".to_string(),
-    )
-    .await
-    .expect("turn should complete despite graph write failure");
-
-    assert_eq!(assistant_text(&items), "fake answer");
-    assert!(items.iter().any(|item| {
-        matches!(
-            item,
-            TurnTranscriptItem::Activity {
-                activity_kind,
-                status: TurnActivityStatus::Failed,
-                title,
-                summary: Some(summary),
-                metadata,
-                ..
-            } if activity_kind == "memory_extraction"
-                && title == "Memory update failed"
-                && summary == "memory save failed"
-                && metadata["source"] == "provider_structured_output"
-                && metadata["proposal_count"] == 1
-        )
-    }));
-    assert!(
-        !items.iter().any(|item| {
-            matches!(
-                item,
-                TurnTranscriptItem::Activity {
-                    activity_kind,
-                    status: TurnActivityStatus::Completed,
-                    title,
-                    ..
-                } if activity_kind == "memory_extraction"
-                    && title == "Memory saved"
-            )
-        }),
-        "failed graph write should not emit persisted activity: {items:?}"
-    );
-    handle.shutdown().await;
-}
-
-#[tokio::test]
-async fn runtime_actor_persists_provider_memory_proposals_as_graph_claims() {
-    let (handle, store) =
-        test_runtime_handle_with_store(fake_provider(FakeCodexScenario::MemoryExtraction)).await;
-
-    let conversation = handle.start_conversation(None).await.expect("conversation");
-    let conversation_id = conversation.conversation_id.clone();
-    let (result, events) = collect_turn_events(
-        &handle,
-        conversation_id.clone(),
-        "I prefer same-call memory proposals.".to_string(),
-    )
-    .await;
-    result.expect("turn");
-    let items = transcript_items_from_events(events.clone());
-    assert_eq!(assistant_text(&items), "fake answer");
-    let proposed_index =
-        memory_extraction_event_index(&events, TurnActivityStatus::Started, "Memory proposed")
-            .expect("started memory proposal activity");
-    let assistant_item_index =
-        assistant_text_item_event_index(&events, "fake answer").expect("persisted assistant text");
-    assert!(
-        proposed_index < assistant_item_index,
-        "proposal marker should stream before provider response persistence: {events:?}"
-    );
-    assert!(
-        memory_proposals_card_event_index(&events).is_none(),
-        "provider proposal card should stay suppressed for graph-claim writes"
-    );
-    let persisted_index =
-        memory_extraction_event_index(&events, TurnActivityStatus::Completed, "Memory saved")
-            .expect("persisted memory proposal activity");
-    let proposed_item_id =
-        memory_extraction_event_item_id(&events, TurnActivityStatus::Started, "Memory proposed")
-            .expect("started memory proposal item id");
-    assert!(
-        proposed_item_id.starts_with("transient:"),
-        "started memory proposal marker should be live-only, got {proposed_item_id}"
-    );
-    assert!(
-        proposed_index < persisted_index,
-        "persisted marker should stream after proposal marker: {events:?}"
-    );
-    let claim_id = items
-        .iter()
-        .find_map(|item| match item {
-            TurnTranscriptItem::Activity {
-                activity_kind,
-                status: TurnActivityStatus::Completed,
-                title,
-                summary: Some(summary),
-                metadata,
-                ..
-            } if activity_kind == "memory_extraction"
-                && title == "Memory saved"
-                && summary == "saved 1 memory"
-                && metadata["source"] == "provider_structured_output"
-                && metadata["proposal_count"] == 1
-                && metadata["created_claim_count"] == 1 =>
-            {
-                metadata["claim_ids"][0].as_str().map(str::to_string)
-            }
-            _ => None,
-        })
-        .expect("persisted memory proposal claim id");
-    let activity_metadata = items
-        .iter()
-        .find_map(|item| match item {
-            TurnTranscriptItem::Activity {
-                activity_kind,
-                status: TurnActivityStatus::Completed,
-                title,
-                metadata,
-                ..
-            } if activity_kind == "memory_extraction" && title == "Memory saved" => Some(metadata),
-            _ => None,
-        })
-        .expect("provider memory activity metadata");
-    assert_eq!(
-        activity_metadata["claim_outcomes"][0]["fact_preview"],
-        json!("Kevin prefers same-call memory proposals.")
-    );
-    assert_eq!(
-        activity_metadata["claim_outcomes"][0]["outcome"],
-        json!("created")
-    );
-    assert_eq!(
-        activity_metadata["claim_outcomes"][0]["sensitivity"],
-        json!("normal")
-    );
-    assert_no_failed_memory_extraction(&items);
-    let claims = store
-        .retrieve_claims(&answer_claim_request(), "same-call memory proposals", 8)
-        .await
-        .expect("retrieve provider claim");
-    assert!(
-        claims.included.iter().any(|claim| {
-            claim.claim_id == claim_id
-                && claim.fact == "Kevin prefers same-call memory proposals."
-                && claim.predicate_id == "prefers"
-        }),
-        "expected provider claim in retrieval, got {claims:?}"
-    );
-    handle.shutdown().await;
-}
-
-#[tokio::test]
-async fn runtime_actor_persists_natural_remember_provider_proposals_as_graph_claims() {
-    let (handle, store) =
-        test_runtime_handle_with_store(fake_provider(FakeCodexScenario::MemoryExtraction)).await;
-
-    let conversation = handle.start_conversation(None).await.expect("conversation");
-    let items = collect_turn(
-        &handle,
-        conversation.conversation_id,
-        "Please remember I'm a big fan of trains".to_string(),
-    )
-    .await
-    .expect("turn");
-    assert_eq!(assistant_text(&items), "fake answer");
-    let claim_id = items
-        .iter()
-        .find_map(|item| match item {
-            TurnTranscriptItem::Activity {
-                activity_kind,
-                status: TurnActivityStatus::Completed,
-                title,
-                metadata,
-                ..
-            } if activity_kind == "memory_extraction"
-                && title == "Memory saved"
-                && metadata["proposal_count"] == 1 =>
-            {
-                metadata["claim_ids"][0].as_str().map(str::to_string)
-            }
-            _ => None,
-        })
-        .expect("persisted natural remember provider claim id");
-    assert_no_failed_memory_extraction(&items);
-    assert!(items.iter().any(|item| {
-        matches!(
-            item,
-            TurnTranscriptItem::Activity {
-                activity_kind,
-                status: TurnActivityStatus::Completed,
-                title,
-                ..
-            } if activity_kind == "memory_extraction"
-                && title == "Memory saved"
-        )
-    }));
-    let claims = store
-        .retrieve_claims(&answer_claim_request(), "trains", 8)
-        .await
-        .expect("retrieve natural remember provider claim");
-    assert!(
-        claims.included.iter().any(|claim| {
-            claim.claim_id == claim_id
-                && claim.fact == "Kevin likes trains."
-                && claim.predicate_id == "likes"
-        }),
-        "expected natural remember provider claim in retrieval, got {claims:?}"
-    );
-    assert!(
-        !items.iter().any(|item| {
-            matches!(
-                item,
-                TurnTranscriptItem::A2uiCard { schema, .. } if schema == "memory_proposals"
-            )
-        }),
-        "provider proposals should not emit a success-looking memory card: {items:?}"
-    );
-    handle.shutdown().await;
-}
-
-#[tokio::test]
-async fn provider_first_person_memory_reinforces_explicit_canonical_claim() {
-    let (handle, store) =
-        test_runtime_handle_with_store(fake_provider(FakeCodexScenario::MemoryExtraction)).await;
-
-    let conversation = handle.start_conversation(None).await.expect("conversation");
-    let conversation_id = conversation.conversation_id.clone();
-    collect_turn(
-        &handle,
-        conversation_id.clone(),
-        "/remember I prefer dark mode.".to_string(),
-    )
-    .await
-    .expect("explicit seed turn");
-
-    let items = collect_turn(&handle, conversation_id, "I prefer dark mode.".to_string())
-        .await
-        .expect("provider proposal turn");
-    assert!(items.iter().any(|item| {
-        matches!(
-            item,
-            TurnTranscriptItem::Activity {
-                activity_kind,
-                status: TurnActivityStatus::Completed,
-                title,
-                metadata,
-                ..
-            } if activity_kind == "memory_extraction"
-                && title == "Memory saved"
-                && metadata["created_claim_count"] == 0
-                && metadata["reinforced_claim_count"] == 1
-        )
-    }));
-
-    let claims = store
-        .retrieve_claims(&answer_claim_request(), "dark mode", 8)
-        .await
-        .expect("retrieve dark mode claim");
-    assert_eq!(claims.included.len(), 1, "expected one claim: {claims:?}");
-    assert_eq!(claims.included[0].fact, "Kevin prefers dark mode.");
-    assert_eq!(claims.included[0].predicate_id, "prefers");
-    handle.shutdown().await;
-}
-
-#[tokio::test]
-async fn semantic_repeat_reinforces_existing_claim() {
-    let (handle, store) =
-        test_runtime_handle_with_store(fake_provider(FakeCodexScenario::MemoryExtraction)).await;
-    let conversation = handle.start_conversation(None).await.expect("conversation");
-    let conversation_id = conversation.conversation_id.clone();
-
-    collect_turn(
-        &handle,
-        conversation_id.clone(),
-        "I like ice cream.".to_string(),
-    )
-    .await
-    .expect("seed turn");
-    let items = collect_turn(
-        &handle,
-        conversation_id,
-        "Ice cream is one of my favorite desserts.".to_string(),
-    )
-    .await
-    .expect("repeat turn");
-
-    assert!(
-        items.iter().any(|item| {
-            matches!(
-                item,
-                TurnTranscriptItem::Activity {
-                    activity_kind,
-                    status: TurnActivityStatus::Completed,
-                    title,
-                    metadata,
-                    ..
-                } if activity_kind == "memory_extraction"
-                    && title == "Memory saved"
-                    && metadata["reinforced_claim_count"] == 1
-            )
-        }),
-        "expected reinforced memory activity, got {items:?}"
-    );
-
-    let claims = store
-        .retrieve_claims(&answer_claim_request(), "ice cream", 8)
-        .await
-        .expect("retrieve ice cream");
-    assert_eq!(
-        claims.included.len(),
-        1,
-        "expected one reinforced claim: {claims:?}"
-    );
-    handle.shutdown().await;
-}
-
-#[tokio::test]
-async fn semantic_repeat_reinforces_existing_claim_by_id_without_duplicate() {
-    let (handle, store) =
-        test_runtime_handle_with_store(fake_provider(FakeCodexScenario::MemoryExtraction)).await;
-    let conversation = handle.start_conversation(None).await.expect("conversation");
-    let conversation_id = conversation.conversation_id.clone();
-
-    collect_turn(
-        &handle,
-        conversation_id.clone(),
-        "I like ice cream.".to_string(),
-    )
-    .await
-    .expect("seed turn");
-    collect_turn(
-        &handle,
-        conversation_id,
-        "Ice cream is one of my favorite desserts.".to_string(),
-    )
-    .await
-    .expect("semantic repeat turn");
-
-    let claims = store
-        .list_claims(crate::MemoryClaimFilter {
-            query: Some("ice cream".to_string()),
-            status: Some(crate::ClaimStatus::Active),
-            predicate_id: Some("likes".to_string()),
-            limit: Some(10),
-        })
-        .await
-        .expect("ice cream claims");
-    assert_eq!(
-        claims.len(),
-        1,
-        "semantic reinforce should not create a fingerprint duplicate: {claims:?}"
-    );
-    assert_eq!(claims[0].evidence_count, 2);
-    handle.shutdown().await;
-}
-
-#[tokio::test]
-async fn consolidation_decision_rejects_existing_claim_id_outside_bounded_matches() {
-    let invalid_target = Arc::new(Mutex::new(None));
-    let provider = FakeCodexProvider::with_invalid_consolidation_target(invalid_target.clone());
-    let (handle, store) = test_runtime_handle_with_store(provider).await;
-    let conversation = handle.start_conversation(None).await.expect("conversation");
-    let conversation_id = conversation.conversation_id.clone();
-
-    collect_turn(
-        &handle,
-        conversation_id.clone(),
-        "I like planes.".to_string(),
-    )
-    .await
-    .expect("seed plane turn");
-    let plane_claims = store
-        .list_claims(crate::MemoryClaimFilter {
-            query: Some("planes".to_string()),
-            status: Some(crate::ClaimStatus::Active),
-            predicate_id: Some("likes".to_string()),
-            limit: Some(10),
-        })
-        .await
-        .expect("plane claims");
-    assert_eq!(
-        plane_claims.len(),
-        1,
-        "expected seeded plane claim: {plane_claims:?}"
-    );
-    *invalid_target.lock().expect("target lock") = Some(plane_claims[0].claim_id.clone());
-
-    collect_turn(
-        &handle,
-        conversation_id.clone(),
-        "I like ice cream.".to_string(),
-    )
-    .await
-    .expect("seed ice cream turn");
-    let items = collect_turn(
-        &handle,
-        conversation_id,
-        "Ice cream is one of my favorite desserts.".to_string(),
-    )
-    .await
-    .expect("turn should complete despite rejected consolidation decision");
-
-    assert!(items.iter().any(|item| {
-        matches!(
-            item,
-            TurnTranscriptItem::Activity {
-                activity_kind,
-                status: TurnActivityStatus::Failed,
-                title,
-                metadata,
-                ..
-            } if activity_kind == "memory_extraction"
-                && title == "Memory update failed"
-                && metadata["failed_proposal_count"] == 1
-                && metadata["failed_proposals"][0]["error"]
-                    .as_str()
-                    .is_some_and(|error| error.contains("not in consolidation match set"))
-        )
-    }));
-
-    let ice_cream_claims = store
-        .list_claims(crate::MemoryClaimFilter {
-            query: Some("ice cream".to_string()),
-            status: Some(crate::ClaimStatus::Active),
-            predicate_id: Some("likes".to_string()),
-            limit: Some(10),
-        })
-        .await
-        .expect("ice cream claims");
-    assert_eq!(
-        ice_cream_claims.len(),
-        1,
-        "out-of-set relate decision should not create another ice cream claim: {ice_cream_claims:?}"
-    );
-    assert_eq!(ice_cream_claims[0].evidence_count, 1);
-    handle.shutdown().await;
-}
-
-#[tokio::test]
-async fn contradiction_becomes_reviewable_dispute() {
-    let (handle, store) =
-        test_runtime_handle_with_store(fake_provider(FakeCodexScenario::MemoryExtraction)).await;
-    let conversation = handle.start_conversation(None).await.expect("conversation");
-    let conversation_id = conversation.conversation_id.clone();
-
-    collect_turn(
-        &handle,
-        conversation_id.clone(),
-        "I like ice cream.".to_string(),
-    )
-    .await
-    .expect("seed turn");
-    let items = collect_turn(&handle, conversation_id, "I hate ice cream.".to_string())
-        .await
-        .expect("conflict turn");
-
-    assert!(
-        items.iter().any(|item| {
-            matches!(
-                item,
-                TurnTranscriptItem::Activity {
-                    activity_kind,
-                    status: TurnActivityStatus::Completed,
-                    title,
-                    metadata,
-                    ..
-                } if activity_kind == "memory_extraction"
-                    && title == "Memory needs review"
-                    && metadata["disputed_claim_count"] == 1
-            )
-        }),
-        "expected disputed memory activity, got {items:?}"
-    );
-
-    let claims = store
-        .list_claims(crate::MemoryClaimFilter {
-            query: Some("ice cream".to_string()),
-            status: Some(crate::ClaimStatus::Disputed),
-            predicate_id: None,
-            limit: Some(10),
-        })
-        .await
-        .expect("disputed claims");
-    assert_eq!(claims.len(), 1);
-    handle.shutdown().await;
-}
-
-#[tokio::test]
-async fn provider_mixed_active_and_disputed_claims_needs_review() {
-    let (handle, store) =
-        test_runtime_handle_with_store(fake_provider(FakeCodexScenario::MemoryExtraction)).await;
-    let conversation = handle.start_conversation(None).await.expect("conversation");
-    let conversation_id = conversation.conversation_id.clone();
-
-    collect_turn(
-        &handle,
-        conversation_id.clone(),
-        "I like ice cream.".to_string(),
-    )
-    .await
-    .expect("seed turn");
-    let items = collect_turn(
-        &handle,
-        conversation_id,
-        "I like planes. I hate ice cream.".to_string(),
-    )
-    .await
-    .expect("mixed provider batch turn");
-
-    let memory_activity = items
-        .iter()
-        .rev()
-        .find(|item| {
-            matches!(
-                item,
-                TurnTranscriptItem::Activity {
-                    activity_kind,
-                    title,
-                    ..
-                } if activity_kind == "memory_extraction" && title != "Memory proposed"
-            )
-        })
-        .expect("memory extraction activity");
-    assert!(
-        matches!(
-            memory_activity,
-            TurnTranscriptItem::Activity {
-                status: TurnActivityStatus::Completed,
-                title,
-                metadata,
-                ..
-            } if title == "Memory needs review"
-                && metadata["created_claim_count"].as_u64().unwrap_or_default() > 0
-                && metadata["active_saved_claim_count"].as_u64().unwrap_or_default() > 0
-                && metadata["disputed_claim_count"].as_u64().unwrap_or_default() > 0
-        ),
-        "unexpected memory activity: {memory_activity:?}"
-    );
-
-    let active_claims = store
-        .retrieve_claims(&answer_claim_request(), "planes", 8)
-        .await
-        .expect("retrieve planes claim");
-    assert_eq!(
-        active_claims.included.len(),
-        1,
-        "expected one active planes claim: {active_claims:?}"
-    );
-
-    let disputed_claims = store
-        .list_claims(crate::MemoryClaimFilter {
-            query: Some("ice cream".to_string()),
-            status: Some(crate::ClaimStatus::Disputed),
-            predicate_id: None,
-            limit: Some(10),
-        })
-        .await
-        .expect("disputed claims");
-    assert_eq!(
-        disputed_claims.len(),
-        1,
-        "expected one disputed ice cream claim: {disputed_claims:?}"
-    );
-    handle.shutdown().await;
-}
-
-#[tokio::test]
-async fn provider_user_loves_planes_canonicalizes_to_likes_claim() {
-    let (handle, store) =
-        test_runtime_handle_with_store(fake_provider(FakeCodexScenario::MemoryExtraction)).await;
-
-    let conversation = handle.start_conversation(None).await.expect("conversation");
-    let items = collect_turn(
-        &handle,
-        conversation.conversation_id,
-        "I love planes.".to_string(),
-    )
-    .await
-    .expect("turn");
-
-    assert!(items.iter().any(|item| {
-        matches!(
-            item,
-            TurnTranscriptItem::Activity {
-                activity_kind,
-                status: TurnActivityStatus::Completed,
-                title,
-                metadata,
-                ..
-            } if activity_kind == "memory_extraction"
-                && title == "Memory saved"
-                && metadata["created_claim_count"] == 1
-        )
-    }));
-
-    let claims = store
-        .retrieve_claims(&answer_claim_request(), "planes", 8)
-        .await
-        .expect("retrieve planes claim");
-    assert_eq!(claims.included.len(), 1, "expected one claim: {claims:?}");
-    assert_eq!(claims.included[0].predicate_id, "likes");
-    assert_eq!(claims.included[0].fact, "Kevin likes planes.");
-    handle.shutdown().await;
-}
-
-#[tokio::test]
-async fn unknown_memory_relationship_creates_predicate_proposal() {
-    let (handle, store) =
-        test_runtime_handle_with_store(fake_provider(FakeCodexScenario::MemoryExtraction)).await;
-
-    let conversation = handle.start_conversation(None).await.expect("conversation");
-    let items = collect_turn(
-        &handle,
-        conversation.conversation_id,
-        "I collect model aircraft.".to_string(),
-    )
-    .await
-    .expect("turn");
-
-    assert!(items.iter().any(|item| {
-        matches!(
-            item,
-            TurnTranscriptItem::Activity {
-                activity_kind,
-                status: TurnActivityStatus::Completed,
-                title,
-                metadata,
-                ..
-            } if activity_kind == "memory_extraction"
-                && title == "Memory needs review"
-                && metadata["predicate_proposal_count"] == 1
-        )
-    }));
-
-    let proposals = store
-        .list_predicate_proposals(crate::store::PredicateProposalFilter {
-            status: Some("candidate".to_string()),
-            limit: Some(10),
-        })
-        .await
-        .expect("predicate proposals");
-    assert_eq!(proposals.len(), 1);
-    assert_eq!(proposals[0].label, "collects");
-
-    let claims = store
-        .retrieve_claims(&answer_claim_request(), "model aircraft", 8)
-        .await
-        .expect("retrieve claims");
-    assert!(
-        claims.included.is_empty(),
-        "unpromoted predicate should not retrieve: {claims:?}"
-    );
-    handle.shutdown().await;
-}
-
-#[tokio::test]
-async fn provider_candidate_claim_with_predicate_proposal_needs_review() {
-    let (handle, store) =
-        test_runtime_handle_with_store(fake_provider(FakeCodexScenario::MemoryExtraction)).await;
-
-    let conversation = handle.start_conversation(None).await.expect("conversation");
-    let items = collect_turn(
-        &handle,
-        conversation.conversation_id,
-        "I hate ice cream. I collect model aircraft.".to_string(),
-    )
-    .await
-    .expect("turn");
-
-    let memory_activity = items
-        .iter()
-        .rev()
-        .find(|item| {
-            matches!(
-                item,
-                TurnTranscriptItem::Activity {
-                    activity_kind,
-                    title,
-                    ..
-                } if activity_kind == "memory_extraction" && title != "Memory proposed"
-            )
-        })
-        .expect("memory extraction activity");
-    assert!(
-        matches!(
-            memory_activity,
-            TurnTranscriptItem::Activity {
-                status: TurnActivityStatus::Completed,
-                title,
-                metadata,
-                ..
-            } if title == "Memory needs review"
-                && metadata["predicate_proposal_count"] == 1
-                && metadata["created_claim_count"] == 1
-                && metadata["active_saved_claim_count"] == 0
-        ),
-        "unexpected memory activity: {memory_activity:?}"
-    );
-
-    let claims = store
-        .list_claims(crate::MemoryClaimFilter {
-            status: Some(crate::ClaimStatus::Candidate),
-            predicate_id: Some("dislikes".to_string()),
-            limit: Some(10),
-            ..Default::default()
-        })
-        .await
-        .expect("candidate dislike claims");
-    assert_eq!(claims.len(), 1, "expected one candidate claim: {claims:?}");
-    assert_eq!(claims[0].fact, "Kevin dislikes ice cream.");
-
-    let proposals = store
-        .list_predicate_proposals(crate::store::PredicateProposalFilter {
-            status: Some("candidate".to_string()),
-            limit: Some(10),
-        })
-        .await
-        .expect("predicate proposals");
-    assert_eq!(proposals.len(), 1);
-    assert_eq!(proposals[0].label, "collects");
-    handle.shutdown().await;
-}
-
-#[tokio::test]
-async fn provider_active_claim_with_predicate_proposal_persists_memory() {
-    let (handle, _store) =
-        test_runtime_handle_with_store(fake_provider(FakeCodexScenario::MemoryExtraction)).await;
-
-    let conversation = handle.start_conversation(None).await.expect("conversation");
-    let items = collect_turn(
-        &handle,
-        conversation.conversation_id,
-        "I like ice cream. I collect model aircraft.".to_string(),
-    )
-    .await
-    .expect("turn");
-
-    let memory_activity = items
-        .iter()
-        .rev()
-        .find(|item| {
-            matches!(
-                item,
-                TurnTranscriptItem::Activity {
-                    activity_kind,
-                    title,
-                    ..
-                } if activity_kind == "memory_extraction" && title != "Memory proposed"
-            )
-        })
-        .expect("memory extraction activity");
-    assert!(
-        matches!(
-            memory_activity,
-            TurnTranscriptItem::Activity {
-                status: TurnActivityStatus::Completed,
-                title,
-                metadata,
-                ..
-            } if title == "Memory needs review"
-                && metadata["predicate_proposal_count"] == 1
-                && metadata["created_claim_count"] == 1
-                && metadata["active_saved_claim_count"] == 1
-        ),
-        "unexpected memory activity: {memory_activity:?}"
-    );
-    handle.shutdown().await;
-}
-
-#[tokio::test]
-async fn provider_first_person_local_name_memory_persists_without_explicit_seed() {
-    let (handle, store) =
-        test_runtime_handle_with_store(fake_provider(FakeCodexScenario::MemoryExtraction)).await;
-
-    let conversation = handle.start_conversation(None).await.expect("conversation");
-    let items = collect_turn(
-        &handle,
-        conversation.conversation_id,
-        "I prefer dark mode.".to_string(),
-    )
-    .await
-    .expect("provider proposal turn");
-
-    assert!(items.iter().any(|item| {
-        matches!(
-            item,
-            TurnTranscriptItem::Activity {
-                activity_kind,
-                status: TurnActivityStatus::Completed,
-                title,
-                metadata,
-                ..
-            } if activity_kind == "memory_extraction"
-                && title == "Memory saved"
-                && metadata["created_claim_count"] == 1
-                && metadata["reinforced_claim_count"] == 0
-        )
-    }));
-    assert_no_failed_memory_extraction(&items);
-
-    let claims = store
-        .retrieve_claims(&answer_claim_request(), "dark mode", 8)
-        .await
-        .expect("retrieve dark mode claim");
-    assert_eq!(claims.included.len(), 1, "expected one claim: {claims:?}");
-    assert_eq!(claims.included[0].fact, "Kevin prefers dark mode.");
-    assert_eq!(claims.included[0].predicate_id, "prefers");
-    handle.shutdown().await;
-}
-
-#[tokio::test]
-async fn provider_memory_proposal_uses_initial_assistant_context_before_continuation() {
-    let (handle, store) = test_runtime_handle_with_store(fake_provider(
-        FakeCodexScenario::InitialAssistantMemoryContinuation,
-    ))
-    .await;
-
-    let conversation = handle.start_conversation(None).await.expect("conversation");
-    let conversation_id = conversation.conversation_id.clone();
-    let (result, events) = collect_turn_events(
-        &handle,
-        conversation_id.clone(),
-        "Search before saving the assistant note.".to_string(),
-    )
-    .await;
-    result.expect("turn");
-
-    let initial_assistant_item_id = assistant_item_id_for_text(
-        &events,
-        &conversation_id,
-        "I will search memory before saving a note.",
-    );
-    let claim_id = memory_persisted_claim_id(&events);
-    let source_item_id = claim_evidence_source_item_id(&store, &claim_id).await;
-    assert_eq!(source_item_id, initial_assistant_item_id);
-    assert!(events.iter().any(|event| {
-        matches!(
-            event,
-            TurnStreamEvent::ConversationItem { item, .. }
-                if matches!(
-                    item.as_ref(),
-                    TurnTranscriptItem::Activity {
-                        activity_kind,
-                        status: TurnActivityStatus::Completed,
-                        title,
-                        metadata,
-                        ..
-                    } if activity_kind == "memory_extraction"
-                        && title == "Memory saved"
-                        && metadata["proposal_count"] == 1
-                )
-        )
-    }));
-    handle.shutdown().await;
-}
-
-#[tokio::test]
-async fn provider_memory_proposal_uses_matching_assistant_item_within_phase() {
-    let (handle, store) =
-        test_runtime_handle_with_store(fake_provider(FakeCodexScenario::MultiAssistantMemory))
-            .await;
-
-    let conversation = handle.start_conversation(None).await.expect("conversation");
-    let conversation_id = conversation.conversation_id.clone();
-    let (result, events) = collect_turn_events(
-        &handle,
-        conversation_id.clone(),
-        "Emit two assistant notes and save the second.".to_string(),
-    )
-    .await;
-    result.expect("turn");
-
-    let second_assistant_item_id = assistant_item_id_for_text(
-        &events,
-        &conversation_id,
-        "Second assistant item contains the durable note.",
-    );
-    let claim_id = memory_persisted_claim_id(&events);
-    let source_item_id = claim_evidence_source_item_id(&store, &claim_id).await;
-    assert_eq!(source_item_id, second_assistant_item_id);
-    handle.shutdown().await;
-}
-
-#[tokio::test]
-async fn provider_memory_proposal_discards_assistant_evidence_spanning_items() {
-    let (handle, store) = test_runtime_handle_with_store(fake_provider(
-        FakeCodexScenario::SplitAssistantEvidenceMemory,
-    ))
-    .await;
-
-    let conversation = handle.start_conversation(None).await.expect("conversation");
-    let (result, events) = collect_turn_events(
-        &handle,
-        conversation.conversation_id,
-        "Emit split assistant evidence and try to save it.".to_string(),
-    )
-    .await;
-    result.expect("turn");
-    let items = transcript_items_from_events(events);
-
-    assert!(
-        !items.iter().any(|item| {
-            matches!(
-                item,
-                TurnTranscriptItem::Activity {
-                    activity_kind,
-                    status: TurnActivityStatus::Completed | TurnActivityStatus::Failed,
-                    ..
-                } if activity_kind == "memory_extraction"
-            )
-        }),
-        "invalid assistant evidence should be discarded without terminal memory activity: {items:?}"
-    );
-    let claims = store
-        .retrieve_claims(&answer_claim_request(), "split assistant note", 8)
-        .await
-        .expect("retrieve split assistant claims");
-    assert!(claims.included.is_empty(), "unexpected claims: {claims:?}");
-    handle.shutdown().await;
-}
-
-#[tokio::test]
-async fn provider_memory_partial_write_reports_partial_failure() {
-    let (handle, store) =
-        test_runtime_handle_with_store(fake_provider(FakeCodexScenario::PartialMemoryWrite)).await;
-    delete_predicate(&store, "has_note").await;
-
-    let conversation = handle.start_conversation(None).await.expect("conversation");
-    let items = collect_turn(
-        &handle,
-        conversation.conversation_id,
-        "I like partial write trains and need one failing note.".to_string(),
-    )
-    .await
-    .expect("turn");
-
-    assert!(items.iter().any(|item| {
-        matches!(
-            item,
-            TurnTranscriptItem::Activity {
-                activity_kind,
-                status: TurnActivityStatus::Failed,
-                title,
-                summary: Some(summary),
-                metadata,
-                ..
-            } if activity_kind == "memory_extraction"
-                && title == "Memory update partially failed"
-                && summary == "saved 1 memory; 1 proposal failed"
-                && metadata["proposal_count"] == 2
-                && metadata["created_claim_count"] == 1
-                && metadata["failed_proposal_count"] == 1
-        )
-    }));
-    let claims = store
-        .retrieve_claims(&answer_claim_request(), "partial write trains", 8)
-        .await
-        .expect("retrieve partial write claim");
-    assert_eq!(
-        claims.included.len(),
-        1,
-        "expected persisted claim: {claims:?}"
-    );
-    assert_eq!(claims.included[0].fact, "Kevin likes partial write trains.");
-    handle.shutdown().await;
-}
-
-#[tokio::test]
-async fn explicit_remember_is_saved_before_provider_failure() {
-    let (handle, store) =
-        test_runtime_handle_with_store(fake_provider(FakeCodexScenario::TurnError)).await;
-
-    let conversation = handle.start_conversation(None).await.expect("conversation");
-    let conversation_id = conversation.conversation_id.clone();
-    let (result, events) = collect_turn_events(
-        &handle,
-        conversation_id.clone(),
-        "/remember Kevin wants failed turns to keep explicit memory.".to_string(),
-    )
-    .await;
-    let error = result.expect_err("provider error");
-    assert!(matches!(error, DaemonError::Provider(_)));
-    handle.shutdown().await;
-
-    assert!(events.iter().any(|event| {
-        matches!(
-            event,
-            TurnStreamEvent::AgentStatusChanged {
-                conversation_id: id,
-                status: AgentStatus::Error,
-            } if id == &conversation_id
-        )
-    }));
-    for expected in ["activity", "error_notice"] {
-        let Some(item_id) = events.iter().find_map(|event| match (expected, event) {
-            (
-                "activity",
-                TurnStreamEvent::ConversationItem {
-                    conversation_id: id,
-                    item_id,
-                    turn_id: Some(_),
-                    item,
-                    ..
-                },
-            ) if id == &conversation_id
-                && matches!(
-                    item.as_ref(),
-                    TurnTranscriptItem::Activity {
-                        activity_kind,
-                        status: TurnActivityStatus::Completed,
-                        title,
-                        ..
-                    } if activity_kind == "memory_extraction"
-                        && title == "Explicit memory saved"
-                ) =>
-            {
-                Some(item_id.clone())
-            }
-            (
-                "error_notice",
-                TurnStreamEvent::ConversationItem {
-                    conversation_id: id,
-                    item_id,
-                    turn_id: Some(_),
-                    item,
-                    ..
-                },
-            ) if id == &conversation_id
-                && matches!(item.as_ref(), TurnTranscriptItem::ErrorNotice { .. }) =>
-            {
-                Some(item_id.clone())
-            }
-            _ => None,
-        }) else {
-            panic!("expected durable {expected} conversation item, got {events:?}");
-        };
-        assert!(item_id.starts_with("item:"));
-    }
-    assert!(
-        !events.iter().any(|event| {
-            matches!(
-                event,
-                TurnStreamEvent::ConversationItem {
-                    item,
-                    ..
-                } if matches!(
-                    item.as_ref(),
-                    TurnTranscriptItem::A2uiCard { schema, .. } if schema == "memory_cards"
-                )
-            )
-        }),
-        "explicit memory should not emit a success-looking memory card: {events:?}"
-    );
-    let claims = store
-        .retrieve_claims(&answer_claim_request(), "failed turns", 8)
-        .await
-        .expect("retrieve pre-failure explicit claim");
-    assert!(
-        claims
-            .included
-            .iter()
-            .any(|claim| claim.fact == "Kevin prefers failed turns to keep explicit memory."),
-        "expected explicit memory saved before provider failure, got {claims:?}"
-    );
 }
 
 #[tokio::test]
@@ -3935,7 +2112,7 @@ async fn runtime_actor_executes_search_memory_as_local_tool_result() {
     collect_turn(
         &handle,
         conversation_id.clone(),
-        "/remember I'm a big fan of trains".to_string(),
+        "I'm a big fan of trains".to_string(),
     )
     .await
     .expect("seed turn");
@@ -4018,7 +2195,7 @@ async fn search_memory_skips_supermemory_results_without_memory() {
     collect_turn(
         &handle,
         conversation_id.clone(),
-        "/remember I'm a big fan of trains".to_string(),
+        "I'm a big fan of trains".to_string(),
     )
     .await
     .expect("seed turn");
@@ -4076,7 +2253,7 @@ async fn search_memory_defaults_missing_supermemory_metadata_to_empty_object() {
     collect_turn(
         &handle,
         conversation_id.clone(),
-        "/remember I'm a big fan of trains".to_string(),
+        "I'm a big fan of trains".to_string(),
     )
     .await
     .expect("seed turn");
@@ -4760,7 +2937,7 @@ async fn search_memory_profile_continuation_uses_scoped_empty_query() {
     collect_turn(
         &handle,
         conversation_id.clone(),
-        "/remember I like planes.".to_string(),
+        "I like planes.".to_string(),
     )
     .await
     .expect("seed turn");
@@ -5035,70 +3212,6 @@ fn transcript_items_from_events(events: Vec<TurnStreamEvent>) -> Vec<TurnTranscr
         .collect()
 }
 
-fn memory_extraction_event_index(
-    events: &[TurnStreamEvent],
-    expected_status: TurnActivityStatus,
-    expected_title: &str,
-) -> Option<usize> {
-    events.iter().position(|event| {
-        matches!(
-            event,
-            TurnStreamEvent::ConversationItem { item, .. }
-                if matches!(
-                    item.as_ref(),
-                    TurnTranscriptItem::Activity {
-                        activity_kind,
-                        status,
-                        title,
-                        ..
-                    } if activity_kind == "memory_extraction"
-                        && *status == expected_status
-                        && title == expected_title
-                )
-        )
-    })
-}
-
-fn memory_extraction_event_item_id(
-    events: &[TurnStreamEvent],
-    expected_status: TurnActivityStatus,
-    expected_title: &str,
-) -> Option<String> {
-    events.iter().find_map(|event| match event {
-        TurnStreamEvent::ConversationItem { item_id, item, .. }
-            if matches!(
-                item.as_ref(),
-                TurnTranscriptItem::Activity {
-                    activity_kind,
-                    status,
-                    title,
-                    ..
-                } if activity_kind == "memory_extraction"
-                    && *status == expected_status
-                    && title == expected_title
-            ) =>
-        {
-            Some(item_id.clone())
-        }
-        TurnStreamEvent::ConversationItem { .. }
-        | TurnStreamEvent::AssistantTextDelta { .. }
-        | TurnStreamEvent::AgentStatusChanged { .. } => None,
-    })
-}
-
-fn memory_proposals_card_event_index(events: &[TurnStreamEvent]) -> Option<usize> {
-    events.iter().position(|event| {
-        matches!(
-            event,
-            TurnStreamEvent::ConversationItem { item, .. }
-                if matches!(
-                    item.as_ref(),
-                    TurnTranscriptItem::A2uiCard { schema, .. } if schema == "memory_proposals"
-                )
-        )
-    })
-}
-
 fn assistant_text_item_event_index(
     events: &[TurnStreamEvent],
     expected_text: &str,
@@ -5114,146 +3227,6 @@ fn assistant_text_item_event_index(
         )
     })
 }
-
-fn assistant_item_id_for_text(
-    events: &[TurnStreamEvent],
-    conversation_id: &str,
-    expected_text: &str,
-) -> String {
-    events
-        .iter()
-        .find_map(|event| match event {
-            TurnStreamEvent::ConversationItem {
-                conversation_id: id,
-                item_id,
-                item,
-                ..
-            } if id == conversation_id => match item.as_ref() {
-                TurnTranscriptItem::AssistantText { text } if text == expected_text => {
-                    Some(item_id.clone())
-                }
-                _ => None,
-            },
-            TurnStreamEvent::ConversationItem { .. }
-            | TurnStreamEvent::AssistantTextDelta { .. }
-            | TurnStreamEvent::AgentStatusChanged { .. } => None,
-        })
-        .unwrap_or_else(|| panic!("expected assistant item `{expected_text}`, got {events:?}"))
-}
-
-fn memory_persisted_claim_id(events: &[TurnStreamEvent]) -> String {
-    events
-        .iter()
-        .find_map(|event| match event {
-            TurnStreamEvent::ConversationItem { item, .. } => match item.as_ref() {
-                TurnTranscriptItem::Activity {
-                    activity_kind,
-                    status: TurnActivityStatus::Completed,
-                    title,
-                    metadata,
-                    ..
-                } if activity_kind == "memory_extraction" && title == "Memory saved" => {
-                    metadata["claim_ids"][0].as_str().map(str::to_string)
-                }
-                _ => None,
-            },
-            TurnStreamEvent::AssistantTextDelta { .. }
-            | TurnStreamEvent::AgentStatusChanged { .. } => None,
-        })
-        .unwrap_or_else(|| panic!("expected persisted memory claim id, got {events:?}"))
-}
-
-async fn claim_evidence_source_item_id(store: &crate::NoemaStore, claim_id: &str) -> String {
-    let mut response = store
-        .db()
-        .query(
-            r#"
-            SELECT source_item_id
-            FROM supported_by
-            WHERE claim_id = $claim_id
-            LIMIT 1;
-            "#,
-        )
-        .bind(("claim_id", claim_id.to_string()))
-        .await
-        .expect("claim evidence query");
-    let rows: Vec<ClaimEvidenceSourceRow> = response.take(0).expect("claim evidence rows");
-    rows.into_iter()
-        .next()
-        .and_then(|row| row.source_item_id)
-        .expect("claim evidence source item id")
-}
-
-async fn claim_status_and_sensitivity(
-    store: &crate::NoemaStore,
-    claim_id: &str,
-) -> ClaimStatusAndSensitivityRow {
-    let mut response = store
-        .db()
-        .query(
-            r#"
-            SELECT status, sensitivity
-            FROM claims
-            WHERE claim_id = $claim_id
-            LIMIT 1;
-            "#,
-        )
-        .bind(("claim_id", claim_id.to_string()))
-        .await
-        .expect("claim sensitivity query");
-    let rows: Vec<ClaimStatusAndSensitivityRow> = response.take(0).expect("claim sensitivity rows");
-    rows.into_iter()
-        .next()
-        .expect("claim status and sensitivity row")
-}
-
-async fn maybe_entity_row(store: &crate::NoemaStore, entity_id: &str) -> Option<EntityRow> {
-    let mut response = store
-        .db()
-        .query(
-            r#"
-            SELECT entity_id, entity_type, canonical_name
-            FROM entities
-            WHERE entity_id = $entity_id
-            LIMIT 1;
-            "#,
-        )
-        .bind(("entity_id", entity_id.to_string()))
-        .await
-        .expect("entity query");
-    let rows: Vec<EntityRow> = response.take(0).expect("entity rows");
-    rows.into_iter().next()
-}
-
-async fn delete_predicate(store: &crate::NoemaStore, predicate_id: &str) {
-    store
-        .db()
-        .query("DELETE predicates WHERE predicate_id = $predicate_id;")
-        .bind(("predicate_id", predicate_id.to_string()))
-        .await
-        .expect("delete predicate")
-        .check()
-        .expect("predicate deletion should succeed");
-}
-
-#[derive(Debug, Deserialize, SurrealValue)]
-struct ClaimEvidenceSourceRow {
-    source_item_id: Option<String>,
-}
-
-#[derive(Debug, Deserialize, SurrealValue)]
-struct ClaimStatusAndSensitivityRow {
-    status: String,
-    sensitivity: String,
-}
-
-#[derive(Debug, Deserialize, SurrealValue)]
-struct EntityRow {
-    entity_id: String,
-    entity_type: String,
-    canonical_name: String,
-}
-
 fn assistant_text(items: &[TurnTranscriptItem]) -> &str {
     let Some(text) = items.iter().find_map(|item| match item {
         TurnTranscriptItem::AssistantText { text } => Some(text.as_str()),
@@ -5537,7 +3510,6 @@ fn estimated_test_tokens(value: &str) -> u32 {
 #[derive(Debug, Clone)]
 struct FakeCodexProvider {
     scenario: FakeCodexScenario,
-    invalid_consolidation_target_id: Arc<Mutex<Option<String>>>,
 }
 
 #[derive(Debug)]
@@ -5644,18 +3616,6 @@ enum FakeCodexScenario {
     RepeatedUpdateOwnNameContinuation,
     AmbiguousUpdateOwnName,
     UpdateOwnNameThenIdentityCheck,
-    InitialAssistantMemoryContinuation,
-    MultiAssistantMemory,
-    SplitAssistantEvidenceMemory,
-    MislabelledSecretMemory,
-    MalformedCanonicalizer,
-    MismatchedCanonicalEntity,
-    UnknownCanonicalPredicate,
-    PartialMemoryWrite,
-    InvalidMemoryProposal,
-    MixedInvalidMemoryProposal,
-    AssistantStatusChatterMemory,
-    MemoryExtraction,
 }
 
 fn fake_provider(scenario: FakeCodexScenario) -> FakeCodexProvider {
@@ -5664,19 +3624,7 @@ fn fake_provider(scenario: FakeCodexScenario) -> FakeCodexProvider {
 
 impl FakeCodexProvider {
     fn new(scenario: FakeCodexScenario) -> Self {
-        Self {
-            scenario,
-            invalid_consolidation_target_id: Arc::new(Mutex::new(None)),
-        }
-    }
-
-    fn with_invalid_consolidation_target(
-        invalid_consolidation_target_id: Arc<Mutex<Option<String>>>,
-    ) -> Self {
-        Self {
-            scenario: FakeCodexScenario::MemoryExtraction,
-            invalid_consolidation_target_id,
-        }
+        Self { scenario }
     }
 
     fn generate_response(
@@ -5690,14 +3638,6 @@ impl FakeCodexProvider {
         let rendered_input = request.input.render_for_token_count();
         let input = current_user_input(&request.input);
         let instructions = request.instructions.unwrap_or_default();
-        if input.contains("Noema's memory claim canonicalizer") {
-            let text = canonicalization_response_text(&input, self.scenario);
-            return Ok(fake_generate_response(
-                vec![GenerateOutputItem::AssistantText { phase: None, text }],
-                "codex",
-                model,
-            ));
-        }
         let output = match self.scenario {
             FakeCodexScenario::Simple => assistant_with_no_memories("fake answer"),
             FakeCodexScenario::ReasoningReplay => {
@@ -5798,9 +3738,7 @@ impl FakeCodexProvider {
                     "missing warm onboarding prompt"
                 })
             }
-            FakeCodexScenario::InitialNameOnboardingNoAssistant => {
-                vec![GenerateOutputItem::MemoryProposals { proposals: vec![] }]
-            }
+            FakeCodexScenario::InitialNameOnboardingNoAssistant => Vec::new(),
             FakeCodexScenario::TurnError => {
                 return Err(ProviderError::ApiError {
                     status: 500,
@@ -5821,7 +3759,6 @@ impl FakeCodexProvider {
                             phase: None,
                             text: "fake answer".to_string(),
                         },
-                        GenerateOutputItem::MemoryProposals { proposals: vec![] },
                     ]
                 }
             }
@@ -5838,7 +3775,6 @@ impl FakeCodexProvider {
                             phase: Some(crate::provider::AssistantTextPhase::Commentary),
                             text: "Checking memory.".to_string(),
                         },
-                        GenerateOutputItem::MemoryProposals { proposals: vec![] },
                     ]
                 }
             }
@@ -5857,14 +3793,11 @@ impl FakeCodexProvider {
                 if input.contains("NOEMA_LOCAL_TOOL_RESULT") {
                     assistant_with_no_memories("uncalibrated MCP tool failed")
                 } else {
-                    vec![
-                        mcp_tool_call(
-                            "call_mcp_1",
-                            "mcp.docs.read",
-                            json!({"arguments": {"document_id": "doc_1"}}),
-                        ),
-                        GenerateOutputItem::MemoryProposals { proposals: vec![] },
-                    ]
+                    vec![mcp_tool_call(
+                        "call_mcp_1",
+                        "mcp.docs.read",
+                        json!({"arguments": {"document_id": "doc_1"}}),
+                    )]
                 }
             }
             FakeCodexScenario::FailedMcpToolResultContinuation => {
@@ -5873,65 +3806,33 @@ impl FakeCodexProvider {
                 {
                     assistant_with_no_memories("I saw the Notion tool failure and can explain it.")
                 } else {
-                    vec![
-                        mcp_tool_call(
-                            "call_notion_create_1",
-                            "mcp.mcp:notion.notion-create-pages",
-                            json!({
-                                "pages": [{
-                                    "properties": {"title": "Test page"},
-                                    "content": "Body"
-                                }]
-                            }),
-                        ),
-                        GenerateOutputItem::MemoryProposals { proposals: vec![] },
-                    ]
+                    vec![mcp_tool_call(
+                        "call_notion_create_1",
+                        "mcp.mcp:notion.notion-create-pages",
+                        json!({
+                            "pages": [{
+                                "properties": {"title": "Test page"},
+                                "content": "Body"
+                            }]
+                        }),
+                    )]
                 }
             }
             FakeCodexScenario::InvalidSearchMemory => {
                 if input.contains("NOEMA_LOCAL_TOOL_RESULT") {
                     assistant_with_no_memories("invalid tool result received")
                 } else {
-                    vec![
-                        search_memory_tool_call(
-                            "call_bad",
-                            json!({"arguments": {"query": "trains", "purpose": "dump_everything"}}),
-                        ),
-                        GenerateOutputItem::MemoryProposals { proposals: vec![] },
-                    ]
+                    vec![search_memory_tool_call(
+                        "call_bad",
+                        json!({"arguments": {"query": "trains", "purpose": "dump_everything"}}),
+                    )]
                 }
             }
             FakeCodexScenario::SearchMemoryContinuation => {
                 if input.contains("NOEMA_LOCAL_TOOL_RESULT") {
-                    vec![
-                        GenerateOutputItem::AssistantText {
-                            phase: None,
-                            text: "I found your train memory.".to_string(),
-                        },
-                        GenerateOutputItem::MemoryProposals {
-                            proposals: vec![proposal(json!({
-                                "content": "Noema found Kevin's train memory.",
-                                "memory_type": "note",
-                                "title": "Train memory recall",
-                                "confidence": 0.72,
-                                "sensitivity": "normal",
-                                "subjects": [{"id": null, "kind": "conversation", "name": "current conversation", "role": "about"}],
-                                "retrieval_hints": {"topics": ["trains"], "keywords": ["train memory"], "summary": "Noema found Kevin's train memory."},
-                                "risk_flags": [],
-                                "evidence_excerpt": "I found your train memory."
-                            }))],
-                        },
-                    ]
+                    assistant_with_no_memories("I found your train memory.")
                 } else if input.contains("Please remember I'm a big fan of trains") {
-                    vec![
-                        GenerateOutputItem::AssistantText {
-                            phase: None,
-                            text: "fake answer".to_string(),
-                        },
-                        GenerateOutputItem::MemoryProposals {
-                            proposals: vec![train_preference_proposal()],
-                        },
-                    ]
+                    assistant_with_no_memories("fake answer")
                 } else if input.contains("What do you remember about trains?") {
                     vec![
                         GenerateOutputItem::AssistantText {
@@ -5942,7 +3843,6 @@ impl FakeCodexProvider {
                             "call_1",
                             json!({"arguments": {"query": "trains"}}),
                         ),
-                        GenerateOutputItem::MemoryProposals { proposals: vec![] },
                     ]
                 } else {
                     assistant_with_no_memories("fake answer")
@@ -5973,7 +3873,6 @@ impl FakeCodexProvider {
                         name: "search_memory".to_string(),
                         payload: json!({"arguments": {"query": "trains"}}),
                     },
-                    GenerateOutputItem::MemoryProposals { proposals: vec![] },
                 ],
                 _ => assistant_with_no_memories("fake answer"),
             },
@@ -5981,17 +3880,14 @@ impl FakeCodexProvider {
                 if input.contains("NOEMA_LOCAL_TOOL_RESULT") {
                     assistant_with_no_memories("web search result received")
                 } else {
-                    vec![
-                        web_search_tool_call(
-                            "call_web_1",
-                            json!({
-                                "query": "rust language",
-                                "reason": "answer the user's request",
-                                "max_results": 3
-                            }),
-                        ),
-                        GenerateOutputItem::MemoryProposals { proposals: vec![] },
-                    ]
+                    vec![web_search_tool_call(
+                        "call_web_1",
+                        json!({
+                            "query": "rust language",
+                            "reason": "answer the user's request",
+                            "max_results": 3
+                        }),
+                    )]
                 }
             }
             FakeCodexScenario::NativeWebSearchContinuation => match &request.input {
@@ -6003,17 +3899,14 @@ impl FakeCodexProvider {
                 GenerateInput::NativeToolResults(_) => {
                     assistant_with_no_memories("wrong web search tool result")
                 }
-                _ => vec![
-                    web_search_tool_call(
-                        "call_web_1",
-                        json!({
-                            "query": "rust language",
-                            "reason": "answer the current question",
-                            "max_results": 3
-                        }),
-                    ),
-                    GenerateOutputItem::MemoryProposals { proposals: vec![] },
-                ],
+                _ => vec![web_search_tool_call(
+                    "call_web_1",
+                    json!({
+                        "query": "rust language",
+                        "reason": "answer the current question",
+                        "max_results": 3
+                    }),
+                )],
             },
             FakeCodexScenario::NativeWebFetchContinuation => match &request.input {
                 GenerateInput::NativeToolResults(results)
@@ -6024,17 +3917,14 @@ impl FakeCodexProvider {
                 GenerateInput::NativeToolResults(_) => {
                     assistant_with_no_memories("wrong web fetch tool result")
                 }
-                _ => vec![
-                    web_fetch_tool_call(
-                        "call_fetch_1",
-                        json!({
-                            "url": "https://example.com/page",
-                            "reason": "answer the current question",
-                            "max_chars": 5000
-                        }),
-                    ),
-                    GenerateOutputItem::MemoryProposals { proposals: vec![] },
-                ],
+                _ => vec![web_fetch_tool_call(
+                    "call_fetch_1",
+                    json!({
+                        "url": "https://example.com/page",
+                        "reason": "answer the current question",
+                        "max_chars": 5000
+                    }),
+                )],
             },
             FakeCodexScenario::ChainedSearchMemoryContinuation => {
                 if input.contains("call_2") {
@@ -6049,7 +3939,6 @@ impl FakeCodexProvider {
                             "call_2",
                             json!({"arguments": {"query": "planes"}}),
                         ),
-                        GenerateOutputItem::MemoryProposals { proposals: vec![] },
                     ]
                 } else if input.contains("Check memory twice before answering.") {
                     vec![
@@ -6061,7 +3950,6 @@ impl FakeCodexProvider {
                             "call_1",
                             json!({"arguments": {"query": "trains"}}),
                         ),
-                        GenerateOutputItem::MemoryProposals { proposals: vec![] },
                     ]
                 } else {
                     assistant_with_no_memories("fake answer")
@@ -6078,13 +3966,10 @@ impl FakeCodexProvider {
                         "I gathered partial results and paused before the tool loop could run too long.",
                     )
                 } else {
-                    vec![
-                        search_memory_tool_call(
-                            "call_loop",
-                            json!({"arguments": {"query": loop_query}}),
-                        ),
-                        GenerateOutputItem::MemoryProposals { proposals: vec![] },
-                    ]
+                    vec![search_memory_tool_call(
+                        "call_loop",
+                        json!({"arguments": {"query": loop_query}}),
+                    )]
                 }
             }
             FakeCodexScenario::ProgressAuditFailsThenFinalization => {
@@ -6105,24 +3990,18 @@ impl FakeCodexProvider {
                         "The progress check failed, so I am pausing with the useful work gathered so far.",
                     )
                 } else {
-                    vec![
-                        search_memory_tool_call(
-                            "call_loop",
-                            json!({"arguments": {"query": loop_query}}),
-                        ),
-                        GenerateOutputItem::MemoryProposals { proposals: vec![] },
-                    ]
+                    vec![search_memory_tool_call(
+                        "call_loop",
+                        json!({"arguments": {"query": loop_query}}),
+                    )]
                 }
             }
             FakeCodexScenario::SearchMemoryProfileContinuation => {
                 if input.contains("NOEMA_LOCAL_TOOL_RESULT") {
-                    vec![
-                        GenerateOutputItem::AssistantText {
-                            phase: None,
-                            text: "I remember that you like planes.".to_string(),
-                        },
-                        GenerateOutputItem::MemoryProposals { proposals: vec![] },
-                    ]
+                    vec![GenerateOutputItem::AssistantText {
+                        phase: None,
+                        text: "I remember that you like planes.".to_string(),
+                    }]
                 } else if input.contains("What memories do you have of me?") {
                     vec![
                         GenerateOutputItem::AssistantText {
@@ -6138,7 +4017,6 @@ impl FakeCodexProvider {
                                 "limit": 8
                             }}),
                         ),
-                        GenerateOutputItem::MemoryProposals { proposals: vec![] },
                     ]
                 } else {
                     assistant_with_no_memories("fake answer")
@@ -6167,18 +4045,18 @@ impl FakeCodexProvider {
                     } else {
                         "Mira"
                     };
-                    vec![
-                        update_own_name_tool_call("call_name_1", json!({"name": name})),
-                        GenerateOutputItem::MemoryProposals { proposals: vec![] },
-                    ]
+                    vec![update_own_name_tool_call(
+                        "call_name_1",
+                        json!({"name": name}),
+                    )]
                 }
             }
             FakeCodexScenario::UpdateOwnNameThenYay => {
                 if input.contains("Let's rename you to Momo") {
-                    vec![
-                        update_own_name_tool_call("call_name_1", json!({"name": "Momo"})),
-                        GenerateOutputItem::MemoryProposals { proposals: vec![] },
-                    ]
+                    vec![update_own_name_tool_call(
+                        "call_name_1",
+                        json!({"name": "Momo"}),
+                    )]
                 } else if input == "Yay" {
                     if rendered_input.contains("function_call_output")
                         && rendered_input.contains("update_own_name")
@@ -6186,10 +4064,10 @@ impl FakeCodexProvider {
                     {
                         assistant_with_no_memories("yay acknowledged after saved name")
                     } else {
-                        vec![
-                            update_own_name_tool_call("call_name_2", json!({"name": "Momo"})),
-                            GenerateOutputItem::MemoryProposals { proposals: vec![] },
-                        ]
+                        vec![update_own_name_tool_call(
+                            "call_name_2",
+                            json!({"name": "Momo"}),
+                        )]
                     }
                 } else {
                     assistant_with_no_memories("fake answer")
@@ -6203,13 +4081,12 @@ impl FakeCodexProvider {
                             phase: None,
                             text: "Fred it is.".to_string(),
                         },
-                        GenerateOutputItem::MemoryProposals { proposals: vec![] },
                     ]
                 } else {
-                    vec![
-                        update_own_name_tool_call("call_name_1", json!({"name": "Fred"})),
-                        GenerateOutputItem::MemoryProposals { proposals: vec![] },
-                    ]
+                    vec![update_own_name_tool_call(
+                        "call_name_1",
+                        json!({"name": "Fred"}),
+                    )]
                 }
             }
             FakeCodexScenario::AmbiguousUpdateOwnName => {
@@ -6219,10 +4096,10 @@ impl FakeCodexProvider {
                 if input.contains("NOEMA_LOCAL_TOOL_RESULT") {
                     assistant_with_no_memories("Mira it is.")
                 } else if input.contains("Your name is Mira.") {
-                    vec![
-                        update_own_name_tool_call("call_name_1", json!({"name": "Mira"})),
-                        GenerateOutputItem::MemoryProposals { proposals: vec![] },
-                    ]
+                    vec![update_own_name_tool_call(
+                        "call_name_1",
+                        json!({"name": "Mira"}),
+                    )]
                 } else {
                     let saw_identity = instructions.contains("Agent identity:")
                         && instructions.contains(r#"display_name: "Mira""#)
@@ -6234,305 +4111,6 @@ impl FakeCodexProvider {
                     })
                 }
             }
-            FakeCodexScenario::InitialAssistantMemoryContinuation => {
-                if input.contains("NOEMA_LOCAL_TOOL_RESULT") {
-                    assistant_with_no_memories("Continuation answer without the initial evidence.")
-                } else if input.contains("Search before saving the assistant note.") {
-                    vec![
-                        GenerateOutputItem::AssistantText {
-                            phase: None,
-                            text: "I will search memory before saving a note.".to_string(),
-                        },
-                        search_memory_tool_call(
-                            "call_1",
-                            json!({"arguments": {"query": "trains"}}),
-                        ),
-                        GenerateOutputItem::MemoryProposals {
-                            proposals: vec![proposal(json!({
-                                "content": "Noema should remember the initial assistant note.",
-                                "memory_type": "note",
-                                "title": "Initial assistant note",
-                                "confidence": 0.74,
-                                "sensitivity": "normal",
-                                "subjects": [{"id": null, "kind": "conversation", "name": "current conversation", "role": "about"}],
-                                "retrieval_hints": {"topics": ["memory"], "keywords": ["initial assistant note"], "summary": "Noema should remember the initial assistant note."},
-                                "risk_flags": [],
-                                "evidence_excerpt": "I will search memory before saving a note."
-                            }))],
-                        },
-                    ]
-                } else {
-                    assistant_with_no_memories("fake answer")
-                }
-            }
-            FakeCodexScenario::MultiAssistantMemory => {
-                if input.contains("Emit two assistant notes and save the second.") {
-                    vec![
-                        GenerateOutputItem::AssistantText {
-                            phase: None,
-                            text: "First assistant item should not own the evidence.".to_string(),
-                        },
-                        GenerateOutputItem::AssistantText {
-                            phase: None,
-                            text: "Second assistant item contains the durable note.".to_string(),
-                        },
-                        GenerateOutputItem::MemoryProposals {
-                            proposals: vec![proposal(json!({
-                                "content": "Noema should remember the second assistant note.",
-                                "memory_type": "note",
-                                "title": "Second assistant note",
-                                "confidence": 0.78,
-                                "sensitivity": "normal",
-                                "subjects": [{"id": null, "kind": "conversation", "name": "current conversation", "role": "about"}],
-                                "retrieval_hints": {"topics": ["memory"], "keywords": ["second assistant note"], "summary": "Noema should remember the second assistant note."},
-                                "risk_flags": [],
-                                "evidence_excerpt": "Second assistant item contains the durable note."
-                            }))],
-                        },
-                    ]
-                } else {
-                    assistant_with_no_memories("fake answer")
-                }
-            }
-            FakeCodexScenario::SplitAssistantEvidenceMemory => {
-                if input.contains("Emit split assistant evidence and try to save it.") {
-                    vec![
-                        GenerateOutputItem::AssistantText {
-                            phase: None,
-                            text: "first assistant text".to_string(),
-                        },
-                        GenerateOutputItem::AssistantText {
-                            phase: None,
-                            text: "second assistant text".to_string(),
-                        },
-                        GenerateOutputItem::MemoryProposals {
-                            proposals: vec![proposal(json!({
-                                "content": "Noema should remember the split assistant note.",
-                                "memory_type": "note",
-                                "title": "Split assistant note",
-                                "confidence": 0.78,
-                                "sensitivity": "normal",
-                                "subjects": [{"id": "human:local", "kind": "human", "name": "Kevin", "role": "about"}],
-                                "retrieval_hints": {"topics": ["memory"], "keywords": ["split assistant note"], "summary": "Noema should remember the split assistant note."},
-                                "risk_flags": [],
-                                "evidence_excerpt": "first assistant text\n\nsecond assistant text"
-                            }))],
-                        },
-                    ]
-                } else {
-                    assistant_with_no_memories("fake answer")
-                }
-            }
-            FakeCodexScenario::MislabelledSecretMemory => {
-                if input.contains("My API key is sk-testSecretToken123456789.") {
-                    vec![
-                        GenerateOutputItem::AssistantText {
-                            phase: None,
-                            text: "fake answer".to_string(),
-                        },
-                        GenerateOutputItem::MemoryProposals {
-                            proposals: vec![proposal(json!({
-                                "content": "Kevin's API key is sk-testSecretToken123456789.",
-                                "memory_type": "note",
-                                "title": "API key",
-                                "confidence": 0.98,
-                                "sensitivity": "normal",
-                                "subjects": [{"id": "human:local", "kind": "human", "name": "Kevin", "role": "about"}],
-                                "retrieval_hints": {"topics": ["credentials"], "keywords": ["api key"], "summary": "Kevin's API key is sk-testSecretToken123456789."},
-                                "risk_flags": [],
-                                "evidence_excerpt": "My API key is sk-testSecretToken123456789."
-                            }))],
-                        },
-                    ]
-                } else {
-                    assistant_with_no_memories("fake answer")
-                }
-            }
-            FakeCodexScenario::MalformedCanonicalizer => {
-                if input.contains("I prefer malformed canonicalizer tests.") {
-                    vec![
-                        GenerateOutputItem::AssistantText {
-                            phase: None,
-                            text: "fake answer".to_string(),
-                        },
-                        GenerateOutputItem::MemoryProposals {
-                            proposals: vec![proposal(json!({
-                                "content": "Kevin prefers malformed canonicalizer tests.",
-                                "memory_type": "preference",
-                                "title": "Malformed canonicalizer test preference",
-                                "confidence": 0.91,
-                                "sensitivity": "normal",
-                                "subjects": [{"id": "human:local", "kind": "human", "name": "Kevin", "role": "about"}],
-                                "retrieval_hints": {"topics": ["tests"], "keywords": ["malformed canonicalizer tests"], "summary": "Kevin prefers malformed canonicalizer tests."},
-                                "risk_flags": [],
-                                "evidence_excerpt": "I prefer malformed canonicalizer tests."
-                            }))],
-                        },
-                    ]
-                } else {
-                    assistant_with_no_memories("fake answer")
-                }
-            }
-            FakeCodexScenario::MismatchedCanonicalEntity => {
-                if input.contains("I prefer canonical entity validation.") {
-                    vec![
-                        GenerateOutputItem::AssistantText {
-                            phase: None,
-                            text: "fake answer".to_string(),
-                        },
-                        GenerateOutputItem::MemoryProposals {
-                            proposals: vec![proposal(json!({
-                                "content": "Kevin prefers canonical entity validation.",
-                                "memory_type": "preference",
-                                "title": "Canonical entity validation preference",
-                                "confidence": 0.91,
-                                "sensitivity": "normal",
-                                "subjects": [{"id": "human:local", "kind": "human", "name": "Kevin", "role": "about"}],
-                                "retrieval_hints": {"topics": ["memory"], "keywords": ["canonical entity validation"], "summary": "Kevin prefers canonical entity validation."},
-                                "risk_flags": [],
-                                "evidence_excerpt": "I prefer canonical entity validation."
-                            }))],
-                        },
-                    ]
-                } else {
-                    assistant_with_no_memories("fake answer")
-                }
-            }
-            FakeCodexScenario::PartialMemoryWrite => {
-                if input.contains("I like partial write trains and need one failing note.") {
-                    vec![
-                        GenerateOutputItem::AssistantText {
-                            phase: None,
-                            text: "fake answer".to_string(),
-                        },
-                        GenerateOutputItem::MemoryProposals {
-                            proposals: vec![
-                                proposal(json!({
-                                    "content": "Kevin likes partial write trains.",
-                                    "memory_type": "preference",
-                                    "title": "Partial write train preference",
-                                    "confidence": 0.91,
-                                    "sensitivity": "normal",
-                                    "subjects": [{"id": null, "kind": "human", "name": "Kevin", "role": "about"}],
-                                    "retrieval_hints": {"topics": ["trains"], "keywords": ["partial write trains"], "summary": "Kevin likes partial write trains."},
-                                    "risk_flags": [],
-                                    "evidence_excerpt": "I like partial write trains and need one failing note."
-                                })),
-                                proposal(json!({
-                                    "content": "Provider note requiring the deleted note predicate.",
-                                    "memory_type": "note",
-                                    "title": "Deleted predicate note",
-                                    "confidence": 0.91,
-                                    "sensitivity": "normal",
-                                    "subjects": [{"id": "human:local", "kind": "human", "name": "Kevin", "role": "about"}],
-                                    "retrieval_hints": {"topics": ["memory"], "keywords": ["deleted note predicate"], "summary": "Provider note requiring the deleted note predicate."},
-                                    "risk_flags": [],
-                                    "evidence_excerpt": "I like partial write trains and need one failing note."
-                                })),
-                            ],
-                        },
-                    ]
-                } else {
-                    assistant_with_no_memories("fake answer")
-                }
-            }
-            FakeCodexScenario::InvalidMemoryProposal => vec![
-                GenerateOutputItem::AssistantText {
-                    phase: None,
-                    text: "fake answer".to_string(),
-                },
-                GenerateOutputItem::MemoryProposals {
-                    proposals: vec![proposal(json!({
-                        "content": "Kevin prefers invalid memory fixtures.",
-                        "memory_type": "preference",
-                        "title": "Invalid memory fixture",
-                        "confidence": 0.91,
-                        "sensitivity": "normal",
-                        "subjects": [{"id": "human:local", "kind": "human", "name": "Kevin", "role": "about"}],
-                        "retrieval_hints": {"topics": ["tests"], "keywords": ["invalid memory fixtures"], "summary": "Kevin prefers invalid memory fixtures."},
-                        "risk_flags": [],
-                        "evidence_excerpt": "this text is not in the turn"
-                    }))],
-                },
-            ],
-            FakeCodexScenario::MixedInvalidMemoryProposal => {
-                if input.contains("one bad proposal fixture") {
-                    vec![
-                        GenerateOutputItem::AssistantText {
-                            phase: None,
-                            text: "fake answer".to_string(),
-                        },
-                        GenerateOutputItem::MemoryProposals {
-                            proposals: vec![
-                                proposal(json!({
-                                    "content": "Kevin likes planes.",
-                                    "memory_type": "preference",
-                                    "title": "Plane preference",
-                                    "confidence": 0.91,
-                                    "sensitivity": "normal",
-                                    "subjects": [{"id": "human:local", "kind": "human", "name": "Kevin", "role": "about"}],
-                                    "retrieval_hints": {"topics": ["aviation"], "keywords": ["planes"], "summary": "Kevin likes planes."},
-                                    "risk_flags": [],
-                                    "evidence_excerpt": "I like planes"
-                                })),
-                                proposal(json!({
-                                    "content": "Kevin likes helicopters.",
-                                    "memory_type": "preference",
-                                    "title": "Helicopter preference",
-                                    "confidence": 0.91,
-                                    "sensitivity": "normal",
-                                    "subjects": [{"id": "human:local", "kind": "human", "name": "Kevin", "role": "about"}],
-                                    "retrieval_hints": {"topics": ["aviation"], "keywords": ["helicopters"], "summary": "Kevin likes helicopters."},
-                                    "risk_flags": [],
-                                    "evidence_excerpt": "I like helicopters"
-                                })),
-                            ],
-                        },
-                    ]
-                } else {
-                    assistant_with_no_memories("fake answer")
-                }
-            }
-            FakeCodexScenario::AssistantStatusChatterMemory => {
-                if input == "Nice" {
-                    vec![
-                        GenerateOutputItem::AssistantText {
-                            phase: None,
-                            text: "Tiny but important onboarding victory. Fred has a plane-shaped sticky note now."
-                                .to_string(),
-                        },
-                        GenerateOutputItem::MemoryProposals {
-                            proposals: vec![proposal(json!({
-                                "content": "Kevin likes planes.",
-                                "memory_type": "preference",
-                                "title": "Plane preference",
-                                "confidence": 0.91,
-                                "sensitivity": "normal",
-                                "subjects": [{"id": "human:local", "kind": "human", "name": "Kevin", "role": "about"}],
-                                "retrieval_hints": {"topics": ["aviation"], "keywords": ["planes"], "summary": "Kevin likes planes."},
-                                "risk_flags": [],
-                                "evidence_excerpt": "Fred has a plane-shaped sticky note now."
-                            }))],
-                        },
-                    ]
-                } else {
-                    assistant_with_no_memories("fake answer")
-                }
-            }
-            FakeCodexScenario::UnknownCanonicalPredicate => memory_extraction_output(
-                &input,
-                self.invalid_consolidation_target_id
-                    .lock()
-                    .expect("invalid consolidation target lock")
-                    .as_deref(),
-            ),
-            FakeCodexScenario::MemoryExtraction => memory_extraction_output(
-                &input,
-                self.invalid_consolidation_target_id
-                    .lock()
-                    .expect("invalid consolidation target lock")
-                    .as_deref(),
-            ),
         };
 
         Ok(fake_generate_response(output, "codex", model))
@@ -6660,9 +4238,6 @@ impl super::runtime::RuntimeModelProvider for FakeCodexProvider {
                     }
                 }
             }
-            if !response.memory_proposals.is_empty() {
-                on_event(GenerateStreamEvent::MemoryProposalsStarted);
-            }
             for (index, tool_call) in response.tool_calls.iter().enumerate() {
                 on_event(GenerateStreamEvent::ToolCallStarted {
                     output_index: response.responses.len() + index,
@@ -6698,9 +4273,6 @@ impl super::runtime::RuntimeModelProvider for RecordingFakeProvider {
                         delta: text.clone(),
                     });
                 }
-            }
-            if !response.memory_proposals.is_empty() {
-                on_event(GenerateStreamEvent::MemoryProposalsStarted);
             }
             for (index, tool_call) in response.tool_calls.iter().enumerate() {
                 on_event(GenerateStreamEvent::ToolCallStarted {
@@ -6849,7 +4421,6 @@ fn fake_generate_response(
 ) -> GenerateResponse {
     let mut responses = Vec::new();
     let mut tool_calls = Vec::new();
-    let mut memory_proposals = Vec::new();
 
     for item in output {
         match item {
@@ -6871,9 +4442,6 @@ fn fake_generate_response(
                     payload,
                 });
             }
-            GenerateOutputItem::MemoryProposals { proposals } => {
-                memory_proposals.extend(proposals);
-            }
         }
     }
 
@@ -6886,7 +4454,6 @@ fn fake_generate_response(
     GenerateResponse {
         responses,
         tool_calls,
-        memory_proposals,
         reasoning_items: Vec::new(),
         response_status,
         provider: provider.to_string(),
@@ -6897,13 +4464,10 @@ fn fake_generate_response(
 }
 
 fn assistant_with_no_memories(text: &str) -> Vec<GenerateOutputItem> {
-    vec![
-        GenerateOutputItem::AssistantText {
-            phase: None,
-            text: text.to_string(),
-        },
-        GenerateOutputItem::MemoryProposals { proposals: vec![] },
-    ]
+    vec![GenerateOutputItem::AssistantText {
+        phase: None,
+        text: text.to_string(),
+    }]
 }
 
 fn search_memory_tool_call(id: &str, payload: serde_json::Value) -> GenerateOutputItem {
@@ -6964,679 +4528,4 @@ fn mcp_tool_call(id: &str, name: &str, payload: serde_json::Value) -> GenerateOu
         name: name.to_string(),
         payload,
     }
-}
-
-fn proposal(value: serde_json::Value) -> crate::ExtractorMemoryProposal {
-    serde_json::from_value(value).expect("valid fake memory proposal")
-}
-
-fn train_preference_proposal() -> crate::ExtractorMemoryProposal {
-    proposal(json!({
-        "content": "Kevin is a big fan of trains.",
-        "memory_type": "preference",
-        "title": "Train enthusiasm",
-        "confidence": 0.92,
-        "sensitivity": "normal",
-        "subjects": [{"id": "human:local", "kind": "human", "name": "Kevin", "role": "about"}],
-        "retrieval_hints": {"topics": ["interests"], "keywords": ["trains"], "summary": "Kevin is a big fan of trains."},
-        "risk_flags": [],
-        "evidence_excerpt": "I'm a big fan of trains"
-    }))
-}
-
-fn canonicalization_response_text(input: &str, scenario: FakeCodexScenario) -> String {
-    if matches!(scenario, FakeCodexScenario::MalformedCanonicalizer) {
-        return "{not valid canonicalization json".to_string();
-    }
-
-    let response = if input.contains("Kevin's API key is sk-testSecretToken123456789.") {
-        json!({
-            "candidates": [{
-                "subject": {"entity_id": "human:local", "entity_type": "human", "canonical_name": "Local human"},
-                "object": {"entity_id": "concept:api_key", "entity_type": "concept", "canonical_name": "API key"},
-                "predicate": {"kind": "promoted_predicate", "predicate_id": "has_note"},
-                "fact": "Kevin's API key is sk-testSecretToken123456789.",
-                "sensitivity": "normal",
-                "status": "active",
-                "confidence": 0.98,
-                "retrieval_hints": {"keywords": ["api key"], "summary": "Kevin's API key is sk-testSecretToken123456789."},
-                "rationale": "Unsafe fake canonicalizer promotion used to verify deterministic safety clamps."
-            }]
-        })
-    } else if matches!(scenario, FakeCodexScenario::MismatchedCanonicalEntity)
-        && input.contains("Kevin prefers canonical entity validation.")
-    {
-        json!({
-            "candidates": [{
-                "subject": {"entity_id": "human:local", "entity_type": "person", "canonical_name": "Provider person"},
-                "object": {"entity_id": "concept:canonical_entity_validation", "entity_type": "concept", "canonical_name": "canonical entity validation"},
-                "predicate": {"kind": "promoted_predicate", "predicate_id": "prefers"},
-                "fact": "Kevin prefers unsafe canonical entity metadata.",
-                "sensitivity": "normal",
-                "status": "active",
-                "confidence": 0.9,
-                "retrieval_hints": {"keywords": ["canonical entity validation"], "summary": "Kevin prefers unsafe canonical entity metadata."},
-                "rationale": "Unsafe fake canonicalizer promotion used to verify entity identity validation."
-            }]
-        })
-    } else if matches!(scenario, FakeCodexScenario::UnknownCanonicalPredicate)
-        && input.contains("Kevin prefers automatic memory extraction in chat.")
-    {
-        json!({
-            "candidates": [{
-                "subject": {"entity_id": "human:local", "entity_type": "human", "canonical_name": "Local human"},
-                "object": {"entity_id": "concept:automatic_memory_extraction", "entity_type": "concept", "canonical_name": "automatic memory extraction in chat"},
-                "predicate": {"kind": "promoted_predicate", "predicate_id": "adores"},
-                "fact": "Kevin adores automatic memory extraction in chat.",
-                "sensitivity": "normal",
-                "status": "active",
-                "confidence": 0.9,
-                "retrieval_hints": {"keywords": ["automatic memory extraction", "chat"], "summary": "Kevin adores automatic memory extraction in chat."},
-                "rationale": "Unsafe fake canonicalizer promotion used to verify catalog validation."
-            }]
-        })
-    } else if input.contains("Kevin collects model aircraft.") {
-        json!({
-            "candidates": [{
-                "subject": {"entity_id": "human:local", "entity_type": "human", "canonical_name": "Local human"},
-                "object": {"entity_id": "concept:model_aircraft", "entity_type": "concept", "canonical_name": "model aircraft"},
-                "predicate": {
-                    "kind": "predicate_proposal",
-                    "proposal": {
-                        "label": "collects",
-                        "description": "The subject collects the object.",
-                        "allowed_subject_types": ["human", "person"],
-                        "allowed_object_types": ["concept", "other"],
-                        "allowed_use_modes": ["answer", "personalize"],
-                        "default_sensitivity": "normal",
-                        "conflict_policy": "allow_many",
-                        "review_policy": "auto_candidate",
-                        "inverse_behavior": "none",
-                        "inverse_predicate_id": null,
-                        "proactivity_default": 1,
-                        "merge_hints": {"strategy": "object_identity"},
-                        "synonym_hints": ["keeps a collection of"],
-                        "extraction_hints": {"examples": ["I collect model aircraft"]},
-                        "rationale": "No promoted predicate represents collecting."
-                    }
-                },
-                "fact": "Kevin collects model aircraft.",
-                "sensitivity": "normal",
-                "status": "candidate",
-                "confidence": 0.9,
-                "retrieval_hints": {"keywords": ["model aircraft"], "summary": "Kevin collects model aircraft."},
-                "rationale": "The source states a durable collecting relationship."
-            }]
-        })
-    } else if input.contains("The user loves planes.") || input.contains("Kevin likes planes.") {
-        json!({
-            "candidates": [{
-                "subject": {"entity_id": "human:local", "entity_type": "human", "canonical_name": "Local human"},
-                "object": {"entity_id": "concept:claim_object_likes_planes", "entity_type": "concept", "canonical_name": "planes"},
-                "predicate": {"kind": "promoted_predicate", "predicate_id": "likes"},
-                "fact": "Kevin likes planes.",
-                "sensitivity": "normal",
-                "status": "active",
-                "confidence": 0.9,
-                "retrieval_hints": {"keywords": ["planes"], "summary": "Kevin likes planes."},
-                "rationale": "The source states a durable plane preference."
-            }]
-        })
-    } else if input.contains("Kevin enjoys ice cream desserts.")
-        || input.contains("Kevin likes ice cream.")
-    {
-        json!({
-            "candidates": [{
-                "subject": {"entity_id": "human:local", "entity_type": "human", "canonical_name": "Local human"},
-                "object": {"entity_id": "concept:claim_object_likes_ice_cream", "entity_type": "concept", "canonical_name": "ice cream"},
-                "predicate": {"kind": "promoted_predicate", "predicate_id": "likes"},
-                "fact": "Kevin likes ice cream.",
-                "sensitivity": "normal",
-                "status": "active",
-                "confidence": 0.9,
-                "retrieval_hints": {"keywords": ["ice cream"], "summary": "Kevin likes ice cream."},
-                "rationale": "The source states a durable ice cream preference."
-            }]
-        })
-    } else if input.contains("Kevin hates ice cream.") {
-        json!({
-            "candidates": [{
-                "subject": {"entity_id": "human:local", "entity_type": "human", "canonical_name": "Local human"},
-                "object": {"entity_id": "concept:claim_object_dislikes_ice_cream", "entity_type": "concept", "canonical_name": "ice cream"},
-                "predicate": {"kind": "promoted_predicate", "predicate_id": "dislikes"},
-                "fact": "Kevin dislikes ice cream.",
-                "sensitivity": "normal",
-                "status": "candidate",
-                "confidence": 0.91,
-                "retrieval_hints": {"keywords": ["ice cream"], "summary": "Kevin dislikes ice cream."},
-                "rationale": "The source directly states a dislike that may conflict with an existing like."
-            }]
-        })
-    } else {
-        json!({
-            "candidates": [{
-                "subject": {"entity_id": "human:local", "entity_type": "human", "canonical_name": "Local human"},
-                "object": {"entity_id": "concept:canonicalizer_fallback", "entity_type": "concept", "canonical_name": "canonicalizer fallback"},
-                "predicate": {"kind": "fallback_note"},
-                "fact": "Canonicalizer fallback note.",
-                "sensitivity": "normal",
-                "status": "candidate",
-                "confidence": 0.5,
-                "retrieval_hints": {"keywords": ["canonicalizer fallback"], "summary": "Canonicalizer fallback note."},
-                "rationale": "Fake provider fallback for tests."
-            }]
-        })
-    };
-    serde_json::to_string(&response).expect("canonicalizer json")
-}
-
-fn memory_extraction_output(
-    input: &str,
-    invalid_consolidation_target_id: Option<&str>,
-) -> Vec<GenerateOutputItem> {
-    if input.contains("Noema's memory consolidation comparator") {
-        let existing_claim_id =
-            first_memory_id_from_consolidation_prompt(input).expect("existing memory id");
-        let decision = if let Some(invalid_target_id) = invalid_consolidation_target_id {
-            json!({
-                "decision": "relate",
-                "existing_claim_id": invalid_target_id,
-                "confidence": 0.92,
-                "rationale": "maliciously references an unshown target",
-            })
-        } else if input.contains("Kevin hates ice cream.")
-            || input.contains("Kevin dislikes ice cream.")
-        {
-            json!({
-                "decision": "dispute",
-                "existing_claim_id": existing_claim_id,
-                "confidence": 0.93,
-                "rationale": "opposite ice cream preference",
-            })
-        } else {
-            json!({
-                "decision": "reinforce",
-                "existing_claim_id": existing_claim_id,
-                "confidence": 0.92,
-                "rationale": "same ice cream preference",
-            })
-        };
-        return vec![GenerateOutputItem::AssistantText {
-            phase: None,
-            text: serde_json::to_string(&decision).expect("semantic decision json"),
-        }];
-    }
-
-    if input.contains("Noema's memory claim canonicalizer") {
-        let response = if input.contains("Kevin collects model aircraft.") {
-            json!({
-                "candidates": [{
-                    "subject": {"entity_id": "human:local", "entity_type": "human", "canonical_name": "Local human"},
-                    "object": {"entity_id": "concept:model_aircraft", "entity_type": "concept", "canonical_name": "model aircraft"},
-                    "predicate": {
-                        "kind": "predicate_proposal",
-                        "proposal": {
-                            "label": "collects",
-                            "description": "The subject collects the object.",
-                            "allowed_subject_types": ["human", "person"],
-                            "allowed_object_types": ["concept", "other"],
-                            "allowed_use_modes": ["answer", "personalize"],
-                            "default_sensitivity": "normal",
-                            "conflict_policy": "allow_many",
-                            "review_policy": "auto_candidate",
-                            "inverse_behavior": "none",
-                            "inverse_predicate_id": null,
-                            "proactivity_default": 1,
-                            "merge_hints": {"strategy": "object_identity"},
-                            "synonym_hints": ["keeps a collection of"],
-                            "extraction_hints": {"examples": ["I collect model aircraft"]},
-                            "rationale": "No promoted predicate represents collecting."
-                        }
-                    },
-                    "fact": "Kevin collects model aircraft.",
-                    "sensitivity": "normal",
-                    "status": "candidate",
-                    "confidence": 0.9,
-                    "retrieval_hints": {"keywords": ["model aircraft"], "summary": "Kevin collects model aircraft."},
-                    "rationale": "The source states a durable collecting relationship."
-                }]
-            })
-        } else if input.contains("The user loves planes.") || input.contains("Kevin likes planes.")
-        {
-            json!({
-                "candidates": [{
-                    "subject": {"entity_id": "human:local", "entity_type": "human", "canonical_name": "Local human"},
-                    "object": {"entity_id": "concept:claim_object_likes_planes", "entity_type": "concept", "canonical_name": "planes"},
-                    "predicate": {"kind": "promoted_predicate", "predicate_id": "likes"},
-                    "fact": "Kevin likes planes.",
-                    "sensitivity": "normal",
-                    "status": "active",
-                    "confidence": 0.9,
-                    "retrieval_hints": {"keywords": ["planes"], "summary": "Kevin likes planes."},
-                    "rationale": "The source states a durable plane preference."
-                }]
-            })
-        } else if input.contains("Kevin enjoys ice cream desserts.")
-            || input.contains("Kevin likes ice cream.")
-        {
-            json!({
-                "candidates": [{
-                    "subject": {"entity_id": "human:local", "entity_type": "human", "canonical_name": "Local human"},
-                    "object": {"entity_id": "concept:claim_object_likes_ice_cream", "entity_type": "concept", "canonical_name": "ice cream"},
-                    "predicate": {"kind": "promoted_predicate", "predicate_id": "likes"},
-                    "fact": "Kevin likes ice cream.",
-                    "sensitivity": "normal",
-                    "status": "active",
-                    "confidence": 0.9,
-                    "retrieval_hints": {"keywords": ["ice cream"], "summary": "Kevin likes ice cream."},
-                    "rationale": "The source states a durable ice cream preference."
-                }]
-            })
-        } else if input.contains("Kevin hates ice cream.") {
-            json!({
-                "candidates": [{
-                    "subject": {"entity_id": "human:local", "entity_type": "human", "canonical_name": "Local human"},
-                    "object": {"entity_id": "concept:claim_object_dislikes_ice_cream", "entity_type": "concept", "canonical_name": "ice cream"},
-                    "predicate": {"kind": "promoted_predicate", "predicate_id": "dislikes"},
-                    "fact": "Kevin dislikes ice cream.",
-                    "sensitivity": "normal",
-                    "status": "candidate",
-                    "confidence": 0.91,
-                    "retrieval_hints": {"keywords": ["ice cream"], "summary": "Kevin dislikes ice cream."},
-                    "rationale": "The source directly states a dislike that may conflict with an existing like."
-                }]
-            })
-        } else {
-            json!({
-                "candidates": [{
-                    "subject": {"entity_id": "human:local", "entity_type": "human", "canonical_name": "Local human"},
-                    "object": {"entity_id": "concept:canonicalizer_fallback", "entity_type": "concept", "canonical_name": "canonicalizer fallback"},
-                    "predicate": {"kind": "fallback_note"},
-                    "fact": "Canonicalizer fallback note.",
-                    "sensitivity": "normal",
-                    "status": "candidate",
-                    "confidence": 0.5,
-                    "retrieval_hints": {"keywords": ["canonicalizer fallback"], "summary": "Canonicalizer fallback note."},
-                    "rationale": "Fake provider fallback for tests."
-                }]
-            })
-        };
-        return vec![GenerateOutputItem::AssistantText {
-            phase: None,
-            text: serde_json::to_string(&response).expect("canonicalizer json"),
-        }];
-    }
-
-    if input.contains("ordinary-chat memory proposal extractor") {
-        let proposal = if input.contains("Alice prefers decaf.") {
-            proposal(json!({
-                "content": "Alice prefers decaf.",
-                "memory_type": "preference",
-                "title": "Alice decaf preference",
-                "confidence": 0.91,
-                "sensitivity": "normal",
-                "subjects": [{"id": null, "kind": "human", "name": "Alice", "role": "about"}],
-                "retrieval_hints": {"topics": ["people"], "keywords": ["Alice", "decaf"], "summary": "Alice prefers decaf."},
-                "risk_flags": [],
-                "evidence_excerpt": "Alice prefers decaf."
-            }))
-        } else if input.contains("I like ice cream.") {
-            proposal(json!({
-                "content": "Kevin likes ice cream.",
-                "memory_type": "preference",
-                "title": "Ice cream preference",
-                "confidence": 0.91,
-                "sensitivity": "normal",
-                "subjects": [{"id": "human:local", "kind": "human", "name": "Kevin", "role": "about"}],
-                "retrieval_hints": {"topics": ["food"], "keywords": ["ice cream"], "summary": "Kevin likes ice cream."},
-                "risk_flags": [],
-                "evidence_excerpt": "I like ice cream."
-            }))
-        } else {
-            proposal(json!({
-                "content": "Kevin prefers automatic memory extraction in chat.",
-                "memory_type": "preference",
-                "title": "Automatic memory extraction preference",
-                "confidence": 0.91,
-                "sensitivity": "normal",
-                "subjects": [{"id": "human:local", "kind": "human", "name": "Kevin", "role": "about"}],
-                "retrieval_hints": {"topics": ["memory"], "keywords": ["automatic memory extraction", "chat"], "summary": "Kevin prefers automatic memory extraction in chat."},
-                "risk_flags": [],
-                "evidence_excerpt": "I prefer automatic memory extraction in chat."
-            }))
-        };
-        return vec![GenerateOutputItem::AssistantText {
-            phase: None,
-            text: serde_json::to_string(&json!({"proposals": [proposal]})).expect("extractor json"),
-        }];
-    }
-
-    if input.contains("Ice cream is one of my favorite desserts.") {
-        return vec![
-            GenerateOutputItem::AssistantText {
-                phase: None,
-                text: "fake answer".to_string(),
-            },
-            GenerateOutputItem::MemoryProposals {
-                proposals: vec![proposal(json!({
-                    "content": "Kevin enjoys ice cream desserts.",
-                    "memory_type": "preference",
-                    "title": "Ice cream dessert preference",
-                    "confidence": 0.91,
-                    "sensitivity": "normal",
-                    "subjects": [{"id": "human:local", "kind": "human", "name": "Kevin", "role": "about"}],
-                    "retrieval_hints": {"topics": ["food"], "keywords": ["ice cream", "dessert"], "summary": "Kevin enjoys ice cream desserts."},
-                    "risk_flags": [],
-                    "evidence_excerpt": "Ice cream is one of my favorite desserts."
-                }))],
-            },
-        ];
-    }
-
-    if input.contains("I like planes. I hate ice cream.") {
-        return vec![
-            GenerateOutputItem::AssistantText {
-                phase: None,
-                text: "fake answer".to_string(),
-            },
-            GenerateOutputItem::MemoryProposals {
-                proposals: vec![
-                    proposal(json!({
-                        "content": "The user loves planes.",
-                        "memory_type": "preference",
-                        "title": "Plane preference",
-                        "confidence": 0.91,
-                        "sensitivity": "normal",
-                        "subjects": [{"id": "human:local", "kind": "human", "name": "Kevin", "role": "about"}],
-                        "retrieval_hints": {"topics": ["aviation"], "keywords": ["planes"], "summary": "The user loves planes."},
-                        "risk_flags": [],
-                        "evidence_excerpt": "I like planes."
-                    })),
-                    proposal(json!({
-                        "content": "Kevin hates ice cream.",
-                        "memory_type": "preference",
-                        "title": "Ice cream dislike",
-                        "confidence": 0.91,
-                        "sensitivity": "normal",
-                        "subjects": [{"id": null, "kind": "human", "name": "Kevin", "role": "about"}],
-                        "retrieval_hints": {"topics": ["food"], "keywords": ["ice cream"], "summary": "Kevin hates ice cream."},
-                        "risk_flags": ["contradiction"],
-                        "evidence_excerpt": "I hate ice cream."
-                    })),
-                ],
-            },
-        ];
-    }
-
-    if input.contains("I like planes.") {
-        return vec![
-            GenerateOutputItem::AssistantText {
-                phase: None,
-                text: "fake answer".to_string(),
-            },
-            GenerateOutputItem::MemoryProposals {
-                proposals: vec![proposal(json!({
-                    "content": "Kevin likes planes.",
-                    "memory_type": "preference",
-                    "title": "Plane preference",
-                    "confidence": 0.91,
-                    "sensitivity": "normal",
-                    "subjects": [{"id": "human:local", "kind": "human", "name": "Kevin", "role": "about"}],
-                    "retrieval_hints": {"topics": ["aviation"], "keywords": ["planes"], "summary": "Kevin likes planes."},
-                    "risk_flags": [],
-                    "evidence_excerpt": "I like planes."
-                }))],
-            },
-        ];
-    }
-
-    if input.contains("I like ice cream. I collect model aircraft.") {
-        return vec![
-            GenerateOutputItem::AssistantText {
-                phase: None,
-                text: "fake answer".to_string(),
-            },
-            GenerateOutputItem::MemoryProposals {
-                proposals: vec![
-                    proposal(json!({
-                        "content": "Kevin likes ice cream.",
-                        "memory_type": "preference",
-                        "title": "Ice cream preference",
-                        "confidence": 0.91,
-                        "sensitivity": "normal",
-                        "subjects": [{"id": "human:local", "kind": "human", "name": "Kevin", "role": "about"}],
-                        "retrieval_hints": {"topics": ["food"], "keywords": ["ice cream"], "summary": "Kevin likes ice cream."},
-                        "risk_flags": [],
-                        "evidence_excerpt": "I like ice cream."
-                    })),
-                    proposal(json!({
-                        "content": "Kevin collects model aircraft.",
-                        "memory_type": "preference",
-                        "title": "Model aircraft collection",
-                        "confidence": 0.91,
-                        "sensitivity": "normal",
-                        "subjects": [{"id": "human:local", "kind": "human", "name": "Kevin", "role": "about"}],
-                        "retrieval_hints": {"topics": ["hobbies"], "keywords": ["model aircraft"], "summary": "Kevin collects model aircraft."},
-                        "risk_flags": [],
-                        "evidence_excerpt": "I collect model aircraft."
-                    })),
-                ],
-            },
-        ];
-    }
-
-    if input.contains("I like ice cream.") {
-        return vec![
-            GenerateOutputItem::AssistantText {
-                phase: None,
-                text: "fake answer".to_string(),
-            },
-            GenerateOutputItem::MemoryProposals {
-                proposals: vec![proposal(json!({
-                    "content": "Kevin likes ice cream.",
-                    "memory_type": "preference",
-                    "title": "Ice cream preference",
-                    "confidence": 0.91,
-                    "sensitivity": "normal",
-                    "subjects": [{"id": "human:local", "kind": "human", "name": "Kevin", "role": "about"}],
-                    "retrieval_hints": {"topics": ["food"], "keywords": ["ice cream"], "summary": "Kevin likes ice cream."},
-                    "risk_flags": [],
-                    "evidence_excerpt": "I like ice cream."
-                }))],
-            },
-        ];
-    }
-
-    if input.contains("I hate ice cream. I collect model aircraft.") {
-        return vec![
-            GenerateOutputItem::AssistantText {
-                phase: None,
-                text: "fake answer".to_string(),
-            },
-            GenerateOutputItem::MemoryProposals {
-                proposals: vec![
-                    proposal(json!({
-                        "content": "Kevin hates ice cream.",
-                        "memory_type": "preference",
-                        "title": "Ice cream dislike",
-                        "confidence": 0.91,
-                        "sensitivity": "normal",
-                        "subjects": [{"id": null, "kind": "human", "name": "Kevin", "role": "about"}],
-                        "retrieval_hints": {"topics": ["food"], "keywords": ["ice cream"], "summary": "Kevin hates ice cream."},
-                        "risk_flags": ["contradiction"],
-                        "evidence_excerpt": "I hate ice cream."
-                    })),
-                    proposal(json!({
-                        "content": "Kevin collects model aircraft.",
-                        "memory_type": "preference",
-                        "title": "Model aircraft collection",
-                        "confidence": 0.91,
-                        "sensitivity": "normal",
-                        "subjects": [{"id": "human:local", "kind": "human", "name": "Kevin", "role": "about"}],
-                        "retrieval_hints": {"topics": ["hobbies"], "keywords": ["model aircraft"], "summary": "Kevin collects model aircraft."},
-                        "risk_flags": [],
-                        "evidence_excerpt": "I collect model aircraft."
-                    })),
-                ],
-            },
-        ];
-    }
-
-    if input.contains("I hate ice cream.") {
-        return vec![
-            GenerateOutputItem::AssistantText {
-                phase: None,
-                text: "fake answer".to_string(),
-            },
-            GenerateOutputItem::MemoryProposals {
-                proposals: vec![proposal(json!({
-                    "content": "Kevin hates ice cream.",
-                    "memory_type": "preference",
-                    "title": "Ice cream dislike",
-                    "confidence": 0.91,
-                    "sensitivity": "normal",
-                    "subjects": [{"id": null, "kind": "human", "name": "Kevin", "role": "about"}],
-                    "retrieval_hints": {"topics": ["food"], "keywords": ["ice cream"], "summary": "Kevin hates ice cream."},
-                    "risk_flags": ["contradiction"],
-                    "evidence_excerpt": "I hate ice cream."
-                }))],
-            },
-        ];
-    }
-
-    if input.contains("I prefer same-call memory proposals.") {
-        return vec![
-            GenerateOutputItem::AssistantText {
-                phase: None,
-                text: "fake answer".to_string(),
-            },
-            GenerateOutputItem::MemoryProposals {
-                proposals: vec![proposal(json!({
-                    "content": "Kevin prefers same-call memory proposals.",
-                    "memory_type": "preference",
-                    "title": "Same-call memory proposal preference",
-                    "confidence": 0.91,
-                    "sensitivity": "normal",
-                    "subjects": [{"id": "human:local", "kind": "human", "name": "Kevin", "role": "about"}],
-                    "retrieval_hints": {"topics": ["memory"], "keywords": ["same-call memory proposals"], "summary": "Kevin prefers same-call memory proposals."},
-                    "risk_flags": [],
-                    "evidence_excerpt": "I prefer same-call memory proposals."
-                }))],
-            },
-        ];
-    }
-
-    if input.contains("I prefer dark mode.") {
-        return vec![
-            GenerateOutputItem::AssistantText {
-                phase: None,
-                text: "fake answer".to_string(),
-            },
-            GenerateOutputItem::MemoryProposals {
-                proposals: vec![proposal(json!({
-                    "content": "I prefer dark mode.",
-                    "memory_type": "preference",
-                    "title": "Dark mode preference",
-                    "confidence": 0.92,
-                    "sensitivity": "normal",
-                    "subjects": [{"id": null, "kind": "human", "name": "Kevin", "role": "about"}],
-                    "retrieval_hints": {"topics": ["display"], "keywords": ["dark mode"], "summary": "Kevin prefers dark mode."},
-                    "risk_flags": [],
-                    "evidence_excerpt": "I prefer dark mode."
-                }))],
-            },
-        ];
-    }
-
-    if input.contains("I love planes.") {
-        return vec![
-            GenerateOutputItem::AssistantText {
-                phase: None,
-                text: "fake answer".to_string(),
-            },
-            GenerateOutputItem::MemoryProposals {
-                proposals: vec![proposal(json!({
-                    "content": "The user loves planes.",
-                    "memory_type": "preference",
-                    "title": "Plane preference",
-                    "confidence": 0.91,
-                    "sensitivity": "normal",
-                    "subjects": [{"id": "human:local", "kind": "human", "name": "Kevin", "role": "about"}],
-                    "retrieval_hints": {"topics": ["aviation"], "keywords": ["planes"], "summary": "The user loves planes."},
-                    "risk_flags": [],
-                    "evidence_excerpt": "I love planes."
-                }))],
-            },
-        ];
-    }
-
-    if input.contains("I collect model aircraft.") && !input.contains("memory claim canonicalizer")
-    {
-        return vec![
-            GenerateOutputItem::AssistantText {
-                phase: None,
-                text: "fake answer".to_string(),
-            },
-            GenerateOutputItem::MemoryProposals {
-                proposals: vec![proposal(json!({
-                    "content": "Kevin collects model aircraft.",
-                    "memory_type": "preference",
-                    "title": "Model aircraft collection",
-                    "confidence": 0.91,
-                    "sensitivity": "normal",
-                    "subjects": [{"id": "human:local", "kind": "human", "name": "Kevin", "role": "about"}],
-                    "retrieval_hints": {"topics": ["hobbies"], "keywords": ["model aircraft"], "summary": "Kevin collects model aircraft."},
-                    "risk_flags": [],
-                    "evidence_excerpt": "I collect model aircraft."
-                }))],
-            },
-        ];
-    }
-
-    if input.contains("I prefer automatic memory extraction in chat.") {
-        return vec![
-            GenerateOutputItem::AssistantText {
-                phase: None,
-                text: "fake answer".to_string(),
-            },
-            GenerateOutputItem::MemoryProposals {
-                proposals: vec![proposal(json!({
-                    "content": "Kevin prefers automatic memory extraction in chat.",
-                    "memory_type": "preference",
-                    "title": "Automatic memory extraction preference",
-                    "confidence": 0.91,
-                    "sensitivity": "normal",
-                    "subjects": [{"id": "human:local", "kind": "human", "name": "Kevin", "role": "about"}],
-                    "retrieval_hints": {"topics": ["memory"], "keywords": ["automatic memory extraction", "chat"], "summary": "Kevin prefers automatic memory extraction in chat."},
-                    "risk_flags": [],
-                    "evidence_excerpt": "I prefer automatic memory extraction in chat."
-                }))],
-            },
-        ];
-    }
-
-    if input.contains("Please remember I'm a big fan of trains") {
-        return vec![
-            GenerateOutputItem::AssistantText {
-                phase: None,
-                text: "fake answer".to_string(),
-            },
-            GenerateOutputItem::MemoryProposals {
-                proposals: vec![train_preference_proposal()],
-            },
-        ];
-    }
-
-    assistant_with_no_memories("fake answer")
-}
-
-fn first_memory_id_from_consolidation_prompt(input: &str) -> Option<String> {
-    let payload = input.split("Input JSON payload:").nth(1)?.trim();
-    let value: serde_json::Value = serde_json::from_str(payload).ok()?;
-    value["existing_memories"]
-        .as_array()?
-        .first()?
-        .get("memory_id")?
-        .as_str()
-        .map(str::to_string)
 }

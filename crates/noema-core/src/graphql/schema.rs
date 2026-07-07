@@ -3956,7 +3956,6 @@ mod tests {
                     text: self.text.clone(),
                 }],
                 tool_calls: Vec::new(),
-                memory_proposals: Vec::new(),
                 reasoning_items: Vec::new(),
                 response_status: crate::provider::GenerateResponseStatus::Final,
                 provider: "test".to_string(),

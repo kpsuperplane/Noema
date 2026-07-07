@@ -260,7 +260,6 @@ impl ModelProvider for OpenAiProvider {
                     let parsed = ParsedNoemaResponse {
                         responses: Vec::new(),
                         tool_calls: native_tool_calls,
-                        memory_proposals: Vec::new(),
                         response_status: GenerateResponseStatus::NeedsTools,
                     };
                     return Ok(GenerateResponse::from_parsed(
@@ -306,7 +305,6 @@ impl ModelProvider for OpenAiProvider {
             ParsedNoemaResponse {
                 responses: output_items_from_text(text)?,
                 tool_calls: native_tool_calls.clone(),
-                memory_proposals: Vec::new(),
                 response_status: if native_tool_calls.is_empty() {
                     GenerateResponseStatus::Final
                 } else {

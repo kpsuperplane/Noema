@@ -639,7 +639,6 @@ mod tests {
                         text: "summarized page".to_string(),
                     }],
                     tool_calls: Vec::new(),
-                    memory_proposals: Vec::new(),
                     reasoning_items: Vec::new(),
                     response_status: GenerateResponseStatus::Final,
                     provider: "test".to_string(),
@@ -687,7 +686,6 @@ mod tests {
             response: GenerateResponse {
                 responses: Vec::new(),
                 tool_calls: Vec::new(),
-                memory_proposals: Vec::new(),
                 reasoning_items: Vec::new(),
                 response_status: GenerateResponseStatus::Final,
                 provider: "codex".to_string(),

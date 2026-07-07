@@ -466,7 +466,6 @@ impl CodexResponsesProvider {
                     let parsed = ParsedNoemaResponse {
                         responses: Vec::new(),
                         tool_calls: native_tool_calls,
-                        memory_proposals: Vec::new(),
                         response_status: GenerateResponseStatus::NeedsTools,
                     };
                     return Ok(GenerateResponse::from_parsed(
@@ -512,7 +511,6 @@ impl CodexResponsesProvider {
             ParsedNoemaResponse {
                 responses: output_items_from_text(text)?,
                 tool_calls: native_tool_calls.clone(),
-                memory_proposals: Vec::new(),
                 response_status: if native_tool_calls.is_empty() {
                     GenerateResponseStatus::Final
                 } else {
@@ -986,7 +984,7 @@ mod tests {
     #[tokio::test]
     async fn codex_sse_mixed_streamed_text_and_function_call_returns_needs_tools() {
         let response_body = "event: response.output_text.delta\n\
-             data: {\"type\":\"response.output_text.delta\",\"delta\":\"{\\\"response_status\\\":\\\"needs_tools\\\",\\\"responses\\\":[{\\\"kind\\\":\\\"text\\\",\\\"phase\\\":\\\"commentary\\\",\\\"text\\\":\\\"Checking.\\\"}],\\\"tool_calls\\\":[],\\\"memory_proposals\\\":[]}\"}\n\
+             data: {\"type\":\"response.output_text.delta\",\"delta\":\"{\\\"response_status\\\":\\\"needs_tools\\\",\\\"responses\\\":[{\\\"kind\\\":\\\"text\\\",\\\"phase\\\":\\\"commentary\\\",\\\"text\\\":\\\"Checking.\\\"}],\\\"tool_calls\\\":[]}\"}\n\
              \n\
              event: response.output_item.done\n\
              data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"function_call\",\"id\":\"item_1\",\"call_id\":\"call_1\",\"name\":\"search_memory\",\"arguments\":\"{\\\"query\\\":\\\"trains\\\"}\"}}\n\
@@ -1133,7 +1131,7 @@ mod tests {
         let (base_url, request_rx) = spawn_server(
             200,
             "event: response.completed\n\
-             data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_test\",\"model\":\"gpt-test\",\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"content\":[{\"type\":\"output_text\",\"text\":\"{\\\"response_status\\\":\\\"final\\\",\\\"responses\\\":[{\\\"kind\\\":\\\"text\\\",\\\"phase\\\":\\\"final_answer\\\",\\\"text\\\":\\\"Hello\\\"}],\\\"tool_calls\\\":[],\\\"memory_proposals\\\":[]}\"}]}]}}\n\
+             data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_test\",\"model\":\"gpt-test\",\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"content\":[{\"type\":\"output_text\",\"text\":\"{\\\"response_status\\\":\\\"final\\\",\\\"responses\\\":[{\\\"kind\\\":\\\"text\\\",\\\"phase\\\":\\\"final_answer\\\",\\\"text\\\":\\\"Hello\\\"}],\\\"tool_calls\\\":[]}\"}]}]}}\n\
              \n",
         )
         .await;

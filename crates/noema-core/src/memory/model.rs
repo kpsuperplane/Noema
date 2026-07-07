@@ -70,28 +70,6 @@ impl Sensitivity {
     }
 }
 
-/// Serde adapter serializing `Sensitivity` as its canonical wire label.
-pub(crate) mod sensitivity_serde {
-    use super::Sensitivity;
-    use serde::{Deserialize, Deserializer, Serializer, de};
-
-    pub fn serialize<S>(value: &Sensitivity, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_str(value.as_str())
-    }
-
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<Sensitivity, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let value = String::deserialize(deserializer)?;
-        Sensitivity::from_wire(&value)
-            .ok_or_else(|| de::Error::unknown_variant(&value, Sensitivity::WIRE_VARIANTS))
-    }
-}
-
 /// Deterministic graph-claim use mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum UseMode {

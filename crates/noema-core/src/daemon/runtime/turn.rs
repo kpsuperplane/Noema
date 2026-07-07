@@ -1199,7 +1199,6 @@ impl CodexRuntimeActor {
                 response: GenerateResponse {
                     responses: continuation_response.responses.clone(),
                     tool_calls: continuation_tool_call_items,
-                    memory_proposals: continuation_response.memory_proposals.clone(),
                     reasoning_items: continuation_response.reasoning_items.clone(),
                     response_status: continuation_response.response_status,
                     provider: continuation_response.provider.clone(),
@@ -1581,9 +1580,6 @@ fn provider_stream_event_fields(event: &GenerateStreamEvent) -> serde_json::Valu
             "stream_event": "assistant_text_delta",
             "response_index": response_index,
             "delta_chars": delta.chars().count(),
-        }),
-        GenerateStreamEvent::MemoryProposalsStarted => json!({
-            "stream_event": "ignored_memory_proposals_started",
         }),
         GenerateStreamEvent::ToolCallStarted { output_index, name } => json!({
             "stream_event": "tool_call_started",

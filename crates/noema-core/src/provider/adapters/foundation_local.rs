@@ -339,7 +339,6 @@ impl ModelProvider for FoundationLocalProvider {
             ParsedNoemaResponse {
                 responses: output_items_from_text(output_text)?,
                 tool_calls: Vec::new(),
-                memory_proposals: Vec::new(),
                 response_status: GenerateResponseStatus::Final,
             }
         };
@@ -707,7 +706,6 @@ done
             }]
         );
         assert_eq!(response.response_status, GenerateResponseStatus::Final);
-        assert!(response.memory_proposals.is_empty());
     }
 
     #[cfg(all(unix, target_os = "macos"))]

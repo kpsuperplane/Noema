@@ -259,7 +259,6 @@ mod tests {
                         text: "captured summary".to_string(),
                     }],
                     tool_calls: Vec::new(),
-                    memory_proposals: Vec::new(),
                     reasoning_items: Vec::new(),
                     response_status: GenerateResponseStatus::Final,
                     provider: "test".to_string(),

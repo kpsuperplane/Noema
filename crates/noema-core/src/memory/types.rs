@@ -1,4 +1,4 @@
-/// Coarse memory type emitted by extraction and canonicalization prompts.
+/// Coarse memory type used by graph memory records and retrieval policy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MemoryType {
     /// Durable fact.

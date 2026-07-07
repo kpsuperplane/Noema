@@ -782,7 +782,6 @@ pub(super) fn handle_provider_stream_event(
             response_index,
             delta,
         ),
-        GenerateStreamEvent::MemoryProposalsStarted => {}
         GenerateStreamEvent::ToolCallStarted { output_index, name } => {
             send_tool_call_started_transient(
                 context,

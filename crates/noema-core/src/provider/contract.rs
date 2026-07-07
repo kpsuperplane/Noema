@@ -1,7 +1,6 @@
 //! Provider-neutral generation contract.
 
 use super::tools::{NoemaToolChoice, NoemaToolSpec, ProviderToolCapabilities};
-use crate::memory::extraction::ExtractorMemoryProposal;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::future::Future;
@@ -371,7 +370,7 @@ pub struct GenerateOptions {
     pub temperature: Option<f32>,
     /// Optional explicit reasoning effort for reasoning-capable providers/models.
     pub reasoning_effort: Option<ReasoningEffort>,
-    /// Require a strict Noema response object with response fields and memory proposals.
+    /// Require a strict Noema response object with response fields.
     pub require_noema_response: bool,
     /// Provider prompt-cache retention request when supported.
     pub prompt_cache_retention: Option<PromptCacheRetention>,
@@ -384,8 +383,6 @@ pub struct GenerateResponse {
     pub responses: Vec<GenerateResponseItem>,
     /// Tool calls requested by the provider.
     pub tool_calls: Vec<GenerateToolCall>,
-    /// Memory proposals emitted by the provider.
-    pub memory_proposals: Vec<ExtractorMemoryProposal>,
     /// Opaque encrypted reasoning items returned by the provider for replay.
     pub reasoning_items: Vec<GenerateReasoningItem>,
     /// Whether this response needs tool execution or completes the turn.
@@ -420,8 +417,6 @@ pub enum GenerateStreamEvent {
         /// Text delta received from the provider.
         delta: String,
     },
-    /// A non-empty memory proposal block has started streaming.
-    MemoryProposalsStarted,
     /// A provider tool call item has started streaming.
     ToolCallStarted {
         /// Zero-based index of the tool call in the provider response.
@@ -444,7 +439,6 @@ impl GenerateResponse {
         Self {
             responses: parsed.responses,
             tool_calls: parsed.tool_calls,
-            memory_proposals: parsed.memory_proposals,
             reasoning_items: Vec::new(),
             response_status: parsed.response_status,
             provider: provider.into(),
@@ -467,7 +461,6 @@ impl GenerateResponse {
                 text: text.into(),
             }],
             tool_calls: Vec::new(),
-            memory_proposals: Vec::new(),
             reasoning_items: Vec::new(),
             response_status: GenerateResponseStatus::Final,
             provider: provider.into(),
@@ -790,8 +783,6 @@ pub struct ParsedNoemaResponse {
     pub responses: Vec<GenerateResponseItem>,
     /// Tool calls requested by the provider.
     pub tool_calls: Vec<GenerateToolCall>,
-    /// Memory proposals emitted by the provider.
-    pub memory_proposals: Vec<ExtractorMemoryProposal>,
     /// Whether this response needs tool execution or completes the turn.
     pub response_status: GenerateResponseStatus,
 }
@@ -927,7 +918,6 @@ fn noema_response_from_structured_value(
     let parsed = ParsedNoemaResponse {
         responses: response_object.responses,
         tool_calls: response_object.tool_calls,
-        memory_proposals: Vec::new(),
         response_status: response_object.response_status,
     };
     if require_noema_response {
@@ -1181,7 +1171,6 @@ mod tests {
             Ok(GenerateResponse {
                 responses: vec![GenerateResponseItem::Text { phase: None, text }],
                 tool_calls: Vec::new(),
-                memory_proposals: Vec::new(),
                 reasoning_items: Vec::new(),
                 response_status: GenerateResponseStatus::Final,
                 provider: "mock".to_string(),
@@ -1315,7 +1304,6 @@ mod tests {
             }]
         );
         assert!(response.tool_calls.is_empty());
-        assert!(response.memory_proposals.is_empty());
     }
 
     #[test]
