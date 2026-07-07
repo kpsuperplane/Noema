@@ -87,6 +87,34 @@ async fn sqlite_agent_display_name_updates() {
 }
 
 #[tokio::test]
+async fn sqlite_create_agent_rejects_duplicate_agent_id() {
+    let store = test_store().await;
+
+    store
+        .create_agent(crate::NewAgent {
+            agent_id: "agent:duplicate".to_string(),
+            display_name: Some("Original".to_string()),
+        })
+        .await
+        .expect("create agent");
+
+    store
+        .create_agent(crate::NewAgent {
+            agent_id: "agent:duplicate".to_string(),
+            display_name: Some("Replacement".to_string()),
+        })
+        .await
+        .expect_err("duplicate agent id should fail");
+
+    let agent = store
+        .get_agent("agent:duplicate")
+        .await
+        .expect("get agent")
+        .expect("agent exists");
+    assert_eq!(agent.display_name.as_deref(), Some("Original"));
+}
+
+#[tokio::test]
 async fn sqlite_provider_accounts_seed_and_list() {
     let store = test_store().await;
 

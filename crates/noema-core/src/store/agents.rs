@@ -72,9 +72,6 @@ impl NoemaStore {
                 r#"
                 INSERT INTO agents (agent_id, display_name)
                 VALUES (?1, ?2)
-                ON CONFLICT(agent_id) DO UPDATE SET
-                  display_name = excluded.display_name,
-                  updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
                 "#,
                 params![agent.agent_id, display_name],
             )?;
