@@ -1,12 +1,14 @@
 use std::collections::BTreeSet;
 
-use super::{
-    NewToolCalibration, ToolCalibrationRecord, mcp_record_fragment,
-    rows::{ToolCalibrationRow, tool_calibration_from_row},
-};
+use rusqlite::{OptionalExtension, params};
+
+use super::{NewToolCalibration, ToolCalibrationRecord, rows::tool_calibration_from_row};
 use crate::{
     McpCalibrationStatus,
-    store::{NoemaStore, StoreError},
+    store::{
+        NoemaStore, StoreError,
+        sqlite::{now_timestamp_sql, serialize_json},
+    },
 };
 
 impl NoemaStore {
@@ -35,63 +37,54 @@ impl NoemaStore {
         calibration: &NewToolCalibration,
     ) -> Result<ToolCalibrationRecord, StoreError> {
         let mcp_tool_id = calibration.mcp_tool_id.clone();
-        let owner_extractors =
-            serde_json::to_value(&calibration.owner_extractors).map_err(|error| {
-                StoreError::Schema(format!("invalid owner extractor serialization: {error}"))
-            })?;
-        self.db()
-            .query(
-                r#"
-                UPSERT type::record('tool_calibrations', $record_id) SET
-                  calibration_id = $calibration_id,
-                  mcp_tool_id = $mcp_tool_id,
-                  read_classification = $read_classification,
-                  write_classification = $write_classification,
-                  export_classification = $export_classification,
-                  owner_extractors = $owner_extractors,
-                  status = $status,
-                  reviewed_by = $reviewed_by,
-                  reviewed_metadata_fingerprint = $reviewed_metadata_fingerprint,
-                  updated_at = time::now();
-                "#,
-            )
-            .bind((
-                "record_id",
-                mcp_record_fragment(&calibration.calibration_id),
-            ))
-            .bind(("calibration_id", calibration.calibration_id.clone()))
-            .bind(("mcp_tool_id", calibration.mcp_tool_id.clone()))
-            .bind((
-                "read_classification",
-                calibration.read_classification.as_str().to_string(),
-            ))
-            .bind((
-                "write_classification",
-                calibration.write_classification.as_str().to_string(),
-            ))
-            .bind((
-                "export_classification",
-                calibration.export_classification.as_str().to_string(),
-            ))
-            .bind(("owner_extractors", owner_extractors))
-            .bind(("status", calibration.status.as_str().to_string()))
-            .bind(("reviewed_by", calibration.reviewed_by.clone()))
-            .bind((
-                "reviewed_metadata_fingerprint",
-                calibration.reviewed_metadata_fingerprint.clone(),
-            ))
-            .await?
-            .check()?;
-        let saved = self
-            .get_tool_calibration(&mcp_tool_id)
+        let owner_extractors_json = serialize_json(&calibration.owner_extractors)?;
+        self.with_connection(|conn| {
+            conn.execute(
+                format!(
+                    r#"
+                    INSERT INTO tool_calibrations (
+                      calibration_id, mcp_tool_id, read_classification,
+                      write_classification, export_classification, owner_extractors_json,
+                      status, reviewed_by, reviewed_metadata_fingerprint, updated_at
+                    )
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, {})
+                    ON CONFLICT(calibration_id) DO UPDATE SET
+                      mcp_tool_id = excluded.mcp_tool_id,
+                      read_classification = excluded.read_classification,
+                      write_classification = excluded.write_classification,
+                      export_classification = excluded.export_classification,
+                      owner_extractors_json = excluded.owner_extractors_json,
+                      status = excluded.status,
+                      reviewed_by = excluded.reviewed_by,
+                      reviewed_metadata_fingerprint = excluded.reviewed_metadata_fingerprint,
+                      updated_at = excluded.updated_at
+                    "#,
+                    now_timestamp_sql()
+                )
+                .as_str(),
+                params![
+                    calibration.calibration_id,
+                    calibration.mcp_tool_id,
+                    calibration.read_classification.as_str(),
+                    calibration.write_classification.as_str(),
+                    calibration.export_classification.as_str(),
+                    owner_extractors_json,
+                    calibration.status.as_str(),
+                    calibration.reviewed_by,
+                    calibration.reviewed_metadata_fingerprint,
+                ],
+            )?;
+            Ok(())
+        })
+        .await?;
+        self.get_tool_calibration(&mcp_tool_id)
             .await?
             .ok_or_else(|| {
                 StoreError::Schema(format!(
                     "missing tool calibration after save: {}",
                     mcp_tool_id
                 ))
-            })?;
-        Ok(saved)
+            })
     }
 
     /// Save reviewed calibrations for multiple MCP tools after validating the full batch.
@@ -145,20 +138,23 @@ impl NoemaStore {
                 break;
             }
         }
-        self.db()
-            .query(
-                r#"
-                UPDATE mcp_servers SET
-                  enabled = $enabled,
-                  updated_at = time::now()
-                WHERE mcp_server_id = $mcp_server_id;
-                "#,
-            )
-            .bind(("mcp_server_id", mcp_server_id.to_string()))
-            .bind(("enabled", enabled))
-            .await?
-            .check()?;
-        Ok(())
+        self.with_connection(|conn| {
+            conn.execute(
+                format!(
+                    r#"
+                    UPDATE mcp_servers SET
+                      enabled = ?2,
+                      updated_at = {}
+                    WHERE mcp_server_id = ?1
+                    "#,
+                    now_timestamp_sql()
+                )
+                .as_str(),
+                params![mcp_server_id, super::rows::bool_to_i64(enabled)],
+            )?;
+            Ok(())
+        })
+        .await
     }
 
     async fn validate_tool_calibration(
@@ -247,46 +243,41 @@ impl NoemaStore {
         &self,
         calibration_id: &str,
     ) -> Result<Option<ToolCalibrationRecord>, StoreError> {
-        let mut response = self
-            .db()
-            .query(
-                r#"
-                SELECT calibration_id, mcp_tool_id, read_classification,
-                  write_classification, export_classification, owner_extractors,
-                  status, reviewed_by, reviewed_metadata_fingerprint
-                FROM tool_calibrations
-                WHERE calibration_id = $calibration_id
-                LIMIT 1;
-                "#,
+        self.with_connection(|conn| {
+            conn.query_row(
+                TOOL_CALIBRATION_SELECT_BY_CALIBRATION_ID,
+                params![calibration_id],
+                tool_calibration_from_row,
             )
-            .bind(("calibration_id", calibration_id.to_string()))
-            .await?;
-        let rows: Vec<ToolCalibrationRow> = response.take(0)?;
-        rows.into_iter()
-            .next()
-            .map(tool_calibration_from_row)
-            .transpose()
+            .optional()
+            .map_err(StoreError::Sqlite)
+        })
+        .await
     }
 
     pub(super) async fn invalidate_tool_calibration_review(
         &self,
         mcp_tool_id: &str,
     ) -> Result<(), StoreError> {
-        self.db()
-            .query(
-                r#"
-                UPDATE tool_calibrations SET
-                  status = 'needs_review',
-                  reviewed_by = NONE,
-                  reviewed_metadata_fingerprint = NONE,
-                  updated_at = time::now()
-                WHERE mcp_tool_id = $mcp_tool_id;
-                "#,
-            )
-            .bind(("mcp_tool_id", mcp_tool_id.to_string()))
-            .await?
-            .check()?;
-        Ok(())
+        self.with_connection(|conn| {
+            conn.execute(
+                format!(
+                    r#"
+                    UPDATE tool_calibrations SET
+                      status = 'needs_review',
+                      reviewed_by = NULL,
+                      reviewed_metadata_fingerprint = NULL,
+                      updated_at = {}
+                    WHERE mcp_tool_id = ?1
+                    "#,
+                    now_timestamp_sql()
+                )
+                .as_str(),
+                params![mcp_tool_id],
+            )?;
+            Ok(())
+        })
+        .await
     }
 
     /// Return reviewed calibration for one MCP tool id.
@@ -299,27 +290,36 @@ impl NoemaStore {
         &self,
         mcp_tool_id: &str,
     ) -> Result<Option<ToolCalibrationRecord>, StoreError> {
-        let mut response = self
-            .db()
-            .query(
-                r#"
-                SELECT calibration_id, mcp_tool_id, read_classification,
-                  write_classification, export_classification, owner_extractors,
-                  status, reviewed_by, reviewed_metadata_fingerprint
-                FROM tool_calibrations
-                WHERE mcp_tool_id = $mcp_tool_id
-                LIMIT 1;
-                "#,
+        self.with_connection(|conn| {
+            conn.query_row(
+                TOOL_CALIBRATION_SELECT_BY_TOOL_ID,
+                params![mcp_tool_id],
+                tool_calibration_from_row,
             )
-            .bind(("mcp_tool_id", mcp_tool_id.to_string()))
-            .await?;
-        let rows: Vec<ToolCalibrationRow> = response.take(0)?;
-        rows.into_iter()
-            .next()
-            .map(tool_calibration_from_row)
-            .transpose()
+            .optional()
+            .map_err(StoreError::Sqlite)
+        })
+        .await
     }
 }
+
+const TOOL_CALIBRATION_SELECT_BY_CALIBRATION_ID: &str = r#"
+SELECT calibration_id, mcp_tool_id, read_classification, write_classification,
+  export_classification, owner_extractors_json, status, reviewed_by,
+  reviewed_metadata_fingerprint
+FROM tool_calibrations
+WHERE calibration_id = ?1
+LIMIT 1
+"#;
+
+const TOOL_CALIBRATION_SELECT_BY_TOOL_ID: &str = r#"
+SELECT calibration_id, mcp_tool_id, read_classification, write_classification,
+  export_classification, owner_extractors_json, status, reviewed_by,
+  reviewed_metadata_fingerprint
+FROM tool_calibrations
+WHERE mcp_tool_id = ?1
+LIMIT 1
+"#;
 
 fn reject_duplicate_calibrations_in_batch(
     calibrations: &[NewToolCalibration],

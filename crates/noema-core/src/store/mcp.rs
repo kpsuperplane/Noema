@@ -12,7 +12,3 @@ pub use model::{
     NewTrustedIdentitySelector, ToolCalibrationRecord, TrustedIdentitySelectorEffect,
     TrustedIdentitySelectorRecord,
 };
-
-pub(super) fn mcp_record_fragment(id: &str) -> String {
-    super::ids::hex_record_fragment("mcp_", id)
-}

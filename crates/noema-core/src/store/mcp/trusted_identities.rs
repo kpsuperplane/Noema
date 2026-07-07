@@ -1,10 +1,12 @@
+use rusqlite::{OptionalExtension, params};
+
 use super::{
-    NewTrustedIdentitySelector, TrustedIdentitySelectorRecord, mcp_record_fragment,
-    rows::{TrustedIdentitySelectorRow, trusted_identity_selector_from_row},
+    NewTrustedIdentitySelector, TrustedIdentitySelectorRecord,
+    rows::trusted_identity_selector_from_row,
 };
 use crate::{
     normalize_trusted_identity_value,
-    store::{NoemaStore, StoreError},
+    store::{NoemaStore, StoreError, sqlite::now_timestamp_sql},
 };
 
 impl NoemaStore {
@@ -26,29 +28,31 @@ impl NoemaStore {
                         selector.selector_kind.as_str()
                     ))
                 })?;
-        self.db()
-            .query(
-                r#"
-                CREATE type::record('trusted_identity_selectors', $record_id) SET
-                  selector_id = $selector_id,
-                  owner_scope_id = $owner_scope_id,
-                  selector_kind = $selector_kind,
-                  normalized_value = $normalized_value,
-                  effect = $effect,
-                  issuer_actor_id = $issuer_actor_id,
-                  revoked_at = NONE,
-                  updated_at = time::now();
-                "#,
-            )
-            .bind(("record_id", mcp_record_fragment(&selector.selector_id)))
-            .bind(("selector_id", selector.selector_id.clone()))
-            .bind(("owner_scope_id", selector.owner_scope_id))
-            .bind(("selector_kind", selector.selector_kind.as_str().to_string()))
-            .bind(("normalized_value", normalized_value))
-            .bind(("effect", selector.effect.as_str().to_string()))
-            .bind(("issuer_actor_id", selector.issuer_actor_id))
-            .await?
-            .check()?;
+        self.with_connection(|conn| {
+            conn.execute(
+                format!(
+                    r#"
+                    INSERT INTO trusted_identity_selectors (
+                      selector_id, owner_scope_id, selector_kind, normalized_value,
+                      effect, issuer_actor_id, revoked_at, updated_at
+                    )
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, {})
+                    "#,
+                    now_timestamp_sql()
+                )
+                .as_str(),
+                params![
+                    selector.selector_id,
+                    selector.owner_scope_id,
+                    selector.selector_kind.as_str(),
+                    normalized_value,
+                    selector.effect.as_str(),
+                    selector.issuer_actor_id,
+                ],
+            )?;
+            Ok(())
+        })
+        .await?;
         self.get_trusted_identity_selector(&selector.selector_id)
             .await?
             .ok_or_else(|| {
@@ -69,24 +73,16 @@ impl NoemaStore {
         &self,
         selector_id: &str,
     ) -> Result<Option<TrustedIdentitySelectorRecord>, StoreError> {
-        let mut response = self
-            .db()
-            .query(
-                r#"
-                SELECT selector_id, owner_scope_id, selector_kind, normalized_value,
-                  effect, issuer_actor_id, revoked_at
-                FROM trusted_identity_selectors
-                WHERE selector_id = $selector_id
-                LIMIT 1;
-                "#,
+        self.with_connection(|conn| {
+            conn.query_row(
+                TRUSTED_IDENTITY_SELECTOR_SELECT_BY_ID,
+                params![selector_id],
+                trusted_identity_selector_from_row,
             )
-            .bind(("selector_id", selector_id.to_string()))
-            .await?;
-        let rows: Vec<TrustedIdentitySelectorRow> = response.take(0)?;
-        rows.into_iter()
-            .next()
-            .map(trusted_identity_selector_from_row)
-            .transpose()
+            .optional()
+            .map_err(StoreError::Sqlite)
+        })
+        .await
     }
 
     /// List trusted identity selectors for one owner scope in deterministic order.
@@ -99,29 +95,29 @@ impl NoemaStore {
         &self,
         owner_scope_id: &str,
     ) -> Result<Vec<TrustedIdentitySelectorRecord>, StoreError> {
-        let mut response = self
-            .db()
-            .query(
+        self.with_connection(|conn| {
+            let mut statement = conn.prepare(
                 r#"
                 SELECT selector_id, owner_scope_id, selector_kind, normalized_value,
                   effect, issuer_actor_id, revoked_at
                 FROM trusted_identity_selectors
-                WHERE owner_scope_id = $owner_scope_id;
+                WHERE owner_scope_id = ?1
+                ORDER BY selector_kind, normalized_value
                 "#,
-            )
-            .bind(("owner_scope_id", owner_scope_id.to_string()))
-            .await?;
-        let rows: Vec<TrustedIdentitySelectorRow> = response.take(0)?;
-        let mut selectors: Vec<TrustedIdentitySelectorRecord> = rows
-            .into_iter()
-            .map(trusted_identity_selector_from_row)
-            .collect::<Result<_, _>>()?;
-        selectors.sort_by(|left, right| {
-            left.selector_kind
-                .as_str()
-                .cmp(right.selector_kind.as_str())
-                .then_with(|| left.normalized_value.cmp(&right.normalized_value))
-        });
-        Ok(selectors)
+            )?;
+            let rows =
+                statement.query_map(params![owner_scope_id], trusted_identity_selector_from_row)?;
+            rows.collect::<Result<Vec<_>, _>>()
+                .map_err(StoreError::Sqlite)
+        })
+        .await
     }
 }
+
+const TRUSTED_IDENTITY_SELECTOR_SELECT_BY_ID: &str = r#"
+SELECT selector_id, owner_scope_id, selector_kind, normalized_value,
+  effect, issuer_actor_id, revoked_at
+FROM trusted_identity_selectors
+WHERE selector_id = ?1
+LIMIT 1
+"#;

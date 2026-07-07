@@ -95,80 +95,68 @@ async fn mcp_control_plane_tables_bootstrap() {
 
     assert_eq!(store.schema_version().await.expect("schema version"), 1);
     store
-        .db()
-        .query(
-            r#"
-            CREATE type::record('mcp_servers', 'local_test') SET
-              mcp_server_id = 'mcp_server:local-test',
-              display_name = 'Local Test',
-              transport_kind = 'stdio',
-              safe_config = {},
-              auth_status = 'none',
-              health_status = 'unknown',
-              enabled = false,
-              updated_at = time::now();
+        .with_connection(|conn| {
+            conn.execute_batch(
+                r#"
+            INSERT INTO mcp_servers (
+              mcp_server_id, display_name, transport_kind, safe_config_json,
+              auth_status, health_status, enabled
+            )
+            VALUES (
+              'mcp_server:local-test', 'Local Test', 'stdio', '{}',
+              'none', 'unknown', 0
+            );
 
-            CREATE type::record('mcp_tools', 'local_test_read') SET
-              mcp_tool_id = 'mcp_tool:local-test:read',
-              mcp_server_id = 'mcp_server:local-test',
-              name = 'read',
-              description = 'Read metadata',
-              input_schema = {},
-              output_schema = NONE,
-              annotations = {},
-              metadata_fingerprint = 'fingerprint:local-test:read',
-              discovered_at = '2026-06-30T00:00:00Z',
-              updated_at = time::now();
+            INSERT INTO mcp_tools (
+              mcp_tool_id, mcp_server_id, name, description, input_schema_json,
+              output_schema_json, annotations_json, metadata_fingerprint, discovered_at
+            )
+            VALUES (
+              'mcp_tool:local-test:read', 'mcp_server:local-test', 'read',
+              'Read metadata', '{}', NULL, '{}', 'fingerprint:local-test:read',
+              '2026-06-30T00:00:00Z'
+            );
 
-            CREATE type::record('tool_calibrations', 'local_test_read') SET
-              calibration_id = 'tool_calibration:local-test:read',
-              mcp_tool_id = 'mcp_tool:local-test:read',
-              read_classification = 'trusted',
-              write_classification = 'none',
-              export_classification = 'none',
-              owner_extractors = [
-                {
-                  source: 'arguments',
-                  selector_kind: 'email',
-                  path: '/owner/email'
-                }
-              ],
-              status = 'needs_review',
-              updated_at = time::now();
+            INSERT INTO tool_calibrations (
+              calibration_id, mcp_tool_id, read_classification,
+              write_classification, export_classification, owner_extractors_json, status
+            )
+            VALUES (
+              'tool_calibration:local-test:read', 'mcp_tool:local-test:read',
+              'trusted', 'none', 'none',
+              '[{"source":"arguments","selector_kind":"email","path":"/owner/email"}]',
+              'needs_review'
+            );
 
-            CREATE type::record('trusted_identity_selectors', 'human_local_email') SET
-              selector_id = 'trusted_identity:human-local:email',
-              owner_scope_id = 'human:local',
-              selector_kind = 'email',
-              normalized_value = 'kevin@example.com',
-              effect = 'trust',
-              issuer_actor_id = 'human:local',
-              updated_at = time::now();
+            INSERT INTO trusted_identity_selectors (
+              selector_id, owner_scope_id, selector_kind, normalized_value, effect,
+              issuer_actor_id
+            )
+            VALUES (
+              'trusted_identity:human-local:email', 'human:local', 'email',
+              'kevin@example.com', 'trust', 'human:local'
+            );
 
-            CREATE type::record('approval_requests', 'local_test_approval') SET
-              approval_id = 'approval:local-test',
-              action_summary = 'Approve local test MCP call',
-              tool_invocation_id = 'tool_invocation:local-test',
-              mcp_server_id = 'mcp_server:local-test',
-              mcp_tool_id = 'mcp_tool:local-test:read',
-              requester_actor_id = 'agent:primary',
-              owner_scope_id = 'human:local',
-              active_scope_id = 'human:local',
-              destination_summary = 'Local test recipient',
-              data_source_summary = 'Local test MCP result',
-              source_owner_identity = 'kevin@example.com',
-              source_owner_trust = 'trusted',
-              destination_owner_identity = 'person@example.com',
-              destination_owner_trust = 'untrusted',
-              export_summary = 'Local test data leaves the MCP boundary',
-              payload_preview = {},
-              status = 'pending',
-              updated_at = time::now();
+            INSERT INTO approval_requests (
+              approval_id, action_summary, tool_invocation_id, mcp_server_id,
+              mcp_tool_id, requester_actor_id, owner_scope_id, active_scope_id,
+              destination_summary, data_source_summary, source_owner_identity,
+              source_owner_trust, destination_owner_identity, destination_owner_trust,
+              export_summary, payload_preview_json, status
+            )
+            VALUES (
+              'approval:local-test', 'Approve local test MCP call',
+              'tool_invocation:local-test', 'mcp_server:local-test',
+              'mcp_tool:local-test:read', 'agent:primary', 'human:local',
+              'human:local', 'Local test recipient', 'Local test MCP result',
+              'kevin@example.com', 'trusted', 'person@example.com', 'untrusted',
+              'Local test data leaves the MCP boundary', '{}', 'pending'
+            );
             "#,
-        )
+            )?;
+            Ok(())
+        })
         .await
-        .expect("mcp schema bootstrap query")
-        .check()
         .expect("mcp control-plane tables should accept valid rows");
 }
 
@@ -796,23 +784,23 @@ async fn mcp_control_plane_schema_rejects_invalid_enum_values() {
     let store = test_store().await;
 
     let error = store
-        .db()
-        .query(
-            r#"
-            CREATE type::record('mcp_servers', 'invalid_transport') SET
-              mcp_server_id = 'mcp_server:invalid-transport',
-              display_name = 'Invalid Transport',
-              transport_kind = 'websocket',
-              safe_config = {},
-              auth_status = 'none',
-              health_status = 'unknown',
-              enabled = false,
-              updated_at = time::now();
+        .with_connection(|conn| {
+            conn.execute(
+                r#"
+            INSERT INTO mcp_servers (
+              mcp_server_id, display_name, transport_kind, safe_config_json,
+              auth_status, health_status, enabled
+            )
+            VALUES (
+              'mcp_server:invalid-transport', 'Invalid Transport', 'websocket',
+              '{}', 'none', 'unknown', 0
+            )
             "#,
-        )
+                [],
+            )?;
+            Ok(())
+        })
         .await
-        .expect("invalid mcp server query")
-        .check()
         .expect_err("invalid MCP transport should be rejected");
 
     assert!(
@@ -826,22 +814,23 @@ async fn trusted_identity_schema_rejects_empty_identity_fields() {
     let store = test_store().await;
 
     let error = store
-        .db()
-        .query(
-            r#"
-            CREATE type::record('trusted_identity_selectors', 'empty_value') SET
-              selector_id = 'trusted_identity:empty-value',
-              owner_scope_id = 'human:local',
-              selector_kind = 'email',
-              normalized_value = '',
-              effect = 'trust',
-              issuer_actor_id = 'human:local',
-              updated_at = time::now();
+        .with_connection(|conn| {
+            conn.execute(
+                r#"
+            INSERT INTO trusted_identity_selectors (
+              selector_id, owner_scope_id, selector_kind, normalized_value, effect,
+              issuer_actor_id
+            )
+            VALUES (
+              'trusted_identity:empty-value', 'human:local', 'email', '',
+              'trust', 'human:local'
+            )
             "#,
-        )
+                [],
+            )?;
+            Ok(())
+        })
         .await
-        .expect("empty trusted identity query")
-        .check()
         .expect_err("empty normalized identity value should be rejected");
 
     assert!(
@@ -851,45 +840,35 @@ async fn trusted_identity_schema_rejects_empty_identity_fields() {
 }
 
 #[tokio::test]
-async fn trusted_identity_schema_rejects_invalid_normalized_shapes() {
+async fn trusted_identity_repository_rejects_invalid_raw_shapes() {
     let store = test_store().await;
     let cases = [
-        ("email_missing_at", "email", "kevin.example.com"),
-        ("email_whitespace", "email", "kevin @example.com"),
-        ("email_uppercase", "email", "Kevin@Example.COM"),
-        ("domain_missing_dot", "domain", "example"),
-        ("domain_with_slash", "domain", "example.com/path"),
-        ("domain_bad_label", "domain", "bad-.example.com"),
-        ("phone_without_plus", "phone", "14155550100"),
-        ("phone_with_space", "phone", "+1415 5550100"),
+        (TrustedIdentitySelectorKind::Email, "kevin.example.com"),
+        (TrustedIdentitySelectorKind::Email, "kevin @example.com"),
+        (TrustedIdentitySelectorKind::Domain, "example"),
+        (TrustedIdentitySelectorKind::Domain, "example.com/path"),
+        (TrustedIdentitySelectorKind::Domain, "bad-.example.com"),
+        (TrustedIdentitySelectorKind::Phone, "14155550100"),
     ];
 
-    for (record_id, selector_kind, normalized_value) in cases {
-        let query = format!(
-            r#"
-            CREATE type::record('trusted_identity_selectors', '{record_id}') SET
-              selector_id = 'trusted_identity:{record_id}',
-              owner_scope_id = 'human:local',
-              selector_kind = '{selector_kind}',
-              normalized_value = '{normalized_value}',
-              effect = 'trust',
-              issuer_actor_id = 'human:local',
-              updated_at = time::now();
-            "#
-        );
-
+    for (index, (selector_kind, raw_value)) in cases.into_iter().enumerate() {
         let error = store
-            .db()
-            .query(query.as_str())
+            .create_trusted_identity_selector(NewTrustedIdentitySelector {
+                selector_id: format!("trusted_identity:invalid:{index}"),
+                owner_scope_id: "human:local".to_string(),
+                selector_kind,
+                raw_value: raw_value.to_string(),
+                effect: TrustedIdentitySelectorEffect::Trust,
+                issuer_actor_id: "human:local".to_string(),
+            })
             .await
-            .expect("invalid trusted identity query")
-            .check()
             .expect_err("invalid trusted identity shape should be rejected");
 
         assert!(
-            error.to_string().contains("normalized_value")
-                || error.to_string().contains(normalized_value),
-            "unexpected error for {record_id}: {error}"
+            error
+                .to_string()
+                .contains("invalid trusted identity selector value"),
+            "unexpected error for {raw_value}: {error}"
         );
     }
 }
@@ -899,29 +878,24 @@ async fn tool_calibration_schema_rejects_malformed_owner_extractors() {
     let store = test_store().await;
 
     let error = store
-        .db()
-        .query(
-            r#"
-            CREATE type::record('tool_calibrations', 'malformed_extractor') SET
-              calibration_id = 'tool_calibration:malformed-extractor',
-              mcp_tool_id = 'mcp_tool:malformed-extractor',
-              read_classification = 'mixed',
-              write_classification = 'none',
-              export_classification = 'none',
-              owner_extractors = [
-                {
-                  source: 'arguments',
-                  selector_kind: 'email',
-                  path: ''
-                }
-              ],
-              status = 'ready',
-              updated_at = time::now();
+        .with_connection(|conn| {
+            conn.execute(
+                r#"
+            INSERT INTO tool_calibrations (
+              calibration_id, mcp_tool_id, read_classification, write_classification,
+              export_classification, owner_extractors_json, status
+            )
+            VALUES (
+              'tool_calibration:malformed-extractor',
+              'mcp_tool:malformed-extractor',
+              'mixed', 'none', 'none', '{"not":"an array"}', 'ready'
+            )
             "#,
-        )
+                [],
+            )?;
+            Ok(())
+        })
         .await
-        .expect("malformed extractor query")
-        .check()
         .expect_err("malformed owner extractor should be rejected");
 
     assert!(
@@ -935,31 +909,28 @@ async fn approval_request_schema_rejects_invalid_status() {
     let store = test_store().await;
 
     let error = store
-        .db()
-        .query(
-            r#"
-            CREATE type::record('approval_requests', 'invalid_status') SET
-              approval_id = 'approval:invalid-status',
-              action_summary = 'Invalid approval status test',
-              tool_invocation_id = 'tool_invocation:invalid-status',
-              requester_actor_id = 'agent:primary',
-              owner_scope_id = 'human:local',
-              active_scope_id = 'human:local',
-              destination_summary = 'Destination',
-              data_source_summary = 'Data source',
-              source_owner_identity = 'kevin@example.com',
-              source_owner_trust = 'trusted',
-              destination_owner_identity = 'person@example.com',
-              destination_owner_trust = 'untrusted',
-              export_summary = 'Exported data',
-              payload_preview = {},
-              status = 'deferred',
-              updated_at = time::now();
+        .with_connection(|conn| {
+            conn.execute(
+                r#"
+            INSERT INTO approval_requests (
+              approval_id, action_summary, tool_invocation_id, requester_actor_id,
+              owner_scope_id, active_scope_id, destination_summary, data_source_summary,
+              source_owner_identity, source_owner_trust, destination_owner_identity,
+              destination_owner_trust, export_summary, payload_preview_json, status
+            )
+            VALUES (
+              'approval:invalid-status', 'Invalid approval status test',
+              'tool_invocation:invalid-status', 'agent:primary', 'human:local',
+              'human:local', 'Destination', 'Data source', 'kevin@example.com',
+              'trusted', 'person@example.com', 'untrusted', 'Exported data',
+              '{}', 'deferred'
+            )
             "#,
-        )
+                [],
+            )?;
+            Ok(())
+        })
         .await
-        .expect("invalid approval query")
-        .check()
         .expect_err("invalid approval status should be rejected");
 
     assert!(
@@ -973,33 +944,30 @@ async fn terminal_approval_request_requires_decision_evidence() {
     let store = test_store().await;
 
     let error = store
-        .db()
-        .query(
-            r#"
-            CREATE type::record('approval_requests', 'approved_without_decision') SET
-              approval_id = 'approval:approved-without-decision',
-              action_summary = 'Approved approval decision evidence test',
-              tool_invocation_id = 'tool_invocation:approved-without-decision',
-              requester_actor_id = 'agent:primary',
-              owner_scope_id = 'human:local',
-              active_scope_id = 'human:local',
-              destination_summary = 'Destination',
-              data_source_summary = 'Data source',
-              source_owner_identity = 'kevin@example.com',
-              source_owner_trust = 'trusted',
-              destination_owner_identity = 'person@example.com',
-              destination_owner_trust = 'untrusted',
-              export_summary = 'Exported data',
-              payload_preview = {},
-              status = 'approved',
-              decision_actor_id = NONE,
-              decided_at = NONE,
-              updated_at = time::now();
+        .with_connection(|conn| {
+            conn.execute(
+                r#"
+            INSERT INTO approval_requests (
+              approval_id, action_summary, tool_invocation_id, requester_actor_id,
+              owner_scope_id, active_scope_id, destination_summary, data_source_summary,
+              source_owner_identity, source_owner_trust, destination_owner_identity,
+              destination_owner_trust, export_summary, payload_preview_json, status,
+              decision_actor_id, decided_at
+            )
+            VALUES (
+              'approval:approved-without-decision',
+              'Approved approval decision evidence test',
+              'tool_invocation:approved-without-decision', 'agent:primary',
+              'human:local', 'human:local', 'Destination', 'Data source',
+              'kevin@example.com', 'trusted', 'person@example.com', 'untrusted',
+              'Exported data', '{}', 'approved', NULL, NULL
+            )
             "#,
-        )
+                [],
+            )?;
+            Ok(())
+        })
         .await
-        .expect("terminal approval query")
-        .check()
         .expect_err("terminal approval without decision evidence should be rejected");
 
     assert!(

@@ -160,6 +160,91 @@ CREATE TABLE IF NOT EXISTS conversation_context_summaries (
 CREATE INDEX IF NOT EXISTS conversation_context_summaries_profile
 ON conversation_context_summaries(conversation_id, provider_kind, model_profile, status, covered_item_end_sequence);
 
+CREATE TABLE IF NOT EXISTS mcp_servers (
+  mcp_server_id TEXT PRIMARY KEY NOT NULL,
+  display_name TEXT NOT NULL,
+  transport_kind TEXT NOT NULL CHECK (transport_kind IN ('stdio', 'sse', 'streamable_http')),
+  safe_config_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(safe_config_json)),
+  auth_status TEXT NOT NULL CHECK (auth_status IN ('none', 'needs_auth', 'authenticated', 'unavailable')),
+  health_status TEXT NOT NULL CHECK (health_status IN ('unknown', 'healthy', 'unavailable')),
+  enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),
+  metadata_fingerprint TEXT,
+  last_discovered_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+CREATE TABLE IF NOT EXISTS mcp_tools (
+  mcp_tool_id TEXT PRIMARY KEY NOT NULL,
+  mcp_server_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  description TEXT,
+  input_schema_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(input_schema_json)),
+  output_schema_json TEXT CHECK (output_schema_json IS NULL OR json_valid(output_schema_json)),
+  annotations_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(annotations_json)),
+  metadata_fingerprint TEXT NOT NULL,
+  discovered_at TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  UNIQUE(mcp_server_id, name)
+);
+
+CREATE TABLE IF NOT EXISTS tool_calibrations (
+  calibration_id TEXT PRIMARY KEY NOT NULL,
+  mcp_tool_id TEXT NOT NULL UNIQUE,
+  read_classification TEXT NOT NULL CHECK (read_classification IN ('none', 'trusted', 'untrusted', 'mixed')),
+  write_classification TEXT NOT NULL CHECK (write_classification IN ('none', 'trusted', 'untrusted', 'mixed')),
+  export_classification TEXT NOT NULL CHECK (export_classification IN ('none', 'trusted', 'untrusted', 'mixed')),
+  owner_extractors_json TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(owner_extractors_json) AND json_type(owner_extractors_json) = 'array'),
+  status TEXT NOT NULL CHECK (status IN ('needs_review', 'blocked_unresolved_ownership', 'ready', 'disabled')),
+  reviewed_by TEXT,
+  reviewed_metadata_fingerprint TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+CREATE TABLE IF NOT EXISTS trusted_identity_selectors (
+  selector_id TEXT PRIMARY KEY NOT NULL,
+  owner_scope_id TEXT NOT NULL,
+  selector_kind TEXT NOT NULL CHECK (selector_kind IN ('email', 'phone', 'domain')),
+  normalized_value TEXT NOT NULL CHECK (normalized_value <> ''),
+  effect TEXT NOT NULL CHECK (effect IN ('trust', 'restrict')),
+  issuer_actor_id TEXT NOT NULL,
+  revoked_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  UNIQUE(owner_scope_id, selector_kind, normalized_value)
+);
+
+CREATE TABLE IF NOT EXISTS approval_requests (
+  approval_id TEXT PRIMARY KEY NOT NULL,
+  action_summary TEXT NOT NULL,
+  tool_invocation_id TEXT NOT NULL,
+  mcp_server_id TEXT,
+  mcp_tool_id TEXT,
+  requester_actor_id TEXT NOT NULL,
+  owner_scope_id TEXT NOT NULL,
+  active_scope_id TEXT NOT NULL,
+  destination_summary TEXT NOT NULL,
+  data_source_summary TEXT NOT NULL,
+  source_owner_identity TEXT NOT NULL,
+  source_owner_trust TEXT NOT NULL CHECK (source_owner_trust IN ('trusted', 'untrusted', 'mixed', 'unresolved')),
+  destination_owner_identity TEXT NOT NULL,
+  destination_owner_trust TEXT NOT NULL CHECK (destination_owner_trust IN ('trusted', 'untrusted', 'mixed', 'unresolved')),
+  export_summary TEXT NOT NULL,
+  payload_preview_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(payload_preview_json)),
+  status TEXT NOT NULL CHECK (status IN ('pending', 'approved', 'denied', 'cancelled')),
+  decision_actor_id TEXT,
+  decision_comment TEXT,
+  decided_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  CHECK (
+    status = 'pending'
+    OR (decision_actor_id IS NOT NULL AND decided_at IS NOT NULL)
+  )
+);
+
 CREATE TABLE IF NOT EXISTS memory_service_settings (
   settings_id TEXT PRIMARY KEY NOT NULL CHECK (settings_id = 'default'),
   mode TEXT NOT NULL CHECK (mode IN ('managed', 'external')),

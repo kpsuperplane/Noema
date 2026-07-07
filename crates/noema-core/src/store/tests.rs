@@ -2,6 +2,8 @@ use tempfile::TempDir;
 
 use super::{NoemaStore, StoreConfig};
 
+mod mcp;
+
 #[tokio::test]
 async fn opens_sqlite_store_under_noema_db_dir() {
     let home = TempDir::new().expect("temp noema home");

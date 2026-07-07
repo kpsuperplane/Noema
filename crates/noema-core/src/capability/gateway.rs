@@ -608,12 +608,14 @@ mod tests {
 
     async fn set_server_enabled(store: &crate::NoemaStore, enabled: bool) {
         store
-            .db()
-            .query("UPDATE mcp_servers SET enabled = $enabled WHERE mcp_server_id = 'mcp:notion';")
-            .bind(("enabled", enabled))
+            .with_connection(|conn| {
+                conn.execute(
+                    "UPDATE mcp_servers SET enabled = ?1 WHERE mcp_server_id = 'mcp:notion'",
+                    [if enabled { 1 } else { 0 }],
+                )?;
+                Ok(())
+            })
             .await
-            .expect("enable query")
-            .check()
             .expect("enable server");
     }
 

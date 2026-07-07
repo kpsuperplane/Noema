@@ -1,8 +1,13 @@
+use rusqlite::{OptionalExtension, params};
+
 use super::{
-    McpServerAuthStatus, McpServerHealthStatus, McpServerRecord, NewMcpServer, mcp_record_fragment,
-    rows::{McpServerRow, mcp_server_from_row},
+    McpServerAuthStatus, McpServerHealthStatus, McpServerRecord, NewMcpServer,
+    rows::mcp_server_from_row,
 };
-use crate::store::{NoemaStore, StoreError};
+use crate::store::{
+    NoemaStore, StoreError,
+    sqlite::{json_to_string, now_timestamp_sql},
+};
 
 impl NoemaStore {
     /// Create one MCP server metadata row.
@@ -14,27 +19,26 @@ impl NoemaStore {
         &self,
         server: NewMcpServer,
     ) -> Result<McpServerRecord, StoreError> {
-        self.db()
-            .query(
+        let safe_config_json = json_to_string(&server.safe_config)?;
+        self.with_connection(|conn| {
+            conn.execute(
                 r#"
-                CREATE type::record('mcp_servers', $record_id) SET
-                  mcp_server_id = $mcp_server_id,
-                  display_name = $display_name,
-                  transport_kind = $transport_kind,
-                  safe_config = $safe_config,
-                  auth_status = 'none',
-                  health_status = 'unknown',
-                  enabled = false,
-                  updated_at = time::now();
+                INSERT INTO mcp_servers (
+                  mcp_server_id, display_name, transport_kind, safe_config_json,
+                  auth_status, health_status, enabled, updated_at
+                )
+                VALUES (?1, ?2, ?3, ?4, 'none', 'unknown', 0, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
                 "#,
-            )
-            .bind(("record_id", mcp_record_fragment(&server.mcp_server_id)))
-            .bind(("mcp_server_id", server.mcp_server_id.clone()))
-            .bind(("display_name", server.display_name))
-            .bind(("transport_kind", server.transport_kind.as_str().to_string()))
-            .bind(("safe_config", server.safe_config))
-            .await?
-            .check()?;
+                params![
+                    server.mcp_server_id,
+                    server.display_name,
+                    server.transport_kind.as_str(),
+                    safe_config_json,
+                ],
+            )?;
+            Ok(())
+        })
+        .await?;
         self.get_mcp_server(&server.mcp_server_id)
             .await?
             .ok_or_else(|| {
@@ -55,22 +59,16 @@ impl NoemaStore {
         &self,
         mcp_server_id: &str,
     ) -> Result<Option<McpServerRecord>, StoreError> {
-        let mut response = self
-            .db()
-            .query(
-                r#"
-                SELECT mcp_server_id, display_name, transport_kind, safe_config,
-                  enabled, health_status, auth_status,
-                  count((SELECT VALUE id FROM mcp_tools WHERE mcp_server_id = $mcp_server_id)) AS tool_count
-                FROM mcp_servers
-                WHERE mcp_server_id = $mcp_server_id
-                LIMIT 1;
-                "#,
+        self.with_connection(|conn| {
+            conn.query_row(
+                MCP_SERVER_SELECT_WITH_TOOL_COUNT,
+                params![mcp_server_id],
+                mcp_server_from_row,
             )
-            .bind(("mcp_server_id", mcp_server_id.to_string()))
-            .await?;
-        let rows: Vec<McpServerRow> = response.take(0)?;
-        rows.into_iter().next().map(mcp_server_from_row).transpose()
+            .optional()
+            .map_err(StoreError::Sqlite)
+        })
+        .await
     }
 
     /// List MCP servers in deterministic Settings display order.
@@ -80,28 +78,22 @@ impl NoemaStore {
     /// Returns [`StoreError`] when the embedded store read fails or a stored
     /// enum is invalid.
     pub async fn list_mcp_servers(&self) -> Result<Vec<McpServerRecord>, StoreError> {
-        let mut response = self
-            .db()
-            .query(
+        self.with_connection(|conn| {
+            let mut statement = conn.prepare(
                 r#"
-                SELECT mcp_server_id, display_name, transport_kind, safe_config,
-                  enabled, health_status, auth_status,
-                  count((SELECT VALUE id FROM mcp_tools WHERE mcp_server_id = $parent.mcp_server_id)) AS tool_count
-                FROM mcp_servers;
+                SELECT m.mcp_server_id, m.display_name, m.transport_kind, m.safe_config_json,
+                  m.enabled, m.health_status, m.auth_status, COUNT(t.mcp_tool_id) AS tool_count
+                FROM mcp_servers m
+                LEFT JOIN mcp_tools t ON t.mcp_server_id = m.mcp_server_id
+                GROUP BY m.mcp_server_id
+                ORDER BY m.display_name, m.mcp_server_id
                 "#,
-            )
-            .await?;
-        let rows: Vec<McpServerRow> = response.take(0)?;
-        let mut servers: Vec<McpServerRecord> = rows
-            .into_iter()
-            .map(mcp_server_from_row)
-            .collect::<Result<_, _>>()?;
-        servers.sort_by(|left, right| {
-            left.display_name
-                .cmp(&right.display_name)
-                .then_with(|| left.mcp_server_id.cmp(&right.mcp_server_id))
-        });
-        Ok(servers)
+            )?;
+            let rows = statement.query_map([], mcp_server_from_row)?;
+            rows.collect::<Result<Vec<_>, _>>()
+                .map_err(StoreError::Sqlite)
+        })
+        .await
     }
 
     /// Delete one MCP server plus discovered tool and calibration rows.
@@ -117,28 +109,27 @@ impl NoemaStore {
             return Ok(false);
         }
 
-        let tools = self.list_mcp_tools_for_server(mcp_server_id).await?;
-        for tool in tools {
-            self.db()
-                .query(
-                    r#"
-                    DELETE tool_calibrations WHERE mcp_tool_id = $mcp_tool_id;
-                    DELETE mcp_tools WHERE mcp_tool_id = $mcp_tool_id;
-                    "#,
-                )
-                .bind(("mcp_tool_id", tool.mcp_tool_id))
-                .await?
-                .check()?;
-        }
-        self.db()
-            .query(
+        self.with_connection(|conn| {
+            conn.execute(
                 r#"
-                DELETE mcp_servers WHERE mcp_server_id = $mcp_server_id;
+                DELETE FROM tool_calibrations
+                WHERE mcp_tool_id IN (
+                  SELECT mcp_tool_id FROM mcp_tools WHERE mcp_server_id = ?1
+                )
                 "#,
-            )
-            .bind(("mcp_server_id", mcp_server_id.to_string()))
-            .await?
-            .check()?;
+                params![mcp_server_id],
+            )?;
+            conn.execute(
+                "DELETE FROM mcp_tools WHERE mcp_server_id = ?1",
+                params![mcp_server_id],
+            )?;
+            conn.execute(
+                "DELETE FROM mcp_servers WHERE mcp_server_id = ?1",
+                params![mcp_server_id],
+            )?;
+            Ok(())
+        })
+        .await?;
         Ok(true)
     }
 
@@ -153,21 +144,24 @@ impl NoemaStore {
         health_status: McpServerHealthStatus,
         auth_status: McpServerAuthStatus,
     ) -> Result<McpServerRecord, StoreError> {
-        self.db()
-            .query(
-                r#"
-                UPDATE mcp_servers SET
-                  health_status = $health_status,
-                  auth_status = $auth_status,
-                  updated_at = time::now()
-                WHERE mcp_server_id = $mcp_server_id;
-                "#,
-            )
-            .bind(("mcp_server_id", mcp_server_id.to_string()))
-            .bind(("health_status", health_status.as_str().to_string()))
-            .bind(("auth_status", auth_status.as_str().to_string()))
-            .await?
-            .check()?;
+        self.with_connection(|conn| {
+            conn.execute(
+                format!(
+                    r#"
+                    UPDATE mcp_servers SET
+                      health_status = ?2,
+                      auth_status = ?3,
+                      updated_at = {}
+                    WHERE mcp_server_id = ?1
+                    "#,
+                    now_timestamp_sql()
+                )
+                .as_str(),
+                params![mcp_server_id, health_status.as_str(), auth_status.as_str()],
+            )?;
+            Ok(())
+        })
+        .await?;
 
         self.get_mcp_server(mcp_server_id).await?.ok_or_else(|| {
             StoreError::Schema(format!(
@@ -176,3 +170,13 @@ impl NoemaStore {
         })
     }
 }
+
+const MCP_SERVER_SELECT_WITH_TOOL_COUNT: &str = r#"
+SELECT m.mcp_server_id, m.display_name, m.transport_kind, m.safe_config_json,
+  m.enabled, m.health_status, m.auth_status, COUNT(t.mcp_tool_id) AS tool_count
+FROM mcp_servers m
+LEFT JOIN mcp_tools t ON t.mcp_server_id = m.mcp_server_id
+WHERE m.mcp_server_id = ?1
+GROUP BY m.mcp_server_id
+LIMIT 1
+"#;
