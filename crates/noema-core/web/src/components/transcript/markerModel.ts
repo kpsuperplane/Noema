@@ -191,7 +191,7 @@ export function formatToolDetail(fallback: string, metadata: unknown): string {
 
 export function toolDetailRows(marker: ToolMarkerGroup): ToolDetailRowData[] {
   if (isSuccessfulWebSearchMarker(marker) || isSuccessfulWebFetchMarker(marker)) {
-    return [];
+    return webFallbackDetailRows(marker);
   }
 
   const rows: ToolDetailRowData[] = [];
@@ -277,6 +277,23 @@ function isSuccessfulCanonicalToolResult(metadata: unknown, toolName: string): b
   return actionToolNameFromMetadata(metadata) === toolName && metadata.action.success === true;
 }
 
+function webFallbackDetailRows(marker: ToolMarkerGroup): ToolDetailRowData[] {
+  const display = displayFromMetadata(marker.result?.item.metadata);
+  if (!display) {
+    return [];
+  }
+  const rows: ToolDetailRowData[] = [];
+  const fallbackFrom = stringValue(display.fallbackFrom);
+  const fallbackReason = stringValue(display.fallbackReason);
+  if (fallbackFrom) {
+    rows.push({ label: "Fallback from", value: fallbackFrom });
+  }
+  if (fallbackReason) {
+    rows.push({ label: "Fallback reason", value: fallbackReason });
+  }
+  return rows;
+}
+
 export function toolMarkerTarget(marker: ToolMarkerGroup): string | undefined {
   if (isSuccessfulWebSearchMarker(marker) || isSuccessfulWebFetchMarker(marker)) {
     return (
@@ -316,8 +333,17 @@ function displayToolMetadataPreview(display: Record<string, unknown> | null): st
   appendDisplayRow(rows, "Approval", stringValue(display.approval));
   appendDisplayRow(rows, "Provider", stringValue(display.provider));
   appendDisplayRow(rows, "Reliability", stringValue(display.reliability));
+  appendDisplayRow(rows, "Fallback from", stringValue(display.fallbackFrom));
+  appendDisplayRow(rows, "Fallback reason", stringValue(display.fallbackReason));
   appendDisplayRow(rows, "Result", stringValue(display.result));
   return rows;
+}
+
+function displayFromMetadata(metadata: unknown): Record<string, unknown> | null {
+  if (!isRecord(metadata) || !isRecord(metadata.display)) {
+    return null;
+  }
+  return metadata.display;
 }
 
 function appendDisplayRow(rows: string[], label: string, value: string | null) {

@@ -140,6 +140,10 @@ The next storage slice should stay small and concrete:
   web search should not be treated as a backend until there is a documented
   callable provider API. Firecrawl is only an illustrative future provider
   example, not planned implementation in the current slice.
+- The provider capabilities implementation plan lives at
+  `docs/superpowers/plans/2026-07-07-provider-capabilities.md`; Task 10
+  surfaces provider fallback metadata in transcript displays for first-party
+  web tools without exposing raw provider payload content.
 - Provider tool continuations now use a progress-audited continuation policy:
   the runtime allows longer same-turn tool chains, builds a bounded progress
   digest instead of sending raw tool history to the audit model, surfaces

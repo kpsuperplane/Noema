@@ -208,6 +208,78 @@ describe("toolMarkerLabel", () => {
     assert.deepEqual(toolDetailRows(marker), []);
   });
 
+  test("completed web search marker with provider fallback is expandable", () => {
+    const marker: ToolMarkerGroup = {
+      id: "tool_call:web-fallback",
+      call: {
+        id: "call-entry",
+        type: "activity",
+        item: {
+          kind: "activity",
+          id: "activity:web-call",
+          activity_kind: "tool_call",
+          status: "COMPLETED",
+          title: "Tool call: web.search",
+          summary: "Web search: rust language",
+          metadata: {
+            action: {
+              name: "web.search",
+              payload: { query: "rust language" }
+            },
+            display: {
+              name: "Search web",
+              target: "Web search: rust language"
+            }
+          }
+        }
+      },
+      result: {
+        id: "result-entry",
+        type: "activity",
+        item: {
+          kind: "activity",
+          id: "activity:web-result",
+          activity_kind: "tool_result",
+          status: "COMPLETED",
+          title: "Tool result: web.search",
+          summary: "Found 1 web result",
+          metadata: {
+            action: {
+              name: "web.search",
+              success: true,
+              payload: {
+                provider: "duckduckgo_public",
+                provider_contract: "best_effort_public",
+                fallback_from: "provider_account:openai:default",
+                fallback_reason: "bound provider capability web.search is account_dependent",
+                query: "rust language",
+                summary: "Found 1 web result",
+                results: [{ rank: 1, title: "Rust", url: "https://www.rust-lang.org/", snippet: "Rust language." }]
+              }
+            },
+            display: {
+              name: "Search web",
+              result: "Found 1 web result",
+              provider: "DuckDuckGo public search",
+              reliability: "Best effort",
+              fallbackFrom: "provider_account:openai:default",
+              fallbackReason: "bound provider capability web.search is account_dependent"
+            }
+          }
+        }
+      }
+    };
+
+    assert.equal(toolMarkerExpandable(marker), true);
+    assert.deepEqual(toolDetailRows(marker), [
+      { label: "Fallback from", value: "provider_account:openai:default" },
+      {
+        label: "Fallback reason",
+        value: "bound provider capability web.search is account_dependent"
+      }
+    ]);
+  });
+
   test("completed web fetch marker target keeps the fetched URL visible", () => {
     const marker: ToolMarkerGroup = {
       id: "tool_call:web-fetch",

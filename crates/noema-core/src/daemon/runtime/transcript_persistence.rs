@@ -1032,6 +1032,26 @@ fn tool_result_display(name: Option<&str>, success: Option<bool>, payload: &Valu
                 .and_then(Value::as_str)
                 .map(web_search_contract_label),
         );
+        insert_display_value(
+            &mut display,
+            "fallbackFrom",
+            payload
+                .get("fallback_from")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToString::to_string),
+        );
+        insert_display_value(
+            &mut display,
+            "fallbackReason",
+            payload
+                .get("fallback_reason")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToString::to_string),
+        );
     } else if name == "web.fetch" {
         insert_display_value(
             &mut display,
@@ -1043,6 +1063,26 @@ fn tool_result_display(name: Option<&str>, success: Option<bool>, payload: &Valu
             "model",
             payload
                 .get("summary_model")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToString::to_string),
+        );
+        insert_display_value(
+            &mut display,
+            "fallbackFrom",
+            payload
+                .get("fallback_from")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToString::to_string),
+        );
+        insert_display_value(
+            &mut display,
+            "fallbackReason",
+            payload
+                .get("fallback_reason")
                 .and_then(Value::as_str)
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
@@ -1323,6 +1363,32 @@ mod tests {
     }
 
     #[test]
+    fn web_search_display_shows_provider_fallback_without_raw_payload() {
+        let display = tool_result_display(
+            Some("web.search"),
+            Some(true),
+            &json!({
+                "provider": "duckduckgo_public",
+                "provider_contract": "best_effort_public",
+                "fallback_from": "openai",
+                "fallback_reason": "provider account unauthenticated",
+                "query": "rust learn",
+                "results": [],
+                "summary": "No web results found",
+                "raw_provider_payload": "secret",
+            }),
+        );
+
+        assert_eq!(display["provider"], "DuckDuckGo public search");
+        assert_eq!(display["fallbackFrom"], "openai");
+        assert_eq!(
+            display["fallbackReason"],
+            "provider account unauthenticated"
+        );
+        assert!(!display.to_string().contains("secret"));
+    }
+
+    #[test]
     fn web_fetch_tool_call_display_shows_visible_url() {
         let display = tool_call_display(
             "web.fetch",
@@ -1365,6 +1431,8 @@ mod tests {
             Some(true),
             &json!({
                 "provider": "direct_http",
+                "fallback_from": "provider_account:codex:test",
+                "fallback_reason": "bound provider account does not declare web.fetch",
                 "url": "https://example.com/page",
                 "final_url": "https://example.com/page",
                 "title": "Example",
@@ -1383,6 +1451,11 @@ mod tests {
         assert_eq!(raw_display["name"], "Fetch web");
         assert_eq!(raw_display["access"], "Fetches public web pages");
         assert_eq!(raw_display["result"], "Fetched 12,840 chars");
+        assert_eq!(raw_display["fallbackFrom"], "provider_account:codex:test");
+        assert_eq!(
+            raw_display["fallbackReason"],
+            "bound provider account does not declare web.fetch"
+        );
         assert!(raw_display.get("model").is_none());
         assert!(!raw_display.to_string().contains("secret raw"));
 

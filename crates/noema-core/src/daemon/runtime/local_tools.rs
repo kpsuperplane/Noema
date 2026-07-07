@@ -75,8 +75,17 @@ impl CodexRuntimeActor {
                 .await,
             }
         } else if is_web_search_tool(&call.name) {
-            let result = match self.web_search_runtime_provider().await {
-                Ok(provider) => execute_web_search(&provider, call.call_id.clone(), &call.payload).await,
+            let result = match self.web_search_runtime_provider_resolution().await {
+                Ok((provider, fallback_from, fallback_reason)) => {
+                    let mut result =
+                        execute_web_search(&provider, call.call_id.clone(), &call.payload).await;
+                    insert_web_tool_fallback_metadata(
+                        &mut result.payload,
+                        fallback_from.as_deref(),
+                        fallback_reason.as_deref(),
+                    );
+                    result
+                }
                 Err(message) => WebSearchToolResult {
                     call_id: call.call_id.clone(),
                     name: crate::search::tool::WEB_SEARCH_TOOL.to_string(),
@@ -92,15 +101,21 @@ impl CodexRuntimeActor {
                 result,
             }
         } else if is_web_fetch_tool(&call.name) {
-            let result = match self.web_fetch_runtime_context().await {
-                Ok(context) => {
-                    execute_web_fetch(
+            let result = match self.web_fetch_runtime_execution_context().await {
+                Ok((context, fallback_from, fallback_reason)) => {
+                    let mut result = execute_web_fetch(
                         &self.web_fetch_provider,
                         &context,
                         call.call_id.clone(),
                         &call.payload,
                     )
-                    .await
+                    .await;
+                    insert_web_tool_fallback_metadata(
+                        &mut result.payload,
+                        fallback_from.as_deref(),
+                        fallback_reason.as_deref(),
+                    );
+                    result
                 }
                 Err(message) => WebFetchToolResult {
                     call_id: call.call_id.clone(),
@@ -164,21 +179,72 @@ impl CodexRuntimeActor {
         })
     }
 
-    async fn web_search_runtime_provider(&self) -> Result<SearchRuntimeProvider, String> {
+    async fn web_fetch_runtime_execution_context(
+        &self,
+    ) -> Result<(FetchRuntimeContext, Option<String>, Option<String>), String> {
+        let resolved = self
+            .resolved_web_fetch_provider()
+            .await
+            .map_err(|_| "web.fetch provider binding could not be resolved".to_string())?;
+        if resolved.provider_kind != crate::web_fetch::types::DIRECT_HTTP_PROVIDER_ID {
+            return Err(format!(
+                "web.fetch provider '{}' is not available in this daemon",
+                resolved.provider_kind
+            ));
+        }
+        let context = self.web_fetch_runtime_context().await?;
+        Ok((context, resolved.fallback_from, resolved.fallback_reason))
+    }
+
+    async fn web_search_runtime_provider_resolution(
+        &self,
+    ) -> Result<(SearchRuntimeProvider, Option<String>, Option<String>), String> {
         let resolved = self
             .resolved_web_search_provider()
             .await
             .map_err(|_| "web.search provider binding could not be resolved".to_string())?;
 
         match resolved.provider_kind.as_str() {
-            DUCKDUCKGO_PUBLIC_PROVIDER_ID => Ok(self.search_provider.clone()),
-            crate::search::openai_hosted::OPENAI_HOSTED_SEARCH_PROVIDER_ID => Err(
-                "OpenAI hosted web search provider is not available in this daemon".to_string(),
-            ),
+            DUCKDUCKGO_PUBLIC_PROVIDER_ID => Ok((
+                self.search_provider.clone(),
+                resolved.fallback_from,
+                resolved.fallback_reason,
+            )),
+            crate::search::openai_hosted::OPENAI_HOSTED_SEARCH_PROVIDER_ID => {
+                Err("OpenAI hosted web search provider is not available in this daemon".to_string())
+            }
             provider_kind => Err(format!(
                 "web.search provider '{provider_kind}' is not available in this daemon"
             )),
         }
+    }
+}
+
+fn insert_web_tool_fallback_metadata(
+    payload: &mut Value,
+    fallback_from: Option<&str>,
+    fallback_reason: Option<&str>,
+) {
+    let Some(object) = payload.as_object_mut() else {
+        return;
+    };
+    if let Some(fallback_from) = fallback_from
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        object.insert(
+            "fallback_from".to_string(),
+            Value::String(fallback_from.to_string()),
+        );
+    }
+    if let Some(fallback_reason) = fallback_reason
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        object.insert(
+            "fallback_reason".to_string(),
+            Value::String(fallback_reason.to_string()),
+        );
     }
 }
 
@@ -387,13 +453,23 @@ mod tests {
 
     use crate::{
         NewAuxiliaryModelPreference, ProviderError, WEB_FETCH_SUMMARIZER_TASK_ID,
-        daemon::runtime::{actor::CodexRuntimeActor, handle::RuntimeModelProvider},
+        daemon::{
+            agent_onboarding::AgentPromptIdentity,
+            runtime::{
+                actor::CodexRuntimeActor,
+                handle::RuntimeModelProvider,
+                model_tools::ModelTools,
+                tool_lifecycle::LocalToolCall,
+                turn::{ExplicitMemoryOutcome, SuccessfulProviderTurn},
+            },
+        },
         provider::{
-            DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateRequest, GenerateResponse,
-            GenerateResponseItem, GenerateResponseStatus, GenerateStreamEvent,
+            DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateActionItem, GenerateRequest,
+            GenerateResponse, GenerateResponseItem, GenerateResponseStatus, GenerateStreamEvent,
             ProviderToolCapabilities,
         },
     };
+    use serde_json::{Value, json};
 
     #[derive(Debug)]
     struct LocalToolTestProvider {
@@ -458,6 +534,115 @@ mod tests {
                 requests,
             }
         }
+    }
+
+    fn test_turn() -> SuccessfulProviderTurn {
+        SuccessfulProviderTurn {
+            conversation_id: "conversation:test".to_string(),
+            turn_id: "turn:test".to_string(),
+            turn_index: 1,
+            user_item_id: "item:user:test".to_string(),
+            user_input: "test".to_string(),
+            cwd: None,
+            provider_kind: "codex".to_string(),
+            model: Some("gpt-test".to_string()),
+            initial_stream_id: "stream:test".to_string(),
+            response: GenerateResponse {
+                responses: Vec::new(),
+                tool_calls: Vec::new(),
+                memory_proposals: Vec::new(),
+                reasoning_items: Vec::new(),
+                response_status: GenerateResponseStatus::Final,
+                provider: "codex".to_string(),
+                model: "gpt-test".to_string(),
+                response_id: None,
+                usage: None,
+            },
+            explicit_memory_outcome: ExplicitMemoryOutcome::None,
+            agent_identity: AgentPromptIdentity {
+                agent_id: "agent:primary".to_string(),
+                display_name: None,
+            },
+            tool_capabilities: ProviderToolCapabilities::default(),
+            continuation_model_tools: ModelTools {
+                native: Vec::new(),
+                legacy_builtin_envelope_tools: Vec::new(),
+                prompt_rows: Vec::new(),
+                unavailable_rows: Vec::new(),
+            },
+            rendered_tools: String::new(),
+            rendered_continuation_tools: String::new(),
+        }
+    }
+
+    fn test_tool_call(name: &str, payload: Value) -> LocalToolCall {
+        LocalToolCall {
+            output_index: 0,
+            call_id: Some("call:test".to_string()),
+            provider_call_id: Some("provider_call:test".to_string()),
+            provider_name: Some("provider_tool:test".to_string()),
+            name: name.to_string(),
+            payload,
+        }
+    }
+
+    async fn insert_provider_account_without_web_capabilities(
+        store: &crate::NoemaStore,
+        provider_account_id: &str,
+    ) {
+        store
+            .db()
+            .query(
+                r#"
+                UPSERT type::record('provider_accounts', 'codex_runtime_test') SET
+                  provider_account_id = $provider_account_id,
+                  provider_kind = 'codex',
+                  account_key = 'runtime-test',
+                  display_name = 'codex runtime test',
+                  auth_method = 'secret_input',
+                  is_active = true,
+                  is_default = false,
+                  status = 'authenticated',
+                  metadata = {},
+                  updated_at = time::now();
+                "#,
+            )
+            .bind(("provider_account_id", provider_account_id.to_string()))
+            .await
+            .expect("insert provider account")
+            .check()
+            .expect("provider account query check");
+    }
+
+    async fn insert_provider_capability_binding(
+        store: &crate::NoemaStore,
+        tool_name: &str,
+        provider_account_id: &str,
+    ) {
+        let record_id = format!("{}_binding", tool_name.replace('.', "_"));
+        store
+            .db()
+            .query(
+                r#"
+                UPSERT type::record('provider_capability_bindings', $record_id) SET
+                  binding_id = $binding_id,
+                  tool_name = $tool_name,
+                  capability_id = $tool_name,
+                  provider_account_id = $provider_account_id,
+                  updated_at = time::now();
+                "#,
+            )
+            .bind(("record_id", record_id))
+            .bind((
+                "binding_id",
+                format!("provider_capability_binding:{tool_name}:{tool_name}"),
+            ))
+            .bind(("tool_name", tool_name.to_string()))
+            .bind(("provider_account_id", provider_account_id.to_string()))
+            .await
+            .expect("insert provider capability binding")
+            .check()
+            .expect("provider capability binding query check");
     }
 
     #[tokio::test]
@@ -634,7 +819,7 @@ mod tests {
         .expect("actor");
 
         let result = actor
-            .web_search_runtime_provider()
+            .web_search_runtime_provider_resolution()
             .await
             .expect_err("openai runtime search provider should be unavailable");
 
@@ -642,5 +827,105 @@ mod tests {
             result,
             "OpenAI hosted web search provider is not available in this daemon"
         );
+    }
+
+    #[tokio::test]
+    async fn web_search_local_tool_result_payload_preserves_fallback_metadata() {
+        let store = crate::store::tests::test_store().await;
+        insert_provider_account_without_web_capabilities(&store, "provider_account:codex:test")
+            .await;
+        insert_provider_capability_binding(&store, "web.search", "provider_account:codex:test")
+            .await;
+        let actor = CodexRuntimeActor::new(
+            "codex".to_string(),
+            HashMap::from([(
+                "codex".to_string(),
+                Arc::new(LocalToolTestProvider::new(Some("codex-tool-default")))
+                    as Arc<dyn RuntimeModelProvider>,
+            )]),
+            store.clone(),
+            store.system_error_logger(),
+        )
+        .await
+        .expect("actor");
+
+        let result = actor
+            .execute_local_tool(
+                &test_turn(),
+                &AgentPromptIdentity {
+                    agent_id: "agent:primary".to_string(),
+                    display_name: None,
+                },
+                &test_tool_call(
+                    "web.search",
+                    json!({
+                        "query": "   ",
+                    }),
+                ),
+            )
+            .await;
+
+        let GenerateActionItem::ToolResult { payload, .. } =
+            super::local_tool_result_action_item(&result)
+        else {
+            panic!("expected tool result action item");
+        };
+
+        assert_eq!(payload["fallback_from"], "provider_account:codex:test");
+        assert_eq!(
+            payload["fallback_reason"],
+            "bound provider account does not declare web.search"
+        );
+        assert_eq!(payload["error"], "query is required");
+    }
+
+    #[tokio::test]
+    async fn web_fetch_local_tool_result_payload_preserves_fallback_metadata() {
+        let store = crate::store::tests::test_store().await;
+        insert_provider_account_without_web_capabilities(&store, "provider_account:codex:test")
+            .await;
+        insert_provider_capability_binding(&store, "web.fetch", "provider_account:codex:test")
+            .await;
+        let actor = CodexRuntimeActor::new(
+            "codex".to_string(),
+            HashMap::from([(
+                "codex".to_string(),
+                Arc::new(LocalToolTestProvider::new(Some("codex-tool-default")))
+                    as Arc<dyn RuntimeModelProvider>,
+            )]),
+            store.clone(),
+            store.system_error_logger(),
+        )
+        .await
+        .expect("actor");
+
+        let result = actor
+            .execute_local_tool(
+                &test_turn(),
+                &AgentPromptIdentity {
+                    agent_id: "agent:primary".to_string(),
+                    display_name: None,
+                },
+                &test_tool_call(
+                    "web.fetch",
+                    json!({
+                        "url": "",
+                    }),
+                ),
+            )
+            .await;
+
+        let GenerateActionItem::ToolResult { payload, .. } =
+            super::local_tool_result_action_item(&result)
+        else {
+            panic!("expected tool result action item");
+        };
+
+        assert_eq!(payload["fallback_from"], "provider_account:codex:test");
+        assert_eq!(
+            payload["fallback_reason"],
+            "bound provider account does not declare web.fetch"
+        );
+        assert_eq!(payload["error"], "url is required");
     }
 }
