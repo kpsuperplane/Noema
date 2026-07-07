@@ -22,6 +22,7 @@ impl CodexRuntimeActor {
         let conversation = ActiveConversation {
             provider_kind: selection.provider_kind,
             model: selection.model,
+            reasoning_effort: selection.reasoning_effort,
             cwd,
             next_turn_index,
         };
@@ -39,11 +40,13 @@ pub(super) async fn provider_selection_for_conversation(
         return Ok(ConversationProviderSelection {
             provider_kind: default_provider_kind.to_string(),
             model: None,
+            reasoning_effort: None,
         });
     };
     Ok(ConversationProviderSelection {
         provider_kind: preference.provider_kind,
         model: Some(preference.model_profile),
+        reasoning_effort: preference.reasoning_effort,
     })
 }
 
@@ -51,4 +54,5 @@ pub(super) async fn provider_selection_for_conversation(
 pub(super) struct ConversationProviderSelection {
     pub(super) provider_kind: String,
     pub(super) model: Option<String>,
+    pub(super) reasoning_effort: Option<crate::provider::ReasoningEffort>,
 }

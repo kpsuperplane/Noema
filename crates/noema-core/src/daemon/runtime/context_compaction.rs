@@ -31,6 +31,7 @@ pub(super) struct CompactionRequest<'a> {
     pub(super) conversation_id: &'a str,
     pub(super) provider_kind: &'a str,
     pub(super) model_profile: Option<&'a str>,
+    pub(super) reasoning_effort: Option<crate::provider::ReasoningEffort>,
     pub(super) budget: ContextBudget,
     pub(super) mode: CompactionMode,
 }
@@ -133,6 +134,7 @@ pub(super) async fn compact_active_summary_smaller(
         instructions,
         input,
         target_tokens,
+        request.reasoning_effort,
     )
     .await?;
     let summary_text = parse_compaction_summary(response)?;
@@ -235,6 +237,7 @@ async fn compact_context_with_target(
         instructions,
         input,
         target_tokens,
+        request.reasoning_effort,
     )
     .await?;
     let summary_text = parse_compaction_summary(response)?;
@@ -270,6 +273,7 @@ async fn generate_compaction_summary(
     instructions: String,
     input: String,
     target_tokens: u32,
+    reasoning_effort: Option<crate::provider::ReasoningEffort>,
 ) -> Result<GenerateResponse, ProviderError> {
     let mut ignore_event = |_: GenerateStreamEvent| {};
     provider
@@ -281,6 +285,7 @@ async fn generate_compaction_summary(
                 instructions: Some(instructions),
                 options: GenerateOptions {
                     max_output_tokens: Some(target_tokens),
+                    reasoning_effort,
                     require_noema_response: false,
                     ..GenerateOptions::default()
                 },

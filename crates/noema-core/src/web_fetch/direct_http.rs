@@ -495,6 +495,7 @@ mod tests {
             summarizer_provider_kind: "codex".to_string(),
             summarizer_provider: Arc::new(StaticSummaryProvider),
             summarizer_model: "gpt-5.4-mini".to_string(),
+            summarizer_reasoning_effort: None,
         }
     }
 

@@ -153,6 +153,7 @@ impl CodexRuntimeActor {
 pub(in crate::daemon) struct ActiveConversation {
     pub(in crate::daemon) provider_kind: String,
     pub(in crate::daemon) model: Option<String>,
+    pub(in crate::daemon) reasoning_effort: Option<crate::provider::ReasoningEffort>,
     pub(in crate::daemon) cwd: Option<String>,
     pub(in crate::daemon) next_turn_index: u64,
 }

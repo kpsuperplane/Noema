@@ -184,6 +184,7 @@ impl CodexRuntimeActor {
                 summarizer_provider_kind: preference.provider_kind,
                 summarizer_provider,
                 summarizer_model: preference.model_profile,
+                summarizer_reasoning_effort: preference.reasoning_effort,
             });
         }
 
@@ -194,6 +195,7 @@ impl CodexRuntimeActor {
             summarizer_provider_kind: self.default_provider_kind.clone(),
             summarizer_provider,
             summarizer_model: DEFAULT_TOOL_CLASSIFICATION_MODEL.to_string(),
+            summarizer_reasoning_effort: None,
         })
     }
 
@@ -682,6 +684,7 @@ mod tests {
             cwd: None,
             provider_kind: "codex".to_string(),
             model: Some("gpt-test".to_string()),
+            reasoning_effort: None,
             initial_stream_id: "stream:test".to_string(),
             response: GenerateResponse {
                 responses: Vec::new(),
@@ -862,6 +865,47 @@ mod tests {
 
         assert_eq!(context.summarizer_provider_kind, "foundation_local");
         assert_eq!(context.summarizer_model, "custom-fetch-summary");
+    }
+
+    #[tokio::test]
+    async fn web_fetch_runtime_context_uses_saved_summarizer_reasoning_effort() {
+        let store = crate::store::tests::test_store().await;
+        let account = store
+            .ensure_default_provider_account()
+            .await
+            .expect("account");
+        store
+            .upsert_auxiliary_model_preference(NewAuxiliaryModelPreference {
+                task_id: WEB_FETCH_SUMMARIZER_TASK_ID.to_string(),
+                provider_kind: "codex".to_string(),
+                provider_account_id: account.provider_account_id,
+                model_profile: "gpt-5.5".to_string(),
+                reasoning_effort: Some(crate::provider::ReasoningEffort::Low),
+            })
+            .await
+            .expect("preference");
+        let actor = CodexRuntimeActor::new(
+            "codex".to_string(),
+            HashMap::from([(
+                "codex".to_string(),
+                Arc::new(LocalToolTestProvider::new(Some("codex-tool-default")))
+                    as Arc<dyn RuntimeModelProvider>,
+            )]),
+            store.clone(),
+            store.system_error_logger(),
+        )
+        .await
+        .expect("actor");
+
+        let context = actor
+            .web_fetch_runtime_context()
+            .await
+            .expect("web fetch context");
+
+        assert_eq!(
+            context.summarizer_reasoning_effort,
+            Some(crate::provider::ReasoningEffort::Low)
+        );
     }
 
     #[tokio::test]

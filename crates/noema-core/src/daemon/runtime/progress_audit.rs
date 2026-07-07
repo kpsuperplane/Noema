@@ -32,6 +32,7 @@ pub(super) enum ProgressAuditError {
 struct ProgressAuditModel {
     provider: Arc<dyn RuntimeModelProvider>,
     model_profile: String,
+    reasoning_effort: Option<crate::provider::ReasoningEffort>,
 }
 
 impl CodexRuntimeActor {
@@ -56,6 +57,7 @@ impl CodexRuntimeActor {
                     instructions: Some(build_progress_audit_prompt()),
                     options: GenerateOptions {
                         require_noema_response: false,
+                        reasoning_effort: audit_model.reasoning_effort,
                         ..GenerateOptions::default()
                     },
                     tools: Vec::new(),
@@ -100,6 +102,7 @@ impl CodexRuntimeActor {
             return Ok(ProgressAuditModel {
                 provider,
                 model_profile: preference.model_profile,
+                reasoning_effort: preference.reasoning_effort,
             });
         }
 
@@ -117,6 +120,7 @@ impl CodexRuntimeActor {
         Ok(ProgressAuditModel {
             provider,
             model_profile,
+            reasoning_effort: None,
         })
     }
 }
@@ -204,6 +208,15 @@ mod tests {
                 default_model: default_model.map(str::to_string),
                 requests: Arc::new(Mutex::new(Vec::new())),
             }
+        }
+
+        fn last_request(&self) -> GenerateRequest {
+            self.requests
+                .lock()
+                .expect("requests")
+                .last()
+                .cloned()
+                .expect("progress audit request")
         }
     }
 
@@ -331,5 +344,47 @@ mod tests {
 
         let requests = provider.requests.lock().expect("requests");
         assert_eq!(requests[0].model.as_deref(), Some("default"));
+    }
+
+    #[tokio::test]
+    async fn progress_audit_uses_saved_reasoning_effort() {
+        let store = crate::store::tests::test_store().await;
+        let account = store
+            .ensure_default_provider_account()
+            .await
+            .expect("account");
+        store
+            .upsert_auxiliary_model_preference(crate::NewAuxiliaryModelPreference {
+                task_id: crate::store::TOOL_PROGRESS_AUDIT_TASK_ID.to_string(),
+                provider_kind: "codex".to_string(),
+                provider_account_id: account.provider_account_id,
+                model_profile: "gpt-5.5".to_string(),
+                reasoning_effort: Some(crate::provider::ReasoningEffort::Medium),
+            })
+            .await
+            .expect("preference");
+
+        let provider = Arc::new(ProgressAuditTestProvider::new(Some("gpt-5.4-mini")));
+        let actor = CodexRuntimeActor::new(
+            "codex".to_string(),
+            HashMap::from([(
+                "codex".to_string(),
+                provider.clone() as Arc<dyn RuntimeModelProvider>,
+            )]),
+            store.clone(),
+            store.system_error_logger(),
+        )
+        .await
+        .expect("actor");
+
+        actor
+            .run_progress_audit(&test_digest())
+            .await
+            .expect("audit");
+
+        assert_eq!(
+            provider.last_request().options.reasoning_effort,
+            Some(crate::provider::ReasoningEffort::Medium)
+        );
     }
 }

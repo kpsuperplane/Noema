@@ -64,12 +64,11 @@ async fn summarize_single_pass(
 ) -> Result<String, FetchError> {
     let prompt = summarizer_prompt(url, title, markdown, max_chars);
     let mut ignored_events = |_| {};
+    let mut request = GenerateRequest::text(prompt).with_model(context.summarizer_model.clone());
+    request.options.reasoning_effort = context.summarizer_reasoning_effort;
     let response = context
         .summarizer_provider
-        .generate_streaming(
-            GenerateRequest::text(prompt).with_model(context.summarizer_model.clone()),
-            &mut ignored_events,
-        )
+        .generate_streaming(request, &mut ignored_events)
         .await
         .map_err(|_| FetchError::Summarization)?;
     let summary = response.assistant_text().trim().to_string();

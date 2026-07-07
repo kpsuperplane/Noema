@@ -256,6 +256,87 @@ async fn primary_agent_runtime_preference_supplies_turn_model() {
 }
 
 #[tokio::test]
+async fn primary_agent_runtime_preference_supplies_reasoning_effort() {
+    let store = crate::store::tests::test_store().await;
+    store.ensure_default_actors().await.expect("actors");
+    let account = store
+        .ensure_default_provider_account()
+        .await
+        .expect("codex account");
+    store
+        .upsert_agent_runtime_preference(crate::NewAgentRuntimePreference {
+            agent_id: "agent:primary".to_string(),
+            provider_kind: "codex".to_string(),
+            provider_account_id: account.provider_account_id,
+            model_profile: "gpt-5.5".to_string(),
+            reasoning_effort: Some(crate::provider::ReasoningEffort::High),
+        })
+        .await
+        .expect("preference");
+
+    let codex_provider = Arc::new(CapturingProvider::default());
+    let runtime =
+        CodexRuntimeHandle::spawn_with_provider_kind(codex_provider.clone(), store, "codex")
+            .await
+            .expect("runtime");
+
+    let started = runtime
+        .start_primary_conversation(None)
+        .await
+        .expect("conversation");
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    runtime
+        .turn(started.conversation_id, "hello".to_string(), tx)
+        .await
+        .expect("turn");
+
+    while rx.recv().await.is_some() {}
+
+    runtime.shutdown().await;
+
+    let requests = codex_provider.requests.lock().expect("codex requests");
+    assert_eq!(
+        requests
+            .last()
+            .and_then(|request| request.options.reasoning_effort),
+        Some(crate::provider::ReasoningEffort::High)
+    );
+}
+
+#[tokio::test]
+async fn primary_agent_default_provider_sends_no_reasoning_effort() {
+    let store = crate::store::tests::test_store().await;
+    store.ensure_default_actors().await.expect("actors");
+    let codex_provider = Arc::new(CapturingProvider::default());
+    let runtime =
+        CodexRuntimeHandle::spawn_with_provider_kind(codex_provider.clone(), store, "codex")
+            .await
+            .expect("runtime");
+
+    let started = runtime
+        .start_primary_conversation(None)
+        .await
+        .expect("conversation");
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    runtime
+        .turn(started.conversation_id, "hello".to_string(), tx)
+        .await
+        .expect("turn");
+
+    while rx.recv().await.is_some() {}
+
+    runtime.shutdown().await;
+
+    let requests = codex_provider.requests.lock().expect("codex requests");
+    assert_eq!(
+        requests
+            .last()
+            .and_then(|request| request.options.reasoning_effort),
+        None
+    );
+}
+
+#[tokio::test]
 async fn native_provider_turn_request_includes_builtin_tools() {
     let store = crate::store::tests::test_store().await;
     store.ensure_default_actors().await.expect("actors");

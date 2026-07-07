@@ -193,6 +193,7 @@ impl CodexRuntimeActor {
                     instructions: Some(instructions),
                     options: GenerateOptions {
                         require_noema_response: true,
+                        reasoning_effort: conversation.reasoning_effort,
                         prompt_cache_retention: prompt_cache_retention_for(tool_capabilities),
                         ..GenerateOptions::default()
                     },
@@ -415,6 +416,7 @@ impl CodexRuntimeActor {
                     conversation_id: &conversation_id,
                     provider_kind: &conversation.provider_kind,
                     model_profile: conversation.model.as_deref(),
+                    reasoning_effort: conversation.reasoning_effort,
                     budget: planned_context.budget,
                     mode: super::context_compaction::CompactionMode::Foreground,
                 },
@@ -481,6 +483,7 @@ impl CodexRuntimeActor {
                         conversation_id: &conversation_id,
                         provider_kind: &conversation.provider_kind,
                         model_profile: conversation.model.as_deref(),
+                        reasoning_effort: conversation.reasoning_effort,
                         budget: planned_context.budget,
                         mode: super::context_compaction::CompactionMode::Foreground,
                     },
@@ -630,6 +633,7 @@ impl CodexRuntimeActor {
                     instructions: Some(planned_context.instructions),
                     options: GenerateOptions {
                         max_output_tokens: planned_context.budget.output_reserve_tokens(),
+                        reasoning_effort: conversation.reasoning_effort,
                         require_noema_response: true,
                         prompt_cache_retention: prompt_cache_retention_for(tool_capabilities),
                         ..GenerateOptions::default()
@@ -672,6 +676,7 @@ impl CodexRuntimeActor {
                             cwd: conversation.cwd.clone(),
                             provider_kind: conversation.provider_kind.clone(),
                             model: conversation.model.clone(),
+                            reasoning_effort: conversation.reasoning_effort,
                             initial_stream_id: initial_stream_id.clone(),
                             response,
                             explicit_memory_outcome,
@@ -705,6 +710,7 @@ impl CodexRuntimeActor {
                     conversation_id: conversation_id.clone(),
                     provider_kind: conversation.provider_kind.clone(),
                     model_profile: conversation.model.clone(),
+                    reasoning_effort: conversation.reasoning_effort,
                     next_turn_index: turn_index.saturating_add(1),
                     agent_identity: agent_identity_for_background,
                     rendered_tools: rendered_tools.clone(),
@@ -1165,6 +1171,7 @@ impl CodexRuntimeActor {
                             prompt_cache_retention: prompt_cache_retention_for(
                                 turn.tool_capabilities,
                             ),
+                            reasoning_effort: turn.reasoning_effort,
                             ..GenerateOptions::default()
                         },
                         tools: turn.continuation_model_tools.native.clone(),
@@ -1285,6 +1292,7 @@ impl CodexRuntimeActor {
                 cwd: turn.cwd.clone(),
                 provider_kind: turn.provider_kind.clone(),
                 model: turn.model.clone(),
+                reasoning_effort: turn.reasoning_effort,
                 initial_stream_id: continuation_stream_id.clone(),
                 response: GenerateResponse {
                     responses: continuation_response.responses.clone(),
@@ -1489,6 +1497,7 @@ impl CodexRuntimeActor {
                     options: GenerateOptions {
                         require_noema_response: true,
                         prompt_cache_retention: prompt_cache_retention_for(turn.tool_capabilities),
+                        reasoning_effort: turn.reasoning_effort,
                         ..GenerateOptions::default()
                     },
                     tools: Vec::new(),
@@ -1620,6 +1629,7 @@ impl CodexRuntimeActor {
                 conversation_id,
                 provider_kind,
                 model_profile,
+                reasoning_effort,
                 next_turn_index,
                 agent_identity,
                 rendered_tools,
@@ -1657,6 +1667,7 @@ impl CodexRuntimeActor {
                     conversation_id: &conversation_id,
                     provider_kind: &provider_kind,
                     model_profile: model_profile.as_deref(),
+                    reasoning_effort,
                     budget: plan.budget,
                     mode: super::context_compaction::CompactionMode::Background,
                 },
@@ -1719,6 +1730,7 @@ struct BackgroundContextCompactionSchedule {
     conversation_id: String,
     provider_kind: String,
     model_profile: Option<String>,
+    reasoning_effort: Option<crate::provider::ReasoningEffort>,
     next_turn_index: u64,
     agent_identity: AgentPromptIdentity,
     rendered_tools: String,
@@ -1734,6 +1746,7 @@ pub(in crate::daemon) struct SuccessfulProviderTurn {
     pub(in crate::daemon) cwd: Option<String>,
     pub(in crate::daemon) provider_kind: String,
     pub(in crate::daemon) model: Option<String>,
+    pub(in crate::daemon) reasoning_effort: Option<crate::provider::ReasoningEffort>,
     pub(in crate::daemon) initial_stream_id: String,
     pub(in crate::daemon) response: GenerateResponse,
     pub(in crate::daemon) explicit_memory_outcome: ExplicitMemoryOutcome,
