@@ -84,7 +84,6 @@ export function ModelPreferenceSelect({
             placement="below"
             placeholder={providerOptions.length === 0 ? "No models available" : "Select a model"}
             value={selectedValue || undefined}
-            width={320}
             isDisabled={disabled}
             onChange={(value) => {
               const nextSelection = parseModelOptionValue(value);
@@ -116,7 +115,6 @@ export function ModelPreferenceSelect({
               options={reasoningOptions}
               placement="below"
               value={selectedReasoningEffort ?? undefined}
-              width={150}
               isDisabled={isDisabled || saving}
               onChange={(value) => {
                 void onSave({
