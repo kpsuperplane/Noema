@@ -93,6 +93,35 @@ impl ResponsesTool {
     }
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
+#[derive(Debug, Serialize)]
+pub(crate) struct HostedWebSearchRequest {
+    pub model: String,
+    pub input: String,
+    pub tools: Vec<HostedWebSearchTool>,
+    pub store: bool,
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+#[derive(Debug, Serialize)]
+pub(crate) struct HostedWebSearchTool {
+    #[serde(rename = "type")]
+    pub kind: &'static str,
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+impl HostedWebSearchRequest {
+    #[must_use]
+    pub(crate) fn new(model: String, query: &str) -> Self {
+        Self {
+            model,
+            input: format!("Search the web for this query and return cited sources: {query}"),
+            tools: vec![HostedWebSearchTool { kind: "web_search" }],
+            store: false,
+        }
+    }
+}
+
 /// Request-local provider-safe tool names for OpenAI-compatible adapters.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct ResponsesToolNameMap {
@@ -1025,6 +1054,18 @@ mod tests {
         );
         assert_eq!(value["tool_choice"], "auto");
         assert_eq!(value["parallel_tool_calls"], false);
+    }
+
+    #[test]
+    fn hosted_web_search_request_serializes_openai_tool() {
+        let value = serde_json::to_value(HostedWebSearchRequest::new(
+            "gpt-test".to_string(),
+            "rust learn",
+        ))
+        .expect("json");
+
+        assert_eq!(value["tools"][0]["type"], "web_search");
+        assert_eq!(value["store"], false);
     }
 
     #[test]
