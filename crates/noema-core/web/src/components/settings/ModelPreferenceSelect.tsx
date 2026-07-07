@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, type CSSProperties } from "react";
 import { Selector, type SelectorOptionType } from "@astryxdesign/core/Selector";
 import * as stylex from "@stylexjs/stylex";
 import type { ReasoningEffort } from "@/generated/graphql";
@@ -7,6 +7,11 @@ import type {
   ModelPreferenceSaveInput,
   ModelProviderOption
 } from "./modelPreferenceTypes";
+
+const selectorTransitionStyle = {
+  transition:
+    "opacity 140ms ease, border-color 140ms ease, box-shadow 140ms ease, background-color 140ms ease"
+} satisfies CSSProperties;
 
 export function ModelPreferenceSelect({
   options,
@@ -84,6 +89,7 @@ export function ModelPreferenceSelect({
             placement="below"
             placeholder={providerOptions.length === 0 ? "No models available" : "Select a model"}
             value={selectedValue || undefined}
+            style={selectorTransitionStyle}
             isDisabled={disabled}
             onChange={(value) => {
               const nextSelection = parseModelOptionValue(value);
@@ -115,6 +121,7 @@ export function ModelPreferenceSelect({
               options={reasoningOptions}
               placement="below"
               value={selectedReasoningEffort ?? undefined}
+              style={selectorTransitionStyle}
               isDisabled={isDisabled || saving}
               onChange={(value) => {
                 void onSave({
