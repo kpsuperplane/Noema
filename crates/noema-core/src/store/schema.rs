@@ -67,6 +67,16 @@ DEFINE FIELD OVERWRITE updated_at ON TABLE provider_accounts TYPE datetime DEFAU
 DEFINE INDEX IF NOT EXISTS provider_accounts_account_id ON TABLE provider_accounts COLUMNS provider_account_id UNIQUE;
 DEFINE INDEX IF NOT EXISTS provider_accounts_kind_key ON TABLE provider_accounts COLUMNS provider_kind, account_key UNIQUE;
 
+DEFINE TABLE IF NOT EXISTS provider_capability_bindings SCHEMAFULL;
+DEFINE FIELD OVERWRITE binding_id ON TABLE provider_capability_bindings TYPE string;
+DEFINE FIELD OVERWRITE tool_name ON TABLE provider_capability_bindings TYPE string ASSERT $value INSIDE ['web.search', 'web.fetch'];
+DEFINE FIELD OVERWRITE capability_id ON TABLE provider_capability_bindings TYPE string ASSERT ((tool_name = 'web.search' AND $value = 'web.search') OR (tool_name = 'web.fetch' AND $value = 'web.fetch'));
+DEFINE FIELD OVERWRITE provider_account_id ON TABLE provider_capability_bindings TYPE string;
+DEFINE FIELD OVERWRITE created_at ON TABLE provider_capability_bindings TYPE datetime DEFAULT time::now();
+DEFINE FIELD OVERWRITE updated_at ON TABLE provider_capability_bindings TYPE datetime DEFAULT time::now();
+DEFINE INDEX IF NOT EXISTS provider_capability_bindings_binding_id ON TABLE provider_capability_bindings COLUMNS binding_id UNIQUE;
+DEFINE INDEX IF NOT EXISTS provider_capability_bindings_unique_tool_capability ON TABLE provider_capability_bindings COLUMNS tool_name, capability_id UNIQUE;
+
 DEFINE TABLE IF NOT EXISTS mcp_servers SCHEMAFULL;
 DEFINE FIELD OVERWRITE mcp_server_id ON TABLE mcp_servers TYPE string;
 DEFINE FIELD OVERWRITE display_name ON TABLE mcp_servers TYPE string;

@@ -11,6 +11,7 @@ mod ids;
 mod mcp;
 mod ontology;
 mod provider_accounts;
+mod provider_capability_bindings;
 mod retrieval;
 mod runtime;
 mod schema;
@@ -43,5 +44,6 @@ pub use ontology::{
     EntityCandidate, EntityType, PredicateProposalCandidate, PredicateProposalFilter,
     PredicateProposalRecord, PredicateRecord,
 };
+pub use provider_capability_bindings::ProviderCapabilityBindingRecord;
 pub use retrieval::{ClaimRetrievalResult, RetrievedClaim};
 pub use runtime::{NoemaStore, StoreConfig};

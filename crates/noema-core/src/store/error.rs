@@ -20,6 +20,12 @@ pub enum StoreError {
         /// Stored value.
         value: String,
     },
+    /// Store write/read flow observed an unexpected internal inconsistency.
+    #[error("store invariant violated: {message}")]
+    InvariantViolation {
+        /// Human-readable invariant failure message.
+        message: String,
+    },
     /// A provider account expected to exist was not found.
     #[error("provider account not found: {provider_account_id}")]
     ProviderAccountNotFound {
@@ -87,7 +93,10 @@ impl StoreError {
     /// Return true when this store error represents a Noema schema invariant failure.
     #[must_use]
     pub fn is_system_invariant(&self) -> bool {
-        matches!(self, Self::Schema(_) | Self::InvalidEnum { .. })
+        matches!(
+            self,
+            Self::Schema(_) | Self::InvalidEnum { .. } | Self::InvariantViolation { .. }
+        )
     }
 
     /// Convert this store invariant into a system error event.

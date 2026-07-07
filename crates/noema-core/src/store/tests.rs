@@ -528,14 +528,18 @@ async fn provider_accounts_include_derived_capabilities() {
         .expect("default account");
 
     assert_eq!(account.provider_kind, "codex");
-    assert!(account
-        .capabilities
-        .iter()
-        .any(|capability| capability.capability_id.as_str() == "model.generate"));
-    assert!(!account
-        .capabilities
-        .iter()
-        .any(|capability| capability.capability_id.as_str() == "web.search"));
+    assert!(
+        account
+            .capabilities
+            .iter()
+            .any(|capability| capability.capability_id.as_str() == "model.generate")
+    );
+    assert!(
+        !account
+            .capabilities
+            .iter()
+            .any(|capability| capability.capability_id.as_str() == "web.search")
+    );
 
     let system_accounts = store.system_provider_accounts();
     assert!(system_accounts.iter().any(|account| {
@@ -552,6 +556,166 @@ async fn provider_accounts_include_derived_capabilities() {
                 .iter()
                 .any(|capability| capability.capability_id.as_str() == "web.fetch")
     }));
+}
+
+#[tokio::test]
+async fn provider_capability_binding_round_trips_web_search() {
+    let store = test_store().await;
+    store.ensure_default_actors().await.expect("actors");
+
+    let saved = store
+        .upsert_provider_capability_binding(
+            "web.search",
+            "web.search",
+            "provider_account:duckduckgo_public:system",
+        )
+        .await
+        .expect("save binding");
+
+    assert_eq!(saved.tool_name, "web.search");
+    assert_eq!(saved.capability_id, "web.search");
+    assert_eq!(
+        saved.provider_account_id,
+        "provider_account:duckduckgo_public:system"
+    );
+
+    let loaded = store
+        .provider_capability_binding("web.search", "web.search")
+        .await
+        .expect("load binding")
+        .expect("binding exists");
+
+    assert_eq!(
+        loaded.provider_account_id,
+        "provider_account:duckduckgo_public:system"
+    );
+}
+
+#[tokio::test]
+async fn provider_capability_binding_round_trips_web_fetch() {
+    let store = test_store().await;
+
+    let saved = store
+        .upsert_provider_capability_binding(
+            "web.fetch",
+            "web.fetch",
+            "provider_account:direct_http:system",
+        )
+        .await
+        .expect("save binding");
+
+    assert_eq!(saved.tool_name, "web.fetch");
+    assert_eq!(saved.capability_id, "web.fetch");
+    assert_eq!(
+        saved.provider_account_id,
+        "provider_account:direct_http:system"
+    );
+}
+
+#[tokio::test]
+async fn provider_capability_binding_rejects_missing_provider_account() {
+    let store = test_store().await;
+
+    let error = store
+        .upsert_provider_capability_binding(
+            "web.search",
+            "web.search",
+            "provider_account:missing:default",
+        )
+        .await
+        .expect_err("missing provider account should fail");
+
+    assert!(matches!(
+        error,
+        StoreError::ProviderAccountNotFound { provider_account_id }
+            if provider_account_id == "provider_account:missing:default"
+    ));
+}
+
+#[tokio::test]
+async fn provider_capability_binding_rejects_provider_account_without_capability() {
+    let store = test_store().await;
+    let account = store
+        .ensure_default_provider_account()
+        .await
+        .expect("codex account");
+
+    let error = store
+        .upsert_provider_capability_binding(
+            "web.search",
+            "web.search",
+            &account.provider_account_id,
+        )
+        .await
+        .expect_err("wrong provider capability should fail");
+
+    assert!(matches!(
+        error,
+        StoreError::InvalidEnum { kind, value }
+            if kind == "provider_capability_binding_provider_account"
+                && value == account.provider_account_id
+    ));
+}
+
+#[tokio::test]
+async fn provider_capability_binding_rejects_mismatched_tool_and_capability() {
+    let store = test_store().await;
+
+    let error = store
+        .upsert_provider_capability_binding(
+            "web.fetch",
+            "web.search",
+            "provider_account:duckduckgo_public:system",
+        )
+        .await
+        .expect_err("mismatched tool/capability should fail");
+
+    assert!(matches!(
+        error,
+        StoreError::InvalidEnum { kind, value }
+            if kind == "provider_capability_binding_pair" && value == "web.fetch:web.search"
+    ));
+}
+
+#[tokio::test]
+async fn provider_capability_binding_repeated_upsert_is_stable() {
+    let store = test_store().await;
+
+    let first = store
+        .upsert_provider_capability_binding(
+            "web.search",
+            "web.search",
+            "provider_account:duckduckgo_public:system",
+        )
+        .await
+        .expect("first save");
+    let second = store
+        .upsert_provider_capability_binding(
+            "web.search",
+            "web.search",
+            "provider_account:duckduckgo_public:system",
+        )
+        .await
+        .expect("second save");
+
+    assert_eq!(first, second);
+}
+
+#[test]
+fn web_tool_specs_do_not_gain_provider_argument() {
+    let search = crate::search::tool::web_search_tool_spec().expect("search spec");
+    let fetch = crate::web_fetch::tool::web_fetch_tool_spec().expect("fetch spec");
+
+    assert!(
+        search.input_schema.as_value()["properties"]
+            .get("provider")
+            .is_none()
+    );
+    assert!(
+        fetch.input_schema.as_value()["properties"]
+            .get("provider")
+            .is_none()
+    );
 }
 
 #[tokio::test]
