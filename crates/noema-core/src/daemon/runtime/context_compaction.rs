@@ -594,6 +594,7 @@ mod tests {
                 status: ConversationItemStatus::Completed,
                 content_text: Some("hello".to_string()),
                 payload_json: serde_json::json!({}),
+                metadata: serde_json::json!({}),
             },
             ConversationItemRecord {
                 item_id: "item:2".to_string(),
@@ -605,6 +606,7 @@ mod tests {
                 status: ConversationItemStatus::Completed,
                 content_text: Some("hi".to_string()),
                 payload_json: serde_json::json!({}),
+                metadata: serde_json::json!({}),
             },
         ]);
 
@@ -634,6 +636,7 @@ mod tests {
                         }
                     }
                 }),
+                metadata: serde_json::json!({}),
             },
             ConversationItemRecord {
                 item_id: "item:2".to_string(),
@@ -656,6 +659,7 @@ mod tests {
                         }
                     }
                 }),
+                metadata: serde_json::json!({}),
             },
         ]);
 
@@ -697,6 +701,7 @@ mod tests {
                 status: ConversationItemStatus::Completed,
                 content_text: Some("next".to_string()),
                 payload_json: serde_json::json!({}),
+                metadata: serde_json::json!({}),
             }],
         );
 

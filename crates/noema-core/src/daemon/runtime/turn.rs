@@ -6,7 +6,7 @@ use crate::{
     provider::{
         GenerateInput, GenerateOptions, GenerateRequest, GenerateResponse, GenerateResponseStatus,
         GenerateStreamEvent, GenerateToolCall, PromptCacheRetention, ProviderError,
-        ProviderToolCapabilities,
+        ProviderToolCapabilities, TokenUsage,
     },
 };
 use serde_json::json;
@@ -754,6 +754,9 @@ impl CodexRuntimeActor {
                         turn_index,
                         user_item_id,
                         provider,
+                        model: "unknown".to_string(),
+                        response_phase: "continuation",
+                        usage: None,
                         stream_id: None,
                     };
                     self.persist_partial_provider_action_outputs(&action_turn, output, &item_tx)
@@ -784,6 +787,9 @@ impl CodexRuntimeActor {
             turn_index: turn.turn_index,
             user_item_id: turn.user_item_id.clone(),
             provider: turn.response.provider.clone(),
+            model: turn.response.model.clone(),
+            response_phase: "initial",
+            usage: turn.response.usage.clone(),
             stream_id: Some(turn.initial_stream_id.clone()),
         };
         self.persist_provider_reasoning_items(
@@ -798,7 +804,10 @@ impl CodexRuntimeActor {
         for (index, response_item) in turn.response.responses.iter().cloned().enumerate() {
             self.persist_provider_response_item(
                 &action_turn,
-                index,
+                ProviderResponsePosition {
+                    response_index: index,
+                    output_index: Some(index),
+                },
                 response_item,
                 initial_phase_has_tools,
                 &mut initial_assistant_response,
@@ -838,6 +847,9 @@ impl CodexRuntimeActor {
             turn_index: turn.turn_index,
             user_item_id: turn.user_item_id.clone(),
             provider: "noema_local".to_string(),
+            model: "noema_local".to_string(),
+            response_phase: "continuation",
+            usage: None,
             stream_id: None,
         };
         let mut local_tool_results = Vec::new();
@@ -936,6 +948,9 @@ impl CodexRuntimeActor {
                     turn_index: turn.turn_index,
                     user_item_id: turn.user_item_id.clone(),
                     provider: "noema_local".to_string(),
+                    model: "noema_local".to_string(),
+                    response_phase: "continuation",
+                    usage: None,
                     stream_id: None,
                 };
                 self.persist_progress_audit_started(&audit_turn, next_output_index, item_tx)
@@ -1195,6 +1210,9 @@ impl CodexRuntimeActor {
                 turn_index: turn.turn_index,
                 user_item_id: turn.user_item_id.clone(),
                 provider: continuation_response.provider.clone(),
+                model: continuation_response.model.clone(),
+                response_phase: "continuation",
+                usage: continuation_response.usage.clone(),
                 stream_id: Some(continuation_stream_id.clone()),
             };
             self.persist_provider_reasoning_items(
@@ -1222,7 +1240,10 @@ impl CodexRuntimeActor {
             {
                 self.persist_provider_response_item(
                     &continuation_action_turn,
-                    continuation_output_base + offset,
+                    ProviderResponsePosition {
+                        response_index: offset,
+                        output_index: Some(continuation_output_base + offset),
+                    },
                     response_item,
                     continuation_phase_has_tools,
                     &mut continuation_assistant_response,
@@ -1290,6 +1311,9 @@ impl CodexRuntimeActor {
                 turn_index: turn.turn_index,
                 user_item_id: turn.user_item_id.clone(),
                 provider: "noema_local".to_string(),
+                model: "noema_local".to_string(),
+                response_phase: "continuation",
+                usage: None,
                 stream_id: None,
             };
             for call in &continuation_tool_calls {
@@ -1490,6 +1514,9 @@ impl CodexRuntimeActor {
             turn_index: turn.turn_index,
             user_item_id: turn.user_item_id.clone(),
             provider: response.provider.clone(),
+            model: response.model.clone(),
+            response_phase: "continuation",
+            usage: response.usage.clone(),
             stream_id: None,
         };
         self.persist_provider_reasoning_items(
@@ -1502,7 +1529,10 @@ impl CodexRuntimeActor {
         for (offset, response_item) in response.responses.into_iter().enumerate() {
             self.persist_provider_response_item(
                 &action_turn,
-                index + offset,
+                ProviderResponsePosition {
+                    response_index: offset,
+                    output_index: Some(index + offset),
+                },
                 response_item,
                 false,
                 &mut assistant_response,
@@ -1762,7 +1792,16 @@ pub(in crate::daemon) struct ProviderActionTurn {
     pub(in crate::daemon) turn_index: u64,
     pub(in crate::daemon) user_item_id: String,
     pub(in crate::daemon) provider: String,
+    pub(in crate::daemon) model: String,
+    pub(in crate::daemon) response_phase: &'static str,
+    pub(in crate::daemon) usage: Option<TokenUsage>,
     pub(in crate::daemon) stream_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::daemon) struct ProviderResponsePosition {
+    pub(in crate::daemon) response_index: usize,
+    pub(in crate::daemon) output_index: Option<usize>,
 }
 
 pub(in crate::daemon) struct ProviderActionOutput {

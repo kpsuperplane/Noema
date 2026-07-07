@@ -122,6 +122,8 @@ pub struct ConversationItemRecord {
     pub content_text: Option<String>,
     /// Structured item payload.
     pub payload_json: Value,
+    /// Additional structured metadata.
+    pub metadata: Value,
 }
 
 /// Bounded visible conversation item page returned to product replay callers.

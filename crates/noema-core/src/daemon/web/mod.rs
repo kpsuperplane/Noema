@@ -994,12 +994,26 @@ mod tests {
             status: ConversationItemStatus::Completed,
             content_text: Some("hello from replay".to_string()),
             payload_json: json!({}),
+            metadata: json!({
+                "provider_usage": {
+                    "provider": "codex",
+                    "model": "gpt-test",
+                    "phase": "initial",
+                    "response_index": 0,
+                    "input_tokens": 100,
+                    "cached_input_tokens": 50,
+                    "cache_hit_ratio": 0.5,
+                    "output_tokens": 10,
+                    "total_tokens": 110
+                }
+            }),
         })
         .expect("convert record")
         .expect("visible item");
 
         assert_eq!(item.item_id, "item_1");
         assert_eq!(item.turn_id.as_deref(), Some("turn_1"));
+        assert_eq!(item.metadata["provider_usage"]["cache_hit_ratio"], 0.5);
         assert_eq!(
             item.item,
             TurnTranscriptItem::AssistantText {
@@ -1027,6 +1041,7 @@ mod tests {
                 "summary": "provider id call_1",
                 "metadata": {"action": {"name": "search_memory"}},
             }),
+            metadata: json!({}),
         })
         .expect("convert record")
         .expect("visible item");
@@ -1054,6 +1069,7 @@ mod tests {
             status: ConversationItemStatus::Completed,
             content_text: None,
             payload_json: json!({ "not": "an activity payload" }),
+            metadata: json!({}),
         })
         .expect_err("malformed record should fail");
 

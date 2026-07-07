@@ -1691,6 +1691,79 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn conversation_transcript_page_returns_item_metadata() {
+        use crate::store::tests::test_store;
+
+        let store = test_store().await;
+        store.ensure_default_actors().await.expect("actors");
+        let conversation = store
+            .create_conversation(crate::NewConversation::local_chat(None, None))
+            .await
+            .expect("conversation");
+        let turn = store
+            .create_conversation_turn(crate::NewConversationTurn {
+                conversation_id: conversation.conversation_id.clone(),
+                trigger_item_id: None,
+                metadata: serde_json::json!({ "turn_index": 1 }),
+            })
+            .await
+            .expect("turn");
+        store
+            .append_conversation_item(crate::NewConversationItem {
+                conversation_id: conversation.conversation_id.clone(),
+                turn_id: Some(turn.turn_id.clone()),
+                parent_item_id: None,
+                kind: crate::ConversationItemKind::AssistantText,
+                status: crate::ConversationItemStatus::Completed,
+                author: crate::ActorRef::agent("agent:primary"),
+                content_text: Some("hello".to_string()),
+                payload_json: serde_json::json!({}),
+                metadata: serde_json::json!({
+                    "provider_usage": {
+                        "provider": "codex",
+                        "model": "gpt-test",
+                        "phase": "initial",
+                        "response_index": 0,
+                        "input_tokens": 100,
+                        "cached_input_tokens": 25,
+                        "cache_hit_ratio": 0.25,
+                        "output_tokens": 5,
+                        "total_tokens": 105
+                    }
+                }),
+            })
+            .await
+            .expect("item");
+
+        let schema = build_schema(GraphqlState::for_tests_with_store(store));
+        let response = schema
+            .execute(async_graphql::Request::new(format!(
+                r#"
+                query {{
+                  conversationTranscriptPage(input: {{ conversationId: "{}", limit: 10 }}) {{
+                    items {{
+                      metadata
+                      item {{ __typename ... on AssistantText {{ text }} }}
+                    }}
+                  }}
+                }}
+                "#,
+                conversation.conversation_id
+            )))
+            .await;
+
+        assert!(response.errors.is_empty(), "{:?}", response.errors);
+        let data = response.data.into_json().expect("json");
+        let item = &data["conversationTranscriptPage"]["items"][0];
+        assert_eq!(item["item"]["text"], "hello");
+        assert_eq!(
+            item["metadata"]["provider_usage"]["cached_input_tokens"],
+            25
+        );
+        assert_eq!(item["metadata"]["provider_usage"]["cache_hit_ratio"], 0.25);
+    }
+
+    #[tokio::test]
     async fn runtime_turn_passes_conversation_id_to_provider_request() {
         use crate::store::tests::test_store;
 

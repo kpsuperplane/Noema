@@ -12,6 +12,7 @@ pub(crate) struct ConversationReplayItem {
     pub(crate) item_id: String,
     pub(crate) cursor: String,
     pub(crate) turn_id: Option<String>,
+    pub(crate) metadata: Value,
     pub(crate) item: TurnTranscriptItem,
 }
 
@@ -20,12 +21,14 @@ impl ConversationReplayItem {
         item_id: String,
         cursor: String,
         turn_id: Option<String>,
+        metadata: Value,
         item: TurnTranscriptItem,
     ) -> Self {
         Self {
             item_id,
             cursor,
             turn_id,
+            metadata,
             item,
         }
     }
@@ -41,6 +44,7 @@ pub(crate) fn web_conversation_item_from_record(
         record.item_id,
         record.cursor,
         record.turn_id,
+        record.metadata,
         item,
     )))
 }

@@ -336,6 +336,7 @@ mod tests {
                     }
                 }
             }),
+            metadata: serde_json::json!({}),
         };
 
         let Some(GenerateInputItem::ToolCall(call)) = input_item_from_transcript_item(&item) else {

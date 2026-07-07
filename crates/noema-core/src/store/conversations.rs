@@ -250,7 +250,7 @@ impl NoemaStore {
             .bind(("author_actor_id", item.author.actor_id.to_string()))
             .bind(("content_text", item.content_text.clone()))
             .bind(("payload_json", item.payload_json.clone()))
-            .bind(("metadata", item.metadata))
+            .bind(("metadata", item.metadata.clone()))
             .await?
             .check()?;
         Ok(ConversationItemRecord {
@@ -263,6 +263,7 @@ impl NoemaStore {
             status: item.status,
             content_text: item.content_text,
             payload_json: item.payload_json,
+            metadata: item.metadata,
         })
     }
 
@@ -286,7 +287,7 @@ impl NoemaStore {
             .db
             .query(format!(
                 r#"
-                SELECT item_id, conversation_id, turn_id, kind, status, content_text, payload_json, sequence_index
+                SELECT item_id, conversation_id, turn_id, kind, status, content_text, payload_json, metadata, sequence_index
                 FROM conversation_items
                 WHERE conversation_id = $conversation_id {deleted_filter}
                 ORDER BY sequence_index ASC;
@@ -324,7 +325,7 @@ impl NoemaStore {
                 .db
                 .query(
                     r#"
-                    SELECT item_id, conversation_id, turn_id, kind, status, content_text, payload_json, sequence_index
+                    SELECT item_id, conversation_id, turn_id, kind, status, content_text, payload_json, metadata, sequence_index
                     FROM conversation_items
                     WHERE conversation_id = $conversation_id
                       AND deleted_at = NONE
@@ -343,7 +344,7 @@ impl NoemaStore {
                 .db
                 .query(
                     r#"
-                    SELECT item_id, conversation_id, turn_id, kind, status, content_text, payload_json, sequence_index
+                    SELECT item_id, conversation_id, turn_id, kind, status, content_text, payload_json, metadata, sequence_index
                     FROM conversation_items
                     WHERE conversation_id = $conversation_id
                       AND deleted_at = NONE
@@ -393,7 +394,7 @@ impl NoemaStore {
             .db
             .query(
                 r#"
-                SELECT item_id, conversation_id, turn_id, kind, status, content_text, payload_json, sequence_index
+                SELECT item_id, conversation_id, turn_id, kind, status, content_text, payload_json, metadata, sequence_index
                 FROM conversation_items
                 WHERE conversation_id = $conversation_id
                   AND deleted_at = NONE
@@ -428,7 +429,7 @@ impl NoemaStore {
             .db
             .query(
                 r#"
-                SELECT item_id, conversation_id, turn_id, kind, status, content_text, payload_json, sequence_index
+                SELECT item_id, conversation_id, turn_id, kind, status, content_text, payload_json, metadata, sequence_index
                 FROM conversation_items
                 WHERE conversation_id = $conversation_id
                   AND deleted_at = NONE
@@ -463,7 +464,7 @@ impl NoemaStore {
             .db
             .query(
                 r#"
-                SELECT item_id, conversation_id, turn_id, kind, status, content_text, payload_json, sequence_index
+                SELECT item_id, conversation_id, turn_id, kind, status, content_text, payload_json, metadata, sequence_index
                 FROM conversation_items
                 WHERE conversation_id = $conversation_id
                   AND deleted_at = NONE
@@ -776,6 +777,8 @@ struct ConversationItemRow {
     status: String,
     content_text: Option<String>,
     payload_json: Value,
+    #[serde(default)]
+    metadata: Value,
 }
 
 fn conversation_item_cursor(sequence_index: i64) -> String {
@@ -815,6 +818,7 @@ fn conversation_item_from_row(
         status: ConversationItemStatus::parse(&row.status).map_err(memory_enum_error)?,
         content_text: row.content_text,
         payload_json: row.payload_json,
+        metadata: row.metadata,
     })
 }
 

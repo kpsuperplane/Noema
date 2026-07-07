@@ -236,6 +236,8 @@ pub struct GraphqlConversationItem {
     pub cursor: String,
     /// Durable conversation turn id.
     pub turn_id: Option<String>,
+    /// Structured durable item metadata.
+    pub metadata: Json<Value>,
     /// Transcript item to render.
     pub item: GraphqlTranscriptItem,
 }
@@ -246,6 +248,7 @@ impl From<crate::daemon::web::ConversationReplayItem> for GraphqlConversationIte
             item_id: item.item_id,
             cursor: item.cursor,
             turn_id: item.turn_id,
+            metadata: Json(item.metadata),
             item: item.item.into(),
         }
     }

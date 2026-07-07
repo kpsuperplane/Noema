@@ -12,12 +12,65 @@ use tokio::sync::mpsc;
 use super::{
     actor::CodexRuntimeActor,
     tool_lifecycle::{LocalToolCall, tool_call_action_item},
-    turn::{ProviderActionOutput, ProviderActionTurn, ProviderAssistantResponse},
+    turn::{
+        ProviderActionOutput, ProviderActionTurn, ProviderAssistantResponse,
+        ProviderResponsePosition,
+    },
 };
 use crate::daemon::{
     memory::pipeline::{AssistantEvidenceItem, ConversationMemoryContext, typed_memory_activity},
     protocol::{DaemonError, TurnActivityStatus, TurnStreamEvent, TurnTranscriptItem},
 };
+
+pub(in crate::daemon::runtime) fn provider_usage_metadata(
+    provider: &str,
+    model: &str,
+    phase: &'static str,
+    position: ProviderResponsePosition,
+    usage: Option<&crate::provider::TokenUsage>,
+) -> Value {
+    let Some(usage) = usage else {
+        return json!({});
+    };
+
+    let mut provider_usage = serde_json::Map::new();
+    provider_usage.insert("provider".to_string(), json!(provider));
+    provider_usage.insert("model".to_string(), json!(model));
+    provider_usage.insert("phase".to_string(), json!(phase));
+    provider_usage.insert("response_index".to_string(), json!(position.response_index));
+    if let Some(output_index) = position.output_index {
+        provider_usage.insert("output_index".to_string(), json!(output_index));
+    }
+    provider_usage.insert("input_tokens".to_string(), json!(usage.input_tokens));
+    provider_usage.insert("output_tokens".to_string(), json!(usage.output_tokens));
+    provider_usage.insert("total_tokens".to_string(), json!(usage.total_tokens));
+    if let Some(cached_input_tokens) = usage.cached_input_tokens {
+        provider_usage.insert(
+            "cached_input_tokens".to_string(),
+            json!(cached_input_tokens),
+        );
+        if usage.input_tokens > 0 {
+            provider_usage.insert(
+                "cache_hit_ratio".to_string(),
+                json!(cached_input_tokens as f64 / usage.input_tokens as f64),
+            );
+        }
+    }
+
+    json!({ "provider_usage": Value::Object(provider_usage) })
+}
+
+fn merge_metadata(base: &mut Value, extra: Value) {
+    let Some(base) = base.as_object_mut() else {
+        return;
+    };
+    let Value::Object(extra) = extra else {
+        return;
+    };
+    for (key, value) in extra {
+        base.insert(key, value);
+    }
+}
 
 impl CodexRuntimeActor {
     pub(super) async fn persist_provider_reasoning_items(
@@ -59,7 +112,7 @@ impl CodexRuntimeActor {
     pub(super) async fn persist_provider_response_item(
         &mut self,
         turn: &ProviderActionTurn,
-        index: usize,
+        position: ProviderResponsePosition,
         item: GenerateResponseItem,
         provider_phase_has_tools: bool,
         assistant_response: &mut ProviderAssistantResponse,
@@ -75,16 +128,28 @@ impl CodexRuntimeActor {
                     },
                     provider_phase_has_tools,
                 );
+                let output_index = position.output_index.unwrap_or(position.response_index);
                 let stream_id = turn
                     .stream_id
                     .as_deref()
-                    .map(|stream_id| assistant_response_stream_id(stream_id, index));
-                let metadata = json!({
+                    .map(|stream_id| assistant_response_stream_id(stream_id, output_index));
+                let mut metadata = json!({
                     "turn_index": turn.turn_index,
-                    "response_index": index,
+                    "response_index": position.response_index,
+                    "output_index": position.output_index,
                     "stream_id": stream_id,
                     "phase": effective_phase.as_str(),
                 });
+                merge_metadata(
+                    &mut metadata,
+                    provider_usage_metadata(
+                        &turn.provider,
+                        &turn.model,
+                        turn.response_phase,
+                        position,
+                        turn.usage.as_ref(),
+                    ),
+                );
                 let assistant_item = self
                     .store
                     .append_conversation_item(NewConversationItem {
@@ -114,13 +179,15 @@ impl CodexRuntimeActor {
                 );
             }
             GenerateResponseItem::Structured { schema, payload } => {
+                let output_index = position.output_index.unwrap_or(position.response_index);
                 let card_id = format!(
-                    "provider_structured:{}:{}:{index}",
+                    "provider_structured:{}:{}:{output_index}",
                     turn.conversation_id, turn.turn_index
                 );
                 let metadata = json!({
                     "turn_index": turn.turn_index,
-                    "response_index": index,
+                    "response_index": position.response_index,
+                    "output_index": position.output_index,
                     "source": "provider_structured_output",
                 });
                 let structured_item = self
@@ -1364,5 +1431,84 @@ mod tests {
             completed["summary"],
             "Found new sources and is preparing the write step."
         );
+    }
+
+    #[test]
+    fn provider_usage_metadata_includes_cache_hit_ratio() {
+        let metadata = provider_usage_metadata(
+            "codex",
+            "gpt-test",
+            "initial",
+            ProviderResponsePosition {
+                response_index: 0,
+                output_index: Some(0),
+            },
+            Some(&crate::provider::TokenUsage {
+                input_tokens: 12000,
+                output_tokens: 900,
+                total_tokens: 12900,
+                cached_input_tokens: Some(9600),
+            }),
+        );
+
+        assert_eq!(metadata["provider_usage"]["provider"], "codex");
+        assert_eq!(metadata["provider_usage"]["model"], "gpt-test");
+        assert_eq!(metadata["provider_usage"]["phase"], "initial");
+        assert_eq!(metadata["provider_usage"]["response_index"], 0);
+        assert_eq!(metadata["provider_usage"]["output_index"], 0);
+        assert_eq!(metadata["provider_usage"]["input_tokens"], 12000);
+        assert_eq!(metadata["provider_usage"]["cached_input_tokens"], 9600);
+        assert_eq!(metadata["provider_usage"]["cache_hit_ratio"], 0.8);
+    }
+
+    #[test]
+    fn provider_usage_metadata_preserves_explicit_zero_cached_tokens() {
+        let metadata = provider_usage_metadata(
+            "codex",
+            "gpt-test",
+            "continuation",
+            ProviderResponsePosition {
+                response_index: 1,
+                output_index: Some(12),
+            },
+            Some(&crate::provider::TokenUsage {
+                input_tokens: 2048,
+                output_tokens: 12,
+                total_tokens: 2060,
+                cached_input_tokens: Some(0),
+            }),
+        );
+
+        assert_eq!(metadata["provider_usage"]["phase"], "continuation");
+        assert_eq!(metadata["provider_usage"]["response_index"], 1);
+        assert_eq!(metadata["provider_usage"]["output_index"], 12);
+        assert_eq!(metadata["provider_usage"]["cached_input_tokens"], 0);
+        assert_eq!(metadata["provider_usage"]["cache_hit_ratio"], 0.0);
+    }
+
+    #[test]
+    fn provider_usage_metadata_omits_ratio_when_cached_tokens_are_unreported() {
+        let metadata = provider_usage_metadata(
+            "foundation_local",
+            "foundation-local-default",
+            "initial",
+            ProviderResponsePosition {
+                response_index: 0,
+                output_index: None,
+            },
+            Some(&crate::provider::TokenUsage {
+                input_tokens: 100,
+                output_tokens: 5,
+                total_tokens: 105,
+                cached_input_tokens: None,
+            }),
+        );
+
+        assert!(
+            metadata["provider_usage"]
+                .get("cached_input_tokens")
+                .is_none()
+        );
+        assert!(metadata["provider_usage"].get("cache_hit_ratio").is_none());
     }
 }
