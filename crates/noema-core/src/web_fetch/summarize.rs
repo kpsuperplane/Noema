@@ -145,6 +145,18 @@ fn chunk_markdown(markdown: &str, chunk_chars: usize) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{
+        daemon::RuntimeModelProvider,
+        provider::{
+            GenerateResponse, GenerateResponseItem, GenerateResponseStatus, GenerateStreamEvent,
+            ProviderError,
+        },
+    };
+    use std::{
+        future::Future,
+        pin::Pin,
+        sync::{Arc, Mutex},
+    };
 
     #[test]
     fn chooses_raw_for_small_markdown() {
@@ -190,5 +202,72 @@ mod tests {
                 .sum::<usize>(),
             markdown.len()
         );
+    }
+
+    #[tokio::test]
+    async fn summarizer_request_includes_context_reasoning_effort() {
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let context = FetchRuntimeContext {
+            summarizer_provider_kind: "codex".to_string(),
+            summarizer_provider: Arc::new(CapturingSummaryProvider {
+                requests: requests.clone(),
+            }),
+            summarizer_model: "gpt-5.5-mini".to_string(),
+            summarizer_reasoning_effort: Some(crate::provider::ReasoningEffort::Low),
+        };
+        let markdown = "Long page text. ".repeat(600);
+
+        let summary = summarize_markdown(
+            &context,
+            "https://example.test/page",
+            Some("Example"),
+            &markdown,
+            200,
+        )
+        .await
+        .expect("summary");
+
+        assert_eq!(summary, "captured summary");
+        let requests = requests.lock().expect("requests");
+        assert_eq!(requests.len(), 1);
+        assert_eq!(
+            requests[0].options.reasoning_effort,
+            Some(crate::provider::ReasoningEffort::Low)
+        );
+    }
+
+    #[derive(Debug)]
+    struct CapturingSummaryProvider {
+        requests: Arc<Mutex<Vec<GenerateRequest>>>,
+    }
+
+    impl RuntimeModelProvider for CapturingSummaryProvider {
+        fn generate_streaming<'a>(
+            &'a self,
+            request: GenerateRequest,
+            _on_event: &'a mut (dyn FnMut(GenerateStreamEvent) + Send),
+        ) -> Pin<Box<dyn Future<Output = Result<GenerateResponse, ProviderError>> + Send + 'a>>
+        {
+            Box::pin(async move {
+                self.requests
+                    .lock()
+                    .expect("requests")
+                    .push(request.clone());
+                Ok(GenerateResponse {
+                    responses: vec![GenerateResponseItem::Text {
+                        phase: None,
+                        text: "captured summary".to_string(),
+                    }],
+                    tool_calls: Vec::new(),
+                    memory_proposals: Vec::new(),
+                    reasoning_items: Vec::new(),
+                    response_status: GenerateResponseStatus::Final,
+                    provider: "test".to_string(),
+                    model: request.model.unwrap_or_else(|| "missing-model".to_string()),
+                    response_id: None,
+                    usage: None,
+                })
+            })
+        }
     }
 }

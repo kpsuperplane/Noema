@@ -304,6 +304,134 @@ async fn primary_agent_runtime_preference_supplies_reasoning_effort() {
 }
 
 #[tokio::test]
+async fn primary_agent_codex_preference_sends_reasoning_effort_to_codex_provider_kind() {
+    let store = crate::store::tests::test_store().await;
+    store.ensure_default_actors().await.expect("actors");
+    let account = store
+        .ensure_default_provider_account()
+        .await
+        .expect("codex account");
+    store
+        .upsert_agent_runtime_preference(crate::NewAgentRuntimePreference {
+            agent_id: "agent:primary".to_string(),
+            provider_kind: "codex".to_string(),
+            provider_account_id: account.provider_account_id,
+            model_profile: "gpt-5.5".to_string(),
+            reasoning_effort: Some(crate::provider::ReasoningEffort::High),
+        })
+        .await
+        .expect("preference");
+
+    let codex_provider = Arc::new(CapturingProvider::default());
+    let openai_provider = Arc::new(CapturingProvider::default());
+    let runtime = CodexRuntimeHandle::spawn_with_provider_map(
+        "openai",
+        vec![
+            (
+                "codex".to_string(),
+                codex_provider.clone() as Arc<dyn crate::daemon::runtime::RuntimeModelProvider>,
+            ),
+            (
+                "openai".to_string(),
+                openai_provider.clone() as Arc<dyn crate::daemon::runtime::RuntimeModelProvider>,
+            ),
+        ],
+        store,
+    )
+    .await
+    .expect("runtime");
+
+    let started = runtime
+        .start_primary_conversation(None)
+        .await
+        .expect("conversation");
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    runtime
+        .turn(started.conversation_id, "hello".to_string(), tx)
+        .await
+        .expect("turn");
+
+    while rx.recv().await.is_some() {}
+
+    runtime.shutdown().await;
+
+    assert!(openai_provider.requests.lock().expect("openai").is_empty());
+    let codex_requests = codex_provider.requests.lock().expect("codex requests");
+    assert_eq!(
+        codex_requests
+            .last()
+            .and_then(|request| request.options.reasoning_effort),
+        Some(crate::provider::ReasoningEffort::High)
+    );
+}
+
+#[tokio::test]
+async fn primary_agent_openai_preference_sends_reasoning_effort_to_openai_provider_kind() {
+    let store = crate::store::tests::test_store().await;
+    store.ensure_default_actors().await.expect("actors");
+    let provider_account_id = "provider_account:openai:runtime_reasoning";
+    insert_authenticated_provider_account(
+        &store,
+        provider_account_id,
+        "openai",
+        "runtime-reasoning",
+    )
+    .await;
+    store
+        .upsert_agent_runtime_preference(crate::NewAgentRuntimePreference {
+            agent_id: "agent:primary".to_string(),
+            provider_kind: "openai".to_string(),
+            provider_account_id: provider_account_id.to_string(),
+            model_profile: "gpt-5.5".to_string(),
+            reasoning_effort: Some(crate::provider::ReasoningEffort::Medium),
+        })
+        .await
+        .expect("preference");
+
+    let codex_provider = Arc::new(CapturingProvider::default());
+    let openai_provider = Arc::new(CapturingProvider::default());
+    let runtime = CodexRuntimeHandle::spawn_with_provider_map(
+        "codex",
+        vec![
+            (
+                "codex".to_string(),
+                codex_provider.clone() as Arc<dyn crate::daemon::runtime::RuntimeModelProvider>,
+            ),
+            (
+                "openai".to_string(),
+                openai_provider.clone() as Arc<dyn crate::daemon::runtime::RuntimeModelProvider>,
+            ),
+        ],
+        store,
+    )
+    .await
+    .expect("runtime");
+
+    let started = runtime
+        .start_primary_conversation(None)
+        .await
+        .expect("conversation");
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    runtime
+        .turn(started.conversation_id, "hello".to_string(), tx)
+        .await
+        .expect("turn");
+
+    while rx.recv().await.is_some() {}
+
+    runtime.shutdown().await;
+
+    assert!(codex_provider.requests.lock().expect("codex").is_empty());
+    let openai_requests = openai_provider.requests.lock().expect("openai requests");
+    assert_eq!(
+        openai_requests
+            .last()
+            .and_then(|request| request.options.reasoning_effort),
+        Some(crate::provider::ReasoningEffort::Medium)
+    );
+}
+
+#[tokio::test]
 async fn primary_agent_default_provider_sends_no_reasoning_effort() {
     let store = crate::store::tests::test_store().await;
     store.ensure_default_actors().await.expect("actors");
@@ -4180,7 +4308,7 @@ async fn hard_ceiling_gets_one_no_tools_finalization_attempt() {
         "codex",
         FakeCodexScenario::LongContinuationThenFinalization,
     ));
-    let (handle, _store) = test_runtime_handle_with_search_provider(
+    let (handle, store) = test_runtime_handle_with_search_provider(
         provider.clone(),
         crate::search::types::SearchRuntimeProvider::Static {
             response: crate::search::types::SearchResponse {
@@ -4193,6 +4321,21 @@ async fn hard_ceiling_gets_one_no_tools_finalization_attempt() {
         },
     )
     .await;
+    store.ensure_default_actors().await.expect("actors");
+    let codex = store
+        .ensure_default_provider_account()
+        .await
+        .expect("codex account");
+    store
+        .upsert_agent_runtime_preference(crate::NewAgentRuntimePreference {
+            agent_id: "agent:primary".to_string(),
+            provider_kind: "codex".to_string(),
+            provider_account_id: codex.provider_account_id,
+            model_profile: "gpt-5.5".to_string(),
+            reasoning_effort: Some(crate::provider::ReasoningEffort::High),
+        })
+        .await
+        .expect("runtime preference");
     let conversation = handle.start_conversation(None).await.expect("conversation");
 
     collect_turn(
@@ -4205,7 +4348,7 @@ async fn hard_ceiling_gets_one_no_tools_finalization_attempt() {
     handle.shutdown().await;
 
     let requests = provider.requests();
-    let finalization_requests = requests
+    let finalization_requests: Vec<_> = requests
         .iter()
         .filter(|request| {
             request.tools.is_empty()
@@ -4215,8 +4358,12 @@ async fn hard_ceiling_gets_one_no_tools_finalization_attempt() {
                     .as_deref()
                     .is_some_and(|instructions| instructions.contains("must stop now"))
         })
-        .count();
-    assert_eq!(finalization_requests, 1);
+        .collect();
+    assert_eq!(finalization_requests.len(), 1);
+    assert_eq!(
+        finalization_requests[0].options.reasoning_effort,
+        Some(crate::provider::ReasoningEffort::High)
+    );
 }
 
 #[tokio::test]
@@ -6179,6 +6326,41 @@ fn input_message_texts(input: &GenerateInput) -> Vec<String> {
             .collect(),
         GenerateInput::NativeToolResults(_) => Vec::new(),
     }
+}
+
+async fn insert_authenticated_provider_account(
+    store: &crate::NoemaStore,
+    provider_account_id: &str,
+    provider_kind: &str,
+    account_key: &str,
+) {
+    let record_id = format!("{provider_kind}_{account_key}");
+    store
+        .db()
+        .query(
+            r#"
+            UPSERT type::record('provider_accounts', $record_id) SET
+              provider_account_id = $provider_account_id,
+              provider_kind = $provider_kind,
+              account_key = $account_key,
+              display_name = $display_name,
+              auth_method = 'secret_input',
+              is_active = true,
+              is_default = false,
+              status = 'authenticated',
+              metadata = {},
+              updated_at = time::now();
+            "#,
+        )
+        .bind(("record_id", record_id))
+        .bind(("provider_account_id", provider_account_id.to_string()))
+        .bind(("provider_kind", provider_kind.to_string()))
+        .bind(("account_key", account_key.to_string()))
+        .bind(("display_name", format!("{provider_kind} {account_key}")))
+        .await
+        .expect("insert provider account")
+        .check()
+        .expect("provider account query check");
 }
 
 impl super::runtime::RuntimeModelProvider for FakeCodexProvider {
