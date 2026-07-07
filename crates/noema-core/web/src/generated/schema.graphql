@@ -290,6 +290,10 @@ type ConversationItem {
 	"""
 	turnId: String
 	"""
+	Structured durable item metadata.
+	"""
+	metadata: JSON!
+	"""
 	Transcript item to render.
 	"""
 	item: TranscriptItem!

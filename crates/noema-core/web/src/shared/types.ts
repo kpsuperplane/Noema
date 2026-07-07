@@ -39,6 +39,7 @@ export type TranscriptEntry =
       type: "assistant";
       streamId?: string;
       responseIndex?: number;
+      metadata?: unknown;
       text: string;
     }
   | {

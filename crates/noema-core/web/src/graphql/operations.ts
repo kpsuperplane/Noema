@@ -469,6 +469,7 @@ export const ConversationItemFields = gql`
     itemId
     cursor
     turnId
+    metadata
     item {
       __typename
       ... on UserText {

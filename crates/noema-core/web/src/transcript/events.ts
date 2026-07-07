@@ -127,7 +127,8 @@ function entryFromReplayItem(item: ReplayItem): TranscriptEntry | null {
     item.itemId,
     item.cursor,
     item.turnId ?? undefined,
-    item.item
+    item.item,
+    item.metadata
   );
   return entry ? { ...entry, source: "replay" } : null;
 }
@@ -155,6 +156,7 @@ function entryFromConversationItem(
       type: "assistant",
       streamId: streamIdFromMetadata(metadata),
       responseIndex: responseIndexFromMetadata(metadata),
+      metadata,
       text: transcriptItem.text
     };
   }
