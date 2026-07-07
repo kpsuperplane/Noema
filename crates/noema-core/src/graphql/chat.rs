@@ -184,12 +184,25 @@ impl From<TurnTranscriptItem> for GraphqlTranscriptItem {
 
 /// Primary conversation identity.
 #[derive(Clone, Debug, SimpleObject)]
-#[graphql(name = "PrimaryConversation")]
+#[graphql(name = "PrimaryConversation", complex)]
 pub struct GraphqlPrimaryConversation {
     /// Durable Noema conversation id.
     pub conversation_id: String,
     /// Provider used for the conversation.
     pub provider: String,
+}
+
+#[async_graphql::ComplexObject]
+impl GraphqlPrimaryConversation {
+    /// Latest visible transcript page for this conversation.
+    async fn latest_transcript_page(
+        &self,
+        ctx: &async_graphql::Context<'_>,
+        limit: Option<i32>,
+    ) -> Result<GraphqlConversationTranscriptPage> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        latest_conversation_transcript_page(state, &self.conversation_id, limit).await
+    }
 }
 
 /// Input for reading a visible transcript page.
@@ -404,7 +417,30 @@ pub(super) async fn conversation_transcript_page(
     state: &GraphqlState,
     input: GraphqlConversationTranscriptPageInput,
 ) -> Result<GraphqlConversationTranscriptPage> {
-    let limit = input.limit.unwrap_or(80);
+    visible_conversation_transcript_page(
+        state,
+        &input.conversation_id,
+        input.cursor.as_deref(),
+        input.limit,
+    )
+    .await
+}
+
+pub(super) async fn latest_conversation_transcript_page(
+    state: &GraphqlState,
+    conversation_id: &str,
+    limit: Option<i32>,
+) -> Result<GraphqlConversationTranscriptPage> {
+    visible_conversation_transcript_page(state, conversation_id, None, limit).await
+}
+
+async fn visible_conversation_transcript_page(
+    state: &GraphqlState,
+    conversation_id: &str,
+    cursor: Option<&str>,
+    limit: Option<i32>,
+) -> Result<GraphqlConversationTranscriptPage> {
+    let limit = limit.unwrap_or(80);
     if limit < 1 {
         return Err(async_graphql::Error::new(
             "conversationTranscriptPage limit must be at least 1",
@@ -418,11 +454,7 @@ pub(super) async fn conversation_transcript_page(
 
     let page = state
         .store()?
-        .list_visible_conversation_item_page(
-            &input.conversation_id,
-            input.cursor.as_deref(),
-            i64::from(limit),
-        )
+        .list_visible_conversation_item_page(conversation_id, cursor, i64::from(limit))
         .await
         .map_err(graphql_error)?;
     let mut items = Vec::new();

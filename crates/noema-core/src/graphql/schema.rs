@@ -1602,6 +1602,86 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn primary_conversation_returns_latest_transcript_page() {
+        use crate::store::tests::test_store;
+
+        let store = test_store().await;
+        store.ensure_default_actors().await.expect("actors");
+        let conversation = store
+            .get_or_create_primary_conversation_for_provider(
+                "human:local",
+                "codex",
+                Some("gpt-test".to_string()),
+                None,
+            )
+            .await
+            .expect("primary conversation");
+        let turn = store
+            .create_conversation_turn(crate::NewConversationTurn {
+                conversation_id: conversation.conversation_id.clone(),
+                trigger_item_id: None,
+                metadata: serde_json::json!({ "turn_index": 1 }),
+            })
+            .await
+            .expect("turn");
+
+        for label in ["one", "two", "three"] {
+            store
+                .append_conversation_item(crate::NewConversationItem {
+                    conversation_id: conversation.conversation_id.clone(),
+                    turn_id: Some(turn.turn_id.clone()),
+                    parent_item_id: None,
+                    kind: crate::ConversationItemKind::UserText,
+                    status: crate::ConversationItemStatus::Completed,
+                    author: crate::ActorRef::human("human:local"),
+                    content_text: Some(label.to_string()),
+                    payload_json: serde_json::json!({}),
+                    metadata: serde_json::json!({ "turn_index": 1 }),
+                })
+                .await
+                .expect("item");
+        }
+
+        let runtime = test_autofill_runtime(store.clone(), "ok").await;
+        let schema = build_schema(GraphqlState::for_tests_with_store_and_runtime(
+            store, runtime,
+        ));
+
+        let response = schema
+            .execute(async_graphql::Request::new(
+                r#"
+                query {
+                  primaryConversation {
+                    provider
+                    conversationId
+                    latestTranscriptPage(limit: 2) {
+                      items {
+                        itemId
+                        cursor
+                        item { __typename ... on UserText { text } }
+                      }
+                      pageInfo { beforeCursor hasMoreBefore limit }
+                    }
+                  }
+                }
+                "#,
+            ))
+            .await;
+
+        assert!(response.errors.is_empty(), "{:?}", response.errors);
+        let data = response.data.into_json().expect("json");
+        let primary = &data["primaryConversation"];
+        assert_eq!(primary["conversationId"], conversation.conversation_id);
+        assert_eq!(primary["provider"], "codex");
+        let page = &primary["latestTranscriptPage"];
+        assert_eq!(page["items"][0]["item"]["text"], "two");
+        assert_eq!(page["items"][1]["item"]["text"], "three");
+        assert_eq!(page["pageInfo"]["hasMoreBefore"], true);
+        assert_eq!(page["pageInfo"]["limit"], 2);
+        assert!(page["pageInfo"]["beforeCursor"].as_str().is_some());
+    }
+
+    #[tokio::test]
     async fn conversation_transcript_page_supports_latest_and_cursor_reads() {
         use crate::store::tests::test_store;
 
