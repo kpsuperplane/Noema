@@ -2,20 +2,18 @@ import React from "react";
 import {
   useApolloClient,
   useMutation,
-  useQuery,
   useSubscription,
   useSuspenseQuery
 } from "@apollo/client/react";
 import {
+  ChatBootDocument,
   ConversationEventsDocument,
   ConversationTranscriptPageDocument,
   EnsurePrimaryConversationDocument,
-  LocalStatusDocument,
-  OnboardingStatusDocument,
-  PrimaryConversationDocument,
   ProviderAuthAttemptDocument,
   SendConversationTurnDocument,
   StartProviderAuthAttemptDocument,
+  type ChatBootQuery,
   type ProviderAuthAttemptQuery,
   type StartProviderAuthAttemptMutation
 } from "@/generated/graphql";
@@ -57,6 +55,8 @@ import { createClientId } from "@/shared/clientId";
 type ProviderAuthAttemptView =
   | StartProviderAuthAttemptMutation["startProviderAuthAttempt"]
   | NonNullable<ProviderAuthAttemptQuery["providerAuthAttempt"]>;
+
+type BootPrimaryConversation = NonNullable<ChatBootQuery["primaryConversation"]>;
 
 type SendMessageReadiness = {
   text: string;
@@ -110,17 +110,15 @@ export function App() {
 function AppContent() {
   const { route, navigate, goBackFromSettings } = useBrowserRoute();
   const apolloClient = useApolloClient();
-  const localStatus = useSuspenseQuery(LocalStatusDocument);
-  const onboardingStatus = useSuspenseQuery(OnboardingStatusDocument);
-  const [startProviderAuthAttempt] = useMutation(StartProviderAuthAttemptDocument);
-  const onboarding = onboardingStatus.data.onboardingStatus;
-  const refetchOnboarding = onboardingStatus.refetch;
-  const onboarded = onboarding.isUserOnboarded;
-  const chatRoute = route.kind === "chat";
-  const primaryConversation = useQuery(PrimaryConversationDocument, {
-    skip: !chatRoute || !onboarded,
+  const boot = useSuspenseQuery(ChatBootDocument, {
+    variables: { transcriptLimit: 80 },
     fetchPolicy: "network-only"
   });
+  const [startProviderAuthAttempt] = useMutation(StartProviderAuthAttemptDocument);
+  const onboarding = boot.data.onboardingStatus;
+  const refetchOnboarding = boot.refetch;
+  const onboarded = onboarding.isUserOnboarded;
+  const chatRoute = route.kind === "chat";
   const [ensurePrimaryConversation] = useMutation(EnsurePrimaryConversationDocument);
   const [sendConversationTurn] = useMutation(SendConversationTurnDocument);
 
@@ -148,11 +146,11 @@ function AppContent() {
   const latestTranscriptRetryTimeoutRef = React.useRef<number | null>(null);
   const latestTranscriptErrorVisibleConversationRef = React.useRef<string | null>(null);
   const lastProcessedConversationEventRef = React.useRef<ConversationEvent | null>(null);
-  const localStatusRefetchRef = React.useRef(localStatus.refetch);
+  const localStatusRefetchRef = React.useRef(boot.refetch);
 
-  const status = localStatus.data.localStatus;
+  const status = boot.data.localStatus;
   const agentName = status?.primaryAgentDisplayName ?? null;
-  const displayedOnboardingError = onboardingError ?? onboardingStatus.error?.message ?? null;
+  const displayedOnboardingError = onboardingError ?? boot.error?.message ?? null;
   const authAttemptId = authAttempt?.attemptId;
   const authAttemptStatus = authAttempt?.status;
 
@@ -211,6 +209,29 @@ function AppContent() {
     setAgentStatus("IDLE");
   }, []);
 
+  const acceptBootPrimaryConversation = React.useCallback(
+    (primary: BootPrimaryConversation) => {
+      acceptPrimaryConversation(primary.conversationId);
+      setTranscriptWindow((current) =>
+        mergeDurableEntries(current, entriesFromReplay(primary.latestTranscriptPage.items), {
+          placement: "latest",
+          beforeCursor: primary.latestTranscriptPage.pageInfo.beforeCursor ?? null,
+          hasMoreBefore: primary.latestTranscriptPage.pageInfo.hasMoreBefore
+        })
+      );
+      latestTranscriptLoadedConversationRef.current = primary.conversationId;
+      latestTranscriptRetryBlockedConversationRef.current = null;
+      latestTranscriptErrorVisibleConversationRef.current = null;
+      setLatestTranscriptLoadedConversationId(primary.conversationId);
+      setLatestTranscriptRetryBlockedConversationId(null);
+      if (latestTranscriptRetryTimeoutRef.current !== null) {
+        window.clearTimeout(latestTranscriptRetryTimeoutRef.current);
+        latestTranscriptRetryTimeoutRef.current = null;
+      }
+    },
+    [acceptPrimaryConversation]
+  );
+
   const conversationEvents = useSubscription(ConversationEventsDocument, {
     variables: { conversationId: conversationId ?? "" },
     skip: !conversationId,
@@ -218,8 +239,8 @@ function AppContent() {
   });
 
   React.useEffect(() => {
-    localStatusRefetchRef.current = localStatus.refetch;
-  }, [localStatus.refetch]);
+    localStatusRefetchRef.current = boot.refetch;
+  }, [boot.refetch]);
 
   const loadConversationTranscriptPage = React.useCallback(
     async ({ cursor, placement }: { cursor: string | null; placement: "latest" | "before" }) => {
@@ -319,24 +340,9 @@ function AppContent() {
       });
     };
 
-    const existing = primaryConversation.data?.primaryConversation;
+    const existing = boot.data.primaryConversation;
     if (existing) {
-      scheduleConversationState(() => acceptPrimaryConversation(existing.conversationId));
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    if (primaryConversation.loading) {
-      scheduleConversationState(markConversationConnecting);
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    if (primaryConversation.error) {
-      const error = primaryConversation.error;
-      scheduleConversationState(() => reportConversationError(error));
+      scheduleConversationState(() => acceptBootPrimaryConversation(existing));
       return () => {
         cancelled = true;
       };
@@ -346,6 +352,9 @@ function AppContent() {
     scheduleConversationState(markConversationConnecting);
     void ensurePrimaryConversation()
       .then((result) => {
+        if (cancelled) {
+          return;
+        }
         const ensured = result.data?.ensurePrimaryConversation;
         if (!ensured) {
           throw new Error("Noema did not return a conversation.");
@@ -353,6 +362,9 @@ function AppContent() {
         acceptPrimaryConversation(ensured.conversationId);
       })
       .catch((error: unknown) => {
+        if (cancelled) {
+          return;
+        }
         setSocketState("closed");
         setAgentStatus("closed");
         setPending(false);
@@ -366,17 +378,15 @@ function AppContent() {
       cancelled = true;
     };
   }, [
+    acceptBootPrimaryConversation,
     acceptPrimaryConversation,
+    boot.data.primaryConversation,
     chatRoute,
     conversationId,
     ensurePrimaryConversation,
     markConversationConnecting,
     onboarded,
-    primaryConversation.data,
-    primaryConversation.error,
-    primaryConversation.loading,
-    pushTranscriptWindowError,
-    reportConversationError
+    pushTranscriptWindowError
   ]);
 
   React.useEffect(() => {
