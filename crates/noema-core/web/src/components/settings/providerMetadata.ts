@@ -1,6 +1,7 @@
 import type { ProviderAccountsQuery } from "@/generated/graphql";
 
 export type ProviderSettingsAccount = ProviderAccountsQuery["providerAccounts"][number];
+export type ProviderAccountCatalogEntry = ProviderAccountsQuery["providerAccountCatalog"][number];
 
 export type ProviderMetadataRow = {
   label: string;

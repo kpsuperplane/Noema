@@ -255,6 +255,13 @@ type CapabilityFeatures {
 }
 
 """
+Input for clearing a write-only provider secret.
+"""
+input ClearProviderSecretInput {
+	providerAccountId: String!
+}
+
+"""
 Continue setup after adding authentication material.
 """
 input ContinueMcpServerSetupInput {
@@ -411,6 +418,15 @@ input CreateMcpServerInput {
 	HTTP transport config, when `transport_kind` is `sse` or `streamable_http`.
 	"""
 	http: McpHttpConfigInput
+}
+
+"""
+Input for creating a provider account.
+"""
+input CreateProviderAccountInput {
+	providerKind: String!
+	displayName: String
+	secret: String!
 }
 
 """
@@ -1126,6 +1142,18 @@ type MutationRoot {
 	"""
 	startProviderAuthAttempt(input: StartProviderAuthAttemptInput!): ProviderAuthAttempt!
 	"""
+	Create a user-managed provider account.
+	"""
+	createProviderAccount(input: CreateProviderAccountInput!): ProviderAccount!
+	"""
+	Save a write-only provider account secret.
+	"""
+	saveProviderSecretInput(input: ProviderSecretInput!): ProviderAccount!
+	"""
+	Clear a write-only provider account secret.
+	"""
+	clearProviderSecret(input: ClearProviderSecretInput!): ProviderAccount!
+	"""
 	Save one agent's model/provider preference.
 	"""
 	saveAgentModelPreference(input: SaveAgentModelPreferenceInput!): AgentModelPreference!
@@ -1350,6 +1378,10 @@ Provider account metadata safe to show in Settings.
 """
 type ProviderAccount {
 	"""
+	Stable provider account id.
+	"""
+	providerAccountId: String!
+	"""
 	Provider family, such as `codex`.
 	"""
 	providerKind: String!
@@ -1396,6 +1428,16 @@ type ProviderAccount {
 	"""
 	Provider capabilities available through this account.
 	"""
+	capabilities: [ProviderCapability!]!
+}
+
+"""
+Provider type that can be added in Settings.
+"""
+type ProviderAccountCatalogEntry {
+	providerKind: String!
+	displayName: String!
+	authMethod: String!
 	capabilities: [ProviderCapability!]!
 }
 
@@ -1534,6 +1576,14 @@ type ProviderCapability {
 	features: CapabilityFeatures!
 }
 
+"""
+Input for saving a write-only provider secret.
+"""
+input ProviderSecretInput {
+	providerAccountId: String!
+	secret: String!
+}
+
 type QueryRoot {
 	"""
 	Return local Noema status.
@@ -1551,6 +1601,10 @@ type QueryRoot {
 	List provider account metadata safe to show in Settings.
 	"""
 	providerAccounts: [ProviderAccount!]!
+	"""
+	List provider account types that can be added in Settings.
+	"""
+	providerAccountCatalog: [ProviderAccountCatalogEntry!]!
 	"""
 	List agent metadata safe to show in Settings.
 	"""

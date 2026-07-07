@@ -31,7 +31,76 @@ export const OnboardingStatusDocument = gql`
 
 export const ProviderAccountsDocument = gql`
   query ProviderAccounts {
+    providerAccountCatalog {
+      providerKind
+      displayName
+      authMethod
+      capabilities {
+        capabilityId
+        status
+        reliabilityContract
+        dataFlowClass
+      }
+    }
     providerAccounts {
+      providerAccountId
+      providerKind
+      accountKey
+      displayName
+      authMethod
+      status
+      isActive
+      isDefault
+      lastCheckedAt
+      lastAuthenticatedAt
+      lastErrorCode
+      lastErrorMessage
+    }
+  }
+`;
+
+export const CreateProviderAccountDocument = gql`
+  mutation CreateProviderAccount($input: CreateProviderAccountInput!) {
+    createProviderAccount(input: $input) {
+      providerAccountId
+      providerKind
+      accountKey
+      displayName
+      authMethod
+      status
+      isActive
+      isDefault
+      lastCheckedAt
+      lastAuthenticatedAt
+      lastErrorCode
+      lastErrorMessage
+    }
+  }
+`;
+
+export const SaveProviderSecretInputDocument = gql`
+  mutation SaveProviderSecretInput($input: ProviderSecretInput!) {
+    saveProviderSecretInput(input: $input) {
+      providerAccountId
+      providerKind
+      accountKey
+      displayName
+      authMethod
+      status
+      isActive
+      isDefault
+      lastCheckedAt
+      lastAuthenticatedAt
+      lastErrorCode
+      lastErrorMessage
+    }
+  }
+`;
+
+export const ClearProviderSecretDocument = gql`
+  mutation ClearProviderSecret($input: ClearProviderSecretInput!) {
+    clearProviderSecret(input: $input) {
+      providerAccountId
       providerKind
       accountKey
       displayName
