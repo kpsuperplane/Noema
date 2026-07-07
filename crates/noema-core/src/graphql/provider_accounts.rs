@@ -2,7 +2,8 @@ use async_graphql::{Result, SimpleObject};
 
 use crate::{
     FoundationLocalProvider, FoundationLocalProviderConfig, ProviderAccountRecord,
-    ProviderAccountStatus, ProviderAuthMethod, config::DEFAULT_FOUNDATION_LOCAL_PROFILE,
+    ProviderAccountStatus, ProviderAuthMethod,
+    config::DEFAULT_FOUNDATION_LOCAL_PROFILE,
     provider::{
         ProviderCapability, ResultPersistencePolicy,
         adapters::foundation_bridge_process::FoundationBridgeError,

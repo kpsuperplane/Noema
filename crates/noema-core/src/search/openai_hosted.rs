@@ -1,10 +1,7 @@
 #![cfg_attr(not(test), allow(dead_code))]
 
 use crate::search::types::{SearchError, SearchResponse, SearchResult};
-use crate::{
-    provider::adapters::responses::HostedWebSearchRequest,
-    search::types::SearchRequest,
-};
+use crate::{provider::adapters::responses::HostedWebSearchRequest, search::types::SearchRequest};
 use serde_json::Value;
 
 pub(crate) const OPENAI_HOSTED_SEARCH_PROVIDER_ID: &str = "openai";
@@ -24,7 +21,10 @@ pub(crate) async fn search_openai_hosted(
 ) -> Result<SearchResponse, SearchError> {
     let response = client
         .http
-        .post(format!("{}/responses", client.base_url.trim_end_matches('/')))
+        .post(format!(
+            "{}/responses",
+            client.base_url.trim_end_matches('/')
+        ))
         .bearer_auth(&client.api_key)
         .json(&HostedWebSearchRequest::new(
             client.model.clone(),
@@ -220,10 +220,7 @@ mod tests {
         let request = request_rx.recv().await.expect("request");
         assert_eq!(request.method, "POST");
         assert_eq!(request.path, "/responses");
-        assert_eq!(
-            request.authorization.as_deref(),
-            Some("Bearer secret")
-        );
+        assert_eq!(request.authorization.as_deref(), Some("Bearer secret"));
         assert!(request.body.contains("\"type\":\"web_search\""));
         assert!(request.body.contains("Search the web for this query"));
         assert_eq!(response.provider, "openai");

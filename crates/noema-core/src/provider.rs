@@ -6,12 +6,12 @@
 
 /// Neutral provider account metadata types.
 pub mod accounts;
-/// Provider capability declarations and behavior metadata.
-pub mod capabilities;
 /// Concrete model provider adapters and transport helpers.
 pub mod adapters;
 /// Provider authentication support.
 pub mod auth;
+/// Provider capability declarations and behavior metadata.
+pub mod capabilities;
 /// Provider-neutral generation request and response types.
 pub mod contract;
 /// Provider model/profile catalog refresh helpers.

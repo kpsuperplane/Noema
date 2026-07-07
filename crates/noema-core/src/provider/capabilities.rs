@@ -177,8 +177,18 @@ pub fn capabilities_for_provider_account(
     let status = capability_status_for_account(account_status);
     match provider_kind {
         "openai" => vec![
-            model_capability(provider_kind, account_key, CapabilityId::ModelGenerate, status),
-            model_capability(provider_kind, account_key, CapabilityId::ModelClassify, status),
+            model_capability(
+                provider_kind,
+                account_key,
+                CapabilityId::ModelGenerate,
+                status,
+            ),
+            model_capability(
+                provider_kind,
+                account_key,
+                CapabilityId::ModelClassify,
+                status,
+            ),
             ProviderCapability {
                 provider_kind: provider_kind.to_string(),
                 account_key: account_key.to_string(),
@@ -196,8 +206,18 @@ pub fn capabilities_for_provider_account(
             },
         ],
         "codex" | "foundation_local" => vec![
-            model_capability(provider_kind, account_key, CapabilityId::ModelGenerate, status),
-            model_capability(provider_kind, account_key, CapabilityId::ModelClassify, status),
+            model_capability(
+                provider_kind,
+                account_key,
+                CapabilityId::ModelGenerate,
+                status,
+            ),
+            model_capability(
+                provider_kind,
+                account_key,
+                CapabilityId::ModelClassify,
+                status,
+            ),
         ],
         "duckduckgo_public" => vec![ProviderCapability {
             provider_kind: provider_kind.to_string(),
@@ -277,8 +297,11 @@ mod tests {
 
     #[test]
     fn openai_account_declares_models_and_hosted_search() {
-        let capabilities =
-            capabilities_for_provider_account("openai", "default", ProviderAccountStatus::Authenticated);
+        let capabilities = capabilities_for_provider_account(
+            "openai",
+            "default",
+            ProviderAccountStatus::Authenticated,
+        );
         let ids = capabilities
             .iter()
             .map(|capability| capability.capability_id.as_str())
@@ -296,26 +319,42 @@ mod tests {
 
     #[test]
     fn codex_account_does_not_declare_native_web_search() {
-        let capabilities =
-            capabilities_for_provider_account("codex", "default", ProviderAccountStatus::Authenticated);
+        let capabilities = capabilities_for_provider_account(
+            "codex",
+            "default",
+            ProviderAccountStatus::Authenticated,
+        );
 
-        assert!(capabilities
-            .iter()
-            .any(|capability| capability.capability_id == CapabilityId::ModelGenerate));
-        assert!(!capabilities
-            .iter()
-            .any(|capability| capability.capability_id == CapabilityId::WebSearch));
+        assert!(
+            capabilities
+                .iter()
+                .any(|capability| capability.capability_id == CapabilityId::ModelGenerate)
+        );
+        assert!(
+            !capabilities
+                .iter()
+                .any(|capability| capability.capability_id == CapabilityId::WebSearch)
+        );
     }
 
     #[test]
     fn system_web_providers_have_no_secret_requirements() {
-        let search =
-            capabilities_for_provider_account("duckduckgo_public", "system", ProviderAccountStatus::Authenticated);
-        let fetch =
-            capabilities_for_provider_account("direct_http", "system", ProviderAccountStatus::Authenticated);
+        let search = capabilities_for_provider_account(
+            "duckduckgo_public",
+            "system",
+            ProviderAccountStatus::Authenticated,
+        );
+        let fetch = capabilities_for_provider_account(
+            "direct_http",
+            "system",
+            ProviderAccountStatus::Authenticated,
+        );
 
         assert_eq!(search[0].capability_id, CapabilityId::WebSearch);
-        assert_eq!(search[0].reliability_contract, ReliabilityContract::BestEffortPublic);
+        assert_eq!(
+            search[0].reliability_contract,
+            ReliabilityContract::BestEffortPublic
+        );
         assert_eq!(fetch[0].capability_id, CapabilityId::WebFetch);
         assert!(fetch[0].features.direct_url_fetch);
     }
@@ -330,9 +369,12 @@ mod tests {
                 capabilities_for_provider_account("openai", "default", account_status);
 
             assert!(!capabilities.is_empty());
-            assert!(capabilities
-                .iter()
-                .all(|capability| capability.status == ProviderCapabilityStatus::AccountDependent));
+            assert!(
+                capabilities
+                    .iter()
+                    .all(|capability| capability.status
+                        == ProviderCapabilityStatus::AccountDependent)
+            );
         }
     }
 
@@ -346,9 +388,11 @@ mod tests {
                 capabilities_for_provider_account("openai", "default", account_status);
 
             assert!(!capabilities.is_empty());
-            assert!(capabilities
-                .iter()
-                .all(|capability| capability.status == ProviderCapabilityStatus::Unavailable));
+            assert!(
+                capabilities
+                    .iter()
+                    .all(|capability| capability.status == ProviderCapabilityStatus::Unavailable)
+            );
         }
     }
 }

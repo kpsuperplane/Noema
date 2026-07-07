@@ -192,12 +192,12 @@ impl From<ResolvedProvider> for ResolvedWebFetchProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::store::tests::test_store;
     use crate::{
         ProviderAccountStatus, ProviderAuthMethod,
         daemon::runtime::actor::CodexRuntimeActor,
         provider::{CapabilityId, ProviderCapabilityStatus},
     };
-    use crate::store::tests::test_store;
     use std::collections::HashMap;
 
     #[tokio::test]
@@ -473,7 +473,10 @@ mod tests {
             .bind(("provider_kind", provider_kind.to_string()))
             .bind(("account_key", account_key.to_string()))
             .bind(("display_name", format!("{provider_kind} {account_key}")))
-            .bind(("auth_method", ProviderAuthMethod::SecretInput.as_str().to_string()))
+            .bind((
+                "auth_method",
+                ProviderAuthMethod::SecretInput.as_str().to_string(),
+            ))
             .bind(("status", status.as_str().to_string()))
             .await
             .expect("insert provider account")
@@ -488,7 +491,11 @@ mod tests {
         provider_account_id: &str,
     ) {
         let binding_id = format!("provider_capability_binding:{tool_name}:{capability_id}");
-        let record_id = format!("{}_{}", tool_name.replace('.', "_"), capability_id.replace('.', "_"));
+        let record_id = format!(
+            "{}_{}",
+            tool_name.replace('.', "_"),
+            capability_id.replace('.', "_")
+        );
         store
             .db()
             .query(
