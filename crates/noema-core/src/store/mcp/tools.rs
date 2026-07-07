@@ -45,6 +45,9 @@ impl NoemaStore {
             let metadata_changed = previous
                 .as_ref()
                 .is_some_and(|(_, fingerprint)| fingerprint != &tool.metadata_fingerprint);
+            let server_changed = previous
+                .as_ref()
+                .is_some_and(|(server_id, _)| server_id != &tool.mcp_server_id);
             transaction.execute(
                 format!(
                     r#"
@@ -82,6 +85,8 @@ impl NoemaStore {
             )?;
             if metadata_changed {
                 invalidate_tool_calibration_review_on_connection(&transaction, &tool.mcp_tool_id)?;
+            }
+            if metadata_changed || server_changed {
                 if let Some((previous_server_id, _)) = previous.as_ref()
                     && previous_server_id != &tool.mcp_server_id
                 {

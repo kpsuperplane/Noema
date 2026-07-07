@@ -639,6 +639,76 @@ async fn rediscovered_tool_metadata_invalidates_reviewed_calibration() {
 }
 
 #[tokio::test]
+async fn same_fingerprint_tool_move_recomputes_old_and_new_server_enabled_state() {
+    let store = test_store_with_mcp_tool().await;
+    store
+        .create_mcp_server(NewMcpServer {
+            mcp_server_id: "mcp_server:drive".to_string(),
+            display_name: "Drive".to_string(),
+            transport_kind: McpTransportKind::Stdio,
+            safe_config: json!({}),
+        })
+        .await
+        .expect("create second server");
+    store
+        .save_tool_calibration(ready_mixed_calibration("fingerprint_1"))
+        .await
+        .expect("save calibration");
+
+    assert!(
+        store
+            .get_mcp_server("mcp_server:google")
+            .await
+            .expect("get old server")
+            .expect("old server")
+            .enabled
+    );
+    assert!(
+        !store
+            .get_mcp_server("mcp_server:drive")
+            .await
+            .expect("get new server")
+            .expect("new server")
+            .enabled
+    );
+
+    store
+        .upsert_discovered_mcp_tool(NewMcpTool {
+            mcp_server_id: "mcp_server:drive".to_string(),
+            ..google_tool("read_doc", json!({"readOnlyHint": true}), "fingerprint_1")
+        })
+        .await
+        .expect("move tool to second server");
+
+    assert!(
+        !store
+            .get_mcp_server("mcp_server:google")
+            .await
+            .expect("get old server")
+            .expect("old server")
+            .enabled
+    );
+    assert!(
+        store
+            .get_mcp_server("mcp_server:drive")
+            .await
+            .expect("get new server")
+            .expect("new server")
+            .enabled
+    );
+    let calibration = store
+        .get_tool_calibration("mcp_tool:google:read_doc")
+        .await
+        .expect("get calibration")
+        .expect("calibration");
+    assert_eq!(calibration.status, McpCalibrationStatus::Ready);
+    assert_eq!(
+        calibration.reviewed_metadata_fingerprint.as_deref(),
+        Some("fingerprint_1")
+    );
+}
+
+#[tokio::test]
 async fn stores_trusted_identity_selector_normalized() {
     let store = test_store().await;
 
