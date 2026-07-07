@@ -33,12 +33,16 @@ use super::{
         self, GraphqlOnboardingStatus, GraphqlProviderAuthAttempt,
         GraphqlStartProviderAuthAttemptInput,
     },
-    provider_accounts::{self, GraphqlProviderAccount},
+    provider_accounts::{
+        self, GraphqlCapabilityFeatures, GraphqlProviderAccount, GraphqlProviderCapability,
+    },
     usage_settings::{self, GraphqlSaveToolProgressAuditPreferenceInput, GraphqlUsageSettings},
     web_fetch_settings::{
         self, GraphqlSaveWebFetchSummarizerPreferenceInput, GraphqlWebFetchSettings,
     },
 };
+
+const _: fn(GraphqlProviderCapability, GraphqlCapabilityFeatures) = |_, _| {};
 
 /// Concrete GraphQL schema type used by the web server.
 pub type GraphqlSchema = Schema<QueryRoot, MutationRoot, SubscriptionRoot>;
