@@ -19,7 +19,7 @@ impl NoemaStore {
         let metadata_changed = previous
             .as_ref()
             .is_some_and(|existing| existing.metadata_fingerprint != tool.metadata_fingerprint);
-        self.db
+        self.db()
             .query(
                 r#"
                 UPSERT type::record('mcp_tools', $record_id) SET
@@ -69,7 +69,7 @@ impl NoemaStore {
         mcp_tool_id: &str,
     ) -> Result<Option<McpToolRecord>, StoreError> {
         let mut response = self
-            .db
+            .db()
             .query(
                 r#"
                 SELECT mcp_tool_id, mcp_server_id, name, description, input_schema,
@@ -95,7 +95,7 @@ impl NoemaStore {
         mcp_server_id: &str,
     ) -> Result<Vec<McpToolRecord>, StoreError> {
         let mut response = self
-            .db
+            .db()
             .query(
                 r#"
                 SELECT mcp_tool_id, mcp_server_id, name, description, input_schema,

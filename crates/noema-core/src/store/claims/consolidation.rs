@@ -33,7 +33,7 @@ impl NoemaStore {
                 return Ok(Vec::new());
             };
             let mut response = self
-                .db
+                .db()
                 .query(
                     r#"
                     SELECT claim_id, subject_entity_id, object_entity_id, predicate_id, fact,
@@ -68,7 +68,7 @@ impl NoemaStore {
             && query_terms.is_empty()
         {
             let mut response = self
-                .db
+                .db()
                 .query(
                     r#"
                     SELECT claim_id, subject_entity_id, object_entity_id, predicate_id, fact,
@@ -102,7 +102,7 @@ impl NoemaStore {
         if let Some(object_entity_id) = request.object_entity_id.as_deref() {
             let object_entity_id = object_entity_id.to_string();
             let mut response = self
-                .db
+                .db()
                 .query(
                     r#"
                     SELECT claim_id, subject_entity_id, object_entity_id, predicate_id, fact,
@@ -139,7 +139,7 @@ impl NoemaStore {
             }
 
             let mut response = self
-                .db
+                .db()
                 .query(
                     r#"
                     SELECT claim_id, subject_entity_id, object_entity_id, predicate_id, fact,
@@ -190,7 +190,7 @@ impl NoemaStore {
 
         if request.object_entity_id.is_none() && query_terms.is_empty() {
             let mut response = self
-                .db
+                .db()
                 .query(
                     r#"
                     SELECT claim_id, subject_entity_id, object_entity_id, predicate_id, fact,
@@ -220,7 +220,7 @@ impl NoemaStore {
         }
 
         let mut response = self
-            .db
+            .db()
             .query(
                 r#"
                 SELECT claim_id, subject_entity_id, object_entity_id, predicate_id, fact,

@@ -59,7 +59,7 @@ impl NoemaStore {
         task_id: &str,
     ) -> Result<Option<AuxiliaryModelPreferenceRecord>, StoreError> {
         let mut response = self
-            .db
+            .db()
             .query(
                 r#"
                 SELECT task_id, provider_kind, provider_account_id, model_profile, reasoning_effort
@@ -113,7 +113,7 @@ impl NoemaStore {
             });
         }
 
-        self.db
+        self.db()
             .query(
                 r#"
                 UPSERT type::record('auxiliary_model_preferences', $record_id) SET

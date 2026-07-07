@@ -17,7 +17,7 @@ impl NoemaStore {
         approval: NewMcpApprovalRequest,
     ) -> Result<McpApprovalRequestRecord, StoreError> {
         let payload_preview = sanitize_approval_payload_preview(approval.payload_preview);
-        self.db
+        self.db()
             .query(
                 r#"
                 CREATE type::record('approval_requests', $record_id) SET
@@ -86,7 +86,7 @@ impl NoemaStore {
         status: Option<&str>,
     ) -> Result<Vec<McpApprovalRequestRecord>, StoreError> {
         let mut response = self
-            .db
+            .db()
             .query(
                 r#"
                 SELECT approval_id, action_summary, tool_invocation_id, mcp_server_id,
@@ -115,7 +115,7 @@ impl NoemaStore {
         approval_id: &str,
     ) -> Result<Option<McpApprovalRequestRecord>, StoreError> {
         let mut response = self
-            .db
+            .db()
             .query(
                 r#"
                 SELECT approval_id, action_summary, tool_invocation_id, mcp_server_id,

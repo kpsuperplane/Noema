@@ -61,7 +61,7 @@ impl NoemaStore {
     ) -> Result<ConversationRecord, StoreError> {
         self.ensure_default_actors().await?;
         let mut response = self
-            .db
+            .db()
             .query("SELECT primary_conversation_id FROM humans WHERE human_id = $human_id LIMIT 1;")
             .bind(("human_id", human_id.to_string()))
             .await?;
@@ -83,7 +83,7 @@ impl NoemaStore {
                 NewConversation::local_chat_for_provider(provider, model, cwd),
             )
             .await?;
-        self.db
+        self.db()
             .query(
                 r#"
                 UPDATE humans SET
@@ -109,7 +109,7 @@ impl NoemaStore {
         human_id: &str,
     ) -> Result<Option<ConversationRecord>, StoreError> {
         let mut response = self
-            .db
+            .db()
             .query("SELECT primary_conversation_id FROM humans WHERE human_id = $human_id LIMIT 1;")
             .bind(("human_id", human_id.to_string()))
             .await?;
@@ -142,7 +142,7 @@ impl NoemaStore {
     ) -> Result<u64, StoreError> {
         self.require_conversation(conversation_id).await?;
         let mut response = self
-            .db
+            .db()
             .query(
                 "SELECT metadata FROM conversation_turns WHERE conversation_id = $conversation_id;",
             )
@@ -173,7 +173,7 @@ impl NoemaStore {
                 .await?;
         }
         let turn_id = allocate_id("turn");
-        self.db
+        self.db()
             .query(
                 r#"
                 CREATE type::record('conversation_turns', $record_id) SET
@@ -221,7 +221,7 @@ impl NoemaStore {
         let _append_guard = self.append_item_lock.lock().await;
         let item_id = allocate_id("item");
         let sequence_index = self.next_item_sequence_index(&item.conversation_id).await?;
-        self.db
+        self.db()
             .query(
                 r#"
                 CREATE type::record('conversation_items', $record_id) SET
@@ -284,7 +284,7 @@ impl NoemaStore {
             ReplayMode::Audit => "",
         };
         let mut response = self
-            .db
+            .db()
             .query(format!(
                 r#"
                 SELECT item_id, conversation_id, turn_id, kind, status, content_text, payload_json, metadata, sequence_index
@@ -322,7 +322,7 @@ impl NoemaStore {
         let mut rows = if let Some(cursor) = cursor {
             let before_sequence_index = sequence_index_from_conversation_item_cursor(cursor)?;
             let mut response = self
-                .db
+                .db()
                 .query(
                     r#"
                     SELECT item_id, conversation_id, turn_id, kind, status, content_text, payload_json, metadata, sequence_index
@@ -341,7 +341,7 @@ impl NoemaStore {
             response.take::<Vec<ConversationItemRow>>(0)?
         } else {
             let mut response = self
-                .db
+                .db()
                 .query(
                     r#"
                     SELECT item_id, conversation_id, turn_id, kind, status, content_text, payload_json, metadata, sequence_index
@@ -391,7 +391,7 @@ impl NoemaStore {
         self.require_conversation(conversation_id).await?;
         let limit = limit.clamp(1, 40);
         let mut response = self
-            .db
+            .db()
             .query(
                 r#"
                 SELECT item_id, conversation_id, turn_id, kind, status, content_text, payload_json, metadata, sequence_index
@@ -426,7 +426,7 @@ impl NoemaStore {
         self.require_conversation(conversation_id).await?;
         let limit = limit.clamp(1, 80);
         let mut response = self
-            .db
+            .db()
             .query(
                 r#"
                 SELECT item_id, conversation_id, turn_id, kind, status, content_text, payload_json, metadata, sequence_index
@@ -461,7 +461,7 @@ impl NoemaStore {
     ) -> Result<Vec<ConversationItemRecord>, StoreError> {
         self.require_conversation(conversation_id).await?;
         let mut response = self
-            .db
+            .db()
             .query(
                 r#"
                 SELECT item_id, conversation_id, turn_id, kind, status, content_text, payload_json, metadata, sequence_index
@@ -512,7 +512,7 @@ impl NoemaStore {
         status: AgentStatus,
     ) -> Result<(), StoreError> {
         self.require_conversation(conversation_id).await?;
-        self.db
+        self.db()
             .query(
                 r#"
                 UPDATE conversations SET
@@ -533,7 +533,7 @@ impl NoemaStore {
         conversation_id: String,
         conversation: NewConversation,
     ) -> Result<ConversationRecord, StoreError> {
-        self.db
+        self.db()
             .query(
                 r#"
                 CREATE type::record('conversations', $record_id) SET
@@ -577,7 +577,7 @@ impl NoemaStore {
         human_id: &str,
     ) -> Result<bool, StoreError> {
         let mut response = self
-            .db
+            .db()
             .query(
                 r#"
                 SELECT conversation_id
@@ -600,7 +600,7 @@ impl NoemaStore {
 
     async fn conversation_exists(&self, conversation_id: &str) -> Result<bool, StoreError> {
         let mut response = self
-            .db
+            .db()
             .query(
                 "SELECT conversation_id FROM conversations WHERE conversation_id = $conversation_id AND lifecycle_status = 'active' AND deleted_at = NONE LIMIT 1;",
             )
@@ -625,7 +625,7 @@ impl NoemaStore {
 
     async fn require_turn(&self, turn_id: &str) -> Result<(), StoreError> {
         let mut response = self
-            .db
+            .db()
             .query("SELECT turn_id FROM conversation_turns WHERE turn_id = $turn_id LIMIT 1;")
             .bind(("turn_id", turn_id.to_string()))
             .await?;
@@ -645,7 +645,7 @@ impl NoemaStore {
         conversation_id: &str,
     ) -> Result<(), StoreError> {
         let mut response = self
-            .db
+            .db()
             .query("SELECT turn_id, conversation_id FROM conversation_turns WHERE turn_id = $turn_id LIMIT 1;")
             .bind(("turn_id", turn_id.to_string()))
             .await?;
@@ -671,7 +671,7 @@ impl NoemaStore {
         conversation_id: &str,
     ) -> Result<(), StoreError> {
         let mut response = self
-            .db
+            .db()
             .query("SELECT item_id, conversation_id FROM conversation_items WHERE item_id = $item_id AND deleted_at = NONE LIMIT 1;")
             .bind(("item_id", item_id.to_string()))
             .await?;
@@ -693,7 +693,7 @@ impl NoemaStore {
 
     async fn update_turn_status(&self, turn_id: &str, status: &str) -> Result<(), StoreError> {
         self.require_turn(turn_id).await?;
-        self.db
+        self.db()
             .query(
                 r#"
                 UPDATE conversation_turns SET
@@ -713,7 +713,7 @@ impl NoemaStore {
 
     async fn next_item_sequence_index(&self, conversation_id: &str) -> Result<i64, StoreError> {
         let mut response = self
-            .db
+            .db()
             .query(
                 "SELECT sequence_index FROM conversation_items WHERE conversation_id = $conversation_id ORDER BY sequence_index DESC LIMIT 1;",
             )

@@ -26,7 +26,7 @@ impl NoemaStore {
                         selector.selector_kind.as_str()
                     ))
                 })?;
-        self.db
+        self.db()
             .query(
                 r#"
                 CREATE type::record('trusted_identity_selectors', $record_id) SET
@@ -70,7 +70,7 @@ impl NoemaStore {
         selector_id: &str,
     ) -> Result<Option<TrustedIdentitySelectorRecord>, StoreError> {
         let mut response = self
-            .db
+            .db()
             .query(
                 r#"
                 SELECT selector_id, owner_scope_id, selector_kind, normalized_value,
@@ -100,7 +100,7 @@ impl NoemaStore {
         owner_scope_id: &str,
     ) -> Result<Vec<TrustedIdentitySelectorRecord>, StoreError> {
         let mut response = self
-            .db
+            .db()
             .query(
                 r#"
                 SELECT selector_id, owner_scope_id, selector_kind, normalized_value,

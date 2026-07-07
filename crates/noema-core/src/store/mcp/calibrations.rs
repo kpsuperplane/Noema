@@ -39,7 +39,7 @@ impl NoemaStore {
             serde_json::to_value(&calibration.owner_extractors).map_err(|error| {
                 StoreError::Schema(format!("invalid owner extractor serialization: {error}"))
             })?;
-        self.db
+        self.db()
             .query(
                 r#"
                 UPSERT type::record('tool_calibrations', $record_id) SET
@@ -145,7 +145,7 @@ impl NoemaStore {
                 break;
             }
         }
-        self.db
+        self.db()
             .query(
                 r#"
                 UPDATE mcp_servers SET
@@ -248,7 +248,7 @@ impl NoemaStore {
         calibration_id: &str,
     ) -> Result<Option<ToolCalibrationRecord>, StoreError> {
         let mut response = self
-            .db
+            .db()
             .query(
                 r#"
                 SELECT calibration_id, mcp_tool_id, read_classification,
@@ -272,7 +272,7 @@ impl NoemaStore {
         &self,
         mcp_tool_id: &str,
     ) -> Result<(), StoreError> {
-        self.db
+        self.db()
             .query(
                 r#"
                 UPDATE tool_calibrations SET
@@ -300,7 +300,7 @@ impl NoemaStore {
         mcp_tool_id: &str,
     ) -> Result<Option<ToolCalibrationRecord>, StoreError> {
         let mut response = self
-            .db
+            .db()
             .query(
                 r#"
                 SELECT calibration_id, mcp_tool_id, read_classification,

@@ -14,7 +14,7 @@ impl NoemaStore {
         &self,
         server: NewMcpServer,
     ) -> Result<McpServerRecord, StoreError> {
-        self.db
+        self.db()
             .query(
                 r#"
                 CREATE type::record('mcp_servers', $record_id) SET
@@ -56,7 +56,7 @@ impl NoemaStore {
         mcp_server_id: &str,
     ) -> Result<Option<McpServerRecord>, StoreError> {
         let mut response = self
-            .db
+            .db()
             .query(
                 r#"
                 SELECT mcp_server_id, display_name, transport_kind, safe_config,
@@ -81,7 +81,7 @@ impl NoemaStore {
     /// enum is invalid.
     pub async fn list_mcp_servers(&self) -> Result<Vec<McpServerRecord>, StoreError> {
         let mut response = self
-            .db
+            .db()
             .query(
                 r#"
                 SELECT mcp_server_id, display_name, transport_kind, safe_config,
@@ -119,7 +119,7 @@ impl NoemaStore {
 
         let tools = self.list_mcp_tools_for_server(mcp_server_id).await?;
         for tool in tools {
-            self.db
+            self.db()
                 .query(
                     r#"
                     DELETE tool_calibrations WHERE mcp_tool_id = $mcp_tool_id;
@@ -130,7 +130,7 @@ impl NoemaStore {
                 .await?
                 .check()?;
         }
-        self.db
+        self.db()
             .query(
                 r#"
                 DELETE mcp_servers WHERE mcp_server_id = $mcp_server_id;
@@ -153,7 +153,7 @@ impl NoemaStore {
         health_status: McpServerHealthStatus,
         auth_status: McpServerAuthStatus,
     ) -> Result<McpServerRecord, StoreError> {
-        self.db
+        self.db()
             .query(
                 r#"
                 UPDATE mcp_servers SET

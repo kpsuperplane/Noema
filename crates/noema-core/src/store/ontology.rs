@@ -195,7 +195,7 @@ impl NoemaStore {
     /// Returns a store error if the catalog query fails or cannot be decoded.
     pub async fn predicate_catalog(&self) -> Result<Vec<PredicateRecord>, StoreError> {
         let mut response = self
-            .db
+            .db()
             .query(
                 r#"
                 SELECT predicate_id, label, description, allowed_subject_types,
@@ -232,7 +232,7 @@ impl NoemaStore {
             object.insert("proposed_claim".to_string(), candidate.proposed_claim);
         }
 
-        self.db
+        self.db()
             .query(
                 r#"
                 CREATE type::record('predicate_proposals', $record_id) SET
@@ -285,7 +285,7 @@ impl NoemaStore {
         }
         sql.push_str("ORDER BY created_at DESC, proposal_id ASC LIMIT $limit;");
 
-        let mut statement = self.db.query(sql).bind(("limit", limit));
+        let mut statement = self.db().query(sql).bind(("limit", limit));
         if let Some(status) = filter.status {
             statement = statement.bind(("status", status));
         }
@@ -304,7 +304,7 @@ impl NoemaStore {
         proposal_id: &str,
     ) -> Result<Option<PredicateProposalRecord>, StoreError> {
         let mut response = self
-            .db
+            .db()
             .query(
                 r#"
                 SELECT proposal_id, label, description, proposed_predicate, status,

@@ -61,7 +61,7 @@ impl NoemaStore {
         }
         sql.push(';');
 
-        let mut statement = self.db.query(sql);
+        let mut statement = self.db().query(sql);
         if let Some(status) = filter.status {
             statement = statement.bind(("status", status.as_str().to_string()));
         }
@@ -105,7 +105,7 @@ impl NoemaStore {
         let entities = self.inspection_entities().await?;
         let evidence_counts = self.inspection_evidence_counts().await?;
         let mut response = self
-            .db
+            .db()
             .query(
                 r#"
                 SELECT claim_id, subject_entity_id, object_entity_id, predicate_id, fact,
@@ -147,7 +147,7 @@ impl NoemaStore {
         &self,
     ) -> Result<HashMap<String, String>, StoreError> {
         let mut response = self
-            .db
+            .db()
             .query("SELECT predicate_id, label FROM predicates;")
             .await?;
         let rows: Vec<InspectionPredicateRow> = response.take(0)?;
@@ -161,7 +161,7 @@ impl NoemaStore {
         &self,
     ) -> Result<HashMap<String, InspectionEntity>, StoreError> {
         let mut response = self
-            .db
+            .db()
             .query("SELECT entity_id, entity_type, canonical_name FROM entities;")
             .await?;
         let rows: Vec<InspectionEntityRow> = response.take(0)?;
@@ -183,7 +183,7 @@ impl NoemaStore {
         &self,
     ) -> Result<HashMap<String, i64>, StoreError> {
         let mut response = self
-            .db
+            .db()
             .query("SELECT claim_id, count() AS count FROM supported_by GROUP BY claim_id;")
             .await?;
         let rows: Vec<InspectionEvidenceCountRow> = response.take(0)?;
@@ -202,7 +202,7 @@ impl NoemaStore {
             return Ok(HashMap::new());
         }
         let mut response = self
-            .db
+            .db()
             .query(
                 "SELECT predicate_id, label FROM predicates WHERE predicate_id IN $predicate_ids;",
             )
@@ -224,7 +224,7 @@ impl NoemaStore {
             return Ok(HashMap::new());
         }
         let mut response = self
-            .db
+            .db()
             .query(
                 "SELECT entity_id, entity_type, canonical_name FROM entities WHERE entity_id IN $entity_ids;",
             )
@@ -254,7 +254,7 @@ impl NoemaStore {
             return Ok(HashMap::new());
         }
         let mut response = self
-            .db
+            .db()
             .query(
                 "SELECT claim_id, count() AS count FROM supported_by WHERE claim_id IN $claim_ids GROUP BY claim_id;",
             )

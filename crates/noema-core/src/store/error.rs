@@ -6,8 +6,8 @@ pub enum StoreError {
     /// Store path could not be prepared.
     #[error("failed to prepare store path: {0}")]
     PreparePath(std::io::Error),
-    /// Embedded SurrealDB operation failed.
-    #[error("embedded store operation failed: {0}")]
+    /// Transitional SurrealDB compatibility operation failed.
+    #[error("transitional store compatibility operation failed: {0}")]
     Surreal(Box<surrealdb::Error>),
     /// SQLite operation failed.
     #[error("sqlite store operation failed: {0}")]

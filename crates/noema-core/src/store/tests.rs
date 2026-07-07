@@ -16,6 +16,17 @@ async fn opens_sqlite_store_under_noema_db_dir() {
 }
 
 #[tokio::test]
+async fn opening_sqlite_store_does_not_create_surreal_compat_db() {
+    let home = TempDir::new().expect("temp noema home");
+    let paths = crate::NoemaPaths::from_noema_home(home.path()).expect("paths");
+    let config = StoreConfig::from_paths(&paths);
+
+    let _store = NoemaStore::open(&config).await.expect("open store");
+
+    assert!(!paths.db_dir().join("surrealdb-compat").exists());
+}
+
+#[tokio::test]
 async fn sqlite_store_config_is_stable_for_reopen() {
     let home = TempDir::new().expect("temp noema home");
     let paths = crate::NoemaPaths::from_noema_home(home.path()).expect("paths");

@@ -29,7 +29,7 @@ impl NoemaStore {
     /// Returns [`StoreError`] when the embedded store write or read fails.
     pub async fn create_agent(&self, agent: NewAgent) -> Result<AgentRecord, StoreError> {
         let display_name = normalize_agent_display_name(agent.display_name.as_deref())?;
-        self.db
+        self.db()
             .query(
                 r#"
                 CREATE type::record('agents', $record_id) SET
@@ -57,7 +57,7 @@ impl NoemaStore {
     /// Returns [`StoreError`] when the embedded store read fails.
     pub async fn get_agent(&self, agent_id: &str) -> Result<Option<AgentRecord>, StoreError> {
         let mut response = self
-            .db
+            .db()
             .query(
                 r#"
                 SELECT agent_id, display_name
@@ -79,7 +79,7 @@ impl NoemaStore {
     /// Returns [`StoreError`] when the embedded store read fails.
     pub async fn list_agents(&self) -> Result<Vec<AgentRecord>, StoreError> {
         let mut response = self
-            .db
+            .db()
             .query(
                 r#"
                 SELECT agent_id, display_name
@@ -120,7 +120,7 @@ impl NoemaStore {
         self.require_agent(agent_id).await?;
         let display_name = normalize_agent_display_name(Some(display_name))?
             .expect("non-empty display name is required when updating an agent");
-        self.db
+        self.db()
             .query(
                 r#"
                 UPDATE agents SET

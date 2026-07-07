@@ -79,7 +79,7 @@ impl NoemaStore {
         }
 
         let mut response = self
-            .db
+            .db()
             .query(
                 r#"
                 SELECT claim_id, subject_entity_id, object_entity_id, predicate_id, fact, status, sensitivity, retrieval_hints
@@ -172,7 +172,7 @@ impl NoemaStore {
         }
 
         let mut response = self
-            .db
+            .db()
             .query("SELECT entity_id, canonical_name FROM entities WHERE entity_id IN $entity_ids;")
             .bind(("entity_ids", entity_ids))
             .await?;
@@ -185,7 +185,7 @@ impl NoemaStore {
 
     async fn predicate_policy(&self, predicate_id: &str) -> Result<PredicatePolicyRow, StoreError> {
         let mut response = self
-            .db
+            .db()
             .query(
                 r#"
                 SELECT predicate_id, label, allowed_use_modes

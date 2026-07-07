@@ -33,7 +33,7 @@ impl NoemaStore {
             .validate_provider_capability_binding(tool_name, capability_id, provider_account_id)
             .await?;
         let binding_id = binding_id(tool_name, capability_id);
-        self.db
+        self.db()
             .query(
                 r#"
                 UPSERT type::record('provider_capability_bindings', $record_id) SET
@@ -71,7 +71,7 @@ impl NoemaStore {
         capability_id: &str,
     ) -> Result<Option<ProviderCapabilityBindingRecord>, StoreError> {
         let mut response = self
-            .db
+            .db()
             .query(
                 r#"
                 SELECT binding_id, tool_name, capability_id, provider_account_id

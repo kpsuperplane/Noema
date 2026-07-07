@@ -69,7 +69,7 @@ impl NoemaStore {
     ///
     /// Returns [`StoreError`] when the embedded store write fails.
     pub async fn ensure_default_actors(&self) -> Result<(), StoreError> {
-        self.db
+        self.db()
             .query(
                 r#"
                 UPSERT type::record('humans', 'human_local') SET
@@ -102,7 +102,7 @@ impl NoemaStore {
             return Ok(account);
         }
 
-        self.db
+        self.db()
             .query(
                 r#"
                 UPSERT type::record('provider_accounts', 'codex_default') SET
@@ -140,7 +140,7 @@ impl NoemaStore {
             return Ok(account);
         }
 
-        self.db
+        self.db()
             .query(
                 r#"
                 UPSERT type::record('provider_accounts', 'foundation_local_default') SET
@@ -176,7 +176,7 @@ impl NoemaStore {
         provider_kind: &str,
     ) -> Result<Option<ProviderAccountRecord>, StoreError> {
         let mut response = self
-            .db
+            .db()
             .query(
                 r#"
                 SELECT provider_account_id, provider_kind, account_key, display_name,
@@ -208,7 +208,7 @@ impl NoemaStore {
         &self,
     ) -> Result<Vec<ProviderAccountRecord>, StoreError> {
         let mut response = self
-            .db
+            .db()
             .query(
                 r#"
                 SELECT provider_account_id, provider_kind, account_key, display_name,
@@ -237,7 +237,7 @@ impl NoemaStore {
     /// enum is invalid.
     pub async fn active_provider_accounts(&self) -> Result<Vec<ProviderAccountRecord>, StoreError> {
         let mut response = self
-            .db
+            .db()
             .query(
                 r#"
                 SELECT provider_account_id, provider_kind, account_key, display_name,
@@ -296,7 +296,7 @@ impl NoemaStore {
             .unwrap_or("Exa")
             .to_string();
 
-        self.db
+        self.db()
             .query(
                 r#"
                 CREATE type::record('provider_accounts', $record_id) SET
@@ -341,7 +341,7 @@ impl NoemaStore {
         provider_account_id: &str,
     ) -> Result<Option<ProviderAccountRecord>, StoreError> {
         let mut response = self
-            .db
+            .db()
             .query(
                 r#"
                 SELECT provider_account_id, provider_kind, account_key, display_name,
@@ -381,7 +381,7 @@ impl NoemaStore {
             });
         }
 
-        self.db
+        self.db()
             .query(
                 r#"
                 DELETE provider_capability_bindings
@@ -420,7 +420,7 @@ impl NoemaStore {
         } else {
             account.last_authenticated_at
         };
-        self.db
+        self.db()
             .query(
                 r#"
                 UPDATE provider_accounts SET
@@ -464,7 +464,7 @@ impl NoemaStore {
                 provider_account_id: provider_account_id.to_string(),
             });
         }
-        self.db
+        self.db()
             .query(
                 r#"
                 UPDATE provider_accounts SET

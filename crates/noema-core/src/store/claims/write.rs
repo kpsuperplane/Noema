@@ -50,7 +50,7 @@ impl NoemaStore {
         }
 
         let relation_id = allocate_id("related_claim");
-        self.db
+        self.db()
             .query(
                 r#"
                 CREATE type::record('related_to', $record_id) SET
@@ -90,7 +90,7 @@ impl NoemaStore {
         claim_id: &str,
     ) -> Result<Vec<RelatedClaimRecord>, StoreError> {
         let mut response = self
-            .db
+            .db()
             .query(
                 r#"
                 SELECT relation_id, claim_id, related_claim_id, relation_kind, rationale, created_at
@@ -110,7 +110,7 @@ impl NoemaStore {
         relation_id: &str,
     ) -> Result<Option<RelatedClaimRecord>, StoreError> {
         let mut response = self
-            .db
+            .db()
             .query(
                 r#"
                 SELECT relation_id, claim_id, related_claim_id, relation_kind, rationale, created_at
@@ -135,7 +135,7 @@ impl NoemaStore {
         relation_kind: &str,
     ) -> Result<Option<RelatedClaimRecord>, StoreError> {
         let mut response = self
-            .db
+            .db()
             .query(
                 r#"
                 SELECT relation_id, claim_id, related_claim_id, relation_kind, rationale, created_at
@@ -335,7 +335,7 @@ impl NoemaStore {
             return Ok(());
         }
 
-        self.db
+        self.db()
             .query(
                 r#"
                 UPDATE claims SET
@@ -360,7 +360,7 @@ impl NoemaStore {
         claim_id: &str,
     ) -> Result<ExistingClaimMergeRow, StoreError> {
         let mut response = self
-            .db
+            .db()
             .query(
                 r#"
                 SELECT claim_id, status, sensitivity, confidence
@@ -432,7 +432,7 @@ impl NoemaStore {
         claim_id: &str,
     ) -> Result<ClaimIdentityRow, StoreError> {
         let mut response = self
-            .db
+            .db()
             .query(
                 r#"
                 SELECT claim_id, subject_entity_id, object_entity_id, predicate_id, status
@@ -457,7 +457,7 @@ impl NoemaStore {
 
     async fn upsert_entity(&self, entity: &EntityCandidate) -> Result<(), StoreError> {
         if self.entity_exists(&entity.entity_id).await? {
-            self.db
+            self.db()
                 .query(
                     r#"
                     UPDATE entities SET
@@ -473,7 +473,7 @@ impl NoemaStore {
                 .await?
                 .check()?;
         } else {
-            self.db
+            self.db()
                 .query(
                     r#"
                     CREATE type::record('entities', $record_id) SET
@@ -497,7 +497,7 @@ impl NoemaStore {
 
     async fn entity_exists(&self, entity_id: &str) -> Result<bool, StoreError> {
         let mut response = self
-            .db
+            .db()
             .query("SELECT entity_id FROM entities WHERE entity_id = $entity_id LIMIT 1;")
             .bind(("entity_id", entity_id.to_string()))
             .await?;
@@ -507,7 +507,7 @@ impl NoemaStore {
 
     async fn require_predicate(&self, predicate_id: &str) -> Result<(), StoreError> {
         let mut response = self
-            .db
+            .db()
             .query(
                 r#"
                 SELECT predicate_id, label, default_sensitivity, allowed_use_modes
@@ -533,7 +533,7 @@ impl NoemaStore {
         item_id: &str,
     ) -> Result<(), StoreError> {
         let mut response = self
-            .db
+            .db()
             .query(
                 "SELECT item_id FROM conversation_items WHERE item_id = $item_id AND deleted_at = NONE LIMIT 1;",
             )
@@ -551,7 +551,7 @@ impl NoemaStore {
 
     async fn require_non_deleted_claim(&self, claim_id: &str) -> Result<(), StoreError> {
         let mut response = self
-            .db
+            .db()
             .query(
                 r#"
                 SELECT claim_id, status
@@ -578,7 +578,7 @@ impl NoemaStore {
 
     async fn existing_claim_id(&self, fingerprint: &str) -> Result<Option<String>, StoreError> {
         let mut response = self
-            .db
+            .db()
             .query(
                 r#"
                 SELECT claim_id
@@ -595,7 +595,7 @@ impl NoemaStore {
     }
 
     async fn release_deleted_claim_fingerprint(&self, fingerprint: &str) -> Result<(), StoreError> {
-        self.db
+        self.db()
             .query(
                 r#"
                 UPDATE claims SET
@@ -617,7 +617,7 @@ impl NoemaStore {
         fingerprint: &str,
         candidate: &NewClaimCandidate,
     ) -> Result<(), StoreError> {
-        self.db
+        self.db()
             .query(
                 r#"
                 CREATE type::record('claims', $record_id) SET
@@ -662,7 +662,7 @@ impl NoemaStore {
         evidence: &EvidenceCandidate,
     ) -> Result<(), StoreError> {
         let relation_id = allocate_id("evidence");
-        self.db
+        self.db()
             .query(
                 r#"
                 CREATE type::record('supported_by', $record_id) SET
@@ -712,7 +712,7 @@ impl NoemaStore {
         }
 
         let relation_id = allocate_id("supersedes");
-        self.db
+        self.db()
             .query(
                 r#"
                 CREATE type::record('supersedes', $record_id) SET
@@ -739,7 +739,7 @@ impl NoemaStore {
         superseded_claim_id: &str,
     ) -> Result<bool, StoreError> {
         let mut response = self
-            .db
+            .db()
             .query(
                 r#"
                 SELECT relation_id
@@ -757,7 +757,7 @@ impl NoemaStore {
     }
 
     async fn mark_claim_superseded(&self, claim_id: &str) -> Result<(), StoreError> {
-        self.db
+        self.db()
             .query(
                 r#"
                 UPDATE claims SET
@@ -779,7 +779,7 @@ impl NoemaStore {
         write_outcome: ClaimWriteOutcome,
     ) -> Result<ClaimSummary, StoreError> {
         let mut response = self
-            .db
+            .db()
             .query(
                 r#"
                 SELECT claim_id, subject_entity_id, object_entity_id, predicate_id, fact, status, sensitivity

@@ -1,9 +1,13 @@
-use std::{fs, path::PathBuf, sync::Arc};
+use std::{
+    fs,
+    path::PathBuf,
+    sync::{Arc, OnceLock},
+};
 
 use rusqlite::Connection;
 use surrealdb::{
     Surreal,
-    engine::local::{Db, RocksDb},
+    engine::local::{Db, Mem},
 };
 use tokio::sync::Mutex;
 
@@ -11,6 +15,8 @@ use super::{
     error::StoreError,
     schema::{STORE_SCHEMA_SQL, STORE_SCHEMA_VERSION},
 };
+
+static TRANSITIONAL_SURREAL_COMPAT_DB: OnceLock<Surreal<Db>> = OnceLock::new();
 
 /// Configuration for the local Noema store.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -36,8 +42,6 @@ impl StoreConfig {
 #[derive(Debug, Clone)]
 pub struct NoemaStore {
     pub(super) conn: Arc<Mutex<Connection>>,
-    // Transitional compatibility for repository modules ported in later tasks.
-    pub(super) db: Surreal<Db>,
     pub(super) noema_home: PathBuf,
     pub(super) append_item_lock: Arc<Mutex<()>>,
     pub(super) claim_write_lock: Arc<Mutex<()>>,
@@ -59,12 +63,13 @@ impl NoemaStore {
         conn.execute_batch(STORE_SCHEMA_SQL)?;
         debug_assert_eq!(STORE_SCHEMA_VERSION, 1);
 
-        let surreal_compat_path = config.noema_home.join("db").join("surrealdb-compat");
-        fs::create_dir_all(&surreal_compat_path).map_err(StoreError::PreparePath)?;
-        let db = Surreal::new::<RocksDb>(surreal_compat_path.as_path()).await?;
+        if TRANSITIONAL_SURREAL_COMPAT_DB.get().is_none() {
+            let db = Surreal::new::<Mem>(()).await?;
+            _ = TRANSITIONAL_SURREAL_COMPAT_DB.set(db);
+        }
+
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
-            db,
             noema_home: config.noema_home.clone(),
             append_item_lock: Arc::new(Mutex::new(())),
             claim_write_lock: Arc::new(Mutex::new(())),
@@ -75,7 +80,9 @@ impl NoemaStore {
     #[must_use]
     #[allow(dead_code)]
     pub(crate) fn db(&self) -> &Surreal<Db> {
-        &self.db
+        TRANSITIONAL_SURREAL_COMPAT_DB.get().expect(
+            "transitional SurrealDB compatibility adapter must be initialized by NoemaStore::open",
+        )
     }
 
     #[cfg(test)]

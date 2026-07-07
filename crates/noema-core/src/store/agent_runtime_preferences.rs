@@ -46,7 +46,7 @@ impl NoemaStore {
         agent_id: &str,
     ) -> Result<Option<AgentRuntimePreferenceRecord>, StoreError> {
         let mut response = self
-            .db
+            .db()
             .query(
                 r#"
                 SELECT agent_id, provider_kind, provider_account_id, model_profile, reasoning_effort
@@ -94,7 +94,7 @@ impl NoemaStore {
             });
         }
 
-        self.db
+        self.db()
             .query(
                 r#"
                 UPSERT type::record('agent_runtime_preferences', $record_id) SET

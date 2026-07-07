@@ -109,7 +109,7 @@ impl NoemaStore {
         }
 
         let summary_id = allocate_id("context-summary");
-        self.db
+        self.db()
             .query(
                 r#"
                 CREATE type::record('conversation_context_summaries', $record_id) SET
@@ -198,7 +198,7 @@ impl NoemaStore {
     ) -> Result<Option<ConversationContextSummaryRecord>, StoreError> {
         self.require_conversation(conversation_id).await?;
         let mut response = self
-            .db
+            .db()
             .query(format!(
                 r#"
                 SELECT {CONTEXT_SUMMARY_SELECT}
@@ -233,7 +233,7 @@ impl NoemaStore {
         summary_id: &str,
     ) -> Result<Option<ConversationContextSummaryRecord>, StoreError> {
         let mut response = self
-            .db
+            .db()
             .query(format!(
                 r#"
                 SELECT {CONTEXT_SUMMARY_SELECT}
@@ -263,7 +263,7 @@ impl NoemaStore {
     ) -> Result<Vec<ConversationContextSummaryRecord>, StoreError> {
         self.require_conversation(conversation_id).await?;
         let mut response = self
-            .db
+            .db()
             .query(format!(
                 r#"
                 SELECT {CONTEXT_SUMMARY_SELECT}
@@ -284,7 +284,7 @@ impl NoemaStore {
         provider_kind: &str,
         model_profile: Option<&str>,
     ) -> Result<(), StoreError> {
-        self.db
+        self.db()
             .query(
                 r#"
                 UPDATE conversation_context_summaries SET

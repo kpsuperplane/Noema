@@ -58,7 +58,7 @@ impl NoemaStore {
         sql.push(';');
 
         let mut statement = self
-            .db
+            .db()
             .query(sql)
             .bind(("statuses", status_values))
             .bind(("limit", fetch_limit));
