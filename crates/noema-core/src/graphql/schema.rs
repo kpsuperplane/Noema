@@ -1434,7 +1434,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn codex_profile_metadata_reasoning_efforts_are_ignored() {
+    async fn codex_profile_metadata_reasoning_efforts_are_exposed() {
         use crate::store::tests::test_store;
 
         let store = test_store().await;
@@ -1496,8 +1496,11 @@ mod tests {
             .find(|option| option["providerKind"] == "codex")
             .expect("codex option");
         let profile = &codex_option["profiles"][0];
-        assert_eq!(profile["reasoningEfforts"], serde_json::json!([]));
-        assert_eq!(profile["defaultReasoningEffort"], serde_json::Value::Null);
+        assert_eq!(
+            profile["reasoningEfforts"],
+            serde_json::json!(["LOW", "MEDIUM", "HIGH"])
+        );
+        assert_eq!(profile["defaultReasoningEffort"], "MEDIUM");
 
         let account_id = codex_option["providerAccountId"]
             .as_str()
@@ -1519,15 +1522,12 @@ mod tests {
             ))
             .await;
         assert!(
-            save_without_reasoning.errors.is_empty(),
-            "{:?}",
-            save_without_reasoning.errors
+            !save_without_reasoning.errors.is_empty(),
+            "missing reasoning effort should be rejected"
         );
-        let data = save_without_reasoning.data.into_json().expect("json");
-        assert_eq!(data["saveAgentModelPreference"]["modelProfile"], "gpt-5.5");
         assert_eq!(
-            data["saveAgentModelPreference"]["reasoningEffort"],
-            serde_json::Value::Null
+            save_without_reasoning.errors[0].message,
+            "reasoning effort is required for selected model profile"
         );
 
         let save_with_reasoning = schema
@@ -1541,17 +1541,19 @@ mod tests {
                 reasoningEffort: HIGH
               }}) {{
                 modelProfile
+                reasoningEffort
               }}
             }}
             "#
             ))
             .await;
-        assert!(!save_with_reasoning.errors.is_empty());
         assert!(
-            save_with_reasoning.errors[0]
-                .message
-                .contains("reasoning effort is not available")
+            save_with_reasoning.errors.is_empty(),
+            "{:?}",
+            save_with_reasoning.errors
         );
+        let data = save_with_reasoning.data.into_json().expect("json");
+        assert_eq!(data["saveAgentModelPreference"]["reasoningEffort"], "HIGH");
     }
 
     #[tokio::test]

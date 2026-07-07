@@ -308,7 +308,7 @@ pub(super) fn profiles_from_account(
     let metadata_profiles = metadata_profiles(
         &account.metadata,
         disabled_reason,
-        account.provider_kind == "openai",
+        matches!(account.provider_kind.as_str(), "openai" | "codex"),
     );
     if !metadata_profiles.is_empty() {
         return metadata_profiles;

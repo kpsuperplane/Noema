@@ -204,12 +204,73 @@ fn profile_value_from_model(model: &Value) -> Option<Value> {
     let mut object = Map::new();
     object.insert("id".to_string(), Value::String(id.to_string()));
     object.insert("label".to_string(), Value::String(label.to_string()));
+    if let Some(reasoning_efforts) = reasoning_efforts_from_model(model) {
+        object.insert("reasoning_efforts".to_string(), reasoning_efforts);
+    }
+    if let Some(default_reasoning_effort) = string_field(
+        model,
+        &["default_reasoning_level", "default_reasoning_effort"],
+    )
+    .and_then(normalize_reasoning_effort)
+    {
+        object.insert(
+            "default_reasoning_effort".to_string(),
+            Value::String(default_reasoning_effort.to_string()),
+        );
+    }
     Some(Value::Object(object))
 }
 
 fn string_field<'a>(value: &'a Value, keys: &[&str]) -> Option<&'a str> {
     keys.iter()
         .find_map(|key| value.get(*key).and_then(Value::as_str))
+}
+
+fn reasoning_efforts_from_model(model: &Value) -> Option<Value> {
+    let explicit = [
+        "supported_reasoning_levels",
+        "reasoning_levels",
+        "reasoning_efforts",
+    ]
+    .iter()
+    .find_map(|key| model.get(*key).and_then(Value::as_array))
+    .map(|values| {
+        values
+            .iter()
+            .filter_map(Value::as_str)
+            .filter_map(normalize_reasoning_effort)
+            .map(|effort| Value::String(effort.to_string()))
+            .collect::<Vec<_>>()
+    })
+    .filter(|values| !values.is_empty());
+    if explicit.is_some() {
+        return explicit.map(Value::Array);
+    }
+    string_field(
+        model,
+        &["default_reasoning_level", "default_reasoning_effort"],
+    )
+    .and_then(normalize_reasoning_effort)
+    .map(|_| {
+        Value::Array(
+            ["low", "medium", "high", "xhigh"]
+                .into_iter()
+                .map(|effort| Value::String(effort.to_string()))
+                .collect(),
+        )
+    })
+}
+
+fn normalize_reasoning_effort(value: &str) -> Option<&'static str> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "none" => Some("none"),
+        "minimal" => Some("minimal"),
+        "low" => Some("low"),
+        "medium" => Some("medium"),
+        "high" => Some("high"),
+        "xhigh" => Some("xhigh"),
+        _ => None,
+    }
 }
 
 fn now_string() -> String {
@@ -241,6 +302,7 @@ mod tests {
                     "display_name": "GPT-5.5",
                     "visibility": "list",
                     "default_reasoning_level": "medium",
+                    "supported_reasoning_levels": ["low", "medium", "high", "xhigh"],
                     "input_modalities": ["text", "image"]
                 },
                 {
@@ -256,6 +318,11 @@ mod tests {
         assert_eq!(profiles.len(), 1);
         assert_eq!(profiles[0]["id"], "gpt-5.5");
         assert_eq!(profiles[0]["label"], "GPT-5.5");
+        assert_eq!(
+            profiles[0]["reasoning_efforts"],
+            json!(["low", "medium", "high", "xhigh"])
+        );
+        assert_eq!(profiles[0]["default_reasoning_effort"], "medium");
     }
 
     #[tokio::test]

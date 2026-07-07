@@ -13,9 +13,9 @@ use super::{
     },
     noema_response_stream::NoemaAssistantTextDeltaExtractor,
     responses::{
-        ResponsesDiagnosticContext, ResponsesTool, ResponsesToolNameMap, ResponsesTransport,
-        noema_response_text_format, normalize_base_url, prompt_cache_key_from_conversation_id,
-        provider_safe_tool_name, responses_tool_choice,
+        ResponsesDiagnosticContext, ResponsesReasoning, ResponsesTool, ResponsesToolNameMap,
+        ResponsesTransport, noema_response_text_format, normalize_base_url,
+        prompt_cache_key_from_conversation_id, provider_safe_tool_name, responses_tool_choice,
     },
 };
 use crate::{
@@ -188,6 +188,8 @@ struct CodexResponsesRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     parallel_tool_calls: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    reasoning: Option<ResponsesReasoning>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     prompt_cache_key: Option<String>,
     store: bool,
     stream: bool,
@@ -206,6 +208,7 @@ impl CodexResponsesRequest {
         input: &GenerateInput,
         instructions: Option<String>,
         options: &GenerateOptions,
+        reasoning: Option<crate::provider::ReasoningEffort>,
         prompt_cache_key: Option<String>,
         tool_fields: CodexResponsesToolFields,
     ) -> Self {
@@ -221,6 +224,7 @@ impl CodexResponsesRequest {
             tools: tool_fields.tools,
             tool_choice: tool_fields.tool_choice,
             parallel_tool_calls: tool_fields.parallel_tool_calls,
+            reasoning: reasoning.map(|effort| ResponsesReasoning { effort }),
             prompt_cache_key,
             store: false,
             stream: true,
@@ -361,7 +365,18 @@ impl CodexResponsesProvider {
             });
         }
 
-        let model = self.model_for_request(request.model)?;
+        let request_model = request
+            .model
+            .as_ref()
+            .filter(|model| !model.trim().is_empty())
+            .map(|model| model.trim().to_string());
+        let using_config_default_model = request_model.is_none();
+        let model = self.model_for_request(request_model)?;
+        let reasoning_effort = request.options.reasoning_effort.or_else(|| {
+            using_config_default_model
+                .then_some(self.config.reasoning_effort)
+                .flatten()
+        });
         let instructions = request
             .instructions
             .clone()
@@ -380,6 +395,7 @@ impl CodexResponsesProvider {
             &request.input,
             instructions.clone(),
             &request.options,
+            reasoning_effort,
             prompt_cache_key.clone(),
             tool_fields.clone(),
         );
@@ -426,6 +442,7 @@ impl CodexResponsesProvider {
                     &request.input,
                     instructions,
                     &request.options,
+                    reasoning_effort,
                     prompt_cache_key,
                     tool_fields,
                 );
@@ -1112,7 +1129,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn codex_omits_reasoning_effort_until_verified() {
+    async fn codex_sends_reasoning_effort_when_configured() {
         let (base_url, request_rx) = spawn_server(
             200,
             "event: response.completed\n\
@@ -1142,7 +1159,7 @@ mod tests {
 
         let captured = request_rx.await.expect("captured request");
         let body: Value = serde_json::from_str(&captured.body).expect("json body");
-        assert!(body.get("reasoning").is_none(), "{body:#}");
+        assert_eq!(body["reasoning"]["effort"], "high");
     }
 
     #[tokio::test]
