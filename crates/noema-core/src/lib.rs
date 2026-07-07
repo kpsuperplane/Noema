@@ -36,6 +36,8 @@ pub mod runtime_host;
 pub mod search;
 /// Embedded canonical structured store.
 pub mod store;
+/// Supermemory local service client and lifecycle support.
+pub mod supermemory;
 /// Developer diagnostic system error logging.
 pub mod system_errors;
 #[doc(hidden)]
@@ -115,6 +117,10 @@ pub use store::{
     RelatedClaimCandidate, RelatedClaimRecord, RetrievedClaim, SaveMemoryServiceSettings,
     StoreConfig, StoreError, SupersedeClaimCandidate, ToolCalibrationRecord,
     TrustedIdentitySelectorEffect, TrustedIdentitySelectorRecord, WEB_FETCH_SUMMARIZER_TASK_ID,
+};
+pub use supermemory::{
+    SupermemoryClient, SupermemoryClientError, SupermemoryConversationIngestRequest,
+    SupermemoryLifecycle, SupermemorySearchRequest, SupermemorySearchResponse,
 };
 pub use system_errors::{
     SYSTEM_ERROR_MCP_MALFORMED_RESPONSE, SYSTEM_ERROR_MCP_TOOL_CALL_FAILURE,

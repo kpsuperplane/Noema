@@ -14,6 +14,7 @@ pub struct NoemaRuntimeHost {
     store: NoemaStore,
     provider_auth: ProviderAuthManager,
     mcp_oauth: McpOAuthSetupManager,
+    supermemory: Option<crate::SupermemoryLifecycle>,
     system_errors: SystemErrorLogger,
     paths: NoemaPaths,
     #[allow(dead_code)]
@@ -52,6 +53,31 @@ impl NoemaRuntimeHost {
             .await
             .map_err(|source| RuntimeHostError::Store(source.to_string()))?;
 
+        let memory_settings = store
+            .memory_service_settings()
+            .await
+            .map_err(|source| RuntimeHostError::Store(source.to_string()))?;
+        let supermemory = match crate::SupermemoryLifecycle::start(
+            &paths,
+            &memory_settings,
+            store.clone(),
+            system_errors.clone(),
+        )
+        .await
+        {
+            Ok(lifecycle) => Some(lifecycle),
+            Err(error) => {
+                system_errors.try_append(
+                    crate::SystemErrorEvent::new(
+                        "supermemory_lifecycle_unavailable",
+                        "Supermemory lifecycle is unavailable",
+                    )
+                    .with_error_chain([error.to_string()]),
+                );
+                None
+            }
+        };
+
         let runtime =
             CodexRuntimeHandle::spawn_from_config(provider, store.clone(), system_errors.clone())
                 .await
@@ -62,6 +88,7 @@ impl NoemaRuntimeHost {
             store,
             provider_auth: ProviderAuthManager::new(),
             mcp_oauth: McpOAuthSetupManager::new(),
+            supermemory,
             system_errors,
             paths,
             subscriptions: crate::graphql::ConversationSubscriptionRegistry::default(),
@@ -111,6 +138,9 @@ impl NoemaRuntimeHost {
 
     /// Shut down runtime-owned work.
     pub async fn shutdown(self) {
+        if let Some(supermemory) = self.supermemory {
+            supermemory.shutdown().await;
+        }
         self.runtime.shutdown().await;
     }
 }
