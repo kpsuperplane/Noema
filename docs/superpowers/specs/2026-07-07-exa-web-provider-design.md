@@ -130,8 +130,7 @@ other Noema-owned provider credentials. The JSON shape can stay minimal:
 ```
 
 Runtime credential resolution reads only the saved provider-account key.
-Noema should not read `EXA_API_KEY` for Exa. SurrealDB stores only non-secret
-account metadata and status.
+SurrealDB stores only non-secret account metadata and status.
 
 The implementation must not log, persist, or surface the key. Tests may use
 fake values such as `secret`.
