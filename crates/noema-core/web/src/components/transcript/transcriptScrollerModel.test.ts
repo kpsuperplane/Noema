@@ -1,6 +1,7 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  transcriptBottomAnchorOffset,
   shouldLoadBeforeFromVirtualItems,
   type TranscriptVirtualItem
 } from "./transcriptScrollerModel";
@@ -60,6 +61,28 @@ describe("shouldLoadBeforeFromVirtualItems", () => {
         userScrolledTowardStart: false
       }),
       false
+    );
+  });
+});
+
+describe("transcriptBottomAnchorOffset", () => {
+  test("offsets short transcript rows to the bottom of the usable viewport", () => {
+    assert.equal(
+      transcriptBottomAnchorOffset({
+        availableHeight: 640,
+        totalSize: 320
+      }),
+      320
+    );
+  });
+
+  test("does not offset transcript rows once they exceed the usable viewport", () => {
+    assert.equal(
+      transcriptBottomAnchorOffset({
+        availableHeight: 320,
+        totalSize: 640
+      }),
+      0
     );
   });
 });

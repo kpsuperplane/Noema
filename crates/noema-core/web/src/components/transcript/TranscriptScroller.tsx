@@ -4,7 +4,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { ArrowDownIcon } from "lucide-react";
 import { renderedEntryMessageId, type RenderTranscriptEntry } from "./renderModel";
 import { BOTTOM_SCROLL_THRESHOLD_PX } from "./scrollModel";
-import { shouldLoadBeforeFromVirtualItems } from "./transcriptScrollerModel";
+import { shouldLoadBeforeFromVirtualItems, transcriptBottomAnchorOffset } from "./transcriptScrollerModel";
 
 type ScrollToEndOptions = {
   behavior?: ScrollBehavior;
@@ -84,7 +84,7 @@ const styles = stylex.create({
   virtualSizer: {
     position: "relative",
     width: "100%",
-    minHeight: "100%"
+    minHeight: 0
   },
   virtualRow: {
     position: "absolute",
@@ -216,7 +216,9 @@ export function TranscriptScroller({
   const { contentRef, viewportRef, scrollToEnd } = useTranscriptScroller();
   const [stuckToBottom, setStuckToBottom] = React.useState(true);
   const [userScrolledTowardStart, setUserScrolledTowardStart] = React.useState(false);
+  const [availableHeight, setAvailableHeight] = React.useState(0);
   const pendingPrependAnchorRef = React.useRef<PrependAnchor | null>(null);
+  const loadBeforeStatusRef = React.useRef<HTMLDivElement | null>(null);
   const nearTopLoadArmedRef = React.useRef(true);
   const requestedOldestKeyRef = React.useRef<React.Key | null>(null);
   const touchStartYRef = React.useRef<number | null>(null);
@@ -234,6 +236,8 @@ export function TranscriptScroller({
   });
   const virtualItems = rowVirtualizer.getVirtualItems();
   const totalSize = rowVirtualizer.getTotalSize();
+  const bottomAnchorOffset = transcriptBottomAnchorOffset({ availableHeight, totalSize });
+  const virtualSizerHeight = Math.max(totalSize, availableHeight);
   const oldestEntryKey = entries[0] ? renderedEntryMessageId(entries[0]) : null;
   const handleScroll = React.useCallback(
     (event: React.UIEvent<HTMLDivElement>) => {
@@ -276,6 +280,45 @@ export function TranscriptScroller({
     },
     [markUserScrolledTowardStart]
   );
+
+  React.useLayoutEffect(() => {
+    const viewport = viewportRef.current;
+    const content = contentRef.current;
+    if (!viewport || !content) {
+      return;
+    }
+
+    const syncAvailableHeight = () => {
+      const computedStyle = window.getComputedStyle(content);
+      const paddingTop = cssPixels(computedStyle.paddingTop);
+      const paddingBottom = cssPixels(computedStyle.paddingBottom);
+      const loadBeforeHeight = loadBeforeStatusRef.current?.getBoundingClientRect().height ?? 0;
+      const nextAvailableHeight = Math.max(0, viewport.clientHeight - paddingTop - paddingBottom - loadBeforeHeight);
+      setAvailableHeight((currentHeight) =>
+        currentHeight === nextAvailableHeight ? currentHeight : nextAvailableHeight
+      );
+    };
+
+    syncAvailableHeight();
+
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", syncAvailableHeight);
+      return () => {
+        window.removeEventListener("resize", syncAvailableHeight);
+      };
+    }
+
+    const observer = new ResizeObserver(syncAvailableHeight);
+    observer.observe(viewport);
+    observer.observe(content);
+    if (loadBeforeStatusRef.current) {
+      observer.observe(loadBeforeStatusRef.current);
+    }
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [contentRef, hasMoreBefore, loadBeforeError, loadingBefore, viewportRef]);
 
   React.useEffect(() => {
     const first = virtualItems[0];
@@ -350,7 +393,11 @@ export function TranscriptScroller({
       >
         <div ref={contentRef} {...stylex.props(styles.content)}>
           {hasMoreBefore || loadingBefore || loadBeforeError ? (
-            <div {...stylex.props(styles.loadBeforeStatus)} role={loadBeforeError ? "alert" : "status"}>
+            <div
+              ref={loadBeforeStatusRef}
+              {...stylex.props(styles.loadBeforeStatus)}
+              role={loadBeforeError ? "alert" : "status"}
+            >
               {loadBeforeError ? (
                 <button type="button" {...stylex.props(styles.loadBeforeButton)} onClick={onLoadBefore}>
                   Retry loading earlier messages
@@ -360,7 +407,7 @@ export function TranscriptScroller({
               ) : null}
             </div>
           ) : null}
-          <div {...stylex.props(styles.virtualSizer)} style={{ height: `${totalSize}px` }}>
+          <div {...stylex.props(styles.virtualSizer)} style={{ height: `${virtualSizerHeight}px` }}>
             {virtualItems.map((virtualItem) => {
               const entry = entries[virtualItem.index];
               return (
@@ -369,7 +416,7 @@ export function TranscriptScroller({
                   ref={rowVirtualizer.measureElement}
                   data-index={virtualItem.index}
                   {...stylex.props(styles.virtualRow)}
-                  style={{ transform: `translateY(${virtualItem.start}px)` }}
+                  style={{ transform: `translateY(${virtualItem.start + bottomAnchorOffset}px)` }}
                 >
                   {renderEntry(entry, virtualItem.index)}
                 </div>
@@ -392,6 +439,11 @@ export function TranscriptScroller({
       </button>
     </div>
   );
+}
+
+function cssPixels(value: string) {
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function capturePrependAnchor(

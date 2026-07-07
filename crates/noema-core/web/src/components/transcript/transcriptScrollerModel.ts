@@ -3,6 +3,16 @@ export type TranscriptVirtualItem = {
   end: number;
 };
 
+export function transcriptBottomAnchorOffset({
+  availableHeight,
+  totalSize
+}: {
+  availableHeight: number;
+  totalSize: number;
+}) {
+  return Math.max(0, availableHeight - totalSize);
+}
+
 export function shouldLoadBeforeFromVirtualItems({
   virtualItems,
   hasMoreBefore,
