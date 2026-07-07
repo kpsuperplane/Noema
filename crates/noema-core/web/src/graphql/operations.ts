@@ -123,6 +123,66 @@ export const SaveWebFetchSummarizerPreferenceDocument = gql`
   }
 `;
 
+export const WebToolSettingsDocument = gql`
+  query WebToolSettings {
+    webToolSettings {
+      search {
+        toolName
+        capabilityId
+        activeProviderAccountId
+        providerOptions {
+          providerAccountId
+          providerKind
+          accountKey
+          displayName
+          capabilityId
+          reliabilityContract
+          dataFlowClass
+          citations
+          directUrlFetch
+        }
+      }
+      fetch {
+        toolName
+        capabilityId
+        activeProviderAccountId
+        providerOptions {
+          providerAccountId
+          providerKind
+          accountKey
+          displayName
+          capabilityId
+          reliabilityContract
+          dataFlowClass
+          citations
+          directUrlFetch
+        }
+      }
+    }
+  }
+`;
+
+export const SaveWebToolProviderBindingDocument = gql`
+  mutation SaveWebToolProviderBinding($input: SaveWebToolProviderBindingInput!) {
+    saveWebToolProviderBinding(input: $input) {
+      toolName
+      capabilityId
+      activeProviderAccountId
+      providerOptions {
+        providerAccountId
+        providerKind
+        accountKey
+        displayName
+        capabilityId
+        reliabilityContract
+        dataFlowClass
+        citations
+        directUrlFetch
+      }
+    }
+  }
+`;
+
 export const UsageSettingsDocument = gql`
   query UsageSettings {
     usageSettings {
