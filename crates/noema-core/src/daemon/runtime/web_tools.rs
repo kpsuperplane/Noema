@@ -354,6 +354,41 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn fetch_falls_back_when_stale_binding_points_to_account_without_fetch_capability() {
+        let store = test_store().await;
+        insert_provider_account(
+            &store,
+            "provider_account:openai:test",
+            "openai",
+            "test",
+            ProviderAccountStatus::Authenticated,
+        )
+        .await;
+        insert_binding_row(
+            &store,
+            WEB_FETCH_TOOL,
+            WEB_FETCH_TOOL,
+            "provider_account:openai:test",
+        )
+        .await;
+
+        let resolved = resolve_web_fetch_provider(&store).await.expect("resolve");
+
+        assert_eq!(
+            resolved.provider_account_id,
+            "provider_account:direct_http:system"
+        );
+        assert_eq!(
+            resolved.fallback_from.as_deref(),
+            Some("provider_account:openai:test")
+        );
+        assert_eq!(
+            resolved.fallback_reason.as_deref(),
+            Some("bound provider account does not declare web.fetch")
+        );
+    }
+
+    #[tokio::test]
     async fn actor_accessor_uses_same_resolution_logic() {
         let store = test_store().await;
         insert_provider_account(

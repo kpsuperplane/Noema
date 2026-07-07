@@ -1,6 +1,7 @@
 use crate::{
     capability::{CapabilityGateway, GatewayToolProposal, GatewayToolResult},
     provider::{DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateActionItem, GenerateToolResultInput},
+    search::types::{DUCKDUCKGO_PUBLIC_PROVIDER_ID, SearchRuntimeProvider},
 };
 use serde_json::{Value, json};
 
@@ -74,17 +75,21 @@ impl CodexRuntimeActor {
                 .await,
             }
         } else if is_web_search_tool(&call.name) {
+            let result = match self.web_search_runtime_provider().await {
+                Ok(provider) => execute_web_search(&provider, call.call_id.clone(), &call.payload).await,
+                Err(message) => WebSearchToolResult {
+                    call_id: call.call_id.clone(),
+                    name: crate::search::tool::WEB_SEARCH_TOOL.to_string(),
+                    success: false,
+                    payload: json!({ "error": message }),
+                },
+            };
             LocalToolResult::WebSearch {
                 call_id: call.call_id.clone(),
                 provider_call_id: call.provider_call_id.clone(),
                 provider_name: call.provider_name.clone(),
                 arguments: call.payload.clone(),
-                result: execute_web_search(
-                    &self.search_provider,
-                    call.call_id.clone(),
-                    &call.payload,
-                )
-                .await,
+                result,
             }
         } else if is_web_fetch_tool(&call.name) {
             let result = match self.web_fetch_runtime_context().await {
@@ -157,6 +162,23 @@ impl CodexRuntimeActor {
             summarizer_provider,
             summarizer_model: DEFAULT_TOOL_CLASSIFICATION_MODEL.to_string(),
         })
+    }
+
+    async fn web_search_runtime_provider(&self) -> Result<SearchRuntimeProvider, String> {
+        let resolved = self
+            .resolved_web_search_provider()
+            .await
+            .map_err(|_| "web.search provider binding could not be resolved".to_string())?;
+
+        match resolved.provider_kind.as_str() {
+            DUCKDUCKGO_PUBLIC_PROVIDER_ID => Ok(self.search_provider.clone()),
+            crate::search::openai_hosted::OPENAI_HOSTED_SEARCH_PROVIDER_ID => Err(
+                "OpenAI hosted web search provider is not available in this daemon".to_string(),
+            ),
+            provider_kind => Err(format!(
+                "web.search provider '{provider_kind}' is not available in this daemon"
+            )),
+        }
     }
 }
 
@@ -564,6 +586,61 @@ mod tests {
         assert_eq!(
             requests[0].model.as_deref(),
             Some(DEFAULT_TOOL_CLASSIFICATION_MODEL)
+        );
+    }
+
+    #[tokio::test]
+    async fn bound_openai_web_search_runtime_provider_reports_unavailable_without_credentials() {
+        let store = crate::store::tests::test_store().await;
+        store
+            .db()
+            .query(
+                r#"
+                UPSERT type::record('provider_accounts', 'openai_test') SET
+                  provider_account_id = 'provider_account:openai:test',
+                  provider_kind = 'openai',
+                  account_key = 'test',
+                  display_name = 'openai test',
+                  auth_method = 'secret_input',
+                  is_active = true,
+                  is_default = false,
+                  status = 'authenticated',
+                  metadata = {},
+                  updated_at = time::now();
+                UPSERT type::record('provider_capability_bindings', 'web_search_web_search') SET
+                  binding_id = 'provider_capability_binding:web.search:web.search',
+                  tool_name = 'web.search',
+                  capability_id = 'web.search',
+                  provider_account_id = 'provider_account:openai:test',
+                  updated_at = time::now();
+                "#,
+            )
+            .await
+            .expect("insert records")
+            .check()
+            .expect("records check");
+
+        let actor = CodexRuntimeActor::new(
+            "codex".to_string(),
+            HashMap::from([(
+                "codex".to_string(),
+                Arc::new(LocalToolTestProvider::new(Some("codex-tool-default")))
+                    as Arc<dyn RuntimeModelProvider>,
+            )]),
+            store.clone(),
+            store.system_error_logger(),
+        )
+        .await
+        .expect("actor");
+
+        let result = actor
+            .web_search_runtime_provider()
+            .await
+            .expect_err("openai runtime search provider should be unavailable");
+
+        assert_eq!(
+            result,
+            "OpenAI hosted web search provider is not available in this daemon"
         );
     }
 }
