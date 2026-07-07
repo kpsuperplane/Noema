@@ -1,9 +1,8 @@
-use serde::Deserialize;
-use surrealdb::types::SurrealValue;
+use rusqlite::{OptionalExtension, params};
 
 use crate::provider::ReasoningEffort;
 
-use super::{NoemaStore, StoreError, agents::agent_record_fragment};
+use super::{NoemaStore, StoreError};
 
 /// New or updated agent runtime preference.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -45,20 +44,21 @@ impl NoemaStore {
         &self,
         agent_id: &str,
     ) -> Result<Option<AgentRuntimePreferenceRecord>, StoreError> {
-        let mut response = self
-            .db()
-            .query(
+        self.with_connection(|conn| {
+            conn.query_row(
                 r#"
                 SELECT agent_id, provider_kind, provider_account_id, model_profile, reasoning_effort
                 FROM agent_runtime_preferences
-                WHERE agent_id = $agent_id
-                LIMIT 1;
+                WHERE agent_id = ?1
+                LIMIT 1
                 "#,
+                [agent_id],
+                preference_from_row,
             )
-            .bind(("agent_id", agent_id.to_string()))
-            .await?;
-        let rows: Vec<AgentRuntimePreferenceRow> = response.take(0)?;
-        Ok(rows.into_iter().next().map(preference_from_row))
+            .optional()
+            .map_err(StoreError::Sqlite)
+        })
+        .await
     }
 
     /// Create or update one agent runtime preference.
@@ -94,44 +94,36 @@ impl NoemaStore {
             });
         }
 
-        self.db()
-            .query(
+        self.with_connection(|conn| {
+            conn.execute(
                 r#"
-                UPSERT type::record('agent_runtime_preferences', $record_id) SET
-                  agent_id = $agent_id,
-                  provider_kind = $provider_kind,
-                  provider_account_id = $provider_account_id,
-                  model_profile = $model_profile,
-                  reasoning_effort = $reasoning_effort,
-                  updated_at = time::now();
+                INSERT INTO agent_runtime_preferences
+                  (agent_id, provider_kind, provider_account_id, model_profile, reasoning_effort, updated_at)
+                VALUES (?1, ?2, ?3, ?4, ?5, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+                ON CONFLICT(agent_id) DO UPDATE SET
+                  provider_kind = excluded.provider_kind,
+                  provider_account_id = excluded.provider_account_id,
+                  model_profile = excluded.model_profile,
+                  reasoning_effort = excluded.reasoning_effort,
+                  updated_at = excluded.updated_at
                 "#,
-            )
-            .bind(("record_id", agent_record_fragment(&preference.agent_id)))
-            .bind(("agent_id", preference.agent_id.clone()))
-            .bind(("provider_kind", account.provider_kind))
-            .bind(("provider_account_id", account.provider_account_id))
-            .bind(("model_profile", model_profile.to_string()))
-            .bind((
-                "reasoning_effort",
-                preference.reasoning_effort.map(reasoning_effort_as_str),
-            ))
-            .await?
-            .check()?;
+                params![
+                    preference.agent_id,
+                    account.provider_kind,
+                    account.provider_account_id,
+                    model_profile,
+                    preference.reasoning_effort.map(reasoning_effort_as_str),
+                ],
+            )?;
+            Ok(())
+        })
+        .await?;
         self.get_agent_runtime_preference(&preference.agent_id)
             .await?
             .ok_or(StoreError::AgentNotFound {
                 agent_id: preference.agent_id,
             })
     }
-}
-
-#[derive(Debug, Deserialize, SurrealValue)]
-struct AgentRuntimePreferenceRow {
-    agent_id: String,
-    provider_kind: String,
-    provider_account_id: String,
-    model_profile: String,
-    reasoning_effort: Option<String>,
 }
 
 fn reasoning_effort_as_str(reasoning_effort: ReasoningEffort) -> &'static str {
@@ -157,15 +149,15 @@ fn reasoning_effort_from_str(reasoning_effort: &str) -> Option<ReasoningEffort> 
     }
 }
 
-fn preference_from_row(row: AgentRuntimePreferenceRow) -> AgentRuntimePreferenceRecord {
-    AgentRuntimePreferenceRecord {
-        agent_id: row.agent_id,
-        provider_kind: row.provider_kind,
-        provider_account_id: row.provider_account_id,
-        model_profile: row.model_profile,
-        reasoning_effort: row
-            .reasoning_effort
+fn preference_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AgentRuntimePreferenceRecord> {
+    let reasoning_effort: Option<String> = row.get(4)?;
+    Ok(AgentRuntimePreferenceRecord {
+        agent_id: row.get(0)?,
+        provider_kind: row.get(1)?,
+        provider_account_id: row.get(2)?,
+        model_profile: row.get(3)?,
+        reasoning_effort: reasoning_effort
             .as_deref()
             .and_then(reasoning_effort_from_str),
-    }
+    })
 }

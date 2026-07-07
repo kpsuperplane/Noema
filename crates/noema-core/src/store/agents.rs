@@ -1,5 +1,4 @@
-use serde::Deserialize;
-use surrealdb::types::SurrealValue;
+use rusqlite::{OptionalExtension, params};
 
 use super::{NoemaStore, StoreError};
 
@@ -12,6 +11,17 @@ pub struct NewAgent {
     pub display_name: Option<String>,
 }
 
+/// Persisted human identity.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HumanRecord {
+    /// Durable concrete human id.
+    pub human_id: String,
+    /// Human-visible name.
+    pub display_name: String,
+    /// Default conversation id, when one has been created.
+    pub primary_conversation_id: Option<String>,
+}
+
 /// Persisted agent identity.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AgentRecord {
@@ -22,6 +32,34 @@ pub struct AgentRecord {
 }
 
 impl NoemaStore {
+    /// Create or refresh the built-in local human and primary agent.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when the embedded store write fails.
+    pub async fn ensure_default_actors(&self) -> Result<(), StoreError> {
+        self.with_connection(|conn| {
+            conn.execute(
+                r#"
+                INSERT INTO humans (human_id, display_name)
+                VALUES ('human:local', 'You')
+                ON CONFLICT(human_id) DO NOTHING
+                "#,
+                [],
+            )?;
+            conn.execute(
+                r#"
+                INSERT INTO agents (agent_id, display_name)
+                VALUES ('agent:primary', NULL)
+                ON CONFLICT(agent_id) DO NOTHING
+                "#,
+                [],
+            )?;
+            Ok(())
+        })
+        .await
+    }
+
     /// Create one durable agent row.
     ///
     /// # Errors
@@ -29,25 +67,54 @@ impl NoemaStore {
     /// Returns [`StoreError`] when the embedded store write or read fails.
     pub async fn create_agent(&self, agent: NewAgent) -> Result<AgentRecord, StoreError> {
         let display_name = normalize_agent_display_name(agent.display_name.as_deref())?;
-        self.db()
-            .query(
+        self.with_connection(|conn| {
+            conn.execute(
                 r#"
-                CREATE type::record('agents', $record_id) SET
-                  agent_id = $agent_id,
-                  display_name = $display_name,
-                  updated_at = time::now();
+                INSERT INTO agents (agent_id, display_name)
+                VALUES (?1, ?2)
+                ON CONFLICT(agent_id) DO UPDATE SET
+                  display_name = excluded.display_name,
+                  updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
                 "#,
-            )
-            .bind(("record_id", agent_record_fragment(&agent.agent_id)))
-            .bind(("agent_id", agent.agent_id.clone()))
-            .bind(("display_name", display_name))
-            .await?
-            .check()?;
+                params![agent.agent_id, display_name],
+            )?;
+            Ok(())
+        })
+        .await?;
         self.get_agent(&agent.agent_id)
             .await?
             .ok_or(StoreError::AgentNotFound {
                 agent_id: agent.agent_id,
             })
+    }
+
+    /// Return one human by durable id.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when the embedded store read fails.
+    pub async fn get_human(&self, human_id: &str) -> Result<Option<HumanRecord>, StoreError> {
+        self.with_connection(|conn| {
+            conn.query_row(
+                r#"
+                SELECT human_id, display_name, primary_conversation_id
+                FROM humans
+                WHERE human_id = ?1
+                LIMIT 1
+                "#,
+                [human_id],
+                |row| {
+                    Ok(HumanRecord {
+                        human_id: row.get(0)?,
+                        display_name: row.get(1)?,
+                        primary_conversation_id: row.get(2)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(StoreError::Sqlite)
+        })
+        .await
     }
 
     /// Return one agent by durable id.
@@ -56,20 +123,21 @@ impl NoemaStore {
     ///
     /// Returns [`StoreError`] when the embedded store read fails.
     pub async fn get_agent(&self, agent_id: &str) -> Result<Option<AgentRecord>, StoreError> {
-        let mut response = self
-            .db()
-            .query(
+        self.with_connection(|conn| {
+            conn.query_row(
                 r#"
                 SELECT agent_id, display_name
                 FROM agents
-                WHERE agent_id = $agent_id
-                LIMIT 1;
+                WHERE agent_id = ?1
+                LIMIT 1
                 "#,
+                [agent_id],
+                agent_from_row,
             )
-            .bind(("agent_id", agent_id.to_string()))
-            .await?;
-        let rows: Vec<AgentRow> = response.take(0)?;
-        Ok(rows.into_iter().next().map(agent_from_row))
+            .optional()
+            .map_err(StoreError::Sqlite)
+        })
+        .await
     }
 
     /// List durable agents in deterministic Settings display order.
@@ -78,32 +146,23 @@ impl NoemaStore {
     ///
     /// Returns [`StoreError`] when the embedded store read fails.
     pub async fn list_agents(&self) -> Result<Vec<AgentRecord>, StoreError> {
-        let mut response = self
-            .db()
-            .query(
+        self.with_connection(|conn| {
+            let mut statement = conn.prepare(
                 r#"
                 SELECT agent_id, display_name
-                FROM agents;
+                FROM agents
+                ORDER BY
+                  CASE WHEN agent_id = 'agent:primary' THEN 0 ELSE 1 END,
+                  CASE WHEN display_name IS NULL THEN 1 ELSE 0 END,
+                  display_name,
+                  agent_id
                 "#,
-            )
-            .await?;
-        let rows: Vec<AgentRow> = response.take(0)?;
-        let mut agents: Vec<AgentRecord> = rows.into_iter().map(agent_from_row).collect();
-        agents.sort_by(|left, right| {
-            let left_primary = left.agent_id == "agent:primary";
-            let right_primary = right.agent_id == "agent:primary";
-
-            right_primary
-                .cmp(&left_primary)
-                .then_with(|| {
-                    left.display_name
-                        .is_none()
-                        .cmp(&right.display_name.is_none())
-                })
-                .then_with(|| left.display_name.cmp(&right.display_name))
-                .then_with(|| left.agent_id.cmp(&right.agent_id))
-        });
-        Ok(agents)
+            )?;
+            let rows = statement.query_map([], agent_from_row)?;
+            rows.collect::<Result<Vec<_>, _>>()
+                .map_err(StoreError::Sqlite)
+        })
+        .await
     }
 
     /// Update one agent's canonical display name.
@@ -120,19 +179,19 @@ impl NoemaStore {
         self.require_agent(agent_id).await?;
         let display_name = normalize_agent_display_name(Some(display_name))?
             .expect("non-empty display name is required when updating an agent");
-        self.db()
-            .query(
+        self.with_connection(|conn| {
+            conn.execute(
                 r#"
-                UPDATE agents SET
-                  display_name = $display_name,
-                  updated_at = time::now()
-                WHERE agent_id = $agent_id;
+                UPDATE agents
+                SET display_name = ?2,
+                    updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                WHERE agent_id = ?1
                 "#,
-            )
-            .bind(("agent_id", agent_id.to_string()))
-            .bind(("display_name", display_name))
-            .await?
-            .check()?;
+                params![agent_id, display_name],
+            )?;
+            Ok(())
+        })
+        .await?;
         self.get_agent(agent_id)
             .await?
             .ok_or_else(|| StoreError::AgentNotFound {
@@ -151,17 +210,11 @@ impl NoemaStore {
     }
 }
 
-#[derive(Debug, Deserialize, SurrealValue)]
-struct AgentRow {
-    agent_id: String,
-    display_name: Option<String>,
-}
-
-fn agent_from_row(row: AgentRow) -> AgentRecord {
-    AgentRecord {
-        agent_id: row.agent_id,
-        display_name: row.display_name,
-    }
+fn agent_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AgentRecord> {
+    Ok(AgentRecord {
+        agent_id: row.get(0)?,
+        display_name: row.get(1)?,
+    })
 }
 
 fn normalize_agent_display_name(display_name: Option<&str>) -> Result<Option<String>, StoreError> {
@@ -175,8 +228,4 @@ fn normalize_agent_display_name(display_name: Option<&str>) -> Result<Option<Str
             }
         })
         .transpose()
-}
-
-pub(super) fn agent_record_fragment(agent_id: &str) -> String {
-    super::ids::hex_record_fragment("agent_", agent_id)
 }

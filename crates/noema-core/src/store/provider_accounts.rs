@@ -1,14 +1,16 @@
-use serde::Deserialize;
+use rusqlite::{OptionalExtension, params};
 use serde_json::Value;
-use surrealdb::types::SurrealValue;
 
 use crate::{
     ProviderAccountRecord, ProviderAccountStatus, ProviderAuthMethod,
     provider::capabilities_for_provider_account,
-    store::ids::{allocate_id, invalid_enum, now_string},
+    store::{
+        ids::{allocate_id, invalid_enum, now_string},
+        sqlite::{json_from_string, json_to_string},
+    },
 };
 
-use super::{NoemaStore, StoreError, agents::agent_record_fragment};
+use super::{NoemaStore, StoreError};
 
 /// Provider type shown in the Settings add-account catalog.
 #[derive(Debug, Clone, PartialEq)]
@@ -63,30 +65,6 @@ impl NoemaStore {
         }]
     }
 
-    /// Create or refresh the built-in local human and primary agent.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError`] when the embedded store write fails.
-    pub async fn ensure_default_actors(&self) -> Result<(), StoreError> {
-        self.db()
-            .query(
-                r#"
-                UPSERT type::record('humans', 'human_local') SET
-                  human_id = 'human:local',
-                  display_name = 'Local Human',
-                  updated_at = time::now();
-                UPSERT type::record('agents', $agent_record_id) SET
-                  agent_id = 'agent:primary',
-                  updated_at = time::now();
-                "#,
-            )
-            .bind(("agent_record_id", agent_record_fragment("agent:primary")))
-            .await?
-            .check()?;
-        Ok(())
-    }
-
     /// Create or return the default Codex provider account metadata.
     ///
     /// # Errors
@@ -95,31 +73,24 @@ impl NoemaStore {
     pub async fn ensure_default_provider_account(
         &self,
     ) -> Result<ProviderAccountRecord, StoreError> {
-        if let Some(account) = self
-            .get_provider_account("provider_account:codex:default")
-            .await?
-        {
-            return Ok(account);
-        }
-
-        self.db()
-            .query(
+        self.with_connection(|conn| {
+            conn.execute(
                 r#"
-                UPSERT type::record('provider_accounts', 'codex_default') SET
-                  provider_account_id = 'provider_account:codex:default',
-                  provider_kind = 'codex',
-                  account_key = 'default',
-                  display_name = 'Codex',
-                  auth_method = 'oauth_device_code',
-                  is_active = true,
-                  is_default = true,
-                  status = 'unknown',
-                  metadata = {},
-                  updated_at = time::now();
+                INSERT INTO provider_accounts (
+                  provider_account_id, provider_kind, account_key, display_name,
+                  auth_method, is_active, is_default, status, metadata_json
+                )
+                VALUES (
+                  'provider_account:codex:default', 'codex', 'default', 'Codex',
+                  'oauth_device_code', 1, 1, 'unknown', '{}'
+                )
+                ON CONFLICT(provider_account_id) DO NOTHING
                 "#,
-            )
-            .await?
-            .check()?;
+                [],
+            )?;
+            Ok(())
+        })
+        .await?;
         self.get_provider_account("provider_account:codex:default")
             .await?
             .ok_or_else(|| StoreError::ProviderAccountNotFound {
@@ -136,28 +107,31 @@ impl NoemaStore {
         &self,
     ) -> Result<ProviderAccountRecord, StoreError> {
         const ACCOUNT_ID: &str = "provider_account:foundation_local:default";
-        if let Some(account) = self.get_provider_account(ACCOUNT_ID).await? {
-            return Ok(account);
-        }
-
-        self.db()
-            .query(
+        self.with_connection(|conn| {
+            conn.execute(
                 r#"
-                UPSERT type::record('provider_accounts', 'foundation_local_default') SET
-                  provider_account_id = 'provider_account:foundation_local:default',
-                  provider_kind = 'foundation_local',
-                  account_key = 'default',
-                  display_name = 'Apple Foundation Models',
-                  auth_method = 'none',
-                  is_active = true,
-                  is_default = true,
-                  status = 'unknown',
-                  metadata = { profiles: [{ id: 'default', label: 'Default on-device' }] },
-                  updated_at = time::now();
+                INSERT INTO provider_accounts (
+                  provider_account_id, provider_kind, account_key, display_name,
+                  auth_method, is_active, is_default, status, metadata_json
+                )
+                VALUES (
+                  'provider_account:foundation_local:default',
+                  'foundation_local',
+                  'default',
+                  'Apple Foundation Models',
+                  'none',
+                  1,
+                  1,
+                  'unknown',
+                  '{"profiles":[{"id":"default","label":"Default on-device"}]}'
+                )
+                ON CONFLICT(provider_account_id) DO NOTHING
                 "#,
-            )
-            .await?
-            .check()?;
+                [],
+            )?;
+            Ok(())
+        })
+        .await?;
         self.get_provider_account(ACCOUNT_ID).await?.ok_or_else(|| {
             StoreError::ProviderAccountNotFound {
                 provider_account_id: ACCOUNT_ID.to_string(),
@@ -175,27 +149,18 @@ impl NoemaStore {
         &self,
         provider_kind: &str,
     ) -> Result<Option<ProviderAccountRecord>, StoreError> {
-        let mut response = self
-            .db()
-            .query(
-                r#"
-                SELECT provider_account_id, provider_kind, account_key, display_name,
-                  auth_method, is_active, is_default, status, last_checked_at,
-                  last_authenticated_at, last_error_code, last_error_message, metadata
-                FROM provider_accounts
-                WHERE provider_kind = $provider_kind
-                  AND is_active = true
-                  AND is_default = true
-                LIMIT 1;
-                "#,
-            )
-            .bind(("provider_kind", provider_kind.to_string()))
+        let row = self
+            .with_connection(|conn| {
+                conn.query_row(
+                    format!("{PROVIDER_ACCOUNT_SELECT} WHERE provider_kind = ?1 AND is_active = 1 AND is_default = 1 LIMIT 1").as_str(),
+                    [provider_kind],
+                    provider_account_row,
+                )
+                .optional()
+                .map_err(StoreError::Sqlite)
+            })
             .await?;
-        let rows: Vec<ProviderAccountRow> = response.take(0)?;
-        rows.into_iter()
-            .next()
-            .map(provider_account_from_row)
-            .transpose()
+        row.map(provider_account_from_row).transpose()
     }
 
     /// Return all active default provider accounts in stable Settings order.
@@ -207,26 +172,8 @@ impl NoemaStore {
     pub async fn active_default_provider_accounts(
         &self,
     ) -> Result<Vec<ProviderAccountRecord>, StoreError> {
-        let mut response = self
-            .db()
-            .query(
-                r#"
-                SELECT provider_account_id, provider_kind, account_key, display_name,
-                  auth_method, is_active, is_default, status, last_checked_at,
-                  last_authenticated_at, last_error_code, last_error_message, metadata
-                FROM provider_accounts
-                WHERE is_active = true
-                  AND is_default = true;
-                "#,
-            )
-            .await?;
-        let rows: Vec<ProviderAccountRow> = response.take(0)?;
-        let mut accounts = rows
-            .into_iter()
-            .map(provider_account_from_row)
-            .collect::<Result<Vec<_>, _>>()?;
-        accounts.sort_by(|left, right| left.provider_kind.cmp(&right.provider_kind));
-        Ok(accounts)
+        self.provider_account_rows("WHERE is_active = 1 AND is_default = 1 ORDER BY provider_kind")
+            .await
     }
 
     /// Return all active created provider accounts in stable Settings order.
@@ -236,30 +183,21 @@ impl NoemaStore {
     /// Returns [`StoreError`] when the embedded store read fails or a stored
     /// enum is invalid.
     pub async fn active_provider_accounts(&self) -> Result<Vec<ProviderAccountRecord>, StoreError> {
-        let mut response = self
-            .db()
-            .query(
-                r#"
-                SELECT provider_account_id, provider_kind, account_key, display_name,
-                  auth_method, is_active, is_default, status, last_checked_at,
-                  last_authenticated_at, last_error_code, last_error_message, metadata
-                FROM provider_accounts
-                WHERE is_active = true;
-                "#,
-            )
-            .await?;
-        let rows: Vec<ProviderAccountRow> = response.take(0)?;
-        let mut accounts = rows
-            .into_iter()
-            .map(provider_account_from_row)
-            .collect::<Result<Vec<_>, _>>()?;
-        accounts.sort_by(|left, right| {
-            left.provider_kind
-                .cmp(&right.provider_kind)
-                .then(left.display_name.cmp(&right.display_name))
-                .then(left.account_key.cmp(&right.account_key))
-        });
-        Ok(accounts)
+        self.provider_account_rows(
+            "WHERE is_active = 1 ORDER BY provider_kind, display_name, account_key",
+        )
+        .await
+    }
+
+    /// Return all durable provider accounts in stable Settings order.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when the embedded store read fails or a stored
+    /// enum is invalid.
+    pub async fn list_provider_accounts(&self) -> Result<Vec<ProviderAccountRecord>, StoreError> {
+        self.provider_account_rows("ORDER BY provider_kind, display_name, account_key")
+            .await
     }
 
     /// Create a user-managed provider account.
@@ -287,7 +225,6 @@ impl NoemaStore {
 
         let account_key = generated_account_key(&input.provider_kind);
         let provider_account_id = format!("provider_account:{}:{account_key}", input.provider_kind);
-        let record_id = format!("{}_{}", input.provider_kind, account_key);
         let display_name = input
             .display_name
             .as_deref()
@@ -295,33 +232,30 @@ impl NoemaStore {
             .filter(|value| !value.is_empty())
             .unwrap_or("Exa")
             .to_string();
+        let metadata_json = json_to_string(&input.metadata)?;
 
-        self.db()
-            .query(
+        self.with_connection(|conn| {
+            conn.execute(
                 r#"
-                CREATE type::record('provider_accounts', $record_id) SET
-                  provider_account_id = $provider_account_id,
-                  provider_kind = $provider_kind,
-                  account_key = $account_key,
-                  display_name = $display_name,
-                  auth_method = $auth_method,
-                  is_active = true,
-                  is_default = false,
-                  status = $status,
-                  metadata = $metadata,
-                  updated_at = time::now();
+                INSERT INTO provider_accounts (
+                  provider_account_id, provider_kind, account_key, display_name,
+                  auth_method, is_active, is_default, status, metadata_json
+                )
+                VALUES (?1, ?2, ?3, ?4, ?5, 1, 0, ?6, ?7)
                 "#,
-            )
-            .bind(("record_id", record_id))
-            .bind(("provider_account_id", provider_account_id.clone()))
-            .bind(("provider_kind", input.provider_kind))
-            .bind(("account_key", account_key))
-            .bind(("display_name", display_name))
-            .bind(("auth_method", input.auth_method.as_str().to_string()))
-            .bind(("status", input.status.as_str().to_string()))
-            .bind(("metadata", input.metadata))
-            .await?
-            .check()?;
+                params![
+                    provider_account_id,
+                    input.provider_kind,
+                    account_key,
+                    display_name,
+                    input.auth_method.as_str(),
+                    input.status.as_str(),
+                    metadata_json,
+                ],
+            )?;
+            Ok(())
+        })
+        .await?;
 
         self.get_provider_account(&provider_account_id)
             .await?
@@ -340,25 +274,19 @@ impl NoemaStore {
         &self,
         provider_account_id: &str,
     ) -> Result<Option<ProviderAccountRecord>, StoreError> {
-        let mut response = self
-            .db()
-            .query(
-                r#"
-                SELECT provider_account_id, provider_kind, account_key, display_name,
-                  auth_method, is_active, is_default, status, last_checked_at,
-                  last_authenticated_at, last_error_code, last_error_message, metadata
-                FROM provider_accounts
-                WHERE provider_account_id = $provider_account_id
-                LIMIT 1;
-                "#,
-            )
-            .bind(("provider_account_id", provider_account_id.to_string()))
+        let row = self
+            .with_connection(|conn| {
+                conn.query_row(
+                    format!("{PROVIDER_ACCOUNT_SELECT} WHERE provider_account_id = ?1 LIMIT 1")
+                        .as_str(),
+                    [provider_account_id],
+                    provider_account_row,
+                )
+                .optional()
+                .map_err(StoreError::Sqlite)
+            })
             .await?;
-        let rows: Vec<ProviderAccountRow> = response.take(0)?;
-        rows.into_iter()
-            .next()
-            .map(provider_account_from_row)
-            .transpose()
+        row.map(provider_account_from_row).transpose()
     }
 
     /// Hard-delete one user-managed provider account and its capability bindings.
@@ -381,18 +309,18 @@ impl NoemaStore {
             });
         }
 
-        self.db()
-            .query(
-                r#"
-                DELETE provider_capability_bindings
-                WHERE provider_account_id = $provider_account_id;
-                DELETE provider_accounts
-                WHERE provider_account_id = $provider_account_id;
-                "#,
-            )
-            .bind(("provider_account_id", provider_account_id.to_string()))
-            .await?
-            .check()?;
+        self.with_connection(|conn| {
+            conn.execute(
+                "DELETE FROM provider_capability_bindings WHERE provider_account_id = ?1",
+                [provider_account_id],
+            )?;
+            conn.execute(
+                "DELETE FROM provider_accounts WHERE provider_account_id = ?1",
+                [provider_account_id],
+            )?;
+            Ok(())
+        })
+        .await?;
         Ok(true)
     }
 
@@ -420,28 +348,30 @@ impl NoemaStore {
         } else {
             account.last_authenticated_at
         };
-        self.db()
-            .query(
+        self.with_connection(|conn| {
+            conn.execute(
                 r#"
-                UPDATE provider_accounts SET
-                  status = $status,
-                  last_checked_at = $last_checked_at,
-                  last_authenticated_at = $last_authenticated_at,
-                  last_error_code = $error_code,
-                  last_error_message = $error_message,
-                  updated_at = time::now()
-                WHERE provider_account_id = $provider_account_id;
+                UPDATE provider_accounts
+                SET status = ?2,
+                    last_checked_at = ?3,
+                    last_authenticated_at = ?4,
+                    last_error_code = ?5,
+                    last_error_message = ?6,
+                    updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                WHERE provider_account_id = ?1
                 "#,
-            )
-            .bind(("provider_account_id", provider_account_id.to_string()))
-            .bind(("status", provider_status_str(status).to_string()))
-            .bind(("last_checked_at", Some(checked_at)))
-            .bind(("last_authenticated_at", last_authenticated_at))
-            .bind(("error_code", error_code.map(ToString::to_string)))
-            .bind(("error_message", error_message.map(ToString::to_string)))
-            .await?
-            .check()?;
-        Ok(())
+                params![
+                    provider_account_id,
+                    provider_status_str(status),
+                    checked_at,
+                    last_authenticated_at,
+                    error_code,
+                    error_message,
+                ],
+            )?;
+            Ok(())
+        })
+        .await
     }
 
     /// Replace safe non-secret provider account metadata.
@@ -464,24 +394,47 @@ impl NoemaStore {
                 provider_account_id: provider_account_id.to_string(),
             });
         }
-        self.db()
-            .query(
+        let metadata_json = json_to_string(&metadata)?;
+        self.with_connection(|conn| {
+            conn.execute(
                 r#"
-                UPDATE provider_accounts SET
-                  metadata = $metadata,
-                  updated_at = time::now()
-                WHERE provider_account_id = $provider_account_id;
+                UPDATE provider_accounts
+                SET metadata_json = ?2,
+                    updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                WHERE provider_account_id = ?1
                 "#,
-            )
-            .bind(("provider_account_id", provider_account_id.to_string()))
-            .bind(("metadata", metadata))
-            .await?
-            .check()?;
-        Ok(())
+                params![provider_account_id, metadata_json],
+            )?;
+            Ok(())
+        })
+        .await
+    }
+
+    async fn provider_account_rows(
+        &self,
+        clause: &str,
+    ) -> Result<Vec<ProviderAccountRecord>, StoreError> {
+        let rows = self
+            .with_connection(|conn| {
+                let mut statement =
+                    conn.prepare(format!("{PROVIDER_ACCOUNT_SELECT} {clause}").as_str())?;
+                let rows = statement.query_map([], provider_account_row)?;
+                rows.collect::<Result<Vec<_>, _>>()
+                    .map_err(StoreError::Sqlite)
+            })
+            .await?;
+        rows.into_iter().map(provider_account_from_row).collect()
     }
 }
 
-#[derive(Debug, Deserialize, SurrealValue)]
+const PROVIDER_ACCOUNT_SELECT: &str = r#"
+SELECT provider_account_id, provider_kind, account_key, display_name,
+  auth_method, is_active, is_default, status, last_checked_at,
+  last_authenticated_at, last_error_code, last_error_message, metadata_json
+FROM provider_accounts
+"#;
+
+#[derive(Debug)]
 struct ProviderAccountRow {
     provider_account_id: String,
     provider_kind: String,
@@ -495,7 +448,25 @@ struct ProviderAccountRow {
     last_authenticated_at: Option<String>,
     last_error_code: Option<String>,
     last_error_message: Option<String>,
-    metadata: Value,
+    metadata_json: String,
+}
+
+fn provider_account_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ProviderAccountRow> {
+    Ok(ProviderAccountRow {
+        provider_account_id: row.get(0)?,
+        provider_kind: row.get(1)?,
+        account_key: row.get(2)?,
+        display_name: row.get(3)?,
+        auth_method: row.get(4)?,
+        is_active: row.get(5)?,
+        is_default: row.get(6)?,
+        status: row.get(7)?,
+        last_checked_at: row.get(8)?,
+        last_authenticated_at: row.get(9)?,
+        last_error_code: row.get(10)?,
+        last_error_message: row.get(11)?,
+        metadata_json: row.get(12)?,
+    })
 }
 
 fn provider_account_from_row(row: ProviderAccountRow) -> Result<ProviderAccountRecord, StoreError> {
@@ -515,7 +486,7 @@ fn provider_account_from_row(row: ProviderAccountRow) -> Result<ProviderAccountR
         last_authenticated_at: row.last_authenticated_at,
         last_error_code: row.last_error_code,
         last_error_message: row.last_error_message,
-        metadata: row.metadata,
+        metadata: json_from_string(row.metadata_json)?,
         capabilities,
     })
 }

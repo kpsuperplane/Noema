@@ -78,7 +78,7 @@ impl NoemaStore {
 
     /// Access the transitional SurrealDB client for repository modules.
     #[must_use]
-    #[allow(dead_code)]
+    #[allow(dead_code, clippy::unused_self)]
     pub(crate) fn db(&self) -> &Surreal<Db> {
         TRANSITIONAL_SURREAL_COMPAT_DB.get().expect(
             "transitional SurrealDB compatibility adapter must be initialized by NoemaStore::open",

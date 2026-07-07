@@ -1,11 +1,11 @@
-use serde::Deserialize;
-use surrealdb::types::SurrealValue;
+use rusqlite::{OptionalExtension, params};
 
 use crate::ConversationContextSummaryStatus;
 
 use super::{
     NoemaStore, StoreError,
-    ids::{allocate_id, record_fragment},
+    ids::allocate_id,
+    sqlite::{deserialize_json, serialize_json},
 };
 
 /// Input for creating a derived conversation context summary checkpoint.
@@ -109,61 +109,41 @@ impl NoemaStore {
         }
 
         let summary_id = allocate_id("context-summary");
-        self.db()
-            .query(
+        let source_item_ids_json = serialize_json(&summary.source_item_ids)?;
+        let input_token_estimate = estimate_to_i64(summary.input_token_estimate);
+        let summary_token_estimate = estimate_to_i64(summary.summary_token_estimate);
+        self.with_connection(|conn| {
+            conn.execute(
                 r#"
-                CREATE type::record('conversation_context_summaries', $record_id) SET
-                  summary_id = $summary_id,
-                  conversation_id = $conversation_id,
-                  provider_kind = $provider_kind,
-                  model_profile = $model_profile,
-                  summary_text = $summary_text,
-                  covered_item_start_sequence = $covered_item_start_sequence,
-                  covered_item_end_sequence = $covered_item_end_sequence,
-                  source_item_ids = $source_item_ids,
-                  input_token_estimate = $input_token_estimate,
-                  summary_token_estimate = $summary_token_estimate,
-                  compaction_provider_kind = $compaction_provider_kind,
-                  compaction_model_profile = $compaction_model_profile,
-                  status = $status,
-                  error_code = $error_code,
-                  error_message = $error_message,
-                  updated_at = time::now();
+                INSERT INTO conversation_context_summaries (
+                  summary_id, conversation_id, provider_kind, model_profile, summary_text,
+                  covered_item_start_sequence, covered_item_end_sequence, source_item_ids_json,
+                  input_token_estimate, summary_token_estimate, compaction_provider_kind,
+                  compaction_model_profile, status, error_code, error_message
+                )
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
                 "#,
-            )
-            .bind(("record_id", record_fragment(&summary_id)))
-            .bind(("summary_id", summary_id.clone()))
-            .bind(("conversation_id", summary.conversation_id.clone()))
-            .bind(("provider_kind", summary.provider_kind.clone()))
-            .bind(("model_profile", summary.model_profile.clone()))
-            .bind(("summary_text", summary.summary_text.clone()))
-            .bind((
-                "covered_item_start_sequence",
-                summary.covered_item_start_sequence,
-            ))
-            .bind((
-                "covered_item_end_sequence",
-                summary.covered_item_end_sequence,
-            ))
-            .bind(("source_item_ids", summary.source_item_ids.clone()))
-            .bind(("input_token_estimate", summary.input_token_estimate as i64))
-            .bind((
-                "summary_token_estimate",
-                summary.summary_token_estimate as i64,
-            ))
-            .bind((
-                "compaction_provider_kind",
-                summary.compaction_provider_kind.clone(),
-            ))
-            .bind((
-                "compaction_model_profile",
-                summary.compaction_model_profile.clone(),
-            ))
-            .bind(("status", summary.status.as_str().to_string()))
-            .bind(("error_code", summary.error_code.clone()))
-            .bind(("error_message", summary.error_message.clone()))
-            .await?
-            .check()?;
+                params![
+                    summary_id,
+                    summary.conversation_id,
+                    summary.provider_kind,
+                    summary.model_profile,
+                    summary.summary_text,
+                    summary.covered_item_start_sequence,
+                    summary.covered_item_end_sequence,
+                    source_item_ids_json,
+                    input_token_estimate,
+                    summary_token_estimate,
+                    summary.compaction_provider_kind,
+                    summary.compaction_model_profile,
+                    summary.status.as_str(),
+                    summary.error_code,
+                    summary.error_message,
+                ],
+            )?;
+            Ok(())
+        })
+        .await?;
 
         Ok(ConversationContextSummaryRecord {
             summary_id,
@@ -197,29 +177,30 @@ impl NoemaStore {
         model_profile: Option<&str>,
     ) -> Result<Option<ConversationContextSummaryRecord>, StoreError> {
         self.require_conversation(conversation_id).await?;
-        let mut response = self
-            .db()
-            .query(format!(
-                r#"
-                SELECT {CONTEXT_SUMMARY_SELECT}
-                FROM conversation_context_summaries
-                WHERE conversation_id = $conversation_id
-                  AND provider_kind = $provider_kind
-                  AND model_profile = $model_profile
-                  AND status = 'active'
-                ORDER BY covered_item_end_sequence DESC
-                LIMIT 1;
-                "#
-            ))
-            .bind(("conversation_id", conversation_id.to_string()))
-            .bind(("provider_kind", provider_kind.to_string()))
-            .bind(("model_profile", model_profile.map(str::to_string)))
+        let row = self
+            .with_connection(|conn| {
+                conn.query_row(
+                    format!(
+                        r#"
+                        SELECT {CONTEXT_SUMMARY_SELECT}
+                        FROM conversation_context_summaries
+                        WHERE conversation_id = ?1
+                          AND provider_kind = ?2
+                          AND model_profile IS ?3
+                          AND status = 'active'
+                        ORDER BY covered_item_end_sequence DESC
+                        LIMIT 1
+                        "#
+                    )
+                    .as_str(),
+                    params![conversation_id, provider_kind, model_profile],
+                    context_summary_row,
+                )
+                .optional()
+                .map_err(StoreError::Sqlite)
+            })
             .await?;
-        let rows: Vec<ContextSummaryRow> = response.take(0)?;
-        rows.into_iter()
-            .next()
-            .map(context_summary_from_row)
-            .transpose()
+        row.map(context_summary_from_row).transpose()
     }
 
     /// Return one context summary by id.
@@ -232,23 +213,26 @@ impl NoemaStore {
         &self,
         summary_id: &str,
     ) -> Result<Option<ConversationContextSummaryRecord>, StoreError> {
-        let mut response = self
-            .db()
-            .query(format!(
-                r#"
-                SELECT {CONTEXT_SUMMARY_SELECT}
-                FROM conversation_context_summaries
-                WHERE summary_id = $summary_id
-                LIMIT 1;
-                "#
-            ))
-            .bind(("summary_id", summary_id.to_string()))
+        let row = self
+            .with_connection(|conn| {
+                conn.query_row(
+                    format!(
+                        r#"
+                        SELECT {CONTEXT_SUMMARY_SELECT}
+                        FROM conversation_context_summaries
+                        WHERE summary_id = ?1
+                        LIMIT 1
+                        "#
+                    )
+                    .as_str(),
+                    [summary_id],
+                    context_summary_row,
+                )
+                .optional()
+                .map_err(StoreError::Sqlite)
+            })
             .await?;
-        let rows: Vec<ContextSummaryRow> = response.take(0)?;
-        rows.into_iter()
-            .next()
-            .map(context_summary_from_row)
-            .transpose()
+        row.map(context_summary_from_row).transpose()
     }
 
     /// List all context summaries for a conversation in creation order.
@@ -262,19 +246,24 @@ impl NoemaStore {
         conversation_id: &str,
     ) -> Result<Vec<ConversationContextSummaryRecord>, StoreError> {
         self.require_conversation(conversation_id).await?;
-        let mut response = self
-            .db()
-            .query(format!(
-                r#"
-                SELECT {CONTEXT_SUMMARY_SELECT}
-                FROM conversation_context_summaries
-                WHERE conversation_id = $conversation_id
-                ORDER BY covered_item_end_sequence ASC;
-                "#
-            ))
-            .bind(("conversation_id", conversation_id.to_string()))
+        let rows = self
+            .with_connection(|conn| {
+                let mut statement = conn.prepare(
+                    format!(
+                        r#"
+                        SELECT {CONTEXT_SUMMARY_SELECT}
+                        FROM conversation_context_summaries
+                        WHERE conversation_id = ?1
+                        ORDER BY covered_item_end_sequence ASC
+                        "#
+                    )
+                    .as_str(),
+                )?;
+                let rows = statement.query_map([conversation_id], context_summary_row)?;
+                rows.collect::<Result<Vec<_>, _>>()
+                    .map_err(StoreError::Sqlite)
+            })
             .await?;
-        let rows: Vec<ContextSummaryRow> = response.take(0)?;
         rows.into_iter().map(context_summary_from_row).collect()
     }
 
@@ -284,36 +273,34 @@ impl NoemaStore {
         provider_kind: &str,
         model_profile: Option<&str>,
     ) -> Result<(), StoreError> {
-        self.db()
-            .query(
+        self.with_connection(|conn| {
+            conn.execute(
                 r#"
-                UPDATE conversation_context_summaries SET
-                  status = 'superseded',
-                  updated_at = time::now()
-                WHERE conversation_id = $conversation_id
-                  AND provider_kind = $provider_kind
-                  AND model_profile = $model_profile
-                  AND status = 'active';
+                UPDATE conversation_context_summaries
+                SET status = 'superseded',
+                    updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                WHERE conversation_id = ?1
+                  AND provider_kind = ?2
+                  AND model_profile IS ?3
+                  AND status = 'active'
                 "#,
-            )
-            .bind(("conversation_id", conversation_id.to_string()))
-            .bind(("provider_kind", provider_kind.to_string()))
-            .bind(("model_profile", model_profile.map(str::to_string)))
-            .await?
-            .check()?;
-        Ok(())
+                params![conversation_id, provider_kind, model_profile],
+            )?;
+            Ok(())
+        })
+        .await
     }
 }
 
 const CONTEXT_SUMMARY_SELECT: &str = r#"
 summary_id, conversation_id, provider_kind, model_profile, summary_text,
-covered_item_start_sequence, covered_item_end_sequence, source_item_ids,
+covered_item_start_sequence, covered_item_end_sequence, source_item_ids_json,
 input_token_estimate, summary_token_estimate,
 compaction_provider_kind, compaction_model_profile,
 status, error_code, error_message
 "#;
 
-#[derive(Debug, Deserialize, SurrealValue)]
+#[derive(Debug)]
 struct ContextSummaryRow {
     summary_id: String,
     conversation_id: String,
@@ -322,7 +309,7 @@ struct ContextSummaryRow {
     summary_text: String,
     covered_item_start_sequence: i64,
     covered_item_end_sequence: i64,
-    source_item_ids: Vec<String>,
+    source_item_ids_json: String,
     input_token_estimate: i64,
     summary_token_estimate: i64,
     compaction_provider_kind: String,
@@ -330,6 +317,26 @@ struct ContextSummaryRow {
     status: String,
     error_code: Option<String>,
     error_message: Option<String>,
+}
+
+fn context_summary_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ContextSummaryRow> {
+    Ok(ContextSummaryRow {
+        summary_id: row.get(0)?,
+        conversation_id: row.get(1)?,
+        provider_kind: row.get(2)?,
+        model_profile: row.get(3)?,
+        summary_text: row.get(4)?,
+        covered_item_start_sequence: row.get(5)?,
+        covered_item_end_sequence: row.get(6)?,
+        source_item_ids_json: row.get(7)?,
+        input_token_estimate: row.get(8)?,
+        summary_token_estimate: row.get(9)?,
+        compaction_provider_kind: row.get(10)?,
+        compaction_model_profile: row.get(11)?,
+        status: row.get(12)?,
+        error_code: row.get(13)?,
+        error_message: row.get(14)?,
+    })
 }
 
 fn context_summary_from_row(
@@ -343,7 +350,7 @@ fn context_summary_from_row(
         summary_text: row.summary_text,
         covered_item_start_sequence: row.covered_item_start_sequence,
         covered_item_end_sequence: row.covered_item_end_sequence,
-        source_item_ids: row.source_item_ids,
+        source_item_ids: deserialize_json(row.source_item_ids_json)?,
         input_token_estimate: row.input_token_estimate.max(0) as u64,
         summary_token_estimate: row.summary_token_estimate.max(0) as u64,
         compaction_provider_kind: row.compaction_provider_kind,
@@ -353,4 +360,8 @@ fn context_summary_from_row(
         error_code: row.error_code,
         error_message: row.error_message,
     })
+}
+
+fn estimate_to_i64(value: u64) -> i64 {
+    i64::try_from(value).unwrap_or(i64::MAX)
 }

@@ -137,6 +137,29 @@ CREATE TABLE IF NOT EXISTS conversation_items (
 CREATE INDEX IF NOT EXISTS conversation_items_conversation_sequence
 ON conversation_items(conversation_id, sequence_index);
 
+CREATE TABLE IF NOT EXISTS conversation_context_summaries (
+  summary_id TEXT PRIMARY KEY NOT NULL,
+  conversation_id TEXT NOT NULL,
+  provider_kind TEXT NOT NULL CHECK (provider_kind IN ('codex', 'openai', 'foundation_local')),
+  model_profile TEXT,
+  summary_text TEXT NOT NULL,
+  covered_item_start_sequence INTEGER NOT NULL CHECK (covered_item_start_sequence >= 1),
+  covered_item_end_sequence INTEGER NOT NULL CHECK (covered_item_end_sequence >= covered_item_start_sequence),
+  source_item_ids_json TEXT NOT NULL DEFAULT '[]',
+  input_token_estimate INTEGER NOT NULL CHECK (input_token_estimate >= 0),
+  summary_token_estimate INTEGER NOT NULL CHECK (summary_token_estimate >= 0),
+  compaction_provider_kind TEXT NOT NULL CHECK (compaction_provider_kind IN ('codex', 'openai', 'foundation_local')),
+  compaction_model_profile TEXT,
+  status TEXT NOT NULL CHECK (status IN ('pending', 'active', 'failed', 'superseded')),
+  error_code TEXT,
+  error_message TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+CREATE INDEX IF NOT EXISTS conversation_context_summaries_profile
+ON conversation_context_summaries(conversation_id, provider_kind, model_profile, status, covered_item_end_sequence);
+
 CREATE TABLE IF NOT EXISTS memory_service_settings (
   settings_id TEXT PRIMARY KEY NOT NULL CHECK (settings_id = 'default'),
   mode TEXT NOT NULL CHECK (mode IN ('managed', 'external')),

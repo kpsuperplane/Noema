@@ -1,6 +1,5 @@
-use serde::Deserialize;
+use rusqlite::{OptionalExtension, params};
 use serde_json::Value;
-use surrealdb::types::SurrealValue;
 
 use crate::{
     ConversationItemKind, ConversationItemPage, ConversationItemRecord, ConversationItemStatus,
@@ -10,7 +9,8 @@ use crate::{
 
 use super::{
     NoemaStore, StoreError,
-    ids::{allocate_id, now_string, record_fragment},
+    ids::{allocate_id, now_string},
+    sqlite::{json_from_string, json_to_string},
 };
 
 const CONVERSATION_ITEM_CURSOR_PREFIX: &str = "conversation_item:";
@@ -60,16 +60,19 @@ impl NoemaStore {
         cwd: Option<String>,
     ) -> Result<ConversationRecord, StoreError> {
         self.ensure_default_actors().await?;
-        let mut response = self
-            .db()
-            .query("SELECT primary_conversation_id FROM humans WHERE human_id = $human_id LIMIT 1;")
-            .bind(("human_id", human_id.to_string()))
+        let primary_conversation_id = self
+            .with_connection(|conn| {
+                conn.query_row(
+                    "SELECT primary_conversation_id FROM humans WHERE human_id = ?1 LIMIT 1",
+                    [human_id],
+                    |row| row.get::<_, Option<String>>(0),
+                )
+                .optional()
+                .map(|row| row.flatten())
+                .map_err(StoreError::Sqlite)
+            })
             .await?;
-        let rows: Vec<PrimaryConversationRow> = response.take(0)?;
-        if let Some(Some(conversation_id)) = rows
-            .into_iter()
-            .next()
-            .map(|row| row.primary_conversation_id)
+        if let Some(conversation_id) = primary_conversation_id
             && self
                 .primary_conversation_matches_human(&conversation_id, human_id)
                 .await?
@@ -83,19 +86,19 @@ impl NoemaStore {
                 NewConversation::local_chat_for_provider(provider, model, cwd),
             )
             .await?;
-        self.db()
-            .query(
+        self.with_connection(|conn| {
+            conn.execute(
                 r#"
-                UPDATE humans SET
-                  primary_conversation_id = $conversation_id,
-                  updated_at = time::now()
-                WHERE human_id = $human_id;
+                UPDATE humans
+                SET primary_conversation_id = ?2,
+                    updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                WHERE human_id = ?1
                 "#,
-            )
-            .bind(("human_id", human_id.to_string()))
-            .bind(("conversation_id", record.conversation_id.clone()))
-            .await?
-            .check()?;
+                params![human_id, record.conversation_id],
+            )?;
+            Ok(())
+        })
+        .await?;
         Ok(record)
     }
 
@@ -108,17 +111,19 @@ impl NoemaStore {
         &self,
         human_id: &str,
     ) -> Result<Option<ConversationRecord>, StoreError> {
-        let mut response = self
-            .db()
-            .query("SELECT primary_conversation_id FROM humans WHERE human_id = $human_id LIMIT 1;")
-            .bind(("human_id", human_id.to_string()))
+        let conversation_id = self
+            .with_connection(|conn| {
+                conn.query_row(
+                    "SELECT primary_conversation_id FROM humans WHERE human_id = ?1 LIMIT 1",
+                    [human_id],
+                    |row| row.get::<_, Option<String>>(0),
+                )
+                .optional()
+                .map(|row| row.flatten())
+                .map_err(StoreError::Sqlite)
+            })
             .await?;
-        let rows: Vec<PrimaryConversationRow> = response.take(0)?;
-        let Some(Some(conversation_id)) = rows
-            .into_iter()
-            .next()
-            .map(|row| row.primary_conversation_id)
-        else {
+        let Some(conversation_id) = conversation_id else {
             return Ok(None);
         };
         if !self
@@ -141,20 +146,24 @@ impl NoemaStore {
         conversation_id: &str,
     ) -> Result<u64, StoreError> {
         self.require_conversation(conversation_id).await?;
-        let mut response = self
-            .db()
-            .query(
-                "SELECT metadata FROM conversation_turns WHERE conversation_id = $conversation_id;",
-            )
-            .bind(("conversation_id", conversation_id.to_string()))
+        let metadata_values = self
+            .with_connection(|conn| {
+                let mut statement = conn.prepare(
+                    "SELECT metadata_json FROM conversation_turns WHERE conversation_id = ?1",
+                )?;
+                let rows = statement.query_map([conversation_id], |row| row.get::<_, String>(0))?;
+                rows.collect::<Result<Vec<_>, _>>()
+                    .map_err(StoreError::Sqlite)
+            })
             .await?;
-        let rows: Vec<MetadataRow> = response.take(0)?;
-        Ok(rows
-            .iter()
-            .filter_map(|row| row.metadata.get("turn_index").and_then(Value::as_u64))
-            .max()
-            .unwrap_or(0)
-            .saturating_add(1))
+        let mut max_index = 0;
+        for metadata_json in metadata_values {
+            let metadata = json_from_string(metadata_json)?;
+            if let Some(index) = metadata.get("turn_index").and_then(Value::as_u64) {
+                max_index = max_index.max(index);
+            }
+        }
+        Ok(max_index.saturating_add(1))
     }
 
     /// Create a durable turn row for an existing conversation.
@@ -173,26 +182,21 @@ impl NoemaStore {
                 .await?;
         }
         let turn_id = allocate_id("turn");
-        self.db()
-            .query(
+        let metadata_json = json_to_string(&turn.metadata)?;
+        self.with_connection(|conn| {
+            conn.execute(
                 r#"
-                CREATE type::record('conversation_turns', $record_id) SET
-                  turn_id = $turn_id,
-                  conversation_id = $conversation_id,
-                  trigger_item_id = $trigger_item_id,
-                  status = 'input_received',
-                  metadata = $metadata,
-                  started_at = time::now(),
-                  updated_at = time::now();
+                INSERT INTO conversation_turns
+                  (turn_id, conversation_id, trigger_item_id, status, metadata_json, started_at, updated_at)
+                VALUES (?1, ?2, ?3, 'input_received', ?4,
+                  strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+                  strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
                 "#,
-            )
-            .bind(("record_id", record_fragment(&turn_id)))
-            .bind(("turn_id", turn_id.clone()))
-            .bind(("conversation_id", turn.conversation_id.clone()))
-            .bind(("trigger_item_id", turn.trigger_item_id))
-            .bind(("metadata", turn.metadata))
-            .await?
-            .check()?;
+                params![turn_id, turn.conversation_id, turn.trigger_item_id, metadata_json],
+            )?;
+            Ok(())
+        })
+        .await?;
         Ok(ConversationTurnRecord {
             turn_id,
             conversation_id: turn.conversation_id,
@@ -220,39 +224,37 @@ impl NoemaStore {
         }
         let _append_guard = self.append_item_lock.lock().await;
         let item_id = allocate_id("item");
-        let sequence_index = self.next_item_sequence_index(&item.conversation_id).await?;
-        self.db()
-            .query(
-                r#"
-                CREATE type::record('conversation_items', $record_id) SET
-                  item_id = $item_id,
-                  conversation_id = $conversation_id,
-                  turn_id = $turn_id,
-                  parent_item_id = $parent_item_id,
-                  sequence_index = $sequence_index,
-                  kind = $kind,
-                  status = $status,
-                  author_actor_id = $author_actor_id,
-                  content_text = $content_text,
-                  payload_json = $payload_json,
-                  metadata = $metadata,
-                  updated_at = time::now();
-                "#,
-            )
-            .bind(("record_id", record_fragment(&item_id)))
-            .bind(("item_id", item_id.clone()))
-            .bind(("conversation_id", item.conversation_id.clone()))
-            .bind(("turn_id", item.turn_id.clone()))
-            .bind(("parent_item_id", item.parent_item_id))
-            .bind(("sequence_index", sequence_index))
-            .bind(("kind", item.kind.as_str().to_string()))
-            .bind(("status", item.status.as_str().to_string()))
-            .bind(("author_actor_id", item.author.actor_id.to_string()))
-            .bind(("content_text", item.content_text.clone()))
-            .bind(("payload_json", item.payload_json.clone()))
-            .bind(("metadata", item.metadata.clone()))
-            .await?
-            .check()?;
+        let sequence_index = self
+            .with_connection(|conn| {
+                let next_sequence = conn.query_row(
+                    "SELECT COALESCE(MAX(sequence_index), 0) + 1 FROM conversation_items WHERE conversation_id = ?1",
+                    [&item.conversation_id],
+                    |row| row.get::<_, i64>(0),
+                )?;
+                conn.execute(
+                    r#"
+                    INSERT INTO conversation_items
+                      (item_id, conversation_id, turn_id, parent_item_id, sequence_index, kind, status,
+                       author_actor_id, content_text, payload_json, metadata_json)
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+                    "#,
+                    params![
+                        item_id,
+                        item.conversation_id,
+                        item.turn_id,
+                        item.parent_item_id,
+                        next_sequence,
+                        item.kind.as_str(),
+                        item.status.as_str(),
+                        item.author.actor_id.to_string(),
+                        item.content_text,
+                        json_to_string(&item.payload_json)?,
+                        json_to_string(&item.metadata)?,
+                    ],
+                )?;
+                Ok(next_sequence)
+            })
+            .await?;
         Ok(ConversationItemRecord {
             item_id,
             conversation_id: item.conversation_id,
@@ -280,22 +282,21 @@ impl NoemaStore {
     ) -> Result<Vec<ConversationItemRecord>, StoreError> {
         self.require_conversation(conversation_id).await?;
         let deleted_filter = match mode {
-            ReplayMode::Visible => "AND deleted_at = NONE",
+            ReplayMode::Visible => "AND deleted_at IS NULL",
             ReplayMode::Audit => "",
         };
-        let mut response = self
-            .db()
-            .query(format!(
-                r#"
-                SELECT item_id, conversation_id, turn_id, kind, status, content_text, payload_json, metadata, sequence_index
-                FROM conversation_items
-                WHERE conversation_id = $conversation_id {deleted_filter}
-                ORDER BY sequence_index ASC;
-                "#
-            ))
-            .bind(("conversation_id", conversation_id.to_string()))
+        let rows = self
+            .with_connection(|conn| {
+                collect_conversation_item_rows(
+                    conn,
+                    format!(
+                        "WHERE conversation_id = ?1 {deleted_filter} ORDER BY sequence_index ASC"
+                    )
+                    .as_str(),
+                    params![conversation_id],
+                )
+            })
             .await?;
-        let rows: Vec<ConversationItemRow> = response.take(0)?;
         rows.into_iter().map(conversation_item_from_row).collect()
     }
 
@@ -321,41 +322,34 @@ impl NoemaStore {
 
         let mut rows = if let Some(cursor) = cursor {
             let before_sequence_index = sequence_index_from_conversation_item_cursor(cursor)?;
-            let mut response = self
-                .db()
-                .query(
+            self.with_connection(|conn| {
+                collect_conversation_item_rows(
+                    conn,
                     r#"
-                    SELECT item_id, conversation_id, turn_id, kind, status, content_text, payload_json, metadata, sequence_index
-                    FROM conversation_items
-                    WHERE conversation_id = $conversation_id
-                      AND deleted_at = NONE
-                      AND sequence_index < $before_sequence_index
+                    WHERE conversation_id = ?1
+                      AND deleted_at IS NULL
+                      AND sequence_index < ?2
                     ORDER BY sequence_index DESC
-                    LIMIT $limit;
+                    LIMIT ?3
                     "#,
+                    params![conversation_id, before_sequence_index, fetch_limit],
                 )
-                .bind(("conversation_id", conversation_id.to_string()))
-                .bind(("before_sequence_index", before_sequence_index))
-                .bind(("limit", fetch_limit))
-                .await?;
-            response.take::<Vec<ConversationItemRow>>(0)?
+            })
+            .await?
         } else {
-            let mut response = self
-                .db()
-                .query(
+            self.with_connection(|conn| {
+                collect_conversation_item_rows(
+                    conn,
                     r#"
-                    SELECT item_id, conversation_id, turn_id, kind, status, content_text, payload_json, metadata, sequence_index
-                    FROM conversation_items
-                    WHERE conversation_id = $conversation_id
-                      AND deleted_at = NONE
+                    WHERE conversation_id = ?1
+                      AND deleted_at IS NULL
                     ORDER BY sequence_index DESC
-                    LIMIT $limit;
+                    LIMIT ?2
                     "#,
+                    params![conversation_id, fetch_limit],
                 )
-                .bind(("conversation_id", conversation_id.to_string()))
-                .bind(("limit", fetch_limit))
-                .await?;
-            response.take::<Vec<ConversationItemRow>>(0)?
+            })
+            .await?
         };
 
         let has_more_before = i64::try_from(rows.len()).unwrap_or(i64::MAX) > limit;
@@ -390,23 +384,21 @@ impl NoemaStore {
     ) -> Result<Vec<ConversationItemRecord>, StoreError> {
         self.require_conversation(conversation_id).await?;
         let limit = limit.clamp(1, 40);
-        let mut response = self
-            .db()
-            .query(
-                r#"
-                SELECT item_id, conversation_id, turn_id, kind, status, content_text, payload_json, metadata, sequence_index
-                FROM conversation_items
-                WHERE conversation_id = $conversation_id
-                  AND deleted_at = NONE
-                  AND kind IN ['user_text', 'assistant_text']
-                ORDER BY sequence_index DESC
-                LIMIT $limit;
-                "#,
-            )
-            .bind(("conversation_id", conversation_id.to_string()))
-            .bind(("limit", limit))
+        let mut rows = self
+            .with_connection(|conn| {
+                collect_conversation_item_rows(
+                    conn,
+                    r#"
+                    WHERE conversation_id = ?1
+                      AND deleted_at IS NULL
+                      AND kind IN ('user_text', 'assistant_text')
+                    ORDER BY sequence_index DESC
+                    LIMIT ?2
+                    "#,
+                    params![conversation_id, limit],
+                )
+            })
             .await?;
-        let mut rows: Vec<ConversationItemRow> = response.take(0)?;
         rows.reverse();
         rows.into_iter().map(conversation_item_from_row).collect()
     }
@@ -425,25 +417,22 @@ impl NoemaStore {
     ) -> Result<Vec<ConversationItemRecord>, StoreError> {
         self.require_conversation(conversation_id).await?;
         let limit = limit.clamp(1, 80);
-        let mut response = self
-            .db()
-            .query(
-                r#"
-                SELECT item_id, conversation_id, turn_id, kind, status, content_text, payload_json, metadata, sequence_index
-                FROM conversation_items
-                WHERE conversation_id = $conversation_id
-                  AND deleted_at = NONE
-                  AND sequence_index > $after_sequence_index
-                  AND kind IN ['user_text', 'assistant_text']
-                ORDER BY sequence_index ASC
-                LIMIT $limit;
-                "#,
-            )
-            .bind(("conversation_id", conversation_id.to_string()))
-            .bind(("after_sequence_index", after_sequence_index))
-            .bind(("limit", limit))
+        let rows = self
+            .with_connection(|conn| {
+                collect_conversation_item_rows(
+                    conn,
+                    r#"
+                    WHERE conversation_id = ?1
+                      AND deleted_at IS NULL
+                      AND sequence_index > ?2
+                      AND kind IN ('user_text', 'assistant_text')
+                    ORDER BY sequence_index ASC
+                    LIMIT ?3
+                    "#,
+                    params![conversation_id, after_sequence_index, limit],
+                )
+            })
             .await?;
-        let rows: Vec<ConversationItemRow> = response.take(0)?;
         rows.into_iter().map(conversation_item_from_row).collect()
     }
 
@@ -460,23 +449,21 @@ impl NoemaStore {
         after_sequence_index: i64,
     ) -> Result<Vec<ConversationItemRecord>, StoreError> {
         self.require_conversation(conversation_id).await?;
-        let mut response = self
-            .db()
-            .query(
-                r#"
-                SELECT item_id, conversation_id, turn_id, kind, status, content_text, payload_json, metadata, sequence_index
-                FROM conversation_items
-                WHERE conversation_id = $conversation_id
-                  AND deleted_at = NONE
-                  AND sequence_index > $after_sequence_index
-                  AND kind IN ['user_text', 'assistant_text', 'tool_call', 'tool_result', 'reasoning']
-                ORDER BY sequence_index ASC;
-                "#,
-            )
-            .bind(("conversation_id", conversation_id.to_string()))
-            .bind(("after_sequence_index", after_sequence_index))
+        let rows = self
+            .with_connection(|conn| {
+                collect_conversation_item_rows(
+                    conn,
+                    r#"
+                    WHERE conversation_id = ?1
+                      AND deleted_at IS NULL
+                      AND sequence_index > ?2
+                      AND kind IN ('user_text', 'assistant_text', 'tool_call', 'tool_result', 'reasoning')
+                    ORDER BY sequence_index ASC
+                    "#,
+                    params![conversation_id, after_sequence_index],
+                )
+            })
             .await?;
-        let rows: Vec<ConversationItemRow> = response.take(0)?;
         rows.into_iter().map(conversation_item_from_row).collect()
     }
 
@@ -512,20 +499,19 @@ impl NoemaStore {
         status: AgentStatus,
     ) -> Result<(), StoreError> {
         self.require_conversation(conversation_id).await?;
-        self.db()
-            .query(
+        self.with_connection(|conn| {
+            conn.execute(
                 r#"
-                UPDATE conversations SET
-                  agent_status = $status,
-                  updated_at = time::now()
-                WHERE conversation_id = $conversation_id;
+                UPDATE conversations
+                SET agent_status = ?2,
+                    updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                WHERE conversation_id = ?1
                 "#,
-            )
-            .bind(("conversation_id", conversation_id.to_string()))
-            .bind(("status", status.as_str().to_string()))
-            .await?
-            .check()?;
-        Ok(())
+                params![conversation_id, status.as_str()],
+            )?;
+            Ok(())
+        })
+        .await
     }
 
     async fn create_conversation_with_id(
@@ -533,41 +519,31 @@ impl NoemaStore {
         conversation_id: String,
         conversation: NewConversation,
     ) -> Result<ConversationRecord, StoreError> {
-        self.db()
-            .query(
+        let metadata_json = json_to_string(&conversation.metadata)?;
+        self.with_connection(|conn| {
+            conn.execute(
                 r#"
-                CREATE type::record('conversations', $record_id) SET
-                  conversation_id = $conversation_id,
-                  title = $title,
-                  owner_object_type = $owner_object_type,
-                  owner_object_id = $owner_object_id,
-                  primary_human_id = $primary_human_id,
-                  primary_agent_id = $primary_agent_id,
-                  provider = $provider,
-                  model = $model,
-                  cwd = $cwd,
-                  lifecycle_status = 'active',
-                  agent_status = 'idle',
-                  metadata = $metadata,
-                  updated_at = time::now();
+                INSERT INTO conversations
+                  (conversation_id, title, owner_object_type, owner_object_id, primary_human_id,
+                   primary_agent_id, provider, model, cwd, lifecycle_status, agent_status, metadata_json)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'active', 'idle', ?10)
                 "#,
-            )
-            .bind(("record_id", record_fragment(&conversation_id)))
-            .bind(("conversation_id", conversation_id.clone()))
-            .bind(("title", conversation.title))
-            .bind((
-                "owner_object_type",
-                conversation.owner.object_type.as_str().to_string(),
-            ))
-            .bind(("owner_object_id", conversation.owner.object_id.to_string()))
-            .bind(("primary_human_id", conversation.primary_human_id))
-            .bind(("primary_agent_id", conversation.primary_agent_id))
-            .bind(("provider", conversation.provider))
-            .bind(("model", conversation.model))
-            .bind(("cwd", conversation.cwd))
-            .bind(("metadata", conversation.metadata))
-            .await?
-            .check()?;
+                params![
+                    conversation_id,
+                    conversation.title,
+                    conversation.owner.object_type.as_str(),
+                    conversation.owner.object_id.to_string(),
+                    conversation.primary_human_id,
+                    conversation.primary_agent_id,
+                    conversation.provider,
+                    conversation.model,
+                    conversation.cwd,
+                    metadata_json,
+                ],
+            )?;
+            Ok(())
+        })
+        .await?;
         Ok(ConversationRecord { conversation_id })
     }
 
@@ -576,38 +552,46 @@ impl NoemaStore {
         conversation_id: &str,
         human_id: &str,
     ) -> Result<bool, StoreError> {
-        let mut response = self
-            .db()
-            .query(
+        self.with_connection(|conn| {
+            conn.query_row(
                 r#"
-                SELECT conversation_id
-                FROM conversations
-                WHERE conversation_id = $conversation_id
-                  AND owner_object_type = 'human'
-                  AND owner_object_id = $human_id
-                  AND primary_human_id = $human_id
-                  AND lifecycle_status = 'active'
-                  AND deleted_at = NONE
-                LIMIT 1;
+                SELECT EXISTS(
+                  SELECT 1
+                  FROM conversations
+                  WHERE conversation_id = ?1
+                    AND owner_object_type = 'human'
+                    AND owner_object_id = ?2
+                    AND primary_human_id = ?2
+                    AND lifecycle_status = 'active'
+                    AND deleted_at IS NULL
+                )
                 "#,
+                params![conversation_id, human_id],
+                |row| row.get::<_, bool>(0),
             )
-            .bind(("conversation_id", conversation_id.to_string()))
-            .bind(("human_id", human_id.to_string()))
-            .await?;
-        let rows: Vec<ConversationIdRow> = response.take(0)?;
-        Ok(!rows.is_empty())
+            .map_err(StoreError::Sqlite)
+        })
+        .await
     }
 
     async fn conversation_exists(&self, conversation_id: &str) -> Result<bool, StoreError> {
-        let mut response = self
-            .db()
-            .query(
-                "SELECT conversation_id FROM conversations WHERE conversation_id = $conversation_id AND lifecycle_status = 'active' AND deleted_at = NONE LIMIT 1;",
+        self.with_connection(|conn| {
+            conn.query_row(
+                r#"
+                SELECT EXISTS(
+                  SELECT 1
+                  FROM conversations
+                  WHERE conversation_id = ?1
+                    AND lifecycle_status = 'active'
+                    AND deleted_at IS NULL
+                )
+                "#,
+                [conversation_id],
+                |row| row.get::<_, bool>(0),
             )
-            .bind(("conversation_id", conversation_id.to_string()))
-            .await?;
-        let rows: Vec<ConversationIdRow> = response.take(0)?;
-        Ok(!rows.is_empty())
+            .map_err(StoreError::Sqlite)
+        })
+        .await
     }
 
     pub(crate) async fn require_conversation(
@@ -624,18 +608,22 @@ impl NoemaStore {
     }
 
     async fn require_turn(&self, turn_id: &str) -> Result<(), StoreError> {
-        let mut response = self
-            .db()
-            .query("SELECT turn_id FROM conversation_turns WHERE turn_id = $turn_id LIMIT 1;")
-            .bind(("turn_id", turn_id.to_string()))
+        let exists = self
+            .with_connection(|conn| {
+                conn.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM conversation_turns WHERE turn_id = ?1)",
+                    [turn_id],
+                    |row| row.get::<_, bool>(0),
+                )
+                .map_err(StoreError::Sqlite)
+            })
             .await?;
-        let rows: Vec<TurnIdRow> = response.take(0)?;
-        if rows.is_empty() {
+        if exists {
+            Ok(())
+        } else {
             Err(StoreError::ConversationTurnNotFound {
                 turn_id: turn_id.to_string(),
             })
-        } else {
-            Ok(())
         }
     }
 
@@ -644,18 +632,23 @@ impl NoemaStore {
         turn_id: &str,
         conversation_id: &str,
     ) -> Result<(), StoreError> {
-        let mut response = self
-            .db()
-            .query("SELECT turn_id, conversation_id FROM conversation_turns WHERE turn_id = $turn_id LIMIT 1;")
-            .bind(("turn_id", turn_id.to_string()))
+        let row = self
+            .with_connection(|conn| {
+                conn.query_row(
+                    "SELECT conversation_id FROM conversation_turns WHERE turn_id = ?1 LIMIT 1",
+                    [turn_id],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()
+                .map_err(StoreError::Sqlite)
+            })
             .await?;
-        let rows: Vec<TurnRefRow> = response.take(0)?;
-        let Some(row) = rows.first() else {
+        let Some(row_conversation_id) = row else {
             return Err(StoreError::ConversationTurnNotFound {
                 turn_id: turn_id.to_string(),
             });
         };
-        if row.conversation_id == conversation_id {
+        if row_conversation_id == conversation_id {
             Ok(())
         } else {
             Err(StoreError::ConversationTurnConversationMismatch {
@@ -670,18 +663,29 @@ impl NoemaStore {
         item_id: &str,
         conversation_id: &str,
     ) -> Result<(), StoreError> {
-        let mut response = self
-            .db()
-            .query("SELECT item_id, conversation_id FROM conversation_items WHERE item_id = $item_id AND deleted_at = NONE LIMIT 1;")
-            .bind(("item_id", item_id.to_string()))
+        let row = self
+            .with_connection(|conn| {
+                conn.query_row(
+                    r#"
+                    SELECT conversation_id
+                    FROM conversation_items
+                    WHERE item_id = ?1
+                      AND deleted_at IS NULL
+                    LIMIT 1
+                    "#,
+                    [item_id],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()
+                .map_err(StoreError::Sqlite)
+            })
             .await?;
-        let rows: Vec<ConversationItemRefRow> = response.take(0)?;
-        let Some(row) = rows.first() else {
+        let Some(row_conversation_id) = row else {
             return Err(StoreError::ConversationItemNotFound {
                 item_id: item_id.to_string(),
             });
         };
-        if row.conversation_id == conversation_id {
+        if row_conversation_id == conversation_id {
             Ok(())
         } else {
             Err(StoreError::ConversationItemConversationMismatch {
@@ -693,81 +697,49 @@ impl NoemaStore {
 
     async fn update_turn_status(&self, turn_id: &str, status: &str) -> Result<(), StoreError> {
         self.require_turn(turn_id).await?;
-        self.db()
-            .query(
+        let completed_at = now_string();
+        self.with_connection(|conn| {
+            conn.execute(
                 r#"
-                UPDATE conversation_turns SET
-                  status = $status,
-                  completed_at = $completed_at,
-                  updated_at = time::now()
-                WHERE turn_id = $turn_id;
+                UPDATE conversation_turns
+                SET status = ?2,
+                    completed_at = ?3,
+                    updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                WHERE turn_id = ?1
                 "#,
-            )
-            .bind(("turn_id", turn_id.to_string()))
-            .bind(("status", status.to_string()))
-            .bind(("completed_at", Some(now_string())))
-            .await?
-            .check()?;
-        Ok(())
-    }
-
-    async fn next_item_sequence_index(&self, conversation_id: &str) -> Result<i64, StoreError> {
-        let mut response = self
-            .db()
-            .query(
-                "SELECT sequence_index FROM conversation_items WHERE conversation_id = $conversation_id ORDER BY sequence_index DESC LIMIT 1;",
-            )
-            .bind(("conversation_id", conversation_id.to_string()))
-            .await?;
-        let rows: Vec<SequenceRow> = response.take(0)?;
-        Ok(rows
-            .first()
-            .map_or(1, |row| row.sequence_index.saturating_add(1)))
+                params![turn_id, status, completed_at],
+            )?;
+            Ok(())
+        })
+        .await
     }
 }
 
-#[derive(Debug, Deserialize, SurrealValue)]
-struct PrimaryConversationRow {
-    primary_conversation_id: Option<String>,
+fn collect_conversation_item_rows<P>(
+    conn: &rusqlite::Connection,
+    clause: &str,
+    params: P,
+) -> Result<Vec<ConversationItemRow>, StoreError>
+where
+    P: rusqlite::Params,
+{
+    let mut statement = conn.prepare(
+        format!(
+            r#"
+            SELECT item_id, conversation_id, turn_id, kind, status, content_text,
+              payload_json, metadata_json, sequence_index
+            FROM conversation_items
+            {clause}
+            "#
+        )
+        .as_str(),
+    )?;
+    let rows = statement.query_map(params, conversation_item_row)?;
+    rows.collect::<Result<Vec<_>, _>>()
+        .map_err(StoreError::Sqlite)
 }
 
-#[derive(Debug, Deserialize, SurrealValue)]
-struct ConversationIdRow {
-    #[allow(dead_code)]
-    conversation_id: String,
-}
-
-#[derive(Debug, Deserialize, SurrealValue)]
-struct TurnIdRow {
-    #[allow(dead_code)]
-    turn_id: String,
-}
-
-#[derive(Debug, Deserialize, SurrealValue)]
-struct TurnRefRow {
-    #[allow(dead_code)]
-    turn_id: String,
-    conversation_id: String,
-}
-
-#[derive(Debug, Deserialize, SurrealValue)]
-struct ConversationItemRefRow {
-    #[allow(dead_code)]
-    item_id: String,
-    conversation_id: String,
-}
-
-#[derive(Debug, Deserialize, SurrealValue)]
-struct SequenceRow {
-    sequence_index: i64,
-}
-
-#[derive(Debug, Deserialize, SurrealValue)]
-struct MetadataRow {
-    metadata: Value,
-}
-
-#[derive(Debug, Deserialize, SurrealValue)]
+#[derive(Debug)]
 struct ConversationItemRow {
     item_id: String,
     conversation_id: String,
@@ -776,9 +748,22 @@ struct ConversationItemRow {
     kind: String,
     status: String,
     content_text: Option<String>,
-    payload_json: Value,
-    #[serde(default)]
-    metadata: Value,
+    payload_json: String,
+    metadata_json: String,
+}
+
+fn conversation_item_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ConversationItemRow> {
+    Ok(ConversationItemRow {
+        item_id: row.get(0)?,
+        conversation_id: row.get(1)?,
+        turn_id: row.get(2)?,
+        kind: row.get(3)?,
+        status: row.get(4)?,
+        content_text: row.get(5)?,
+        payload_json: row.get(6)?,
+        metadata_json: row.get(7)?,
+        sequence_index: row.get(8)?,
+    })
 }
 
 fn conversation_item_cursor(sequence_index: i64) -> String {
@@ -817,8 +802,8 @@ fn conversation_item_from_row(
         kind: ConversationItemKind::parse(&row.kind).map_err(memory_enum_error)?,
         status: ConversationItemStatus::parse(&row.status).map_err(memory_enum_error)?,
         content_text: row.content_text,
-        payload_json: row.payload_json,
-        metadata: row.metadata,
+        payload_json: json_from_string(row.payload_json)?,
+        metadata: json_from_string(row.metadata_json)?,
     })
 }
 

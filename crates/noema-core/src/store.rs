@@ -22,7 +22,7 @@ mod sqlite;
 pub(crate) mod tests;
 
 pub use agent_runtime_preferences::{AgentRuntimePreferenceRecord, NewAgentRuntimePreference};
-pub use agents::{AgentRecord, NewAgent};
+pub use agents::{AgentRecord, HumanRecord, NewAgent};
 pub use auxiliary_model_preferences::{
     AuxiliaryModelPreferenceRecord, NewAuxiliaryModelPreference, TOOL_PROGRESS_AUDIT_TASK_ID,
     WEB_FETCH_SUMMARIZER_TASK_ID,

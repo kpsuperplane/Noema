@@ -1,7 +1,6 @@
-use serde::Deserialize;
-use surrealdb::types::SurrealValue;
+use rusqlite::{OptionalExtension, params};
 
-use super::{NoemaStore, StoreError, ids::record_fragment};
+use super::{NoemaStore, StoreError};
 use crate::ProviderAccountRecord;
 
 /// Persisted binding from a model-visible tool to a concrete provider capability/account.
@@ -33,24 +32,26 @@ impl NoemaStore {
             .validate_provider_capability_binding(tool_name, capability_id, provider_account_id)
             .await?;
         let binding_id = binding_id(tool_name, capability_id);
-        self.db()
-            .query(
+        self.with_connection(|conn| {
+            conn.execute(
                 r#"
-                UPSERT type::record('provider_capability_bindings', $record_id) SET
-                  binding_id = $binding_id,
-                  tool_name = $tool_name,
-                  capability_id = $capability_id,
-                  provider_account_id = $provider_account_id,
-                  updated_at = time::now();
+                INSERT INTO provider_capability_bindings
+                  (binding_id, tool_name, capability_id, provider_account_id, updated_at)
+                VALUES (?1, ?2, ?3, ?4, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+                ON CONFLICT(tool_name, capability_id) DO UPDATE SET
+                  provider_account_id = excluded.provider_account_id,
+                  updated_at = excluded.updated_at
                 "#,
-            )
-            .bind(("record_id", record_fragment(&binding_id)))
-            .bind(("binding_id", binding_id.clone()))
-            .bind(("tool_name", tool_name.to_string()))
-            .bind(("capability_id", capability_id.to_string()))
-            .bind(("provider_account_id", account.provider_account_id))
-            .await?
-            .check()?;
+                params![
+                    binding_id,
+                    tool_name,
+                    capability_id,
+                    account.provider_account_id,
+                ],
+            )?;
+            Ok(())
+        })
+        .await?;
         self.provider_capability_binding(tool_name, capability_id)
             .await?
             .ok_or_else(|| StoreError::InvariantViolation {
@@ -70,22 +71,22 @@ impl NoemaStore {
         tool_name: &str,
         capability_id: &str,
     ) -> Result<Option<ProviderCapabilityBindingRecord>, StoreError> {
-        let mut response = self
-            .db()
-            .query(
+        self.with_connection(|conn| {
+            conn.query_row(
                 r#"
                 SELECT binding_id, tool_name, capability_id, provider_account_id
                 FROM provider_capability_bindings
-                WHERE tool_name = $tool_name
-                  AND capability_id = $capability_id
-                LIMIT 1;
+                WHERE tool_name = ?1
+                  AND capability_id = ?2
+                LIMIT 1
                 "#,
+                params![tool_name, capability_id],
+                provider_capability_binding_from_row,
             )
-            .bind(("tool_name", tool_name.to_string()))
-            .bind(("capability_id", capability_id.to_string()))
-            .await?;
-        let rows: Vec<ProviderCapabilityBindingRow> = response.take(0)?;
-        Ok(rows.into_iter().next().map(Into::into))
+            .optional()
+            .map_err(StoreError::Sqlite)
+        })
+        .await
     }
 
     async fn validate_provider_capability_binding(
@@ -120,23 +121,15 @@ impl NoemaStore {
     }
 }
 
-#[derive(Debug, Deserialize, SurrealValue)]
-struct ProviderCapabilityBindingRow {
-    binding_id: String,
-    tool_name: String,
-    capability_id: String,
-    provider_account_id: String,
-}
-
-impl From<ProviderCapabilityBindingRow> for ProviderCapabilityBindingRecord {
-    fn from(row: ProviderCapabilityBindingRow) -> Self {
-        Self {
-            binding_id: row.binding_id,
-            tool_name: row.tool_name,
-            capability_id: row.capability_id,
-            provider_account_id: row.provider_account_id,
-        }
-    }
+fn provider_capability_binding_from_row(
+    row: &rusqlite::Row<'_>,
+) -> rusqlite::Result<ProviderCapabilityBindingRecord> {
+    Ok(ProviderCapabilityBindingRecord {
+        binding_id: row.get(0)?,
+        tool_name: row.get(1)?,
+        capability_id: row.get(2)?,
+        provider_account_id: row.get(3)?,
+    })
 }
 
 fn binding_id(tool_name: &str, capability_id: &str) -> String {
