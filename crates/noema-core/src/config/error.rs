@@ -50,6 +50,13 @@ pub enum ConfigError {
         value: String,
     },
 
+    /// A configuration combination is invalid.
+    #[error("invalid config: {message}")]
+    InvalidConfig {
+        /// Human-readable validation message.
+        message: String,
+    },
+
     /// Path resolution failed.
     #[error(transparent)]
     Path(#[from] NoemaPathError),

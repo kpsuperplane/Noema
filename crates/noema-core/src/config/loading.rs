@@ -12,6 +12,7 @@ use std::{env, path::PathBuf};
 pub(super) const CONFIG_ENV_KEYS: &[&str] = &[
     "provider",
     "model",
+    "reasoning_effort",
     "tool_classification_model",
     "openai.api_key",
     "openai.base_url",
@@ -20,6 +21,7 @@ pub(super) const CONFIG_ENV_KEYS: &[&str] = &[
     "openai.project_id",
     "openai.tool_classification_model",
     "codex.model",
+    "codex.reasoning_effort",
     "codex.tool_classification_model",
     "codex.base_url",
     "codex.timeout_seconds",

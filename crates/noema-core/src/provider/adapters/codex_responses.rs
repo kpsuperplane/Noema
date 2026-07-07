@@ -44,6 +44,8 @@ pub struct CodexProviderConfig {
     pub default_model: Option<String>,
     /// Optional model override for metadata-only tool classification.
     pub tool_classification_model: Option<String>,
+    /// Optional explicit reasoning effort used only when config supplies an explicit model.
+    pub reasoning_effort: Option<crate::provider::ReasoningEffort>,
     /// Request timeout in seconds.
     pub timeout_seconds: u64,
     /// Provider account home containing Noema-owned token state.
@@ -60,6 +62,7 @@ impl Default for CodexProviderConfig {
             base_url: DEFAULT_CODEX_BASE_URL.to_string(),
             default_model: Some(DEFAULT_CODEX_MODEL.to_string()),
             tool_classification_model: None,
+            reasoning_effort: None,
             timeout_seconds: DEFAULT_CODEX_TIMEOUT_SECONDS,
             account_home: None,
             oauth: CodexOAuthConfig::default(),
@@ -1106,6 +1109,40 @@ mod tests {
         let captured = request_rx.await.expect("captured request");
         let body: Value = serde_json::from_str(&captured.body).expect("json body");
         assert!(body.get("include").is_none());
+    }
+
+    #[tokio::test]
+    async fn codex_omits_reasoning_effort_until_verified() {
+        let (base_url, request_rx) = spawn_server(
+            200,
+            "event: response.completed\n\
+             data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_test\",\"model\":\"gpt-test\",\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"content\":[{\"type\":\"output_text\",\"text\":\"{\\\"response_status\\\":\\\"final\\\",\\\"responses\\\":[{\\\"kind\\\":\\\"text\\\",\\\"phase\\\":\\\"final_answer\\\",\\\"text\\\":\\\"Hello\\\"}],\\\"tool_calls\\\":[],\\\"memory_proposals\\\":[]}\"}]}]}}\n\
+             \n",
+        )
+        .await;
+        let (provider, _dir) = provider_with_tokens(base_url);
+
+        provider
+            .generate(GenerateRequest {
+                conversation_id: Some("conversation:test".to_string()),
+                model: Some("gpt-test".to_string()),
+                input: GenerateInput::Text("Hello?".to_string()),
+                instructions: Some("Reply in contract.".to_string()),
+                options: GenerateOptions {
+                    require_noema_response: true,
+                    reasoning_effort: Some(crate::provider::ReasoningEffort::High),
+                    ..GenerateOptions::default()
+                },
+                tools: Vec::new(),
+                tool_choice: Default::default(),
+                parallel_tool_calls: false,
+            })
+            .await
+            .expect("response");
+
+        let captured = request_rx.await.expect("captured request");
+        let body: Value = serde_json::from_str(&captured.body).expect("json body");
+        assert!(body.get("reasoning").is_none(), "{body:#}");
     }
 
     #[tokio::test]

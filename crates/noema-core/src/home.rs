@@ -10,7 +10,9 @@ provider: codex
 
 codex:
   base_url: https://chatgpt.com/backend-api/codex
-  model: gpt-5.5
+  # Explicit model overrides must also set reasoning_effort when supported.
+  # model: <model-id>
+  # reasoning_effort: medium
   # tool_classification_model defaults to gpt-5.4-mini when unset.
   # tool_classification_model: gpt-5.4-mini
   timeout_seconds: 300

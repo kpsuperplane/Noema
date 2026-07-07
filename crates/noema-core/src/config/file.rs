@@ -1,4 +1,5 @@
 use super::error::ConfigError;
+use crate::provider::ReasoningEffort;
 use figment::{
     Figment,
     providers::{Format, Yaml},
@@ -11,6 +12,7 @@ use std::path::{Path, PathBuf};
 struct FileConfig {
     provider: Option<String>,
     model: Option<String>,
+    reasoning_effort: Option<ReasoningEffort>,
     tool_classification_model: Option<String>,
     openai: FileOpenAiConfig,
     codex: FileCodexConfig,
@@ -33,6 +35,7 @@ struct FileOpenAiConfig {
 struct FileCodexConfig {
     base_url: Option<String>,
     model: Option<String>,
+    reasoning_effort: Option<ReasoningEffort>,
     tool_classification_model: Option<String>,
     timeout_seconds: Option<u64>,
 }

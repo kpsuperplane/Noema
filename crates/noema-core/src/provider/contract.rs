@@ -339,6 +339,29 @@ pub enum PromptCacheRetention {
     TwentyFourHours,
 }
 
+/// Provider-neutral reasoning effort for providers that expose explicit reasoning controls.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ReasoningEffort {
+    /// Disable explicit reasoning where the provider supports it.
+    #[serde(rename = "none")]
+    None,
+    /// Minimal reasoning effort.
+    #[serde(rename = "minimal")]
+    Minimal,
+    /// Low reasoning effort.
+    #[serde(rename = "low")]
+    Low,
+    /// Medium reasoning effort.
+    #[serde(rename = "medium")]
+    Medium,
+    /// High reasoning effort.
+    #[serde(rename = "high")]
+    High,
+    /// Extra-high reasoning effort.
+    #[serde(rename = "xhigh")]
+    XHigh,
+}
+
 /// Provider-neutral optional generation controls.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct GenerateOptions {
@@ -346,6 +369,8 @@ pub struct GenerateOptions {
     pub max_output_tokens: Option<u32>,
     /// Optional sampling temperature.
     pub temperature: Option<f32>,
+    /// Optional explicit reasoning effort for reasoning-capable providers/models.
+    pub reasoning_effort: Option<ReasoningEffort>,
     /// Require a strict Noema response object with response fields and memory proposals.
     pub require_noema_response: bool,
     /// Provider prompt-cache retention request when supported.
@@ -621,6 +646,48 @@ pub enum GenerateActionItem {
         /// Provider response payload for audit and replay.
         payload: Value,
     },
+}
+
+#[cfg(test)]
+mod reasoning_effort_tests {
+    use super::*;
+
+    #[test]
+    fn reasoning_effort_serializes_lowercase_api_values() {
+        assert_eq!(
+            serde_json::to_string(&ReasoningEffort::None).unwrap(),
+            "\"none\""
+        );
+        assert_eq!(
+            serde_json::to_string(&ReasoningEffort::Minimal).unwrap(),
+            "\"minimal\""
+        );
+        assert_eq!(
+            serde_json::to_string(&ReasoningEffort::Low).unwrap(),
+            "\"low\""
+        );
+        assert_eq!(
+            serde_json::to_string(&ReasoningEffort::Medium).unwrap(),
+            "\"medium\""
+        );
+        assert_eq!(
+            serde_json::to_string(&ReasoningEffort::High).unwrap(),
+            "\"high\""
+        );
+        assert_eq!(
+            serde_json::to_string(&ReasoningEffort::XHigh).unwrap(),
+            "\"xhigh\""
+        );
+    }
+
+    #[test]
+    fn reasoning_effort_deserializes_lowercase_api_values() {
+        assert_eq!(
+            serde_json::from_str::<ReasoningEffort>("\"xhigh\"").unwrap(),
+            ReasoningEffort::XHigh
+        );
+        assert!(serde_json::from_str::<ReasoningEffort>("\"extreme\"").is_err());
+    }
 }
 
 /// Parse a provider text payload into optional structured Noema response items.

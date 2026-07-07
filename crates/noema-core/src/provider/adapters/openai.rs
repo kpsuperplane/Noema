@@ -1,9 +1,9 @@
 //! Provider adapter for the OpenAI Responses API.
 
 use super::responses::{
-    ResponsesDiagnosticContext, ResponsesInput, ResponsesRequest, ResponsesToolNameMap,
-    ResponsesTransport, header_value, noema_response_text_format, normalize_base_url,
-    prompt_cache_key_from_conversation_id, responses_tool_choice,
+    ResponsesDiagnosticContext, ResponsesInput, ResponsesReasoning, ResponsesRequest,
+    ResponsesToolNameMap, ResponsesTransport, header_value, noema_response_text_format,
+    normalize_base_url, prompt_cache_key_from_conversation_id, responses_tool_choice,
 };
 use crate::{
     SYSTEM_ERROR_PROVIDER_MALFORMED_RESPONSE, SystemErrorEvent, SystemErrorLogger,
@@ -36,6 +36,8 @@ pub struct OpenAiProviderConfig {
     pub default_model: String,
     /// Optional model override for metadata-only tool classification.
     pub tool_classification_model: Option<String>,
+    /// Optional explicit reasoning effort used only when config supplies an explicit model.
+    pub reasoning_effort: Option<crate::provider::ReasoningEffort>,
     /// Request timeout in seconds.
     pub timeout_seconds: u64,
     /// Developer diagnostic system error logger.
@@ -209,6 +211,11 @@ impl ModelProvider for OpenAiProvider {
                 .options
                 .require_noema_response
                 .then(noema_response_text_format),
+            reasoning: request
+                .options
+                .reasoning_effort
+                .or(self.config.reasoning_effort)
+                .map(|effort| ResponsesReasoning { effort }),
             tools: tool_names.tools.clone(),
             tool_choice: responses_tool_choice(request.tool_choice, has_tools),
             parallel_tool_calls: has_tools.then_some(request.parallel_tool_calls),
@@ -402,6 +409,7 @@ mod tests {
             project_id: Some("proj_test".to_string()),
             default_model: "default-model".to_string(),
             tool_classification_model: None,
+            reasoning_effort: None,
             timeout_seconds: DEFAULT_OPENAI_TIMEOUT_SECONDS,
             system_errors: None,
         })
@@ -587,6 +595,58 @@ mod tests {
             response.reasoning_items[0].encrypted_content.as_deref(),
             Some("opaque-openai-reasoning")
         );
+    }
+
+    #[tokio::test]
+    async fn sends_reasoning_effort_when_configured() {
+        let (base_url, request_rx) = spawn_server(
+            200,
+            r#"{
+              "id": "resp_reasoning",
+              "model": "gpt-test",
+              "output": [{
+                "type": "message",
+                "content": [{"type": "output_text", "text": "ok"}]
+              }],
+              "usage": {"input_tokens": 1, "output_tokens": 1, "total_tokens": 2}
+            }"#,
+        )
+        .await;
+
+        let provider = OpenAiProvider::new(OpenAiProviderConfig {
+            api_key: "secret".to_string(),
+            base_url,
+            organization_id: None,
+            project_id: None,
+            default_model: "default-model".to_string(),
+            tool_classification_model: None,
+            timeout_seconds: DEFAULT_OPENAI_TIMEOUT_SECONDS,
+            system_errors: None,
+            reasoning_effort: None,
+        })
+        .expect("provider");
+
+        let response = provider
+            .generate(GenerateRequest {
+                conversation_id: None,
+                model: Some("gpt-test".to_string()),
+                input: GenerateInput::Text("Hello?".to_string()),
+                instructions: None,
+                options: crate::provider::GenerateOptions {
+                    reasoning_effort: Some(crate::provider::ReasoningEffort::High),
+                    ..crate::provider::GenerateOptions::default()
+                },
+                tools: Vec::new(),
+                tool_choice: Default::default(),
+                parallel_tool_calls: false,
+            })
+            .await
+            .expect("response");
+
+        assert_eq!(response.responses.len(), 1);
+        let captured = request_rx.await.expect("captured request");
+        let request: Value = serde_json::from_str(&captured.body).expect("json body");
+        assert_eq!(request["reasoning"]["effort"], "high");
     }
 
     #[tokio::test]
@@ -943,6 +1003,7 @@ mod tests {
             project_id: None,
             default_model: "default-model".to_string(),
             tool_classification_model: None,
+            reasoning_effort: None,
             timeout_seconds: DEFAULT_OPENAI_TIMEOUT_SECONDS,
             system_errors: None,
         })
@@ -960,6 +1021,7 @@ mod tests {
             project_id: None,
             default_model: "default-model".to_string(),
             tool_classification_model: None,
+            reasoning_effort: None,
             timeout_seconds: 0,
             system_errors: None,
         })
@@ -1010,6 +1072,7 @@ mod tests {
             project_id: None,
             default_model: "default-model".to_string(),
             tool_classification_model: Some("custom-tool-classifier".to_string()),
+            reasoning_effort: None,
             timeout_seconds: DEFAULT_OPENAI_TIMEOUT_SECONDS,
             system_errors: None,
         })
@@ -1029,6 +1092,7 @@ mod tests {
             project_id: None,
             default_model: "default-model".to_string(),
             tool_classification_model: None,
+            reasoning_effort: None,
             timeout_seconds: DEFAULT_OPENAI_TIMEOUT_SECONDS,
             system_errors: None,
         })

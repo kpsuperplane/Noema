@@ -3,9 +3,7 @@ use crate::{
     NOEMA_HOME_ENV,
     provider::adapters::{
         codex_oauth::DEFAULT_CODEX_BASE_URL,
-        codex_responses::{
-            CodexProviderConfig, DEFAULT_CODEX_MODEL, DEFAULT_CODEX_TIMEOUT_SECONDS,
-        },
+        codex_responses::{CodexProviderConfig, DEFAULT_CODEX_TIMEOUT_SECONDS},
     },
 };
 use figment::{Figment, providers::Serialized};
@@ -49,6 +47,16 @@ fn load_daemon_config(
         .resolve_daemon_config()
 }
 
+fn load_config_from_yaml(
+    yaml: &str,
+    overrides: ConfigOverrides,
+) -> Result<ResolvedConfig, ConfigError> {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("config.yaml");
+    std::fs::write(&path, yaml).expect("write config");
+    Config::load(Some(path), overrides)
+}
+
 fn test_env(env: &[(&str, &str)]) -> Figment {
     env.iter().fold(Figment::new(), |figment, (key, value)| {
         let Some(path) = normalize_env_key(key) else {
@@ -82,6 +90,55 @@ fn parse_env_value(value: &str) -> Value {
 }
 
 #[test]
+fn generated_default_config_omits_codex_model() {
+    assert!(!crate::home::DEFAULT_NOEMA_CONFIG_YAML.contains("model: gpt-5.5"));
+    assert!(!crate::home::DEFAULT_NOEMA_CONFIG_YAML.contains("codex:\n  model:"));
+}
+
+#[test]
+fn codex_explicit_model_requires_reasoning_effort() {
+    let yaml = r#"
+provider: codex
+codex:
+  model: gpt-5.5
+"#;
+    let error = load_config_from_yaml(yaml, ConfigOverrides::default())
+        .expect_err("explicit reasoning-capable model without effort should fail");
+    assert!(error.to_string().contains("reasoning_effort"));
+}
+
+#[test]
+fn reasoning_effort_without_explicit_model_is_rejected() {
+    let yaml = r#"
+provider: codex
+codex:
+  reasoning_effort: medium
+"#;
+    let error = load_config_from_yaml(yaml, ConfigOverrides::default())
+        .expect_err("effort without model should fail");
+    assert!(error.to_string().contains("reasoning_effort"));
+}
+
+#[test]
+fn codex_explicit_model_with_reasoning_effort_resolves() {
+    let yaml = r#"
+provider: codex
+codex:
+  model: gpt-5.5
+  reasoning_effort: medium
+"#;
+    let resolved = load_config_from_yaml(yaml, ConfigOverrides::default()).expect("config");
+    let crate::ProviderConfig::Codex(config) = resolved.provider else {
+        panic!("expected codex provider");
+    };
+    assert_eq!(config.default_model.as_deref(), Some("gpt-5.5"));
+    assert_eq!(
+        config.reasoning_effort,
+        Some(crate::provider::ReasoningEffort::Medium)
+    );
+}
+
+#[test]
 fn default_openai_config_requires_normalized_api_key() {
     let error = load_resolved(None, ConfigOverrides::default(), None, &[]).unwrap_err();
 
@@ -98,6 +155,7 @@ fn resolves_openai_from_figment_layers_in_precedence_order() {
         r"
 provider: openai
 model: yaml-model
+reasoning_effort: medium
 openai:
   base_url: https://yaml.example/v1
   organization_id: yaml-org
@@ -120,6 +178,7 @@ openai:
             ("NOEMA_OPENAI__ORGANIZATION_ID", "env-org"),
             ("NOEMA_OPENAI__PROJECT_ID", "env-project"),
             ("NOEMA_OPENAI__TIMEOUT_SECONDS", "33"),
+            ("NOEMA_REASONING_EFFORT", "high"),
         ],
     )
     .expect("config should resolve");
@@ -132,6 +191,10 @@ openai:
 
     assert_eq!(openai.api_key, "env-key");
     assert_eq!(openai.default_model, "override-model");
+    assert_eq!(
+        openai.reasoning_effort,
+        Some(crate::provider::ReasoningEffort::High)
+    );
     assert_eq!(openai.base_url, "https://override.example/v1");
     assert_eq!(openai.organization_id.as_deref(), Some("env-org"));
     assert_eq!(openai.project_id.as_deref(), Some("env-project"));
@@ -144,6 +207,7 @@ fn reads_yaml_config() {
         r"
 provider: openai
 model: yaml-model
+reasoning_effort: medium
 tool_classification_model: yaml-tool-classifier
 openai:
   base_url: https://yaml.example/v1
@@ -167,6 +231,10 @@ openai:
 
     assert_eq!(openai.default_model, "yaml-model");
     assert_eq!(
+        openai.reasoning_effort,
+        Some(crate::provider::ReasoningEffort::Medium)
+    );
+    assert_eq!(
         openai.tool_classification_model.as_deref(),
         Some("yaml-tool-classifier")
     );
@@ -186,6 +254,7 @@ fn reads_default_config_from_noema_home_env() {
         r"
 provider: openai
 model: noema-home-model
+reasoning_effort: medium
 ",
     )
     .expect("write config");
@@ -216,6 +285,7 @@ fn reads_default_config_from_home_dot_noema_without_noema_home() {
         r"
 provider: openai
 model: home-model
+reasoning_effort: medium
 ",
     )
     .expect("write config");
@@ -276,7 +346,7 @@ fn codex_provider_does_not_require_openai_api_key() {
     };
 
     assert_eq!(codex.base_url, DEFAULT_CODEX_BASE_URL);
-    assert_eq!(codex.default_model.as_deref(), Some(DEFAULT_CODEX_MODEL));
+    assert_eq!(codex.default_model, None);
     assert_eq!(codex.timeout_seconds, DEFAULT_CODEX_TIMEOUT_SECONDS);
     assert_eq!(codex.account_home, None);
 }
@@ -455,6 +525,7 @@ fn codex_config_reads_yaml_and_normalized_env_overrides() {
         r"
 provider: codex
 model: yaml-model
+reasoning_effort: medium
 codex:
   base_url: https://yaml.example/codex
   model: yaml-codex-model
@@ -469,6 +540,7 @@ codex:
         None,
         &[
             ("NOEMA_MODEL", "env-model"),
+            ("NOEMA_REASONING_EFFORT", "high"),
             (
                 "NOEMA_CODEX__TOOL_CLASSIFICATION_MODEL",
                 "env-codex-tool-classifier",
@@ -486,6 +558,10 @@ codex:
     };
 
     assert_eq!(codex.default_model.as_deref(), Some("env-model"));
+    assert_eq!(
+        codex.reasoning_effort,
+        Some(crate::provider::ReasoningEffort::High)
+    );
     assert_eq!(
         codex.tool_classification_model.as_deref(),
         Some("env-codex-tool-classifier")
@@ -634,6 +710,6 @@ fn generated_config_template_parses() {
     .expect("generated config should parse");
 
     assert_eq!(codex.base_url, DEFAULT_CODEX_BASE_URL);
-    assert_eq!(codex.default_model.as_deref(), Some(DEFAULT_CODEX_MODEL));
+    assert_eq!(codex.default_model, None);
     assert_eq!(codex.timeout_seconds, DEFAULT_CODEX_TIMEOUT_SECONDS);
 }

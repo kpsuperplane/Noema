@@ -6,7 +6,7 @@ use crate::{
     provider::{
         GenerateInput, GenerateInputItem, GenerateMessageRole, GenerateReasoningInput,
         GenerateReasoningItem, GenerateStreamEvent, GenerateToolCallInput, GenerateToolResultInput,
-        PromptCacheRetention, ProviderError, TokenUsage,
+        PromptCacheRetention, ProviderError, ReasoningEffort, TokenUsage,
     },
 };
 use futures_util::StreamExt;
@@ -37,6 +37,9 @@ pub struct ResponsesRequest {
     /// Optional Responses text controls such as JSON schema output format.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub text: Option<Value>,
+    /// Optional explicit reasoning controls.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning: Option<ResponsesReasoning>,
     /// Native Responses API tool definitions.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tools: Vec<ResponsesTool>,
@@ -57,6 +60,13 @@ pub struct ResponsesRequest {
     /// Provider prompt-cache retention request when supported.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prompt_cache_retention: Option<PromptCacheRetention>,
+}
+
+/// Responses API reasoning controls.
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct ResponsesReasoning {
+    /// Reasoning effort requested from the provider.
+    pub effort: ReasoningEffort,
 }
 
 pub(crate) fn prompt_cache_key_from_conversation_id(
@@ -1051,6 +1061,7 @@ mod tests {
             max_output_tokens: None,
             temperature: None,
             text: None,
+            reasoning: None,
             tools: vec![ResponsesTool::function(
                 "search_memory",
                 "Search governed Noema memory.",
