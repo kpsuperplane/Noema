@@ -224,6 +224,7 @@ async fn primary_agent_runtime_preference_supplies_turn_model() {
             provider_kind: "foundation_local".to_string(),
             provider_account_id: account.provider_account_id,
             model_profile: "default".to_string(),
+            reasoning_effort: None,
         })
         .await
         .expect("preference");
@@ -1047,6 +1048,7 @@ async fn primary_agent_runtime_preference_selects_provider_without_restart() {
             provider_kind: "foundation_local".to_string(),
             provider_account_id: account.provider_account_id,
             model_profile: "default".to_string(),
+            reasoning_effort: None,
         })
         .await
         .expect("preference");
@@ -1117,6 +1119,7 @@ async fn runtime_turn_refreshes_agent_preference_after_conversation_hydration() 
             provider_kind: "codex".to_string(),
             provider_account_id: codex_account.provider_account_id,
             model_profile: "codex-initial".to_string(),
+            reasoning_effort: None,
         })
         .await
         .expect("initial preference");
@@ -1155,6 +1158,7 @@ async fn runtime_turn_refreshes_agent_preference_after_conversation_hydration() 
             provider_kind: "foundation_local".to_string(),
             provider_account_id: foundation_account.provider_account_id,
             model_profile: "foundation-live".to_string(),
+            reasoning_effort: None,
         })
         .await
         .expect("updated preference");
@@ -1988,6 +1992,7 @@ async fn provider_memory_canonicalization_uses_selected_conversation_provider() 
             provider_kind: "foundation_local".to_string(),
             provider_account_id: foundation.provider_account_id,
             model_profile: "default".to_string(),
+            reasoning_effort: None,
         })
         .await
         .expect("preference");
@@ -4162,6 +4167,7 @@ async fn audit_execution_failure_gets_one_no_tools_finalization_attempt() {
             provider_kind: "codex".to_string(),
             provider_account_id: codex.provider_account_id,
             model_profile: "gpt-5.4-mini".to_string(),
+            reasoning_effort: None,
         })
         .await
         .expect("audit preference");

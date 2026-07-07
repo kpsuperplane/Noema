@@ -831,6 +831,45 @@ mod tests {
         assert!(sdl.contains("MemoryGraphInput"));
     }
 
+    async fn schema_with_reasoning_codex_profile() -> (GraphqlSchema, String) {
+        use crate::store::tests::test_store;
+
+        let store = test_store().await;
+        store.ensure_default_actors().await.expect("actors");
+        let account = store
+            .ensure_default_provider_account()
+            .await
+            .expect("account");
+        store
+            .update_provider_account_status(
+                &account.provider_account_id,
+                crate::ProviderAccountStatus::Authenticated,
+                None,
+                None,
+            )
+            .await
+            .expect("status");
+        store
+            .update_provider_account_metadata(
+                &account.provider_account_id,
+                serde_json::json!({
+                    "profiles": [{
+                        "id": "gpt-5.5",
+                        "label": "GPT-5.5",
+                        "reasoning_efforts": ["low", "medium", "high"],
+                        "default_reasoning_effort": "medium"
+                    }]
+                }),
+            )
+            .await
+            .expect("metadata");
+        let account_id = account.provider_account_id;
+        (
+            build_schema(GraphqlState::for_tests_with_store(store)),
+            account_id,
+        )
+    }
+
     #[test]
     fn graphql_state_for_tests_has_runtime_state_accessors() {
         let state = GraphqlState::for_tests();
@@ -1293,6 +1332,7 @@ mod tests {
                 provider_kind: "foundation_local".to_string(),
                 provider_account_id: foundation.provider_account_id,
                 model_profile: "default".to_string(),
+                reasoning_effort: None,
             })
             .await
             .expect("preference");
@@ -1346,6 +1386,59 @@ mod tests {
             agent["modelOptions"][1]["profiles"][0]["label"],
             "Default on-device"
         );
+    }
+
+    #[tokio::test]
+    async fn agents_query_exposes_profile_reasoning_efforts() {
+        use crate::store::tests::test_store;
+
+        let store = test_store().await;
+        store.ensure_default_actors().await.expect("actors");
+        let account = store
+            .ensure_default_provider_account()
+            .await
+            .expect("account");
+        store
+            .update_provider_account_metadata(
+                &account.provider_account_id,
+                serde_json::json!({
+                    "profiles": [{
+                        "id": "gpt-5.5",
+                        "label": "GPT-5.5",
+                        "reasoning_efforts": ["low", "medium", "high"],
+                        "default_reasoning_effort": "medium"
+                    }]
+                }),
+            )
+            .await
+            .expect("metadata");
+
+        let schema = build_schema(GraphqlState::for_tests_with_store(store));
+        let response = schema
+            .execute(
+                r#"
+              query {
+                agents {
+                  modelOptions {
+                    profiles {
+                      id
+                      reasoningEfforts
+                      defaultReasoningEffort
+                    }
+                  }
+                }
+              }
+            "#,
+            )
+            .await;
+        assert!(response.errors.is_empty(), "{:?}", response.errors);
+        let data = response.data.into_json().expect("json");
+        let profile = &data["agents"][0]["modelOptions"][0]["profiles"][0];
+        assert_eq!(
+            profile["reasoningEfforts"],
+            serde_json::json!(["LOW", "MEDIUM", "HIGH"])
+        );
+        assert_eq!(profile["defaultReasoningEffort"], "MEDIUM");
     }
 
     #[tokio::test]
@@ -1632,6 +1725,33 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn save_web_fetch_summarizer_preference_persists_reasoning_effort() {
+        let (schema, account_id) = schema_with_reasoning_codex_profile().await;
+        let response = schema
+            .execute(format!(
+                r#"
+            mutation {{
+              saveWebFetchSummarizerPreference(input: {{
+                providerAccountId: "{account_id}",
+                modelProfile: "gpt-5.5",
+                reasoningEffort: LOW
+              }}) {{
+                modelProfile
+                reasoningEffort
+              }}
+            }}
+            "#
+            ))
+            .await;
+        assert!(response.errors.is_empty(), "{:?}", response.errors);
+        let data = response.data.into_json().expect("json");
+        assert_eq!(
+            data["saveWebFetchSummarizerPreference"]["reasoningEffort"],
+            "LOW"
+        );
+    }
+
+    #[tokio::test]
     async fn usage_settings_query_exposes_progress_audit_default() {
         use crate::store::tests::test_store;
 
@@ -1806,6 +1926,33 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn save_tool_progress_audit_preference_persists_reasoning_effort() {
+        let (schema, account_id) = schema_with_reasoning_codex_profile().await;
+        let response = schema
+            .execute(format!(
+                r#"
+            mutation {{
+              saveToolProgressAuditPreference(input: {{
+                providerAccountId: "{account_id}",
+                modelProfile: "gpt-5.5",
+                reasoningEffort: MEDIUM
+              }}) {{
+                modelProfile
+                reasoningEffort
+              }}
+            }}
+            "#
+            ))
+            .await;
+        assert!(response.errors.is_empty(), "{:?}", response.errors);
+        let data = response.data.into_json().expect("json");
+        assert_eq!(
+            data["saveToolProgressAuditPreference"]["reasoningEffort"],
+            "MEDIUM"
+        );
+    }
+
+    #[tokio::test]
     async fn save_web_fetch_summarizer_preference_rejects_unavailable_provider() {
         use crate::store::tests::test_store;
 
@@ -1956,6 +2103,53 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn save_agent_model_preference_requires_reasoning_for_reasoning_profile() {
+        let (schema, account_id) = schema_with_reasoning_codex_profile().await;
+        let response = schema
+            .execute(format!(
+                r#"
+            mutation {{
+              saveAgentModelPreference(input: {{
+                agentId: "agent:primary",
+                providerAccountId: "{account_id}",
+                modelProfile: "gpt-5.5"
+              }}) {{
+                modelProfile
+              }}
+            }}
+            "#
+            ))
+            .await;
+        assert!(!response.errors.is_empty());
+        assert!(response.errors[0].message.contains("reasoning"));
+    }
+
+    #[tokio::test]
+    async fn save_agent_model_preference_persists_reasoning_effort() {
+        let (schema, account_id) = schema_with_reasoning_codex_profile().await;
+        let response = schema
+            .execute(format!(
+                r#"
+            mutation {{
+              saveAgentModelPreference(input: {{
+                agentId: "agent:primary",
+                providerAccountId: "{account_id}",
+                modelProfile: "gpt-5.5",
+                reasoningEffort: HIGH
+              }}) {{
+                modelProfile
+                reasoningEffort
+              }}
+            }}
+            "#
+            ))
+            .await;
+        assert!(response.errors.is_empty(), "{:?}", response.errors);
+        let data = response.data.into_json().expect("json");
+        assert_eq!(data["saveAgentModelPreference"]["reasoningEffort"], "HIGH");
+    }
+
+    #[tokio::test]
     async fn start_primary_conversation_uses_saved_agent_provider_preference() {
         use crate::store::tests::test_store;
 
@@ -1975,6 +2169,7 @@ mod tests {
                 provider_kind: "foundation_local".to_string(),
                 provider_account_id: foundation.provider_account_id,
                 model_profile: "default".to_string(),
+                reasoning_effort: None,
             })
             .await
             .expect("preference");

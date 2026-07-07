@@ -831,6 +831,7 @@ mod tests {
                 provider_kind: "foundation_local".to_string(),
                 provider_account_id: account.provider_account_id,
                 model_profile: "custom-fetch-summary".to_string(),
+                reasoning_effort: None,
             })
             .await
             .expect("preference");
@@ -876,6 +877,7 @@ mod tests {
                 provider_kind: "foundation_local".to_string(),
                 provider_account_id: account.provider_account_id,
                 model_profile: "default".to_string(),
+                reasoning_effort: None,
             })
             .await
             .expect("preference");

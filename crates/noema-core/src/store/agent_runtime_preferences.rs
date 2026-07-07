@@ -1,6 +1,8 @@
 use serde::Deserialize;
 use surrealdb::types::SurrealValue;
 
+use crate::provider::ReasoningEffort;
+
 use super::{NoemaStore, StoreError, agents::agent_record_fragment};
 
 /// New or updated agent runtime preference.
@@ -14,6 +16,8 @@ pub struct NewAgentRuntimePreference {
     pub provider_account_id: String,
     /// Provider-specific model id or profile id.
     pub model_profile: String,
+    /// Optional explicit reasoning effort for reasoning-capable model profiles.
+    pub reasoning_effort: Option<ReasoningEffort>,
 }
 
 /// Persisted agent runtime preference.
@@ -27,6 +31,8 @@ pub struct AgentRuntimePreferenceRecord {
     pub provider_account_id: String,
     /// Provider-specific model id or profile id.
     pub model_profile: String,
+    /// Optional explicit reasoning effort for reasoning-capable model profiles.
+    pub reasoning_effort: Option<ReasoningEffort>,
 }
 
 impl NoemaStore {
@@ -43,7 +49,7 @@ impl NoemaStore {
             .db
             .query(
                 r#"
-                SELECT agent_id, provider_kind, provider_account_id, model_profile
+                SELECT agent_id, provider_kind, provider_account_id, model_profile, reasoning_effort
                 FROM agent_runtime_preferences
                 WHERE agent_id = $agent_id
                 LIMIT 1;
@@ -96,6 +102,7 @@ impl NoemaStore {
                   provider_kind = $provider_kind,
                   provider_account_id = $provider_account_id,
                   model_profile = $model_profile,
+                  reasoning_effort = $reasoning_effort,
                   updated_at = time::now();
                 "#,
             )
@@ -104,6 +111,10 @@ impl NoemaStore {
             .bind(("provider_kind", account.provider_kind))
             .bind(("provider_account_id", account.provider_account_id))
             .bind(("model_profile", model_profile.to_string()))
+            .bind((
+                "reasoning_effort",
+                preference.reasoning_effort.map(reasoning_effort_as_str),
+            ))
             .await?
             .check()?;
         self.get_agent_runtime_preference(&preference.agent_id)
@@ -120,6 +131,30 @@ struct AgentRuntimePreferenceRow {
     provider_kind: String,
     provider_account_id: String,
     model_profile: String,
+    reasoning_effort: Option<String>,
+}
+
+fn reasoning_effort_as_str(reasoning_effort: ReasoningEffort) -> &'static str {
+    match reasoning_effort {
+        ReasoningEffort::None => "none",
+        ReasoningEffort::Minimal => "minimal",
+        ReasoningEffort::Low => "low",
+        ReasoningEffort::Medium => "medium",
+        ReasoningEffort::High => "high",
+        ReasoningEffort::XHigh => "xhigh",
+    }
+}
+
+fn reasoning_effort_from_str(reasoning_effort: &str) -> Option<ReasoningEffort> {
+    match reasoning_effort {
+        "none" => Some(ReasoningEffort::None),
+        "minimal" => Some(ReasoningEffort::Minimal),
+        "low" => Some(ReasoningEffort::Low),
+        "medium" => Some(ReasoningEffort::Medium),
+        "high" => Some(ReasoningEffort::High),
+        "xhigh" => Some(ReasoningEffort::XHigh),
+        _ => None,
+    }
 }
 
 fn preference_from_row(row: AgentRuntimePreferenceRow) -> AgentRuntimePreferenceRecord {
@@ -128,5 +163,9 @@ fn preference_from_row(row: AgentRuntimePreferenceRow) -> AgentRuntimePreference
         provider_kind: row.provider_kind,
         provider_account_id: row.provider_account_id,
         model_profile: row.model_profile,
+        reasoning_effort: row
+            .reasoning_effort
+            .as_deref()
+            .and_then(reasoning_effort_from_str),
     }
 }

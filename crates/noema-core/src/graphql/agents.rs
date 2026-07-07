@@ -1,14 +1,54 @@
-use async_graphql::{InputObject, Result, SimpleObject};
+use async_graphql::{Enum, InputObject, Result, SimpleObject};
 use serde_json::Value;
 
 use crate::{
     AgentRecord, AgentRuntimePreferenceRecord, NewAgentRuntimePreference, ProviderAccountRecord,
     ProviderAccountStatus,
     config::DEFAULT_FOUNDATION_LOCAL_PROFILE,
-    provider::{DEFAULT_TOOL_CLASSIFICATION_MODEL, model_catalog::refresh_provider_model_profiles},
+    provider::{
+        DEFAULT_TOOL_CLASSIFICATION_MODEL, ReasoningEffort,
+        model_catalog::refresh_provider_model_profiles,
+    },
 };
 
 use super::{errors::graphql_error, schema::GraphqlState};
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Enum)]
+#[graphql(name = "ReasoningEffort")]
+pub enum GraphqlReasoningEffort {
+    None,
+    Minimal,
+    Low,
+    Medium,
+    High,
+    Xhigh,
+}
+
+impl From<ReasoningEffort> for GraphqlReasoningEffort {
+    fn from(value: ReasoningEffort) -> Self {
+        match value {
+            ReasoningEffort::None => Self::None,
+            ReasoningEffort::Minimal => Self::Minimal,
+            ReasoningEffort::Low => Self::Low,
+            ReasoningEffort::Medium => Self::Medium,
+            ReasoningEffort::High => Self::High,
+            ReasoningEffort::XHigh => Self::Xhigh,
+        }
+    }
+}
+
+impl From<GraphqlReasoningEffort> for ReasoningEffort {
+    fn from(value: GraphqlReasoningEffort) -> Self {
+        match value {
+            GraphqlReasoningEffort::None => Self::None,
+            GraphqlReasoningEffort::Minimal => Self::Minimal,
+            GraphqlReasoningEffort::Low => Self::Low,
+            GraphqlReasoningEffort::Medium => Self::Medium,
+            GraphqlReasoningEffort::High => Self::High,
+            GraphqlReasoningEffort::Xhigh => Self::XHigh,
+        }
+    }
+}
 
 /// Agent model preference safe to expose in Settings.
 #[derive(Clone, Debug, SimpleObject)]
@@ -20,6 +60,8 @@ pub struct GraphqlAgentModelPreference {
     pub provider_account_id: String,
     /// Provider-specific model id or profile id.
     pub model_profile: String,
+    /// Optional explicit reasoning effort for reasoning-capable model profiles.
+    pub reasoning_effort: Option<GraphqlReasoningEffort>,
 }
 
 /// One selectable model/profile.
@@ -30,6 +72,10 @@ pub struct GraphqlAgentModelProfileOption {
     pub id: String,
     /// User-facing label.
     pub label: String,
+    /// Reasoning efforts available for this profile.
+    pub reasoning_efforts: Vec<GraphqlReasoningEffort>,
+    /// Default reasoning effort for this profile, when advertised by metadata.
+    pub default_reasoning_effort: Option<GraphqlReasoningEffort>,
     /// Why this option is disabled, when unavailable.
     pub disabled_reason: Option<String>,
 }
@@ -64,6 +110,8 @@ pub struct GraphqlSaveAgentModelPreferenceInput {
     pub provider_account_id: String,
     /// Provider-specific model id or profile id.
     pub model_profile: String,
+    /// Optional explicit reasoning effort for reasoning-capable model profiles.
+    pub reasoning_effort: Option<GraphqlReasoningEffort>,
 }
 
 /// Agent metadata safe to expose in read-only Settings.
@@ -97,6 +145,9 @@ impl GraphqlAgent {
                 provider_kind: preference.provider_kind,
                 provider_account_id: preference.provider_account_id,
                 model_profile: preference.model_profile,
+                reasoning_effort: preference
+                    .reasoning_effort
+                    .map(GraphqlReasoningEffort::from),
             }),
             model_options: accounts.iter().map(option_from_account).collect(),
         }
@@ -159,20 +210,22 @@ pub(super) async fn save_agent_model_preference(
         return Err(async_graphql::Error::new(reason));
     }
     let profiles = profiles_from_account(&account, None);
-    if !profiles
+    let Some(profile) = profiles
         .iter()
-        .any(|profile| profile.id == input.model_profile)
-    {
+        .find(|profile| profile.id == input.model_profile)
+    else {
         return Err(async_graphql::Error::new(
             "model profile is not available for provider",
         ));
-    }
+    };
+    let reasoning_effort = validate_reasoning_effort_for_profile(profile, input.reasoning_effort)?;
     let saved = store
         .upsert_agent_runtime_preference(NewAgentRuntimePreference {
             agent_id: input.agent_id,
             provider_kind: account.provider_kind,
             provider_account_id: account.provider_account_id,
             model_profile: input.model_profile,
+            reasoning_effort,
         })
         .await
         .map_err(graphql_error)?;
@@ -180,6 +233,7 @@ pub(super) async fn save_agent_model_preference(
         provider_kind: saved.provider_kind,
         provider_account_id: saved.provider_account_id,
         model_profile: saved.model_profile,
+        reasoning_effort: saved.reasoning_effort.map(GraphqlReasoningEffort::from),
     })
 }
 
@@ -270,6 +324,8 @@ fn profile_options(
         .map(|(id, label)| GraphqlAgentModelProfileOption {
             id: (*id).to_string(),
             label: (*label).to_string(),
+            reasoning_efforts: Vec::new(),
+            default_reasoning_effort: None,
             disabled_reason: disabled_reason.map(ToString::to_string),
         })
         .collect()
@@ -294,11 +350,65 @@ fn metadata_profiles(
                 .and_then(Value::as_str)
                 .filter(|label| !label.trim().is_empty())
                 .unwrap_or(id);
+            let reasoning_efforts = profile
+                .get("reasoning_efforts")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .filter_map(reasoning_effort_from_metadata)
+                .map(GraphqlReasoningEffort::from)
+                .collect::<Vec<_>>();
+            let default_reasoning_effort = profile
+                .get("default_reasoning_effort")
+                .and_then(Value::as_str)
+                .and_then(reasoning_effort_from_metadata)
+                .map(GraphqlReasoningEffort::from)
+                .filter(|effort| reasoning_efforts.contains(effort));
             Some(GraphqlAgentModelProfileOption {
                 id: id.to_string(),
                 label: label.to_string(),
+                reasoning_efforts,
+                default_reasoning_effort,
                 disabled_reason: disabled_reason.map(ToString::to_string),
             })
         })
         .collect()
+}
+
+fn reasoning_effort_from_metadata(value: &str) -> Option<ReasoningEffort> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "none" => Some(ReasoningEffort::None),
+        "minimal" => Some(ReasoningEffort::Minimal),
+        "low" => Some(ReasoningEffort::Low),
+        "medium" => Some(ReasoningEffort::Medium),
+        "high" => Some(ReasoningEffort::High),
+        "xhigh" => Some(ReasoningEffort::XHigh),
+        _ => None,
+    }
+}
+
+pub(super) fn validate_reasoning_effort_for_profile(
+    profile: &GraphqlAgentModelProfileOption,
+    reasoning_effort: Option<GraphqlReasoningEffort>,
+) -> Result<Option<ReasoningEffort>> {
+    if profile.reasoning_efforts.is_empty() {
+        if reasoning_effort.is_some() {
+            return Err(async_graphql::Error::new(
+                "reasoning effort is not available for selected model profile",
+            ));
+        }
+        return Ok(None);
+    }
+    let Some(reasoning_effort) = reasoning_effort else {
+        return Err(async_graphql::Error::new(
+            "reasoning effort is required for selected model profile",
+        ));
+    };
+    if !profile.reasoning_efforts.contains(&reasoning_effort) {
+        return Err(async_graphql::Error::new(
+            "reasoning effort is not available for selected model profile",
+        ));
+    }
+    Ok(Some(reasoning_effort.into()))
 }

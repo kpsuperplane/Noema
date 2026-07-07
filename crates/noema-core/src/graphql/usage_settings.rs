@@ -7,8 +7,9 @@ use crate::{
 
 use super::{
     agents::{
-        GraphqlAgentModelPreference, GraphqlAgentModelProviderOption, option_from_account,
-        profiles_from_account, provider_disabled_reason, refresh_missing_model_profiles,
+        GraphqlAgentModelPreference, GraphqlAgentModelProviderOption, GraphqlReasoningEffort,
+        option_from_account, profiles_from_account, provider_disabled_reason,
+        refresh_missing_model_profiles, validate_reasoning_effort_for_profile,
     },
     errors::graphql_error,
     schema::GraphqlState,
@@ -42,6 +43,8 @@ pub struct GraphqlSaveToolProgressAuditPreferenceInput {
     pub provider_account_id: String,
     /// Provider-specific model id or profile id.
     pub model_profile: String,
+    /// Optional explicit reasoning effort for reasoning-capable model profiles.
+    pub reasoning_effort: Option<GraphqlReasoningEffort>,
 }
 
 pub(super) async fn usage_settings(state: &GraphqlState) -> Result<GraphqlUsageSettings> {
@@ -67,6 +70,9 @@ pub(super) async fn usage_settings(state: &GraphqlState) -> Result<GraphqlUsageS
                 provider_kind: preference.provider_kind,
                 provider_account_id: preference.provider_account_id,
                 model_profile: preference.model_profile,
+                reasoning_effort: preference
+                    .reasoning_effort
+                    .map(GraphqlReasoningEffort::from),
             }),
             model_options: accounts.iter().map(option_from_account).collect(),
         },
@@ -92,21 +98,22 @@ pub(super) async fn save_tool_progress_audit_preference(
         return Err(async_graphql::Error::new(reason));
     }
     let profiles = profiles_from_account(&account, None);
-    if profiles.is_empty()
-        || !profiles
-            .iter()
-            .any(|profile| profile.id == input.model_profile)
-    {
+    let Some(profile) = profiles
+        .iter()
+        .find(|profile| profile.id == input.model_profile)
+    else {
         return Err(async_graphql::Error::new(
             "model profile is not available for provider",
         ));
-    }
+    };
+    let reasoning_effort = validate_reasoning_effort_for_profile(profile, input.reasoning_effort)?;
     let saved = store
         .upsert_auxiliary_model_preference(NewAuxiliaryModelPreference {
             task_id: TOOL_PROGRESS_AUDIT_TASK_ID.to_string(),
             provider_kind: account.provider_kind,
             provider_account_id: account.provider_account_id,
             model_profile: input.model_profile,
+            reasoning_effort,
         })
         .await
         .map_err(graphql_error)?;
@@ -114,5 +121,6 @@ pub(super) async fn save_tool_progress_audit_preference(
         provider_kind: saved.provider_kind,
         provider_account_id: saved.provider_account_id,
         model_profile: saved.model_profile,
+        reasoning_effort: saved.reasoning_effort.map(GraphqlReasoningEffort::from),
     })
 }

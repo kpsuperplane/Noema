@@ -903,6 +903,7 @@ async fn agent_runtime_preference_round_trips() {
             provider_kind: "foundation_local".to_string(),
             provider_account_id: account.provider_account_id.clone(),
             model_profile: "default".to_string(),
+            reasoning_effort: None,
         })
         .await
         .expect("save preference");
@@ -922,6 +923,41 @@ async fn agent_runtime_preference_round_trips() {
 }
 
 #[tokio::test]
+async fn agent_runtime_preference_round_trips_reasoning_effort() {
+    let store = test_store().await;
+    store.ensure_default_actors().await.expect("actors");
+    let account = store
+        .ensure_default_provider_account()
+        .await
+        .expect("codex account");
+
+    let saved = store
+        .upsert_agent_runtime_preference(crate::NewAgentRuntimePreference {
+            agent_id: "agent:primary".to_string(),
+            provider_kind: "codex".to_string(),
+            provider_account_id: account.provider_account_id,
+            model_profile: "gpt-5.5".to_string(),
+            reasoning_effort: Some(crate::provider::ReasoningEffort::High),
+        })
+        .await
+        .expect("preference");
+
+    assert_eq!(
+        saved.reasoning_effort,
+        Some(crate::provider::ReasoningEffort::High)
+    );
+    let loaded = store
+        .get_agent_runtime_preference("agent:primary")
+        .await
+        .expect("load")
+        .expect("preference");
+    assert_eq!(
+        loaded.reasoning_effort,
+        Some(crate::provider::ReasoningEffort::High)
+    );
+}
+
+#[tokio::test]
 async fn agent_runtime_preference_rejects_unknown_provider_account() {
     let store = test_store().await;
     store.ensure_default_actors().await.expect("default actors");
@@ -932,6 +968,7 @@ async fn agent_runtime_preference_rejects_unknown_provider_account() {
             provider_kind: "foundation_local".to_string(),
             provider_account_id: "provider_account:foundation_local:missing".to_string(),
             model_profile: "default".to_string(),
+            reasoning_effort: None,
         })
         .await
         .expect_err("unknown provider account should fail");
@@ -957,6 +994,7 @@ async fn auxiliary_model_preferences_web_fetch_summarizer_round_trips() {
             provider_kind: "codex".to_string(),
             provider_account_id: account.provider_account_id.clone(),
             model_profile: "gpt-5.4-mini".to_string(),
+            reasoning_effort: None,
         })
         .await
         .expect("save preference");
@@ -976,6 +1014,31 @@ async fn auxiliary_model_preferences_web_fetch_summarizer_round_trips() {
 }
 
 #[tokio::test]
+async fn auxiliary_model_preference_round_trips_reasoning_effort() {
+    let store = test_store().await;
+    let account = store
+        .ensure_default_provider_account()
+        .await
+        .expect("codex account");
+
+    let saved = store
+        .upsert_auxiliary_model_preference(crate::NewAuxiliaryModelPreference {
+            task_id: crate::WEB_FETCH_SUMMARIZER_TASK_ID.to_string(),
+            provider_kind: "codex".to_string(),
+            provider_account_id: account.provider_account_id,
+            model_profile: "gpt-5.5".to_string(),
+            reasoning_effort: Some(crate::provider::ReasoningEffort::Low),
+        })
+        .await
+        .expect("preference");
+
+    assert_eq!(
+        saved.reasoning_effort,
+        Some(crate::provider::ReasoningEffort::Low)
+    );
+}
+
+#[tokio::test]
 async fn auxiliary_model_preferences_tool_progress_audit_round_trips() {
     let store = test_store().await;
     let account = store
@@ -989,6 +1052,7 @@ async fn auxiliary_model_preferences_tool_progress_audit_round_trips() {
             provider_kind: account.provider_kind.clone(),
             provider_account_id: account.provider_account_id.clone(),
             model_profile: "gpt-5.4-mini".to_string(),
+            reasoning_effort: None,
         })
         .await
         .expect("save preference");
@@ -1016,6 +1080,7 @@ async fn auxiliary_model_preferences_rejects_unknown_provider_account() {
             provider_kind: "codex".to_string(),
             provider_account_id: "provider_account:codex:missing".to_string(),
             model_profile: "gpt-5.4-mini".to_string(),
+            reasoning_effort: None,
         })
         .await
         .expect_err("unknown provider account should fail");
@@ -1041,6 +1106,7 @@ async fn auxiliary_model_preferences_rejects_provider_kind_mismatch() {
             provider_kind: "openai".to_string(),
             provider_account_id: account.provider_account_id,
             model_profile: "gpt-5.4-mini".to_string(),
+            reasoning_effort: None,
         })
         .await
         .expect_err("provider mismatch should fail");
