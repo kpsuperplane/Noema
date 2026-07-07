@@ -2,6 +2,7 @@ import { useMutation, useQuery } from "@apollo/client/react";
 import {
   ClearProviderSecretDocument,
   CreateProviderAccountDocument,
+  DeleteProviderAccountDocument,
   ProviderAccountsDocument,
   SaveProviderSecretInputDocument,
   WebToolSettingsDocument,
@@ -9,6 +10,8 @@ import {
   type ClearProviderSecretMutationVariables,
   type CreateProviderAccountMutation,
   type CreateProviderAccountMutationVariables,
+  type DeleteProviderAccountMutation,
+  type DeleteProviderAccountMutationVariables,
   type ProviderAccountsQuery,
   type SaveProviderSecretInputMutation,
   type SaveProviderSecretInputMutationVariables
@@ -46,6 +49,13 @@ export function ProvidersSettingsPane() {
     refetchQueries,
     awaitRefetchQueries: true
   });
+  const [deleteProviderAccount, deleteResult] = useMutation<
+    DeleteProviderAccountMutation,
+    DeleteProviderAccountMutationVariables
+  >(DeleteProviderAccountDocument, {
+    refetchQueries,
+    awaitRefetchQueries: true
+  });
 
   return (
     <ProvidersSettingsPaneContent
@@ -53,17 +63,24 @@ export function ProvidersSettingsPane() {
       accounts={result.data?.providerAccounts ?? []}
       loading={result.loading && !result.data}
       error={result.error?.message ?? null}
-      mutationSaving={createResult.loading || saveSecretResult.loading || clearSecretResult.loading}
+      mutationSaving={
+        createResult.loading ||
+        saveSecretResult.loading ||
+        clearSecretResult.loading ||
+        deleteResult.loading
+      }
       mutationError={
         createResult.error?.message ??
         saveSecretResult.error?.message ??
         clearSecretResult.error?.message ??
         null
       }
+      deleteError={deleteResult.error?.message ?? null}
       onRetry={() => void result.refetch()}
       onCreateProviderAccount={(input) => createProviderAccount({ variables: { input } })}
       onSaveProviderSecret={(input) => saveProviderSecretInput({ variables: { input } })}
       onClearProviderSecret={(input) => clearProviderSecret({ variables: { input } })}
+      onDeleteProviderAccount={(input) => deleteProviderAccount({ variables: { input } })}
     />
   );
 }

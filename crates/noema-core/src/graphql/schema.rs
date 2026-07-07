@@ -35,8 +35,9 @@ use super::{
     },
     provider_accounts::{
         self, GraphqlCapabilityFeatures, GraphqlClearProviderSecretInput,
-        GraphqlCreateProviderAccountInput, GraphqlProviderAccount,
-        GraphqlProviderAccountCatalogEntry, GraphqlProviderCapability, GraphqlProviderSecretInput,
+        GraphqlCreateProviderAccountInput, GraphqlDeleteProviderAccountInput,
+        GraphqlProviderAccount, GraphqlProviderAccountCatalogEntry, GraphqlProviderCapability,
+        GraphqlProviderSecretInput,
     },
     usage_settings::{self, GraphqlSaveToolProgressAuditPreferenceInput, GraphqlUsageSettings},
     web_fetch_settings::{
@@ -589,6 +590,16 @@ impl MutationRoot {
         provider_accounts::clear_provider_secret(state, input).await
     }
 
+    /// Hard-delete a user-managed provider account.
+    async fn delete_provider_account(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlDeleteProviderAccountInput,
+    ) -> Result<bool> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        provider_accounts::delete_provider_account(state, input).await
+    }
+
     /// Save one agent's model/provider preference.
     async fn save_agent_model_preference(
         &self,
@@ -1040,6 +1051,119 @@ mod tests {
                 && account["authMethod"] == "secret_input"
                 && account["isDefault"] == false
         }));
+    }
+
+    #[tokio::test]
+    async fn delete_provider_account_removes_exa_account_secret_and_binding() {
+        use crate::{NoemaPaths, store::tests::test_store};
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let paths = NoemaPaths::from_noema_home(dir.path()).expect("paths");
+        let store = test_store().await;
+        let schema = build_schema(GraphqlState::for_tests_with_store_and_paths(
+            store.clone(),
+            paths.clone(),
+        ));
+
+        let create_response = schema
+            .execute(async_graphql::Request::new(
+                r#"
+                mutation {
+                  createProviderAccount(input: {
+                    providerKind: "exa"
+                    displayName: "Research"
+                    secret: "secret-key"
+                  }) {
+                    providerAccountId
+                    accountKey
+                  }
+                }
+                "#,
+            ))
+            .await;
+        assert!(
+            create_response.errors.is_empty(),
+            "{:?}",
+            create_response.errors
+        );
+        let create_data = create_response.data.into_json().expect("json");
+        let created = &create_data["createProviderAccount"];
+        let provider_account_id = created["providerAccountId"]
+            .as_str()
+            .expect("provider account id");
+        let account_key = created["accountKey"].as_str().expect("account key");
+        let account_home = paths.provider_account_home("exa", account_key);
+        assert!(account_home.join("api_key.json").is_file());
+        store
+            .upsert_provider_capability_binding("web.search", "web.search", provider_account_id)
+            .await
+            .expect("save binding");
+
+        let delete_response = schema
+            .execute(async_graphql::Request::new(format!(
+                r#"
+                mutation {{
+                  deleteProviderAccount(input: {{
+                    providerAccountId: "{provider_account_id}"
+                  }})
+                }}
+                "#
+            )))
+            .await;
+
+        assert!(
+            delete_response.errors.is_empty(),
+            "{:?}",
+            delete_response.errors
+        );
+        let delete_data = delete_response.data.into_json().expect("json");
+        assert_eq!(delete_data["deleteProviderAccount"], true);
+        assert!(
+            store
+                .get_provider_account(provider_account_id)
+                .await
+                .expect("load provider")
+                .is_none()
+        );
+        assert!(
+            store
+                .provider_capability_binding("web.search", "web.search")
+                .await
+                .expect("load binding")
+                .is_none()
+        );
+        assert!(!account_home.exists());
+    }
+
+    #[tokio::test]
+    async fn delete_provider_account_rejects_default_accounts() {
+        use crate::store::tests::test_store;
+
+        let store = test_store().await;
+        store
+            .ensure_default_provider_account()
+            .await
+            .expect("codex account");
+
+        let schema = build_schema(GraphqlState::for_tests_with_store(store));
+        let response = schema
+            .execute(async_graphql::Request::new(
+                r#"
+                mutation {
+                  deleteProviderAccount(input: {
+                    providerAccountId: "provider_account:codex:default"
+                  })
+                }
+                "#,
+            ))
+            .await;
+
+        assert!(!response.errors.is_empty());
+        assert!(
+            response.errors[0]
+                .message
+                .contains("default provider accounts cannot be deleted")
+        );
     }
 
     #[tokio::test]

@@ -1,7 +1,8 @@
 import { Badge } from "@astryxdesign/core/Badge";
 import { Button } from "@astryxdesign/core/Button";
+import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
 import * as stylex from "@stylexjs/stylex";
-import { KeyRound, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { AlertTriangle, KeyRound, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import {
   providerStatusLabel,
@@ -17,10 +18,12 @@ export function ProvidersSettingsPaneContent({
   error,
   mutationSaving,
   mutationError,
+  deleteError,
   onRetry,
   onCreateProviderAccount,
   onSaveProviderSecret,
-  onClearProviderSecret
+  onClearProviderSecret,
+  onDeleteProviderAccount
 }: {
   catalog: readonly ProviderAccountCatalogEntry[];
   accounts: readonly ProviderSettingsAccount[];
@@ -28,6 +31,7 @@ export function ProvidersSettingsPaneContent({
   error: string | null;
   mutationSaving: boolean;
   mutationError: string | null;
+  deleteError: string | null;
   onRetry: () => void;
   onCreateProviderAccount: (input: {
     providerKind: string;
@@ -39,13 +43,17 @@ export function ProvidersSettingsPaneContent({
     secret: string;
   }) => Promise<unknown>;
   onClearProviderSecret: (input: { providerAccountId: string }) => Promise<unknown>;
+  onDeleteProviderAccount: (input: { providerAccountId: string }) => Promise<unknown>;
 }) {
   const [selectedProviderKind, setSelectedProviderKind] = useState(catalog[0]?.providerKind ?? "");
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
   const selectedCatalogEntry = useMemo(
     () =>
       catalog.find((entry) => entry.providerKind === selectedProviderKind) ?? catalog[0] ?? null,
     [catalog, selectedProviderKind]
   );
+  const deleteTarget =
+    accounts.find((account) => account.providerAccountId === deleteTargetId) ?? null;
 
   if (loading) {
     return <p {...stylex.props(styles.mutedText)}>Loading provider metadata...</p>;
@@ -85,6 +93,7 @@ export function ProvidersSettingsPaneContent({
           mutationSaving={mutationSaving}
           onSaveProviderSecret={onSaveProviderSecret}
           onClearProviderSecret={onClearProviderSecret}
+          onDeleteClick={() => setDeleteTargetId(account.providerAccountId)}
         />
       ))}
       {accounts.length === 0 ? (
@@ -94,6 +103,20 @@ export function ProvidersSettingsPaneContent({
           </p>
         </div>
       ) : null}
+      <DeleteProviderAccountDialog
+        account={deleteTarget}
+        open={deleteTarget !== null}
+        submitting={mutationSaving}
+        error={deleteError}
+        onOpenChange={(open) => {
+          if (!open && !mutationSaving) setDeleteTargetId(null);
+        }}
+        onConfirm={async () => {
+          if (!deleteTarget) return;
+          await onDeleteProviderAccount({ providerAccountId: deleteTarget.providerAccountId });
+          setDeleteTargetId(null);
+        }}
+      />
     </div>
   );
 }
@@ -202,7 +225,8 @@ function ProviderAccountCard({
   account,
   mutationSaving,
   onSaveProviderSecret,
-  onClearProviderSecret
+  onClearProviderSecret,
+  onDeleteClick
 }: {
   account: ProviderSettingsAccount;
   mutationSaving: boolean;
@@ -211,6 +235,7 @@ function ProviderAccountCard({
     secret: string;
   }) => Promise<unknown>;
   onClearProviderSecret: (input: { providerAccountId: string }) => Promise<unknown>;
+  onDeleteClick: () => void;
 }) {
   const rows = providerTechnicalRows(account);
   const [replacementSecret, setReplacementSecret] = useState("");
@@ -281,7 +306,82 @@ function ProviderAccountCard({
           </div>
         </form>
       ) : null}
+      {!account.isDefault ? (
+        <div {...stylex.props(styles.deleteSection)}>
+          <Button
+            type="button"
+            variant="destructive"
+            label="Delete account"
+            icon={<Trash2 {...stylex.props(styles.icon)} aria-hidden="true" />}
+            isDisabled={mutationSaving}
+            onClick={onDeleteClick}
+          />
+        </div>
+      ) : null}
     </article>
+  );
+}
+
+function DeleteProviderAccountDialog({
+  account,
+  open,
+  submitting,
+  error,
+  onOpenChange,
+  onConfirm
+}: {
+  account: ProviderSettingsAccount | null;
+  open: boolean;
+  submitting: boolean;
+  error: string | null;
+  onOpenChange: (open: boolean) => void;
+  onConfirm: () => void;
+}) {
+  const subtitle = account
+    ? `Delete ${account.displayName}, its stored secrets, and any web tool selections using it.`
+    : "Delete this provider account and its stored secrets.";
+
+  return (
+    <Dialog
+      isOpen={open}
+      onOpenChange={onOpenChange}
+      purpose="form"
+      width={520}
+      aria-label="Delete provider account"
+    >
+      <div {...stylex.props(styles.dialog)}>
+        <DialogHeader
+          title="Delete provider account"
+          subtitle={subtitle}
+          onOpenChange={onOpenChange}
+        />
+        <div {...stylex.props(styles.dialogBody)}>
+          <p {...stylex.props(styles.warningText)}>
+            <AlertTriangle {...stylex.props(styles.warningIcon)} aria-hidden="true" />
+            This cannot be undone from Settings.
+          </p>
+          {error ? <p {...stylex.props(styles.saveError)}>{error}</p> : null}
+          <div {...stylex.props(styles.actionRow)}>
+            <Button
+              type="button"
+              variant="destructive"
+              label="Delete account"
+              icon={<Trash2 {...stylex.props(styles.icon)} aria-hidden="true" />}
+              isDisabled={submitting}
+              isLoading={submitting}
+              onClick={onConfirm}
+            />
+            <Button
+              type="button"
+              variant="secondary"
+              label="Cancel"
+              isDisabled={submitting}
+              onClick={() => onOpenChange(false)}
+            />
+          </div>
+        </div>
+      </div>
+    </Dialog>
   );
 }
 
@@ -406,6 +506,36 @@ const styles = stylex.create({
     borderTopStyle: "solid",
     borderTopColor: "var(--border-subtle)",
     paddingTop: 12
+  },
+  deleteSection: {
+    display: "flex",
+    justifyContent: "flex-start",
+    borderTopWidth: 1,
+    borderTopStyle: "solid",
+    borderTopColor: "var(--border-subtle)",
+    paddingTop: 12
+  },
+  dialog: {
+    display: "grid"
+  },
+  dialogBody: {
+    display: "grid",
+    gap: 16,
+    padding: 20
+  },
+  warningText: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    margin: 0,
+    fontSize: 14,
+    lineHeight: 1.5,
+    color: "var(--foreground)"
+  },
+  warningIcon: {
+    width: 16,
+    height: 16,
+    color: "var(--destructive)"
   },
   fitButton: {
     width: "fit-content"

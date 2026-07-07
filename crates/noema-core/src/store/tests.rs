@@ -612,6 +612,79 @@ async fn create_provider_account_generates_stable_key_and_capabilities() {
 }
 
 #[tokio::test]
+async fn delete_provider_account_removes_account_and_capability_bindings() {
+    let store = test_store().await;
+    let account = store
+        .create_provider_account(crate::store::NewProviderAccount {
+            provider_kind: "exa".to_string(),
+            display_name: Some("Research Search".to_string()),
+            auth_method: crate::ProviderAuthMethod::SecretInput,
+            status: crate::ProviderAccountStatus::Authenticated,
+            metadata: serde_json::json!({ "secretConfigured": true }),
+        })
+        .await
+        .expect("created account");
+
+    store
+        .upsert_provider_capability_binding(
+            "web.search",
+            "web.search",
+            &account.provider_account_id,
+        )
+        .await
+        .expect("save binding");
+
+    let deleted = store
+        .delete_provider_account(&account.provider_account_id)
+        .await
+        .expect("delete account");
+
+    assert!(deleted);
+    assert!(
+        store
+            .get_provider_account(&account.provider_account_id)
+            .await
+            .expect("load provider")
+            .is_none()
+    );
+    assert!(
+        store
+            .provider_capability_binding("web.search", "web.search")
+            .await
+            .expect("load binding")
+            .is_none()
+    );
+}
+
+#[tokio::test]
+async fn delete_provider_account_rejects_default_accounts() {
+    let store = test_store().await;
+    let account = store
+        .ensure_default_provider_account()
+        .await
+        .expect("codex account");
+
+    let error = store
+        .delete_provider_account(&account.provider_account_id)
+        .await
+        .expect_err("default provider accounts are not delete targets");
+
+    assert!(matches!(
+        error,
+        StoreError::InvalidEnum { kind, value }
+            if kind == "provider_account_delete_target"
+                && value == account.provider_account_id
+    ));
+    assert!(
+        store
+            .get_provider_account(&account.provider_account_id)
+            .await
+            .expect("load provider")
+            .is_some()
+    );
+}
+
+#[tokio::test]
 async fn provider_capability_binding_round_trips_web_search() {
     let store = test_store().await;
     store.ensure_default_actors().await.expect("actors");

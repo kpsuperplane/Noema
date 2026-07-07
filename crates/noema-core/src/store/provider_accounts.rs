@@ -361,6 +361,41 @@ impl NoemaStore {
             .transpose()
     }
 
+    /// Hard-delete one user-managed provider account and its capability bindings.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when the account is missing, is a default account,
+    /// or the embedded store delete fails.
+    pub async fn delete_provider_account(
+        &self,
+        provider_account_id: &str,
+    ) -> Result<bool, StoreError> {
+        let Some(account) = self.get_provider_account(provider_account_id).await? else {
+            return Ok(false);
+        };
+        if account.is_default {
+            return Err(StoreError::InvalidEnum {
+                kind: "provider_account_delete_target",
+                value: provider_account_id.to_string(),
+            });
+        }
+
+        self.db
+            .query(
+                r#"
+                DELETE provider_capability_bindings
+                WHERE provider_account_id = $provider_account_id;
+                DELETE provider_accounts
+                WHERE provider_account_id = $provider_account_id;
+                "#,
+            )
+            .bind(("provider_account_id", provider_account_id.to_string()))
+            .await?
+            .check()?;
+        Ok(true)
+    }
+
     /// Update safe provider account status metadata.
     ///
     /// # Errors

@@ -143,6 +143,13 @@ pub struct GraphqlClearProviderSecretInput {
     pub provider_account_id: String,
 }
 
+/// Input for hard-deleting a user-managed provider account.
+#[derive(Clone, Debug, InputObject)]
+#[graphql(name = "DeleteProviderAccountInput")]
+pub struct GraphqlDeleteProviderAccountInput {
+    pub provider_account_id: String,
+}
+
 const fn auth_method_label(method: ProviderAuthMethod) -> &'static str {
     method.as_str()
 }
@@ -238,6 +245,38 @@ pub(super) async fn clear_provider_secret(
         .await
         .map_err(graphql_error)?;
     refreshed_provider_account(store, &account.provider_account_id).await
+}
+
+pub(super) async fn delete_provider_account(
+    state: &GraphqlState,
+    input: GraphqlDeleteProviderAccountInput,
+) -> Result<bool> {
+    let store = state.store()?;
+    let Some(account) = store
+        .get_provider_account(&input.provider_account_id)
+        .await
+        .map_err(graphql_error)?
+    else {
+        return Ok(false);
+    };
+    if account.is_default {
+        return Err(async_graphql::Error::new(
+            "default provider accounts cannot be deleted",
+        ));
+    }
+
+    let paths = state.paths()?;
+    let account_home = paths.provider_account_home(&account.provider_kind, &account.account_key);
+    match std::fs::remove_dir_all(&account_home) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(async_graphql::Error::new(error.to_string())),
+    }
+
+    store
+        .delete_provider_account(&input.provider_account_id)
+        .await
+        .map_err(graphql_error)
 }
 
 async fn save_secret_for_account(

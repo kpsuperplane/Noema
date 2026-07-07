@@ -430,6 +430,13 @@ input CreateProviderAccountInput {
 }
 
 """
+Input for hard-deleting a user-managed provider account.
+"""
+input DeleteProviderAccountInput {
+	providerAccountId: String!
+}
+
+"""
 Error notice transcript item.
 """
 type ErrorNotice {
@@ -1153,6 +1160,10 @@ type MutationRoot {
 	Clear a write-only provider account secret.
 	"""
 	clearProviderSecret(input: ClearProviderSecretInput!): ProviderAccount!
+	"""
+	Hard-delete a user-managed provider account.
+	"""
+	deleteProviderAccount(input: DeleteProviderAccountInput!): Boolean!
 	"""
 	Save one agent's model/provider preference.
 	"""

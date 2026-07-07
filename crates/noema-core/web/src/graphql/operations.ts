@@ -116,6 +116,12 @@ export const ClearProviderSecretDocument = gql`
   }
 `;
 
+export const DeleteProviderAccountDocument = gql`
+  mutation DeleteProviderAccount($input: DeleteProviderAccountInput!) {
+    deleteProviderAccount(input: $input)
+  }
+`;
+
 export const AgentsDocument = gql`
   query Agents {
     agents {
