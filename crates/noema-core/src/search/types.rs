@@ -60,6 +60,9 @@ pub(crate) enum SearchRuntimeProvider {
     OpenAiHosted {
         client: crate::search::openai_hosted::OpenAiHostedSearchClient,
     },
+    Exa {
+        client: crate::search::exa::ExaSearchClient,
+    },
     #[cfg(test)]
     Static {
         response: SearchResponse,
@@ -86,6 +89,7 @@ impl SearchRuntimeProvider {
             Self::OpenAiHosted { client } => {
                 crate::search::openai_hosted::search_openai_hosted(client, request).await
             }
+            Self::Exa { client } => crate::search::exa::search_exa(client, request).await,
             #[cfg(test)]
             Self::Static { response } => {
                 let mut response = response.clone();
