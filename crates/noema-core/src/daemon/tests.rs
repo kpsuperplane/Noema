@@ -4051,7 +4051,7 @@ async fn runtime_actor_executes_web_search_as_local_tool_result() {
     assert!(items.iter().any(|item| {
         matches!(item.kind, ConversationItemKind::ToolCall)
             && item.payload_json["metadata"]["action"]["name"] == "web.search"
-            && item.payload_json["metadata"]["display"]["target"] == "Web search: rust language"
+            && item.payload_json["metadata"]["display"]["target"] == "rust language"
     }));
     assert!(items.iter().any(|item| {
         matches!(item.kind, ConversationItemKind::ToolResult)

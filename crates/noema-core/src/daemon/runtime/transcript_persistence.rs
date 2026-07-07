@@ -949,11 +949,7 @@ fn tool_call_display(name: &str, payload: &Value) -> Value {
             .and_then(Value::as_str)
             .map(str::trim)
             .filter(|value| !value.is_empty());
-        insert_display_value(
-            &mut display,
-            "target",
-            query.map(|query| format!("Web search: {query}")),
-        );
+        insert_display_value(&mut display, "target", query.map(ToString::to_string));
     } else if name == "web.fetch" {
         insert_display_value(
             &mut display,
@@ -971,11 +967,7 @@ fn tool_call_display(name: &str, payload: &Value) -> Value {
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(crate::web_fetch::tool::sanitized_web_fetch_display_url);
-        insert_display_value(
-            &mut display,
-            "target",
-            url.map(|url| format!("Fetched web page: {url}")),
-        );
+        insert_display_value(&mut display, "target", url);
     } else if name == "update_own_name" {
         insert_display_value(
             &mut display,
@@ -983,7 +975,7 @@ fn tool_call_display(name: &str, payload: &Value) -> Value {
             Some("Save the agent name you requested".to_string()),
         );
         if let Some(agent_name) = arguments.get("name").and_then(Value::as_str) {
-            insert_display_value(&mut display, "target", Some(format!("Name: {agent_name}")));
+            insert_display_value(&mut display, "target", Some(agent_name.to_string()));
         }
     } else {
         insert_display_value(
@@ -1092,8 +1084,9 @@ fn tool_result_display(name: Option<&str>, success: Option<bool>, payload: &Valu
         let result = payload
             .get("display_name")
             .and_then(Value::as_str)
-            .map(|display_name| format!("Saved name: {display_name}"))
+            .map(ToString::to_string)
             .unwrap_or_else(|| success_result_label(success, payload));
+        insert_display_value(&mut display, "name", Some("Saved name".to_string()));
         insert_display_value(&mut display, "result", Some(result));
     } else {
         insert_display_value(
@@ -1132,9 +1125,9 @@ fn tool_arguments(payload: &Value) -> &Value {
 fn readable_tool_name(name: &str) -> String {
     match name {
         "search_memory" => "Search memory".to_string(),
-        "update_own_name" => "Update agent name".to_string(),
-        "web.search" => "Search web".to_string(),
-        "web.fetch" => "Fetch web".to_string(),
+        "update_own_name" => "Save name".to_string(),
+        "web.search" => "Web Search".to_string(),
+        "web.fetch" => "Fetched Web Page".to_string(),
         other => other
             .split('.')
             .next_back()
@@ -1337,9 +1330,9 @@ mod tests {
             }),
         );
 
-        assert_eq!(display["name"], "Search web");
+        assert_eq!(display["name"], "Web Search");
         assert_eq!(display["access"], "Searches public web");
-        assert_eq!(display["target"], "Web search: rust language");
+        assert_eq!(display["target"], "rust language");
         assert_eq!(display["purpose"], "answer current question");
     }
 
@@ -1356,7 +1349,7 @@ mod tests {
             }),
         );
 
-        assert_eq!(display["name"], "Search web");
+        assert_eq!(display["name"], "Web Search");
         assert_eq!(display["result"], "Found 2 web results");
         assert_eq!(display["provider"], "DuckDuckGo public search");
         assert_eq!(display["reliability"], "Best effort");
@@ -1399,12 +1392,9 @@ mod tests {
             }),
         );
 
-        assert_eq!(display["name"], "Fetch web");
+        assert_eq!(display["name"], "Fetched Web Page");
         assert_eq!(display["access"], "Fetches public web pages");
-        assert_eq!(
-            display["target"],
-            "Fetched web page: https://example.com/page"
-        );
+        assert_eq!(display["target"], "https://example.com/page");
         assert_eq!(display["purpose"], "read public documentation");
     }
 
@@ -1418,10 +1408,7 @@ mod tests {
             }),
         );
 
-        assert_eq!(
-            display["target"],
-            "Fetched web page: [redacted sensitive web.fetch URL]"
-        );
+        assert_eq!(display["target"], "[redacted sensitive web.fetch URL]");
     }
 
     #[test]
@@ -1448,7 +1435,7 @@ mod tests {
                 "truncated": true
             }),
         );
-        assert_eq!(raw_display["name"], "Fetch web");
+        assert_eq!(raw_display["name"], "Fetched Web Page");
         assert_eq!(raw_display["access"], "Fetches public web pages");
         assert_eq!(raw_display["result"], "Fetched 12,840 chars");
         assert_eq!(raw_display["fallbackFrom"], "provider_account:codex:test");
@@ -1458,6 +1445,16 @@ mod tests {
         );
         assert!(raw_display.get("model").is_none());
         assert!(!raw_display.to_string().contains("secret raw"));
+
+        let saved_name_display = tool_result_display(
+            Some("update_own_name"),
+            Some(true),
+            &json!({
+                "display_name": "Momo",
+            }),
+        );
+        assert_eq!(saved_name_display["name"], "Saved name");
+        assert_eq!(saved_name_display["result"], "Momo");
 
         let summary_display = tool_result_display(
             Some("web.fetch"),

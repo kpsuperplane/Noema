@@ -161,7 +161,10 @@ export function toolMarkerPending(marker: ToolMarkerGroup): boolean {
 }
 
 export function toolMarkerLabel(marker: ToolMarkerGroup): string {
-  const toolName = toolNameFromMetadata(marker.call?.item.metadata) ?? toolNameFromMetadata(marker.result?.item.metadata);
+  const toolName =
+    firstPartyToolMarkerName(marker) ??
+    toolNameFromMetadata(marker.call?.item.metadata) ??
+    toolNameFromMetadata(marker.result?.item.metadata);
   if (toolName) {
     if (marker.call && !marker.result && marker.call.item.status === "STARTED") {
       return `Using ${toolName}`;
@@ -172,6 +175,10 @@ export function toolMarkerLabel(marker: ToolMarkerGroup): string {
 }
 
 export function toolMarkerName(marker: ToolMarkerGroup): string {
+  const firstPartyName = firstPartyToolMarkerName(marker);
+  if (firstPartyName) {
+    return firstPartyName;
+  }
   return (
     toolNameFromMetadata(marker.call?.item.metadata) ??
     toolNameFromMetadata(marker.result?.item.metadata) ??
@@ -295,6 +302,10 @@ function webFallbackDetailRows(marker: ToolMarkerGroup): ToolDetailRowData[] {
 }
 
 export function toolMarkerTarget(marker: ToolMarkerGroup): string | undefined {
+  const firstPartyTarget = firstPartyToolMarkerTarget(marker);
+  if (firstPartyTarget) {
+    return firstPartyTarget;
+  }
   if (isSuccessfulWebSearchMarker(marker) || isSuccessfulWebFetchMarker(marker)) {
     return (
       usefulToolDisplayString(marker.call?.item.metadata, "target") ??
@@ -307,6 +318,60 @@ export function toolMarkerTarget(marker: ToolMarkerGroup): string | undefined {
     usefulToolDisplayString(marker.result?.item.metadata, "target") ??
     usefulToolDisplayString(marker.call?.item.metadata, "target")
   );
+}
+
+function firstPartyToolMarkerName(marker: ToolMarkerGroup): string | undefined {
+  const toolName = actionToolNameFromMetadata(marker.result?.item.metadata) ?? actionToolNameFromMetadata(marker.call?.item.metadata);
+  if (!toolName) {
+    return undefined;
+  }
+  if (toolName === "update_own_name" && marker.result?.item.status === "COMPLETED") {
+    return "Saved name";
+  }
+  return firstPartyReadableToolName(toolName) ?? undefined;
+}
+
+function firstPartyToolMarkerTarget(marker: ToolMarkerGroup): string | undefined {
+  const toolName = actionToolNameFromMetadata(marker.result?.item.metadata) ?? actionToolNameFromMetadata(marker.call?.item.metadata);
+  if (toolName === "web.search") {
+    return (
+      toolPayloadString(marker.call?.item.metadata, "query") ??
+      toolPayloadString(marker.result?.item.metadata, "query") ??
+      toolDisplayValue(marker.call?.item.metadata, "target", "Web search")
+    );
+  }
+  if (toolName === "web.fetch") {
+    if (marker.result?.item.status === "FAILED") {
+      return undefined;
+    }
+    return (
+      toolDisplayValue(marker.call?.item.metadata, "target", "Fetched web page") ??
+      toolDisplayValue(marker.result?.item.metadata, "target", "Fetched web page")
+    );
+  }
+  if (toolName === "update_own_name") {
+    return (
+      toolPayloadString(marker.result?.item.metadata, "display_name") ??
+      toolDisplayValue(marker.result?.item.metadata, "result", "Saved name") ??
+      toolPayloadString(marker.call?.item.metadata, "name") ??
+      toolDisplayValue(marker.call?.item.metadata, "target", "Name")
+    );
+  }
+  return undefined;
+}
+
+function firstPartyReadableToolName(name: string): string | null {
+  const trimmed = name.trim();
+  if (trimmed === "web.search") {
+    return "Web Search";
+  }
+  if (trimmed === "web.fetch") {
+    return "Fetched Web Page";
+  }
+  if (trimmed === "update_own_name") {
+    return "Save name";
+  }
+  return null;
 }
 
 function actionToolNameFromMetadata(metadata: unknown): string | null {
@@ -519,24 +584,40 @@ function toolDisplayString(metadata: unknown, key: string): string | undefined {
   return stringValue(metadata.display[key]) ?? undefined;
 }
 
+function toolDisplayValue(metadata: unknown, key: string, legacyLabel: string): string | undefined {
+  const value = toolDisplayString(metadata, key);
+  if (!value) {
+    return undefined;
+  }
+  return legacyDisplayValue(value, legacyLabel);
+}
+
+function legacyDisplayValue(value: string, legacyLabel: string): string {
+  const delimiter = `${legacyLabel}:`;
+  return value.startsWith(delimiter) ? value.slice(delimiter.length).trim() : value;
+}
+
 function usefulToolDisplayString(metadata: unknown, key: string): string | undefined {
   const value = toolDisplayString(metadata, key);
   return value && !isLowInformationToolDetail(value) ? value : undefined;
 }
 
+function toolPayloadString(metadata: unknown, key: string): string | undefined {
+  const payload = toolActionPayload(metadata);
+  if (!isRecord(payload)) {
+    return undefined;
+  }
+  return stringValue(payload[key]) ?? undefined;
+}
+
 function readableToolName(name: string): string {
   const trimmed = name.trim();
+  const firstPartyName = firstPartyReadableToolName(trimmed);
+  if (firstPartyName) {
+    return firstPartyName;
+  }
   if (trimmed === "search_memory") {
     return "Search memory";
-  }
-  if (trimmed === "web.search") {
-    return "Search web";
-  }
-  if (trimmed === "web.fetch") {
-    return "Fetch web";
-  }
-  if (trimmed === "update_own_name") {
-    return "Update agent name";
   }
   const lastSegment = trimmed.split(".").filter(Boolean).at(-1) ?? trimmed;
   return lastSegment

@@ -116,7 +116,7 @@ describe("toolMarkerName", () => {
       }
     };
 
-    assert.equal(toolMarkerName(marker), "Search web");
+    assert.equal(toolMarkerName(marker), "Web Search");
   });
 
   test("labels raw web fetch tool names for users", () => {
@@ -139,11 +139,121 @@ describe("toolMarkerName", () => {
       }
     };
 
-    assert.equal(toolMarkerName(marker), "Fetch web");
+    assert.equal(toolMarkerName(marker), "Fetched Web Page");
   });
 });
 
 describe("toolMarkerLabel", () => {
+  test("completed first-party markers avoid repeating labels in the target", () => {
+    const savedNameMarker: ToolMarkerGroup = {
+      id: "tool_call:name",
+      call: {
+        id: "name-call-entry",
+        type: "activity",
+        item: {
+          kind: "activity",
+          id: "activity:name-call",
+          activity_kind: "tool_call",
+          status: "COMPLETED",
+          title: "Tool call: update_own_name",
+          summary: "Name: Momo",
+          metadata: {
+            action: {
+              name: "update_own_name",
+              payload: { name: "Momo" }
+            },
+            display: {
+              name: "Update agent name",
+              target: "Name: Momo"
+            }
+          }
+        }
+      },
+      result: {
+        id: "name-result-entry",
+        type: "activity",
+        item: {
+          kind: "activity",
+          id: "activity:name-result",
+          activity_kind: "tool_result",
+          status: "COMPLETED",
+          title: "Tool result: update_own_name",
+          summary: "Saved name: Momo",
+          metadata: {
+            action: {
+              name: "update_own_name",
+              success: true,
+              payload: { display_name: "Momo" }
+            },
+            display: {
+              name: "Update agent name",
+              result: "Saved name: Momo"
+            }
+          }
+        }
+      }
+    };
+
+    const searchMarker: ToolMarkerGroup = {
+      id: "tool_call:web",
+      call: {
+        id: "web-call-entry",
+        type: "activity",
+        item: {
+          kind: "activity",
+          id: "activity:web-call",
+          activity_kind: "tool_call",
+          status: "COMPLETED",
+          title: "Tool call: web.search",
+          summary: "Web search: T:0 AI Finance Team startup location t0.ai",
+          metadata: {
+            action: {
+              name: "web.search",
+              payload: { query: "T:0 AI Finance Team startup location t0.ai" }
+            },
+            display: {
+              name: "Search web",
+              target: "Web search: T:0 AI Finance Team startup location t0.ai"
+            }
+          }
+        }
+      }
+    };
+
+    const fetchMarker: ToolMarkerGroup = {
+      id: "tool_call:web-fetch",
+      call: {
+        id: "fetch-call-entry",
+        type: "activity",
+        item: {
+          kind: "activity",
+          id: "activity:fetch-call",
+          activity_kind: "tool_call",
+          status: "COMPLETED",
+          title: "Tool call: web.fetch",
+          summary: "Fetched web page: https://www.ycombinator.com/companies/clueso",
+          metadata: {
+            action: {
+              name: "web.fetch",
+              payload: { url: "https://www.ycombinator.com/companies/clueso" }
+            },
+            display: {
+              name: "Fetch web",
+              target: "Fetched web page: https://www.ycombinator.com/companies/clueso"
+            }
+          }
+        }
+      }
+    };
+
+    assert.equal(toolMarkerName(savedNameMarker), "Saved name");
+    assert.equal(toolMarkerTarget(savedNameMarker), "Momo");
+    assert.equal(toolMarkerName(searchMarker), "Web Search");
+    assert.equal(toolMarkerTarget(searchMarker), "T:0 AI Finance Team startup location t0.ai");
+    assert.equal(toolMarkerName(fetchMarker), "Fetched Web Page");
+    assert.equal(toolMarkerTarget(fetchMarker), "https://www.ycombinator.com/companies/clueso");
+  });
+
   test("completed web search marker target keeps the query visible", () => {
     const marker: ToolMarkerGroup = {
       id: "tool_call:web",
@@ -202,8 +312,8 @@ describe("toolMarkerLabel", () => {
       }
     };
 
-    assert.equal(toolMarkerLabel(marker), "Used Search web");
-    assert.equal(toolMarkerTarget(marker), "Web search: rust language");
+    assert.equal(toolMarkerLabel(marker), "Used Web Search");
+    assert.equal(toolMarkerTarget(marker), "rust language");
     assert.equal(toolMarkerExpandable(marker), false);
     assert.deepEqual(toolDetailRows(marker), []);
   });
@@ -349,8 +459,8 @@ describe("toolMarkerLabel", () => {
       }
     };
 
-    assert.equal(toolMarkerLabel(marker), "Used Fetch web");
-    assert.equal(toolMarkerTarget(marker), "Fetched web page: https://example.com/page");
+    assert.equal(toolMarkerLabel(marker), "Used Fetched Web Page");
+    assert.equal(toolMarkerTarget(marker), "https://example.com/page");
     assert.equal(toolMarkerExpandable(marker), false);
     assert.deepEqual(toolDetailRows(marker), []);
   });
