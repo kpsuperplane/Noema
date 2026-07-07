@@ -37,6 +37,9 @@ pub(crate) async fn search_exa(
         .await
         .map_err(map_reqwest_error)?;
     match response.status() {
+        reqwest::StatusCode::UNAUTHORIZED | reqwest::StatusCode::FORBIDDEN => {
+            return Err(SearchError::AuthFailed);
+        }
         reqwest::StatusCode::TOO_MANY_REQUESTS => return Err(SearchError::RateLimited),
         status if !status.is_success() => return Err(SearchError::Http),
         _ => {}

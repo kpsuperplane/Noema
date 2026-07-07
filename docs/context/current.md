@@ -135,11 +135,14 @@ The next storage slice should stay small and concrete:
   account may supply `model.generate`, `model.classify`, `web.search`,
   `web.fetch`, or future capabilities such as `web.crawl`; stable model-visible
   tools such as `web.search` and `web.fetch` stay provider-neutral, with
-  Noema-owned bindings selecting the backend capability. OpenAI hosted web
-  search is a future `web.search` provider option, while Codex product-native
-  web search should not be treated as a backend until there is a documented
-  callable provider API. Firecrawl is only an illustrative future provider
-  example, not planned implementation in the current slice.
+  Noema-owned bindings selecting the backend capability. Exa is implemented as
+  a user-created `secret_input` provider account that supplies `web.search` and
+  `web.fetch`; API keys are stored only under the provider account home and are
+  never read from environment variables or returned through GraphQL. OpenAI
+  hosted web search is a future `web.search` provider option, while Codex
+  product-native web search should not be treated as a backend until there is a
+  documented callable provider API. Firecrawl is only an illustrative future
+  provider example, not planned implementation in the current slice.
 - The provider capabilities implementation plan lives at
   `docs/superpowers/plans/2026-07-07-provider-capabilities.md`; Task 10
   surfaces provider fallback metadata in transcript displays for first-party

@@ -44,6 +44,8 @@ pub(crate) enum SearchError {
     Timeout,
     #[error("search provider rate limited or blocked the request")]
     RateLimited,
+    #[error("provider account unauthenticated")]
+    AuthFailed,
     #[error("search provider request failed")]
     Http,
     #[error("search provider response could not be parsed")]

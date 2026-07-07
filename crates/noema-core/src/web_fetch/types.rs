@@ -84,6 +84,8 @@ pub enum FetchError {
     Timeout,
     #[error("fetch request failed")]
     Http,
+    #[error("provider account unauthenticated")]
+    AuthFailed,
     #[error("unsupported content type")]
     UnsupportedContentType,
     #[error("response too large")]

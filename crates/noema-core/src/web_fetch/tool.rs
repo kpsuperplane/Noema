@@ -232,6 +232,7 @@ pub fn safe_error_message(error: &FetchError) -> String {
         FetchError::TooManyRedirects => "too many redirects".to_string(),
         FetchError::Timeout => "web fetch request timed out".to_string(),
         FetchError::Http => "web fetch request failed".to_string(),
+        FetchError::AuthFailed => "provider account unauthenticated".to_string(),
         FetchError::UnsupportedContentType => "content type is not supported".to_string(),
         FetchError::ResponseTooLarge => "response exceeded the web fetch size limit".to_string(),
         FetchError::Extraction => "readable page content could not be extracted".to_string(),

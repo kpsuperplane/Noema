@@ -45,6 +45,9 @@ pub async fn fetch_exa(
         .map_err(map_reqwest_error)?;
     if !response.status().is_success() {
         return Err(match response.status() {
+            reqwest::StatusCode::UNAUTHORIZED | reqwest::StatusCode::FORBIDDEN => {
+                FetchError::AuthFailed
+            }
             reqwest::StatusCode::REQUEST_TIMEOUT | reqwest::StatusCode::GATEWAY_TIMEOUT => {
                 FetchError::Timeout
             }

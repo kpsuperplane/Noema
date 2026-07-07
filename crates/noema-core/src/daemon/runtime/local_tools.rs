@@ -1,4 +1,5 @@
 use crate::{
+    ProviderAccountStatus,
     capability::{CapabilityGateway, GatewayToolProposal, GatewayToolResult},
     provider::{DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateActionItem, GenerateToolResultInput},
     search::types::{DUCKDUCKGO_PUBLIC_PROVIDER_ID, SearchRuntimeProvider},
@@ -21,8 +22,11 @@ use crate::daemon::{
 use crate::search::tool::{WebSearchToolResult, execute_web_search, is_web_search_tool};
 use crate::web_fetch::{
     tool::{WEB_FETCH_TOOL, WebFetchToolResult, execute_web_fetch, is_web_fetch_tool},
-    types::FetchRuntimeContext,
+    types::{FetchRuntimeContext, WebFetchRuntimeProvider},
 };
+
+const EXA_API_BASE_URL: &str = "https://api.exa.ai";
+const PROVIDER_ACCOUNT_UNAUTHENTICATED: &str = "provider account unauthenticated";
 
 impl CodexRuntimeActor {
     pub(super) async fn execute_local_tool(
@@ -76,9 +80,15 @@ impl CodexRuntimeActor {
             }
         } else if is_web_search_tool(&call.name) {
             let result = match self.web_search_runtime_provider_resolution().await {
-                Ok((provider, fallback_from, fallback_reason)) => {
+                Ok((provider, fallback_from, fallback_reason, auth_failure_account_id)) => {
                     let mut result =
                         execute_web_search(&provider, call.call_id.clone(), &call.payload).await;
+                    if let Some(provider_account_id) = auth_failure_account_id
+                        && is_provider_account_unauthenticated_payload(&result.payload)
+                    {
+                        self.mark_provider_account_unauthenticated(&provider_account_id)
+                            .await;
+                    }
                     insert_web_tool_fallback_metadata(
                         &mut result.payload,
                         fallback_from.as_deref(),
@@ -102,14 +112,22 @@ impl CodexRuntimeActor {
             }
         } else if is_web_fetch_tool(&call.name) {
             let result = match self.web_fetch_runtime_execution_context().await {
-                Ok((context, fallback_from, fallback_reason)) => {
-                    let mut result = execute_web_fetch(
-                        &self.web_fetch_provider,
-                        &context,
-                        call.call_id.clone(),
-                        &call.payload,
-                    )
-                    .await;
+                Ok((
+                    provider,
+                    context,
+                    fallback_from,
+                    fallback_reason,
+                    auth_failure_account_id,
+                )) => {
+                    let mut result =
+                        execute_web_fetch(&provider, &context, call.call_id.clone(), &call.payload)
+                            .await;
+                    if let Some(provider_account_id) = auth_failure_account_id
+                        && is_provider_account_unauthenticated_payload(&result.payload)
+                    {
+                        self.mark_provider_account_unauthenticated(&provider_account_id)
+                            .await;
+                    }
                     insert_web_tool_fallback_metadata(
                         &mut result.payload,
                         fallback_from.as_deref(),
@@ -181,24 +199,79 @@ impl CodexRuntimeActor {
 
     async fn web_fetch_runtime_execution_context(
         &self,
-    ) -> Result<(FetchRuntimeContext, Option<String>, Option<String>), String> {
+    ) -> Result<
+        (
+            WebFetchRuntimeProvider,
+            FetchRuntimeContext,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+        ),
+        String,
+    > {
         let resolved = self
             .resolved_web_fetch_provider()
             .await
             .map_err(|_| "web.fetch provider binding could not be resolved".to_string())?;
-        if resolved.provider_kind != crate::web_fetch::types::DIRECT_HTTP_PROVIDER_ID {
-            return Err(format!(
-                "web.fetch provider '{}' is not available in this daemon",
-                resolved.provider_kind
-            ));
-        }
         let context = self.web_fetch_runtime_context().await?;
-        Ok((context, resolved.fallback_from, resolved.fallback_reason))
+        match resolved.provider_kind.as_str() {
+            crate::web_fetch::types::DIRECT_HTTP_PROVIDER_ID => Ok((
+                self.web_fetch_provider.clone(),
+                context,
+                resolved.fallback_from,
+                resolved.fallback_reason,
+                None,
+            )),
+            crate::web_fetch::exa::EXA_FETCH_PROVIDER_ID => {
+                let provider_account_id = resolved.provider_account_id.clone();
+                let api_key = match self
+                    .load_provider_secret_api_key(&resolved.provider_kind, &resolved.account_key)
+                    .await
+                {
+                    Ok(api_key) => api_key,
+                    Err(()) => {
+                        self.mark_provider_account_unauthenticated(&provider_account_id)
+                            .await;
+                        return Ok((
+                            self.web_fetch_provider.clone(),
+                            context,
+                            Some(provider_account_id),
+                            Some(PROVIDER_ACCOUNT_UNAUTHENTICATED.to_string()),
+                            None,
+                        ));
+                    }
+                };
+                Ok((
+                    WebFetchRuntimeProvider::Exa {
+                        client: crate::web_fetch::exa::ExaFetchClient {
+                            base_url: EXA_API_BASE_URL.to_string(),
+                            api_key,
+                            http: reqwest::Client::new(),
+                        },
+                    },
+                    context,
+                    resolved.fallback_from,
+                    resolved.fallback_reason,
+                    Some(provider_account_id),
+                ))
+            }
+            provider_kind => Err(format!(
+                "web.fetch provider '{provider_kind}' is not available in this daemon"
+            )),
+        }
     }
 
     async fn web_search_runtime_provider_resolution(
         &self,
-    ) -> Result<(SearchRuntimeProvider, Option<String>, Option<String>), String> {
+    ) -> Result<
+        (
+            SearchRuntimeProvider,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+        ),
+        String,
+    > {
         let resolved = self
             .resolved_web_search_provider()
             .await
@@ -209,14 +282,70 @@ impl CodexRuntimeActor {
                 self.search_provider.clone(),
                 resolved.fallback_from,
                 resolved.fallback_reason,
+                None,
             )),
             crate::search::openai_hosted::OPENAI_HOSTED_SEARCH_PROVIDER_ID => {
                 Err("OpenAI hosted web search provider is not available in this daemon".to_string())
+            }
+            crate::search::exa::EXA_SEARCH_PROVIDER_ID => {
+                let provider_account_id = resolved.provider_account_id.clone();
+                let api_key = match self
+                    .load_provider_secret_api_key(&resolved.provider_kind, &resolved.account_key)
+                    .await
+                {
+                    Ok(api_key) => api_key,
+                    Err(()) => {
+                        self.mark_provider_account_unauthenticated(&provider_account_id)
+                            .await;
+                        return Ok((
+                            self.search_provider.clone(),
+                            Some(provider_account_id),
+                            Some(PROVIDER_ACCOUNT_UNAUTHENTICATED.to_string()),
+                            None,
+                        ));
+                    }
+                };
+                Ok((
+                    SearchRuntimeProvider::Exa {
+                        client: crate::search::exa::ExaSearchClient {
+                            base_url: EXA_API_BASE_URL.to_string(),
+                            api_key,
+                            http: reqwest::Client::new(),
+                        },
+                    },
+                    resolved.fallback_from,
+                    resolved.fallback_reason,
+                    Some(provider_account_id),
+                ))
             }
             provider_kind => Err(format!(
                 "web.search provider '{provider_kind}' is not available in this daemon"
             )),
         }
+    }
+
+    async fn load_provider_secret_api_key(
+        &self,
+        provider_kind: &str,
+        account_key: &str,
+    ) -> Result<String, ()> {
+        crate::provider::secret_input::SecretInputStore::new(
+            self.store.provider_account_home(provider_kind, account_key),
+        )
+        .load_api_key()
+        .map_err(|_| ())
+    }
+
+    async fn mark_provider_account_unauthenticated(&self, provider_account_id: &str) {
+        let _ = self
+            .store
+            .update_provider_account_status(
+                provider_account_id,
+                ProviderAccountStatus::Unauthenticated,
+                Some("auth_failed"),
+                Some(PROVIDER_ACCOUNT_UNAUTHENTICATED),
+            )
+            .await;
     }
 }
 
@@ -246,6 +375,13 @@ fn insert_web_tool_fallback_metadata(
             Value::String(fallback_reason.to_string()),
         );
     }
+}
+
+fn is_provider_account_unauthenticated_payload(payload: &Value) -> bool {
+    payload
+        .get("error")
+        .and_then(Value::as_str)
+        .is_some_and(|message| message == PROVIDER_ACCOUNT_UNAUTHENTICATED)
 }
 
 #[derive(Debug, Clone)]
@@ -614,6 +750,43 @@ mod tests {
             .expect("provider account query check");
     }
 
+    async fn insert_provider_account(
+        store: &crate::NoemaStore,
+        provider_account_id: &str,
+        provider_kind: &str,
+        account_key: &str,
+        status: crate::ProviderAccountStatus,
+    ) {
+        let record_id = format!("{provider_kind}_{account_key}");
+        store
+            .db()
+            .query(
+                r#"
+                UPSERT type::record('provider_accounts', $record_id) SET
+                  provider_account_id = $provider_account_id,
+                  provider_kind = $provider_kind,
+                  account_key = $account_key,
+                  display_name = $display_name,
+                  auth_method = 'secret_input',
+                  is_active = true,
+                  is_default = false,
+                  status = $status,
+                  metadata = {},
+                  updated_at = time::now();
+                "#,
+            )
+            .bind(("record_id", record_id))
+            .bind(("provider_account_id", provider_account_id.to_string()))
+            .bind(("provider_kind", provider_kind.to_string()))
+            .bind(("account_key", account_key.to_string()))
+            .bind(("display_name", format!("{provider_kind} {account_key}")))
+            .bind(("status", status.as_str().to_string()))
+            .await
+            .expect("insert provider account")
+            .check()
+            .expect("provider account query check");
+    }
+
     async fn insert_provider_capability_binding(
         store: &crate::NoemaStore,
         tool_name: &str,
@@ -772,6 +945,107 @@ mod tests {
             requests[0].model.as_deref(),
             Some(DEFAULT_TOOL_CLASSIFICATION_MODEL)
         );
+    }
+
+    #[tokio::test]
+    async fn bound_exa_web_search_without_secret_falls_back_to_duckduckgo() {
+        let store = crate::store::tests::test_store().await;
+        insert_provider_account(
+            &store,
+            "provider_account:exa:acct_research",
+            "exa",
+            "acct_research",
+            crate::ProviderAccountStatus::Authenticated,
+        )
+        .await;
+        insert_provider_capability_binding(
+            &store,
+            "web.search",
+            "provider_account:exa:acct_research",
+        )
+        .await;
+        let actor = CodexRuntimeActor::new(
+            "codex".to_string(),
+            HashMap::from([(
+                "codex".to_string(),
+                Arc::new(LocalToolTestProvider::new(Some("codex-tool-default")))
+                    as Arc<dyn RuntimeModelProvider>,
+            )]),
+            store.clone(),
+            store.system_error_logger(),
+        )
+        .await
+        .expect("actor");
+
+        let (provider, fallback_from, fallback_reason, auth_failure_account_id) = actor
+            .web_search_runtime_provider_resolution()
+            .await
+            .expect("provider");
+
+        assert!(matches!(
+            provider,
+            crate::search::types::SearchRuntimeProvider::DuckDuckGoPublic { .. }
+        ));
+        assert_eq!(
+            fallback_from.as_deref(),
+            Some("provider_account:exa:acct_research")
+        );
+        assert_eq!(
+            fallback_reason.as_deref(),
+            Some("provider account unauthenticated")
+        );
+        assert!(auth_failure_account_id.is_none());
+    }
+
+    #[tokio::test]
+    async fn bound_exa_web_fetch_without_secret_falls_back_to_direct_http() {
+        let store = crate::store::tests::test_store().await;
+        insert_provider_account(
+            &store,
+            "provider_account:exa:acct_research",
+            "exa",
+            "acct_research",
+            crate::ProviderAccountStatus::Authenticated,
+        )
+        .await;
+        insert_provider_capability_binding(
+            &store,
+            "web.fetch",
+            "provider_account:exa:acct_research",
+        )
+        .await;
+        let actor = CodexRuntimeActor::new(
+            "codex".to_string(),
+            HashMap::from([(
+                "codex".to_string(),
+                Arc::new(LocalToolTestProvider::new(Some("codex-tool-default")))
+                    as Arc<dyn RuntimeModelProvider>,
+            )]),
+            store.clone(),
+            store.system_error_logger(),
+        )
+        .await
+        .expect("actor");
+
+        let (provider, context, fallback_from, fallback_reason, auth_failure_account_id) = actor
+            .web_fetch_runtime_execution_context()
+            .await
+            .expect("context");
+
+        assert!(matches!(
+            provider,
+            crate::web_fetch::types::WebFetchRuntimeProvider::DirectHttp { .. }
+        ));
+        assert_eq!(
+            fallback_from.as_deref(),
+            Some("provider_account:exa:acct_research")
+        );
+        assert_eq!(
+            fallback_reason.as_deref(),
+            Some("provider account unauthenticated")
+        );
+        assert!(auth_failure_account_id.is_none());
+        assert_eq!(context.summarizer_model, DEFAULT_TOOL_CLASSIFICATION_MODEL);
     }
 
     #[tokio::test]

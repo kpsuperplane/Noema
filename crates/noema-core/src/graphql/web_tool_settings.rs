@@ -100,7 +100,7 @@ async fn selectable_accounts(store: &NoemaStore) -> Result<Vec<ProviderAccountRe
     let mut accounts = store.system_provider_accounts();
     accounts.extend(
         store
-            .active_default_provider_accounts()
+            .active_provider_accounts()
             .await
             .map_err(graphql_error)?,
     );
@@ -298,6 +298,34 @@ mod tests {
                 .provider_options
                 .iter()
                 .any(|option| { option.provider_account_id == "provider_account:openai:default" })
+        );
+    }
+
+    #[tokio::test]
+    async fn web_tool_settings_include_active_non_default_exa_accounts() {
+        let store = test_store().await;
+        insert_provider_account(
+            &store,
+            "provider_account:exa:acct_research",
+            "exa",
+            "acct_research",
+            false,
+            ProviderAccountStatus::Authenticated,
+        )
+        .await;
+        let state = GraphqlState::for_tests_with_store(store);
+
+        let settings = web_tool_settings(&state).await.expect("settings");
+
+        assert!(
+            settings.search.provider_options.iter().any(|option| {
+                option.provider_account_id == "provider_account:exa:acct_research"
+            })
+        );
+        assert!(
+            settings.fetch.provider_options.iter().any(|option| {
+                option.provider_account_id == "provider_account:exa:acct_research"
+            })
         );
     }
 

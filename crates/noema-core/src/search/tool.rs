@@ -163,6 +163,7 @@ pub(crate) fn safe_error_message(error: &SearchError) -> String {
         SearchError::RateLimited => {
             "search provider rate limited or blocked the request".to_string()
         }
+        SearchError::AuthFailed => "provider account unauthenticated".to_string(),
         SearchError::Http => "search provider request failed".to_string(),
         SearchError::Parse => "search provider response could not be parsed".to_string(),
     }
