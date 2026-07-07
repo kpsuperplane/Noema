@@ -793,6 +793,7 @@ mod tests {
     }
 
     fn test_provider_account() -> crate::ProviderAccountRecord {
+        let status = crate::ProviderAccountStatus::Unknown;
         crate::ProviderAccountRecord {
             provider_account_id: "provider_account:codex:default".to_string(),
             provider_kind: "codex".to_string(),
@@ -801,12 +802,17 @@ mod tests {
             auth_method: crate::ProviderAuthMethod::OauthDeviceCode,
             is_active: true,
             is_default: true,
-            status: crate::ProviderAccountStatus::Unknown,
+            status,
             last_checked_at: None,
             last_authenticated_at: None,
             last_error_code: None,
             last_error_message: None,
             metadata: json!({}),
+            capabilities: crate::provider::capabilities_for_provider_account(
+                "codex",
+                "default",
+                status,
+            ),
         }
     }
 

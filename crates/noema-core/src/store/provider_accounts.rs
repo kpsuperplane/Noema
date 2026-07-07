@@ -4,12 +4,22 @@ use surrealdb::types::SurrealValue;
 
 use crate::{
     ProviderAccountRecord, ProviderAccountStatus, ProviderAuthMethod,
+    provider::capabilities_for_provider_account,
     store::ids::{invalid_enum, now_string},
 };
 
 use super::{NoemaStore, StoreError, agents::agent_record_fragment};
 
 impl NoemaStore {
+    /// Return built-in system provider accounts exposed without durable rows.
+    #[must_use]
+    pub fn system_provider_accounts(&self) -> Vec<ProviderAccountRecord> {
+        vec![
+            system_provider_account("duckduckgo_public", "DuckDuckGo public search"),
+            system_provider_account("direct_http", "Direct HTTP web fetch"),
+        ]
+    }
+
     /// Create or refresh the built-in local human and primary agent.
     ///
     /// # Errors
@@ -310,6 +320,9 @@ struct ProviderAccountRow {
 }
 
 fn provider_account_from_row(row: ProviderAccountRow) -> Result<ProviderAccountRecord, StoreError> {
+    let status = parse_provider_status(&row.status)?;
+    let capabilities =
+        capabilities_for_provider_account(&row.provider_kind, &row.account_key, status);
     Ok(ProviderAccountRecord {
         provider_account_id: row.provider_account_id,
         provider_kind: row.provider_kind,
@@ -318,13 +331,35 @@ fn provider_account_from_row(row: ProviderAccountRow) -> Result<ProviderAccountR
         auth_method: parse_provider_auth_method(&row.auth_method)?,
         is_active: row.is_active,
         is_default: row.is_default,
-        status: parse_provider_account_status(&row.status)?,
+        status,
         last_checked_at: row.last_checked_at,
         last_authenticated_at: row.last_authenticated_at,
         last_error_code: row.last_error_code,
         last_error_message: row.last_error_message,
         metadata: row.metadata,
+        capabilities,
     })
+}
+
+fn system_provider_account(provider_kind: &str, display_name: &str) -> ProviderAccountRecord {
+    let account_key = "system".to_string();
+    let status = ProviderAccountStatus::Authenticated;
+    ProviderAccountRecord {
+        provider_account_id: format!("provider_account:{provider_kind}:system"),
+        provider_kind: provider_kind.to_string(),
+        account_key: account_key.clone(),
+        display_name: display_name.to_string(),
+        auth_method: ProviderAuthMethod::None,
+        is_active: true,
+        is_default: true,
+        status,
+        last_checked_at: None,
+        last_authenticated_at: None,
+        last_error_code: None,
+        last_error_message: None,
+        metadata: serde_json::json!({}),
+        capabilities: capabilities_for_provider_account(provider_kind, &account_key, status),
+    }
 }
 
 fn parse_provider_auth_method(value: &str) -> Result<ProviderAuthMethod, StoreError> {
@@ -337,7 +372,7 @@ fn parse_provider_auth_method(value: &str) -> Result<ProviderAuthMethod, StoreEr
     }
 }
 
-fn parse_provider_account_status(value: &str) -> Result<ProviderAccountStatus, StoreError> {
+fn parse_provider_status(value: &str) -> Result<ProviderAccountStatus, StoreError> {
     match value {
         "unknown" => Ok(ProviderAccountStatus::Unknown),
         "checking" => Ok(ProviderAccountStatus::Checking),

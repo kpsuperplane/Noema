@@ -2,6 +2,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use ts_rs::TS;
 
+use crate::provider::ProviderCapability;
+
 /// Supported provider account authentication methods.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
@@ -90,4 +92,7 @@ pub struct ProviderAccountRecord {
     pub last_error_message: Option<String>,
     /// Additional non-secret account metadata.
     pub metadata: Value,
+    /// Derived capabilities available through this provider account.
+    #[serde(default)]
+    pub capabilities: Vec<ProviderCapability>,
 }

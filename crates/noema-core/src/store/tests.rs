@@ -520,6 +520,41 @@ async fn default_provider_account_round_trips_status() {
 }
 
 #[tokio::test]
+async fn provider_accounts_include_derived_capabilities() {
+    let store = test_store().await;
+    let account = store
+        .ensure_default_provider_account()
+        .await
+        .expect("default account");
+
+    assert_eq!(account.provider_kind, "codex");
+    assert!(account
+        .capabilities
+        .iter()
+        .any(|capability| capability.capability_id.as_str() == "model.generate"));
+    assert!(!account
+        .capabilities
+        .iter()
+        .any(|capability| capability.capability_id.as_str() == "web.search"));
+
+    let system_accounts = store.system_provider_accounts();
+    assert!(system_accounts.iter().any(|account| {
+        account.provider_kind == "duckduckgo_public"
+            && account
+                .capabilities
+                .iter()
+                .any(|capability| capability.capability_id.as_str() == "web.search")
+    }));
+    assert!(system_accounts.iter().any(|account| {
+        account.provider_kind == "direct_http"
+            && account
+                .capabilities
+                .iter()
+                .any(|capability| capability.capability_id.as_str() == "web.fetch")
+    }));
+}
+
+#[tokio::test]
 async fn default_foundation_local_provider_account_is_available_metadata() {
     let store = test_store().await;
 

@@ -144,6 +144,11 @@ mod tests {
             last_error_code: None,
             last_error_message: None,
             metadata: json!({}),
+            capabilities: crate::provider::capabilities_for_provider_account(
+                "codex",
+                "default",
+                status,
+            ),
         }
     }
 
