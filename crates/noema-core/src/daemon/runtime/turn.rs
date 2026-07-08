@@ -73,13 +73,13 @@ fn build_memory_observation_add_request(
     turn_id: &str,
     user_item_id: &str,
     user_text: &str,
-) -> Option<crate::Mem0AddMemoryRequest> {
+) -> Option<crate::MnemosyneAddMemoryRequest> {
     if user_text.trim().is_empty() {
         return None;
     }
 
-    Some(crate::Mem0AddMemoryRequest {
-        messages: vec![crate::Mem0Message {
+    Some(crate::MnemosyneAddMemoryRequest {
+        messages: vec![crate::MnemosyneMessage {
             role: "user".to_string(),
             content: user_text.to_string(),
         }],

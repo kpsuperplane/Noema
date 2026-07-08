@@ -7,28 +7,28 @@ export function memoryStatusLabel(
   if (mode === "MANAGED") {
     switch (status) {
       case "NOT_CONFIGURED":
-        return "Managed Mem0 has not started.";
+        return "Managed Mnemosyne has not started.";
       case "STARTING":
-        return "Managed Mem0 is starting.";
+        return "Managed Mnemosyne is starting.";
       case "READY":
-        return "Managed Mem0 is ready.";
+        return "Managed Mnemosyne is ready.";
       case "UNAVAILABLE":
-        return "Managed Mem0 is unavailable.";
+        return "Managed Mnemosyne is unavailable.";
       case "AUTH_ERROR":
-        return "Managed Mem0 authentication needs attention.";
+        return "Managed Mnemosyne authentication needs attention.";
     }
   }
 
   switch (status) {
     case "NOT_CONFIGURED":
-      return "Mem0 has not been configured.";
+      return "Mnemosyne has not been configured.";
     case "STARTING":
-      return "Mem0 is starting.";
+      return "Mnemosyne is starting.";
     case "READY":
-      return "Mem0 is ready.";
+      return "Mnemosyne is ready.";
     case "UNAVAILABLE":
-      return "Mem0 is unavailable.";
+      return "Mnemosyne is unavailable.";
     case "AUTH_ERROR":
-      return "Mem0 authentication needs attention.";
+      return "Mnemosyne authentication needs attention.";
   }
 }

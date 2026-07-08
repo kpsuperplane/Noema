@@ -12,8 +12,8 @@ capability bindings, conversations, transcript items, MCP setup/calibration
 state, approvals, auxiliary model preferences, and memory service
 settings/status.
 
-SQLite does not mirror Mem0's memory store. Durable memory truth, extraction,
-updates, and memory search indexes belong to local Mem0.
+SQLite does not mirror Mnemosyne's memory store. Durable memory truth, extraction,
+updates, and memory search indexes belong to local Mnemosyne.
 
 Current Noema home layout:
 
@@ -21,7 +21,7 @@ Current Noema home layout:
 ~/.noema/
   db/
     noema.sqlite3
-  mem0/
+  mnemosyne/
     data/
     run/
 ```

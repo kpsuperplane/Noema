@@ -1,0 +1,128 @@
+from fastapi.testclient import TestClient
+
+from noema_mnemosyne_sidecar.app import create_app
+
+
+class FakeMnemosyne:
+    def __init__(self):
+        self.remember_calls = []
+        self.recall_calls = []
+
+    def remember(self, **kwargs):
+        self.remember_calls.append(kwargs)
+        return "mem_1"
+
+    def recall(self, **kwargs):
+        self.recall_calls.append(kwargs)
+        return [
+            {
+                "id": "mem_1",
+                "content": "The user loves planes.",
+                "score": 0.91,
+                "metadata": {"noemaConversationId": "conv:1"},
+                "timestamp": "2026-07-08T00:00:00",
+            }
+        ]
+
+    def get_all_memories(self):
+        return [
+            {
+                "id": "mem_1",
+                "content": "The user loves planes.",
+                "metadata_json": '{"noemaConversationId":"conv:1"}',
+                "timestamp": "2026-07-08T00:00:00",
+            }
+        ]
+
+
+def test_health_reports_ready():
+    client = TestClient(create_app(memory_factory=lambda **_: FakeMnemosyne()))
+
+    response = client.get("/health")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ready"}
+
+
+def test_add_remembers_user_message_with_extraction_and_noema_metadata():
+    memory = FakeMnemosyne()
+    client = TestClient(create_app(memory_factory=lambda **_: memory))
+
+    response = client.post(
+        "/v1/memories/add",
+        json={
+            "messages": [{"role": "user", "content": "I love planes."}],
+            "user_id": "human:local",
+            "agent_id": "agent:local",
+            "run_id": "conv:1",
+            "metadata": {"noemaConversationId": "conv:1", "userItemId": "item:1"},
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["results"][0]["id"] == "mem_1"
+    assert memory.remember_calls == [
+        {
+            "content": "I love planes.",
+            "source": "conversation",
+            "importance": 0.7,
+            "metadata": {
+                "user_id": "human:local",
+                "agent_id": "agent:local",
+                "run_id": "conv:1",
+                "noemaConversationId": "conv:1",
+                "userItemId": "item:1",
+            },
+            "scope": "global",
+            "extract_entities": True,
+            "extract": True,
+            "veracity": "stated",
+            "trust_tier": "STATED",
+        }
+    ]
+
+
+def test_search_uses_recall_with_author_and_channel_filters():
+    memory = FakeMnemosyne()
+    client = TestClient(create_app(memory_factory=lambda **_: memory))
+
+    response = client.post(
+        "/v1/memories/search",
+        json={
+            "query": "planes",
+            "user_id": "human:local",
+            "run_id": "conv:1",
+            "limit": 7,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["results"][0]["memory"] == "The user loves planes."
+    assert memory.recall_calls == [
+        {
+            "query": "planes",
+            "top_k": 7,
+            "author_id": "human:local",
+            "author_type": "human",
+            "channel_id": "conv:1",
+        }
+    ]
+
+
+def test_list_memories_maps_mnemosyne_rows_to_noema_contract():
+    client = TestClient(create_app(memory_factory=lambda **_: FakeMnemosyne()))
+
+    response = client.get("/v1/memories", params={"user_id": "human:local", "limit": 7})
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "results": [
+            {
+                "id": "mem_1",
+                "memory": "The user loves planes.",
+                "metadata": {"noemaConversationId": "conv:1"},
+                "created_at": "2026-07-08T00:00:00",
+                "updated_at": "2026-07-08T00:00:00",
+            }
+        ]
+    }

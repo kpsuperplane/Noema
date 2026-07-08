@@ -109,22 +109,22 @@ impl NoemaPaths {
         self.db_dir().join("noema.sqlite3")
     }
 
-    /// Path to Mem0-owned state.
+    /// Path to Mnemosyne-owned state.
     #[must_use]
-    pub fn mem0_dir(&self) -> PathBuf {
-        self.root.join("mem0")
+    pub fn mnemosyne_dir(&self) -> PathBuf {
+        self.root.join("mnemosyne")
     }
 
-    /// Path to Mem0 managed data.
+    /// Path to Mnemosyne managed data.
     #[must_use]
-    pub fn mem0_data_dir(&self) -> PathBuf {
-        self.mem0_dir().join("data")
+    pub fn mnemosyne_data_dir(&self) -> PathBuf {
+        self.mnemosyne_dir().join("data")
     }
 
-    /// Path to Mem0 runtime state.
+    /// Path to Mnemosyne runtime state.
     #[must_use]
-    pub fn mem0_runtime_dir(&self) -> PathBuf {
-        self.mem0_dir().join("run")
+    pub fn mnemosyne_runtime_dir(&self) -> PathBuf {
+        self.mnemosyne_dir().join("run")
     }
 
     /// Path to the provider credential root.

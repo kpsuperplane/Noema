@@ -7,13 +7,14 @@ use tokio::{
 };
 
 #[tokio::test]
-async fn mem0_client_add_posts_v1_memories_add() {
-    let server = FakeMem0Server::start("POST", "/v1/memories/add", serde_json::json!({})).await;
-    let client = crate::Mem0Client::new(server.base_url(), Some("mem0_test".to_string()));
+async fn mnemosyne_client_add_posts_v1_memories_add() {
+    let server =
+        FakeMnemosyneServer::start("POST", "/v1/memories/add", serde_json::json!({})).await;
+    let client = crate::MnemosyneClient::new(server.base_url(), Some("mnemosyne_test".to_string()));
 
     client
-        .add_memory(crate::Mem0AddMemoryRequest {
-            messages: vec![crate::Mem0Message {
+        .add_memory(crate::MnemosyneAddMemoryRequest {
+            messages: vec![crate::MnemosyneMessage {
                 role: "user".to_string(),
                 content: "I love planes.".to_string(),
             }],
@@ -27,7 +28,7 @@ async fn mem0_client_add_posts_v1_memories_add() {
 
     assert_eq!(
         server.last_authorization().await.as_deref(),
-        Some("Bearer mem0_test")
+        Some("Bearer mnemosyne_test")
     );
     let request_body = server.last_body_json().await;
     assert_eq!(request_body["user_id"], "human:local");
@@ -40,8 +41,8 @@ async fn mem0_client_add_posts_v1_memories_add() {
 }
 
 #[tokio::test]
-async fn mem0_client_search_posts_v1_memories_search() {
-    let server = FakeMem0Server::start(
+async fn mnemosyne_client_search_posts_v1_memories_search() {
+    let server = FakeMnemosyneServer::start(
         "POST",
         "/v1/memories/search",
         serde_json::json!({
@@ -55,10 +56,10 @@ async fn mem0_client_search_posts_v1_memories_search() {
         }),
     )
     .await;
-    let client = crate::Mem0Client::new(server.base_url(), None);
+    let client = crate::MnemosyneClient::new(server.base_url(), None);
 
     let response = client
-        .search_memories(crate::Mem0SearchRequest {
+        .search_memories(crate::MnemosyneSearchRequest {
             query: "planes".to_string(),
             user_id: "human:local".to_string(),
             agent_id: None,
@@ -77,7 +78,7 @@ async fn mem0_client_search_posts_v1_memories_search() {
 }
 
 #[tokio::test]
-async fn mem0_client_times_out_when_server_never_responds() {
+async fn mnemosyne_client_times_out_when_server_never_responds() {
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
     let base_url = format!("http://{}", listener.local_addr().expect("local addr"));
     tokio::spawn(async move {
@@ -86,10 +87,10 @@ async fn mem0_client_times_out_when_server_never_responds() {
         let _ = stream.read(&mut buffer).await.expect("read request");
         tokio::time::sleep(std::time::Duration::from_secs(30)).await;
     });
-    let client = crate::Mem0Client::new(base_url, None);
+    let client = crate::MnemosyneClient::new(base_url, None);
 
     let error = client
-        .search_memories(crate::Mem0SearchRequest {
+        .search_memories(crate::MnemosyneSearchRequest {
             query: "preferences".to_string(),
             user_id: "human:local".to_string(),
             agent_id: None,
@@ -106,18 +107,18 @@ async fn mem0_client_times_out_when_server_never_responds() {
     );
 }
 
-struct FakeMem0Server {
+struct FakeMnemosyneServer {
     base_url: String,
-    state: Arc<Mutex<FakeMem0State>>,
+    state: Arc<Mutex<FakeMnemosyneState>>,
 }
 
 #[derive(Default)]
-struct FakeMem0State {
+struct FakeMnemosyneState {
     headers: HashMap<String, String>,
     body: Vec<u8>,
 }
 
-impl FakeMem0Server {
+impl FakeMnemosyneServer {
     async fn start(
         expected_method: &'static str,
         expected_path: &'static str,
@@ -125,7 +126,7 @@ impl FakeMem0Server {
     ) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
         let base_url = format!("http://{}", listener.local_addr().expect("local addr"));
-        let state = Arc::new(Mutex::new(FakeMem0State::default()));
+        let state = Arc::new(Mutex::new(FakeMnemosyneState::default()));
         let server_state = Arc::clone(&state);
 
         tokio::spawn(async move {
@@ -161,7 +162,7 @@ impl FakeMem0Server {
                 body_bytes.extend_from_slice(&buffer[..read]);
             }
 
-            *server_state.lock().await = FakeMem0State {
+            *server_state.lock().await = FakeMnemosyneState {
                 headers,
                 body: body_bytes,
             };

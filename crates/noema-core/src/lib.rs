@@ -20,12 +20,12 @@ pub mod home;
 pub mod ids;
 /// Third-party MCP control-plane types.
 pub mod mcp;
-/// Mem0 local service client and lifecycle support.
-pub mod mem0;
 /// Shared memory persistence error types.
 pub mod memory;
 /// Private OpenAI-compatible model proxy for local memory extraction.
 pub mod memory_model_proxy;
+/// Mnemosyne local service client and lifecycle support.
+pub mod mnemosyne;
 /// Neutral concrete object and actor references.
 pub mod objects;
 /// Onboarding status derived from provider account readiness.
@@ -69,13 +69,14 @@ pub use mcp::{
     McpCalibrationStatus, McpTransportKind, McpTrustClassification, OwnerExtractor,
     OwnerExtractorSource, TrustedIdentitySelectorKind, normalize_trusted_identity_value,
 };
-pub use mem0::{
-    Mem0AddMemoryRequest, Mem0Client, Mem0ClientError, Mem0Connection, Mem0Lifecycle,
-    Mem0LifecycleError, Mem0ListMemoriesRequest, Mem0ListMemoriesResponse, Mem0Memory, Mem0Message,
-    Mem0SearchRequest, Mem0SearchResponse,
-};
 pub use memory::error::MemoryPersistenceError;
 pub use memory_model_proxy::{MemoryModelProxy, MemoryModelProxyConfig, MemoryModelProxyError};
+pub use mnemosyne::{
+    MnemosyneAddMemoryRequest, MnemosyneClient, MnemosyneClientError, MnemosyneConnection,
+    MnemosyneLifecycle, MnemosyneLifecycleError, MnemosyneListMemoriesRequest,
+    MnemosyneListMemoriesResponse, MnemosyneMemory, MnemosyneMessage, MnemosyneSearchRequest,
+    MnemosyneSearchResponse,
+};
 pub use objects::{ActorKind, ActorRef, ObjectRef, ObjectType};
 pub use onboarding::{
     OnboardingStatus, OnboardingStep, OnboardingStepStatus, onboarding_status_from_account,

@@ -16,10 +16,10 @@ Current authorities:
 
 Current implementation direction:
 
-- Durable memory truth and retrieval behavior belong to local Mem0.
+- Durable memory truth and retrieval behavior belong to local Mnemosyne.
 - Noema stores only memory service configuration and readiness in SQLite.
 - Noema uses `search_memory` as an explicit tool-only recall path.
-- Noema maps trusted active scopes to Mem0 user/run filters where available.
+- Noema maps trusted active scopes to Mnemosyne user/run filters where available.
 - Memory transcript markers, `/remember`, graph browsing, and automatic
   pre-turn recall are not part of the current slice.
 

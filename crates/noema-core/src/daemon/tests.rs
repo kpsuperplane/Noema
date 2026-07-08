@@ -1831,7 +1831,7 @@ async fn restart_context_read_phase(home: &std::path::Path) {
 
 #[tokio::test]
 async fn runtime_actor_persists_provider_tool_items_as_action_rows() {
-    let (handle, store, _server) = test_runtime_handle_with_mem0(
+    let (handle, store, _server) = test_runtime_handle_with_mnemosyne(
         fake_provider(FakeCodexScenario::ToolItem),
         json!({"results": []}),
     )
@@ -1925,7 +1925,7 @@ async fn runtime_actor_persists_provider_tool_items_as_action_rows() {
 
 #[tokio::test]
 async fn runtime_displays_commentary_before_tool_lifecycle_when_provider_orders_tool_first() {
-    let (handle, _store, _server) = test_runtime_handle_with_mem0(
+    let (handle, _store, _server) = test_runtime_handle_with_mnemosyne(
         fake_provider(FakeCodexScenario::ToolCallBeforeCommentary),
         json!({"results": []}),
     )
@@ -2103,7 +2103,7 @@ async fn runtime_actor_persists_provider_tool_items_before_turn_failure() {
 
 #[tokio::test]
 async fn runtime_actor_executes_search_memory_as_local_tool_result() {
-    let (handle, _store, _server) = test_runtime_handle_with_mem0(
+    let (handle, _store, _server) = test_runtime_handle_with_mnemosyne(
         fake_provider(FakeCodexScenario::SearchMemoryContinuation),
         json!({
             "results": [{
@@ -2158,7 +2158,7 @@ async fn runtime_actor_executes_search_memory_as_local_tool_result() {
             && metadata["action"]["payload"]["memories"]
                 .as_array()
                 .is_some_and(|memories| memories.iter().any(|memory| {
-                    memory["kind"] == "mem0"
+                    memory["kind"] == "mnemosyne"
                         && memory["memory"] == "Kevin likes trains."
                         && memory["scope_id"]
                             .as_str()
@@ -2175,7 +2175,7 @@ async fn runtime_actor_executes_search_memory_as_local_tool_result() {
 
 #[tokio::test]
 async fn user_message_submits_memory_observation() {
-    let (handle, _store, server) = test_runtime_handle_with_mem0(
+    let (handle, _store, server) = test_runtime_handle_with_mnemosyne(
         fake_provider(FakeCodexScenario::Simple),
         json!({"results": []}),
     )
@@ -2217,7 +2217,7 @@ async fn user_message_submits_memory_observation() {
 
 #[tokio::test]
 async fn provider_failure_after_user_message_still_submits_memory_observation() {
-    let (handle, _store, server) = test_runtime_handle_with_mem0(
+    let (handle, _store, server) = test_runtime_handle_with_mnemosyne(
         fake_provider(FakeCodexScenario::TurnError),
         json!({"results": []}),
     )
@@ -2260,7 +2260,7 @@ async fn slow_memory_ingest_does_not_delay_provider_response() {
     )
     .await;
     std::mem::forget(home);
-    let connection = crate::Mem0Connection::new(server.base_url(), None);
+    let connection = crate::MnemosyneConnection::new(server.base_url(), None);
     let handle = CodexRuntimeHandle::spawn_with_provider_and_memory(
         Arc::new(fake_provider(FakeCodexScenario::Simple)),
         store,
@@ -2283,7 +2283,7 @@ async fn slow_memory_ingest_does_not_delay_provider_response() {
         ),
     )
     .await
-    .expect("turn should not wait for Mem0 response")
+    .expect("turn should not wait for Mnemosyne response")
     .0;
     handle.shutdown().await;
 
@@ -2292,7 +2292,7 @@ async fn slow_memory_ingest_does_not_delay_provider_response() {
 
 #[tokio::test]
 async fn memory_observation_uses_distinct_source_ids_and_only_current_user_text() {
-    let (handle, _store, server) = test_runtime_handle_with_mem0(
+    let (handle, _store, server) = test_runtime_handle_with_mnemosyne(
         fake_provider(FakeCodexScenario::Simple),
         json!({"results": []}),
     )
@@ -2347,8 +2347,8 @@ async fn memory_observation_uses_distinct_source_ids_and_only_current_user_text(
 }
 
 #[tokio::test]
-async fn search_memory_skips_mem0_results_without_memory() {
-    let (handle, _store, _server) = test_runtime_handle_with_mem0(
+async fn search_memory_skips_mnemosyne_results_without_memory() {
+    let (handle, _store, _server) = test_runtime_handle_with_mnemosyne(
         fake_provider(FakeCodexScenario::SearchMemoryContinuation),
         json!({
             "results": [
@@ -2414,8 +2414,8 @@ async fn search_memory_skips_mem0_results_without_memory() {
 }
 
 #[tokio::test]
-async fn search_memory_omits_raw_mem0_metadata() {
-    let (handle, _store, _server) = test_runtime_handle_with_mem0(
+async fn search_memory_omits_raw_mnemosyne_metadata() {
+    let (handle, _store, _server) = test_runtime_handle_with_mnemosyne(
         fake_provider(FakeCodexScenario::SearchMemoryContinuation),
         json!({
             "results": [{
@@ -2469,8 +2469,8 @@ async fn search_memory_omits_raw_mem0_metadata() {
 }
 
 #[tokio::test]
-async fn search_memory_returns_sanitized_mem0_failure() {
-    let (handle, _store, _server) = test_runtime_handle_with_mem0(
+async fn search_memory_returns_sanitized_mnemosyne_failure() {
+    let (handle, _store, _server) = test_runtime_handle_with_mnemosyne(
         fake_provider(FakeCodexScenario::SearchMemoryContinuation),
         json!({"results": [{}]}),
     )
@@ -2775,7 +2775,7 @@ async fn native_provider_can_call_web_fetch_and_continue() {
 
 #[tokio::test]
 async fn runtime_actor_continues_after_continuation_tool_call() {
-    let (handle, _store, _server) = test_runtime_handle_with_mem0(
+    let (handle, _store, _server) = test_runtime_handle_with_mnemosyne(
         fake_provider(FakeCodexScenario::ChainedSearchMemoryContinuation),
         json!({"results": []}),
     )
@@ -3203,7 +3203,7 @@ async fn runtime_prompt_includes_stored_agent_name_after_update() {
 
 #[tokio::test]
 async fn search_memory_profile_continuation_uses_scoped_empty_query() {
-    let (handle, store, server) = test_runtime_handle_with_mem0(
+    let (handle, store, server) = test_runtime_handle_with_mnemosyne(
         fake_provider(FakeCodexScenario::SearchMemoryProfileContinuation),
         json!({
             "results": [{
@@ -3251,7 +3251,7 @@ async fn search_memory_profile_continuation_uses_scoped_empty_query() {
                     .as_array()
                     .is_some_and(|memories| {
                         memories.iter().any(|memory| {
-                            memory["kind"] == "mem0"
+                            memory["kind"] == "mnemosyne"
                                 && memory["memory"] == "Kevin likes planes."
                                 && memory["scope_id"] == "human:local"
                         })
@@ -3275,7 +3275,7 @@ async fn search_memory_uses_runtime_connection_until_restart() {
         32,
     )
     .await;
-    let (handle, store, first_server) = test_runtime_handle_with_mem0(
+    let (handle, store, first_server) = test_runtime_handle_with_mnemosyne(
         fake_provider(FakeCodexScenario::SearchMemoryContinuation),
         json!({"results": [{"id": "old", "memory": "old memory", "score": 0.1}]}),
     )
@@ -3324,8 +3324,8 @@ async fn search_memory_uses_runtime_connection_until_restart() {
 }
 
 #[tokio::test]
-async fn search_memory_tool_returns_empty_mem0_result_without_unavailable() {
-    let (handle, _store, _server) = test_runtime_handle_with_mem0(
+async fn search_memory_tool_returns_empty_mnemosyne_result_without_unavailable() {
+    let (handle, _store, _server) = test_runtime_handle_with_mnemosyne(
         fake_provider(FakeCodexScenario::SearchMemoryContinuation),
         json!({"results": []}),
     )
@@ -3601,7 +3601,7 @@ async fn test_runtime_handle_with_store(
     (handle, store)
 }
 
-async fn test_runtime_handle_with_mem0(
+async fn test_runtime_handle_with_mnemosyne(
     provider: FakeCodexProvider,
     response: serde_json::Value,
 ) -> (CodexRuntimeHandle, crate::NoemaStore, FakeMemoryServer) {
@@ -3624,7 +3624,7 @@ async fn test_runtime_handle_with_mem0(
         .await
         .expect("save memory settings");
     std::mem::forget(home);
-    let connection = crate::Mem0Connection::new(server.base_url(), None);
+    let connection = crate::MnemosyneConnection::new(server.base_url(), None);
     let handle = CodexRuntimeHandle::spawn_with_provider_and_memory(
         Arc::new(provider),
         store.clone(),
@@ -3641,7 +3641,7 @@ async fn test_runtime_handle_with_private_memory(
 ) -> (CodexRuntimeHandle, crate::NoemaStore, FakeMemoryServer) {
     let store = crate::store::tests::test_store().await;
     let server = FakeMemoryServer::start(response, 32).await;
-    let connection = crate::Mem0Connection::new(server.base_url(), None);
+    let connection = crate::MnemosyneConnection::new(server.base_url(), None);
     let handle = CodexRuntimeHandle::spawn_with_provider_and_memory(
         Arc::new(provider),
         store.clone(),
@@ -3676,7 +3676,7 @@ async fn spawn_runtime_with_memory_provider(
         .await
         .expect("save memory settings");
     std::mem::forget(home);
-    let connection = crate::Mem0Connection::new(server.base_url(), None);
+    let connection = crate::MnemosyneConnection::new(server.base_url(), None);
     let handle = CodexRuntimeHandle::spawn_with_provider_and_memory(
         provider,
         store.clone(),

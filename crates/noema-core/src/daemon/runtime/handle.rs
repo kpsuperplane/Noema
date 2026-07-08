@@ -127,7 +127,7 @@ impl CodexRuntimeHandle {
         providers: RuntimeProviderMap,
         store: NoemaStore,
         system_errors: SystemErrorLogger,
-        memory_connection: Option<crate::Mem0Connection>,
+        memory_connection: Option<crate::MnemosyneConnection>,
     ) -> Result<Self, DaemonError> {
         Self::spawn_with_provider_map_inner(
             default_provider_kind,
@@ -155,7 +155,7 @@ impl CodexRuntimeHandle {
     pub(crate) async fn spawn_with_provider_and_memory(
         provider: Arc<dyn RuntimeModelProvider>,
         store: NoemaStore,
-        memory_connection: Option<crate::Mem0Connection>,
+        memory_connection: Option<crate::MnemosyneConnection>,
     ) -> Result<Self, DaemonError> {
         let provider_kind = "codex".to_string();
         let system_errors = store.system_error_logger();
@@ -277,7 +277,7 @@ impl CodexRuntimeHandle {
         providers: HashMap<String, Arc<dyn RuntimeModelProvider>>,
         store: NoemaStore,
         system_errors: SystemErrorLogger,
-        memory_connection: Option<crate::Mem0Connection>,
+        memory_connection: Option<crate::MnemosyneConnection>,
     ) -> Result<Self, DaemonError> {
         let Some(default_provider) = providers.get(&default_provider_kind) else {
             return Err(DaemonError::Provider(ProviderError::ProviderUnavailable {

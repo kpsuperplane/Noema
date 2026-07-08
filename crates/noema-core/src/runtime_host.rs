@@ -16,7 +16,7 @@ pub struct NoemaRuntimeHost {
     store: NoemaStore,
     provider_auth: ProviderAuthManager,
     mcp_oauth: McpOAuthSetupManager,
-    mem0: Option<crate::Mem0Lifecycle>,
+    mnemosyne: Option<crate::MnemosyneLifecycle>,
     memory_startup_error: Option<String>,
     system_errors: SystemErrorLogger,
     paths: NoemaPaths,
@@ -64,11 +64,11 @@ impl NoemaRuntimeHost {
             .memory_service_settings()
             .await
             .map_err(|source| RuntimeHostError::Store(source.to_string()))?;
-        let mut mem0_connection = match memory_settings.mode {
+        let mut mnemosyne_connection = match memory_settings.mode {
             crate::MemoryServiceMode::External => memory_settings
                 .base_url
                 .clone()
-                .map(|base_url| crate::Mem0Connection::new(base_url, None)),
+                .map(|base_url| crate::MnemosyneConnection::new(base_url, None)),
             crate::MemoryServiceMode::Managed => None,
         };
         let mut memory_startup_error = None;
@@ -112,13 +112,13 @@ impl NoemaRuntimeHost {
             }
         };
 
-        let mem0 = if memory_settings.mode == crate::MemoryServiceMode::Managed
+        let mnemosyne = if memory_settings.mode == crate::MemoryServiceMode::Managed
             && memory_model_proxy.is_none()
             && memory_startup_error.is_some()
         {
             None
         } else {
-            match crate::Mem0Lifecycle::start(
+            match crate::MnemosyneLifecycle::start(
                 &paths,
                 &memory_settings,
                 system_errors.clone(),
@@ -128,7 +128,7 @@ impl NoemaRuntimeHost {
             {
                 Ok(lifecycle) => {
                     if let Some(connection) = lifecycle.connection().cloned() {
-                        mem0_connection = Some(connection);
+                        mnemosyne_connection = Some(connection);
                     }
                     Some(lifecycle)
                 }
@@ -136,8 +136,8 @@ impl NoemaRuntimeHost {
                     memory_startup_error = Some(error.to_string());
                     system_errors.try_append(
                         crate::SystemErrorEvent::new(
-                            "mem0_lifecycle_unavailable",
-                            "Mem0 lifecycle is unavailable",
+                            "mnemosyne_lifecycle_unavailable",
+                            "Mnemosyne lifecycle is unavailable",
                         )
                         .with_error_chain([error.to_string()]),
                     );
@@ -151,7 +151,7 @@ impl NoemaRuntimeHost {
             providers,
             store.clone(),
             system_errors.clone(),
-            mem0_connection,
+            mnemosyne_connection,
         )
         .await
         .map_err(|source| RuntimeHostError::Runtime(source.to_string()))?;
@@ -161,7 +161,7 @@ impl NoemaRuntimeHost {
             store,
             provider_auth: ProviderAuthManager::new(),
             mcp_oauth: McpOAuthSetupManager::new(),
-            mem0,
+            mnemosyne,
             memory_startup_error,
             system_errors,
             paths,
@@ -206,10 +206,10 @@ impl NoemaRuntimeHost {
 
     /// Runtime-only managed memory service connection, when available.
     #[must_use]
-    pub fn memory_connection(&self) -> Option<&crate::Mem0Connection> {
-        self.mem0
+    pub fn memory_connection(&self) -> Option<&crate::MnemosyneConnection> {
+        self.mnemosyne
             .as_ref()
-            .and_then(crate::Mem0Lifecycle::connection)
+            .and_then(crate::MnemosyneLifecycle::connection)
     }
 
     /// Runtime-only managed memory service startup error, when startup failed.
@@ -226,8 +226,8 @@ impl NoemaRuntimeHost {
 
     /// Shut down runtime-owned work.
     pub async fn shutdown(self) {
-        if let Some(mem0) = self.mem0 {
-            mem0.shutdown().await;
+        if let Some(mnemosyne) = self.mnemosyne {
+            mnemosyne.shutdown().await;
         }
         self.runtime.shutdown().await;
     }

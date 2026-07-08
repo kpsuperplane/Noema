@@ -1,26 +1,26 @@
-//! HTTP client for Noema's private Mem0 sidecar.
+//! HTTP client for Noema's private Mnemosyne sidecar.
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-const MEM0_REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
+const MNEMOSYNE_REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
 
-/// Mem0 sidecar HTTP client.
+/// Mnemosyne sidecar HTTP client.
 #[derive(Debug, Clone)]
-pub struct Mem0Client {
+pub struct MnemosyneClient {
     base_url: String,
     api_key: Option<String>,
     http: reqwest::Client,
 }
 
-impl Mem0Client {
-    /// Create a Mem0 sidecar client.
+impl MnemosyneClient {
+    /// Create a Mnemosyne sidecar client.
     #[must_use]
     pub fn new(base_url: String, api_key: Option<String>) -> Self {
         let http = reqwest::Client::builder()
-            .timeout(MEM0_REQUEST_TIMEOUT)
+            .timeout(MNEMOSYNE_REQUEST_TIMEOUT)
             .build()
-            .expect("Mem0 HTTP client timeout configuration must be valid");
+            .expect("Mnemosyne HTTP client timeout configuration must be valid");
         Self {
             base_url: base_url.trim_end_matches('/').to_string(),
             api_key,
@@ -28,13 +28,16 @@ impl Mem0Client {
         }
     }
 
-    /// Add one memory observation to Mem0.
+    /// Add one memory observation to Mnemosyne.
     ///
     /// # Errors
     ///
-    /// Returns [`Mem0ClientError`] when the request fails or Mem0 returns a
+    /// Returns [`MnemosyneClientError`] when the request fails or Mnemosyne returns a
     /// non-success HTTP status.
-    pub async fn add_memory(&self, request: Mem0AddMemoryRequest) -> Result<(), Mem0ClientError> {
+    pub async fn add_memory(
+        &self,
+        request: MnemosyneAddMemoryRequest,
+    ) -> Result<(), MnemosyneClientError> {
         let mut builder = self
             .http
             .post(format!("{}/v1/memories/add", self.base_url))
@@ -45,22 +48,22 @@ impl Mem0Client {
 
         let response = builder.send().await?;
         if !response.status().is_success() {
-            return Err(Mem0ClientError::Status(response.status().as_u16()));
+            return Err(MnemosyneClientError::Status(response.status().as_u16()));
         }
 
         Ok(())
     }
 
-    /// Search Mem0 memories.
+    /// Search Mnemosyne memories.
     ///
     /// # Errors
     ///
-    /// Returns [`Mem0ClientError`] when the request fails, Mem0 returns a
+    /// Returns [`MnemosyneClientError`] when the request fails, Mnemosyne returns a
     /// non-success status, or the response body cannot be decoded.
     pub async fn search_memories(
         &self,
-        request: Mem0SearchRequest,
-    ) -> Result<Mem0SearchResponse, Mem0ClientError> {
+        request: MnemosyneSearchRequest,
+    ) -> Result<MnemosyneSearchResponse, MnemosyneClientError> {
         let mut builder = self
             .http
             .post(format!("{}/v1/memories/search", self.base_url))
@@ -71,25 +74,25 @@ impl Mem0Client {
 
         let response = builder.send().await?;
         if !response.status().is_success() {
-            return Err(Mem0ClientError::Status(response.status().as_u16()));
+            return Err(MnemosyneClientError::Status(response.status().as_u16()));
         }
 
         response
-            .json::<Mem0SearchResponse>()
+            .json::<MnemosyneSearchResponse>()
             .await
             .map_err(Into::into)
     }
 
-    /// List Mem0 memories.
+    /// List Mnemosyne memories.
     ///
     /// # Errors
     ///
-    /// Returns [`Mem0ClientError`] when the request fails, Mem0 returns a
+    /// Returns [`MnemosyneClientError`] when the request fails, Mnemosyne returns a
     /// non-success status, or the response body cannot be decoded.
     pub async fn list_memories(
         &self,
-        request: Mem0ListMemoriesRequest,
-    ) -> Result<Mem0ListMemoriesResponse, Mem0ClientError> {
+        request: MnemosyneListMemoriesRequest,
+    ) -> Result<MnemosyneListMemoriesResponse, MnemosyneClientError> {
         let query = url::form_urlencoded::Serializer::new(String::new())
             .append_pair("user_id", &request.user_id)
             .append_pair("limit", &request.limit.to_string())
@@ -103,11 +106,11 @@ impl Mem0Client {
 
         let response = builder.send().await?;
         if !response.status().is_success() {
-            return Err(Mem0ClientError::Status(response.status().as_u16()));
+            return Err(MnemosyneClientError::Status(response.status().as_u16()));
         }
 
         response
-            .json::<Mem0ListMemoriesResponse>()
+            .json::<MnemosyneListMemoriesResponse>()
             .await
             .map_err(Into::into)
     }
@@ -115,15 +118,15 @@ impl Mem0Client {
 
 /// Add-memory request.
 #[derive(Debug, Clone, PartialEq, Serialize)]
-pub struct Mem0AddMemoryRequest {
+pub struct MnemosyneAddMemoryRequest {
     /// Source messages for this observation.
-    pub messages: Vec<Mem0Message>,
-    /// Mem0 user scope.
+    pub messages: Vec<MnemosyneMessage>,
+    /// Mnemosyne user scope.
     pub user_id: String,
-    /// Optional Mem0 agent scope.
+    /// Optional Mnemosyne agent scope.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub agent_id: Option<String>,
-    /// Optional Mem0 run/session scope.
+    /// Optional Mnemosyne run/session scope.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub run_id: Option<String>,
     /// Noema provenance metadata.
@@ -132,7 +135,7 @@ pub struct Mem0AddMemoryRequest {
 
 /// One source message.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct Mem0Message {
+pub struct MnemosyneMessage {
     /// Message role.
     pub role: String,
     /// Plain text content.
@@ -141,15 +144,15 @@ pub struct Mem0Message {
 
 /// Search request.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct Mem0SearchRequest {
+pub struct MnemosyneSearchRequest {
     /// Search query.
     pub query: String,
-    /// Mem0 user scope.
+    /// Mnemosyne user scope.
     pub user_id: String,
-    /// Optional Mem0 agent scope.
+    /// Optional Mnemosyne agent scope.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub agent_id: Option<String>,
-    /// Optional Mem0 run/session scope.
+    /// Optional Mnemosyne run/session scope.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub run_id: Option<String>,
     /// Maximum result count.
@@ -158,8 +161,8 @@ pub struct Mem0SearchRequest {
 
 /// Memory list request.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct Mem0ListMemoriesRequest {
-    /// Mem0 user scope.
+pub struct MnemosyneListMemoriesRequest {
+    /// Mnemosyne user scope.
     pub user_id: String,
     /// Maximum result count.
     pub limit: u16,
@@ -167,24 +170,24 @@ pub struct Mem0ListMemoriesRequest {
 
 /// Search response.
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
-pub struct Mem0SearchResponse {
+pub struct MnemosyneSearchResponse {
     /// Matching memory results.
     #[serde(default)]
-    pub results: Vec<Mem0Memory>,
+    pub results: Vec<MnemosyneMemory>,
 }
 
 /// Memory list response.
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
-pub struct Mem0ListMemoriesResponse {
+pub struct MnemosyneListMemoriesResponse {
     /// Memory results.
     #[serde(default, alias = "memories")]
-    pub results: Vec<Mem0Memory>,
+    pub results: Vec<MnemosyneMemory>,
 }
 
-/// One Mem0 memory.
+/// One Mnemosyne memory.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
-pub struct Mem0Memory {
-    /// Mem0 memory id.
+pub struct MnemosyneMemory {
+    /// Mnemosyne memory id.
     pub id: String,
     /// Memory text.
     #[serde(default)]
@@ -192,7 +195,7 @@ pub struct Mem0Memory {
     /// Similarity score.
     #[serde(default)]
     pub score: Option<f64>,
-    /// Noema provenance metadata when returned by Mem0.
+    /// Noema provenance metadata when returned by Mnemosyne.
     #[serde(default)]
     pub metadata: Option<serde_json::Value>,
     /// Creation timestamp.
@@ -203,18 +206,18 @@ pub struct Mem0Memory {
     pub updated_at: Option<String>,
 }
 
-/// Errors returned by the Mem0 client boundary.
+/// Errors returned by the Mnemosyne client boundary.
 #[derive(Debug, Error)]
-pub enum Mem0ClientError {
-    /// Mem0 request failed at the transport layer.
-    #[error("mem0 request failed: {0}")]
+pub enum MnemosyneClientError {
+    /// Mnemosyne request failed at the transport layer.
+    #[error("mnemosyne request failed: {0}")]
     Request(#[from] reqwest::Error),
-    /// Mem0 returned a non-success HTTP status.
-    #[error("mem0 returned HTTP status {0}")]
+    /// Mnemosyne returned a non-success HTTP status.
+    #[error("mnemosyne returned HTTP status {0}")]
     Status(u16),
 }
 
-impl Mem0ClientError {
+impl MnemosyneClientError {
     /// Stable sanitized error code suitable for model-visible tool results.
     #[must_use]
     pub fn sanitized_code(&self) -> &'static str {

@@ -6,7 +6,7 @@ This file is the durable working brief for Codex sessions. Keep it concise and u
 
 Noema is an always-on, self-hosted personal agent operating system. SQLite is
 Noema's canonical structured store at
-`${NOEMA_HOME:-$HOME/.noema}/db/noema.sqlite3`. Local Mem0 owns durable memory
+`${NOEMA_HOME:-$HOME/.noema}/db/noema.sqlite3`. Local Mnemosyne owns durable memory
 truth, extraction, updates, and memory search indexes.
 
 The next storage slice should stay small and concrete:
@@ -17,7 +17,7 @@ The next storage slice should stay small and concrete:
 - Core-hosted local React web chat as the first frontend shell.
 - SQLite-backed persisted conversations, transcript items, provider accounts,
   MCP setup, approvals, and memory service configuration.
-- Local Mem0-backed memory search through explicit `search_memory`.
+- Local Mnemosyne-backed memory search through explicit `search_memory`.
 - Frontend IA that keeps memory configuration in Settings > Memory and exposes
   human memories through the top-level `/memory` page.
 
@@ -29,38 +29,38 @@ The next storage slice should stay small and concrete:
 - The clean pre-V1 storage reset has no SurrealDB migration path.
 - SQLite database files live under
   `${NOEMA_HOME:-$HOME/.noema}/db/noema.sqlite3`.
-- Local Mem0 state lives under `${NOEMA_HOME:-$HOME/.noema}/mem0/data`; runtime
-  sidecar state lives under `${NOEMA_HOME:-$HOME/.noema}/mem0/run`.
-- Persisted user messages enqueue Mem0 memory observations immediately after
-  the user item is durably stored. The Mem0 add payload contains only the
+- Local Mnemosyne state lives under `${NOEMA_HOME:-$HOME/.noema}/mnemosyne/data`; runtime
+  sidecar state lives under `${NOEMA_HOME:-$HOME/.noema}/mnemosyne/run`.
+- Persisted user messages enqueue Mnemosyne memory observations immediately after
+  the user item is durably stored. The Mnemosyne add payload contains only the
   current user text as a `role: user` message, `user_id: human:local`,
   `agent_id: agent:local`, `run_id` set to the Noema conversation id, and
   Noema provenance metadata (`noemaConversationId`, `turnId`, `userItemId`,
   `sourceKind`). Assistant responses, tool results, reasoning, notices, and
-  empty user text are not submitted. Mem0 extraction never blocks normal
+  empty user text are not submitted. Mnemosyne extraction never blocks normal
   provider response generation.
   Noema does not keep a SQLite memory ingest job/outbox table yet; submit
   failures are best-effort diagnostics until a real retry surface exists.
-- Managed local Mem0 runs as a private Noema sidecar. The sidecar embeds Mem0
-  OSS behind a Noema-owned FastAPI contract, stores vectors in local Chroma,
-  uses FastEmbed local embeddings, installs spaCy with `en_core_web_sm` so
-  Mem0's entity linking and BM25 lemmatization paths are active, and binds a
-  runtime-selected loopback port. `cargo dev` prepares a repo-local Python
+- Managed local Mnemosyne runs as a private Noema sidecar. The sidecar embeds Mnemosyne
+  OSS behind a Noema-owned FastAPI contract, stores memory and indexes in
+  Mnemosyne's local SQLite/sqlite-vec database, uses FastEmbed local embeddings,
+  enables Mnemosyne's enhanced/polyphonic recall paths, and binds a
+  runtime-selected loopback port. `cargo dev` prepares a repo-local Python 3.10+
   virtualenv under
-  `crates/noema-core/target/mem0-sidecar-venv` and passes
-  `NOEMA_MEM0_SIDECAR_COMMAND` to the watched server process. The endpoint is
+  `crates/noema-core/target/mnemosyne-sidecar-venv` and passes
+  `NOEMA_MNEMOSYNE_SIDECAR_COMMAND` to the watched server process. The endpoint is
   kept in memory and is not stored in SQLite or shown in Settings.
-- Managed Mem0 receives model access through a Noema-hosted private loopback
+- Managed Mnemosyne receives model access through a Noema-hosted private loopback
   OpenAI-compatible `/v1/chat/completions` proxy. Noema injects
   `NOEMA_MEMORY_OPENAI_BASE_URL`, `NOEMA_MEMORY_OPENAI_API_KEY`, and
   `NOEMA_MEMORY_MODEL` into the child process at startup; the proxy routes
   generation through the provider/model selected in Settings > Memory, falling
   back to the daemon default only when no Memory model preference is saved.
-- The top-level `/memory` page lists Mem0 memories for the local human scope.
+- The top-level `/memory` page lists Mnemosyne memories for the local human scope.
   The web UI queries Noema Core GraphQL only; Noema Core resolves the
-  configured Mem0 endpoint, fetches memories for `human:local`, and adapts them
+  configured Mnemosyne endpoint, fetches memories for `human:local`, and adapts them
   into grouped memory documents for the frontend. The browser never connects
-  directly to Mem0.
+  directly to Mnemosyne.
 - Docker/Compose development infrastructure has been retired; local development
   uses host Rust, Bun, and web/desktop product surfaces. The old standalone
   Noema binary and local dev alias have been removed.
@@ -80,7 +80,7 @@ The next storage slice should stay small and concrete:
 - Filesystem storage is for durable object-owned documents, attachments, and artifacts.
 - `system/` state is derived and rebuildable.
 - Memory is governed context, not hidden model state. Durable memory truth now
-  belongs to local Mem0, while Noema owns service lifecycle, configuration,
+  belongs to local Mnemosyne, while Noema owns service lifecycle, configuration,
   live readiness proxying, provenance, UI, model routing, ingest diagnostics,
   and explicit `search_memory` tool calls.
 - Chat provider responses use an explicit object contract:
@@ -351,16 +351,16 @@ The next storage slice should stay small and concrete:
   conversation domain types, and MCP trusted identity helpers are split into
   nearby submodules with root files acting as stable facades.
 - Memory service configuration lives in SQLite store modules, while live
-  service status is queried through Noema core as a proxy to Mem0 and local
-  Mem0 owns durable memory behavior. Provider-neutral contracts,
+  service status is queried through Noema core as a proxy to Mnemosyne and local
+  Mnemosyne owns durable memory behavior. Provider-neutral contracts,
   account metadata, and auth support live under `provider`, while concrete
   adapters and response stream helpers live under `provider::adapters`; the old
   top-level `providers` module has been retired.
 - `crates/noema-core/web/tests` has been removed; web validation should use
   `bun run lint`, `bun run build`, and local browser smoke checks.
 - Agent memory reads are explicit `search_memory` tool-only calls. Noema
-  validates arguments, maps trusted active scopes to Mem0 user/run filters
-  where available, returns Mem0 search results as a normal tool result, and
+  validates arguments, maps trusted active scopes to Mnemosyne user/run filters
+  where available, returns Mnemosyne search results as a normal tool result, and
   does not inject memories automatically before turns.
 - The primary agent starts unnamed. Prompt construction includes an
   `onboarding_prompt` asking the model to ask the user for a name while the
@@ -374,7 +374,7 @@ The next storage slice should stay small and concrete:
   Empty `query` is allowed only for scoped reads, and `query` narrows within
   scope rather than broadening it.
 - Owner-facing memory visibility is available through the top-level `/memory`
-  page as a native Mem0-backed list. Transcript memory markers and `/remember`
+  page as a native Mnemosyne-backed list. Transcript memory markers and `/remember`
   are removed for now.
 - Provider tool continuations follow a bounded same-turn loop inspired by the
   OpenAI Codex turn runner: local tool results are fed back to the provider, a
@@ -412,7 +412,7 @@ The next storage slice should stay small and concrete:
 - GraphQL exposes `memorySettings`, `saveMemoryServiceSettings`,
   `checkMemoryService`, and `memoryGraph` for the current memory surface.
   Generated web GraphQL schema/types are kept in sync. Settings > Memory at
-  `/settings/memory` owns Mem0 mode, external base URL, live status, and
+  `/settings/memory` owns Mnemosyne mode, external base URL, live status, and
   extraction model preference.
 - Apple Foundation Models local-provider implementation is in active bridge
   integration shape: the Swift bridge lives under
@@ -462,12 +462,12 @@ The next storage slice should stay small and concrete:
 
 ## Open Loops
 
-- Decide whether richer Mem0 memory browsing should include entity, provenance,
+- Decide whether richer Mnemosyne memory browsing should include entity, provenance,
   and history drill-ins.
-- Decide how Mem0 extraction/ingest visibility should surface without bringing
+- Decide how Mnemosyne extraction/ingest visibility should surface without bringing
   back transcript memory markers prematurely.
 - Persist audit-only `search_memory` diagnostics if needed, without mirroring
-  Mem0 memory truth in SQLite.
+  Mnemosyne memory truth in SQLite.
 - Continue aligning docs, schema, and frontend IA.
 - Decide which export formats ship first and how export preview/redaction should work.
 - Continue the third-party MCP control plane after the first landed slice:

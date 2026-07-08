@@ -37,7 +37,7 @@ export function MemorySettingsPaneContent({
     return (
       <section {...stylex.props(styles.card)} aria-labelledby="memory-settings-title">
         <h2 id="memory-settings-title" {...stylex.props(styles.cardTitle)}>
-          Mem0
+          Mnemosyne
         </h2>
         <p {...stylex.props(styles.mutedText)}>Memory settings could not be loaded.</p>
       </section>
@@ -88,7 +88,7 @@ function LoadedMemorySettingsPaneContent({
       <div {...stylex.props(styles.cardHeader)}>
         <div {...stylex.props(styles.titleStack)}>
           <h2 id="memory-settings-title" {...stylex.props(styles.cardTitle)}>
-            Mem0
+            Mnemosyne
           </h2>
           <p {...stylex.props(styles.mutedText)}>
             {memoryStatusLabel(settings.status.status, settings.mode)}

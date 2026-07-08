@@ -16,9 +16,9 @@ nested Settings sections including `/settings/memory`. `/memory` redirects to
 | Daemon web server | Local React shell, GraphQL HTTP, and GraphQL WebSocket subscription endpoints |
 | `A2uiCard` payloads | Structured cards inside the chat stream when backed by current runtime behavior |
 | `config.yaml` and environment-derived config | Provider/model/default setup state; secrets remain outside SQLite |
-| `NoemaPaths` and store config | Noema home, runtime directory, SQLite database path, and Mem0 data/runtime paths |
+| `NoemaPaths` and store config | Noema home, runtime directory, SQLite database path, and Mnemosyne data/runtime paths |
 | SQLite store | Concrete object rows, conversations, conversation turns/items, provider accounts, MCP setup/calibration state, approvals, auxiliary preferences, and memory service settings/status |
-| Local Mem0 | Durable memory truth, extraction, updates, and memory search indexes |
+| Local Mnemosyne | Durable memory truth, extraction, updates, and memory search indexes |
 
 ## Frontend Code Organization
 
@@ -45,11 +45,11 @@ home route. They do not imply primary navigation priority.
 | `/settings/safety/identities` | Settings / Trusted identities | trusted identity selectors from GraphQL | selector rows used to resolve tool-result ownership | Current |
 | `/settings/safety/usage` | Settings / Usage | auxiliary model preferences from GraphQL | progress-audit model preference | Current |
 | `/settings/system/providers` | Settings / Providers | provider account metadata from GraphQL | provider metadata, auth method, readiness, and safe error state | Current |
-| `/settings/memory` | Settings / Memory | GraphQL `memorySettings`, `saveMemoryServiceSettings`, and `checkMemoryService` | view managed/external Mem0 status, configure external endpoint and extraction model preference, and check readiness | Current |
+| `/settings/memory` | Settings / Memory | GraphQL `memorySettings`, `saveMemoryServiceSettings`, and `checkMemoryService` | view managed/external Mnemosyne status, configure external endpoint and extraction model preference, and check readiness | Current |
 
 Future route groups:
 
-- `/memory/:id`, `/memory/review`, and richer memory browsing backed by Mem0
+- `/memory/:id`, `/memory/review`, and richer memory browsing backed by Mnemosyne
   visibility APIs.
 - `/inspect`, `/inspect/context-graph`, `/inspect/context-packets`.
 - `/threads`, `/threads/:id`.
@@ -110,12 +110,12 @@ Current behavior:
 
 Current memory UX is Settings plus a top-level memory list:
 
-- `/settings/memory` shows Mem0 mode, readiness, and the model preference used
+- `/settings/memory` shows Mnemosyne mode, readiness, and the model preference used
   for memory extraction.
 - External-mode base URL edits are live for the next `search_memory` call.
-- Managed mode is read-only in the current slice because the managed Mem0 child
+- Managed mode is read-only in the current slice because the managed Mnemosyne child
   process is started by the runtime host at startup.
-- `/memory` lists Mem0-backed human memories through Noema Core GraphQL.
+- `/memory` lists Mnemosyne-backed human memories through Noema Core GraphQL.
 - There is no `/memory/graph` route and no React Flow graph browser in the
   current slice.
 - Transcript memory markers and `/remember` are intentionally absent for now.
@@ -151,7 +151,7 @@ Show:
 - Config file existence and assistant connection status.
 - Whether config was initialized by defaults.
 - SQLite store availability/readiness state.
-- Mem0 readiness state in Settings > Memory.
+- Mnemosyne readiness state in Settings > Memory.
 - Local service reachable/unreachable.
 - Provider readiness in beginner language: connected, not connected, timed out,
   or error.
@@ -160,5 +160,5 @@ Show:
 
 Context graph browsing is a future owner/admin-only surface. The first slice
 must not expose a graph browser or Noema-owned memory claim tables. Richer
-Mem0-backed visibility should avoid leaking private memory existence through
+Mnemosyne-backed visibility should avoid leaking private memory existence through
 normal-user text and should keep graph details out of default chat.

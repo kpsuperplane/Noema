@@ -251,7 +251,7 @@ pub(super) async fn memory_graph(
             MemoryServiceMode::External => GraphqlMemoryServiceStatus {
                 status: GraphqlMemoryServiceStatusKind::NotConfigured,
                 checked_at: Some(now_rfc3339()?),
-                last_error_code: Some("mem0_not_configured".to_string()),
+                last_error_code: Some("mnemosyne_not_configured".to_string()),
                 last_error_message: Some("memory service base URL is required".to_string()),
             },
         };
@@ -263,9 +263,9 @@ pub(super) async fn memory_graph(
     };
 
     let request_limit = u16::try_from(limit).expect("memory graph limit is clamped positive");
-    let client = crate::Mem0Client::new(connection.base_url, connection.api_key);
+    let client = crate::MnemosyneClient::new(connection.base_url, connection.api_key);
     let response = match client
-        .list_memories(crate::Mem0ListMemoriesRequest {
+        .list_memories(crate::MnemosyneListMemoriesRequest {
             user_id: HUMAN_MEMORY_SCOPE_ID.to_string(),
             limit: request_limit,
         })
@@ -294,7 +294,7 @@ pub(super) async fn memory_graph(
             last_error_code: None,
             last_error_message: None,
         },
-        documents: mem0_memories_to_graph_documents(response.results),
+        documents: mnemosyne_memories_to_graph_documents(response.results),
         page_info,
     })
 }
@@ -391,17 +391,19 @@ pub(super) async fn save_memory_service_settings(
 async fn memory_graph_connection(
     state: &GraphqlState,
     settings: &MemoryServiceSettingsRecord,
-) -> Result<Option<crate::Mem0Connection>> {
+) -> Result<Option<crate::MnemosyneConnection>> {
     match settings.mode {
         MemoryServiceMode::Managed => Ok(state.memory_connection().cloned()),
         MemoryServiceMode::External => Ok(settings
             .base_url
             .clone()
-            .map(|base_url| crate::Mem0Connection::new(base_url, None))),
+            .map(|base_url| crate::MnemosyneConnection::new(base_url, None))),
     }
 }
 
-fn memory_graph_error_status(error: &crate::Mem0ClientError) -> Result<GraphqlMemoryServiceStatus> {
+fn memory_graph_error_status(
+    error: &crate::MnemosyneClientError,
+) -> Result<GraphqlMemoryServiceStatus> {
     let status = match error.sanitized_code() {
         "auth_error" => GraphqlMemoryServiceStatusKind::AuthError,
         _ => GraphqlMemoryServiceStatusKind::Unavailable,
@@ -414,10 +416,10 @@ fn memory_graph_error_status(error: &crate::Mem0ClientError) -> Result<GraphqlMe
     })
 }
 
-fn mem0_memories_to_graph_documents(
-    memories: Vec<crate::Mem0Memory>,
+fn mnemosyne_memories_to_graph_documents(
+    memories: Vec<crate::MnemosyneMemory>,
 ) -> Vec<GraphqlMemoryGraphDocument> {
-    let mut groups = BTreeMap::<String, Vec<crate::Mem0Memory>>::new();
+    let mut groups = BTreeMap::<String, Vec<crate::MnemosyneMemory>>::new();
     for memory in memories {
         let document_id = memory
             .metadata
@@ -425,14 +427,14 @@ fn mem0_memories_to_graph_documents(
             .and_then(|metadata| metadata.get("noemaConversationId"))
             .and_then(serde_json::Value::as_str)
             .map(|conversation_id| format!("conversation:{conversation_id}"))
-            .unwrap_or_else(|| format!("mem0:{HUMAN_MEMORY_SCOPE_ID}"));
+            .unwrap_or_else(|| format!("mnemosyne:{HUMAN_MEMORY_SCOPE_ID}"));
         groups.entry(document_id).or_default().push(memory);
     }
 
     groups
         .into_iter()
         .map(|(document_id, memories)| {
-            let title = if document_id == format!("mem0:{HUMAN_MEMORY_SCOPE_ID}") {
+            let title = if document_id == format!("mnemosyne:{HUMAN_MEMORY_SCOPE_ID}") {
                 "Human memory".to_string()
             } else {
                 "Conversation memory".to_string()
@@ -478,7 +480,7 @@ fn mem0_memories_to_graph_documents(
                 content: None,
                 summary: None,
                 url: None,
-                source: Some("mem0".to_string()),
+                source: Some("mnemosyne".to_string()),
                 r#type: Some("memory_group".to_string()),
                 status: "ready".to_string(),
                 metadata: None,
@@ -557,9 +559,9 @@ async fn managed_memory_unavailable_status(
     Ok(GraphqlMemoryServiceStatus {
         status: GraphqlMemoryServiceStatusKind::Unavailable,
         checked_at: Some(now_rfc3339()?),
-        last_error_code: Some("mem0_unavailable".to_string()),
+        last_error_code: Some("mnemosyne_unavailable".to_string()),
         last_error_message: Some(
-            last_error_message.unwrap_or_else(|| "Managed Mem0 is not running".to_string()),
+            last_error_message.unwrap_or_else(|| "Managed Mnemosyne is not running".to_string()),
         ),
     })
 }

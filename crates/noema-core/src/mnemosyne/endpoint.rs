@@ -1,17 +1,17 @@
-//! Runtime-only Mem0 endpoint configuration.
+//! Runtime-only Mnemosyne endpoint configuration.
 
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
 
-/// Runtime-only connection details for a Mem0 sidecar.
+/// Runtime-only connection details for a Mnemosyne sidecar.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Mem0Connection {
+pub struct MnemosyneConnection {
     /// Service base URL used only inside the runtime.
     pub base_url: String,
     /// Optional API key for the service.
     pub api_key: Option<String>,
 }
 
-impl Mem0Connection {
+impl MnemosyneConnection {
     /// Build a connection and normalize the base URL.
     #[must_use]
     pub fn new(base_url: String, api_key: Option<String>) -> Self {
@@ -22,7 +22,7 @@ impl Mem0Connection {
     }
 }
 
-/// Allocate an ephemeral loopback TCP port for a managed Mem0 sidecar.
+/// Allocate an ephemeral loopback TCP port for a managed Mnemosyne sidecar.
 ///
 /// The listener is released before the child process starts, so callers should
 /// treat the result as a candidate and retry startup if the port is stolen.
@@ -46,7 +46,7 @@ mod tests {
 
     #[test]
     fn connection_trims_base_url() {
-        let connection = super::Mem0Connection::new(
+        let connection = super::MnemosyneConnection::new(
             "http://127.0.0.1:12345/".to_string(),
             Some("secret".to_string()),
         );

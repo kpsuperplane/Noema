@@ -125,7 +125,7 @@ pub(in crate::daemon) fn search_memory_tool_spec() -> Result<NoemaToolSpec, Tool
 
 pub(in crate::daemon) async fn execute_search_memory(
     _store: &NoemaStore,
-    client: Option<crate::Mem0Client>,
+    client: Option<crate::MnemosyneClient>,
     context: &MemoryToolRuntimeContext,
     call_id: Option<String>,
     payload: &Value,
@@ -149,7 +149,7 @@ pub(in crate::daemon) async fn execute_search_memory(
 }
 
 async fn execute_search_memory_inner(
-    client: Option<crate::Mem0Client>,
+    client: Option<crate::MnemosyneClient>,
     context: &MemoryToolRuntimeContext,
     _call_id: Option<&str>,
     payload: &Value,
@@ -174,7 +174,7 @@ async fn execute_search_memory_inner(
             None
         };
         let response = client
-            .search_memories(crate::Mem0SearchRequest {
+            .search_memories(crate::MnemosyneSearchRequest {
                 query: arguments.query.clone(),
                 user_id: HUMAN_MEMORY_SCOPE_ID.to_string(),
                 agent_id: None,
@@ -192,7 +192,7 @@ async fn execute_search_memory_inner(
             };
             memories.push(json!({
                 "id": result.id,
-                "kind": "mem0",
+                "kind": "mnemosyne",
                 "memory": memory,
                 "score": result.score,
                 "updated_at": result.updated_at,

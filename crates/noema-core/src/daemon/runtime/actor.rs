@@ -12,7 +12,7 @@ pub(in crate::daemon) struct CodexRuntimeActor {
     pub(in crate::daemon) providers: HashMap<String, Arc<dyn RuntimeModelProvider>>,
     pub(in crate::daemon) store: NoemaStore,
     pub(in crate::daemon) system_errors: SystemErrorLogger,
-    pub(in crate::daemon) memory_connection: Option<crate::Mem0Connection>,
+    pub(in crate::daemon) memory_connection: Option<crate::MnemosyneConnection>,
     pub(in crate::daemon) search_provider: crate::search::types::SearchRuntimeProvider,
     pub(in crate::daemon) web_fetch_provider: crate::web_fetch::types::WebFetchRuntimeProvider,
     pub(in crate::daemon) conversations: HashMap<String, ActiveConversation>,
@@ -34,7 +34,7 @@ impl CodexRuntimeActor {
         providers: HashMap<String, Arc<dyn RuntimeModelProvider>>,
         store: NoemaStore,
         system_errors: SystemErrorLogger,
-        memory_connection: Option<crate::Mem0Connection>,
+        memory_connection: Option<crate::MnemosyneConnection>,
     ) -> Result<Self, DaemonError> {
         Ok(Self {
             default_provider_kind,
@@ -100,9 +100,9 @@ impl CodexRuntimeActor {
         self.provider_for_kind(&self.default_provider_kind)
     }
 
-    pub(in crate::daemon) fn memory_client(&self) -> Option<crate::Mem0Client> {
+    pub(in crate::daemon) fn memory_client(&self) -> Option<crate::MnemosyneClient> {
         self.memory_connection.as_ref().map(|connection| {
-            crate::Mem0Client::new(connection.base_url.clone(), connection.api_key.clone())
+            crate::MnemosyneClient::new(connection.base_url.clone(), connection.api_key.clone())
         })
     }
 

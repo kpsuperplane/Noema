@@ -1,36 +1,36 @@
-//! Managed Mem0 sidecar lifecycle.
+//! Managed Mnemosyne sidecar lifecycle.
 
 use std::{env, process::ExitStatus, process::Stdio};
 
 use thiserror::Error;
 use tokio::time::{Duration, sleep};
 
-use super::{Mem0Connection, allocate_loopback_port};
+use super::{MnemosyneConnection, allocate_loopback_port};
 use crate::MemoryModelProxy;
 
-/// Environment variable that overrides the managed Mem0 sidecar launch command.
-pub const NOEMA_MEM0_SIDECAR_COMMAND_ENV: &str = "NOEMA_MEM0_SIDECAR_COMMAND";
+/// Environment variable that overrides the managed Mnemosyne sidecar launch command.
+pub const NOEMA_MNEMOSYNE_SIDECAR_COMMAND_ENV: &str = "NOEMA_MNEMOSYNE_SIDECAR_COMMAND";
 
-/// Mem0 process lifecycle owned by the runtime host.
-pub struct Mem0Lifecycle {
+/// Mnemosyne process lifecycle owned by the runtime host.
+pub struct MnemosyneLifecycle {
     child: Option<tokio::process::Child>,
-    connection: Option<Mem0Connection>,
+    connection: Option<MnemosyneConnection>,
     model_proxy: Option<MemoryModelProxy>,
 }
 
-impl Mem0Lifecycle {
-    /// Start the configured Mem0 lifecycle.
+impl MnemosyneLifecycle {
+    /// Start the configured Mnemosyne lifecycle.
     ///
     /// # Errors
     ///
-    /// Returns [`Mem0LifecycleError`] when managed directory setup or
+    /// Returns [`MnemosyneLifecycleError`] when managed directory setup or
     /// child-process startup fails.
     pub async fn start(
         paths: &crate::NoemaPaths,
         settings: &crate::MemoryServiceSettingsRecord,
         system_errors: crate::SystemErrorLogger,
         model_proxy: Option<MemoryModelProxy>,
-    ) -> Result<Self, Mem0LifecycleError> {
+    ) -> Result<Self, MnemosyneLifecycleError> {
         match settings.mode {
             crate::MemoryServiceMode::External => Ok(Self {
                 child: None,
@@ -39,7 +39,7 @@ impl Mem0Lifecycle {
             }),
             crate::MemoryServiceMode::Managed => {
                 let port = allocate_loopback_port()?;
-                let command = Mem0SidecarCommand::from_env();
+                let command = MnemosyneSidecarCommand::from_env();
                 Self::start_with_command_and_port(
                     paths,
                     settings,
@@ -55,7 +55,7 @@ impl Mem0Lifecycle {
 
     /// Runtime-only connection used by Noema to reach the managed sidecar.
     #[must_use]
-    pub fn connection(&self) -> Option<&Mem0Connection> {
+    pub fn connection(&self) -> Option<&MnemosyneConnection> {
         self.connection.as_ref()
     }
 
@@ -63,10 +63,10 @@ impl Mem0Lifecycle {
         paths: &crate::NoemaPaths,
         settings: &crate::MemoryServiceSettingsRecord,
         system_errors: crate::SystemErrorLogger,
-        command: Mem0SidecarCommand,
+        command: MnemosyneSidecarCommand,
         port: u16,
         model_proxy: Option<MemoryModelProxy>,
-    ) -> Result<Self, Mem0LifecycleError> {
+    ) -> Result<Self, MnemosyneLifecycleError> {
         match settings.mode {
             crate::MemoryServiceMode::External => Ok(Self {
                 child: None,
@@ -75,18 +75,18 @@ impl Mem0Lifecycle {
             }),
             crate::MemoryServiceMode::Managed => {
                 let Some(model_proxy) = model_proxy else {
-                    return Err(Mem0LifecycleError::Start(
+                    return Err(MnemosyneLifecycleError::Start(
                         "memory model proxy is unavailable".to_string(),
                     ));
                 };
-                tokio::fs::create_dir_all(paths.mem0_data_dir()).await?;
-                tokio::fs::create_dir_all(paths.mem0_runtime_dir()).await?;
+                tokio::fs::create_dir_all(paths.mnemosyne_data_dir()).await?;
+                tokio::fs::create_dir_all(paths.mnemosyne_runtime_dir()).await?;
 
-                let connection = Mem0Connection::new(format!("http://127.0.0.1:{port}"), None);
+                let connection = MnemosyneConnection::new(format!("http://127.0.0.1:{port}"), None);
                 let mut process = command.into_process_command(port);
                 process
-                    .env("NOEMA_MEM0_DATA_DIR", paths.mem0_data_dir())
-                    .env("NOEMA_MEM0_PORT", port.to_string())
+                    .env("NOEMA_MNEMOSYNE_DATA_DIR", paths.mnemosyne_data_dir())
+                    .env("NOEMA_MNEMOSYNE_PORT", port.to_string())
                     .env(
                         "NOEMA_MEMORY_OPENAI_BASE_URL",
                         model_proxy.openai_base_url(),
@@ -101,27 +101,28 @@ impl Mem0Lifecycle {
                     Err(error) => {
                         system_errors.try_append(
                             crate::SystemErrorEvent::new(
-                                "mem0_start_failed",
-                                "Mem0 managed process could not start",
+                                "mnemosyne_start_failed",
+                                "Mnemosyne managed process could not start",
                             )
                             .with_error_chain([error.to_string()]),
                         );
-                        return Err(Mem0LifecycleError::Start(
-                            "Mem0 managed process could not start".to_string(),
+                        return Err(MnemosyneLifecycleError::Start(
+                            "Mnemosyne managed process could not start".to_string(),
                         ));
                     }
                 };
 
                 if let Some(status) = wait_for_early_child_exit(&mut child).await? {
-                    let error_message = format!("Mem0 managed process exited with status {status}");
+                    let error_message =
+                        format!("Mnemosyne managed process exited with status {status}");
                     system_errors.try_append(
                         crate::SystemErrorEvent::new(
-                            "mem0_start_failed",
-                            "Mem0 managed process exited during startup",
+                            "mnemosyne_start_failed",
+                            "Mnemosyne managed process exited during startup",
                         )
                         .with_error_chain([error_message.clone()]),
                     );
-                    return Err(Mem0LifecycleError::Start(error_message));
+                    return Err(MnemosyneLifecycleError::Start(error_message));
                 }
 
                 Ok(Self {
@@ -133,7 +134,7 @@ impl Mem0Lifecycle {
         }
     }
 
-    /// Stop the managed Mem0 child process, when one was started.
+    /// Stop the managed Mnemosyne child process, when one was started.
     pub async fn shutdown(mut self) {
         if let Some(child) = &mut self.child {
             let _ = child.kill().await;
@@ -148,7 +149,7 @@ impl Mem0Lifecycle {
         paths: &crate::NoemaPaths,
         command: String,
         model_proxy: MemoryModelProxy,
-    ) -> Result<Self, Mem0LifecycleError> {
+    ) -> Result<Self, MnemosyneLifecycleError> {
         Self::start_with_command_and_port(
             paths,
             &crate::MemoryServiceSettingsRecord {
@@ -162,7 +163,7 @@ impl Mem0Lifecycle {
                 reasoning_effort: None,
             },
             crate::SystemErrorLogger::new(paths.root().join("errors.jsonl")),
-            Mem0SidecarCommand::Shell(command),
+            MnemosyneSidecarCommand::Shell(command),
             0,
             Some(model_proxy),
         )
@@ -171,14 +172,14 @@ impl Mem0Lifecycle {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum Mem0SidecarCommand {
+enum MnemosyneSidecarCommand {
     Default,
     Shell(String),
 }
 
-impl Mem0SidecarCommand {
+impl MnemosyneSidecarCommand {
     fn from_env() -> Self {
-        env::var(NOEMA_MEM0_SIDECAR_COMMAND_ENV)
+        env::var(NOEMA_MNEMOSYNE_SIDECAR_COMMAND_ENV)
             .ok()
             .filter(|command| !command.trim().is_empty())
             .map_or(Self::Default, Self::Shell)
@@ -192,12 +193,12 @@ impl Mem0SidecarCommand {
                     .arg("-m")
                     .arg("uvicorn")
                     .arg("--factory")
-                    .arg("noema_mem0_sidecar.app:create_app")
+                    .arg("noema_mnemosyne_sidecar.app:create_app")
                     .arg("--host")
                     .arg("127.0.0.1")
                     .arg("--port")
                     .arg(port.to_string())
-                    .current_dir(env!("NOEMA_MEM0_SIDECAR_DIR"));
+                    .current_dir(env!("NOEMA_MNEMOSYNE_SIDECAR_DIR"));
                 command
             }
             Self::Shell(script) => {
@@ -221,14 +222,14 @@ async fn wait_for_early_child_exit(
     Ok(None)
 }
 
-/// Errors returned by Mem0 lifecycle startup.
+/// Errors returned by Mnemosyne lifecycle startup.
 #[derive(Debug, Error)]
-pub enum Mem0LifecycleError {
+pub enum MnemosyneLifecycleError {
     /// Managed directory setup failed.
-    #[error("mem0 directory setup failed: {0}")]
+    #[error("mnemosyne directory setup failed: {0}")]
     Io(#[from] std::io::Error),
     /// Managed child process startup failed.
-    #[error("mem0 startup failed: {0}")]
+    #[error("mnemosyne startup failed: {0}")]
     Start(String),
 }
 
@@ -239,7 +240,7 @@ mod tests {
     use tempfile::TempDir;
 
     #[tokio::test]
-    async fn managed_mem0_lifecycle_exports_private_sidecar_env() {
+    async fn managed_mnemosyne_lifecycle_exports_private_sidecar_env() {
         let home = TempDir::new().expect("temp noema home");
         let paths = crate::NoemaPaths::from_noema_home(home.path()).expect("paths");
         let proxy = crate::MemoryModelProxy::start(crate::MemoryModelProxyConfig {
@@ -252,9 +253,9 @@ mod tests {
         .await
         .expect("start proxy");
         let openai_base_url = proxy.openai_base_url().to_string();
-        let command = write_sleeping_mem0_sidecar(home.path());
+        let command = write_sleeping_mnemosyne_sidecar(home.path());
 
-        let lifecycle = super::Mem0Lifecycle::start_with_command_for_test(
+        let lifecycle = super::MnemosyneLifecycle::start_with_command_for_test(
             &paths,
             command.to_string_lossy().to_string(),
             proxy,
@@ -269,28 +270,28 @@ mod tests {
                 .base_url
                 .starts_with("http://127.0.0.1:")
         );
-        let env_file = paths.mem0_data_dir().join("model-env.txt");
+        let env_file = paths.mnemosyne_data_dir().join("model-env.txt");
         let env_text = tokio::fs::read_to_string(env_file).await.expect("env file");
         assert!(env_text.contains(&format!("NOEMA_MEMORY_OPENAI_BASE_URL={openai_base_url}")));
         assert!(env_text.contains("NOEMA_MEMORY_OPENAI_API_KEY=proxy-secret"));
         assert!(env_text.contains("NOEMA_MEMORY_MODEL=memory-model"));
-        assert!(env_text.contains("NOEMA_MEM0_PORT=0"));
+        assert!(env_text.contains("NOEMA_MNEMOSYNE_PORT=0"));
 
         lifecycle.shutdown().await;
     }
 
-    fn write_sleeping_mem0_sidecar(root: &std::path::Path) -> std::path::PathBuf {
-        let path = root.join("mem0-sidecar");
+    fn write_sleeping_mnemosyne_sidecar(root: &std::path::Path) -> std::path::PathBuf {
+        let path = root.join("mnemosyne-sidecar");
         fs::write(
             &path,
             r#"#!/bin/sh
-mkdir -p "$NOEMA_MEM0_DATA_DIR"
+mkdir -p "$NOEMA_MNEMOSYNE_DATA_DIR"
 {
   echo "NOEMA_MEMORY_OPENAI_BASE_URL=$NOEMA_MEMORY_OPENAI_BASE_URL"
   echo "NOEMA_MEMORY_OPENAI_API_KEY=$NOEMA_MEMORY_OPENAI_API_KEY"
   echo "NOEMA_MEMORY_MODEL=$NOEMA_MEMORY_MODEL"
-  echo "NOEMA_MEM0_PORT=$NOEMA_MEM0_PORT"
-} > "$NOEMA_MEM0_DATA_DIR/model-env.txt"
+  echo "NOEMA_MNEMOSYNE_PORT=$NOEMA_MNEMOSYNE_PORT"
+} > "$NOEMA_MNEMOSYNE_DATA_DIR/model-env.txt"
 sleep 5
 "#,
         )

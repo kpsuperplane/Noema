@@ -175,7 +175,7 @@ impl GraphqlState {
         self.runtime_state.paths()
     }
 
-    pub(crate) fn memory_connection(&self) -> Option<&crate::Mem0Connection> {
+    pub(crate) fn memory_connection(&self) -> Option<&crate::MnemosyneConnection> {
         self.runtime_state.memory_connection()
     }
 
@@ -863,7 +863,7 @@ mod tests {
         )
     }
 
-    async fn spawn_memory_graph_mem0_server() -> String {
+    async fn spawn_memory_graph_mnemosyne_server() -> String {
         use tokio::{
             io::{AsyncReadExt, AsyncWriteExt},
             net::TcpListener,
@@ -948,7 +948,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn memory_settings_query_reports_managed_mem0_unavailable() {
+    async fn memory_settings_query_reports_managed_mnemosyne_unavailable() {
         let home = tempfile::TempDir::new().expect("home");
         let paths = crate::NoemaPaths::from_noema_home(home.path()).expect("paths");
         let store = crate::NoemaStore::open(&crate::StoreConfig::from_paths(&paths))
@@ -978,11 +978,11 @@ mod tests {
         assert_eq!(data["memorySettings"]["status"]["status"], "UNAVAILABLE");
         assert_eq!(
             data["memorySettings"]["status"]["lastErrorCode"],
-            "mem0_unavailable"
+            "mnemosyne_unavailable"
         );
         assert_eq!(
             data["memorySettings"]["status"]["lastErrorMessage"],
-            "Managed Mem0 is not running"
+            "Managed Mnemosyne is not running"
         );
     }
 
@@ -1020,7 +1020,7 @@ mod tests {
         assert_eq!(data["memoryGraph"]["status"]["status"], "UNAVAILABLE");
         assert_eq!(
             data["memoryGraph"]["status"]["lastErrorCode"],
-            "mem0_unavailable"
+            "mnemosyne_unavailable"
         );
         assert_eq!(data["memoryGraph"]["documents"], json!([]));
         assert_eq!(data["memoryGraph"]["pageInfo"]["page"], 1);
@@ -1029,8 +1029,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn memory_graph_lists_external_mem0_memories() {
-        let server_base_url = spawn_memory_graph_mem0_server().await;
+    async fn memory_graph_lists_external_mnemosyne_memories() {
+        let server_base_url = spawn_memory_graph_mnemosyne_server().await;
         let store = crate::store::tests::test_store().await;
         store
             .save_memory_service_settings(crate::SaveMemoryServiceSettings {
@@ -1102,7 +1102,7 @@ mod tests {
         );
         assert_eq!(
             data["memoryGraph"]["documents"][1]["id"],
-            "mem0:human:local"
+            "mnemosyne:human:local"
         );
         assert_eq!(data["memoryGraph"]["documents"][1]["title"], "Human memory");
         assert_eq!(data["memoryGraph"]["pageInfo"]["hasMore"], false);

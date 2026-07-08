@@ -13,7 +13,7 @@ pub struct GraphqlRuntimeState {
     provider_auth: Option<ProviderAuthManager>,
     mcp_oauth: Option<McpOAuthSetupManager>,
     paths: Option<NoemaPaths>,
-    memory_connection: Option<crate::Mem0Connection>,
+    memory_connection: Option<crate::MnemosyneConnection>,
     memory_startup_error: Option<String>,
     subscriptions: ConversationSubscriptionRegistry,
     memory_storage: GraphqlMemoryStorageStatus,
@@ -121,7 +121,7 @@ impl GraphqlRuntimeState {
             .ok_or_else(|| async_graphql::Error::new("Noema paths are unavailable"))
     }
 
-    pub(crate) fn memory_connection(&self) -> Option<&crate::Mem0Connection> {
+    pub(crate) fn memory_connection(&self) -> Option<&crate::MnemosyneConnection> {
         self.memory_connection.as_ref()
     }
 
