@@ -110,8 +110,11 @@ Current behavior:
 
 Current memory UX is Settings-only:
 
-- `/settings/memory` configures Supermemory mode, base URL, port, readiness, and
-  the model preference used for Supermemory extraction.
+- `/settings/memory` shows Supermemory mode, managed port, readiness, and the
+  model preference used for Supermemory extraction.
+- External-mode base URL edits are live for the next `search_memory` call.
+- Managed mode and managed port are read-only in the current slice because the
+  managed Supermemory child process is started by the runtime host at startup.
 - `/memory` redirects to `/settings/memory`.
 - There is no `/memory/graph` route, no React Flow graph browser, and no primary
   Memory sidebar item in the current slice.
