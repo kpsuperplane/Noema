@@ -876,11 +876,11 @@ type MemorySettings {
 	"""
 	mode: MemoryServiceMode!
 	"""
-	Base URL for the Supermemory service.
+	External Supermemory service base URL.
 	"""
-	baseUrl: String!
+	baseUrl: String
 	"""
-	Managed service port, when configured.
+	External service port, when configured.
 	"""
 	port: Int
 	"""
@@ -1444,11 +1444,11 @@ input SaveMemoryServiceSettingsInput {
 	"""
 	mode: MemoryServiceMode!
 	"""
-	Base URL for the Supermemory service.
+	External Supermemory service base URL.
 	"""
-	baseUrl: String!
+	baseUrl: String
 	"""
-	Managed service port, when configured.
+	External service port, when configured.
 	"""
 	port: Int
 	"""

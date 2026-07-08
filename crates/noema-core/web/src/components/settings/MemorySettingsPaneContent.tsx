@@ -76,10 +76,12 @@ function LoadedMemorySettingsPaneContent({
     settings.modelPreference ?? null,
     settings.modelOptions
   );
-  const [baseUrl, setBaseUrl] = useState(settings.baseUrl);
+  const persistedBaseUrl = settings.baseUrl ?? "";
+  const [baseUrl, setBaseUrl] = useState(persistedBaseUrl);
 
-  const baseUrlChanged = baseUrl.trim() !== settings.baseUrl;
+  const baseUrlChanged = baseUrl.trim() !== persistedBaseUrl;
   const baseUrlEditable = settings.mode === "EXTERNAL";
+  const checkButtonLabel = settings.mode === "EXTERNAL" ? "Check connection" : "Refresh status";
 
   return (
     <section {...stylex.props(styles.card)} aria-labelledby="memory-settings-title">
@@ -89,7 +91,7 @@ function LoadedMemorySettingsPaneContent({
             Supermemory
           </h2>
           <p {...stylex.props(styles.mutedText)}>
-            {memoryStatusLabel(settings.status.status)}
+            {memoryStatusLabel(settings.status.status, settings.mode)}
           </p>
         </div>
         <button
@@ -98,7 +100,7 @@ function LoadedMemorySettingsPaneContent({
           disabled={checking}
           onClick={() => void onCheck()}
         >
-          {checking ? "Checking..." : "Check connection"}
+          {checking ? "Checking..." : checkButtonLabel}
         </button>
       </div>
 
@@ -113,35 +115,37 @@ function LoadedMemorySettingsPaneContent({
         ) : null}
       </dl>
 
-      <form
-        {...stylex.props(styles.serviceForm)}
-        onSubmit={(event) => {
-          event.preventDefault();
-          void onSave(
-            memorySaveInputFromServiceSettings(settings, {
-              baseUrl
-            })
-          );
-        }}
-      >
-        <label {...stylex.props(styles.field)}>
-          <span {...stylex.props(styles.fieldLabel)}>Base URL</span>
-          <input
-            {...stylex.props(styles.input)}
-            type="url"
-            value={baseUrl}
-            disabled={saving || !baseUrlEditable}
-            onChange={(event) => setBaseUrl(event.currentTarget.value)}
-          />
-        </label>
-        <button
-          type="submit"
-          {...stylex.props(styles.primaryButton)}
-          disabled={saving || !baseUrlEditable || !baseUrlChanged || !baseUrl.trim()}
+      {baseUrlEditable ? (
+        <form
+          {...stylex.props(styles.serviceForm)}
+          onSubmit={(event) => {
+            event.preventDefault();
+            void onSave(
+              memorySaveInputFromServiceSettings(settings, {
+                baseUrl
+              })
+            );
+          }}
         >
-          {saving ? "Saving..." : "Save endpoint"}
-        </button>
-      </form>
+          <label {...stylex.props(styles.field)}>
+            <span {...stylex.props(styles.fieldLabel)}>Base URL</span>
+            <input
+              {...stylex.props(styles.input)}
+              type="url"
+              value={baseUrl}
+              disabled={saving}
+              onChange={(event) => setBaseUrl(event.currentTarget.value)}
+            />
+          </label>
+          <button
+            type="submit"
+            {...stylex.props(styles.primaryButton)}
+            disabled={saving || !baseUrlChanged || !baseUrl.trim()}
+          >
+            {saving ? "Saving..." : "Save endpoint"}
+          </button>
+        </form>
+      ) : null}
 
       <ModelPreferenceSelect
         options={settings.modelOptions}
@@ -177,7 +181,7 @@ function memorySaveInputFromSelection(
 ): SaveMemoryServiceSettingsInput {
   return {
     mode: settings.mode,
-    baseUrl: settings.baseUrl,
+    baseUrl: settings.mode === "EXTERNAL" ? settings.baseUrl : null,
     port: settings.port ?? null,
     providerAccountId: input.providerAccountId,
     modelProfile: input.modelProfile,

@@ -230,13 +230,13 @@ export type SaveAgentModelPreferenceInput = {
 
 /** Input for saving memory service settings. */
 export type SaveMemoryServiceSettingsInput = {
-  /** Base URL for the Supermemory service. */
-  baseUrl: string;
+  /** External Supermemory service base URL. */
+  baseUrl?: string | null | undefined;
   /** Supermemory service mode. */
   mode: MemoryServiceMode;
   /** Provider-specific model id or profile id. */
   modelProfile?: string | null | undefined;
-  /** Managed service port, when configured. */
+  /** External service port, when configured. */
   port?: number | null | undefined;
   /** Provider account id to use for memory extraction. */
   providerAccountId?: string | null | undefined;
@@ -431,14 +431,14 @@ export type SaveToolProgressAuditPreferenceMutation = { saveToolProgressAuditPre
 export type MemorySettingsQueryVariables = Exact<{ [key: string]: never; }>;
 
 
-export type MemorySettingsQuery = { memorySettings: { mode: MemoryServiceMode, baseUrl: string, port: number | null, status: { status: MemoryServiceStatusKind, checkedAt: string | null, lastErrorCode: string | null, lastErrorMessage: string | null }, modelPreference: { providerKind: string, providerAccountId: string, modelProfile: string, reasoningEffort: ReasoningEffort | null } | null, modelOptions: Array<{ providerKind: string, providerAccountId: string, providerDisplayName: string, status: ProviderAccountStatus, disabledReason: string | null, defaultModelProfile: string | null, profiles: Array<{ id: string, label: string, disabledReason: string | null, reasoningEfforts: Array<ReasoningEffort>, defaultReasoningEffort: ReasoningEffort | null }> }> } };
+export type MemorySettingsQuery = { memorySettings: { mode: MemoryServiceMode, baseUrl: string | null, port: number | null, status: { status: MemoryServiceStatusKind, checkedAt: string | null, lastErrorCode: string | null, lastErrorMessage: string | null }, modelPreference: { providerKind: string, providerAccountId: string, modelProfile: string, reasoningEffort: ReasoningEffort | null } | null, modelOptions: Array<{ providerKind: string, providerAccountId: string, providerDisplayName: string, status: ProviderAccountStatus, disabledReason: string | null, defaultModelProfile: string | null, profiles: Array<{ id: string, label: string, disabledReason: string | null, reasoningEfforts: Array<ReasoningEffort>, defaultReasoningEffort: ReasoningEffort | null }> }> } };
 
 export type SaveMemoryServiceSettingsMutationVariables = Exact<{
   input: SaveMemoryServiceSettingsInput;
 }>;
 
 
-export type SaveMemoryServiceSettingsMutation = { saveMemoryServiceSettings: { mode: MemoryServiceMode, baseUrl: string, port: number | null, status: { status: MemoryServiceStatusKind, checkedAt: string | null, lastErrorCode: string | null, lastErrorMessage: string | null } } };
+export type SaveMemoryServiceSettingsMutation = { saveMemoryServiceSettings: { mode: MemoryServiceMode, baseUrl: string | null, port: number | null, status: { status: MemoryServiceStatusKind, checkedAt: string | null, lastErrorCode: string | null, lastErrorMessage: string | null } } };
 
 export type CheckMemoryServiceMutationVariables = Exact<{ [key: string]: never; }>;
 
