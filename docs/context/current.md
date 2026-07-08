@@ -32,6 +32,11 @@ The next storage slice should stay small and concrete:
 - Local Supermemory state lives under
   `${NOEMA_HOME:-$HOME/.noema}/supermemory/data`; Supermemory secrets live under
   `${NOEMA_HOME:-$HOME/.noema}/supermemory/secrets`.
+- Managed Local Supermemory runs as a private Noema sidecar. Noema resolves the
+  server from `NOEMA_SUPERMEMORY_SERVER`, then the bundled
+  `crates/noema-core/supermemory/` resource directory, then `PATH` for
+  development fallback. The sidecar binds a runtime-selected loopback port; the
+  endpoint is kept in memory and is not stored in SQLite or shown in Settings.
 - Docker/Compose development infrastructure has been retired; local development
   uses host Rust, Bun, and web/desktop product surfaces. The old standalone
   Noema binary and local dev alias have been removed.

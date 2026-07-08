@@ -9,6 +9,12 @@ fn main() -> io::Result<()> {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("manifest dir"));
     let asset_dir = manifest_dir.join("target/web-assets");
     println!("cargo:rerun-if-changed={}", asset_dir.display());
+    let supermemory_dir = manifest_dir.join("supermemory");
+    println!("cargo:rerun-if-changed={}", supermemory_dir.display());
+    println!(
+        "cargo:rustc-env=NOEMA_BUNDLED_SUPERMEMORY_DIR={}",
+        supermemory_dir.display()
+    );
 
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("out dir"));
     fs::write(

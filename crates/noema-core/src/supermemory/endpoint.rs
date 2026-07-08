@@ -26,6 +26,10 @@ impl SupermemoryConnection {
 ///
 /// The listener is released before the child process starts, so callers should
 /// treat the result as a candidate and retry startup if the port is stolen.
+///
+/// # Errors
+///
+/// Returns the OS bind error if a loopback port cannot be allocated.
 pub fn allocate_loopback_port() -> Result<u16, std::io::Error> {
     for _ in 0..16 {
         let listener = TcpListener::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0))?;

@@ -1,9 +1,6 @@
 //! Supermemory server binary resolution.
 
-use std::{
-    env,
-    path::{Path, PathBuf},
-};
+use std::{env, path::PathBuf};
 
 use thiserror::Error;
 
@@ -54,12 +51,22 @@ impl SupermemoryBinaryResolver {
     }
 
     /// Resolve the executable using the process environment.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SupermemoryBinaryError`] when no candidate exists or the
+    /// selected candidate cannot be inspected or executed.
     pub fn resolve(&self) -> Result<SupermemoryServerBinary, SupermemoryBinaryError> {
         let env_path = env::var_os(NOEMA_SUPERMEMORY_SERVER_ENV).map(PathBuf::from);
         self.resolve_with_env(env_path)
     }
 
     /// Resolve the executable with an explicit environment override value.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SupermemoryBinaryError`] when no candidate exists or the
+    /// selected candidate cannot be inspected or executed.
     pub fn resolve_with_env(
         &self,
         env_path: Option<PathBuf>,
@@ -137,12 +144,8 @@ pub fn server_filename() -> &'static str {
     }
 }
 
-fn default_bundled_root(paths: &crate::NoemaPaths) -> PathBuf {
-    std::env::current_exe()
-        .ok()
-        .and_then(|path| path.parent().map(Path::to_path_buf))
-        .unwrap_or_else(|| paths.supermemory_dir())
-        .join("supermemory")
+fn default_bundled_root(_paths: &crate::NoemaPaths) -> PathBuf {
+    PathBuf::from(env!("NOEMA_BUNDLED_SUPERMEMORY_DIR"))
 }
 
 fn executable_candidate(
