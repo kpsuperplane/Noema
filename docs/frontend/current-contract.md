@@ -45,7 +45,7 @@ home route. They do not imply primary navigation priority.
 | `/settings/safety/identities` | Settings / Trusted identities | trusted identity selectors from GraphQL | selector rows used to resolve tool-result ownership | Current |
 | `/settings/safety/usage` | Settings / Usage | auxiliary model preferences from GraphQL | progress-audit model preference | Current |
 | `/settings/system/providers` | Settings / Providers | provider account metadata from GraphQL | provider metadata, auth method, readiness, and safe error state | Current |
-| `/settings/memory` | Settings / Memory | GraphQL `memorySettings`, `saveMemoryServiceSettings`, and `checkMemoryService` | configure managed/external Supermemory and its extraction model preference; check readiness | Current |
+| `/settings/memory` | Settings / Memory | GraphQL `memorySettings`, `saveMemoryServiceSettings`, and `checkMemoryService` | view managed/external Supermemory status, configure external endpoint and extraction model preference, and check readiness | Current |
 
 Future route groups:
 
