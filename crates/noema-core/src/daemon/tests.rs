@@ -2177,8 +2177,8 @@ async fn runtime_actor_executes_search_memory_as_local_tool_result() {
 }
 
 #[tokio::test]
-async fn user_message_submits_memory_observation_ingest_job() {
-    let (handle, store, server) = test_runtime_handle_with_supermemory(
+async fn user_message_submits_memory_observation() {
+    let (handle, _store, server) = test_runtime_handle_with_supermemory(
         fake_provider(FakeCodexScenario::Simple),
         json!({"results": []}),
     )
@@ -2196,18 +2196,9 @@ async fn user_message_submits_memory_observation_ingest_job() {
     )
     .await;
     result.expect("turn");
-    wait_for_submitted_memory_ingest_jobs(&store, &conversation_id, 1).await;
+    wait_for_supermemory_observation_requests(&server, 1).await;
     handle.shutdown().await;
 
-    let jobs = memory_ingest_jobs_for_conversation(&store, &conversation_id).await;
-    assert_eq!(jobs.len(), 1);
-    assert_eq!(jobs[0].status, "submitted");
-    assert_eq!(jobs[0].conversation_id, conversation_id);
-    assert!(!jobs[0].source_item_id.is_empty());
-    assert_eq!(
-        jobs[0].supermemory_source_id,
-        format!("memory_source:{}", jobs[0].source_item_id)
-    );
     let bodies = server.request_bodies().await;
     assert!(bodies.iter().any(|body| {
         body["conversationId"]
@@ -2223,7 +2214,7 @@ async fn user_message_submits_memory_observation_ingest_job() {
 
 #[tokio::test]
 async fn provider_failure_after_user_message_still_submits_memory_observation() {
-    let (handle, store, server) = test_runtime_handle_with_supermemory(
+    let (handle, _store, server) = test_runtime_handle_with_supermemory(
         fake_provider(FakeCodexScenario::TurnError),
         json!({"results": []}),
     )
@@ -2241,7 +2232,7 @@ async fn provider_failure_after_user_message_still_submits_memory_observation() 
     )
     .await;
     assert!(result.is_err());
-    wait_for_submitted_memory_ingest_jobs(&store, &conversation_id, 1).await;
+    wait_for_supermemory_observation_requests(&server, 1).await;
     handle.shutdown().await;
 
     let bodies = server.request_bodies().await;
@@ -2298,7 +2289,7 @@ async fn slow_supermemory_ingest_does_not_delay_provider_response() {
 
 #[tokio::test]
 async fn memory_observation_uses_distinct_source_ids_and_bounded_assistant_context() {
-    let (handle, store, server) = test_runtime_handle_with_supermemory(
+    let (handle, _store, server) = test_runtime_handle_with_supermemory(
         fake_provider(FakeCodexScenario::Simple),
         json!({"results": []}),
     )
@@ -2325,7 +2316,7 @@ async fn memory_observation_uses_distinct_source_ids_and_bounded_assistant_conte
     .await
     .0
     .expect("second turn");
-    wait_for_submitted_memory_ingest_jobs(&store, &conversation_id, 2).await;
+    wait_for_supermemory_observation_requests(&server, 2).await;
     handle.shutdown().await;
 
     let bodies = server.request_bodies().await;
@@ -2343,12 +2334,6 @@ async fn memory_observation_uses_distinct_source_ids_and_bounded_assistant_conte
         .filter_map(|body| body["conversationId"].as_str())
         .collect::<std::collections::HashSet<_>>();
     assert_eq!(source_ids.len(), 2);
-    let jobs = memory_ingest_jobs_for_conversation(&store, &conversation_id).await;
-    assert_eq!(jobs.len(), 2);
-    assert!(
-        jobs.iter()
-            .all(|job| job.supermemory_source_id.starts_with("memory_source:"))
-    );
     assert!(observation_bodies.iter().any(|body| {
         body["messages"] == json!([{"role": "user", "content": "first turn should not repeat"}])
     }));
@@ -3824,55 +3809,26 @@ impl FakeSupermemoryServer {
     }
 }
 
-async fn wait_for_submitted_memory_ingest_jobs(
-    store: &crate::NoemaStore,
-    conversation_id: &str,
+async fn wait_for_supermemory_observation_requests(
+    server: &FakeSupermemoryServer,
     minimum_count: usize,
 ) {
     for _ in 0..50 {
-        let jobs = memory_ingest_jobs_for_conversation(store, conversation_id).await;
-        if jobs.iter().filter(|job| job.status == "submitted").count() >= minimum_count {
+        let bodies = server.request_bodies().await;
+        let observations = bodies
+            .iter()
+            .filter(|body| {
+                body["conversationId"]
+                    .as_str()
+                    .is_some_and(|source_id| source_id.starts_with("memory_source:"))
+            })
+            .count();
+        if observations >= minimum_count {
             return;
         }
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
-    panic!("timed out waiting for {minimum_count} submitted memory ingest jobs");
-}
-
-async fn memory_ingest_jobs_for_conversation(
-    store: &crate::NoemaStore,
-    conversation_id: &str,
-) -> Vec<crate::MemoryIngestJobRecord> {
-    store
-        .with_connection({
-            let conversation_id = conversation_id.to_string();
-            move |conn| {
-                let mut statement = conn.prepare(
-                    r#"
-                    SELECT job_id, conversation_id, turn_id, source_item_id, status, supermemory_source_id,
-                           error_code, error_message
-                    FROM memory_ingest_jobs
-                    WHERE conversation_id = ?1
-                    ORDER BY job_id ASC
-                    "#,
-                )?;
-                let rows = statement.query_map([conversation_id], |row| {
-                    Ok(crate::MemoryIngestJobRecord {
-                        job_id: row.get(0)?,
-                        conversation_id: row.get(1)?,
-                        turn_id: row.get(2)?,
-                        source_item_id: row.get(3)?,
-                        status: row.get(4)?,
-                        supermemory_source_id: row.get(5)?,
-                        error_code: row.get(6)?,
-                        error_message: row.get(7)?,
-                    })
-                })?;
-                Ok(rows.collect::<Result<Vec<_>, _>>()?)
-            }
-        })
-        .await
-        .expect("memory ingest jobs")
+    panic!("timed out waiting for {minimum_count} Supermemory observation requests");
 }
 
 async fn test_runtime_handle_with_search_and_fetch_providers(

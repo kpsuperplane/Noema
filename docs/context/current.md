@@ -35,11 +35,12 @@ The next storage slice should stay small and concrete:
 - Persisted user messages enqueue memory observations to Supermemory
   immediately for extraction into the current human container tag
   (`human:local`) by default. Each observation uses the persisted user item as
-  the unique Supermemory source identity (`memory_source:<user_item_id>`), with
-  the Noema conversation and turn kept only as ingest-job provenance. Payloads
-  contain the current user text plus at most bounded previous visible assistant
-  context; assistant responses are not submitted after provider completion, and
-  Supermemory extraction never blocks normal provider response generation.
+  the unique Supermemory source identity (`memory_source:<user_item_id>`).
+  Payloads contain the current user text plus at most bounded previous visible
+  assistant context; assistant responses are not submitted after provider
+  completion, and Supermemory extraction never blocks normal provider response
+  generation. Noema does not keep a SQLite memory ingest job/outbox table yet;
+  submit failures are best-effort diagnostics until a real retry surface exists.
 - Managed Local Supermemory runs as a private Noema sidecar. Noema resolves the
   server from `NOEMA_SUPERMEMORY_SERVER`, then the bundled
   `crates/noema-core/supermemory/` resource directory, then `PATH` for

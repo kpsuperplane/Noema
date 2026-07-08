@@ -1,7 +1,7 @@
 use crate::{
     ActorRef, ConversationItemKind, ConversationItemStatus, NewConversationItem,
-    NewConversationTurn, NewMemoryIngestJob, PersistedAgentStatus, ReplayMode,
-    SYSTEM_ERROR_RUNTIME_INVARIANT, SystemErrorEvent,
+    NewConversationTurn, PersistedAgentStatus, ReplayMode, SYSTEM_ERROR_RUNTIME_INVARIANT,
+    SystemErrorEvent,
     provider::{
         GenerateInput, GenerateOptions, GenerateRequest, GenerateResponse, GenerateResponseStatus,
         GenerateStreamEvent, GenerateToolCall, PromptCacheRetention, ProviderError,
@@ -1431,59 +1431,41 @@ impl CodexRuntimeActor {
         else {
             return;
         };
-        let supermemory_source_id = request.conversation_id.clone();
-        let job_id = format!("memory_ingest_job:{user_item_id}");
-        let job = match self
-            .store
-            .insert_memory_ingest_job(NewMemoryIngestJob {
-                job_id,
-                conversation_id: conversation_id.to_string(),
-                turn_id: turn_id.to_string(),
-                source_item_id: user_item_id.to_string(),
-                supermemory_source_id,
-            })
-            .await
-        {
-            Ok(job) => job,
-            Err(error) => {
-                self.log_runtime_invariant(
-                    "memory observation ingest job could not be queued",
-                    json!({
-                        "conversation_id": conversation_id,
-                        "turn_id": turn_id,
-                        "source_item_id": user_item_id,
-                    }),
-                    json!({"error": error.to_string()}),
-                );
-                return;
-            }
-        };
         let Some(client) = self.supermemory_client() else {
-            let _ = self
-                .store
-                .mark_memory_ingest_job_failed(
-                    &job.job_id,
-                    "service_unavailable",
-                    "memory service is unavailable",
-                )
-                .await;
+            self.log_runtime_invariant(
+                "memory observation could not be submitted",
+                json!({
+                    "conversation_id": conversation_id,
+                    "turn_id": turn_id,
+                    "source_item_id": user_item_id,
+                    "supermemory_source_id": request.conversation_id,
+                }),
+                json!({
+                    "error_code": "service_unavailable",
+                    "error": "memory service is unavailable",
+                }),
+            );
             return;
         };
-        let store = self.store.clone();
+        let system_errors = self.system_errors.clone();
+        let error_context = json!({
+            "conversation_id": conversation_id,
+            "turn_id": turn_id,
+            "source_item_id": user_item_id,
+            "supermemory_source_id": request.conversation_id,
+        });
         tokio::spawn(async move {
-            match client.ingest_conversation(request).await {
-                Ok(()) => {
-                    let _ = store.mark_memory_ingest_job_submitted(&job.job_id).await;
-                }
-                Err(error) => {
-                    let _ = store
-                        .mark_memory_ingest_job_failed(
-                            &job.job_id,
-                            error.sanitized_code(),
-                            error.sanitized_message(),
-                        )
-                        .await;
-                }
+            if let Err(error) = client.ingest_conversation(request).await {
+                let message = "memory observation submit failed".to_string();
+                system_errors.try_append(
+                    SystemErrorEvent::new(SYSTEM_ERROR_RUNTIME_INVARIANT, message.clone())
+                        .with_context(error_context)
+                        .with_error_chain([message])
+                        .with_raw(json!({
+                            "error_code": error.sanitized_code(),
+                            "error": error.sanitized_message(),
+                        })),
+                );
             }
         });
     }

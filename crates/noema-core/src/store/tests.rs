@@ -18,6 +18,25 @@ async fn opens_sqlite_store_under_noema_db_dir() {
 }
 
 #[tokio::test]
+async fn sqlite_schema_does_not_create_memory_ingest_jobs() {
+    let store = test_store().await;
+
+    let table_count = store
+        .with_connection(|conn| {
+            conn.query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'memory_ingest_jobs'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .map_err(crate::StoreError::Sqlite)
+        })
+        .await
+        .expect("table lookup");
+
+    assert_eq!(table_count, 0);
+}
+
+#[tokio::test]
 async fn sqlite_store_config_is_stable_for_reopen() {
     let home = TempDir::new().expect("temp noema home");
     let paths = crate::NoemaPaths::from_noema_home(home.path()).expect("paths");
@@ -274,40 +293,6 @@ async fn sqlite_memory_service_settings_round_trip_external() {
         settings.reasoning_effort,
         Some(crate::provider::ReasoningEffort::Low)
     );
-}
-
-#[tokio::test]
-async fn sqlite_memory_ingest_jobs_round_trip() {
-    let store = test_store().await;
-
-    let job = store
-        .insert_memory_ingest_job(crate::NewMemoryIngestJob {
-            job_id: "memory_ingest_job:test".to_string(),
-            conversation_id: "conversation:test".to_string(),
-            turn_id: "turn:test".to_string(),
-            source_item_id: "item:user:test".to_string(),
-            supermemory_source_id: "memory_source:item:user:test".to_string(),
-        })
-        .await
-        .expect("insert job");
-    assert_eq!(job.status, "queued");
-    assert_eq!(job.source_item_id, "item:user:test");
-    assert_eq!(job.supermemory_source_id, "memory_source:item:user:test");
-
-    let submitted = store
-        .mark_memory_ingest_job_submitted("memory_ingest_job:test")
-        .await
-        .expect("mark submitted");
-    assert_eq!(submitted.status, "submitted");
-    assert_eq!(submitted.error_code, None);
-
-    let failed = store
-        .mark_memory_ingest_job_failed("memory_ingest_job:test", "http_500", "server failed")
-        .await
-        .expect("mark failed");
-    assert_eq!(failed.status, "failed");
-    assert_eq!(failed.error_code.as_deref(), Some("http_500"));
-    assert_eq!(failed.error_message.as_deref(), Some("server failed"));
 }
 
 #[tokio::test]

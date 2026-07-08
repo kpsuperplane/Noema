@@ -89,12 +89,12 @@ pub use runtime_host::{NoemaRuntimeHost, RuntimeHostError};
 pub use store::{
     AgentRecord, AgentRuntimePreferenceRecord, AuxiliaryModelPreferenceRecord,
     ConversationContextSummaryRecord, McpApprovalRequestRecord, McpServerAuthStatus,
-    McpServerHealthStatus, McpServerRecord, McpToolRecord, MemoryIngestJobRecord,
-    MemoryServiceMode, MemoryServiceSettingsRecord, NewAgent, NewAgentRuntimePreference,
-    NewAuxiliaryModelPreference, NewConversationContextSummary, NewMcpApprovalRequest,
-    NewMcpServer, NewMcpTool, NewMemoryIngestJob, NewToolCalibration, NewTrustedIdentitySelector,
-    NoemaStore, SaveMemoryServiceSettings, StoreConfig, StoreError, ToolCalibrationRecord,
-    TrustedIdentitySelectorEffect, TrustedIdentitySelectorRecord, WEB_FETCH_SUMMARIZER_TASK_ID,
+    McpServerHealthStatus, McpServerRecord, McpToolRecord, MemoryServiceMode,
+    MemoryServiceSettingsRecord, NewAgent, NewAgentRuntimePreference, NewAuxiliaryModelPreference,
+    NewConversationContextSummary, NewMcpApprovalRequest, NewMcpServer, NewMcpTool,
+    NewToolCalibration, NewTrustedIdentitySelector, NoemaStore, SaveMemoryServiceSettings,
+    StoreConfig, StoreError, ToolCalibrationRecord, TrustedIdentitySelectorEffect,
+    TrustedIdentitySelectorRecord, WEB_FETCH_SUMMARIZER_TASK_ID,
 };
 pub use supermemory::{
     SupermemoryClient, SupermemoryClientError, SupermemoryConnection,
