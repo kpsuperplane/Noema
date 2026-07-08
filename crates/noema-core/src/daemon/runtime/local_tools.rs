@@ -490,7 +490,7 @@ impl LocalToolResult {
     pub(super) fn success(&self) -> bool {
         match self {
             Self::Memory { result, .. } => result.success,
-            Self::AgentName { .. } => true,
+            Self::AgentName { result, .. } => result.success,
             Self::WebSearch { result, .. } => result.success,
             Self::WebFetch { result, .. } => result.success,
             Self::Gateway { result, .. } => result.success,
@@ -510,7 +510,7 @@ impl LocalToolResult {
     pub(super) fn requires_provider_continuation(&self) -> bool {
         match self {
             Self::Memory { .. } | Self::WebSearch { .. } | Self::WebFetch { .. } => true,
-            Self::AgentName { result, .. } => result.success,
+            Self::AgentName { .. } => true,
             Self::Gateway { result, .. } => result.requires_provider_continuation,
         }
     }
