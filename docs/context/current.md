@@ -4,7 +4,10 @@ This file is the durable working brief for Codex sessions. Keep it concise and u
 
 ## Active Direction
 
-Noema is an always-on, self-hosted personal agent operating system. Embedded SurrealDB is the canonical structured store, opened only by the Noema server process at `NOEMA_HOME/db`.
+Noema is an always-on, self-hosted personal agent operating system. SQLite is
+Noema's canonical structured store at
+`${NOEMA_HOME:-$HOME/.noema}/db/noema.sqlite3`. Local Supermemory owns durable
+memory truth, graph behavior, extraction, updates, and memory search indexes.
 
 The next storage slice should stay small and concrete:
 
@@ -12,25 +15,26 @@ The next storage slice should stay small and concrete:
 - Codex-backed chat through the daemon using Noema-owned OAuth tokens and direct
   Codex Responses API calls.
 - Core-hosted local React web chat as the first frontend shell.
-- SurrealDB-backed persisted conversations, transcript items, graph claims,
-  provenance, and retrieval packets.
-- Memory review and graph inspection from SurrealDB-backed repositories.
-- Frontend IA that exposes memory and provenance progressively instead of starting with back-office dashboards.
+- SQLite-backed persisted conversations, transcript items, provider accounts,
+  MCP setup, approvals, and memory service configuration/status.
+- Local Supermemory-backed memory search through explicit `search_memory`.
+- Frontend IA that exposes memory configuration through Settings > Memory
+  before reintroducing memory visibility or graph browsing.
 
 ## Settled Decisions
 
-- Embedded SurrealDB is the target canonical structured store for the always-on
-  personal server.
-- The Noema server process is the only process that opens the embedded database;
-  desktop, web, and future mobile clients use Noema APIs.
-- Embedded database files live directly under `${NOEMA_HOME:-$HOME/.noema}/db`.
-- The embedded store uses the stable SurrealDB v3 Rust SDK with `kv-rocksdb`;
-  pre-stable local development databases created by v2 may be deleted and
-  rebuilt instead of migrated.
-- Docker/Compose development infrastructure has been retired after the embedded
-  SurrealDB migration; local development uses host Rust, Bun, and web/desktop
-  product surfaces. The old standalone Noema binary and local dev alias have
-  been removed.
+- SQLite is the target canonical structured store for the always-on personal
+  server. The Noema server process is the only process that opens the SQLite
+  database; desktop, web, and future mobile clients use Noema APIs.
+- The clean pre-V1 storage reset has no SurrealDB migration path.
+- SQLite database files live under
+  `${NOEMA_HOME:-$HOME/.noema}/db/noema.sqlite3`.
+- Local Supermemory state lives under
+  `${NOEMA_HOME:-$HOME/.noema}/supermemory/data`; Supermemory secrets live under
+  `${NOEMA_HOME:-$HOME/.noema}/supermemory/secrets`.
+- Docker/Compose development infrastructure has been retired; local development
+  uses host Rust, Bun, and web/desktop product surfaces. The old standalone
+  Noema binary and local dev alias have been removed.
 - First-run web onboarding is derived from backend readiness checks and blocks
   chat until an active provider account is authenticated.
 - Provider credential/session material lives under
@@ -46,9 +50,10 @@ The next storage slice should stay small and concrete:
   WebSocket and `agent_status` are live coordination state for current turns.
 - Filesystem storage is for durable object-owned documents, attachments, and artifacts.
 - `system/` state is derived and rebuildable.
-- Memory is governed context, not hidden model state.
-- Canonical memory claims own truth, policy, provenance, lifecycle, and
-  evidence.
+- Memory is governed context, not hidden model state. Durable memory truth and
+  graph ownership now belong to local Supermemory, while Noema owns only
+  service configuration, readiness, ingest diagnostics, and explicit
+  `search_memory` tool calls.
 - Chat provider responses use an explicit object contract:
   `response_status`, `responses[]`, and `tool_calls[]`. The legacy
   `memory_proposals` field is rejected at the provider parser boundary.
@@ -220,16 +225,17 @@ The next storage slice should stay small and concrete:
   The placeholder Audit settings surface has been removed until audit event
   persistence lands. Agent management actions are not exposed yet.
 - Frontend docs now distinguish currently addressable routes from target
-  surfaces: TanStack Router owns `/`, `/memory`, `/memory/graph`, `/settings`,
-  and
-  `/settings/{agents,tools/web,tools/mcps,safety/approvals,safety/identities,system/providers}`.
+  surfaces: TanStack Router owns `/`, `/settings`, and
+  `/settings/{agents,tools/web,tools/mcps,safety/approvals,safety/identities,safety/usage,system/providers,memory}`.
+  `/memory` redirects to `/settings/memory`; `/memory/graph` is not a current
+  route.
   `routes.ts` remains a shell route mapping helper for breadcrumbs, sidebar
   selection, and canonical path generation. Older `/setup`, `/chat/:id`, memory
   detail/review, and `/inspect` paths are target routes until product routing
   implements them.
 - The web UI uses TanStack Router file-based routes with Vite automatic route
-  code splitting. Chat and the shell stay in the initial bundle; memory graph
-  and settings surfaces load through route chunks. The daemon web asset resolver
+  code splitting. Chat and the shell stay in the initial bundle; settings
+  surfaces load through route chunks. The daemon web asset resolver
   serves emitted `/assets/*.js`, `.css`, `.svg`, and `.html` files from
   `target/web-assets` in debug and embeds the generated asset table for release
   builds, so route chunks work in the Rust-served web UI as well as the Tauri
@@ -308,25 +314,25 @@ The next storage slice should stay small and concrete:
   compatibility wrappers for the retired shadcn/Base UI foundation.
 - Frontend Noema-owned product components now follow the one-component-per-file
   rule, with transcript render/model helpers split from React components.
-- GraphQL, daemon web transport, daemon runtime, graph-claim store, and provider
+- GraphQL, daemon web transport, daemon runtime, SQLite store, and provider
   streaming parsers are split into focused modules while preserving existing
   product behavior.
 - Core Rust source organization favors focused module trees over broad flat
   files: store MCP persistence, daemon memory work, config loading/resolution,
   conversation domain types, and MCP trusted identity helpers are split into
   nearby submodules with root files acting as stable facades.
-- Memory retrieval policy, shared memory errors, and shared memory types live
-  under the `memory` module tree. Provider-neutral contracts, account metadata,
-  and auth support live under `provider`, while concrete adapters and response
-  stream helpers live under `provider::adapters`; the old top-level `providers`
-  module has been retired.
+- Memory service configuration/status lives in SQLite store modules, while
+  local Supermemory owns durable memory behavior. Provider-neutral contracts,
+  account metadata, and auth support live under `provider`, while concrete
+  adapters and response stream helpers live under `provider::adapters`; the old
+  top-level `providers` module has been retired.
 - `crates/noema-core/web/tests` has been removed; web validation should use
   `bun run lint`, `bun run build`, and local browser smoke checks.
-- Agent memory reads start as an explicit `search_memory` tool-only slice:
-  Noema validates arguments, builds the trusted retrieval envelope, returns
-  approved memories plus generic omissions as a normal tool result, and does
-  not inject memories automatically before turns. Retrieval/context packet
-  persistence remains an open implementation loop.
+- Agent memory reads are explicit `search_memory` tool-only calls. Noema
+  validates arguments, maps trusted active scopes to deterministic Supermemory
+  container tags, fans out across those tags, returns Supermemory search results
+  as a normal tool result, and does not inject memories automatically before
+  turns.
 - The primary agent starts unnamed. Prompt construction includes an
   `onboarding_prompt` asking the model to ask the user for a name while the
   agent has no display name. The local `update_own_name` tool persists later
@@ -338,11 +344,9 @@ The next storage slice should stay small and concrete:
 - The local `search_memory` tool supports validated concrete `scope_ids`.
   Empty `query` is allowed only for scoped reads, and `query` narrows within
   scope rather than broadening it.
-- Owner-facing memory management surfaces should show the owner's memory facts
-  directly rather than redacting them. Normal chat transcript markers should
-  surface user-meaningful tool and memory summaries (purpose, access, scope,
-  result, evidence/review state) while keeping provider ids, call ids, raw tool
-  payloads, and graph-claim terminology out of the default expanded view.
+- Owner-facing memory visibility and graph browsing are intentionally absent in
+  the first Supermemory slice. Transcript memory markers and `/remember` are
+  removed for now.
 - Provider tool continuations follow a bounded same-turn loop inspired by the
   OpenAI Codex turn runner: local tool results are fed back to the provider, a
   continuation may request another model-visible local or calibrated MCP tool,
@@ -359,23 +363,11 @@ The next storage slice should stay small and concrete:
   Provider-stream tool start signals are surfaced as transient activity rows
   and replaced by durable `noema_local` tool execution rows when the runtime
   actually starts the side effect.
-- New graph memory direction: durable memories are strict graph claims over
-  entities and promoted predicate records. Conversation items are direct
-  provenance sources. Specialized evidence relations replace broad memory audit
-  machinery for memory truth. Retrieval uses a small deterministic `use_mode`
-  enum and fails closed.
-- The embedded SurrealDB store is split into focused store modules. Its current
-  bootstrap defines strict graph-memory tables for entities, predicates,
-  predicate proposals, claims, evidence edge records, and retrieval packets,
-  and seeds the built-in personal-agent predicates.
-- Graph-claim retrieval now has a first deterministic store API that filters
-  active/confirmed claims by simple fact/hint text matching, applies predicate
-  `use_mode` plus sensitivity/context policy gates, and reports redacted
-  omission counts without writing retrieval packets yet.
-- `/remember` has no special command behavior in chat and is persisted as
-  ordinary user text. Provider responses no longer include memory proposals or
-  trigger graph claim writes; memory graph/store and GraphQL inspection APIs
-  remain available for later product slices.
+- Supermemory reset implementation state: Noema no longer has local graph-claim
+  tables, predicate proposal APIs, Noema-owned memory extraction, contradiction
+  resolution, transcript memory markers, `/remember`, or `/memory/graph` in the
+  current slice. Provider responses no longer include memory proposals.
+  `/remember` is ordinary user text.
 - Required Noema provider responses should be enforced as close to the provider
   boundary as the transport allows. The OpenAI and Codex Responses adapters send
   a `text.format` JSON schema for the `noema_response` envelope, while the
@@ -388,21 +380,10 @@ The next storage slice should stay small and concrete:
   non-local for named third-party evidence. Note fallback objects use opaque
   deterministic IDs plus punctuation-normalized dedupe and reinforcement, so
   note content and secrets are not embedded in entity IDs.
-- The local `search_memory` tool reads graph claims and returns claim-shaped
-  tool results.
-- The first graph-memory inspection surface has landed. GraphQL exposes bounded
-  memory-management graph-claim inspection through `memoryClaims` and `memoryClaim`:
-  lists redact non-public fact text and content-bearing display names, while
-  explicit detail inspection shows full fact and evidence. Generated web
-  GraphQL schema/types are kept in sync.
-- The first web memory graph page has landed under `/memory/graph`, reached
-  from the memory management surface. It uses a bounded `memoryGraph` GraphQL
-  read model, defaults to candidate, active, and confirmed claims, caps the
-  first load at 150 claims, renders entity nodes plus claim edges with React
-  Flow pan/zoom, and shows selected-claim evidence/provenance in a detail
-  panel rather than as canvas nodes. The local graph inspection view returns
-  readable labels and facts for loaded claims, while graph search matching
-  still avoids non-public fact/entity text before the bounded result is loaded.
+- GraphQL exposes `memorySettings`, `saveMemoryServiceSettings`, and
+  `checkMemoryService` for the current memory surface. Generated web GraphQL
+  schema/types are kept in sync. Settings > Memory at `/settings/memory` owns
+  Supermemory mode, base URL, port, status, and extraction model preference.
 - Apple Foundation Models local-provider implementation is in active bridge
   integration shape: the Swift bridge lives under
   `crates/noema-core/apple-foundation-bridge`, Rust provider account/runtime
@@ -451,14 +432,12 @@ The next storage slice should stay small and concrete:
 
 ## Open Loops
 
-- Add richer web drill-ins for memory details, predicate review, provenance,
-  and graph inspection.
-- Refine the landed Memory Graph page from
-  `docs/superpowers/specs/2026-06-29-memory-graph-page-design.md` with richer
-  filters, neighborhoods, and detail views.
-- Add richer graph neighborhood inspection for GraphQL and web.
-- Persist retrieval/context packets for `search_memory` executions, including
-  audit-only omission detail, instead of only returning tool-result payloads.
+- Reintroduce owner-facing memory visibility on top of Supermemory when the
+  product has a clear Settings or inspection design.
+- Decide how Supermemory extraction/ingest visibility should surface without
+  bringing back transcript memory markers prematurely.
+- Persist audit-only `search_memory` diagnostics if needed, without mirroring
+  Supermemory's graph in SQLite.
 - Continue aligning docs, schema, and frontend IA.
 - Decide which export formats ship first and how export preview/redaction should work.
 - Continue the third-party MCP control plane after the first landed slice:

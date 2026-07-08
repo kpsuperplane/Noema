@@ -1141,7 +1141,7 @@ async fn background_context_compaction_creates_checkpoint_after_large_turn() {
     let store = crate::store::tests::test_store().await;
     store.ensure_default_actors().await.expect("actors");
     let provider = Arc::new(MetadataCapturingProvider {
-        context_window_tokens: 13_000,
+        context_window_tokens: 18_000,
         fail_compaction: false,
         fail_token_count: false,
         enforce_context_window: false,
@@ -1161,7 +1161,7 @@ async fn background_context_compaction_creates_checkpoint_after_large_turn() {
     append_test_text_item(
         &store,
         &started.conversation_id,
-        &"background context ".repeat(1_000),
+        &"background context ".repeat(2_000),
     )
     .await;
 
@@ -1830,8 +1830,11 @@ async fn restart_context_read_phase(home: &std::path::Path) {
 
 #[tokio::test]
 async fn runtime_actor_persists_provider_tool_items_as_action_rows() {
-    let (handle, store) =
-        test_runtime_handle_with_store(fake_provider(FakeCodexScenario::ToolItem)).await;
+    let (handle, store, _server) = test_runtime_handle_with_supermemory(
+        fake_provider(FakeCodexScenario::ToolItem),
+        json!({"results": []}),
+    )
+    .await;
 
     let conversation_id = handle
         .start_conversation(None)
@@ -1921,8 +1924,11 @@ async fn runtime_actor_persists_provider_tool_items_as_action_rows() {
 
 #[tokio::test]
 async fn runtime_displays_commentary_before_tool_lifecycle_when_provider_orders_tool_first() {
-    let handle =
-        test_runtime_handle(fake_provider(FakeCodexScenario::ToolCallBeforeCommentary)).await;
+    let (handle, _store, _server) = test_runtime_handle_with_supermemory(
+        fake_provider(FakeCodexScenario::ToolCallBeforeCommentary),
+        json!({"results": []}),
+    )
+    .await;
     let conversation_id = handle
         .start_conversation(None)
         .await
@@ -3276,7 +3282,7 @@ async fn test_runtime_handle_with_supermemory(
     let store = crate::NoemaStore::open(&crate::StoreConfig::from_paths(&paths))
         .await
         .expect("store");
-    let server = FakeSupermemoryServer::start(response, 8).await;
+    let server = FakeSupermemoryServer::start(response, 32).await;
     store
         .save_memory_service_settings(crate::SaveMemoryServiceSettings {
             mode: crate::MemoryServiceMode::External,
@@ -3306,7 +3312,7 @@ async fn spawn_runtime_with_supermemory_provider(
         .await
         .expect("store");
     store.ensure_default_actors().await.expect("actors");
-    let server = FakeSupermemoryServer::start(response, 8).await;
+    let server = FakeSupermemoryServer::start(response, 32).await;
     store
         .save_memory_service_settings(crate::SaveMemoryServiceSettings {
             mode: crate::MemoryServiceMode::External,
@@ -3401,7 +3407,7 @@ impl FakeSupermemoryServer {
 
                 let response_body = serde_json::to_vec(&response).expect("response JSON");
                 let response_head = format!(
-                    "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n",
+                    "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
                     response_body.len()
                 );
                 stream

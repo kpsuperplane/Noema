@@ -9,24 +9,21 @@ Current authorities:
   truth rules.
 - [Current context](context/current.md): latest implemented memory state and
   open loops.
-- [Frontend contract](frontend/current-contract.md): current memory routes,
-  read models, redaction, and inspection boundaries.
-- [Harness memory/context integration](harness/memory-context.md): target
-  runtime boundary between context packets, retrieval, proposals, and durable
-  memory truth.
+- [Frontend contract](frontend/current-contract.md): current memory settings
+  route and first-slice visibility boundaries.
+- [Harness memory/context integration](harness/memory-context.md): historical
+  target context for runtime memory integration.
 
-Current implementation shape:
+Current implementation direction:
 
-- Durable memory is modeled as graph claims over entities and promoted
-  predicates in embedded SurrealDB.
-- Conversation items are direct provenance sources.
-- Explicit memory writes and provider-extracted proposals share the same
-  proposal and canonicalization path.
-- Retrieval starts as an explicit `search_memory` tool path and returns
-  claim-shaped results subject to deterministic policy gates.
-- Owner/admin inspection is available through bounded GraphQL read models such
-  as `memoryClaims`, `memoryClaim`, `memoryPredicateProposals`, and
-  `memoryGraph`.
+- Durable memory truth and graph behavior belong to local Supermemory.
+- Noema stores only memory service configuration, readiness, and ingest job
+  diagnostics in SQLite.
+- Noema uses `search_memory` as an explicit tool-only recall path.
+- Noema maps trusted active scopes to deterministic Supermemory container tags
+  and fans out searches across those tags.
+- Memory transcript markers, `/remember`, graph browsing, and automatic
+  pre-turn recall are not part of the current slice.
 
-Older broad memory proposals should be treated as target context only when they
-agree with the current context and frontend contract above.
+Older broad memory proposals should be treated as historical target context only
+when they agree with the current context and frontend contract above.

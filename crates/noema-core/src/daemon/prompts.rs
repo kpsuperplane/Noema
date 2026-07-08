@@ -407,9 +407,7 @@ mod tests {
         assert!(prompt.contains(r#""tool_calls": []"#));
         assert!(prompt.contains("Include at least one text response for final answers"));
         assert!(prompt.contains("Only Noema supplies trusted memory policy fields"));
-        assert!(prompt.contains("Do not propose memories from assistant acknowledgements"));
-        assert!(prompt.contains("statements that something was saved"));
-        assert!(prompt.contains("human-subject memories require direct user evidence"));
+        assert!(prompt.contains("Do not invent memory results"));
     }
 
     #[test]

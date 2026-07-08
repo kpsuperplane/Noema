@@ -36,7 +36,11 @@ Noema at another directory with `NOEMA_HOME`.
   config.yaml
 
   db/
-    surrealdb/            # embedded canonical structured store
+    noema.sqlite3         # Noema-owned structured state
+
+  supermemory/
+    data/                 # Supermemory-owned memory state and graph
+    secrets/              # Supermemory service secrets
 
   humans/
     [human_id]/
@@ -80,7 +84,8 @@ tables.
 
 | Data | Source of truth |
 | --- | --- |
-| Structured state: humans, agents, tools, conversations, transcript items, graph claims, provenance, grants, tasks, permissions, retrieval packets, and audit events | Embedded SurrealDB |
+| Structured state: humans, agents, tools, conversations, transcript items, provider accounts, MCP setup, tasks, permissions, approvals, and audit events | SQLite |
+| Memory truth, memory graph, memory extraction, memory updates, inferred memories, and memory search indexes | Local Supermemory |
 | Human-authored docs, imported files, attachments, and durable artifacts | filesystem |
 | Indexes, caches, temporary files, and derived search/vector state | `system/` |
 | Introspection into database-backed state | chat/work drill-ins, advanced inspection, and explicit export tools |
@@ -117,7 +122,7 @@ Context Runtime
         │
         ▼
 Canonical Store
-  Embedded SurrealDB + durable object-owned files
+  SQLite + local Supermemory + durable object-owned files
         │
         └── System State
               indexes, caches, vectors, temp files
@@ -246,7 +251,7 @@ tasks
 memory
 ```
 
-Use embedded SurrealDB as the canonical structured store. Use the filesystem for durable object-owned documents and artifacts. Use chat/work drill-ins, advanced inspection, and explicit export tools for introspection into database-backed state.
+Use SQLite as Noema's canonical structured store. Use local Supermemory for durable memory truth, graph ownership, extraction, updates, and memory search indexes. Use the filesystem for durable object-owned documents and artifacts. Use chat/work drill-ins, advanced inspection, and explicit export tools for introspection into database-backed state.
 
 [Memory Plan Index](memory.md)
 
