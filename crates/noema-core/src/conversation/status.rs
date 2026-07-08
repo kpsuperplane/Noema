@@ -126,6 +126,8 @@ pub enum ConversationItemKind {
     A2uiCard,
     /// Assistant-authored multiple-choice prompt.
     MultipleChoicePrompt,
+    /// Human-authored multiple-choice selection.
+    MultipleChoiceSelection,
     /// A tool invocation request.
     ToolCall,
     /// A tool invocation result.
@@ -150,6 +152,7 @@ impl ConversationItemKind {
             Self::Activity => "activity",
             Self::A2uiCard => "a2ui_card",
             Self::MultipleChoicePrompt => "multiple_choice_prompt",
+            Self::MultipleChoiceSelection => "multiple_choice_selection",
             Self::ToolCall => "tool_call",
             Self::ToolResult => "tool_result",
             Self::Reasoning => "reasoning",
@@ -171,6 +174,7 @@ impl ConversationItemKind {
             "activity" => Ok(Self::Activity),
             "a2ui_card" => Ok(Self::A2uiCard),
             "multiple_choice_prompt" => Ok(Self::MultipleChoicePrompt),
+            "multiple_choice_selection" => Ok(Self::MultipleChoiceSelection),
             "tool_call" => Ok(Self::ToolCall),
             "tool_result" => Ok(Self::ToolResult),
             "reasoning" => Ok(Self::Reasoning),

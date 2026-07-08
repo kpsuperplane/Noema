@@ -142,6 +142,25 @@ impl CodexRuntimeActor {
                             .await,
                     );
                 }
+                CodexRuntimeCommand::SelectMultipleChoice {
+                    conversation_id,
+                    prompt_item_id,
+                    selected_option_ids,
+                    item_tx,
+                    client_message_id,
+                    reply,
+                } => {
+                    let _ = reply.send(
+                        self.select_multiple_choice(
+                            conversation_id,
+                            prompt_item_id,
+                            selected_option_ids,
+                            item_tx,
+                            client_message_id,
+                        )
+                        .await,
+                    );
+                }
                 CodexRuntimeCommand::GenerateOnce { request, reply } => {
                     let provider = match self.default_provider() {
                         Ok(provider) => provider,

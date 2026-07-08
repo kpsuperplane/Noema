@@ -122,7 +122,7 @@ CREATE TABLE IF NOT EXISTS conversation_items (
   turn_id TEXT,
   parent_item_id TEXT,
   sequence_index INTEGER NOT NULL,
-  kind TEXT NOT NULL CHECK (kind IN ('user_text', 'assistant_text', 'activity', 'a2ui_card', 'multiple_choice_prompt', 'tool_call', 'tool_result', 'reasoning', 'approval_request', 'approval_result', 'error_notice')),
+  kind TEXT NOT NULL CHECK (kind IN ('user_text', 'assistant_text', 'activity', 'a2ui_card', 'multiple_choice_prompt', 'multiple_choice_selection', 'tool_call', 'tool_result', 'reasoning', 'approval_request', 'approval_result', 'error_notice')),
   status TEXT NOT NULL CHECK (status IN ('pending', 'running', 'completed', 'failed', 'cancelled', 'interrupted')),
   author_actor_id TEXT NOT NULL,
   content_text TEXT,

@@ -749,6 +749,29 @@ impl CodexRuntimeActor {
                     }),
                     json!({ "turn_index": context.turn_index }),
                 ),
+                TurnTranscriptItem::MultipleChoiceSelection {
+                    prompt_item_id,
+                    selection_mode,
+                    selected_options,
+                } => (
+                    ConversationItemKind::MultipleChoiceSelection,
+                    ConversationItemStatus::Completed,
+                    ActorRef::human("human:local"),
+                    Some(prompt_item_id.clone()),
+                    Some(
+                        selected_options
+                            .iter()
+                            .map(|option| option.label.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", "),
+                    ),
+                    json!({
+                        "prompt_item_id": prompt_item_id,
+                        "selection_mode": selection_mode,
+                        "selected_options": selected_options,
+                    }),
+                    json!({ "turn_index": context.turn_index }),
+                ),
                 TurnTranscriptItem::ErrorNotice {
                     message,
                     recoverable,
@@ -812,6 +835,7 @@ pub(in crate::daemon) fn send_transient_turn_item(
         TurnTranscriptItem::UserText { .. }
         | TurnTranscriptItem::AssistantText { .. }
         | TurnTranscriptItem::MultipleChoicePrompt { .. }
+        | TurnTranscriptItem::MultipleChoiceSelection { .. }
         | TurnTranscriptItem::ErrorNotice { .. } => format!(
             "transient:{}:{}",
             context.conversation_id, context.turn_index

@@ -4,11 +4,13 @@ use crate::{
     SystemErrorEvent,
     provider::{
         GenerateInput, GenerateOptions, GenerateRequest, GenerateResponse, GenerateResponseStatus,
-        GenerateStreamEvent, GenerateToolCall, PromptCacheRetention, ProviderError,
-        ProviderToolCapabilities, TokenUsage,
+        GenerateStreamEvent, GenerateToolCall, MultipleChoiceOption, MultipleChoiceSelectionMode,
+        PromptCacheRetention, ProviderError, ProviderToolCapabilities, TokenUsage,
     },
 };
+use serde::Deserialize;
 use serde_json::json;
+use std::collections::HashSet;
 use tokio::sync::mpsc;
 
 use super::{
@@ -45,6 +47,52 @@ use crate::daemon::{
 
 const MEMORY_OBSERVATION_CONTEXT_ITEM_LIMIT: usize = 4;
 const MEMORY_OBSERVATION_CONTEXT_CHAR_LIMIT: usize = 2_000;
+
+#[derive(Debug, Clone)]
+pub(in crate::daemon::runtime) struct MultipleChoiceSelectionInput {
+    pub(in crate::daemon::runtime) prompt_item_id: String,
+    pub(in crate::daemon::runtime) selection_mode: MultipleChoiceSelectionMode,
+    pub(in crate::daemon::runtime) selected_options: Vec<MultipleChoiceOption>,
+}
+
+#[derive(Debug, Deserialize)]
+struct MultipleChoicePromptPayload {
+    prompt: String,
+    selection_mode: MultipleChoiceSelectionMode,
+    options: Vec<MultipleChoiceOption>,
+}
+
+#[derive(Debug, Clone)]
+enum UserTurnInput {
+    Text(String),
+    MultipleChoiceSelection(MultipleChoiceSelectionInput),
+}
+
+impl UserTurnInput {
+    fn model_input(&self) -> String {
+        match self {
+            Self::Text(text) => text.clone(),
+            Self::MultipleChoiceSelection(selection) => render_multiple_choice_selection(selection),
+        }
+    }
+
+    fn input_chars(&self) -> usize {
+        self.model_input().chars().count()
+    }
+}
+
+fn render_multiple_choice_selection(selection: &MultipleChoiceSelectionInput) -> String {
+    let selected = selection
+        .selected_options
+        .iter()
+        .map(|option| format!("{}={}", option.id, option.label))
+        .collect::<Vec<_>>()
+        .join("; ");
+    format!(
+        "user selected multiple_choice options for {}: {}",
+        selection.prompt_item_id, selected
+    )
+}
 
 fn prompt_cache_retention_for(
     tool_capabilities: ProviderToolCapabilities,
@@ -335,6 +383,156 @@ impl CodexRuntimeActor {
         item_tx: mpsc::UnboundedSender<TurnStreamEvent>,
         client_message_id: Option<String>,
     ) -> Result<(), DaemonError> {
+        self.turn_with_user_input(
+            conversation_id,
+            UserTurnInput::Text(input),
+            item_tx,
+            client_message_id,
+        )
+        .await
+    }
+
+    async fn turn_with_multiple_choice_selection(
+        &mut self,
+        conversation_id: String,
+        selection: MultipleChoiceSelectionInput,
+        item_tx: mpsc::UnboundedSender<TurnStreamEvent>,
+        client_message_id: Option<String>,
+    ) -> Result<(), DaemonError> {
+        self.turn_with_user_input(
+            conversation_id,
+            UserTurnInput::MultipleChoiceSelection(selection),
+            item_tx,
+            client_message_id,
+        )
+        .await
+    }
+
+    pub(in crate::daemon) async fn select_multiple_choice(
+        &mut self,
+        conversation_id: String,
+        prompt_item_id: String,
+        selected_option_ids: Vec<String>,
+        item_tx: mpsc::UnboundedSender<TurnStreamEvent>,
+        client_message_id: Option<String>,
+    ) -> Result<(), DaemonError> {
+        let selection = self
+            .validate_multiple_choice_selection(
+                &conversation_id,
+                prompt_item_id,
+                selected_option_ids,
+            )
+            .await?;
+        self.turn_with_multiple_choice_selection(
+            conversation_id,
+            selection,
+            item_tx,
+            client_message_id,
+        )
+        .await
+    }
+
+    async fn validate_multiple_choice_selection(
+        &self,
+        conversation_id: &str,
+        prompt_item_id: String,
+        selected_option_ids: Vec<String>,
+    ) -> Result<MultipleChoiceSelectionInput, DaemonError> {
+        let items = self
+            .store
+            .list_conversation_items(conversation_id, ReplayMode::Visible)
+            .await?;
+        if items.iter().any(|item| {
+            item.kind == ConversationItemKind::MultipleChoiceSelection
+                && item
+                    .payload_json
+                    .get("prompt_item_id")
+                    .and_then(serde_json::Value::as_str)
+                    == Some(prompt_item_id.as_str())
+        }) {
+            return Err(DaemonError::Protocol(
+                "multiple-choice prompt already has a selection".to_string(),
+            ));
+        }
+        let prompt_item = items
+            .iter()
+            .find(|item| item.item_id == prompt_item_id)
+            .ok_or_else(|| {
+                DaemonError::Protocol(format!(
+                    "multiple-choice prompt not found: {prompt_item_id}"
+                ))
+            })?;
+        if prompt_item.kind != ConversationItemKind::MultipleChoicePrompt {
+            return Err(DaemonError::Protocol(format!(
+                "conversation item is not a multiple-choice prompt: {prompt_item_id}"
+            )));
+        }
+        let payload: MultipleChoicePromptPayload =
+            serde_json::from_value(prompt_item.payload_json.clone()).map_err(|source| {
+                DaemonError::Protocol(format!(
+                    "invalid multiple-choice prompt payload for {prompt_item_id}: {source}"
+                ))
+            })?;
+        let _ = &payload.prompt;
+        match payload.selection_mode {
+            MultipleChoiceSelectionMode::PickOne if selected_option_ids.len() != 1 => {
+                return Err(DaemonError::Protocol(
+                    "pick_one multiple-choice selection must include exactly one option"
+                        .to_string(),
+                ));
+            }
+            MultipleChoiceSelectionMode::PickMany if selected_option_ids.is_empty() => {
+                return Err(DaemonError::Protocol(
+                    "pick_many multiple-choice selection must include at least one option"
+                        .to_string(),
+                ));
+            }
+            MultipleChoiceSelectionMode::PickOne | MultipleChoiceSelectionMode::PickMany => {}
+        }
+
+        let selected_ids = selected_option_ids
+            .iter()
+            .map(String::as_str)
+            .collect::<HashSet<_>>();
+        if selected_ids.len() != selected_option_ids.len() {
+            return Err(DaemonError::Protocol(
+                "multiple-choice selected option ids must be unique".to_string(),
+            ));
+        }
+        let option_ids = payload
+            .options
+            .iter()
+            .map(|option| option.id.as_str())
+            .collect::<HashSet<_>>();
+        if let Some(invalid_id) = selected_option_ids
+            .iter()
+            .find(|id| !option_ids.contains(id.as_str()))
+        {
+            return Err(DaemonError::Protocol(format!(
+                "multiple-choice option id is not in the prompt: {invalid_id}"
+            )));
+        }
+        let selected_options = payload
+            .options
+            .into_iter()
+            .filter(|option| selected_ids.contains(option.id.as_str()))
+            .collect::<Vec<_>>();
+
+        Ok(MultipleChoiceSelectionInput {
+            prompt_item_id,
+            selection_mode: payload.selection_mode,
+            selected_options,
+        })
+    }
+
+    async fn turn_with_user_input(
+        &mut self,
+        conversation_id: String,
+        user_input: UserTurnInput,
+        item_tx: mpsc::UnboundedSender<TurnStreamEvent>,
+        client_message_id: Option<String>,
+    ) -> Result<(), DaemonError> {
+        let input = user_input.model_input();
         let pre_turn_started_at = std::time::Instant::now();
         let conversation = self
             .hydrate_active_conversation(&conversation_id, None)
@@ -358,7 +556,7 @@ impl CodexRuntimeActor {
             "runtime_turn_started",
             json!({
                 "hydrate_and_create_turn_ms": pre_turn_started_at.elapsed().as_millis(),
-                "input_chars": input.chars().count(),
+                "input_chars": user_input.input_chars(),
                 "provider_kind": conversation.provider_kind,
                 "model": conversation.model,
             }),
@@ -421,39 +619,66 @@ impl CodexRuntimeActor {
             }),
         );
         let user_metadata = json!({ "turn_index": turn_index });
+        let (user_kind, parent_item_id, user_content_text, user_payload, transcript_item) =
+            match &user_input {
+                UserTurnInput::Text(text) => (
+                    ConversationItemKind::UserText,
+                    None,
+                    Some(text.clone()),
+                    json!({}),
+                    TurnTranscriptItem::UserText { text: text.clone() },
+                ),
+                UserTurnInput::MultipleChoiceSelection(selection) => (
+                    ConversationItemKind::MultipleChoiceSelection,
+                    Some(selection.prompt_item_id.clone()),
+                    Some(
+                        selection
+                            .selected_options
+                            .iter()
+                            .map(|option| option.label.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", "),
+                    ),
+                    json!({
+                        "prompt_item_id": selection.prompt_item_id,
+                        "selection_mode": selection.selection_mode,
+                        "selected_options": selection.selected_options,
+                    }),
+                    TurnTranscriptItem::MultipleChoiceSelection {
+                        prompt_item_id: selection.prompt_item_id.clone(),
+                        selection_mode: selection.selection_mode,
+                        selected_options: selection.selected_options.clone(),
+                    },
+                ),
+            };
         let user_item = self
             .store
             .append_conversation_item(NewConversationItem {
                 conversation_id: conversation_id.clone(),
                 turn_id: Some(turn.turn_id.clone()),
-                parent_item_id: None,
-                kind: ConversationItemKind::UserText,
+                parent_item_id,
+                kind: user_kind,
                 status: ConversationItemStatus::Completed,
                 author: ActorRef::human("human:local"),
-                content_text: Some(input.clone()),
-                payload_json: json!({}),
+                content_text: user_content_text,
+                payload_json: user_payload,
                 metadata: user_metadata.clone(),
             })
             .await?;
         let user_item_id = user_item.item_id.clone();
         let user_sequence_index = user_item.sequence_index;
-        send_conversation_item(
-            &item_tx,
-            user_item,
-            user_metadata,
-            TurnTranscriptItem::UserText {
-                text: input.clone(),
-            },
-        );
+        send_conversation_item(&item_tx, user_item, user_metadata, transcript_item);
         timing.mark("runtime_user_item_persisted", json!({}));
-        self.enqueue_user_message_memory_observation(
-            &conversation_id,
-            &turn.turn_id,
-            &user_item_id,
-            user_sequence_index,
-            &input,
-        )
-        .await;
+        if let UserTurnInput::Text(text) = &user_input {
+            self.enqueue_user_message_memory_observation(
+                &conversation_id,
+                &turn.turn_id,
+                &user_item_id,
+                user_sequence_index,
+                text,
+            )
+            .await;
+        }
         if super::context_compaction::should_compact_foreground(&planned_context) {
             let compaction_started_at = std::time::Instant::now();
             timing.mark("runtime_foreground_compaction_started", json!({}));

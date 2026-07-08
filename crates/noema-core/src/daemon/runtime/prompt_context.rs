@@ -217,12 +217,15 @@ pub(super) fn input_item_from_transcript_item(
         ConversationItemKind::AssistantText => {
             text_message_item(item, GenerateMessageRole::Assistant)
         }
+        ConversationItemKind::MultipleChoicePrompt => multiple_choice_prompt_message_item(item),
+        ConversationItemKind::MultipleChoiceSelection => {
+            multiple_choice_selection_message_item(item)
+        }
         ConversationItemKind::ToolCall => tool_call_input_item(item),
         ConversationItemKind::ToolResult => tool_result_input_item(item),
         ConversationItemKind::Reasoning => reasoning_input_item(item),
         ConversationItemKind::Activity
         | ConversationItemKind::A2uiCard
-        | ConversationItemKind::MultipleChoicePrompt
         | ConversationItemKind::ApprovalRequest
         | ConversationItemKind::ApprovalResult
         | ConversationItemKind::ErrorNotice => None,
@@ -249,6 +252,44 @@ fn text_message_item(
     Some(GenerateInputItem::Message(GenerateMessage {
         role,
         content: content.to_string(),
+    }))
+}
+
+fn multiple_choice_prompt_message_item(item: &ConversationItemRecord) -> Option<GenerateInputItem> {
+    let prompt = item.payload_json.get("prompt")?.as_str()?;
+    let options = item.payload_json.get("options")?.as_array()?;
+    let rendered_options = options
+        .iter()
+        .filter_map(|option| {
+            let id = option.get("id")?.as_str()?;
+            let label = option.get("label")?.as_str()?;
+            Some(format!("{id}={label}"))
+        })
+        .collect::<Vec<_>>()
+        .join("; ");
+    Some(GenerateInputItem::Message(GenerateMessage {
+        role: GenerateMessageRole::Assistant,
+        content: format!("assistant multiple_choice: {prompt}\noptions: {rendered_options}"),
+    }))
+}
+
+fn multiple_choice_selection_message_item(
+    item: &ConversationItemRecord,
+) -> Option<GenerateInputItem> {
+    let prompt_item_id = item.payload_json.get("prompt_item_id")?.as_str()?;
+    let options = item.payload_json.get("selected_options")?.as_array()?;
+    let rendered_options = options
+        .iter()
+        .filter_map(|option| {
+            let id = option.get("id")?.as_str()?;
+            let label = option.get("label")?.as_str()?;
+            Some(format!("{id}={label}"))
+        })
+        .collect::<Vec<_>>()
+        .join("; ");
+    Some(GenerateInputItem::Message(GenerateMessage {
+        role: GenerateMessageRole::User,
+        content: format!("user selected for {prompt_item_id}: {rendered_options}"),
     }))
 }
 

@@ -370,6 +370,31 @@ impl CodexRuntimeHandle {
             .map_err(|_| DaemonError::Protocol("daemon runtime stopped".to_string()))?
     }
 
+    pub(crate) async fn select_multiple_choice_with_client_message_id(
+        &self,
+        conversation_id: String,
+        prompt_item_id: String,
+        selected_option_ids: Vec<String>,
+        item_tx: mpsc::UnboundedSender<TurnStreamEvent>,
+        client_message_id: Option<String>,
+    ) -> Result<(), DaemonError> {
+        let (reply, reply_rx) = oneshot::channel();
+        self.sender
+            .send(CodexRuntimeCommand::SelectMultipleChoice {
+                conversation_id,
+                prompt_item_id,
+                selected_option_ids,
+                item_tx,
+                client_message_id,
+                reply,
+            })
+            .await
+            .map_err(|_| DaemonError::Protocol("daemon runtime stopped".to_string()))?;
+        reply_rx
+            .await
+            .map_err(|_| DaemonError::Protocol("daemon runtime stopped".to_string()))?
+    }
+
     pub(crate) async fn generate_once(
         &self,
         request: GenerateRequest,
@@ -480,6 +505,14 @@ pub(super) enum CodexRuntimeCommand {
     Turn {
         conversation_id: String,
         input: String,
+        item_tx: mpsc::UnboundedSender<TurnStreamEvent>,
+        client_message_id: Option<String>,
+        reply: oneshot::Sender<Result<(), DaemonError>>,
+    },
+    SelectMultipleChoice {
+        conversation_id: String,
+        prompt_item_id: String,
+        selected_option_ids: Vec<String>,
         item_tx: mpsc::UnboundedSender<TurnStreamEvent>,
         client_message_id: Option<String>,
         reply: oneshot::Sender<Result<(), DaemonError>>,

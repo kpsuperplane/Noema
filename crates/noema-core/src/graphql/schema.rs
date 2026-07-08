@@ -14,7 +14,8 @@ use super::{
     chat::{
         self, GraphqlConversationEvent, GraphqlConversationTranscriptPage,
         GraphqlConversationTranscriptPageInput, GraphqlPrimaryConversation,
-        GraphqlSendConversationTurnInput, GraphqlTurnAccepted,
+        GraphqlSendConversationTurnInput, GraphqlSendMultipleChoiceSelectionInput,
+        GraphqlTurnAccepted,
     },
     local_status::{self, GraphqlLocalStatus, GraphqlMemoryStorageStatus},
     mcp::{
@@ -650,6 +651,16 @@ impl MutationRoot {
     ) -> Result<GraphqlTurnAccepted> {
         let state = ctx.data_unchecked::<GraphqlState>();
         chat::send_conversation_turn(state, input).await
+    }
+
+    /// Send a multiple-choice selection as a user turn.
+    async fn send_multiple_choice_selection(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlSendMultipleChoiceSelectionInput,
+    ) -> Result<GraphqlTurnAccepted> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        chat::send_multiple_choice_selection(state, input).await
     }
 
     /// Save reviewed MCP tool calibration.

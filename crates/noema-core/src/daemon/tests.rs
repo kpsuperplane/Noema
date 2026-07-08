@@ -257,6 +257,85 @@ async fn turn_persists_multiple_choice_prompt() {
 }
 
 #[tokio::test]
+async fn multiple_choice_selection_pick_one_appends_user_item() {
+    let (handle, store) =
+        test_runtime_handle_with_store(fake_provider(FakeCodexScenario::Simple)).await;
+
+    let conversation = handle.start_conversation(None).await.expect("conversation");
+    let prompt_item_id = append_test_multiple_choice_prompt(
+        &store,
+        &conversation.conversation_id,
+        MultipleChoiceSelectionMode::PickOne,
+    )
+    .await;
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    handle
+        .select_multiple_choice_with_client_message_id(
+            conversation.conversation_id.clone(),
+            prompt_item_id.clone(),
+            vec!["ship".to_string()],
+            tx,
+            None,
+        )
+        .await
+        .expect("selection turn");
+    while rx.recv().await.is_some() {}
+    handle.shutdown().await;
+
+    let replay = store
+        .list_conversation_items(&conversation.conversation_id, ReplayMode::Visible)
+        .await
+        .expect("conversation replay");
+    assert!(replay.iter().any(|item| {
+        item.kind == ConversationItemKind::MultipleChoiceSelection
+            && item.content_text.as_deref() == Some("Ship it")
+            && item.payload_json["prompt_item_id"] == prompt_item_id
+            && item.payload_json["selected_options"][0]["id"] == "ship"
+    }));
+}
+
+#[tokio::test]
+async fn multiple_choice_selection_rejects_invalid_option_id() {
+    let (handle, store) =
+        test_runtime_handle_with_store(fake_provider(FakeCodexScenario::Simple)).await;
+
+    let conversation = handle.start_conversation(None).await.expect("conversation");
+    let prompt_item_id = append_test_multiple_choice_prompt(
+        &store,
+        &conversation.conversation_id,
+        MultipleChoiceSelectionMode::PickOne,
+    )
+    .await;
+    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+    let error = handle
+        .select_multiple_choice_with_client_message_id(
+            conversation.conversation_id.clone(),
+            prompt_item_id,
+            vec!["missing".to_string()],
+            tx,
+            None,
+        )
+        .await
+        .expect_err("invalid id");
+    handle.shutdown().await;
+
+    assert!(
+        error
+            .to_string()
+            .contains("multiple-choice option id is not in the prompt")
+    );
+    let replay = store
+        .list_conversation_items(&conversation.conversation_id, ReplayMode::Visible)
+        .await
+        .expect("conversation replay");
+    assert!(
+        !replay
+            .iter()
+            .any(|item| item.kind == ConversationItemKind::MultipleChoiceSelection)
+    );
+}
+
+#[tokio::test]
 async fn slash_remember_is_ordinary_chat_text() {
     let (handle, store) =
         test_runtime_handle_with_store(fake_provider(FakeCodexScenario::Simple)).await;
@@ -3696,6 +3775,7 @@ fn assistant_text(items: &[TurnTranscriptItem]) -> &str {
         TurnTranscriptItem::AssistantText { text } => Some(text.as_str()),
         TurnTranscriptItem::UserText { .. }
         | TurnTranscriptItem::MultipleChoicePrompt { .. }
+        | TurnTranscriptItem::MultipleChoiceSelection { .. }
         | TurnTranscriptItem::Activity { .. }
         | TurnTranscriptItem::A2uiCard { .. }
         | TurnTranscriptItem::ErrorNotice { .. } => None,
@@ -3994,6 +4074,7 @@ async fn append_test_text_item_with_kind(
 ) {
     let author = match kind {
         ConversationItemKind::UserText => ActorRef::human("human:local"),
+        ConversationItemKind::MultipleChoiceSelection => ActorRef::human("human:local"),
         ConversationItemKind::AssistantText => ActorRef::agent("agent:primary"),
         ConversationItemKind::Activity
         | ConversationItemKind::A2uiCard
@@ -4019,6 +4100,35 @@ async fn append_test_text_item_with_kind(
         })
         .await
         .expect("append item");
+}
+
+async fn append_test_multiple_choice_prompt(
+    store: &crate::NoemaStore,
+    conversation_id: &str,
+    selection_mode: MultipleChoiceSelectionMode,
+) -> String {
+    let record = store
+        .append_conversation_item(crate::NewConversationItem {
+            conversation_id: conversation_id.to_string(),
+            turn_id: None,
+            parent_item_id: None,
+            kind: ConversationItemKind::MultipleChoicePrompt,
+            status: ConversationItemStatus::Completed,
+            author: ActorRef::agent("agent:primary"),
+            content_text: Some("Pick a direction".to_string()),
+            payload_json: json!({
+                "prompt": "Pick a direction",
+                "selection_mode": selection_mode,
+                "options": [
+                    {"id": "ship", "label": "Ship it"},
+                    {"id": "polish", "label": "Polish first"}
+                ],
+            }),
+            metadata: json!({}),
+        })
+        .await
+        .expect("append multiple-choice prompt");
+    record.item_id
 }
 
 async fn wait_for_context_summary_count(

@@ -95,6 +95,15 @@ pub enum TurnTranscriptItem {
         /// Ordered selectable options.
         options: Vec<MultipleChoiceOption>,
     },
+    /// Human-authored multiple-choice selection.
+    MultipleChoiceSelection {
+        /// Prompt item this selection answers.
+        prompt_item_id: String,
+        /// Selection mode from the prompt.
+        selection_mode: MultipleChoiceSelectionMode,
+        /// Selected options in prompt order.
+        selected_options: Vec<MultipleChoiceOption>,
+    },
     /// Recoverable or terminal notice shown in the transcript.
     ErrorNotice {
         /// Human-readable message.
