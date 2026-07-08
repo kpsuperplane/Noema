@@ -5,8 +5,9 @@ use crate::{
     provider::{
         AssistantTextPhase, GenerateActionItem, GenerateInput, GenerateInputItem,
         GenerateReasoningItem, GenerateRequest, GenerateResponse, GenerateResponseItem,
-        GenerateResponseStatus, GenerateStreamEvent, GenerateToolCall, ProviderError,
-        ProviderToolCapabilities, ProviderToolFallbackMode, ProviderToolSchemaDialect,
+        GenerateResponseStatus, GenerateStreamEvent, GenerateToolCall, MultipleChoiceOption,
+        MultipleChoiceSelectionMode, ProviderError, ProviderToolCapabilities,
+        ProviderToolFallbackMode, ProviderToolSchemaDialect,
     },
     {ConversationItemKind, ConversationItemStatus, ReplayMode},
 };
@@ -35,6 +36,12 @@ enum GenerateOutputItem {
     AssistantText {
         phase: Option<AssistantTextPhase>,
         text: String,
+    },
+    MultipleChoice {
+        phase: Option<AssistantTextPhase>,
+        prompt: String,
+        selection_mode: MultipleChoiceSelectionMode,
+        options: Vec<MultipleChoiceOption>,
     },
     ToolCall {
         id: Option<String>,
@@ -187,6 +194,65 @@ async fn runtime_turn_streams_durable_assistant_item_and_idle_status() {
         item.item_id == assistant_item_id
             && item.kind == ConversationItemKind::AssistantText
             && item.status == ConversationItemStatus::Completed
+    }));
+}
+
+#[tokio::test]
+async fn turn_persists_multiple_choice_prompt() {
+    let (handle, store) =
+        test_runtime_handle_with_store(fake_provider(FakeCodexScenario::MultipleChoice)).await;
+
+    let conversation = handle.start_conversation(None).await.expect("conversation");
+    let conversation_id = conversation.conversation_id.clone();
+    let (result, events) =
+        collect_turn_events(&handle, conversation_id.clone(), "choose".to_string()).await;
+    result.expect("turn");
+    handle.shutdown().await;
+
+    let prompt_event = events
+        .iter()
+        .find_map(|event| match event {
+            TurnStreamEvent::ConversationItem { item_id, item, .. } => match item.as_ref() {
+                TurnTranscriptItem::MultipleChoicePrompt {
+                    prompt,
+                    selection_mode,
+                    options,
+                } if prompt == "Pick a direction"
+                    && selection_mode == &MultipleChoiceSelectionMode::PickOne =>
+                {
+                    Some((item_id.clone(), options.clone()))
+                }
+                _ => None,
+            },
+            TurnStreamEvent::AssistantTextDelta { .. }
+            | TurnStreamEvent::AgentStatusChanged { .. } => None,
+        })
+        .expect("multiple choice prompt event");
+    assert_eq!(
+        prompt_event.1,
+        vec![
+            MultipleChoiceOption {
+                id: "ship".to_string(),
+                label: "Ship it".to_string(),
+            },
+            MultipleChoiceOption {
+                id: "polish".to_string(),
+                label: "Polish first".to_string(),
+            },
+        ]
+    );
+
+    let replay = store
+        .list_conversation_items(&conversation_id, ReplayMode::Visible)
+        .await
+        .expect("conversation replay");
+    assert!(replay.iter().any(|item| {
+        item.item_id == prompt_event.0
+            && item.kind == ConversationItemKind::MultipleChoicePrompt
+            && item.status == ConversationItemStatus::Completed
+            && item.content_text.as_deref() == Some("Pick a direction")
+            && item.payload_json["selection_mode"] == "pick_one"
+            && item.payload_json["options"][0]["id"] == "ship"
     }));
 }
 
@@ -3629,6 +3695,7 @@ fn assistant_text(items: &[TurnTranscriptItem]) -> &str {
     let Some(text) = items.iter().find_map(|item| match item {
         TurnTranscriptItem::AssistantText { text } => Some(text.as_str()),
         TurnTranscriptItem::UserText { .. }
+        | TurnTranscriptItem::MultipleChoicePrompt { .. }
         | TurnTranscriptItem::Activity { .. }
         | TurnTranscriptItem::A2uiCard { .. }
         | TurnTranscriptItem::ErrorNotice { .. } => None,
@@ -3930,6 +3997,7 @@ async fn append_test_text_item_with_kind(
         ConversationItemKind::AssistantText => ActorRef::agent("agent:primary"),
         ConversationItemKind::Activity
         | ConversationItemKind::A2uiCard
+        | ConversationItemKind::MultipleChoicePrompt
         | ConversationItemKind::ToolCall
         | ConversationItemKind::ToolResult
         | ConversationItemKind::Reasoning
@@ -4056,6 +4124,7 @@ struct BlockingOnceProvider {
 #[derive(Debug, Clone, Copy)]
 enum FakeCodexScenario {
     Simple,
+    MultipleChoice,
     ReasoningReplay,
     RestartContext,
     IdentityPromptCheck,
@@ -4109,6 +4178,21 @@ impl FakeCodexProvider {
         let instructions = request.instructions.unwrap_or_default();
         let output = match self.scenario {
             FakeCodexScenario::Simple => assistant_with_no_memories("fake answer"),
+            FakeCodexScenario::MultipleChoice => vec![GenerateOutputItem::MultipleChoice {
+                phase: Some(AssistantTextPhase::FinalAnswer),
+                prompt: "Pick a direction".to_string(),
+                selection_mode: MultipleChoiceSelectionMode::PickOne,
+                options: vec![
+                    MultipleChoiceOption {
+                        id: "ship".to_string(),
+                        label: "Ship it".to_string(),
+                    },
+                    MultipleChoiceOption {
+                        id: "polish".to_string(),
+                        label: "Polish first".to_string(),
+                    },
+                ],
+            }],
             FakeCodexScenario::ReasoningReplay => {
                 let saw_reasoning_replay = match &request.input {
                     GenerateInput::Items(items) => items.iter().any(|item| {
@@ -4903,6 +4987,19 @@ fn fake_generate_response(
         match item {
             GenerateOutputItem::AssistantText { phase, text } => {
                 responses.push(GenerateResponseItem::Text { phase, text });
+            }
+            GenerateOutputItem::MultipleChoice {
+                phase,
+                prompt,
+                selection_mode,
+                options,
+            } => {
+                responses.push(GenerateResponseItem::MultipleChoice {
+                    phase,
+                    prompt,
+                    selection_mode,
+                    options,
+                });
             }
             GenerateOutputItem::ToolCall {
                 id,

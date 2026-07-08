@@ -1027,6 +1027,49 @@ mod tests {
     }
 
     #[test]
+    fn conversation_replay_maps_multiple_choice_prompt() {
+        let item = web_conversation_item_from_record(ConversationItemRecord {
+            item_id: "item_choice_1".to_string(),
+            conversation_id: "conversation_1".to_string(),
+            turn_id: Some("turn_1".to_string()),
+            sequence_index: 1,
+            cursor: "conversation_item:1".to_string(),
+            kind: ConversationItemKind::MultipleChoicePrompt,
+            status: ConversationItemStatus::Completed,
+            content_text: Some("Pick a direction".to_string()),
+            payload_json: json!({
+                "prompt": "Pick a direction",
+                "selection_mode": "pick_one",
+                "options": [
+                    {"id": "ship", "label": "Ship it"},
+                    {"id": "polish", "label": "Polish first"}
+                ]
+            }),
+            metadata: json!({}),
+        })
+        .expect("convert record")
+        .expect("visible item");
+
+        assert_eq!(
+            item.item,
+            TurnTranscriptItem::MultipleChoicePrompt {
+                prompt: "Pick a direction".to_string(),
+                selection_mode: crate::provider::MultipleChoiceSelectionMode::PickOne,
+                options: vec![
+                    crate::provider::MultipleChoiceOption {
+                        id: "ship".to_string(),
+                        label: "Ship it".to_string(),
+                    },
+                    crate::provider::MultipleChoiceOption {
+                        id: "polish".to_string(),
+                        label: "Polish first".to_string(),
+                    },
+                ],
+            }
+        );
+    }
+
+    #[test]
     fn conversation_replay_item_converts_persisted_action_record() {
         let item = web_conversation_item_from_record(ConversationItemRecord {
             item_id: "item_tool_1".to_string(),

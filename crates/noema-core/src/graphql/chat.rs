@@ -114,6 +114,56 @@ pub struct GraphqlA2uiCard {
     pub payload: Json<Value>,
 }
 
+/// Multiple-choice selection mode exposed through GraphQL.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Enum)]
+#[graphql(name = "MultipleChoiceSelectionMode")]
+pub enum GraphqlMultipleChoiceSelectionMode {
+    /// One option may be selected.
+    PickOne,
+    /// One or more options may be selected.
+    PickMany,
+}
+
+impl From<crate::provider::MultipleChoiceSelectionMode> for GraphqlMultipleChoiceSelectionMode {
+    fn from(mode: crate::provider::MultipleChoiceSelectionMode) -> Self {
+        match mode {
+            crate::provider::MultipleChoiceSelectionMode::PickOne => Self::PickOne,
+            crate::provider::MultipleChoiceSelectionMode::PickMany => Self::PickMany,
+        }
+    }
+}
+
+/// One multiple-choice option.
+#[derive(Clone, Debug, SimpleObject)]
+#[graphql(name = "MultipleChoiceOption")]
+pub struct GraphqlMultipleChoiceOption {
+    /// Stable semantic option id.
+    pub id: String,
+    /// Human-visible label.
+    pub label: String,
+}
+
+impl From<crate::provider::MultipleChoiceOption> for GraphqlMultipleChoiceOption {
+    fn from(option: crate::provider::MultipleChoiceOption) -> Self {
+        Self {
+            id: option.id,
+            label: option.label,
+        }
+    }
+}
+
+/// Assistant multiple-choice transcript item.
+#[derive(Clone, Debug, SimpleObject)]
+#[graphql(name = "MultipleChoicePrompt")]
+pub struct GraphqlMultipleChoicePrompt {
+    /// Question or instruction shown above the options.
+    pub prompt: String,
+    /// Whether one or many options may be selected.
+    pub selection_mode: GraphqlMultipleChoiceSelectionMode,
+    /// Ordered selectable options.
+    pub options: Vec<GraphqlMultipleChoiceOption>,
+}
+
 /// Error notice transcript item.
 #[derive(Clone, Debug, SimpleObject)]
 #[graphql(name = "ErrorNotice")]
@@ -136,6 +186,8 @@ pub enum GraphqlTranscriptItem {
     Activity(GraphqlActivity),
     /// Structured card.
     A2uiCard(GraphqlA2uiCard),
+    /// Multiple-choice prompt.
+    MultipleChoicePrompt(GraphqlMultipleChoicePrompt),
     /// Error notice.
     ErrorNotice(GraphqlErrorNotice),
 }
@@ -170,6 +222,18 @@ impl From<TurnTranscriptItem> for GraphqlTranscriptItem {
                 id,
                 schema,
                 payload: Json(payload),
+            }),
+            TurnTranscriptItem::MultipleChoicePrompt {
+                prompt,
+                selection_mode,
+                options,
+            } => Self::MultipleChoicePrompt(GraphqlMultipleChoicePrompt {
+                prompt,
+                selection_mode: selection_mode.into(),
+                options: options
+                    .into_iter()
+                    .map(GraphqlMultipleChoiceOption::from)
+                    .collect(),
             }),
             TurnTranscriptItem::ErrorNotice {
                 message,
@@ -720,6 +784,9 @@ fn mark_graphql_published_turn_event(event: &TurnStreamEvent, client_message_id:
                 ),
                 TurnTranscriptItem::A2uiCard { schema, .. } => {
                     ("a2ui_card", Some(schema.as_str()), None)
+                }
+                TurnTranscriptItem::MultipleChoicePrompt { .. } => {
+                    ("multiple_choice_prompt", None, None)
                 }
                 TurnTranscriptItem::ErrorNotice { .. } => ("error_notice", None, None),
             };

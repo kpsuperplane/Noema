@@ -215,7 +215,56 @@ impl CodexRuntimeActor {
                     },
                 );
             }
-            GenerateResponseItem::MultipleChoice { .. } => {}
+            GenerateResponseItem::MultipleChoice {
+                phase,
+                prompt,
+                selection_mode,
+                options,
+            } => {
+                let effective_phase = AssistantTextPhase::effective_for_response_item(
+                    &GenerateResponseItem::MultipleChoice {
+                        phase,
+                        prompt: prompt.clone(),
+                        selection_mode,
+                        options: options.clone(),
+                    },
+                    provider_phase_has_tools,
+                );
+                let metadata = json!({
+                    "turn_index": turn.turn_index,
+                    "response_index": position.response_index,
+                    "output_index": position.output_index,
+                    "phase": effective_phase.as_str(),
+                });
+                let prompt_item = self
+                    .store
+                    .append_conversation_item(NewConversationItem {
+                        conversation_id: turn.conversation_id.clone(),
+                        turn_id: Some(turn.turn_id.clone()),
+                        parent_item_id: Some(turn.user_item_id.clone()),
+                        kind: ConversationItemKind::MultipleChoicePrompt,
+                        status: ConversationItemStatus::Completed,
+                        author: ActorRef::agent("agent:primary"),
+                        content_text: Some(prompt.clone()),
+                        payload_json: json!({
+                            "prompt": prompt.clone(),
+                            "selection_mode": selection_mode,
+                            "options": options.clone(),
+                        }),
+                        metadata: metadata.clone(),
+                    })
+                    .await?;
+                send_conversation_item(
+                    item_tx,
+                    prompt_item,
+                    metadata,
+                    TurnTranscriptItem::MultipleChoicePrompt {
+                        prompt,
+                        selection_mode,
+                        options,
+                    },
+                );
+            }
         }
         Ok(())
     }
@@ -683,6 +732,23 @@ impl CodexRuntimeActor {
                         "schema": schema,
                     }),
                 ),
+                TurnTranscriptItem::MultipleChoicePrompt {
+                    prompt,
+                    selection_mode,
+                    options,
+                } => (
+                    ConversationItemKind::MultipleChoicePrompt,
+                    ConversationItemStatus::Completed,
+                    ActorRef::agent("agent:primary"),
+                    default_parent_item_id.clone(),
+                    Some(prompt.clone()),
+                    json!({
+                        "prompt": prompt,
+                        "selection_mode": selection_mode,
+                        "options": options,
+                    }),
+                    json!({ "turn_index": context.turn_index }),
+                ),
                 TurnTranscriptItem::ErrorNotice {
                     message,
                     recoverable,
@@ -745,6 +811,7 @@ pub(in crate::daemon) fn send_transient_turn_item(
         }
         TurnTranscriptItem::UserText { .. }
         | TurnTranscriptItem::AssistantText { .. }
+        | TurnTranscriptItem::MultipleChoicePrompt { .. }
         | TurnTranscriptItem::ErrorNotice { .. } => format!(
             "transient:{}:{}",
             context.conversation_id, context.turn_index

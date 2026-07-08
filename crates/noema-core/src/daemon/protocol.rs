@@ -1,4 +1,7 @@
-use crate::{NoemaPathError, StoreError, provider::ProviderError};
+use crate::{
+    NoemaPathError, StoreError,
+    provider::{MultipleChoiceOption, MultipleChoiceSelectionMode, ProviderError},
+};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use ts_rs::TS;
@@ -82,6 +85,15 @@ pub enum TurnTranscriptItem {
         /// Card payload.
         #[ts(type = "unknown")]
         payload: serde_json::Value,
+    },
+    /// Assistant-authored multiple-choice prompt.
+    MultipleChoicePrompt {
+        /// Question or instruction shown above the options.
+        prompt: String,
+        /// Whether one or many options may be selected.
+        selection_mode: MultipleChoiceSelectionMode,
+        /// Ordered selectable options.
+        options: Vec<MultipleChoiceOption>,
     },
     /// Recoverable or terminal notice shown in the transcript.
     ErrorNotice {

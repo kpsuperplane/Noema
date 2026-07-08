@@ -78,6 +78,14 @@ fn turn_transcript_item_from_record(
                 payload: payload.payload,
             }))
         }
+        ConversationItemKind::MultipleChoicePrompt => {
+            let payload: ReplayMultipleChoicePromptPayload = replay_payload(record)?;
+            Ok(Some(TurnTranscriptItem::MultipleChoicePrompt {
+                prompt: payload.prompt,
+                selection_mode: payload.selection_mode,
+                options: payload.options,
+            }))
+        }
         ConversationItemKind::ErrorNotice => {
             let payload: ReplayErrorNoticePayload = replay_payload(record)?;
             Ok(Some(TurnTranscriptItem::ErrorNotice {
@@ -150,6 +158,13 @@ struct ReplayA2uiCardPayload {
     id: String,
     schema: String,
     payload: Value,
+}
+
+#[derive(Debug, Deserialize)]
+struct ReplayMultipleChoicePromptPayload {
+    prompt: String,
+    selection_mode: crate::provider::MultipleChoiceSelectionMode,
+    options: Vec<crate::provider::MultipleChoiceOption>,
 }
 
 #[derive(Debug, Deserialize)]

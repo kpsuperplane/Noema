@@ -222,6 +222,7 @@ pub(super) fn input_item_from_transcript_item(
         ConversationItemKind::Reasoning => reasoning_input_item(item),
         ConversationItemKind::Activity
         | ConversationItemKind::A2uiCard
+        | ConversationItemKind::MultipleChoicePrompt
         | ConversationItemKind::ApprovalRequest
         | ConversationItemKind::ApprovalResult
         | ConversationItemKind::ErrorNotice => None,

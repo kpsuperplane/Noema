@@ -6,6 +6,7 @@ use serde_json::Value;
 use std::collections::HashSet;
 use std::future::Future;
 use thiserror::Error;
+use ts_rs::TS;
 
 /// Default model for small metadata classification tasks such as MCP tool calibration.
 pub const DEFAULT_TOOL_CLASSIFICATION_MODEL: &str = "gpt-5.4-mini";
@@ -552,8 +553,9 @@ impl AssistantTextPhase {
 }
 
 /// Whether a multiple-choice prompt expects one option or many.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
+#[ts(rename_all = "snake_case")]
 pub enum MultipleChoiceSelectionMode {
     /// One option answers the prompt immediately.
     PickOne,
@@ -562,7 +564,7 @@ pub enum MultipleChoiceSelectionMode {
 }
 
 /// One option in an assistant multiple-choice prompt.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub struct MultipleChoiceOption {
     /// Stable semantic option id.
     pub id: String,
