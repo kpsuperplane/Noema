@@ -22,6 +22,8 @@ pub mod ids;
 pub mod mcp;
 /// Shared memory persistence error types.
 pub mod memory;
+/// Mem0 local service client and lifecycle support.
+pub mod mem0;
 /// Neutral concrete object and actor references.
 pub mod objects;
 /// Onboarding status derived from provider account readiness.
@@ -68,6 +70,10 @@ pub use mcp::{
     OwnerExtractorSource, TrustedIdentitySelectorKind, normalize_trusted_identity_value,
 };
 pub use memory::error::MemoryPersistenceError;
+pub use mem0::{
+    Mem0AddMemoryRequest, Mem0Client, Mem0ClientError, Mem0ListMemoriesRequest,
+    Mem0ListMemoriesResponse, Mem0Memory, Mem0Message, Mem0SearchRequest, Mem0SearchResponse,
+};
 pub use objects::{ActorKind, ActorRef, ObjectRef, ObjectType};
 pub use onboarding::{
     OnboardingStatus, OnboardingStep, OnboardingStepStatus, onboarding_status_from_account,
