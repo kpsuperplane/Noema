@@ -58,5 +58,11 @@ function transcriptEntryScrollFingerprint(entry: TranscriptEntry): string {
   if (entry.type === "card") {
     return `${renderId}:${entry.item.schema}`;
   }
+  if (entry.type === "multiple_choice_prompt") {
+    return `${renderId}:${entry.item.prompt}:${entry.item.options.map((option) => option.id).join(",")}`;
+  }
+  if (entry.type === "multiple_choice_selection") {
+    return `${renderId}:${entry.item.selected_options.map((option) => option.id).join(",")}`;
+  }
   return `${renderId}:${entry.message.length}`;
 }
