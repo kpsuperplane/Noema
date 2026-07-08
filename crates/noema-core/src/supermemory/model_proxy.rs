@@ -444,7 +444,7 @@ impl OpenAiChatCompletionRequest {
                     }
                     for tool_call in message.tool_calls {
                         items.push(GenerateInputItem::ToolCall(GenerateToolCallInput {
-                            id: Some(tool_call.id.clone()),
+                            id: None,
                             call_id: tool_call.id,
                             name: tool_call.function.name.clone(),
                             provider_name: Some(tool_call.function.name),
@@ -761,8 +761,9 @@ mod tests {
     use crate::{
         daemon::RuntimeModelProvider,
         provider::{
-            GenerateInput, GenerateRequest, GenerateResponse, GenerateResponseStatus,
-            GenerateStreamEvent, GenerateToolCall, NoemaToolChoice, ProviderError,
+            GenerateInput, GenerateInputItem, GenerateRequest, GenerateResponse,
+            GenerateResponseStatus, GenerateStreamEvent, GenerateToolCall, NoemaToolChoice,
+            ProviderError,
         },
     };
     use serde_json::{Value, json};
@@ -932,6 +933,70 @@ mod tests {
             body["choices"][0]["message"]["tool_calls"][0]["function"]["arguments"],
             "{\"text\":\"Kevin likes local-first tools\"}"
         );
+    }
+
+    #[tokio::test]
+    async fn chat_completions_history_keeps_tool_call_id_out_of_provider_item_id() {
+        let provider = Arc::new(CapturingProvider::new(GenerateResponse::final_text(
+            "stored",
+            "fake",
+            "memory-model",
+        )));
+        let proxy = super::SupermemoryModelProxy::start(super::SupermemoryModelProxyConfig {
+            provider: provider.clone(),
+            api_key: "secret".to_string(),
+            model_profile: "memory-model".to_string(),
+            reasoning_effort: None,
+            system_errors: None,
+        })
+        .await
+        .expect("start proxy");
+
+        let response = reqwest::Client::new()
+            .post(format!("{}/chat/completions", proxy.openai_base_url()))
+            .bearer_auth(proxy.api_key())
+            .json(&json!({
+                "model": "memory-model",
+                "messages": [
+                    {"role": "user", "content": "remember this"},
+                    {
+                        "role": "assistant",
+                        "content": null,
+                        "tool_calls": [{
+                            "id": "call_5FiAc5MZsQF2jiDkEJxu5IrB",
+                            "type": "function",
+                            "function": {
+                                "name": "CreateMemory",
+                                "arguments": "{\"text\":\"Kevin likes local-first tools\"}"
+                            }
+                        }]
+                    },
+                    {
+                        "role": "tool",
+                        "tool_call_id": "call_5FiAc5MZsQF2jiDkEJxu5IrB",
+                        "name": "CreateMemory",
+                        "content": "{\"ok\":true}"
+                    }
+                ]
+            }))
+            .send()
+            .await
+            .expect("request");
+
+        assert!(response.status().is_success());
+        let requests = provider.requests();
+        let GenerateInput::Items(items) = &requests[0].input else {
+            panic!("expected itemized input");
+        };
+        let GenerateInputItem::ToolCall(call) = &items[1] else {
+            panic!("expected tool call item");
+        };
+        assert_eq!(call.id, None);
+        assert_eq!(call.call_id, "call_5FiAc5MZsQF2jiDkEJxu5IrB");
+        let GenerateInputItem::ToolResult(result) = &items[2] else {
+            panic!("expected tool result item");
+        };
+        assert_eq!(result.call_id, "call_5FiAc5MZsQF2jiDkEJxu5IrB");
     }
 
     #[tokio::test]
