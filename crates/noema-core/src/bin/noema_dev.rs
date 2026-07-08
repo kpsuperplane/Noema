@@ -347,14 +347,23 @@ fn mnemosyne_venv_create_command(repo_root: &Path, base_python: &Path) -> Comman
 fn mnemosyne_install_command(repo_root: &Path) -> Command {
     let mut command = Command::new(mnemosyne_venv_python(repo_root));
     command
-        .arg("-m")
-        .arg("pip")
-        .arg("install")
-        .arg(mnemosyne_sidecar_source_dir(repo_root))
+        .args(mnemosyne_install_args(repo_root))
         .stdin(Stdio::null())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit());
     command
+}
+
+fn mnemosyne_install_args(repo_root: &Path) -> Vec<String> {
+    vec![
+        "-m".to_string(),
+        "pip".to_string(),
+        "install".to_string(),
+        "--editable".to_string(),
+        mnemosyne_sidecar_source_dir(repo_root)
+            .display()
+            .to_string(),
+    ]
 }
 
 fn mnemosyne_sidecar_source_dir(repo_root: &Path) -> PathBuf {
@@ -585,6 +594,20 @@ mod tests {
         assert_eq!(
             mnemosyne_sidecar_uvicorn_command(Path::new("/workspace/.venv/bin/python")),
             "'/workspace/.venv/bin/python' -m uvicorn --factory noema_mnemosyne_sidecar.app:create_app --host 127.0.0.1 --port \"$NOEMA_MNEMOSYNE_PORT\""
+        );
+    }
+
+    #[test]
+    fn mnemosyne_dev_install_uses_editable_source_package() {
+        assert_eq!(
+            mnemosyne_install_args(Path::new("/workspace")),
+            vec![
+                "-m",
+                "pip",
+                "install",
+                "--editable",
+                "/workspace/crates/noema-core/mnemosyne-sidecar"
+            ]
         );
     }
 
