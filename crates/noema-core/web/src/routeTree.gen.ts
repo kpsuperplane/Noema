@@ -16,7 +16,6 @@ import { Route as SettingsIndexRouteImport } from './routes/settings/index'
 import { Route as MemoryIndexRouteImport } from './routes/memory/index'
 import { Route as SettingsMemoryRouteImport } from './routes/settings/memory'
 import { Route as SettingsAgentsRouteImport } from './routes/settings/agents'
-import { Route as MemoryGraphRouteImport } from './routes/memory/graph'
 import { Route as SettingsToolsWebRouteImport } from './routes/settings/tools/web'
 import { Route as SettingsToolsMcpsRouteImport } from './routes/settings/tools/mcps'
 import { Route as SettingsSystemProvidersRouteImport } from './routes/settings/system/providers'
@@ -59,11 +58,6 @@ const SettingsAgentsRoute = SettingsAgentsRouteImport.update({
   path: '/agents',
   getParentRoute: () => SettingsRoute,
 } as any)
-const MemoryGraphRoute = MemoryGraphRouteImport.update({
-  id: '/graph',
-  path: '/graph',
-  getParentRoute: () => MemoryRoute,
-} as any)
 const SettingsToolsWebRoute = SettingsToolsWebRouteImport.update({
   id: '/tools/web',
   path: '/tools/web',
@@ -100,7 +94,6 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/memory': typeof MemoryRouteWithChildren
   '/settings': typeof SettingsRouteWithChildren
-  '/memory/graph': typeof MemoryGraphRoute
   '/settings/agents': typeof SettingsAgentsRoute
   '/settings/memory': typeof SettingsMemoryRoute
   '/memory/': typeof MemoryIndexRoute
@@ -114,7 +107,6 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/memory/graph': typeof MemoryGraphRoute
   '/settings/agents': typeof SettingsAgentsRoute
   '/settings/memory': typeof SettingsMemoryRoute
   '/memory': typeof MemoryIndexRoute
@@ -131,7 +123,6 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/memory': typeof MemoryRouteWithChildren
   '/settings': typeof SettingsRouteWithChildren
-  '/memory/graph': typeof MemoryGraphRoute
   '/settings/agents': typeof SettingsAgentsRoute
   '/settings/memory': typeof SettingsMemoryRoute
   '/memory/': typeof MemoryIndexRoute
@@ -149,7 +140,6 @@ export interface FileRouteTypes {
     | '/'
     | '/memory'
     | '/settings'
-    | '/memory/graph'
     | '/settings/agents'
     | '/settings/memory'
     | '/memory/'
@@ -163,7 +153,6 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
-    | '/memory/graph'
     | '/settings/agents'
     | '/settings/memory'
     | '/memory'
@@ -179,7 +168,6 @@ export interface FileRouteTypes {
     | '/'
     | '/memory'
     | '/settings'
-    | '/memory/graph'
     | '/settings/agents'
     | '/settings/memory'
     | '/memory/'
@@ -249,13 +237,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsAgentsRouteImport
       parentRoute: typeof SettingsRoute
     }
-    '/memory/graph': {
-      id: '/memory/graph'
-      path: '/graph'
-      fullPath: '/memory/graph'
-      preLoaderRoute: typeof MemoryGraphRouteImport
-      parentRoute: typeof MemoryRoute
-    }
     '/settings/tools/web': {
       id: '/settings/tools/web'
       path: '/tools/web'
@@ -302,12 +283,10 @@ declare module '@tanstack/react-router' {
 }
 
 interface MemoryRouteChildren {
-  MemoryGraphRoute: typeof MemoryGraphRoute
   MemoryIndexRoute: typeof MemoryIndexRoute
 }
 
 const MemoryRouteChildren: MemoryRouteChildren = {
-  MemoryGraphRoute: MemoryGraphRoute,
   MemoryIndexRoute: MemoryIndexRoute,
 }
 

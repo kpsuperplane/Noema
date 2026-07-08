@@ -3,7 +3,6 @@ import type { SettingsSection } from "./routes";
 
 export type AppRuntime = {
   chatView: React.ReactNode;
-  openMemoryGraph: () => void;
   settingsSection: SettingsSection | null;
 };
 

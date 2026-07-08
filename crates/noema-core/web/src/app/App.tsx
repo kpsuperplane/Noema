@@ -726,15 +726,10 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
     );
   }
 
-  const openMemoryGraph = () => {
-    navigate({ kind: "settings", section: "memory" });
-  };
-
   return (
     <AppRuntimeProvider
       value={{
         chatView,
-        openMemoryGraph,
         settingsSection: route.kind === "settings" ? route.section : null
       }}
     >

@@ -3,7 +3,7 @@ import type { TurnTranscriptItem } from "@/shared/types";
 import type { ToolMarkerGroup } from "./renderModel";
 type MemoryDetailRowData = { label: string; value: string };
 export type ToolDetailRowData = { label: string; value: string };
-type MemoryClaimOutcome = {
+type MemoryOutcome = {
   claimId?: string;
   outcome: "created" | "reinforced" | "needs_review" | "disputed" | "related" | "superseded";
   factPreview?: string;
@@ -16,7 +16,7 @@ type MemoryDetailItem = {
   rows: MemoryDetailRowData[];
 };
 
-function memoryClaimOutcomes(metadata: unknown): MemoryClaimOutcome[] {
+function memoryClaimOutcomes(metadata: unknown): MemoryOutcome[] {
   if (!metadata || typeof metadata !== "object") {
     return [];
   }
@@ -24,7 +24,7 @@ function memoryClaimOutcomes(metadata: unknown): MemoryClaimOutcome[] {
   if (!Array.isArray(outcomes)) {
     return [];
   }
-  return outcomes.flatMap((outcome): MemoryClaimOutcome[] => {
+  return outcomes.flatMap((outcome): MemoryOutcome[] => {
     if (!outcome || typeof outcome !== "object") {
       return [];
     }
@@ -50,7 +50,7 @@ function memoryClaimOutcomes(metadata: unknown): MemoryClaimOutcome[] {
   });
 }
 
-function isMemoryOutcome(value: unknown): value is MemoryClaimOutcome["outcome"] {
+function isMemoryOutcome(value: unknown): value is MemoryOutcome["outcome"] {
   return (
     value === "created" ||
     value === "reinforced" ||
@@ -102,7 +102,7 @@ export function memoryMarkerLabel(extraction?: Extract<TurnTranscriptItem, { kin
   return `${prefix}: ${countLabel}${failureSuffix}`;
 }
 
-function memoryOutcomeMarkerVerb(outcome: MemoryClaimOutcome["outcome"]): string {
+function memoryOutcomeMarkerVerb(outcome: MemoryOutcome["outcome"]): string {
   switch (outcome) {
     case "created":
       return "Memory saved";
@@ -118,7 +118,7 @@ function memoryOutcomeMarkerVerb(outcome: MemoryClaimOutcome["outcome"]): string
   }
 }
 
-function isSavedOutcome(outcome: MemoryClaimOutcome["outcome"]): boolean {
+function isSavedOutcome(outcome: MemoryOutcome["outcome"]): boolean {
   return outcome === "created" || outcome === "reinforced" || outcome === "related" || outcome === "superseded";
 }
 
