@@ -8,8 +8,32 @@ class FakeMnemosyne:
         self.remember_calls = []
         self.recall_calls = []
 
-    def remember(self, **kwargs):
-        self.remember_calls.append(kwargs)
+    def remember(
+        self,
+        *,
+        content,
+        source="conversation",
+        importance=0.5,
+        metadata=None,
+        valid_until=None,
+        scope="session",
+        extract_entities=False,
+        extract=False,
+        trust_tier=None,
+    ):
+        self.remember_calls.append(
+            {
+                "content": content,
+                "source": source,
+                "importance": importance,
+                "metadata": metadata,
+                "valid_until": valid_until,
+                "scope": scope,
+                "extract_entities": extract_entities,
+                "extract": extract,
+                "trust_tier": trust_tier,
+            }
+        )
         return "mem_1"
 
     def recall(self, **kwargs):
@@ -73,10 +97,10 @@ def test_add_remembers_user_message_with_extraction_and_noema_metadata():
                 "noemaConversationId": "conv:1",
                 "userItemId": "item:1",
             },
+            "valid_until": None,
             "scope": "global",
             "extract_entities": True,
             "extract": True,
-            "veracity": "stated",
             "trust_tier": "STATED",
         }
     ]

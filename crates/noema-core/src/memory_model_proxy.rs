@@ -414,6 +414,7 @@ impl OpenAiChatCompletionRequest {
         self,
         config: &MemoryModelProxyConfig,
     ) -> Result<GenerateRequest, MemoryModelProxyError> {
+        let _ignored_temperature = self.temperature;
         let mut instructions = Vec::new();
         let mut items = Vec::new();
         for message in self.messages {
@@ -491,7 +492,9 @@ impl OpenAiChatCompletionRequest {
             instructions: nonempty_join(instructions, "\n\n"),
             options: GenerateOptions {
                 max_output_tokens: self.max_completion_tokens.or(self.max_tokens),
-                temperature: self.temperature,
+                // OpenAI-compatible memory clients often send sampling knobs that
+                // are not valid for every configured Noema provider/model.
+                temperature: None,
                 reasoning_effort: config.reasoning_effort,
                 require_noema_response: false,
                 prompt_cache_retention: None,
@@ -857,7 +860,7 @@ mod tests {
             Some("extract useful memories")
         );
         assert_eq!(request.options.max_output_tokens, Some(123));
-        assert_eq!(request.options.temperature, Some(0.2));
+        assert_eq!(request.options.temperature, None);
         assert!(matches!(request.tool_choice, NoemaToolChoice::Required));
         assert_eq!(request.tools[0].name.as_str(), "CreateMemory");
         assert_eq!(request.tools[0].description, "Create a memory");

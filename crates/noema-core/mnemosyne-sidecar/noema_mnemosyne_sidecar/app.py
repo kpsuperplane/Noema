@@ -100,7 +100,6 @@ def _remember_observation(app: FastAPI, request: AddMemoryRequest) -> str:
         scope="global",
         extract_entities=True,
         extract=True,
-        veracity="stated",
         trust_tier="STATED",
     )
 
