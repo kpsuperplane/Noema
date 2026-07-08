@@ -43,8 +43,10 @@ The next storage slice should stay small and concrete:
   failures are best-effort diagnostics until a real retry surface exists.
 - Managed local Mem0 runs as a private Noema sidecar. The sidecar embeds Mem0
   OSS behind a Noema-owned FastAPI contract, stores vectors in local Chroma,
-  uses FastEmbed local embeddings, and binds a runtime-selected loopback port.
-  `cargo dev` prepares a repo-local Python virtualenv under
+  uses FastEmbed local embeddings, installs spaCy with `en_core_web_sm` so
+  Mem0's entity linking and BM25 lemmatization paths are active, and binds a
+  runtime-selected loopback port. `cargo dev` prepares a repo-local Python
+  virtualenv under
   `crates/noema-core/target/mem0-sidecar-venv` and passes
   `NOEMA_MEM0_SIDECAR_COMMAND` to the watched server process. The endpoint is
   kept in memory and is not stored in SQLite or shown in Settings.

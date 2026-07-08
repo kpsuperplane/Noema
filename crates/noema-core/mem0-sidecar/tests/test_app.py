@@ -75,3 +75,13 @@ def test_list_memories_uses_mem0_top_k_parameter():
     assert memory.get_all_calls == [
         {"filters": {"user_id": "human:local"}, "top_k": 7}
     ]
+
+
+def test_spacy_entity_dependencies_are_available():
+    import spacy
+    from mem0.utils.entity_extraction import extract_entities
+
+    assert spacy.util.is_package("en_core_web_sm")
+    entities = extract_entities("Alice works at Acme Corp on the Q1 roadmap.")
+
+    assert ("PROPER", "Acme Corp") in entities
