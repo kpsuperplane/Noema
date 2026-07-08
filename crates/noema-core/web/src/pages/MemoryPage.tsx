@@ -101,6 +101,13 @@ export function MemoryPage() {
 
             <p {...stylex.props(styles.lead)}>{article.leadText}</p>
 
+            {article.isStub && !serviceError && !(loading && article.totalMemories === 0) ? (
+              <div role="note" {...stylex.props(styles.stubNote)}>
+                <span {...stylex.props(styles.stubLabel)}>Stub</span>
+                <span>{article.stubText}</span>
+              </div>
+            ) : null}
+
             <nav {...stylex.props(styles.contents)} aria-label="Memory article contents">
               <div {...stylex.props(styles.contentsTitle)}>Contents</div>
               <ol {...stylex.props(styles.contentsList)}>

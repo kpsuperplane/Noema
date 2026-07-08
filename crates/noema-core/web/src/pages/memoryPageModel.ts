@@ -35,6 +35,8 @@ export type MemoryArticleModel = {
   primaryPattern: string;
   recurringMotif: string;
   leadText: string;
+  isStub: boolean;
+  stubText: string;
   figureTitle: string;
   figureCopy: string;
   figureCaption: string;
@@ -65,6 +67,8 @@ export function buildMemoryArticleModel(graph: MemoryGraph | undefined): MemoryA
     primaryPattern,
     recurringMotif,
     leadText: buildLeadText(entries.length),
+    isStub: entries.length < 3,
+    stubText: buildStubText(entries.length),
     figureTitle: buildFigureTitle(entries.length),
     figureCopy: buildFigureCopy(entries.length),
     figureCaption: "Fig. 1. Prominent themes in the memory record, grouped by loaded entries.",
@@ -108,6 +112,13 @@ function buildLeadText(entryCount: number): string {
     return "Noema has not formed durable facts about the human yet. User-authored observations will appear here only after Mnemosyne extracts facts from them.";
   }
   return "This article summarizes the durable facts Noema currently knows about the human. Each fact is linked back to the user-authored observation that produced it, keeping memory visible instead of hidden in model state.";
+}
+
+function buildStubText(entryCount: number): string {
+  if (entryCount === 0) {
+    return "This memory article is a stub. Noema can expand it once Mnemosyne extracts its first durable facts.";
+  }
+  return "This memory article is a stub. Noema can expand it as Mnemosyne extracts more durable facts from future conversations.";
 }
 
 function buildFigureTitle(entryCount: number): string {

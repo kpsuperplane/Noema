@@ -363,6 +363,35 @@ export const styles = stylex.create({
       fontSize: 15
     }
   },
+  stubNote: {
+    display: "flex",
+    alignItems: "flex-start",
+    gap: 10,
+    marginTop: 14,
+    borderWidth: 1,
+    borderStyle: "solid",
+    borderColor: "#a2a9b1",
+    borderLeftWidth: 6,
+    borderLeftColor: "#c2b47c",
+    backgroundColor: "#f8f9fa",
+    padding: "9px 11px",
+    color: "#202122",
+    fontFamily: wikiSans,
+    fontSize: 13,
+    lineHeight: 1.45,
+    "@media (max-width: 560px)": {
+      display: "grid",
+      gap: 4
+    }
+  },
+  stubLabel: {
+    minWidth: 44,
+    color: "#54595d",
+    fontWeight: 700,
+    textTransform: "uppercase",
+    fontSize: 11,
+    letterSpacing: 0
+  },
   contents: {
     float: "left",
     width: 230,
