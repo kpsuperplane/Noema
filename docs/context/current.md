@@ -367,9 +367,12 @@ The next storage slice should stay small and concrete:
   agent has no display name. The local `update_own_name` tool persists later
   naming or renaming only when the current user explicitly names or renames the
   agent. Intent is carried by the structured tool call and trusted runtime
-  state rather than direct user-text matching. The runtime feeds successful
-  local tool results, and failed MCP gateway tool results, back into the same
-  turn plus subsequent prompts.
+  state rather than direct user-text matching. The agent identity prompt now
+  also carries a priority-ordered onboarding agenda: name first, then learn what
+  the user wants help with, which tools/connectors they want to use, useful
+  user/project context, and preferred collaboration/proactivity style. The
+  runtime feeds successful local tool results, and failed MCP gateway tool
+  results, back into the same turn plus subsequent prompts.
 - The local `search_memory` tool supports validated concrete `scope_ids`.
   Empty `query` is allowed only for scoped reads, and `query` narrows within
   scope rather than broadening it.

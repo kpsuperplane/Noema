@@ -3036,7 +3036,8 @@ async fn update_own_name_tool_updates_agent_and_continues_turn() {
     )));
     assert!(items.iter().any(|item| matches!(
         item,
-        TurnTranscriptItem::AssistantText { text } if text == "Fred it is."
+        TurnTranscriptItem::AssistantText { text }
+            if text == "Fred it is. what would you like help with first?"
     )));
 }
 
@@ -4451,7 +4452,14 @@ impl FakeCodexProvider {
                     let saw_updated_identity = instructions.contains("Agent identity:")
                         && instructions.contains(&display_name_marker)
                         && !instructions.contains("You do not have a name yet.");
-                    if saw_updated_identity {
+                    let saw_onboarding_tasks = instructions
+                        .contains("Onboarding tasks, in priority order:")
+                        && instructions.contains("what the user wants help with first");
+                    if saw_updated_identity && saw_onboarding_tasks {
+                        let reply =
+                            format!("{expected_name} it is. what would you like help with first?");
+                        assistant_with_no_memories(&reply)
+                    } else if saw_updated_identity {
                         let reply = format!("{expected_name} it is.");
                         assistant_with_no_memories(&reply)
                     } else {

@@ -509,6 +509,29 @@ mod tests {
         assert!(prompt.contains("Do not invent missing IDs, names, or values"));
     }
 
+    #[test]
+    fn local_tool_result_continuation_prompt_inherits_onboarding_tasks() {
+        let prompt = build_local_tool_result_continuation_system_prompt(
+            "conv_123",
+            1,
+            None,
+            "How about Fred?",
+            &AgentPromptIdentity {
+                agent_id: "agent:primary".to_string(),
+                display_name: Some("Fred".to_string()),
+            },
+            "none",
+            no_tools(),
+        );
+
+        assert!(prompt.contains(r#"display_name: "Fred""#));
+        assert!(prompt.contains("Onboarding tasks, in priority order:"));
+        assert!(prompt.contains("Then learn what the user wants help with first"));
+        assert!(prompt.contains("tools, connectors, accounts, or data sources"));
+        assert!(prompt.contains("Ask at most one onboarding question"));
+        assert!(!prompt.contains("Post-name onboarding:"));
+    }
+
     fn test_agent_identity() -> AgentPromptIdentity {
         AgentPromptIdentity {
             agent_id: "agent:primary".to_string(),
