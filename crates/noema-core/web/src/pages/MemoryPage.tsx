@@ -1,5 +1,10 @@
 import { MemoryGraph as SupermemoryGraph } from "@supermemory/memory-graph";
-import type { GraphApiDocument, GraphApiMemory, MemoryRelation } from "@supermemory/memory-graph";
+import type {
+  GraphApiDocument,
+  GraphApiMemory,
+  GraphThemeColors,
+  MemoryRelation
+} from "@supermemory/memory-graph";
 import { useQuery } from "@apollo/client/react";
 import * as stylex from "@stylexjs/stylex";
 import { useMemo, useState } from "react";
@@ -11,6 +16,34 @@ import {
 
 const PAGE_SIZE = 25;
 const HUMAN_SPACE_ID = "human:local";
+const LIGHT_GRAPH_COLORS = {
+  bg: "#fbfaf7",
+  docFill: "#ffffff",
+  docStroke: "#d7d1c8",
+  docInnerFill: "#f5f1ea",
+  memFill: "#eef6f3",
+  memFillHover: "#e0eee9",
+  memStrokeDefault: "#2d7f73",
+  accent: "#2d7f73",
+  textPrimary: "#171612",
+  textSecondary: "#4c4941",
+  textMuted: "#817b70",
+  edgeDerives: "#b66d12",
+  edgeUpdates: "#7763c4",
+  edgeExtends: "#7a8a93",
+  memBorderForgotten: "#b42318",
+  memBorderExpiring: "#c27a12",
+  memBorderRecent: "#20815f",
+  glowColor: "#5a9c8f",
+  iconColor: "#2d7f73",
+  popoverBg: "#ffffff",
+  popoverBorder: "#d7d1c8",
+  popoverTextPrimary: "#171612",
+  popoverTextSecondary: "#4c4941",
+  popoverTextMuted: "#817b70",
+  controlBg: "#ffffff",
+  controlBorder: "#d7d1c8"
+} satisfies Partial<GraphThemeColors>;
 
 export function MemoryPage() {
   const [loadingMore, setLoadingMore] = useState(false);
@@ -81,6 +114,7 @@ export function MemoryPage() {
       </div>
       <div {...stylex.props(styles.graphFrame)}>
         <SupermemoryGraph
+          colors={LIGHT_GRAPH_COLORS}
           documents={documents}
           error={statusError}
           hasMore={graph?.pageInfo.hasMore ?? false}
@@ -179,7 +213,7 @@ const styles = stylex.create({
     borderStyle: "solid",
     borderColor: "var(--border)",
     borderRadius: 8,
-    backgroundColor: "var(--background)"
+    backgroundColor: "#fbfaf7"
   },
   emptyState: {
     display: "grid",
