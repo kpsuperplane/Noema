@@ -87,17 +87,6 @@ export function shellAttentionForState(input: ShellAttentionInput): ShellAttenti
     };
   }
 
-  if (
-    (input.route.kind === "memory_home" || input.route.kind === "memory_graph") &&
-    input.status?.memoryStorage === "UNAVAILABLE"
-  ) {
-    return {
-      tone: "warning",
-      title: "Memory unavailable",
-      message: "Memory storage is not ready for this page."
-    };
-  }
-
   return null;
 }
 

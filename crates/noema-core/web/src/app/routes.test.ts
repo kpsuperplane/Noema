@@ -15,6 +15,10 @@ describe("settings routes", () => {
       kind: "settings",
       section: "agents"
     });
+    assert.deepEqual(routeFromPathname("/settings/memory"), {
+      kind: "settings",
+      section: "memory"
+    });
     assert.deepEqual(routeFromPathname("/settings/tools/web"), {
       kind: "settings",
       section: "tools-web"
@@ -50,6 +54,7 @@ describe("settings routes", () => {
 
   test("pathForRoute emits only canonical settings paths", () => {
     assert.equal(pathForRoute({ kind: "settings", section: "agents" }), "/settings/agents");
+    assert.equal(pathForRoute({ kind: "settings", section: "memory" }), "/settings/memory");
     assert.equal(pathForRoute({ kind: "settings", section: "tools-web" }), "/settings/tools/web");
     assert.equal(pathForRoute({ kind: "settings", section: "tools-mcps" }), "/settings/tools/mcps");
     assert.equal(
@@ -64,5 +69,13 @@ describe("settings routes", () => {
       pathForRoute({ kind: "settings", section: "system-providers" }),
       "/settings/system/providers"
     );
+  });
+
+  test("routes memory to settings memory", () => {
+    assert.deepEqual(routeFromPathname("/memory"), {
+      kind: "settings",
+      section: "memory"
+    });
+    assert.equal(pathForRoute({ kind: "settings", section: "memory" }), "/settings/memory");
   });
 });

@@ -14,6 +14,7 @@ import { Route as MemoryRouteImport } from './routes/memory'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as SettingsIndexRouteImport } from './routes/settings/index'
 import { Route as MemoryIndexRouteImport } from './routes/memory/index'
+import { Route as SettingsMemoryRouteImport } from './routes/settings/memory'
 import { Route as SettingsAgentsRouteImport } from './routes/settings/agents'
 import { Route as MemoryGraphRouteImport } from './routes/memory/graph'
 import { Route as SettingsToolsWebRouteImport } from './routes/settings/tools/web'
@@ -47,6 +48,11 @@ const MemoryIndexRoute = MemoryIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => MemoryRoute,
+} as any)
+const SettingsMemoryRoute = SettingsMemoryRouteImport.update({
+  id: '/memory',
+  path: '/memory',
+  getParentRoute: () => SettingsRoute,
 } as any)
 const SettingsAgentsRoute = SettingsAgentsRouteImport.update({
   id: '/agents',
@@ -96,6 +102,7 @@ export interface FileRoutesByFullPath {
   '/settings': typeof SettingsRouteWithChildren
   '/memory/graph': typeof MemoryGraphRoute
   '/settings/agents': typeof SettingsAgentsRoute
+  '/settings/memory': typeof SettingsMemoryRoute
   '/memory/': typeof MemoryIndexRoute
   '/settings/': typeof SettingsIndexRoute
   '/settings/safety/approvals': typeof SettingsSafetyApprovalsRoute
@@ -109,6 +116,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/memory/graph': typeof MemoryGraphRoute
   '/settings/agents': typeof SettingsAgentsRoute
+  '/settings/memory': typeof SettingsMemoryRoute
   '/memory': typeof MemoryIndexRoute
   '/settings': typeof SettingsIndexRoute
   '/settings/safety/approvals': typeof SettingsSafetyApprovalsRoute
@@ -125,6 +133,7 @@ export interface FileRoutesById {
   '/settings': typeof SettingsRouteWithChildren
   '/memory/graph': typeof MemoryGraphRoute
   '/settings/agents': typeof SettingsAgentsRoute
+  '/settings/memory': typeof SettingsMemoryRoute
   '/memory/': typeof MemoryIndexRoute
   '/settings/': typeof SettingsIndexRoute
   '/settings/safety/approvals': typeof SettingsSafetyApprovalsRoute
@@ -142,6 +151,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/memory/graph'
     | '/settings/agents'
+    | '/settings/memory'
     | '/memory/'
     | '/settings/'
     | '/settings/safety/approvals'
@@ -155,6 +165,7 @@ export interface FileRouteTypes {
     | '/'
     | '/memory/graph'
     | '/settings/agents'
+    | '/settings/memory'
     | '/memory'
     | '/settings'
     | '/settings/safety/approvals'
@@ -170,6 +181,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/memory/graph'
     | '/settings/agents'
+    | '/settings/memory'
     | '/memory/'
     | '/settings/'
     | '/settings/safety/approvals'
@@ -222,6 +234,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/memory/'
       preLoaderRoute: typeof MemoryIndexRouteImport
       parentRoute: typeof MemoryRoute
+    }
+    '/settings/memory': {
+      id: '/settings/memory'
+      path: '/memory'
+      fullPath: '/settings/memory'
+      preLoaderRoute: typeof SettingsMemoryRouteImport
+      parentRoute: typeof SettingsRoute
     }
     '/settings/agents': {
       id: '/settings/agents'
@@ -297,6 +316,7 @@ const MemoryRouteWithChildren =
 
 interface SettingsRouteChildren {
   SettingsAgentsRoute: typeof SettingsAgentsRoute
+  SettingsMemoryRoute: typeof SettingsMemoryRoute
   SettingsIndexRoute: typeof SettingsIndexRoute
   SettingsSafetyApprovalsRoute: typeof SettingsSafetyApprovalsRoute
   SettingsSafetyIdentitiesRoute: typeof SettingsSafetyIdentitiesRoute
@@ -308,6 +328,7 @@ interface SettingsRouteChildren {
 
 const SettingsRouteChildren: SettingsRouteChildren = {
   SettingsAgentsRoute: SettingsAgentsRoute,
+  SettingsMemoryRoute: SettingsMemoryRoute,
   SettingsIndexRoute: SettingsIndexRoute,
   SettingsSafetyApprovalsRoute: SettingsSafetyApprovalsRoute,
   SettingsSafetyIdentitiesRoute: SettingsSafetyIdentitiesRoute,

@@ -1,5 +1,6 @@
 export type SettingsSection =
   | "agents"
+  | "memory"
   | "tools-web"
   | "tools-mcps"
   | "safety-usage"
@@ -9,8 +10,6 @@ export type SettingsSection =
 
 export type AppRoute =
   | { kind: "chat" }
-  | { kind: "memory_home" }
-  | { kind: "memory_graph" }
   | { kind: "settings"; section: SettingsSection };
 
 export type NonSettingsAppRoute = Exclude<AppRoute, { kind: "settings" }>;
@@ -18,8 +17,8 @@ export type NonSettingsAppRoute = Exclude<AppRoute, { kind: "settings" }>;
 export type AppPath =
   | "/"
   | "/memory"
-  | "/memory/graph"
   | "/settings/agents"
+  | "/settings/memory"
   | "/settings/tools/web"
   | "/settings/tools/mcps"
   | "/settings/safety/usage"
@@ -28,11 +27,8 @@ export type AppPath =
   | "/settings/system/providers";
 
 export function routeFromPathname(pathname: string): AppRoute {
-  if (pathname === "/memory") {
-    return { kind: "memory_home" };
-  }
-  if (pathname === "/memory/graph") {
-    return { kind: "memory_graph" };
+  if (pathname === "/memory" || pathname === "/settings/memory") {
+    return { kind: "settings", section: "memory" };
   }
   if (pathname === "/settings" || pathname === "/settings/agents") {
     return { kind: "settings", section: "agents" };
@@ -59,16 +55,12 @@ export function routeFromPathname(pathname: string): AppRoute {
 }
 
 export function pathForRoute(route: AppRoute): AppPath {
-  if (route.kind === "memory_home") {
-    return "/memory";
-  }
-  if (route.kind === "memory_graph") {
-    return "/memory/graph";
-  }
   if (route.kind === "settings") {
     switch (route.section) {
       case "agents":
         return "/settings/agents";
+      case "memory":
+        return "/settings/memory";
       case "tools-web":
         return "/settings/tools/web";
       case "tools-mcps":

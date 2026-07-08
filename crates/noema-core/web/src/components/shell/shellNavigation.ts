@@ -18,9 +18,9 @@ export type ShellMenuLevelId = "l0" | "settings";
 
 export type ShellMenuItemId =
   | "home"
-  | "memory"
   | "settings"
   | "settings.agents"
+  | "settings.memory"
   | "settings.tools.web"
   | "settings.tools.mcps"
   | "settings.safety.usage"
@@ -81,6 +81,10 @@ export const shellSettingsEntries: ShellSettingsEntry[] = [
     kind: "section",
     item: { section: "agents", itemId: "settings.agents", label: "Agents", icon: Bot }
   },
+  {
+    kind: "section",
+    item: { section: "memory", itemId: "settings.memory", label: "Memory", icon: Brain }
+  },
   { kind: "group", label: "Tools" },
   {
     kind: "section",
@@ -134,10 +138,7 @@ export const shellSettingsSections = shellSettingsEntries.flatMap((entry) =>
   entry.kind === "section" ? [entry.item] : []
 );
 
-export function activeL0ItemId(route: AppRoute): Extract<ShellMenuItemId, "home" | "memory"> {
-  if (route.kind === "memory_home" || route.kind === "memory_graph") {
-    return "memory";
-  }
+export function activeL0ItemId(): Extract<ShellMenuItemId, "home"> {
   return "home";
 }
 
@@ -184,7 +185,7 @@ export function shellMenuLevelForRoute(route: AppRoute): ShellMenuLevel {
     levelId: "l0",
     ariaLabel: "Primary",
     title: "Noema",
-    activeItemId: activeL0ItemId(route),
+    activeItemId: activeL0ItemId(),
     items: [
       {
         kind: "item",
@@ -194,16 +195,6 @@ export function shellMenuLevelForRoute(route: AppRoute): ShellMenuLevel {
           route: { kind: "chat" },
           action: "navigate",
           icon: House
-        }
-      },
-      {
-        kind: "item",
-        item: {
-          itemId: "memory",
-          label: "Memory",
-          route: { kind: "memory_home" },
-          action: "navigate",
-          icon: Brain
         }
       }
     ],
@@ -224,10 +215,6 @@ export function breadcrumbForRoute(route: AppRoute): ShellBreadcrumb {
       shellSettingsSections.find((section) => section.section === route.section)?.label ??
       "Agents";
     return { parent: "Settings", current };
-  }
-
-  if (route.kind === "memory_home" || route.kind === "memory_graph") {
-    return { current: "Memory" };
   }
 
   return { current: "Home" };

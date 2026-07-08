@@ -1,5 +1,6 @@
 import { AgentsSettingsPane } from "@/components/settings/AgentsSettingsPane";
 import { ApprovalsSettingsPane } from "@/components/settings/ApprovalsSettingsPane";
+import { MemorySettingsPane } from "@/components/settings/MemorySettingsPane";
 import { McpSettingsPane } from "@/components/settings/McpSettingsPane";
 import { ProvidersSettingsPane } from "@/components/settings/ProvidersSettingsPane";
 import { TrustedIdentitiesSettingsPane } from "@/components/settings/TrustedIdentitiesSettingsPane";
@@ -16,6 +17,10 @@ const settingsSectionCopy: Record<SettingsSection, { title: string; description:
   agents: {
     title: "Agents",
     description: "Review the agents currently registered in Noema and choose their runtime models."
+  },
+  memory: {
+    title: "Memory",
+    description: "Configure the local Supermemory service Noema uses for recall."
   },
   "tools-web": {
     title: "Web",
@@ -72,6 +77,8 @@ function SettingsSectionPane({ section }: { section: SettingsSection }) {
   switch (section) {
     case "agents":
       return <AgentsSettingsPane />;
+    case "memory":
+      return <MemorySettingsPane />;
     case "tools-web":
       return <WebSettingsPane />;
     case "tools-mcps":

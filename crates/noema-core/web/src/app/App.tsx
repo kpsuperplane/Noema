@@ -726,7 +726,9 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
     );
   }
 
-  const openMemoryGraph = () => navigate({ kind: "memory_graph" });
+  const openMemoryGraph = () => {
+    navigate({ kind: "settings", section: "memory" });
+  };
 
   return (
     <AppRuntimeProvider

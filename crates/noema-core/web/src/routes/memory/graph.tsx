@@ -1,10 +1,7 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { MemoryGraphPage } from "@/pages/MemoryGraphPage";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/memory/graph")({
-  component: MemoryGraphRoute
+  beforeLoad: () => {
+    throw redirect({ to: "/settings/memory" });
+  }
 });
-
-function MemoryGraphRoute() {
-  return <MemoryGraphPage />;
-}

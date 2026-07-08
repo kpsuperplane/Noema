@@ -308,6 +308,70 @@ export const SaveToolProgressAuditPreferenceDocument = gql`
   }
 `;
 
+export const MemorySettingsDocument = gql`
+  query MemorySettings {
+    memorySettings {
+      mode
+      baseUrl
+      port
+      status {
+        status
+        checkedAt
+        lastErrorCode
+        lastErrorMessage
+      }
+      modelPreference {
+        providerKind
+        providerAccountId
+        modelProfile
+        reasoningEffort
+      }
+      modelOptions {
+        providerKind
+        providerAccountId
+        providerDisplayName
+        status
+        disabledReason
+        defaultModelProfile
+        profiles {
+          id
+          label
+          disabledReason
+          reasoningEfforts
+          defaultReasoningEffort
+        }
+      }
+    }
+  }
+`;
+
+export const SaveMemoryServiceSettingsDocument = gql`
+  mutation SaveMemoryServiceSettings($input: SaveMemoryServiceSettingsInput!) {
+    saveMemoryServiceSettings(input: $input) {
+      mode
+      baseUrl
+      port
+      status {
+        status
+        checkedAt
+        lastErrorCode
+        lastErrorMessage
+      }
+    }
+  }
+`;
+
+export const CheckMemoryServiceDocument = gql`
+  mutation CheckMemoryService {
+    checkMemoryService {
+      status
+      checkedAt
+      lastErrorCode
+      lastErrorMessage
+    }
+  }
+`;
+
 export const McpSettingsDocument = gql`
   query McpSettings {
     mcpServers {
@@ -523,73 +587,6 @@ export const ProviderAuthAttemptDocument = gql`
       instructions
       errorCode
       errorMessage
-    }
-  }
-`;
-
-export const MemoryGraphDocument = gql`
-  query MemoryGraph($input: MemoryGraphInput) {
-    memoryGraph(input: $input) {
-      nodes {
-        nodeId
-        entityId
-        label
-        entityType
-        redacted
-        claimCount
-      }
-      edges {
-        claimId
-        sourceNodeId
-        targetNodeId
-        predicateId
-        predicateLabel
-        fact
-        factRedacted
-        status
-        sensitivity
-        confidence
-        evidenceCount
-        createdAt
-        updatedAt
-      }
-      summary {
-        returnedClaimCount
-        returnedNodeCount
-        limit
-        truncated
-      }
-    }
-  }
-`;
-
-export const MemoryGraphClaimDetailDocument = gql`
-  query MemoryGraphClaimDetail($claimId: String!) {
-    memoryClaim(claimId: $claimId) {
-      claimId
-      fact
-      predicateId
-      predicateLabel
-      subjectEntityId
-      subjectEntityName
-      subjectEntityType
-      objectEntityId
-      objectEntityName
-      objectEntityType
-      status
-      sensitivity
-      confidence
-      evidenceCount
-      createdAt
-      updatedAt
-      evidence {
-        evidenceId
-        sourceItemId
-        authority
-        excerpt
-        observedAt
-        createdAt
-      }
     }
   }
 `;

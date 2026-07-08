@@ -1,24 +1,44 @@
-import type { MemoryGraphQuery } from "@/generated/graphql";
-
 type WithOptionalTypename<T, Typename extends string> = T & {
   __typename?: Typename;
 };
 
-export type MemoryGraphResult = Omit<MemoryGraphQuery["memoryGraph"], "nodes" | "edges" | "summary"> & {
+export type MemoryGraphNodeResult = WithOptionalTypename<{
+  nodeId: string;
+  entityId: string;
+  label: string;
+  entityType: string;
+  redacted: boolean;
+  claimCount: number;
+}, "MemoryGraphNode">;
+
+export type MemoryGraphEdgeResult = WithOptionalTypename<{
+  claimId: string;
+  sourceNodeId: string;
+  targetNodeId: string;
+  predicateId: string;
+  predicateLabel: string;
+  fact: string;
+  factRedacted: boolean;
+  status: string;
+  sensitivity: string;
+  confidence: number;
+  evidenceCount: number;
+  createdAt: string;
+  updatedAt: string;
+}, "MemoryGraphEdge">;
+
+export type MemoryGraphSummaryResult = WithOptionalTypename<{
+  returnedClaimCount: number;
+  returnedNodeCount: number;
+  limit: number;
+  truncated: boolean;
+}, "MemoryGraphSummary">;
+
+export type MemoryGraphResult = {
   nodes: MemoryGraphNodeResult[];
   edges: MemoryGraphEdgeResult[];
-  summary: WithOptionalTypename<MemoryGraphQuery["memoryGraph"]["summary"], "MemoryGraphSummary">;
+  summary: MemoryGraphSummaryResult;
 };
-
-export type MemoryGraphNodeResult = WithOptionalTypename<
-  MemoryGraphQuery["memoryGraph"]["nodes"][number],
-  "MemoryGraphNode"
->;
-
-export type MemoryGraphEdgeResult = WithOptionalTypename<
-  MemoryGraphQuery["memoryGraph"]["edges"][number],
-  "MemoryGraphEdge"
->;
 
 export type NormalizedMemoryGraphNode = MemoryGraphNodeResult;
 

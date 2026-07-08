@@ -1,12 +1,7 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { useAppRuntime } from "@/app/AppRuntimeContext";
-import { MemoryHomePage } from "@/pages/MemoryHomePage";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/memory/")({
-  component: MemoryHomeRoute
+  beforeLoad: () => {
+    throw redirect({ to: "/settings/memory" });
+  }
 });
-
-function MemoryHomeRoute() {
-  const { openMemoryGraph } = useAppRuntime();
-  return <MemoryHomePage onOpenGraph={openMemoryGraph} />;
-}

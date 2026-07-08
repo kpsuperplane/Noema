@@ -806,335 +806,95 @@ type McpTool {
 }
 
 """
-Graph-memory claim exposed for memory-management inspection.
+Memory service operating mode.
 """
-type MemoryClaim {
+enum MemoryServiceMode {
 	"""
-	Stable claim id.
+	Noema manages a local Supermemory service.
 	"""
-	claimId: String!
+	MANAGED
 	"""
-	Fact text visible to the current memory-management principal.
+	Noema connects to an externally managed Supermemory service.
 	"""
-	fact: String!
-	"""
-	Whether the fact was redacted at the GraphQL boundary for this principal.
-	"""
-	factRedacted: Boolean!
-	"""
-	Predicate id.
-	"""
-	predicateId: String!
-	"""
-	Predicate label.
-	"""
-	predicateLabel: String!
-	"""
-	Subject entity id.
-	"""
-	subjectEntityId: String!
-	"""
-	Subject entity display name.
-	"""
-	subjectEntityName: String!
-	"""
-	Subject entity type.
-	"""
-	subjectEntityType: String!
-	"""
-	Object entity id when present.
-	"""
-	objectEntityId: String
-	"""
-	Object entity display name when present.
-	"""
-	objectEntityName: String
-	"""
-	Object entity type when present.
-	"""
-	objectEntityType: String
-	"""
-	Claim lifecycle status.
-	"""
-	status: String!
-	"""
-	Claim sensitivity.
-	"""
-	sensitivity: String!
-	"""
-	Claim confidence.
-	"""
-	confidence: Float
-	"""
-	Count of supporting evidence rows.
-	"""
-	evidenceCount: Int!
-	"""
-	Creation timestamp.
-	"""
-	createdAt: String!
-	"""
-	Update timestamp.
-	"""
-	updatedAt: String!
+	EXTERNAL
 }
 
 """
-Graph-memory claim detail exposed for memory-management inspection.
+Memory service readiness exposed to Settings.
 """
-type MemoryClaimDetail {
+type MemoryServiceStatus {
 	"""
-	Stable claim id.
+	Current readiness status.
 	"""
-	claimId: String!
+	status: MemoryServiceStatusKind!
 	"""
-	Human-readable fact text.
+	Last readiness check timestamp.
 	"""
-	fact: String!
+	checkedAt: String
 	"""
-	Predicate id.
+	Sanitized last error code.
 	"""
-	predicateId: String!
+	lastErrorCode: String
 	"""
-	Predicate label.
+	Sanitized last error message.
 	"""
-	predicateLabel: String!
-	"""
-	Subject entity id.
-	"""
-	subjectEntityId: String!
-	"""
-	Subject entity display name.
-	"""
-	subjectEntityName: String!
-	"""
-	Subject entity type.
-	"""
-	subjectEntityType: String!
-	"""
-	Object entity id when present.
-	"""
-	objectEntityId: String
-	"""
-	Object entity display name when present.
-	"""
-	objectEntityName: String
-	"""
-	Object entity type when present.
-	"""
-	objectEntityType: String
-	"""
-	Claim lifecycle status.
-	"""
-	status: String!
-	"""
-	Claim sensitivity.
-	"""
-	sensitivity: String!
-	"""
-	Claim confidence.
-	"""
-	confidence: Float
-	"""
-	Count of supporting evidence rows.
-	"""
-	evidenceCount: Int!
-	"""
-	Creation timestamp.
-	"""
-	createdAt: String!
-	"""
-	Update timestamp.
-	"""
-	updatedAt: String!
-	"""
-	Support evidence rows.
-	"""
-	evidence: [MemoryClaimEvidence!]!
+	lastErrorMessage: String
 }
 
 """
-Supporting evidence exposed for explicit memory-management claim detail inspection.
+Memory service readiness status kind.
 """
-type MemoryClaimEvidence {
+enum MemoryServiceStatusKind {
 	"""
-	Stable evidence relation id if available.
+	Service configuration has not been checked.
 	"""
-	evidenceId: String
+	NOT_CONFIGURED
 	"""
-	Source conversation item id if available.
+	Managed service startup is in progress.
 	"""
-	sourceItemId: String
+	STARTING
 	"""
-	Evidence authority.
+	Service is reachable and ready.
 	"""
-	authority: String!
+	READY
 	"""
-	Evidence excerpt when available.
+	Service is not reachable.
 	"""
-	excerpt: String
+	UNAVAILABLE
 	"""
-	Observation timestamp when available.
+	Service authentication failed.
 	"""
-	observedAt: String
-	"""
-	Evidence creation timestamp.
-	"""
-	createdAt: String!
+	AUTH_ERROR
 }
 
 """
-Bounded graph-memory projection for local memory-management inspection.
+Memory service settings exposed to Settings.
 """
-type MemoryGraph {
+type MemorySettings {
 	"""
-	Entity nodes incident to returned claim edges.
+	Supermemory service mode.
 	"""
-	nodes: [MemoryGraphNode!]!
+	mode: MemoryServiceMode!
 	"""
-	Claim edges connecting returned entity nodes.
+	Base URL for the Supermemory service.
 	"""
-	edges: [MemoryGraphEdge!]!
+	baseUrl: String!
 	"""
-	Summary metadata for the bounded result.
+	Managed service port, when configured.
 	"""
-	summary: MemoryGraphSummary!
-}
-
-"""
-Claim edge in the graph-memory projection.
-"""
-type MemoryGraphEdge {
+	port: Int
 	"""
-	Stable claim id.
+	Current readiness status.
 	"""
-	claimId: String!
+	status: MemoryServiceStatus!
 	"""
-	Opaque source graph node id matching a returned node.
+	Current persisted extraction model preference, when configured.
 	"""
-	sourceNodeId: String!
+	modelPreference: AgentModelPreference
 	"""
-	Opaque target graph node id matching a returned node.
+	Provider/profile options available for memory extraction.
 	"""
-	targetNodeId: String!
-	"""
-	Predicate id.
-	"""
-	predicateId: String!
-	"""
-	Predicate label.
-	"""
-	predicateLabel: String!
-	"""
-	Human-readable fact text for local graph inspection.
-	"""
-	fact: String!
-	"""
-	Whether the fact was redacted at the GraphQL boundary.
-	"""
-	factRedacted: Boolean!
-	"""
-	Claim lifecycle status.
-	"""
-	status: String!
-	"""
-	Claim sensitivity.
-	"""
-	sensitivity: String!
-	"""
-	Claim confidence.
-	"""
-	confidence: Float
-	"""
-	Count of supporting evidence rows.
-	"""
-	evidenceCount: Int!
-	"""
-	Creation timestamp.
-	"""
-	createdAt: String!
-	"""
-	Update timestamp.
-	"""
-	updatedAt: String!
-}
-
-"""
-Input filters for bounded graph-memory inspection.
-"""
-input MemoryGraphInput {
-	"""
-	Optional text query matched against predicate labels and public content.
-	"""
-	query: String
-	"""
-	Optional claim lifecycle statuses. Defaults are owned by the store.
-	"""
-	statuses: [String!]
-	"""
-	Optional predicate id.
-	"""
-	predicateId: String
-	"""
-	Optional exact sensitivity filter.
-	"""
-	sensitivity: String
-	"""
-	Optional bounded result limit.
-	"""
-	limit: Int
-}
-
-"""
-Entity node in the graph-memory projection.
-"""
-type MemoryGraphNode {
-	"""
-	Opaque graph node id for this response.
-	"""
-	nodeId: String!
-	"""
-	Opaque entity reference for this graph response.
-	"""
-	entityId: String!
-	"""
-	Human-readable entity label for local graph inspection.
-	"""
-	label: String!
-	"""
-	Entity type string.
-	"""
-	entityType: String!
-	"""
-	Whether this node label was redacted at the GraphQL boundary.
-	"""
-	redacted: Boolean!
-	"""
-	Count of returned incident claim edges.
-	"""
-	claimCount: Int!
-}
-
-"""
-Summary metadata for a bounded graph-memory result.
-"""
-type MemoryGraphSummary {
-	"""
-	Number of claim edges returned.
-	"""
-	returnedClaimCount: Int!
-	"""
-	Number of entity nodes returned.
-	"""
-	returnedNodeCount: Int!
-	"""
-	Effective result limit.
-	"""
-	limit: Int!
-	"""
-	Whether the bounded candidate read window hit the effective limit.
-	"""
-	truncated: Boolean!
+	modelOptions: [AgentModelProviderOption!]!
 }
 
 """
@@ -1192,6 +952,14 @@ type MutationRoot {
 	Save the tool progress audit model/provider preference.
 	"""
 	saveToolProgressAuditPreference(input: SaveToolProgressAuditPreferenceInput!): AgentModelPreference!
+	"""
+	Save memory service settings.
+	"""
+	saveMemoryServiceSettings(input: SaveMemoryServiceSettingsInput!): MemorySettings!
+	"""
+	Check memory service readiness and persist the sanitized result.
+	"""
+	checkMemoryService: MemoryServiceStatus!
 	"""
 	Ensure the primary conversation exists.
 	"""
@@ -1334,48 +1102,6 @@ input OwnerExtractorInput {
 	JSON pointer, JSONPath-style path, URI pattern, or adapter key.
 	"""
 	path: String!
-}
-
-"""
-Predicate proposal exposed for memory-management inspection.
-"""
-type PredicateProposal {
-	"""
-	Stable proposal id.
-	"""
-	proposalId: String!
-	"""
-	Human-readable proposed predicate label.
-	"""
-	label: String!
-	"""
-	Human-readable proposed predicate description.
-	"""
-	description: String!
-	"""
-	Proposed predicate catalog fields.
-	"""
-	proposedPredicate: JSON!
-	"""
-	Claim candidate preserved alongside the proposed predicate.
-	"""
-	proposedClaim: JSON!
-	"""
-	Proposal lifecycle status.
-	"""
-	status: String!
-	"""
-	Source conversation item id if available.
-	"""
-	sourceItemId: String
-	"""
-	Creation timestamp.
-	"""
-	createdAt: String!
-	"""
-	Last update timestamp.
-	"""
-	updatedAt: String!
 }
 
 """
@@ -1665,25 +1391,9 @@ type QueryRoot {
 	"""
 	mcpApprovalRequests(status: String): [McpApprovalRequest!]!
 	"""
-	List graph-memory claims for memory-management inspection.
+	Return memory service settings and readiness status.
 	"""
-	memoryClaims(query: String, status: String, predicateId: String, limit: Int): [MemoryClaim!]!
-	"""
-	Return one graph-memory claim for memory-management inspection.
-	"""
-	memoryClaim(claimId: String!): MemoryClaimDetail
-	"""
-	List predicate proposals for memory-management inspection.
-	"""
-	memoryPredicateProposals(status: String, limit: Int): [PredicateProposal!]!
-	"""
-	Return one predicate proposal for memory-management inspection.
-	"""
-	memoryPredicateProposal(proposalId: String!): PredicateProposal
-	"""
-	Return a bounded graph-memory projection for local memory-management inspection.
-	"""
-	memoryGraph(input: MemoryGraphInput): MemoryGraph!
+	memorySettings: MemorySettings!
 	"""
 	Return the primary conversation identity without creating it or replaying transcript.
 	"""
@@ -1719,6 +1429,36 @@ input SaveAgentModelPreferenceInput {
 	Provider-specific model id or profile id.
 	"""
 	modelProfile: String!
+	"""
+	Optional explicit reasoning effort for reasoning-capable model profiles.
+	"""
+	reasoningEffort: ReasoningEffort
+}
+
+"""
+Input for saving memory service settings.
+"""
+input SaveMemoryServiceSettingsInput {
+	"""
+	Supermemory service mode.
+	"""
+	mode: MemoryServiceMode!
+	"""
+	Base URL for the Supermemory service.
+	"""
+	baseUrl: String!
+	"""
+	Managed service port, when configured.
+	"""
+	port: Int
+	"""
+	Provider account id to use for memory extraction.
+	"""
+	providerAccountId: String
+	"""
+	Provider-specific model id or profile id.
+	"""
+	modelProfile: String
 	"""
 	Optional explicit reasoning effort for reasoning-capable model profiles.
 	"""
