@@ -12,6 +12,7 @@ import {
   ConversationTranscriptPageDocument,
   EnsurePrimaryConversationDocument,
   ProviderAuthAttemptDocument,
+  SendMultipleChoiceSelectionDocument,
   SendConversationTurnDocument,
   StartProviderAuthAttemptDocument,
   type ChatBootQuery,
@@ -125,6 +126,7 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
   const chatRoute = route.kind === "chat";
   const [ensurePrimaryConversation] = useMutation(EnsurePrimaryConversationDocument);
   const [sendConversationTurn] = useMutation(SendConversationTurnDocument);
+  const [sendMultipleChoiceSelection] = useMutation(SendMultipleChoiceSelectionDocument);
 
   const [socketState, setSocketState] = React.useState<SocketState>("closed");
   const [conversationId, setConversationId] = React.useState<string | null>(null);
@@ -662,6 +664,34 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
     }
   }
 
+  async function sendMultipleChoice(promptItemId: string, selectedOptionIds: string[]) {
+    if (!conversationId || pending || socketState !== "ready" || selectedOptionIds.length === 0) {
+      return;
+    }
+
+    const clientMessageId = createClientId();
+    setPending(true);
+    setAwaitingAssistantTurn(false);
+    setAgentStatus("INPUT_RECEIVED");
+    setSentMessageScrollRequest((current) => current + 1);
+
+    try {
+      await sendMultipleChoiceSelection({
+        variables: {
+          input: {
+            conversationId,
+            promptItemId,
+            selectedOptionIds,
+            clientMessageId
+          }
+        }
+      });
+    } catch (error: unknown) {
+      setPending(false);
+      pushTranscriptWindowError(error instanceof Error ? error.message : "Noema could not send that selection.");
+    }
+  }
+
   const ready = socketState === "ready" && conversationId !== null;
   const waitingForConversationDecision = chatRoute && onboarded && !conversationId && transcript.length === 0;
   const waitingForInitialTranscript =
@@ -701,6 +731,9 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
       onDraftChange={setDraft}
       onLoadOlderTranscript={loadOlderTranscript}
       onSubmit={(value) => void sendMessage(value)}
+      onSubmitMultipleChoiceSelection={(promptItemId, selectedOptionIds) =>
+        void sendMultipleChoice(promptItemId, selectedOptionIds)
+      }
     />
   );
 

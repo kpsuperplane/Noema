@@ -3,6 +3,7 @@ import type { TranscriptEntry } from "@/shared/types";
 import { ActivityRow } from "./ActivityRow";
 import { ErrorNotice } from "./ErrorNotice";
 import { Message } from "./Message";
+import { MultipleChoicePrompt } from "./MultipleChoicePrompt";
 import { RenderedTranscriptEntryFrame } from "./RenderedTranscriptEntryFrame";
 import {
   renderableTranscriptEntries,
@@ -45,6 +46,7 @@ export function Transcript({
   expandedActivities,
   sentMessageScrollRequest,
   onToggleActivity,
+  onSubmitMultipleChoiceSelection,
   onLoadOlderTranscript
 }: {
   entries: TranscriptEntry[];
@@ -57,6 +59,7 @@ export function Transcript({
   expandedActivities: Set<string>;
   sentMessageScrollRequest: number;
   onToggleActivity: (id: string) => void;
+  onSubmitMultipleChoiceSelection: (promptItemId: string, selectedOptionIds: string[]) => void;
   onLoadOlderTranscript: () => void;
 }) {
   void awaitingAssistantTurn;
@@ -147,8 +150,10 @@ export function Transcript({
               <RenderedTranscriptEntryFrame lane={lane}>
                 {renderTranscriptRenderEntry(
                   entry,
+                  entries,
                   expandedActivities,
                   onToggleActivity,
+                  onSubmitMultipleChoiceSelection,
                   showAvatar,
                   animateText,
                   followBottomRef
@@ -176,8 +181,10 @@ function transcriptLane(entry: RenderTranscriptEntry) {
 
 function renderTranscriptRenderEntry(
   entry: RenderTranscriptEntry,
+  entries: TranscriptEntry[],
   expandedActivities: Set<string>,
   onToggleActivity: (id: string) => void,
+  onSubmitMultipleChoiceSelection: (promptItemId: string, selectedOptionIds: string[]) => void,
   showAvatar: boolean,
   animateText: boolean,
   followBottomRef: React.MutableRefObject<boolean>
@@ -205,13 +212,23 @@ function renderTranscriptRenderEntry(
   if (entry.kind === "typing") {
     return <TypingMessage showAvatar={showAvatar} />;
   }
-  return renderTranscriptEntry(entry.entry, expandedActivities, onToggleActivity, showAvatar, animateText);
+  return renderTranscriptEntry(
+    entry.entry,
+    entries,
+    expandedActivities,
+    onToggleActivity,
+    onSubmitMultipleChoiceSelection,
+    showAvatar,
+    animateText
+  );
 }
 
 function renderTranscriptEntry(
   entry: TranscriptEntry,
+  entries: TranscriptEntry[],
   expandedActivities: Set<string>,
   onToggleActivity: (id: string) => void,
+  onSubmitMultipleChoiceSelection: (promptItemId: string, selectedOptionIds: string[]) => void,
   showAvatar: boolean,
   animateText: boolean
 ) {
@@ -244,7 +261,36 @@ function renderTranscriptEntry(
       </TranscriptRow>
     );
   }
+  if (entry.type === "multiple_choice_prompt") {
+    const promptItemId = entry.itemId ?? entry.id;
+    return (
+      <TranscriptRow lane="assistant" showAvatar={showAvatar}>
+        <MultipleChoicePrompt
+          disabled={multipleChoicePromptHasSelection(entries, promptItemId)}
+          item={entry.item}
+          promptItemId={promptItemId}
+          onSubmit={onSubmitMultipleChoiceSelection}
+        />
+      </TranscriptRow>
+    );
+  }
+  if (entry.type === "multiple_choice_selection") {
+    return (
+      <Message
+        animate={animateText}
+        role="user"
+        text={entry.item.selected_options.map((option) => option.label).join(", ")}
+        showAvatar={showAvatar}
+      />
+    );
+  }
   return <ErrorNotice message={entry.message} recoverable={entry.recoverable} />;
+}
+
+function multipleChoicePromptHasSelection(entries: TranscriptEntry[], promptItemId: string): boolean {
+  return entries.some(
+    (entry) => entry.type === "multiple_choice_selection" && entry.item.prompt_item_id === promptItemId
+  );
 }
 
 function AnimatedToolDetailRow({

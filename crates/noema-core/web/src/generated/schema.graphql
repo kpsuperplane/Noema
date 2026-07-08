@@ -1127,6 +1127,70 @@ enum MemoryStorageStatus {
 	UNAVAILABLE
 }
 
+"""
+One multiple-choice option.
+"""
+type MultipleChoiceOption {
+	"""
+	Stable semantic option id.
+	"""
+	id: String!
+	"""
+	Human-visible label.
+	"""
+	label: String!
+}
+
+"""
+Assistant multiple-choice transcript item.
+"""
+type MultipleChoicePrompt {
+	"""
+	Question or instruction shown above the options.
+	"""
+	prompt: String!
+	"""
+	Whether one or many options may be selected.
+	"""
+	selectionMode: MultipleChoiceSelectionMode!
+	"""
+	Ordered selectable options.
+	"""
+	options: [MultipleChoiceOption!]!
+}
+
+"""
+Human multiple-choice selection transcript item.
+"""
+type MultipleChoiceSelection {
+	"""
+	Prompt item this selection answers.
+	"""
+	promptItemId: String!
+	"""
+	Selection mode from the prompt.
+	"""
+	selectionMode: MultipleChoiceSelectionMode!
+	"""
+	Selected options in prompt order.
+	"""
+	selectedOptions: [MultipleChoiceOption!]!
+}
+
+"""
+Multiple-choice selection mode exposed through GraphQL.
+"""
+enum MultipleChoiceSelectionMode {
+	"""
+	One option may be selected.
+	"""
+	PICK_ONE
+	"""
+	One or more options may be selected.
+	"""
+	PICK_MANY
+}
+
 type MutationRoot {
 	"""
 	Start a provider auth attempt.
@@ -1184,6 +1248,10 @@ type MutationRoot {
 	Send a conversation turn.
 	"""
 	sendConversationTurn(input: SendConversationTurnInput!): TurnAccepted!
+	"""
+	Send a multiple-choice selection as a user turn.
+	"""
+	sendMultipleChoiceSelection(input: SendMultipleChoiceSelectionInput!): TurnAccepted!
 	"""
 	Save reviewed MCP tool calibration.
 	"""
@@ -1788,6 +1856,28 @@ input SendConversationTurnInput {
 }
 
 """
+Input for sending a multiple-choice selection.
+"""
+input SendMultipleChoiceSelectionInput {
+	"""
+	Durable Noema conversation id.
+	"""
+	conversationId: String!
+	"""
+	Durable multiple-choice prompt item id.
+	"""
+	promptItemId: String!
+	"""
+	Selected prompt option ids.
+	"""
+	selectedOptionIds: [String!]!
+	"""
+	Frontend-generated id for optimistic UI correlation.
+	"""
+	clientMessageId: String
+}
+
+"""
 Start a browser OAuth setup attempt for a hosted MCP server.
 """
 input StartMcpServerOAuthSetupInput {
@@ -1943,7 +2033,7 @@ type ToolProgressAuditSettings {
 """
 Transcript item union.
 """
-union TranscriptItem = UserText | AssistantText | Activity | A2UiCard | ErrorNotice
+union TranscriptItem = UserText | AssistantText | Activity | A2UiCard | MultipleChoicePrompt | MultipleChoiceSelection | ErrorNotice
 
 """
 Trusted identity selector metadata safe to show in Settings.

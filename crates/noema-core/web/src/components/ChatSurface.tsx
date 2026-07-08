@@ -52,6 +52,7 @@ export type ChatSurfaceProps = {
   onDraftChange: (value: string) => void;
   onLoadOlderTranscript: () => void;
   onSubmit: (value: string) => void;
+  onSubmitMultipleChoiceSelection: (promptItemId: string, selectedOptionIds: string[]) => void;
 };
 
 export function ChatSurface({
@@ -71,7 +72,8 @@ export function ChatSurface({
   onToggleActivity,
   onDraftChange,
   onLoadOlderTranscript,
-  onSubmit
+  onSubmit,
+  onSubmitMultipleChoiceSelection
 }: ChatSurfaceProps) {
   const { visibility } = useShellSurface();
   const composerRef = React.useRef<HTMLTextAreaElement>(null);
@@ -134,6 +136,7 @@ export function ChatSurface({
             expandedActivities={expandedActivities}
             sentMessageScrollRequest={sentMessageScrollRequest}
             onToggleActivity={onToggleActivity}
+            onSubmitMultipleChoiceSelection={onSubmitMultipleChoiceSelection}
             onLoadOlderTranscript={onLoadOlderTranscript}
           />
         )}

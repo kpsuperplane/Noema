@@ -698,6 +698,22 @@ export const ConversationItemFields = gql`
         schema
         payload
       }
+      ... on MultipleChoicePrompt {
+        prompt
+        selectionMode
+        options {
+          id
+          label
+        }
+      }
+      ... on MultipleChoiceSelection {
+        promptItemId
+        selectionMode
+        selectedOptions {
+          id
+          label
+        }
+      }
       ... on ErrorNotice {
         message
         recoverable
@@ -788,6 +804,15 @@ export const SendConversationTurnDocument = gql`
   }
 `;
 
+export const SendMultipleChoiceSelectionDocument = gql`
+  mutation SendMultipleChoiceSelection($input: SendMultipleChoiceSelectionInput!) {
+    sendMultipleChoiceSelection(input: $input) {
+      conversationId
+      clientMessageId
+    }
+  }
+`;
+
 export const ConversationEventsDocument = gql`
   subscription ConversationEvents($conversationId: String!) {
     conversationEvents(conversationId: $conversationId) {
@@ -819,6 +844,22 @@ export const ConversationEventsDocument = gql`
             id
             schema
             payload
+          }
+          ... on MultipleChoicePrompt {
+            prompt
+            selectionMode
+            options {
+              id
+              label
+            }
+          }
+          ... on MultipleChoiceSelection {
+            promptItemId
+            selectionMode
+            selectedOptions {
+              id
+              label
+            }
           }
           ... on ErrorNotice {
             message

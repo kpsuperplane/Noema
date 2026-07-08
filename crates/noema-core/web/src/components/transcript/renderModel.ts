@@ -102,7 +102,7 @@ export function shouldAnimateRenderedEntryTextForSeen(
 }
 
 export function transcriptEntryLane(entryType: TranscriptEntry["type"]): TranscriptLane {
-  return entryType === "user" ? "human" : "assistant";
+  return entryType === "user" || entryType === "multiple_choice_selection" ? "human" : "assistant";
 }
 
 export function renderedTranscriptLane(entry: RenderTranscriptLaneCandidate): TranscriptLane {
@@ -227,6 +227,9 @@ function isTextMessageRenderEntry(entry: RenderTranscriptEntry): boolean {
 function latestUserEntryIndex(entries: TranscriptEntry[]): number {
   for (let index = entries.length - 1; index >= 0; index -= 1) {
     if (entries[index]?.type === "user") {
+      return index;
+    }
+    if (entries[index]?.type === "multiple_choice_selection") {
       return index;
     }
   }

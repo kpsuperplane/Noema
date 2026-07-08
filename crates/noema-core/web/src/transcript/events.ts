@@ -155,6 +155,12 @@ function entryFromConversationItem(
   if (transcriptItem.kind === "a2ui_card") {
     return { id: itemId, itemId, cursor, turnId, type: "card", item: transcriptItem };
   }
+  if (transcriptItem.kind === "multiple_choice_prompt") {
+    return { id: itemId, itemId, cursor, turnId, type: "multiple_choice_prompt", item: transcriptItem };
+  }
+  if (transcriptItem.kind === "multiple_choice_selection") {
+    return { id: itemId, itemId, cursor, turnId, type: "multiple_choice_selection", item: transcriptItem };
+  }
   if (transcriptItem.kind === "error_notice") {
     return {
       id: itemId,
@@ -284,6 +290,22 @@ function transcriptItemFromGraphql(item: GraphqlTranscriptItem): TurnTranscriptI
   }
   if (item.__typename === "A2UiCard") {
     return { kind: "a2ui_card", id: item.id, schema: item.schema, payload: item.payload };
+  }
+  if (item.__typename === "MultipleChoicePrompt") {
+    return {
+      kind: "multiple_choice_prompt",
+      prompt: item.prompt,
+      selection_mode: item.selectionMode,
+      options: item.options
+    };
+  }
+  if (item.__typename === "MultipleChoiceSelection") {
+    return {
+      kind: "multiple_choice_selection",
+      prompt_item_id: item.promptItemId,
+      selection_mode: item.selectionMode,
+      selected_options: item.selectedOptions
+    };
   }
   if (item.__typename === "ErrorNotice") {
     return { kind: "error_notice", message: item.message, recoverable: item.recoverable };
