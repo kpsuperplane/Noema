@@ -15,6 +15,7 @@ pub struct NoemaRuntimeHost {
     provider_auth: ProviderAuthManager,
     mcp_oauth: McpOAuthSetupManager,
     supermemory: Option<crate::SupermemoryLifecycle>,
+    supermemory_startup_error: Option<String>,
     system_errors: SystemErrorLogger,
     paths: NoemaPaths,
     #[allow(dead_code)]
@@ -64,6 +65,7 @@ impl NoemaRuntimeHost {
                 .map(|base_url| crate::SupermemoryConnection::new(base_url, None)),
             crate::MemoryServiceMode::Managed => None,
         };
+        let mut supermemory_startup_error = None;
         let supermemory = match crate::SupermemoryLifecycle::start(
             &paths,
             &memory_settings,
@@ -79,6 +81,7 @@ impl NoemaRuntimeHost {
                 Some(lifecycle)
             }
             Err(error) => {
+                supermemory_startup_error = Some(error.to_string());
                 system_errors.try_append(
                     crate::SystemErrorEvent::new(
                         "supermemory_lifecycle_unavailable",
@@ -105,6 +108,7 @@ impl NoemaRuntimeHost {
             provider_auth: ProviderAuthManager::new(),
             mcp_oauth: McpOAuthSetupManager::new(),
             supermemory,
+            supermemory_startup_error,
             system_errors,
             paths,
             subscriptions: crate::graphql::ConversationSubscriptionRegistry::default(),
@@ -144,6 +148,20 @@ impl NoemaRuntimeHost {
     #[must_use]
     pub fn paths(&self) -> &NoemaPaths {
         &self.paths
+    }
+
+    /// Runtime-only managed Supermemory connection, when available.
+    #[must_use]
+    pub fn supermemory_connection(&self) -> Option<&crate::SupermemoryConnection> {
+        self.supermemory
+            .as_ref()
+            .and_then(crate::SupermemoryLifecycle::connection)
+    }
+
+    /// Runtime-only managed Supermemory startup error, when startup failed.
+    #[must_use]
+    pub fn supermemory_startup_error(&self) -> Option<&str> {
+        self.supermemory_startup_error.as_deref()
     }
 
     /// Conversation subscription registry.

@@ -1,9 +1,9 @@
 //! Managed Supermemory child-process lifecycle.
 
-use std::io::ErrorKind;
+use std::{io::ErrorKind, process::ExitStatus};
 
 use thiserror::Error;
-use time::{OffsetDateTime, format_description::well_known::Rfc3339};
+use tokio::time::{Duration, sleep};
 
 use super::{
     SupermemoryBinaryResolver, SupermemoryConnection, SupermemoryServerBinary,
@@ -21,8 +21,8 @@ impl SupermemoryLifecycle {
     ///
     /// # Errors
     ///
-    /// Returns [`SupermemoryLifecycleError`] when managed directory setup,
-    /// status persistence, or child-process startup fails.
+    /// Returns [`SupermemoryLifecycleError`] when managed directory setup or
+    /// child-process startup fails.
     pub async fn start(
         paths: &crate::NoemaPaths,
         settings: &crate::MemoryServiceSettingsRecord,
@@ -38,12 +38,6 @@ impl SupermemoryLifecycle {
                 let binary = match SupermemoryBinaryResolver::default_for_paths(paths).resolve() {
                     Ok(binary) => binary,
                     Err(error) => {
-                        persist_lifecycle_failure(
-                            &store,
-                            error.sanitized_code(),
-                            error.sanitized_message(),
-                        )
-                        .await?;
                         system_errors.try_append(
                             crate::SystemErrorEvent::new(
                                 "supermemory_start_failed",
@@ -77,7 +71,7 @@ impl SupermemoryLifecycle {
     async fn start_with_resolved_binary_and_port(
         paths: &crate::NoemaPaths,
         settings: &crate::MemoryServiceSettingsRecord,
-        store: crate::NoemaStore,
+        _store: crate::NoemaStore,
         system_errors: crate::SystemErrorLogger,
         binary: SupermemoryServerBinary,
         port: u16,
@@ -90,15 +84,6 @@ impl SupermemoryLifecycle {
             crate::MemoryServiceMode::Managed => {
                 tokio::fs::create_dir_all(paths.supermemory_data_dir()).await?;
                 tokio::fs::create_dir_all(paths.supermemory_secrets_dir()).await?;
-                store
-                    .save_memory_service_status(crate::MemoryServiceStatusRecord {
-                        status_id: "default".to_string(),
-                        status: crate::MemoryServiceStatus::Starting,
-                        checked_at: None,
-                        last_error_code: None,
-                        last_error_message: None,
-                    })
-                    .await?;
 
                 let connection =
                     SupermemoryConnection::new(format!("http://127.0.0.1:{port}"), None);
@@ -108,19 +93,10 @@ impl SupermemoryLifecycle {
                     .env("SUPERMEMORY_PORT", port.to_string())
                     .env("PORT", port.to_string())
                     .kill_on_drop(true);
-                let child = match command.spawn() {
+                let mut child = match command.spawn() {
                     Ok(child) => child,
                     Err(error) => {
-                        let (error_code, error_message) = start_error_details(&error);
-                        store
-                            .save_memory_service_status(crate::MemoryServiceStatusRecord {
-                                status_id: "default".to_string(),
-                                status: crate::MemoryServiceStatus::Unavailable,
-                                checked_at: now_rfc3339().ok(),
-                                last_error_code: Some(error_code),
-                                last_error_message: Some(error_message),
-                            })
-                            .await?;
+                        let (_error_code, error_message) = start_error_details(&error);
                         system_errors.try_append(
                             crate::SystemErrorEvent::new(
                                 "supermemory_start_failed",
@@ -128,9 +104,24 @@ impl SupermemoryLifecycle {
                             )
                             .with_error_chain([error.to_string()]),
                         );
-                        return Err(SupermemoryLifecycleError::Start(error.to_string()));
+                        return Err(SupermemoryLifecycleError::Start(error_message));
                     }
                 };
+                if let Some(status) = wait_for_early_child_exit(&mut child).await? {
+                    let error_message = recent_supermemory_error_message(paths)
+                        .await
+                        .unwrap_or_else(|| {
+                            format!("Supermemory managed process exited with status {status}")
+                        });
+                    system_errors.try_append(
+                        crate::SystemErrorEvent::new(
+                            "supermemory_start_failed",
+                            "Supermemory managed process exited during startup",
+                        )
+                        .with_error_chain([error_message.clone()]),
+                    );
+                    return Err(SupermemoryLifecycleError::Start(error_message));
+                }
 
                 Ok(Self {
                     child: Some(child),
@@ -148,21 +139,51 @@ impl SupermemoryLifecycle {
     }
 }
 
-async fn persist_lifecycle_failure(
-    store: &crate::NoemaStore,
-    code: &str,
-    message: &str,
-) -> Result<(), crate::StoreError> {
-    store
-        .save_memory_service_status(crate::MemoryServiceStatusRecord {
-            status_id: "default".to_string(),
-            status: crate::MemoryServiceStatus::Unavailable,
-            checked_at: now_rfc3339().ok(),
-            last_error_code: Some(code.to_string()),
-            last_error_message: Some(message.to_string()),
-        })
-        .await?;
-    Ok(())
+async fn wait_for_early_child_exit(
+    child: &mut tokio::process::Child,
+) -> Result<Option<ExitStatus>, std::io::Error> {
+    for _ in 0..20 {
+        if let Some(status) = child.try_wait()? {
+            return Ok(Some(status));
+        }
+        sleep(Duration::from_millis(50)).await;
+    }
+    Ok(None)
+}
+
+async fn recent_supermemory_error_message(paths: &crate::NoemaPaths) -> Option<String> {
+    let text = tokio::fs::read_to_string(paths.supermemory_data_dir().join("error.log"))
+        .await
+        .ok()?;
+    text.lines()
+        .rev()
+        .find_map(sanitize_supermemory_error_log_line)
+}
+
+fn sanitize_supermemory_error_log_line(line: &str) -> Option<String> {
+    let line = line.trim();
+    if line.is_empty() {
+        return None;
+    }
+    let line = line
+        .split_once("] ")
+        .map_or(line, |(_prefix, message)| message)
+        .trim();
+    let line = line
+        .strip_prefix("fatal during startup:")
+        .unwrap_or(line)
+        .trim();
+    let message = line
+        .split_once(". ")
+        .map_or(line, |(first_sentence, _rest)| first_sentence)
+        .trim();
+    if message.is_empty() {
+        None
+    } else if message.ends_with('.') {
+        Some(message.to_string())
+    } else {
+        Some(format!("{message}."))
+    }
 }
 
 fn start_error_details(error: &std::io::Error) -> (String, String) {
@@ -178,19 +199,12 @@ fn start_error_details(error: &std::io::Error) -> (String, String) {
     )
 }
 
-fn now_rfc3339() -> Result<String, time::error::Format> {
-    OffsetDateTime::now_utc().format(&Rfc3339)
-}
-
 /// Errors returned by Supermemory lifecycle startup.
 #[derive(Debug, Error)]
 pub enum SupermemoryLifecycleError {
     /// Managed directory setup failed.
     #[error("supermemory directory setup failed: {0}")]
     Io(#[from] std::io::Error),
-    /// Memory service status persistence failed.
-    #[error("supermemory status persistence failed: {0}")]
-    Store(#[from] crate::StoreError),
     /// Managed child process startup failed.
     #[error("supermemory startup failed: {0}")]
     Start(String),
@@ -198,10 +212,12 @@ pub enum SupermemoryLifecycleError {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use tempfile::TempDir;
 
     #[tokio::test]
-    async fn managed_start_failure_persists_unavailable_status() {
+    async fn managed_start_failure_returns_start_error() {
         let home = TempDir::new().expect("temp noema home");
         let paths = crate::NoemaPaths::from_noema_home(home.path()).expect("paths");
         let store = crate::NoemaStore::open(&crate::StoreConfig::from_paths(&paths))
@@ -228,15 +244,66 @@ mod tests {
         };
 
         assert!(matches!(error, super::SupermemoryLifecycleError::Start(_)));
-        let status = store.memory_service_status().await.expect("status");
-        assert_eq!(status.status, crate::MemoryServiceStatus::Unavailable);
-        assert_eq!(
-            status.last_error_code.as_deref(),
-            Some("supermemory_server_missing")
+        assert!(
+            error
+                .to_string()
+                .contains("supermemory-server executable was not found on PATH")
         );
-        assert_eq!(
-            status.last_error_message.as_deref(),
-            Some("supermemory-server executable was not found on PATH")
+    }
+
+    #[tokio::test]
+    async fn managed_child_early_exit_returns_error_log_message() {
+        let home = TempDir::new().expect("temp noema home");
+        let paths = crate::NoemaPaths::from_noema_home(home.path()).expect("paths");
+        let store = crate::NoemaStore::open(&crate::StoreConfig::from_paths(&paths))
+            .await
+            .expect("open store");
+        let settings = store.memory_service_settings().await.expect("settings");
+        let error_logger = store.system_error_logger();
+        let binary = home.path().join("supermemory-server");
+        write_exiting_supermemory_server(&binary);
+
+        let error = match super::SupermemoryLifecycle::start_with_resolved_binary_and_port(
+            &paths,
+            &settings,
+            store.clone(),
+            error_logger,
+            crate::supermemory::SupermemoryServerBinary {
+                path: binary,
+                source: crate::supermemory::SupermemoryBinarySource::Bundled,
+            },
+            6769,
+        )
+        .await
+        {
+            Ok(_) => panic!("early child exit should fail startup"),
+            Err(error) => error,
+        };
+
+        assert!(matches!(error, super::SupermemoryLifecycleError::Start(_)));
+        assert!(
+            error
+                .to_string()
+                .contains("No model provider API key configured.")
         );
+    }
+
+    fn write_exiting_supermemory_server(path: &std::path::Path) {
+        fs::write(
+            path,
+            r#"#!/bin/sh
+mkdir -p "$SUPERMEMORY_DATA_DIR"
+echo "[2026-07-08T03:46:12.343Z] fatal during startup: No model provider API key configured." > "$SUPERMEMORY_DATA_DIR/error.log"
+exit 1
+"#,
+        )
+        .expect("write fake server");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut permissions = fs::metadata(path).expect("metadata").permissions();
+            permissions.set_mode(0o755);
+            fs::set_permissions(path, permissions).expect("chmod");
+        }
     }
 }

@@ -244,12 +244,10 @@ async fn sqlite_memory_service_defaults_to_managed() {
     let store = test_store().await;
 
     let settings = store.memory_service_settings().await.expect("settings");
-    let status = store.memory_service_status().await.expect("status");
 
     assert_eq!(settings.mode, crate::MemoryServiceMode::Managed);
     assert_eq!(settings.base_url, None);
     assert_eq!(settings.port, None);
-    assert_eq!(status.status, crate::MemoryServiceStatus::NotConfigured);
 }
 
 #[tokio::test]
@@ -279,26 +277,8 @@ async fn sqlite_memory_service_settings_round_trip_external() {
 }
 
 #[tokio::test]
-async fn sqlite_memory_service_status_and_ingest_jobs_round_trip() {
+async fn sqlite_memory_ingest_jobs_round_trip() {
     let store = test_store().await;
-
-    store
-        .save_memory_service_status(crate::MemoryServiceStatusRecord {
-            status_id: "default".to_string(),
-            status: crate::MemoryServiceStatus::Ready,
-            checked_at: Some("2026-07-07T12:00:00.000Z".to_string()),
-            last_error_code: None,
-            last_error_message: None,
-        })
-        .await
-        .expect("save status");
-
-    let status = store.memory_service_status().await.expect("status");
-    assert_eq!(status.status, crate::MemoryServiceStatus::Ready);
-    assert_eq!(
-        status.checked_at.as_deref(),
-        Some("2026-07-07T12:00:00.000Z")
-    );
 
     let job = store
         .insert_memory_ingest_job(crate::NewMemoryIngestJob {

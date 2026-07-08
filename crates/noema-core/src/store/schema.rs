@@ -259,16 +259,6 @@ CREATE TABLE IF NOT EXISTS memory_service_settings (
   CHECK (mode = 'managed' OR base_url IS NOT NULL)
 );
 
-CREATE TABLE IF NOT EXISTS memory_service_status (
-  status_id TEXT PRIMARY KEY NOT NULL CHECK (status_id = 'default'),
-  status TEXT NOT NULL CHECK (status IN ('not_configured', 'starting', 'ready', 'unavailable', 'auth_error')),
-  checked_at TEXT,
-  last_error_code TEXT,
-  last_error_message TEXT,
-  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-);
-
 CREATE TABLE IF NOT EXISTS memory_ingest_jobs (
   job_id TEXT PRIMARY KEY NOT NULL,
   conversation_id TEXT NOT NULL,
@@ -286,7 +276,4 @@ INSERT INTO memory_service_settings (settings_id, mode, base_url, port)
 VALUES ('default', 'managed', NULL, NULL)
 ON CONFLICT(settings_id) DO NOTHING;
 
-INSERT INTO memory_service_status (status_id, status)
-VALUES ('default', 'not_configured')
-ON CONFLICT(status_id) DO NOTHING;
 "#;

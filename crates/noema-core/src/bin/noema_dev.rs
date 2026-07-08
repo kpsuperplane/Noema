@@ -39,6 +39,12 @@ enum DevError {
     #[error("failed to generate GraphQL schema: {source}")]
     GenerateSchema { source: io::Error },
 
+    #[error("failed to install dev Supermemory server: {source}")]
+    InstallSupermemory { source: io::Error },
+
+    #[error("dev Supermemory installer exited with status {status}")]
+    SupermemoryInstallerExited { status: ExitStatus },
+
     #[error("failed to install dev shutdown signal handler: {source}")]
     ShutdownSignal { source: io::Error },
 }
@@ -56,6 +62,7 @@ async fn run() -> Result<(), DevError> {
     let web_dir = repo_root.join("crates/noema-core/web");
 
     generate_graphql_schema(&repo_root)?;
+    ensure_dev_supermemory_server(&repo_root).await?;
 
     let mut web = spawn_web_watcher(&web_dir)?;
     let mut server = spawn_web_server_watcher(&repo_root)?;
@@ -223,6 +230,107 @@ fn generate_graphql_schema(repo_root: &Path) -> Result<(), DevError> {
     Ok(())
 }
 
+async fn ensure_dev_supermemory_server(repo_root: &Path) -> Result<(), DevError> {
+    if env::var_os(noema_core::supermemory::NOEMA_SUPERMEMORY_SERVER_ENV).is_some() {
+        eprintln!(
+            "using {} override for managed Supermemory",
+            noema_core::supermemory::NOEMA_SUPERMEMORY_SERVER_ENV
+        );
+        return Ok(());
+    }
+
+    let bundled = supermemory_server_bundle_path(repo_root);
+    if executable_exists(&bundled) {
+        eprintln!("dev Supermemory server: {}", bundled.display());
+        return Ok(());
+    }
+
+    if command_exists(supermemory_server_filename()) {
+        eprintln!(
+            "dev Supermemory server: found {} on PATH",
+            supermemory_server_filename()
+        );
+        return Ok(());
+    }
+
+    eprintln!(
+        "installing dev Supermemory server into {}",
+        bundled.display()
+    );
+    let status = supermemory_install_command(repo_root)
+        .status()
+        .await
+        .map_err(|source| DevError::InstallSupermemory { source })?;
+    if !status.success() {
+        return Err(DevError::SupermemoryInstallerExited { status });
+    }
+    Ok(())
+}
+
+fn supermemory_install_command(repo_root: &Path) -> Command {
+    let mut command = Command::new("bash");
+    command
+        .arg("-c")
+        .arg("curl -fsSL https://supermemory.ai/install | bash")
+        .env(
+            "SUPERMEMORY_INSTALL_DIR",
+            supermemory_dev_install_dir(repo_root),
+        )
+        .env("SUPERMEMORY_BIN_DIR", supermemory_bundle_dir(repo_root))
+        .env("SUPERMEMORY_NO_START", "1")
+        .env("SUPERMEMORY_NO_PROMPT", "1")
+        .env("SUPERMEMORY_FORCE", "1")
+        .stdin(Stdio::null())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit());
+    command
+}
+
+fn supermemory_dev_install_dir(repo_root: &Path) -> PathBuf {
+    repo_root.join("crates/noema-core/target/supermemory")
+}
+
+fn supermemory_bundle_dir(repo_root: &Path) -> PathBuf {
+    repo_root.join("crates/noema-core/supermemory")
+}
+
+fn supermemory_server_bundle_path(repo_root: &Path) -> PathBuf {
+    supermemory_bundle_dir(repo_root).join(supermemory_server_filename())
+}
+
+fn supermemory_server_filename() -> &'static str {
+    if cfg!(windows) {
+        "supermemory-server.exe"
+    } else {
+        "supermemory-server"
+    }
+}
+
+fn command_exists(program: &str) -> bool {
+    let Some(paths) = env::var_os("PATH") else {
+        return false;
+    };
+    env::split_paths(&paths).any(|entry| executable_exists(&entry.join(program)))
+}
+
+fn executable_exists(path: &Path) -> bool {
+    let Ok(metadata) = std::fs::metadata(path) else {
+        return false;
+    };
+    if !metadata.is_file() {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        metadata.permissions().mode() & 0o111 != 0
+    }
+    #[cfg(not(unix))]
+    {
+        true
+    }
+}
+
 fn spawn_dev_process(
     label: &'static str,
     command: &mut Command,
@@ -388,6 +496,23 @@ mod tests {
         assert_eq!(
             graphql_schema_output_path(Path::new("/workspace")),
             PathBuf::from("/workspace/crates/noema-core/web/src/generated/schema.graphql")
+        );
+    }
+
+    #[test]
+    fn supermemory_dev_paths_target_generated_bundle_wrapper() {
+        assert_eq!(
+            supermemory_dev_install_dir(Path::new("/workspace")),
+            PathBuf::from("/workspace/crates/noema-core/target/supermemory")
+        );
+        assert_eq!(
+            supermemory_bundle_dir(Path::new("/workspace")),
+            PathBuf::from("/workspace/crates/noema-core/supermemory")
+        );
+        assert_eq!(
+            supermemory_server_bundle_path(Path::new("/workspace")),
+            PathBuf::from("/workspace/crates/noema-core/supermemory")
+                .join(supermemory_server_filename())
         );
     }
 

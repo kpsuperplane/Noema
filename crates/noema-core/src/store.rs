@@ -33,8 +33,8 @@ pub use mcp::{
     TrustedIdentitySelectorRecord,
 };
 pub use memory_service::{
-    MemoryIngestJobRecord, MemoryServiceMode, MemoryServiceSettingsRecord, MemoryServiceStatus,
-    MemoryServiceStatusRecord, NewMemoryIngestJob, SaveMemoryServiceSettings,
+    MemoryIngestJobRecord, MemoryServiceMode, MemoryServiceSettingsRecord, NewMemoryIngestJob,
+    SaveMemoryServiceSettings,
 };
 pub use provider_accounts::{NewProviderAccount, ProviderAccountCatalogEntry};
 pub use provider_capability_bindings::ProviderCapabilityBindingRecord;

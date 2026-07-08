@@ -1,10 +1,13 @@
 /target/
 /crates/noema-core/target/
+/crates/noema-core/supermemory/supermemory-server
+/crates/noema-core/supermemory/supermemory-server.exe
 /crates/noema-desktop/gen/
 node_modules/
 .noema-dev/
 .local/
 .superpowers/
+/.supermemory/
 .env
 .env.*
 !.env.example

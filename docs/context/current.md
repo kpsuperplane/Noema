@@ -16,7 +16,7 @@ The next storage slice should stay small and concrete:
   Codex Responses API calls.
 - Core-hosted local React web chat as the first frontend shell.
 - SQLite-backed persisted conversations, transcript items, provider accounts,
-  MCP setup, approvals, and memory service configuration/status.
+  MCP setup, approvals, and memory service configuration.
 - Local Supermemory-backed memory search through explicit `search_memory`.
 - Frontend IA that exposes memory configuration through Settings > Memory
   before reintroducing memory visibility or graph browsing.
@@ -57,8 +57,8 @@ The next storage slice should stay small and concrete:
 - `system/` state is derived and rebuildable.
 - Memory is governed context, not hidden model state. Durable memory truth and
   graph ownership now belong to local Supermemory, while Noema owns only
-  service configuration, readiness, ingest diagnostics, and explicit
-  `search_memory` tool calls.
+  service configuration, live readiness proxying, ingest diagnostics, and
+  explicit `search_memory` tool calls.
 - Chat provider responses use an explicit object contract:
   `response_status`, `responses[]`, and `tool_calls[]`. The legacy
   `memory_proposals` field is rejected at the provider parser boundary.
@@ -326,7 +326,8 @@ The next storage slice should stay small and concrete:
   files: store MCP persistence, daemon memory work, config loading/resolution,
   conversation domain types, and MCP trusted identity helpers are split into
   nearby submodules with root files acting as stable facades.
-- Memory service configuration/status lives in SQLite store modules, while
+- Memory service configuration lives in SQLite store modules, while live
+  service status is queried through Noema core as a proxy to Supermemory and
   local Supermemory owns durable memory behavior. Provider-neutral contracts,
   account metadata, and auth support live under `provider`, while concrete
   adapters and response stream helpers live under `provider::adapters`; the old
@@ -388,7 +389,8 @@ The next storage slice should stay small and concrete:
 - GraphQL exposes `memorySettings`, `saveMemoryServiceSettings`, and
   `checkMemoryService` for the current memory surface. Generated web GraphQL
   schema/types are kept in sync. Settings > Memory at `/settings/memory` owns
-  Supermemory mode, base URL, port, status, and extraction model preference.
+  Supermemory mode, external base URL, live status, and extraction model
+  preference.
 - Apple Foundation Models local-provider implementation is in active bridge
   integration shape: the Swift bridge lives under
   `crates/noema-core/apple-foundation-bridge`, Rust provider account/runtime

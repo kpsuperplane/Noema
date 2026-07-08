@@ -13,6 +13,8 @@ pub struct GraphqlRuntimeState {
     provider_auth: Option<ProviderAuthManager>,
     mcp_oauth: Option<McpOAuthSetupManager>,
     paths: Option<NoemaPaths>,
+    supermemory_connection: Option<crate::SupermemoryConnection>,
+    supermemory_startup_error: Option<String>,
     subscriptions: ConversationSubscriptionRegistry,
     memory_storage: GraphqlMemoryStorageStatus,
 }
@@ -27,6 +29,8 @@ impl GraphqlRuntimeState {
             provider_auth: Some(host.provider_auth().clone()),
             mcp_oauth: Some(host.mcp_oauth().clone()),
             paths: Some(host.paths().clone()),
+            supermemory_connection: host.supermemory_connection().cloned(),
+            supermemory_startup_error: host.supermemory_startup_error().map(str::to_string),
             subscriptions: host.subscriptions().clone(),
             memory_storage: GraphqlMemoryStorageStatus::Ready,
         }
@@ -41,6 +45,8 @@ impl GraphqlRuntimeState {
             provider_auth: None,
             mcp_oauth: Some(McpOAuthSetupManager::new()),
             paths: None,
+            supermemory_connection: None,
+            supermemory_startup_error: None,
             subscriptions: ConversationSubscriptionRegistry::default(),
             memory_storage: GraphqlMemoryStorageStatus::Ready,
         }
@@ -113,6 +119,14 @@ impl GraphqlRuntimeState {
         self.paths
             .as_ref()
             .ok_or_else(|| async_graphql::Error::new("Noema paths are unavailable"))
+    }
+
+    pub(crate) fn supermemory_connection(&self) -> Option<&crate::SupermemoryConnection> {
+        self.supermemory_connection.as_ref()
+    }
+
+    pub(crate) fn supermemory_startup_error(&self) -> Option<&str> {
+        self.supermemory_startup_error.as_deref()
     }
 
     pub(crate) fn subscriptions(&self) -> &ConversationSubscriptionRegistry {

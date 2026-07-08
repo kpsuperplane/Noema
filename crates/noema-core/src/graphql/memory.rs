@@ -2,10 +2,7 @@ use async_graphql::{Enum, InputObject, Result, SimpleObject};
 use std::time::Duration;
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
-use crate::{
-    MemoryServiceMode, MemoryServiceSettingsRecord, MemoryServiceStatus, MemoryServiceStatusRecord,
-    SaveMemoryServiceSettings,
-};
+use crate::{MemoryServiceMode, MemoryServiceSettingsRecord, SaveMemoryServiceSettings};
 
 const MEMORY_SERVICE_READINESS_TIMEOUT: Duration = Duration::from_secs(2);
 
@@ -63,18 +60,6 @@ pub enum GraphqlMemoryServiceStatusKind {
     AuthError,
 }
 
-impl From<MemoryServiceStatus> for GraphqlMemoryServiceStatusKind {
-    fn from(value: MemoryServiceStatus) -> Self {
-        match value {
-            MemoryServiceStatus::NotConfigured => Self::NotConfigured,
-            MemoryServiceStatus::Starting => Self::Starting,
-            MemoryServiceStatus::Ready => Self::Ready,
-            MemoryServiceStatus::Unavailable => Self::Unavailable,
-            MemoryServiceStatus::AuthError => Self::AuthError,
-        }
-    }
-}
-
 /// Memory service readiness exposed to Settings.
 #[derive(Clone, Debug, SimpleObject)]
 #[graphql(name = "MemoryServiceStatus")]
@@ -87,17 +72,6 @@ pub struct GraphqlMemoryServiceStatus {
     pub last_error_code: Option<String>,
     /// Sanitized last error message.
     pub last_error_message: Option<String>,
-}
-
-impl From<MemoryServiceStatusRecord> for GraphqlMemoryServiceStatus {
-    fn from(record: MemoryServiceStatusRecord) -> Self {
-        Self {
-            status: record.status.into(),
-            checked_at: record.checked_at,
-            last_error_code: record.last_error_code,
-            last_error_message: record.last_error_message,
-        }
-    }
 }
 
 /// Memory service settings exposed to Settings.
@@ -237,57 +211,78 @@ pub(super) async fn check_memory_service(
         .memory_service_settings()
         .await
         .map_err(graphql_error)?;
-    if settings.mode == MemoryServiceMode::Managed {
-        return store
-            .memory_service_status()
-            .await
-            .map(GraphqlMemoryServiceStatus::from)
-            .map_err(graphql_error);
-    }
-    let Some(base_url) = settings.base_url.as_deref() else {
-        return Err(async_graphql::Error::new(
-            "memory service base URL is required",
-        ));
+    memory_service_status(state, &settings).await
+}
+
+async fn memory_service_status(
+    state: &GraphqlState,
+    settings: &MemoryServiceSettingsRecord,
+) -> Result<GraphqlMemoryServiceStatus> {
+    let base_url = match settings.mode {
+        MemoryServiceMode::Managed => {
+            let Some(connection) = state.supermemory_connection() else {
+                return managed_supermemory_unavailable_status(state).await;
+            };
+            connection.base_url.as_str()
+        }
+        MemoryServiceMode::External => settings
+            .base_url
+            .as_deref()
+            .ok_or_else(|| async_graphql::Error::new("memory service base URL is required"))?,
     };
     let checked_at = Some(now_rfc3339()?);
     let status = match memory_service_readiness_request(base_url)?.send().await {
-        Ok(response) if response.status().is_success() => MemoryServiceStatusRecord {
-            status_id: "default".to_string(),
-            status: MemoryServiceStatus::Ready,
+        Ok(response) if response.status().is_success() => GraphqlMemoryServiceStatus {
+            status: GraphqlMemoryServiceStatusKind::Ready,
             checked_at,
             last_error_code: None,
             last_error_message: None,
         },
         Ok(response) if response.status().as_u16() == 401 || response.status().as_u16() == 403 => {
-            MemoryServiceStatusRecord {
-                status_id: "default".to_string(),
-                status: MemoryServiceStatus::AuthError,
+            GraphqlMemoryServiceStatus {
+                status: GraphqlMemoryServiceStatusKind::AuthError,
                 checked_at,
                 last_error_code: Some("auth_error".to_string()),
                 last_error_message: Some("memory service rejected authentication".to_string()),
             }
         }
-        Ok(response) => MemoryServiceStatusRecord {
-            status_id: "default".to_string(),
-            status: MemoryServiceStatus::Unavailable,
+        Ok(response) => GraphqlMemoryServiceStatus {
+            status: GraphqlMemoryServiceStatusKind::Unavailable,
             checked_at,
             last_error_code: Some(format!("http_{}", response.status().as_u16())),
             last_error_message: Some("memory service returned an unsuccessful status".to_string()),
         },
-        Err(error) => MemoryServiceStatusRecord {
-            status_id: "default".to_string(),
-            status: MemoryServiceStatus::Unavailable,
+        Err(error) => GraphqlMemoryServiceStatus {
+            status: GraphqlMemoryServiceStatusKind::Unavailable,
             checked_at,
             last_error_code: Some("request_failed".to_string()),
             last_error_message: Some(sanitize_error_message(&error.to_string())),
         },
     };
 
-    let saved = store
-        .save_memory_service_status(status)
-        .await
-        .map_err(graphql_error)?;
-    Ok(saved.into())
+    Ok(status)
+}
+
+async fn managed_supermemory_unavailable_status(
+    state: &GraphqlState,
+) -> Result<GraphqlMemoryServiceStatus> {
+    let last_error_message = match state.paths() {
+        Ok(paths) => recent_supermemory_error_message(paths).await,
+        Err(_) => None,
+    };
+    let last_error_message = last_error_message.or_else(|| {
+        state
+            .supermemory_startup_error()
+            .map(sanitize_error_message)
+    });
+    Ok(GraphqlMemoryServiceStatus {
+        status: GraphqlMemoryServiceStatusKind::Unavailable,
+        checked_at: Some(now_rfc3339()?),
+        last_error_code: Some("supermemory_unavailable".to_string()),
+        last_error_message: Some(
+            last_error_message.unwrap_or_else(|| "Managed Supermemory is not running".to_string()),
+        ),
+    })
 }
 
 fn memory_service_readiness_request(base_url: &str) -> Result<reqwest::RequestBuilder> {
@@ -314,20 +309,20 @@ async fn memory_settings_from_store(state: &GraphqlState) -> Result<GraphqlMemor
         .memory_service_settings()
         .await
         .map_err(graphql_error)?;
-    let status = store.memory_service_status().await.map_err(graphql_error)?;
+    let status = memory_service_status(state, &settings).await?;
     Ok(memory_settings_from_parts(settings, status, &accounts))
 }
 
 fn memory_settings_from_parts(
     settings: MemoryServiceSettingsRecord,
-    status: MemoryServiceStatusRecord,
+    status: GraphqlMemoryServiceStatus,
     accounts: &[crate::ProviderAccountRecord],
 ) -> GraphqlMemorySettings {
     GraphqlMemorySettings {
         mode: settings.mode.into(),
         base_url: settings.base_url,
         port: settings.port.map(i32::from),
-        status: status.into(),
+        status,
         model_preference: match (
             settings.provider_kind,
             settings.provider_account_id,
@@ -344,6 +339,41 @@ fn memory_settings_from_parts(
             _ => None,
         },
         model_options: accounts.iter().map(option_from_account).collect(),
+    }
+}
+
+async fn recent_supermemory_error_message(paths: &crate::NoemaPaths) -> Option<String> {
+    let text = tokio::fs::read_to_string(paths.supermemory_data_dir().join("error.log"))
+        .await
+        .ok()?;
+    text.lines()
+        .rev()
+        .find_map(sanitize_supermemory_error_log_line)
+}
+
+fn sanitize_supermemory_error_log_line(line: &str) -> Option<String> {
+    let line = line.trim();
+    if line.is_empty() {
+        return None;
+    }
+    let line = line
+        .split_once("] ")
+        .map_or(line, |(_prefix, message)| message)
+        .trim();
+    let line = line
+        .strip_prefix("fatal during startup:")
+        .unwrap_or(line)
+        .trim();
+    let message = line
+        .split_once(". ")
+        .map_or(line, |(first_sentence, _rest)| first_sentence)
+        .trim();
+    if message.is_empty() {
+        None
+    } else if message.ends_with('.') {
+        Some(message.to_string())
+    } else {
+        Some(format!("{message}."))
     }
 }
 

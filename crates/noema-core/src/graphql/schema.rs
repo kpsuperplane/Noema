@@ -175,6 +175,14 @@ impl GraphqlState {
         self.runtime_state.paths()
     }
 
+    pub(crate) fn supermemory_connection(&self) -> Option<&crate::SupermemoryConnection> {
+        self.runtime_state.supermemory_connection()
+    }
+
+    pub(crate) fn supermemory_startup_error(&self) -> Option<&str> {
+        self.runtime_state.supermemory_startup_error()
+    }
+
     pub(crate) fn subscriptions(&self) -> &ConversationSubscriptionRegistry {
         self.runtime_state.subscriptions()
     }
@@ -863,10 +871,58 @@ mod tests {
                     "mode": "MANAGED",
                     "baseUrl": null,
                     "port": null,
-                    "status": {"status": "NOT_CONFIGURED"}
+                    "status": {"status": "UNAVAILABLE"}
                 }
             }))
             .expect("json")
+        );
+    }
+
+    #[tokio::test]
+    async fn memory_settings_query_proxies_managed_supermemory_error_log() {
+        let home = tempfile::TempDir::new().expect("home");
+        let paths = crate::NoemaPaths::from_noema_home(home.path()).expect("paths");
+        let store = crate::NoemaStore::open(&crate::StoreConfig::from_paths(&paths))
+            .await
+            .expect("store");
+        tokio::fs::create_dir_all(paths.supermemory_data_dir())
+            .await
+            .expect("supermemory data");
+        tokio::fs::write(
+            paths.supermemory_data_dir().join("error.log"),
+            "[2026-07-08T03:46:12.343Z] fatal during startup: No model provider API key configured. Set one of OPENAI_API_KEY.\n",
+        )
+        .await
+        .expect("error log");
+        let schema = build_schema(GraphqlState::for_tests_with_store_and_paths(store, paths));
+
+        let response = schema
+            .execute(async_graphql::Request::new(
+                r#"
+                {
+                  memorySettings {
+                    status {
+                      status
+                      lastErrorCode
+                      lastErrorMessage
+                    }
+                  }
+                }
+                "#,
+            ))
+            .await
+            .into_result()
+            .expect("query");
+        let data = response.data.into_json().expect("json");
+
+        assert_eq!(data["memorySettings"]["status"]["status"], "UNAVAILABLE");
+        assert_eq!(
+            data["memorySettings"]["status"]["lastErrorCode"],
+            "supermemory_unavailable"
+        );
+        assert_eq!(
+            data["memorySettings"]["status"]["lastErrorMessage"],
+            "No model provider API key configured."
         );
     }
 

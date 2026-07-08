@@ -42,54 +42,6 @@ impl MemoryServiceMode {
     }
 }
 
-/// Saved memory service readiness status.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MemoryServiceStatus {
-    /// Service configuration has not been checked.
-    NotConfigured,
-    /// Managed service startup is in progress.
-    Starting,
-    /// Service is reachable and ready.
-    Ready,
-    /// Service is not reachable.
-    Unavailable,
-    /// Service authentication failed.
-    AuthError,
-}
-
-impl MemoryServiceStatus {
-    /// Return the SQLite representation.
-    #[must_use]
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::NotConfigured => "not_configured",
-            Self::Starting => "starting",
-            Self::Ready => "ready",
-            Self::Unavailable => "unavailable",
-            Self::AuthError => "auth_error",
-        }
-    }
-
-    /// Parse the SQLite representation.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError`] when `value` is not a known memory service status.
-    pub fn parse(value: &str) -> Result<Self, StoreError> {
-        match value {
-            "not_configured" => Ok(Self::NotConfigured),
-            "starting" => Ok(Self::Starting),
-            "ready" => Ok(Self::Ready),
-            "unavailable" => Ok(Self::Unavailable),
-            "auth_error" => Ok(Self::AuthError),
-            _ => Err(StoreError::InvalidEnum {
-                kind: "memory service status",
-                value: value.to_string(),
-            }),
-        }
-    }
-}
-
 /// Persisted memory service settings.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MemoryServiceSettingsRecord {
@@ -128,21 +80,6 @@ pub struct SaveMemoryServiceSettings {
     pub model_profile: Option<String>,
     /// Reasoning effort used for memory extraction.
     pub reasoning_effort: Option<ReasoningEffort>,
-}
-
-/// Persisted memory service readiness status.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MemoryServiceStatusRecord {
-    /// Stable singleton status id.
-    pub status_id: String,
-    /// Current readiness status.
-    pub status: MemoryServiceStatus,
-    /// Last readiness check timestamp.
-    pub checked_at: Option<String>,
-    /// Sanitized last error code.
-    pub last_error_code: Option<String>,
-    /// Sanitized last error message.
-    pub last_error_message: Option<String>,
 }
 
 /// Input for creating a memory ingest job.
@@ -244,66 +181,6 @@ impl NoemaStore {
         })
         .await?;
         self.memory_service_settings().await
-    }
-
-    /// Return the singleton memory service readiness status.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError`] when the embedded store read fails or the row is missing.
-    pub async fn memory_service_status(&self) -> Result<MemoryServiceStatusRecord, StoreError> {
-        self.with_connection(|conn| {
-            conn.query_row(
-                r#"
-                SELECT status_id, status, checked_at, last_error_code, last_error_message
-                FROM memory_service_status
-                WHERE status_id = 'default'
-                LIMIT 1
-                "#,
-                [],
-                status_from_row,
-            )
-            .optional()?
-            .ok_or_else(|| StoreError::InvariantViolation {
-                message: "default memory service status row is missing".to_string(),
-            })
-        })
-        .await
-    }
-
-    /// Create or update the singleton memory service readiness status.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError`] when the embedded store write/read fails.
-    pub async fn save_memory_service_status(
-        &self,
-        status: MemoryServiceStatusRecord,
-    ) -> Result<MemoryServiceStatusRecord, StoreError> {
-        self.with_connection(|conn| {
-            conn.execute(
-                r#"
-                INSERT INTO memory_service_status
-                  (status_id, status, checked_at, last_error_code, last_error_message, updated_at)
-                VALUES ('default', ?1, ?2, ?3, ?4, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-                ON CONFLICT(status_id) DO UPDATE SET
-                  status = excluded.status,
-                  checked_at = excluded.checked_at,
-                  last_error_code = excluded.last_error_code,
-                  last_error_message = excluded.last_error_message,
-                  updated_at = excluded.updated_at
-                "#,
-                params![
-                    status.status.as_str(),
-                    status.checked_at,
-                    status.last_error_code,
-                    status.last_error_message,
-                ],
-            )?;
-            Ok(())
-        })
-        .await?;
-        self.memory_service_status().await
     }
 
     /// Insert a queued completed-turn ingest job.
@@ -486,18 +363,6 @@ fn settings_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<MemoryServiceS
         reasoning_effort: reasoning_effort
             .as_deref()
             .and_then(reasoning_effort_from_str),
-    })
-}
-
-fn status_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<MemoryServiceStatusRecord> {
-    let status: String = row.get(1)?;
-    Ok(MemoryServiceStatusRecord {
-        status_id: row.get(0)?,
-        status: MemoryServiceStatus::parse(&status)
-            .map_err(to_sqlite_from_sql_conversion_failure)?,
-        checked_at: row.get(2)?,
-        last_error_code: row.get(3)?,
-        last_error_message: row.get(4)?,
     })
 }
 

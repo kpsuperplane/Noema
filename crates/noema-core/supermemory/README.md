@@ -11,5 +11,6 @@ The managed Supermemory resolver checks candidates in this order:
 3. `supermemory-server` on `PATH`
 
 Managed mode binds the server to a runtime-selected loopback port and keeps that
-endpoint private to the Noema runtime host. SQLite stores readiness status and
-diagnostics, not the managed endpoint.
+endpoint private to the Noema runtime host. SQLite stores configuration only;
+Noema core proxies health checks to Supermemory and returns live readiness to
+the UI.
