@@ -110,7 +110,11 @@ export function MemoryPage() {
               </div>
             ) : null}
 
-            <p {...stylex.props(styles.lead)}>{article.leadText}</p>
+            {article.leadParagraphs.map((paragraph) => (
+              <p key={paragraph} {...stylex.props(styles.lead)}>
+                {paragraph}
+              </p>
+            ))}
 
             {article.isStub && !serviceError && !(loading && article.totalMemories === 0) ? (
               <div role="note" {...stylex.props(styles.stubNote)}>

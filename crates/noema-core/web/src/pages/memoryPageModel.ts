@@ -38,6 +38,7 @@ export type MemoryArticleModel = {
   primaryPattern: string;
   recurringMotif: string;
   leadText: string;
+  leadParagraphs: string[];
   isStub: boolean;
   stubText: string;
   figureTitle: string;
@@ -73,6 +74,7 @@ export function buildMemoryArticleModel(graph: MemoryGraph | undefined): MemoryA
     primaryPattern,
     recurringMotif,
     leadText: articleContent.leadText,
+    leadParagraphs: articleContent.leadParagraphs,
     isStub: entries.length < 3,
     stubText: buildStubText(entries.length),
     figureTitle: buildFigureTitle(entries.length),
@@ -182,31 +184,33 @@ function buildReferences(
 function parseArticleMarkdown(
   article: MemoryGraphArticle | undefined,
   entries: MemoryArticleEntry[]
-): { leadText: string; sections: MemoryArticleSection[] } {
+): { leadText: string; leadParagraphs: string[]; sections: MemoryArticleSection[] } {
   const markdown = article?.markdown?.trim();
   if (!markdown) {
     return fallbackArticleContent(entries);
   }
 
   const sections: MemoryArticleSection[] = [];
-  let current: MemoryArticleSection = {
-    id: "biography",
-    title: "Biography",
-    paragraphs: []
-  };
+  const leadParagraphs: string[] = [];
+  let current: MemoryArticleSection | null = null;
   let paragraphLines: string[] = [];
 
   const flushParagraph = () => {
     const paragraph = paragraphLines.join(" ").replace(/\s+/gu, " ").trim();
     if (paragraph) {
-      current.paragraphs.push(stripInlineMarkdown(paragraph));
+      const stripped = stripInlineMarkdown(paragraph);
+      if (current) {
+        current.paragraphs.push(stripped);
+      } else {
+        leadParagraphs.push(stripped);
+      }
     }
     paragraphLines = [];
   };
 
   const flushSection = () => {
     flushParagraph();
-    if (current.paragraphs.length > 0 || sections.length === 0) {
+    if (current && current.paragraphs.length > 0) {
       sections.push(current);
     }
   };
@@ -234,31 +238,42 @@ function parseArticleMarkdown(
   }
   flushSection();
 
-  const nonEmptySections = sections.filter((section) => section.paragraphs.length > 0);
-  if (nonEmptySections.length === 0) {
+  if (leadParagraphs.length === 0 && sections.length === 0) {
     return fallbackArticleContent(entries);
   }
+  const leadText =
+    leadParagraphs[0] ??
+    sections[0]?.paragraphs[0] ??
+    "Little is currently known about the local human.";
   return {
-    leadText: nonEmptySections[0].paragraphs[0],
-    sections: nonEmptySections
+    leadText,
+    leadParagraphs: leadParagraphs.length > 0 ? leadParagraphs : [leadText],
+    sections
   };
 }
 
 function fallbackArticleContent(entries: MemoryArticleEntry[]): {
   leadText: string;
+  leadParagraphs: string[];
   sections: MemoryArticleSection[];
 } {
   if (entries.length === 0) {
     const leadText = "Little is currently known about the local human.";
     return {
       leadText,
-      sections: [{ id: "biography", title: "Biography", paragraphs: [leadText] }]
+      leadParagraphs: [leadText],
+      sections: []
     };
   }
   const paragraphs = entries.map((entry) => entry.displayText);
+  const leadText = paragraphs[0] ?? "The local human is described by the available facts.";
   return {
-    leadText: paragraphs[0] ?? "The local human is described by the available facts.",
-    sections: [{ id: "biography", title: "Biography", paragraphs }]
+    leadText,
+    leadParagraphs: [leadText],
+    sections:
+      paragraphs.length > 1
+        ? [{ id: "biography", title: "Biography", paragraphs: paragraphs.slice(1) }]
+        : []
   };
 }
 
