@@ -1,6 +1,6 @@
 //! Managed Supermemory child-process lifecycle.
 
-use std::{io::ErrorKind, process::ExitStatus};
+use std::{io::ErrorKind, process::ExitStatus, process::Stdio};
 
 use thiserror::Error;
 use tokio::time::{Duration, sleep};
@@ -99,6 +99,10 @@ impl SupermemoryLifecycle {
                     .env("SUPERMEMORY_DATA_DIR", paths.supermemory_data_dir())
                     .env("SUPERMEMORY_PORT", port.to_string())
                     .env("PORT", port.to_string())
+                    .env("SUPERMEMORY_NO_PROMPT", "1")
+                    .env("BROWSER", "none")
+                    .env("CI", "1")
+                    .stdin(Stdio::null())
                     .kill_on_drop(true);
                 if let Some(proxy) = &model_proxy {
                     command
@@ -355,6 +359,9 @@ mod tests {
         assert!(env_text.contains("OPENAI_MODEL=memory-model"));
         assert!(env_text.contains("OPENAI_FAST_MODEL=memory-model"));
         assert!(env_text.contains("OPENAI_TEXT_MODEL=memory-model"));
+        assert!(env_text.contains("SUPERMEMORY_NO_PROMPT=1"));
+        assert!(env_text.contains("BROWSER=none"));
+        assert!(env_text.contains("CI=1"));
 
         lifecycle.shutdown().await;
     }
@@ -389,6 +396,9 @@ mkdir -p "$SUPERMEMORY_DATA_DIR"
   echo "OPENAI_MODEL=$OPENAI_MODEL"
   echo "OPENAI_FAST_MODEL=$OPENAI_FAST_MODEL"
   echo "OPENAI_TEXT_MODEL=$OPENAI_TEXT_MODEL"
+  echo "SUPERMEMORY_NO_PROMPT=$SUPERMEMORY_NO_PROMPT"
+  echo "BROWSER=$BROWSER"
+  echo "CI=$CI"
 } > "$SUPERMEMORY_DATA_DIR/model-env.txt"
 sleep 5
 "#,
