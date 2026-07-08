@@ -1342,20 +1342,6 @@ impl CodexRuntimeActor {
     }
 
     async fn enqueue_completed_turn_memory_ingest(&self, conversation_id: &str, turn_id: &str) {
-        let settings = match self.store.memory_service_settings().await {
-            Ok(settings) => settings,
-            Err(error) => {
-                self.log_runtime_invariant(
-                    "memory ingest settings could not be read",
-                    json!({
-                        "conversation_id": conversation_id,
-                        "turn_id": turn_id,
-                    }),
-                    json!({"error": error.to_string()}),
-                );
-                return;
-            }
-        };
         let items = match self
             .store
             .list_conversation_items(conversation_id, ReplayMode::Visible)
@@ -1405,8 +1391,18 @@ impl CodexRuntimeActor {
                 return;
             }
         };
+        let Some(client) = self.supermemory_client() else {
+            let _ = self
+                .store
+                .mark_memory_ingest_job_failed(
+                    &job.job_id,
+                    "service_unavailable",
+                    "memory service is unavailable",
+                )
+                .await;
+            return;
+        };
         let store = self.store.clone();
-        let client = crate::SupermemoryClient::new(settings.base_url, None);
         let request = crate::SupermemoryConversationIngestRequest {
             conversation_id: conversation_id.to_string(),
             container_tag: supermemory_conversation_id,

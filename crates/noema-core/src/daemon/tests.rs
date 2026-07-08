@@ -2683,6 +2683,58 @@ async fn runtime_actor_continues_after_continuation_tool_call() {
 }
 
 #[tokio::test]
+async fn search_memory_uses_private_runtime_supermemory_endpoint() {
+    let (handle, _store, server) = test_runtime_handle_with_private_supermemory(
+        fake_provider(FakeCodexScenario::SearchMemoryContinuation),
+        json!({
+            "results": [{
+                "id": "mem_private",
+                "memory": "Kevin prefers private sidecars",
+                "updatedAt": "2026-07-08T12:00:00.000Z",
+                "similarity": 0.94
+            }]
+        }),
+    )
+    .await;
+
+    let conversation_id = handle
+        .start_conversation(None)
+        .await
+        .expect("conversation")
+        .conversation_id;
+    let items = collect_turn(
+        &handle,
+        conversation_id,
+        "What do you remember about trains?".to_string(),
+    )
+    .await
+    .expect("turn");
+
+    assert!(
+        items.iter().any(|item| {
+            matches!(
+                item,
+                TurnTranscriptItem::Activity {
+                    activity_kind,
+                    status: TurnActivityStatus::Completed,
+                    title,
+                    metadata,
+                    ..
+                } if activity_kind == "tool_result"
+                    && title == "Tool result: search_memory"
+                    && metadata["action"]["payload"]["memories"]
+                        .as_array()
+                        .is_some_and(|memories| memories.iter().any(|memory| {
+                            memory["id"] == "mem_private"
+                        }))
+            )
+        }),
+        "expected private Supermemory result in tool output"
+    );
+    assert!(!server.request_bodies().await.is_empty());
+}
+
+#[tokio::test]
 async fn hard_ceiling_gets_one_no_tools_finalization_attempt() {
     let provider = Arc::new(RecordingFakeProvider::new(
         "codex",
@@ -3084,34 +3136,17 @@ async fn search_memory_profile_continuation_uses_scoped_empty_query() {
 }
 
 #[tokio::test]
-async fn search_memory_uses_updated_memory_settings_on_next_call() {
-    let first_server = FakeSupermemoryServer::start(
-        json!({"results": [{"id": "old", "memory": "old memory", "similarity": 0.1}]}),
-        32,
-    )
-    .await;
+async fn search_memory_uses_runtime_connection_until_restart() {
     let second_server = FakeSupermemoryServer::start(
         json!({"results": [{"id": "new", "memory": "new memory", "similarity": 0.9}]}),
         32,
     )
     .await;
-    let (handle, store, _server) = test_runtime_handle_with_supermemory(
+    let (handle, store, first_server) = test_runtime_handle_with_supermemory(
         fake_provider(FakeCodexScenario::SearchMemoryContinuation),
-        json!({"results": []}),
+        json!({"results": [{"id": "old", "memory": "old memory", "similarity": 0.1}]}),
     )
     .await;
-    store
-        .save_memory_service_settings(crate::SaveMemoryServiceSettings {
-            mode: crate::MemoryServiceMode::External,
-            base_url: first_server.base_url(),
-            port: None,
-            provider_account_id: None,
-            provider_kind: None,
-            model_profile: None,
-            reasoning_effort: None,
-        })
-        .await
-        .expect("save first settings");
     let conversation_id = handle
         .start_conversation(None)
         .await
@@ -3152,7 +3187,7 @@ async fn search_memory_uses_updated_memory_settings_on_next_call() {
     handle.shutdown().await;
 
     assert!(!first_server.request_bodies().await.is_empty());
-    assert!(!second_server.request_bodies().await.is_empty());
+    assert!(second_server.request_bodies().await.is_empty());
 }
 
 #[tokio::test]
@@ -3456,9 +3491,31 @@ async fn test_runtime_handle_with_supermemory(
         .await
         .expect("save memory settings");
     std::mem::forget(home);
-    let handle = CodexRuntimeHandle::spawn_with_provider(Arc::new(provider), store.clone())
-        .await
-        .expect("runtime");
+    let connection = crate::SupermemoryConnection::new(server.base_url(), None);
+    let handle = CodexRuntimeHandle::spawn_with_provider_and_supermemory(
+        Arc::new(provider),
+        store.clone(),
+        Some(connection),
+    )
+    .await
+    .expect("runtime");
+    (handle, store, server)
+}
+
+async fn test_runtime_handle_with_private_supermemory(
+    provider: FakeCodexProvider,
+    response: serde_json::Value,
+) -> (CodexRuntimeHandle, crate::NoemaStore, FakeSupermemoryServer) {
+    let store = crate::store::tests::test_store().await;
+    let server = FakeSupermemoryServer::start(response, 32).await;
+    let connection = crate::SupermemoryConnection::new(server.base_url(), None);
+    let handle = CodexRuntimeHandle::spawn_with_provider_and_supermemory(
+        Arc::new(provider),
+        store.clone(),
+        Some(connection),
+    )
+    .await
+    .expect("runtime");
     (handle, store, server)
 }
 
@@ -3486,9 +3543,14 @@ async fn spawn_runtime_with_supermemory_provider(
         .await
         .expect("save memory settings");
     std::mem::forget(home);
-    let handle = CodexRuntimeHandle::spawn_with_provider_kind(provider, store.clone(), "codex")
-        .await
-        .expect("runtime");
+    let connection = crate::SupermemoryConnection::new(server.base_url(), None);
+    let handle = CodexRuntimeHandle::spawn_with_provider_and_supermemory(
+        provider,
+        store.clone(),
+        Some(connection),
+    )
+    .await
+    .expect("runtime");
     (handle, store, server)
 }
 

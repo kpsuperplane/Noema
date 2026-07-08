@@ -57,6 +57,15 @@ impl NoemaRuntimeHost {
             .memory_service_settings()
             .await
             .map_err(|source| RuntimeHostError::Store(source.to_string()))?;
+        let mut supermemory_connection =
+            if memory_settings.mode == crate::MemoryServiceMode::External {
+                Some(crate::SupermemoryConnection::new(
+                    memory_settings.base_url.clone(),
+                    None,
+                ))
+            } else {
+                None
+            };
         let supermemory = match crate::SupermemoryLifecycle::start(
             &paths,
             &memory_settings,
@@ -65,7 +74,12 @@ impl NoemaRuntimeHost {
         )
         .await
         {
-            Ok(lifecycle) => Some(lifecycle),
+            Ok(lifecycle) => {
+                if let Some(connection) = lifecycle.connection().cloned() {
+                    supermemory_connection = Some(connection);
+                }
+                Some(lifecycle)
+            }
             Err(error) => {
                 system_errors.try_append(
                     crate::SystemErrorEvent::new(
@@ -78,10 +92,14 @@ impl NoemaRuntimeHost {
             }
         };
 
-        let runtime =
-            CodexRuntimeHandle::spawn_from_config(provider, store.clone(), system_errors.clone())
-                .await
-                .map_err(|source| RuntimeHostError::Runtime(source.to_string()))?;
+        let runtime = CodexRuntimeHandle::spawn_from_config(
+            provider,
+            store.clone(),
+            system_errors.clone(),
+            supermemory_connection,
+        )
+        .await
+        .map_err(|source| RuntimeHostError::Runtime(source.to_string()))?;
 
         Ok(Self {
             runtime,

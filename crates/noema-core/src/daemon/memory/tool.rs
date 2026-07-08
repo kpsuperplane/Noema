@@ -122,12 +122,13 @@ pub(in crate::daemon) fn search_memory_tool_spec() -> Result<NoemaToolSpec, Tool
 }
 
 pub(in crate::daemon) async fn execute_search_memory(
-    store: &NoemaStore,
+    _store: &NoemaStore,
+    client: Option<crate::SupermemoryClient>,
     context: &MemoryToolRuntimeContext,
     call_id: Option<String>,
     payload: &Value,
 ) -> MemoryToolResult {
-    match execute_search_memory_inner(store, context, call_id.as_deref(), payload).await {
+    match execute_search_memory_inner(client, context, call_id.as_deref(), payload).await {
         Ok(payload) => MemoryToolResult {
             call_id,
             name: SEARCH_MEMORY_TOOL.to_string(),
@@ -146,15 +147,17 @@ pub(in crate::daemon) async fn execute_search_memory(
 }
 
 async fn execute_search_memory_inner(
-    store: &NoemaStore,
+    client: Option<crate::SupermemoryClient>,
     context: &MemoryToolRuntimeContext,
     _call_id: Option<&str>,
     payload: &Value,
 ) -> Result<Value, MemoryToolError> {
     let arguments = parse_arguments(payload)?;
     validate_scope_ids(context, &arguments)?;
-    let settings = store.memory_service_settings().await?;
-    let client = crate::SupermemoryClient::new(settings.base_url, None);
+    let client = client.ok_or(MemoryToolError::Unavailable {
+        code: "service_unavailable",
+        message: "memory service is unavailable",
+    })?;
     let tags = if arguments.scope_ids.is_empty() {
         trusted_active_scope_ids(context)
     } else {

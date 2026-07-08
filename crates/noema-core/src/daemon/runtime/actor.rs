@@ -12,23 +12,37 @@ pub(in crate::daemon) struct CodexRuntimeActor {
     pub(in crate::daemon) providers: HashMap<String, Arc<dyn RuntimeModelProvider>>,
     pub(in crate::daemon) store: NoemaStore,
     pub(in crate::daemon) system_errors: SystemErrorLogger,
+    pub(in crate::daemon) supermemory_connection: Option<crate::SupermemoryConnection>,
     pub(in crate::daemon) search_provider: crate::search::types::SearchRuntimeProvider,
     pub(in crate::daemon) web_fetch_provider: crate::web_fetch::types::WebFetchRuntimeProvider,
     pub(in crate::daemon) conversations: HashMap<String, ActiveConversation>,
 }
 
 impl CodexRuntimeActor {
+    #[cfg(test)]
     pub(in crate::daemon) async fn new(
         default_provider_kind: String,
         providers: HashMap<String, Arc<dyn RuntimeModelProvider>>,
         store: NoemaStore,
         system_errors: SystemErrorLogger,
     ) -> Result<Self, DaemonError> {
+        Self::new_with_supermemory(default_provider_kind, providers, store, system_errors, None)
+            .await
+    }
+
+    pub(in crate::daemon) async fn new_with_supermemory(
+        default_provider_kind: String,
+        providers: HashMap<String, Arc<dyn RuntimeModelProvider>>,
+        store: NoemaStore,
+        system_errors: SystemErrorLogger,
+        supermemory_connection: Option<crate::SupermemoryConnection>,
+    ) -> Result<Self, DaemonError> {
         Ok(Self {
             default_provider_kind,
             providers,
             store,
             system_errors,
+            supermemory_connection,
             search_provider: crate::search::types::SearchRuntimeProvider::default(),
             web_fetch_provider: crate::web_fetch::types::WebFetchRuntimeProvider::default(),
             conversations: HashMap::new(),
@@ -85,6 +99,12 @@ impl CodexRuntimeActor {
         &self,
     ) -> Result<Arc<dyn RuntimeModelProvider>, DaemonError> {
         self.provider_for_kind(&self.default_provider_kind)
+    }
+
+    pub(in crate::daemon) fn supermemory_client(&self) -> Option<crate::SupermemoryClient> {
+        self.supermemory_connection.as_ref().map(|connection| {
+            crate::SupermemoryClient::new(connection.base_url.clone(), connection.api_key.clone())
+        })
     }
 
     #[allow(dead_code)]

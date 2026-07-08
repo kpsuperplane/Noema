@@ -98,8 +98,9 @@ pub use store::{
     TrustedIdentitySelectorEffect, TrustedIdentitySelectorRecord, WEB_FETCH_SUMMARIZER_TASK_ID,
 };
 pub use supermemory::{
-    SupermemoryClient, SupermemoryClientError, SupermemoryConversationIngestRequest,
-    SupermemoryLifecycle, SupermemorySearchRequest, SupermemorySearchResponse,
+    SupermemoryClient, SupermemoryClientError, SupermemoryConnection,
+    SupermemoryConversationIngestRequest, SupermemoryLifecycle, SupermemorySearchRequest,
+    SupermemorySearchResponse,
 };
 pub use system_errors::{
     SYSTEM_ERROR_MCP_MALFORMED_RESPONSE, SYSTEM_ERROR_MCP_TOOL_CALL_FAILURE,
