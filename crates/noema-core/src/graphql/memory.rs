@@ -1,10 +1,13 @@
 use async_graphql::{Enum, InputObject, Result, SimpleObject};
+use std::time::Duration;
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
 use crate::{
     MemoryServiceMode, MemoryServiceSettingsRecord, MemoryServiceStatus, MemoryServiceStatusRecord,
     SaveMemoryServiceSettings,
 };
+
+const MEMORY_SERVICE_READINESS_TIMEOUT: Duration = Duration::from_secs(2);
 
 use super::{
     agents::{
@@ -185,7 +188,14 @@ pub(super) async fn save_memory_service_settings(
                     reasoning_effort,
                 )
             }
-            (None, None) => (None, None, None, None),
+            (None, None) => {
+                if input.reasoning_effort.is_some() {
+                    return Err(async_graphql::Error::new(
+                        "reasoning effort requires a provider account and model profile",
+                    ));
+                }
+                (None, None, None, None)
+            }
             (Some(_), None) => {
                 return Err(async_graphql::Error::new("model profile is required"));
             }
@@ -219,7 +229,10 @@ pub(super) async fn check_memory_service(
         .await
         .map_err(graphql_error)?;
     let checked_at = Some(now_rfc3339()?);
-    let status = match reqwest::Client::new().get(&settings.base_url).send().await {
+    let status = match memory_service_readiness_request(&settings.base_url)?
+        .send()
+        .await
+    {
         Ok(response) if response.status().is_success() => MemoryServiceStatusRecord {
             status_id: "default".to_string(),
             status: MemoryServiceStatus::Ready,
@@ -257,6 +270,14 @@ pub(super) async fn check_memory_service(
         .await
         .map_err(graphql_error)?;
     Ok(saved.into())
+}
+
+fn memory_service_readiness_request(base_url: &str) -> Result<reqwest::RequestBuilder> {
+    let client = reqwest::Client::builder()
+        .timeout(MEMORY_SERVICE_READINESS_TIMEOUT)
+        .build()
+        .map_err(|error| async_graphql::Error::new(error.to_string()))?;
+    Ok(client.get(base_url))
 }
 
 async fn memory_settings_from_store(state: &GraphqlState) -> Result<GraphqlMemorySettings> {

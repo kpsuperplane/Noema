@@ -899,6 +899,94 @@ mod tests {
         assert!(response.errors[0].message.contains("memoryGraph"));
     }
 
+    #[tokio::test]
+    async fn check_memory_service_times_out_when_socket_never_responds() {
+        use tokio::{
+            net::TcpListener,
+            time::{Duration, timeout},
+        };
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("listener");
+        let address = listener.local_addr().expect("listener address");
+        let _server = tokio::spawn(async move {
+            if let Ok((_socket, _peer)) = listener.accept().await {
+                futures_util::future::pending::<()>().await;
+            }
+        });
+
+        let store = crate::store::tests::test_store().await;
+        let schema = build_schema(GraphqlState::for_tests_with_store(store));
+        let save_response = schema
+            .execute(format!(
+                r#"
+                mutation {{
+                  saveMemoryServiceSettings(input: {{
+                    mode: EXTERNAL
+                    baseUrl: "http://{address}"
+                  }}) {{
+                    baseUrl
+                  }}
+                }}
+                "#
+            ))
+            .await;
+        assert!(
+            save_response.errors.is_empty(),
+            "{:?}",
+            save_response.errors
+        );
+
+        let response = timeout(
+            Duration::from_secs(3),
+            schema.execute(async_graphql::Request::new(
+                r#"
+                mutation {
+                  checkMemoryService {
+                    status
+                    lastErrorCode
+                  }
+                }
+                "#,
+            )),
+        )
+        .await
+        .expect("readiness check should not hang indefinitely");
+
+        assert!(response.errors.is_empty(), "{:?}", response.errors);
+        let data = response.data.into_json().expect("json");
+        assert_eq!(data["checkMemoryService"]["status"], "UNAVAILABLE");
+        assert_eq!(
+            data["checkMemoryService"]["lastErrorCode"],
+            "request_failed"
+        );
+    }
+
+    #[tokio::test]
+    async fn save_memory_service_settings_rejects_reasoning_effort_without_model() {
+        let store = crate::store::tests::test_store().await;
+        let schema = build_schema(GraphqlState::for_tests_with_store(store));
+
+        let response = schema
+            .execute(async_graphql::Request::new(
+                r#"
+                mutation {
+                  saveMemoryServiceSettings(input: {
+                    mode: MANAGED
+                    baseUrl: "http://127.0.0.1:6767"
+                    port: 6767
+                    reasoningEffort: HIGH
+                  }) {
+                    mode
+                  }
+                }
+                "#,
+            ))
+            .await;
+
+        assert!(!response.errors.is_empty());
+        assert!(response.errors[0].message.contains("reasoning effort"));
+    }
+
     #[test]
     fn graphql_state_for_tests_has_runtime_state_accessors() {
         let state = GraphqlState::for_tests();
