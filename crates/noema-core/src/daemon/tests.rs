@@ -2806,7 +2806,7 @@ async fn audit_execution_failure_gets_one_no_tools_finalization_attempt() {
 }
 
 #[tokio::test]
-async fn update_own_name_tool_updates_agent_without_continuation_turn() {
+async fn update_own_name_tool_updates_agent_and_continues_turn() {
     let (handle, store) =
         test_runtime_handle_with_store(fake_provider(FakeCodexScenario::UpdateOwnNameContinuation))
             .await;
@@ -2848,7 +2848,7 @@ async fn update_own_name_tool_updates_agent_without_continuation_turn() {
             && metadata["action"]["success"] == true
             && metadata["action"]["payload"]["display_name"] == "Fred"
     )));
-    assert!(!items.iter().any(|item| matches!(
+    assert!(items.iter().any(|item| matches!(
         item,
         TurnTranscriptItem::AssistantText { text } if text == "Fred it is."
     )));
@@ -2895,7 +2895,7 @@ async fn update_own_name_tool_does_not_start_repeated_continuation_tool_calls() 
         })
         .count();
     assert_eq!(update_name_tool_calls, 1, "{items:?}");
-    assert!(!items.iter().any(|item| matches!(
+    assert!(items.iter().any(|item| matches!(
         item,
         TurnTranscriptItem::AssistantText { text } if text == "Fred it is."
     )));

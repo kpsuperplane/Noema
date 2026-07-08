@@ -55,7 +55,7 @@ impl CapabilityGateway<'_> {
         GatewayToolResult {
             success: false,
             payload: json!({"error": "unknown_tool"}),
-            requires_provider_continuation: false,
+            requires_provider_continuation: true,
         }
     }
 
@@ -432,6 +432,28 @@ mod tests {
 
         assert!(!result.success);
         assert_eq!(result.payload["error"], "mcp_tool_not_calibrated");
+        assert!(result.requires_provider_continuation);
+    }
+
+    #[tokio::test]
+    async fn gateway_reports_unknown_tool_with_provider_continuation() {
+        let store = test_store().await;
+        let temp_dir = tempfile::tempdir().expect("temp dir");
+        let system_errors = SystemErrorLogger::new(temp_dir.path().join("errors.log"));
+        let gateway = CapabilityGateway {
+            store: &store,
+            system_errors: &system_errors,
+        };
+
+        let result = gateway
+            .execute_tool_proposal(GatewayToolProposal {
+                name: "unknown.tool",
+                payload: &json!({"arguments": {}}),
+            })
+            .await;
+
+        assert!(!result.success);
+        assert_eq!(result.payload["error"], "unknown_tool");
         assert!(result.requires_provider_continuation);
     }
 

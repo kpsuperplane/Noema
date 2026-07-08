@@ -490,7 +490,7 @@ impl LocalToolResult {
     pub(super) fn success(&self) -> bool {
         match self {
             Self::Memory { result, .. } => result.success,
-            Self::AgentName { result, .. } => result.success,
+            Self::AgentName { .. } => true,
             Self::WebSearch { result, .. } => result.success,
             Self::WebFetch { result, .. } => result.success,
             Self::Gateway { result, .. } => result.success,
@@ -510,7 +510,7 @@ impl LocalToolResult {
     pub(super) fn requires_provider_continuation(&self) -> bool {
         match self {
             Self::Memory { .. } | Self::WebSearch { .. } | Self::WebFetch { .. } => true,
-            Self::AgentName { .. } => false,
+            Self::AgentName { result, .. } => result.success,
             Self::Gateway { result, .. } => result.requires_provider_continuation,
         }
     }
@@ -717,6 +717,24 @@ mod tests {
             name: name.to_string(),
             payload,
         }
+    }
+
+    #[test]
+    fn failed_agent_name_tool_result_still_continues_to_provider() {
+        let result = super::LocalToolResult::AgentName {
+            call_id: Some("call:name".to_string()),
+            provider_call_id: Some("provider_call:name".to_string()),
+            provider_name: Some("update_own_name".to_string()),
+            arguments: json!({"name": ""}),
+            result: super::AgentNameToolResult {
+                call_id: Some("call:name".to_string()),
+                name: "update_own_name".to_string(),
+                success: false,
+                payload: json!({"error": "name is required"}),
+            },
+        };
+
+        assert!(result.requires_provider_continuation());
     }
 
     async fn insert_provider_account_without_web_capabilities(
