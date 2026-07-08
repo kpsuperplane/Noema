@@ -450,38 +450,18 @@ mod tests {
         account_key: &str,
         status: ProviderAccountStatus,
     ) {
-        let record_id = format!("{provider_kind}_{account_key}");
-        store
-            .db()
-            .query(
-                r#"
-                UPSERT type::record('provider_accounts', $record_id) SET
-                  provider_account_id = $provider_account_id,
-                  provider_kind = $provider_kind,
-                  account_key = $account_key,
-                  display_name = $display_name,
-                  auth_method = $auth_method,
-                  is_active = true,
-                  is_default = false,
-                  status = $status,
-                  metadata = {},
-                  updated_at = time::now();
-                "#,
-            )
-            .bind(("record_id", record_id))
-            .bind(("provider_account_id", provider_account_id.to_string()))
-            .bind(("provider_kind", provider_kind.to_string()))
-            .bind(("account_key", account_key.to_string()))
-            .bind(("display_name", format!("{provider_kind} {account_key}")))
-            .bind((
-                "auth_method",
-                ProviderAuthMethod::SecretInput.as_str().to_string(),
-            ))
-            .bind(("status", status.as_str().to_string()))
-            .await
-            .expect("insert provider account")
-            .check()
-            .expect("provider account check");
+        crate::store::tests::insert_provider_account_for_tests(
+            store,
+            provider_account_id,
+            provider_kind,
+            account_key,
+            &format!("{provider_kind} {account_key}"),
+            ProviderAuthMethod::SecretInput,
+            false,
+            status,
+            serde_json::json!({}),
+        )
+        .await;
     }
 
     async fn insert_binding_row(
@@ -490,33 +470,13 @@ mod tests {
         capability_id: &str,
         provider_account_id: &str,
     ) {
-        let binding_id = format!("provider_capability_binding:{tool_name}:{capability_id}");
-        let record_id = format!(
-            "{}_{}",
-            tool_name.replace('.', "_"),
-            capability_id.replace('.', "_")
-        );
-        store
-            .db()
-            .query(
-                r#"
-                UPSERT type::record('provider_capability_bindings', $record_id) SET
-                  binding_id = $binding_id,
-                  tool_name = $tool_name,
-                  capability_id = $capability_id,
-                  provider_account_id = $provider_account_id,
-                  updated_at = time::now();
-                "#,
-            )
-            .bind(("record_id", record_id))
-            .bind(("binding_id", binding_id))
-            .bind(("tool_name", tool_name.to_string()))
-            .bind(("capability_id", capability_id.to_string()))
-            .bind(("provider_account_id", provider_account_id.to_string()))
-            .await
-            .expect("insert binding")
-            .check()
-            .expect("binding check");
+        crate::store::tests::insert_provider_capability_binding_for_tests(
+            store,
+            tool_name,
+            capability_id,
+            provider_account_id,
+        )
+        .await;
     }
 
     #[test]

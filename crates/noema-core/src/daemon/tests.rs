@@ -3151,11 +3151,14 @@ async fn seed_enabled_uncalibrated_mcp_tool(store: &crate::NoemaStore) {
         .await
         .expect("mark MCP healthy");
     store
-        .db()
-        .query("UPDATE mcp_servers SET enabled = true WHERE mcp_server_id = 'docs';")
+        .with_connection(|conn| {
+            conn.execute(
+                "UPDATE mcp_servers SET enabled = 1 WHERE mcp_server_id = 'docs'",
+                [],
+            )?;
+            Ok(())
+        })
         .await
-        .expect("enable query")
-        .check()
         .expect("enable server");
     store
         .upsert_discovered_mcp_tool(crate::NewMcpTool {
@@ -4173,33 +4176,18 @@ async fn insert_authenticated_provider_account(
     provider_kind: &str,
     account_key: &str,
 ) {
-    let record_id = format!("{provider_kind}_{account_key}");
-    store
-        .db()
-        .query(
-            r#"
-            UPSERT type::record('provider_accounts', $record_id) SET
-              provider_account_id = $provider_account_id,
-              provider_kind = $provider_kind,
-              account_key = $account_key,
-              display_name = $display_name,
-              auth_method = 'secret_input',
-              is_active = true,
-              is_default = false,
-              status = 'authenticated',
-              metadata = {},
-              updated_at = time::now();
-            "#,
-        )
-        .bind(("record_id", record_id))
-        .bind(("provider_account_id", provider_account_id.to_string()))
-        .bind(("provider_kind", provider_kind.to_string()))
-        .bind(("account_key", account_key.to_string()))
-        .bind(("display_name", format!("{provider_kind} {account_key}")))
-        .await
-        .expect("insert provider account")
-        .check()
-        .expect("provider account query check");
+    crate::store::tests::insert_provider_account_for_tests(
+        store,
+        provider_account_id,
+        provider_kind,
+        account_key,
+        &format!("{provider_kind} {account_key}"),
+        crate::ProviderAuthMethod::SecretInput,
+        false,
+        crate::ProviderAccountStatus::Authenticated,
+        json!({}),
+    )
+    .await;
 }
 
 impl super::runtime::RuntimeModelProvider for FakeCodexProvider {

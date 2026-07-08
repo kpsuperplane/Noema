@@ -724,28 +724,18 @@ mod tests {
         store: &crate::NoemaStore,
         provider_account_id: &str,
     ) {
-        store
-            .db()
-            .query(
-                r#"
-                UPSERT type::record('provider_accounts', 'codex_runtime_test') SET
-                  provider_account_id = $provider_account_id,
-                  provider_kind = 'codex',
-                  account_key = 'runtime-test',
-                  display_name = 'codex runtime test',
-                  auth_method = 'secret_input',
-                  is_active = true,
-                  is_default = false,
-                  status = 'authenticated',
-                  metadata = {},
-                  updated_at = time::now();
-                "#,
-            )
-            .bind(("provider_account_id", provider_account_id.to_string()))
-            .await
-            .expect("insert provider account")
-            .check()
-            .expect("provider account query check");
+        crate::store::tests::insert_provider_account_for_tests(
+            store,
+            provider_account_id,
+            "codex",
+            "runtime-test",
+            "codex runtime test",
+            crate::ProviderAuthMethod::SecretInput,
+            false,
+            crate::ProviderAccountStatus::Authenticated,
+            json!({}),
+        )
+        .await;
     }
 
     async fn insert_provider_account(
@@ -755,34 +745,18 @@ mod tests {
         account_key: &str,
         status: crate::ProviderAccountStatus,
     ) {
-        let record_id = format!("{provider_kind}_{account_key}");
-        store
-            .db()
-            .query(
-                r#"
-                UPSERT type::record('provider_accounts', $record_id) SET
-                  provider_account_id = $provider_account_id,
-                  provider_kind = $provider_kind,
-                  account_key = $account_key,
-                  display_name = $display_name,
-                  auth_method = 'secret_input',
-                  is_active = true,
-                  is_default = false,
-                  status = $status,
-                  metadata = {},
-                  updated_at = time::now();
-                "#,
-            )
-            .bind(("record_id", record_id))
-            .bind(("provider_account_id", provider_account_id.to_string()))
-            .bind(("provider_kind", provider_kind.to_string()))
-            .bind(("account_key", account_key.to_string()))
-            .bind(("display_name", format!("{provider_kind} {account_key}")))
-            .bind(("status", status.as_str().to_string()))
-            .await
-            .expect("insert provider account")
-            .check()
-            .expect("provider account query check");
+        crate::store::tests::insert_provider_account_for_tests(
+            store,
+            provider_account_id,
+            provider_kind,
+            account_key,
+            &format!("{provider_kind} {account_key}"),
+            crate::ProviderAuthMethod::SecretInput,
+            false,
+            status,
+            json!({}),
+        )
+        .await;
     }
 
     async fn insert_provider_capability_binding(
@@ -790,30 +764,13 @@ mod tests {
         tool_name: &str,
         provider_account_id: &str,
     ) {
-        let record_id = format!("{}_binding", tool_name.replace('.', "_"));
-        store
-            .db()
-            .query(
-                r#"
-                UPSERT type::record('provider_capability_bindings', $record_id) SET
-                  binding_id = $binding_id,
-                  tool_name = $tool_name,
-                  capability_id = $tool_name,
-                  provider_account_id = $provider_account_id,
-                  updated_at = time::now();
-                "#,
-            )
-            .bind(("record_id", record_id))
-            .bind((
-                "binding_id",
-                format!("provider_capability_binding:{tool_name}:{tool_name}"),
-            ))
-            .bind(("tool_name", tool_name.to_string()))
-            .bind(("provider_account_id", provider_account_id.to_string()))
-            .await
-            .expect("insert provider capability binding")
-            .check()
-            .expect("provider capability binding query check");
+        crate::store::tests::insert_provider_capability_binding_for_tests(
+            store,
+            tool_name,
+            tool_name,
+            provider_account_id,
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -1092,33 +1049,25 @@ mod tests {
     #[tokio::test]
     async fn bound_openai_web_search_runtime_provider_reports_unavailable_without_credentials() {
         let store = crate::store::tests::test_store().await;
-        store
-            .db()
-            .query(
-                r#"
-                UPSERT type::record('provider_accounts', 'openai_test') SET
-                  provider_account_id = 'provider_account:openai:test',
-                  provider_kind = 'openai',
-                  account_key = 'test',
-                  display_name = 'openai test',
-                  auth_method = 'secret_input',
-                  is_active = true,
-                  is_default = false,
-                  status = 'authenticated',
-                  metadata = {},
-                  updated_at = time::now();
-                UPSERT type::record('provider_capability_bindings', 'web_search_web_search') SET
-                  binding_id = 'provider_capability_binding:web.search:web.search',
-                  tool_name = 'web.search',
-                  capability_id = 'web.search',
-                  provider_account_id = 'provider_account:openai:test',
-                  updated_at = time::now();
-                "#,
-            )
-            .await
-            .expect("insert records")
-            .check()
-            .expect("records check");
+        crate::store::tests::insert_provider_account_for_tests(
+            &store,
+            "provider_account:openai:test",
+            "openai",
+            "test",
+            "openai test",
+            crate::ProviderAuthMethod::SecretInput,
+            false,
+            crate::ProviderAccountStatus::Authenticated,
+            json!({}),
+        )
+        .await;
+        crate::store::tests::insert_provider_capability_binding_for_tests(
+            &store,
+            "web.search",
+            "web.search",
+            "provider_account:openai:test",
+        )
+        .await;
 
         let actor = CodexRuntimeActor::new(
             "codex".to_string(),

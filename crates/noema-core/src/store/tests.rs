@@ -37,6 +37,82 @@ pub(crate) async fn test_store() -> crate::NoemaStore {
     store
 }
 
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn insert_provider_account_for_tests(
+    store: &crate::NoemaStore,
+    provider_account_id: &str,
+    provider_kind: &str,
+    account_key: &str,
+    display_name: &str,
+    auth_method: crate::ProviderAuthMethod,
+    is_default: bool,
+    status: crate::ProviderAccountStatus,
+    metadata: serde_json::Value,
+) {
+    let metadata_json = serde_json::to_string(&metadata).expect("serialize provider metadata");
+    store
+        .with_connection(|conn| {
+            conn.execute(
+                r#"
+                INSERT INTO provider_accounts (
+                  provider_account_id, provider_kind, account_key, display_name,
+                  auth_method, is_active, is_default, status, metadata_json, updated_at
+                )
+                VALUES (?1, ?2, ?3, ?4, ?5, 1, ?6, ?7, ?8, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+                ON CONFLICT(provider_account_id) DO UPDATE SET
+                  provider_kind = excluded.provider_kind,
+                  account_key = excluded.account_key,
+                  display_name = excluded.display_name,
+                  auth_method = excluded.auth_method,
+                  is_active = excluded.is_active,
+                  is_default = excluded.is_default,
+                  status = excluded.status,
+                  metadata_json = excluded.metadata_json,
+                  updated_at = excluded.updated_at
+                "#,
+                rusqlite::params![
+                    provider_account_id,
+                    provider_kind,
+                    account_key,
+                    display_name,
+                    auth_method.as_str(),
+                    is_default,
+                    status.as_str(),
+                    metadata_json,
+                ],
+            )?;
+            Ok(())
+        })
+        .await
+        .expect("insert provider account");
+}
+
+pub(crate) async fn insert_provider_capability_binding_for_tests(
+    store: &crate::NoemaStore,
+    tool_name: &str,
+    capability_id: &str,
+    provider_account_id: &str,
+) {
+    let binding_id = format!("provider_capability_binding:{tool_name}:{capability_id}");
+    store
+        .with_connection(|conn| {
+            conn.execute(
+                r#"
+                INSERT INTO provider_capability_bindings
+                  (binding_id, tool_name, capability_id, provider_account_id, updated_at)
+                VALUES (?1, ?2, ?3, ?4, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+                ON CONFLICT(tool_name, capability_id) DO UPDATE SET
+                  provider_account_id = excluded.provider_account_id,
+                  updated_at = excluded.updated_at
+                "#,
+                rusqlite::params![binding_id, tool_name, capability_id, provider_account_id],
+            )?;
+            Ok(())
+        })
+        .await
+        .expect("insert provider capability binding");
+}
+
 #[tokio::test]
 async fn sqlite_default_actors_round_trip() {
     let store = test_store().await;

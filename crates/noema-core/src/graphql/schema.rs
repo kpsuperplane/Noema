@@ -811,34 +811,18 @@ mod tests {
         let store = test_store().await;
         store.ensure_default_actors().await.expect("actors");
         let account_id = "provider_account:openai:reasoning";
-        store
-            .db()
-            .query(
-                r#"
-                UPSERT type::record('provider_accounts', 'openai_reasoning') SET
-                  provider_account_id = $provider_account_id,
-                  provider_kind = 'openai',
-                  account_key = 'reasoning',
-                  display_name = 'OpenAI reasoning',
-                  auth_method = 'secret_input',
-                  is_active = true,
-                  is_default = true,
-                  status = $status,
-                  metadata = {},
-                  updated_at = time::now();
-                "#,
-            )
-            .bind(("provider_account_id", account_id.to_string()))
-            .bind((
-                "status",
-                crate::ProviderAccountStatus::Authenticated
-                    .as_str()
-                    .to_string(),
-            ))
-            .await
-            .expect("insert openai provider account")
-            .check()
-            .expect("openai provider account check");
+        crate::store::tests::insert_provider_account_for_tests(
+            &store,
+            account_id,
+            "openai",
+            "reasoning",
+            "OpenAI reasoning",
+            crate::ProviderAuthMethod::SecretInput,
+            true,
+            crate::ProviderAccountStatus::Authenticated,
+            json!({}),
+        )
+        .await;
         store
             .update_provider_account_metadata(
                 account_id,
@@ -1827,31 +1811,18 @@ mod tests {
         use crate::{ProviderAccountStatus, store::tests::test_store};
 
         let store = test_store().await;
-        store
-            .db()
-            .query(
-                r#"
-                UPSERT type::record('provider_accounts', 'openai_default') SET
-                  provider_account_id = 'provider_account:openai:default',
-                  provider_kind = 'openai',
-                  account_key = 'default',
-                  display_name = 'OpenAI default',
-                  auth_method = 'secret_input',
-                  is_active = true,
-                  is_default = true,
-                  status = $status,
-                  metadata = {},
-                  updated_at = time::now();
-                "#,
-            )
-            .bind((
-                "status",
-                ProviderAccountStatus::Authenticated.as_str().to_string(),
-            ))
-            .await
-            .expect("insert provider account")
-            .check()
-            .expect("provider account check");
+        crate::store::tests::insert_provider_account_for_tests(
+            &store,
+            "provider_account:openai:default",
+            "openai",
+            "default",
+            "OpenAI default",
+            crate::ProviderAuthMethod::SecretInput,
+            true,
+            ProviderAccountStatus::Authenticated,
+            json!({}),
+        )
+        .await;
 
         let schema = build_schema(GraphqlState::for_tests_with_store(store));
         let response = schema
@@ -3515,37 +3486,44 @@ mod tests {
             .await
             .expect("create pending approval");
         store
-            .db()
-            .query(
-                r#"
-                CREATE type::record('approval_requests', 'denied_test') SET
-                  approval_id = 'approval:mcp:denied',
-                  action_summary = 'Publish note',
-                  tool_invocation_id = 'tool_invocation:mcp:denied',
-                  mcp_server_id = 'mcp_server:publish',
-                  mcp_tool_id = 'mcp_tool:publish:post',
-                  requester_actor_id = 'agent:primary',
-                  owner_scope_id = 'human:local',
-                  active_scope_id = 'human:local',
-                  destination_summary = 'example.com',
-                  data_source_summary = 'Draft note',
-                  source_owner_identity = 'kevin@example.com',
-                  source_owner_trust = 'trusted',
-                  destination_owner_identity = 'example.com',
-                  destination_owner_trust = 'untrusted',
-                  export_summary = 'Draft note content',
-                  payload_preview = { destination: 'example.com' },
-                  status = 'denied',
-                  decision_actor_id = 'human:local',
-                  decision_comment = 'No',
-                  decided_at = '2026-06-30T00:00:00Z',
-                  updated_at = time::now();
-                "#,
-            )
+            .create_mcp_approval_request(NewMcpApprovalRequest {
+                approval_id: "approval:mcp:denied".to_string(),
+                action_summary: "Publish note".to_string(),
+                tool_invocation_id: "tool_invocation:mcp:denied".to_string(),
+                mcp_server_id: Some("mcp_server:publish".to_string()),
+                mcp_tool_id: Some("mcp_tool:publish:post".to_string()),
+                requester_actor_id: "agent:primary".to_string(),
+                owner_scope_id: "human:local".to_string(),
+                active_scope_id: "human:local".to_string(),
+                destination_summary: "example.com".to_string(),
+                data_source_summary: "Draft note".to_string(),
+                source_owner_identity: "kevin@example.com".to_string(),
+                source_owner_trust: "trusted".to_string(),
+                destination_owner_identity: "example.com".to_string(),
+                destination_owner_trust: "untrusted".to_string(),
+                export_summary: "Draft note content".to_string(),
+                payload_preview: json!({"destination": "example.com"}),
+            })
             .await
-            .expect("create denied approval")
-            .check()
-            .expect("denied approval row");
+            .expect("create denied approval");
+        store
+            .with_connection(|conn| {
+                conn.execute(
+                    r#"
+                    UPDATE approval_requests
+                    SET status = 'denied',
+                        decision_actor_id = 'human:local',
+                        decision_comment = 'No',
+                        decided_at = '2026-06-30T00:00:00Z',
+                        updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                    WHERE approval_id = 'approval:mcp:denied'
+                    "#,
+                    [],
+                )?;
+                Ok(())
+            })
+            .await
+            .expect("deny approval");
 
         let schema = build_schema(GraphqlState::for_tests_with_store(store));
         let response = schema

@@ -432,38 +432,17 @@ mod tests {
         is_default: bool,
         status: ProviderAccountStatus,
     ) {
-        let record_id = format!("{provider_kind}_{account_key}");
-        store
-            .db()
-            .query(
-                r#"
-                UPSERT type::record('provider_accounts', $record_id) SET
-                  provider_account_id = $provider_account_id,
-                  provider_kind = $provider_kind,
-                  account_key = $account_key,
-                  display_name = $display_name,
-                  auth_method = $auth_method,
-                  is_active = true,
-                  is_default = $is_default,
-                  status = $status,
-                  metadata = {},
-                  updated_at = time::now();
-                "#,
-            )
-            .bind(("record_id", record_id))
-            .bind(("provider_account_id", provider_account_id.to_string()))
-            .bind(("provider_kind", provider_kind.to_string()))
-            .bind(("account_key", account_key.to_string()))
-            .bind(("display_name", format!("{provider_kind} {account_key}")))
-            .bind((
-                "auth_method",
-                ProviderAuthMethod::SecretInput.as_str().to_string(),
-            ))
-            .bind(("is_default", is_default))
-            .bind(("status", status.as_str().to_string()))
-            .await
-            .expect("insert provider account")
-            .check()
-            .expect("provider account check");
+        crate::store::tests::insert_provider_account_for_tests(
+            store,
+            provider_account_id,
+            provider_kind,
+            account_key,
+            &format!("{provider_kind} {account_key}"),
+            ProviderAuthMethod::SecretInput,
+            is_default,
+            status,
+            serde_json::json!({}),
+        )
+        .await;
     }
 }
