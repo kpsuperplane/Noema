@@ -22,12 +22,6 @@ export type MemoryArticleSection = {
   paragraphs: string[];
 };
 
-export type MemoryFigureCluster = {
-  label: string;
-  strength: number;
-  status: string;
-};
-
 export type MemoryArticleModel = {
   title: string;
   subtitle: string;
@@ -41,10 +35,6 @@ export type MemoryArticleModel = {
   leadParagraphs: string[];
   isStub: boolean;
   stubText: string;
-  figureTitle: string;
-  figureCopy: string;
-  figureCaption: string;
-  clusters: MemoryFigureCluster[];
   sections: MemoryArticleSection[];
   sourceObservations: MemoryArticleEntry[];
   recallSample: MemoryArticleEntry | null;
@@ -77,10 +67,6 @@ export function buildMemoryArticleModel(graph: MemoryGraph | undefined): MemoryA
     leadParagraphs: articleContent.leadParagraphs,
     isStub: entries.length < 3,
     stubText: buildStubText(entries.length),
-    figureTitle: buildFigureTitle(entries.length),
-    figureCopy: buildFigureCopy(entries.length),
-    figureCaption: "Fig. 1. Prominent themes in the memory record, grouped by loaded entries.",
-    clusters: buildClusters(entries),
     sections: articleContent.sections,
     sourceObservations,
     recallSample: entries[0] ?? null,
@@ -121,46 +107,6 @@ function buildStubText(entryCount: number): string {
     return "This biographical article is a stub. It will expand once the first durable facts are recorded.";
   }
   return "This biographical article is a stub. Additional durable facts may expand it over time.";
-}
-
-function buildFigureTitle(entryCount: number): string {
-  if (entryCount === 0) {
-    return "No memory themes have taken root yet.";
-  }
-  return "The memory record is beginning to take shape.";
-}
-
-function buildFigureCopy(entryCount: number): string {
-  if (entryCount === 0) {
-    return "Once memories exist, this figure summarizes loaded themes, recency, and retrieval visibility.";
-  }
-  return `${formatCount(entryCount, "biographical fact", "biographical facts")} are available for inspection. More specific themes will appear as richer metadata is recorded.`;
-}
-
-function buildClusters(entries: MemoryArticleEntry[]): MemoryFigureCluster[] {
-  const loaded = entries.length;
-  return [
-    {
-      label: "Loaded entries",
-      strength: loaded > 0 ? 100 : 0,
-      status: loaded > 0 ? "available" : "empty"
-    },
-    {
-      label: "Stable roots",
-      strength: loaded > 0 ? 62 : 0,
-      status: "metadata pending"
-    },
-    {
-      label: "Recent growth",
-      strength: loaded > 0 ? 38 : 0,
-      status: "metadata pending"
-    },
-    {
-      label: "Open questions",
-      strength: loaded > 0 ? 18 : 0,
-      status: "review later"
-    }
-  ];
 }
 
 function buildReferences(

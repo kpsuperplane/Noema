@@ -83,8 +83,6 @@ export function MemoryPage() {
         </nav>
         <div {...stylex.props(styles.pageShell)}>
           <article {...stylex.props(styles.page)}>
-            <MemoryFigure article={article} />
-
             <h1 id="memory-surface-title" {...stylex.props(styles.articleTitle)}>
               {article.title}
             </h1>
@@ -181,67 +179,6 @@ export function MemoryPage() {
         </div>
       </div>
     </section>
-  );
-}
-
-function MemoryFigure({ article }: { article: MemoryArticleModel }) {
-  return (
-    <figure {...stylex.props(styles.figure)}>
-      <div {...stylex.props(styles.memoryPlate)}>
-        <div {...stylex.props(styles.plateMain)}>
-          <div>
-            <div {...stylex.props(styles.plateLabel)}>Memory cluster diagram</div>
-            <div {...stylex.props(styles.plateTitle)}>{article.figureTitle}</div>
-            <p {...stylex.props(styles.plateCopy)}>{article.figureCopy}</p>
-          </div>
-          <div {...stylex.props(styles.legend)}>
-            <span {...stylex.props(styles.legendItem)}>
-              <i {...stylex.props(styles.swatch, styles.swatchStable)} />
-              Stable roots
-            </span>
-            <span {...stylex.props(styles.legendItem)}>
-              <i {...stylex.props(styles.swatch, styles.swatchRecent)} />
-              Recent growth
-            </span>
-            <span {...stylex.props(styles.legendItem)}>
-              <i {...stylex.props(styles.swatch, styles.swatchInterest)} />
-              Interests
-            </span>
-            <span {...stylex.props(styles.legendItem)}>
-              <i {...stylex.props(styles.swatch, styles.swatchQuestion)} />
-              Open questions
-            </span>
-          </div>
-        </div>
-
-        <table {...stylex.props(styles.clusterTable)}>
-          <thead>
-            <tr>
-              <th {...stylex.props(styles.clusterHeader)}>Cluster</th>
-              <th {...stylex.props(styles.clusterHeader)}>Strength</th>
-              <th {...stylex.props(styles.clusterHeader)}>Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {article.clusters.map((cluster) => (
-              <tr key={cluster.label}>
-                <td {...stylex.props(styles.clusterCell)}>{cluster.label}</td>
-                <td {...stylex.props(styles.clusterCell)}>
-                  <div {...stylex.props(styles.bar)}>
-                    <span
-                      {...stylex.props(styles.barFill)}
-                      style={{ width: `${cluster.strength}%` }}
-                    />
-                  </div>
-                </td>
-                <td {...stylex.props(styles.clusterCell)}>{cluster.status}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <figcaption {...stylex.props(styles.caption)}>{article.figureCaption}</figcaption>
-    </figure>
   );
 }
 
