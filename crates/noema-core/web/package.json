@@ -20,6 +20,7 @@
     "@astryxdesign/core": "^0.1.2",
     "@astryxdesign/theme-neutral": "^0.1.2",
     "@stylexjs/stylex": "^0.19.0",
+    "@supermemory/memory-graph": "^0.2.3",
     "@tanstack/react-router": "^1.170.17",
     "@tanstack/react-virtual": "^3.14.5",
     "@tauri-apps/api": "^2.0.0",

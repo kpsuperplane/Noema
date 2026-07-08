@@ -1,9 +1,13 @@
-use async_graphql::{Enum, InputObject, Result, SimpleObject};
+use async_graphql::{Enum, InputObject, Json, Result, SimpleObject};
 use std::time::Duration;
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
 use crate::{MemoryServiceMode, MemoryServiceSettingsRecord, SaveMemoryServiceSettings};
 
+const HUMAN_MEMORY_CONTAINER_TAG: &str = "human:local";
+const DEFAULT_MEMORY_GRAPH_PAGE: i32 = 1;
+const DEFAULT_MEMORY_GRAPH_LIMIT: i32 = 25;
+const MAX_MEMORY_GRAPH_LIMIT: i32 = 100;
 const MEMORY_SERVICE_READINESS_TIMEOUT: Duration = Duration::from_secs(2);
 
 use super::{
@@ -92,6 +96,106 @@ pub struct GraphqlMemorySettings {
     pub model_options: Vec<GraphqlAgentModelProviderOption>,
 }
 
+/// Input for reading the human memory graph.
+#[derive(Clone, Debug, Default, InputObject)]
+#[graphql(name = "MemoryGraphInput")]
+pub struct GraphqlMemoryGraphInput {
+    /// One-based document page.
+    pub page: Option<i32>,
+    /// Maximum document count.
+    pub limit: Option<i32>,
+}
+
+/// Memory graph response for the local human.
+#[derive(Clone, Debug, SimpleObject)]
+#[graphql(name = "MemoryGraph")]
+pub struct GraphqlMemoryGraph {
+    /// Supermemory availability for this request.
+    pub status: GraphqlMemoryServiceStatus,
+    /// Documents and memory entries in the graph.
+    pub documents: Vec<GraphqlMemoryGraphDocument>,
+    /// Pagination metadata.
+    pub page_info: GraphqlMemoryGraphPageInfo,
+}
+
+/// Memory graph pagination metadata.
+#[derive(Clone, Debug, SimpleObject)]
+#[graphql(name = "MemoryGraphPageInfo")]
+pub struct GraphqlMemoryGraphPageInfo {
+    /// One-based document page.
+    pub page: i32,
+    /// Requested document limit.
+    pub limit: i32,
+    /// Whether more documents are available.
+    pub has_more: bool,
+    /// Total document count when returned by Supermemory.
+    pub total: Option<i32>,
+}
+
+/// One document displayed in the memory graph.
+#[derive(Clone, Debug, SimpleObject)]
+#[graphql(name = "MemoryGraphDocument")]
+pub struct GraphqlMemoryGraphDocument {
+    /// Supermemory document id.
+    pub id: String,
+    /// Caller supplied document id.
+    pub custom_id: Option<String>,
+    /// Document title.
+    pub title: Option<String>,
+    /// Document content.
+    pub content: Option<String>,
+    /// Document summary.
+    pub summary: Option<String>,
+    /// Source URL.
+    pub url: Option<String>,
+    /// Source label.
+    pub source: Option<String>,
+    /// Supermemory document type.
+    pub r#type: Option<String>,
+    /// Supermemory document status.
+    pub status: String,
+    /// Document metadata.
+    pub metadata: Option<Json<serde_json::Value>>,
+    /// Creation timestamp.
+    pub created_at: String,
+    /// Update timestamp.
+    pub updated_at: String,
+    /// Memory entries extracted from the document.
+    pub memory_entries: Vec<GraphqlMemoryGraphMemoryEntry>,
+}
+
+/// One memory entry displayed in the memory graph.
+#[derive(Clone, Debug, SimpleObject)]
+#[graphql(name = "MemoryGraphMemoryEntry")]
+pub struct GraphqlMemoryGraphMemoryEntry {
+    /// Supermemory memory entry id.
+    pub id: String,
+    /// Source document id.
+    pub document_id: String,
+    /// Memory content.
+    pub content: Option<String>,
+    /// Memory summary.
+    pub summary: Option<String>,
+    /// Memory title.
+    pub title: Option<String>,
+    /// Memory type.
+    pub r#type: Option<String>,
+    /// Memory metadata.
+    pub metadata: Option<Json<serde_json::Value>>,
+    /// Creation timestamp.
+    pub created_at: String,
+    /// Update timestamp.
+    pub updated_at: String,
+    /// Container tag used by Supermemory spaces.
+    pub space_container_tag: Option<String>,
+    /// Relationship to another memory.
+    pub relation: Option<String>,
+    /// Whether this is the latest memory.
+    pub is_latest: Option<bool>,
+    /// Supermemory space id.
+    pub space_id: Option<String>,
+}
+
 /// Input for saving memory service settings.
 #[derive(Clone, Debug, InputObject)]
 #[graphql(name = "SaveMemoryServiceSettingsInput")]
@@ -112,6 +216,94 @@ pub struct GraphqlSaveMemoryServiceSettingsInput {
 
 pub(super) async fn memory_settings(state: &GraphqlState) -> Result<GraphqlMemorySettings> {
     memory_settings_from_store(state).await
+}
+
+pub(super) async fn memory_graph(
+    state: &GraphqlState,
+    input: GraphqlMemoryGraphInput,
+) -> Result<GraphqlMemoryGraph> {
+    let store = state.store()?;
+    let settings = store
+        .memory_service_settings()
+        .await
+        .map_err(graphql_error)?;
+    let page = input.page.unwrap_or(DEFAULT_MEMORY_GRAPH_PAGE).max(1);
+    let limit = input
+        .limit
+        .unwrap_or(DEFAULT_MEMORY_GRAPH_LIMIT)
+        .clamp(1, MAX_MEMORY_GRAPH_LIMIT);
+    let page_info = GraphqlMemoryGraphPageInfo {
+        page,
+        limit,
+        has_more: false,
+        total: None,
+    };
+    let Some(connection) = memory_graph_connection(state, &settings).await? else {
+        let status = match settings.mode {
+            MemoryServiceMode::Managed => managed_supermemory_unavailable_status(state).await?,
+            MemoryServiceMode::External => GraphqlMemoryServiceStatus {
+                status: GraphqlMemoryServiceStatusKind::NotConfigured,
+                checked_at: Some(now_rfc3339()?),
+                last_error_code: Some("supermemory_not_configured".to_string()),
+                last_error_message: Some("memory service base URL is required".to_string()),
+            },
+        };
+        return Ok(GraphqlMemoryGraph {
+            status,
+            documents: Vec::new(),
+            page_info,
+        });
+    };
+
+    let request_page = u32::try_from(page).expect("memory graph page is clamped positive");
+    let request_limit = u32::try_from(limit).expect("memory graph limit is clamped positive");
+    let client = crate::SupermemoryClient::new(connection.base_url, connection.api_key);
+    let response = match client
+        .list_memory_graph_documents(crate::SupermemoryGraphDocumentsRequest {
+            container_tag: HUMAN_MEMORY_CONTAINER_TAG.to_string(),
+            page: request_page,
+            limit: request_limit,
+        })
+        .await
+    {
+        Ok(response) => response,
+        Err(error) => {
+            return Ok(GraphqlMemoryGraph {
+                status: memory_graph_error_status(&error)?,
+                documents: Vec::new(),
+                page_info,
+            });
+        }
+    };
+    let page_info = GraphqlMemoryGraphPageInfo {
+        page: response
+            .pagination
+            .page
+            .and_then(u32_to_i32)
+            .unwrap_or(page),
+        limit: response
+            .pagination
+            .limit
+            .and_then(u32_to_i32)
+            .unwrap_or(limit),
+        has_more: response.pagination.has_more.unwrap_or(false),
+        total: response.pagination.total.and_then(u64_to_i32),
+    };
+
+    Ok(GraphqlMemoryGraph {
+        status: GraphqlMemoryServiceStatus {
+            status: GraphqlMemoryServiceStatusKind::Ready,
+            checked_at: Some(now_rfc3339()?),
+            last_error_code: None,
+            last_error_message: None,
+        },
+        documents: response
+            .documents
+            .into_iter()
+            .map(GraphqlMemoryGraphDocument::from)
+            .collect(),
+        page_info,
+    })
 }
 
 pub(super) async fn save_memory_service_settings(
@@ -201,6 +393,86 @@ pub(super) async fn save_memory_service_settings(
         .map_err(graphql_error)?;
 
     memory_settings_from_store(state).await
+}
+
+async fn memory_graph_connection(
+    state: &GraphqlState,
+    settings: &MemoryServiceSettingsRecord,
+) -> Result<Option<crate::SupermemoryConnection>> {
+    match settings.mode {
+        MemoryServiceMode::Managed => Ok(state.supermemory_connection().cloned()),
+        MemoryServiceMode::External => Ok(settings
+            .base_url
+            .clone()
+            .map(|base_url| crate::SupermemoryConnection::new(base_url, None))),
+    }
+}
+
+fn memory_graph_error_status(
+    error: &crate::SupermemoryClientError,
+) -> Result<GraphqlMemoryServiceStatus> {
+    let status = match error.sanitized_code() {
+        "auth_error" => GraphqlMemoryServiceStatusKind::AuthError,
+        _ => GraphqlMemoryServiceStatusKind::Unavailable,
+    };
+    Ok(GraphqlMemoryServiceStatus {
+        status,
+        checked_at: Some(now_rfc3339()?),
+        last_error_code: Some(error.sanitized_code().to_string()),
+        last_error_message: Some(error.sanitized_message().to_string()),
+    })
+}
+
+impl From<crate::SupermemoryGraphDocument> for GraphqlMemoryGraphDocument {
+    fn from(document: crate::SupermemoryGraphDocument) -> Self {
+        Self {
+            id: document.id,
+            custom_id: document.custom_id,
+            title: document.title,
+            content: document.content,
+            summary: document.summary,
+            url: document.url,
+            source: document.source,
+            r#type: document.r#type,
+            status: document.status,
+            metadata: document.metadata.map(Json),
+            created_at: document.created_at,
+            updated_at: document.updated_at,
+            memory_entries: document
+                .memory_entries
+                .into_iter()
+                .map(GraphqlMemoryGraphMemoryEntry::from)
+                .collect(),
+        }
+    }
+}
+
+impl From<crate::SupermemoryGraphMemoryEntry> for GraphqlMemoryGraphMemoryEntry {
+    fn from(entry: crate::SupermemoryGraphMemoryEntry) -> Self {
+        Self {
+            id: entry.id,
+            document_id: entry.document_id,
+            content: entry.content,
+            summary: entry.summary,
+            title: entry.title,
+            r#type: entry.r#type,
+            metadata: entry.metadata.map(Json),
+            created_at: entry.created_at,
+            updated_at: entry.updated_at,
+            space_container_tag: entry.space_container_tag,
+            relation: entry.relation,
+            is_latest: entry.is_latest,
+            space_id: entry.space_id,
+        }
+    }
+}
+
+fn u32_to_i32(value: u32) -> Option<i32> {
+    i32::try_from(value).ok()
+}
+
+fn u64_to_i32(value: u64) -> Option<i32> {
+    i32::try_from(value).ok()
 }
 
 pub(super) async fn check_memory_service(

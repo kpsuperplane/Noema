@@ -16,8 +16,9 @@ pub use binary::{
 };
 pub use client::{
     SupermemoryClient, SupermemoryClientError, SupermemoryConversationIngestRequest,
-    SupermemoryConversationMessage, SupermemorySearchRequest, SupermemorySearchResponse,
-    SupermemorySearchResult,
+    SupermemoryConversationMessage, SupermemoryGraphDocument, SupermemoryGraphDocumentsRequest,
+    SupermemoryGraphDocumentsResponse, SupermemoryGraphMemoryEntry, SupermemoryGraphPagination,
+    SupermemorySearchRequest, SupermemorySearchResponse, SupermemorySearchResult,
 };
 pub use config::SupermemoryRuntimeConfig;
 pub use endpoint::{SupermemoryConnection, allocate_loopback_port};

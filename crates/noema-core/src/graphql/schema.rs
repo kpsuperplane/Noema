@@ -26,8 +26,8 @@ use super::{
         GraphqlTrustedIdentitySelector,
     },
     memory::{
-        self, GraphqlMemoryServiceStatus, GraphqlMemorySettings,
-        GraphqlSaveMemoryServiceSettingsInput,
+        self, GraphqlMemoryGraph, GraphqlMemoryGraphInput, GraphqlMemoryServiceStatus,
+        GraphqlMemorySettings, GraphqlSaveMemoryServiceSettingsInput,
     },
     onboarding::{
         self, GraphqlOnboardingStatus, GraphqlProviderAuthAttempt,
@@ -485,6 +485,16 @@ impl QueryRoot {
         memory::memory_settings(state).await
     }
 
+    /// Return graph documents for the local human memory scope.
+    async fn memory_graph(
+        &self,
+        ctx: &Context<'_>,
+        input: Option<GraphqlMemoryGraphInput>,
+    ) -> Result<GraphqlMemoryGraph> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        memory::memory_graph(state, input.unwrap_or_default()).await
+    }
+
     /// Return the primary conversation identity without creating it or replaying transcript.
     async fn primary_conversation(
         &self,
@@ -766,16 +776,18 @@ mod tests {
         assert!(sdl.contains("conversationEvents"));
         assert!(sdl.contains("AssistantTextDeltaEvent"));
         assert!(sdl.contains("memorySettings"));
+        assert!(sdl.contains("memoryGraph"));
         assert!(sdl.contains("saveMemoryServiceSettings"));
         assert!(sdl.contains("checkMemoryService"));
         assert!(sdl.contains("type MemorySettings"));
+        assert!(sdl.contains("type MemoryGraph"));
+        assert!(sdl.contains("MemoryGraphInput"));
         assert!(sdl.contains("type MemoryServiceStatus"));
         assert!(sdl.contains("SaveMemoryServiceSettingsInput"));
         assert!(!sdl.contains("memoryClaims"));
         assert!(!sdl.contains("memoryClaim("));
         assert!(!sdl.contains("memoryPredicateProposals"));
         assert!(!sdl.contains("memoryPredicateProposal"));
-        assert!(!sdl.contains("memoryGraph"));
         assert!(sdl.contains("providerAccounts"));
         assert!(sdl.contains("type ProviderAccount"));
         assert!(sdl.contains("agents"));
@@ -809,8 +821,8 @@ mod tests {
         assert!(!sdl.contains("type MemoryClaim"));
         assert!(!sdl.contains("type MemoryClaimEvidence"));
         assert!(!sdl.contains("type PredicateProposal"));
-        assert!(!sdl.contains("MemoryGraph"));
-        assert!(!sdl.contains("MemoryGraphInput"));
+        assert!(sdl.contains("MemoryGraph"));
+        assert!(sdl.contains("MemoryGraphInput"));
     }
 
     async fn schema_with_reasoning_openai_profile() -> (GraphqlSchema, String) {
@@ -849,6 +861,96 @@ mod tests {
             build_schema(GraphqlState::for_tests_with_store(store)),
             account_id.to_string(),
         )
+    }
+
+    async fn spawn_memory_graph_supermemory_server() -> String {
+        use tokio::{
+            io::{AsyncReadExt, AsyncWriteExt},
+            net::TcpListener,
+        };
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("listener");
+        let base_url = format!(
+            "http://{}",
+            listener.local_addr().expect("listener address")
+        );
+        tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.expect("accept");
+            let mut buffer = vec![0_u8; 8192];
+            let read = stream.read(&mut buffer).await.expect("read");
+            let request = String::from_utf8_lossy(&buffer[..read]);
+            let (head, body) = request.split_once("\r\n\r\n").expect("request head");
+            let mut lines = head.lines();
+            let request_line = lines.next().expect("request line");
+            assert_eq!(request_line, "POST /v3/documents/documents HTTP/1.1");
+
+            let content_length = lines
+                .filter_map(|line| line.split_once(':'))
+                .find_map(|(name, value)| {
+                    name.eq_ignore_ascii_case("content-length")
+                        .then(|| value.trim().parse::<usize>().ok())
+                        .flatten()
+                })
+                .unwrap_or(0);
+            let mut body_bytes = body.as_bytes().to_vec();
+            while body_bytes.len() < content_length {
+                let read = stream.read(&mut buffer).await.expect("read body");
+                if read == 0 {
+                    break;
+                }
+                body_bytes.extend_from_slice(&buffer[..read]);
+            }
+            let request_body: serde_json::Value =
+                serde_json::from_slice(&body_bytes).expect("request JSON");
+            assert_eq!(request_body["containerTag"], "human:local");
+            assert_eq!(request_body["page"], 1);
+            assert_eq!(request_body["limit"], 25);
+
+            let response = json!({
+                "documents": [{
+                    "id": "doc_1",
+                    "customId": "human-profile",
+                    "title": "Human profile",
+                    "content": "Kevin likes local-first tools",
+                    "summary": "Preference summary",
+                    "url": null,
+                    "source": "noema",
+                    "type": "note",
+                    "status": "done",
+                    "metadata": {"scope": "human"},
+                    "createdAt": "2026-07-08T00:00:00.000Z",
+                    "updatedAt": "2026-07-08T00:01:00.000Z",
+                    "memoryEntries": [{
+                        "id": "mem_1",
+                        "documentId": "doc_1",
+                        "content": "Kevin prefers local-first tools",
+                        "summary": "Local-first preference",
+                        "title": "Preference",
+                        "type": "fact",
+                        "metadata": {"confidence": 0.9},
+                        "createdAt": "2026-07-08T00:00:30.000Z",
+                        "updatedAt": "2026-07-08T00:01:00.000Z",
+                        "spaceContainerTag": "human:local",
+                        "relation": "extends",
+                        "isLatest": true,
+                        "spaceId": "human:local"
+                    }]
+                }],
+                "pagination": {"page": 1, "limit": 25, "hasMore": true, "total": 42}
+            });
+            let response_body = serde_json::to_vec(&response).expect("response JSON");
+            let response_head = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n",
+                response_body.len()
+            );
+            stream
+                .write_all(response_head.as_bytes())
+                .await
+                .expect("write head");
+            stream.write_all(&response_body).await.expect("write body");
+        });
+
+        base_url
     }
 
     #[tokio::test]
@@ -927,6 +1029,113 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn memory_graph_returns_unavailable_without_supermemory_connection() {
+        let store = crate::store::tests::test_store().await;
+        let schema = build_schema(GraphqlState::for_tests_with_store(store));
+
+        let response = schema
+            .execute(async_graphql::Request::new(
+                r#"
+                {
+                  memoryGraph(input: { page: 1, limit: 25 }) {
+                    status {
+                      status
+                      lastErrorCode
+                    }
+                    documents {
+                      id
+                    }
+                    pageInfo {
+                      page
+                      limit
+                      hasMore
+                    }
+                  }
+                }
+                "#,
+            ))
+            .await
+            .into_result()
+            .expect("query");
+        let data = response.data.into_json().expect("json");
+
+        assert_eq!(data["memoryGraph"]["status"]["status"], "UNAVAILABLE");
+        assert_eq!(
+            data["memoryGraph"]["status"]["lastErrorCode"],
+            "supermemory_unavailable"
+        );
+        assert_eq!(data["memoryGraph"]["documents"], json!([]));
+        assert_eq!(data["memoryGraph"]["pageInfo"]["page"], 1);
+        assert_eq!(data["memoryGraph"]["pageInfo"]["limit"], 25);
+        assert_eq!(data["memoryGraph"]["pageInfo"]["hasMore"], false);
+    }
+
+    #[tokio::test]
+    async fn memory_graph_proxies_external_supermemory_documents() {
+        let server_base_url = spawn_memory_graph_supermemory_server().await;
+        let store = crate::store::tests::test_store().await;
+        store
+            .save_memory_service_settings(crate::SaveMemoryServiceSettings {
+                mode: crate::MemoryServiceMode::External,
+                base_url: Some(server_base_url),
+                port: None,
+                provider_account_id: None,
+                provider_kind: None,
+                model_profile: None,
+                reasoning_effort: None,
+            })
+            .await
+            .expect("settings");
+        let schema = build_schema(GraphqlState::for_tests_with_store(store));
+
+        let response = schema
+            .execute(async_graphql::Request::new(
+                r#"
+                {
+                  memoryGraph(input: { page: 1, limit: 25 }) {
+                    status {
+                      status
+                      lastErrorCode
+                    }
+                    documents {
+                      id
+                      title
+                      memoryEntries {
+                        id
+                        content
+                        spaceContainerTag
+                      }
+                    }
+                    pageInfo {
+                      page
+                      limit
+                      hasMore
+                      total
+                    }
+                  }
+                }
+                "#,
+            ))
+            .await
+            .into_result()
+            .expect("query");
+        let data = response.data.into_json().expect("json");
+
+        assert_eq!(data["memoryGraph"]["status"]["status"], "READY");
+        assert_eq!(data["memoryGraph"]["documents"][0]["id"], "doc_1");
+        assert_eq!(
+            data["memoryGraph"]["documents"][0]["memoryEntries"][0]["id"],
+            "mem_1"
+        );
+        assert_eq!(
+            data["memoryGraph"]["documents"][0]["memoryEntries"][0]["spaceContainerTag"],
+            "human:local"
+        );
+        assert_eq!(data["memoryGraph"]["pageInfo"]["hasMore"], true);
+        assert_eq!(data["memoryGraph"]["pageInfo"]["total"], 42);
+    }
+
+    #[tokio::test]
     async fn save_external_memory_service_settings_requires_base_url() {
         let store = crate::store::tests::test_store().await;
         let schema = build_schema(GraphqlState::for_tests_with_store(store));
@@ -950,7 +1159,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn old_memory_graph_field_is_not_in_schema() {
+    async fn old_memory_graph_nodes_field_is_not_in_schema() {
         let schema = build_schema(GraphqlState::for_tests());
         let response = schema
             .execute(async_graphql::Request::new(
@@ -959,7 +1168,7 @@ mod tests {
             .await;
 
         assert!(!response.errors.is_empty());
-        assert!(response.errors[0].message.contains("memoryGraph"));
+        assert!(response.errors[0].message.contains("nodes"));
     }
 
     #[tokio::test]

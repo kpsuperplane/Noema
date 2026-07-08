@@ -12,12 +12,13 @@ import {
   Settings
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import type { AppRoute, SettingsSection } from "@/app/routes";
+import type { AppRoute, NonSettingsAppRoute, SettingsSection } from "@/app/routes";
 
 export type ShellMenuLevelId = "l0" | "settings";
 
 export type ShellMenuItemId =
   | "home"
+  | "memory"
   | "settings"
   | "settings.agents"
   | "settings.memory"
@@ -138,8 +139,10 @@ export const shellSettingsSections = shellSettingsEntries.flatMap((entry) =>
   entry.kind === "section" ? [entry.item] : []
 );
 
-export function activeL0ItemId(): Extract<ShellMenuItemId, "home"> {
-  return "home";
+export function activeL0ItemId(
+  route: NonSettingsAppRoute
+): Extract<ShellMenuItemId, "home" | "memory"> {
+  return route.kind === "memory" ? "memory" : "home";
 }
 
 export function settingsItemIdForSection(section: SettingsSection): ShellMenuItemId {
@@ -185,7 +188,7 @@ export function shellMenuLevelForRoute(route: AppRoute): ShellMenuLevel {
     levelId: "l0",
     ariaLabel: "Primary",
     title: "Noema",
-    activeItemId: activeL0ItemId(),
+    activeItemId: activeL0ItemId(route),
     items: [
       {
         kind: "item",
@@ -195,6 +198,16 @@ export function shellMenuLevelForRoute(route: AppRoute): ShellMenuLevel {
           route: { kind: "chat" },
           action: "navigate",
           icon: House
+        }
+      },
+      {
+        kind: "item",
+        item: {
+          itemId: "memory",
+          label: "Memory",
+          route: { kind: "memory" },
+          action: "navigate",
+          icon: Brain
         }
       }
     ],
@@ -217,7 +230,7 @@ export function breadcrumbForRoute(route: AppRoute): ShellBreadcrumb {
     return { parent: "Settings", current };
   }
 
-  return { current: "Home" };
+  return { current: route.kind === "memory" ? "Memory" : "Home" };
 }
 
 export function shellMenuSelectionBehavior(

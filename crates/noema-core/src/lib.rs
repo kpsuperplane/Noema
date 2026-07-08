@@ -98,8 +98,10 @@ pub use store::{
 };
 pub use supermemory::{
     SupermemoryClient, SupermemoryClientError, SupermemoryConnection,
-    SupermemoryConversationIngestRequest, SupermemoryLifecycle, SupermemorySearchRequest,
-    SupermemorySearchResponse,
+    SupermemoryConversationIngestRequest, SupermemoryGraphDocument,
+    SupermemoryGraphDocumentsRequest, SupermemoryGraphDocumentsResponse,
+    SupermemoryGraphMemoryEntry, SupermemoryGraphPagination, SupermemoryLifecycle,
+    SupermemorySearchRequest, SupermemorySearchResponse,
 };
 pub use system_errors::{
     SYSTEM_ERROR_MCP_MALFORMED_RESPONSE, SYSTEM_ERROR_MCP_TOOL_CALL_FAILURE,

@@ -9,6 +9,7 @@
         "@astryxdesign/core": "^0.1.2",
         "@astryxdesign/theme-neutral": "^0.1.2",
         "@stylexjs/stylex": "^0.19.0",
+        "@supermemory/memory-graph": "^0.2.3",
         "@tanstack/react-router": "^1.170.17",
         "@tanstack/react-virtual": "^3.14.5",
         "@tauri-apps/api": "^2.0.0",
@@ -409,6 +410,8 @@
     "@stylexjs/shared": ["@stylexjs/shared@0.19.0", "", {}, "sha512-7Yym70cQH5sPzJHgzJX3FkL9ZCptbC3IbiRijN9YLYU/5OywB/3c519Xv1DOzvxqjv8urSxh98/9HxLaPG7sDg=="],
 
     "@stylexjs/stylex": ["@stylexjs/stylex@0.19.0", "", { "dependencies": { "css-mediaquery": "^0.1.2", "invariant": "^2.2.4", "styleq": "0.2.1" } }, "sha512-CnUFp7YMaDLDeemsWOfJgoC/gKM5P/yBNMcpJaE6ChJmXr7s0DJwSeGTTlHJcqqwN9OW1qGtmARWLFhGZN1pTA=="],
+
+    "@supermemory/memory-graph": ["@supermemory/memory-graph@0.2.3", "", { "dependencies": { "d3-force": "^3.0.0" }, "peerDependencies": { "react": ">=18.0.0", "react-dom": ">=18.0.0" } }, "sha512-tBioyg+GayOmyhUaInu5ngKURWss9O7iQsPWH5ECx1av0Poynz8hVdeT2VdBugynngfmCbG4bhLXTBul2jDeow=="],
 
     "@tanstack/history": ["@tanstack/history@1.162.0", "", {}, "sha512-79pf/RkhteYZTRgcR4F9kbk84P2N8rugQJswxfIqovlbRiT3yI7eBE+5QorIrZaOKktsgzRlXh1l/du/xpl4iA=="],
 

@@ -345,6 +345,46 @@ export const MemorySettingsDocument = gql`
   }
 `;
 
+export const MemoryGraphDocument = gql`
+  query MemoryGraph($page: Int, $limit: Int) {
+    memoryGraph(input: { page: $page, limit: $limit }) {
+      status {
+        status
+        lastErrorCode
+        lastErrorMessage
+      }
+      documents {
+        id
+        title
+        summary
+        type
+        createdAt
+        updatedAt
+        memoryEntries {
+          id
+          documentId
+          content
+          summary
+          title
+          type
+          createdAt
+          updatedAt
+          spaceContainerTag
+          relation
+          isLatest
+          spaceId
+        }
+      }
+      pageInfo {
+        page
+        limit
+        hasMore
+        total
+      }
+    }
+  }
+`;
+
 export const SaveMemoryServiceSettingsDocument = gql`
   mutation SaveMemoryServiceSettings($input: SaveMemoryServiceSettingsInput!) {
     saveMemoryServiceSettings(input: $input) {

@@ -806,6 +806,176 @@ type McpTool {
 }
 
 """
+Memory graph response for the local human.
+"""
+type MemoryGraph {
+	"""
+	Supermemory availability for this request.
+	"""
+	status: MemoryServiceStatus!
+	"""
+	Documents and memory entries in the graph.
+	"""
+	documents: [MemoryGraphDocument!]!
+	"""
+	Pagination metadata.
+	"""
+	pageInfo: MemoryGraphPageInfo!
+}
+
+"""
+One document displayed in the memory graph.
+"""
+type MemoryGraphDocument {
+	"""
+	Supermemory document id.
+	"""
+	id: String!
+	"""
+	Caller supplied document id.
+	"""
+	customId: String
+	"""
+	Document title.
+	"""
+	title: String
+	"""
+	Document content.
+	"""
+	content: String
+	"""
+	Document summary.
+	"""
+	summary: String
+	"""
+	Source URL.
+	"""
+	url: String
+	"""
+	Source label.
+	"""
+	source: String
+	"""
+	Supermemory document type.
+	"""
+	type: String
+	"""
+	Supermemory document status.
+	"""
+	status: String!
+	"""
+	Document metadata.
+	"""
+	metadata: JSON
+	"""
+	Creation timestamp.
+	"""
+	createdAt: String!
+	"""
+	Update timestamp.
+	"""
+	updatedAt: String!
+	"""
+	Memory entries extracted from the document.
+	"""
+	memoryEntries: [MemoryGraphMemoryEntry!]!
+}
+
+"""
+Input for reading the human memory graph.
+"""
+input MemoryGraphInput {
+	"""
+	One-based document page.
+	"""
+	page: Int
+	"""
+	Maximum document count.
+	"""
+	limit: Int
+}
+
+"""
+One memory entry displayed in the memory graph.
+"""
+type MemoryGraphMemoryEntry {
+	"""
+	Supermemory memory entry id.
+	"""
+	id: String!
+	"""
+	Source document id.
+	"""
+	documentId: String!
+	"""
+	Memory content.
+	"""
+	content: String
+	"""
+	Memory summary.
+	"""
+	summary: String
+	"""
+	Memory title.
+	"""
+	title: String
+	"""
+	Memory type.
+	"""
+	type: String
+	"""
+	Memory metadata.
+	"""
+	metadata: JSON
+	"""
+	Creation timestamp.
+	"""
+	createdAt: String!
+	"""
+	Update timestamp.
+	"""
+	updatedAt: String!
+	"""
+	Container tag used by Supermemory spaces.
+	"""
+	spaceContainerTag: String
+	"""
+	Relationship to another memory.
+	"""
+	relation: String
+	"""
+	Whether this is the latest memory.
+	"""
+	isLatest: Boolean
+	"""
+	Supermemory space id.
+	"""
+	spaceId: String
+}
+
+"""
+Memory graph pagination metadata.
+"""
+type MemoryGraphPageInfo {
+	"""
+	One-based document page.
+	"""
+	page: Int!
+	"""
+	Requested document limit.
+	"""
+	limit: Int!
+	"""
+	Whether more documents are available.
+	"""
+	hasMore: Boolean!
+	"""
+	Total document count when returned by Supermemory.
+	"""
+	total: Int
+}
+
+"""
 Memory service operating mode.
 """
 enum MemoryServiceMode {
@@ -1394,6 +1564,10 @@ type QueryRoot {
 	Return memory service settings and readiness status.
 	"""
 	memorySettings: MemorySettings!
+	"""
+	Return graph documents for the local human memory scope.
+	"""
+	memoryGraph(input: MemoryGraphInput): MemoryGraph!
 	"""
 	Return the primary conversation identity without creating it or replaying transcript.
 	"""

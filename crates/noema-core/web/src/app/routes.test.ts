@@ -71,11 +71,9 @@ describe("settings routes", () => {
     );
   });
 
-  test("routes memory to settings memory", () => {
-    assert.deepEqual(routeFromPathname("/memory"), {
-      kind: "settings",
-      section: "memory"
-    });
+  test("routes memory to top-level memory", () => {
+    assert.deepEqual(routeFromPathname("/memory"), { kind: "memory" });
+    assert.equal(pathForRoute({ kind: "memory" }), "/memory");
     assert.equal(pathForRoute({ kind: "settings", section: "memory" }), "/settings/memory");
   });
 });

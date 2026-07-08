@@ -94,6 +94,42 @@ impl SupermemoryClient {
 
         Ok(())
     }
+
+    /// List documents and memory entries for the Supermemory memory graph.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SupermemoryClientError`] when the request fails, Supermemory
+    /// returns a non-success status, or the response body cannot be decoded.
+    pub async fn list_memory_graph_documents(
+        &self,
+        request: SupermemoryGraphDocumentsRequest,
+    ) -> Result<SupermemoryGraphDocumentsResponse, SupermemoryClientError> {
+        let mut builder = self
+            .http
+            .post(format!("{}/v3/documents/documents", self.base_url))
+            .json(&serde_json::json!({
+                "containerTag": request.container_tag,
+                "containerTags": [request.container_tag],
+                "page": request.page,
+                "limit": request.limit,
+                "sort": "createdAt",
+                "order": "desc"
+            }));
+        if let Some(api_key) = &self.api_key {
+            builder = builder.bearer_auth(api_key);
+        }
+
+        let response = builder.send().await?;
+        if !response.status().is_success() {
+            return Err(SupermemoryClientError::Status(response.status().as_u16()));
+        }
+
+        response
+            .json::<SupermemoryGraphDocumentsResponse>()
+            .await
+            .map_err(Into::into)
+    }
 }
 
 /// Search request for one Supermemory container tag.
@@ -105,6 +141,17 @@ pub struct SupermemorySearchRequest {
     pub container_tag: String,
     /// Maximum result count.
     pub limit: u16,
+}
+
+/// Memory graph document list request for one Supermemory container tag.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SupermemoryGraphDocumentsRequest {
+    /// Deterministic Noema-owned Supermemory container tag.
+    pub container_tag: String,
+    /// One-based Supermemory document page.
+    pub page: u32,
+    /// Maximum document count.
+    pub limit: u32,
 }
 
 /// Supermemory search response.
@@ -137,6 +184,117 @@ pub struct SupermemorySearchResult {
     /// Similarity score from Supermemory.
     #[serde(default)]
     pub similarity: Option<f64>,
+}
+
+/// Supermemory memory graph document response.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct SupermemoryGraphDocumentsResponse {
+    /// Documents and their extracted memory entries.
+    #[serde(default)]
+    pub documents: Vec<SupermemoryGraphDocument>,
+    /// Supermemory pagination metadata.
+    #[serde(default)]
+    pub pagination: SupermemoryGraphPagination,
+}
+
+/// Supermemory graph pagination metadata.
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SupermemoryGraphPagination {
+    /// Current page when returned.
+    #[serde(default, alias = "currentPage")]
+    pub page: Option<u32>,
+    /// Page size when returned.
+    #[serde(default)]
+    pub limit: Option<u32>,
+    /// Whether more documents are available.
+    #[serde(default)]
+    pub has_more: Option<bool>,
+    /// Total document count when returned.
+    #[serde(default, alias = "totalCount", alias = "totalItems")]
+    pub total: Option<u64>,
+}
+
+/// One Supermemory graph document.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SupermemoryGraphDocument {
+    /// Supermemory document id.
+    pub id: String,
+    /// Caller supplied document id.
+    #[serde(default)]
+    pub custom_id: Option<String>,
+    /// Document title.
+    #[serde(default)]
+    pub title: Option<String>,
+    /// Document content.
+    #[serde(default)]
+    pub content: Option<String>,
+    /// Document summary.
+    #[serde(default)]
+    pub summary: Option<String>,
+    /// Source URL.
+    #[serde(default)]
+    pub url: Option<String>,
+    /// Source label.
+    #[serde(default)]
+    pub source: Option<String>,
+    /// Supermemory document type.
+    #[serde(default, alias = "documentType")]
+    pub r#type: Option<String>,
+    /// Supermemory document status.
+    pub status: String,
+    /// Document metadata.
+    #[serde(default)]
+    pub metadata: Option<serde_json::Value>,
+    /// Creation timestamp.
+    pub created_at: String,
+    /// Update timestamp.
+    pub updated_at: String,
+    /// Memory entries extracted from the document.
+    #[serde(default, alias = "memories")]
+    pub memory_entries: Vec<SupermemoryGraphMemoryEntry>,
+}
+
+/// One Supermemory graph memory entry.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SupermemoryGraphMemoryEntry {
+    /// Supermemory memory entry id.
+    pub id: String,
+    /// Source document id.
+    pub document_id: String,
+    /// Memory content.
+    #[serde(default, alias = "memory")]
+    pub content: Option<String>,
+    /// Memory summary.
+    #[serde(default)]
+    pub summary: Option<String>,
+    /// Memory title.
+    #[serde(default)]
+    pub title: Option<String>,
+    /// Memory type.
+    #[serde(default)]
+    pub r#type: Option<String>,
+    /// Memory metadata.
+    #[serde(default)]
+    pub metadata: Option<serde_json::Value>,
+    /// Creation timestamp.
+    pub created_at: String,
+    /// Update timestamp.
+    pub updated_at: String,
+    /// Container tag used by Supermemory spaces.
+    #[serde(default)]
+    pub space_container_tag: Option<String>,
+    /// Relationship to another memory.
+    #[serde(default)]
+    pub relation: Option<String>,
+    /// Whether this is the latest memory.
+    #[serde(default)]
+    pub is_latest: Option<bool>,
+    /// Supermemory space id.
+    #[serde(default)]
+    pub space_id: Option<String>,
 }
 
 /// Conversation ingest request.

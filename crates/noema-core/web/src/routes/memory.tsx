@@ -1,7 +1,6 @@
-import { createFileRoute, redirect } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
+import { MemoryPage } from "@/pages/MemoryPage";
 
 export const Route = createFileRoute("/memory")({
-  beforeLoad: () => {
-    throw redirect({ to: "/settings/memory" });
-  }
+  component: MemoryPage
 });

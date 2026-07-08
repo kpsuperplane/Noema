@@ -18,8 +18,8 @@ The next storage slice should stay small and concrete:
 - SQLite-backed persisted conversations, transcript items, provider accounts,
   MCP setup, approvals, and memory service configuration.
 - Local Supermemory-backed memory search through explicit `search_memory`.
-- Frontend IA that exposes memory configuration through Settings > Memory
-  before reintroducing memory visibility or graph browsing.
+- Frontend IA that keeps memory configuration in Settings > Memory and exposes
+  the human memory graph through the top-level `/memory` page.
 
 ## Settled Decisions
 
@@ -43,6 +43,11 @@ The next storage slice should stay small and concrete:
   `OPENAI_TEXT_MODEL` into the child process at startup; the proxy routes
   generation through the provider/model selected in Settings > Memory, falling
   back to the daemon default only when no Memory model preference is saved.
+- The top-level `/memory` page visualizes Supermemory graph documents for the
+  local human scope. The web UI queries Noema Core GraphQL only; Noema Core
+  resolves the configured Supermemory endpoint, fetches graph documents for
+  `human:local`, and adapts them for the frontend. The browser never connects
+  directly to Supermemory.
 - Docker/Compose development infrastructure has been retired; local development
   uses host Rust, Bun, and web/desktop product surfaces. The old standalone
   Noema binary and local dev alias have been removed.
