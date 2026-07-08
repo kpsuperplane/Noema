@@ -861,13 +861,36 @@ mod tests {
             async_graphql::Value::from_json(serde_json::json!({
                 "memorySettings": {
                     "mode": "MANAGED",
-                    "baseUrl": "http://127.0.0.1:6767",
-                    "port": 6767,
+                    "baseUrl": null,
+                    "port": null,
                     "status": {"status": "NOT_CONFIGURED"}
                 }
             }))
             .expect("json")
         );
+    }
+
+    #[tokio::test]
+    async fn save_external_memory_service_settings_requires_base_url() {
+        let store = crate::store::tests::test_store().await;
+        let schema = build_schema(GraphqlState::for_tests_with_store(store));
+
+        let response = schema
+            .execute(async_graphql::Request::new(
+                r#"
+                mutation {
+                  saveMemoryServiceSettings(input: {
+                    mode: EXTERNAL
+                  }) {
+                    mode
+                  }
+                }
+                "#,
+            ))
+            .await;
+
+        assert!(!response.errors.is_empty());
+        assert!(response.errors[0].message.contains("base URL"));
     }
 
     #[tokio::test]
@@ -956,8 +979,6 @@ mod tests {
                 mutation {
                   saveMemoryServiceSettings(input: {
                     mode: MANAGED
-                    baseUrl: "http://127.0.0.1:6767"
-                    port: 6767
                     reasoningEffort: HIGH
                   }) {
                     mode

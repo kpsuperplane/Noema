@@ -97,9 +97,9 @@ pub struct MemoryServiceSettingsRecord {
     pub settings_id: String,
     /// Supermemory service mode.
     pub mode: MemoryServiceMode,
-    /// Base URL for the Supermemory service.
-    pub base_url: String,
-    /// Managed service port, when configured.
+    /// External Supermemory service base URL.
+    pub base_url: Option<String>,
+    /// External service port, when configured.
     pub port: Option<u16>,
     /// Provider account used for memory extraction.
     pub provider_account_id: Option<String>,
@@ -116,9 +116,9 @@ pub struct MemoryServiceSettingsRecord {
 pub struct SaveMemoryServiceSettings {
     /// Supermemory service mode.
     pub mode: MemoryServiceMode,
-    /// Base URL for the Supermemory service.
-    pub base_url: String,
-    /// Managed service port, when configured.
+    /// External Supermemory service base URL.
+    pub base_url: Option<String>,
+    /// External service port, when configured.
     pub port: Option<u16>,
     /// Provider account used for memory extraction.
     pub provider_account_id: Option<String>,

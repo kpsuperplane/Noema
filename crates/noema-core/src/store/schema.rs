@@ -248,14 +248,15 @@ CREATE TABLE IF NOT EXISTS approval_requests (
 CREATE TABLE IF NOT EXISTS memory_service_settings (
   settings_id TEXT PRIMARY KEY NOT NULL CHECK (settings_id = 'default'),
   mode TEXT NOT NULL CHECK (mode IN ('managed', 'external')),
-  base_url TEXT NOT NULL,
+  base_url TEXT,
   port INTEGER CHECK (port IS NULL OR (port > 0 AND port <= 65535)),
   provider_account_id TEXT,
   provider_kind TEXT CHECK (provider_kind IS NULL OR provider_kind IN ('codex', 'openai', 'foundation_local')),
   model_profile TEXT,
   reasoning_effort TEXT CHECK (reasoning_effort IS NULL OR reasoning_effort IN ('none', 'minimal', 'low', 'medium', 'high', 'xhigh')),
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  CHECK (mode = 'managed' OR base_url IS NOT NULL)
 );
 
 CREATE TABLE IF NOT EXISTS memory_service_status (
@@ -282,7 +283,7 @@ CREATE TABLE IF NOT EXISTS memory_ingest_jobs (
 );
 
 INSERT INTO memory_service_settings (settings_id, mode, base_url, port)
-VALUES ('default', 'managed', 'http://127.0.0.1:6767', 6767)
+VALUES ('default', 'managed', NULL, NULL)
 ON CONFLICT(settings_id) DO NOTHING;
 
 INSERT INTO memory_service_status (status_id, status)

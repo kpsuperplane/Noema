@@ -106,9 +106,9 @@ impl From<MemoryServiceStatusRecord> for GraphqlMemoryServiceStatus {
 pub struct GraphqlMemorySettings {
     /// Supermemory service mode.
     pub mode: GraphqlMemoryServiceMode,
-    /// Base URL for the Supermemory service.
-    pub base_url: String,
-    /// Managed service port, when configured.
+    /// External Supermemory service base URL.
+    pub base_url: Option<String>,
+    /// External service port, when configured.
     pub port: Option<i32>,
     /// Current readiness status.
     pub status: GraphqlMemoryServiceStatus,
@@ -124,9 +124,9 @@ pub struct GraphqlMemorySettings {
 pub struct GraphqlSaveMemoryServiceSettingsInput {
     /// Supermemory service mode.
     pub mode: GraphqlMemoryServiceMode,
-    /// Base URL for the Supermemory service.
-    pub base_url: String,
-    /// Managed service port, when configured.
+    /// External Supermemory service base URL.
+    pub base_url: Option<String>,
+    /// External service port, when configured.
     pub port: Option<i32>,
     /// Provider account id to use for memory extraction.
     pub provider_account_id: Option<String>,
@@ -145,13 +145,22 @@ pub(super) async fn save_memory_service_settings(
     input: GraphqlSaveMemoryServiceSettingsInput,
 ) -> Result<GraphqlMemorySettings> {
     let store = state.store()?;
-    let base_url = input.base_url.trim();
-    if base_url.is_empty() {
-        return Err(async_graphql::Error::new(
-            "memory service base URL is required",
-        ));
-    }
-    let port = input.port.map(parse_memory_service_port).transpose()?;
+    let mode: MemoryServiceMode = input.mode.into();
+    let (base_url, port) = match mode {
+        MemoryServiceMode::External => {
+            let base_url = input.base_url.as_deref().unwrap_or("").trim();
+            if base_url.is_empty() {
+                return Err(async_graphql::Error::new(
+                    "memory service base URL is required",
+                ));
+            }
+            (
+                Some(base_url.to_string()),
+                input.port.map(parse_memory_service_port).transpose()?,
+            )
+        }
+        MemoryServiceMode::Managed => (None, None),
+    };
     let (provider_account_id, provider_kind, model_profile, reasoning_effort) =
         match (input.provider_account_id, input.model_profile) {
             (Some(provider_account_id), Some(model_profile)) => {
@@ -206,8 +215,8 @@ pub(super) async fn save_memory_service_settings(
 
     store
         .save_memory_service_settings(SaveMemoryServiceSettings {
-            mode: input.mode.into(),
-            base_url: base_url.to_string(),
+            mode,
+            base_url,
             port,
             provider_account_id,
             provider_kind,
@@ -228,11 +237,20 @@ pub(super) async fn check_memory_service(
         .memory_service_settings()
         .await
         .map_err(graphql_error)?;
+    if settings.mode == MemoryServiceMode::Managed {
+        return store
+            .memory_service_status()
+            .await
+            .map(GraphqlMemoryServiceStatus::from)
+            .map_err(graphql_error);
+    }
+    let Some(base_url) = settings.base_url.as_deref() else {
+        return Err(async_graphql::Error::new(
+            "memory service base URL is required",
+        ));
+    };
     let checked_at = Some(now_rfc3339()?);
-    let status = match memory_service_readiness_request(&settings.base_url)?
-        .send()
-        .await
-    {
+    let status = match memory_service_readiness_request(base_url)?.send().await {
         Ok(response) if response.status().is_success() => MemoryServiceStatusRecord {
             status_id: "default".to_string(),
             status: MemoryServiceStatus::Ready,

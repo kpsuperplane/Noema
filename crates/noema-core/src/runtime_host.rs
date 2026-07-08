@@ -57,15 +57,13 @@ impl NoemaRuntimeHost {
             .memory_service_settings()
             .await
             .map_err(|source| RuntimeHostError::Store(source.to_string()))?;
-        let mut supermemory_connection =
-            if memory_settings.mode == crate::MemoryServiceMode::External {
-                Some(crate::SupermemoryConnection::new(
-                    memory_settings.base_url.clone(),
-                    None,
-                ))
-            } else {
-                None
-            };
+        let mut supermemory_connection = match memory_settings.mode {
+            crate::MemoryServiceMode::External => memory_settings
+                .base_url
+                .clone()
+                .map(|base_url| crate::SupermemoryConnection::new(base_url, None)),
+            crate::MemoryServiceMode::Managed => None,
+        };
         let supermemory = match crate::SupermemoryLifecycle::start(
             &paths,
             &memory_settings,

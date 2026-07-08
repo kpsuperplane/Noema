@@ -3162,7 +3162,7 @@ async fn search_memory_uses_runtime_connection_until_restart() {
     store
         .save_memory_service_settings(crate::SaveMemoryServiceSettings {
             mode: crate::MemoryServiceMode::External,
-            base_url: second_server.base_url(),
+            base_url: Some(second_server.base_url()),
             port: None,
             provider_account_id: None,
             provider_kind: None,
@@ -3481,7 +3481,7 @@ async fn test_runtime_handle_with_supermemory(
     store
         .save_memory_service_settings(crate::SaveMemoryServiceSettings {
             mode: crate::MemoryServiceMode::External,
-            base_url: server.base_url(),
+            base_url: Some(server.base_url()),
             port: None,
             provider_account_id: None,
             provider_kind: None,
@@ -3533,7 +3533,7 @@ async fn spawn_runtime_with_supermemory_provider(
     store
         .save_memory_service_settings(crate::SaveMemoryServiceSettings {
             mode: crate::MemoryServiceMode::External,
-            base_url: server.base_url(),
+            base_url: Some(server.base_url()),
             port: None,
             provider_account_id: None,
             provider_kind: None,

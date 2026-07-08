@@ -247,8 +247,8 @@ async fn sqlite_memory_service_defaults_to_managed() {
     let status = store.memory_service_status().await.expect("status");
 
     assert_eq!(settings.mode, crate::MemoryServiceMode::Managed);
-    assert_eq!(settings.base_url, "http://127.0.0.1:6767");
-    assert_eq!(settings.port, Some(6767));
+    assert_eq!(settings.base_url, None);
+    assert_eq!(settings.port, None);
     assert_eq!(status.status, crate::MemoryServiceStatus::NotConfigured);
 }
 
@@ -259,7 +259,7 @@ async fn sqlite_memory_service_settings_round_trip_external() {
     store
         .save_memory_service_settings(crate::SaveMemoryServiceSettings {
             mode: crate::MemoryServiceMode::External,
-            base_url: "http://127.0.0.1:7777".to_string(),
+            base_url: Some("http://127.0.0.1:7777".to_string()),
             port: None,
             provider_account_id: Some("provider_account:openai:default".to_string()),
             provider_kind: Some("openai".to_string()),
@@ -271,7 +271,7 @@ async fn sqlite_memory_service_settings_round_trip_external() {
 
     let settings = store.memory_service_settings().await.expect("settings");
     assert_eq!(settings.mode, crate::MemoryServiceMode::External);
-    assert_eq!(settings.base_url, "http://127.0.0.1:7777");
+    assert_eq!(settings.base_url.as_deref(), Some("http://127.0.0.1:7777"));
     assert_eq!(
         settings.reasoning_effort,
         Some(crate::provider::ReasoningEffort::Low)
