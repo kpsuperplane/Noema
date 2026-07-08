@@ -5,6 +5,7 @@ mod client;
 mod config;
 mod endpoint;
 mod lifecycle;
+mod model_proxy;
 
 #[cfg(test)]
 mod tests;
@@ -15,8 +16,12 @@ pub use binary::{
 };
 pub use client::{
     SupermemoryClient, SupermemoryClientError, SupermemoryConversationIngestRequest,
-    SupermemorySearchRequest, SupermemorySearchResponse, SupermemorySearchResult,
+    SupermemoryConversationMessage, SupermemorySearchRequest, SupermemorySearchResponse,
+    SupermemorySearchResult,
 };
 pub use config::SupermemoryRuntimeConfig;
 pub use endpoint::{SupermemoryConnection, allocate_loopback_port};
 pub use lifecycle::{SupermemoryLifecycle, SupermemoryLifecycleError};
+pub use model_proxy::{
+    SupermemoryModelProxy, SupermemoryModelProxyConfig, SupermemoryModelProxyError,
+};

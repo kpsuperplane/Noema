@@ -48,6 +48,46 @@ async fn supermemory_search_posts_v4_search() {
 }
 
 #[tokio::test]
+async fn supermemory_ingest_posts_v4_conversations_camel_case_shape() {
+    let server =
+        FakeSupermemoryServer::start("/v4/conversations", serde_json::json!({"ok": true})).await;
+    let client = crate::SupermemoryClient::new(server.base_url(), None);
+
+    client
+        .ingest_conversation(crate::SupermemoryConversationIngestRequest::new(
+            "conversation:local",
+            "conversation_local",
+            vec![
+                crate::supermemory::SupermemoryConversationMessage {
+                    role: "user".to_string(),
+                    content: "Kevin likes local-first tools".to_string(),
+                },
+                crate::supermemory::SupermemoryConversationMessage {
+                    role: "assistant".to_string(),
+                    content: "Noted".to_string(),
+                },
+            ],
+        ))
+        .await
+        .expect("ingest");
+
+    let request_body = server.last_body_json().await;
+    assert_eq!(request_body["conversationId"], "conversation:local");
+    assert_eq!(
+        request_body["containerTags"],
+        serde_json::json!(["conversation_local"])
+    );
+    assert_eq!(request_body["messages"][0]["role"], "user");
+    assert_eq!(
+        request_body["messages"][0]["content"],
+        "Kevin likes local-first tools"
+    );
+    assert!(request_body.get("conversation_id").is_none());
+    assert!(request_body.get("container_tag").is_none());
+    assert!(request_body.get("payload").is_none());
+}
+
+#[tokio::test]
 async fn supermemory_client_times_out_when_server_never_responds() {
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
     let base_url = format!("http://{}", listener.local_addr().expect("local addr"));

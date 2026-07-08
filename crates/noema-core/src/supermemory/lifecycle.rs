@@ -9,11 +9,13 @@ use super::{
     SupermemoryBinaryResolver, SupermemoryConnection, SupermemoryServerBinary,
     allocate_loopback_port,
 };
+use crate::supermemory::SupermemoryModelProxy;
 
 /// Supermemory process lifecycle owned by the runtime host.
 pub struct SupermemoryLifecycle {
     child: Option<tokio::process::Child>,
     connection: Option<SupermemoryConnection>,
+    model_proxy: Option<SupermemoryModelProxy>,
 }
 
 impl SupermemoryLifecycle {
@@ -28,11 +30,13 @@ impl SupermemoryLifecycle {
         settings: &crate::MemoryServiceSettingsRecord,
         store: crate::NoemaStore,
         system_errors: crate::SystemErrorLogger,
+        model_proxy: Option<SupermemoryModelProxy>,
     ) -> Result<Self, SupermemoryLifecycleError> {
         match settings.mode {
             crate::MemoryServiceMode::External => Ok(Self {
                 child: None,
                 connection: None,
+                model_proxy: None,
             }),
             crate::MemoryServiceMode::Managed => {
                 let binary = match SupermemoryBinaryResolver::default_for_paths(paths).resolve() {
@@ -56,6 +60,7 @@ impl SupermemoryLifecycle {
                     system_errors,
                     binary,
                     port,
+                    model_proxy,
                 )
                 .await
             }
@@ -75,11 +80,13 @@ impl SupermemoryLifecycle {
         system_errors: crate::SystemErrorLogger,
         binary: SupermemoryServerBinary,
         port: u16,
+        model_proxy: Option<SupermemoryModelProxy>,
     ) -> Result<Self, SupermemoryLifecycleError> {
         match settings.mode {
             crate::MemoryServiceMode::External => Ok(Self {
                 child: None,
                 connection: None,
+                model_proxy: None,
             }),
             crate::MemoryServiceMode::Managed => {
                 tokio::fs::create_dir_all(paths.supermemory_data_dir()).await?;
@@ -93,6 +100,14 @@ impl SupermemoryLifecycle {
                     .env("SUPERMEMORY_PORT", port.to_string())
                     .env("PORT", port.to_string())
                     .kill_on_drop(true);
+                if let Some(proxy) = &model_proxy {
+                    command
+                        .env("OPENAI_BASE_URL", proxy.openai_base_url())
+                        .env("OPENAI_API_KEY", proxy.api_key())
+                        .env("OPENAI_MODEL", proxy.model_profile())
+                        .env("OPENAI_FAST_MODEL", proxy.model_profile())
+                        .env("OPENAI_TEXT_MODEL", proxy.model_profile());
+                }
                 let mut child = match command.spawn() {
                     Ok(child) => child,
                     Err(error) => {
@@ -126,6 +141,7 @@ impl SupermemoryLifecycle {
                 Ok(Self {
                     child: Some(child),
                     connection: Some(connection),
+                    model_proxy,
                 })
             }
         }
@@ -135,6 +151,9 @@ impl SupermemoryLifecycle {
     pub async fn shutdown(mut self) {
         if let Some(child) = &mut self.child {
             let _ = child.kill().await;
+        }
+        if let Some(model_proxy) = self.model_proxy {
+            model_proxy.shutdown().await;
         }
     }
 }
@@ -236,6 +255,7 @@ mod tests {
                 source: crate::supermemory::SupermemoryBinarySource::Environment,
             },
             6768,
+            None,
         )
         .await
         {
@@ -273,6 +293,7 @@ mod tests {
                 source: crate::supermemory::SupermemoryBinarySource::Bundled,
             },
             6769,
+            None,
         )
         .await
         {
@@ -286,6 +307,56 @@ mod tests {
                 .to_string()
                 .contains("No model provider API key configured.")
         );
+    }
+
+    #[tokio::test]
+    async fn managed_child_receives_private_model_proxy_env() {
+        let home = TempDir::new().expect("temp noema home");
+        let paths = crate::NoemaPaths::from_noema_home(home.path()).expect("paths");
+        let store = crate::NoemaStore::open(&crate::StoreConfig::from_paths(&paths))
+            .await
+            .expect("open store");
+        let settings = store.memory_service_settings().await.expect("settings");
+        let error_logger = store.system_error_logger();
+        let binary = home.path().join("supermemory-server");
+        write_sleeping_supermemory_server(&binary);
+        let proxy = crate::supermemory::SupermemoryModelProxy::start(
+            crate::supermemory::SupermemoryModelProxyConfig {
+                provider: std::sync::Arc::new(StaticProvider),
+                api_key: "proxy-secret".to_string(),
+                model_profile: "memory-model".to_string(),
+                reasoning_effort: None,
+                system_errors: None,
+            },
+        )
+        .await
+        .expect("start proxy");
+        let openai_base_url = proxy.openai_base_url().to_string();
+
+        let lifecycle = super::SupermemoryLifecycle::start_with_resolved_binary_and_port(
+            &paths,
+            &settings,
+            store.clone(),
+            error_logger,
+            crate::supermemory::SupermemoryServerBinary {
+                path: binary,
+                source: crate::supermemory::SupermemoryBinarySource::Bundled,
+            },
+            6770,
+            Some(proxy),
+        )
+        .await
+        .expect("start lifecycle");
+
+        let env_file = paths.supermemory_data_dir().join("model-env.txt");
+        let env_text = tokio::fs::read_to_string(env_file).await.expect("env file");
+        assert!(env_text.contains(&format!("OPENAI_BASE_URL={openai_base_url}")));
+        assert!(env_text.contains("OPENAI_API_KEY=proxy-secret"));
+        assert!(env_text.contains("OPENAI_MODEL=memory-model"));
+        assert!(env_text.contains("OPENAI_FAST_MODEL=memory-model"));
+        assert!(env_text.contains("OPENAI_TEXT_MODEL=memory-model"));
+
+        lifecycle.shutdown().await;
     }
 
     fn write_exiting_supermemory_server(path: &std::path::Path) {
@@ -304,6 +375,60 @@ exit 1
             let mut permissions = fs::metadata(path).expect("metadata").permissions();
             permissions.set_mode(0o755);
             fs::set_permissions(path, permissions).expect("chmod");
+        }
+    }
+
+    fn write_sleeping_supermemory_server(path: &std::path::Path) {
+        fs::write(
+            path,
+            r#"#!/bin/sh
+mkdir -p "$SUPERMEMORY_DATA_DIR"
+{
+  echo "OPENAI_BASE_URL=$OPENAI_BASE_URL"
+  echo "OPENAI_API_KEY=$OPENAI_API_KEY"
+  echo "OPENAI_MODEL=$OPENAI_MODEL"
+  echo "OPENAI_FAST_MODEL=$OPENAI_FAST_MODEL"
+  echo "OPENAI_TEXT_MODEL=$OPENAI_TEXT_MODEL"
+} > "$SUPERMEMORY_DATA_DIR/model-env.txt"
+sleep 5
+"#,
+        )
+        .expect("write fake server");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut permissions = fs::metadata(path).expect("metadata").permissions();
+            permissions.set_mode(0o755);
+            fs::set_permissions(path, permissions).expect("chmod");
+        }
+    }
+
+    #[derive(Debug)]
+    struct StaticProvider;
+
+    impl crate::daemon::RuntimeModelProvider for StaticProvider {
+        fn generate_streaming<'a>(
+            &'a self,
+            _request: crate::provider::GenerateRequest,
+            _on_event: &'a mut (dyn FnMut(crate::provider::GenerateStreamEvent) + Send),
+        ) -> std::pin::Pin<
+            Box<
+                dyn std::future::Future<
+                        Output = Result<
+                            crate::provider::GenerateResponse,
+                            crate::provider::ProviderError,
+                        >,
+                    > + Send
+                    + 'a,
+            >,
+        > {
+            Box::pin(async {
+                Ok(crate::provider::GenerateResponse::final_text(
+                    "ok",
+                    "test",
+                    "memory-model",
+                ))
+            })
         }
     }
 }

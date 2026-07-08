@@ -15,6 +15,8 @@ use tokio::sync::{mpsc, oneshot};
 use super::actor::CodexRuntimeActor;
 use crate::daemon::protocol::{DaemonError, StartedConversation, TurnStreamEvent};
 
+pub(crate) type RuntimeProviderMap = HashMap<String, Arc<dyn RuntimeModelProvider>>;
+
 /// Model provider interface used by the daemon runtime and auxiliary tools.
 pub trait RuntimeModelProvider: std::fmt::Debug + Send + Sync {
     /// Return the provider's default model for tool-classification style tasks.
@@ -93,12 +95,10 @@ pub(crate) struct CodexRuntimeHandle {
 }
 
 impl CodexRuntimeHandle {
-    pub(crate) async fn spawn_from_config(
+    pub(crate) fn provider_map_from_config(
         provider_config: ProviderConfig,
-        store: NoemaStore,
         system_errors: SystemErrorLogger,
-        supermemory_connection: Option<crate::SupermemoryConnection>,
-    ) -> Result<Self, DaemonError> {
+    ) -> Result<(String, RuntimeProviderMap), DaemonError> {
         let (default_provider_kind, default_provider) =
             provider_from_config(provider_config, system_errors.clone())?;
         let mut providers = HashMap::new();
@@ -115,10 +115,20 @@ impl CodexRuntimeHandle {
             providers.insert(
                 "foundation_local".to_string(),
                 Arc::new(FoundationLocalProvider::new(
-                    default_foundation_local_config(system_errors.clone()),
+                    default_foundation_local_config(system_errors),
                 )?),
             );
         }
+        Ok((default_provider_kind, providers))
+    }
+
+    pub(crate) async fn spawn_with_provider_map_and_supermemory(
+        default_provider_kind: String,
+        providers: RuntimeProviderMap,
+        store: NoemaStore,
+        system_errors: SystemErrorLogger,
+        supermemory_connection: Option<crate::SupermemoryConnection>,
+    ) -> Result<Self, DaemonError> {
         Self::spawn_with_provider_map_inner(
             default_provider_kind,
             providers,

@@ -37,6 +37,12 @@ The next storage slice should stay small and concrete:
   `crates/noema-core/supermemory/` resource directory, then `PATH` for
   development fallback. The sidecar binds a runtime-selected loopback port; the
   endpoint is kept in memory and is not stored in SQLite or shown in Settings.
+- Managed Supermemory receives model access through a Noema-hosted private
+  loopback OpenAI-compatible `/v1/chat/completions` proxy. Noema injects
+  `OPENAI_BASE_URL`, `OPENAI_API_KEY`, `OPENAI_MODEL`, `OPENAI_FAST_MODEL`, and
+  `OPENAI_TEXT_MODEL` into the child process at startup; the proxy routes
+  generation through the provider/model selected in Settings > Memory, falling
+  back to the daemon default only when no Memory model preference is saved.
 - Docker/Compose development infrastructure has been retired; local development
   uses host Rust, Bun, and web/desktop product surfaces. The old standalone
   Noema binary and local dev alias have been removed.

@@ -141,13 +141,39 @@ pub struct SupermemorySearchResult {
 
 /// Conversation ingest request.
 #[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SupermemoryConversationIngestRequest {
     /// Noema conversation id.
     pub conversation_id: String,
-    /// Deterministic Noema-owned Supermemory container tag.
-    pub container_tag: String,
-    /// Serialized conversation payload owned by the caller.
-    pub payload: serde_json::Value,
+    /// Deterministic Noema-owned Supermemory container tags.
+    pub container_tags: Vec<String>,
+    /// Conversation messages submitted for Supermemory extraction.
+    pub messages: Vec<SupermemoryConversationMessage>,
+}
+
+impl SupermemoryConversationIngestRequest {
+    /// Build a conversation ingest request for one Noema-owned container tag.
+    #[must_use]
+    pub fn new(
+        conversation_id: impl Into<String>,
+        container_tag: impl Into<String>,
+        messages: Vec<SupermemoryConversationMessage>,
+    ) -> Self {
+        Self {
+            conversation_id: conversation_id.into(),
+            container_tags: vec![container_tag.into()],
+            messages,
+        }
+    }
+}
+
+/// One Supermemory conversation message.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SupermemoryConversationMessage {
+    /// Message role expected by Supermemory.
+    pub role: String,
+    /// Plain message content.
+    pub content: String,
 }
 
 /// Errors returned by the Supermemory client boundary.

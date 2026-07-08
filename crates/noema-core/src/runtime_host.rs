@@ -3,9 +3,11 @@
 use crate::{
     DaemonError, NoemaHomeInitOptions, NoemaPathError, NoemaPaths, NoemaStore, ProviderConfig,
     StoreConfig, SystemErrorLogger, daemon::CodexRuntimeHandle, mcp::McpOAuthSetupManager,
-    provider::auth::ProviderAuthManager,
+    provider::DEFAULT_TOOL_CLASSIFICATION_MODEL, provider::auth::ProviderAuthManager,
 };
 
+use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+use ring::rand::{SecureRandom, SystemRandom};
 use thiserror::Error;
 
 /// Shared host state for Noema client surfaces.
@@ -54,6 +56,10 @@ impl NoemaRuntimeHost {
             .await
             .map_err(|source| RuntimeHostError::Store(source.to_string()))?;
 
+        let (default_provider_kind, providers) =
+            CodexRuntimeHandle::provider_map_from_config(provider, system_errors.clone())
+                .map_err(|source| RuntimeHostError::Runtime(source.to_string()))?;
+
         let memory_settings = store
             .memory_service_settings()
             .await
@@ -66,35 +72,87 @@ impl NoemaRuntimeHost {
             crate::MemoryServiceMode::Managed => None,
         };
         let mut supermemory_startup_error = None;
-        let supermemory = match crate::SupermemoryLifecycle::start(
-            &paths,
-            &memory_settings,
-            store.clone(),
-            system_errors.clone(),
-        )
-        .await
-        {
-            Ok(lifecycle) => {
-                if let Some(connection) = lifecycle.connection().cloned() {
-                    supermemory_connection = Some(connection);
+        let supermemory_model_proxy = match memory_settings.mode {
+            crate::MemoryServiceMode::External => None,
+            crate::MemoryServiceMode::Managed => {
+                match supermemory_model_proxy_config_from_settings(
+                    &memory_settings,
+                    &default_provider_kind,
+                    &providers,
+                    generate_supermemory_model_proxy_api_key()
+                        .map_err(RuntimeHostError::Runtime)?,
+                    system_errors.clone(),
+                ) {
+                    Ok(config) => {
+                        match crate::supermemory::SupermemoryModelProxy::start(config).await {
+                            Ok(proxy) => Some(proxy),
+                            Err(error) => {
+                                let error = error.to_string();
+                                supermemory_startup_error = Some(error.clone());
+                                system_errors.try_append(
+                                    crate::SystemErrorEvent::new(
+                                        "supermemory_model_proxy_unavailable",
+                                        "Supermemory model proxy is unavailable",
+                                    )
+                                    .with_error_chain([error]),
+                                );
+                                None
+                            }
+                        }
+                    }
+                    Err(error) => {
+                        supermemory_startup_error = Some(error.clone());
+                        system_errors.try_append(
+                            crate::SystemErrorEvent::new(
+                                "supermemory_model_proxy_unavailable",
+                                "Supermemory model proxy is unavailable",
+                            )
+                            .with_error_chain([error]),
+                        );
+                        None
+                    }
                 }
-                Some(lifecycle)
-            }
-            Err(error) => {
-                supermemory_startup_error = Some(error.to_string());
-                system_errors.try_append(
-                    crate::SystemErrorEvent::new(
-                        "supermemory_lifecycle_unavailable",
-                        "Supermemory lifecycle is unavailable",
-                    )
-                    .with_error_chain([error.to_string()]),
-                );
-                None
             }
         };
 
-        let runtime = CodexRuntimeHandle::spawn_from_config(
-            provider,
+        let supermemory = if memory_settings.mode == crate::MemoryServiceMode::Managed
+            && supermemory_model_proxy.is_none()
+            && supermemory_startup_error.is_some()
+        {
+            None
+        } else {
+            match crate::SupermemoryLifecycle::start(
+                &paths,
+                &memory_settings,
+                store.clone(),
+                system_errors.clone(),
+                supermemory_model_proxy,
+            )
+            .await
+            {
+                Ok(lifecycle) => {
+                    if let Some(connection) = lifecycle.connection().cloned() {
+                        supermemory_connection = Some(connection);
+                    }
+                    Some(lifecycle)
+                }
+                Err(error) => {
+                    supermemory_startup_error = Some(error.to_string());
+                    system_errors.try_append(
+                        crate::SystemErrorEvent::new(
+                            "supermemory_lifecycle_unavailable",
+                            "Supermemory lifecycle is unavailable",
+                        )
+                        .with_error_chain([error.to_string()]),
+                    );
+                    None
+                }
+            }
+        };
+
+        let runtime = CodexRuntimeHandle::spawn_with_provider_map_and_supermemory(
+            default_provider_kind,
+            providers,
             store.clone(),
             system_errors.clone(),
             supermemory_connection,
@@ -179,6 +237,43 @@ impl NoemaRuntimeHost {
     }
 }
 
+fn supermemory_model_proxy_config_from_settings(
+    settings: &crate::MemoryServiceSettingsRecord,
+    default_provider_kind: &str,
+    providers: &crate::daemon::RuntimeProviderMap,
+    api_key: String,
+    system_errors: SystemErrorLogger,
+) -> Result<crate::supermemory::SupermemoryModelProxyConfig, String> {
+    let provider_kind = settings
+        .provider_kind
+        .as_deref()
+        .unwrap_or(default_provider_kind);
+    let provider = providers
+        .get(provider_kind)
+        .cloned()
+        .ok_or_else(|| format!("memory model provider is unavailable: {provider_kind}"))?;
+    let model_profile = settings
+        .model_profile
+        .clone()
+        .or_else(|| provider.default_tool_classification_model())
+        .unwrap_or_else(|| DEFAULT_TOOL_CLASSIFICATION_MODEL.to_string());
+    Ok(crate::supermemory::SupermemoryModelProxyConfig {
+        provider,
+        api_key,
+        model_profile,
+        reasoning_effort: settings.reasoning_effort,
+        system_errors: Some(system_errors),
+    })
+}
+
+fn generate_supermemory_model_proxy_api_key() -> Result<String, String> {
+    let mut bytes = [0_u8; 32];
+    SystemRandom::new()
+        .fill(&mut bytes)
+        .map_err(|_| "could not generate Supermemory model proxy API key".to_string())?;
+    Ok(format!("noema-sm-{}", URL_SAFE_NO_PAD.encode(bytes)))
+}
+
 /// Runtime host startup error.
 #[derive(Debug, Error)]
 pub enum RuntimeHostError {
@@ -226,6 +321,8 @@ impl From<DaemonError> for RuntimeHostError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::daemon::RuntimeModelProvider;
+    use std::{future::Future, pin::Pin, sync::Arc};
 
     #[test]
     fn runtime_host_error_messages_are_plain_language() {
@@ -241,5 +338,123 @@ mod tests {
             RuntimeHostError::Runtime("provider failed".to_string()).user_message(),
             "Noema could not start the local assistant service."
         );
+    }
+
+    #[test]
+    fn supermemory_proxy_config_prefers_memory_model_provider() {
+        let providers = crate::daemon::RuntimeProviderMap::from([
+            (
+                "codex".to_string(),
+                Arc::new(DefaultModelProvider("codex-default")) as Arc<dyn RuntimeModelProvider>,
+            ),
+            (
+                "foundation_local".to_string(),
+                Arc::new(DefaultModelProvider("foundation-default"))
+                    as Arc<dyn RuntimeModelProvider>,
+            ),
+        ]);
+        let settings = crate::MemoryServiceSettingsRecord {
+            settings_id: "default".to_string(),
+            mode: crate::MemoryServiceMode::Managed,
+            base_url: None,
+            port: None,
+            provider_account_id: Some("foundation_local:default".to_string()),
+            provider_kind: Some("foundation_local".to_string()),
+            model_profile: Some("memory-profile".to_string()),
+            reasoning_effort: Some(crate::provider::ReasoningEffort::Low),
+        };
+
+        let config = supermemory_model_proxy_config_from_settings(
+            &settings,
+            "codex",
+            &providers,
+            "secret".to_string(),
+            test_system_error_logger(),
+        )
+        .expect("proxy config");
+
+        assert_eq!(config.model_profile, "memory-profile");
+        assert_eq!(
+            config.reasoning_effort,
+            Some(crate::provider::ReasoningEffort::Low)
+        );
+        assert_eq!(
+            config
+                .provider
+                .default_tool_classification_model()
+                .as_deref(),
+            Some("foundation-default")
+        );
+    }
+
+    #[test]
+    fn supermemory_proxy_config_falls_back_to_default_provider_when_unset() {
+        let providers = crate::daemon::RuntimeProviderMap::from([(
+            "codex".to_string(),
+            Arc::new(DefaultModelProvider("codex-default")) as Arc<dyn RuntimeModelProvider>,
+        )]);
+        let settings = crate::MemoryServiceSettingsRecord {
+            settings_id: "default".to_string(),
+            mode: crate::MemoryServiceMode::Managed,
+            base_url: None,
+            port: None,
+            provider_account_id: None,
+            provider_kind: None,
+            model_profile: None,
+            reasoning_effort: None,
+        };
+
+        let config = supermemory_model_proxy_config_from_settings(
+            &settings,
+            "codex",
+            &providers,
+            "secret".to_string(),
+            test_system_error_logger(),
+        )
+        .expect("proxy config");
+
+        assert_eq!(config.model_profile, "codex-default");
+        assert_eq!(
+            config
+                .provider
+                .default_tool_classification_model()
+                .as_deref(),
+            Some("codex-default")
+        );
+    }
+
+    #[derive(Debug)]
+    struct DefaultModelProvider(&'static str);
+
+    impl RuntimeModelProvider for DefaultModelProvider {
+        fn default_tool_classification_model(&self) -> Option<String> {
+            Some(self.0.to_string())
+        }
+
+        fn generate_streaming<'a>(
+            &'a self,
+            _request: crate::provider::GenerateRequest,
+            _on_event: &'a mut (dyn FnMut(crate::provider::GenerateStreamEvent) + Send),
+        ) -> Pin<
+            Box<
+                dyn Future<
+                        Output = Result<
+                            crate::provider::GenerateResponse,
+                            crate::provider::ProviderError,
+                        >,
+                    > + Send
+                    + 'a,
+            >,
+        > {
+            Box::pin(async {
+                Ok(crate::provider::GenerateResponse::final_text(
+                    "ok", "test", "model",
+                ))
+            })
+        }
+    }
+
+    fn test_system_error_logger() -> SystemErrorLogger {
+        SystemErrorLogger::new(std::env::temp_dir().join("noema-runtime-host-test-errors.jsonl"))
     }
 }

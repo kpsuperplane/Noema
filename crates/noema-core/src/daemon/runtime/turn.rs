@@ -8,7 +8,7 @@ use crate::{
         ProviderToolCapabilities, TokenUsage,
     },
 };
-use serde_json::{Value, json};
+use serde_json::json;
 use tokio::sync::mpsc;
 
 use super::{
@@ -68,14 +68,24 @@ pub(super) fn mcp_auth_status_label(status: crate::McpServerAuthStatus) -> &'sta
     }
 }
 
-fn memory_ingest_item_payload(item: crate::ConversationItemRecord) -> Value {
-    json!({
-        "item_id": item.item_id,
-        "sequence_index": item.sequence_index,
-        "kind": item.kind.as_str(),
-        "status": item.status.as_str(),
-        "content_text": item.content_text,
-        "payload": item.payload_json,
+fn memory_ingest_message(
+    item: crate::ConversationItemRecord,
+) -> Option<crate::supermemory::SupermemoryConversationMessage> {
+    if item.status != crate::ConversationItemStatus::Completed {
+        return None;
+    }
+    let role = match item.kind {
+        crate::ConversationItemKind::UserText => "user",
+        crate::ConversationItemKind::AssistantText => "assistant",
+        _ => return None,
+    };
+    let content = item.content_text?;
+    if content.trim().is_empty() {
+        return None;
+    }
+    Some(crate::supermemory::SupermemoryConversationMessage {
+        role: role.to_string(),
+        content,
     })
 }
 
@@ -1403,17 +1413,26 @@ impl CodexRuntimeActor {
             return;
         };
         let store = self.store.clone();
-        let request = crate::SupermemoryConversationIngestRequest {
-            conversation_id: conversation_id.to_string(),
-            container_tag: supermemory_conversation_id,
-            payload: json!({
-                "turn_id": turn_id,
-                "items": items
-                    .into_iter()
-                    .map(memory_ingest_item_payload)
-                    .collect::<Vec<_>>(),
-            }),
-        };
+        let messages = items
+            .into_iter()
+            .filter_map(memory_ingest_message)
+            .collect::<Vec<_>>();
+        if messages.is_empty() {
+            let _ = self
+                .store
+                .mark_memory_ingest_job_failed(
+                    &job.job_id,
+                    "empty_payload",
+                    "memory ingest payload had no text messages",
+                )
+                .await;
+            return;
+        }
+        let request = crate::SupermemoryConversationIngestRequest::new(
+            conversation_id.to_string(),
+            supermemory_conversation_id,
+            messages,
+        );
         tokio::spawn(async move {
             match client.ingest_conversation(request).await {
                 Ok(()) => {

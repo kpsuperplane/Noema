@@ -2205,12 +2205,15 @@ async fn completed_turn_submits_supermemory_ingest_job() {
     assert_eq!(jobs[0].conversation_id, conversation_id);
     let bodies = server.request_bodies().await;
     assert!(bodies.iter().any(|body| {
-        body["conversation_id"] == conversation_id
-            && body["container_tag"] == format!("conversation:{conversation_id}")
-            && body["payload"]["turn_id"] == jobs[0].turn_id
-            && body["payload"]["items"]
-                .as_array()
-                .is_some_and(|items| !items.is_empty())
+        body["conversationId"] == conversation_id
+            && body["containerTags"] == json!([format!("conversation:{conversation_id}")])
+            && body["messages"].as_array().is_some_and(|messages| {
+                messages.iter().any(|message| {
+                    message["role"] == "user" && message["content"] == "remember this turn"
+                }) && messages
+                    .iter()
+                    .any(|message| message["role"] == "assistant")
+            })
     }));
 }
 
