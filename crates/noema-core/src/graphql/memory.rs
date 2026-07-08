@@ -628,13 +628,18 @@ fn memory_article_prompt(memories: &[crate::MnemosyneMemory]) -> String {
                     .and_then(serde_json::Value::as_str)
                     .unwrap_or("");
                 if source.is_empty() {
-                    format!("{}. {}", index + 1, fact)
+                    format!("Fact {}:\n- Extracted fact: {}", index + 1, fact)
                 } else {
-                    format!("{}. {} [source observation: {}]", index + 1, fact, source)
+                    format!(
+                        "Fact {}:\n- Extracted fact: {}\n- User-authored source observation: {}",
+                        index + 1,
+                        fact,
+                        source
+                    )
                 }
             })
             .collect::<Vec<_>>()
-            .join("\n")
+            .join("\n\n")
     };
 
     format!(
@@ -647,6 +652,11 @@ Style:
 - Wikipedia-like, biographical, compact, and factual.
 - If little is known, make that charming but honest, e.g. "Little is currently known about Kevin."
 - Prefer the person's known name as the title when available; otherwise use "Local human".
+- Facts and source observations are from the local human's perspective.
+- First person ("I", "me", "my") refers to the local human.
+- Second person ("you", "your") refers to Noema/the assistant, not to the local human.
+- Never invert a preference into a trait. For example, "I like your current tone" means the local human likes Noema's current conversational tone; it does not mean the local human has a well-liked tone.
+- Omit sparse or awkward meta-preferences when they would make the biography sound strange.
 - Do not mention Noema, Mnemosyne, memory systems, records, extraction, citations, or model state in the prose.
 
 Return Markdown only:
