@@ -1657,13 +1657,18 @@ async fn start_primary_conversation_generates_initial_name_onboarding_message() 
             .any(|item| item.kind == ConversationItemKind::UserText),
         "initial onboarding should not fake a user message: {items:?}"
     );
-    assert!(items.iter().any(|item| {
-        item.kind == ConversationItemKind::AssistantText
-            && item.content_text.as_deref()
-                == Some(
-                    "Hey 👋 I'm your Noema personal agent, here to help you think, plan, make, untangle, or whatever keeps your momentum going in life. Before we dive in, give me a name!",
-                )
-    }));
+    let assistant_texts: Vec<_> = items
+        .iter()
+        .filter(|item| item.kind == ConversationItemKind::AssistantText)
+        .filter_map(|item| item.content_text.as_deref())
+        .collect();
+    assert_eq!(
+        assistant_texts,
+        vec![
+            "hey, i’m glad to be here with you 👋",
+            "i can help you think, plan, make, untangle, and keep life moving with a little more ease. what would you like to name me?",
+        ]
+    );
 }
 
 #[tokio::test]
@@ -3730,16 +3735,21 @@ impl FakeCodexProvider {
                     && instructions.contains("warm and welcoming")
                     && instructions.contains("energy")
                     && instructions.contains("Noema personal agent")
-                    && instructions.contains("momentum going in life")
-                    && instructions.contains("give you a name")
+                    && instructions.contains("keep life moving with a little more ease")
+                    && instructions.contains("what they would like to name you")
                     && instructions.contains("think, plan, make, untangle")
-                    && instructions.contains("1-2 warm, energetic sentences")
+                    && instructions
+                        .contains("Split the introduction into two separate text responses")
+                    && instructions.contains("Always include exactly two text responses")
                     && !input.contains("Your name is");
-                assistant_with_no_memories(if saw_onboarding {
-                    "Hey 👋 I'm your Noema personal agent, here to help you think, plan, make, untangle, or whatever keeps your momentum going in life. Before we dive in, give me a name!"
+                if saw_onboarding {
+                    assistant_items_with_no_memories(&[
+                        "hey, i’m glad to be here with you 👋",
+                        "i can help you think, plan, make, untangle, and keep life moving with a little more ease. what would you like to name me?",
+                    ])
                 } else {
-                    "missing warm onboarding prompt"
-                })
+                    assistant_with_no_memories("missing warm onboarding prompt")
+                }
             }
             FakeCodexScenario::InitialNameOnboardingNoAssistant => Vec::new(),
             FakeCodexScenario::TurnError => {
@@ -4452,10 +4462,17 @@ fn fake_generate_response(
 }
 
 fn assistant_with_no_memories(text: &str) -> Vec<GenerateOutputItem> {
-    vec![GenerateOutputItem::AssistantText {
-        phase: None,
-        text: text.to_string(),
-    }]
+    assistant_items_with_no_memories(&[text])
+}
+
+fn assistant_items_with_no_memories(texts: &[&str]) -> Vec<GenerateOutputItem> {
+    texts
+        .iter()
+        .map(|text| GenerateOutputItem::AssistantText {
+            phase: None,
+            text: (*text).to_string(),
+        })
+        .collect()
 }
 
 fn search_memory_tool_call(id: &str, payload: serde_json::Value) -> GenerateOutputItem {
