@@ -1,6 +1,11 @@
 //! Managed Supermemory child-process lifecycle.
 
+use std::io::ErrorKind;
+
 use thiserror::Error;
+use time::{OffsetDateTime, format_description::well_known::Rfc3339};
+
+const SUPERMEMORY_SERVER_PROGRAM: &str = "supermemory-server";
 
 /// Supermemory process lifecycle owned by the runtime host.
 pub struct SupermemoryLifecycle {
@@ -20,6 +25,23 @@ impl SupermemoryLifecycle {
         store: crate::NoemaStore,
         system_errors: crate::SystemErrorLogger,
     ) -> Result<Self, SupermemoryLifecycleError> {
+        Self::start_with_program(
+            paths,
+            settings,
+            store,
+            system_errors,
+            SUPERMEMORY_SERVER_PROGRAM,
+        )
+        .await
+    }
+
+    async fn start_with_program(
+        paths: &crate::NoemaPaths,
+        settings: &crate::MemoryServiceSettingsRecord,
+        store: crate::NoemaStore,
+        system_errors: crate::SystemErrorLogger,
+        program: &str,
+    ) -> Result<Self, SupermemoryLifecycleError> {
         match settings.mode {
             crate::MemoryServiceMode::External => Ok(Self { child: None }),
             crate::MemoryServiceMode::Managed => {
@@ -35,7 +57,7 @@ impl SupermemoryLifecycle {
                     })
                     .await?;
 
-                let mut command = tokio::process::Command::new("supermemory-server");
+                let mut command = tokio::process::Command::new(program);
                 command
                     .env("SUPERMEMORY_DATA_DIR", paths.supermemory_data_dir())
                     .env(
@@ -43,16 +65,29 @@ impl SupermemoryLifecycle {
                         settings.port.unwrap_or(6767).to_string(),
                     )
                     .kill_on_drop(true);
-                let child = command.spawn().map_err(|error| {
-                    system_errors.try_append(
-                        crate::SystemErrorEvent::new(
-                            "supermemory_start_failed",
-                            "Supermemory managed process could not start",
-                        )
-                        .with_error_chain([error.to_string()]),
-                    );
-                    SupermemoryLifecycleError::Start(error.to_string())
-                })?;
+                let child = match command.spawn() {
+                    Ok(child) => child,
+                    Err(error) => {
+                        let (error_code, error_message) = start_error_details(&error);
+                        store
+                            .save_memory_service_status(crate::MemoryServiceStatusRecord {
+                                status_id: "default".to_string(),
+                                status: crate::MemoryServiceStatus::Unavailable,
+                                checked_at: now_rfc3339().ok(),
+                                last_error_code: Some(error_code),
+                                last_error_message: Some(error_message),
+                            })
+                            .await?;
+                        system_errors.try_append(
+                            crate::SystemErrorEvent::new(
+                                "supermemory_start_failed",
+                                "Supermemory managed process could not start",
+                            )
+                            .with_error_chain([error.to_string()]),
+                        );
+                        return Err(SupermemoryLifecycleError::Start(error.to_string()));
+                    }
+                };
 
                 Ok(Self { child: Some(child) })
             }
@@ -67,6 +102,23 @@ impl SupermemoryLifecycle {
     }
 }
 
+fn start_error_details(error: &std::io::Error) -> (String, String) {
+    if error.kind() == ErrorKind::NotFound {
+        return (
+            "supermemory_server_missing".to_string(),
+            "supermemory-server executable was not found on PATH".to_string(),
+        );
+    }
+    (
+        "supermemory_start_failed".to_string(),
+        "Supermemory managed process could not start".to_string(),
+    )
+}
+
+fn now_rfc3339() -> Result<String, time::error::Format> {
+    OffsetDateTime::now_utc().format(&Rfc3339)
+}
+
 /// Errors returned by Supermemory lifecycle startup.
 #[derive(Debug, Error)]
 pub enum SupermemoryLifecycleError {
@@ -79,4 +131,45 @@ pub enum SupermemoryLifecycleError {
     /// Managed child process startup failed.
     #[error("supermemory startup failed: {0}")]
     Start(String),
+}
+
+#[cfg(test)]
+mod tests {
+    use tempfile::TempDir;
+
+    #[tokio::test]
+    async fn managed_start_failure_persists_unavailable_status() {
+        let home = TempDir::new().expect("temp noema home");
+        let paths = crate::NoemaPaths::from_noema_home(home.path()).expect("paths");
+        let store = crate::NoemaStore::open(&crate::StoreConfig::from_paths(&paths))
+            .await
+            .expect("open store");
+        let settings = store.memory_service_settings().await.expect("settings");
+        let error_logger = store.system_error_logger();
+
+        let error = match super::SupermemoryLifecycle::start_with_program(
+            &paths,
+            &settings,
+            store.clone(),
+            error_logger,
+            "/definitely/missing/supermemory-server",
+        )
+        .await
+        {
+            Ok(_) => panic!("missing executable should fail startup"),
+            Err(error) => error,
+        };
+
+        assert!(matches!(error, super::SupermemoryLifecycleError::Start(_)));
+        let status = store.memory_service_status().await.expect("status");
+        assert_eq!(status.status, crate::MemoryServiceStatus::Unavailable);
+        assert_eq!(
+            status.last_error_code.as_deref(),
+            Some("supermemory_server_missing")
+        );
+        assert_eq!(
+            status.last_error_message.as_deref(),
+            Some("supermemory-server executable was not found on PATH")
+        );
+    }
 }
