@@ -26,8 +26,8 @@ use super::{
         GraphqlTrustedIdentitySelector,
     },
     memory::{
-        self, GraphqlMemoryClaim, GraphqlMemoryClaimDetail, GraphqlMemoryGraph,
-        GraphqlMemoryGraphInput, GraphqlPredicateProposal,
+        self, GraphqlMemoryServiceStatus, GraphqlMemorySettings,
+        GraphqlSaveMemoryServiceSettingsInput,
     },
     onboarding::{
         self, GraphqlOnboardingStatus, GraphqlProviderAuthAttempt,
@@ -471,58 +471,10 @@ impl QueryRoot {
         mcp::mcp_approval_requests(state, status).await
     }
 
-    /// List graph-memory claims for memory-management inspection.
-    async fn memory_claims(
-        &self,
-        ctx: &Context<'_>,
-        query: Option<String>,
-        status: Option<String>,
-        predicate_id: Option<String>,
-        limit: Option<i32>,
-    ) -> Result<Vec<GraphqlMemoryClaim>> {
+    /// Return memory service settings and readiness status.
+    async fn memory_settings(&self, ctx: &Context<'_>) -> Result<GraphqlMemorySettings> {
         let state = ctx.data_unchecked::<GraphqlState>();
-        memory::memory_claims(state, query, status, predicate_id, limit).await
-    }
-
-    /// Return one graph-memory claim for memory-management inspection.
-    async fn memory_claim(
-        &self,
-        ctx: &Context<'_>,
-        claim_id: String,
-    ) -> Result<Option<GraphqlMemoryClaimDetail>> {
-        let state = ctx.data_unchecked::<GraphqlState>();
-        memory::memory_claim(state, claim_id).await
-    }
-
-    /// List predicate proposals for memory-management inspection.
-    async fn memory_predicate_proposals(
-        &self,
-        ctx: &Context<'_>,
-        status: Option<String>,
-        limit: Option<i32>,
-    ) -> Result<Vec<GraphqlPredicateProposal>> {
-        let state = ctx.data_unchecked::<GraphqlState>();
-        memory::memory_predicate_proposals(state, status, limit).await
-    }
-
-    /// Return one predicate proposal for memory-management inspection.
-    async fn memory_predicate_proposal(
-        &self,
-        ctx: &Context<'_>,
-        proposal_id: String,
-    ) -> Result<Option<GraphqlPredicateProposal>> {
-        let state = ctx.data_unchecked::<GraphqlState>();
-        memory::memory_predicate_proposal(state, proposal_id).await
-    }
-
-    /// Return a bounded graph-memory projection for local memory-management inspection.
-    async fn memory_graph(
-        &self,
-        ctx: &Context<'_>,
-        input: Option<GraphqlMemoryGraphInput>,
-    ) -> Result<GraphqlMemoryGraph> {
-        let state = ctx.data_unchecked::<GraphqlState>();
-        memory::memory_graph(state, input).await
+        memory::memory_settings(state).await
     }
 
     /// Return the primary conversation identity without creating it or replaying transcript.
@@ -638,6 +590,22 @@ impl MutationRoot {
     ) -> Result<GraphqlAgentModelPreference> {
         let state = ctx.data_unchecked::<GraphqlState>();
         usage_settings::save_tool_progress_audit_preference(state, input).await
+    }
+
+    /// Save memory service settings.
+    async fn save_memory_service_settings(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlSaveMemoryServiceSettingsInput,
+    ) -> Result<GraphqlMemorySettings> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        memory::save_memory_service_settings(state, input).await
+    }
+
+    /// Check memory service readiness and persist the sanitized result.
+    async fn check_memory_service(&self, ctx: &Context<'_>) -> Result<GraphqlMemoryServiceStatus> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        memory::check_memory_service(state).await
     }
 
     /// Ensure the primary conversation exists.
@@ -789,11 +757,17 @@ mod tests {
         assert!(sdl.contains("type Subscription"));
         assert!(sdl.contains("conversationEvents"));
         assert!(sdl.contains("AssistantTextDeltaEvent"));
-        assert!(sdl.contains("memoryClaims"));
-        assert!(sdl.contains("memoryClaim"));
-        assert!(sdl.contains("memoryPredicateProposals"));
-        assert!(sdl.contains("memoryPredicateProposal"));
-        assert!(sdl.contains("memoryGraph"));
+        assert!(sdl.contains("memorySettings"));
+        assert!(sdl.contains("saveMemoryServiceSettings"));
+        assert!(sdl.contains("checkMemoryService"));
+        assert!(sdl.contains("type MemorySettings"));
+        assert!(sdl.contains("type MemoryServiceStatus"));
+        assert!(sdl.contains("SaveMemoryServiceSettingsInput"));
+        assert!(!sdl.contains("memoryClaims"));
+        assert!(!sdl.contains("memoryClaim("));
+        assert!(!sdl.contains("memoryPredicateProposals"));
+        assert!(!sdl.contains("memoryPredicateProposal"));
+        assert!(!sdl.contains("memoryGraph"));
         assert!(sdl.contains("providerAccounts"));
         assert!(sdl.contains("type ProviderAccount"));
         assert!(sdl.contains("agents"));
@@ -824,11 +798,11 @@ mod tests {
         assert!(sdl.contains("type TrustedIdentitySelector"));
         assert!(sdl.contains("mcpApprovalRequests"));
         assert!(sdl.contains("type McpApprovalRequest"));
-        assert!(sdl.contains("type MemoryClaim"));
-        assert!(sdl.contains("type MemoryClaimEvidence"));
-        assert!(sdl.contains("type PredicateProposal"));
-        assert!(sdl.contains("MemoryGraph"));
-        assert!(sdl.contains("MemoryGraphInput"));
+        assert!(!sdl.contains("type MemoryClaim"));
+        assert!(!sdl.contains("type MemoryClaimEvidence"));
+        assert!(!sdl.contains("type PredicateProposal"));
+        assert!(!sdl.contains("MemoryGraph"));
+        assert!(!sdl.contains("MemoryGraphInput"));
     }
 
     async fn schema_with_reasoning_openai_profile() -> (GraphqlSchema, String) {
@@ -883,6 +857,46 @@ mod tests {
             build_schema(GraphqlState::for_tests_with_store(store)),
             account_id.to_string(),
         )
+    }
+
+    #[tokio::test]
+    async fn memory_settings_query_returns_defaults() {
+        let store = crate::store::tests::test_store().await;
+        let schema = build_schema(GraphqlState::for_tests_with_store(store));
+
+        let response = schema
+            .execute(async_graphql::Request::new(
+                "{ memorySettings { mode baseUrl port status { status } } }",
+            ))
+            .await
+            .into_result()
+            .expect("query");
+
+        assert_eq!(
+            response.data,
+            async_graphql::Value::from_json(serde_json::json!({
+                "memorySettings": {
+                    "mode": "MANAGED",
+                    "baseUrl": "http://127.0.0.1:6767",
+                    "port": 6767,
+                    "status": {"status": "NOT_CONFIGURED"}
+                }
+            }))
+            .expect("json")
+        );
+    }
+
+    #[tokio::test]
+    async fn old_memory_graph_field_is_not_in_schema() {
+        let schema = build_schema(GraphqlState::for_tests());
+        let response = schema
+            .execute(async_graphql::Request::new(
+                "{ memoryGraph { nodes { nodeId } } }",
+            ))
+            .await;
+
+        assert!(!response.errors.is_empty());
+        assert!(response.errors[0].message.contains("memoryGraph"));
     }
 
     #[test]
@@ -4034,650 +4048,6 @@ mod tests {
         assert_eq!(
             requests[0].model.as_deref(),
             Some("gpt-test-tool-classifier")
-        );
-    }
-
-    #[tokio::test]
-    async fn memory_claim_query_returns_seeded_detail() {
-        use crate::{
-            ActorRef, ClaimStatus, ConversationItemKind, ConversationItemStatus, EntityCandidate,
-            EvidenceAuthority, EvidenceCandidate, NewClaimCandidate, NewConversation,
-            NewConversationItem, NewConversationTurn, memory::Sensitivity,
-            store::tests::test_store,
-        };
-
-        let store = test_store().await;
-        store.ensure_default_actors().await.expect("actors");
-        let conversation = store
-            .create_conversation(NewConversation::local_chat(None, None))
-            .await
-            .expect("conversation");
-        let turn = store
-            .create_conversation_turn(NewConversationTurn {
-                conversation_id: conversation.conversation_id.clone(),
-                trigger_item_id: None,
-                metadata: json!({}),
-            })
-            .await
-            .expect("turn");
-        let item = store
-            .append_conversation_item(NewConversationItem {
-                conversation_id: conversation.conversation_id,
-                turn_id: Some(turn.turn_id),
-                parent_item_id: None,
-                kind: ConversationItemKind::UserText,
-                status: ConversationItemStatus::Completed,
-                author: ActorRef::human("human:local"),
-                content_text: Some("Kevin likes trains.".to_string()),
-                payload_json: json!({}),
-                metadata: json!({}),
-            })
-            .await
-            .expect("source item");
-        let summary = store
-            .create_or_reinforce_claim(NewClaimCandidate {
-                subject: EntityCandidate::local_human(),
-                object: EntityCandidate::concept("trains", "trains"),
-                predicate_id: "likes".to_string(),
-                fact: "Kevin likes trains.".to_string(),
-                sensitivity: Sensitivity::Normal,
-                status: ClaimStatus::Confirmed,
-                confidence: Some(0.9),
-                evidence: EvidenceCandidate {
-                    source_item_id: item.item_id.clone(),
-                    authority: EvidenceAuthority::ExplicitHumanStatement,
-                    excerpt: Some("Kevin likes trains.".to_string()),
-                },
-                retrieval_hints: json!({}),
-                metadata: json!({}),
-            })
-            .await
-            .expect("claim");
-
-        let schema = build_schema(GraphqlState::for_tests_with_store(store));
-        let response = schema
-            .execute(async_graphql::Request::new(format!(
-                r#"
-                {{
-                  memoryClaim(claimId: "{}") {{
-                    claimId
-                    fact
-                    predicateLabel
-                    subjectEntityName
-                    objectEntityName
-                    evidence {{ sourceItemId authority excerpt }}
-                  }}
-                }}
-                "#,
-                summary.claim_id
-            )))
-            .await;
-
-        assert!(response.errors.is_empty(), "{:?}", response.errors);
-        let data = response.data.into_json().expect("json");
-        assert_eq!(data["memoryClaim"]["claimId"], summary.claim_id);
-        assert_eq!(data["memoryClaim"]["predicateLabel"], "likes");
-        assert_eq!(data["memoryClaim"]["subjectEntityName"], "Local human");
-        assert_eq!(data["memoryClaim"]["objectEntityName"], "trains");
-        assert_eq!(
-            data["memoryClaim"]["evidence"][0]["sourceItemId"],
-            item.item_id
-        );
-        assert_eq!(
-            data["memoryClaim"]["evidence"][0]["authority"],
-            "explicit_human_statement"
-        );
-    }
-
-    #[tokio::test]
-    async fn memory_claims_list_returns_owner_visible_non_public_facts() {
-        use crate::{
-            ActorRef, ClaimStatus, ConversationItemKind, ConversationItemStatus, EntityCandidate,
-            EvidenceAuthority, EvidenceCandidate, NewClaimCandidate, NewConversation,
-            NewConversationItem, NewConversationTurn, memory::Sensitivity,
-            store::tests::test_store,
-        };
-
-        let store = test_store().await;
-        store.ensure_default_actors().await.expect("actors");
-        let conversation = store
-            .create_conversation(NewConversation::local_chat(None, None))
-            .await
-            .expect("conversation");
-        let turn = store
-            .create_conversation_turn(NewConversationTurn {
-                conversation_id: conversation.conversation_id.clone(),
-                trigger_item_id: None,
-                metadata: json!({}),
-            })
-            .await
-            .expect("turn");
-        let item = store
-            .append_conversation_item(NewConversationItem {
-                conversation_id: conversation.conversation_id,
-                turn_id: Some(turn.turn_id),
-                parent_item_id: None,
-                kind: ConversationItemKind::UserText,
-                status: ConversationItemStatus::Completed,
-                author: ActorRef::human("human:local"),
-                content_text: Some("Garage code is 1234.".to_string()),
-                payload_json: json!({}),
-                metadata: json!({}),
-            })
-            .await
-            .expect("source item");
-        let private_note = "Garage code is 1234.";
-        let summary = store
-            .create_or_reinforce_claim(NewClaimCandidate {
-                subject: EntityCandidate::local_human(),
-                object: EntityCandidate::concept(private_note, private_note),
-                predicate_id: "has_note".to_string(),
-                fact: private_note.to_string(),
-                sensitivity: Sensitivity::Private,
-                status: ClaimStatus::Confirmed,
-                confidence: Some(0.9),
-                evidence: EvidenceCandidate {
-                    source_item_id: item.item_id,
-                    authority: EvidenceAuthority::ExplicitHumanStatement,
-                    excerpt: Some(private_note.to_string()),
-                },
-                retrieval_hints: json!({}),
-                metadata: json!({}),
-            })
-            .await
-            .expect("claim");
-
-        let schema = build_schema(GraphqlState::for_tests_with_store(store));
-        let list_response = schema
-            .execute(async_graphql::Request::new(
-                r#"
-                {
-                  memoryClaims(limit: 10) {
-                    claimId
-                    fact
-                    factRedacted
-                    subjectEntityName
-                    objectEntityName
-                    sensitivity
-                  }
-                }
-                "#,
-            ))
-            .await;
-
-        assert!(
-            list_response.errors.is_empty(),
-            "{:?}",
-            list_response.errors
-        );
-        let data = list_response.data.into_json().expect("json");
-        assert_eq!(data["memoryClaims"][0]["claimId"], summary.claim_id);
-        assert_eq!(data["memoryClaims"][0]["fact"], private_note);
-        assert_eq!(data["memoryClaims"][0]["subjectEntityName"], "Local human");
-        assert_eq!(data["memoryClaims"][0]["objectEntityName"], private_note);
-        assert_eq!(data["memoryClaims"][0]["factRedacted"], false);
-        assert_eq!(data["memoryClaims"][0]["sensitivity"], "private");
-
-        let detail_response = schema
-            .execute(async_graphql::Request::new(format!(
-                r#"
-                {{
-                  memoryClaim(claimId: "{}") {{
-                    fact
-                    subjectEntityName
-                    objectEntityName
-                  }}
-                }}
-                "#,
-                summary.claim_id
-            )))
-            .await;
-
-        assert!(
-            detail_response.errors.is_empty(),
-            "{:?}",
-            detail_response.errors
-        );
-        let data = detail_response.data.into_json().expect("json");
-        assert_eq!(data["memoryClaim"]["fact"], private_note);
-        assert_eq!(data["memoryClaim"]["subjectEntityName"], "Local human");
-        assert_eq!(data["memoryClaim"]["objectEntityName"], private_note);
-    }
-
-    #[tokio::test]
-    async fn predicate_proposal_query_returns_seeded_candidate() {
-        use crate::{
-            ActorRef, ConversationItemKind, ConversationItemStatus, NewConversation,
-            NewConversationItem, NewConversationTurn, PredicateProposalCandidate,
-            store::tests::test_store,
-        };
-
-        let store = test_store().await;
-        store.ensure_default_actors().await.expect("actors");
-        let conversation = store
-            .create_conversation(NewConversation::local_chat(None, None))
-            .await
-            .expect("conversation");
-        let turn = store
-            .create_conversation_turn(NewConversationTurn {
-                conversation_id: conversation.conversation_id.clone(),
-                trigger_item_id: None,
-                metadata: json!({}),
-            })
-            .await
-            .expect("turn");
-        let item = store
-            .append_conversation_item(NewConversationItem {
-                conversation_id: conversation.conversation_id,
-                turn_id: Some(turn.turn_id),
-                parent_item_id: None,
-                kind: ConversationItemKind::UserText,
-                status: ConversationItemStatus::Completed,
-                author: ActorRef::human("human:local"),
-                content_text: Some("Kevin collects model trains.".to_string()),
-                payload_json: json!({}),
-                metadata: json!({}),
-            })
-            .await
-            .expect("source item");
-        let proposal = store
-            .create_predicate_proposal(PredicateProposalCandidate {
-                label: "collects".to_string(),
-                description: "The subject collects the object.".to_string(),
-                proposed_predicate: json!({
-                    "label": "collects",
-                    "allowed_use_modes": ["answer", "personalize"],
-                }),
-                source_item_id: Some(item.item_id.clone()),
-                proposed_claim: json!({
-                    "fact": "Kevin collects model trains.",
-                    "subject": "human:local",
-                    "object": "concept:model_trains",
-                }),
-            })
-            .await
-            .expect("proposal");
-
-        let schema = build_schema(GraphqlState::for_tests_with_store(store));
-        let response = schema
-            .execute(async_graphql::Request::new(format!(
-                r#"
-                {{
-                  memoryPredicateProposal(proposalId: "{}") {{
-                    proposalId
-                    label
-                    description
-                    status
-                    sourceItemId
-                    proposedPredicate
-                    proposedClaim
-                  }}
-                  memoryPredicateProposals(status: "candidate", limit: 5) {{
-                    proposalId
-                    label
-                    status
-                    sourceItemId
-                    proposedPredicate
-                    proposedClaim
-                  }}
-                }}
-                "#,
-                proposal.proposal_id
-            )))
-            .await;
-
-        assert!(response.errors.is_empty(), "{:?}", response.errors);
-        let data = response.data.into_json().expect("json");
-        assert_eq!(
-            data["memoryPredicateProposal"]["proposalId"],
-            proposal.proposal_id
-        );
-        assert_eq!(data["memoryPredicateProposal"]["label"], "collects");
-        assert_eq!(
-            data["memoryPredicateProposal"]["description"],
-            "The subject collects the object."
-        );
-        assert_eq!(data["memoryPredicateProposal"]["status"], "candidate");
-        assert_eq!(
-            data["memoryPredicateProposal"]["sourceItemId"],
-            item.item_id
-        );
-        assert_eq!(
-            data["memoryPredicateProposal"]["proposedPredicate"]["label"],
-            "collects"
-        );
-        assert_eq!(
-            data["memoryPredicateProposal"]["proposedClaim"]["fact"],
-            "Kevin collects model trains."
-        );
-        assert_eq!(
-            data["memoryPredicateProposals"][0]["proposalId"],
-            proposal.proposal_id
-        );
-        assert_eq!(data["memoryPredicateProposals"][0]["label"], "collects");
-    }
-
-    #[tokio::test]
-    async fn memory_predicate_proposals_rejects_invalid_limit() {
-        let schema = build_schema(GraphqlState::for_tests());
-        let response = schema
-            .execute(async_graphql::Request::new(
-                r#"
-                { memoryPredicateProposals(limit: 0) { proposalId } }
-                "#,
-            ))
-            .await;
-
-        assert_eq!(response.errors.len(), 1);
-        assert!(
-            response.errors[0]
-                .message
-                .contains("memoryPredicateProposals limit must be at least 1")
-        );
-    }
-
-    #[tokio::test]
-    async fn memory_graph_query_returns_readable_nodes_edges_and_summary() {
-        use crate::{
-            ActorRef, ClaimStatus, ConversationItemKind, ConversationItemStatus, EntityCandidate,
-            EvidenceAuthority, EvidenceCandidate, NewClaimCandidate, NewConversation,
-            NewConversationItem, NewConversationTurn, memory::Sensitivity,
-            store::tests::test_store,
-        };
-
-        let store = test_store().await;
-        store.ensure_default_actors().await.expect("actors");
-        let conversation = store
-            .create_conversation(NewConversation::local_chat(None, None))
-            .await
-            .expect("conversation");
-        let turn = store
-            .create_conversation_turn(NewConversationTurn {
-                conversation_id: conversation.conversation_id.clone(),
-                trigger_item_id: None,
-                metadata: json!({}),
-            })
-            .await
-            .expect("turn");
-        let item = store
-            .append_conversation_item(NewConversationItem {
-                conversation_id: conversation.conversation_id,
-                turn_id: Some(turn.turn_id),
-                parent_item_id: None,
-                kind: ConversationItemKind::UserText,
-                status: ConversationItemStatus::Completed,
-                author: ActorRef::human("human:local"),
-                content_text: Some("Garage code is 1234.".to_string()),
-                payload_json: json!({}),
-                metadata: json!({}),
-            })
-            .await
-            .expect("source item");
-        let summary = store
-            .create_or_reinforce_claim(NewClaimCandidate {
-                subject: EntityCandidate::local_human(),
-                object: EntityCandidate::concept("garage-code", "Garage code"),
-                predicate_id: "has_note".to_string(),
-                fact: "Garage code is 1234.".to_string(),
-                sensitivity: Sensitivity::Private,
-                status: ClaimStatus::Confirmed,
-                confidence: Some(0.9),
-                evidence: EvidenceCandidate {
-                    source_item_id: item.item_id,
-                    authority: EvidenceAuthority::ExplicitHumanStatement,
-                    excerpt: Some("Garage code is 1234.".to_string()),
-                },
-                retrieval_hints: json!({}),
-                metadata: json!({}),
-            })
-            .await
-            .expect("claim");
-
-        let schema = build_schema(GraphqlState::for_tests_with_store(store));
-        let response = schema
-            .execute(async_graphql::Request::new(
-                r#"
-                {
-                  memoryGraph(input: { statuses: ["confirmed"], limit: 150 }) {
-                    nodes { nodeId entityId label redacted claimCount }
-                    edges { claimId sourceNodeId targetNodeId fact factRedacted predicateLabel sensitivity }
-                    summary { returnedClaimCount returnedNodeCount limit truncated }
-                  }
-                }
-                "#,
-            ))
-            .await;
-
-        assert!(response.errors.is_empty(), "{:?}", response.errors);
-        let data = response.data.into_json().expect("json");
-        assert_eq!(data["memoryGraph"]["summary"]["returnedClaimCount"], 1);
-        assert_eq!(data["memoryGraph"]["summary"]["limit"], 150);
-        assert_eq!(data["memoryGraph"]["summary"]["truncated"], false);
-        assert_eq!(data["memoryGraph"]["edges"][0]["claimId"], summary.claim_id);
-        assert_eq!(
-            data["memoryGraph"]["edges"][0]["fact"],
-            "Garage code is 1234."
-        );
-        assert_eq!(data["memoryGraph"]["edges"][0]["factRedacted"], false);
-        assert_eq!(data["memoryGraph"]["nodes"][0]["redacted"], false);
-
-        let graph_json = serde_json::to_string(&data["memoryGraph"]).expect("graph json");
-        assert!(!graph_json.contains("garage-code"), "{graph_json}");
-        assert!(!graph_json.contains("garage_code"), "{graph_json}");
-        assert!(graph_json.contains("Garage code"), "{graph_json}");
-        assert!(graph_json.contains("1234"), "{graph_json}");
-
-        let nodes = data["memoryGraph"]["nodes"].as_array().expect("nodes");
-        let edge = &data["memoryGraph"]["edges"][0];
-        assert!(
-            nodes
-                .iter()
-                .any(|node| node["nodeId"] == edge["sourceNodeId"])
-        );
-        assert!(
-            nodes
-                .iter()
-                .any(|node| node["nodeId"] == edge["targetNodeId"])
-        );
-        for node in nodes {
-            assert!(
-                node["nodeId"]
-                    .as_str()
-                    .expect("node id")
-                    .starts_with("memory-node:")
-            );
-            assert_eq!(node["entityId"], node["nodeId"]);
-        }
-    }
-
-    #[tokio::test]
-    async fn memory_graph_query_uses_opaque_ids_for_public_nodes() {
-        use crate::{
-            ActorRef, ClaimStatus, ConversationItemKind, ConversationItemStatus, EntityCandidate,
-            EvidenceAuthority, EvidenceCandidate, NewClaimCandidate, NewConversation,
-            NewConversationItem, NewConversationTurn, memory::Sensitivity,
-            store::tests::test_store,
-        };
-
-        let store = test_store().await;
-        store.ensure_default_actors().await.expect("actors");
-        let conversation = store
-            .create_conversation(NewConversation::local_chat(None, None))
-            .await
-            .expect("conversation");
-        let turn = store
-            .create_conversation_turn(NewConversationTurn {
-                conversation_id: conversation.conversation_id.clone(),
-                trigger_item_id: None,
-                metadata: json!({}),
-            })
-            .await
-            .expect("turn");
-        let item = store
-            .append_conversation_item(NewConversationItem {
-                conversation_id: conversation.conversation_id,
-                turn_id: Some(turn.turn_id),
-                parent_item_id: None,
-                kind: ConversationItemKind::UserText,
-                status: ConversationItemStatus::Completed,
-                author: ActorRef::human("human:local"),
-                content_text: Some("Kevin likes trains.".to_string()),
-                payload_json: json!({}),
-                metadata: json!({}),
-            })
-            .await
-            .expect("source item");
-        store
-            .create_or_reinforce_claim(NewClaimCandidate {
-                subject: EntityCandidate::local_human(),
-                object: EntityCandidate::concept("trains", "trains"),
-                predicate_id: "likes".to_string(),
-                fact: "Kevin likes trains.".to_string(),
-                sensitivity: Sensitivity::Public,
-                status: ClaimStatus::Confirmed,
-                confidence: Some(0.9),
-                evidence: EvidenceCandidate {
-                    source_item_id: item.item_id,
-                    authority: EvidenceAuthority::ExplicitHumanStatement,
-                    excerpt: Some("Kevin likes trains.".to_string()),
-                },
-                retrieval_hints: json!({}),
-                metadata: json!({}),
-            })
-            .await
-            .expect("claim");
-
-        let schema = build_schema(GraphqlState::for_tests_with_store(store));
-        let response = schema
-            .execute(async_graphql::Request::new(
-                r#"
-                {
-                  memoryGraph(input: { statuses: ["confirmed"], limit: 150 }) {
-                    nodes { nodeId entityId label redacted }
-                    edges { sourceNodeId targetNodeId fact factRedacted }
-                  }
-                }
-                "#,
-            ))
-            .await;
-
-        assert!(response.errors.is_empty(), "{:?}", response.errors);
-        let data = response.data.into_json().expect("json");
-        let graph_json = serde_json::to_string(&data["memoryGraph"]).expect("graph json");
-        for raw_id in [
-            "human:local",
-            "concept:trains",
-            "entity:human:local",
-            "entity:concept:trains",
-        ] {
-            assert!(!graph_json.contains(raw_id), "{graph_json}");
-        }
-
-        let nodes = data["memoryGraph"]["nodes"].as_array().expect("nodes");
-        let edge = &data["memoryGraph"]["edges"][0];
-        assert!(
-            nodes
-                .iter()
-                .any(|node| node["nodeId"] == edge["sourceNodeId"])
-        );
-        assert!(
-            nodes
-                .iter()
-                .any(|node| node["nodeId"] == edge["targetNodeId"])
-        );
-        for node in nodes {
-            assert!(
-                node["nodeId"]
-                    .as_str()
-                    .expect("node id")
-                    .starts_with("memory-node:")
-            );
-            assert_eq!(node["entityId"], node["nodeId"]);
-        }
-    }
-
-    #[tokio::test]
-    async fn memory_graph_rejects_invalid_limit_and_status() {
-        let schema = build_schema(GraphqlState::for_tests());
-        let low_limit = schema
-            .execute(async_graphql::Request::new(
-                r#"
-                { memoryGraph(input: { limit: 0 }) { summary { limit } } }
-                "#,
-            ))
-            .await;
-        assert_eq!(low_limit.errors.len(), 1);
-        assert!(
-            low_limit.errors[0]
-                .message
-                .contains("memoryGraph limit must be at least 1")
-        );
-
-        let high_limit = schema
-            .execute(async_graphql::Request::new(
-                r#"
-                { memoryGraph(input: { limit: 501 }) { summary { limit } } }
-                "#,
-            ))
-            .await;
-        assert_eq!(high_limit.errors.len(), 1);
-        assert!(
-            high_limit.errors[0]
-                .message
-                .contains("memoryGraph limit must be at most 500")
-        );
-
-        let bad_status = schema
-            .execute(async_graphql::Request::new(
-                r#"
-                { memoryGraph(input: { statuses: ["sleepy"] }) { summary { limit } } }
-                "#,
-            ))
-            .await;
-        assert_eq!(bad_status.errors.len(), 1);
-        assert!(
-            bad_status.errors[0]
-                .message
-                .contains("unknown memory claim status: sleepy")
-        );
-
-        let bad_sensitivity = schema
-            .execute(async_graphql::Request::new(
-                r#"
-                { memoryGraph(input: { sensitivity: "spicy" }) { summary { limit } } }
-                "#,
-            ))
-            .await;
-        assert_eq!(bad_sensitivity.errors.len(), 1);
-        assert!(
-            bad_sensitivity.errors[0]
-                .message
-                .contains("unknown memory sensitivity: spicy")
-        );
-    }
-
-    #[tokio::test]
-    async fn memory_claims_rejects_negative_limit() {
-        let schema = build_schema(GraphqlState::for_tests());
-        let response = schema
-            .execute(async_graphql::Request::new(
-                r#"
-                {
-                  memoryClaims(limit: -1) {
-                    claimId
-                  }
-                }
-                "#,
-            ))
-            .await;
-
-        assert_eq!(response.errors.len(), 1);
-        assert!(
-            response.errors[0]
-                .message
-                .contains("memoryClaims limit must be at least 1"),
-            "{:?}",
-            response.errors
         );
     }
 
