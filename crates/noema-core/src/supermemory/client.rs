@@ -69,7 +69,7 @@ impl SupermemoryClient {
             .map_err(Into::into)
     }
 
-    /// Submit a completed conversation payload to Supermemory.
+    /// Submit a conversation observation payload to Supermemory.
     ///
     /// # Errors
     ///
@@ -311,16 +311,16 @@ pub struct SupermemoryGraphMemoryEntry {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SupermemoryConversationIngestRequest {
-    /// Noema conversation id.
+    /// Supermemory source identity for this observation.
     pub conversation_id: String,
-    /// Deterministic Noema-owned Supermemory container tags.
-    pub container_tags: Vec<String>,
+    /// Deterministic Noema-owned Supermemory container tag.
+    pub container_tag: String,
     /// Conversation messages submitted for Supermemory extraction.
     pub messages: Vec<SupermemoryConversationMessage>,
 }
 
 impl SupermemoryConversationIngestRequest {
-    /// Build a conversation ingest request for one Noema-owned container tag.
+    /// Build an observation ingest request for one Noema-owned container tag.
     #[must_use]
     pub fn new(
         conversation_id: impl Into<String>,
@@ -329,7 +329,7 @@ impl SupermemoryConversationIngestRequest {
     ) -> Self {
         Self {
             conversation_id: conversation_id.into(),
-            container_tags: vec![container_tag.into()],
+            container_tag: container_tag.into(),
             messages,
         }
     }

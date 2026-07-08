@@ -2177,7 +2177,7 @@ async fn runtime_actor_executes_search_memory_as_local_tool_result() {
 }
 
 #[tokio::test]
-async fn completed_turn_submits_supermemory_ingest_job() {
+async fn user_message_submits_memory_observation_ingest_job() {
     let (handle, store, server) = test_runtime_handle_with_supermemory(
         fake_provider(FakeCodexScenario::Simple),
         json!({"results": []}),
@@ -2203,10 +2203,18 @@ async fn completed_turn_submits_supermemory_ingest_job() {
     assert_eq!(jobs.len(), 1);
     assert_eq!(jobs[0].status, "submitted");
     assert_eq!(jobs[0].conversation_id, conversation_id);
+    assert!(!jobs[0].source_item_id.is_empty());
+    assert_eq!(
+        jobs[0].supermemory_source_id,
+        format!("memory_source:{}", jobs[0].source_item_id)
+    );
     let bodies = server.request_bodies().await;
     assert!(bodies.iter().any(|body| {
-        body["conversationId"] == conversation_id
-            && body["containerTags"] == json!(["human:local"])
+        body["conversationId"]
+            .as_str()
+            .is_some_and(|source_id| source_id.starts_with("memory_source:"))
+            && body["containerTag"] == "human:local"
+            && body.get("containerTags").is_none()
             && body["messages"].as_array().is_some_and(|messages| {
                 messages.as_slice() == [json!({"role": "user", "content": "remember this turn"})]
             })
@@ -2214,7 +2222,82 @@ async fn completed_turn_submits_supermemory_ingest_job() {
 }
 
 #[tokio::test]
-async fn completed_turn_memory_ingest_uses_only_current_turn_user_text() {
+async fn provider_failure_after_user_message_still_submits_memory_observation() {
+    let (handle, store, server) = test_runtime_handle_with_supermemory(
+        fake_provider(FakeCodexScenario::TurnError),
+        json!({"results": []}),
+    )
+    .await;
+
+    let conversation_id = handle
+        .start_conversation(None)
+        .await
+        .expect("conversation")
+        .conversation_id;
+    let (result, _events) = collect_turn_events(
+        &handle,
+        conversation_id.clone(),
+        "remember even if generation fails".to_string(),
+    )
+    .await;
+    assert!(result.is_err());
+    wait_for_submitted_memory_ingest_jobs(&store, &conversation_id, 1).await;
+    handle.shutdown().await;
+
+    let bodies = server.request_bodies().await;
+    assert!(bodies.iter().any(|body| {
+        body["messages"]
+            == json!([{"role": "user", "content": "remember even if generation fails"}])
+    }));
+}
+
+#[tokio::test]
+async fn slow_supermemory_ingest_does_not_delay_provider_response() {
+    let home = tempfile::tempdir().expect("temp noema home");
+    let paths = crate::NoemaPaths::from_noema_home(home.path()).expect("paths");
+    let store = crate::NoemaStore::open(&crate::StoreConfig::from_paths(&paths))
+        .await
+        .expect("store");
+    store.ensure_default_actors().await.expect("actors");
+    let server = FakeSupermemoryServer::start_with_conversation_delay(
+        json!({"results": []}),
+        1,
+        Some(Duration::from_secs(5)),
+    )
+    .await;
+    std::mem::forget(home);
+    let connection = crate::SupermemoryConnection::new(server.base_url(), None);
+    let handle = CodexRuntimeHandle::spawn_with_provider_and_supermemory(
+        Arc::new(fake_provider(FakeCodexScenario::Simple)),
+        store,
+        Some(connection),
+    )
+    .await
+    .expect("runtime");
+
+    let conversation_id = handle
+        .start_conversation(None)
+        .await
+        .expect("conversation")
+        .conversation_id;
+    let result = tokio::time::timeout(
+        Duration::from_millis(500),
+        collect_turn_events(
+            &handle,
+            conversation_id,
+            "do not wait for memory indexing".to_string(),
+        ),
+    )
+    .await
+    .expect("turn should not wait for Supermemory response")
+    .0;
+    handle.shutdown().await;
+
+    result.expect("turn");
+}
+
+#[tokio::test]
+async fn memory_observation_uses_distinct_source_ids_and_bounded_assistant_context() {
     let (handle, store, server) = test_runtime_handle_with_supermemory(
         fake_provider(FakeCodexScenario::Simple),
         json!({"results": []}),
@@ -2246,16 +2329,35 @@ async fn completed_turn_memory_ingest_uses_only_current_turn_user_text() {
     handle.shutdown().await;
 
     let bodies = server.request_bodies().await;
-    let conversation_bodies = bodies
+    let observation_bodies = bodies
         .iter()
-        .filter(|body| body["conversationId"] == conversation_id)
+        .filter(|body| {
+            body["conversationId"]
+                .as_str()
+                .is_some_and(|source_id| source_id.starts_with("memory_source:"))
+        })
         .collect::<Vec<_>>();
-    assert_eq!(conversation_bodies.len(), 2);
-    assert!(conversation_bodies.iter().any(|body| {
+    assert_eq!(observation_bodies.len(), 2);
+    let source_ids = observation_bodies
+        .iter()
+        .filter_map(|body| body["conversationId"].as_str())
+        .collect::<std::collections::HashSet<_>>();
+    assert_eq!(source_ids.len(), 2);
+    let jobs = memory_ingest_jobs_for_conversation(&store, &conversation_id).await;
+    assert_eq!(jobs.len(), 2);
+    assert!(
+        jobs.iter()
+            .all(|job| job.supermemory_source_id.starts_with("memory_source:"))
+    );
+    assert!(observation_bodies.iter().any(|body| {
         body["messages"] == json!([{"role": "user", "content": "first turn should not repeat"}])
     }));
-    assert!(conversation_bodies.iter().any(|body| {
-        body["messages"] == json!([{"role": "user", "content": "second turn should be submitted"}])
+    assert!(observation_bodies.iter().any(|body| {
+        body["messages"]
+            == json!([
+                {"role": "assistant", "content": "fake answer"},
+                {"role": "user", "content": "second turn should be submitted"}
+            ])
     }));
 }
 
@@ -3632,6 +3734,14 @@ struct FakeSupermemoryState {
 
 impl FakeSupermemoryServer {
     async fn start(response: serde_json::Value, max_requests: usize) -> Self {
+        Self::start_with_conversation_delay(response, max_requests, None).await
+    }
+
+    async fn start_with_conversation_delay(
+        response: serde_json::Value,
+        max_requests: usize,
+        conversation_delay: Option<Duration>,
+    ) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
         let base_url = format!("http://{}", listener.local_addr().expect("local addr"));
         let state = Arc::new(AsyncMutex::new(FakeSupermemoryState::default()));
@@ -3683,6 +3793,9 @@ impl FakeSupermemoryServer {
                 }
 
                 let response_body = if path == "/v4/conversations" {
+                    if let Some(delay) = conversation_delay {
+                        tokio::time::sleep(delay).await;
+                    }
                     b"{}".to_vec()
                 } else {
                     serde_json::to_vec(&response).expect("response JSON")
@@ -3736,7 +3849,7 @@ async fn memory_ingest_jobs_for_conversation(
             move |conn| {
                 let mut statement = conn.prepare(
                     r#"
-                    SELECT job_id, conversation_id, turn_id, status, supermemory_conversation_id,
+                    SELECT job_id, conversation_id, turn_id, source_item_id, status, supermemory_source_id,
                            error_code, error_message
                     FROM memory_ingest_jobs
                     WHERE conversation_id = ?1
@@ -3748,10 +3861,11 @@ async fn memory_ingest_jobs_for_conversation(
                         job_id: row.get(0)?,
                         conversation_id: row.get(1)?,
                         turn_id: row.get(2)?,
-                        status: row.get(3)?,
-                        supermemory_conversation_id: row.get(4)?,
-                        error_code: row.get(5)?,
-                        error_message: row.get(6)?,
+                        source_item_id: row.get(3)?,
+                        status: row.get(4)?,
+                        supermemory_source_id: row.get(5)?,
+                        error_code: row.get(6)?,
+                        error_message: row.get(7)?,
                     })
                 })?;
                 Ok(rows.collect::<Result<Vec<_>, _>>()?)

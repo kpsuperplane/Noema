@@ -33,7 +33,7 @@ use super::{
 use crate::daemon::{
     agent_name_tool::is_update_own_name_tool,
     agent_onboarding::AgentPromptIdentity,
-    memory::{HUMAN_MEMORY_SCOPE_ID, context::ConversationMemoryContext, conversation_scope_id},
+    memory::{HUMAN_MEMORY_SCOPE_ID, context::ConversationMemoryContext},
     prompts::{
         PromptToolExposure, build_initial_name_onboarding_system_prompt,
         build_local_tool_result_continuation_system_prompt, build_model_available_tools_prompt,
@@ -68,23 +68,71 @@ pub(super) fn mcp_auth_status_label(status: crate::McpServerAuthStatus) -> &'sta
     }
 }
 
-fn memory_ingest_message(
-    item: crate::ConversationItemRecord,
-) -> Option<crate::supermemory::SupermemoryConversationMessage> {
-    if item.status != crate::ConversationItemStatus::Completed {
+const MEMORY_OBSERVATION_CONTEXT_MAX_CHARS: usize = 1_200;
+
+fn memory_source_id_for_user_item(user_item_id: &str) -> String {
+    format!("memory_source:{user_item_id}")
+}
+
+fn truncate_memory_observation_context(content: &str) -> String {
+    let mut chars = content.chars();
+    let truncated = chars
+        .by_ref()
+        .take(MEMORY_OBSERVATION_CONTEXT_MAX_CHARS)
+        .collect::<String>();
+    if chars.next().is_some() {
+        format!("{truncated}...")
+    } else {
+        truncated
+    }
+}
+
+fn latest_visible_assistant_text_before_user_item(
+    items: &[crate::ConversationItemRecord],
+    user_item_id: &str,
+) -> Option<String> {
+    let mut latest = None;
+    for item in items {
+        if item.item_id == user_item_id {
+            break;
+        }
+        if item.status == crate::ConversationItemStatus::Completed
+            && item.kind == crate::ConversationItemKind::AssistantText
+            && let Some(content) = item.content_text.as_deref()
+            && !content.trim().is_empty()
+        {
+            latest = Some(truncate_memory_observation_context(content));
+        }
+    }
+    latest
+}
+
+fn build_memory_observation_ingest_request(
+    items: &[crate::ConversationItemRecord],
+    user_item_id: &str,
+    user_text: &str,
+) -> Option<crate::SupermemoryConversationIngestRequest> {
+    if user_text.trim().is_empty() {
         return None;
     }
-    if item.kind != crate::ConversationItemKind::UserText {
-        return None;
+
+    let mut messages = Vec::new();
+    if let Some(context) = latest_visible_assistant_text_before_user_item(items, user_item_id) {
+        messages.push(crate::supermemory::SupermemoryConversationMessage {
+            role: "assistant".to_string(),
+            content: context,
+        });
     }
-    let content = item.content_text?;
-    if content.trim().is_empty() {
-        return None;
-    }
-    Some(crate::supermemory::SupermemoryConversationMessage {
+    messages.push(crate::supermemory::SupermemoryConversationMessage {
         role: "user".to_string(),
-        content,
-    })
+        content: user_text.to_string(),
+    });
+
+    Some(crate::SupermemoryConversationIngestRequest::new(
+        memory_source_id_for_user_item(user_item_id),
+        HUMAN_MEMORY_SCOPE_ID,
+        messages,
+    ))
 }
 
 impl CodexRuntimeActor {
@@ -274,8 +322,6 @@ impl CodexRuntimeActor {
             ));
         }
         self.store.complete_conversation_turn(&turn.turn_id).await?;
-        self.enqueue_completed_turn_memory_ingest(&turn.conversation_id, &turn.turn_id)
-            .await;
         if let Some(conversation) = self.conversations.get_mut(conversation_id) {
             conversation.next_turn_index = conversation.next_turn_index.saturating_add(1);
         }
@@ -399,6 +445,13 @@ impl CodexRuntimeActor {
             },
         );
         timing.mark("runtime_user_item_persisted", json!({}));
+        self.enqueue_user_message_memory_observation(
+            &conversation_id,
+            &turn.turn_id,
+            &user_item_id,
+            &input,
+        )
+        .await;
         if super::context_compaction::should_compact_foreground(&planned_context) {
             let compaction_started_at = std::time::Instant::now();
             timing.mark("runtime_foreground_compaction_started", json!({}));
@@ -1326,8 +1379,6 @@ impl CodexRuntimeActor {
         }
 
         self.store.complete_conversation_turn(&turn.turn_id).await?;
-        self.enqueue_completed_turn_memory_ingest(&turn.conversation_id, &turn.turn_id)
-            .await;
         timing.mark(
             "runtime_turn_persistence_completed",
             json!({
@@ -1349,50 +1400,58 @@ impl CodexRuntimeActor {
         Ok(())
     }
 
-    async fn enqueue_completed_turn_memory_ingest(&self, conversation_id: &str, turn_id: &str) {
+    async fn enqueue_user_message_memory_observation(
+        &self,
+        conversation_id: &str,
+        turn_id: &str,
+        user_item_id: &str,
+        user_text: &str,
+    ) {
         let items = match self
             .store
             .list_conversation_items(conversation_id, ReplayMode::Visible)
             .await
         {
-            Ok(items) => items
-                .into_iter()
-                .filter(|item| item.turn_id.as_deref() == Some(turn_id))
-                .collect::<Vec<_>>(),
+            Ok(items) => items,
             Err(error) => {
                 self.log_runtime_invariant(
-                    "memory ingest transcript could not be read",
+                    "memory observation transcript could not be read",
                     json!({
                         "conversation_id": conversation_id,
                         "turn_id": turn_id,
+                        "source_item_id": user_item_id,
                     }),
                     json!({"error": error.to_string()}),
                 );
                 return;
             }
         };
-        if items.is_empty() {
+        let Some(request) =
+            build_memory_observation_ingest_request(&items, user_item_id, user_text)
+        else {
             return;
-        }
-        let job_id = format!("memory_ingest_job:{turn_id}");
-        let supermemory_conversation_id = conversation_scope_id(conversation_id);
+        };
+        let supermemory_source_id = request.conversation_id.clone();
+        let job_id = format!("memory_ingest_job:{user_item_id}");
         let job = match self
             .store
             .insert_memory_ingest_job(NewMemoryIngestJob {
                 job_id,
                 conversation_id: conversation_id.to_string(),
                 turn_id: turn_id.to_string(),
-                supermemory_conversation_id: supermemory_conversation_id.clone(),
+                source_item_id: user_item_id.to_string(),
+                supermemory_source_id,
             })
             .await
         {
             Ok(job) => job,
             Err(error) => {
                 self.log_runtime_invariant(
-                    "memory ingest job could not be queued",
+                    "memory observation ingest job could not be queued",
                     json!({
                         "conversation_id": conversation_id,
                         "turn_id": turn_id,
+                        "source_item_id": user_item_id,
                     }),
                     json!({"error": error.to_string()}),
                 );
@@ -1411,26 +1470,6 @@ impl CodexRuntimeActor {
             return;
         };
         let store = self.store.clone();
-        let messages = items
-            .into_iter()
-            .filter_map(memory_ingest_message)
-            .collect::<Vec<_>>();
-        if messages.is_empty() {
-            let _ = self
-                .store
-                .mark_memory_ingest_job_failed(
-                    &job.job_id,
-                    "empty_payload",
-                    "memory ingest payload had no text messages",
-                )
-                .await;
-            return;
-        }
-        let request = crate::SupermemoryConversationIngestRequest {
-            conversation_id: conversation_id.to_string(),
-            container_tags: vec![HUMAN_MEMORY_SCOPE_ID.to_string()],
-            messages,
-        };
         tokio::spawn(async move {
             match client.ingest_conversation(request).await {
                 Ok(()) => {

@@ -263,13 +263,14 @@ CREATE TABLE IF NOT EXISTS memory_ingest_jobs (
   job_id TEXT PRIMARY KEY NOT NULL,
   conversation_id TEXT NOT NULL,
   turn_id TEXT NOT NULL,
+  source_item_id TEXT NOT NULL,
   status TEXT NOT NULL CHECK (status IN ('queued', 'submitted', 'failed')),
-  supermemory_conversation_id TEXT NOT NULL,
+  supermemory_source_id TEXT NOT NULL,
   error_code TEXT,
   error_message TEXT,
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
   updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-  UNIQUE(turn_id)
+  UNIQUE(source_item_id)
 );
 
 INSERT INTO memory_service_settings (settings_id, mode, base_url, port)

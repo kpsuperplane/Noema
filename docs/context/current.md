@@ -32,12 +32,14 @@ The next storage slice should stay small and concrete:
 - Local Supermemory state lives under
   `${NOEMA_HOME:-$HOME/.noema}/supermemory/data`; Supermemory secrets live under
   `${NOEMA_HOME:-$HOME/.noema}/supermemory/secrets`.
-- Completed chat turns submit the current turn's human-authored text to
-  Supermemory for extraction into the current human container tag
-  (`human:local`) by default. Assistant responses are not submitted as memory
-  source material. Conversation ids remain provenance/job context and may be
-  used for explicit scoped retrieval, but ordinary extracted memories should
-  not be hidden in per-conversation memory buckets.
+- Persisted user messages enqueue memory observations to Supermemory
+  immediately for extraction into the current human container tag
+  (`human:local`) by default. Each observation uses the persisted user item as
+  the unique Supermemory source identity (`memory_source:<user_item_id>`), with
+  the Noema conversation and turn kept only as ingest-job provenance. Payloads
+  contain the current user text plus at most bounded previous visible assistant
+  context; assistant responses are not submitted after provider completion, and
+  Supermemory extraction never blocks normal provider response generation.
 - Managed Local Supermemory runs as a private Noema sidecar. Noema resolves the
   server from `NOEMA_SUPERMEMORY_SERVER`, then the bundled
   `crates/noema-core/supermemory/` resource directory, then `PATH` for

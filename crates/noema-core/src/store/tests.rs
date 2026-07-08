@@ -285,11 +285,14 @@ async fn sqlite_memory_ingest_jobs_round_trip() {
             job_id: "memory_ingest_job:test".to_string(),
             conversation_id: "conversation:test".to_string(),
             turn_id: "turn:test".to_string(),
-            supermemory_conversation_id: "sm-conversation:test".to_string(),
+            source_item_id: "item:user:test".to_string(),
+            supermemory_source_id: "memory_source:item:user:test".to_string(),
         })
         .await
         .expect("insert job");
     assert_eq!(job.status, "queued");
+    assert_eq!(job.source_item_id, "item:user:test");
+    assert_eq!(job.supermemory_source_id, "memory_source:item:user:test");
 
     let submitted = store
         .mark_memory_ingest_job_submitted("memory_ingest_job:test")

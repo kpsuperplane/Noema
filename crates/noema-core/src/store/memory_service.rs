@@ -82,32 +82,36 @@ pub struct SaveMemoryServiceSettings {
     pub reasoning_effort: Option<ReasoningEffort>,
 }
 
-/// Input for creating a memory ingest job.
+/// Input for creating a memory observation ingest job.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NewMemoryIngestJob {
     /// Durable ingest job id.
     pub job_id: String,
-    /// Conversation submitted to Supermemory.
+    /// Noema conversation provenance.
     pub conversation_id: String,
-    /// Completed turn submitted to Supermemory.
+    /// Noema turn provenance.
     pub turn_id: String,
-    /// Supermemory conversation/container id.
-    pub supermemory_conversation_id: String,
+    /// Persisted user item used as the authoritative memory source.
+    pub source_item_id: String,
+    /// Supermemory source identity for this observation.
+    pub supermemory_source_id: String,
 }
 
-/// Persisted memory ingest job.
+/// Persisted memory observation ingest job.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MemoryIngestJobRecord {
     /// Durable ingest job id.
     pub job_id: String,
-    /// Conversation submitted to Supermemory.
+    /// Noema conversation provenance.
     pub conversation_id: String,
-    /// Completed turn submitted to Supermemory.
+    /// Noema turn provenance.
     pub turn_id: String,
+    /// Persisted user item used as the authoritative memory source.
+    pub source_item_id: String,
     /// Current submission status.
     pub status: String,
-    /// Supermemory conversation/container id.
-    pub supermemory_conversation_id: String,
+    /// Supermemory source identity for this observation.
+    pub supermemory_source_id: String,
     /// Sanitized error code.
     pub error_code: Option<String>,
     /// Sanitized error message.
@@ -183,7 +187,7 @@ impl NoemaStore {
         self.memory_service_settings().await
     }
 
-    /// Insert a queued completed-turn ingest job.
+    /// Insert a queued memory observation ingest job.
     ///
     /// # Errors
     ///
@@ -196,14 +200,15 @@ impl NoemaStore {
             conn.execute(
                 r#"
                 INSERT INTO memory_ingest_jobs
-                  (job_id, conversation_id, turn_id, status, supermemory_conversation_id, updated_at)
-                VALUES (?1, ?2, ?3, 'queued', ?4, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+                  (job_id, conversation_id, turn_id, source_item_id, status, supermemory_source_id, updated_at)
+                VALUES (?1, ?2, ?3, ?4, 'queued', ?5, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
                 "#,
                 params![
                     input.job_id,
                     input.conversation_id,
                     input.turn_id,
-                    input.supermemory_conversation_id,
+                    input.source_item_id,
+                    input.supermemory_source_id,
                 ],
             )?;
             Ok(())
@@ -282,7 +287,7 @@ impl NoemaStore {
         self.with_connection(|conn| {
             conn.query_row(
                 r#"
-                SELECT job_id, conversation_id, turn_id, status, supermemory_conversation_id,
+                SELECT job_id, conversation_id, turn_id, source_item_id, status, supermemory_source_id,
                        error_code, error_message
                 FROM memory_ingest_jobs
                 WHERE job_id = ?1
@@ -299,7 +304,7 @@ impl NoemaStore {
         .await
     }
 
-    /// Return memory ingest jobs for one completed turn.
+    /// Return memory observation ingest jobs for one turn.
     ///
     /// # Errors
     ///
@@ -311,7 +316,7 @@ impl NoemaStore {
         self.with_connection(|conn| {
             let mut statement = conn.prepare(
                 r#"
-                SELECT job_id, conversation_id, turn_id, status, supermemory_conversation_id,
+                SELECT job_id, conversation_id, turn_id, source_item_id, status, supermemory_source_id,
                        error_code, error_message
                 FROM memory_ingest_jobs
                 WHERE turn_id = ?1
@@ -371,10 +376,11 @@ fn ingest_job_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<MemoryIngest
         job_id: row.get(0)?,
         conversation_id: row.get(1)?,
         turn_id: row.get(2)?,
-        status: row.get(3)?,
-        supermemory_conversation_id: row.get(4)?,
-        error_code: row.get(5)?,
-        error_message: row.get(6)?,
+        source_item_id: row.get(3)?,
+        status: row.get(4)?,
+        supermemory_source_id: row.get(5)?,
+        error_code: row.get(6)?,
+        error_message: row.get(7)?,
     })
 }
 
