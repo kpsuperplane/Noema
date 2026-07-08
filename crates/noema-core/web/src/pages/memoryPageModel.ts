@@ -3,6 +3,7 @@ import type { MemoryGraphQuery } from "@/generated/graphql";
 type MemoryGraph = MemoryGraphQuery["memoryGraph"];
 type MemoryGraphDocument = MemoryGraph["documents"][number];
 type MemoryGraphEntry = MemoryGraphDocument["memoryEntries"][number];
+type MemoryGraphArticle = MemoryGraph["article"];
 
 export type MemoryArticleEntry = {
   id: string;
@@ -18,7 +19,7 @@ export type MemoryArticleEntry = {
 export type MemoryArticleSection = {
   id: string;
   title: string;
-  entries: MemoryArticleEntry[];
+  paragraphs: string[];
 };
 
 export type MemoryFigureCluster = {
@@ -57,27 +58,28 @@ export function buildMemoryArticleModel(graph: MemoryGraph | undefined): MemoryA
   const totalMemories = graph?.pageInfo.total ?? entries.length;
   const lastUpdatedLabel = formatLatestUpdated(entries);
   const sourceObservations = uniqueSourceObservations(entries);
-  const subjectName = inferSubjectName(entries);
+  const subjectName = inferSubjectName(entries) ?? subjectNameFromArticle(graph?.article);
+  const articleContent = parseArticleMarkdown(graph?.article, entries);
   const primaryPattern = entries.length > 0 ? "Brief biography" : "No stable facts yet";
   const recurringMotif = entries.length > 0 ? inferRecurringMotif(entries) : "None yet";
 
   return {
-    title: subjectName ?? FALLBACK_TITLE,
-    subtitle: FALLBACK_SUBTITLE,
+    title: graph?.article.title?.trim() || subjectName || FALLBACK_TITLE,
+    subtitle: graph?.article.subtitle?.trim() || FALLBACK_SUBTITLE,
     subjectName,
     totalMemories,
     totalLabel: formatCount(totalMemories, "fact", "facts"),
     lastUpdatedLabel,
     primaryPattern,
     recurringMotif,
-    leadText: buildLeadText(entries.length, subjectName),
+    leadText: articleContent.leadText,
     isStub: entries.length < 3,
     stubText: buildStubText(entries.length),
     figureTitle: buildFigureTitle(entries.length),
     figureCopy: buildFigureCopy(entries.length),
     figureCaption: "Fig. 1. Prominent themes in the memory record, grouped by loaded entries.",
     clusters: buildClusters(entries),
-    sections: buildSections(entries),
+    sections: articleContent.sections,
     sourceObservations,
     recallSample: entries[0] ?? null,
     references: buildReferences(entries, sourceObservations)
@@ -110,16 +112,6 @@ function memoryEntryFromGraph(
     sourceObservation: sourceObservationFromMetadata(entry.metadata),
     scoreLabel: null
   };
-}
-
-function buildLeadText(entryCount: number, subjectName: string | null): string {
-  if (entryCount === 0) {
-    return "No biographical facts have been recorded yet.";
-  }
-  if (subjectName) {
-    return `${subjectName} is identified as the local human in the current memory record.`;
-  }
-  return "The local human is described by the biographical facts currently available in memory.";
 }
 
 function buildStubText(entryCount: number): string {
@@ -169,16 +161,6 @@ function buildClusters(entries: MemoryArticleEntry[]): MemoryFigureCluster[] {
   ];
 }
 
-function buildSections(entries: MemoryArticleEntry[]): MemoryArticleSection[] {
-  return [
-    {
-      id: "biography",
-      title: "Biography",
-      entries
-    }
-  ];
-}
-
 function buildReferences(
   entries: MemoryArticleEntry[],
   sourceObservations: MemoryArticleEntry[]
@@ -195,6 +177,114 @@ function buildReferences(
   }
   const sourceTitles = [...new Set(entries.map((entry) => entry.sourceTitle))];
   return sourceTitles.map((title) => `Source group: ${title}.`);
+}
+
+function parseArticleMarkdown(
+  article: MemoryGraphArticle | undefined,
+  entries: MemoryArticleEntry[]
+): { leadText: string; sections: MemoryArticleSection[] } {
+  const markdown = article?.markdown?.trim();
+  if (!markdown) {
+    return fallbackArticleContent(entries);
+  }
+
+  const sections: MemoryArticleSection[] = [];
+  let current: MemoryArticleSection = {
+    id: "biography",
+    title: "Biography",
+    paragraphs: []
+  };
+  let paragraphLines: string[] = [];
+
+  const flushParagraph = () => {
+    const paragraph = paragraphLines.join(" ").replace(/\s+/gu, " ").trim();
+    if (paragraph) {
+      current.paragraphs.push(stripInlineMarkdown(paragraph));
+    }
+    paragraphLines = [];
+  };
+
+  const flushSection = () => {
+    flushParagraph();
+    if (current.paragraphs.length > 0 || sections.length === 0) {
+      sections.push(current);
+    }
+  };
+
+  for (const rawLine of markdown.split(/\r?\n/u)) {
+    const line = rawLine.trim();
+    if (!line) {
+      flushParagraph();
+      continue;
+    }
+    if (line.startsWith("# ")) {
+      continue;
+    }
+    if (line.startsWith("## ")) {
+      flushSection();
+      const title = stripInlineMarkdown(line.slice(3).trim()) || "Biography";
+      current = {
+        id: slugFromTitle(title),
+        title,
+        paragraphs: []
+      };
+      continue;
+    }
+    paragraphLines.push(line);
+  }
+  flushSection();
+
+  const nonEmptySections = sections.filter((section) => section.paragraphs.length > 0);
+  if (nonEmptySections.length === 0) {
+    return fallbackArticleContent(entries);
+  }
+  return {
+    leadText: nonEmptySections[0].paragraphs[0],
+    sections: nonEmptySections
+  };
+}
+
+function fallbackArticleContent(entries: MemoryArticleEntry[]): {
+  leadText: string;
+  sections: MemoryArticleSection[];
+} {
+  if (entries.length === 0) {
+    const leadText = "Little is currently known about the local human.";
+    return {
+      leadText,
+      sections: [{ id: "biography", title: "Biography", paragraphs: [leadText] }]
+    };
+  }
+  const paragraphs = entries.map((entry) => entry.displayText);
+  return {
+    leadText: paragraphs[0] ?? "The local human is described by the available facts.",
+    sections: [{ id: "biography", title: "Biography", paragraphs }]
+  };
+}
+
+function stripInlineMarkdown(value: string): string {
+  return value
+    .replace(/\*\*([^*]+)\*\*/gu, "$1")
+    .replace(/\*([^*]+)\*/gu, "$1")
+    .replace(/`([^`]+)`/gu, "$1")
+    .replace(/\[([^\]]+)\]\([^)]+\)/gu, "$1")
+    .trim();
+}
+
+function subjectNameFromArticle(article: MemoryGraphArticle | undefined): string | null {
+  const title = article?.title?.trim();
+  if (!title || title === FALLBACK_TITLE) {
+    return null;
+  }
+  return title;
+}
+
+function slugFromTitle(title: string): string {
+  const slug = title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/gu, "-")
+    .replace(/^-|-$/gu, "");
+  return slug || "biography";
 }
 
 function uniqueSourceObservations(entries: MemoryArticleEntry[]): MemoryArticleEntry[] {

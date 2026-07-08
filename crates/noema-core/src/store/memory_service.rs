@@ -4,7 +4,7 @@ use rusqlite::{OptionalExtension, params};
 
 use crate::provider::ReasoningEffort;
 
-use super::{NoemaStore, StoreError};
+use super::{NoemaStore, StoreError, sqlite};
 
 /// Saved memory service mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -82,6 +82,32 @@ pub struct SaveMemoryServiceSettings {
     pub reasoning_effort: Option<ReasoningEffort>,
 }
 
+/// Cached AI-written memory article.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MemoryArticleCacheRecord {
+    /// Memory scope this article describes.
+    pub scope_id: String,
+    /// Fingerprint of the facts used to generate the article.
+    pub fact_fingerprint: String,
+    /// Cached article Markdown.
+    pub article_markdown: String,
+    /// Timestamp when the article was generated.
+    pub generated_at: String,
+}
+
+/// Input for saving a cached memory article.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SaveMemoryArticleCache {
+    /// Memory scope this article describes.
+    pub scope_id: String,
+    /// Fingerprint of the facts used to generate the article.
+    pub fact_fingerprint: String,
+    /// Cached article Markdown.
+    pub article_markdown: String,
+    /// Timestamp when the article was generated.
+    pub generated_at: String,
+}
+
 impl NoemaStore {
     /// Return the singleton memory service settings record.
     ///
@@ -149,6 +175,71 @@ impl NoemaStore {
         })
         .await?;
         self.memory_service_settings().await
+    }
+
+    /// Return the cached AI-written memory article for a scope.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when the embedded store read fails.
+    pub async fn memory_article_cache(
+        &self,
+        scope_id: &str,
+    ) -> Result<Option<MemoryArticleCacheRecord>, StoreError> {
+        self.with_connection(|conn| {
+            sqlite::optional_row(
+                conn,
+                r#"
+                SELECT scope_id, fact_fingerprint, article_markdown, generated_at
+                FROM memory_article_cache
+                WHERE scope_id = ?1
+                LIMIT 1
+                "#,
+                [scope_id],
+                |row| {
+                    Ok(MemoryArticleCacheRecord {
+                        scope_id: row.get(0)?,
+                        fact_fingerprint: row.get(1)?,
+                        article_markdown: row.get(2)?,
+                        generated_at: row.get(3)?,
+                    })
+                },
+            )
+        })
+        .await
+    }
+
+    /// Save the cached AI-written memory article for a scope.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when the embedded store write fails.
+    pub async fn save_memory_article_cache(
+        &self,
+        input: SaveMemoryArticleCache,
+    ) -> Result<(), StoreError> {
+        self.with_connection(|conn| {
+            conn.execute(
+                r#"
+                INSERT INTO memory_article_cache
+                  (scope_id, fact_fingerprint, article_markdown, generated_at, updated_at)
+                VALUES (?1, ?2, ?3, ?4, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+                ON CONFLICT(scope_id) DO UPDATE SET
+                  fact_fingerprint = excluded.fact_fingerprint,
+                  article_markdown = excluded.article_markdown,
+                  generated_at = excluded.generated_at,
+                  updated_at = excluded.updated_at
+                "#,
+                params![
+                    input.scope_id,
+                    input.fact_fingerprint,
+                    input.article_markdown,
+                    input.generated_at,
+                ],
+            )?;
+            Ok(())
+        })
+        .await
     }
 }
 

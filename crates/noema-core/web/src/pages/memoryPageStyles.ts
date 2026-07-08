@@ -480,5 +480,24 @@ export const styles = stylex.create({
     fontFamily: wikiSans,
     fontSize: 13,
     fontWeight: 600
+  },
+  regenerateButton: {
+    marginTop: 8,
+    width: "100%",
+    borderWidth: 1,
+    borderStyle: "solid",
+    borderColor: "#72777d",
+    borderRadius: 2,
+    backgroundColor: "#f8f9fa",
+    padding: "7px 9px",
+    color: "#202122",
+    fontFamily: wikiSans,
+    fontSize: 12,
+    fontWeight: 600,
+    textAlign: "center",
+    ":disabled": {
+      color: "#72777d",
+      borderColor: "#c8ccd1"
+    }
   }
 });

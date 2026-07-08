@@ -806,6 +806,32 @@ type McpTool {
 }
 
 """
+AI-written article describing the local human memory record.
+"""
+type MemoryArticle {
+	"""
+	Article title.
+	"""
+	title: String!
+	"""
+	Article subtitle.
+	"""
+	subtitle: String!
+	"""
+	Markdown body for the article.
+	"""
+	markdown: String!
+	"""
+	Whether a model generated this article.
+	"""
+	isGenerated: Boolean!
+	"""
+	Article generation timestamp.
+	"""
+	generatedAt: String
+}
+
+"""
 Memory graph response for the local human.
 """
 type MemoryGraph {
@@ -813,6 +839,10 @@ type MemoryGraph {
 	Memory service availability for this request.
 	"""
 	status: MemoryServiceStatus!
+	"""
+	AI-written article describing the local human from memory facts.
+	"""
+	article: MemoryArticle!
 	"""
 	Documents and memory entries in the graph.
 	"""
@@ -1138,6 +1168,10 @@ type MutationRoot {
 	Save memory service settings.
 	"""
 	saveMemoryServiceSettings(input: SaveMemoryServiceSettingsInput!): MemorySettings!
+	"""
+	Force regeneration of the AI-written memory article.
+	"""
+	regenerateMemoryArticle: MemoryArticle!
 	"""
 	Check memory service readiness and persist the sanitized result.
 	"""

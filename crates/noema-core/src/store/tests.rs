@@ -296,6 +296,32 @@ async fn sqlite_memory_service_settings_round_trip_external() {
 }
 
 #[tokio::test]
+async fn sqlite_memory_article_cache_round_trip() {
+    let store = test_store().await;
+
+    store
+        .save_memory_article_cache(crate::SaveMemoryArticleCache {
+            scope_id: "human:local".to_string(),
+            fact_fingerprint: "facts-v1".to_string(),
+            article_markdown: "# Kevin\n\nLittle is currently known about Kevin.".to_string(),
+            generated_at: "2026-07-08T20:00:00Z".to_string(),
+        })
+        .await
+        .expect("save article cache");
+
+    let cached = store
+        .memory_article_cache("human:local")
+        .await
+        .expect("cache")
+        .expect("cache row");
+    assert_eq!(cached.fact_fingerprint, "facts-v1");
+    assert_eq!(
+        cached.article_markdown,
+        "# Kevin\n\nLittle is currently known about Kevin."
+    );
+}
+
+#[tokio::test]
 async fn sqlite_conversation_items_page_in_sequence_order() {
     let store = test_store().await;
     store.ensure_default_actors().await.expect("actors");

@@ -26,8 +26,8 @@ use super::{
         GraphqlTrustedIdentitySelector,
     },
     memory::{
-        self, GraphqlMemoryGraph, GraphqlMemoryGraphInput, GraphqlMemoryServiceStatus,
-        GraphqlMemorySettings, GraphqlSaveMemoryServiceSettingsInput,
+        self, GraphqlMemoryArticle, GraphqlMemoryGraph, GraphqlMemoryGraphInput,
+        GraphqlMemoryServiceStatus, GraphqlMemorySettings, GraphqlSaveMemoryServiceSettingsInput,
     },
     onboarding::{
         self, GraphqlOnboardingStatus, GraphqlProviderAuthAttempt,
@@ -620,6 +620,12 @@ impl MutationRoot {
         memory::save_memory_service_settings(state, input).await
     }
 
+    /// Force regeneration of the AI-written memory article.
+    async fn regenerate_memory_article(&self, ctx: &Context<'_>) -> Result<GraphqlMemoryArticle> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        memory::regenerate_memory_article(state).await
+    }
+
     /// Check memory service readiness and persist the sanitized result.
     async fn check_memory_service(&self, ctx: &Context<'_>) -> Result<GraphqlMemoryServiceStatus> {
         let state = ctx.data_unchecked::<GraphqlState>();
@@ -864,6 +870,10 @@ mod tests {
     }
 
     async fn spawn_memory_graph_mnemosyne_server() -> String {
+        spawn_memory_graph_mnemosyne_server_with_limit(25).await
+    }
+
+    async fn spawn_memory_graph_mnemosyne_server_with_limit(limit: u16) -> String {
         use tokio::{
             io::{AsyncReadExt, AsyncWriteExt},
             net::TcpListener,
@@ -884,7 +894,7 @@ mod tests {
             let request_line = lines.next().expect("request line");
             assert_eq!(
                 request_line,
-                "GET /v1/memories?user_id=human%3Alocal&limit=25 HTTP/1.1"
+                format!("GET /v1/memories?user_id=human%3Alocal&limit={limit} HTTP/1.1")
             );
 
             let response = json!({
@@ -1006,6 +1016,11 @@ mod tests {
                     documents {
                       id
                     }
+                    article {
+                      title
+                      markdown
+                      isGenerated
+                    }
                     pageInfo {
                       page
                       limit
@@ -1026,6 +1041,12 @@ mod tests {
             "mnemosyne_unavailable"
         );
         assert_eq!(data["memoryGraph"]["documents"], json!([]));
+        assert_eq!(data["memoryGraph"]["article"]["title"], "Local human");
+        assert_eq!(
+            data["memoryGraph"]["article"]["markdown"],
+            "# Local human\n\nLittle is currently known about Local human."
+        );
+        assert_eq!(data["memoryGraph"]["article"]["isGenerated"], false);
         assert_eq!(data["memoryGraph"]["pageInfo"]["page"], 1);
         assert_eq!(data["memoryGraph"]["pageInfo"]["limit"], 25);
         assert_eq!(data["memoryGraph"]["pageInfo"]["hasMore"], false);
@@ -1072,6 +1093,12 @@ mod tests {
                         memoryRelations
                       }
                     }
+                    article {
+                      title
+                      subtitle
+                      markdown
+                      isGenerated
+                    }
                     pageInfo {
                       page
                       limit
@@ -1088,6 +1115,12 @@ mod tests {
         let data = response.data.into_json().expect("json");
 
         assert_eq!(data["memoryGraph"]["status"]["status"], "READY");
+        assert_eq!(data["memoryGraph"]["article"]["title"], "Local human");
+        assert_eq!(
+            data["memoryGraph"]["article"]["markdown"],
+            "# Local human\n\nLocal human is described by the currently available biographical facts.\n\nKevin prefers local-first tools\n\nKevin likes tools that keep data local"
+        );
+        assert_eq!(data["memoryGraph"]["article"]["isGenerated"], false);
         assert_eq!(
             data["memoryGraph"]["documents"][0]["id"],
             "conversation:abc"
@@ -1115,6 +1148,136 @@ mod tests {
         assert_eq!(data["memoryGraph"]["documents"][1]["title"], "Human memory");
         assert_eq!(data["memoryGraph"]["pageInfo"]["hasMore"], false);
         assert_eq!(data["memoryGraph"]["pageInfo"]["total"], 2);
+    }
+
+    #[tokio::test]
+    async fn memory_graph_lazily_generates_and_caches_article() {
+        let server_base_url = spawn_memory_graph_mnemosyne_server().await;
+        let store = crate::store::tests::test_store().await;
+        store
+            .save_memory_service_settings(crate::SaveMemoryServiceSettings {
+                mode: crate::MemoryServiceMode::External,
+                base_url: Some(server_base_url),
+                port: None,
+                provider_account_id: None,
+                provider_kind: None,
+                model_profile: None,
+                reasoning_effort: None,
+            })
+            .await
+            .expect("settings");
+        let (requests, runtime) = test_autofill_runtime_with_requests(
+            store.clone(),
+            "# Kevin\n\nKevin prefers local-first tools and tools that keep data local.",
+            Some("test-memory-writer"),
+        )
+        .await;
+        let schema = build_schema(GraphqlState::for_tests_with_store_and_runtime(
+            store.clone(),
+            runtime,
+        ));
+
+        let response = schema
+            .execute(async_graphql::Request::new(
+                r#"
+                {
+                  memoryGraph(input: { page: 1, limit: 25 }) {
+                    article {
+                      title
+                      markdown
+                      isGenerated
+                      generatedAt
+                    }
+                  }
+                }
+                "#,
+            ))
+            .await
+            .into_result()
+            .expect("query");
+        let data = response.data.into_json().expect("json");
+
+        assert_eq!(data["memoryGraph"]["article"]["title"], "Kevin");
+        assert_eq!(
+            data["memoryGraph"]["article"]["markdown"],
+            "# Kevin\n\nKevin prefers local-first tools and tools that keep data local."
+        );
+        assert_eq!(data["memoryGraph"]["article"]["isGenerated"], true);
+        assert!(data["memoryGraph"]["article"]["generatedAt"].is_string());
+        {
+            let requests = requests.lock().expect("requests");
+            assert_eq!(requests.len(), 1);
+            assert_eq!(requests[0].model.as_deref(), Some("test-memory-writer"));
+            match &requests[0].input {
+                crate::provider::GenerateInput::Text(prompt) => {
+                    assert!(prompt.contains("Kevin prefers local-first tools"));
+                    assert!(prompt.contains("Return Markdown only"));
+                }
+                other => panic!("unexpected memory article input: {other:?}"),
+            }
+        }
+        let cached = store
+            .memory_article_cache("human:local")
+            .await
+            .expect("article cache")
+            .expect("article cache row");
+        assert_eq!(
+            cached.article_markdown,
+            "# Kevin\n\nKevin prefers local-first tools and tools that keep data local."
+        );
+    }
+
+    #[tokio::test]
+    async fn regenerate_memory_article_forces_generation() {
+        let server_base_url = spawn_memory_graph_mnemosyne_server_with_limit(100).await;
+        let store = crate::store::tests::test_store().await;
+        store
+            .save_memory_service_settings(crate::SaveMemoryServiceSettings {
+                mode: crate::MemoryServiceMode::External,
+                base_url: Some(server_base_url),
+                port: None,
+                provider_account_id: None,
+                provider_kind: None,
+                model_profile: None,
+                reasoning_effort: None,
+            })
+            .await
+            .expect("settings");
+        let (requests, runtime) = test_autofill_runtime_with_requests(
+            store.clone(),
+            "# Kevin\n\nKevin is freshly regenerated.",
+            Some("test-memory-writer"),
+        )
+        .await;
+        let schema = build_schema(GraphqlState::for_tests_with_store_and_runtime(
+            store.clone(),
+            runtime,
+        ));
+
+        let response = schema
+            .execute(async_graphql::Request::new(
+                r#"
+                mutation {
+                  regenerateMemoryArticle {
+                    title
+                    markdown
+                    isGenerated
+                  }
+                }
+                "#,
+            ))
+            .await
+            .into_result()
+            .expect("mutation");
+        let data = response.data.into_json().expect("json");
+
+        assert_eq!(data["regenerateMemoryArticle"]["title"], "Kevin");
+        assert_eq!(
+            data["regenerateMemoryArticle"]["markdown"],
+            "# Kevin\n\nKevin is freshly regenerated."
+        );
+        assert_eq!(data["regenerateMemoryArticle"]["isGenerated"], true);
+        assert_eq!(requests.lock().expect("requests").len(), 1);
     }
 
     #[tokio::test]

@@ -353,6 +353,13 @@ export const MemoryGraphDocument = gql`
         lastErrorCode
         lastErrorMessage
       }
+      article {
+        title
+        subtitle
+        markdown
+        isGenerated
+        generatedAt
+      }
       documents {
         id
         title
@@ -385,6 +392,18 @@ export const MemoryGraphDocument = gql`
         hasMore
         total
       }
+    }
+  }
+`;
+
+export const RegenerateMemoryArticleDocument = gql`
+  mutation RegenerateMemoryArticle {
+    regenerateMemoryArticle {
+      title
+      subtitle
+      markdown
+      isGenerated
+      generatedAt
     }
   }
 `;

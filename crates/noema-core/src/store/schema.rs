@@ -263,4 +263,13 @@ INSERT INTO memory_service_settings (settings_id, mode, base_url, port)
 VALUES ('default', 'managed', NULL, NULL)
 ON CONFLICT(settings_id) DO NOTHING;
 
+CREATE TABLE IF NOT EXISTS memory_article_cache (
+  scope_id TEXT PRIMARY KEY NOT NULL,
+  fact_fingerprint TEXT NOT NULL,
+  article_markdown TEXT NOT NULL,
+  generated_at TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
 "#;

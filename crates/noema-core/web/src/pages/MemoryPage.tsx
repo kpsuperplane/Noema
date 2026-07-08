@@ -1,15 +1,17 @@
-import { useQuery } from "@apollo/client/react";
+import { useMutation, useQuery } from "@apollo/client/react";
 import * as stylex from "@stylexjs/stylex";
 import { useState } from "react";
 import {
   MemoryGraphDocument as MemoryGraphQueryDocument,
+  RegenerateMemoryArticleDocument,
   type MemoryGraphQuery,
-  type MemoryGraphQueryVariables
+  type MemoryGraphQueryVariables,
+  type RegenerateMemoryArticleMutation,
+  type RegenerateMemoryArticleMutationVariables
 } from "@/generated/graphql";
 import {
   buildMemoryArticleModel,
   formatCount,
-  type MemoryArticleEntry,
   type MemoryArticleModel
 } from "@/pages/memoryPageModel";
 import { styles } from "@/pages/memoryPageStyles";
@@ -18,7 +20,7 @@ const PAGE_SIZE = 25;
 
 export function MemoryPage() {
   const [loadingMore, setLoadingMore] = useState(false);
-  const { data, error, fetchMore, loading } = useQuery<
+  const { data, error, fetchMore, loading, refetch } = useQuery<
     MemoryGraphQuery,
     MemoryGraphQueryVariables
   >(MemoryGraphQueryDocument, {
@@ -33,6 +35,10 @@ export function MemoryPage() {
     (graph?.status.status && graph.status.status !== "READY"
       ? new Error(graph.status.lastErrorMessage ?? "Memory service is unavailable.")
       : null);
+  const [regenerateMemoryArticle, { loading: regeneratingArticle }] = useMutation<
+    RegenerateMemoryArticleMutation,
+    RegenerateMemoryArticleMutationVariables
+  >(RegenerateMemoryArticleDocument);
 
   const loadMore = async () => {
     if (!graph?.pageInfo.hasMore || loadingMore) {
@@ -84,7 +90,13 @@ export function MemoryPage() {
             </h1>
             <div {...stylex.props(styles.subtitle)}>{article.subtitle}</div>
 
-            <MemoryInfobox article={article} />
+            <MemoryInfobox
+              article={article}
+              regeneratingArticle={regeneratingArticle}
+              onRegenerate={() => {
+                void regenerateMemoryArticle().then(() => refetch());
+              }}
+            />
 
             {serviceError ? (
               <div role="status" {...stylex.props(styles.statusBlock, styles.errorBlock)}>
@@ -110,11 +122,13 @@ export function MemoryPage() {
             <nav {...stylex.props(styles.contents)} aria-label="Memory article contents">
               <div {...stylex.props(styles.contentsTitle)}>Contents</div>
               <ol {...stylex.props(styles.contentsList)}>
-                <li>
-                  <a {...stylex.props(styles.link)} href="#biography">
-                    Biography
-                  </a>
-                </li>
+                {article.sections.map((section) => (
+                  <li key={section.id}>
+                    <a {...stylex.props(styles.link)} href={`#${section.id}`}>
+                      {section.title}
+                    </a>
+                  </li>
+                ))}
                 <li>
                   <a {...stylex.props(styles.link)} href="#references">
                     References
@@ -126,12 +140,12 @@ export function MemoryPage() {
             {article.sections.map((section) => (
               <section key={section.id} id={section.id} {...stylex.props(styles.articleSection)}>
                 <h2 {...stylex.props(styles.sectionTitle)}>{section.title}</h2>
-                {section.entries.length > 0 ? (
-                  <ul {...stylex.props(styles.entryList)}>
-                    {section.entries.map((entry) => (
-                      <MemoryEntryItem key={entry.id} entry={entry} />
-                    ))}
-                  </ul>
+                {section.paragraphs.length > 0 ? (
+                  section.paragraphs.map((paragraph) => (
+                    <p key={paragraph} {...stylex.props(styles.bodyText)}>
+                      {paragraph}
+                    </p>
+                  ))
                 ) : (
                   <p {...stylex.props(styles.bodyText)}>
                     No durable memories have been returned by Mnemosyne yet.
@@ -227,7 +241,15 @@ function MemoryFigure({ article }: { article: MemoryArticleModel }) {
   );
 }
 
-function MemoryInfobox({ article }: { article: MemoryArticleModel }) {
+function MemoryInfobox({
+  article,
+  regeneratingArticle,
+  onRegenerate
+}: {
+  article: MemoryArticleModel;
+  regeneratingArticle: boolean;
+  onRegenerate: () => void;
+}) {
   return (
     <aside {...stylex.props(styles.infobox)}>
       <table {...stylex.props(styles.infoTable)}>
@@ -259,6 +281,17 @@ function MemoryInfobox({ article }: { article: MemoryArticleModel }) {
           <span>Local memory record</span>
         </div>
       </div>
+      <div {...stylex.props(styles.sidebox)}>
+        <strong>Article tools</strong>
+        <button
+          type="button"
+          {...stylex.props(styles.regenerateButton)}
+          disabled={regeneratingArticle}
+          onClick={onRegenerate}
+        >
+          {regeneratingArticle ? "Regenerating..." : "Regenerate article"}
+        </button>
+      </div>
     </aside>
   );
 }
@@ -269,13 +302,5 @@ function InfoRow({ label, value }: { label: string; value: string }) {
       <th {...stylex.props(styles.boxKey)}>{label}</th>
       <td {...stylex.props(styles.boxValue)}>{value}</td>
     </tr>
-  );
-}
-
-function MemoryEntryItem({ entry }: { entry: MemoryArticleEntry }) {
-  return (
-    <li {...stylex.props(styles.entryItem)}>
-      <p {...stylex.props(styles.entryText)}>{entry.displayText}</p>
-    </li>
   );
 }
