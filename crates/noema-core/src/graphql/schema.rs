@@ -922,7 +922,6 @@ mod tests {
                     "updatedAt": "2026-07-08T00:01:00.000Z",
                     "memoryEntries": [{
                         "id": "mem_1",
-                        "documentId": "doc_1",
                         "content": "Kevin prefers local-first tools",
                         "summary": "Local-first preference",
                         "title": "Preference",
@@ -1102,6 +1101,7 @@ mod tests {
                       title
                       memoryEntries {
                         id
+                        documentId
                         content
                         spaceContainerTag
                       }
@@ -1126,6 +1126,10 @@ mod tests {
         assert_eq!(
             data["memoryGraph"]["documents"][0]["memoryEntries"][0]["id"],
             "mem_1"
+        );
+        assert_eq!(
+            data["memoryGraph"]["documents"][0]["memoryEntries"][0]["documentId"],
+            "doc_1"
         );
         assert_eq!(
             data["memoryGraph"]["documents"][0]["memoryEntries"][0]["spaceContainerTag"],

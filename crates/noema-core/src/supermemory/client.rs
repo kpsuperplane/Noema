@@ -263,7 +263,8 @@ pub struct SupermemoryGraphMemoryEntry {
     /// Supermemory memory entry id.
     pub id: String,
     /// Source document id.
-    pub document_id: String,
+    #[serde(default)]
+    pub document_id: Option<String>,
     /// Memory content.
     #[serde(default, alias = "memory")]
     pub content: Option<String>,

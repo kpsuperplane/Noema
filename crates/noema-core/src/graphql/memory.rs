@@ -425,6 +425,7 @@ fn memory_graph_error_status(
 
 impl From<crate::SupermemoryGraphDocument> for GraphqlMemoryGraphDocument {
     fn from(document: crate::SupermemoryGraphDocument) -> Self {
+        let document_id = document.id.clone();
         Self {
             id: document.id,
             custom_id: document.custom_id,
@@ -441,17 +442,19 @@ impl From<crate::SupermemoryGraphDocument> for GraphqlMemoryGraphDocument {
             memory_entries: document
                 .memory_entries
                 .into_iter()
-                .map(GraphqlMemoryGraphMemoryEntry::from)
+                .map(|entry| GraphqlMemoryGraphMemoryEntry::from_entry(entry, &document_id))
                 .collect(),
         }
     }
 }
 
-impl From<crate::SupermemoryGraphMemoryEntry> for GraphqlMemoryGraphMemoryEntry {
-    fn from(entry: crate::SupermemoryGraphMemoryEntry) -> Self {
+impl GraphqlMemoryGraphMemoryEntry {
+    fn from_entry(entry: crate::SupermemoryGraphMemoryEntry, parent_document_id: &str) -> Self {
         Self {
             id: entry.id,
-            document_id: entry.document_id,
+            document_id: entry
+                .document_id
+                .unwrap_or_else(|| parent_document_id.to_string()),
             content: entry.content,
             summary: entry.summary,
             title: entry.title,
