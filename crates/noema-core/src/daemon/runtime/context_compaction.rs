@@ -304,6 +304,7 @@ fn parse_compaction_summary(response: GenerateResponse) -> Result<String, Provid
         .into_iter()
         .filter_map(|item| match item {
             GenerateResponseItem::Text { text, .. } => Some(text),
+            GenerateResponseItem::MultipleChoice { .. } => None,
             GenerateResponseItem::Structured { .. } => None,
         })
         .collect::<Vec<_>>()

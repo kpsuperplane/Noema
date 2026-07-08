@@ -215,6 +215,7 @@ impl CodexRuntimeActor {
                     },
                 );
             }
+            GenerateResponseItem::MultipleChoice { .. } => {}
         }
         Ok(())
     }

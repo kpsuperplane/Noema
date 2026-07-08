@@ -3,6 +3,7 @@
 use super::tools::{NoemaToolChoice, NoemaToolSpec, ProviderToolCapabilities};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::HashSet;
 use std::future::Future;
 use thiserror::Error;
 
@@ -484,6 +485,7 @@ impl GenerateResponse {
             .iter()
             .filter_map(|item| match item {
                 GenerateResponseItem::Text { text, .. } => Some(text.as_str()),
+                GenerateResponseItem::MultipleChoice { .. } => None,
                 GenerateResponseItem::Structured { .. } => None,
             })
             .collect()
@@ -540,9 +542,32 @@ impl AssistantTextPhase {
                 Self::Commentary
             }
             GenerateResponseItem::Text { phase: None, .. } => Self::FinalAnswer,
+            GenerateResponseItem::MultipleChoice {
+                phase: Some(phase), ..
+            } => *phase,
+            GenerateResponseItem::MultipleChoice { phase: None, .. } => Self::FinalAnswer,
             GenerateResponseItem::Structured { .. } => Self::FinalAnswer,
         }
     }
+}
+
+/// Whether a multiple-choice prompt expects one option or many.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MultipleChoiceSelectionMode {
+    /// One option answers the prompt immediately.
+    PickOne,
+    /// Several options may be selected before submitting.
+    PickMany,
+}
+
+/// One option in an assistant multiple-choice prompt.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MultipleChoiceOption {
+    /// Stable semantic option id.
+    pub id: String,
+    /// Human-visible option label.
+    pub label: String,
 }
 
 /// One user-visible response item.
@@ -556,6 +581,18 @@ pub enum GenerateResponseItem {
         phase: Option<AssistantTextPhase>,
         /// Text to show in the transcript.
         text: String,
+    },
+    /// Human-visible multiple-choice prompt.
+    MultipleChoice {
+        /// Whether the prompt is mid-turn commentary or a final answer.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        phase: Option<AssistantTextPhase>,
+        /// Question or instruction to show above the options.
+        prompt: String,
+        /// Selection behavior for the options.
+        selection_mode: MultipleChoiceSelectionMode,
+        /// Ordered prompt options.
+        options: Vec<MultipleChoiceOption>,
     },
     /// Future rich structured output payload.
     Structured {
@@ -795,6 +832,7 @@ impl ParsedNoemaResponse {
             .iter()
             .filter_map(|item| match item {
                 GenerateResponseItem::Text { text, .. } => Some(text.as_str()),
+                GenerateResponseItem::MultipleChoice { .. } => None,
                 GenerateResponseItem::Structured { .. } => None,
             })
             .collect()
@@ -942,6 +980,7 @@ struct NoemaResponseObject {
 }
 
 fn validate_required_noema_response(response: &ParsedNoemaResponse) -> Result<(), ProviderError> {
+    validate_response_items(&response.responses)?;
     match response.response_status {
         GenerateResponseStatus::Final => {
             if !response.tool_calls.is_empty() {
@@ -972,15 +1011,70 @@ fn validate_required_noema_response(response: &ParsedNoemaResponse) -> Result<()
                         .to_string(),
                 });
             }
+            if response.responses.iter().any(is_multiple_choice_response) {
+                return Err(ProviderError::MalformedResponse {
+                    message: "Noema needs_tools response cannot include multiple_choice items"
+                        .to_string(),
+                });
+            }
         }
     }
 
     Ok(())
 }
 
+fn validate_response_items(responses: &[GenerateResponseItem]) -> Result<(), ProviderError> {
+    for item in responses {
+        if let GenerateResponseItem::MultipleChoice {
+            prompt, options, ..
+        } = item
+        {
+            validate_multiple_choice_response(prompt, options)?;
+        }
+    }
+    Ok(())
+}
+
+fn validate_multiple_choice_response(
+    prompt: &str,
+    options: &[MultipleChoiceOption],
+) -> Result<(), ProviderError> {
+    if prompt.trim().is_empty() {
+        return Err(ProviderError::MalformedResponse {
+            message: "Noema multiple_choice response prompt cannot be empty".to_string(),
+        });
+    }
+    if options.len() < 2 {
+        return Err(ProviderError::MalformedResponse {
+            message: "Noema multiple_choice response must include at least two options".to_string(),
+        });
+    }
+
+    let mut ids = HashSet::with_capacity(options.len());
+    for option in options {
+        if option.id.trim().is_empty() {
+            return Err(ProviderError::MalformedResponse {
+                message: "Noema multiple_choice response option id cannot be empty".to_string(),
+            });
+        }
+        if !ids.insert(option.id.as_str()) {
+            return Err(ProviderError::MalformedResponse {
+                message: "Noema multiple_choice response option ids must be unique".to_string(),
+            });
+        }
+        if option.label.trim().is_empty() {
+            return Err(ProviderError::MalformedResponse {
+                message: "Noema multiple_choice response option label cannot be empty".to_string(),
+            });
+        }
+    }
+    Ok(())
+}
+
 fn has_non_empty_response_item(responses: &[GenerateResponseItem]) -> bool {
     responses.iter().any(|item| match item {
         GenerateResponseItem::Text { text, .. } => !text.trim().is_empty(),
+        GenerateResponseItem::MultipleChoice { prompt, .. } => !prompt.trim().is_empty(),
         GenerateResponseItem::Structured { .. } => true,
     })
 }
@@ -1003,6 +1097,10 @@ fn is_final_answer_text_response(item: &GenerateResponseItem) -> bool {
             ..
         }
     )
+}
+
+fn is_multiple_choice_response(item: &GenerateResponseItem) -> bool {
+    matches!(item, GenerateResponseItem::MultipleChoice { .. })
 }
 
 fn embedded_noema_response(
@@ -1425,6 +1523,80 @@ mod tests {
             error,
             ProviderError::MalformedResponse { message }
                 if message == "Noema final response cannot include tool_calls"
+        ));
+    }
+
+    #[test]
+    fn required_noema_response_accepts_multiple_choice_response() {
+        let response = required_noema_response_from_text(
+            r#"{"response_status":"final","responses":[{"kind":"multiple_choice","phase":"final_answer","prompt":"Pick one","selection_mode":"pick_one","options":[{"id":"a","label":"A"},{"id":"b","label":"B"}]}],"tool_calls":[]}"#
+                .to_string(),
+        )
+        .expect("multiple choice response");
+
+        assert_eq!(response.response_status, GenerateResponseStatus::Final);
+        assert_eq!(
+            response.responses,
+            vec![GenerateResponseItem::MultipleChoice {
+                phase: Some(AssistantTextPhase::FinalAnswer),
+                prompt: "Pick one".to_string(),
+                selection_mode: MultipleChoiceSelectionMode::PickOne,
+                options: vec![
+                    MultipleChoiceOption {
+                        id: "a".to_string(),
+                        label: "A".to_string(),
+                    },
+                    MultipleChoiceOption {
+                        id: "b".to_string(),
+                        label: "B".to_string(),
+                    },
+                ],
+            }]
+        );
+    }
+
+    #[test]
+    fn required_noema_response_rejects_duplicate_multiple_choice_option_ids() {
+        let error = required_noema_response_from_text(
+            r#"{"response_status":"final","responses":[{"kind":"multiple_choice","phase":"final_answer","prompt":"Pick one","selection_mode":"pick_one","options":[{"id":"a","label":"A"},{"id":"a","label":"Also A"}]}],"tool_calls":[]}"#
+                .to_string(),
+        )
+        .unwrap_err();
+
+        assert!(matches!(
+            error,
+            ProviderError::MalformedResponse { message }
+                if message == "Noema multiple_choice response option ids must be unique"
+        ));
+    }
+
+    #[test]
+    fn required_noema_response_rejects_multiple_choice_with_too_few_options() {
+        let error = required_noema_response_from_text(
+            r#"{"response_status":"final","responses":[{"kind":"multiple_choice","phase":"final_answer","prompt":"Pick one","selection_mode":"pick_one","options":[{"id":"a","label":"A"}]}],"tool_calls":[]}"#
+                .to_string(),
+        )
+        .unwrap_err();
+
+        assert!(matches!(
+            error,
+            ProviderError::MalformedResponse { message }
+                if message == "Noema multiple_choice response must include at least two options"
+        ));
+    }
+
+    #[test]
+    fn required_noema_response_rejects_multiple_choice_in_needs_tools_response() {
+        let error = required_noema_response_from_text(
+            r#"{"response_status":"needs_tools","responses":[{"kind":"multiple_choice","phase":"commentary","prompt":"Pick one","selection_mode":"pick_one","options":[{"id":"a","label":"A"},{"id":"b","label":"B"}]}],"tool_calls":[{"id":"call_1","name":"search_memory","payload":{}}]}"#
+                .to_string(),
+        )
+        .unwrap_err();
+
+        assert!(matches!(
+            error,
+            ProviderError::MalformedResponse { message }
+                if message == "Noema needs_tools response cannot include multiple_choice items"
         ));
     }
 

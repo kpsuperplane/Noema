@@ -270,6 +270,40 @@ pub(super) fn noema_response_text_format() -> Value {
                                     "properties": {
                                         "kind": {
                                             "type": "string",
+                                            "enum": ["multiple_choice"]
+                                        },
+                                        "phase": {
+                                            "type": "string",
+                                            "enum": ["commentary", "final_answer"]
+                                        },
+                                        "prompt": {
+                                            "type": "string"
+                                        },
+                                        "selection_mode": {
+                                            "type": "string",
+                                            "enum": ["pick_one", "pick_many"]
+                                        },
+                                        "options": {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "object",
+                                                "properties": {
+                                                    "id": {"type": "string"},
+                                                    "label": {"type": "string"}
+                                                },
+                                                "required": ["id", "label"],
+                                                "additionalProperties": false
+                                            }
+                                        }
+                                    },
+                                    "required": ["kind", "phase", "prompt", "selection_mode", "options"],
+                                    "additionalProperties": false
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "kind": {
+                                            "type": "string",
                                             "enum": ["structured"]
                                         },
                                         "schema": {
@@ -1113,6 +1147,30 @@ mod tests {
             serde_json::json!(["kind", "phase", "text"])
         );
         assert_eq!(text_schema["additionalProperties"], false);
+    }
+
+    #[test]
+    fn noema_response_text_format_includes_multiple_choice_response() {
+        let value = noema_response_text_format();
+        let one_of = value["format"]["schema"]["properties"]["responses"]["items"]["oneOf"]
+            .as_array()
+            .expect("responses items oneOf");
+        let multiple_choice_schema = one_of
+            .iter()
+            .find(|schema| {
+                schema["properties"]["kind"]["enum"] == serde_json::json!(["multiple_choice"])
+            })
+            .expect("multiple choice response schema");
+
+        assert_eq!(
+            multiple_choice_schema["required"],
+            serde_json::json!(["kind", "phase", "prompt", "selection_mode", "options"])
+        );
+        assert_eq!(
+            multiple_choice_schema["properties"]["selection_mode"]["enum"],
+            serde_json::json!(["pick_one", "pick_many"])
+        );
+        assert_eq!(multiple_choice_schema["additionalProperties"], false);
     }
 
     #[test]

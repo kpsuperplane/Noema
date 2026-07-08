@@ -100,6 +100,12 @@ Example pre-tool text response: {{"kind":"text","phase":"commentary","text":"Che
 Use response_status "needs_tools" whenever legacy JSON tool_calls is non-empty. responses may be empty only in a needs_tools response with at least one legacy JSON tool call.
 Use response_status "final" only when tool_calls is empty and responses contains at least one text response.
 
+Multiple-choice responses:
+- Use a response item with kind "multiple_choice" when the user should choose from explicit options.
+- Use selection_mode "pick_one" when one click should answer; use selection_mode "pick_many" when the user may choose several and submit Done.
+- Give each option a stable language-neutral id and a short label.
+- Only include multiple_choice in response_status "final"; do not include it in needs_tools responses.
+
 Rules:
 - Always include responses, tool_calls, and response_status.
 - Include at least one text response for final answers.
@@ -431,6 +437,18 @@ mod tests {
             prompt.contains("Casual option-picking example:"),
             "prompt should show multiple response items for casual choices"
         );
+    }
+
+    #[test]
+    fn structured_turn_prompt_explains_multiple_choice_response_items() {
+        let prompt =
+            build_structured_turn_system_prompt(&test_agent_identity(), "none", native_tools());
+
+        assert!(prompt.contains(r#"kind "multiple_choice""#));
+        assert!(prompt.contains(r#"selection_mode "pick_one""#));
+        assert!(prompt.contains(r#"selection_mode "pick_many""#));
+        assert!(prompt.contains("Only include multiple_choice in response_status \"final\""));
+        assert!(prompt.contains("stable language-neutral id"));
     }
 
     #[test]

@@ -73,6 +73,7 @@ impl CodexRuntimeActor {
             .iter()
             .filter_map(|item| match item {
                 GenerateResponseItem::Text { text, .. } => Some(text.as_str()),
+                GenerateResponseItem::MultipleChoice { .. } => None,
                 GenerateResponseItem::Structured { .. } => None,
             })
             .collect::<Vec<_>>()
