@@ -139,11 +139,11 @@ export type MemoryServiceStatusKind =
 
 /** Memory storage readiness shown by clients. */
 export type MemoryStorageStatus =
-  /** The canonical memory store is initializing. */
+  /** The local memory service is initializing. */
   | 'INITIALIZING'
-  /** The canonical memory store is ready. */
+  /** The local memory service is ready. */
   | 'READY'
-  /** Graph memory writes and retrieval are not available yet. */
+  /** Memory service writes and retrieval are not available yet. */
   | 'UNAVAILABLE';
 
 /** Onboarding step status exposed through GraphQL. */

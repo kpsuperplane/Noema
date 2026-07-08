@@ -14,7 +14,6 @@ pub(in crate::daemon) struct CodexRuntimeActor {
     pub(in crate::daemon) system_errors: SystemErrorLogger,
     pub(in crate::daemon) search_provider: crate::search::types::SearchRuntimeProvider,
     pub(in crate::daemon) web_fetch_provider: crate::web_fetch::types::WebFetchRuntimeProvider,
-    pub(in crate::daemon) supermemory_client: Option<crate::SupermemoryClient>,
     pub(in crate::daemon) conversations: HashMap<String, ActiveConversation>,
 }
 
@@ -25,9 +24,6 @@ impl CodexRuntimeActor {
         store: NoemaStore,
         system_errors: SystemErrorLogger,
     ) -> Result<Self, DaemonError> {
-        let memory_settings = store.memory_service_settings().await.ok();
-        let supermemory_client =
-            memory_settings.map(|settings| crate::SupermemoryClient::new(settings.base_url, None));
         Ok(Self {
             default_provider_kind,
             providers,
@@ -35,7 +31,6 @@ impl CodexRuntimeActor {
             system_errors,
             search_provider: crate::search::types::SearchRuntimeProvider::default(),
             web_fetch_provider: crate::web_fetch::types::WebFetchRuntimeProvider::default(),
-            supermemory_client,
             conversations: HashMap::new(),
         })
     }

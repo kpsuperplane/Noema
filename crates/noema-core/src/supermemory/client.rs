@@ -3,6 +3,8 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+const SUPERMEMORY_REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
+
 /// Supermemory HTTP client.
 #[derive(Debug, Clone)]
 pub struct SupermemoryClient {
@@ -15,10 +17,14 @@ impl SupermemoryClient {
     /// Create a Supermemory client.
     #[must_use]
     pub fn new(base_url: String, api_key: Option<String>) -> Self {
+        let http = reqwest::Client::builder()
+            .timeout(SUPERMEMORY_REQUEST_TIMEOUT)
+            .build()
+            .expect("Supermemory HTTP client timeout configuration must be valid");
         Self {
             base_url: base_url.trim_end_matches('/').to_string(),
             api_key,
-            http: reqwest::Client::new(),
+            http,
         }
     }
 
@@ -153,4 +159,34 @@ pub enum SupermemoryClientError {
     /// Supermemory returned a non-success HTTP status.
     #[error("supermemory returned HTTP status {0}")]
     Status(u16),
+}
+
+impl SupermemoryClientError {
+    /// Stable sanitized error code suitable for model-visible tool results.
+    #[must_use]
+    pub fn sanitized_code(&self) -> &'static str {
+        match self {
+            Self::Request(error) if error.is_timeout() => "timeout",
+            Self::Request(error) if error.is_decode() => "decode_failed",
+            Self::Request(_) => "request_failed",
+            Self::Status(status) if *status == 401 || *status == 403 => "auth_error",
+            Self::Status(_) => "http_error",
+        }
+    }
+
+    /// Stable sanitized error message suitable for model-visible tool results.
+    #[must_use]
+    pub fn sanitized_message(&self) -> &'static str {
+        match self {
+            Self::Request(error) if error.is_timeout() => "memory service request timed out",
+            Self::Request(error) if error.is_decode() => {
+                "memory service returned an unreadable response"
+            }
+            Self::Request(_) => "memory service request failed",
+            Self::Status(status) if *status == 401 || *status == 403 => {
+                "memory service rejected authentication"
+            }
+            Self::Status(_) => "memory service returned an unsuccessful status",
+        }
+    }
 }

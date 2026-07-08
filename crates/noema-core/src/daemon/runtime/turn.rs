@@ -1,14 +1,14 @@
 use crate::{
     ActorRef, ConversationItemKind, ConversationItemStatus, NewConversationItem,
-    NewConversationTurn, PersistedAgentStatus, ReplayMode, SYSTEM_ERROR_RUNTIME_INVARIANT,
-    SystemErrorEvent,
+    NewConversationTurn, NewMemoryIngestJob, PersistedAgentStatus, ReplayMode,
+    SYSTEM_ERROR_RUNTIME_INVARIANT, SystemErrorEvent,
     provider::{
         GenerateInput, GenerateOptions, GenerateRequest, GenerateResponse, GenerateResponseStatus,
         GenerateStreamEvent, GenerateToolCall, PromptCacheRetention, ProviderError,
         ProviderToolCapabilities, TokenUsage,
     },
 };
-use serde_json::json;
+use serde_json::{Value, json};
 use tokio::sync::mpsc;
 
 use super::{
@@ -66,6 +66,17 @@ pub(super) fn mcp_auth_status_label(status: crate::McpServerAuthStatus) -> &'sta
         crate::McpServerAuthStatus::Authenticated => "authenticated",
         crate::McpServerAuthStatus::Unavailable => "unavailable",
     }
+}
+
+fn memory_ingest_item_payload(item: crate::ConversationItemRecord) -> Value {
+    json!({
+        "item_id": item.item_id,
+        "sequence_index": item.sequence_index,
+        "kind": item.kind.as_str(),
+        "status": item.status.as_str(),
+        "content_text": item.content_text,
+        "payload": item.payload_json,
+    })
 }
 
 impl CodexRuntimeActor {
@@ -255,6 +266,8 @@ impl CodexRuntimeActor {
             ));
         }
         self.store.complete_conversation_turn(&turn.turn_id).await?;
+        self.enqueue_completed_turn_memory_ingest(&turn.conversation_id, &turn.turn_id)
+            .await;
         if let Some(conversation) = self.conversations.get_mut(conversation_id) {
             conversation.next_turn_index = conversation.next_turn_index.saturating_add(1);
         }
@@ -1305,6 +1318,8 @@ impl CodexRuntimeActor {
         }
 
         self.store.complete_conversation_turn(&turn.turn_id).await?;
+        self.enqueue_completed_turn_memory_ingest(&turn.conversation_id, &turn.turn_id)
+            .await;
         timing.mark(
             "runtime_turn_persistence_completed",
             json!({
@@ -1324,6 +1339,101 @@ impl CodexRuntimeActor {
         }
 
         Ok(())
+    }
+
+    async fn enqueue_completed_turn_memory_ingest(&self, conversation_id: &str, turn_id: &str) {
+        let settings = match self.store.memory_service_settings().await {
+            Ok(settings) => settings,
+            Err(error) => {
+                self.log_runtime_invariant(
+                    "memory ingest settings could not be read",
+                    json!({
+                        "conversation_id": conversation_id,
+                        "turn_id": turn_id,
+                    }),
+                    json!({"error": error.to_string()}),
+                );
+                return;
+            }
+        };
+        let items = match self
+            .store
+            .list_conversation_items(conversation_id, ReplayMode::Visible)
+            .await
+        {
+            Ok(items) => items
+                .into_iter()
+                .filter(|item| item.turn_id.as_deref() == Some(turn_id))
+                .collect::<Vec<_>>(),
+            Err(error) => {
+                self.log_runtime_invariant(
+                    "memory ingest transcript could not be read",
+                    json!({
+                        "conversation_id": conversation_id,
+                        "turn_id": turn_id,
+                    }),
+                    json!({"error": error.to_string()}),
+                );
+                return;
+            }
+        };
+        if items.is_empty() {
+            return;
+        }
+        let job_id = format!("memory_ingest_job:{turn_id}");
+        let supermemory_conversation_id = format!("conversation:{conversation_id}");
+        let job = match self
+            .store
+            .insert_memory_ingest_job(NewMemoryIngestJob {
+                job_id,
+                conversation_id: conversation_id.to_string(),
+                turn_id: turn_id.to_string(),
+                supermemory_conversation_id: supermemory_conversation_id.clone(),
+            })
+            .await
+        {
+            Ok(job) => job,
+            Err(error) => {
+                self.log_runtime_invariant(
+                    "memory ingest job could not be queued",
+                    json!({
+                        "conversation_id": conversation_id,
+                        "turn_id": turn_id,
+                    }),
+                    json!({"error": error.to_string()}),
+                );
+                return;
+            }
+        };
+        let store = self.store.clone();
+        let client = crate::SupermemoryClient::new(settings.base_url, None);
+        let request = crate::SupermemoryConversationIngestRequest {
+            conversation_id: conversation_id.to_string(),
+            container_tag: supermemory_conversation_id,
+            payload: json!({
+                "turn_id": turn_id,
+                "items": items
+                    .into_iter()
+                    .map(memory_ingest_item_payload)
+                    .collect::<Vec<_>>(),
+            }),
+        };
+        tokio::spawn(async move {
+            match client.ingest_conversation(request).await {
+                Ok(()) => {
+                    let _ = store.mark_memory_ingest_job_submitted(&job.job_id).await;
+                }
+                Err(error) => {
+                    let _ = store
+                        .mark_memory_ingest_job_failed(
+                            &job.job_id,
+                            error.sanitized_code(),
+                            error.sanitized_message(),
+                        )
+                        .await;
+                }
+            }
+        });
     }
 
     pub(in crate::daemon) async fn update_conversation_agent_status(

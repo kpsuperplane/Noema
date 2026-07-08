@@ -1,8 +1,13 @@
 import * as stylex from "@stylexjs/stylex";
+import { useState } from "react";
 import { ModelPreferenceSelect } from "./ModelPreferenceSelect";
 import { selectedPreferenceWarning } from "./modelPreferenceMetadata";
 import { memoryStatusLabel } from "./memorySettingsModel";
-import type { MemorySettingsQuery, SaveMemoryServiceSettingsInput } from "@/generated/graphql";
+import type {
+  MemoryServiceMode,
+  MemorySettingsQuery,
+  SaveMemoryServiceSettingsInput
+} from "@/generated/graphql";
 import type { ModelPreferenceSaveInput } from "./modelPreferenceTypes";
 
 type MemorySettings = MemorySettingsQuery["memorySettings"];
@@ -43,10 +48,46 @@ export function MemorySettingsPaneContent({
     );
   }
 
+  return (
+    <LoadedMemorySettingsPaneContent
+      key={`${settings.mode}:${settings.baseUrl}:${settings.port ?? ""}`}
+      settings={settings}
+      saving={saving}
+      checking={checking}
+      saveError={saveError}
+      onSave={onSave}
+      onCheck={onCheck}
+    />
+  );
+}
+
+function LoadedMemorySettingsPaneContent({
+  settings,
+  saving,
+  checking,
+  saveError,
+  onSave,
+  onCheck
+}: {
+  settings: MemorySettings;
+  saving: boolean;
+  checking: boolean;
+  saveError: string | null;
+  onSave: (input: SaveMemoryServiceSettingsInput) => Promise<unknown>;
+  onCheck: () => Promise<unknown>;
+}) {
   const warning = selectedPreferenceWarning(
     settings.modelPreference ?? null,
     settings.modelOptions
   );
+  const [mode, setMode] = useState<MemoryServiceMode>(settings.mode);
+  const [baseUrl, setBaseUrl] = useState(settings.baseUrl);
+  const [port, setPort] = useState(settings.port?.toString() ?? "");
+
+  const serviceSettingsChanged =
+    mode !== settings.mode ||
+    baseUrl.trim() !== settings.baseUrl ||
+    normalizedPort(port) !== (settings.port ?? null);
 
   return (
     <section {...stylex.props(styles.card)} aria-labelledby="memory-settings-title">
@@ -70,9 +111,6 @@ export function MemorySettingsPaneContent({
       </div>
 
       <dl {...stylex.props(styles.definitionList)}>
-        <MetadataRow label="Mode" value={memoryModeLabel(settings.mode)} />
-        <MetadataRow label="Base URL" value={settings.baseUrl} />
-        {settings.port ? <MetadataRow label="Port" value={String(settings.port)} /> : null}
         {settings.status.checkedAt ? (
           <MetadataRow label="Last checked" value={settings.status.checkedAt} />
         ) : null}
@@ -80,6 +118,63 @@ export function MemorySettingsPaneContent({
           <MetadataRow label="Last error" value={settings.status.lastErrorCode} />
         ) : null}
       </dl>
+
+      <form
+        {...stylex.props(styles.serviceForm)}
+        onSubmit={(event) => {
+          event.preventDefault();
+          void onSave(
+            memorySaveInputFromServiceSettings(settings, {
+              mode,
+              baseUrl,
+              port
+            })
+          );
+        }}
+      >
+        <label {...stylex.props(styles.field)}>
+          <span {...stylex.props(styles.fieldLabel)}>Mode</span>
+          <select
+            {...stylex.props(styles.input)}
+            value={mode}
+            disabled={saving}
+            onChange={(event) => setMode(event.currentTarget.value as MemoryServiceMode)}
+          >
+            <option value="MANAGED">Managed local</option>
+            <option value="EXTERNAL">External service</option>
+          </select>
+        </label>
+        <label {...stylex.props(styles.field)}>
+          <span {...stylex.props(styles.fieldLabel)}>Base URL</span>
+          <input
+            {...stylex.props(styles.input)}
+            type="url"
+            value={baseUrl}
+            disabled={saving}
+            onChange={(event) => setBaseUrl(event.currentTarget.value)}
+          />
+        </label>
+        <label {...stylex.props(styles.field)}>
+          <span {...stylex.props(styles.fieldLabel)}>Port</span>
+          <input
+            {...stylex.props(styles.input)}
+            type="number"
+            min={1}
+            max={65535}
+            inputMode="numeric"
+            value={port}
+            disabled={saving}
+            onChange={(event) => setPort(event.currentTarget.value)}
+          />
+        </label>
+        <button
+          type="submit"
+          {...stylex.props(styles.primaryButton)}
+          disabled={saving || !serviceSettingsChanged || !baseUrl.trim()}
+        >
+          {saving ? "Saving..." : "Save service"}
+        </button>
+      </form>
 
       <ModelPreferenceSelect
         options={settings.modelOptions}
@@ -93,6 +188,20 @@ export function MemorySettingsPaneContent({
       {warning ? <p {...stylex.props(styles.warningText)}>{warning}</p> : null}
     </section>
   );
+}
+
+function memorySaveInputFromServiceSettings(
+  settings: MemorySettings,
+  input: { mode: MemoryServiceMode; baseUrl: string; port: string }
+): SaveMemoryServiceSettingsInput {
+  return {
+    mode: input.mode,
+    baseUrl: input.baseUrl.trim(),
+    port: normalizedPort(input.port),
+    providerAccountId: settings.modelPreference?.providerAccountId ?? null,
+    modelProfile: settings.modelPreference?.modelProfile ?? null,
+    reasoningEffort: settings.modelPreference?.reasoningEffort ?? null
+  };
 }
 
 function memorySaveInputFromSelection(
@@ -109,13 +218,19 @@ function memorySaveInputFromSelection(
   };
 }
 
-function memoryModeLabel(mode: MemorySettings["mode"]) {
-  switch (mode) {
-    case "MANAGED":
-      return "Managed local";
-    case "EXTERNAL":
-      return "External service";
+function normalizedPort(value: string): number | null {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
   }
+  if (!/^\d+$/.test(trimmed)) {
+    return null;
+  }
+  const parsed = Number.parseInt(trimmed, 10);
+  if (parsed < 1 || parsed > 65535) {
+    return null;
+  }
+  return parsed;
 }
 
 function MetadataRow({ label, value }: { label: string; value: string }) {
@@ -178,6 +293,59 @@ const styles = stylex.create({
     ":disabled": {
       cursor: "not-allowed",
       opacity: 0.6
+    }
+  },
+  primaryButton: {
+    borderWidth: 1,
+    borderStyle: "solid",
+    borderColor: "var(--foreground)",
+    borderRadius: 6,
+    backgroundColor: "var(--foreground)",
+    padding: "7px 10px",
+    fontSize: 13,
+    fontWeight: 600,
+    lineHeight: 1.3,
+    color: "white",
+    cursor: "pointer",
+    ":disabled": {
+      cursor: "not-allowed",
+      opacity: 0.6
+    }
+  },
+  serviceForm: {
+    display: "grid",
+    gridTemplateColumns: "minmax(120px, 180px) minmax(220px, 1fr) minmax(100px, 140px) auto",
+    alignItems: "end",
+    gap: 12,
+    "@media (max-width: 900px)": {
+      gridTemplateColumns: "1fr"
+    }
+  },
+  field: {
+    display: "grid",
+    gap: 6
+  },
+  fieldLabel: {
+    fontSize: 13,
+    fontWeight: 600,
+    lineHeight: 1.3,
+    color: "var(--foreground)"
+  },
+  input: {
+    width: "100%",
+    minWidth: 0,
+    boxSizing: "border-box",
+    borderWidth: 1,
+    borderStyle: "solid",
+    borderColor: "var(--border)",
+    borderRadius: 6,
+    backgroundColor: "white",
+    padding: "7px 9px",
+    fontSize: 14,
+    lineHeight: 1.4,
+    color: "var(--foreground)",
+    ":disabled": {
+      opacity: 0.65
     }
   },
   definitionList: {

@@ -47,8 +47,11 @@ pub(in crate::daemon) struct MemoryToolResult {
 pub(in crate::daemon) enum MemoryToolError {
     #[error("{0}")]
     InvalidArguments(String),
-    #[error("{0}")]
-    Unavailable(String),
+    #[error("memory service unavailable")]
+    Unavailable {
+        code: &'static str,
+        message: &'static str,
+    },
     #[error(transparent)]
     Store(#[from] StoreError),
 }
@@ -119,13 +122,12 @@ pub(in crate::daemon) fn search_memory_tool_spec() -> Result<NoemaToolSpec, Tool
 }
 
 pub(in crate::daemon) async fn execute_search_memory(
-    _store: &NoemaStore,
-    client: Option<&crate::SupermemoryClient>,
+    store: &NoemaStore,
     context: &MemoryToolRuntimeContext,
     call_id: Option<String>,
     payload: &Value,
 ) -> MemoryToolResult {
-    match execute_search_memory_inner(client, context, call_id.as_deref(), payload).await {
+    match execute_search_memory_inner(store, context, call_id.as_deref(), payload).await {
         Ok(payload) => MemoryToolResult {
             call_id,
             name: SEARCH_MEMORY_TOOL.to_string(),
@@ -137,22 +139,22 @@ pub(in crate::daemon) async fn execute_search_memory(
             name: SEARCH_MEMORY_TOOL.to_string(),
             success: false,
             payload: json!({
-                "error": safe_error_message(&error),
+                "error": safe_error_payload(&error),
             }),
         },
     }
 }
 
 async fn execute_search_memory_inner(
-    client: Option<&crate::SupermemoryClient>,
+    store: &NoemaStore,
     context: &MemoryToolRuntimeContext,
     _call_id: Option<&str>,
     payload: &Value,
 ) -> Result<Value, MemoryToolError> {
     let arguments = parse_arguments(payload)?;
     validate_scope_ids(context, &arguments)?;
-    let client = client
-        .ok_or_else(|| MemoryToolError::Unavailable("memory service unavailable".to_string()))?;
+    let settings = store.memory_service_settings().await?;
+    let client = crate::SupermemoryClient::new(settings.base_url, None);
     let tags = if arguments.scope_ids.is_empty() {
         trusted_active_scope_ids(context)
     } else {
@@ -168,7 +170,10 @@ async fn execute_search_memory_inner(
                 limit: arguments.limit() as u16,
             })
             .await
-            .map_err(|error| MemoryToolError::Unavailable(error.to_string()))?;
+            .map_err(|error| MemoryToolError::Unavailable {
+                code: error.sanitized_code(),
+                message: error.sanitized_message(),
+            })?;
         for result in response.results {
             let Some(memory) = result.memory else {
                 continue;
@@ -181,7 +186,6 @@ async fn execute_search_memory_inner(
                 "updated_at": result.updated_at,
                 "scope_id": scope_id,
                 "container_tag": container_tag,
-                "metadata": result.metadata.unwrap_or_else(|| json!({})),
             }));
         }
     }
@@ -293,11 +297,29 @@ fn parse_purpose(value: Option<&str>) -> Result<SearchMemoryPurpose, MemoryToolE
     }
 }
 
-fn safe_error_message(error: &MemoryToolError) -> String {
+fn safe_error_payload(error: &MemoryToolError) -> Value {
     match error {
-        MemoryToolError::InvalidArguments(message) => message.clone(),
-        MemoryToolError::Unavailable(message) => message.clone(),
-        MemoryToolError::Store(_) => "memory retrieval failed".to_string(),
+        MemoryToolError::InvalidArguments(message) => json!(message),
+        MemoryToolError::Unavailable { code, message } => json!({
+            "code": code,
+            "message": message,
+        }),
+        MemoryToolError::Store(_) => json!({
+            "code": "store_error",
+            "message": "memory retrieval failed",
+        }),
+    }
+}
+
+#[cfg(test)]
+fn safe_error_message(error: &MemoryToolError) -> String {
+    match safe_error_payload(error) {
+        Value::String(message) => message,
+        Value::Object(mut object) => object
+            .remove("message")
+            .and_then(|value| value.as_str().map(str::to_string))
+            .unwrap_or_else(|| "memory retrieval failed".to_string()),
+        _ => "memory retrieval failed".to_string(),
     }
 }
 

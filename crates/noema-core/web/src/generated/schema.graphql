@@ -902,15 +902,15 @@ Memory storage readiness shown by clients.
 """
 enum MemoryStorageStatus {
 	"""
-	The canonical memory store is ready.
+	The local memory service is ready.
 	"""
 	READY
 	"""
-	The canonical memory store is initializing.
+	The local memory service is initializing.
 	"""
 	INITIALIZING
 	"""
-	Graph memory writes and retrieval are not available yet.
+	Memory service writes and retrieval are not available yet.
 	"""
 	UNAVAILABLE
 }

@@ -22,11 +22,11 @@ pub enum GraphqlAssistantConnection {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Enum)]
 #[graphql(name = "MemoryStorageStatus")]
 pub enum GraphqlMemoryStorageStatus {
-    /// The canonical memory store is ready.
+    /// The local memory service is ready.
     Ready,
-    /// The canonical memory store is initializing.
+    /// The local memory service is initializing.
     Initializing,
-    /// Graph memory writes and retrieval are not available yet.
+    /// Memory service writes and retrieval are not available yet.
     Unavailable,
 }
 

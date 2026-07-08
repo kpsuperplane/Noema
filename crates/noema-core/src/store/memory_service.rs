@@ -393,7 +393,15 @@ impl NoemaStore {
         self.memory_ingest_job(job_id).await
     }
 
-    async fn memory_ingest_job(&self, job_id: &str) -> Result<MemoryIngestJobRecord, StoreError> {
+    /// Return one memory ingest job by id.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when the job is missing or the embedded store read fails.
+    pub async fn memory_ingest_job(
+        &self,
+        job_id: &str,
+    ) -> Result<MemoryIngestJobRecord, StoreError> {
         self.with_connection(|conn| {
             conn.query_row(
                 r#"
@@ -410,6 +418,31 @@ impl NoemaStore {
             .ok_or_else(|| StoreError::InvariantViolation {
                 message: format!("memory ingest job not found: {job_id}"),
             })
+        })
+        .await
+    }
+
+    /// Return memory ingest jobs for one completed turn.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when the embedded store read fails.
+    pub async fn memory_ingest_jobs_for_turn(
+        &self,
+        turn_id: &str,
+    ) -> Result<Vec<MemoryIngestJobRecord>, StoreError> {
+        self.with_connection(|conn| {
+            let mut statement = conn.prepare(
+                r#"
+                SELECT job_id, conversation_id, turn_id, status, supermemory_conversation_id,
+                       error_code, error_message
+                FROM memory_ingest_jobs
+                WHERE turn_id = ?1
+                ORDER BY job_id ASC
+                "#,
+            )?;
+            let rows = statement.query_map([turn_id], ingest_job_from_row)?;
+            Ok(rows.collect::<Result<Vec<_>, _>>()?)
         })
         .await
     }

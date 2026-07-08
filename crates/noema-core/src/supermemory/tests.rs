@@ -47,6 +47,34 @@ async fn supermemory_search_posts_v4_search() {
     assert_eq!(request_body["include"]["documents"], false);
 }
 
+#[tokio::test]
+async fn supermemory_client_times_out_when_server_never_responds() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+    let base_url = format!("http://{}", listener.local_addr().expect("local addr"));
+    tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.expect("accept");
+        let mut buffer = [0_u8; 1024];
+        let _ = stream.read(&mut buffer).await.expect("read request");
+        tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+    });
+    let client = crate::SupermemoryClient::new(base_url, None);
+
+    let error = client
+        .search_memories(crate::SupermemorySearchRequest {
+            query: "preferences".to_string(),
+            container_tag: "human:local".to_string(),
+            limit: 5,
+        })
+        .await
+        .expect_err("request should time out");
+
+    assert_eq!(error.sanitized_code(), "timeout");
+    assert_eq!(
+        error.sanitized_message(),
+        "memory service request timed out"
+    );
+}
+
 struct FakeSupermemoryServer {
     base_url: String,
     state: Arc<Mutex<FakeSupermemoryState>>,
