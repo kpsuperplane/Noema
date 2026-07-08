@@ -25,7 +25,6 @@ rusqlite.workspace = true
 scraper.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-surrealdb.workspace = true
 thiserror.workspace = true
 time.workspace = true
 tokio.workspace = true

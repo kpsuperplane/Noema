@@ -1,22 +1,12 @@
-use std::{
-    fs,
-    path::PathBuf,
-    sync::{Arc, OnceLock},
-};
+use std::{fs, path::PathBuf, sync::Arc};
 
 use rusqlite::Connection;
-use surrealdb::{
-    Surreal,
-    engine::local::{Db, Mem},
-};
 use tokio::sync::Mutex;
 
 use super::{
     error::StoreError,
     schema::{STORE_SCHEMA_SQL, STORE_SCHEMA_VERSION},
 };
-
-static TRANSITIONAL_SURREAL_COMPAT_DB: OnceLock<Surreal<Db>> = OnceLock::new();
 
 /// Configuration for the local Noema store.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -44,7 +34,6 @@ pub struct NoemaStore {
     pub(super) conn: Arc<Mutex<Connection>>,
     pub(super) noema_home: PathBuf,
     pub(super) append_item_lock: Arc<Mutex<()>>,
-    pub(super) claim_write_lock: Arc<Mutex<()>>,
 }
 
 impl NoemaStore {
@@ -63,26 +52,11 @@ impl NoemaStore {
         conn.execute_batch(STORE_SCHEMA_SQL)?;
         debug_assert_eq!(STORE_SCHEMA_VERSION, 1);
 
-        if TRANSITIONAL_SURREAL_COMPAT_DB.get().is_none() {
-            let db = Surreal::new::<Mem>(()).await?;
-            _ = TRANSITIONAL_SURREAL_COMPAT_DB.set(db);
-        }
-
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
             noema_home: config.noema_home.clone(),
             append_item_lock: Arc::new(Mutex::new(())),
-            claim_write_lock: Arc::new(Mutex::new(())),
         })
-    }
-
-    /// Access the transitional SurrealDB client for repository modules.
-    #[must_use]
-    #[allow(dead_code, clippy::unused_self)]
-    pub(crate) fn db(&self) -> &Surreal<Db> {
-        TRANSITIONAL_SURREAL_COMPAT_DB.get().expect(
-            "transitional SurrealDB compatibility adapter must be initialized by NoemaStore::open",
-        )
     }
 
     #[cfg(test)]

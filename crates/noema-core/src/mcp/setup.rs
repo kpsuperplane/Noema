@@ -2,6 +2,7 @@
 
 use std::collections::BTreeMap;
 
+use rusqlite::params;
 use serde_json::{Value, json};
 
 use crate::{
@@ -611,21 +612,21 @@ async fn update_mcp_server_safe_config(
     mcp_server_id: &str,
     safe_config: Value,
 ) -> Result<(), StoreError> {
+    let safe_config_json = serde_json::to_string(&safe_config)?;
     store
-        .db()
-        .query(
-            r#"
-            UPDATE mcp_servers SET
-              safe_config = $safe_config,
-              updated_at = time::now()
-            WHERE mcp_server_id = $mcp_server_id;
-            "#,
-        )
-        .bind(("mcp_server_id", mcp_server_id.to_string()))
-        .bind(("safe_config", safe_config))
-        .await?
-        .check()?;
-    Ok(())
+        .with_connection(|conn| {
+            conn.execute(
+                r#"
+                UPDATE mcp_servers SET
+                  safe_config_json = ?2,
+                  updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                WHERE mcp_server_id = ?1
+                "#,
+                params![mcp_server_id, safe_config_json],
+            )?;
+            Ok(())
+        })
+        .await
 }
 
 #[cfg(test)]

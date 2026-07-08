@@ -1,9 +1,6 @@
-#[cfg(test)]
-use crate::memory::{ClaimRetrievalRequest, Sensitivity, UseMode};
 use crate::{
     NoemaStore,
     daemon::memory::context::project_scope_from_cwd,
-    memory::Purpose,
     provider::{NoemaToolExecution, NoemaToolSpec, ToolContractError},
     store::StoreError,
 };
@@ -66,6 +63,20 @@ struct SearchMemoryArguments {
     purpose: Option<String>,
     #[serde(default)]
     limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum SearchMemoryPurpose {
+    AnswerHumanQuestion,
+    DraftInternalContent,
+    GeneralPersonalization,
+    ManageTask,
+    ManageCalendar,
+    DraftExternalContent,
+    UseTool,
+    ProactiveSuggestion,
+    ExternalAction,
+    DebugAudit,
 }
 
 pub(in crate::daemon) fn is_search_memory_tool(name: &str) -> bool {
@@ -264,49 +275,18 @@ fn validate_scope_ids(
     Ok(())
 }
 
-#[cfg(test)]
-fn build_request(
-    context: &MemoryToolRuntimeContext,
-    arguments: &SearchMemoryArguments,
-) -> Result<ClaimRetrievalRequest, MemoryToolError> {
-    runtime_purpose(arguments.purpose.as_deref())?;
-    let mut active_object_ids = vec![format!("conversation:{}", context.conversation_id)];
-    if let Some(project_scope) = project_scope_from_cwd(context.cwd.as_deref()) {
-        active_object_ids.push(project_scope);
-    }
-    active_object_ids.extend(arguments.scope_ids.iter().cloned());
-    active_object_ids.sort();
-    active_object_ids.dedup();
-
-    Ok(ClaimRetrievalRequest {
-        requesting_agent_id: "agent:primary".to_string(),
-        active_human_ids: vec!["human:local".to_string()],
-        active_object_ids,
-        use_mode: UseMode::Answer,
-        explicit_memory_request: false,
-        sensitivity_ceiling: Sensitivity::Normal,
-        approved_secret_access: false,
-    })
-}
-
-#[cfg(test)]
-fn runtime_purpose(value: Option<&str>) -> Result<Purpose, MemoryToolError> {
-    parse_purpose(value)?;
-    Ok(Purpose::AnswerHumanQuestion)
-}
-
-fn parse_purpose(value: Option<&str>) -> Result<Purpose, MemoryToolError> {
+fn parse_purpose(value: Option<&str>) -> Result<SearchMemoryPurpose, MemoryToolError> {
     match value.unwrap_or("answer_human_question") {
-        "answer_human_question" => Ok(Purpose::AnswerHumanQuestion),
-        "draft_internal_content" => Ok(Purpose::DraftInternalContent),
-        "general_personalization" => Ok(Purpose::GeneralPersonalization),
-        "manage_task" => Ok(Purpose::ManageTask),
-        "manage_calendar" => Ok(Purpose::ManageCalendar),
-        "draft_external_content" => Ok(Purpose::DraftExternalContent),
-        "use_tool" => Ok(Purpose::UseTool),
-        "proactive_suggestion" => Ok(Purpose::ProactiveSuggestion),
-        "external_action" => Ok(Purpose::ExternalAction),
-        "debug_audit" => Ok(Purpose::DebugAudit),
+        "answer_human_question" => Ok(SearchMemoryPurpose::AnswerHumanQuestion),
+        "draft_internal_content" => Ok(SearchMemoryPurpose::DraftInternalContent),
+        "general_personalization" => Ok(SearchMemoryPurpose::GeneralPersonalization),
+        "manage_task" => Ok(SearchMemoryPurpose::ManageTask),
+        "manage_calendar" => Ok(SearchMemoryPurpose::ManageCalendar),
+        "draft_external_content" => Ok(SearchMemoryPurpose::DraftExternalContent),
+        "use_tool" => Ok(SearchMemoryPurpose::UseTool),
+        "proactive_suggestion" => Ok(SearchMemoryPurpose::ProactiveSuggestion),
+        "external_action" => Ok(SearchMemoryPurpose::ExternalAction),
+        "debug_audit" => Ok(SearchMemoryPurpose::DebugAudit),
         other => Err(MemoryToolError::InvalidArguments(format!(
             "unsupported purpose: {other}"
         ))),
@@ -491,7 +471,7 @@ mod tests {
     }
 
     #[test]
-    fn natural_language_memory_phrases_do_not_unlock_retrieval_policy() {
+    fn natural_language_memory_phrases_do_not_unlock_additional_scopes() {
         let context = MemoryToolRuntimeContext {
             conversation_id: "conv_123".to_string(),
             turn_id: "turn_456".to_string(),
@@ -500,22 +480,10 @@ mod tests {
             cwd: None,
             user_input: "What do you know about my private plan?".to_string(),
         };
-        let arguments = SearchMemoryArguments {
-            query: "  launch criteria  ".to_string(),
-            scope_ids: vec![],
-            purpose: Some("answer_human_question".to_string()),
-            limit: None,
-        };
-
-        let request = build_request(&context, &arguments).expect("build request");
-
-        assert_eq!(request.requesting_agent_id, "agent:primary");
-        assert_eq!(request.active_human_ids, vec!["human:local"]);
-        assert_eq!(request.active_object_ids, vec!["conversation:conv_123"]);
-        assert_eq!(request.use_mode, UseMode::Answer);
-        assert!(!request.explicit_memory_request);
-        assert_eq!(request.sensitivity_ceiling, Sensitivity::Normal);
-        assert!(!request.approved_secret_access);
+        assert_eq!(
+            trusted_active_scope_ids(&context),
+            vec!["conversation:conv_123", "human:local"]
+        );
     }
 
     #[test]
@@ -535,34 +503,14 @@ mod tests {
             limit: None,
         };
 
-        let request = build_request(&context, &arguments).expect("build scoped request");
-
-        assert_eq!(
-            request.active_object_ids,
-            vec!["conversation:conv_123", "human:local"]
-        );
-        assert!(!request.explicit_memory_request);
+        validate_scope_ids(&context, &arguments).expect("validated scope");
     }
 
     #[test]
-    fn purpose_argument_is_validated_but_not_trusted() {
-        let context = MemoryToolRuntimeContext {
-            conversation_id: "conv_123".to_string(),
-            turn_id: "turn_456".to_string(),
-            turn_index: 7,
-            call_site_id: "output_0".to_string(),
-            cwd: None,
-            user_input: "Please continue the plan".to_string(),
-        };
-        let arguments = SearchMemoryArguments {
-            query: "project memory".to_string(),
-            scope_ids: vec![],
-            purpose: Some("external_action".to_string()),
-            limit: None,
-        };
-
-        let request = build_request(&context, &arguments).expect("build request");
-
-        assert_eq!(request.use_mode, UseMode::Answer);
+    fn purpose_argument_is_validated_but_not_used_as_scope_authority() {
+        assert_eq!(
+            parse_purpose(Some("external_action")).expect("valid purpose"),
+            SearchMemoryPurpose::ExternalAction
+        );
     }
 }

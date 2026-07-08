@@ -20,7 +20,7 @@ pub mod home;
 pub mod ids;
 /// Third-party MCP control-plane types.
 pub mod mcp;
-/// Memory graph retrieval policy model.
+/// Shared memory persistence error types.
 pub mod memory;
 /// Neutral concrete object and actor references.
 pub mod objects;
@@ -68,7 +68,6 @@ pub use mcp::{
     OwnerExtractorSource, TrustedIdentitySelectorKind, normalize_trusted_identity_value,
 };
 pub use memory::error::MemoryPersistenceError;
-pub use memory::types::MemoryType;
 pub use objects::{ActorKind, ActorRef, ObjectRef, ObjectType};
 pub use onboarding::{
     OnboardingStatus, OnboardingStep, OnboardingStepStatus, onboarding_status_from_account,
@@ -89,19 +88,13 @@ pub use provider::{
 pub use runtime_host::{NoemaRuntimeHost, RuntimeHostError};
 pub use store::{
     AgentRecord, AgentRuntimePreferenceRecord, AuxiliaryModelPreferenceRecord,
-    ClaimRetrievalResult, ClaimStatus, ClaimSummary, ClaimWriteOutcome, ConsolidationMatch,
-    ConsolidationMatchRequest, ConversationContextSummaryRecord, EntityCandidate, EntityType,
-    EvidenceAuthority, EvidenceCandidate, McpApprovalRequestRecord, McpServerAuthStatus,
-    McpServerHealthStatus, McpServerRecord, McpToolRecord, MemoryClaimDetail, MemoryClaimEvidence,
-    MemoryClaimFilter, MemoryClaimRecord, MemoryGraph, MemoryGraphEdge, MemoryGraphFilter,
-    MemoryGraphNode, MemoryGraphSummary, MemoryIngestJobRecord, MemoryServiceMode,
-    MemoryServiceSettingsRecord, MemoryServiceStatus, MemoryServiceStatusRecord, NewAgent,
-    NewAgentRuntimePreference, NewAuxiliaryModelPreference, NewClaimCandidate,
+    ConversationContextSummaryRecord, McpApprovalRequestRecord, McpServerAuthStatus,
+    McpServerHealthStatus, McpServerRecord, McpToolRecord, MemoryIngestJobRecord,
+    MemoryServiceMode, MemoryServiceSettingsRecord, MemoryServiceStatus, MemoryServiceStatusRecord,
+    NewAgent, NewAgentRuntimePreference, NewAuxiliaryModelPreference,
     NewConversationContextSummary, NewMcpApprovalRequest, NewMcpServer, NewMcpTool,
     NewMemoryIngestJob, NewToolCalibration, NewTrustedIdentitySelector, NoemaStore,
-    PredicateProposalCandidate, PredicateProposalFilter, PredicateProposalRecord, PredicateRecord,
-    RelatedClaimCandidate, RelatedClaimRecord, RetrievedClaim, SaveMemoryServiceSettings,
-    StoreConfig, StoreError, SupersedeClaimCandidate, ToolCalibrationRecord,
+    SaveMemoryServiceSettings, StoreConfig, StoreError, ToolCalibrationRecord,
     TrustedIdentitySelectorEffect, TrustedIdentitySelectorRecord, WEB_FETCH_SUMMARIZER_TASK_ID,
 };
 pub use supermemory::{

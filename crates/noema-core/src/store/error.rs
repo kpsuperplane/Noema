@@ -6,9 +6,6 @@ pub enum StoreError {
     /// Store path could not be prepared.
     #[error("failed to prepare store path: {0}")]
     PreparePath(std::io::Error),
-    /// Transitional SurrealDB compatibility operation failed.
-    #[error("transitional store compatibility operation failed: {0}")]
-    Surreal(Box<surrealdb::Error>),
     /// SQLite operation failed.
     #[error("sqlite store operation failed: {0}")]
     Sqlite(#[from] rusqlite::Error),
@@ -73,12 +70,6 @@ pub enum StoreError {
         /// Missing item id.
         item_id: String,
     },
-    /// A predicate expected to exist was not found.
-    #[error("predicate not found: {predicate_id}")]
-    PredicateNotFound {
-        /// Missing predicate id.
-        predicate_id: String,
-    },
     /// A referenced item belongs to a different conversation than the owner row.
     #[error("conversation item {item_id} does not belong to conversation {conversation_id}")]
     ConversationItemConversationMismatch {
@@ -87,12 +78,6 @@ pub enum StoreError {
         /// Expected conversation id.
         conversation_id: String,
     },
-}
-
-impl From<surrealdb::Error> for StoreError {
-    fn from(source: surrealdb::Error) -> Self {
-        Self::Surreal(Box::new(source))
-    }
 }
 
 impl StoreError {

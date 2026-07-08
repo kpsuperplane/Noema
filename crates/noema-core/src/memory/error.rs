@@ -1,4 +1,3 @@
-use crate::memory::MemoryId;
 use thiserror::Error;
 
 /// Errors produced by durable memory persistence.
@@ -53,14 +52,14 @@ pub enum MemoryPersistenceError {
     #[error("memory not found: {memory_id}")]
     MemoryNotFound {
         /// Missing memory id.
-        memory_id: MemoryId,
+        memory_id: String,
     },
 
     /// Existing memory cannot be reinforced by the provided candidate.
     #[error("memory cannot be reinforced with this candidate: {memory_id}")]
     IncompatibleMemoryReinforcement {
         /// Rejected memory id.
-        memory_id: MemoryId,
+        memory_id: String,
     },
 
     /// A provider account expected to exist was not found.
