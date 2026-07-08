@@ -311,7 +311,7 @@ pub struct SupermemoryGraphMemoryEntry {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SupermemoryConversationIngestRequest {
-    /// Supermemory conversation/source document identity.
+    /// Supermemory conversation/source document identity for this ingest.
     pub conversation_id: String,
     /// Deterministic Noema-owned Supermemory container tag.
     pub container_tag: String,

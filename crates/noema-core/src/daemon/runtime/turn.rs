@@ -68,6 +68,10 @@ pub(super) fn mcp_auth_status_label(status: crate::McpServerAuthStatus) -> &'sta
     }
 }
 
+fn memory_observation_source_id_for_user_item(user_item_id: &str) -> String {
+    format!("memory_observation:{user_item_id}")
+}
+
 fn build_memory_observation_ingest_request(
     conversation_id: &str,
     turn_id: &str,
@@ -80,7 +84,7 @@ fn build_memory_observation_ingest_request(
 
     Some(
         crate::SupermemoryConversationIngestRequest::new(
-            conversation_id,
+            memory_observation_source_id_for_user_item(user_item_id),
             HUMAN_MEMORY_SCOPE_ID,
             vec![crate::supermemory::SupermemoryConversationMessage {
                 role: "user".to_string(),
