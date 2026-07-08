@@ -1212,9 +1212,7 @@ mod tests {
                 crate::provider::GenerateInput::Text(prompt) => {
                     assert!(prompt.contains("Kevin prefers local-first tools"));
                     assert!(prompt.contains("User-authored source observation"));
-                    assert!(
-                        prompt.contains("\"I like your current tone\" means the local human likes")
-                    );
+                    assert!(prompt.contains("do not turn a preference about another speaker"));
                     assert!(prompt.contains("Return Markdown only"));
                 }
                 other => panic!("unexpected memory article input: {other:?}"),

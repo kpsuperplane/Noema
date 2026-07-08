@@ -2291,7 +2291,7 @@ async fn slow_memory_ingest_does_not_delay_provider_response() {
 }
 
 #[tokio::test]
-async fn memory_observation_uses_distinct_source_ids_and_only_current_user_text() {
+async fn memory_observation_uses_distinct_source_ids_and_current_user_source_observation() {
     let (handle, _store, server) = test_runtime_handle_with_mnemosyne(
         fake_provider(FakeCodexScenario::Simple),
         json!({"results": []}),
@@ -2339,11 +2339,66 @@ async fn memory_observation_uses_distinct_source_ids_and_only_current_user_text(
             .all(|source_item_id| source_item_id.starts_with("item:"))
     );
     assert!(observation_bodies.iter().any(|body| {
-        body["messages"] == json!([{"role": "user", "content": "first turn should not repeat"}])
+        body["metadata"]["sourceObservation"] == "first turn should not repeat"
+            && body["messages"]
+                == json!([{"role": "user", "content": "first turn should not repeat"}])
     }));
     assert!(observation_bodies.iter().any(|body| {
-        body["messages"] == json!([{"role": "user", "content": "second turn should be submitted"}])
+        body["metadata"]["sourceObservation"] == "second turn should be submitted"
+            && body["messages"].as_array().is_some_and(|messages| {
+                messages.last()
+                    == Some(&json!({"role": "user", "content": "second turn should be submitted"}))
+            })
     }));
+}
+
+#[tokio::test]
+async fn memory_observation_includes_assistant_context_since_previous_user() {
+    let (handle, _store, server) = test_runtime_handle_with_mnemosyne(
+        fake_provider(FakeCodexScenario::MemoryContextQuestion),
+        json!({"results": []}),
+    )
+    .await;
+
+    let conversation_id = handle
+        .start_conversation(None)
+        .await
+        .expect("conversation")
+        .conversation_id;
+    collect_turn_events(
+        &handle,
+        conversation_id.clone(),
+        "start memory context test".to_string(),
+    )
+    .await
+    .0
+    .expect("first turn");
+    collect_turn_events(&handle, conversation_id.clone(), "cars".to_string())
+        .await
+        .0
+        .expect("second turn");
+    wait_for_memory_observation_requests(&server, 2).await;
+    handle.shutdown().await;
+
+    let bodies = server.request_bodies().await;
+    let observation = bodies
+        .iter()
+        .find(|body| body["metadata"]["sourceObservation"] == "cars")
+        .expect("cars observation");
+    assert_eq!(
+        observation["messages"],
+        json!([
+            {
+                "role": "assistant",
+                "content": "what are some topics you find interesting?"
+            },
+            {
+                "role": "assistant",
+                "content": "short answers are fine too"
+            },
+            {"role": "user", "content": "cars"}
+        ])
+    );
 }
 
 #[tokio::test]
@@ -4021,6 +4076,7 @@ enum FakeCodexScenario {
     NativeWebSearchContinuation,
     NativeWebFetchContinuation,
     ChainedSearchMemoryContinuation,
+    MemoryContextQuestion,
     LongContinuationThenFinalization,
     ProgressAuditFailsThenFinalization,
     SearchMemoryProfileContinuation,
@@ -4372,6 +4428,16 @@ impl FakeCodexProvider {
                     ]
                 } else {
                     assistant_with_no_memories("fake answer")
+                }
+            }
+            FakeCodexScenario::MemoryContextQuestion => {
+                if input.contains("start memory context test") {
+                    assistant_items_with_no_memories(&[
+                        "what are some topics you find interesting?",
+                        "short answers are fine too",
+                    ])
+                } else {
+                    assistant_with_no_memories("got it")
                 }
             }
             FakeCodexScenario::LongContinuationThenFinalization => {

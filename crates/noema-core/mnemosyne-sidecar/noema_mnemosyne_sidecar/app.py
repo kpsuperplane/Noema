@@ -12,7 +12,7 @@ from .config import build_memory_factory_from_env
 
 
 class Message(BaseModel):
-    role: Literal["user"]
+    role: Literal["assistant", "user"]
     content: str = Field(min_length=1)
 
 
@@ -75,11 +75,24 @@ def _memory(app: FastAPI, *, user_id: str, run_id: Optional[str], agent_id: Opti
 
 
 def _remember_observation(app: FastAPI, request: AddMemoryRequest) -> str:
-    content = "\n".join(
-        message.content.strip() for message in request.messages if message.content.strip()
-    )
-    if not content:
+    assistant_context = [
+        message.content.strip()
+        for message in request.messages
+        if message.role == "assistant" and message.content.strip()
+    ]
+    user_observations = [
+        message.content.strip()
+        for message in request.messages
+        if message.role == "user" and message.content.strip()
+    ]
+    source_observation = "\n".join(user_observations)
+    if not source_observation:
         raise ValueError("memory observation content is empty")
+
+    content = _memory_observation_content(
+        assistant_context=assistant_context,
+        source_observation=source_observation,
+    )
 
     metadata = {
         "user_id": request.user_id,
@@ -87,6 +100,7 @@ def _remember_observation(app: FastAPI, request: AddMemoryRequest) -> str:
         "run_id": request.run_id,
         **request.metadata,
     }
+    metadata.setdefault("sourceObservation", source_observation)
     memory = _memory(
         app,
         user_id=request.user_id,
@@ -102,6 +116,19 @@ def _remember_observation(app: FastAPI, request: AddMemoryRequest) -> str:
         extract_entities=True,
         extract=True,
         trust_tier="STATED",
+    )
+
+
+def _memory_observation_content(
+    *, assistant_context: list[str], source_observation: str
+) -> str:
+    if not assistant_context:
+        return source_observation
+    return (
+        "Assistant context (for interpreting the human response, not a memory source):\n"
+        + "\n".join(assistant_context)
+        + "\n\nHuman-authored observation to remember:\n"
+        + source_observation
     )
 
 
@@ -170,7 +197,11 @@ def _memory_result_from_mnemosyne_fact(
         }
     )
     source_content = (source_row or {}).get("content")
-    if isinstance(source_content, str) and source_content.strip():
+    if (
+        not metadata.get("sourceObservation")
+        and isinstance(source_content, str)
+        and source_content.strip()
+    ):
         metadata["sourceObservation"] = source_content.strip()
 
     fact_id = row.get("id") or row.get("fact_id") or memory_id or fact_text

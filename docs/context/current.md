@@ -32,13 +32,17 @@ The next storage slice should stay small and concrete:
 - Local Mnemosyne state lives under `${NOEMA_HOME:-$HOME/.noema}/mnemosyne/data`; runtime
   sidecar state lives under `${NOEMA_HOME:-$HOME/.noema}/mnemosyne/run`.
 - Persisted user messages enqueue Mnemosyne memory observations immediately after
-  the user item is durably stored. The Mnemosyne add payload contains only the
-  current user text as a `role: user` message, `user_id: human:local`,
-  `agent_id: agent:local`, `run_id` set to the Noema conversation id, and
-  Noema provenance metadata (`noemaConversationId`, `turnId`, `userItemId`,
-  `sourceKind`). Assistant responses, tool results, reasoning, notices, and
-  empty user text are not submitted. Mnemosyne extraction never blocks normal
-  provider response generation.
+  the user item is durably stored. The Mnemosyne add payload uses the current
+  user text as the authoritative `role: user` source observation and may include
+  bounded prior `role: assistant` context from assistant messages since the
+  previous user message, so short replies like "cars" can be interpreted from
+  conversational context without treating assistant text as a memory source. The
+  request uses `user_id: human:local`, `agent_id: agent:local`, `run_id` set to
+  the Noema conversation id, and Noema provenance metadata
+  (`noemaConversationId`, `turnId`, `userItemId`, `sourceKind`,
+  `sourceObservation`). Assistant responses, tool results, reasoning, notices,
+  and empty user text are not independently submitted. Mnemosyne extraction never
+  blocks normal provider response generation.
   Noema does not keep a SQLite memory ingest job/outbox table yet; submit
   failures are best-effort diagnostics until a real retry surface exists.
 - Managed local Mnemosyne runs as a private Noema sidecar. The sidecar embeds Mnemosyne

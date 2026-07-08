@@ -43,6 +43,9 @@ use crate::daemon::{
     },
 };
 
+const MEMORY_OBSERVATION_CONTEXT_ITEM_LIMIT: usize = 4;
+const MEMORY_OBSERVATION_CONTEXT_CHAR_LIMIT: usize = 2_000;
+
 fn prompt_cache_retention_for(
     tool_capabilities: ProviderToolCapabilities,
 ) -> Option<PromptCacheRetention> {
@@ -73,16 +76,30 @@ fn build_memory_observation_add_request(
     turn_id: &str,
     user_item_id: &str,
     user_text: &str,
+    assistant_context: Vec<String>,
 ) -> Option<crate::MnemosyneAddMemoryRequest> {
-    if user_text.trim().is_empty() {
+    let source_observation = user_text.trim();
+    if source_observation.is_empty() {
         return None;
     }
 
+    let mut messages = assistant_context
+        .into_iter()
+        .filter_map(|content| {
+            let content = content.trim();
+            (!content.is_empty()).then(|| crate::MnemosyneMessage {
+                role: "assistant".to_string(),
+                content: content.to_string(),
+            })
+        })
+        .collect::<Vec<_>>();
+    messages.push(crate::MnemosyneMessage {
+        role: "user".to_string(),
+        content: source_observation.to_string(),
+    });
+
     Some(crate::MnemosyneAddMemoryRequest {
-        messages: vec![crate::MnemosyneMessage {
-            role: "user".to_string(),
-            content: user_text.to_string(),
-        }],
+        messages,
         user_id: HUMAN_MEMORY_SCOPE_ID.to_string(),
         agent_id: Some("agent:local".to_string()),
         run_id: Some(conversation_id.to_string()),
@@ -91,8 +108,31 @@ fn build_memory_observation_add_request(
             "turnId": turn_id,
             "userItemId": user_item_id,
             "sourceKind": "user_message",
+            "sourceObservation": source_observation,
         }),
     })
+}
+
+fn bound_memory_observation_assistant_context(messages: Vec<String>) -> Vec<String> {
+    let recent = messages
+        .into_iter()
+        .rev()
+        .take(MEMORY_OBSERVATION_CONTEXT_ITEM_LIMIT)
+        .collect::<Vec<_>>();
+    let mut remaining = MEMORY_OBSERVATION_CONTEXT_CHAR_LIMIT;
+    let mut bounded = Vec::new();
+
+    for message in recent.into_iter().rev() {
+        let message = message.trim();
+        if message.is_empty() || remaining == 0 {
+            continue;
+        }
+        let content = message.chars().take(remaining).collect::<String>();
+        remaining = remaining.saturating_sub(content.chars().count());
+        bounded.push(content);
+    }
+
+    bounded
 }
 
 impl CodexRuntimeActor {
@@ -396,6 +436,7 @@ impl CodexRuntimeActor {
             })
             .await?;
         let user_item_id = user_item.item_id.clone();
+        let user_sequence_index = user_item.sequence_index;
         send_conversation_item(
             &item_tx,
             user_item,
@@ -409,6 +450,7 @@ impl CodexRuntimeActor {
             &conversation_id,
             &turn.turn_id,
             &user_item_id,
+            user_sequence_index,
             &input,
         )
         .await;
@@ -1365,11 +1407,23 @@ impl CodexRuntimeActor {
         conversation_id: &str,
         turn_id: &str,
         user_item_id: &str,
+        user_sequence_index: i64,
         user_text: &str,
     ) {
-        let Some(request) =
-            build_memory_observation_add_request(conversation_id, turn_id, user_item_id, user_text)
-        else {
+        let assistant_context = self
+            .memory_observation_assistant_context(
+                conversation_id,
+                user_item_id,
+                user_sequence_index,
+            )
+            .await;
+        let Some(request) = build_memory_observation_add_request(
+            conversation_id,
+            turn_id,
+            user_item_id,
+            user_text,
+            assistant_context,
+        ) else {
             return;
         };
         let Some(client) = self.memory_client() else {
@@ -1407,6 +1461,39 @@ impl CodexRuntimeActor {
                 );
             }
         });
+    }
+
+    async fn memory_observation_assistant_context(
+        &self,
+        conversation_id: &str,
+        user_item_id: &str,
+        user_sequence_index: i64,
+    ) -> Vec<String> {
+        let Ok(items) = self
+            .store
+            .list_recent_conversation_items_for_context(conversation_id, 40)
+            .await
+        else {
+            return Vec::new();
+        };
+
+        let mut messages = Vec::new();
+        for item in items.iter().rev() {
+            if item.item_id == user_item_id || item.sequence_index >= user_sequence_index {
+                continue;
+            }
+            match item.kind {
+                ConversationItemKind::UserText => break,
+                ConversationItemKind::AssistantText => {
+                    if let Some(text) = item.content_text.as_deref() {
+                        messages.push(text.to_string());
+                    }
+                }
+                _ => {}
+            }
+        }
+        messages.reverse();
+        bound_memory_observation_assistant_context(messages)
     }
 
     pub(in crate::daemon) async fn update_conversation_agent_status(

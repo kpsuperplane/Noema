@@ -128,6 +128,7 @@ def test_add_remembers_user_message_with_extraction_and_noema_metadata():
                 "run_id": "conv:1",
                 "noemaConversationId": "conv:1",
                 "userItemId": "item:1",
+                "sourceObservation": "I love planes.",
             },
             "valid_until": None,
             "scope": "global",
@@ -136,6 +137,37 @@ def test_add_remembers_user_message_with_extraction_and_noema_metadata():
             "trust_tier": "STATED",
         }
     ]
+
+
+def test_add_uses_assistant_messages_as_context_not_source_observation():
+    memory = FakeMnemosyne()
+    client = TestClient(create_app(memory_factory=lambda **_: memory))
+
+    response = client.post(
+        "/v1/memories/add",
+        json={
+            "messages": [
+                {
+                    "role": "assistant",
+                    "content": "what are some topics you find interesting?",
+                },
+                {"role": "user", "content": "cars"},
+            ],
+            "user_id": "human:local",
+            "agent_id": "agent:local",
+            "run_id": "conv:1",
+            "metadata": {"noemaConversationId": "conv:1", "userItemId": "item:1"},
+        },
+    )
+
+    assert response.status_code == 200
+    assert memory.remember_calls[0]["content"] == (
+        "Assistant context (for interpreting the human response, not a memory source):\n"
+        "what are some topics you find interesting?\n\n"
+        "Human-authored observation to remember:\n"
+        "cars"
+    )
+    assert memory.remember_calls[0]["metadata"]["sourceObservation"] == "cars"
 
 
 def test_search_uses_recall_with_author_and_channel_filters():

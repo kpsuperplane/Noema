@@ -655,7 +655,7 @@ Style:
 - Facts and source observations are from the local human's perspective.
 - First person ("I", "me", "my") refers to the local human.
 - Second person ("you", "your") refers to Noema/the assistant, not to the local human.
-- Never invert a preference into a trait. For example, "I like your current tone" means the local human likes Noema's current conversational tone; it does not mean the local human has a well-liked tone.
+- Preserve who said what: do not turn a preference about another speaker, tool, or assistant into a trait of the local human.
 - Omit sparse or awkward meta-preferences when they would make the biography sound strange.
 - Do not mention Noema, Mnemosyne, memory systems, records, extraction, citations, or model state in the prose.
 
