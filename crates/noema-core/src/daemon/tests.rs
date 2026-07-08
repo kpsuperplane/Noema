@@ -1666,7 +1666,8 @@ async fn start_primary_conversation_generates_initial_name_onboarding_message() 
         assistant_texts,
         vec![
             "hey, i’m glad to be here with you 👋",
-            "i can help you think, plan, make, untangle, and keep life moving with a little more ease. what would you like to name me?",
+            "i can help you think, plan, make, untangle, and keep life moving with a little more ease",
+            "what would you like to name me?",
         ]
     );
 }
@@ -3968,13 +3969,14 @@ impl FakeCodexProvider {
                     && instructions.contains("what they would like to name you")
                     && instructions.contains("think, plan, make, untangle")
                     && instructions
-                        .contains("Split the introduction into two separate text responses")
-                    && instructions.contains("Always include exactly two text responses")
+                        .contains("Split the introduction into three separate text responses")
+                    && instructions.contains("Always include exactly three text responses")
                     && !input.contains("Your name is");
                 if saw_onboarding {
                     assistant_items_with_no_memories(&[
                         "hey, i’m glad to be here with you 👋",
-                        "i can help you think, plan, make, untangle, and keep life moving with a little more ease. what would you like to name me?",
+                        "i can help you think, plan, make, untangle, and keep life moving with a little more ease",
+                        "what would you like to name me?",
                     ])
                 } else {
                     assistant_with_no_memories("missing warm onboarding prompt")
