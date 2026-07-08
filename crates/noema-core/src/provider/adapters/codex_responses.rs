@@ -176,8 +176,6 @@ struct CodexResponsesRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     instructions: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    max_output_tokens: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     temperature: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     text: Option<serde_json::Value>,
@@ -216,7 +214,6 @@ impl CodexResponsesRequest {
             model,
             input: codex_input_items(input),
             instructions,
-            max_output_tokens: options.max_output_tokens,
             temperature: options.temperature,
             text: options
                 .require_noema_response
@@ -1097,6 +1094,36 @@ mod tests {
         let body: Value = serde_json::from_str(&captured.body).expect("json body");
         assert_eq!(body["prompt_cache_key"], "conversation:cacheable");
         assert_eq!(response.assistant_text(), "Hello");
+    }
+
+    #[tokio::test]
+    async fn codex_omits_max_output_tokens_until_supported() {
+        let (base_url, request_rx) = spawn_server(
+            200,
+            "event: response.output_text.delta\n\
+             data: {\"type\":\"response.output_text.delta\",\"delta\":\"Hello\"}\n\
+             \n\
+             event: response.completed\n\
+             data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_test\",\"model\":\"gpt-test\",\"status\":\"completed\"}}\n\
+             \n",
+        )
+        .await;
+        let (provider, _dir) = provider_with_tokens(base_url);
+
+        provider
+            .generate(GenerateRequest {
+                options: GenerateOptions {
+                    max_output_tokens: Some(123),
+                    ..GenerateOptions::default()
+                },
+                ..GenerateRequest::text("Hello?")
+            })
+            .await
+            .expect("response");
+
+        let captured = request_rx.await.expect("captured request");
+        let body: Value = serde_json::from_str(&captured.body).expect("json body");
+        assert!(body.get("max_output_tokens").is_none());
     }
 
     #[tokio::test]
