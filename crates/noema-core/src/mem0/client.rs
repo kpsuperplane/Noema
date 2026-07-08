@@ -34,10 +34,7 @@ impl Mem0Client {
     ///
     /// Returns [`Mem0ClientError`] when the request fails or Mem0 returns a
     /// non-success HTTP status.
-    pub async fn add_memory(
-        &self,
-        request: Mem0AddMemoryRequest,
-    ) -> Result<(), Mem0ClientError> {
+    pub async fn add_memory(&self, request: Mem0AddMemoryRequest) -> Result<(), Mem0ClientError> {
         let mut builder = self
             .http
             .post(format!("{}/v1/memories/add", self.base_url))

@@ -810,7 +810,7 @@ Memory graph response for the local human.
 """
 type MemoryGraph {
 	"""
-	Supermemory availability for this request.
+	Memory service availability for this request.
 	"""
 	status: MemoryServiceStatus!
 	"""
@@ -828,7 +828,7 @@ One document displayed in the memory graph.
 """
 type MemoryGraphDocument {
 	"""
-	Supermemory document id.
+	Memory document/group id.
 	"""
 	id: String!
 	"""
@@ -856,11 +856,11 @@ type MemoryGraphDocument {
 	"""
 	source: String
 	"""
-	Supermemory document type.
+	Memory document/group type.
 	"""
 	type: String
 	"""
-	Supermemory document status.
+	Memory document/group status.
 	"""
 	status: String!
 	"""
@@ -900,7 +900,7 @@ One memory entry displayed in the memory graph.
 """
 type MemoryGraphMemoryEntry {
 	"""
-	Supermemory memory entry id.
+	Memory entry id.
 	"""
 	id: String!
 	"""
@@ -936,7 +936,7 @@ type MemoryGraphMemoryEntry {
 	"""
 	updatedAt: String!
 	"""
-	Container tag used by Supermemory spaces.
+	Memory scope tag.
 	"""
 	spaceContainerTag: String
 	"""
@@ -944,7 +944,7 @@ type MemoryGraphMemoryEntry {
 	"""
 	relation: String
 	"""
-	Parent memory id when Supermemory links memories into its graph.
+	Parent memory id when available.
 	"""
 	parentMemoryId: String
 	"""
@@ -952,7 +952,7 @@ type MemoryGraphMemoryEntry {
 	"""
 	rootMemoryId: String
 	"""
-	Supermemory graph relation map keyed by target memory id.
+	Memory relation map keyed by target memory id.
 	"""
 	memoryRelations: JSON
 	"""
@@ -960,7 +960,7 @@ type MemoryGraphMemoryEntry {
 	"""
 	isLatest: Boolean
 	"""
-	Supermemory space id.
+	Memory space id.
 	"""
 	spaceId: String
 }
@@ -982,7 +982,7 @@ type MemoryGraphPageInfo {
 	"""
 	hasMore: Boolean!
 	"""
-	Total document count when returned by Supermemory.
+	Total memory count when returned by the memory service.
 	"""
 	total: Int
 }
@@ -992,11 +992,11 @@ Memory service operating mode.
 """
 enum MemoryServiceMode {
 	"""
-	Noema manages a local Supermemory service.
+	Noema manages a local memory service.
 	"""
 	MANAGED
 	"""
-	Noema connects to an externally managed Supermemory service.
+	Noema connects to an externally managed memory service.
 	"""
 	EXTERNAL
 }
@@ -1054,11 +1054,11 @@ Memory service settings exposed to Settings.
 """
 type MemorySettings {
 	"""
-	Supermemory service mode.
+	Memory service mode.
 	"""
 	mode: MemoryServiceMode!
 	"""
-	External Supermemory service base URL.
+	External memory service base URL.
 	"""
 	baseUrl: String
 	"""
@@ -1626,11 +1626,11 @@ Input for saving memory service settings.
 """
 input SaveMemoryServiceSettingsInput {
 	"""
-	Supermemory service mode.
+	Memory service mode.
 	"""
 	mode: MemoryServiceMode!
 	"""
-	External Supermemory service base URL.
+	External memory service base URL.
 	"""
 	baseUrl: String
 	"""

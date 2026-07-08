@@ -6,8 +6,8 @@ This file is the durable working brief for Codex sessions. Keep it concise and u
 
 Noema is an always-on, self-hosted personal agent operating system. SQLite is
 Noema's canonical structured store at
-`${NOEMA_HOME:-$HOME/.noema}/db/noema.sqlite3`. Local Supermemory owns durable
-memory truth, graph behavior, extraction, updates, and memory search indexes.
+`${NOEMA_HOME:-$HOME/.noema}/db/noema.sqlite3`. Local Mem0 owns durable memory
+truth, extraction, updates, and memory search indexes.
 
 The next storage slice should stay small and concrete:
 
@@ -17,9 +17,9 @@ The next storage slice should stay small and concrete:
 - Core-hosted local React web chat as the first frontend shell.
 - SQLite-backed persisted conversations, transcript items, provider accounts,
   MCP setup, approvals, and memory service configuration.
-- Local Supermemory-backed memory search through explicit `search_memory`.
+- Local Mem0-backed memory search through explicit `search_memory`.
 - Frontend IA that keeps memory configuration in Settings > Memory and exposes
-  the human memory graph through the top-level `/memory` page.
+  human memories through the top-level `/memory` page.
 
 ## Settled Decisions
 
@@ -29,41 +29,36 @@ The next storage slice should stay small and concrete:
 - The clean pre-V1 storage reset has no SurrealDB migration path.
 - SQLite database files live under
   `${NOEMA_HOME:-$HOME/.noema}/db/noema.sqlite3`.
-- Local Supermemory state lives under
-  `${NOEMA_HOME:-$HOME/.noema}/supermemory/data`; Supermemory secrets live under
-  `${NOEMA_HOME:-$HOME/.noema}/supermemory/secrets`.
-- Persisted user messages enqueue memory observations to Supermemory
-  immediately for extraction into the current human container tag
-  (`human:local`) by default. Each observation uses the persisted user item id
-  as an immutable Supermemory `conversationId`/source document identity
-  (`memory_observation:<user_item_id>`), while the Noema conversation id and
-  turn id are stored as metadata. This avoids the bundled self-hosted
-  Supermemory build re-processing an accumulated same-conversation source
-  document and superseding existing memories with identical copies on later
-  turns. Payloads contain only the current user text; assistant text is not
-  submitted as context because Supermemory treats conversation messages as
-  source material. Noema sends both `containerTag` and `containerTags` on v4
-  ingest while the bundled self-hosted build requires the plural field for
-  storage. Supermemory extraction never blocks normal provider response
-  generation.
+- Local Mem0 state lives under `${NOEMA_HOME:-$HOME/.noema}/mem0/data`; runtime
+  sidecar state lives under `${NOEMA_HOME:-$HOME/.noema}/mem0/run`.
+- Persisted user messages enqueue Mem0 memory observations immediately after
+  the user item is durably stored. The Mem0 add payload contains only the
+  current user text as a `role: user` message, `user_id: human:local`,
+  `agent_id: agent:local`, `run_id` set to the Noema conversation id, and
+  Noema provenance metadata (`noemaConversationId`, `turnId`, `userItemId`,
+  `sourceKind`). Assistant responses, tool results, reasoning, notices, and
+  empty user text are not submitted. Mem0 extraction never blocks normal
+  provider response generation.
   Noema does not keep a SQLite memory ingest job/outbox table yet; submit
   failures are best-effort diagnostics until a real retry surface exists.
-- Managed Local Supermemory runs as a private Noema sidecar. Noema resolves the
-  server from `NOEMA_SUPERMEMORY_SERVER`, then the bundled
-  `crates/noema-core/supermemory/` resource directory, then `PATH` for
-  development fallback. The sidecar binds a runtime-selected loopback port; the
-  endpoint is kept in memory and is not stored in SQLite or shown in Settings.
-- Managed Supermemory receives model access through a Noema-hosted private
-  loopback OpenAI-compatible `/v1/chat/completions` proxy. Noema injects
-  `OPENAI_BASE_URL`, `OPENAI_API_KEY`, `OPENAI_MODEL`, `OPENAI_FAST_MODEL`, and
-  `OPENAI_TEXT_MODEL` into the child process at startup; the proxy routes
+- Managed local Mem0 runs as a private Noema sidecar. The sidecar embeds Mem0
+  OSS behind a Noema-owned FastAPI contract, stores vectors in local Chroma,
+  uses FastEmbed local embeddings, and binds a runtime-selected loopback port.
+  `cargo dev` prepares a repo-local Python virtualenv under
+  `crates/noema-core/target/mem0-sidecar-venv` and passes
+  `NOEMA_MEM0_SIDECAR_COMMAND` to the watched server process. The endpoint is
+  kept in memory and is not stored in SQLite or shown in Settings.
+- Managed Mem0 receives model access through a Noema-hosted private loopback
+  OpenAI-compatible `/v1/chat/completions` proxy. Noema injects
+  `NOEMA_MEMORY_OPENAI_BASE_URL`, `NOEMA_MEMORY_OPENAI_API_KEY`, and
+  `NOEMA_MEMORY_MODEL` into the child process at startup; the proxy routes
   generation through the provider/model selected in Settings > Memory, falling
   back to the daemon default only when no Memory model preference is saved.
-- The top-level `/memory` page visualizes Supermemory graph documents for the
-  local human scope. The web UI queries Noema Core GraphQL only; Noema Core
-  resolves the configured Supermemory endpoint, fetches graph documents for
-  `human:local`, and adapts them for the frontend. The browser never connects
-  directly to Supermemory.
+- The top-level `/memory` page lists Mem0 memories for the local human scope.
+  The web UI queries Noema Core GraphQL only; Noema Core resolves the
+  configured Mem0 endpoint, fetches memories for `human:local`, and adapts them
+  into grouped memory documents for the frontend. The browser never connects
+  directly to Mem0.
 - Docker/Compose development infrastructure has been retired; local development
   uses host Rust, Bun, and web/desktop product surfaces. The old standalone
   Noema binary and local dev alias have been removed.
@@ -82,10 +77,10 @@ The next storage slice should stay small and concrete:
   WebSocket and `agent_status` are live coordination state for current turns.
 - Filesystem storage is for durable object-owned documents, attachments, and artifacts.
 - `system/` state is derived and rebuildable.
-- Memory is governed context, not hidden model state. Durable memory truth and
-  graph ownership now belong to local Supermemory, while Noema owns only
-  service configuration, live readiness proxying, ingest diagnostics, and
-  explicit `search_memory` tool calls.
+- Memory is governed context, not hidden model state. Durable memory truth now
+  belongs to local Mem0, while Noema owns service lifecycle, configuration,
+  live readiness proxying, provenance, UI, model routing, ingest diagnostics,
+  and explicit `search_memory` tool calls.
 - Chat provider responses use an explicit object contract:
   `response_status`, `responses[]`, and `tool_calls[]`. The legacy
   `memory_proposals` field is rejected at the provider parser boundary.
@@ -354,18 +349,17 @@ The next storage slice should stay small and concrete:
   conversation domain types, and MCP trusted identity helpers are split into
   nearby submodules with root files acting as stable facades.
 - Memory service configuration lives in SQLite store modules, while live
-  service status is queried through Noema core as a proxy to Supermemory and
-  local Supermemory owns durable memory behavior. Provider-neutral contracts,
+  service status is queried through Noema core as a proxy to Mem0 and local
+  Mem0 owns durable memory behavior. Provider-neutral contracts,
   account metadata, and auth support live under `provider`, while concrete
   adapters and response stream helpers live under `provider::adapters`; the old
   top-level `providers` module has been retired.
 - `crates/noema-core/web/tests` has been removed; web validation should use
   `bun run lint`, `bun run build`, and local browser smoke checks.
 - Agent memory reads are explicit `search_memory` tool-only calls. Noema
-  validates arguments, maps trusted active scopes to deterministic Supermemory
-  container tags, fans out across those tags, returns Supermemory search results
-  as a normal tool result, and does not inject memories automatically before
-  turns.
+  validates arguments, maps trusted active scopes to Mem0 user/run filters
+  where available, returns Mem0 search results as a normal tool result, and
+  does not inject memories automatically before turns.
 - The primary agent starts unnamed. Prompt construction includes an
   `onboarding_prompt` asking the model to ask the user for a name while the
   agent has no display name. The local `update_own_name` tool persists later
@@ -377,9 +371,9 @@ The next storage slice should stay small and concrete:
 - The local `search_memory` tool supports validated concrete `scope_ids`.
   Empty `query` is allowed only for scoped reads, and `query` narrows within
   scope rather than broadening it.
-- Owner-facing memory visibility and graph browsing are intentionally absent in
-  the first Supermemory slice. Transcript memory markers and `/remember` are
-  removed for now.
+- Owner-facing memory visibility is available through the top-level `/memory`
+  page as a native Mem0-backed list. Transcript memory markers and `/remember`
+  are removed for now.
 - Provider tool continuations follow a bounded same-turn loop inspired by the
   OpenAI Codex turn runner: local tool results are fed back to the provider, a
   continuation may request another model-visible local or calibrated MCP tool,
@@ -396,7 +390,7 @@ The next storage slice should stay small and concrete:
   Provider-stream tool start signals are surfaced as transient activity rows
   and replaced by durable `noema_local` tool execution rows when the runtime
   actually starts the side effect.
-- Supermemory reset implementation state: Noema no longer has local graph-claim
+- Memory reset implementation state: Noema no longer has local graph-claim
   tables, predicate proposal APIs, Noema-owned memory extraction, contradiction
   resolution, transcript memory markers, `/remember`, or `/memory/graph` in the
   current slice. Provider responses no longer include memory proposals.
@@ -413,11 +407,11 @@ The next storage slice should stay small and concrete:
   non-local for named third-party evidence. Note fallback objects use opaque
   deterministic IDs plus punctuation-normalized dedupe and reinforcement, so
   note content and secrets are not embedded in entity IDs.
-- GraphQL exposes `memorySettings`, `saveMemoryServiceSettings`, and
-  `checkMemoryService` for the current memory surface. Generated web GraphQL
-  schema/types are kept in sync. Settings > Memory at `/settings/memory` owns
-  Supermemory mode, external base URL, live status, and extraction model
-  preference.
+- GraphQL exposes `memorySettings`, `saveMemoryServiceSettings`,
+  `checkMemoryService`, and `memoryGraph` for the current memory surface.
+  Generated web GraphQL schema/types are kept in sync. Settings > Memory at
+  `/settings/memory` owns Mem0 mode, external base URL, live status, and
+  extraction model preference.
 - Apple Foundation Models local-provider implementation is in active bridge
   integration shape: the Swift bridge lives under
   `crates/noema-core/apple-foundation-bridge`, Rust provider account/runtime
@@ -466,12 +460,12 @@ The next storage slice should stay small and concrete:
 
 ## Open Loops
 
-- Reintroduce owner-facing memory visibility on top of Supermemory when the
-  product has a clear Settings or inspection design.
-- Decide how Supermemory extraction/ingest visibility should surface without
-  bringing back transcript memory markers prematurely.
+- Decide whether richer Mem0 memory browsing should include entity, provenance,
+  and history drill-ins.
+- Decide how Mem0 extraction/ingest visibility should surface without bringing
+  back transcript memory markers prematurely.
 - Persist audit-only `search_memory` diagnostics if needed, without mirroring
-  Supermemory's graph in SQLite.
+  Mem0 memory truth in SQLite.
 - Continue aligning docs, schema, and frontend IA.
 - Decide which export formats ship first and how export preview/redaction should work.
 - Continue the third-party MCP control plane after the first landed slice:

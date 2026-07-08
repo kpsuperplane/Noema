@@ -12,7 +12,7 @@ pub(in crate::daemon) struct CodexRuntimeActor {
     pub(in crate::daemon) providers: HashMap<String, Arc<dyn RuntimeModelProvider>>,
     pub(in crate::daemon) store: NoemaStore,
     pub(in crate::daemon) system_errors: SystemErrorLogger,
-    pub(in crate::daemon) supermemory_connection: Option<crate::SupermemoryConnection>,
+    pub(in crate::daemon) memory_connection: Option<crate::Mem0Connection>,
     pub(in crate::daemon) search_provider: crate::search::types::SearchRuntimeProvider,
     pub(in crate::daemon) web_fetch_provider: crate::web_fetch::types::WebFetchRuntimeProvider,
     pub(in crate::daemon) conversations: HashMap<String, ActiveConversation>,
@@ -26,23 +26,22 @@ impl CodexRuntimeActor {
         store: NoemaStore,
         system_errors: SystemErrorLogger,
     ) -> Result<Self, DaemonError> {
-        Self::new_with_supermemory(default_provider_kind, providers, store, system_errors, None)
-            .await
+        Self::new_with_memory(default_provider_kind, providers, store, system_errors, None).await
     }
 
-    pub(in crate::daemon) async fn new_with_supermemory(
+    pub(in crate::daemon) async fn new_with_memory(
         default_provider_kind: String,
         providers: HashMap<String, Arc<dyn RuntimeModelProvider>>,
         store: NoemaStore,
         system_errors: SystemErrorLogger,
-        supermemory_connection: Option<crate::SupermemoryConnection>,
+        memory_connection: Option<crate::Mem0Connection>,
     ) -> Result<Self, DaemonError> {
         Ok(Self {
             default_provider_kind,
             providers,
             store,
             system_errors,
-            supermemory_connection,
+            memory_connection,
             search_provider: crate::search::types::SearchRuntimeProvider::default(),
             web_fetch_provider: crate::web_fetch::types::WebFetchRuntimeProvider::default(),
             conversations: HashMap::new(),
@@ -101,9 +100,9 @@ impl CodexRuntimeActor {
         self.provider_for_kind(&self.default_provider_kind)
     }
 
-    pub(in crate::daemon) fn supermemory_client(&self) -> Option<crate::SupermemoryClient> {
-        self.supermemory_connection.as_ref().map(|connection| {
-            crate::SupermemoryClient::new(connection.base_url.clone(), connection.api_key.clone())
+    pub(in crate::daemon) fn memory_client(&self) -> Option<crate::Mem0Client> {
+        self.memory_connection.as_ref().map(|connection| {
+            crate::Mem0Client::new(connection.base_url.clone(), connection.api_key.clone())
         })
     }
 

@@ -68,36 +68,31 @@ pub(super) fn mcp_auth_status_label(status: crate::McpServerAuthStatus) -> &'sta
     }
 }
 
-fn memory_observation_source_id_for_user_item(user_item_id: &str) -> String {
-    format!("memory_observation:{user_item_id}")
-}
-
-fn build_memory_observation_ingest_request(
+fn build_memory_observation_add_request(
     conversation_id: &str,
     turn_id: &str,
     user_item_id: &str,
     user_text: &str,
-) -> Option<crate::SupermemoryConversationIngestRequest> {
+) -> Option<crate::Mem0AddMemoryRequest> {
     if user_text.trim().is_empty() {
         return None;
     }
 
-    Some(
-        crate::SupermemoryConversationIngestRequest::new(
-            memory_observation_source_id_for_user_item(user_item_id),
-            HUMAN_MEMORY_SCOPE_ID,
-            vec![crate::supermemory::SupermemoryConversationMessage {
-                role: "user".to_string(),
-                content: user_text.to_string(),
-            }],
-        )
-        .with_metadata(json!({
+    Some(crate::Mem0AddMemoryRequest {
+        messages: vec![crate::Mem0Message {
+            role: "user".to_string(),
+            content: user_text.to_string(),
+        }],
+        user_id: HUMAN_MEMORY_SCOPE_ID.to_string(),
+        agent_id: Some("agent:local".to_string()),
+        run_id: Some(conversation_id.to_string()),
+        metadata: json!({
             "noemaConversationId": conversation_id,
             "turnId": turn_id,
             "userItemId": user_item_id,
             "sourceKind": "user_message",
-        })),
-    )
+        }),
+    })
 }
 
 impl CodexRuntimeActor {
@@ -1372,22 +1367,18 @@ impl CodexRuntimeActor {
         user_item_id: &str,
         user_text: &str,
     ) {
-        let Some(request) = build_memory_observation_ingest_request(
-            conversation_id,
-            turn_id,
-            user_item_id,
-            user_text,
-        ) else {
+        let Some(request) =
+            build_memory_observation_add_request(conversation_id, turn_id, user_item_id, user_text)
+        else {
             return;
         };
-        let Some(client) = self.supermemory_client() else {
+        let Some(client) = self.memory_client() else {
             self.log_runtime_invariant(
                 "memory observation could not be submitted",
                 json!({
                     "conversation_id": conversation_id,
                     "turn_id": turn_id,
                     "source_item_id": user_item_id,
-                    "supermemory_source_id": request.conversation_id,
                 }),
                 json!({
                     "error_code": "service_unavailable",
@@ -1401,10 +1392,9 @@ impl CodexRuntimeActor {
             "conversation_id": conversation_id,
             "turn_id": turn_id,
             "source_item_id": user_item_id,
-            "supermemory_source_id": request.conversation_id,
         });
         tokio::spawn(async move {
-            if let Err(error) = client.ingest_conversation(request).await {
+            if let Err(error) = client.add_memory(request).await {
                 let message = "memory observation submit failed".to_string();
                 system_errors.try_append(
                     SystemErrorEvent::new(SYSTEM_ERROR_RUNTIME_INVARIANT, message.clone())

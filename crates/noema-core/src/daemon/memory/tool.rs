@@ -125,7 +125,7 @@ pub(in crate::daemon) fn search_memory_tool_spec() -> Result<NoemaToolSpec, Tool
 
 pub(in crate::daemon) async fn execute_search_memory(
     _store: &NoemaStore,
-    client: Option<crate::SupermemoryClient>,
+    client: Option<crate::Mem0Client>,
     context: &MemoryToolRuntimeContext,
     call_id: Option<String>,
     payload: &Value,
@@ -149,7 +149,7 @@ pub(in crate::daemon) async fn execute_search_memory(
 }
 
 async fn execute_search_memory_inner(
-    client: Option<crate::SupermemoryClient>,
+    client: Option<crate::Mem0Client>,
     context: &MemoryToolRuntimeContext,
     _call_id: Option<&str>,
     payload: &Value,
@@ -160,18 +160,25 @@ async fn execute_search_memory_inner(
         code: "service_unavailable",
         message: "memory service is unavailable",
     })?;
-    let tags = if arguments.scope_ids.is_empty() {
+    let scope_ids = if arguments.scope_ids.is_empty() {
         trusted_active_scope_ids(context)
     } else {
         arguments.scope_ids.clone()
     };
     let mut memories = Vec::new();
-    for scope_id in tags {
-        let container_tag = container_tag_for_scope(&scope_id)?;
+    for scope_id in scope_ids {
+        validate_memory_scope_shape(&scope_id)?;
+        let run_id = if scope_id == conversation_scope_id(&context.conversation_id) {
+            Some(context.conversation_id.clone())
+        } else {
+            None
+        };
         let response = client
-            .search_memories(crate::SupermemorySearchRequest {
+            .search_memories(crate::Mem0SearchRequest {
                 query: arguments.query.clone(),
-                container_tag: container_tag.clone(),
+                user_id: HUMAN_MEMORY_SCOPE_ID.to_string(),
+                agent_id: None,
+                run_id,
                 limit: arguments.limit() as u16,
             })
             .await
@@ -185,12 +192,11 @@ async fn execute_search_memory_inner(
             };
             memories.push(json!({
                 "id": result.id,
-                "kind": "supermemory",
+                "kind": "mem0",
                 "memory": memory,
-                "score": result.similarity,
+                "score": result.score,
                 "updated_at": result.updated_at,
                 "scope_id": scope_id,
-                "container_tag": container_tag,
             }));
         }
     }
@@ -245,7 +251,7 @@ fn trusted_active_scope_ids(context: &MemoryToolRuntimeContext) -> Vec<String> {
     ids
 }
 
-fn container_tag_for_scope(scope_id: &str) -> Result<String, MemoryToolError> {
+fn validate_memory_scope_shape(scope_id: &str) -> Result<(), MemoryToolError> {
     let allowed_prefix = [
         "human:",
         "conversation:",
@@ -258,12 +264,12 @@ fn container_tag_for_scope(scope_id: &str) -> Result<String, MemoryToolError> {
     let valid_chars = scope_id
         .chars()
         .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | ':'));
-    if allowed_prefix && valid_chars {
-        Ok(scope_id.to_string())
-    } else {
+    if !allowed_prefix || !valid_chars {
         Err(MemoryToolError::InvalidArguments(format!(
             "unsupported scope_id: {scope_id}"
         )))
+    } else {
+        Ok(())
     }
 }
 
@@ -374,20 +380,14 @@ mod tests {
     }
 
     #[test]
-    fn supermemory_container_tag_preserves_safe_scope_ids() {
-        assert_eq!(
-            container_tag_for_scope("human:local").expect("tag"),
-            "human:local"
-        );
-        assert_eq!(
-            container_tag_for_scope("conversation:abc_123").expect("tag"),
-            "conversation:abc_123"
-        );
+    fn memory_scope_shape_accepts_safe_scope_ids() {
+        validate_memory_scope_shape("human:local").expect("scope");
+        validate_memory_scope_shape("conversation:abc_123").expect("scope");
     }
 
     #[test]
-    fn supermemory_container_tag_rejects_unknown_scope_shape() {
-        let error = container_tag_for_scope("not allowed").expect_err("invalid");
+    fn memory_scope_shape_rejects_unknown_scope_shape() {
+        let error = validate_memory_scope_shape("not allowed").expect_err("invalid");
         assert!(error.to_string().contains("unsupported scope_id"));
     }
 

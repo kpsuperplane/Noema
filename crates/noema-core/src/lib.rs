@@ -20,10 +20,12 @@ pub mod home;
 pub mod ids;
 /// Third-party MCP control-plane types.
 pub mod mcp;
-/// Shared memory persistence error types.
-pub mod memory;
 /// Mem0 local service client and lifecycle support.
 pub mod mem0;
+/// Shared memory persistence error types.
+pub mod memory;
+/// Private OpenAI-compatible model proxy for local memory extraction.
+pub mod memory_model_proxy;
 /// Neutral concrete object and actor references.
 pub mod objects;
 /// Onboarding status derived from provider account readiness.
@@ -38,8 +40,6 @@ pub mod runtime_host;
 pub mod search;
 /// Embedded canonical structured store.
 pub mod store;
-/// Supermemory local service client and lifecycle support.
-pub mod supermemory;
 /// Developer diagnostic system error logging.
 pub mod system_errors;
 #[doc(hidden)]
@@ -69,11 +69,13 @@ pub use mcp::{
     McpCalibrationStatus, McpTransportKind, McpTrustClassification, OwnerExtractor,
     OwnerExtractorSource, TrustedIdentitySelectorKind, normalize_trusted_identity_value,
 };
-pub use memory::error::MemoryPersistenceError;
 pub use mem0::{
-    Mem0AddMemoryRequest, Mem0Client, Mem0ClientError, Mem0ListMemoriesRequest,
-    Mem0ListMemoriesResponse, Mem0Memory, Mem0Message, Mem0SearchRequest, Mem0SearchResponse,
+    Mem0AddMemoryRequest, Mem0Client, Mem0ClientError, Mem0Connection, Mem0Lifecycle,
+    Mem0LifecycleError, Mem0ListMemoriesRequest, Mem0ListMemoriesResponse, Mem0Memory, Mem0Message,
+    Mem0SearchRequest, Mem0SearchResponse,
 };
+pub use memory::error::MemoryPersistenceError;
+pub use memory_model_proxy::{MemoryModelProxy, MemoryModelProxyConfig, MemoryModelProxyError};
 pub use objects::{ActorKind, ActorRef, ObjectRef, ObjectType};
 pub use onboarding::{
     OnboardingStatus, OnboardingStep, OnboardingStepStatus, onboarding_status_from_account,
@@ -101,13 +103,6 @@ pub use store::{
     NewToolCalibration, NewTrustedIdentitySelector, NoemaStore, SaveMemoryServiceSettings,
     StoreConfig, StoreError, ToolCalibrationRecord, TrustedIdentitySelectorEffect,
     TrustedIdentitySelectorRecord, WEB_FETCH_SUMMARIZER_TASK_ID,
-};
-pub use supermemory::{
-    SupermemoryClient, SupermemoryClientError, SupermemoryConnection,
-    SupermemoryConversationIngestRequest, SupermemoryGraphDocument,
-    SupermemoryGraphDocumentsRequest, SupermemoryGraphDocumentsResponse,
-    SupermemoryGraphMemoryEntry, SupermemoryGraphPagination, SupermemoryLifecycle,
-    SupermemorySearchRequest, SupermemorySearchResponse,
 };
 pub use system_errors::{
     SYSTEM_ERROR_MCP_MALFORMED_RESPONSE, SYSTEM_ERROR_MCP_TOOL_CALL_FAILURE,

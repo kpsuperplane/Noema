@@ -9,9 +9,9 @@ use super::{NoemaStore, StoreError};
 /// Saved memory service mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MemoryServiceMode {
-    /// Noema manages a local Supermemory child process.
+    /// Noema manages a local memory service child process.
     Managed,
-    /// Noema connects to an externally managed Supermemory service.
+    /// Noema connects to an externally managed memory service.
     External,
 }
 
@@ -47,9 +47,9 @@ impl MemoryServiceMode {
 pub struct MemoryServiceSettingsRecord {
     /// Stable singleton settings id.
     pub settings_id: String,
-    /// Supermemory service mode.
+    /// Memory service mode.
     pub mode: MemoryServiceMode,
-    /// External Supermemory service base URL.
+    /// External memory service base URL.
     pub base_url: Option<String>,
     /// External service port, when configured.
     pub port: Option<u16>,
@@ -66,9 +66,9 @@ pub struct MemoryServiceSettingsRecord {
 /// Input for saving memory service settings.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SaveMemoryServiceSettings {
-    /// Supermemory service mode.
+    /// Memory service mode.
     pub mode: MemoryServiceMode,
-    /// External Supermemory service base URL.
+    /// External memory service base URL.
     pub base_url: Option<String>,
     /// External service port, when configured.
     pub port: Option<u16>,

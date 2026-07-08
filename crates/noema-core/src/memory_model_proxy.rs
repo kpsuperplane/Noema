@@ -1,4 +1,4 @@
-//! Private OpenAI-compatible model proxy for managed Supermemory.
+//! Private OpenAI-compatible model proxy for managed memory services.
 
 use std::{sync::Arc, time::SystemTime};
 
@@ -25,12 +25,12 @@ use crate::{
 
 const MAX_REQUEST_BYTES: usize = 1024 * 1024;
 
-/// Configuration for Noema's private Supermemory model proxy.
+/// Configuration for Noema's private memory model proxy.
 #[derive(Clone)]
-pub struct SupermemoryModelProxyConfig {
+pub struct MemoryModelProxyConfig {
     /// Provider selected by Settings > Memory.
     pub provider: Arc<dyn RuntimeModelProvider>,
-    /// Bearer token accepted from the Supermemory child process.
+    /// Bearer token accepted from the memory child process.
     pub api_key: String,
     /// Model/profile selected by Settings > Memory.
     pub model_profile: String,
@@ -40,8 +40,8 @@ pub struct SupermemoryModelProxyConfig {
     pub system_errors: Option<SystemErrorLogger>,
 }
 
-/// Private loopback OpenAI-compatible proxy owned by managed Supermemory.
-pub struct SupermemoryModelProxy {
+/// Private loopback OpenAI-compatible proxy owned by managed memory services.
+pub struct MemoryModelProxy {
     openai_base_url: String,
     api_key: String,
     model_profile: String,
@@ -49,15 +49,13 @@ pub struct SupermemoryModelProxy {
     task: JoinHandle<()>,
 }
 
-impl SupermemoryModelProxy {
+impl MemoryModelProxy {
     /// Start the loopback model proxy.
     ///
     /// # Errors
     ///
-    /// Returns [`SupermemoryModelProxyError`] when the listener cannot bind.
-    pub async fn start(
-        config: SupermemoryModelProxyConfig,
-    ) -> Result<Self, SupermemoryModelProxyError> {
+    /// Returns [`MemoryModelProxyError`] when the listener cannot bind.
+    pub async fn start(config: MemoryModelProxyConfig) -> Result<Self, MemoryModelProxyError> {
         let listener = TcpListener::bind(("127.0.0.1", 0)).await?;
         let address = listener.local_addr()?;
         let openai_base_url = format!("http://{address}/v1");
@@ -87,7 +85,7 @@ impl SupermemoryModelProxy {
         &self.api_key
     }
 
-    /// Model/profile to advertise to Supermemory.
+    /// Model/profile to advertise to Memory.
     #[must_use]
     pub fn model_profile(&self) -> &str {
         &self.model_profile
@@ -102,10 +100,10 @@ impl SupermemoryModelProxy {
     }
 }
 
-impl std::fmt::Debug for SupermemoryModelProxy {
+impl std::fmt::Debug for MemoryModelProxy {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
-            .debug_struct("SupermemoryModelProxy")
+            .debug_struct("MemoryModelProxy")
             .field("openai_base_url", &self.openai_base_url)
             .field("model_profile", &self.model_profile)
             .finish_non_exhaustive()
@@ -114,7 +112,7 @@ impl std::fmt::Debug for SupermemoryModelProxy {
 
 async fn run_proxy(
     listener: TcpListener,
-    config: SupermemoryModelProxyConfig,
+    config: MemoryModelProxyConfig,
     mut shutdown_rx: oneshot::Receiver<()>,
 ) {
     loop {
@@ -132,7 +130,7 @@ async fn run_proxy(
                             if let Err(error) = handle_connection(stream, config).await {
                                 log_proxy_error(
                                     system_errors.as_ref(),
-                                    "supermemory_model_proxy_request_failed",
+                                    "memory_model_proxy_request_failed",
                                     &error.to_string(),
                                 );
                             }
@@ -141,7 +139,7 @@ async fn run_proxy(
                     Err(error) => {
                         log_proxy_error(
                             config.system_errors.as_ref(),
-                            "supermemory_model_proxy_accept_failed",
+                            "memory_model_proxy_accept_failed",
                             &error.to_string(),
                         );
                         break;
@@ -154,8 +152,8 @@ async fn run_proxy(
 
 async fn handle_connection(
     mut stream: TcpStream,
-    config: SupermemoryModelProxyConfig,
-) -> Result<(), SupermemoryModelProxyError> {
+    config: MemoryModelProxyConfig,
+) -> Result<(), MemoryModelProxyError> {
     let request = read_http_request(&mut stream).await?;
     let response = route_request(request, config).await;
     stream.write_all(&response.to_bytes()).await?;
@@ -163,7 +161,7 @@ async fn handle_connection(
     Ok(())
 }
 
-async fn route_request(request: HttpRequest, config: SupermemoryModelProxyConfig) -> HttpResponse {
+async fn route_request(request: HttpRequest, config: MemoryModelProxyConfig) -> HttpResponse {
     if request.method != "GET" && request.method != "POST" {
         return json_error(http::StatusCode::METHOD_NOT_ALLOWED, "method_not_allowed");
     }
@@ -204,8 +202,8 @@ async fn route_request(request: HttpRequest, config: SupermemoryModelProxyConfig
     if openai_request.stream.unwrap_or(false) {
         if let Some(system_errors) = &config.system_errors {
             system_errors.try_append(crate::SystemErrorEvent::new(
-                "supermemory_model_proxy_streaming_unsupported",
-                "Supermemory requested streaming from the private model proxy",
+                "memory_model_proxy_streaming_unsupported",
+                "Memory service requested streaming from the private model proxy",
             ));
         }
         return json_error(http::StatusCode::NOT_IMPLEMENTED, "streaming_not_supported");
@@ -234,8 +232,8 @@ async fn route_request(request: HttpRequest, config: SupermemoryModelProxyConfig
             if let Some(system_errors) = &config.system_errors {
                 system_errors.try_append(
                     crate::SystemErrorEvent::new(
-                        "supermemory_model_proxy_provider_failed",
-                        "Supermemory model proxy provider request failed",
+                        "memory_model_proxy_provider_failed",
+                        "Memory model proxy provider request failed",
                     )
                     .with_error_chain([error.to_string()]),
                 );
@@ -266,21 +264,19 @@ impl HttpRequest {
     }
 }
 
-async fn read_http_request(
-    stream: &mut TcpStream,
-) -> Result<HttpRequest, SupermemoryModelProxyError> {
+async fn read_http_request(stream: &mut TcpStream) -> Result<HttpRequest, MemoryModelProxyError> {
     let mut buffer = Vec::new();
     let header_end = loop {
         let mut chunk = [0_u8; 4096];
         let read = stream.read(&mut chunk).await?;
         if read == 0 {
-            return Err(SupermemoryModelProxyError::Protocol(
+            return Err(MemoryModelProxyError::Protocol(
                 "connection closed before request headers".to_string(),
             ));
         }
         buffer.extend_from_slice(&chunk[..read]);
         if buffer.len() > MAX_REQUEST_BYTES {
-            return Err(SupermemoryModelProxyError::Protocol(
+            return Err(MemoryModelProxyError::Protocol(
                 "request exceeded maximum size".to_string(),
             ));
         }
@@ -289,19 +285,19 @@ async fn read_http_request(
         }
     };
     let header_text = std::str::from_utf8(&buffer[..header_end])
-        .map_err(|_| SupermemoryModelProxyError::Protocol("headers are not utf-8".to_string()))?;
+        .map_err(|_| MemoryModelProxyError::Protocol("headers are not utf-8".to_string()))?;
     let mut lines = header_text.split("\r\n");
     let request_line = lines
         .next()
-        .ok_or_else(|| SupermemoryModelProxyError::Protocol("missing request line".to_string()))?;
+        .ok_or_else(|| MemoryModelProxyError::Protocol("missing request line".to_string()))?;
     let mut request_parts = request_line.split_whitespace();
     let method = request_parts
         .next()
-        .ok_or_else(|| SupermemoryModelProxyError::Protocol("missing method".to_string()))?
+        .ok_or_else(|| MemoryModelProxyError::Protocol("missing method".to_string()))?
         .to_string();
     let path = request_parts
         .next()
-        .ok_or_else(|| SupermemoryModelProxyError::Protocol("missing path".to_string()))?
+        .ok_or_else(|| MemoryModelProxyError::Protocol("missing path".to_string()))?
         .to_string();
     let headers = lines
         .filter_map(|line| {
@@ -314,10 +310,10 @@ async fn read_http_request(
         .find(|(name, _value)| name.eq_ignore_ascii_case("content-length"))
         .map(|(_name, value)| value.parse::<usize>())
         .transpose()
-        .map_err(|_| SupermemoryModelProxyError::Protocol("invalid content-length".to_string()))?
+        .map_err(|_| MemoryModelProxyError::Protocol("invalid content-length".to_string()))?
         .unwrap_or(0);
     if content_length > MAX_REQUEST_BYTES {
-        return Err(SupermemoryModelProxyError::Protocol(
+        return Err(MemoryModelProxyError::Protocol(
             "request body exceeded maximum size".to_string(),
         ));
     }
@@ -326,7 +322,7 @@ async fn read_http_request(
         let mut chunk = [0_u8; 4096];
         let read = stream.read(&mut chunk).await?;
         if read == 0 {
-            return Err(SupermemoryModelProxyError::Protocol(
+            return Err(MemoryModelProxyError::Protocol(
                 "connection closed before request body".to_string(),
             ));
         }
@@ -387,7 +383,7 @@ fn json_error_message(
         status,
         json!({
             "error": {
-                "type": "noema_supermemory_model_proxy_error",
+                "type": "noema_memory_model_proxy_error",
                 "code": code,
                 "message": message.into()
             }
@@ -416,8 +412,8 @@ struct OpenAiChatCompletionRequest {
 impl OpenAiChatCompletionRequest {
     fn into_generate_request(
         self,
-        config: &SupermemoryModelProxyConfig,
-    ) -> Result<GenerateRequest, SupermemoryModelProxyError> {
+        config: &MemoryModelProxyConfig,
+    ) -> Result<GenerateRequest, MemoryModelProxyError> {
         let mut instructions = Vec::new();
         let mut items = Vec::new();
         for message in self.messages {
@@ -455,7 +451,7 @@ impl OpenAiChatCompletionRequest {
                 "tool" => {
                     let content = message.content_text();
                     let Some(tool_call_id) = message.tool_call_id else {
-                        return Err(SupermemoryModelProxyError::Protocol(
+                        return Err(MemoryModelProxyError::Protocol(
                             "tool message is missing tool_call_id".to_string(),
                         ));
                     };
@@ -471,7 +467,7 @@ impl OpenAiChatCompletionRequest {
                     }));
                 }
                 role => {
-                    return Err(SupermemoryModelProxyError::Protocol(format!(
+                    return Err(MemoryModelProxyError::Protocol(format!(
                         "unsupported message role: {role}"
                     )));
                 }
@@ -559,9 +555,9 @@ struct OpenAiChatTool {
 }
 
 impl OpenAiChatTool {
-    fn into_noema_tool(self) -> Result<NoemaToolSpec, SupermemoryModelProxyError> {
+    fn into_noema_tool(self) -> Result<NoemaToolSpec, MemoryModelProxyError> {
         if self.kind != "function" {
-            return Err(SupermemoryModelProxyError::Protocol(format!(
+            return Err(MemoryModelProxyError::Protocol(format!(
                 "unsupported tool type: {}",
                 self.kind
             )));
@@ -572,7 +568,7 @@ impl OpenAiChatTool {
             self.function.parameters,
             NoemaToolExecution::LocalBuiltin,
         )
-        .map_err(|error| SupermemoryModelProxyError::Protocol(error.to_string()))
+        .map_err(|error| MemoryModelProxyError::Protocol(error.to_string()))
     }
 }
 
@@ -690,12 +686,12 @@ fn openai_tool_calls(calls: Vec<GenerateToolCall>) -> Value {
     )
 }
 
-fn parse_arguments_json(arguments: &str) -> Result<Value, SupermemoryModelProxyError> {
+fn parse_arguments_json(arguments: &str) -> Result<Value, MemoryModelProxyError> {
     if arguments.trim().is_empty() {
         return Ok(json!({}));
     }
     serde_json::from_str(arguments).map_err(|error| {
-        SupermemoryModelProxyError::Protocol(format!("invalid tool call arguments: {error}"))
+        MemoryModelProxyError::Protocol(format!("invalid tool call arguments: {error}"))
     })
 }
 
@@ -730,7 +726,7 @@ fn unix_timestamp() -> u64 {
 fn log_proxy_error(system_errors: Option<&SystemErrorLogger>, code: &'static str, message: &str) {
     if let Some(system_errors) = system_errors {
         system_errors.try_append(
-            crate::SystemErrorEvent::new(code, "Supermemory model proxy request failed")
+            crate::SystemErrorEvent::new(code, "Memory model proxy request failed")
                 .with_error_chain([message.to_string()]),
         );
     }
@@ -738,15 +734,15 @@ fn log_proxy_error(system_errors: Option<&SystemErrorLogger>, code: &'static str
 
 /// Errors returned by the private model proxy.
 #[derive(Debug, Error)]
-pub enum SupermemoryModelProxyError {
+pub enum MemoryModelProxyError {
     /// Network I/O failed.
-    #[error("supermemory model proxy I/O failed: {0}")]
+    #[error("memory model proxy I/O failed: {0}")]
     Io(#[from] std::io::Error),
     /// Request or protocol validation failed.
-    #[error("supermemory model proxy protocol error: {0}")]
+    #[error("memory model proxy protocol error: {0}")]
     Protocol(String),
     /// Provider generation failed.
-    #[error("supermemory model proxy provider failed: {0}")]
+    #[error("memory model proxy provider failed: {0}")]
     Provider(#[from] ProviderError),
 }
 
@@ -808,7 +804,7 @@ mod tests {
             "fake",
             "memory-model",
         )));
-        let proxy = super::SupermemoryModelProxy::start(super::SupermemoryModelProxyConfig {
+        let proxy = super::MemoryModelProxy::start(super::MemoryModelProxyConfig {
             provider: provider.clone(),
             api_key: "secret".to_string(),
             model_profile: "memory-model".to_string(),
@@ -895,7 +891,7 @@ mod tests {
             response_id: Some("resp_1".to_string()),
             usage: None,
         }));
-        let proxy = super::SupermemoryModelProxy::start(super::SupermemoryModelProxyConfig {
+        let proxy = super::MemoryModelProxy::start(super::MemoryModelProxyConfig {
             provider: provider.clone(),
             api_key: "secret".to_string(),
             model_profile: "memory-model".to_string(),
@@ -942,7 +938,7 @@ mod tests {
             "fake",
             "memory-model",
         )));
-        let proxy = super::SupermemoryModelProxy::start(super::SupermemoryModelProxyConfig {
+        let proxy = super::MemoryModelProxy::start(super::MemoryModelProxyConfig {
             provider: provider.clone(),
             api_key: "secret".to_string(),
             model_profile: "memory-model".to_string(),
@@ -1006,7 +1002,7 @@ mod tests {
             "fake",
             "memory-model",
         )));
-        let proxy = super::SupermemoryModelProxy::start(super::SupermemoryModelProxyConfig {
+        let proxy = super::MemoryModelProxy::start(super::MemoryModelProxyConfig {
             provider: provider.clone(),
             api_key: "secret".to_string(),
             model_profile: "memory-model".to_string(),

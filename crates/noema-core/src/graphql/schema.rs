@@ -175,12 +175,12 @@ impl GraphqlState {
         self.runtime_state.paths()
     }
 
-    pub(crate) fn supermemory_connection(&self) -> Option<&crate::SupermemoryConnection> {
-        self.runtime_state.supermemory_connection()
+    pub(crate) fn memory_connection(&self) -> Option<&crate::Mem0Connection> {
+        self.runtime_state.memory_connection()
     }
 
-    pub(crate) fn supermemory_startup_error(&self) -> Option<&str> {
-        self.runtime_state.supermemory_startup_error()
+    pub(crate) fn memory_startup_error(&self) -> Option<&str> {
+        self.runtime_state.memory_startup_error()
     }
 
     pub(crate) fn subscriptions(&self) -> &ConversationSubscriptionRegistry {
@@ -863,7 +863,7 @@ mod tests {
         )
     }
 
-    async fn spawn_memory_graph_supermemory_server() -> String {
+    async fn spawn_memory_graph_mem0_server() -> String {
         use tokio::{
             io::{AsyncReadExt, AsyncWriteExt},
             net::TcpListener,
@@ -879,79 +879,31 @@ mod tests {
             let mut buffer = vec![0_u8; 8192];
             let read = stream.read(&mut buffer).await.expect("read");
             let request = String::from_utf8_lossy(&buffer[..read]);
-            let (head, body) = request.split_once("\r\n\r\n").expect("request head");
+            let (head, _body) = request.split_once("\r\n\r\n").expect("request head");
             let mut lines = head.lines();
             let request_line = lines.next().expect("request line");
-            assert_eq!(request_line, "POST /v3/documents/documents HTTP/1.1");
-
-            let content_length = lines
-                .filter_map(|line| line.split_once(':'))
-                .find_map(|(name, value)| {
-                    name.eq_ignore_ascii_case("content-length")
-                        .then(|| value.trim().parse::<usize>().ok())
-                        .flatten()
-                })
-                .unwrap_or(0);
-            let mut body_bytes = body.as_bytes().to_vec();
-            while body_bytes.len() < content_length {
-                let read = stream.read(&mut buffer).await.expect("read body");
-                if read == 0 {
-                    break;
-                }
-                body_bytes.extend_from_slice(&buffer[..read]);
-            }
-            let request_body: serde_json::Value =
-                serde_json::from_slice(&body_bytes).expect("request JSON");
-            assert_eq!(request_body["containerTag"], "human:local");
-            assert_eq!(request_body["page"], 1);
-            assert_eq!(request_body["limit"], 25);
+            assert_eq!(
+                request_line,
+                "GET /v1/memories?user_id=human%3Alocal&limit=25 HTTP/1.1"
+            );
 
             let response = json!({
-                "documents": [{
-                    "id": "doc_1",
-                    "customId": "human-profile",
-                    "title": "Human profile",
-                    "content": "Kevin likes local-first tools",
-                    "summary": "Preference summary",
-                    "url": null,
-                    "source": "noema",
-                    "type": "note",
-                    "status": "done",
-                    "metadata": {"scope": "human"},
-                    "createdAt": "2026-07-08T00:00:00.000Z",
-                    "updatedAt": "2026-07-08T00:01:00.000Z",
-                    "memoryEntries": [{
+                "results": [
+                    {
                         "id": "mem_1",
-                        "content": "Kevin prefers local-first tools",
-                        "summary": "Local-first preference",
-                        "title": "Preference",
-                        "type": "fact",
-                        "metadata": {"confidence": 0.9},
-                        "createdAt": "2026-07-08T00:00:30.000Z",
-                        "updatedAt": "2026-07-08T00:01:00.000Z",
-                        "spaceContainerTag": "human:local",
-                        "relation": "extends",
-                        "isLatest": true,
-                        "spaceId": "human:local"
-                    }, {
+                        "memory": "Kevin prefers local-first tools",
+                        "metadata": {"sourceKind": "user_message"},
+                        "created_at": "2026-07-08T00:00:30.000Z",
+                        "updated_at": "2026-07-08T00:01:00.000Z"
+                    },
+                    {
                         "id": "mem_2",
-                        "content": "Kevin likes tools that keep data local",
-                        "summary": "Local data preference",
-                        "title": "Local data",
-                        "type": "fact",
-                        "metadata": {"confidence": 0.8},
-                        "createdAt": "2026-07-08T00:00:40.000Z",
-                        "updatedAt": "2026-07-08T00:01:10.000Z",
-                        "spaceContainerTag": "human:local",
-                        "parentMemoryId": "mem_1",
-                        "rootMemoryId": "mem_1",
-                        "memoryRelations": {"mem_1": "extends"},
-                        "relation": "extends",
-                        "isLatest": true,
-                        "spaceId": "human:local"
-                    }]
-                }],
-                "pagination": {"page": 1, "limit": 25, "hasMore": true, "total": 42}
+                        "memory": "Kevin likes tools that keep data local",
+                        "metadata": {"noemaConversationId": "abc"},
+                        "created_at": "2026-07-08T00:00:40.000Z",
+                        "updated_at": "2026-07-08T00:01:10.000Z"
+                    }
+                ]
             });
             let response_body = serde_json::to_vec(&response).expect("response JSON");
             let response_head = format!(
@@ -996,21 +948,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn memory_settings_query_proxies_managed_supermemory_error_log() {
+    async fn memory_settings_query_reports_managed_mem0_unavailable() {
         let home = tempfile::TempDir::new().expect("home");
         let paths = crate::NoemaPaths::from_noema_home(home.path()).expect("paths");
         let store = crate::NoemaStore::open(&crate::StoreConfig::from_paths(&paths))
             .await
             .expect("store");
-        tokio::fs::create_dir_all(paths.supermemory_data_dir())
-            .await
-            .expect("supermemory data");
-        tokio::fs::write(
-            paths.supermemory_data_dir().join("error.log"),
-            "[2026-07-08T03:46:12.343Z] fatal during startup: No model provider API key configured. Set one of OPENAI_API_KEY.\n",
-        )
-        .await
-        .expect("error log");
         let schema = build_schema(GraphqlState::for_tests_with_store_and_paths(store, paths));
 
         let response = schema
@@ -1035,16 +978,16 @@ mod tests {
         assert_eq!(data["memorySettings"]["status"]["status"], "UNAVAILABLE");
         assert_eq!(
             data["memorySettings"]["status"]["lastErrorCode"],
-            "supermemory_unavailable"
+            "mem0_unavailable"
         );
         assert_eq!(
             data["memorySettings"]["status"]["lastErrorMessage"],
-            "No model provider API key configured."
+            "Managed Mem0 is not running"
         );
     }
 
     #[tokio::test]
-    async fn memory_graph_returns_unavailable_without_supermemory_connection() {
+    async fn memory_graph_returns_unavailable_without_memory_connection() {
         let store = crate::store::tests::test_store().await;
         let schema = build_schema(GraphqlState::for_tests_with_store(store));
 
@@ -1077,7 +1020,7 @@ mod tests {
         assert_eq!(data["memoryGraph"]["status"]["status"], "UNAVAILABLE");
         assert_eq!(
             data["memoryGraph"]["status"]["lastErrorCode"],
-            "supermemory_unavailable"
+            "mem0_unavailable"
         );
         assert_eq!(data["memoryGraph"]["documents"], json!([]));
         assert_eq!(data["memoryGraph"]["pageInfo"]["page"], 1);
@@ -1086,8 +1029,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn memory_graph_proxies_external_supermemory_documents() {
-        let server_base_url = spawn_memory_graph_supermemory_server().await;
+    async fn memory_graph_lists_external_mem0_memories() {
+        let server_base_url = spawn_memory_graph_mem0_server().await;
         let store = crate::store::tests::test_store().await;
         store
             .save_memory_service_settings(crate::SaveMemoryServiceSettings {
@@ -1141,33 +1084,29 @@ mod tests {
         let data = response.data.into_json().expect("json");
 
         assert_eq!(data["memoryGraph"]["status"]["status"], "READY");
-        assert_eq!(data["memoryGraph"]["documents"][0]["id"], "doc_1");
+        assert_eq!(
+            data["memoryGraph"]["documents"][0]["id"],
+            "conversation:abc"
+        );
         assert_eq!(
             data["memoryGraph"]["documents"][0]["memoryEntries"][0]["id"],
-            "mem_1"
+            "mem_2"
         );
         assert_eq!(
             data["memoryGraph"]["documents"][0]["memoryEntries"][0]["documentId"],
-            "doc_1"
+            "conversation:abc"
         );
         assert_eq!(
             data["memoryGraph"]["documents"][0]["memoryEntries"][0]["spaceContainerTag"],
             "human:local"
         );
         assert_eq!(
-            data["memoryGraph"]["documents"][0]["memoryEntries"][1]["parentMemoryId"],
-            "mem_1"
+            data["memoryGraph"]["documents"][1]["id"],
+            "mem0:human:local"
         );
-        assert_eq!(
-            data["memoryGraph"]["documents"][0]["memoryEntries"][1]["rootMemoryId"],
-            "mem_1"
-        );
-        assert_eq!(
-            data["memoryGraph"]["documents"][0]["memoryEntries"][1]["memoryRelations"],
-            json!({"mem_1": "extends"})
-        );
-        assert_eq!(data["memoryGraph"]["pageInfo"]["hasMore"], true);
-        assert_eq!(data["memoryGraph"]["pageInfo"]["total"], 42);
+        assert_eq!(data["memoryGraph"]["documents"][1]["title"], "Human memory");
+        assert_eq!(data["memoryGraph"]["pageInfo"]["hasMore"], false);
+        assert_eq!(data["memoryGraph"]["pageInfo"]["total"], 2);
     }
 
     #[tokio::test]

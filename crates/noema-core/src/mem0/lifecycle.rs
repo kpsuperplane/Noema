@@ -1,0 +1,335 @@
+//! Managed Mem0 sidecar lifecycle.
+
+use std::{env, process::ExitStatus, process::Stdio};
+
+use thiserror::Error;
+use tokio::time::{Duration, sleep};
+
+use super::{Mem0Connection, allocate_loopback_port};
+use crate::MemoryModelProxy;
+
+/// Environment variable that overrides the managed Mem0 sidecar launch command.
+pub const NOEMA_MEM0_SIDECAR_COMMAND_ENV: &str = "NOEMA_MEM0_SIDECAR_COMMAND";
+
+/// Mem0 process lifecycle owned by the runtime host.
+pub struct Mem0Lifecycle {
+    child: Option<tokio::process::Child>,
+    connection: Option<Mem0Connection>,
+    model_proxy: Option<MemoryModelProxy>,
+}
+
+impl Mem0Lifecycle {
+    /// Start the configured Mem0 lifecycle.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Mem0LifecycleError`] when managed directory setup or
+    /// child-process startup fails.
+    pub async fn start(
+        paths: &crate::NoemaPaths,
+        settings: &crate::MemoryServiceSettingsRecord,
+        system_errors: crate::SystemErrorLogger,
+        model_proxy: Option<MemoryModelProxy>,
+    ) -> Result<Self, Mem0LifecycleError> {
+        match settings.mode {
+            crate::MemoryServiceMode::External => Ok(Self {
+                child: None,
+                connection: None,
+                model_proxy: None,
+            }),
+            crate::MemoryServiceMode::Managed => {
+                let port = allocate_loopback_port()?;
+                let command = Mem0SidecarCommand::from_env();
+                Self::start_with_command_and_port(
+                    paths,
+                    settings,
+                    system_errors,
+                    command,
+                    port,
+                    model_proxy,
+                )
+                .await
+            }
+        }
+    }
+
+    /// Runtime-only connection used by Noema to reach the managed sidecar.
+    #[must_use]
+    pub fn connection(&self) -> Option<&Mem0Connection> {
+        self.connection.as_ref()
+    }
+
+    async fn start_with_command_and_port(
+        paths: &crate::NoemaPaths,
+        settings: &crate::MemoryServiceSettingsRecord,
+        system_errors: crate::SystemErrorLogger,
+        command: Mem0SidecarCommand,
+        port: u16,
+        model_proxy: Option<MemoryModelProxy>,
+    ) -> Result<Self, Mem0LifecycleError> {
+        match settings.mode {
+            crate::MemoryServiceMode::External => Ok(Self {
+                child: None,
+                connection: None,
+                model_proxy: None,
+            }),
+            crate::MemoryServiceMode::Managed => {
+                let Some(model_proxy) = model_proxy else {
+                    return Err(Mem0LifecycleError::Start(
+                        "memory model proxy is unavailable".to_string(),
+                    ));
+                };
+                tokio::fs::create_dir_all(paths.mem0_data_dir()).await?;
+                tokio::fs::create_dir_all(paths.mem0_runtime_dir()).await?;
+
+                let connection = Mem0Connection::new(format!("http://127.0.0.1:{port}"), None);
+                let mut process = command.into_process_command(port);
+                process
+                    .env("NOEMA_MEM0_DATA_DIR", paths.mem0_data_dir())
+                    .env("NOEMA_MEM0_PORT", port.to_string())
+                    .env(
+                        "NOEMA_MEMORY_OPENAI_BASE_URL",
+                        model_proxy.openai_base_url(),
+                    )
+                    .env("NOEMA_MEMORY_OPENAI_API_KEY", model_proxy.api_key())
+                    .env("NOEMA_MEMORY_MODEL", model_proxy.model_profile())
+                    .stdin(Stdio::null())
+                    .kill_on_drop(true);
+
+                let mut child = match process.spawn() {
+                    Ok(child) => child,
+                    Err(error) => {
+                        system_errors.try_append(
+                            crate::SystemErrorEvent::new(
+                                "mem0_start_failed",
+                                "Mem0 managed process could not start",
+                            )
+                            .with_error_chain([error.to_string()]),
+                        );
+                        return Err(Mem0LifecycleError::Start(
+                            "Mem0 managed process could not start".to_string(),
+                        ));
+                    }
+                };
+
+                if let Some(status) = wait_for_early_child_exit(&mut child).await? {
+                    let error_message = format!("Mem0 managed process exited with status {status}");
+                    system_errors.try_append(
+                        crate::SystemErrorEvent::new(
+                            "mem0_start_failed",
+                            "Mem0 managed process exited during startup",
+                        )
+                        .with_error_chain([error_message.clone()]),
+                    );
+                    return Err(Mem0LifecycleError::Start(error_message));
+                }
+
+                Ok(Self {
+                    child: Some(child),
+                    connection: Some(connection),
+                    model_proxy: Some(model_proxy),
+                })
+            }
+        }
+    }
+
+    /// Stop the managed Mem0 child process, when one was started.
+    pub async fn shutdown(mut self) {
+        if let Some(child) = &mut self.child {
+            let _ = child.kill().await;
+        }
+        if let Some(model_proxy) = self.model_proxy {
+            model_proxy.shutdown().await;
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn start_with_command_for_test(
+        paths: &crate::NoemaPaths,
+        command: String,
+        model_proxy: MemoryModelProxy,
+    ) -> Result<Self, Mem0LifecycleError> {
+        Self::start_with_command_and_port(
+            paths,
+            &crate::MemoryServiceSettingsRecord {
+                settings_id: "default".to_string(),
+                mode: crate::MemoryServiceMode::Managed,
+                base_url: None,
+                port: None,
+                provider_account_id: None,
+                provider_kind: None,
+                model_profile: None,
+                reasoning_effort: None,
+            },
+            crate::SystemErrorLogger::new(paths.root().join("errors.jsonl")),
+            Mem0SidecarCommand::Shell(command),
+            0,
+            Some(model_proxy),
+        )
+        .await
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Mem0SidecarCommand {
+    Default,
+    Shell(String),
+}
+
+impl Mem0SidecarCommand {
+    fn from_env() -> Self {
+        env::var(NOEMA_MEM0_SIDECAR_COMMAND_ENV)
+            .ok()
+            .filter(|command| !command.trim().is_empty())
+            .map_or(Self::Default, Self::Shell)
+    }
+
+    fn into_process_command(self, port: u16) -> tokio::process::Command {
+        match self {
+            Self::Default => {
+                let mut command = tokio::process::Command::new("python3");
+                command
+                    .arg("-m")
+                    .arg("uvicorn")
+                    .arg("noema_mem0_sidecar.app:app")
+                    .arg("--host")
+                    .arg("127.0.0.1")
+                    .arg("--port")
+                    .arg(port.to_string())
+                    .current_dir(env!("NOEMA_MEM0_SIDECAR_DIR"));
+                command
+            }
+            Self::Shell(script) => {
+                let mut command = tokio::process::Command::new("sh");
+                command.arg("-c").arg(script);
+                command
+            }
+        }
+    }
+}
+
+async fn wait_for_early_child_exit(
+    child: &mut tokio::process::Child,
+) -> Result<Option<ExitStatus>, std::io::Error> {
+    for _ in 0..20 {
+        if let Some(status) = child.try_wait()? {
+            return Ok(Some(status));
+        }
+        sleep(Duration::from_millis(50)).await;
+    }
+    Ok(None)
+}
+
+/// Errors returned by Mem0 lifecycle startup.
+#[derive(Debug, Error)]
+pub enum Mem0LifecycleError {
+    /// Managed directory setup failed.
+    #[error("mem0 directory setup failed: {0}")]
+    Io(#[from] std::io::Error),
+    /// Managed child process startup failed.
+    #[error("mem0 startup failed: {0}")]
+    Start(String),
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+
+    use tempfile::TempDir;
+
+    #[tokio::test]
+    async fn managed_mem0_lifecycle_exports_private_sidecar_env() {
+        let home = TempDir::new().expect("temp noema home");
+        let paths = crate::NoemaPaths::from_noema_home(home.path()).expect("paths");
+        let proxy = crate::MemoryModelProxy::start(crate::MemoryModelProxyConfig {
+            provider: std::sync::Arc::new(StaticProvider),
+            api_key: "proxy-secret".to_string(),
+            model_profile: "memory-model".to_string(),
+            reasoning_effort: None,
+            system_errors: None,
+        })
+        .await
+        .expect("start proxy");
+        let openai_base_url = proxy.openai_base_url().to_string();
+        let command = write_sleeping_mem0_sidecar(home.path());
+
+        let lifecycle = super::Mem0Lifecycle::start_with_command_for_test(
+            &paths,
+            command.to_string_lossy().to_string(),
+            proxy,
+        )
+        .await
+        .expect("start lifecycle");
+
+        assert!(
+            lifecycle
+                .connection()
+                .expect("connection")
+                .base_url
+                .starts_with("http://127.0.0.1:")
+        );
+        let env_file = paths.mem0_data_dir().join("model-env.txt");
+        let env_text = tokio::fs::read_to_string(env_file).await.expect("env file");
+        assert!(env_text.contains(&format!("NOEMA_MEMORY_OPENAI_BASE_URL={openai_base_url}")));
+        assert!(env_text.contains("NOEMA_MEMORY_OPENAI_API_KEY=proxy-secret"));
+        assert!(env_text.contains("NOEMA_MEMORY_MODEL=memory-model"));
+        assert!(env_text.contains("NOEMA_MEM0_PORT=0"));
+
+        lifecycle.shutdown().await;
+    }
+
+    fn write_sleeping_mem0_sidecar(root: &std::path::Path) -> std::path::PathBuf {
+        let path = root.join("mem0-sidecar");
+        fs::write(
+            &path,
+            r#"#!/bin/sh
+mkdir -p "$NOEMA_MEM0_DATA_DIR"
+{
+  echo "NOEMA_MEMORY_OPENAI_BASE_URL=$NOEMA_MEMORY_OPENAI_BASE_URL"
+  echo "NOEMA_MEMORY_OPENAI_API_KEY=$NOEMA_MEMORY_OPENAI_API_KEY"
+  echo "NOEMA_MEMORY_MODEL=$NOEMA_MEMORY_MODEL"
+  echo "NOEMA_MEM0_PORT=$NOEMA_MEM0_PORT"
+} > "$NOEMA_MEM0_DATA_DIR/model-env.txt"
+sleep 5
+"#,
+        )
+        .expect("write fake sidecar");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut permissions = fs::metadata(&path).expect("metadata").permissions();
+            permissions.set_mode(0o755);
+            fs::set_permissions(&path, permissions).expect("chmod");
+        }
+        path
+    }
+
+    #[derive(Debug)]
+    struct StaticProvider;
+
+    impl crate::daemon::RuntimeModelProvider for StaticProvider {
+        fn generate_streaming<'a>(
+            &'a self,
+            _request: crate::provider::GenerateRequest,
+            _on_event: &'a mut (dyn FnMut(crate::provider::GenerateStreamEvent) + Send),
+        ) -> std::pin::Pin<
+            Box<
+                dyn std::future::Future<
+                        Output = Result<
+                            crate::provider::GenerateResponse,
+                            crate::provider::ProviderError,
+                        >,
+                    > + Send
+                    + 'a,
+            >,
+        > {
+            Box::pin(async {
+                Ok(crate::provider::GenerateResponse::final_text(
+                    "ok",
+                    "test",
+                    "memory-model",
+                ))
+            })
+        }
+    }
+}

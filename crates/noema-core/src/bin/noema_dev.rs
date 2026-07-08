@@ -39,11 +39,11 @@ enum DevError {
     #[error("failed to generate GraphQL schema: {source}")]
     GenerateSchema { source: io::Error },
 
-    #[error("failed to install dev Supermemory server: {source}")]
-    InstallSupermemory { source: io::Error },
+    #[error("failed to install dev Mem0 sidecar: {source}")]
+    InstallMem0 { source: io::Error },
 
-    #[error("dev Supermemory installer exited with status {status}")]
-    SupermemoryInstallerExited { status: ExitStatus },
+    #[error("dev Mem0 sidecar installer exited with status {status}")]
+    Mem0InstallerExited { status: ExitStatus },
 
     #[error("failed to install dev shutdown signal handler: {source}")]
     ShutdownSignal { source: io::Error },
@@ -62,10 +62,10 @@ async fn run() -> Result<(), DevError> {
     let web_dir = repo_root.join("crates/noema-core/web");
 
     generate_graphql_schema(&repo_root)?;
-    ensure_dev_supermemory_server(&repo_root).await?;
+    let mem0_sidecar_command = ensure_dev_mem0_sidecar(&repo_root).await?;
 
     let mut web = spawn_web_watcher(&web_dir)?;
-    let mut server = spawn_web_server_watcher(&repo_root)?;
+    let mut server = spawn_web_server_watcher(&repo_root, mem0_sidecar_command.as_deref())?;
     let mut bridge = spawn_bridge_watcher(&repo_root)?;
 
     eprintln!("Noema dev supervisor started");
@@ -144,7 +144,10 @@ fn spawn_web_watcher(web_dir: &Path) -> Result<Child, DevError> {
     spawn_dev_process("web asset watcher", &mut command, web_dir)
 }
 
-fn spawn_web_server_watcher(repo_root: &Path) -> Result<Child, DevError> {
+fn spawn_web_server_watcher(
+    repo_root: &Path,
+    mem0_sidecar_command: Option<&str>,
+) -> Result<Child, DevError> {
     let mut command = Command::new(cargo_exe());
     command
         .arg("watch")
@@ -160,6 +163,12 @@ fn spawn_web_server_watcher(repo_root: &Path) -> Result<Child, DevError> {
     }
 
     command.arg("-x").arg(web_server_watch_command());
+    if let Some(mem0_sidecar_command) = mem0_sidecar_command {
+        command.env(
+            noema_core::mem0::NOEMA_MEM0_SIDECAR_COMMAND_ENV,
+            mem0_sidecar_command,
+        );
+    }
 
     spawn_dev_process("web server watcher", &mut command, repo_root)
 }
@@ -230,87 +239,94 @@ fn generate_graphql_schema(repo_root: &Path) -> Result<(), DevError> {
     Ok(())
 }
 
-async fn ensure_dev_supermemory_server(repo_root: &Path) -> Result<(), DevError> {
-    if env::var_os(noema_core::supermemory::NOEMA_SUPERMEMORY_SERVER_ENV).is_some() {
+async fn ensure_dev_mem0_sidecar(repo_root: &Path) -> Result<Option<String>, DevError> {
+    if env::var_os(noema_core::mem0::NOEMA_MEM0_SIDECAR_COMMAND_ENV).is_some() {
         eprintln!(
-            "using {} override for managed Supermemory",
-            noema_core::supermemory::NOEMA_SUPERMEMORY_SERVER_ENV
+            "using {} override for managed Mem0",
+            noema_core::mem0::NOEMA_MEM0_SIDECAR_COMMAND_ENV
         );
-        return Ok(());
+        return Ok(None);
     }
 
-    let bundled = supermemory_server_bundle_path(repo_root);
-    if executable_exists(&bundled) {
-        eprintln!("dev Supermemory server: {}", bundled.display());
-        return Ok(());
-    }
-
-    if command_exists(supermemory_server_filename()) {
+    let python = mem0_venv_python(repo_root);
+    if !executable_exists(&python) {
         eprintln!(
-            "dev Supermemory server: found {} on PATH",
-            supermemory_server_filename()
+            "creating dev Mem0 sidecar environment at {}",
+            mem0_sidecar_venv_dir(repo_root).display()
         );
-        return Ok(());
+        let status = mem0_venv_create_command(repo_root)
+            .status()
+            .await
+            .map_err(|source| DevError::InstallMem0 { source })?;
+        if !status.success() {
+            return Err(DevError::Mem0InstallerExited { status });
+        }
     }
 
     eprintln!(
-        "installing dev Supermemory server into {}",
-        bundled.display()
+        "installing dev Mem0 sidecar package into {}",
+        mem0_sidecar_venv_dir(repo_root).display()
     );
-    let status = supermemory_install_command(repo_root)
+    let status = mem0_install_command(repo_root)
         .status()
         .await
-        .map_err(|source| DevError::InstallSupermemory { source })?;
+        .map_err(|source| DevError::InstallMem0 { source })?;
     if !status.success() {
-        return Err(DevError::SupermemoryInstallerExited { status });
+        return Err(DevError::Mem0InstallerExited { status });
     }
-    Ok(())
+    let command = format!(
+        "{} -m uvicorn noema_mem0_sidecar.app:app --host 127.0.0.1 --port \"$NOEMA_MEM0_PORT\"",
+        shell_quote(&python)
+    );
+    eprintln!("dev Mem0 sidecar: {}", python.display());
+    Ok(Some(command))
 }
 
-fn supermemory_install_command(repo_root: &Path) -> Command {
-    let mut command = Command::new("bash");
+fn mem0_venv_create_command(repo_root: &Path) -> Command {
+    let mut command = Command::new("python3");
     command
-        .arg("-c")
-        .arg("curl -fsSL https://supermemory.ai/install | bash")
-        .env(
-            "SUPERMEMORY_INSTALL_DIR",
-            supermemory_dev_install_dir(repo_root),
-        )
-        .env("SUPERMEMORY_BIN_DIR", supermemory_bundle_dir(repo_root))
-        .env("SUPERMEMORY_NO_START", "1")
-        .env("SUPERMEMORY_NO_PROMPT", "1")
-        .env("SUPERMEMORY_FORCE", "1")
+        .arg("-m")
+        .arg("venv")
+        .arg(mem0_sidecar_venv_dir(repo_root))
         .stdin(Stdio::null())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit());
     command
 }
 
-fn supermemory_dev_install_dir(repo_root: &Path) -> PathBuf {
-    repo_root.join("crates/noema-core/target/supermemory")
+fn mem0_install_command(repo_root: &Path) -> Command {
+    let mut command = Command::new(mem0_venv_python(repo_root));
+    command
+        .arg("-m")
+        .arg("pip")
+        .arg("install")
+        .arg("-e")
+        .arg(mem0_sidecar_source_dir(repo_root))
+        .stdin(Stdio::null())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit());
+    command
 }
 
-fn supermemory_bundle_dir(repo_root: &Path) -> PathBuf {
-    repo_root.join("crates/noema-core/supermemory")
+fn mem0_sidecar_source_dir(repo_root: &Path) -> PathBuf {
+    repo_root.join("crates/noema-core/mem0-sidecar")
 }
 
-fn supermemory_server_bundle_path(repo_root: &Path) -> PathBuf {
-    supermemory_bundle_dir(repo_root).join(supermemory_server_filename())
+fn mem0_sidecar_venv_dir(repo_root: &Path) -> PathBuf {
+    repo_root.join("crates/noema-core/target/mem0-sidecar-venv")
 }
 
-fn supermemory_server_filename() -> &'static str {
+fn mem0_venv_python(repo_root: &Path) -> PathBuf {
     if cfg!(windows) {
-        "supermemory-server.exe"
+        mem0_sidecar_venv_dir(repo_root).join("Scripts/python.exe")
     } else {
-        "supermemory-server"
+        mem0_sidecar_venv_dir(repo_root).join("bin/python")
     }
 }
 
-fn command_exists(program: &str) -> bool {
-    let Some(paths) = env::var_os("PATH") else {
-        return false;
-    };
-    env::split_paths(&paths).any(|entry| executable_exists(&entry.join(program)))
+fn shell_quote(path: &Path) -> String {
+    let value = path.to_string_lossy();
+    format!("'{}'", value.replace('\'', "'\\''"))
 }
 
 fn executable_exists(path: &Path) -> bool {
@@ -500,19 +516,18 @@ mod tests {
     }
 
     #[test]
-    fn supermemory_dev_paths_target_generated_bundle_wrapper() {
+    fn mem0_dev_paths_target_generated_venv() {
         assert_eq!(
-            supermemory_dev_install_dir(Path::new("/workspace")),
-            PathBuf::from("/workspace/crates/noema-core/target/supermemory")
+            mem0_sidecar_source_dir(Path::new("/workspace")),
+            PathBuf::from("/workspace/crates/noema-core/mem0-sidecar")
         );
         assert_eq!(
-            supermemory_bundle_dir(Path::new("/workspace")),
-            PathBuf::from("/workspace/crates/noema-core/supermemory")
+            mem0_sidecar_venv_dir(Path::new("/workspace")),
+            PathBuf::from("/workspace/crates/noema-core/target/mem0-sidecar-venv")
         );
         assert_eq!(
-            supermemory_server_bundle_path(Path::new("/workspace")),
-            PathBuf::from("/workspace/crates/noema-core/supermemory")
-                .join(supermemory_server_filename())
+            mem0_venv_python(Path::new("/workspace")),
+            PathBuf::from("/workspace/crates/noema-core/target/mem0-sidecar-venv/bin/python")
         );
     }
 

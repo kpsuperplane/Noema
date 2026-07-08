@@ -12,9 +12,8 @@ capability bindings, conversations, transcript items, MCP setup/calibration
 state, approvals, auxiliary model preferences, and memory service
 settings/status.
 
-SQLite does not mirror Supermemory's graph. Durable memory truth, memory graph
-behavior, extraction, updates, and memory search indexes belong to local
-Supermemory.
+SQLite does not mirror Mem0's memory store. Durable memory truth, extraction,
+updates, and memory search indexes belong to local Mem0.
 
 Current Noema home layout:
 
@@ -22,9 +21,9 @@ Current Noema home layout:
 ~/.noema/
   db/
     noema.sqlite3
-  supermemory/
+  mem0/
     data/
-    secrets/
+    run/
 ```
 
 This is a clean pre-V1 reset. No SurrealDB migration path is maintained.

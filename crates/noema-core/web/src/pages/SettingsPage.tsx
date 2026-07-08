@@ -20,7 +20,7 @@ const settingsSectionCopy: Record<SettingsSection, { title: string; description:
   },
   memory: {
     title: "Memory",
-    description: "Configure the local Supermemory service Noema uses for recall."
+    description: "Configure the local Mem0 service Noema uses for recall."
   },
   "tools-web": {
     title: "Web",

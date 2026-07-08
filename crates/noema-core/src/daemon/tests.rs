@@ -1831,7 +1831,7 @@ async fn restart_context_read_phase(home: &std::path::Path) {
 
 #[tokio::test]
 async fn runtime_actor_persists_provider_tool_items_as_action_rows() {
-    let (handle, store, _server) = test_runtime_handle_with_supermemory(
+    let (handle, store, _server) = test_runtime_handle_with_mem0(
         fake_provider(FakeCodexScenario::ToolItem),
         json!({"results": []}),
     )
@@ -1925,7 +1925,7 @@ async fn runtime_actor_persists_provider_tool_items_as_action_rows() {
 
 #[tokio::test]
 async fn runtime_displays_commentary_before_tool_lifecycle_when_provider_orders_tool_first() {
-    let (handle, _store, _server) = test_runtime_handle_with_supermemory(
+    let (handle, _store, _server) = test_runtime_handle_with_mem0(
         fake_provider(FakeCodexScenario::ToolCallBeforeCommentary),
         json!({"results": []}),
     )
@@ -2103,15 +2103,15 @@ async fn runtime_actor_persists_provider_tool_items_before_turn_failure() {
 
 #[tokio::test]
 async fn runtime_actor_executes_search_memory_as_local_tool_result() {
-    let (handle, _store, _server) = test_runtime_handle_with_supermemory(
+    let (handle, _store, _server) = test_runtime_handle_with_mem0(
         fake_provider(FakeCodexScenario::SearchMemoryContinuation),
         json!({
             "results": [{
                 "id": "mem_train",
                 "memory": "Kevin likes trains.",
                 "metadata": {"source": "test"},
-                "updatedAt": "2026-07-07T12:00:00.000Z",
-                "similarity": 0.91
+                "updated_at": "2026-07-07T12:00:00.000Z",
+                "score": 0.91
             }],
             "timing": 2,
             "total": 1
@@ -2158,14 +2158,11 @@ async fn runtime_actor_executes_search_memory_as_local_tool_result() {
             && metadata["action"]["payload"]["memories"]
                 .as_array()
                 .is_some_and(|memories| memories.iter().any(|memory| {
-                    memory["kind"] == "supermemory"
+                    memory["kind"] == "mem0"
                         && memory["memory"] == "Kevin likes trains."
                         && memory["scope_id"]
                             .as_str()
                             .is_some_and(|scope_id| scope_id.starts_with("conversation:"))
-                        && memory["container_tag"]
-                            .as_str()
-                            .is_some_and(|tag| tag.starts_with("conversation:"))
                 }))
             && metadata["action"]["payload"].get("unavailable").is_none()
     )));
@@ -2178,7 +2175,7 @@ async fn runtime_actor_executes_search_memory_as_local_tool_result() {
 
 #[tokio::test]
 async fn user_message_submits_memory_observation() {
-    let (handle, _store, server) = test_runtime_handle_with_supermemory(
+    let (handle, _store, server) = test_runtime_handle_with_mem0(
         fake_provider(FakeCodexScenario::Simple),
         json!({"results": []}),
     )
@@ -2196,16 +2193,14 @@ async fn user_message_submits_memory_observation() {
     )
     .await;
     result.expect("turn");
-    wait_for_supermemory_observation_requests(&server, 1).await;
+    wait_for_memory_observation_requests(&server, 1).await;
     handle.shutdown().await;
 
     let bodies = server.request_bodies().await;
     assert!(bodies.iter().any(|body| {
-        body["conversationId"]
-            .as_str()
-            .is_some_and(|source_id| source_id.starts_with("memory_observation:"))
-            && body["containerTag"] == "human:local"
-            && body["containerTags"] == json!(["human:local"])
+        body["user_id"] == "human:local"
+            && body["agent_id"] == "agent:local"
+            && body["run_id"] == conversation_id
             && body["metadata"]["noemaConversationId"] == conversation_id
             && body["metadata"]["sourceKind"] == "user_message"
             && body["metadata"]["turnId"]
@@ -2222,7 +2217,7 @@ async fn user_message_submits_memory_observation() {
 
 #[tokio::test]
 async fn provider_failure_after_user_message_still_submits_memory_observation() {
-    let (handle, _store, server) = test_runtime_handle_with_supermemory(
+    let (handle, _store, server) = test_runtime_handle_with_mem0(
         fake_provider(FakeCodexScenario::TurnError),
         json!({"results": []}),
     )
@@ -2240,7 +2235,7 @@ async fn provider_failure_after_user_message_still_submits_memory_observation() 
     )
     .await;
     assert!(result.is_err());
-    wait_for_supermemory_observation_requests(&server, 1).await;
+    wait_for_memory_observation_requests(&server, 1).await;
     handle.shutdown().await;
 
     let bodies = server.request_bodies().await;
@@ -2251,22 +2246,22 @@ async fn provider_failure_after_user_message_still_submits_memory_observation() 
 }
 
 #[tokio::test]
-async fn slow_supermemory_ingest_does_not_delay_provider_response() {
+async fn slow_memory_ingest_does_not_delay_provider_response() {
     let home = tempfile::tempdir().expect("temp noema home");
     let paths = crate::NoemaPaths::from_noema_home(home.path()).expect("paths");
     let store = crate::NoemaStore::open(&crate::StoreConfig::from_paths(&paths))
         .await
         .expect("store");
     store.ensure_default_actors().await.expect("actors");
-    let server = FakeSupermemoryServer::start_with_conversation_delay(
+    let server = FakeMemoryServer::start_with_add_delay(
         json!({"results": []}),
         1,
         Some(Duration::from_secs(5)),
     )
     .await;
     std::mem::forget(home);
-    let connection = crate::SupermemoryConnection::new(server.base_url(), None);
-    let handle = CodexRuntimeHandle::spawn_with_provider_and_supermemory(
+    let connection = crate::Mem0Connection::new(server.base_url(), None);
+    let handle = CodexRuntimeHandle::spawn_with_provider_and_memory(
         Arc::new(fake_provider(FakeCodexScenario::Simple)),
         store,
         Some(connection),
@@ -2288,7 +2283,7 @@ async fn slow_supermemory_ingest_does_not_delay_provider_response() {
         ),
     )
     .await
-    .expect("turn should not wait for Supermemory response")
+    .expect("turn should not wait for Mem0 response")
     .0;
     handle.shutdown().await;
 
@@ -2297,7 +2292,7 @@ async fn slow_supermemory_ingest_does_not_delay_provider_response() {
 
 #[tokio::test]
 async fn memory_observation_uses_distinct_source_ids_and_only_current_user_text() {
-    let (handle, _store, server) = test_runtime_handle_with_supermemory(
+    let (handle, _store, server) = test_runtime_handle_with_mem0(
         fake_provider(FakeCodexScenario::Simple),
         json!({"results": []}),
     )
@@ -2324,7 +2319,7 @@ async fn memory_observation_uses_distinct_source_ids_and_only_current_user_text(
     .await
     .0
     .expect("second turn");
-    wait_for_supermemory_observation_requests(&server, 2).await;
+    wait_for_memory_observation_requests(&server, 2).await;
     handle.shutdown().await;
 
     let bodies = server.request_bodies().await;
@@ -2333,15 +2328,15 @@ async fn memory_observation_uses_distinct_source_ids_and_only_current_user_text(
         .filter(|body| body["metadata"]["noemaConversationId"] == conversation_id)
         .collect::<Vec<_>>();
     assert_eq!(observation_bodies.len(), 2);
-    let source_ids = observation_bodies
+    let source_item_ids = observation_bodies
         .iter()
-        .filter_map(|body| body["conversationId"].as_str())
+        .filter_map(|body| body["metadata"]["userItemId"].as_str())
         .collect::<std::collections::HashSet<_>>();
-    assert_eq!(source_ids.len(), 2);
+    assert_eq!(source_item_ids.len(), 2);
     assert!(
-        source_ids
+        source_item_ids
             .iter()
-            .all(|source_id| source_id.starts_with("memory_observation:"))
+            .all(|source_item_id| source_item_id.starts_with("item:"))
     );
     assert!(observation_bodies.iter().any(|body| {
         body["messages"] == json!([{"role": "user", "content": "first turn should not repeat"}])
@@ -2352,23 +2347,23 @@ async fn memory_observation_uses_distinct_source_ids_and_only_current_user_text(
 }
 
 #[tokio::test]
-async fn search_memory_skips_supermemory_results_without_memory() {
-    let (handle, _store, _server) = test_runtime_handle_with_supermemory(
+async fn search_memory_skips_mem0_results_without_memory() {
+    let (handle, _store, _server) = test_runtime_handle_with_mem0(
         fake_provider(FakeCodexScenario::SearchMemoryContinuation),
         json!({
             "results": [
                 {
                     "id": "mem_missing_text",
                     "metadata": {"source": "test"},
-                    "updatedAt": "2026-07-07T12:00:00.000Z",
-                    "similarity": 0.99
+                    "updated_at": "2026-07-07T12:00:00.000Z",
+                    "score": 0.99
                 },
                 {
                     "id": "mem_train",
                     "memory": "Kevin likes trains.",
                     "metadata": {"source": "test"},
-                    "updatedAt": "2026-07-07T12:00:00.000Z",
-                    "similarity": 0.91
+                    "updated_at": "2026-07-07T12:00:00.000Z",
+                    "score": 0.91
                 }
             ],
             "timing": 2,
@@ -2419,16 +2414,16 @@ async fn search_memory_skips_supermemory_results_without_memory() {
 }
 
 #[tokio::test]
-async fn search_memory_omits_raw_supermemory_metadata() {
-    let (handle, _store, _server) = test_runtime_handle_with_supermemory(
+async fn search_memory_omits_raw_mem0_metadata() {
+    let (handle, _store, _server) = test_runtime_handle_with_mem0(
         fake_provider(FakeCodexScenario::SearchMemoryContinuation),
         json!({
             "results": [{
                 "id": "mem_train",
                 "memory": "Kevin likes trains.",
                 "metadata": {"raw": "secret provider detail"},
-                "updatedAt": "2026-07-07T12:00:00.000Z",
-                "similarity": 0.91
+                "updated_at": "2026-07-07T12:00:00.000Z",
+                "score": 0.91
             }],
             "timing": 2,
             "total": 1
@@ -2474,10 +2469,10 @@ async fn search_memory_omits_raw_supermemory_metadata() {
 }
 
 #[tokio::test]
-async fn search_memory_returns_sanitized_supermemory_failure() {
-    let (handle, _store, _server) = test_runtime_handle_with_supermemory(
+async fn search_memory_returns_sanitized_mem0_failure() {
+    let (handle, _store, _server) = test_runtime_handle_with_mem0(
         fake_provider(FakeCodexScenario::SearchMemoryContinuation),
-        json!({}),
+        json!({"results": [{}]}),
     )
     .await;
 
@@ -2500,16 +2495,18 @@ async fn search_memory_returns_sanitized_supermemory_failure() {
         .find_map(|item| match item {
             TurnTranscriptItem::Activity {
                 activity_kind,
-                status: TurnActivityStatus::Failed,
                 title,
                 metadata,
                 ..
-            } if activity_kind == "tool_result" && title == "Tool result: search_memory" => {
+            } if activity_kind == "tool_result"
+                && title == "Tool result: search_memory"
+                && metadata["action"]["success"] == false =>
+            {
                 Some(&metadata["action"]["payload"])
             }
             _ => None,
         })
-        .expect("failed search_memory tool result");
+        .unwrap_or_else(|| panic!("failed search_memory tool result, got {items:?}"));
     assert_eq!(
         payload,
         &json!({
@@ -2589,15 +2586,15 @@ async fn native_capable_provider_continuation_uses_native_tool_result_input() {
                 fallback_mode: ProviderToolFallbackMode::NativeRequired,
             }),
     );
-    let (handle, _store, _server) = spawn_runtime_with_supermemory_provider(
+    let (handle, _store, _server) = spawn_runtime_with_memory_provider(
         provider.clone(),
         json!({
             "results": [{
                 "id": "mem_native_train",
                 "memory": "Kevin likes trains.",
                 "metadata": {},
-                "updatedAt": "2026-07-07T12:00:00.000Z",
-                "similarity": 0.9
+                "updated_at": "2026-07-07T12:00:00.000Z",
+                "score": 0.9
             }]
         }),
     )
@@ -2778,7 +2775,7 @@ async fn native_provider_can_call_web_fetch_and_continue() {
 
 #[tokio::test]
 async fn runtime_actor_continues_after_continuation_tool_call() {
-    let (handle, _store, _server) = test_runtime_handle_with_supermemory(
+    let (handle, _store, _server) = test_runtime_handle_with_mem0(
         fake_provider(FakeCodexScenario::ChainedSearchMemoryContinuation),
         json!({"results": []}),
     )
@@ -2820,15 +2817,15 @@ async fn runtime_actor_continues_after_continuation_tool_call() {
 }
 
 #[tokio::test]
-async fn search_memory_uses_private_runtime_supermemory_endpoint() {
-    let (handle, _store, server) = test_runtime_handle_with_private_supermemory(
+async fn search_memory_uses_private_runtime_memory_endpoint() {
+    let (handle, _store, server) = test_runtime_handle_with_private_memory(
         fake_provider(FakeCodexScenario::SearchMemoryContinuation),
         json!({
             "results": [{
                 "id": "mem_private",
                 "memory": "Kevin prefers private sidecars",
-                "updatedAt": "2026-07-08T12:00:00.000Z",
-                "similarity": 0.94
+                "updated_at": "2026-07-08T12:00:00.000Z",
+                "score": 0.94
             }]
         }),
     )
@@ -2866,7 +2863,7 @@ async fn search_memory_uses_private_runtime_supermemory_endpoint() {
                         }))
             )
         }),
-        "expected private Supermemory result in tool output"
+        "expected private memory result in tool output"
     );
     assert!(!server.request_bodies().await.is_empty());
 }
@@ -3206,15 +3203,15 @@ async fn runtime_prompt_includes_stored_agent_name_after_update() {
 
 #[tokio::test]
 async fn search_memory_profile_continuation_uses_scoped_empty_query() {
-    let (handle, store, server) = test_runtime_handle_with_supermemory(
+    let (handle, store, server) = test_runtime_handle_with_mem0(
         fake_provider(FakeCodexScenario::SearchMemoryProfileContinuation),
         json!({
             "results": [{
                 "id": "mem_plane",
                 "memory": "Kevin likes planes.",
                 "metadata": {"source": "test"},
-                "updatedAt": "2026-07-07T12:00:00.000Z",
-                "similarity": 0.93
+                "updated_at": "2026-07-07T12:00:00.000Z",
+                "score": 0.93
             }]
         }),
     )
@@ -3254,10 +3251,9 @@ async fn search_memory_profile_continuation_uses_scoped_empty_query() {
                     .as_array()
                     .is_some_and(|memories| {
                         memories.iter().any(|memory| {
-                            memory["kind"] == "supermemory"
+                            memory["kind"] == "mem0"
                                 && memory["memory"] == "Kevin likes planes."
                                 && memory["scope_id"] == "human:local"
-                                && memory["container_tag"] == "human:local"
                         })
                     })
         }),
@@ -3266,22 +3262,22 @@ async fn search_memory_profile_continuation_uses_scoped_empty_query() {
     let request_bodies = server.request_bodies().await;
     assert!(
         request_bodies.iter().any(|body| {
-            body["q"] == "" && body["containerTag"] == "human:local" && body["limit"] == 8
+            body["query"] == "" && body["user_id"] == "human:local" && body["limit"] == 8
         }),
-        "expected scoped empty-query Supermemory search, got {request_bodies:?}"
+        "expected scoped empty-query memory search, got {request_bodies:?}"
     );
 }
 
 #[tokio::test]
 async fn search_memory_uses_runtime_connection_until_restart() {
-    let second_server = FakeSupermemoryServer::start(
-        json!({"results": [{"id": "new", "memory": "new memory", "similarity": 0.9}]}),
+    let second_server = FakeMemoryServer::start(
+        json!({"results": [{"id": "new", "memory": "new memory", "score": 0.9}]}),
         32,
     )
     .await;
-    let (handle, store, first_server) = test_runtime_handle_with_supermemory(
+    let (handle, store, first_server) = test_runtime_handle_with_mem0(
         fake_provider(FakeCodexScenario::SearchMemoryContinuation),
-        json!({"results": [{"id": "old", "memory": "old memory", "similarity": 0.1}]}),
+        json!({"results": [{"id": "old", "memory": "old memory", "score": 0.1}]}),
     )
     .await;
     let conversation_id = handle
@@ -3328,8 +3324,8 @@ async fn search_memory_uses_runtime_connection_until_restart() {
 }
 
 #[tokio::test]
-async fn search_memory_tool_returns_empty_supermemory_result_without_unavailable() {
-    let (handle, _store, _server) = test_runtime_handle_with_supermemory(
+async fn search_memory_tool_returns_empty_mem0_result_without_unavailable() {
+    let (handle, _store, _server) = test_runtime_handle_with_mem0(
         fake_provider(FakeCodexScenario::SearchMemoryContinuation),
         json!({"results": []}),
     )
@@ -3605,16 +3601,16 @@ async fn test_runtime_handle_with_store(
     (handle, store)
 }
 
-async fn test_runtime_handle_with_supermemory(
+async fn test_runtime_handle_with_mem0(
     provider: FakeCodexProvider,
     response: serde_json::Value,
-) -> (CodexRuntimeHandle, crate::NoemaStore, FakeSupermemoryServer) {
+) -> (CodexRuntimeHandle, crate::NoemaStore, FakeMemoryServer) {
     let home = tempfile::tempdir().expect("temp noema home");
     let paths = crate::NoemaPaths::from_noema_home(home.path()).expect("paths");
     let store = crate::NoemaStore::open(&crate::StoreConfig::from_paths(&paths))
         .await
         .expect("store");
-    let server = FakeSupermemoryServer::start(response, 32).await;
+    let server = FakeMemoryServer::start(response, 32).await;
     store
         .save_memory_service_settings(crate::SaveMemoryServiceSettings {
             mode: crate::MemoryServiceMode::External,
@@ -3628,8 +3624,8 @@ async fn test_runtime_handle_with_supermemory(
         .await
         .expect("save memory settings");
     std::mem::forget(home);
-    let connection = crate::SupermemoryConnection::new(server.base_url(), None);
-    let handle = CodexRuntimeHandle::spawn_with_provider_and_supermemory(
+    let connection = crate::Mem0Connection::new(server.base_url(), None);
+    let handle = CodexRuntimeHandle::spawn_with_provider_and_memory(
         Arc::new(provider),
         store.clone(),
         Some(connection),
@@ -3639,14 +3635,14 @@ async fn test_runtime_handle_with_supermemory(
     (handle, store, server)
 }
 
-async fn test_runtime_handle_with_private_supermemory(
+async fn test_runtime_handle_with_private_memory(
     provider: FakeCodexProvider,
     response: serde_json::Value,
-) -> (CodexRuntimeHandle, crate::NoemaStore, FakeSupermemoryServer) {
+) -> (CodexRuntimeHandle, crate::NoemaStore, FakeMemoryServer) {
     let store = crate::store::tests::test_store().await;
-    let server = FakeSupermemoryServer::start(response, 32).await;
-    let connection = crate::SupermemoryConnection::new(server.base_url(), None);
-    let handle = CodexRuntimeHandle::spawn_with_provider_and_supermemory(
+    let server = FakeMemoryServer::start(response, 32).await;
+    let connection = crate::Mem0Connection::new(server.base_url(), None);
+    let handle = CodexRuntimeHandle::spawn_with_provider_and_memory(
         Arc::new(provider),
         store.clone(),
         Some(connection),
@@ -3656,17 +3652,17 @@ async fn test_runtime_handle_with_private_supermemory(
     (handle, store, server)
 }
 
-async fn spawn_runtime_with_supermemory_provider(
+async fn spawn_runtime_with_memory_provider(
     provider: Arc<dyn super::runtime::RuntimeModelProvider>,
     response: serde_json::Value,
-) -> (CodexRuntimeHandle, crate::NoemaStore, FakeSupermemoryServer) {
+) -> (CodexRuntimeHandle, crate::NoemaStore, FakeMemoryServer) {
     let home = tempfile::tempdir().expect("temp noema home");
     let paths = crate::NoemaPaths::from_noema_home(home.path()).expect("paths");
     let store = crate::NoemaStore::open(&crate::StoreConfig::from_paths(&paths))
         .await
         .expect("store");
     store.ensure_default_actors().await.expect("actors");
-    let server = FakeSupermemoryServer::start(response, 32).await;
+    let server = FakeMemoryServer::start(response, 32).await;
     store
         .save_memory_service_settings(crate::SaveMemoryServiceSettings {
             mode: crate::MemoryServiceMode::External,
@@ -3680,8 +3676,8 @@ async fn spawn_runtime_with_supermemory_provider(
         .await
         .expect("save memory settings");
     std::mem::forget(home);
-    let connection = crate::SupermemoryConnection::new(server.base_url(), None);
-    let handle = CodexRuntimeHandle::spawn_with_provider_and_supermemory(
+    let connection = crate::Mem0Connection::new(server.base_url(), None);
+    let handle = CodexRuntimeHandle::spawn_with_provider_and_memory(
         provider,
         store.clone(),
         Some(connection),
@@ -3711,30 +3707,30 @@ async fn test_runtime_handle_with_search_provider(
     (handle, store)
 }
 
-struct FakeSupermemoryServer {
+struct FakeMemoryServer {
     base_url: String,
-    state: Arc<AsyncMutex<FakeSupermemoryState>>,
+    state: Arc<AsyncMutex<FakeMemoryState>>,
 }
 
 #[derive(Default)]
-struct FakeSupermemoryState {
+struct FakeMemoryState {
     bodies: Vec<serde_json::Value>,
     paths: Vec<String>,
 }
 
-impl FakeSupermemoryServer {
+impl FakeMemoryServer {
     async fn start(response: serde_json::Value, max_requests: usize) -> Self {
-        Self::start_with_conversation_delay(response, max_requests, None).await
+        Self::start_with_add_delay(response, max_requests, None).await
     }
 
-    async fn start_with_conversation_delay(
+    async fn start_with_add_delay(
         response: serde_json::Value,
         max_requests: usize,
         conversation_delay: Option<Duration>,
     ) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
         let base_url = format!("http://{}", listener.local_addr().expect("local addr"));
-        let state = Arc::new(AsyncMutex::new(FakeSupermemoryState::default()));
+        let state = Arc::new(AsyncMutex::new(FakeMemoryState::default()));
         let server_state = Arc::clone(&state);
 
         tokio::spawn(async move {
@@ -3755,7 +3751,10 @@ impl FakeSupermemoryServer {
                     .and_then(|value| value.strip_suffix(" HTTP/1.1"))
                     .expect("POST request line")
                     .to_string();
-                assert!(matches!(path.as_str(), "/v4/search" | "/v4/conversations"));
+                assert!(matches!(
+                    path.as_str(),
+                    "/v1/memories/search" | "/v1/memories/add"
+                ));
 
                 let mut headers = HashMap::new();
                 for line in lines {
@@ -3782,7 +3781,7 @@ impl FakeSupermemoryServer {
                     state.bodies.push(body_json);
                 }
 
-                let response_body = if path == "/v4/conversations" {
+                let response_body = if path == "/v1/memories/add" {
                     if let Some(delay) = conversation_delay {
                         tokio::time::sleep(delay).await;
                     }
@@ -3814,10 +3813,7 @@ impl FakeSupermemoryServer {
     }
 }
 
-async fn wait_for_supermemory_observation_requests(
-    server: &FakeSupermemoryServer,
-    minimum_count: usize,
-) {
+async fn wait_for_memory_observation_requests(server: &FakeMemoryServer, minimum_count: usize) {
     for _ in 0..50 {
         let bodies = server.request_bodies().await;
         let observations = bodies
@@ -3829,7 +3825,7 @@ async fn wait_for_supermemory_observation_requests(
         }
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
-    panic!("timed out waiting for {minimum_count} Supermemory observation requests");
+    panic!("timed out waiting for {minimum_count} memory observation requests");
 }
 
 async fn test_runtime_handle_with_search_and_fetch_providers(

@@ -45,7 +45,7 @@ CREATE TABLE IF NOT EXISTS agent_runtime_preferences (
 );
 
 CREATE TABLE IF NOT EXISTS auxiliary_model_preferences (
-  task_id TEXT PRIMARY KEY NOT NULL CHECK (task_id IN ('web_fetch_summarizer', 'tool_progress_audit', 'supermemory_extraction')),
+  task_id TEXT PRIMARY KEY NOT NULL CHECK (task_id IN ('web_fetch_summarizer', 'tool_progress_audit', 'memory_extraction')),
   provider_kind TEXT NOT NULL CHECK (provider_kind IN ('codex', 'openai', 'foundation_local')),
   provider_account_id TEXT NOT NULL,
   model_profile TEXT NOT NULL CHECK (model_profile <> ''),

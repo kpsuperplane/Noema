@@ -1,13 +1,6 @@
-import { MemoryGraph as SupermemoryGraph } from "@supermemory/memory-graph";
-import type {
-  GraphApiDocument,
-  GraphApiMemory,
-  GraphThemeColors,
-  MemoryRelation
-} from "@supermemory/memory-graph";
 import { useQuery } from "@apollo/client/react";
 import * as stylex from "@stylexjs/stylex";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import {
   MemoryGraphDocument as MemoryGraphQueryDocument,
   type MemoryGraphQuery,
@@ -15,35 +8,6 @@ import {
 } from "@/generated/graphql";
 
 const PAGE_SIZE = 25;
-const HUMAN_SPACE_ID = "human:local";
-const LIGHT_GRAPH_COLORS = {
-  bg: "#fbfaf7",
-  docFill: "#ffffff",
-  docStroke: "#d7d1c8",
-  docInnerFill: "#f5f1ea",
-  memFill: "#eef6f3",
-  memFillHover: "#e0eee9",
-  memStrokeDefault: "#2d7f73",
-  accent: "#2d7f73",
-  textPrimary: "#171612",
-  textSecondary: "#4c4941",
-  textMuted: "#817b70",
-  edgeDerives: "#b66d12",
-  edgeUpdates: "#7763c4",
-  edgeExtends: "#7a8a93",
-  memBorderForgotten: "#b42318",
-  memBorderExpiring: "#c27a12",
-  memBorderRecent: "#20815f",
-  glowColor: "#5a9c8f",
-  iconColor: "#2d7f73",
-  popoverBg: "#ffffff",
-  popoverBorder: "#d7d1c8",
-  popoverTextPrimary: "#171612",
-  popoverTextSecondary: "#4c4941",
-  popoverTextMuted: "#817b70",
-  controlBg: "#ffffff",
-  controlBorder: "#d7d1c8"
-} satisfies Partial<GraphThemeColors>;
 
 export function MemoryPage() {
   const [loadingMore, setLoadingMore] = useState(false);
@@ -56,19 +20,12 @@ export function MemoryPage() {
     variables: { page: 1, limit: PAGE_SIZE }
   });
   const graph = data?.memoryGraph;
-  const documents = useMemo(
-    () => toGraphDocuments(graph?.documents ?? []),
-    [graph?.documents]
-  );
-  const statusError = useMemo(() => {
-    if (error) {
-      return error;
-    }
-    if (graph?.status.status && graph.status.status !== "READY") {
-      return new Error(graph.status.lastErrorMessage ?? "Supermemory is unavailable.");
-    }
-    return null;
-  }, [error, graph]);
+  const documents = graph?.documents ?? [];
+  const serviceError =
+    error ??
+    (graph?.status.status && graph.status.status !== "READY"
+      ? new Error(graph.status.lastErrorMessage ?? "Memory service is unavailable.")
+      : null);
 
   const loadMore = async () => {
     if (!graph?.pageInfo.hasMore || loadingMore) {
@@ -111,99 +68,79 @@ export function MemoryPage() {
         <h1 id="memory-surface-title" {...stylex.props(styles.title)}>
           Memory
         </h1>
+        {graph?.pageInfo.total != null ? (
+          <span {...stylex.props(styles.count)}>{graph.pageInfo.total} memories</span>
+        ) : null}
       </div>
-      <div {...stylex.props(styles.graphFrame)}>
-        <SupermemoryGraph
-          colors={LIGHT_GRAPH_COLORS}
-          documents={documents}
-          error={statusError}
-          hasMore={graph?.pageInfo.hasMore ?? false}
-          isLoading={loading && documents.length === 0}
-          isLoadingMore={loadingMore}
-          maxNodes={400}
-          onLoadMore={() => {
-            void loadMore();
-          }}
-          totalCount={graph?.pageInfo.total ?? undefined}
-          variant="console"
+
+      {serviceError ? (
+        <div role="status" {...stylex.props(styles.status)}>
+          Error loading memory: {serviceError.message}
+        </div>
+      ) : null}
+
+      {loading && documents.length === 0 ? (
+        <div role="status" {...stylex.props(styles.status)}>
+          Loading memory...
+        </div>
+      ) : null}
+
+      {!loading && !serviceError && documents.length === 0 ? (
+        <div {...stylex.props(styles.emptyState)}>No human memories yet.</div>
+      ) : null}
+
+      {documents.length > 0 ? (
+        <div data-slot="memory-list" {...stylex.props(styles.list)}>
+          {documents.map((document) => (
+            <section key={document.id} {...stylex.props(styles.group)}>
+              <div {...stylex.props(styles.groupHeader)}>
+                <h2 {...stylex.props(styles.groupTitle)}>{document.title ?? "Memory source"}</h2>
+                <span {...stylex.props(styles.groupMeta)}>
+                  {document.memoryEntries.length} entries
+                </span>
+              </div>
+              <ul {...stylex.props(styles.entries)}>
+                {document.memoryEntries.map((entry) => (
+                  <li key={entry.id} {...stylex.props(styles.entry)}>
+                    <p {...stylex.props(styles.entryText)}>
+                      {entry.content ?? entry.summary ?? entry.title ?? "Untitled memory"}
+                    </p>
+                    {entry.updatedAt ? (
+                      <time {...stylex.props(styles.entryMeta)} dateTime={entry.updatedAt}>
+                        {entry.updatedAt}
+                      </time>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ))}
+        </div>
+      ) : null}
+
+      {graph?.pageInfo.hasMore ? (
+        <button
+          type="button"
+          {...stylex.props(styles.loadMore)}
+          disabled={loadingMore}
+          onClick={() => void loadMore()}
         >
-          <div {...stylex.props(styles.emptyState)}>No human memories yet.</div>
-        </SupermemoryGraph>
-      </div>
+          {loadingMore ? "Loading..." : "Load more"}
+        </button>
+      ) : null}
     </section>
   );
-}
-
-type GraphqlMemoryGraphDocument = MemoryGraphQuery["memoryGraph"]["documents"][number];
-type GraphqlMemoryGraphEntry = GraphqlMemoryGraphDocument["memoryEntries"][number];
-
-function toGraphDocuments(documents: GraphqlMemoryGraphDocument[]): GraphApiDocument[] {
-  return documents.map((document) => ({
-    id: document.id,
-    title: document.title ?? null,
-    summary: document.summary ?? null,
-    documentType: document.type ?? "document",
-    createdAt: document.createdAt,
-    updatedAt: document.updatedAt,
-    memories: document.memoryEntries.map((entry) => toGraphMemory(entry))
-  }));
-}
-
-function toGraphMemory(entry: GraphqlMemoryGraphEntry): GraphApiMemory {
-  const text = entry.content ?? entry.summary ?? entry.title ?? "";
-  return {
-    id: entry.id,
-    memory: text,
-    content: text,
-    isStatic: false,
-    spaceId: entry.spaceId ?? HUMAN_SPACE_ID,
-    isLatest: entry.isLatest ?? true,
-    isForgotten: false,
-    forgetAfter: null,
-    forgetReason: null,
-    version: 1,
-    parentMemoryId: entry.parentMemoryId ?? null,
-    rootMemoryId: entry.rootMemoryId ?? null,
-    memoryRelations: memoryRelationsFromValue(entry.memoryRelations),
-    createdAt: entry.createdAt,
-    updatedAt: entry.updatedAt,
-    relation: relationFromValue(entry.relation),
-    spaceContainerTag: entry.spaceContainerTag ?? HUMAN_SPACE_ID
-  };
-}
-
-function memoryRelationsFromValue(value: unknown): Record<string, MemoryRelation> | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return null;
-  }
-
-  const relations: Record<string, MemoryRelation> = {};
-  for (const [memoryId, relation] of Object.entries(value)) {
-    const normalized = relationFromValue(relation);
-    if (normalized) {
-      relations[memoryId] = normalized;
-    }
-  }
-
-  return Object.keys(relations).length > 0 ? relations : null;
-}
-
-function relationFromValue(value: unknown): MemoryRelation | null {
-  if (value === "updates" || value === "extends" || value === "derives") {
-    return value;
-  }
-  return null;
 }
 
 const styles = stylex.create({
   surface: {
     boxSizing: "border-box",
     display: "grid",
-    gridTemplateRows: "auto minmax(0, 1fr)",
+    alignContent: "start",
     gap: 16,
     height: "100%",
     minHeight: 0,
-    overflow: "hidden",
+    overflow: "auto",
     padding: "24px 24px",
     "@media (max-width: 760px)": {
       paddingInline: 20
@@ -211,8 +148,9 @@ const styles = stylex.create({
   },
   header: {
     display: "flex",
-    alignItems: "center",
+    alignItems: "baseline",
     justifyContent: "space-between",
+    gap: 12,
     minWidth: 0
   },
   title: {
@@ -223,21 +161,110 @@ const styles = stylex.create({
     letterSpacing: 0,
     color: "var(--foreground)"
   },
-  graphFrame: {
-    minHeight: 420,
-    overflow: "hidden",
+  count: {
+    color: "var(--muted-foreground)",
+    fontSize: 13,
+    lineHeight: 1.4
+  },
+  status: {
     borderWidth: 1,
     borderStyle: "solid",
-    borderColor: "var(--border)",
-    borderRadius: 8,
-    backgroundColor: "#fbfaf7"
+    borderColor: "var(--border-subtle)",
+    borderRadius: 6,
+    backgroundColor: "white",
+    padding: 12,
+    color: "var(--muted-foreground)",
+    fontSize: 14,
+    lineHeight: 1.4
   },
   emptyState: {
     display: "grid",
     placeItems: "center",
     minHeight: 220,
+    borderWidth: 1,
+    borderStyle: "solid",
+    borderColor: "var(--border-subtle)",
+    borderRadius: 6,
+    backgroundColor: "white",
     color: "var(--muted-foreground)",
     fontSize: 14,
     lineHeight: 1.4
+  },
+  list: {
+    display: "grid",
+    gap: 14
+  },
+  group: {
+    display: "grid",
+    gap: 10,
+    borderWidth: 1,
+    borderStyle: "solid",
+    borderColor: "var(--border-subtle)",
+    borderRadius: 6,
+    backgroundColor: "white",
+    padding: 14
+  },
+  groupHeader: {
+    display: "flex",
+    alignItems: "baseline",
+    justifyContent: "space-between",
+    gap: 12
+  },
+  groupTitle: {
+    margin: 0,
+    fontFamily: "var(--font-heading)",
+    fontSize: 16,
+    lineHeight: 1.3,
+    letterSpacing: 0,
+    color: "var(--foreground)"
+  },
+  groupMeta: {
+    color: "var(--muted-foreground)",
+    fontSize: 12,
+    lineHeight: 1.4
+  },
+  entries: {
+    display: "grid",
+    gap: 8,
+    margin: 0,
+    padding: 0,
+    listStyle: "none"
+  },
+  entry: {
+    display: "grid",
+    gap: 4,
+    borderTopWidth: 1,
+    borderTopStyle: "solid",
+    borderTopColor: "var(--border-subtle)",
+    paddingTop: 8
+  },
+  entryText: {
+    margin: 0,
+    color: "var(--foreground)",
+    fontSize: 14,
+    lineHeight: 1.45
+  },
+  entryMeta: {
+    color: "var(--muted-foreground)",
+    fontSize: 12,
+    lineHeight: 1.35
+  },
+  loadMore: {
+    justifySelf: "start",
+    borderWidth: 1,
+    borderStyle: "solid",
+    borderColor: "var(--border)",
+    borderRadius: 6,
+    backgroundColor: "white",
+    padding: "7px 10px",
+    color: "var(--foreground)",
+    fontSize: 13,
+    fontWeight: 600,
+    lineHeight: 1.3,
+    cursor: "pointer",
+    ":disabled": {
+      cursor: "not-allowed",
+      opacity: 0.6
+    }
   }
 });

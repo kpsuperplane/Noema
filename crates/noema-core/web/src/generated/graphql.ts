@@ -119,9 +119,9 @@ export type McpStdioConfigInput = {
 
 /** Memory service operating mode. */
 export type MemoryServiceMode =
-  /** Noema connects to an externally managed Supermemory service. */
+  /** Noema connects to an externally managed memory service. */
   | 'EXTERNAL'
-  /** Noema manages a local Supermemory service. */
+  /** Noema manages a local memory service. */
   | 'MANAGED';
 
 /** Memory service readiness status kind. */
@@ -230,9 +230,9 @@ export type SaveAgentModelPreferenceInput = {
 
 /** Input for saving memory service settings. */
 export type SaveMemoryServiceSettingsInput = {
-  /** External Supermemory service base URL. */
+  /** External memory service base URL. */
   baseUrl?: string | null | undefined;
-  /** Supermemory service mode. */
+  /** Memory service mode. */
   mode: MemoryServiceMode;
   /** Provider-specific model id or profile id. */
   modelProfile?: string | null | undefined;

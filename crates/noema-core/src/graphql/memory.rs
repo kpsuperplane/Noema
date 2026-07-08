@@ -1,10 +1,11 @@
 use async_graphql::{Enum, InputObject, Json, Result, SimpleObject};
+use std::collections::BTreeMap;
 use std::time::Duration;
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
 use crate::{MemoryServiceMode, MemoryServiceSettingsRecord, SaveMemoryServiceSettings};
 
-const HUMAN_MEMORY_CONTAINER_TAG: &str = "human:local";
+const HUMAN_MEMORY_SCOPE_ID: &str = "human:local";
 const DEFAULT_MEMORY_GRAPH_PAGE: i32 = 1;
 const DEFAULT_MEMORY_GRAPH_LIMIT: i32 = 25;
 const MAX_MEMORY_GRAPH_LIMIT: i32 = 100;
@@ -24,9 +25,9 @@ use super::{
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Enum)]
 #[graphql(name = "MemoryServiceMode")]
 pub enum GraphqlMemoryServiceMode {
-    /// Noema manages a local Supermemory service.
+    /// Noema manages a local memory service.
     Managed,
-    /// Noema connects to an externally managed Supermemory service.
+    /// Noema connects to an externally managed memory service.
     External,
 }
 
@@ -82,9 +83,9 @@ pub struct GraphqlMemoryServiceStatus {
 #[derive(Clone, Debug, SimpleObject)]
 #[graphql(name = "MemorySettings")]
 pub struct GraphqlMemorySettings {
-    /// Supermemory service mode.
+    /// Memory service mode.
     pub mode: GraphqlMemoryServiceMode,
-    /// External Supermemory service base URL.
+    /// External memory service base URL.
     pub base_url: Option<String>,
     /// External service port, when configured.
     pub port: Option<i32>,
@@ -110,7 +111,7 @@ pub struct GraphqlMemoryGraphInput {
 #[derive(Clone, Debug, SimpleObject)]
 #[graphql(name = "MemoryGraph")]
 pub struct GraphqlMemoryGraph {
-    /// Supermemory availability for this request.
+    /// Memory service availability for this request.
     pub status: GraphqlMemoryServiceStatus,
     /// Documents and memory entries in the graph.
     pub documents: Vec<GraphqlMemoryGraphDocument>,
@@ -128,7 +129,7 @@ pub struct GraphqlMemoryGraphPageInfo {
     pub limit: i32,
     /// Whether more documents are available.
     pub has_more: bool,
-    /// Total document count when returned by Supermemory.
+    /// Total memory count when returned by the memory service.
     pub total: Option<i32>,
 }
 
@@ -136,7 +137,7 @@ pub struct GraphqlMemoryGraphPageInfo {
 #[derive(Clone, Debug, SimpleObject)]
 #[graphql(name = "MemoryGraphDocument")]
 pub struct GraphqlMemoryGraphDocument {
-    /// Supermemory document id.
+    /// Memory document/group id.
     pub id: String,
     /// Caller supplied document id.
     pub custom_id: Option<String>,
@@ -150,9 +151,9 @@ pub struct GraphqlMemoryGraphDocument {
     pub url: Option<String>,
     /// Source label.
     pub source: Option<String>,
-    /// Supermemory document type.
+    /// Memory document/group type.
     pub r#type: Option<String>,
-    /// Supermemory document status.
+    /// Memory document/group status.
     pub status: String,
     /// Document metadata.
     pub metadata: Option<Json<serde_json::Value>>,
@@ -168,7 +169,7 @@ pub struct GraphqlMemoryGraphDocument {
 #[derive(Clone, Debug, SimpleObject)]
 #[graphql(name = "MemoryGraphMemoryEntry")]
 pub struct GraphqlMemoryGraphMemoryEntry {
-    /// Supermemory memory entry id.
+    /// Memory entry id.
     pub id: String,
     /// Source document id.
     pub document_id: String,
@@ -186,19 +187,19 @@ pub struct GraphqlMemoryGraphMemoryEntry {
     pub created_at: String,
     /// Update timestamp.
     pub updated_at: String,
-    /// Container tag used by Supermemory spaces.
+    /// Memory scope tag.
     pub space_container_tag: Option<String>,
     /// Relationship to another memory.
     pub relation: Option<String>,
-    /// Parent memory id when Supermemory links memories into its graph.
+    /// Parent memory id when available.
     pub parent_memory_id: Option<String>,
     /// Root memory id for the memory graph branch.
     pub root_memory_id: Option<String>,
-    /// Supermemory graph relation map keyed by target memory id.
+    /// Memory relation map keyed by target memory id.
     pub memory_relations: Option<Json<serde_json::Value>>,
     /// Whether this is the latest memory.
     pub is_latest: Option<bool>,
-    /// Supermemory space id.
+    /// Memory space id.
     pub space_id: Option<String>,
 }
 
@@ -206,9 +207,9 @@ pub struct GraphqlMemoryGraphMemoryEntry {
 #[derive(Clone, Debug, InputObject)]
 #[graphql(name = "SaveMemoryServiceSettingsInput")]
 pub struct GraphqlSaveMemoryServiceSettingsInput {
-    /// Supermemory service mode.
+    /// Memory service mode.
     pub mode: GraphqlMemoryServiceMode,
-    /// External Supermemory service base URL.
+    /// External memory service base URL.
     pub base_url: Option<String>,
     /// External service port, when configured.
     pub port: Option<i32>,
@@ -246,11 +247,11 @@ pub(super) async fn memory_graph(
     };
     let Some(connection) = memory_graph_connection(state, &settings).await? else {
         let status = match settings.mode {
-            MemoryServiceMode::Managed => managed_supermemory_unavailable_status(state).await?,
+            MemoryServiceMode::Managed => managed_memory_unavailable_status(state).await?,
             MemoryServiceMode::External => GraphqlMemoryServiceStatus {
                 status: GraphqlMemoryServiceStatusKind::NotConfigured,
                 checked_at: Some(now_rfc3339()?),
-                last_error_code: Some("supermemory_not_configured".to_string()),
+                last_error_code: Some("mem0_not_configured".to_string()),
                 last_error_message: Some("memory service base URL is required".to_string()),
             },
         };
@@ -261,13 +262,11 @@ pub(super) async fn memory_graph(
         });
     };
 
-    let request_page = u32::try_from(page).expect("memory graph page is clamped positive");
-    let request_limit = u32::try_from(limit).expect("memory graph limit is clamped positive");
-    let client = crate::SupermemoryClient::new(connection.base_url, connection.api_key);
+    let request_limit = u16::try_from(limit).expect("memory graph limit is clamped positive");
+    let client = crate::Mem0Client::new(connection.base_url, connection.api_key);
     let response = match client
-        .list_memory_graph_documents(crate::SupermemoryGraphDocumentsRequest {
-            container_tag: HUMAN_MEMORY_CONTAINER_TAG.to_string(),
-            page: request_page,
+        .list_memories(crate::Mem0ListMemoriesRequest {
+            user_id: HUMAN_MEMORY_SCOPE_ID.to_string(),
             limit: request_limit,
         })
         .await
@@ -282,18 +281,10 @@ pub(super) async fn memory_graph(
         }
     };
     let page_info = GraphqlMemoryGraphPageInfo {
-        page: response
-            .pagination
-            .page
-            .and_then(u32_to_i32)
-            .unwrap_or(page),
-        limit: response
-            .pagination
-            .limit
-            .and_then(u32_to_i32)
-            .unwrap_or(limit),
-        has_more: response.pagination.has_more.unwrap_or(false),
-        total: response.pagination.total.and_then(u64_to_i32),
+        page,
+        limit,
+        has_more: false,
+        total: Some(i32::try_from(response.results.len()).unwrap_or(i32::MAX)),
     };
 
     Ok(GraphqlMemoryGraph {
@@ -303,11 +294,7 @@ pub(super) async fn memory_graph(
             last_error_code: None,
             last_error_message: None,
         },
-        documents: response
-            .documents
-            .into_iter()
-            .map(GraphqlMemoryGraphDocument::from)
-            .collect(),
+        documents: mem0_memories_to_graph_documents(response.results),
         page_info,
     })
 }
@@ -404,19 +391,17 @@ pub(super) async fn save_memory_service_settings(
 async fn memory_graph_connection(
     state: &GraphqlState,
     settings: &MemoryServiceSettingsRecord,
-) -> Result<Option<crate::SupermemoryConnection>> {
+) -> Result<Option<crate::Mem0Connection>> {
     match settings.mode {
-        MemoryServiceMode::Managed => Ok(state.supermemory_connection().cloned()),
+        MemoryServiceMode::Managed => Ok(state.memory_connection().cloned()),
         MemoryServiceMode::External => Ok(settings
             .base_url
             .clone()
-            .map(|base_url| crate::SupermemoryConnection::new(base_url, None))),
+            .map(|base_url| crate::Mem0Connection::new(base_url, None))),
     }
 }
 
-fn memory_graph_error_status(
-    error: &crate::SupermemoryClientError,
-) -> Result<GraphqlMemoryServiceStatus> {
+fn memory_graph_error_status(error: &crate::Mem0ClientError) -> Result<GraphqlMemoryServiceStatus> {
     let status = match error.sanitized_code() {
         "auth_error" => GraphqlMemoryServiceStatusKind::AuthError,
         _ => GraphqlMemoryServiceStatusKind::Unavailable,
@@ -429,62 +414,80 @@ fn memory_graph_error_status(
     })
 }
 
-impl From<crate::SupermemoryGraphDocument> for GraphqlMemoryGraphDocument {
-    fn from(document: crate::SupermemoryGraphDocument) -> Self {
-        let document_id = document.id.clone();
-        Self {
-            id: document.id,
-            custom_id: document.custom_id,
-            title: document.title,
-            content: document.content,
-            summary: document.summary,
-            url: document.url,
-            source: document.source,
-            r#type: document.r#type,
-            status: document.status,
-            metadata: document.metadata.map(Json),
-            created_at: document.created_at,
-            updated_at: document.updated_at,
-            memory_entries: document
-                .memory_entries
+fn mem0_memories_to_graph_documents(
+    memories: Vec<crate::Mem0Memory>,
+) -> Vec<GraphqlMemoryGraphDocument> {
+    let mut groups = BTreeMap::<String, Vec<crate::Mem0Memory>>::new();
+    for memory in memories {
+        let document_id = memory
+            .metadata
+            .as_ref()
+            .and_then(|metadata| metadata.get("noemaConversationId"))
+            .and_then(serde_json::Value::as_str)
+            .map(|conversation_id| format!("conversation:{conversation_id}"))
+            .unwrap_or_else(|| format!("mem0:{HUMAN_MEMORY_SCOPE_ID}"));
+        groups.entry(document_id).or_default().push(memory);
+    }
+
+    groups
+        .into_iter()
+        .map(|(document_id, memories)| {
+            let title = if document_id == format!("mem0:{HUMAN_MEMORY_SCOPE_ID}") {
+                "Human memory".to_string()
+            } else {
+                "Conversation memory".to_string()
+            };
+            let created_at = memories
+                .iter()
+                .filter_map(|memory| memory.created_at.as_deref())
+                .min()
+                .unwrap_or("")
+                .to_string();
+            let updated_at = memories
+                .iter()
+                .filter_map(|memory| memory.updated_at.as_deref())
+                .max()
+                .unwrap_or("")
+                .to_string();
+            let memory_entries = memories
                 .into_iter()
-                .map(|entry| GraphqlMemoryGraphMemoryEntry::from_entry(entry, &document_id))
-                .collect(),
-        }
-    }
-}
+                .map(|memory| GraphqlMemoryGraphMemoryEntry {
+                    id: memory.id,
+                    document_id: document_id.clone(),
+                    content: memory.memory,
+                    summary: None,
+                    title: None,
+                    r#type: Some("memory".to_string()),
+                    metadata: None,
+                    created_at: memory.created_at.unwrap_or_default(),
+                    updated_at: memory.updated_at.unwrap_or_default(),
+                    space_container_tag: Some(HUMAN_MEMORY_SCOPE_ID.to_string()),
+                    relation: None,
+                    parent_memory_id: None,
+                    root_memory_id: None,
+                    memory_relations: None,
+                    is_latest: None,
+                    space_id: None,
+                })
+                .collect();
 
-impl GraphqlMemoryGraphMemoryEntry {
-    fn from_entry(entry: crate::SupermemoryGraphMemoryEntry, parent_document_id: &str) -> Self {
-        Self {
-            id: entry.id,
-            document_id: entry
-                .document_id
-                .unwrap_or_else(|| parent_document_id.to_string()),
-            content: entry.content,
-            summary: entry.summary,
-            title: entry.title,
-            r#type: entry.r#type,
-            metadata: entry.metadata.map(Json),
-            created_at: entry.created_at,
-            updated_at: entry.updated_at,
-            space_container_tag: entry.space_container_tag,
-            relation: entry.relation,
-            parent_memory_id: entry.parent_memory_id,
-            root_memory_id: entry.root_memory_id,
-            memory_relations: entry.memory_relations.map(Json),
-            is_latest: entry.is_latest,
-            space_id: entry.space_id,
-        }
-    }
-}
-
-fn u32_to_i32(value: u32) -> Option<i32> {
-    i32::try_from(value).ok()
-}
-
-fn u64_to_i32(value: u64) -> Option<i32> {
-    i32::try_from(value).ok()
+            GraphqlMemoryGraphDocument {
+                id: document_id,
+                custom_id: None,
+                title: Some(title),
+                content: None,
+                summary: None,
+                url: None,
+                source: Some("mem0".to_string()),
+                r#type: Some("memory_group".to_string()),
+                status: "ready".to_string(),
+                metadata: None,
+                created_at,
+                updated_at,
+                memory_entries,
+            }
+        })
+        .collect()
 }
 
 pub(super) async fn check_memory_service(
@@ -504,8 +507,8 @@ async fn memory_service_status(
 ) -> Result<GraphqlMemoryServiceStatus> {
     let base_url = match settings.mode {
         MemoryServiceMode::Managed => {
-            let Some(connection) = state.supermemory_connection() else {
-                return managed_supermemory_unavailable_status(state).await;
+            let Some(connection) = state.memory_connection() else {
+                return managed_memory_unavailable_status(state).await;
             };
             connection.base_url.as_str()
         }
@@ -547,24 +550,16 @@ async fn memory_service_status(
     Ok(status)
 }
 
-async fn managed_supermemory_unavailable_status(
+async fn managed_memory_unavailable_status(
     state: &GraphqlState,
 ) -> Result<GraphqlMemoryServiceStatus> {
-    let last_error_message = match state.paths() {
-        Ok(paths) => recent_supermemory_error_message(paths).await,
-        Err(_) => None,
-    };
-    let last_error_message = last_error_message.or_else(|| {
-        state
-            .supermemory_startup_error()
-            .map(sanitize_error_message)
-    });
+    let last_error_message = state.memory_startup_error().map(sanitize_error_message);
     Ok(GraphqlMemoryServiceStatus {
         status: GraphqlMemoryServiceStatusKind::Unavailable,
         checked_at: Some(now_rfc3339()?),
-        last_error_code: Some("supermemory_unavailable".to_string()),
+        last_error_code: Some("mem0_unavailable".to_string()),
         last_error_message: Some(
-            last_error_message.unwrap_or_else(|| "Managed Supermemory is not running".to_string()),
+            last_error_message.unwrap_or_else(|| "Managed Mem0 is not running".to_string()),
         ),
     })
 }
@@ -574,7 +569,7 @@ fn memory_service_readiness_request(base_url: &str) -> Result<reqwest::RequestBu
         .timeout(MEMORY_SERVICE_READINESS_TIMEOUT)
         .build()
         .map_err(|error| async_graphql::Error::new(error.to_string()))?;
-    Ok(client.get(base_url))
+    Ok(client.get(format!("{}/health", base_url.trim_end_matches('/'))))
 }
 
 async fn memory_settings_from_store(state: &GraphqlState) -> Result<GraphqlMemorySettings> {
@@ -623,41 +618,6 @@ fn memory_settings_from_parts(
             _ => None,
         },
         model_options: accounts.iter().map(option_from_account).collect(),
-    }
-}
-
-async fn recent_supermemory_error_message(paths: &crate::NoemaPaths) -> Option<String> {
-    let text = tokio::fs::read_to_string(paths.supermemory_data_dir().join("error.log"))
-        .await
-        .ok()?;
-    text.lines()
-        .rev()
-        .find_map(sanitize_supermemory_error_log_line)
-}
-
-fn sanitize_supermemory_error_log_line(line: &str) -> Option<String> {
-    let line = line.trim();
-    if line.is_empty() {
-        return None;
-    }
-    let line = line
-        .split_once("] ")
-        .map_or(line, |(_prefix, message)| message)
-        .trim();
-    let line = line
-        .strip_prefix("fatal during startup:")
-        .unwrap_or(line)
-        .trim();
-    let message = line
-        .split_once(". ")
-        .map_or(line, |(first_sentence, _rest)| first_sentence)
-        .trim();
-    if message.is_empty() {
-        None
-    } else if message.ends_with('.') {
-        Some(message.to_string())
-    } else {
-        Some(format!("{message}."))
     }
 }
 

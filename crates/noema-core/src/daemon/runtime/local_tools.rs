@@ -55,7 +55,7 @@ impl CodexRuntimeActor {
                 arguments: call.payload.clone(),
                 result: execute_search_memory(
                     &self.store,
-                    self.supermemory_client(),
+                    self.memory_client(),
                     &context,
                     call.call_id.clone(),
                     &call.payload,

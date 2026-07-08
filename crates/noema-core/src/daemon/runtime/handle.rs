@@ -122,19 +122,19 @@ impl CodexRuntimeHandle {
         Ok((default_provider_kind, providers))
     }
 
-    pub(crate) async fn spawn_with_provider_map_and_supermemory(
+    pub(crate) async fn spawn_with_provider_map_and_memory(
         default_provider_kind: String,
         providers: RuntimeProviderMap,
         store: NoemaStore,
         system_errors: SystemErrorLogger,
-        supermemory_connection: Option<crate::SupermemoryConnection>,
+        memory_connection: Option<crate::Mem0Connection>,
     ) -> Result<Self, DaemonError> {
         Self::spawn_with_provider_map_inner(
             default_provider_kind,
             providers,
             store,
             system_errors,
-            supermemory_connection,
+            memory_connection,
         )
         .await
     }
@@ -152,10 +152,10 @@ impl CodexRuntimeHandle {
     }
 
     #[cfg(test)]
-    pub(crate) async fn spawn_with_provider_and_supermemory(
+    pub(crate) async fn spawn_with_provider_and_memory(
         provider: Arc<dyn RuntimeModelProvider>,
         store: NoemaStore,
-        supermemory_connection: Option<crate::SupermemoryConnection>,
+        memory_connection: Option<crate::Mem0Connection>,
     ) -> Result<Self, DaemonError> {
         let provider_kind = "codex".to_string();
         let system_errors = store.system_error_logger();
@@ -164,7 +164,7 @@ impl CodexRuntimeHandle {
             HashMap::from([(provider_kind, provider)]),
             store,
             system_errors,
-            supermemory_connection,
+            memory_connection,
         )
         .await
     }
@@ -277,7 +277,7 @@ impl CodexRuntimeHandle {
         providers: HashMap<String, Arc<dyn RuntimeModelProvider>>,
         store: NoemaStore,
         system_errors: SystemErrorLogger,
-        supermemory_connection: Option<crate::SupermemoryConnection>,
+        memory_connection: Option<crate::Mem0Connection>,
     ) -> Result<Self, DaemonError> {
         let Some(default_provider) = providers.get(&default_provider_kind) else {
             return Err(DaemonError::Provider(ProviderError::ProviderUnavailable {
@@ -287,12 +287,12 @@ impl CodexRuntimeHandle {
         };
         let tool_classification_model = default_provider.default_tool_classification_model();
         let (sender, receiver) = mpsc::channel(16);
-        let actor = CodexRuntimeActor::new_with_supermemory(
+        let actor = CodexRuntimeActor::new_with_memory(
             default_provider_kind.clone(),
             providers,
             store,
             system_errors,
-            supermemory_connection,
+            memory_connection,
         )
         .await?;
         tokio::spawn(actor.run(receiver));

@@ -7,28 +7,28 @@ export function memoryStatusLabel(
   if (mode === "MANAGED") {
     switch (status) {
       case "NOT_CONFIGURED":
-        return "Managed Supermemory has not started.";
+        return "Managed Mem0 has not started.";
       case "STARTING":
-        return "Managed Supermemory is starting.";
+        return "Managed Mem0 is starting.";
       case "READY":
-        return "Managed Supermemory is ready.";
+        return "Managed Mem0 is ready.";
       case "UNAVAILABLE":
-        return "Managed Supermemory is unavailable.";
+        return "Managed Mem0 is unavailable.";
       case "AUTH_ERROR":
-        return "Managed Supermemory authentication needs attention.";
+        return "Managed Mem0 authentication needs attention.";
     }
   }
 
   switch (status) {
     case "NOT_CONFIGURED":
-      return "Supermemory has not been configured.";
+      return "Mem0 has not been configured.";
     case "STARTING":
-      return "Supermemory is starting.";
+      return "Mem0 is starting.";
     case "READY":
-      return "Supermemory is ready.";
+      return "Mem0 is ready.";
     case "UNAVAILABLE":
-      return "Supermemory is unavailable.";
+      return "Mem0 is unavailable.";
     case "AUTH_ERROR":
-      return "Supermemory authentication needs attention.";
+      return "Mem0 authentication needs attention.";
   }
 }

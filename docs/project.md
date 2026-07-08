@@ -38,9 +38,9 @@ Noema at another directory with `NOEMA_HOME`.
   db/
     noema.sqlite3         # Noema-owned structured state
 
-  supermemory/
-    data/                 # Supermemory-owned memory state and graph
-    secrets/              # Supermemory service secrets
+  mem0/
+    data/                 # Mem0-owned memory state and indexes
+    run/                  # Mem0 sidecar runtime state
 
   humans/
     [human_id]/
@@ -85,7 +85,7 @@ tables.
 | Data | Source of truth |
 | --- | --- |
 | Structured state: humans, agents, tools, conversations, transcript items, provider accounts, MCP setup, tasks, permissions, approvals, and audit events | SQLite |
-| Memory truth, memory graph, memory extraction, memory updates, inferred memories, and memory search indexes | Local Supermemory |
+| Memory truth, extraction, updates, inferred memories, and memory search indexes | Local Mem0 |
 | Human-authored docs, imported files, attachments, and durable artifacts | filesystem |
 | Indexes, caches, temporary files, and derived search/vector state | `system/` |
 | Introspection into database-backed state | chat/work drill-ins, advanced inspection, and explicit export tools |
@@ -122,7 +122,7 @@ Context Runtime
         │
         ▼
 Canonical Store
-  SQLite + local Supermemory + durable object-owned files
+  SQLite + local Mem0 + durable object-owned files
         │
         └── System State
               indexes, caches, vectors, temp files
@@ -251,7 +251,7 @@ tasks
 memory
 ```
 
-Use SQLite as Noema's canonical structured store. Use local Supermemory for durable memory truth, graph ownership, extraction, updates, and memory search indexes. Use the filesystem for durable object-owned documents and artifacts. Use chat/work drill-ins, advanced inspection, and explicit export tools for introspection into database-backed state.
+Use SQLite as Noema's canonical structured store. Use local Mem0 for durable memory truth, extraction, updates, and memory search indexes. Use the filesystem for durable object-owned documents and artifacts. Use chat/work drill-ins, advanced inspection, and explicit export tools for introspection into database-backed state.
 
 [Memory Plan Index](memory.md)
 

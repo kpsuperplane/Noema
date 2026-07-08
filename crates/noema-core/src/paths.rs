@@ -109,22 +109,22 @@ impl NoemaPaths {
         self.db_dir().join("noema.sqlite3")
     }
 
-    /// Path to Supermemory-owned state.
+    /// Path to Mem0-owned state.
     #[must_use]
-    pub fn supermemory_dir(&self) -> PathBuf {
-        self.root.join("supermemory")
+    pub fn mem0_dir(&self) -> PathBuf {
+        self.root.join("mem0")
     }
 
-    /// Path to Supermemory managed data.
+    /// Path to Mem0 managed data.
     #[must_use]
-    pub fn supermemory_data_dir(&self) -> PathBuf {
-        self.supermemory_dir().join("data")
+    pub fn mem0_data_dir(&self) -> PathBuf {
+        self.mem0_dir().join("data")
     }
 
-    /// Path to Supermemory secret files.
+    /// Path to Mem0 runtime state.
     #[must_use]
-    pub fn supermemory_secrets_dir(&self) -> PathBuf {
-        self.supermemory_dir().join("secrets")
+    pub fn mem0_runtime_dir(&self) -> PathBuf {
+        self.mem0_dir().join("run")
     }
 
     /// Path to the provider credential root.

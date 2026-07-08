@@ -118,7 +118,11 @@ struct FakeMem0State {
 }
 
 impl FakeMem0Server {
-    async fn start(expected_method: &'static str, expected_path: &'static str, response: serde_json::Value) -> Self {
+    async fn start(
+        expected_method: &'static str,
+        expected_path: &'static str,
+        response: serde_json::Value,
+    ) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
         let base_url = format!("http://{}", listener.local_addr().expect("local addr"));
         let state = Arc::new(Mutex::new(FakeMem0State::default()));
