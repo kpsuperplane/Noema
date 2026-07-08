@@ -1,6 +1,5 @@
-import type { ConversationAgentStatus, TranscriptEntry, TurnTranscriptItem } from "@/shared/types";
+import type { ConversationAgentStatus, TranscriptEntry } from "@/shared/types";
 
-type ActivityTranscriptItem = Extract<TurnTranscriptItem, { kind: "activity" }>;
 type ActivityTranscriptEntry = Extract<TranscriptEntry, { type: "activity" }>;
 
 export type ToolMarkerGroup = {
@@ -12,13 +11,6 @@ export type ToolMarkerGroup = {
 export type RenderTranscriptEntry =
   | { kind: "entry"; id: string; entry: TranscriptEntry; suppressArrival?: boolean }
   | { kind: "typing"; id: string }
-  | {
-      kind: "memory_marker";
-      id: string;
-      source?: TranscriptEntry["source"];
-      extraction?: ActivityTranscriptItem;
-      proposal?: Extract<TurnTranscriptItem, { kind: "a2ui_card" }>;
-    }
   | {
       kind: "tool_marker";
       id: string;
@@ -32,13 +24,11 @@ export type TranscriptLane = "human" | "assistant";
 type TranscriptEntryAnchorCandidate =
   | { kind: "entry"; entryType: TranscriptEntry["type"] }
   | { kind: "typing" }
-  | { kind: "memory_marker" }
   | { kind: "tool_marker" };
 
 type RenderTranscriptLaneCandidate =
   | { kind: "entry"; entryType: TranscriptEntry["type"] }
   | { kind: "typing" }
-  | { kind: "memory_marker" }
   | { kind: "tool_marker" };
 
 export function renderableTranscriptEntries(
@@ -57,7 +47,6 @@ export function shouldAnchorTranscriptEntry(entry: TranscriptEntryAnchorCandidat
   switch (entry.kind) {
     case "entry":
     case "typing":
-    case "memory_marker":
     case "tool_marker":
       return false;
   }
@@ -225,7 +214,7 @@ function isTextTranscriptEntry(entry: TranscriptEntry): entry is Extract<Transcr
 }
 
 function isMarkerRenderEntry(entry: RenderTranscriptEntry): boolean {
-  return entry.kind === "memory_marker" || entry.kind === "tool_marker";
+  return entry.kind === "tool_marker";
 }
 
 function isTextMessageRenderEntry(entry: RenderTranscriptEntry): boolean {
@@ -251,90 +240,6 @@ function groupTranscriptMarkers(entries: TranscriptEntry[]): RenderTranscriptEnt
   for (let index = 0; index < entries.length; index += 1) {
     const entry = entries[index];
     const nextEntry = entries[index + 1];
-    const followingEntry = entries[index + 2];
-
-    if (
-      entry.type === "activity" &&
-      entry.item.activity_kind === "memory_extraction" &&
-      entry.item.status === "STARTED" &&
-      nextEntry &&
-      nextEntry.type === "card" &&
-      nextEntry.item.schema === "memory_proposals" &&
-      followingEntry &&
-      followingEntry.type === "activity" &&
-      followingEntry.item.activity_kind === "memory_extraction" &&
-      followingEntry.item.id === entry.item.id &&
-      sameTurn(entry, nextEntry) &&
-      sameTurn(entry, followingEntry)
-    ) {
-      rendered.push({
-        kind: "memory_marker",
-        id: `${entry.id}:${nextEntry.id}:${followingEntry.id}`,
-        source: transcriptGroupSource(entry, nextEntry, followingEntry),
-        extraction: followingEntry.item,
-        proposal: nextEntry.item
-      });
-      index += 2;
-      continue;
-    }
-
-    if (
-      entry.type === "activity" &&
-      entry.item.activity_kind === "memory_extraction" &&
-      nextEntry &&
-      nextEntry.type === "card" &&
-      nextEntry.item.schema === "memory_proposals" &&
-      sameTurn(entry, nextEntry)
-    ) {
-      rendered.push({
-        kind: "memory_marker",
-        id: `${entry.id}:${nextEntry.id}`,
-        source: transcriptGroupSource(entry, nextEntry),
-        extraction: entry.item,
-        proposal: nextEntry.item
-      });
-      index += 1;
-      continue;
-    }
-
-    if (
-      entry.type === "card" &&
-      entry.item.schema === "memory_proposals" &&
-      nextEntry &&
-      nextEntry.type === "activity" &&
-      nextEntry.item.activity_kind === "memory_extraction" &&
-      sameTurn(entry, nextEntry)
-    ) {
-      rendered.push({
-        kind: "memory_marker",
-        id: `${entry.id}:${nextEntry.id}`,
-        source: transcriptGroupSource(entry, nextEntry),
-        extraction: nextEntry.item,
-        proposal: entry.item
-      });
-      index += 1;
-      continue;
-    }
-
-    if (entry.type === "activity" && entry.item.activity_kind === "memory_extraction") {
-      rendered.push({
-        kind: "memory_marker",
-        id: entry.id,
-        source: transcriptGroupSource(entry),
-        extraction: entry.item
-      });
-      continue;
-    }
-
-    if (entry.type === "card" && entry.item.schema === "memory_proposals") {
-      rendered.push({
-        kind: "memory_marker",
-        id: entry.id,
-        source: transcriptGroupSource(entry),
-        proposal: entry.item
-      });
-      continue;
-    }
 
     if (entry.type === "activity" && entry.item.activity_kind === "tool_call") {
       const correlationId = toolActivityCorrelationId(entry);

@@ -37,14 +37,6 @@ function renderedEntryScrollFingerprint(entry: RenderTranscriptEntry): string {
   if (entry.kind === "typing") {
     return entry.id;
   }
-  if (entry.kind === "memory_marker") {
-    return [
-      entry.id,
-      entry.extraction?.status ?? "",
-      entry.extraction?.summary ?? "",
-      entry.proposal?.id ?? ""
-    ].join(":");
-  }
   return [
     entry.id,
     entry.marker.call?.item.status ?? "",

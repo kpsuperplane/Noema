@@ -182,22 +182,6 @@ function renderTranscriptRenderEntry(
   animateText: boolean,
   followBottomRef: React.MutableRefObject<boolean>
 ) {
-  if (entry.kind === "memory_marker") {
-    return (
-      <TranscriptRow lane="assistant" showAvatar={showAvatar}>
-        <ToolMarker
-          data={{
-            kind: "memory",
-            id: entry.id,
-            extraction: entry.extraction,
-            proposal: entry.proposal
-          }}
-          open={expandedActivities.has(entry.id)}
-          onToggle={() => onToggleActivity(entry.id)}
-        />
-      </TranscriptRow>
-    );
-  }
   if (entry.kind === "tool_marker") {
     const open = expandedActivities.has(entry.id);
     return (
@@ -249,15 +233,8 @@ function renderTranscriptEntry(
     return <Message animate={animateText} role="assistant" text={entry.text} showAvatar={showAvatar} />;
   }
   if (entry.type === "activity") {
-    if (entry.item.activity_kind !== "memory_save") {
-      return (
-        <ActivityRow item={entry.item} open={expandedActivities.has(entry.id)} onToggle={() => onToggleActivity(entry.id)} />
-      );
-    }
     return (
-      <TranscriptRow lane="assistant" showAvatar={showAvatar}>
-        <ActivityRow item={entry.item} open={expandedActivities.has(entry.id)} onToggle={() => onToggleActivity(entry.id)} />
-      </TranscriptRow>
+      <ActivityRow item={entry.item} open={expandedActivities.has(entry.id)} onToggle={() => onToggleActivity(entry.id)} />
     );
   }
   if (entry.type === "card") {

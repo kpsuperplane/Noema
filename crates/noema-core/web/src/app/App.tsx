@@ -45,7 +45,6 @@ import {
   isTurnCompletedEvent,
   markConversationEventReceived,
   markConversationEventScheduled,
-  removeStaleStartedMemoryExtractions,
   type ConversationEvent
 } from "@/transcript/events";
 import {
@@ -482,10 +481,6 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
   const applyConversationEvent = React.useCallback((event: ConversationEvent) => {
     markConversationEventReceived(event);
     if (isTurnCompletedEvent(event)) {
-      setTranscriptWindow((current) => ({
-        ...current,
-        durableEntries: removeStaleStartedMemoryExtractions(current.durableEntries)
-      }));
       setPending(false);
       setAwaitingAssistantTurn(false);
       setAgentStatus("IDLE");

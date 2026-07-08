@@ -295,7 +295,7 @@ describe("transcript window model", () => {
     );
   });
 
-  test("keeps following memory marker beneath finalized streamed assistant message", () => {
+  test("keeps following activity beneath finalized streamed assistant message", () => {
     const current: TranscriptWindowState = {
       durableEntries: [
         {
@@ -306,17 +306,17 @@ describe("transcript window model", () => {
           text: "hello"
         },
         {
-          id: "memory:item:1",
-          itemId: "memory:item:1",
+          id: "activity:item:1",
+          itemId: "activity:item:1",
           turnId: "turn:1",
           type: "activity",
           item: {
             kind: "activity",
-            id: "memory_extraction:conversation:1",
-            activity_kind: "memory_extraction",
+            id: "activity:conversation:1",
+            activity_kind: "progress_check",
             status: "STARTED",
-            title: "Memory proposed",
-            summary: "memory proposal is streaming",
+            title: "Progress check",
+            summary: "progress check is streaming",
             metadata: {}
           }
         }
@@ -348,7 +348,7 @@ describe("transcript window model", () => {
 
     assert.deepEqual(
       transcriptWindowEntries(merged).map((entry) => entry.id),
-      ["assistant:item:1", "memory:item:1"]
+      ["assistant:item:1", "activity:item:1"]
     );
   });
 });

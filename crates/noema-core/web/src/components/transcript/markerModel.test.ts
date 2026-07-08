@@ -2,15 +2,12 @@ import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import {
   formatToolDetail,
-  memoryCardsFromClaimOutcomes,
-  memoryDetailItems,
   toolDetailRows,
   toolMarkerExpandable,
   toolMarkerLabel,
   toolMarkerName,
   toolMarkerTarget
 } from "./markerModel";
-import type { TurnTranscriptItem } from "@/shared/types";
 import type { ToolMarkerGroup } from "./renderModel";
 
 describe("formatToolDetail", () => {
@@ -833,40 +830,5 @@ describe("toolDetailRows", () => {
     assert.deepEqual(toolDetailRows(marker), []);
     assert.equal(toolMarkerExpandable(marker), false);
     assert.equal(toolMarkerTarget(marker), undefined);
-  });
-});
-
-describe("memory detail model", () => {
-  test("keeps review-only memory outcomes visible without claim ids", () => {
-    const extraction: Extract<TurnTranscriptItem, { kind: "activity" }> = {
-      kind: "activity",
-      id: "memory:1",
-      activity_kind: "memory_extraction",
-      status: "COMPLETED",
-      title: "Memory needs review",
-      summary: "stored 1 memory for review",
-      metadata: {
-        claim_outcomes: [
-          {
-            outcome: "needs_review",
-            fact_preview: "Kevin may prefer concise inspection output.",
-            sensitivity: "normal",
-            status: "candidate"
-          }
-        ],
-        needs_review_claim_count: 1
-      }
-    };
-
-    const memories = memoryCardsFromClaimOutcomes(extraction);
-    assert.equal(memories.length, 1);
-    assert.equal(memories[0]?.title, "Kevin may prefer concise inspection output.");
-    assert.equal(memories[0]?.status, "Needs review");
-
-    const rows = memoryDetailItems(memories)[0]?.rows ?? [];
-    assert.deepEqual(
-      rows.map((row) => row.label),
-      ["Memory", "Sensitivity", "Status"]
-    );
   });
 });

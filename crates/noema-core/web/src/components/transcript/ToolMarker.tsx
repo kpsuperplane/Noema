@@ -1,13 +1,7 @@
 import * as stylex from "@stylexjs/stylex";
 import { CheckIcon, ChevronDownIcon, ClockIcon, Loader2Icon, XIcon } from "lucide-react";
 import type { ReactNode } from "react";
-import { memoryCardsFromStructuredItem } from "@/memory/cards";
-import type { TurnTranscriptItem } from "@/shared/types";
-import { MemoryDetailAttachment } from "./MemoryDetailAttachment";
 import {
-  memoryCardsFromClaimOutcomes,
-  memoryMarkerLabel,
-  metadataCount,
   toolMarkerExpandable,
   toolMarkerName,
   toolMarkerPending,
@@ -17,16 +11,10 @@ import type { ToolMarkerGroup } from "./renderModel";
 import { ToolDetailAttachment } from "./ToolDetailAttachment";
 
 type ToolMarkerData =
-  | {
-      kind: "tool";
-      marker: ToolMarkerGroup;
-    }
-  | {
-      kind: "memory";
-      id: string;
-      extraction?: Extract<TurnTranscriptItem, { kind: "activity" }>;
-      proposal?: Extract<TurnTranscriptItem, { kind: "a2ui_card" }>;
-    };
+  {
+    kind: "tool";
+    marker: ToolMarkerGroup;
+  };
 
 type ToolMarkerCallStatus = "pending" | "running" | "complete" | "error";
 
@@ -241,10 +229,6 @@ function ToolStatusIcon({ status }: { status: ToolMarkerCallStatus }) {
 }
 
 function toolMarkerCalls(data: ToolMarkerData): ToolMarkerCall[] {
-  if (data.kind === "memory") {
-    return [memoryToolMarkerCall(data)];
-  }
-
   return [activityToolMarkerCall(data.marker)];
 }
 
@@ -274,40 +258,6 @@ function activityToolMarkerCall(marker: ToolMarkerGroup): ToolMarkerCall {
   return call;
 }
 
-function memoryToolMarkerCall(marker: Extract<ToolMarkerData, { kind: "memory" }>): ToolMarkerCall {
-  const memories = marker.proposal
-    ? memoryCardsFromStructuredItem(marker.proposal) ?? []
-    : memoryCardsFromClaimOutcomes(marker.extraction);
-  const failed =
-    marker.extraction?.status === "FAILED" &&
-    (memories.length === 0 || metadataCount(marker.extraction.metadata, "failed_proposal_count") > 0);
-  const label = memoryMarkerLabel(marker.extraction);
-  const target = marker.extraction?.summary;
-  const call: ToolMarkerCall = {
-    key: marker.id,
-    name: label,
-    status: memoryToolMarkerStatus(marker, failed),
-    expandable: true,
-    resultDetail: (
-      <MemoryDetailAttachment
-        id={`${marker.id}-details`}
-        extraction={marker.extraction}
-        memories={memories}
-        failed={failed}
-      />
-    )
-  };
-
-  if (target) {
-    call.target = target;
-  }
-  if (failed) {
-    call.errorMessage = marker.extraction?.summary ?? label;
-  }
-
-  return call;
-}
-
 function toolMarkerStatus(marker: ToolMarkerGroup): ToolMarkerCallStatus {
   if (marker.result?.item.status === "FAILED") {
     return "error";
@@ -319,17 +269,4 @@ function toolMarkerStatus(marker: ToolMarkerGroup): ToolMarkerCallStatus {
     return "running";
   }
   return "pending";
-}
-
-function memoryToolMarkerStatus(
-  marker: Extract<ToolMarkerData, { kind: "memory" }>,
-  failed: boolean
-): ToolMarkerCallStatus {
-  if (failed) {
-    return "error";
-  }
-  if (marker.extraction?.status === "STARTED") {
-    return "running";
-  }
-  return "complete";
 }

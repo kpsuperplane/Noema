@@ -42,17 +42,6 @@ export function isAssistantTextDeltaEvent(
   return event.__typename === "AssistantTextDeltaEvent";
 }
 
-export function removeStaleStartedMemoryExtractions(current: TranscriptEntry[]): TranscriptEntry[] {
-  return current.filter(
-    (entry) =>
-      !(
-        entry.type === "activity" &&
-        entry.item.activity_kind === "memory_extraction" &&
-        entry.item.status === "STARTED"
-      )
-  );
-}
-
 export function appendAssistantTextDeltaEntry(
   current: TranscriptEntry[],
   event: { turnId: string; streamId: string; responseIndex: number; delta: string; conversationId: string }
