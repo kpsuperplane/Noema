@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any, Literal, Optional
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
@@ -16,20 +16,20 @@ class Message(BaseModel):
 class AddMemoryRequest(BaseModel):
     messages: list[Message]
     user_id: str
-    agent_id: str | None = None
-    run_id: str | None = None
+    agent_id: Optional[str] = None
+    run_id: Optional[str] = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class SearchMemoryRequest(BaseModel):
     query: str = Field(min_length=1)
     user_id: str
-    agent_id: str | None = None
-    run_id: str | None = None
+    agent_id: Optional[str] = None
+    run_id: Optional[str] = None
     limit: int = Field(default=8, ge=1, le=100)
 
 
-def create_app(memory: Any | None = None) -> FastAPI:
+def create_app(memory: Optional[Any] = None) -> FastAPI:
     app = FastAPI()
     app.state.memory = memory or build_memory_from_env()
 
@@ -71,7 +71,7 @@ def create_app(memory: Any | None = None) -> FastAPI:
         try:
             return await app.state.memory.get_all(
                 filters={"user_id": user_id},
-                limit=limit,
+                top_k=limit,
             )
         except Exception as exc:
             raise HTTPException(status_code=500, detail=str(exc)) from exc
@@ -84,6 +84,3 @@ def create_app(memory: Any | None = None) -> FastAPI:
             raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     return app
-
-
-app = create_app()

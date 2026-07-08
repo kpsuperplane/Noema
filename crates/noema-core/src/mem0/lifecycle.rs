@@ -191,7 +191,8 @@ impl Mem0SidecarCommand {
                 command
                     .arg("-m")
                     .arg("uvicorn")
-                    .arg("noema_mem0_sidecar.app:app")
+                    .arg("--factory")
+                    .arg("noema_mem0_sidecar.app:create_app")
                     .arg("--host")
                     .arg("127.0.0.1")
                     .arg("--port")

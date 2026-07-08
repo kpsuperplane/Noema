@@ -274,12 +274,16 @@ async fn ensure_dev_mem0_sidecar(repo_root: &Path) -> Result<Option<String>, Dev
     if !status.success() {
         return Err(DevError::Mem0InstallerExited { status });
     }
-    let command = format!(
-        "{} -m uvicorn noema_mem0_sidecar.app:app --host 127.0.0.1 --port \"$NOEMA_MEM0_PORT\"",
-        shell_quote(&python)
-    );
+    let command = mem0_sidecar_uvicorn_command(&python);
     eprintln!("dev Mem0 sidecar: {}", python.display());
     Ok(Some(command))
+}
+
+fn mem0_sidecar_uvicorn_command(python: &Path) -> String {
+    format!(
+        "{} -m uvicorn --factory noema_mem0_sidecar.app:create_app --host 127.0.0.1 --port \"$NOEMA_MEM0_PORT\"",
+        shell_quote(python)
+    )
 }
 
 fn mem0_venv_create_command(repo_root: &Path) -> Command {
@@ -300,7 +304,6 @@ fn mem0_install_command(repo_root: &Path) -> Command {
         .arg("-m")
         .arg("pip")
         .arg("install")
-        .arg("-e")
         .arg(mem0_sidecar_source_dir(repo_root))
         .stdin(Stdio::null())
         .stdout(Stdio::inherit())
@@ -528,6 +531,14 @@ mod tests {
         assert_eq!(
             mem0_venv_python(Path::new("/workspace")),
             PathBuf::from("/workspace/crates/noema-core/target/mem0-sidecar-venv/bin/python")
+        );
+    }
+
+    #[test]
+    fn mem0_dev_sidecar_command_uses_asgi_factory() {
+        assert_eq!(
+            mem0_sidecar_uvicorn_command(Path::new("/workspace/.venv/bin/python")),
+            "'/workspace/.venv/bin/python' -m uvicorn --factory noema_mem0_sidecar.app:create_app --host 127.0.0.1 --port \"$NOEMA_MEM0_PORT\""
         );
     }
 
