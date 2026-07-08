@@ -2208,12 +2208,54 @@ async fn completed_turn_submits_supermemory_ingest_job() {
         body["conversationId"] == conversation_id
             && body["containerTags"] == json!(["human:local"])
             && body["messages"].as_array().is_some_and(|messages| {
-                messages.iter().any(|message| {
-                    message["role"] == "user" && message["content"] == "remember this turn"
-                }) && messages
-                    .iter()
-                    .any(|message| message["role"] == "assistant")
+                messages.as_slice() == [json!({"role": "user", "content": "remember this turn"})]
             })
+    }));
+}
+
+#[tokio::test]
+async fn completed_turn_memory_ingest_uses_only_current_turn_user_text() {
+    let (handle, store, server) = test_runtime_handle_with_supermemory(
+        fake_provider(FakeCodexScenario::Simple),
+        json!({"results": []}),
+    )
+    .await;
+
+    let conversation_id = handle
+        .start_conversation(None)
+        .await
+        .expect("conversation")
+        .conversation_id;
+    collect_turn_events(
+        &handle,
+        conversation_id.clone(),
+        "first turn should not repeat".to_string(),
+    )
+    .await
+    .0
+    .expect("first turn");
+    collect_turn_events(
+        &handle,
+        conversation_id.clone(),
+        "second turn should be submitted".to_string(),
+    )
+    .await
+    .0
+    .expect("second turn");
+    wait_for_submitted_memory_ingest_jobs(&store, &conversation_id, 2).await;
+    handle.shutdown().await;
+
+    let bodies = server.request_bodies().await;
+    let conversation_bodies = bodies
+        .iter()
+        .filter(|body| body["conversationId"] == conversation_id)
+        .collect::<Vec<_>>();
+    assert_eq!(conversation_bodies.len(), 2);
+    assert!(conversation_bodies.iter().any(|body| {
+        body["messages"] == json!([{"role": "user", "content": "first turn should not repeat"}])
+    }));
+    assert!(conversation_bodies.iter().any(|body| {
+        body["messages"] == json!([{"role": "user", "content": "second turn should be submitted"}])
     }));
 }
 

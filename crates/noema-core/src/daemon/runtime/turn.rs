@@ -74,17 +74,15 @@ fn memory_ingest_message(
     if item.status != crate::ConversationItemStatus::Completed {
         return None;
     }
-    let role = match item.kind {
-        crate::ConversationItemKind::UserText => "user",
-        crate::ConversationItemKind::AssistantText => "assistant",
-        _ => return None,
-    };
+    if item.kind != crate::ConversationItemKind::UserText {
+        return None;
+    }
     let content = item.content_text?;
     if content.trim().is_empty() {
         return None;
     }
     Some(crate::supermemory::SupermemoryConversationMessage {
-        role: role.to_string(),
+        role: "user".to_string(),
         content,
     })
 }
