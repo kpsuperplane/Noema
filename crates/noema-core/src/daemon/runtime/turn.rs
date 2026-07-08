@@ -68,47 +68,9 @@ pub(super) fn mcp_auth_status_label(status: crate::McpServerAuthStatus) -> &'sta
     }
 }
 
-const MEMORY_OBSERVATION_CONTEXT_MAX_CHARS: usize = 1_200;
-
-fn memory_source_id_for_user_item(user_item_id: &str) -> String {
-    format!("memory_source:{user_item_id}")
-}
-
-fn truncate_memory_observation_context(content: &str) -> String {
-    let mut chars = content.chars();
-    let truncated = chars
-        .by_ref()
-        .take(MEMORY_OBSERVATION_CONTEXT_MAX_CHARS)
-        .collect::<String>();
-    if chars.next().is_some() {
-        format!("{truncated}...")
-    } else {
-        truncated
-    }
-}
-
-fn latest_visible_assistant_text_before_user_item(
-    items: &[crate::ConversationItemRecord],
-    user_item_id: &str,
-) -> Option<String> {
-    let mut latest = None;
-    for item in items {
-        if item.item_id == user_item_id {
-            break;
-        }
-        if item.status == crate::ConversationItemStatus::Completed
-            && item.kind == crate::ConversationItemKind::AssistantText
-            && let Some(content) = item.content_text.as_deref()
-            && !content.trim().is_empty()
-        {
-            latest = Some(truncate_memory_observation_context(content));
-        }
-    }
-    latest
-}
-
 fn build_memory_observation_ingest_request(
-    items: &[crate::ConversationItemRecord],
+    conversation_id: &str,
+    turn_id: &str,
     user_item_id: &str,
     user_text: &str,
 ) -> Option<crate::SupermemoryConversationIngestRequest> {
@@ -116,23 +78,22 @@ fn build_memory_observation_ingest_request(
         return None;
     }
 
-    let mut messages = Vec::new();
-    if let Some(context) = latest_visible_assistant_text_before_user_item(items, user_item_id) {
-        messages.push(crate::supermemory::SupermemoryConversationMessage {
-            role: "assistant".to_string(),
-            content: context,
-        });
-    }
-    messages.push(crate::supermemory::SupermemoryConversationMessage {
-        role: "user".to_string(),
-        content: user_text.to_string(),
-    });
-
-    Some(crate::SupermemoryConversationIngestRequest::new(
-        memory_source_id_for_user_item(user_item_id),
-        HUMAN_MEMORY_SCOPE_ID,
-        messages,
-    ))
+    Some(
+        crate::SupermemoryConversationIngestRequest::new(
+            conversation_id,
+            HUMAN_MEMORY_SCOPE_ID,
+            vec![crate::supermemory::SupermemoryConversationMessage {
+                role: "user".to_string(),
+                content: user_text.to_string(),
+            }],
+        )
+        .with_metadata(json!({
+            "noemaConversationId": conversation_id,
+            "turnId": turn_id,
+            "userItemId": user_item_id,
+            "sourceKind": "user_message",
+        })),
+    )
 }
 
 impl CodexRuntimeActor {
@@ -1407,28 +1368,12 @@ impl CodexRuntimeActor {
         user_item_id: &str,
         user_text: &str,
     ) {
-        let items = match self
-            .store
-            .list_conversation_items(conversation_id, ReplayMode::Visible)
-            .await
-        {
-            Ok(items) => items,
-            Err(error) => {
-                self.log_runtime_invariant(
-                    "memory observation transcript could not be read",
-                    json!({
-                        "conversation_id": conversation_id,
-                        "turn_id": turn_id,
-                        "source_item_id": user_item_id,
-                    }),
-                    json!({"error": error.to_string()}),
-                );
-                return;
-            }
-        };
-        let Some(request) =
-            build_memory_observation_ingest_request(&items, user_item_id, user_text)
-        else {
+        let Some(request) = build_memory_observation_ingest_request(
+            conversation_id,
+            turn_id,
+            user_item_id,
+            user_text,
+        ) else {
             return;
         };
         let Some(client) = self.supermemory_client() else {

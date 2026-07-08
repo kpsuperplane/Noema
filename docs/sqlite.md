@@ -9,8 +9,8 @@ ${NOEMA_HOME:-$HOME/.noema}/db/noema.sqlite3
 
 SQLite owns Noema records such as humans, agents, provider accounts, provider
 capability bindings, conversations, transcript items, MCP setup/calibration
-state, approvals, auxiliary model preferences, memory service settings/status,
-and Supermemory ingest job diagnostics.
+state, approvals, auxiliary model preferences, and memory service
+settings/status.
 
 SQLite does not mirror Supermemory's graph. Durable memory truth, memory graph
 behavior, extraction, updates, and memory search indexes belong to local

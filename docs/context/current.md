@@ -34,13 +34,16 @@ The next storage slice should stay small and concrete:
   `${NOEMA_HOME:-$HOME/.noema}/supermemory/secrets`.
 - Persisted user messages enqueue memory observations to Supermemory
   immediately for extraction into the current human container tag
-  (`human:local`) by default. Each observation uses the persisted user item as
-  the unique Supermemory source identity (`memory_source:<user_item_id>`).
-  Payloads contain the current user text plus at most bounded previous visible
-  assistant context; assistant responses are not submitted after provider
-  completion, and Supermemory extraction never blocks normal provider response
-  generation. Noema does not keep a SQLite memory ingest job/outbox table yet;
-  submit failures are best-effort diagnostics until a real retry surface exists.
+  (`human:local`) by default. Observations use the Noema conversation id as
+  Supermemory's stable `conversationId`/source document identity, while the
+  current turn id and persisted user item id are stored as metadata. Payloads
+  contain only the current user text; assistant text is not submitted as context
+  because Supermemory treats conversation messages as source material. Noema
+  sends both `containerTag` and `containerTags` on v4 ingest while the bundled
+  self-hosted build requires the plural field for storage. Supermemory
+  extraction never blocks normal provider response generation.
+  Noema does not keep a SQLite memory ingest job/outbox table yet; submit
+  failures are best-effort diagnostics until a real retry surface exists.
 - Managed Local Supermemory runs as a private Noema sidecar. Noema resolves the
   server from `NOEMA_SUPERMEMORY_SERVER`, then the bundled
   `crates/noema-core/supermemory/` resource directory, then `PATH` for

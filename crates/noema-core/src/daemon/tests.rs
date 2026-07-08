@@ -2201,11 +2201,17 @@ async fn user_message_submits_memory_observation() {
 
     let bodies = server.request_bodies().await;
     assert!(bodies.iter().any(|body| {
-        body["conversationId"]
-            .as_str()
-            .is_some_and(|source_id| source_id.starts_with("memory_source:"))
+        body["conversationId"] == conversation_id
             && body["containerTag"] == "human:local"
-            && body.get("containerTags").is_none()
+            && body["containerTags"] == json!(["human:local"])
+            && body["metadata"]["noemaConversationId"] == conversation_id
+            && body["metadata"]["sourceKind"] == "user_message"
+            && body["metadata"]["turnId"]
+                .as_str()
+                .is_some_and(|turn_id| turn_id.starts_with("turn:"))
+            && body["metadata"]["userItemId"]
+                .as_str()
+                .is_some_and(|item_id| item_id.starts_with("item:"))
             && body["messages"].as_array().is_some_and(|messages| {
                 messages.as_slice() == [json!({"role": "user", "content": "remember this turn"})]
             })
@@ -2288,7 +2294,7 @@ async fn slow_supermemory_ingest_does_not_delay_provider_response() {
 }
 
 #[tokio::test]
-async fn memory_observation_uses_distinct_source_ids_and_bounded_assistant_context() {
+async fn memory_observation_uses_conversation_source_id_and_only_current_user_text() {
     let (handle, _store, server) = test_runtime_handle_with_supermemory(
         fake_provider(FakeCodexScenario::Simple),
         json!({"results": []}),
@@ -2322,27 +2328,22 @@ async fn memory_observation_uses_distinct_source_ids_and_bounded_assistant_conte
     let bodies = server.request_bodies().await;
     let observation_bodies = bodies
         .iter()
-        .filter(|body| {
-            body["conversationId"]
-                .as_str()
-                .is_some_and(|source_id| source_id.starts_with("memory_source:"))
-        })
+        .filter(|body| body["conversationId"] == conversation_id)
         .collect::<Vec<_>>();
     assert_eq!(observation_bodies.len(), 2);
     let source_ids = observation_bodies
         .iter()
         .filter_map(|body| body["conversationId"].as_str())
         .collect::<std::collections::HashSet<_>>();
-    assert_eq!(source_ids.len(), 2);
+    assert_eq!(
+        source_ids,
+        std::collections::HashSet::from([conversation_id.as_str()])
+    );
     assert!(observation_bodies.iter().any(|body| {
         body["messages"] == json!([{"role": "user", "content": "first turn should not repeat"}])
     }));
     assert!(observation_bodies.iter().any(|body| {
-        body["messages"]
-            == json!([
-                {"role": "assistant", "content": "fake answer"},
-                {"role": "user", "content": "second turn should be submitted"}
-            ])
+        body["messages"] == json!([{"role": "user", "content": "second turn should be submitted"}])
     }));
 }
 
@@ -3817,11 +3818,7 @@ async fn wait_for_supermemory_observation_requests(
         let bodies = server.request_bodies().await;
         let observations = bodies
             .iter()
-            .filter(|body| {
-                body["conversationId"]
-                    .as_str()
-                    .is_some_and(|source_id| source_id.starts_with("memory_source:"))
-            })
+            .filter(|body| body["metadata"]["sourceKind"] == "user_message")
             .count();
         if observations >= minimum_count {
             return;

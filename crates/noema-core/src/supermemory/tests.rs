@@ -74,7 +74,10 @@ async fn supermemory_ingest_posts_v4_conversations_camel_case_shape() {
     let request_body = server.last_body_json().await;
     assert_eq!(request_body["conversationId"], "conversation:local");
     assert_eq!(request_body["containerTag"], "conversation_local");
-    assert!(request_body.get("containerTags").is_none());
+    assert_eq!(
+        request_body["containerTags"],
+        serde_json::json!(["conversation_local"])
+    );
     assert_eq!(request_body["messages"][0]["role"], "user");
     assert_eq!(
         request_body["messages"][0]["content"],

@@ -17,7 +17,7 @@ nested Settings sections including `/settings/memory`. `/memory` redirects to
 | `A2uiCard` payloads | Structured cards inside the chat stream when backed by current runtime behavior |
 | `config.yaml` and environment-derived config | Provider/model/default setup state; secrets remain outside SQLite |
 | `NoemaPaths` and store config | Noema home, runtime directory, SQLite database path, and Supermemory data/secrets paths |
-| SQLite store | Concrete object rows, conversations, conversation turns/items, provider accounts, MCP setup/calibration state, approvals, auxiliary preferences, memory service settings/status, and ingest job diagnostics |
+| SQLite store | Concrete object rows, conversations, conversation turns/items, provider accounts, MCP setup/calibration state, approvals, auxiliary preferences, and memory service settings/status |
 | Local Supermemory | Durable memory truth, graph ownership, extraction, updates, and memory search indexes |
 
 ## Frontend Code Organization

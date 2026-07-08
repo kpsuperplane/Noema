@@ -17,8 +17,7 @@ Current authorities:
 Current implementation direction:
 
 - Durable memory truth and graph behavior belong to local Supermemory.
-- Noema stores only memory service configuration, readiness, and ingest job
-  diagnostics in SQLite.
+- Noema stores only memory service configuration and readiness in SQLite.
 - Noema uses `search_memory` as an explicit tool-only recall path.
 - Noema maps trusted active scopes to deterministic Supermemory container tags
   and fans out searches across those tags.

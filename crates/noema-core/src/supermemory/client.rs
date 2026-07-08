@@ -311,10 +311,15 @@ pub struct SupermemoryGraphMemoryEntry {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SupermemoryConversationIngestRequest {
-    /// Supermemory source identity for this observation.
+    /// Supermemory conversation/source document identity.
     pub conversation_id: String,
     /// Deterministic Noema-owned Supermemory container tag.
     pub container_tag: String,
+    /// Compatibility tag list for the bundled self-hosted Supermemory build.
+    pub container_tags: Vec<String>,
+    /// Flat Noema provenance metadata for this observation.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<serde_json::Value>,
     /// Conversation messages submitted for Supermemory extraction.
     pub messages: Vec<SupermemoryConversationMessage>,
 }
@@ -327,11 +332,21 @@ impl SupermemoryConversationIngestRequest {
         container_tag: impl Into<String>,
         messages: Vec<SupermemoryConversationMessage>,
     ) -> Self {
+        let container_tag = container_tag.into();
         Self {
             conversation_id: conversation_id.into(),
-            container_tag: container_tag.into(),
+            container_tag: container_tag.clone(),
+            container_tags: vec![container_tag],
+            metadata: None,
             messages,
         }
+    }
+
+    /// Attach provenance metadata to the ingest request.
+    #[must_use]
+    pub fn with_metadata(mut self, metadata: serde_json::Value) -> Self {
+        self.metadata = Some(metadata);
+        self
     }
 }
 
