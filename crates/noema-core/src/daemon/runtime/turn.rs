@@ -33,7 +33,7 @@ use super::{
 use crate::daemon::{
     agent_name_tool::is_update_own_name_tool,
     agent_onboarding::AgentPromptIdentity,
-    memory::context::ConversationMemoryContext,
+    memory::{HUMAN_MEMORY_SCOPE_ID, context::ConversationMemoryContext, conversation_scope_id},
     prompts::{
         PromptToolExposure, build_initial_name_onboarding_system_prompt,
         build_local_tool_result_continuation_system_prompt, build_model_available_tools_prompt,
@@ -1377,7 +1377,7 @@ impl CodexRuntimeActor {
             return;
         }
         let job_id = format!("memory_ingest_job:{turn_id}");
-        let supermemory_conversation_id = format!("conversation:{conversation_id}");
+        let supermemory_conversation_id = conversation_scope_id(conversation_id);
         let job = match self
             .store
             .insert_memory_ingest_job(NewMemoryIngestJob {
@@ -1428,11 +1428,11 @@ impl CodexRuntimeActor {
                 .await;
             return;
         }
-        let request = crate::SupermemoryConversationIngestRequest::new(
-            conversation_id.to_string(),
-            supermemory_conversation_id,
+        let request = crate::SupermemoryConversationIngestRequest {
+            conversation_id: conversation_id.to_string(),
+            container_tags: vec![HUMAN_MEMORY_SCOPE_ID.to_string()],
             messages,
-        );
+        };
         tokio::spawn(async move {
             match client.ingest_conversation(request).await {
                 Ok(()) => {

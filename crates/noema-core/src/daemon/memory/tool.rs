@@ -1,6 +1,8 @@
 use crate::{
     NoemaStore,
-    daemon::memory::context::project_scope_from_cwd,
+    daemon::memory::{
+        HUMAN_MEMORY_SCOPE_ID, context::project_scope_from_cwd, conversation_scope_id,
+    },
     provider::{NoemaToolExecution, NoemaToolSpec, ToolContractError},
     store::StoreError,
 };
@@ -232,8 +234,8 @@ impl SearchMemoryArguments {
 
 fn trusted_active_scope_ids(context: &MemoryToolRuntimeContext) -> Vec<String> {
     let mut ids = vec![
-        "human:local".to_string(),
-        format!("conversation:{}", context.conversation_id),
+        HUMAN_MEMORY_SCOPE_ID.to_string(),
+        conversation_scope_id(&context.conversation_id),
     ];
     if let Some(project_scope) = project_scope_from_cwd(context.cwd.as_deref()) {
         ids.push(project_scope);
@@ -505,6 +507,23 @@ mod tests {
             cwd: None,
             user_input: "What do you know about my private plan?".to_string(),
         };
+        assert_eq!(
+            trusted_active_scope_ids(&context),
+            vec!["conversation:conv_123", "human:local"]
+        );
+    }
+
+    #[test]
+    fn trusted_scope_ids_preserve_canonical_conversation_ids() {
+        let context = MemoryToolRuntimeContext {
+            conversation_id: "conversation:conv_123".to_string(),
+            turn_id: "turn_456".to_string(),
+            turn_index: 7,
+            call_site_id: "output_0".to_string(),
+            cwd: None,
+            user_input: "What do you remember from this chat?".to_string(),
+        };
+
         assert_eq!(
             trusted_active_scope_ids(&context),
             vec!["conversation:conv_123", "human:local"]

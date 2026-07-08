@@ -2206,7 +2206,7 @@ async fn completed_turn_submits_supermemory_ingest_job() {
     let bodies = server.request_bodies().await;
     assert!(bodies.iter().any(|body| {
         body["conversationId"] == conversation_id
-            && body["containerTags"] == json!([format!("conversation:{conversation_id}")])
+            && body["containerTags"] == json!(["human:local"])
             && body["messages"].as_array().is_some_and(|messages| {
                 messages.iter().any(|message| {
                     message["role"] == "user" && message["content"] == "remember this turn"
