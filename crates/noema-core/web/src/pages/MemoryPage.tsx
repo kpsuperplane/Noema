@@ -162,8 +162,9 @@ function toGraphMemory(entry: GraphqlMemoryGraphEntry): GraphApiMemory {
     forgetAfter: null,
     forgetReason: null,
     version: 1,
-    parentMemoryId: null,
-    rootMemoryId: null,
+    parentMemoryId: entry.parentMemoryId ?? null,
+    rootMemoryId: entry.rootMemoryId ?? null,
+    memoryRelations: memoryRelationsFromValue(entry.memoryRelations),
     createdAt: entry.createdAt,
     updatedAt: entry.updatedAt,
     relation: relationFromValue(entry.relation),
@@ -171,7 +172,23 @@ function toGraphMemory(entry: GraphqlMemoryGraphEntry): GraphApiMemory {
   };
 }
 
-function relationFromValue(value: string | null | undefined): MemoryRelation | null {
+function memoryRelationsFromValue(value: unknown): Record<string, MemoryRelation> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const relations: Record<string, MemoryRelation> = {};
+  for (const [memoryId, relation] of Object.entries(value)) {
+    const normalized = relationFromValue(relation);
+    if (normalized) {
+      relations[memoryId] = normalized;
+    }
+  }
+
+  return Object.keys(relations).length > 0 ? relations : null;
+}
+
+function relationFromValue(value: unknown): MemoryRelation | null {
   if (value === "updates" || value === "extends" || value === "derives") {
     return value;
   }

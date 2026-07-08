@@ -933,6 +933,22 @@ mod tests {
                         "relation": "extends",
                         "isLatest": true,
                         "spaceId": "human:local"
+                    }, {
+                        "id": "mem_2",
+                        "content": "Kevin likes tools that keep data local",
+                        "summary": "Local data preference",
+                        "title": "Local data",
+                        "type": "fact",
+                        "metadata": {"confidence": 0.8},
+                        "createdAt": "2026-07-08T00:00:40.000Z",
+                        "updatedAt": "2026-07-08T00:01:10.000Z",
+                        "spaceContainerTag": "human:local",
+                        "parentMemoryId": "mem_1",
+                        "rootMemoryId": "mem_1",
+                        "memoryRelations": {"mem_1": "extends"},
+                        "relation": "extends",
+                        "isLatest": true,
+                        "spaceId": "human:local"
                     }]
                 }],
                 "pagination": {"page": 1, "limit": 25, "hasMore": true, "total": 42}
@@ -1104,6 +1120,9 @@ mod tests {
                         documentId
                         content
                         spaceContainerTag
+                        parentMemoryId
+                        rootMemoryId
+                        memoryRelations
                       }
                     }
                     pageInfo {
@@ -1134,6 +1153,18 @@ mod tests {
         assert_eq!(
             data["memoryGraph"]["documents"][0]["memoryEntries"][0]["spaceContainerTag"],
             "human:local"
+        );
+        assert_eq!(
+            data["memoryGraph"]["documents"][0]["memoryEntries"][1]["parentMemoryId"],
+            "mem_1"
+        );
+        assert_eq!(
+            data["memoryGraph"]["documents"][0]["memoryEntries"][1]["rootMemoryId"],
+            "mem_1"
+        );
+        assert_eq!(
+            data["memoryGraph"]["documents"][0]["memoryEntries"][1]["memoryRelations"],
+            json!({"mem_1": "extends"})
         );
         assert_eq!(data["memoryGraph"]["pageInfo"]["hasMore"], true);
         assert_eq!(data["memoryGraph"]["pageInfo"]["total"], 42);

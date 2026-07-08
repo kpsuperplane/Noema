@@ -290,6 +290,15 @@ pub struct SupermemoryGraphMemoryEntry {
     /// Relationship to another memory.
     #[serde(default)]
     pub relation: Option<String>,
+    /// Parent memory id when Supermemory links memories into its graph.
+    #[serde(default)]
+    pub parent_memory_id: Option<String>,
+    /// Root memory id for the memory graph branch.
+    #[serde(default)]
+    pub root_memory_id: Option<String>,
+    /// Supermemory graph relation map keyed by target memory id.
+    #[serde(default)]
+    pub memory_relations: Option<serde_json::Value>,
     /// Whether this is the latest memory.
     #[serde(default)]
     pub is_latest: Option<bool>,

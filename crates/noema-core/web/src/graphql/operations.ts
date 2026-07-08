@@ -371,6 +371,9 @@ export const MemoryGraphDocument = gql`
           updatedAt
           spaceContainerTag
           relation
+          parentMemoryId
+          rootMemoryId
+          memoryRelations
           isLatest
           spaceId
         }

@@ -174,7 +174,10 @@ async fn supermemory_graph_documents_decodes_memory_graph_package_shape() {
                     "memory": "Kevin prefers local-first tools",
                     "createdAt": "2026-07-08T00:00:30.000Z",
                     "updatedAt": "2026-07-08T00:01:00.000Z",
-                    "spaceContainerTag": "human:local"
+                    "spaceContainerTag": "human:local",
+                    "parentMemoryId": "mem_root",
+                    "rootMemoryId": "mem_root",
+                    "memoryRelations": {"mem_root": "extends"}
                 }]
             }],
             "pagination": {"currentPage": 2, "limit": 25, "totalItems": 42}
@@ -196,6 +199,22 @@ async fn supermemory_graph_documents_decodes_memory_graph_package_shape() {
     assert_eq!(
         response.documents[0].memory_entries[0].content.as_deref(),
         Some("Kevin prefers local-first tools")
+    );
+    assert_eq!(
+        response.documents[0].memory_entries[0]
+            .parent_memory_id
+            .as_deref(),
+        Some("mem_root")
+    );
+    assert_eq!(
+        response.documents[0].memory_entries[0]
+            .root_memory_id
+            .as_deref(),
+        Some("mem_root")
+    );
+    assert_eq!(
+        response.documents[0].memory_entries[0].memory_relations,
+        Some(serde_json::json!({"mem_root": "extends"}))
     );
     assert_eq!(response.pagination.page, Some(2));
     assert_eq!(response.pagination.total, Some(42));

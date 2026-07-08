@@ -190,6 +190,12 @@ pub struct GraphqlMemoryGraphMemoryEntry {
     pub space_container_tag: Option<String>,
     /// Relationship to another memory.
     pub relation: Option<String>,
+    /// Parent memory id when Supermemory links memories into its graph.
+    pub parent_memory_id: Option<String>,
+    /// Root memory id for the memory graph branch.
+    pub root_memory_id: Option<String>,
+    /// Supermemory graph relation map keyed by target memory id.
+    pub memory_relations: Option<Json<serde_json::Value>>,
     /// Whether this is the latest memory.
     pub is_latest: Option<bool>,
     /// Supermemory space id.
@@ -464,6 +470,9 @@ impl GraphqlMemoryGraphMemoryEntry {
             updated_at: entry.updated_at,
             space_container_tag: entry.space_container_tag,
             relation: entry.relation,
+            parent_memory_id: entry.parent_memory_id,
+            root_memory_id: entry.root_memory_id,
+            memory_relations: entry.memory_relations.map(Json),
             is_latest: entry.is_latest,
             space_id: entry.space_id,
         }
