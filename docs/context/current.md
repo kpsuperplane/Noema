@@ -100,6 +100,12 @@ The next storage slice should stay small and concrete:
   `responses[]` may be empty only for `response_status: "needs_tools"` with
   one or more tool calls, so models can run routine single or multiple tools
   without filler commentary.
+- Multiple-choice agent responses are first-class transcript primitives,
+  separate from A2UI cards. Providers can emit `multiple_choice` final response
+  items with `pick_one` or `pick_many` modes, Noema persists assistant
+  `multiple_choice_prompt` items and human `multiple_choice_selection` items,
+  and the web transcript submits typed selections through GraphQL instead of
+  converting option picks into plain user text.
 - The primary agent's ordinary chat voice should default to informal
   human-texting brevity, including lowercase short replies when context allows.
   In casual mode, lowercase sentence starts should stay consistent across
