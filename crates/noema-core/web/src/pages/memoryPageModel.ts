@@ -7,6 +7,7 @@ type MemoryGraphEntry = MemoryGraphDocument["memoryEntries"][number];
 export type MemoryArticleEntry = {
   id: string;
   text: string;
+  displayText: string;
   createdAt: string | null;
   updatedAt: string | null;
   sourceTitle: string;
@@ -29,6 +30,7 @@ export type MemoryFigureCluster = {
 export type MemoryArticleModel = {
   title: string;
   subtitle: string;
+  subjectName: string | null;
   totalMemories: number;
   totalLabel: string;
   lastUpdatedLabel: string;
@@ -47,26 +49,28 @@ export type MemoryArticleModel = {
   references: string[];
 };
 
-const FALLBACK_TITLE = "Human memory";
-const FALLBACK_SUBTITLE = "From Noema, the local personal memory record";
+const FALLBACK_TITLE = "Local human";
+const FALLBACK_SUBTITLE = "A biographical article from local memory";
 
 export function buildMemoryArticleModel(graph: MemoryGraph | undefined): MemoryArticleModel {
   const entries = flattenEntries(graph?.documents ?? []);
   const totalMemories = graph?.pageInfo.total ?? entries.length;
   const lastUpdatedLabel = formatLatestUpdated(entries);
   const sourceObservations = uniqueSourceObservations(entries);
-  const primaryPattern = entries.length > 0 ? "Remembered facts" : "No stable facts yet";
+  const subjectName = inferSubjectName(entries);
+  const primaryPattern = entries.length > 0 ? "Brief biography" : "No stable facts yet";
   const recurringMotif = entries.length > 0 ? inferRecurringMotif(entries) : "None yet";
 
   return {
-    title: FALLBACK_TITLE,
+    title: subjectName ?? FALLBACK_TITLE,
     subtitle: FALLBACK_SUBTITLE,
+    subjectName,
     totalMemories,
-    totalLabel: formatCount(totalMemories, "memory", "memories"),
+    totalLabel: formatCount(totalMemories, "fact", "facts"),
     lastUpdatedLabel,
     primaryPattern,
     recurringMotif,
-    leadText: buildLeadText(entries.length),
+    leadText: buildLeadText(entries.length, subjectName),
     isStub: entries.length < 3,
     stubText: buildStubText(entries.length),
     figureTitle: buildFigureTitle(entries.length),
@@ -99,6 +103,7 @@ function memoryEntryFromGraph(
   return {
     id: entry.id,
     text: text.trim(),
+    displayText: biographicalTextFromFact(text.trim()),
     createdAt: entry.createdAt || null,
     updatedAt: entry.updatedAt || null,
     sourceTitle: document.title ?? "Memory source",
@@ -107,18 +112,21 @@ function memoryEntryFromGraph(
   };
 }
 
-function buildLeadText(entryCount: number): string {
+function buildLeadText(entryCount: number, subjectName: string | null): string {
   if (entryCount === 0) {
-    return "Noema has not formed durable facts about the human yet. User-authored observations will appear here only after Mnemosyne extracts facts from them.";
+    return "No biographical facts have been recorded yet.";
   }
-  return "This article summarizes the durable facts Noema currently knows about the human. Each fact is linked back to the user-authored observation that produced it, keeping memory visible instead of hidden in model state.";
+  if (subjectName) {
+    return `${subjectName} is identified as the local human in the current memory record.`;
+  }
+  return "The local human is described by the biographical facts currently available in memory.";
 }
 
 function buildStubText(entryCount: number): string {
   if (entryCount === 0) {
-    return "This memory article is a stub. Noema can expand it once Mnemosyne extracts its first durable facts.";
+    return "This biographical article is a stub. It will expand once the first durable facts are recorded.";
   }
-  return "This memory article is a stub. Noema can expand it as Mnemosyne extracts more durable facts from future conversations.";
+  return "This biographical article is a stub. Additional durable facts may expand it over time.";
 }
 
 function buildFigureTitle(entryCount: number): string {
@@ -132,7 +140,7 @@ function buildFigureCopy(entryCount: number): string {
   if (entryCount === 0) {
     return "Once memories exist, this figure summarizes loaded themes, recency, and retrieval visibility.";
   }
-  return `${formatCount(entryCount, "remembered fact", "remembered facts")} are available for inspection. More specific themes will appear as Noema receives richer fact metadata.`;
+  return `${formatCount(entryCount, "biographical fact", "biographical facts")} are available for inspection. More specific themes will appear as richer metadata is recorded.`;
 }
 
 function buildClusters(entries: MemoryArticleEntry[]): MemoryFigureCluster[] {
@@ -164,8 +172,8 @@ function buildClusters(entries: MemoryArticleEntry[]): MemoryFigureCluster[] {
 function buildSections(entries: MemoryArticleEntry[]): MemoryArticleSection[] {
   return [
     {
-      id: "remembered-facts",
-      title: "Remembered facts",
+      id: "biography",
+      title: "Biography",
       entries
     }
   ];
@@ -182,7 +190,7 @@ function buildReferences(
     return sourceObservations.map((entry, index) => {
       const timestamp = entry.updatedAt ?? entry.createdAt;
       const timestampLabel = timestamp ? `, ${formatDateTime(timestamp)}` : "";
-      return `${index + 1}. ${entry.sourceTitle}${timestampLabel}.`;
+      return `${index + 1}. Source observation${timestampLabel}.`;
     });
   }
   const sourceTitles = [...new Set(entries.map((entry) => entry.sourceTitle))];
@@ -211,8 +219,26 @@ function sourceObservationFromMetadata(metadata: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
+function inferSubjectName(entries: MemoryArticleEntry[]): string | null {
+  for (const entry of entries) {
+    const match = /^I(?:'m| am)\s+([A-Z][A-Za-z0-9_-]{1,40})!?\.?$/u.exec(entry.text.trim());
+    if (match?.[1]) {
+      return match[1];
+    }
+  }
+  return null;
+}
+
+function biographicalTextFromFact(text: string): string {
+  const selfIntroduction = /^I(?:'m| am)\s+([A-Z][A-Za-z0-9_-]{1,40})!?\.?$/u.exec(text);
+  if (selfIntroduction?.[1]) {
+    return `${selfIntroduction[1]} is the local human.`;
+  }
+  return text.replace(/^The user\b/u, "The human");
+}
+
 function inferRecurringMotif(entries: MemoryArticleEntry[]): string {
-  const first = entries[0]?.text.trim();
+  const first = entries[0]?.displayText.trim();
   if (!first) {
     return "None yet";
   }

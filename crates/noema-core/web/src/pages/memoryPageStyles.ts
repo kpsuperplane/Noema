@@ -445,11 +445,6 @@ export const styles = stylex.create({
     lineHeight: 1.25,
     overflow: "hidden"
   },
-  editLink: {
-    color: "#36c",
-    fontFamily: wikiSans,
-    fontSize: 13
-  },
   entryList: {
     display: "grid",
     gap: 0,
@@ -465,80 +460,6 @@ export const styles = stylex.create({
     fontFamily: wikiSerif,
     fontSize: 15,
     lineHeight: 1.62
-  },
-  entryMeta: {
-    display: "flex",
-    flexWrap: "wrap",
-    gap: 6,
-    marginTop: 4,
-    color: "#54595d",
-    fontFamily: wikiSans,
-    fontSize: 12,
-    lineHeight: 1.4
-  },
-  sourceList: {
-    margin: 0,
-    paddingLeft: 22,
-    color: "#202122",
-    fontFamily: wikiSerif,
-    fontSize: 15,
-    lineHeight: 1.62
-  },
-  sourceItem: {
-    paddingBlock: 8
-  },
-  sourceQuote: {
-    margin: 0,
-    borderLeftWidth: 3,
-    borderLeftStyle: "solid",
-    borderLeftColor: "#c8ccd1",
-    paddingLeft: 10,
-    color: "#202122"
-  },
-  recallWidget: {
-    clear: "both",
-    marginTop: 10,
-    borderWidth: 1,
-    borderStyle: "solid",
-    borderColor: "#a2a9b1",
-    backgroundColor: "#f8f9fa",
-    padding: 12,
-    fontFamily: wikiSans
-  },
-  recallRow: {
-    display: "flex",
-    gap: 8,
-    "@media (max-width: 560px)": {
-      display: "grid"
-    }
-  },
-  recallInput: {
-    flex: 1,
-    minWidth: 0,
-    borderWidth: 1,
-    borderStyle: "solid",
-    borderColor: "#a2a9b1",
-    backgroundColor: "white",
-    padding: 9,
-    color: "#54595d",
-    fontSize: 13
-  },
-  button: {
-    borderWidth: 1,
-    borderStyle: "solid",
-    borderColor: "#72777d",
-    borderRadius: 2,
-    backgroundColor: "#f8f9fa",
-    padding: "8px 12px",
-    color: "#202122",
-    fontSize: 13,
-    fontWeight: 600
-  },
-  recallResult: {
-    margin: "10px 0 0",
-    color: "#202122",
-    fontSize: 13,
-    lineHeight: 1.45
   },
   references: {
     color: "#202122",

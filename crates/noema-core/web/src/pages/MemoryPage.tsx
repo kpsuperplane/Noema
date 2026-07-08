@@ -9,7 +9,6 @@ import {
 import {
   buildMemoryArticleModel,
   formatCount,
-  formatDateTime,
   type MemoryArticleEntry,
   type MemoryArticleModel
 } from "@/pages/memoryPageModel";
@@ -112,13 +111,8 @@ export function MemoryPage() {
               <div {...stylex.props(styles.contentsTitle)}>Contents</div>
               <ol {...stylex.props(styles.contentsList)}>
                 <li>
-                  <a {...stylex.props(styles.link)} href="#remembered-facts">
-                    Remembered facts
-                  </a>
-                </li>
-                <li>
-                  <a {...stylex.props(styles.link)} href="#source-observations">
-                    Source observations
+                  <a {...stylex.props(styles.link)} href="#biography">
+                    Biography
                   </a>
                 </li>
                 <li>
@@ -128,12 +122,6 @@ export function MemoryPage() {
                 </li>
               </ol>
             </nav>
-
-            <p {...stylex.props(styles.bodyText)}>
-              The figure above summarizes the currently loaded memory record.
-              The sections below list extracted facts first, then the source
-              observations Mnemosyne used to form them.
-            </p>
 
             {article.sections.map((section) => (
               <section key={section.id} id={section.id} {...stylex.props(styles.articleSection)}>
@@ -151,37 +139,6 @@ export function MemoryPage() {
                 )}
               </section>
             ))}
-
-            <section id="source-observations" {...stylex.props(styles.articleSection)}>
-              <h2 {...stylex.props(styles.sectionTitle)}>Source observations</h2>
-              {article.sourceObservations.length > 0 ? (
-                <ol {...stylex.props(styles.sourceList)}>
-                  {article.sourceObservations.map((entry) => (
-                    <li key={`source:${entry.id}`} {...stylex.props(styles.sourceItem)}>
-                      <blockquote {...stylex.props(styles.sourceQuote)}>
-                        {entry.sourceObservation}
-                      </blockquote>
-                      <div {...stylex.props(styles.entryMeta)}>
-                        <span>{entry.sourceTitle}</span>
-                        {entry.updatedAt ?? entry.createdAt ? (
-                          <>
-                            <span aria-hidden="true">·</span>
-                            <time dateTime={(entry.updatedAt ?? entry.createdAt) as string}>
-                              {formatDateTime((entry.updatedAt ?? entry.createdAt) as string)}
-                            </time>
-                          </>
-                        ) : null}
-                      </div>
-                    </li>
-                  ))}
-                </ol>
-              ) : (
-                <p {...stylex.props(styles.bodyText)}>
-                  Mnemosyne has not returned source observations for the loaded
-                  facts yet.
-                </p>
-              )}
-            </section>
 
             <section id="references" {...stylex.props(styles.articleSection)}>
               <h2 {...stylex.props(styles.sectionTitle)}>References</h2>
@@ -286,19 +243,20 @@ function MemoryInfobox({ article }: { article: MemoryArticleModel }) {
               <div {...stylex.props(styles.discLabel)}>Topic distribution</div>
             </td>
           </tr>
-          <InfoRow label="Primary pattern" value={article.primaryPattern} />
-          <InfoRow label="Known memories" value={article.totalLabel} />
-          <InfoRow label="Stable roots" value="Metadata pending" />
-          <InfoRow label="Fresh shoots" value="Metadata pending" />
-          <InfoRow label="Recurring motif" value={article.recurringMotif} />
+          <InfoRow label="Name" value={article.subjectName ?? "Unknown"} />
+          <InfoRow label="Article type" value={article.primaryPattern} />
+          <InfoRow label="Known facts" value={article.totalLabel} />
+          <InfoRow label="Lead fact" value={article.recurringMotif} />
           <InfoRow label="Last updated" value={article.lastUpdatedLabel} />
         </tbody>
       </table>
       <div {...stylex.props(styles.sidebox)}>
-        <strong>Sources</strong>
+        <strong>Citations</strong>
         <div {...stylex.props(styles.actionLinks)}>
-          <span>{formatCount(article.sourceObservations.length, "source observation", "source observations")}</span>
-          <span>Mnemosyne fact annotations</span>
+          <span>
+            {formatCount(article.sourceObservations.length, "source observation", "source observations")}
+          </span>
+          <span>Local memory record</span>
         </div>
       </div>
     </aside>
@@ -315,19 +273,9 @@ function InfoRow({ label, value }: { label: string; value: string }) {
 }
 
 function MemoryEntryItem({ entry }: { entry: MemoryArticleEntry }) {
-  const timestamp = entry.updatedAt ?? entry.createdAt;
   return (
     <li {...stylex.props(styles.entryItem)}>
-      <p {...stylex.props(styles.entryText)}>{entry.text}</p>
-      <div {...stylex.props(styles.entryMeta)}>
-        <span>{entry.sourceTitle}</span>
-        {timestamp ? (
-          <>
-            <span aria-hidden="true">·</span>
-            <time dateTime={timestamp}>{formatDateTime(timestamp)}</time>
-          </>
-        ) : null}
-      </div>
+      <p {...stylex.props(styles.entryText)}>{entry.displayText}</p>
     </li>
   );
 }
