@@ -453,23 +453,26 @@ fn mnemosyne_memories_to_graph_documents(
                 .to_string();
             let memory_entries = memories
                 .into_iter()
-                .map(|memory| GraphqlMemoryGraphMemoryEntry {
-                    id: memory.id,
-                    document_id: document_id.clone(),
-                    content: memory.memory,
-                    summary: None,
-                    title: None,
-                    r#type: Some("memory".to_string()),
-                    metadata: None,
-                    created_at: memory.created_at.unwrap_or_default(),
-                    updated_at: memory.updated_at.unwrap_or_default(),
-                    space_container_tag: Some(HUMAN_MEMORY_SCOPE_ID.to_string()),
-                    relation: None,
-                    parent_memory_id: None,
-                    root_memory_id: None,
-                    memory_relations: None,
-                    is_latest: None,
-                    space_id: None,
+                .map(|memory| {
+                    let metadata = memory.metadata.map(Json);
+                    GraphqlMemoryGraphMemoryEntry {
+                        id: memory.id,
+                        document_id: document_id.clone(),
+                        content: memory.memory,
+                        summary: None,
+                        title: None,
+                        r#type: Some("memory".to_string()),
+                        metadata,
+                        created_at: memory.created_at.unwrap_or_default(),
+                        updated_at: memory.updated_at.unwrap_or_default(),
+                        space_container_tag: Some(HUMAN_MEMORY_SCOPE_ID.to_string()),
+                        relation: None,
+                        parent_memory_id: None,
+                        root_memory_id: None,
+                        memory_relations: None,
+                        is_latest: None,
+                        space_id: None,
+                    }
                 })
                 .collect();
 

@@ -899,7 +899,10 @@ mod tests {
                     {
                         "id": "mem_2",
                         "memory": "Kevin likes tools that keep data local",
-                        "metadata": {"noemaConversationId": "abc"},
+                        "metadata": {
+                            "noemaConversationId": "abc",
+                            "sourceObservation": "I prefer local-first tools."
+                        },
                         "created_at": "2026-07-08T00:00:40.000Z",
                         "updated_at": "2026-07-08T00:01:10.000Z"
                     }
@@ -1062,6 +1065,7 @@ mod tests {
                         id
                         documentId
                         content
+                        metadata
                         spaceContainerTag
                         parentMemoryId
                         rootMemoryId
@@ -1099,6 +1103,10 @@ mod tests {
         assert_eq!(
             data["memoryGraph"]["documents"][0]["memoryEntries"][0]["spaceContainerTag"],
             "human:local"
+        );
+        assert_eq!(
+            data["memoryGraph"]["documents"][0]["memoryEntries"][0]["metadata"]["sourceObservation"],
+            "I prefer local-first tools."
         );
         assert_eq!(
             data["memoryGraph"]["documents"][1]["id"],

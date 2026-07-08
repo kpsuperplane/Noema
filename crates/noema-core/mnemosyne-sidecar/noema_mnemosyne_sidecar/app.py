@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import json
 from typing import Any, Callable, Literal, Optional
 
@@ -123,12 +124,14 @@ def _search_memories(app: FastAPI, request: SearchMemoryRequest) -> list[dict[st
 
 def _list_memories(app: FastAPI, user_id: str, limit: int) -> list[dict[str, Any]]:
     memory = _memory(app, user_id=user_id, run_id=None, agent_id=None)
-    rows = memory.get_all_memories()
+    source_rows = _memory_source_rows_by_id(memory)
+    fact_rows = _mnemosyne_fact_rows(memory)
     filtered = [
-        _memory_result_from_mnemosyne(row)
-        for row in rows
-        if _metadata_from_row(row).get("user_id", user_id) == user_id
+        _memory_result_from_mnemosyne_fact(row, source_rows.get(str(row.get("memory_id", ""))))
+        for row in fact_rows
+        if _source_row_matches_user(source_rows.get(str(row.get("memory_id", ""))), user_id)
     ]
+    filtered = [row for row in filtered if row is not None]
     filtered.sort(key=lambda row: row.get("updated_at") or "", reverse=True)
     return filtered[:limit]
 
@@ -145,6 +148,113 @@ def _memory_result_from_mnemosyne(row: dict[str, Any]) -> dict[str, Any]:
     if row.get("score") is not None:
         result["score"] = row["score"]
     return result
+
+
+def _memory_result_from_mnemosyne_fact(
+    row: dict[str, Any],
+    source_row: Optional[dict[str, Any]],
+) -> Optional[dict[str, Any]]:
+    fact_text = _displayable_fact_text(row.get("value"))
+    if fact_text is None:
+        return None
+
+    memory_id = str(row.get("memory_id") or "")
+    created_at = _timestamp_to_iso8601(row.get("created_at")) or _timestamp_to_iso8601(
+        (source_row or {}).get("timestamp") or (source_row or {}).get("created_at")
+    )
+    metadata = dict(_metadata_from_row(source_row or {}))
+    metadata.update(
+        {
+            "memoryKind": "fact",
+            "mnemosyneMemoryId": memory_id,
+        }
+    )
+    source_content = (source_row or {}).get("content")
+    if isinstance(source_content, str) and source_content.strip():
+        metadata["sourceObservation"] = source_content.strip()
+
+    fact_id = row.get("id") or row.get("fact_id") or memory_id or fact_text
+    result = {
+        "id": f"fact:{fact_id}",
+        "memory": fact_text,
+        "metadata": metadata,
+        "created_at": created_at,
+        "updated_at": created_at,
+    }
+    if row.get("confidence") is not None:
+        result["score"] = row["confidence"]
+    return result
+
+
+def _mnemosyne_fact_rows(memory: Any) -> list[dict[str, Any]]:
+    annotations = getattr(getattr(memory, "beam", None), "annotations", None)
+    if annotations is None:
+        return []
+    rows = annotations.query_by_kind("fact", filter_noise=False)
+    return [dict(row) for row in rows]
+
+
+def _memory_source_rows_by_id(memory: Any) -> dict[str, dict[str, Any]]:
+    rows = memory.get_all_memories()
+    return {str(row.get("id")): dict(row) for row in rows if row.get("id")}
+
+
+def _source_row_matches_user(source_row: Optional[dict[str, Any]], user_id: str) -> bool:
+    if source_row is None:
+        return True
+    return _metadata_from_row(source_row).get("user_id", user_id) == user_id
+
+
+def _displayable_fact_text(value: Any) -> Optional[str]:
+    text = _fact_value_to_text(value).strip()
+    if not text:
+        return None
+    if text.lower() in {"facts", "instructions", "preferences", "timelines"}:
+        return None
+    return text
+
+
+def _fact_value_to_text(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, dict):
+        return _fact_dict_to_text(value)
+    if not isinstance(value, str):
+        return str(value)
+
+    stripped = value.strip()
+    if stripped.startswith("{") and stripped.endswith("}"):
+        try:
+            parsed = ast.literal_eval(stripped)
+        except (SyntaxError, ValueError):
+            parsed = None
+        if isinstance(parsed, dict):
+            return _fact_dict_to_text(parsed)
+    return stripped
+
+
+def _fact_dict_to_text(value: dict[str, Any]) -> str:
+    text = value.get("text")
+    if isinstance(text, str) and text.strip():
+        return text.strip()
+
+    subject = _string_value(value.get("subject"))
+    predicate = _string_value(value.get("predicate"))
+    obj = _string_value(value.get("object"))
+    return " ".join(part for part in (subject, predicate, obj) if part).strip()
+
+
+def _string_value(value: Any) -> str:
+    return value.strip() if isinstance(value, str) else ""
+
+
+def _timestamp_to_iso8601(value: Any) -> Optional[str]:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    timestamp = value.strip()
+    if "T" in timestamp:
+        return timestamp
+    return timestamp.replace(" ", "T", 1)
 
 
 def _metadata_from_row(row: dict[str, Any]) -> dict[str, Any]:

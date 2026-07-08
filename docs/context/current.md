@@ -58,13 +58,13 @@ The next storage slice should stay small and concrete:
   back to the daemon default only when no Memory model preference is saved.
 - The top-level `/memory` page presents Mnemosyne-backed human memories as a
   Wikipedia-like personal memory article: a muted lead figure summarizes loaded
-  memory themes, the article body lists inspectable entries with provenance
-  references, and inactive source/history/action affordances are reserved for
-  future editing, pruning, export, and full source drill-downs. The web UI
-  queries Noema Core GraphQL only; Noema Core resolves the configured Mnemosyne
-  endpoint, fetches memories for `human:local`, and adapts them into grouped
-  memory documents for the frontend. The browser never connects directly to
-  Mnemosyne.
+  memory themes, the article body lists extracted fact annotations, and source
+  observations are shown as provenance rather than as memories. Stubbed action,
+  history, and recall controls should stay hidden until real backend operations
+  exist. The web UI queries Noema Core GraphQL only; Noema Core resolves the
+  configured Mnemosyne endpoint, fetches memories for `human:local`, and adapts
+  them into grouped memory documents for the frontend. The browser never
+  connects directly to Mnemosyne.
 - Docker/Compose development infrastructure has been retired; local development
   uses host Rust, Bun, and web/desktop product surfaces. The old standalone
   Noema binary and local dev alias have been removed.

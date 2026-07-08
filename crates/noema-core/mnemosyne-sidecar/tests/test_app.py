@@ -7,6 +7,7 @@ class FakeMnemosyne:
     def __init__(self):
         self.remember_calls = []
         self.recall_calls = []
+        self.beam = FakeBeam()
 
     def remember(
         self,
@@ -52,10 +53,41 @@ class FakeMnemosyne:
         return [
             {
                 "id": "mem_1",
-                "content": "The user loves planes.",
-                "metadata_json": '{"noemaConversationId":"conv:1"}',
+                "content": "I love planes.",
+                "metadata_json": '{"user_id":"human:local","noemaConversationId":"conv:1","userItemId":"item:1"}',
                 "timestamp": "2026-07-08T00:00:00",
             }
+        ]
+
+
+class FakeBeam:
+    def __init__(self):
+        self.annotations = FakeAnnotations()
+
+
+class FakeAnnotations:
+    def query_by_kind(self, kind, filter_noise=True):
+        assert kind == "fact"
+        assert filter_noise is False
+        return [
+            {
+                "id": 7,
+                "memory_id": "mem_1",
+                "kind": "fact",
+                "value": "The user loves planes.",
+                "source": "conversation",
+                "confidence": 0.7,
+                "created_at": "2026-07-08 00:00:01",
+            },
+            {
+                "id": 8,
+                "memory_id": "mem_1",
+                "kind": "fact",
+                "value": "preferences",
+                "source": "conversation",
+                "confidence": 0.7,
+                "created_at": "2026-07-08 00:00:02",
+            },
         ]
 
 
@@ -133,7 +165,7 @@ def test_search_uses_recall_with_author_and_channel_filters():
     ]
 
 
-def test_list_memories_maps_mnemosyne_rows_to_noema_contract():
+def test_list_memories_maps_extracted_facts_to_noema_contract():
     client = TestClient(create_app(memory_factory=lambda **_: FakeMnemosyne()))
 
     response = client.get("/v1/memories", params={"user_id": "human:local", "limit": 7})
@@ -142,11 +174,19 @@ def test_list_memories_maps_mnemosyne_rows_to_noema_contract():
     assert response.json() == {
         "results": [
             {
-                "id": "mem_1",
+                "id": "fact:7",
                 "memory": "The user loves planes.",
-                "metadata": {"noemaConversationId": "conv:1"},
-                "created_at": "2026-07-08T00:00:00",
-                "updated_at": "2026-07-08T00:00:00",
+                "metadata": {
+                    "user_id": "human:local",
+                    "noemaConversationId": "conv:1",
+                    "userItemId": "item:1",
+                    "memoryKind": "fact",
+                    "mnemosyneMemoryId": "mem_1",
+                    "sourceObservation": "I love planes.",
+                },
+                "created_at": "2026-07-08T00:00:01",
+                "updated_at": "2026-07-08T00:00:01",
+                "score": 0.7,
             }
         ]
     }

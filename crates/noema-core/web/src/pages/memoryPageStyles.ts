@@ -8,22 +8,19 @@ export const styles = stylex.create({
     boxSizing: "border-box",
     height: "100%",
     minHeight: 0,
-    overflow: "auto",
-    padding: "24px 24px",
-    backgroundColor: "#f3f1eb",
-    "@media (max-width: 760px)": {
-      padding: 12
-    }
+    width: "100%",
+    display: "flex",
+    flexDirection: "column",
   },
   wikiShell: {
-    maxWidth: 1220,
-    margin: "0 auto",
+    borderStyle: "none",
     borderWidth: 1,
-    borderStyle: "solid",
+    borderTopStyle: "solid",
     borderColor: "#a2a9b1",
     backgroundColor: "white",
-    boxShadow: "0 12px 34px rgba(34, 28, 17, 0.08)",
-    overflow: "hidden"
+    display: "flex",
+    flexDirection: "column",
+    height: "100%",
   },
   tabs: {
     display: "flex",
@@ -34,7 +31,9 @@ export const styles = stylex.create({
     backgroundColor: "#f8f9fa",
     fontFamily: wikiSans,
     fontSize: 13,
-    overflowX: "auto"
+    overflowX: "auto",
+    flexShrink: 0,
+    flexGrow: 0,
   },
   tab: {
     borderRightWidth: 1,
@@ -63,6 +62,8 @@ export const styles = stylex.create({
     whiteSpace: "nowrap"
   },
   page: {
+    maxWidth: 1220,
+    margin: "0 auto",
     display: "block",
     padding: "22px 26px 34px",
     color: "#202122",
@@ -75,6 +76,11 @@ export const styles = stylex.create({
     "@media (max-width: 760px)": {
       padding: "16px 14px 24px"
     }
+  },
+  pageShell: {
+    overflowY: "auto",
+    flex: 1,
+    display: "block",
   },
   figure: {
     margin: "0 0 18px",
@@ -440,6 +446,25 @@ export const styles = stylex.create({
     fontFamily: wikiSans,
     fontSize: 12,
     lineHeight: 1.4
+  },
+  sourceList: {
+    margin: 0,
+    paddingLeft: 22,
+    color: "#202122",
+    fontFamily: wikiSerif,
+    fontSize: 15,
+    lineHeight: 1.62
+  },
+  sourceItem: {
+    paddingBlock: 8
+  },
+  sourceQuote: {
+    margin: 0,
+    borderLeftWidth: 3,
+    borderLeftStyle: "solid",
+    borderLeftColor: "#c8ccd1",
+    paddingLeft: 10,
+    color: "#202122"
   },
   recallWidget: {
     clear: "both",

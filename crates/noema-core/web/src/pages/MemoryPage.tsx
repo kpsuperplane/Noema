@@ -8,6 +8,7 @@ import {
 } from "@/generated/graphql";
 import {
   buildMemoryArticleModel,
+  formatCount,
   formatDateTime,
   type MemoryArticleEntry,
   type MemoryArticleModel
@@ -74,129 +75,128 @@ export function MemoryPage() {
       <div {...stylex.props(styles.wikiShell)}>
         <nav {...stylex.props(styles.tabs)} aria-label="Memory article views">
           <span {...stylex.props(styles.tabActive)}>Article</span>
-          <span {...stylex.props(styles.tab)}>Sources</span>
-          <span {...stylex.props(styles.tab)}>History</span>
-          <span {...stylex.props(styles.tabEnd)}>Search memory</span>
         </nav>
+        <div {...stylex.props(styles.pageShell)}>
+          <article {...stylex.props(styles.page)}>
+            <MemoryFigure article={article} />
 
-        <article {...stylex.props(styles.page)}>
-          <MemoryFigure article={article} />
+            <h1 id="memory-surface-title" {...stylex.props(styles.articleTitle)}>
+              {article.title}
+            </h1>
+            <div {...stylex.props(styles.subtitle)}>{article.subtitle}</div>
 
-          <h1 id="memory-surface-title" {...stylex.props(styles.articleTitle)}>
-            {article.title}
-          </h1>
-          <div {...stylex.props(styles.subtitle)}>{article.subtitle}</div>
+            <MemoryInfobox article={article} />
 
-          <MemoryInfobox article={article} />
+            {serviceError ? (
+              <div role="status" {...stylex.props(styles.statusBlock, styles.errorBlock)}>
+                Error loading memory: {serviceError.message}
+              </div>
+            ) : null}
 
-          {serviceError ? (
-            <div role="status" {...stylex.props(styles.statusBlock, styles.errorBlock)}>
-              Error loading memory: {serviceError.message}
-            </div>
-          ) : null}
+            {loading && article.totalMemories === 0 ? (
+              <div role="status" {...stylex.props(styles.statusBlock)}>
+                Loading memory...
+              </div>
+            ) : null}
 
-          {loading && article.totalMemories === 0 ? (
-            <div role="status" {...stylex.props(styles.statusBlock)}>
-              Loading memory...
-            </div>
-          ) : null}
+            <p {...stylex.props(styles.lead)}>{article.leadText}</p>
 
-          <p {...stylex.props(styles.lead)}>{article.leadText}</p>
+            <nav {...stylex.props(styles.contents)} aria-label="Memory article contents">
+              <div {...stylex.props(styles.contentsTitle)}>Contents</div>
+              <ol {...stylex.props(styles.contentsList)}>
+                <li>
+                  <a {...stylex.props(styles.link)} href="#remembered-facts">
+                    Remembered facts
+                  </a>
+                </li>
+                <li>
+                  <a {...stylex.props(styles.link)} href="#source-observations">
+                    Source observations
+                  </a>
+                </li>
+                <li>
+                  <a {...stylex.props(styles.link)} href="#references">
+                    References
+                  </a>
+                </li>
+              </ol>
+            </nav>
 
-          <nav {...stylex.props(styles.contents)} aria-label="Memory article contents">
-            <div {...stylex.props(styles.contentsTitle)}>Contents</div>
-            <ol {...stylex.props(styles.contentsList)}>
-              <li>
-                <a {...stylex.props(styles.link)} href="#memory-entries">
-                  Memory entries
-                </a>
-              </li>
-              <li>
-                <a {...stylex.props(styles.link)} href="#recall-behavior">
-                  Recall behavior
-                </a>
-              </li>
-              <li>
-                <a {...stylex.props(styles.link)} href="#references">
-                  References
-                </a>
-              </li>
-            </ol>
-          </nav>
+            <p {...stylex.props(styles.bodyText)}>
+              The figure above summarizes the currently loaded memory record.
+              The sections below list extracted facts first, then the source
+              observations Mnemosyne used to form them.
+            </p>
 
-          <p {...stylex.props(styles.bodyText)}>
-            This article exposes the current memory record in a readable form.
-            The figure above is a summary, while the sections below remain the
-            inspection surface for individual memories and provenance.
-          </p>
+            {article.sections.map((section) => (
+              <section key={section.id} id={section.id} {...stylex.props(styles.articleSection)}>
+                <h2 {...stylex.props(styles.sectionTitle)}>{section.title}</h2>
+                {section.entries.length > 0 ? (
+                  <ul {...stylex.props(styles.entryList)}>
+                    {section.entries.map((entry) => (
+                      <MemoryEntryItem key={entry.id} entry={entry} />
+                    ))}
+                  </ul>
+                ) : (
+                  <p {...stylex.props(styles.bodyText)}>
+                    No durable memories have been returned by Mnemosyne yet.
+                  </p>
+                )}
+              </section>
+            ))}
 
-          {article.sections.map((section) => (
-            <section key={section.id} id={section.id} {...stylex.props(styles.articleSection)}>
-              <h2 {...stylex.props(styles.sectionTitle)}>
-                {section.title} <span {...stylex.props(styles.editLink)}>[edit]</span>
-              </h2>
-              {section.entries.length > 0 ? (
-                <ul {...stylex.props(styles.entryList)}>
-                  {section.entries.map((entry) => (
-                    <MemoryEntryItem key={entry.id} entry={entry} />
+            <section id="source-observations" {...stylex.props(styles.articleSection)}>
+              <h2 {...stylex.props(styles.sectionTitle)}>Source observations</h2>
+              {article.sourceObservations.length > 0 ? (
+                <ol {...stylex.props(styles.sourceList)}>
+                  {article.sourceObservations.map((entry) => (
+                    <li key={`source:${entry.id}`} {...stylex.props(styles.sourceItem)}>
+                      <blockquote {...stylex.props(styles.sourceQuote)}>
+                        {entry.sourceObservation}
+                      </blockquote>
+                      <div {...stylex.props(styles.entryMeta)}>
+                        <span>{entry.sourceTitle}</span>
+                        {entry.updatedAt ?? entry.createdAt ? (
+                          <>
+                            <span aria-hidden="true">·</span>
+                            <time dateTime={(entry.updatedAt ?? entry.createdAt) as string}>
+                              {formatDateTime((entry.updatedAt ?? entry.createdAt) as string)}
+                            </time>
+                          </>
+                        ) : null}
+                      </div>
+                    </li>
                   ))}
-                </ul>
+                </ol>
               ) : (
                 <p {...stylex.props(styles.bodyText)}>
-                  No durable memories have been returned by Mnemosyne yet.
+                  Mnemosyne has not returned source observations for the loaded
+                  facts yet.
                 </p>
               )}
             </section>
-          ))}
 
-          <section id="recall-behavior" {...stylex.props(styles.articleSection)}>
-            <h2 {...stylex.props(styles.sectionTitle)}>
-              Recall behavior <span {...stylex.props(styles.editLink)}>[edit]</span>
-            </h2>
-            <div {...stylex.props(styles.recallWidget)}>
-              <div {...stylex.props(styles.recallRow)}>
-                <div {...stylex.props(styles.recallInput)}>
-                  What should Noema remember about this human?
-                </div>
-                <button type="button" disabled {...stylex.props(styles.button)}>
-                  Run
-                </button>
-              </div>
-              <p {...stylex.props(styles.recallResult)}>
-                {article.recallSample ? (
-                  <>
-                    <strong>Loaded sample:</strong> {article.recallSample.text}
-                    {article.recallSample.scoreLabel ? (
-                      <span> {article.recallSample.scoreLabel}.</span>
-                    ) : null}
-                  </>
-                ) : (
-                  "Recall testing will become useful after Mnemosyne has memories to search."
-                )}
-              </p>
-            </div>
-          </section>
+            <section id="references" {...stylex.props(styles.articleSection)}>
+              <h2 {...stylex.props(styles.sectionTitle)}>References</h2>
+              <ol {...stylex.props(styles.references)}>
+                {article.references.map((reference) => (
+                  <li key={reference}>{reference}</li>
+                ))}
+              </ol>
+            </section>
 
-          <section id="references" {...stylex.props(styles.articleSection)}>
-            <h2 {...stylex.props(styles.sectionTitle)}>References</h2>
-            <ol {...stylex.props(styles.references)}>
-              {article.references.map((reference) => (
-                <li key={reference}>{reference}</li>
-              ))}
-            </ol>
-          </section>
-
-          {graph?.pageInfo.hasMore ? (
-            <button
-              type="button"
-              {...stylex.props(styles.loadMore)}
-              disabled={loadingMore}
-              onClick={() => void loadMore()}
-            >
-              {loadingMore ? "Loading..." : "Load more memories"}
-            </button>
-          ) : null}
-        </article>
+            {graph?.pageInfo.hasMore ? (
+              <button
+                type="button"
+                {...stylex.props(styles.loadMore)}
+                disabled={loadingMore}
+                onClick={() => void loadMore()}
+              >
+                {loadingMore ? "Loading..." : "Load more memories"}
+              </button>
+            ) : null}
+          </article>
+        </div>
       </div>
     </section>
   );
@@ -288,12 +288,10 @@ function MemoryInfobox({ article }: { article: MemoryArticleModel }) {
         </tbody>
       </table>
       <div {...stylex.props(styles.sidebox)}>
-        <strong>Actions</strong>
+        <strong>Sources</strong>
         <div {...stylex.props(styles.actionLinks)}>
-          <span {...stylex.props(styles.link)}>Tune recall</span>
-          <span {...stylex.props(styles.link)}>Prune memory</span>
-          <span {...stylex.props(styles.link)}>Export memory</span>
-          <span {...stylex.props(styles.link)}>Open source conversations</span>
+          <span>{formatCount(article.sourceObservations.length, "source observation", "source observations")}</span>
+          <span>Mnemosyne fact annotations</span>
         </div>
       </div>
     </aside>

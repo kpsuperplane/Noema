@@ -367,6 +367,7 @@ export const MemoryGraphDocument = gql`
           summary
           title
           type
+          metadata
           createdAt
           updatedAt
           spaceContainerTag

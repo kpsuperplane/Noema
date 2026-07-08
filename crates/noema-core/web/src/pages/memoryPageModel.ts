@@ -10,6 +10,7 @@ export type MemoryArticleEntry = {
   createdAt: string | null;
   updatedAt: string | null;
   sourceTitle: string;
+  sourceObservation: string | null;
   scoreLabel: string | null;
 };
 
@@ -39,6 +40,7 @@ export type MemoryArticleModel = {
   figureCaption: string;
   clusters: MemoryFigureCluster[];
   sections: MemoryArticleSection[];
+  sourceObservations: MemoryArticleEntry[];
   recallSample: MemoryArticleEntry | null;
   references: string[];
 };
@@ -50,8 +52,9 @@ export function buildMemoryArticleModel(graph: MemoryGraph | undefined): MemoryA
   const entries = flattenEntries(graph?.documents ?? []);
   const totalMemories = graph?.pageInfo.total ?? entries.length;
   const lastUpdatedLabel = formatLatestUpdated(entries);
-  const primaryPattern = entries.length > 0 ? "Known memories" : "No stable pattern yet";
-  const recurringMotif = entries.length > 0 ? "Memory entries" : "None yet";
+  const sourceObservations = uniqueSourceObservations(entries);
+  const primaryPattern = entries.length > 0 ? "Remembered facts" : "No stable facts yet";
+  const recurringMotif = entries.length > 0 ? inferRecurringMotif(entries) : "None yet";
 
   return {
     title: FALLBACK_TITLE,
@@ -67,8 +70,9 @@ export function buildMemoryArticleModel(graph: MemoryGraph | undefined): MemoryA
     figureCaption: "Fig. 1. Prominent themes in the memory record, grouped by loaded entries.",
     clusters: buildClusters(entries),
     sections: buildSections(entries),
+    sourceObservations,
     recallSample: entries[0] ?? null,
-    references: buildReferences(entries)
+    references: buildReferences(entries, sourceObservations)
   };
 }
 
@@ -94,15 +98,16 @@ function memoryEntryFromGraph(
     createdAt: entry.createdAt || null,
     updatedAt: entry.updatedAt || null,
     sourceTitle: document.title ?? "Memory source",
+    sourceObservation: sourceObservationFromMetadata(entry.metadata),
     scoreLabel: null
   };
 }
 
 function buildLeadText(entryCount: number): string {
   if (entryCount === 0) {
-    return "Noema has not formed durable human memories yet. New user-authored observations will appear here after Mnemosyne processes them.";
+    return "Noema has not formed durable facts about the human yet. User-authored observations will appear here only after Mnemosyne extracts facts from them.";
   }
-  return "This page collects user-authored observations Noema may use when responding to the local human. The current record is shown as an inspectable article rather than hidden model state.";
+  return "This article summarizes the durable facts Noema currently knows about the human. Each fact is linked back to the user-authored observation that produced it, keeping memory visible instead of hidden in model state.";
 }
 
 function buildFigureTitle(entryCount: number): string {
@@ -116,7 +121,7 @@ function buildFigureCopy(entryCount: number): string {
   if (entryCount === 0) {
     return "Once memories exist, this figure summarizes loaded themes, recency, and retrieval visibility.";
   }
-  return `${formatCount(entryCount, "loaded memory", "loaded memories")} are available for inspection. More specific themes will appear as Noema receives richer provenance and categorization metadata.`;
+  return `${formatCount(entryCount, "remembered fact", "remembered facts")} are available for inspection. More specific themes will appear as Noema receives richer fact metadata.`;
 }
 
 function buildClusters(entries: MemoryArticleEntry[]): MemoryFigureCluster[] {
@@ -148,19 +153,59 @@ function buildClusters(entries: MemoryArticleEntry[]): MemoryFigureCluster[] {
 function buildSections(entries: MemoryArticleEntry[]): MemoryArticleSection[] {
   return [
     {
-      id: "memory-entries",
-      title: "Memory entries",
+      id: "remembered-facts",
+      title: "Remembered facts",
       entries
     }
   ];
 }
 
-function buildReferences(entries: MemoryArticleEntry[]): string[] {
+function buildReferences(
+  entries: MemoryArticleEntry[],
+  sourceObservations: MemoryArticleEntry[]
+): string[] {
   if (entries.length === 0) {
-    return ["No source memories have been returned by Mnemosyne yet."];
+    return ["No extracted facts have been returned by Mnemosyne yet."];
+  }
+  if (sourceObservations.length > 0) {
+    return sourceObservations.map((entry, index) => {
+      const timestamp = entry.updatedAt ?? entry.createdAt;
+      const timestampLabel = timestamp ? `, ${formatDateTime(timestamp)}` : "";
+      return `${index + 1}. ${entry.sourceTitle}${timestampLabel}.`;
+    });
   }
   const sourceTitles = [...new Set(entries.map((entry) => entry.sourceTitle))];
   return sourceTitles.map((title) => `Source group: ${title}.`);
+}
+
+function uniqueSourceObservations(entries: MemoryArticleEntry[]): MemoryArticleEntry[] {
+  const seen = new Set<string>();
+  const observations: MemoryArticleEntry[] = [];
+  for (const entry of entries) {
+    const source = entry.sourceObservation?.trim();
+    if (!source || seen.has(source)) {
+      continue;
+    }
+    seen.add(source);
+    observations.push(entry);
+  }
+  return observations;
+}
+
+function sourceObservationFromMetadata(metadata: unknown): string | null {
+  if (!metadata || typeof metadata !== "object" || !("sourceObservation" in metadata)) {
+    return null;
+  }
+  const value = (metadata as { sourceObservation?: unknown }).sourceObservation;
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function inferRecurringMotif(entries: MemoryArticleEntry[]): string {
+  const first = entries[0]?.text.trim();
+  if (!first) {
+    return "None yet";
+  }
+  return first.length > 42 ? `${first.slice(0, 39)}...` : first;
 }
 
 function formatLatestUpdated(entries: MemoryArticleEntry[]): string {
