@@ -56,6 +56,103 @@ async fn sqlite_schema_creates_artifact_tables() {
 }
 
 #[tokio::test]
+async fn artifact_external_url_initial_version_round_trips() {
+    let store = test_store().await;
+    let conversation = store
+        .create_conversation(crate::NewConversation::local_chat(None, None))
+        .await
+        .expect("conversation");
+
+    let artifact = store
+        .create_artifact_with_initial_version(
+            crate::NewArtifact {
+                artifact_id: None,
+                owner: crate::ArtifactOwnerRef::conversation(&conversation.conversation_id),
+                title: "Sprint brief".to_string(),
+                description: Some("Planning notes".to_string()),
+                artifact_kind: "document".to_string(),
+                storage_kind: crate::ArtifactStorageKind::ExternalUrl,
+                created_by_actor_id: "agent:primary".to_string(),
+                source: crate::ArtifactSource {
+                    conversation_id: Some(conversation.conversation_id.clone()),
+                    turn_id: None,
+                    item_id: None,
+                },
+                metadata: serde_json::json!({"provider": "notion"}),
+            },
+            crate::NewArtifactVersion {
+                artifact_version_id: None,
+                title: Some("Initial".to_string()),
+                storage: crate::ArtifactVersionStorage::ExternalUrl {
+                    url: "https://notion.so/noema-brief".to_string(),
+                },
+                media_type: Some("text/html".to_string()),
+                byte_size: None,
+                content_sha256: None,
+                created_by_actor_id: "agent:primary".to_string(),
+                source: crate::ArtifactSource {
+                    conversation_id: Some(conversation.conversation_id.clone()),
+                    turn_id: None,
+                    item_id: None,
+                },
+                metadata: serde_json::json!({}),
+            },
+        )
+        .await
+        .expect("artifact");
+
+    assert_eq!(artifact.artifact.title, "Sprint brief");
+    assert_eq!(artifact.versions.len(), 1);
+    assert_eq!(
+        artifact.current_version.artifact_id,
+        artifact.artifact.artifact_id
+    );
+    assert_eq!(artifact.current_version.version_index, 1);
+}
+
+#[tokio::test]
+async fn append_artifact_version_updates_current_version() {
+    let store = test_store().await;
+    let conversation = store
+        .create_conversation(crate::NewConversation::local_chat(None, None))
+        .await
+        .expect("conversation");
+    let created = seed_external_artifact(&store, &conversation.conversation_id).await;
+
+    let second = store
+        .append_artifact_version(
+            &created.artifact.artifact_id,
+            crate::NewArtifactVersion {
+                artifact_version_id: None,
+                title: Some("Revision".to_string()),
+                storage: crate::ArtifactVersionStorage::ExternalUrl {
+                    url: "https://notion.so/noema-brief-v2".to_string(),
+                },
+                media_type: Some("text/html".to_string()),
+                byte_size: None,
+                content_sha256: None,
+                created_by_actor_id: "agent:primary".to_string(),
+                source: crate::ArtifactSource::default(),
+                metadata: serde_json::json!({"revision": 2}),
+            },
+        )
+        .await
+        .expect("append version");
+
+    assert_eq!(second.version_index, 2);
+    let loaded = store
+        .get_artifact(&created.artifact.artifact_id)
+        .await
+        .expect("load artifact")
+        .expect("artifact exists");
+    assert_eq!(
+        loaded.artifact.current_version_id.as_deref(),
+        Some(second.artifact_version_id.as_str())
+    );
+    assert_eq!(loaded.versions.len(), 2);
+}
+
+#[tokio::test]
 async fn sqlite_store_config_is_stable_for_reopen() {
     let home = TempDir::new().expect("temp noema home");
     let paths = crate::NoemaPaths::from_noema_home(home.path()).expect("paths");
@@ -73,6 +170,49 @@ pub(crate) async fn test_store() -> crate::NoemaStore {
         .expect("open store");
     std::mem::forget(home);
     store
+}
+
+async fn seed_external_artifact(
+    store: &crate::NoemaStore,
+    conversation_id: &str,
+) -> crate::ArtifactWithVersions {
+    store
+        .create_artifact_with_initial_version(
+            crate::NewArtifact {
+                artifact_id: None,
+                owner: crate::ArtifactOwnerRef::conversation(conversation_id),
+                title: "Sprint brief".to_string(),
+                description: Some("Planning notes".to_string()),
+                artifact_kind: "document".to_string(),
+                storage_kind: crate::ArtifactStorageKind::ExternalUrl,
+                created_by_actor_id: "agent:primary".to_string(),
+                source: crate::ArtifactSource {
+                    conversation_id: Some(conversation_id.to_string()),
+                    turn_id: None,
+                    item_id: None,
+                },
+                metadata: serde_json::json!({"provider": "notion"}),
+            },
+            crate::NewArtifactVersion {
+                artifact_version_id: None,
+                title: Some("Initial".to_string()),
+                storage: crate::ArtifactVersionStorage::ExternalUrl {
+                    url: "https://notion.so/noema-brief".to_string(),
+                },
+                media_type: Some("text/html".to_string()),
+                byte_size: None,
+                content_sha256: None,
+                created_by_actor_id: "agent:primary".to_string(),
+                source: crate::ArtifactSource {
+                    conversation_id: Some(conversation_id.to_string()),
+                    turn_id: None,
+                    item_id: None,
+                },
+                metadata: serde_json::json!({}),
+            },
+        )
+        .await
+        .expect("seed artifact")
 }
 
 #[allow(clippy::too_many_arguments)]

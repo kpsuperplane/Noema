@@ -97,7 +97,7 @@ pub use provider::{
 pub use runtime_host::{NoemaRuntimeHost, RuntimeHostError};
 pub use store::{
     AgentRecord, AgentRuntimePreferenceRecord, ArtifactOwnerRef, ArtifactRecord, ArtifactSource,
-    ArtifactStorageKind, ArtifactVersionRecord, ArtifactVersionStorage,
+    ArtifactStorageKind, ArtifactVersionRecord, ArtifactVersionStorage, ArtifactWithVersions,
     AuxiliaryModelPreferenceRecord, ConversationContextSummaryRecord, McpApprovalRequestRecord,
     McpServerAuthStatus, McpServerHealthStatus, McpServerRecord, McpToolRecord,
     MemoryArticleCacheRecord, MemoryServiceMode, MemoryServiceSettingsRecord, NewAgent,

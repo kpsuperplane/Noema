@@ -23,7 +23,7 @@ pub use agent_runtime_preferences::{AgentRuntimePreferenceRecord, NewAgentRuntim
 pub use agents::{AgentRecord, HumanRecord, NewAgent};
 pub use artifacts::{
     ArtifactOwnerRef, ArtifactRecord, ArtifactSource, ArtifactStorageKind, ArtifactVersionRecord,
-    ArtifactVersionStorage, NewArtifact, NewArtifactVersion,
+    ArtifactVersionStorage, ArtifactWithVersions, NewArtifact, NewArtifactVersion,
 };
 pub use auxiliary_model_preferences::{
     AuxiliaryModelPreferenceRecord, NewAuxiliaryModelPreference, TOOL_PROGRESS_AUDIT_TASK_ID,

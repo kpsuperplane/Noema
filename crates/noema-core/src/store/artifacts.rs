@@ -1,4 +1,11 @@
+use rusqlite::{OptionalExtension, params};
 use serde_json::Value;
+
+use super::{
+    NoemaStore, StoreError,
+    ids::{allocate_id, invalid_enum},
+    sqlite::{json_from_string, json_to_string, now_timestamp_sql},
+};
 
 /// Concrete owner reference for a governed artifact.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -48,10 +55,7 @@ impl ArtifactStorageKind {
         match value {
             "local_file" => Ok(Self::LocalFile),
             "external_url" => Ok(Self::ExternalUrl),
-            _ => Err(crate::StoreError::InvalidEnum {
-                kind: "artifact_storage_kind",
-                value: value.to_string(),
-            }),
+            _ => invalid_enum("artifact_storage_kind", value),
         }
     }
 }
@@ -195,4 +199,610 @@ pub struct ArtifactVersionRecord {
     pub metadata: Value,
     /// Version creation timestamp.
     pub created_at: String,
+}
+
+/// Artifact row plus its immutable version history.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ArtifactWithVersions {
+    /// Artifact metadata row.
+    pub artifact: ArtifactRecord,
+    /// Current version referenced by the artifact row.
+    pub current_version: ArtifactVersionRecord,
+    /// Full immutable version history in ascending version order.
+    pub versions: Vec<ArtifactVersionRecord>,
+}
+
+impl NoemaStore {
+    /// Create an artifact and its first immutable version in one transaction.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when the input is invalid, the owner conversation
+    /// does not exist, or the embedded store write/read fails.
+    pub async fn create_artifact_with_initial_version(
+        &self,
+        artifact: NewArtifact,
+        initial_version: NewArtifactVersion,
+    ) -> Result<ArtifactWithVersions, StoreError> {
+        let title = trim_non_empty(artifact.title, StoreError::ArtifactTitleEmpty)?;
+        let artifact_kind = trim_non_empty(artifact.artifact_kind, StoreError::ArtifactKindEmpty)?;
+        self.require_artifact_creation_owner(&artifact.owner)
+            .await?;
+        if initial_version.storage.storage_kind() != artifact.storage_kind {
+            return Err(StoreError::ArtifactStorageKindMismatch);
+        }
+
+        let artifact_id = artifact
+            .artifact_id
+            .unwrap_or_else(|| self.new_artifact_id());
+        let artifact_version_id = initial_version
+            .artifact_version_id
+            .unwrap_or_else(|| self.new_artifact_version_id());
+        let artifact_metadata_json = json_to_string(&artifact.metadata)?;
+        let version_metadata_json = json_to_string(&initial_version.metadata)?;
+        let version_storage = VersionStorageParts::from_storage(initial_version.storage);
+
+        self.with_connection(|conn| {
+            let tx = conn.transaction()?;
+            tx.execute(
+                format!(
+                    r#"
+                    INSERT INTO artifacts (
+                      artifact_id, owner_object_type, owner_object_id, title, description,
+                      artifact_kind, storage_kind, current_version_id, created_by_actor_id,
+                      source_conversation_id, source_turn_id, source_item_id, metadata_json,
+                      created_at, updated_at
+                    )
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, {now}, {now})
+                    "#,
+                    now = now_timestamp_sql()
+                )
+                .as_str(),
+                params![
+                    artifact_id,
+                    artifact.owner.object_type,
+                    artifact.owner.object_id,
+                    title,
+                    artifact.description,
+                    artifact_kind,
+                    artifact.storage_kind.as_str(),
+                    artifact_version_id,
+                    artifact.created_by_actor_id,
+                    artifact.source.conversation_id,
+                    artifact.source.turn_id,
+                    artifact.source.item_id,
+                    artifact_metadata_json,
+                ],
+            )?;
+            tx.execute(
+                format!(
+                    r#"
+                    INSERT INTO artifact_versions (
+                      artifact_version_id, artifact_id, version_index, title, local_relative_path,
+                      external_url, media_type, byte_size, content_sha256, created_by_actor_id,
+                      source_conversation_id, source_turn_id, source_item_id, metadata_json,
+                      created_at
+                    )
+                    VALUES (?1, ?2, 1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, {now})
+                    "#,
+                    now = now_timestamp_sql()
+                )
+                .as_str(),
+                params![
+                    artifact_version_id,
+                    artifact_id,
+                    initial_version.title,
+                    version_storage.local_relative_path,
+                    version_storage.external_url,
+                    initial_version.media_type,
+                    initial_version.byte_size,
+                    initial_version.content_sha256,
+                    initial_version.created_by_actor_id,
+                    initial_version.source.conversation_id,
+                    initial_version.source.turn_id,
+                    initial_version.source.item_id,
+                    version_metadata_json,
+                ],
+            )?;
+            tx.commit().map_err(StoreError::Sqlite)
+        })
+        .await?;
+
+        self.get_artifact(&artifact_id)
+            .await?
+            .ok_or(StoreError::ArtifactNotFound { artifact_id })
+    }
+
+    /// Append a new immutable version to an existing artifact.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when the artifact is missing, the storage kind is
+    /// inconsistent, or the embedded store write/read fails.
+    pub async fn append_artifact_version(
+        &self,
+        artifact_id: &str,
+        version: NewArtifactVersion,
+    ) -> Result<ArtifactVersionRecord, StoreError> {
+        let Some(existing) = self.get_artifact_row(artifact_id).await? else {
+            return Err(StoreError::ArtifactNotFound {
+                artifact_id: artifact_id.to_string(),
+            });
+        };
+        if version.storage.storage_kind() != existing.storage_kind {
+            return Err(StoreError::ArtifactStorageKindMismatch);
+        }
+
+        let artifact_version_id = version
+            .artifact_version_id
+            .unwrap_or_else(|| self.new_artifact_version_id());
+        let version_metadata_json = json_to_string(&version.metadata)?;
+        let version_storage = VersionStorageParts::from_storage(version.storage);
+
+        self.with_connection(|conn| {
+            let tx = conn.transaction()?;
+            let version_index = tx.query_row(
+                "SELECT COALESCE(MAX(version_index), 0) + 1 FROM artifact_versions WHERE artifact_id = ?1",
+                [artifact_id],
+                |row| row.get::<_, i64>(0),
+            )?;
+            tx.execute(
+                format!(
+                    r#"
+                    INSERT INTO artifact_versions (
+                      artifact_version_id, artifact_id, version_index, title, local_relative_path,
+                      external_url, media_type, byte_size, content_sha256, created_by_actor_id,
+                      source_conversation_id, source_turn_id, source_item_id, metadata_json,
+                      created_at
+                    )
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, {now})
+                    "#
+                , now = now_timestamp_sql())
+                .as_str(),
+                params![
+                    artifact_version_id,
+                    artifact_id,
+                    version_index,
+                    version.title,
+                    version_storage.local_relative_path,
+                    version_storage.external_url,
+                    version.media_type,
+                    version.byte_size,
+                    version.content_sha256,
+                    version.created_by_actor_id,
+                    version.source.conversation_id,
+                    version.source.turn_id,
+                    version.source.item_id,
+                    version_metadata_json,
+                ],
+            )?;
+            tx.execute(
+                format!(
+                    "UPDATE artifacts SET current_version_id = ?2, updated_at = {now} WHERE artifact_id = ?1",
+                    now = now_timestamp_sql()
+                )
+                .as_str(),
+                params![artifact_id, artifact_version_id],
+            )?;
+            tx.commit().map_err(StoreError::Sqlite)
+        })
+        .await?;
+
+        self.get_artifact_version(&artifact_version_id)
+            .await?
+            .ok_or(StoreError::ArtifactNotFound {
+                artifact_id: artifact_id.to_string(),
+            })
+    }
+
+    /// Load one artifact and all immutable versions.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when the embedded store read fails or stored rows
+    /// violate artifact invariants.
+    pub async fn get_artifact(
+        &self,
+        artifact_id: &str,
+    ) -> Result<Option<ArtifactWithVersions>, StoreError> {
+        let Some(artifact) = self.get_artifact_row(artifact_id).await? else {
+            return Ok(None);
+        };
+        let versions = self.list_artifact_versions(artifact_id).await?;
+        Ok(Some(assemble_artifact_with_versions(artifact, versions)?))
+    }
+
+    /// Load one immutable artifact version by id.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when the embedded store read fails or stored rows
+    /// violate artifact invariants.
+    pub async fn get_artifact_version(
+        &self,
+        artifact_version_id: &str,
+    ) -> Result<Option<ArtifactVersionRecord>, StoreError> {
+        let row = self
+            .with_connection(|conn| {
+                conn.query_row(
+                    format!(
+                        r#"
+                        SELECT {ARTIFACT_VERSION_SELECT}
+                        FROM artifact_versions
+                        WHERE artifact_version_id = ?1
+                        LIMIT 1
+                        "#
+                    )
+                    .as_str(),
+                    [artifact_version_id],
+                    artifact_version_row,
+                )
+                .optional()
+                .map_err(StoreError::Sqlite)
+            })
+            .await?;
+        row.map(artifact_version_from_row).transpose()
+    }
+
+    /// List non-deleted artifacts for one owner in newest-first update order.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when the embedded store read fails or stored rows
+    /// violate artifact invariants.
+    pub async fn list_artifacts_for_owner(
+        &self,
+        owner: ArtifactOwnerRef,
+        limit: i64,
+    ) -> Result<Vec<ArtifactWithVersions>, StoreError> {
+        let limit = limit.clamp(1, 100);
+        let rows = self
+            .with_connection(|conn| {
+                let mut statement = conn.prepare(
+                    format!(
+                        r#"
+                        SELECT {ARTIFACT_SELECT}
+                        FROM artifacts
+                        WHERE owner_object_type = ?1
+                          AND owner_object_id = ?2
+                          AND deleted_at IS NULL
+                        ORDER BY updated_at DESC, artifact_id DESC
+                        LIMIT ?3
+                        "#
+                    )
+                    .as_str(),
+                )?;
+                let rows = statement.query_map(
+                    params![owner.object_type, owner.object_id, limit],
+                    artifact_row,
+                )?;
+                rows.collect::<Result<Vec<_>, _>>()
+                    .map_err(StoreError::Sqlite)
+            })
+            .await?;
+
+        let mut artifacts = Vec::with_capacity(rows.len());
+        for row in rows {
+            let artifact = artifact_from_row(row)?;
+            let versions = self.list_artifact_versions(&artifact.artifact_id).await?;
+            artifacts.push(assemble_artifact_with_versions(artifact, versions)?);
+        }
+        Ok(artifacts)
+    }
+
+    /// List all immutable versions for one artifact in version order.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when the artifact is missing, the embedded store
+    /// read fails, or stored rows violate artifact invariants.
+    pub async fn list_artifact_versions(
+        &self,
+        artifact_id: &str,
+    ) -> Result<Vec<ArtifactVersionRecord>, StoreError> {
+        if self.get_artifact_row(artifact_id).await?.is_none() {
+            return Err(StoreError::ArtifactNotFound {
+                artifact_id: artifact_id.to_string(),
+            });
+        }
+        let rows = self
+            .with_connection(|conn| {
+                let mut statement = conn.prepare(
+                    format!(
+                        r#"
+                        SELECT {ARTIFACT_VERSION_SELECT}
+                        FROM artifact_versions
+                        WHERE artifact_id = ?1
+                        ORDER BY version_index ASC
+                        "#
+                    )
+                    .as_str(),
+                )?;
+                let rows = statement.query_map([artifact_id], artifact_version_row)?;
+                rows.collect::<Result<Vec<_>, _>>()
+                    .map_err(StoreError::Sqlite)
+            })
+            .await?;
+        rows.into_iter().map(artifact_version_from_row).collect()
+    }
+
+    /// Allocate a new artifact id using the canonical store prefix.
+    #[must_use]
+    pub fn new_artifact_id(&self) -> String {
+        allocate_id("artifact")
+    }
+
+    /// Allocate a new artifact version id using the canonical store prefix.
+    #[must_use]
+    pub fn new_artifact_version_id(&self) -> String {
+        allocate_id("artifact_version")
+    }
+
+    async fn get_artifact_row(
+        &self,
+        artifact_id: &str,
+    ) -> Result<Option<ArtifactRecord>, StoreError> {
+        let row = self
+            .with_connection(|conn| {
+                conn.query_row(
+                    format!(
+                        r#"
+                        SELECT {ARTIFACT_SELECT}
+                        FROM artifacts
+                        WHERE artifact_id = ?1
+                          AND deleted_at IS NULL
+                        LIMIT 1
+                        "#
+                    )
+                    .as_str(),
+                    [artifact_id],
+                    artifact_row,
+                )
+                .optional()
+                .map_err(StoreError::Sqlite)
+            })
+            .await?;
+        row.map(artifact_from_row).transpose()
+    }
+
+    async fn require_artifact_creation_owner(
+        &self,
+        owner: &ArtifactOwnerRef,
+    ) -> Result<(), StoreError> {
+        if owner.object_type != "conversation" {
+            return Err(StoreError::UnsupportedArtifactOwner {
+                owner_object_type: owner.object_type.clone(),
+                owner_object_id: owner.object_id.clone(),
+            });
+        }
+        self.require_conversation(&owner.object_id).await
+    }
+}
+
+const ARTIFACT_SELECT: &str = r#"
+artifact_id, owner_object_type, owner_object_id, title, description,
+artifact_kind, storage_kind, current_version_id, created_by_actor_id,
+source_conversation_id, source_turn_id, source_item_id, metadata_json,
+created_at, updated_at
+"#;
+
+const ARTIFACT_VERSION_SELECT: &str = r#"
+artifact_version_id, artifact_id, version_index, title, local_relative_path,
+external_url, media_type, byte_size, content_sha256, created_by_actor_id,
+source_conversation_id, source_turn_id, source_item_id, metadata_json,
+created_at
+"#;
+
+#[derive(Debug)]
+struct ArtifactRow {
+    artifact_id: String,
+    owner_object_type: String,
+    owner_object_id: String,
+    title: String,
+    description: Option<String>,
+    artifact_kind: String,
+    storage_kind: String,
+    current_version_id: Option<String>,
+    created_by_actor_id: String,
+    source_conversation_id: Option<String>,
+    source_turn_id: Option<String>,
+    source_item_id: Option<String>,
+    metadata_json: String,
+    created_at: String,
+    updated_at: String,
+}
+
+#[derive(Debug)]
+struct ArtifactVersionRow {
+    artifact_version_id: String,
+    artifact_id: String,
+    version_index: i64,
+    title: Option<String>,
+    local_relative_path: Option<String>,
+    external_url: Option<String>,
+    media_type: Option<String>,
+    byte_size: Option<i64>,
+    content_sha256: Option<String>,
+    created_by_actor_id: String,
+    source_conversation_id: Option<String>,
+    source_turn_id: Option<String>,
+    source_item_id: Option<String>,
+    metadata_json: String,
+    created_at: String,
+}
+
+#[derive(Debug)]
+struct VersionStorageParts {
+    local_relative_path: Option<String>,
+    external_url: Option<String>,
+}
+
+impl VersionStorageParts {
+    fn from_storage(storage: ArtifactVersionStorage) -> Self {
+        match storage {
+            ArtifactVersionStorage::LocalFile { relative_path } => Self {
+                local_relative_path: Some(relative_path),
+                external_url: None,
+            },
+            ArtifactVersionStorage::ExternalUrl { url } => Self {
+                local_relative_path: None,
+                external_url: Some(url),
+            },
+        }
+    }
+}
+
+fn artifact_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ArtifactRow> {
+    Ok(ArtifactRow {
+        artifact_id: row.get(0)?,
+        owner_object_type: row.get(1)?,
+        owner_object_id: row.get(2)?,
+        title: row.get(3)?,
+        description: row.get(4)?,
+        artifact_kind: row.get(5)?,
+        storage_kind: row.get(6)?,
+        current_version_id: row.get(7)?,
+        created_by_actor_id: row.get(8)?,
+        source_conversation_id: row.get(9)?,
+        source_turn_id: row.get(10)?,
+        source_item_id: row.get(11)?,
+        metadata_json: row.get(12)?,
+        created_at: row.get(13)?,
+        updated_at: row.get(14)?,
+    })
+}
+
+fn artifact_version_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ArtifactVersionRow> {
+    Ok(ArtifactVersionRow {
+        artifact_version_id: row.get(0)?,
+        artifact_id: row.get(1)?,
+        version_index: row.get(2)?,
+        title: row.get(3)?,
+        local_relative_path: row.get(4)?,
+        external_url: row.get(5)?,
+        media_type: row.get(6)?,
+        byte_size: row.get(7)?,
+        content_sha256: row.get(8)?,
+        created_by_actor_id: row.get(9)?,
+        source_conversation_id: row.get(10)?,
+        source_turn_id: row.get(11)?,
+        source_item_id: row.get(12)?,
+        metadata_json: row.get(13)?,
+        created_at: row.get(14)?,
+    })
+}
+
+fn artifact_from_row(row: ArtifactRow) -> Result<ArtifactRecord, StoreError> {
+    Ok(ArtifactRecord {
+        artifact_id: row.artifact_id,
+        owner: ArtifactOwnerRef {
+            object_type: row.owner_object_type,
+            object_id: row.owner_object_id,
+        },
+        title: row.title,
+        description: row.description,
+        artifact_kind: row.artifact_kind,
+        storage_kind: ArtifactStorageKind::parse(&row.storage_kind)?,
+        current_version_id: row.current_version_id,
+        created_by_actor_id: row.created_by_actor_id,
+        source: ArtifactSource {
+            conversation_id: row.source_conversation_id,
+            turn_id: row.source_turn_id,
+            item_id: row.source_item_id,
+        },
+        metadata: json_from_string(row.metadata_json)?,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+    })
+}
+
+fn artifact_version_from_row(row: ArtifactVersionRow) -> Result<ArtifactVersionRecord, StoreError> {
+    Ok(ArtifactVersionRecord {
+        artifact_version_id: row.artifact_version_id,
+        artifact_id: row.artifact_id,
+        version_index: row.version_index,
+        title: row.title,
+        storage: artifact_version_storage_from_row(row.local_relative_path, row.external_url)?,
+        media_type: row.media_type,
+        byte_size: row.byte_size,
+        content_sha256: row.content_sha256,
+        created_by_actor_id: row.created_by_actor_id,
+        source: ArtifactSource {
+            conversation_id: row.source_conversation_id,
+            turn_id: row.source_turn_id,
+            item_id: row.source_item_id,
+        },
+        metadata: json_from_string(row.metadata_json)?,
+        created_at: row.created_at,
+    })
+}
+
+fn artifact_version_storage_from_row(
+    local_relative_path: Option<String>,
+    external_url: Option<String>,
+) -> Result<ArtifactVersionStorage, StoreError> {
+    match (local_relative_path, external_url) {
+        (Some(relative_path), None) => Ok(ArtifactVersionStorage::LocalFile { relative_path }),
+        (None, Some(url)) => Ok(ArtifactVersionStorage::ExternalUrl { url }),
+        (Some(_), Some(_)) | (None, None) => Err(StoreError::InvariantViolation {
+            message: "artifact version row must contain exactly one storage location".to_string(),
+        }),
+    }
+}
+
+fn assemble_artifact_with_versions(
+    artifact: ArtifactRecord,
+    versions: Vec<ArtifactVersionRecord>,
+) -> Result<ArtifactWithVersions, StoreError> {
+    if versions.is_empty() {
+        return Err(StoreError::InvariantViolation {
+            message: format!("artifact {} is missing version rows", artifact.artifact_id),
+        });
+    }
+    let current_version_id =
+        artifact
+            .current_version_id
+            .as_deref()
+            .ok_or_else(|| StoreError::InvariantViolation {
+                message: format!(
+                    "artifact {} is missing current_version_id",
+                    artifact.artifact_id
+                ),
+            })?;
+    let current_version = versions
+        .iter()
+        .find(|version| version.artifact_version_id == current_version_id)
+        .cloned()
+        .ok_or_else(|| StoreError::InvariantViolation {
+            message: format!(
+                "artifact {} current_version_id {} does not reference a stored version",
+                artifact.artifact_id, current_version_id
+            ),
+        })?;
+    if versions
+        .iter()
+        .any(|version| version.storage.storage_kind() != artifact.storage_kind)
+    {
+        return Err(StoreError::InvariantViolation {
+            message: format!(
+                "artifact {} has version storage that does not match storage_kind",
+                artifact.artifact_id
+            ),
+        });
+    }
+
+    Ok(ArtifactWithVersions {
+        artifact,
+        current_version,
+        versions,
+    })
+}
+
+fn trim_non_empty<T>(value: String, error: T) -> Result<String, T> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        Err(error)
+    } else {
+        Ok(trimmed.to_string())
+    }
 }
