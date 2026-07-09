@@ -1,5 +1,6 @@
 import type { TurnTranscriptItem } from "@/shared/types";
 import { artifactDetailTarget, type ChatDetailTarget } from "@/components/chatDetail/chatDetailTypes";
+import { IconButton, type IconButtonProps } from "@astryxdesign/core/IconButton";
 import { Item, type ItemProps } from "@astryxdesign/core/Item";
 import * as stylex from "@stylexjs/stylex";
 import {
@@ -13,6 +14,7 @@ import {
   FileText,
   Image as ImageIcon,
   Link2,
+  PanelRightOpen,
   Table2,
   Video
 } from "lucide-react";
@@ -20,6 +22,7 @@ import type { ReactNode } from "react";
 
 type ArtifactReferenceItem = Extract<TurnTranscriptItem, { kind: "artifact_reference" }>;
 type ItemXStyle = ItemProps["xstyle"];
+type IconButtonXStyle = IconButtonProps["xstyle"];
 
 const styles = stylex.create({
   item: {
@@ -46,6 +49,9 @@ const styles = stylex.create({
   detailItem: {
     cursor: "default"
   },
+  actionItem: {
+    paddingInlineEnd: 48
+  },
   iconFrame: {
     display: "inline-flex",
     width: 32,
@@ -57,13 +63,13 @@ const styles = stylex.create({
     color: "var(--noema-pine-700)",
     flexShrink: 0
   },
-  endContent: {
+  action: {
+    position: "absolute",
+    insetInlineEnd: 8,
+    insetBlockEnd: 8,
+    zIndex: 1,
     display: "inline-flex",
-    alignItems: "center",
-    gap: 5,
-    color: "var(--noema-text-muted)",
-    fontSize: 12,
-    whiteSpace: "nowrap"
+    color: "var(--noema-text-muted)"
   }
 });
 
@@ -80,33 +86,56 @@ export function ArtifactReferenceCard({
   const opensDetail = Boolean(detailTarget && onOpenDetail);
   const description = artifactDescription(item);
   const icon = artifactIcon(item);
-  const actionIcon = opensDetail ? null : link ? artifactActionIcon(link) : null;
-  const actionLabel = opensDetail ? "Open" : link ? (link.external ? "Open" : "Download") : "Unavailable";
+  const actionIcon = opensDetail ? (
+    <PanelRightOpen aria-hidden="true" size={14} strokeWidth={2} />
+  ) : link ? (
+    artifactActionIcon(link)
+  ) : null;
+  const actionLabel = opensDetail
+    ? "Open artifact"
+    : link
+      ? link.external
+        ? "Open external artifact"
+        : "Download artifact"
+      : null;
+  const handleOpenDetail =
+    opensDetail && detailTarget
+      ? () => {
+          onOpenDetail?.(detailTarget);
+        }
+      : undefined;
 
   return (
     <Item
       align="start"
+      data-slot="artifact-reference-item"
       data-testid="artifact-reference-item"
       density="balanced"
       description={description}
       descriptionLines={1}
       endContent={
-        <span {...stylex.props(styles.endContent)}>
-          {actionLabel}
-          {actionIcon}
-        </span>
+        actionIcon && actionLabel ? (
+          <IconButton
+            data-slot="artifact-reference-action"
+            href={opensDetail ? undefined : link?.href}
+            icon={actionIcon}
+            label={actionLabel}
+            onClick={handleOpenDetail}
+            rel={!opensDetail && link?.external ? "noreferrer" : undefined}
+            size="sm"
+            tabIndex={-1}
+            target={!opensDetail && link?.external ? "_blank" : undefined}
+            tooltip={actionLabel}
+            variant="ghost"
+            xstyle={iconButtonXStyle(styles.action)}
+          />
+        ) : undefined
       }
       href={opensDetail ? undefined : link?.href}
       isDisabled={!link && !opensDetail}
       label={item.title}
       labelLines={2}
-      onClick={
-        opensDetail && detailTarget
-          ? () => {
-              onOpenDetail?.(detailTarget);
-            }
-          : undefined
-      }
+      onClick={handleOpenDetail}
       rel={!opensDetail && link?.external ? "noreferrer" : undefined}
       startContent={
         <span {...stylex.props(styles.iconFrame)} aria-hidden="true">
@@ -117,6 +146,7 @@ export function ArtifactReferenceCard({
       xstyle={itemXStyle(
         styles.item,
         opensDetail && styles.detailItem,
+        actionIcon && styles.actionItem,
         !link && !opensDetail && styles.disabledItem
       )}
     />
@@ -278,4 +308,8 @@ function titleCase(value: string): string {
 
 function itemXStyle(...xstyle: unknown[]): ItemXStyle {
   return xstyle as unknown as ItemXStyle;
+}
+
+function iconButtonXStyle(...xstyle: unknown[]): IconButtonXStyle {
+  return xstyle as unknown as IconButtonXStyle;
 }

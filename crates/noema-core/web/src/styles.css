@@ -49,6 +49,30 @@ a[href] {
   cursor: pointer !important;
 }
 
+[data-slot="artifact-reference-action"] {
+  opacity: 1;
+  transition: opacity 140ms ease;
+}
+
+@media (hover: hover) {
+  [data-slot="artifact-reference-item"] [data-slot="artifact-reference-action"] {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  [data-slot="artifact-reference-item"]:hover [data-slot="artifact-reference-action"],
+  [data-slot="artifact-reference-item"]:focus-within [data-slot="artifact-reference-action"] {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-slot="artifact-reference-action"] {
+    transition-duration: 1ms;
+  }
+}
+
 .astryx-date-input,
 .astryx-date-range-input,
 .astryx-date-time-input,
