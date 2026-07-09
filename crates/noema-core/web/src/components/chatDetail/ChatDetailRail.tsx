@@ -18,7 +18,7 @@ export function ChatDetailRail({
   onMotionEnd
 }: {
   target: ChatDetailTarget;
-  motionState: "entering" | "open" | "exiting";
+  motionState: "opening" | "entering" | "open" | "exiting";
   onChangeVersion: (version: string) => void;
   onClose: () => void;
   onMotionEnd: () => void;
@@ -37,9 +37,9 @@ export function ChatDetailRail({
     closeButtonRef.current?.focus();
   }, [target]);
 
-  const handleAnimationEnd = React.useCallback(
-    (event: React.AnimationEvent<HTMLElement>) => {
-      if (event.currentTarget === event.target) {
+  const handleTransitionEnd = React.useCallback(
+    (event: React.TransitionEvent<HTMLElement>) => {
+      if (event.currentTarget === event.target && event.propertyName === "transform") {
         onMotionEnd();
       }
     },
@@ -68,7 +68,7 @@ export function ChatDetailRail({
         data-slot="chat-detail-rail-surface"
         data-state={motionState}
         {...stylex.props(styles.surface)}
-        onAnimationEnd={handleAnimationEnd}
+        onTransitionEnd={handleTransitionEnd}
       >
         <header {...stylex.props(styles.header)}>
           <div {...stylex.props(styles.actionRow)}>

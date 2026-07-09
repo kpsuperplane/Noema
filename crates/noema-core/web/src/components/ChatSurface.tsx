@@ -58,7 +58,7 @@ export type ChatSurfaceProps = {
   onSubmitMultipleChoiceSelection: (promptItemId: string, selectedOptionIds: string[]) => void;
 };
 
-type DetailMotionState = "entering" | "open" | "exiting";
+type DetailMotionState = "opening" | "entering" | "open" | "exiting";
 
 export function ChatSurface({
   transcript,
@@ -86,6 +86,7 @@ export function ChatSurface({
   const [composerDockHeight, setComposerDockHeight] = React.useState(96);
   const [detailTarget, setDetailTarget] = React.useState<ChatDetailTarget | null>(null);
   const [detailMotionState, setDetailMotionState] = React.useState<DetailMotionState>("open");
+  const detailReservesSpace = detailTarget && (detailMotionState === "entering" || detailMotionState === "open");
   const detailRail = useResizable({
     defaultSize: 380,
     minSizePx: 320,
@@ -118,6 +119,26 @@ export function ChatSurface({
     }
   }, [ready, visibility]);
 
+  React.useEffect(() => {
+    if (!detailTarget || detailMotionState !== "opening") {
+      return;
+    }
+
+    let secondFrame = 0;
+    const firstFrame = window.requestAnimationFrame(() => {
+      secondFrame = window.requestAnimationFrame(() => {
+        setDetailMotionState("entering");
+      });
+    });
+
+    return () => {
+      window.cancelAnimationFrame(firstFrame);
+      if (secondFrame !== 0) {
+        window.cancelAnimationFrame(secondFrame);
+      }
+    };
+  }, [detailMotionState, detailTarget]);
+
   const rootStyle = React.useMemo(
     () =>
       ({
@@ -131,7 +152,7 @@ export function ChatSurface({
   const openDetail = React.useCallback(
     (target: ChatDetailTarget) => {
       setDetailTarget(target);
-      setDetailMotionState(detailTarget && detailMotionState !== "exiting" ? "open" : "entering");
+      setDetailMotionState(detailTarget && detailMotionState !== "exiting" ? "open" : "opening");
     },
     [detailMotionState, detailTarget]
   );
@@ -145,7 +166,7 @@ export function ChatSurface({
     setDetailMotionState("open");
   }, []);
 
-  const handleDetailAnimationEnd = React.useCallback(() => {
+  const handleDetailMotionEnd = React.useCallback(() => {
     if (detailMotionState === "entering") {
       setDetailMotionState("open");
       return;
@@ -165,7 +186,7 @@ export function ChatSurface({
       style={rootStyle}
       aria-label="Noema chat"
     >
-      <div data-slot="chat-main-pane" {...stylex.props(styles.mainPane, detailTarget && styles.mainPaneWithDetail)}>
+      <div data-slot="chat-main-pane" {...stylex.props(styles.mainPane, detailReservesSpace && styles.mainPaneWithDetail)}>
         <div {...stylex.props(styles.contentLayer)}>
           {loadingInitialTranscript || transcript.length === 0 ? (
             <TranscriptLoadingSkeleton />
@@ -221,7 +242,7 @@ export function ChatSurface({
             motionState={detailMotionState}
             onChangeVersion={selectDetailVersion}
             onClose={closeDetail}
-            onMotionEnd={handleDetailAnimationEnd}
+            onMotionEnd={handleDetailMotionEnd}
           />
         </>
       ) : null}
