@@ -16,8 +16,8 @@ use tokio::sync::mpsc;
 use super::{
     actor::CodexRuntimeActor,
     local_tools::{
-        LocalToolResult, agent_identity_after_local_tools, local_tool_result_action_item,
-        local_tool_result_continuation_input,
+        LocalToolResult, agent_identity_after_local_tools, local_tool_artifact_reference_item,
+        local_tool_result_action_item, local_tool_result_continuation_input,
     },
     model_tools::{ModelTools, build_model_tools},
     progress::{
@@ -1133,6 +1133,17 @@ impl CodexRuntimeActor {
                 item_tx,
             )
             .await?;
+            if let Some(item) = local_tool_artifact_reference_item(&result) {
+                let context = ConversationMemoryContext {
+                    turn_index: turn.turn_index,
+                    conversation_id: turn.conversation_id.clone(),
+                    turn_id: turn.turn_id.clone(),
+                    user_item_id: turn.user_item_id.clone(),
+                    assistant_item_id: None,
+                };
+                self.persist_and_send_turn_item(&context, item, item_tx)
+                    .await?;
+            }
             timing.mark(
                 "runtime_tool_result_persisted",
                 json!({
@@ -1573,6 +1584,17 @@ impl CodexRuntimeActor {
                     item_tx,
                 )
                 .await?;
+                if let Some(item) = local_tool_artifact_reference_item(&result) {
+                    let context = ConversationMemoryContext {
+                        turn_index: continuation_turn.turn_index,
+                        conversation_id: continuation_turn.conversation_id.clone(),
+                        turn_id: continuation_turn.turn_id.clone(),
+                        user_item_id: continuation_turn.user_item_id.clone(),
+                        assistant_item_id: None,
+                    };
+                    self.persist_and_send_turn_item(&context, item, item_tx)
+                        .await?;
+                }
                 timing.mark(
                     "runtime_tool_result_persisted",
                     json!({

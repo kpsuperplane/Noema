@@ -91,6 +91,16 @@ impl NoemaStore {
             .join(crate::paths::sanitize_path_segment(account_key))
     }
 
+    /// Reconstruct the resolved Noema paths for this store's home directory.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::NoemaPathError`] when the store was opened with an
+    /// unusable Noema home path.
+    pub(crate) fn noema_paths(&self) -> Result<crate::NoemaPaths, crate::NoemaPathError> {
+        crate::NoemaPaths::from_noema_home(self.noema_home.clone())
+    }
+
     /// Return a developer diagnostic logger rooted in this store's Noema home.
     #[cfg(test)]
     #[must_use]

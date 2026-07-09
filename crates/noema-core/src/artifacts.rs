@@ -36,6 +36,27 @@ pub struct NewConversationLocalFileArtifact {
     pub metadata: serde_json::Value,
 }
 
+/// Input for appending a local file version to a conversation-owned artifact.
+#[derive(Debug, Clone, PartialEq)]
+pub struct NewConversationLocalFileArtifactVersion {
+    /// Existing artifact id to append to.
+    pub artifact_id: String,
+    /// Optional version-specific title.
+    pub title: Option<String>,
+    /// Safe single-segment filename for this local file version.
+    pub filename: String,
+    /// Artifact bytes to persist locally.
+    pub bytes: Vec<u8>,
+    /// Optional media type for the local payload.
+    pub media_type: Option<String>,
+    /// Actor responsible for the appended version.
+    pub created_by_actor_id: String,
+    /// Optional transcript provenance for the version.
+    pub source: crate::ArtifactSource,
+    /// Arbitrary version metadata stored with the immutable version row.
+    pub metadata: serde_json::Value,
+}
+
 /// Errors produced while writing local artifact bytes and metadata.
 #[derive(Debug, Error)]
 pub enum ArtifactWriteError {
@@ -104,47 +125,7 @@ pub async fn create_conversation_local_file_artifact(
         paths.conversation_artifact_version_dir(&input.conversation_id, &artifact_id, 1);
     let artifact_path = version_dir.join(filename);
     let relative_path = artifact_relative_path(paths.root(), &artifact_path)?;
-
-    let root_dir =
-        open_cap_root(paths.root()).map_err(|source| ArtifactWriteError::CreateDirectory {
-            path: paths.root().to_path_buf(),
-            source,
-        })?;
-    let relative_version_dir = relative_path_for_cap_operation(paths.root(), &version_dir)
-        .map_err(ArtifactWriteError::Path)?;
-    root_dir
-        .create_dir_all(&relative_version_dir)
-        .map_err(|source| ArtifactWriteError::CreateDirectory {
-            path: version_dir.clone(),
-            source,
-        })?;
-    let version_dir_handle =
-        open_verified_cap_dir(&root_dir, paths.root(), &version_dir).map_err(|source| {
-            ArtifactWriteError::WriteFile {
-                path: version_dir.clone(),
-                source,
-            }
-        })?;
-
-    let mut options = OpenOptions::new();
-    options.write(true).create_new(true);
-    set_no_follow(&mut options);
-    let mut file = version_dir_handle
-        .open_with(Path::new(filename), &options)
-        .map_err(|source| ArtifactWriteError::WriteFile {
-            path: artifact_path.clone(),
-            source,
-        })?;
-    file.write_all(&input.bytes)
-        .map_err(|source| ArtifactWriteError::WriteFile {
-            path: artifact_path.clone(),
-            source,
-        })?;
-    file.flush()
-        .map_err(|source| ArtifactWriteError::WriteFile {
-            path: artifact_path.clone(),
-            source,
-        })?;
+    write_local_artifact_bytes(paths, &version_dir, &artifact_path, &input.bytes)?;
 
     let content_sha256 = sha256_hex(&input.bytes);
     let create_result = store
@@ -176,6 +157,77 @@ pub async fn create_conversation_local_file_artifact(
 
     match create_result {
         Ok(artifact) => Ok(artifact),
+        Err(store_error) => match tokio::fs::remove_file(&artifact_path).await {
+            Ok(()) => Err(ArtifactWriteError::Store(store_error)),
+            Err(cleanup_error) => Err(ArtifactWriteError::MetadataWriteRollback {
+                path: artifact_path,
+                store_error,
+                cleanup_error,
+            }),
+        },
+    }
+}
+
+/// Append a new local file version to an existing conversation-owned artifact.
+///
+/// # Errors
+///
+/// Returns [`ArtifactWriteError`] when the artifact is missing, not a
+/// conversation-owned local file artifact, the filename is unsafe, local file
+/// I/O fails, or the canonical version metadata write fails.
+pub async fn append_conversation_local_file_artifact_version(
+    store: &crate::NoemaStore,
+    paths: &crate::NoemaPaths,
+    input: NewConversationLocalFileArtifactVersion,
+) -> Result<crate::ArtifactVersionRecord, ArtifactWriteError> {
+    let artifact = store
+        .get_artifact(&input.artifact_id)
+        .await?
+        .ok_or_else(|| crate::StoreError::ArtifactNotFound {
+            artifact_id: input.artifact_id.clone(),
+        })?;
+    if artifact.artifact.owner.object_type != "conversation"
+        || artifact.artifact.storage_kind != crate::ArtifactStorageKind::LocalFile
+    {
+        return Err(ArtifactWriteError::Store(
+            crate::StoreError::ArtifactStorageKindMismatch,
+        ));
+    }
+
+    let next_version_index = artifact
+        .versions
+        .last()
+        .map_or(1, |version| version.version_index + 1);
+    let filename = crate::paths::safe_artifact_filename(&input.filename)?;
+    let version_dir = paths.conversation_artifact_version_dir(
+        &artifact.artifact.owner.object_id,
+        &artifact.artifact.artifact_id,
+        next_version_index,
+    );
+    let artifact_path = version_dir.join(filename);
+    let relative_path = artifact_relative_path(paths.root(), &artifact_path)?;
+    write_local_artifact_bytes(paths, &version_dir, &artifact_path, &input.bytes)?;
+
+    let content_sha256 = sha256_hex(&input.bytes);
+    let append_result = store
+        .append_artifact_version(
+            &artifact.artifact.artifact_id,
+            crate::NewArtifactVersion {
+                artifact_version_id: None,
+                title: input.title,
+                storage: crate::ArtifactVersionStorage::LocalFile { relative_path },
+                media_type: input.media_type,
+                byte_size: Some(input.bytes.len() as i64),
+                content_sha256: Some(content_sha256),
+                created_by_actor_id: input.created_by_actor_id,
+                source: input.source,
+                metadata: input.metadata,
+            },
+        )
+        .await;
+
+    match append_result {
+        Ok(version) => Ok(version),
         Err(store_error) => match tokio::fs::remove_file(&artifact_path).await {
             Ok(()) => Err(ArtifactWriteError::Store(store_error)),
             Err(cleanup_error) => Err(ArtifactWriteError::MetadataWriteRollback {
@@ -309,6 +361,60 @@ pub(crate) fn read_validated_local_artifact_file(
             value: absolute_path.display().to_string(),
         })?;
     Ok((absolute_path, bytes))
+}
+
+fn write_local_artifact_bytes(
+    paths: &crate::NoemaPaths,
+    version_dir: &Path,
+    artifact_path: &Path,
+    bytes: &[u8],
+) -> Result<(), ArtifactWriteError> {
+    let root_dir =
+        open_cap_root(paths.root()).map_err(|source| ArtifactWriteError::CreateDirectory {
+            path: paths.root().to_path_buf(),
+            source,
+        })?;
+    let relative_version_dir = relative_path_for_cap_operation(paths.root(), version_dir)
+        .map_err(ArtifactWriteError::Path)?;
+    root_dir
+        .create_dir_all(&relative_version_dir)
+        .map_err(|source| ArtifactWriteError::CreateDirectory {
+            path: version_dir.to_path_buf(),
+            source,
+        })?;
+    let version_dir_handle =
+        open_verified_cap_dir(&root_dir, paths.root(), version_dir).map_err(|source| {
+            ArtifactWriteError::WriteFile {
+                path: version_dir.to_path_buf(),
+                source,
+            }
+        })?;
+    let filename = artifact_path.file_name().ok_or_else(|| {
+        ArtifactWriteError::Path(crate::NoemaPathError::UnsafeArtifactFilename {
+            value: artifact_path.display().to_string(),
+        })
+    })?;
+
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    set_no_follow(&mut options);
+    let mut file = version_dir_handle
+        .open_with(Path::new(filename), &options)
+        .map_err(|source| ArtifactWriteError::WriteFile {
+            path: artifact_path.to_path_buf(),
+            source,
+        })?;
+    file.write_all(bytes)
+        .map_err(|source| ArtifactWriteError::WriteFile {
+            path: artifact_path.to_path_buf(),
+            source,
+        })?;
+    file.flush()
+        .map_err(|source| ArtifactWriteError::WriteFile {
+            path: artifact_path.to_path_buf(),
+            source,
+        })?;
+    Ok(())
 }
 
 fn artifact_relative_path(

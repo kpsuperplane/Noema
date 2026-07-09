@@ -186,6 +186,7 @@ fn result_arguments(result: &LocalToolResult) -> &Value {
     match result {
         LocalToolResult::Memory { arguments, .. }
         | LocalToolResult::AgentName { arguments, .. }
+        | LocalToolResult::Artifact { arguments, .. }
         | LocalToolResult::WebSearch { arguments, .. }
         | LocalToolResult::WebFetch { arguments, .. }
         | LocalToolResult::Gateway { arguments, .. } => arguments,
@@ -196,6 +197,7 @@ fn result_payload(result: &LocalToolResult) -> &Value {
     match result {
         LocalToolResult::Memory { result, .. } => &result.payload,
         LocalToolResult::AgentName { result, .. } => &result.payload,
+        LocalToolResult::Artifact { result, .. } => &result.payload,
         LocalToolResult::WebSearch { result, .. } => &result.payload,
         LocalToolResult::WebFetch { result, .. } => &result.payload,
         LocalToolResult::Gateway { result, .. } => &result.payload,

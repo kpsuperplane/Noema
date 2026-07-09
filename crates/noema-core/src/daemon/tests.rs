@@ -2974,6 +2974,87 @@ async fn native_provider_can_call_web_fetch_and_continue() {
 }
 
 #[tokio::test]
+async fn native_provider_can_create_local_artifact_with_two_versions_and_continue() {
+    let provider = Arc::new(
+        RecordingFakeProvider::new(
+            "codex",
+            FakeCodexScenario::NativeArtifactCreateLocalFileContinuation,
+        )
+        .with_tool_capabilities(ProviderToolCapabilities {
+            native_tools: true,
+            parallel_tool_calls: true,
+            native_tool_results: true,
+            schema_dialect: ProviderToolSchemaDialect::OpenAiResponses,
+            fallback_mode: ProviderToolFallbackMode::NativeRequired,
+            ..ProviderToolCapabilities::default()
+        }),
+    );
+    let home = tempfile::tempdir().expect("temp noema home");
+    let paths = crate::NoemaPaths::from_noema_home(home.path()).expect("paths");
+    let store = crate::NoemaStore::open(&crate::StoreConfig::from_paths(&paths))
+        .await
+        .expect("store");
+    std::mem::forget(home);
+    let handle = CodexRuntimeHandle::spawn_with_provider(provider.clone(), store.clone())
+        .await
+        .expect("runtime");
+    let conversation = handle.start_conversation(None).await.expect("conversation");
+
+    let items = collect_turn(
+        &handle,
+        conversation.conversation_id.clone(),
+        "Create a small artifact and revise it once.".to_string(),
+    )
+    .await
+    .expect("turn");
+
+    assert!(items.iter().any(|item| matches!(
+        item,
+        TurnTranscriptItem::AssistantText { text }
+            if text == "I created the two-version artifact."
+    )));
+    let artifacts = store
+        .list_artifacts_for_owner(
+            crate::ArtifactOwnerRef::conversation(&conversation.conversation_id),
+            10,
+        )
+        .await
+        .expect("artifacts");
+    assert_eq!(artifacts.len(), 1);
+    let artifact = &artifacts[0];
+    assert_eq!(artifact.artifact.title, "Agent artifact smoke note");
+    assert_eq!(artifact.versions.len(), 2);
+    assert_eq!(artifact.current_version.version_index, 2);
+    assert!(items.iter().any(|item| matches!(
+        item,
+        TurnTranscriptItem::ArtifactReference {
+            artifact_id,
+            artifact_version_id,
+            title,
+            storage_kind,
+            download_url: Some(download_url),
+            ..
+        } if artifact_id == &artifact.artifact.artifact_id
+            && artifact_version_id.as_deref() == Some(artifact.current_version.artifact_version_id.as_str())
+            && title == "Agent artifact smoke note"
+            && storage_kind == "local_file"
+            && download_url.ends_with("/download")
+    )));
+    let requests = provider.requests();
+    assert!(requests.iter().any(|request| {
+        let GenerateInput::NativeToolResults(results) = &request.input else {
+            return false;
+        };
+        results.iter().any(|result| {
+            result.name == "artifact.create_local_file"
+                && result.success
+                && result.payload["current_version_index"] == 2
+        })
+    }));
+    handle.shutdown().await;
+}
+
+#[tokio::test]
 async fn runtime_actor_continues_after_continuation_tool_call() {
     let (handle, _store, _server) = test_runtime_handle_with_mnemosyne(
         fake_provider(FakeCodexScenario::ChainedSearchMemoryContinuation),
@@ -4256,6 +4337,7 @@ enum FakeCodexScenario {
     NativeWebSearch,
     NativeWebSearchContinuation,
     NativeWebFetchContinuation,
+    NativeArtifactCreateLocalFileContinuation,
     ChainedSearchMemoryContinuation,
     MemoryContextQuestion,
     LongContinuationThenFinalization,
@@ -4594,6 +4676,40 @@ impl FakeCodexProvider {
                         "url": "https://example.com/page",
                         "reason": "answer the current question",
                         "max_chars": 5000
+                    }),
+                )],
+            },
+            FakeCodexScenario::NativeArtifactCreateLocalFileContinuation => match &request.input {
+                GenerateInput::NativeToolResults(results)
+                    if results.iter().any(|result| {
+                        result.name == "artifact.create_local_file"
+                            && result.success
+                            && result.payload["current_version_index"] == 2
+                    }) =>
+                {
+                    assistant_with_no_memories("I created the two-version artifact.")
+                }
+                GenerateInput::NativeToolResults(_) => {
+                    assistant_with_no_memories("wrong artifact tool result")
+                }
+                _ => vec![artifact_create_local_file_tool_call(
+                    "call_artifact_1",
+                    json!({
+                        "title": "Agent artifact smoke note",
+                        "description": "Created by the agent artifact tool test.",
+                        "artifact_kind": "document",
+                        "filename": "agent-artifact-smoke-note.md",
+                        "media_type": "text/markdown",
+                        "versions": [
+                            {
+                                "title": "Draft",
+                                "content": "# Agent artifact smoke note\n\nVersion one."
+                            },
+                            {
+                                "title": "Revision",
+                                "content": "# Agent artifact smoke note\n\nVersion two."
+                            }
+                        ]
                     }),
                 )],
             },
@@ -5189,6 +5305,19 @@ fn web_fetch_tool_call(id: &str, payload: serde_json::Value) -> GenerateOutputIt
         provider_call_id: Some(id.to_string()),
         provider_name: Some("web.fetch".to_string()),
         name: "web.fetch".to_string(),
+        payload,
+    }
+}
+
+fn artifact_create_local_file_tool_call(
+    id: &str,
+    payload: serde_json::Value,
+) -> GenerateOutputItem {
+    GenerateOutputItem::ToolCall {
+        id: Some(id.to_string()),
+        provider_call_id: Some(id.to_string()),
+        provider_name: Some("artifact.create_local_file".to_string()),
+        name: "artifact.create_local_file".to_string(),
         payload,
     }
 }

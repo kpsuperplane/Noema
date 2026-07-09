@@ -99,6 +99,14 @@ The next storage slice should stay small and concrete:
   artifact references in the transcript. The canonical store validates external
   artifact URLs as HTTP(S), and local artifact file writes/downloads reject
   symlinked artifact paths.
+- The primary agent can create conversation-owned local file artifacts through
+  the first-party `artifact.create_local_file` tool. The tool accepts complete
+  text versions from the model, writes local bytes through Noema's governed
+  artifact helpers, appends immutable version metadata, returns version
+  download URLs in the tool result, and persists a transcript artifact reference
+  for the current version. GraphQL may verify/read the resulting artifact, but
+  agent-created local artifacts should go through this runtime tool path rather
+  than direct artifact mutations.
 - Memory is governed context, not hidden model state. Durable memory truth now
   belongs to local Mnemosyne, while Noema owns service lifecycle, configuration,
   live readiness proxying, provenance, UI, model routing, ingest diagnostics,

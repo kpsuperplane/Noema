@@ -9,12 +9,17 @@ use serde_json::{Value, json};
 use super::{
     actor::CodexRuntimeActor, tool_lifecycle::LocalToolCall, turn::SuccessfulProviderTurn,
 };
+use crate::daemon::TurnTranscriptItem;
 use crate::daemon::{
     agent_name_tool::{
         AgentNameToolResult, AgentNameToolRuntimeContext, execute_update_own_name,
         is_update_own_name_tool,
     },
     agent_onboarding::AgentPromptIdentity,
+    artifact_tool::{
+        ArtifactToolResult, ArtifactToolRuntimeContext, execute_artifact_create_local_file,
+        is_artifact_create_local_file_tool,
+    },
     memory::tool::{
         MemoryToolResult, MemoryToolRuntimeContext, execute_search_memory, is_search_memory_tool,
     },
@@ -72,6 +77,26 @@ impl CodexRuntimeActor {
                 provider_name: call.provider_name.clone(),
                 arguments: call.payload.clone(),
                 result: execute_update_own_name(
+                    &self.store,
+                    &context,
+                    call.call_id.clone(),
+                    &call.payload,
+                )
+                .await,
+            }
+        } else if is_artifact_create_local_file_tool(&call.name) {
+            let context = ArtifactToolRuntimeContext {
+                conversation_id: turn.conversation_id.clone(),
+                turn_id: turn.turn_id.clone(),
+                user_item_id: turn.user_item_id.clone(),
+                created_by_actor_id: agent_identity.agent_id.clone(),
+            };
+            LocalToolResult::Artifact {
+                call_id: call.call_id.clone(),
+                provider_call_id: call.provider_call_id.clone(),
+                provider_name: call.provider_name.clone(),
+                arguments: call.payload.clone(),
+                result: execute_artifact_create_local_file(
                     &self.store,
                     &context,
                     call.call_id.clone(),
@@ -403,6 +428,13 @@ pub(super) enum LocalToolResult {
         arguments: Value,
         result: AgentNameToolResult,
     },
+    Artifact {
+        call_id: Option<String>,
+        provider_call_id: Option<String>,
+        provider_name: Option<String>,
+        arguments: Value,
+        result: ArtifactToolResult,
+    },
     WebSearch {
         call_id: Option<String>,
         provider_call_id: Option<String>,
@@ -432,6 +464,7 @@ impl LocalToolResult {
         match self {
             Self::Memory { call_id, .. }
             | Self::AgentName { call_id, .. }
+            | Self::Artifact { call_id, .. }
             | Self::WebSearch { call_id, .. }
             | Self::WebFetch { call_id, .. } => call_id.as_ref(),
             Self::Gateway { call_id, .. } => call_id.as_ref(),
@@ -444,6 +477,9 @@ impl LocalToolResult {
                 provider_call_id, ..
             }
             | Self::AgentName {
+                provider_call_id, ..
+            }
+            | Self::Artifact {
                 provider_call_id, ..
             }
             | Self::WebSearch {
@@ -462,6 +498,7 @@ impl LocalToolResult {
         match self {
             Self::Memory { provider_name, .. }
             | Self::AgentName { provider_name, .. }
+            | Self::Artifact { provider_name, .. }
             | Self::WebSearch { provider_name, .. }
             | Self::WebFetch { provider_name, .. }
             | Self::Gateway { provider_name, .. } => provider_name.as_ref(),
@@ -472,6 +509,7 @@ impl LocalToolResult {
         match self {
             Self::Memory { arguments, .. }
             | Self::AgentName { arguments, .. }
+            | Self::Artifact { arguments, .. }
             | Self::WebSearch { arguments, .. }
             | Self::WebFetch { arguments, .. }
             | Self::Gateway { arguments, .. } => arguments,
@@ -482,6 +520,7 @@ impl LocalToolResult {
         match self {
             Self::Memory { result, .. } => &result.name,
             Self::AgentName { result, .. } => &result.name,
+            Self::Artifact { result, .. } => &result.name,
             Self::WebSearch { result, .. } => &result.name,
             Self::WebFetch { result, .. } => &result.name,
             Self::Gateway { name, .. } => name,
@@ -492,6 +531,7 @@ impl LocalToolResult {
         match self {
             Self::Memory { result, .. } => result.success,
             Self::AgentName { result, .. } => result.success,
+            Self::Artifact { result, .. } => result.success,
             Self::WebSearch { result, .. } => result.success,
             Self::WebFetch { result, .. } => result.success,
             Self::Gateway { result, .. } => result.success,
@@ -502,6 +542,7 @@ impl LocalToolResult {
         match self {
             Self::Memory { result, .. } => &result.payload,
             Self::AgentName { result, .. } => &result.payload,
+            Self::Artifact { result, .. } => &result.payload,
             Self::WebSearch { result, .. } => &result.payload,
             Self::WebFetch { result, .. } => &result.payload,
             Self::Gateway { result, .. } => &result.payload,
@@ -510,7 +551,10 @@ impl LocalToolResult {
 
     pub(super) fn requires_provider_continuation(&self) -> bool {
         match self {
-            Self::Memory { .. } | Self::WebSearch { .. } | Self::WebFetch { .. } => true,
+            Self::Memory { .. }
+            | Self::Artifact { .. }
+            | Self::WebSearch { .. }
+            | Self::WebFetch { .. } => true,
             Self::AgentName { .. } => true,
             Self::Gateway { result, .. } => result.requires_provider_continuation,
         }
@@ -579,6 +623,42 @@ pub(super) fn local_tool_result_action_item(result: &LocalToolResult) -> Generat
         success: Some(result.success()),
         payload: result.payload().clone(),
     }
+}
+
+pub(super) fn local_tool_artifact_reference_item(
+    result: &LocalToolResult,
+) -> Option<TurnTranscriptItem> {
+    if !matches!(result, LocalToolResult::Artifact { .. }) || !result.success() {
+        return None;
+    }
+    let payload = result.payload();
+    let artifact_id = payload.get("artifact_id")?.as_str()?.to_string();
+    let title = payload.get("title")?.as_str()?.to_string();
+    let artifact_kind = payload.get("artifact_kind")?.as_str()?.to_string();
+    let storage_kind = payload.get("storage_kind")?.as_str()?.to_string();
+    let artifact_version_id = payload
+        .get("current_version_id")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    let download_url = payload
+        .get("download_url")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    let media_type = payload
+        .get("media_type")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+
+    Some(TurnTranscriptItem::ArtifactReference {
+        artifact_id,
+        artifact_version_id,
+        title,
+        artifact_kind,
+        storage_kind,
+        external_url: None,
+        download_url,
+        media_type,
+    })
 }
 
 #[cfg(test)]

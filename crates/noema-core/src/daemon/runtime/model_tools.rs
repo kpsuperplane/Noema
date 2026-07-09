@@ -2,6 +2,7 @@ use crate::{
     McpServerAuthStatus, McpServerHealthStatus, NoemaStore,
     daemon::{
         agent_name_tool::update_own_name_tool_spec,
+        artifact_tool::artifact_create_local_file_tool_spec,
         memory::tool::search_memory_tool_spec,
         runtime::turn::{mcp_auth_status_label, mcp_health_status_label},
     },
@@ -83,6 +84,7 @@ fn builtin_tool_specs(
     if include_agent_name_tool {
         specs.push(update_own_name_tool_spec()?);
     }
+    specs.push(artifact_create_local_file_tool_spec()?);
     Ok(specs)
 }
 
@@ -236,6 +238,7 @@ mod tests {
             vec![
                 "search_memory",
                 "update_own_name",
+                "artifact.create_local_file",
                 "web.search",
                 "web.fetch",
                 "mcp.mcp:docs.read"
@@ -296,7 +299,11 @@ mod tests {
         assert!(tools.native.is_empty());
         assert_eq!(
             tools.legacy_builtin_envelope_tools,
-            vec!["search_memory".to_string(), "update_own_name".to_string()]
+            vec![
+                "search_memory".to_string(),
+                "update_own_name".to_string(),
+                "artifact.create_local_file".to_string(),
+            ]
         );
         assert!(
             tools
