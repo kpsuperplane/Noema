@@ -22,15 +22,20 @@ export type MemoryArticleSection = {
   paragraphs: string[];
 };
 
+export type MemoryInfoboxRow = {
+  label: string;
+  value: string;
+};
+
 export type MemoryArticleModel = {
   title: string;
   subtitle: string;
   subjectName: string | null;
   totalMemories: number;
-  totalLabel: string;
-  lastUpdatedLabel: string;
-  primaryPattern: string;
-  recurringMotif: string;
+  initials: string;
+  portraitCaption: string;
+  infoboxRows: MemoryInfoboxRow[];
+  referenceCountLabel: string;
   leadText: string;
   leadParagraphs: string[];
   isStub: boolean;
@@ -42,7 +47,7 @@ export type MemoryArticleModel = {
 };
 
 const FALLBACK_TITLE = "Local human";
-const FALLBACK_SUBTITLE = "A biographical article from local memory";
+const FALLBACK_SUBTITLE = "From Noema, the private memory encyclopedia";
 
 export function buildMemoryArticleModel(graph: MemoryGraph | undefined): MemoryArticleModel {
   const entries = flattenEntries(graph?.documents ?? []);
@@ -51,18 +56,28 @@ export function buildMemoryArticleModel(graph: MemoryGraph | undefined): MemoryA
   const sourceObservations = uniqueSourceObservations(entries);
   const subjectName = inferSubjectName(entries) ?? subjectNameFromArticle(graph?.article);
   const articleContent = parseArticleMarkdown(graph?.article, entries);
-  const primaryPattern = entries.length > 0 ? "Brief biography" : "No stable facts yet";
-  const recurringMotif = entries.length > 0 ? inferRecurringMotif(entries) : "None yet";
+  const title = graph?.article.title?.trim() || subjectName || FALLBACK_TITLE;
+  const referenceCountLabel = formatCount(
+    sourceObservations.length || entries.length,
+    "citation",
+    "citations"
+  );
 
   return {
-    title: graph?.article.title?.trim() || subjectName || FALLBACK_TITLE,
+    title,
     subtitle: graph?.article.subtitle?.trim() || FALLBACK_SUBTITLE,
     subjectName,
     totalMemories,
-    totalLabel: formatCount(totalMemories, "fact", "facts"),
-    lastUpdatedLabel,
-    primaryPattern,
-    recurringMotif,
+    initials: initialsForTitle(title),
+    portraitCaption: subjectName ?? title,
+    infoboxRows: buildInfoboxRows({
+      entries,
+      knownFor: articleContent.leadText,
+      lastUpdatedLabel,
+      referenceCountLabel,
+      subjectName
+    }),
+    referenceCountLabel,
     leadText: articleContent.leadText,
     leadParagraphs: articleContent.leadParagraphs,
     isStub: entries.length < 3,
@@ -109,22 +124,70 @@ function buildStubText(entryCount: number): string {
   return "This biographical article is a stub. Additional durable facts may expand it over time.";
 }
 
+function buildInfoboxRows({
+  entries,
+  knownFor,
+  lastUpdatedLabel,
+  referenceCountLabel,
+  subjectName
+}: {
+  entries: MemoryArticleEntry[];
+  knownFor: string;
+  lastUpdatedLabel: string;
+  referenceCountLabel: string;
+  subjectName: string | null;
+}): MemoryInfoboxRow[] {
+  const rows: MemoryInfoboxRow[] = [
+    { label: "Name", value: subjectName ?? "Unknown" },
+    { label: "Known for", value: truncateInfoboxValue(knownFor) }
+  ];
+  const website = findWebsite(entries);
+  if (website) {
+    rows.push({ label: "Website", value: website });
+  }
+  rows.push(
+    { label: "References", value: referenceCountLabel },
+    { label: "Last updated", value: lastUpdatedLabel }
+  );
+  return rows;
+}
+
+function findWebsite(entries: MemoryArticleEntry[]): string | null {
+  for (const entry of entries) {
+    const match = /\b(?:https?:\/\/)?(?:www\.)?([a-z0-9-]+\.[a-z]{2,}(?:\/[^\s]*)?)/iu.exec(
+      entry.text
+    );
+    if (match?.[1]) {
+      return match[1].replace(/[),.;]+$/u, "");
+    }
+  }
+  return null;
+}
+
+function truncateInfoboxValue(value: string): string {
+  const normalized = value.replace(/\s+/gu, " ").trim();
+  if (!normalized) {
+    return "Not enough information";
+  }
+  return normalized.length > 96 ? `${normalized.slice(0, 93)}...` : normalized;
+}
+
 function buildReferences(
   entries: MemoryArticleEntry[],
   sourceObservations: MemoryArticleEntry[]
 ): string[] {
   if (entries.length === 0) {
-    return ["No extracted facts have been returned by Mnemosyne yet."];
+    return ["No local memory citations are available yet."];
   }
   if (sourceObservations.length > 0) {
-    return sourceObservations.map((entry, index) => {
+    return sourceObservations.map((entry) => {
       const timestamp = entry.updatedAt ?? entry.createdAt;
       const timestampLabel = timestamp ? `, ${formatDateTime(timestamp)}` : "";
-      return `${index + 1}. Source observation${timestampLabel}.`;
+      return `Local memory citation${timestampLabel}.`;
     });
   }
   const sourceTitles = [...new Set(entries.map((entry) => entry.sourceTitle))];
-  return sourceTitles.map((title) => `Source group: ${title}.`);
+  return sourceTitles.map((title) => `Local memory source: ${title}.`);
 }
 
 function parseArticleMarkdown(
@@ -248,6 +311,20 @@ function slugFromTitle(title: string): string {
   return slug || "biography";
 }
 
+function initialsForTitle(title: string): string {
+  const words = title
+    .split(/\s+/u)
+    .map((word) => word.replace(/[^A-Za-z0-9]/gu, ""))
+    .filter(Boolean);
+  if (words.length === 0) {
+    return "?";
+  }
+  return words
+    .slice(0, 2)
+    .map((word) => word[0]?.toUpperCase() ?? "")
+    .join("");
+}
+
 function uniqueSourceObservations(entries: MemoryArticleEntry[]): MemoryArticleEntry[] {
   const seen = new Set<string>();
   const observations: MemoryArticleEntry[] = [];
@@ -286,14 +363,6 @@ function biographicalTextFromFact(text: string): string {
     return `${selfIntroduction[1]} is the local human.`;
   }
   return text.replace(/^The user\b/u, "The human");
-}
-
-function inferRecurringMotif(entries: MemoryArticleEntry[]): string {
-  const first = entries[0]?.displayText.trim();
-  if (!first) {
-    return "None yet";
-  }
-  return first.length > 42 ? `${first.slice(0, 39)}...` : first;
 }
 
 function formatLatestUpdated(entries: MemoryArticleEntry[]): string {

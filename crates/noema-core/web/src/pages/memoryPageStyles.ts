@@ -22,45 +22,6 @@ export const styles = stylex.create({
     flexDirection: "column",
     height: "100%",
   },
-  tabs: {
-    display: "flex",
-    alignItems: "stretch",
-    borderBottomWidth: 1,
-    borderBottomStyle: "solid",
-    borderBottomColor: "#a2a9b1",
-    backgroundColor: "#f8f9fa",
-    fontFamily: wikiSans,
-    fontSize: 13,
-    overflowX: "auto",
-    flexShrink: 0,
-    flexGrow: 0,
-  },
-  tab: {
-    borderRightWidth: 1,
-    borderRightStyle: "solid",
-    borderRightColor: "#a2a9b1",
-    color: "#36c",
-    padding: "10px 14px",
-    whiteSpace: "nowrap"
-  },
-  tabActive: {
-    borderRightWidth: 1,
-    borderRightStyle: "solid",
-    borderRightColor: "#a2a9b1",
-    backgroundColor: "white",
-    color: "#202122",
-    padding: "10px 14px",
-    whiteSpace: "nowrap"
-  },
-  tabEnd: {
-    marginLeft: "auto",
-    borderLeftWidth: 1,
-    borderLeftStyle: "solid",
-    borderLeftColor: "#a2a9b1",
-    color: "#36c",
-    padding: "10px 14px",
-    whiteSpace: "nowrap"
-  },
   page: {
     maxWidth: 1220,
     margin: "0 auto",
@@ -151,29 +112,35 @@ export const styles = stylex.create({
     textAlign: "center",
     fontSize: 14
   },
-  discCell: {
+  portraitCell: {
     borderWidth: 1,
     borderStyle: "solid",
     borderColor: "#a2a9b1",
     backgroundColor: "white",
-    padding: 14,
+    padding: "14px 12px 10px",
     textAlign: "center"
   },
-  clusterDisc: {
-    width: 96,
-    height: 96,
+  portrait: {
+    width: 116,
+    height: 132,
     margin: "0 auto",
     borderWidth: 1,
     borderStyle: "solid",
     borderColor: "#a2a9b1",
-    borderRadius: "50%",
-    backgroundImage:
-      "conic-gradient(#8da69a 0 38%, #c2b47c 38% 59%, #b98b9d 59% 82%, #b8bdc5 82% 100%)"
+    backgroundColor: "#eaecf0",
+    color: "#202122",
+    display: "grid",
+    placeItems: "center",
+    fontFamily: wikiSerif,
+    fontSize: 34,
+    lineHeight: 1,
+    fontWeight: 400
   },
-  discLabel: {
-    marginTop: 6,
+  portraitCaption: {
+    marginTop: 7,
     color: "#54595d",
-    fontSize: 11
+    fontSize: 11,
+    lineHeight: 1.35
   },
   boxKey: {
     width: "42%",

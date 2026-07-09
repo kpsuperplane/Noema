@@ -596,7 +596,7 @@ async fn generate_memory_article(
         request.model = Some(model.to_string());
     }
     request.instructions = Some(
-        "Return Markdown only. Write a short Wikipedia-style biographical article from the supplied memory facts. Do not invent facts."
+        "Return Markdown only. Write a compact Wikipedia-style biographical article from the supplied memory facts. Do not invent facts."
             .to_string(),
     );
 
@@ -650,6 +650,7 @@ Use only these memory facts:
 
 Style:
 - Wikipedia-like, biographical, compact, and factual.
+- Lead with a concise identity sentence before expanding into details.
 - If little is known, make that charming but honest, e.g. "Little is currently known about Kevin."
 - Prefer the person's known name as the title when available; otherwise use "Local human".
 - Facts and source observations are from the local human's perspective.
@@ -661,9 +662,10 @@ Style:
 
 Return Markdown only:
 - Start with a single H1 title.
-- Then write 1-4 short paragraphs.
-- Use section headings only when there is enough substance.
-- Do not include citations or footnotes."#
+- Then write 1-3 compact lead paragraphs.
+- When facts support them, include H2 sections such as "Early life and education", "Career", "Projects", "Personal interests", or similarly natural biography headings.
+- Omit unsupported sections.
+- Do not include a References section, citations, or footnotes."#
     )
 }
 
@@ -720,7 +722,7 @@ fn markdown_to_memory_article(
     });
     GraphqlMemoryArticle {
         title,
-        subtitle: "A biographical article from local memory".to_string(),
+        subtitle: "From Noema, the private memory encyclopedia".to_string(),
         markdown,
         is_generated,
         generated_at,

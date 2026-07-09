@@ -11,7 +11,6 @@ import {
 } from "@/generated/graphql";
 import {
   buildMemoryArticleModel,
-  formatCount,
   type MemoryArticleModel
 } from "@/pages/memoryPageModel";
 import { styles } from "@/pages/memoryPageStyles";
@@ -78,9 +77,6 @@ export function MemoryPage() {
       aria-labelledby="memory-surface-title"
     >
       <div {...stylex.props(styles.wikiShell)}>
-        <nav {...stylex.props(styles.tabs)} aria-label="Memory article views">
-          <span {...stylex.props(styles.tabActive)}>Article</span>
-        </nav>
         <div {...stylex.props(styles.pageShell)}>
           <article {...stylex.props(styles.page)}>
             <h1 id="memory-surface-title" {...stylex.props(styles.articleTitle)}>
@@ -201,25 +197,21 @@ function MemoryInfobox({
             </th>
           </tr>
           <tr>
-            <td colSpan={2} {...stylex.props(styles.discCell)}>
-              <div {...stylex.props(styles.clusterDisc)} />
-              <div {...stylex.props(styles.discLabel)}>Topic distribution</div>
+            <td colSpan={2} {...stylex.props(styles.portraitCell)}>
+              <div {...stylex.props(styles.portrait)}>{article.initials}</div>
+              <div {...stylex.props(styles.portraitCaption)}>{article.portraitCaption}</div>
             </td>
           </tr>
-          <InfoRow label="Name" value={article.subjectName ?? "Unknown"} />
-          <InfoRow label="Article type" value={article.primaryPattern} />
-          <InfoRow label="Known facts" value={article.totalLabel} />
-          <InfoRow label="Lead fact" value={article.recurringMotif} />
-          <InfoRow label="Last updated" value={article.lastUpdatedLabel} />
+          {article.infoboxRows.map((row) => (
+            <InfoRow key={row.label} label={row.label} value={row.value} />
+          ))}
         </tbody>
       </table>
       <div {...stylex.props(styles.sidebox)}>
-        <strong>Citations</strong>
+        <strong>References</strong>
         <div {...stylex.props(styles.actionLinks)}>
-          <span>
-            {formatCount(article.sourceObservations.length, "source observation", "source observations")}
-          </span>
-          <span>Local memory record</span>
+          <span>{article.referenceCountLabel}</span>
+          <span>Private local record</span>
         </div>
       </div>
       <div {...stylex.props(styles.sidebox)}>
