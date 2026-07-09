@@ -102,7 +102,7 @@ const styles = stylex.create({
     borderColor: "color-mix(in srgb, currentColor 36%, transparent)",
     borderRadius: 999,
     backgroundColor: "color-mix(in srgb, currentColor 5%, transparent)",
-    color: "transparent"
+    color: "inherit"
   },
   optionIndicatorSelected: {
     borderColor: "var(--color-accent)",
