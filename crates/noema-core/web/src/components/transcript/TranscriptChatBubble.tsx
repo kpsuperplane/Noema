@@ -11,7 +11,7 @@ type ChatMessageBubbleXStyle = ChatMessageBubbleProps["xstyle"];
 
 const styles = stylex.create({
   message: {
-    width: "calc(100% - 40px)",
+    width: "calc(100% - var(--chat-opposite-avatar-gutter, 40px))",
     maxWidth: 720,
     minWidth: 0,
     alignItems: "flex-end"

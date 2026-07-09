@@ -19,7 +19,7 @@ const styles = stylex.create({
   content: {
     display: "flex",
     flex: 1,
-    maxWidth: "calc(100% - 40px)",
+    maxWidth: "calc(100% - var(--chat-opposite-avatar-gutter, 40px))",
     minWidth: 0,
     flexDirection: "column",
     gap: 10,
