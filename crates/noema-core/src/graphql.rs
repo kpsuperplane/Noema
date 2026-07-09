@@ -5,6 +5,7 @@
 //! repository methods instead of owning product behavior.
 
 mod agents;
+mod artifacts;
 mod chat;
 mod errors;
 mod local_status;

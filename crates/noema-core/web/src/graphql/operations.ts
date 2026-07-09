@@ -892,3 +892,41 @@ export const ConversationEventsDocument = gql`
     }
   }
 `;
+
+export const ArtifactsDocument = gql`
+  query Artifacts($ownerObjectType: String!, $ownerObjectId: String!, $limit: Int) {
+    artifacts(ownerObjectType: $ownerObjectType, ownerObjectId: $ownerObjectId, limit: $limit) {
+      artifactId
+      ownerObjectType
+      ownerObjectId
+      title
+      description
+      artifactKind
+      storageKind
+      currentVersion {
+        artifactVersionId
+        versionIndex
+        externalUrl
+        downloadUrl
+        mediaType
+      }
+    }
+  }
+`;
+
+export const CreateConversationExternalArtifactDocument = gql`
+  mutation CreateConversationExternalArtifact($input: CreateConversationExternalArtifactInput!) {
+    createConversationExternalArtifact(input: $input) {
+      artifactId
+      ownerObjectType
+      ownerObjectId
+      title
+      storageKind
+      currentVersion {
+        versionIndex
+        externalUrl
+        downloadUrl
+      }
+    }
+  }
+`;

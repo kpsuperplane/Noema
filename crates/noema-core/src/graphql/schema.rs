@@ -11,6 +11,7 @@ use super::{
     agents::{
         self, GraphqlAgent, GraphqlAgentModelPreference, GraphqlSaveAgentModelPreferenceInput,
     },
+    artifacts::{self, GraphqlCreateConversationExternalArtifactInput},
     chat::{
         self, GraphqlConversationEvent, GraphqlConversationTranscriptPage,
         GraphqlConversationTranscriptPageInput, GraphqlPrimaryConversation,
@@ -514,6 +515,28 @@ impl QueryRoot {
         let state = ctx.data_unchecked::<GraphqlState>();
         chat::conversation_transcript_page(state, input).await
     }
+
+    /// List artifacts for one concrete owner.
+    async fn artifacts(
+        &self,
+        ctx: &Context<'_>,
+        owner_object_type: String,
+        owner_object_id: String,
+        limit: Option<i32>,
+    ) -> Result<Vec<artifacts::GraphqlArtifact>> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        artifacts::artifacts(state, owner_object_type, owner_object_id, limit).await
+    }
+
+    /// Load one artifact by id.
+    async fn artifact(
+        &self,
+        ctx: &Context<'_>,
+        artifact_id: String,
+    ) -> Result<Option<artifacts::GraphqlArtifact>> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        artifacts::artifact(state, artifact_id).await
+    }
 }
 
 /// Root GraphQL mutation object.
@@ -661,6 +684,16 @@ impl MutationRoot {
     ) -> Result<GraphqlTurnAccepted> {
         let state = ctx.data_unchecked::<GraphqlState>();
         chat::send_multiple_choice_selection(state, input).await
+    }
+
+    /// Create a conversation-owned external artifact.
+    async fn create_conversation_external_artifact(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlCreateConversationExternalArtifactInput,
+    ) -> Result<artifacts::GraphqlArtifact> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        artifacts::create_conversation_external_artifact(state, input).await
     }
 
     /// Save reviewed MCP tool calibration.
@@ -4726,6 +4759,87 @@ mod tests {
             requests[0].model.as_deref(),
             Some("gpt-test-tool-classifier")
         );
+    }
+
+    #[tokio::test]
+    async fn create_conversation_external_artifact_mutation_round_trips() {
+        let store = crate::store::tests::test_store().await;
+        let conversation = store
+            .create_conversation(crate::NewConversation::local_chat(None, None))
+            .await
+            .expect("conversation");
+        let schema = build_schema(GraphqlState::for_tests_with_store(store));
+
+        let response = schema
+            .execute(async_graphql::Request::new(format!(
+                r#"
+                mutation {{
+                  createConversationExternalArtifact(input: {{
+                    conversationId: "{}"
+                    title: "Noema notes"
+                    artifactKind: "document"
+                    externalUrl: "https://notion.so/noema-notes"
+                    mediaType: "text/html"
+                  }}) {{
+                    artifactId
+                    ownerObjectType
+                    ownerObjectId
+                    title
+                    storageKind
+                    currentVersion {{
+                      versionIndex
+                      externalUrl
+                      downloadUrl
+                    }}
+                  }}
+                }}
+                "#,
+                conversation.conversation_id
+            )))
+            .await;
+
+        assert!(response.errors.is_empty(), "{:?}", response.errors);
+        let data = response.data.into_json().expect("json");
+        let artifact = &data["createConversationExternalArtifact"];
+        assert_eq!(artifact["ownerObjectType"], "conversation");
+        assert_eq!(artifact["ownerObjectId"], conversation.conversation_id);
+        assert_eq!(artifact["storageKind"], "EXTERNAL_URL");
+        assert_eq!(artifact["currentVersion"]["versionIndex"], 1);
+        assert_eq!(
+            artifact["currentVersion"]["downloadUrl"],
+            serde_json::Value::Null
+        );
+    }
+
+    #[tokio::test]
+    async fn create_conversation_external_artifact_rejects_non_http_url() {
+        let store = crate::store::tests::test_store().await;
+        let conversation = store
+            .create_conversation(crate::NewConversation::local_chat(None, None))
+            .await
+            .expect("conversation");
+        let schema = build_schema(GraphqlState::for_tests_with_store(store));
+
+        let response = schema
+            .execute(async_graphql::Request::new(format!(
+                r#"
+                mutation {{
+                  createConversationExternalArtifact(input: {{
+                    conversationId: "{}"
+                    title: "Bad"
+                    artifactKind: "document"
+                    externalUrl: "file:///tmp/secret.txt"
+                  }}) {{
+                    artifactId
+                  }}
+                }}
+                "#,
+                conversation.conversation_id
+            )))
+            .await;
+
+        assert!(!response.errors.is_empty());
+        assert!(response.errors[0].message.contains("HTTP"));
     }
 
     #[tokio::test]
