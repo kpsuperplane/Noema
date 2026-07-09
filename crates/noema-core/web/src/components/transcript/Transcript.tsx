@@ -263,11 +263,13 @@ function renderTranscriptEntry(
   }
   if (entry.type === "multiple_choice_prompt") {
     const promptItemId = entry.itemId ?? entry.id;
+    const submittedSelectedOptionIds = multipleChoicePromptSelectedOptionIds(entries, promptItemId);
     return (
       <MultipleChoicePrompt
-        disabled={multipleChoicePromptHasSelection(entries, promptItemId)}
+        disabled={submittedSelectedOptionIds.size > 0}
         item={entry.item}
         promptItemId={promptItemId}
+        submittedSelectedOptionIds={submittedSelectedOptionIds}
         showAvatar={showAvatar}
         onSubmit={onSubmitMultipleChoiceSelection}
       />
@@ -286,10 +288,14 @@ function renderTranscriptEntry(
   return <ErrorNotice message={entry.message} recoverable={entry.recoverable} />;
 }
 
-function multipleChoicePromptHasSelection(entries: TranscriptEntry[], promptItemId: string): boolean {
-  return entries.some(
+function multipleChoicePromptSelectedOptionIds(entries: TranscriptEntry[], promptItemId: string): ReadonlySet<string> {
+  const selection = entries.find(
     (entry) => entry.type === "multiple_choice_selection" && entry.item.prompt_item_id === promptItemId
   );
+  if (selection?.type !== "multiple_choice_selection") {
+    return new Set();
+  }
+  return new Set(selection.item.selected_options.map((option) => option.id));
 }
 
 function AnimatedToolDetailRow({
