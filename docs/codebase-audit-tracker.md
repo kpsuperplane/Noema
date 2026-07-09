@@ -164,6 +164,70 @@ Priority labels:
 - [ ] **P3** Remove obsolete frontend barrel wrappers and dead state/prop chains.
 - [ ] **P3** Move component-specific animation rules out of global CSS where practical.
 
+### Multi-Crate Workspace Plan
+
+Splitting `noema-core` should optimize incremental development builds and
+architectural isolation rather than assume that more crates will improve clean
+workspace builds. The first pass should remain deliberately small: additional
+rustc invocations and cross-crate APIs can make clean builds slower when the
+boundaries are too granular.
+
+Target dependency direction:
+
+```text
+noema-domain
+    |---> noema-store ---------|
+    |                           |---> noema-runtime --|
+    `---> noema-integrations --|                     |
+                                                      |---> noema-core
+                    noema-store ---> noema-api -------|       |
+                                         ^                    |---> noema-server
+                                         |                    `---> noema-desktop
+                                  noema-runtime
+```
+
+Proposed responsibilities:
+
+- `noema-domain`: IDs, concrete object and conversation types, provider/tool
+  contracts, capability types, and shared typed errors. Keep dependencies small.
+- `noema-store`: SQLite schema, records, repositories, and store-specific tests.
+- `noema-integrations`: provider adapters, MCP transports, Mnemosyne lifecycle,
+  search, and web fetch. Split providers or MCP further only when measurements
+  show an independent hotspot.
+- `noema-runtime`: turn orchestration, tool lifecycle, context planning,
+  transcript persistence, and supervised runtime workers.
+- `noema-api`: GraphQL schema, resolvers, subscriptions, and API read models.
+- `noema-core`: thin composition facade containing `NoemaRuntimeHost` and curated
+  re-exports. Lower-level crates must never depend back on this facade.
+- `noema-server`: HTTP/WebSocket transport, web asset embedding, server/dev
+  binaries, and the asset-related build script.
+- `noema-desktop`: existing Tauri shell depending on the composition facade.
+
+Staged extraction:
+
+- [ ] **P2** Capture baseline `cargo build --timings` results before changing crate boundaries.
+- [ ] **P2** Measure incremental checks after representative GraphQL, store, provider, and frontend-asset edits.
+- [ ] **P1** Extract `noema-server` so frontend assets and sidecar source changes no longer invalidate the entire core crate.
+- [ ] **P1** Move `daemon/web/**`, `graphql/**`, `noema_web`, `noema_dev`, and web asset embedding into the server/API boundary.
+- [ ] **P1** Make release asset generation fail when required entry assets are absent.
+- [ ] **P1** Extract `noema-store` with no dependency on GraphQL, provider adapters, MCP transports, or web parsing.
+- [ ] **P2** Extract stable shared types into `noema-domain` after server and store boundaries clarify dependency direction.
+- [ ] **P2** Extract runtime orchestration into `noema-runtime`.
+- [ ] **P2** Extract provider, MCP, memory, search, and fetch adapters into `noema-integrations`.
+- [ ] **P2** Reduce `noema-core` to composition and curated public re-exports.
+- [ ] **P2** Update `noema-desktop` to depend only on the composition/API surfaces it requires.
+- [ ] **P2** Move subsystem tests into their owning crates so focused package tests avoid unrelated dependencies.
+- [ ] **P2** Compare clean and incremental timings after each extraction and stop splitting when gains flatten.
+
+Boundary guardrails:
+
+- [ ] Keep dependency flow acyclic and directed from domain toward composition.
+- [ ] Avoid broad internal preludes or facade imports in lower-level crates.
+- [ ] Use `pub(crate)` and narrow public interfaces instead of exporting implementation details solely to complete the split.
+- [ ] Avoid cross-crate generic-heavy APIs unless measurements justify them.
+- [ ] Preserve workspace dependency inheritance, lints, MSRV, and validation commands across every crate.
+- [ ] Keep the initial split to a small number of cohesive crates; create provider- or MCP-specific crates only from measured evidence.
+
 ## Testing And CI
 
 - [ ] **P1** Add a CI workflow covering Rust, frontend, Python, generated artifacts, and release packaging.
