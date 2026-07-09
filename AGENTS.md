@@ -23,7 +23,10 @@
 - Treat raw `~/.codex/sessions` files as private source material. Read them only when asked, summarize durable decisions, and do not quote raw transcript unless explicitly requested.
 
 ## Review And Subagents
-- Default coding subagents to `5.5-medium` and all other subagents to `5.5-high`.
+- Default coding subagents to `gpt-5.6-terra` with medium reasoning.
+- Use `gpt-5.6-sol` with high reasoning for difficult architecture and adversarial review.
+- Use `gpt-5.6-luna` with low or medium reasoning only for mechanical, high-volume work.
+- Keep narrow changes inline when delegation overhead would exceed the implementation work.
 - For implementation work, assign disjoint ownership by large areas (eg. frontend implementation, rust changes).
 - For adversarial review, reviewers should inspect and report findings without editing files.
 - The main agent owns final integration, validation, and the user-facing summary.
