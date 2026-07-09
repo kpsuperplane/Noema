@@ -44,7 +44,7 @@ const styles = stylex.create({
     height: "100%",
     minHeight: 0,
     alignContent: "end",
-    padding: "64px 24px calc(var(--chat-composer-dock-height, 90px) + 42px)",
+    padding: "64px 24px max(80px, calc(var(--chat-composer-dock-height, 90px) + 16px))",
     overflow: "hidden",
     "@media (max-width: 760px)": {
       paddingInline: 20
