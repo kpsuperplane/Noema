@@ -111,6 +111,74 @@ async fn artifact_external_url_initial_version_round_trips() {
 }
 
 #[tokio::test]
+async fn conversation_local_file_artifact_writes_bytes_and_metadata() {
+    let home = TempDir::new().expect("temp noema home");
+    let paths = crate::NoemaPaths::from_noema_home(home.path()).expect("paths");
+    let store = crate::NoemaStore::open(&crate::StoreConfig::from_paths(&paths))
+        .await
+        .expect("open store");
+    let conversation = store
+        .create_conversation(crate::NewConversation::local_chat(None, None))
+        .await
+        .expect("conversation");
+    let bytes = b"# report\n".to_vec();
+
+    let artifact = crate::create_conversation_local_file_artifact(
+        &store,
+        &paths,
+        crate::NewConversationLocalFileArtifact {
+            conversation_id: conversation.conversation_id.clone(),
+            title: "Session report".to_string(),
+            description: Some("Local markdown artifact".to_string()),
+            artifact_kind: "document".to_string(),
+            filename: "report.md".to_string(),
+            bytes: bytes.clone(),
+            media_type: Some("text/markdown".to_string()),
+            created_by_actor_id: "agent:primary".to_string(),
+            source: crate::ArtifactSource {
+                conversation_id: Some(conversation.conversation_id.clone()),
+                turn_id: None,
+                item_id: None,
+            },
+            metadata: serde_json::json!({"origin": "unit-test"}),
+        },
+    )
+    .await
+    .expect("create local artifact");
+
+    assert_eq!(
+        artifact.artifact.storage_kind,
+        crate::ArtifactStorageKind::LocalFile
+    );
+    assert_eq!(artifact.current_version.version_index, 1);
+    assert_eq!(
+        artifact.current_version.media_type.as_deref(),
+        Some("text/markdown")
+    );
+    assert_eq!(artifact.current_version.byte_size, Some(bytes.len() as i64));
+    assert!(artifact.current_version.content_sha256.is_some());
+
+    let relative_path = match &artifact.current_version.storage {
+        crate::ArtifactVersionStorage::LocalFile { relative_path } => relative_path,
+        crate::ArtifactVersionStorage::ExternalUrl { .. } => {
+            panic!("expected local file storage")
+        }
+    };
+    let absolute_path = paths.root().join(relative_path);
+    assert_eq!(
+        tokio::fs::read(&absolute_path).await.expect("read bytes"),
+        bytes
+    );
+    assert!(
+        absolute_path.starts_with(paths.conversation_artifacts_dir(&conversation.conversation_id))
+    );
+    assert_eq!(
+        artifact.artifact.metadata,
+        serde_json::json!({"origin": "unit-test"})
+    );
+}
+
+#[tokio::test]
 async fn append_artifact_version_updates_current_version() {
     let store = test_store().await;
     let conversation = store

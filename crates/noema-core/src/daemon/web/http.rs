@@ -179,6 +179,29 @@ pub(super) async fn write_response(
     Ok(())
 }
 
+pub(super) async fn write_binary_response(
+    stream: &mut TcpStream,
+    status: &str,
+    content_type: &str,
+    content_disposition: Option<&str>,
+    body: &[u8],
+) -> Result<(), DaemonError> {
+    let mut headers = format!(
+        "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nCache-Control: no-store\r\nConnection: close\r\n",
+        body.len()
+    );
+    if let Some(content_disposition) = content_disposition {
+        headers.push_str("Content-Disposition: ");
+        headers.push_str(content_disposition);
+        headers.push_str("\r\n");
+    }
+    headers.push_str("\r\n");
+    stream.write_all(headers.as_bytes()).await?;
+    stream.write_all(body).await?;
+    stream.flush().await?;
+    Ok(())
+}
+
 pub(super) async fn write_json<T: Serialize>(
     stream: &mut TcpStream,
     status: &str,

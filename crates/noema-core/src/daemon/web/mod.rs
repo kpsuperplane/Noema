@@ -14,7 +14,7 @@ use crate::WebConfig;
 use self::{
     assets::embedded_asset,
     graphql_ws::upgrade_graphql_websocket,
-    http::{HttpRequest, write_json, write_json_error, write_response},
+    http::{HttpRequest, write_binary_response, write_json, write_json_error, write_response},
     origin::validate_json_post_request,
 };
 
@@ -109,6 +109,12 @@ pub(super) async fn handle_connection(
         return Ok(());
     }
 
+    if let Some(artifact_version_id) = artifact_download_version_id(&request.method, &request.path)
+    {
+        handle_artifact_download(&mut stream, state, artifact_version_id).await?;
+        return Ok(());
+    }
+
     if is_graphql_http_route(&request.method, &request.path) {
         handle_graphql_http(&mut stream, state, &request).await?;
         return Ok(());
@@ -157,6 +163,18 @@ fn is_mcp_oauth_callback_route(method: &str, path: &str) -> bool {
     method == "GET" && path == "/mcp/oauth/callback"
 }
 
+fn artifact_download_version_id<'a>(method: &str, path: &'a str) -> Option<&'a str> {
+    if method != "GET" {
+        return None;
+    }
+    let rest = path.strip_prefix("/artifacts/")?;
+    let artifact_version_id = rest.strip_suffix("/download")?;
+    if artifact_version_id.is_empty() || artifact_version_id.contains('/') {
+        return None;
+    }
+    Some(artifact_version_id)
+}
+
 #[cfg(test)]
 fn is_supported_product_route(method: &str, path: &str) -> bool {
     is_graphiql_route(method, path)
@@ -164,6 +182,7 @@ fn is_supported_product_route(method: &str, path: &str) -> bool {
         || is_graphql_schema_route(method, path)
         || is_graphql_ws_route(method, path)
         || is_mcp_oauth_callback_route(method, path)
+        || artifact_download_version_id(method, path).is_some()
 }
 
 async fn handle_mcp_oauth_callback(
@@ -277,6 +296,107 @@ async fn handle_graphql_http(
     write_json(stream, "200 OK", &response).await
 }
 
+async fn handle_artifact_download(
+    stream: &mut TcpStream,
+    state: WebState,
+    artifact_version_id: &str,
+) -> Result<(), DaemonError> {
+    let store = state
+        .graphql_state()
+        .store()
+        .map_err(|error| DaemonError::Protocol(error.message.to_string()))?;
+    let paths = state
+        .graphql_state()
+        .paths()
+        .map_err(|error| DaemonError::Protocol(error.message.to_string()))?;
+
+    let Some(version) = store
+        .get_artifact_version(artifact_version_id)
+        .await
+        .map_err(|error| DaemonError::Protocol(error.to_string()))?
+    else {
+        write_response(
+            stream,
+            "404 Not Found",
+            "text/plain; charset=utf-8",
+            b"not found",
+        )
+        .await?;
+        return Ok(());
+    };
+
+    let Some(_artifact) = store
+        .get_artifact(&version.artifact_id)
+        .await
+        .map_err(|error| DaemonError::Protocol(error.to_string()))?
+    else {
+        write_response(
+            stream,
+            "404 Not Found",
+            "text/plain; charset=utf-8",
+            b"not found",
+        )
+        .await?;
+        return Ok(());
+    };
+
+    let crate::ArtifactVersionStorage::LocalFile { relative_path } = &version.storage else {
+        write_response(
+            stream,
+            "404 Not Found",
+            "text/plain; charset=utf-8",
+            b"not found",
+        )
+        .await?;
+        return Ok(());
+    };
+
+    let absolute_path = match crate::artifacts::local_artifact_absolute_path(paths, relative_path) {
+        Ok(path) => path,
+        Err(_) => {
+            write_response(
+                stream,
+                "404 Not Found",
+                "text/plain; charset=utf-8",
+                b"not found",
+            )
+            .await?;
+            return Ok(());
+        }
+    };
+    let bytes = match tokio::fs::read(&absolute_path).await {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            write_response(
+                stream,
+                "404 Not Found",
+                "text/plain; charset=utf-8",
+                b"not found",
+            )
+            .await?;
+            return Ok(());
+        }
+        Err(error) => return Err(DaemonError::Protocol(error.to_string())),
+    };
+    let filename = absolute_path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .ok_or_else(|| DaemonError::Protocol("artifact path is missing a filename".to_string()))?;
+    let content_disposition = format!("attachment; filename=\"{filename}\"");
+    let content_type = version
+        .media_type
+        .as_deref()
+        .unwrap_or("application/octet-stream");
+    write_binary_response(
+        stream,
+        "200 OK",
+        content_type,
+        Some(&content_disposition),
+        &bytes,
+    )
+    .await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -290,7 +410,7 @@ mod tests {
     };
     use serde_json::json;
     use tokio::{
-        io::AsyncWriteExt,
+        io::{AsyncReadExt, AsyncWriteExt},
         net::{TcpListener, TcpStream},
     };
 
@@ -327,6 +447,26 @@ mod tests {
     #[test]
     fn graphql_ws_endpoint_accepts_get_path() {
         assert!(is_graphql_ws_route("GET", "/graphql/ws"));
+    }
+
+    #[test]
+    fn artifact_download_route_accepts_get_path() {
+        assert_eq!(
+            artifact_download_version_id("GET", "/artifacts/artifact_version_123/download"),
+            Some("artifact_version_123")
+        );
+        assert_eq!(
+            artifact_download_version_id("POST", "/artifacts/x/download"),
+            None
+        );
+        assert_eq!(
+            artifact_download_version_id("GET", "/artifacts//download"),
+            None
+        );
+        assert_eq!(
+            artifact_download_version_id("GET", "/artifacts/x/download/extra"),
+            None
+        );
     }
 
     #[test]
@@ -667,6 +807,79 @@ mod tests {
                 error_message: None,
             }]
         );
+    }
+
+    #[tokio::test]
+    async fn artifact_download_route_serves_local_artifact_bytes() {
+        let home = tempfile::tempdir().expect("temp dir");
+        let paths = crate::NoemaPaths::from_noema_home(home.path()).expect("paths");
+        let store = crate::NoemaStore::open(&crate::StoreConfig::from_paths(&paths))
+            .await
+            .expect("open store");
+        let conversation = store
+            .create_conversation(crate::NewConversation::local_chat(None, None))
+            .await
+            .expect("conversation");
+        let artifact = crate::create_conversation_local_file_artifact(
+            &store,
+            &paths,
+            crate::NewConversationLocalFileArtifact {
+                conversation_id: conversation.conversation_id.clone(),
+                title: "Downloadable report".to_string(),
+                description: None,
+                artifact_kind: "document".to_string(),
+                filename: "report.md".to_string(),
+                bytes: b"hello download".to_vec(),
+                media_type: Some("text/markdown".to_string()),
+                created_by_actor_id: "agent:primary".to_string(),
+                source: crate::ArtifactSource {
+                    conversation_id: Some(conversation.conversation_id),
+                    turn_id: None,
+                    item_id: None,
+                },
+                metadata: json!({}),
+            },
+        )
+        .await
+        .expect("local artifact");
+        let state = WebState::new(
+            crate::graphql::GraphqlState::for_tests_with_store_and_paths(store, paths),
+        );
+        let listener = TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .expect("bind listener");
+        let address = listener.local_addr().expect("listener address");
+
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.expect("accept");
+            handle_connection(stream, state)
+                .await
+                .expect("handle connection");
+        });
+
+        let mut client = TcpStream::connect(address).await.expect("connect client");
+        let request = format!(
+            "GET {} HTTP/1.1\r\nHost: localhost\r\n\r\n",
+            crate::artifact_download_url(&artifact.current_version.artifact_version_id)
+        );
+        client
+            .write_all(request.as_bytes())
+            .await
+            .expect("write request");
+        client.flush().await.expect("flush request");
+        let mut response = Vec::new();
+        client
+            .read_to_end(&mut response)
+            .await
+            .expect("read response");
+
+        server.await.expect("server task");
+
+        let response = String::from_utf8(response).expect("utf-8 response");
+        assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
+        assert!(response.contains("Content-Type: text/markdown\r\n"));
+        assert!(response.contains("Content-Disposition: attachment; filename=\"report.md\"\r\n"));
+        assert!(response.ends_with("\r\n\r\nhello download"));
     }
 
     #[tokio::test]

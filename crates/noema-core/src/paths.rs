@@ -3,7 +3,7 @@
 use std::{
     env,
     ffi::OsString,
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
 };
 use thiserror::Error;
 
@@ -127,6 +127,39 @@ impl NoemaPaths {
         self.mnemosyne_dir().join("run")
     }
 
+    /// Path to the conversation filesystem root.
+    #[must_use]
+    pub fn conversations_dir(&self) -> PathBuf {
+        self.root.join("conversations")
+    }
+
+    /// Path to one conversation's durable filesystem directory.
+    #[must_use]
+    pub fn conversation_dir(&self, conversation_id: &str) -> PathBuf {
+        self.conversations_dir()
+            .join(sanitize_path_segment(conversation_id))
+    }
+
+    /// Path to one conversation's artifact root.
+    #[must_use]
+    pub fn conversation_artifacts_dir(&self, conversation_id: &str) -> PathBuf {
+        self.conversation_dir(conversation_id).join("artifacts")
+    }
+
+    /// Path to one conversation artifact version directory.
+    #[must_use]
+    pub fn conversation_artifact_version_dir(
+        &self,
+        conversation_id: &str,
+        artifact_id: &str,
+        version_index: i64,
+    ) -> PathBuf {
+        self.conversation_artifacts_dir(conversation_id)
+            .join(sanitize_path_segment(artifact_id))
+            .join("versions")
+            .join(version_index.to_string())
+    }
+
     /// Path to the provider credential root.
     #[must_use]
     pub fn providers_dir(&self) -> PathBuf {
@@ -176,6 +209,13 @@ pub enum NoemaPathError {
     /// The `NOEMA_HOME` value was present but empty.
     #[error("{NOEMA_HOME_ENV} cannot be empty")]
     EmptyNoemaHome,
+
+    /// Artifact filename was empty or unsafe for local artifact storage.
+    #[error("artifact filename must be a single safe path segment: {value}")]
+    UnsafeArtifactFilename {
+        /// Rejected raw filename value.
+        value: String,
+    },
 }
 
 pub(crate) fn sanitize_path_segment(value: &str) -> String {
@@ -193,6 +233,22 @@ pub(crate) fn sanitize_path_segment(value: &str) -> String {
         "_".to_string()
     } else {
         sanitized
+    }
+}
+
+pub(crate) fn safe_artifact_filename(value: &str) -> Result<&str, NoemaPathError> {
+    if value.is_empty() || value.contains('\\') {
+        return Err(NoemaPathError::UnsafeArtifactFilename {
+            value: value.to_string(),
+        });
+    }
+
+    let mut components = Path::new(value).components();
+    match (components.next(), components.next()) {
+        (Some(Component::Normal(_)), None) => Ok(value),
+        _ => Err(NoemaPathError::UnsafeArtifactFilename {
+            value: value.to_string(),
+        }),
     }
 }
 
@@ -241,6 +297,26 @@ mod tests {
             paths.errors_log_path(),
             PathBuf::from("/tmp/noema/errors.log")
         );
+    }
+
+    #[test]
+    fn conversation_artifact_version_dir_lives_under_conversation_artifacts() {
+        let paths = NoemaPaths::from_noema_home("/tmp/noema").expect("paths");
+
+        assert_eq!(
+            paths.conversation_artifact_version_dir("conversation:abc", "artifact:def", 2),
+            PathBuf::from(
+                "/tmp/noema/conversations/conversation_abc/artifacts/artifact_def/versions/2"
+            )
+        );
+    }
+
+    #[test]
+    fn safe_artifact_filename_rejects_path_traversal() {
+        assert!(safe_artifact_filename("report.md").is_ok());
+        assert!(safe_artifact_filename("../report.md").is_err());
+        assert!(safe_artifact_filename("nested/report.md").is_err());
+        assert!(safe_artifact_filename("").is_err());
     }
 
     #[test]

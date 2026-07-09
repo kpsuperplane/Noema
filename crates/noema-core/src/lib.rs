@@ -4,6 +4,8 @@
 //! runtime support, home-directory setup, path resolution, and the memory
 //! retrieval model.
 
+/// Governed artifact filesystem helpers and local artifact writers.
+pub mod artifacts;
 /// Capability Gateway runtime entrypoint.
 pub mod capability;
 /// Configuration loading and provider selection.
@@ -45,6 +47,10 @@ pub mod system_errors;
 #[doc(hidden)]
 pub mod web_fetch;
 
+pub use artifacts::{
+    ArtifactWriteError, NewConversationLocalFileArtifact, artifact_download_url,
+    create_conversation_local_file_artifact,
+};
 pub use capability::{CapabilityGateway, GatewayToolProposal, GatewayToolResult};
 pub use config::{
     Config, ConfigError, ConfigOverrides, DaemonResolvedConfig, FoundationLocalProviderConfig,
