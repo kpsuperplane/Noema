@@ -203,6 +203,126 @@ type AgentStatusEvent {
 }
 
 """
+Artifact metadata safe to expose to GraphQL clients.
+"""
+type Artifact {
+	"""
+	Stable artifact id.
+	"""
+	artifactId: String!
+	"""
+	Concrete owner object type.
+	"""
+	ownerObjectType: String!
+	"""
+	Concrete owner object id.
+	"""
+	ownerObjectId: String!
+	"""
+	Human-readable artifact title.
+	"""
+	title: String!
+	"""
+	Optional artifact description.
+	"""
+	description: String
+	"""
+	Product-defined artifact kind label.
+	"""
+	artifactKind: String!
+	"""
+	Durable storage family shared by every version.
+	"""
+	storageKind: ArtifactStorageKind!
+	"""
+	Current immutable version.
+	"""
+	currentVersion: ArtifactVersion!
+}
+
+"""
+Artifact reference transcript item.
+"""
+type ArtifactReference {
+	"""
+	Stable artifact id.
+	"""
+	artifactId: String!
+	"""
+	Optional referenced artifact version id.
+	"""
+	artifactVersionId: String
+	"""
+	Display title captured in the transcript row.
+	"""
+	title: String!
+	"""
+	Product-defined artifact kind label.
+	"""
+	artifactKind: String!
+	"""
+	Durable storage family for the referenced artifact.
+	"""
+	storageKind: String!
+	"""
+	External durable URL when the artifact is externally hosted.
+	"""
+	externalUrl: String
+	"""
+	Local download route when the artifact bytes live in Noema.
+	"""
+	downloadUrl: String
+	"""
+	Optional media type for the referenced version payload.
+	"""
+	mediaType: String
+}
+
+"""
+Artifact storage kind exposed through GraphQL.
+"""
+enum ArtifactStorageKind {
+	"""
+	Artifact bytes live in the local Noema filesystem.
+	"""
+	LOCAL_FILE
+	"""
+	Artifact content is referenced by an external durable URL.
+	"""
+	EXTERNAL_URL
+}
+
+"""
+Artifact version metadata safe to expose to GraphQL clients.
+"""
+type ArtifactVersion {
+	"""
+	Stable artifact version id.
+	"""
+	artifactVersionId: String!
+	"""
+	Parent artifact id.
+	"""
+	artifactId: String!
+	"""
+	Monotonic version index within the artifact.
+	"""
+	versionIndex: Int!
+	"""
+	Durable external URL when the version is externally hosted.
+	"""
+	externalUrl: String
+	"""
+	Local download route when the version is stored in Noema.
+	"""
+	downloadUrl: String
+	"""
+	Optional media type for the version payload.
+	"""
+	mediaType: String
+}
+
+"""
 Assistant connection exposed to clients.
 """
 enum AssistantConnection {
@@ -408,6 +528,36 @@ input ConversationTranscriptPageInput {
 	Page size. Defaults to 80 and must be within 1..=200.
 	"""
 	limit: Int
+}
+
+"""
+Input for creating a conversation-owned external URL artifact.
+"""
+input CreateConversationExternalArtifactInput {
+	"""
+	Owning conversation id.
+	"""
+	conversationId: String!
+	"""
+	Human-readable artifact title.
+	"""
+	title: String!
+	"""
+	Optional artifact description.
+	"""
+	description: String
+	"""
+	Product-defined artifact kind label.
+	"""
+	artifactKind: String!
+	"""
+	Durable external HTTP(S) URL for the initial version.
+	"""
+	externalUrl: String!
+	"""
+	Optional media type for the external payload.
+	"""
+	mediaType: String
 }
 
 """
@@ -1283,6 +1433,10 @@ type MutationRoot {
 	"""
 	sendMultipleChoiceSelection(input: SendMultipleChoiceSelectionInput!): TurnAccepted!
 	"""
+	Create a conversation-owned external artifact.
+	"""
+	createConversationExternalArtifact(input: CreateConversationExternalArtifactInput!): Artifact!
+	"""
 	Save reviewed MCP tool calibration.
 	"""
 	saveToolCalibration(input: SaveToolCalibrationInput!): ToolCalibration!
@@ -1720,6 +1874,14 @@ type QueryRoot {
 	Return a cursor-based page of visible conversation transcript items.
 	"""
 	conversationTranscriptPage(input: ConversationTranscriptPageInput!): ConversationTranscriptPage!
+	"""
+	List artifacts for one concrete owner.
+	"""
+	artifacts(ownerObjectType: String!, ownerObjectId: String!, limit: Int): [Artifact!]!
+	"""
+	Load one artifact by id.
+	"""
+	artifact(artifactId: String!): Artifact
 }
 
 enum ReasoningEffort {
@@ -2063,7 +2225,7 @@ type ToolProgressAuditSettings {
 """
 Transcript item union.
 """
-union TranscriptItem = UserText | AssistantText | Activity | A2UiCard | MultipleChoicePrompt | MultipleChoiceSelection | ErrorNotice
+union TranscriptItem = UserText | AssistantText | Activity | A2UiCard | MultipleChoicePrompt | MultipleChoiceSelection | ErrorNotice | ArtifactReference
 
 """
 Trusted identity selector metadata safe to show in Settings.

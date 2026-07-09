@@ -30,6 +30,17 @@ export type TurnTranscriptItem =
       selection_mode: MultipleChoiceSelectionMode;
       selected_options: MultipleChoiceOption[];
     }
+  | {
+      kind: "artifact_reference";
+      artifact_id: string;
+      artifact_version_id: string | null;
+      title: string;
+      artifact_kind: string;
+      storage_kind: string;
+      external_url: string | null;
+      download_url: string | null;
+      media_type: string | null;
+    }
   | { kind: "error_notice"; message: string; recoverable: boolean };
 
 export type MultipleChoiceOption = {
@@ -103,6 +114,15 @@ export type TranscriptEntry =
       turnId?: string;
       type: "multiple_choice_selection";
       item: Extract<TurnTranscriptItem, { kind: "multiple_choice_selection" }>;
+    }
+  | {
+      id: string;
+      itemId?: string;
+      cursor?: string | null;
+      source?: TranscriptEntrySource;
+      turnId?: string;
+      type: "artifact";
+      item: Extract<TurnTranscriptItem, { kind: "artifact_reference" }>;
     }
   | {
       id: string;

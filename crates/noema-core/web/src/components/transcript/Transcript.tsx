@@ -1,6 +1,7 @@
 import * as React from "react";
 import type { TranscriptEntry } from "@/shared/types";
 import { ActivityRow } from "./ActivityRow";
+import { ArtifactReferenceCard } from "./ArtifactReferenceCard";
 import { ErrorNotice } from "./ErrorNotice";
 import { Message } from "./Message";
 import { MultipleChoicePrompt } from "./MultipleChoicePrompt";
@@ -258,6 +259,13 @@ function renderTranscriptEntry(
     return (
       <TranscriptRow lane="assistant" showAvatar={showAvatar}>
         <StructuredCard item={entry.item} open={expandedActivities.has(entry.id)} onToggle={() => onToggleActivity(entry.id)} />
+      </TranscriptRow>
+    );
+  }
+  if (entry.type === "artifact") {
+    return (
+      <TranscriptRow lane="assistant" showAvatar={showAvatar}>
+        <ArtifactReferenceCard item={entry.item} />
       </TranscriptRow>
     );
   }

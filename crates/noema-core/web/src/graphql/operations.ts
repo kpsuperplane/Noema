@@ -725,6 +725,16 @@ export const ConversationItemFields = gql`
         message
         recoverable
       }
+      ... on ArtifactReference {
+        artifactId
+        artifactVersionId
+        title
+        artifactKind
+        storageKind
+        externalUrl
+        downloadUrl
+        mediaType
+      }
     }
   }
 `;
@@ -871,6 +881,16 @@ export const ConversationEventsDocument = gql`
           ... on ErrorNotice {
             message
             recoverable
+          }
+          ... on ArtifactReference {
+            artifactId
+            artifactVersionId
+            title
+            artifactKind
+            storageKind
+            externalUrl
+            downloadUrl
+            mediaType
           }
         }
       }

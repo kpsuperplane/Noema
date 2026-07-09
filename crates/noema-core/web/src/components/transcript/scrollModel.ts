@@ -64,5 +64,8 @@ function transcriptEntryScrollFingerprint(entry: TranscriptEntry): string {
   if (entry.type === "multiple_choice_selection") {
     return `${renderId}:${entry.item.selected_options.map((option) => option.id).join(",")}`;
   }
+  if (entry.type === "artifact") {
+    return `${renderId}:${entry.item.artifact_id}:${entry.item.artifact_version_id ?? ""}`;
+  }
   return `${renderId}:${entry.message.length}`;
 }

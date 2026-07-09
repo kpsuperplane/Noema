@@ -161,6 +161,9 @@ function entryFromConversationItem(
   if (transcriptItem.kind === "multiple_choice_selection") {
     return { id: itemId, itemId, cursor, turnId, type: "multiple_choice_selection", item: transcriptItem };
   }
+  if (transcriptItem.kind === "artifact_reference") {
+    return { id: itemId, itemId, cursor, turnId, type: "artifact", item: transcriptItem };
+  }
   if (transcriptItem.kind === "error_notice") {
     return {
       id: itemId,
@@ -309,6 +312,19 @@ function transcriptItemFromGraphql(item: GraphqlTranscriptItem): TurnTranscriptI
   }
   if (item.__typename === "ErrorNotice") {
     return { kind: "error_notice", message: item.message, recoverable: item.recoverable };
+  }
+  if (item.__typename === "ArtifactReference") {
+    return {
+      kind: "artifact_reference",
+      artifact_id: item.artifactId,
+      artifact_version_id: item.artifactVersionId,
+      title: item.title,
+      artifact_kind: item.artifactKind,
+      storage_kind: item.storageKind,
+      external_url: item.externalUrl,
+      download_url: item.downloadUrl,
+      media_type: item.mediaType
+    };
   }
   return null;
 }
