@@ -150,7 +150,10 @@ const styles = stylex.create({
       default: "min(860px, calc(100% - 48px))",
       "@media (max-width: 760px)": "calc(100% - 40px)"
     },
-    "--chat-composer-dock-height": "96px",
+    "--chat-composer-dock-height": {
+      default: "96px",
+      "@media (hover: none) and (pointer: coarse)": "92px"
+    },
     position: "relative",
     display: "grid",
     minHeight: 0,
