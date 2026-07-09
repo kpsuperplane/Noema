@@ -14,9 +14,11 @@ async-graphql.workspace = true
 async-stream.workspace = true
 base64.workspace = true
 bytes.workspace = true
+cap-std.workspace = true
 figment.workspace = true
 futures-util.workspace = true
 http.workspace = true
+libc.workspace = true
 ring.workspace = true
 reqwest = { workspace = true, features = ["stream"] }
 readabilityrs.workspace = true

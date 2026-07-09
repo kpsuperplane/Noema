@@ -96,7 +96,9 @@ The next storage slice should stay small and concrete:
   external resources are represented as URL versions. The first product slice
   creates conversation-owned artifacts, exposes artifact reads through GraphQL,
   serves local file versions through read-only download URLs, and renders typed
-  artifact references in the transcript.
+  artifact references in the transcript. The canonical store validates external
+  artifact URLs as HTTP(S), and local artifact file writes/downloads reject
+  symlinked artifact paths.
 - Memory is governed context, not hidden model state. Durable memory truth now
   belongs to local Mnemosyne, while Noema owns service lifecycle, configuration,
   live readiness proxying, provenance, UI, model routing, ingest diagnostics,

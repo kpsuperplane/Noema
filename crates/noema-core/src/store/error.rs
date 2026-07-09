@@ -101,6 +101,12 @@ pub enum StoreError {
     /// Artifact version storage does not match the artifact storage kind.
     #[error("artifact version storage kind does not match artifact storage kind")]
     ArtifactStorageKindMismatch,
+    /// External artifact URL is not an HTTP(S) URL.
+    #[error("artifact external URL must use HTTP or HTTPS: {url}")]
+    InvalidArtifactExternalUrl {
+        /// Rejected external artifact URL.
+        url: String,
+    },
 }
 
 impl StoreError {

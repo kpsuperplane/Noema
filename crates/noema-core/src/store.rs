@@ -24,6 +24,7 @@ pub use agents::{AgentRecord, HumanRecord, NewAgent};
 pub use artifacts::{
     ArtifactOwnerRef, ArtifactRecord, ArtifactSource, ArtifactStorageKind, ArtifactVersionRecord,
     ArtifactVersionStorage, ArtifactWithVersions, NewArtifact, NewArtifactVersion,
+    validate_external_artifact_url,
 };
 pub use auxiliary_model_preferences::{
     AuxiliaryModelPreferenceRecord, NewAuxiliaryModelPreference, TOOL_PROGRESS_AUDIT_TASK_ID,

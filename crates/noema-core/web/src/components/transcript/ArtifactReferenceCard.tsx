@@ -38,11 +38,6 @@ function resolveArtifactLink(downloadUrl: string | null, externalUrl: string | n
     return { href: localDownload, external: false };
   }
 
-  const externalDownload = trustedExternalHref(downloadUrl);
-  if (externalDownload) {
-    return { href: externalDownload, external: true };
-  }
-
   const externalLink = trustedExternalHref(externalUrl);
   if (externalLink) {
     return { href: externalLink, external: true };

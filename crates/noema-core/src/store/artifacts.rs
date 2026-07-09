@@ -86,6 +86,23 @@ impl ArtifactVersionStorage {
     }
 }
 
+/// Normalize and validate a durable external artifact URL.
+///
+/// # Errors
+///
+/// Returns [`StoreError`] when `value` is not a valid HTTP(S) URL.
+pub fn validate_external_artifact_url(value: &str) -> Result<String, StoreError> {
+    let url = url::Url::parse(value).map_err(|_| StoreError::InvalidArtifactExternalUrl {
+        url: value.to_string(),
+    })?;
+    match url.scheme() {
+        "http" | "https" => Ok(url.into()),
+        _ => Err(StoreError::InvalidArtifactExternalUrl {
+            url: value.to_string(),
+        }),
+    }
+}
+
 /// Optional transcript provenance for an artifact or artifact version.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ArtifactSource {
@@ -240,7 +257,7 @@ impl NoemaStore {
             .unwrap_or_else(|| self.new_artifact_version_id());
         let artifact_metadata_json = json_to_string(&artifact.metadata)?;
         let version_metadata_json = json_to_string(&initial_version.metadata)?;
-        let version_storage = VersionStorageParts::from_storage(initial_version.storage);
+        let version_storage = VersionStorageParts::try_from_storage(initial_version.storage)?;
 
         self.with_connection(|conn| {
             let tx = conn.transaction()?;
@@ -337,7 +354,7 @@ impl NoemaStore {
             .artifact_version_id
             .unwrap_or_else(|| self.new_artifact_version_id());
         let version_metadata_json = json_to_string(&version.metadata)?;
-        let version_storage = VersionStorageParts::from_storage(version.storage);
+        let version_storage = VersionStorageParts::try_from_storage(version.storage)?;
 
         self.with_connection(|conn| {
             let tx = conn.transaction()?;
@@ -638,16 +655,16 @@ struct VersionStorageParts {
 }
 
 impl VersionStorageParts {
-    fn from_storage(storage: ArtifactVersionStorage) -> Self {
+    fn try_from_storage(storage: ArtifactVersionStorage) -> Result<Self, StoreError> {
         match storage {
-            ArtifactVersionStorage::LocalFile { relative_path } => Self {
+            ArtifactVersionStorage::LocalFile { relative_path } => Ok(Self {
                 local_relative_path: Some(relative_path),
                 external_url: None,
-            },
-            ArtifactVersionStorage::ExternalUrl { url } => Self {
+            }),
+            ArtifactVersionStorage::ExternalUrl { url } => Ok(Self {
                 local_relative_path: None,
-                external_url: Some(url),
-            },
+                external_url: Some(validate_external_artifact_url(&url)?),
+            }),
         }
     }
 }
@@ -743,7 +760,9 @@ fn artifact_version_storage_from_row(
 ) -> Result<ArtifactVersionStorage, StoreError> {
     match (local_relative_path, external_url) {
         (Some(relative_path), None) => Ok(ArtifactVersionStorage::LocalFile { relative_path }),
-        (None, Some(url)) => Ok(ArtifactVersionStorage::ExternalUrl { url }),
+        (None, Some(url)) => Ok(ArtifactVersionStorage::ExternalUrl {
+            url: validate_external_artifact_url(&url)?,
+        }),
         (Some(_), Some(_)) | (None, None) => Err(StoreError::InvariantViolation {
             message: "artifact version row must contain exactly one storage location".to_string(),
         }),

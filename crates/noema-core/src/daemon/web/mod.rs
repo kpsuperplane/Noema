@@ -354,12 +354,12 @@ async fn handle_artifact_download(
         return Ok(());
     };
 
-    let absolute_path = match crate::artifacts::validated_local_artifact_absolute_path(
+    let (absolute_path, bytes) = match crate::artifacts::read_validated_local_artifact_file(
         paths,
         &artifact.artifact,
         &version,
     ) {
-        Ok(path) => path,
+        Ok(file) => file,
         Err(_) => {
             write_response(
                 stream,
@@ -370,20 +370,6 @@ async fn handle_artifact_download(
             .await?;
             return Ok(());
         }
-    };
-    let bytes = match tokio::fs::read(&absolute_path).await {
-        Ok(bytes) => bytes,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            write_response(
-                stream,
-                "404 Not Found",
-                "text/plain; charset=utf-8",
-                b"not found",
-            )
-            .await?;
-            return Ok(());
-        }
-        Err(error) => return Err(DaemonError::Protocol(error.to_string())),
     };
     let filename = absolute_path
         .file_name()
@@ -978,6 +964,93 @@ mod tests {
 
         let response = String::from_utf8(response).expect("utf-8 response");
         assert!(response.starts_with("HTTP/1.1 404 Not Found\r\n"));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn artifact_download_route_rejects_symlinked_local_artifact_file() {
+        let home = tempfile::tempdir().expect("temp dir");
+        let paths = crate::NoemaPaths::from_noema_home(home.path()).expect("paths");
+        let store = crate::NoemaStore::open(&crate::StoreConfig::from_paths(&paths))
+            .await
+            .expect("open store");
+        let conversation = store
+            .create_conversation(crate::NewConversation::local_chat(None, None))
+            .await
+            .expect("conversation");
+        let artifact = crate::create_conversation_local_file_artifact(
+            &store,
+            &paths,
+            crate::NewConversationLocalFileArtifact {
+                conversation_id: conversation.conversation_id.clone(),
+                title: "Downloadable report".to_string(),
+                description: None,
+                artifact_kind: "document".to_string(),
+                filename: "report.md".to_string(),
+                bytes: b"hello download".to_vec(),
+                media_type: Some("text/markdown".to_string()),
+                created_by_actor_id: "agent:primary".to_string(),
+                source: crate::ArtifactSource {
+                    conversation_id: Some(conversation.conversation_id.clone()),
+                    turn_id: None,
+                    item_id: None,
+                },
+                metadata: json!({}),
+            },
+        )
+        .await
+        .expect("local artifact");
+        let crate::ArtifactVersionStorage::LocalFile { relative_path } =
+            &artifact.current_version.storage
+        else {
+            panic!("expected local file");
+        };
+        let absolute_path = paths.root().join(relative_path);
+        tokio::fs::remove_file(&absolute_path)
+            .await
+            .expect("remove artifact file");
+        let secret_path = paths.root().join("secret.txt");
+        tokio::fs::write(&secret_path, b"top secret")
+            .await
+            .expect("write secret file");
+        std::os::unix::fs::symlink(&secret_path, &absolute_path).expect("symlink artifact file");
+
+        let state = WebState::new(
+            crate::graphql::GraphqlState::for_tests_with_store_and_paths(store, paths),
+        );
+        let listener = TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .expect("bind listener");
+        let address = listener.local_addr().expect("listener address");
+
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.expect("accept");
+            handle_connection(stream, state)
+                .await
+                .expect("handle connection");
+        });
+
+        let mut client = TcpStream::connect(address).await.expect("connect client");
+        let request = format!(
+            "GET {} HTTP/1.1\r\nHost: localhost\r\n\r\n",
+            crate::artifact_download_url(&artifact.current_version.artifact_version_id)
+        );
+        client
+            .write_all(request.as_bytes())
+            .await
+            .expect("write request");
+        client.flush().await.expect("flush request");
+        let mut response = Vec::new();
+        client
+            .read_to_end(&mut response)
+            .await
+            .expect("read response");
+
+        server.await.expect("server task");
+
+        let response = String::from_utf8(response).expect("utf-8 response");
+        assert!(response.starts_with("HTTP/1.1 404 Not Found\r\n"));
+        assert!(!response.contains("top secret"));
     }
 
     #[tokio::test]

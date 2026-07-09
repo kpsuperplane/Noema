@@ -112,6 +112,7 @@ pub use store::{
     NewToolCalibration, NewTrustedIdentitySelector, NoemaStore, SaveMemoryArticleCache,
     SaveMemoryServiceSettings, StoreConfig, StoreError, ToolCalibrationRecord,
     TrustedIdentitySelectorEffect, TrustedIdentitySelectorRecord, WEB_FETCH_SUMMARIZER_TASK_ID,
+    validate_external_artifact_url,
 };
 pub use system_errors::{
     SYSTEM_ERROR_MCP_MALFORMED_RESPONSE, SYSTEM_ERROR_MCP_TOOL_CALL_FAILURE,

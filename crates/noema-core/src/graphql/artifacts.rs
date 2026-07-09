@@ -121,7 +121,8 @@ pub async fn create_conversation_external_artifact(
     input: GraphqlCreateConversationExternalArtifactInput,
 ) -> Result<GraphqlArtifact> {
     let store = state.store()?;
-    let external_url = validated_external_url(&input.external_url)?;
+    let external_url =
+        crate::validate_external_artifact_url(&input.external_url).map_err(graphql_error)?;
     let source = crate::ArtifactSource {
         conversation_id: Some(input.conversation_id.clone()),
         ..Default::default()
@@ -189,13 +190,4 @@ fn graphql_artifact_version_from_store(
         download_url,
         media_type: version.media_type,
     })
-}
-
-fn validated_external_url(value: &str) -> Result<String> {
-    let url = url::Url::parse(value)
-        .map_err(|_| graphql_error("external URL must be a valid HTTP or HTTPS URL"))?;
-    match url.scheme() {
-        "http" | "https" => Ok(url.into()),
-        _ => Err(graphql_error("external URL must use HTTP or HTTPS")),
-    }
 }

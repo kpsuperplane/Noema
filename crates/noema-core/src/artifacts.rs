@@ -1,5 +1,14 @@
-use std::path::{Component, Path, PathBuf};
+use std::{
+    io::{Read, Write},
+    path::{Component, Path, PathBuf},
+};
 
+#[cfg(unix)]
+use cap_std::fs::{MetadataExt as CapMetadataExt, OpenOptionsExt};
+use cap_std::{
+    ambient_authority,
+    fs::{Dir, Metadata, OpenOptions},
+};
 use thiserror::Error;
 
 /// Input for creating a conversation-owned local file artifact and first version.
@@ -96,14 +105,42 @@ pub async fn create_conversation_local_file_artifact(
     let artifact_path = version_dir.join(filename);
     let relative_path = artifact_relative_path(paths.root(), &artifact_path)?;
 
-    tokio::fs::create_dir_all(&version_dir)
-        .await
+    let root_dir =
+        open_cap_root(paths.root()).map_err(|source| ArtifactWriteError::CreateDirectory {
+            path: paths.root().to_path_buf(),
+            source,
+        })?;
+    let relative_version_dir = relative_path_for_cap_operation(paths.root(), &version_dir)
+        .map_err(ArtifactWriteError::Path)?;
+    root_dir
+        .create_dir_all(&relative_version_dir)
         .map_err(|source| ArtifactWriteError::CreateDirectory {
             path: version_dir.clone(),
             source,
         })?;
-    tokio::fs::write(&artifact_path, &input.bytes)
-        .await
+    let version_dir_handle =
+        open_verified_cap_dir(&root_dir, paths.root(), &version_dir).map_err(|source| {
+            ArtifactWriteError::WriteFile {
+                path: version_dir.clone(),
+                source,
+            }
+        })?;
+
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    set_no_follow(&mut options);
+    let mut file = version_dir_handle
+        .open_with(Path::new(filename), &options)
+        .map_err(|source| ArtifactWriteError::WriteFile {
+            path: artifact_path.clone(),
+            source,
+        })?;
+    file.write_all(&input.bytes)
+        .map_err(|source| ArtifactWriteError::WriteFile {
+            path: artifact_path.clone(),
+            source,
+        })?;
+    file.flush()
         .map_err(|source| ArtifactWriteError::WriteFile {
             path: artifact_path.clone(),
             source,
@@ -203,6 +240,77 @@ pub(crate) fn validated_local_artifact_absolute_path(
     Ok(absolute_path)
 }
 
+pub(crate) fn read_validated_local_artifact_file(
+    paths: &crate::NoemaPaths,
+    artifact: &crate::ArtifactRecord,
+    version: &crate::ArtifactVersionRecord,
+) -> Result<(PathBuf, Vec<u8>), crate::NoemaPathError> {
+    let absolute_path = validated_local_artifact_absolute_path(paths, artifact, version)?;
+    let parent =
+        absolute_path
+            .parent()
+            .ok_or_else(|| crate::NoemaPathError::UnsafeArtifactFilename {
+                value: absolute_path.display().to_string(),
+            })?;
+    let filename =
+        absolute_path
+            .file_name()
+            .ok_or_else(|| crate::NoemaPathError::UnsafeArtifactFilename {
+                value: absolute_path.display().to_string(),
+            })?;
+    let root_dir =
+        open_cap_root(paths.root()).map_err(|_| crate::NoemaPathError::UnsafeArtifactFilename {
+            value: paths.root().display().to_string(),
+        })?;
+    let parent_dir = open_verified_cap_dir(&root_dir, paths.root(), parent).map_err(|_| {
+        crate::NoemaPathError::UnsafeArtifactFilename {
+            value: parent.display().to_string(),
+        }
+    })?;
+    let filename_path = Path::new(filename);
+    let before_metadata = parent_dir.symlink_metadata(filename_path).map_err(|_| {
+        crate::NoemaPathError::UnsafeArtifactFilename {
+            value: absolute_path.display().to_string(),
+        }
+    })?;
+    if before_metadata.file_type().is_symlink() || !before_metadata.is_file() {
+        return Err(crate::NoemaPathError::UnsafeArtifactFilename {
+            value: absolute_path.display().to_string(),
+        });
+    }
+
+    let mut options = OpenOptions::new();
+    options.read(true);
+    set_no_follow(&mut options);
+    let mut file = parent_dir.open_with(filename_path, &options).map_err(|_| {
+        crate::NoemaPathError::UnsafeArtifactFilename {
+            value: absolute_path.display().to_string(),
+        }
+    })?;
+    let file_metadata =
+        file.metadata()
+            .map_err(|_| crate::NoemaPathError::UnsafeArtifactFilename {
+                value: absolute_path.display().to_string(),
+            })?;
+    let after_metadata = parent_dir.symlink_metadata(filename_path).map_err(|_| {
+        crate::NoemaPathError::UnsafeArtifactFilename {
+            value: absolute_path.display().to_string(),
+        }
+    })?;
+    if !same_cap_metadata(&file_metadata, &after_metadata) {
+        return Err(crate::NoemaPathError::UnsafeArtifactFilename {
+            value: absolute_path.display().to_string(),
+        });
+    }
+
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes)
+        .map_err(|_| crate::NoemaPathError::UnsafeArtifactFilename {
+            value: absolute_path.display().to_string(),
+        })?;
+    Ok((absolute_path, bytes))
+}
+
 fn artifact_relative_path(
     root: &Path,
     artifact_path: &Path,
@@ -230,6 +338,105 @@ fn relative_path_components_are_safe(path: &Path) -> bool {
         }
     }
     saw_component
+}
+
+fn open_cap_root(root: &Path) -> Result<Dir, std::io::Error> {
+    Dir::open_ambient_dir(root, ambient_authority())
+}
+
+fn open_verified_cap_dir(
+    root_dir: &Dir,
+    root: &Path,
+    directory: &Path,
+) -> Result<Dir, std::io::Error> {
+    reject_symlink_path_components(root, directory)?;
+    let relative = relative_path_for_cap_operation(root, directory).map_err(|error| {
+        std::io::Error::new(std::io::ErrorKind::InvalidInput, error.to_string())
+    })?;
+    let dir = root_dir.open_dir(&relative)?;
+    reject_symlink_path_components(root, directory)?;
+    let path_metadata = root_dir.symlink_metadata(&relative)?;
+    if !path_metadata.is_dir() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "artifact directory path is not a directory",
+        ));
+    }
+    let dir_metadata = dir.dir_metadata()?;
+    if !same_cap_metadata(&dir_metadata, &path_metadata) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "artifact directory changed while opening",
+        ));
+    }
+    Ok(dir)
+}
+
+fn reject_symlink_path_components(root: &Path, path: &Path) -> Result<(), std::io::Error> {
+    let relative = path.strip_prefix(root).map_err(|_| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "artifact path is outside Noema root",
+        )
+    })?;
+    let mut current = root.to_path_buf();
+    reject_symlink_component(&current)?;
+
+    for component in relative.components() {
+        let Component::Normal(segment) = component else {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "artifact path contains unsafe components",
+            ));
+        };
+        current.push(segment);
+        reject_symlink_component(&current)?;
+    }
+
+    Ok(())
+}
+
+fn reject_symlink_component(path: &Path) -> Result<(), std::io::Error> {
+    let metadata = std::fs::symlink_metadata(path)?;
+    if metadata.file_type().is_symlink() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "artifact path contains a symlink",
+        ));
+    }
+    Ok(())
+}
+
+fn relative_path_for_cap_operation(
+    root: &Path,
+    path: &Path,
+) -> Result<PathBuf, crate::NoemaPathError> {
+    let relative =
+        path.strip_prefix(root)
+            .map_err(|_| crate::NoemaPathError::UnsafeArtifactFilename {
+                value: path.display().to_string(),
+            })?;
+    if !relative_path_components_are_safe(relative) {
+        return Err(crate::NoemaPathError::UnsafeArtifactFilename {
+            value: relative.display().to_string(),
+        });
+    }
+    Ok(relative.to_path_buf())
+}
+
+fn set_no_follow(options: &mut OpenOptions) {
+    #[cfg(unix)]
+    options.custom_flags(libc::O_NOFOLLOW);
+}
+
+#[cfg(unix)]
+fn same_cap_metadata(left: &Metadata, right: &Metadata) -> bool {
+    left.dev() == right.dev() && left.ino() == right.ino()
+}
+
+#[cfg(not(unix))]
+fn same_cap_metadata(left: &Metadata, right: &Metadata) -> bool {
+    left.len() == right.len()
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {

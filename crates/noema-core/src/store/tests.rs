@@ -111,6 +111,50 @@ async fn artifact_external_url_initial_version_round_trips() {
 }
 
 #[tokio::test]
+async fn artifact_external_url_initial_version_rejects_non_http_url() {
+    let store = test_store().await;
+    let conversation = store
+        .create_conversation(crate::NewConversation::local_chat(None, None))
+        .await
+        .expect("conversation");
+
+    let error = store
+        .create_artifact_with_initial_version(
+            crate::NewArtifact {
+                artifact_id: None,
+                owner: crate::ArtifactOwnerRef::conversation(&conversation.conversation_id),
+                title: "Unsafe link".to_string(),
+                description: None,
+                artifact_kind: "document".to_string(),
+                storage_kind: crate::ArtifactStorageKind::ExternalUrl,
+                created_by_actor_id: "agent:primary".to_string(),
+                source: crate::ArtifactSource::default(),
+                metadata: serde_json::json!({}),
+            },
+            crate::NewArtifactVersion {
+                artifact_version_id: None,
+                title: None,
+                storage: crate::ArtifactVersionStorage::ExternalUrl {
+                    url: "javascript:alert(1)".to_string(),
+                },
+                media_type: None,
+                byte_size: None,
+                content_sha256: None,
+                created_by_actor_id: "agent:primary".to_string(),
+                source: crate::ArtifactSource::default(),
+                metadata: serde_json::json!({}),
+            },
+        )
+        .await
+        .expect_err("unsafe external URL should be rejected");
+
+    assert!(matches!(
+        error,
+        crate::StoreError::InvalidArtifactExternalUrl { .. }
+    ));
+}
+
+#[tokio::test]
 async fn conversation_local_file_artifact_writes_bytes_and_metadata() {
     let home = TempDir::new().expect("temp noema home");
     let paths = crate::NoemaPaths::from_noema_home(home.path()).expect("paths");
@@ -178,6 +222,57 @@ async fn conversation_local_file_artifact_writes_bytes_and_metadata() {
     );
 }
 
+#[cfg(unix)]
+#[tokio::test]
+async fn conversation_local_file_artifact_rejects_symlinked_artifact_root() {
+    let home = TempDir::new().expect("temp noema home");
+    let paths = crate::NoemaPaths::from_noema_home(home.path()).expect("paths");
+    let store = crate::NoemaStore::open(&crate::StoreConfig::from_paths(&paths))
+        .await
+        .expect("open store");
+    let conversation = store
+        .create_conversation(crate::NewConversation::local_chat(None, None))
+        .await
+        .expect("conversation");
+    let outside = home.path().join("outside-artifacts");
+    tokio::fs::create_dir_all(&outside)
+        .await
+        .expect("outside dir");
+    tokio::fs::create_dir_all(paths.conversation_dir(&conversation.conversation_id))
+        .await
+        .expect("conversation dir");
+    std::os::unix::fs::symlink(
+        &outside,
+        paths.conversation_artifacts_dir(&conversation.conversation_id),
+    )
+    .expect("symlink artifact root");
+
+    let error = crate::create_conversation_local_file_artifact(
+        &store,
+        &paths,
+        crate::NewConversationLocalFileArtifact {
+            conversation_id: conversation.conversation_id.clone(),
+            title: "Session report".to_string(),
+            description: None,
+            artifact_kind: "document".to_string(),
+            filename: "report.md".to_string(),
+            bytes: b"# report\n".to_vec(),
+            media_type: Some("text/markdown".to_string()),
+            created_by_actor_id: "agent:primary".to_string(),
+            source: crate::ArtifactSource::default(),
+            metadata: serde_json::json!({}),
+        },
+    )
+    .await
+    .expect_err("symlinked artifact root should be rejected");
+
+    assert!(matches!(
+        error,
+        crate::ArtifactWriteError::CreateDirectory { .. }
+            | crate::ArtifactWriteError::WriteFile { .. }
+    ));
+}
+
 #[tokio::test]
 async fn append_artifact_version_updates_current_version() {
     let store = test_store().await;
@@ -218,6 +313,76 @@ async fn append_artifact_version_updates_current_version() {
         Some(second.artifact_version_id.as_str())
     );
     assert_eq!(loaded.versions.len(), 2);
+}
+
+#[tokio::test]
+async fn append_artifact_version_rejects_non_http_external_url() {
+    let store = test_store().await;
+    let conversation = store
+        .create_conversation(crate::NewConversation::local_chat(None, None))
+        .await
+        .expect("conversation");
+    let created = seed_external_artifact(&store, &conversation.conversation_id).await;
+
+    let error = store
+        .append_artifact_version(
+            &created.artifact.artifact_id,
+            crate::NewArtifactVersion {
+                artifact_version_id: None,
+                title: Some("Unsafe revision".to_string()),
+                storage: crate::ArtifactVersionStorage::ExternalUrl {
+                    url: "file:///private/report.html".to_string(),
+                },
+                media_type: None,
+                byte_size: None,
+                content_sha256: None,
+                created_by_actor_id: "agent:primary".to_string(),
+                source: crate::ArtifactSource::default(),
+                metadata: serde_json::json!({}),
+            },
+        )
+        .await
+        .expect_err("unsafe external URL should be rejected");
+
+    assert!(matches!(
+        error,
+        crate::StoreError::InvalidArtifactExternalUrl { .. }
+    ));
+}
+
+#[tokio::test]
+async fn artifact_read_rejects_forged_non_http_external_url() {
+    let store = test_store().await;
+    let conversation = store
+        .create_conversation(crate::NewConversation::local_chat(None, None))
+        .await
+        .expect("conversation");
+    let created = seed_external_artifact(&store, &conversation.conversation_id).await;
+
+    store
+        .with_connection(|conn| {
+            conn.execute(
+                "UPDATE artifact_versions SET external_url = ?1 WHERE artifact_version_id = ?2",
+                rusqlite::params![
+                    "javascript:alert(1)",
+                    created.current_version.artifact_version_id
+                ],
+            )
+            .map(|_| ())
+            .map_err(crate::StoreError::Sqlite)
+        })
+        .await
+        .expect("forge external URL");
+
+    let error = store
+        .get_artifact(&created.artifact.artifact_id)
+        .await
+        .expect_err("forged external URL should be rejected on read");
+
+    assert!(matches!(
+        error,
+        crate::StoreError::InvalidArtifactExternalUrl { .. }
+    ));
 }
 
 #[tokio::test]
