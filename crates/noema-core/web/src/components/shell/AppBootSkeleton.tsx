@@ -164,7 +164,7 @@ const styles = stylex.create({
     display: "grid",
     height: "var(--chat-composer-dock-height)",
     alignItems: "end",
-    padding: "18px 24px 22px",
+    padding: "18px 24px 26px",
     background:
       "linear-gradient(to bottom, rgb(255 255 255 / 0), rgb(255 255 255 / 0.74) 42px, var(--background) 96px)"
   },
