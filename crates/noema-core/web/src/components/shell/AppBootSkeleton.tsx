@@ -174,7 +174,8 @@ const styles = stylex.create({
     width: "var(--chat-column-width)",
     maxWidth: "100%",
     marginInline: "auto",
-    paddingTop: 14
+    paddingTop: 14,
+    transform: "translateY(-6px)"
   },
   composerBubble: {
     position: "relative",
