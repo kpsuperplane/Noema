@@ -1,4 +1,5 @@
 import React from "react";
+import { ResizeHandle, useResizable } from "@astryxdesign/core/Resizable";
 import * as stylex from "@stylexjs/stylex";
 import { ChatDetailRail } from "./chatDetail/ChatDetailRail";
 import type { ChatDetailTarget } from "./chatDetail/chatDetailTypes";
@@ -57,6 +58,8 @@ export type ChatSurfaceProps = {
   onSubmitMultipleChoiceSelection: (promptItemId: string, selectedOptionIds: string[]) => void;
 };
 
+type DetailMotionState = "entering" | "open" | "exiting";
+
 export function ChatSurface({
   transcript,
   loadingOlderTranscript,
@@ -82,6 +85,13 @@ export function ChatSurface({
   const composerDockRef = React.useRef<HTMLDivElement>(null);
   const [composerDockHeight, setComposerDockHeight] = React.useState(96);
   const [detailTarget, setDetailTarget] = React.useState<ChatDetailTarget | null>(null);
+  const [detailMotionState, setDetailMotionState] = React.useState<DetailMotionState>("open");
+  const detailRail = useResizable({
+    defaultSize: 380,
+    minSizePx: 320,
+    maxSizePx: 640,
+    autoSaveId: "noema-chat-detail-rail"
+  });
 
   React.useLayoutEffect(() => {
     const dock = composerDockRef.current;
@@ -112,10 +122,31 @@ export function ChatSurface({
     () =>
       ({
         "--chat-composer-dock-height": `${composerDockHeight}px`,
-        "--chat-transcript-bottom-fade": `calc(${composerDockHeight}px + 8px)`
+        "--chat-transcript-bottom-fade": `calc(${composerDockHeight}px + 8px)`,
+        "--chat-detail-rail-width": `${detailRail.size}px`
       }) as React.CSSProperties,
-    [composerDockHeight]
+    [composerDockHeight, detailRail.size]
   );
+
+  const openDetail = React.useCallback((target: ChatDetailTarget) => {
+    setDetailTarget(target);
+    setDetailMotionState("entering");
+  }, []);
+
+  const closeDetail = React.useCallback(() => {
+    setDetailMotionState((state) => (state === "exiting" ? state : "exiting"));
+  }, []);
+
+  const handleDetailAnimationEnd = React.useCallback(() => {
+    if (detailMotionState === "entering") {
+      setDetailMotionState("open");
+      return;
+    }
+    if (detailMotionState === "exiting") {
+      setDetailTarget(null);
+      setDetailMotionState("open");
+    }
+  }, [detailMotionState]);
 
   return (
     <section
@@ -143,7 +174,7 @@ export function ChatSurface({
               onToggleActivity={onToggleActivity}
               onSubmitMultipleChoiceSelection={onSubmitMultipleChoiceSelection}
               onLoadOlderTranscript={onLoadOlderTranscript}
-              onOpenDetail={setDetailTarget}
+              onOpenDetail={openDetail}
             />
           )}
         </div>
@@ -164,7 +195,26 @@ export function ChatSurface({
         </div>
       </div>
 
-      {detailTarget ? <ChatDetailRail target={detailTarget} onClose={() => setDetailTarget(null)} /> : null}
+      {detailTarget ? (
+        <>
+          <div data-slot="chat-detail-resize-handle" {...stylex.props(styles.resizeHandleSlot)}>
+            <ResizeHandle
+              direction="horizontal"
+              hasDivider
+              isReversed
+              label="Resize detail sidebar"
+              pillPlacement="center"
+              resizable={detailRail.props}
+            />
+          </div>
+          <ChatDetailRail
+            target={detailTarget}
+            motionState={detailMotionState}
+            onClose={closeDetail}
+            onMotionEnd={handleDetailAnimationEnd}
+          />
+        </>
+      ) : null}
     </section>
   );
 }
@@ -188,7 +238,7 @@ const styles = stylex.create({
   rootWithDetail: {
     gridTemplateColumns: {
       default: "minmax(0, 1fr)",
-      "@media (min-width: 980px)": "minmax(0, 1fr) minmax(320px, 380px)"
+      "@media (min-width: 980px)": "minmax(0, 1fr) 1px minmax(320px, var(--chat-detail-rail-width))"
     }
   },
   mainPane: {
@@ -230,5 +280,14 @@ const styles = stylex.create({
     position: "relative",
     zIndex: 1,
     pointerEvents: "auto"
+  },
+  resizeHandleSlot: {
+    display: {
+      default: "none",
+      "@media (min-width: 980px)": "block"
+    },
+    minHeight: 0,
+    height: "100%",
+    zIndex: 5
   }
 });

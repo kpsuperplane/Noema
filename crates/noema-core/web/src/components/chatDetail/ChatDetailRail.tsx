@@ -11,10 +11,14 @@ import type { ChatDetailTarget } from "./chatDetailTypes";
 
 export function ChatDetailRail({
   target,
-  onClose
+  motionState,
+  onClose,
+  onMotionEnd
 }: {
   target: ChatDetailTarget;
+  motionState: "entering" | "open" | "exiting";
   onClose: () => void;
+  onMotionEnd: () => void;
 }) {
   const closeButtonRef = React.useRef<HTMLButtonElement>(null);
   const [artifactDetailState, setArtifactDetailState] = React.useState<{
@@ -28,6 +32,15 @@ export function ChatDetailRail({
     closeButtonRef.current?.focus();
   }, [target]);
 
+  const handleAnimationEnd = React.useCallback(
+    (event: React.AnimationEvent<HTMLElement>) => {
+      if (event.currentTarget === event.target) {
+        onMotionEnd();
+      }
+    },
+    [onMotionEnd]
+  );
+
   const updateArtifactDetail = React.useCallback(
     (detail: ArtifactDetail | null) => {
       setArtifactDetailState({ version: target.version, detail });
@@ -36,7 +49,13 @@ export function ChatDetailRail({
   );
 
   return (
-    <aside data-slot="chat-detail-rail" aria-label="Chat detail" {...stylex.props(styles.rail)}>
+    <aside
+      data-slot="chat-detail-rail"
+      data-state={motionState}
+      aria-label="Chat detail"
+      {...stylex.props(styles.rail)}
+      onAnimationEnd={handleAnimationEnd}
+    >
       <header {...stylex.props(styles.header)}>
         <div {...stylex.props(styles.titleBlock)}>
           <div {...stylex.props(styles.kicker)}>Detail</div>
@@ -78,9 +97,6 @@ const styles = stylex.create({
     gridTemplateRows: "auto minmax(0, 1fr)",
     minWidth: 0,
     height: "100%",
-    borderLeftWidth: 1,
-    borderLeftStyle: "solid",
-    borderLeftColor: "var(--noema-border-subtle)",
     backgroundColor: "var(--noema-surface-card)"
   },
   header: {
