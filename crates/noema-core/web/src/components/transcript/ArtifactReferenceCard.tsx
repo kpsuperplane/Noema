@@ -43,6 +43,9 @@ const styles = stylex.create({
   disabledItem: {
     opacity: 0.72
   },
+  detailItem: {
+    cursor: "default"
+  },
   iconFrame: {
     display: "inline-flex",
     width: 32,
@@ -111,7 +114,11 @@ export function ArtifactReferenceCard({
         </span>
       }
       target={!opensDetail && link?.external ? "_blank" : undefined}
-      xstyle={itemXStyle(styles.item, !link && !opensDetail && styles.disabledItem)}
+      xstyle={itemXStyle(
+        styles.item,
+        opensDetail && styles.detailItem,
+        !link && !opensDetail && styles.disabledItem
+      )}
     />
   );
 }
