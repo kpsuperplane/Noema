@@ -182,7 +182,7 @@ const styles = stylex.create({
     alignItems: "center",
     width: "min(13rem, 100%)",
     maxWidth: "100%",
-    height: 56,
+    height: 48,
     borderRadius: "calc(var(--radius) * 2.6)",
     padding: 6,
     paddingRight: {
