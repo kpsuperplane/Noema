@@ -4,9 +4,9 @@
 
 **Goal:** Update Noema's subagent model guidance for GPT-5.6 and replace artifact-card action text with a bottom-right icon that appears on hover or keyboard focus while remaining visible on touch devices.
 
-**Architecture:** Keep artifact navigation owned by the existing Astryx `Item`; the action icon is a non-interactive affordance so it does not create a duplicate tab stop. Position the icon inside the card with StyleX, and use stable `data-slot` selectors in the global stylesheet for parent hover/focus and pointer-capability behavior.
+**Architecture:** Keep artifact navigation owned by the existing Astryx `Item`, and render the trailing action as an Astryx `IconButton` with `tabIndex={-1}` so pointer and touch users can activate it without adding a duplicate keyboard tab stop. Position the icon button inside the card with StyleX, and use stable `data-slot` selectors in the global stylesheet for parent hover/focus and pointer-capability behavior.
 
-**Tech Stack:** Markdown repository guidance, React, TypeScript, Astryx `Item` and `Tooltip`, StyleX, CSS media queries, Lucide icons.
+**Tech Stack:** Markdown repository guidance, React, TypeScript, Astryx `Item` and `IconButton`, StyleX, CSS media queries, Lucide icons.
 
 ## Global Constraints
 
@@ -62,17 +62,17 @@ Expected: one committed file and no unrelated staged changes.
 - Modify: `crates/noema-core/web/src/styles.css`
 
 **Interfaces:**
-- Consumes: `opensDetail`, `ArtifactLink`, `artifactActionIcon`, Astryx `Item`, and Astryx `Tooltip`.
-- Produces: an icon-only `endContent` affordance with `data-slot="artifact-reference-action"` inside a card marked `data-slot="artifact-reference-item"`.
+- Consumes: `opensDetail`, `ArtifactLink`, `artifactActionIcon`, Astryx `Item`, and Astryx `IconButton`.
+- Produces: an icon-only `endContent` control with `data-slot="artifact-reference-action"` inside a card marked `data-slot="artifact-reference-item"`.
 
 - [ ] **Step 1: Replace action text with the typed icon affordance**
 
 In `ArtifactReferenceCard.tsx`:
 
-- Import `Tooltip` from `@astryxdesign/core/Tooltip` and `PanelRightOpen` from `lucide-react`.
+- Import `IconButton` from `@astryxdesign/core/IconButton` and `PanelRightOpen` from `lucide-react`.
 - Return `PanelRightOpen` when `opensDetail`, otherwise reuse `artifactActionIcon(link)` for direct download and external links.
 - Omit `endContent` when the artifact has no available action.
-- Render the icon in a tooltip-labeled, non-interactive span with `data-slot="artifact-reference-action"`.
+- Render the icon as a tooltip-labeled `IconButton` with `tabIndex={-1}` and `data-slot="artifact-reference-action"`; reuse the card's detail callback or link target so the icon works for pointer and touch users.
 - Add `data-slot="artifact-reference-item"` to the Astryx `Item`.
 - Position the icon at the bottom-right and reserve inline space through StyleX so it cannot cover card text.
 
