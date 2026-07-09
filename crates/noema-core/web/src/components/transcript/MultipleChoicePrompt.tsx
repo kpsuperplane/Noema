@@ -14,7 +14,8 @@ const styles = stylex.create({
     gap: 8,
     minWidth: 220,
     maxWidth: 520,
-    paddingBlock: 4,
+    paddingBlockStart: 4,
+    paddingBlockEnd: 6,
   },
   prompt: {
     margin: 0,
