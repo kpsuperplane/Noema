@@ -54,29 +54,35 @@ export function ChatDetailRail({
       data-state={motionState}
       aria-label="Chat detail"
       {...stylex.props(styles.rail)}
-      onAnimationEnd={handleAnimationEnd}
     >
-      <header {...stylex.props(styles.header)}>
-        <div {...stylex.props(styles.titleBlock)}>
-          <div {...stylex.props(styles.kicker)}>Detail</div>
-          <h2 {...stylex.props(styles.title)}>{title}</h2>
+      <div
+        data-slot="chat-detail-rail-surface"
+        data-state={motionState}
+        {...stylex.props(styles.surface)}
+        onAnimationEnd={handleAnimationEnd}
+      >
+        <header {...stylex.props(styles.header)}>
+          <div {...stylex.props(styles.titleBlock)}>
+            <div {...stylex.props(styles.kicker)}>Detail</div>
+            <h2 {...stylex.props(styles.title)}>{title}</h2>
+          </div>
+          {target.type === "artifact" ? <ArtifactDownloadAction detail={artifactDetail} /> : null}
+          <Button
+            ref={closeButtonRef}
+            type="button"
+            variant="ghost"
+            size="sm"
+            label="Close detail"
+            icon={<X aria-hidden="true" size={16} />}
+            isIconOnly
+            onClick={onClose}
+          />
+        </header>
+        <div {...stylex.props(styles.body)}>
+          {target.type === "artifact" ? (
+            <ArtifactDetailPanel version={target.version} onDetailChange={updateArtifactDetail} />
+          ) : null}
         </div>
-        {target.type === "artifact" ? <ArtifactDownloadAction detail={artifactDetail} /> : null}
-        <Button
-          ref={closeButtonRef}
-          type="button"
-          variant="ghost"
-          size="sm"
-          label="Close detail"
-          icon={<X aria-hidden="true" size={16} />}
-          isIconOnly
-          onClick={onClose}
-        />
-      </header>
-      <div {...stylex.props(styles.body)}>
-        {target.type === "artifact" ? (
-          <ArtifactDetailPanel version={target.version} onDetailChange={updateArtifactDetail} />
-        ) : null}
       </div>
     </aside>
   );
@@ -93,6 +99,11 @@ const styles = stylex.create({
       "@media (min-width: 980px)": "auto"
     },
     zIndex: 4,
+    minWidth: 0,
+    height: "100%",
+    overflow: "hidden"
+  },
+  surface: {
     display: "grid",
     gridTemplateRows: "auto minmax(0, 1fr)",
     minWidth: 0,

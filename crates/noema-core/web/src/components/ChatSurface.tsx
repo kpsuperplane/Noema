@@ -128,10 +128,13 @@ export function ChatSurface({
     [composerDockHeight, detailRail.size]
   );
 
-  const openDetail = React.useCallback((target: ChatDetailTarget) => {
-    setDetailTarget(target);
-    setDetailMotionState("entering");
-  }, []);
+  const openDetail = React.useCallback(
+    (target: ChatDetailTarget) => {
+      setDetailTarget(target);
+      setDetailMotionState(detailTarget && detailMotionState !== "exiting" ? "open" : "entering");
+    },
+    [detailMotionState, detailTarget]
+  );
 
   const closeDetail = React.useCallback(() => {
     setDetailMotionState((state) => (state === "exiting" ? state : "exiting"));
@@ -152,6 +155,7 @@ export function ChatSurface({
     <section
       data-slot="chat-surface"
       data-detail-open={detailTarget ? "true" : undefined}
+      data-detail-motion-state={detailTarget ? detailMotionState : undefined}
       {...stylex.props(styles.root, detailTarget && styles.rootWithDetail)}
       style={rootStyle}
       aria-label="Noema chat"
@@ -238,7 +242,7 @@ const styles = stylex.create({
   rootWithDetail: {
     gridTemplateColumns: {
       default: "minmax(0, 1fr)",
-      "@media (min-width: 980px)": "minmax(0, 1fr) 1px minmax(320px, var(--chat-detail-rail-width))"
+      "@media (min-width: 980px)": "minmax(0, 1fr) 1px var(--chat-detail-rail-width)"
     }
   },
   mainPane: {

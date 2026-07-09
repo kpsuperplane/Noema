@@ -162,16 +162,34 @@ html[data-tauri-runtime="true"] #root {
   animation: tool-detail-row-exit 400ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
-[data-slot="chat-detail-rail"] {
+[data-slot="chat-detail-rail-surface"] {
   will-change: transform, opacity;
 }
 
-[data-slot="chat-detail-rail"][data-state="entering"] {
+[data-slot="chat-detail-rail-surface"][data-state="entering"] {
   animation: chat-detail-rail-enter 260ms cubic-bezier(0.2, 0, 0, 1) both;
 }
 
-[data-slot="chat-detail-rail"][data-state="exiting"] {
+[data-slot="chat-detail-rail-surface"][data-state="exiting"] {
   animation: chat-detail-rail-exit 220ms cubic-bezier(0.4, 0, 1, 1) both;
+}
+
+@media (min-width: 980px) {
+  [data-slot="chat-surface"][data-detail-motion-state="entering"] {
+    animation: chat-detail-grid-enter 260ms cubic-bezier(0.2, 0, 0, 1) both;
+  }
+
+  [data-slot="chat-surface"][data-detail-motion-state="exiting"] {
+    animation: chat-detail-grid-exit 220ms cubic-bezier(0.4, 0, 1, 1) both;
+  }
+
+  [data-slot="chat-detail-rail-surface"][data-state="entering"] {
+    animation-name: chat-detail-rail-enter-desktop;
+  }
+
+  [data-slot="chat-detail-rail-surface"][data-state="exiting"] {
+    animation-name: chat-detail-rail-exit-desktop;
+  }
 }
 
 [data-slot="marker"][data-pending] {
@@ -374,6 +392,50 @@ html[data-tauri-runtime="true"] #root {
   }
 }
 
+@keyframes chat-detail-rail-enter-desktop {
+  from {
+    opacity: 0.72;
+    transform: translateX(32px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes chat-detail-rail-exit-desktop {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+
+  to {
+    opacity: 0.72;
+    transform: translateX(32px);
+  }
+}
+
+@keyframes chat-detail-grid-enter {
+  from {
+    grid-template-columns: minmax(0, 1fr) 0 0;
+  }
+
+  to {
+    grid-template-columns: minmax(0, 1fr) 1px var(--chat-detail-rail-width);
+  }
+}
+
+@keyframes chat-detail-grid-exit {
+  from {
+    grid-template-columns: minmax(0, 1fr) 1px var(--chat-detail-rail-width);
+  }
+
+  to {
+    grid-template-columns: minmax(0, 1fr) 0 0;
+  }
+}
+
 @keyframes marker-text-glimmer {
   from {
     background-position: 130% 0;
@@ -414,8 +476,13 @@ html[data-tauri-runtime="true"] #root {
     animation-duration: 1ms;
   }
 
-  [data-slot="chat-detail-rail"][data-state="entering"],
-  [data-slot="chat-detail-rail"][data-state="exiting"] {
+  [data-slot="chat-detail-rail-surface"][data-state="entering"],
+  [data-slot="chat-detail-rail-surface"][data-state="exiting"] {
+    animation-duration: 1ms;
+  }
+
+  [data-slot="chat-surface"][data-detail-motion-state="entering"],
+  [data-slot="chat-surface"][data-detail-motion-state="exiting"] {
     animation-duration: 1ms;
   }
 
