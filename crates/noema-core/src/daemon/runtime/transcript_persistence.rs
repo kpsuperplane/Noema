@@ -787,6 +787,33 @@ impl CodexRuntimeActor {
                     }),
                     json!({ "turn_index": context.turn_index }),
                 ),
+                TurnTranscriptItem::ArtifactReference {
+                    artifact_id,
+                    artifact_version_id,
+                    title,
+                    artifact_kind,
+                    storage_kind,
+                    external_url,
+                    download_url,
+                    media_type,
+                } => (
+                    ConversationItemKind::ArtifactReference,
+                    ConversationItemStatus::Completed,
+                    ActorRef::agent("agent:primary"),
+                    default_parent_item_id,
+                    None,
+                    json!({
+                        "artifact_id": artifact_id,
+                        "artifact_version_id": artifact_version_id,
+                        "title": title,
+                        "artifact_kind": artifact_kind,
+                        "storage_kind": storage_kind,
+                        "external_url": external_url,
+                        "download_url": download_url,
+                        "media_type": media_type,
+                    }),
+                    json!({ "turn_index": context.turn_index }),
+                ),
             };
 
         let record = self
@@ -836,7 +863,8 @@ pub(in crate::daemon) fn send_transient_turn_item(
         | TurnTranscriptItem::AssistantText { .. }
         | TurnTranscriptItem::MultipleChoicePrompt { .. }
         | TurnTranscriptItem::MultipleChoiceSelection { .. }
-        | TurnTranscriptItem::ErrorNotice { .. } => format!(
+        | TurnTranscriptItem::ErrorNotice { .. }
+        | TurnTranscriptItem::ArtifactReference { .. } => format!(
             "transient:{}:{}",
             context.conversation_id, context.turn_index
         ),

@@ -186,6 +186,28 @@ pub struct GraphqlErrorNotice {
     pub recoverable: bool,
 }
 
+/// Artifact reference transcript item.
+#[derive(Clone, Debug, SimpleObject)]
+#[graphql(name = "ArtifactReference")]
+pub struct GraphqlArtifactReference {
+    /// Stable artifact id.
+    pub artifact_id: String,
+    /// Optional referenced artifact version id.
+    pub artifact_version_id: Option<String>,
+    /// Display title captured in the transcript row.
+    pub title: String,
+    /// Product-defined artifact kind label.
+    pub artifact_kind: String,
+    /// Durable storage family for the referenced artifact.
+    pub storage_kind: String,
+    /// External durable URL when the artifact is externally hosted.
+    pub external_url: Option<String>,
+    /// Local download route when the artifact bytes live in Noema.
+    pub download_url: Option<String>,
+    /// Optional media type for the referenced version payload.
+    pub media_type: Option<String>,
+}
+
 /// Transcript item union.
 #[derive(Clone, Debug, Union)]
 #[graphql(name = "TranscriptItem")]
@@ -204,6 +226,8 @@ pub enum GraphqlTranscriptItem {
     MultipleChoiceSelection(GraphqlMultipleChoiceSelection),
     /// Error notice.
     ErrorNotice(GraphqlErrorNotice),
+    /// Artifact reference.
+    ArtifactReference(GraphqlArtifactReference),
 }
 
 impl From<TurnTranscriptItem> for GraphqlTranscriptItem {
@@ -267,6 +291,25 @@ impl From<TurnTranscriptItem> for GraphqlTranscriptItem {
             } => Self::ErrorNotice(GraphqlErrorNotice {
                 message,
                 recoverable,
+            }),
+            TurnTranscriptItem::ArtifactReference {
+                artifact_id,
+                artifact_version_id,
+                title,
+                artifact_kind,
+                storage_kind,
+                external_url,
+                download_url,
+                media_type,
+            } => Self::ArtifactReference(GraphqlArtifactReference {
+                artifact_id,
+                artifact_version_id,
+                title,
+                artifact_kind,
+                storage_kind,
+                external_url,
+                download_url,
+                media_type,
             }),
         }
     }
@@ -913,6 +956,7 @@ fn mark_graphql_published_turn_event(event: &TurnStreamEvent, client_message_id:
                     ("multiple_choice_selection", None, None)
                 }
                 TurnTranscriptItem::ErrorNotice { .. } => ("error_notice", None, None),
+                TurnTranscriptItem::ArtifactReference { .. } => ("artifact_reference", None, None),
             };
             mark_graphql_turn_event(
                 "graphql_publish_conversation_item",
@@ -998,6 +1042,40 @@ mod tests {
 
         match item {
             GraphqlTranscriptItem::UserText(value) => assert_eq!(value.text, "hello"),
+            other => panic!("unexpected item: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn transcript_item_converts_to_graphql_artifact_reference() {
+        let item = GraphqlTranscriptItem::from(TurnTranscriptItem::ArtifactReference {
+            artifact_id: "artifact_1".to_string(),
+            artifact_version_id: Some("artifact_version_1".to_string()),
+            title: "Noema notes".to_string(),
+            artifact_kind: "document".to_string(),
+            storage_kind: "external_url".to_string(),
+            external_url: Some("https://notion.so/noema-notes".to_string()),
+            download_url: None,
+            media_type: Some("text/html".to_string()),
+        });
+
+        match item {
+            GraphqlTranscriptItem::ArtifactReference(value) => {
+                assert_eq!(value.artifact_id, "artifact_1");
+                assert_eq!(
+                    value.artifact_version_id.as_deref(),
+                    Some("artifact_version_1")
+                );
+                assert_eq!(value.title, "Noema notes");
+                assert_eq!(value.artifact_kind, "document");
+                assert_eq!(value.storage_kind, "external_url");
+                assert_eq!(
+                    value.external_url.as_deref(),
+                    Some("https://notion.so/noema-notes")
+                );
+                assert!(value.download_url.is_none());
+                assert_eq!(value.media_type.as_deref(), Some("text/html"));
+            }
             other => panic!("unexpected item: {other:?}"),
         }
     }

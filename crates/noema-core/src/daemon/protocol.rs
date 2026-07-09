@@ -111,6 +111,33 @@ pub enum TurnTranscriptItem {
         /// Whether the chat turn itself can continue.
         recoverable: bool,
     },
+    /// Reference to a governed artifact snapshot for transcript display.
+    ArtifactReference {
+        /// Stable artifact id.
+        artifact_id: String,
+        /// Optional referenced artifact version id.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        artifact_version_id: Option<String>,
+        /// Display title captured when the reference item was written.
+        title: String,
+        /// Product-defined artifact kind label.
+        artifact_kind: String,
+        /// Durable storage family for the referenced artifact.
+        storage_kind: String,
+        /// External durable URL when the artifact is externally hosted.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        external_url: Option<String>,
+        /// Local download route when the artifact bytes live in Noema.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        download_url: Option<String>,
+        /// Optional media type for the referenced version payload.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        media_type: Option<String>,
+    },
 }
 
 /// Status for transcript activity notices.

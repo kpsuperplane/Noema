@@ -3778,7 +3778,8 @@ fn assistant_text(items: &[TurnTranscriptItem]) -> &str {
         | TurnTranscriptItem::MultipleChoiceSelection { .. }
         | TurnTranscriptItem::Activity { .. }
         | TurnTranscriptItem::A2uiCard { .. }
-        | TurnTranscriptItem::ErrorNotice { .. } => None,
+        | TurnTranscriptItem::ErrorNotice { .. }
+        | TurnTranscriptItem::ArtifactReference { .. } => None,
     }) else {
         panic!("expected assistant text item, got {items:?}");
     };

@@ -3343,6 +3343,127 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn conversation_transcript_page_exposes_artifact_reference_item() {
+        let store = crate::store::tests::test_store().await;
+        let conversation = store
+            .create_conversation(crate::NewConversation::local_chat(None, None))
+            .await
+            .expect("conversation");
+        let turn = store
+            .create_conversation_turn(crate::NewConversationTurn {
+                conversation_id: conversation.conversation_id.clone(),
+                trigger_item_id: None,
+                metadata: serde_json::json!({ "turn_index": 1 }),
+            })
+            .await
+            .expect("turn");
+        let artifact = store
+            .create_artifact_with_initial_version(
+                crate::NewArtifact {
+                    artifact_id: None,
+                    owner: crate::ArtifactOwnerRef::conversation(&conversation.conversation_id),
+                    title: "Noema notes".to_string(),
+                    description: Some("Shared notes".to_string()),
+                    artifact_kind: "document".to_string(),
+                    storage_kind: crate::ArtifactStorageKind::ExternalUrl,
+                    created_by_actor_id: "agent:primary".to_string(),
+                    source: crate::ArtifactSource {
+                        conversation_id: Some(conversation.conversation_id.clone()),
+                        turn_id: Some(turn.turn_id.clone()),
+                        item_id: None,
+                    },
+                    metadata: serde_json::json!({}),
+                },
+                crate::NewArtifactVersion {
+                    artifact_version_id: None,
+                    title: None,
+                    storage: crate::ArtifactVersionStorage::ExternalUrl {
+                        url: "https://notion.so/noema-notes".to_string(),
+                    },
+                    media_type: Some("text/html".to_string()),
+                    byte_size: None,
+                    content_sha256: None,
+                    created_by_actor_id: "agent:primary".to_string(),
+                    source: crate::ArtifactSource {
+                        conversation_id: Some(conversation.conversation_id.clone()),
+                        turn_id: Some(turn.turn_id.clone()),
+                        item_id: None,
+                    },
+                    metadata: serde_json::json!({}),
+                },
+            )
+            .await
+            .expect("artifact");
+        store
+            .append_conversation_item(crate::NewConversationItem {
+                conversation_id: conversation.conversation_id.clone(),
+                turn_id: Some(turn.turn_id.clone()),
+                parent_item_id: None,
+                kind: crate::ConversationItemKind::ArtifactReference,
+                status: crate::ConversationItemStatus::Completed,
+                author: crate::ActorRef::agent("agent:primary"),
+                content_text: None,
+                payload_json: serde_json::json!({
+                    "artifact_id": artifact.artifact.artifact_id,
+                    "artifact_version_id": artifact.current_version.artifact_version_id,
+                    "title": "Noema notes",
+                    "artifact_kind": "document",
+                    "storage_kind": "external_url",
+                    "external_url": "https://notion.so/noema-notes",
+                    "download_url": null,
+                    "media_type": "text/html"
+                }),
+                metadata: serde_json::json!({}),
+            })
+            .await
+            .expect("item");
+
+        let schema = build_schema(GraphqlState::for_tests_with_store(store));
+        let response = schema
+            .execute(async_graphql::Request::new(format!(
+                r#"
+                query {{
+                  conversationTranscriptPage(input: {{ conversationId: "{}", limit: 10 }}) {{
+                    items {{
+                      item {{
+                        __typename
+                        ... on ArtifactReference {{
+                          artifactId
+                          artifactVersionId
+                          title
+                          artifactKind
+                          storageKind
+                          externalUrl
+                          downloadUrl
+                          mediaType
+                        }}
+                      }}
+                    }}
+                  }}
+                }}
+                "#,
+                conversation.conversation_id
+            )))
+            .await;
+
+        assert!(response.errors.is_empty(), "{:?}", response.errors);
+        let data = response.data.into_json().expect("json");
+        let item = &data["conversationTranscriptPage"]["items"][0]["item"];
+        assert_eq!(item["__typename"], "ArtifactReference");
+        assert_eq!(item["artifactId"], artifact.artifact.artifact_id);
+        assert_eq!(
+            item["artifactVersionId"],
+            artifact.current_version.artifact_version_id
+        );
+        assert_eq!(item["title"], "Noema notes");
+        assert_eq!(item["artifactKind"], "document");
+        assert_eq!(item["storageKind"], "external_url");
+        assert_eq!(item["externalUrl"], "https://notion.so/noema-notes");
+        assert!(item["downloadUrl"].is_null());
+        assert_eq!(item["mediaType"], "text/html");
+    }
+
+    #[tokio::test]
     async fn runtime_turn_passes_conversation_id_to_provider_request() {
         use crate::store::tests::test_store;
 

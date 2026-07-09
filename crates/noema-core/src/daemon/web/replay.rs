@@ -105,7 +105,19 @@ fn turn_transcript_item_from_record(
             }))
         }
         ConversationItemKind::Reasoning => Ok(None),
-        ConversationItemKind::ArtifactReference => Ok(None),
+        ConversationItemKind::ArtifactReference => {
+            let payload: ReplayArtifactReferencePayload = replay_payload(record)?;
+            Ok(Some(TurnTranscriptItem::ArtifactReference {
+                artifact_id: payload.artifact_id,
+                artifact_version_id: payload.artifact_version_id,
+                title: payload.title,
+                artifact_kind: payload.artifact_kind,
+                storage_kind: payload.storage_kind,
+                external_url: payload.external_url,
+                download_url: payload.download_url,
+                media_type: payload.media_type,
+            }))
+        }
         ConversationItemKind::ToolCall
         | ConversationItemKind::ToolResult
         | ConversationItemKind::ApprovalRequest
@@ -189,4 +201,127 @@ struct ReplayErrorNoticePayload {
     message: Option<String>,
     #[serde(default)]
     recoverable: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct ReplayArtifactReferencePayload {
+    artifact_id: String,
+    #[serde(default)]
+    artifact_version_id: Option<String>,
+    title: String,
+    artifact_kind: String,
+    storage_kind: String,
+    #[serde(default)]
+    external_url: Option<String>,
+    #[serde(default)]
+    download_url: Option<String>,
+    #[serde(default)]
+    media_type: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::web_conversation_item_from_record;
+    use crate::{
+        ActorRef, ArtifactOwnerRef, ArtifactSource, ArtifactStorageKind, ArtifactVersionStorage,
+        ConversationItemKind, ConversationItemStatus, NewArtifact, NewArtifactVersion,
+        NewConversationItem, NewConversationTurn, TurnTranscriptItem,
+    };
+
+    #[tokio::test]
+    async fn conversation_replay_maps_artifact_reference() {
+        let store = crate::store::tests::test_store().await;
+        let conversation = store
+            .create_conversation(crate::NewConversation::local_chat(None, None))
+            .await
+            .expect("conversation");
+        let turn = store
+            .create_conversation_turn(NewConversationTurn {
+                conversation_id: conversation.conversation_id.clone(),
+                trigger_item_id: None,
+                metadata: json!({}),
+            })
+            .await
+            .expect("turn");
+        let artifact = store
+            .create_artifact_with_initial_version(
+                NewArtifact {
+                    artifact_id: None,
+                    owner: ArtifactOwnerRef::conversation(&conversation.conversation_id),
+                    title: "Noema notes".to_string(),
+                    description: Some("Shared notes".to_string()),
+                    artifact_kind: "document".to_string(),
+                    storage_kind: ArtifactStorageKind::ExternalUrl,
+                    created_by_actor_id: "agent:primary".to_string(),
+                    source: ArtifactSource {
+                        conversation_id: Some(conversation.conversation_id.clone()),
+                        turn_id: Some(turn.turn_id.clone()),
+                        item_id: None,
+                    },
+                    metadata: json!({}),
+                },
+                NewArtifactVersion {
+                    artifact_version_id: None,
+                    title: None,
+                    storage: ArtifactVersionStorage::ExternalUrl {
+                        url: "https://notion.so/noema-notes".to_string(),
+                    },
+                    media_type: Some("text/html".to_string()),
+                    byte_size: None,
+                    content_sha256: None,
+                    created_by_actor_id: "agent:primary".to_string(),
+                    source: ArtifactSource {
+                        conversation_id: Some(conversation.conversation_id.clone()),
+                        turn_id: Some(turn.turn_id.clone()),
+                        item_id: None,
+                    },
+                    metadata: json!({}),
+                },
+            )
+            .await
+            .expect("artifact");
+        let record = store
+            .append_conversation_item(NewConversationItem {
+                conversation_id: conversation.conversation_id.clone(),
+                turn_id: Some(turn.turn_id.clone()),
+                parent_item_id: None,
+                kind: ConversationItemKind::ArtifactReference,
+                status: ConversationItemStatus::Completed,
+                author: ActorRef::agent("agent:primary"),
+                content_text: None,
+                payload_json: json!({
+                    "artifact_id": artifact.artifact.artifact_id,
+                    "artifact_version_id": artifact.current_version.artifact_version_id,
+                    "title": "Noema notes",
+                    "artifact_kind": "document",
+                    "storage_kind": "external_url",
+                    "external_url": "https://notion.so/noema-notes",
+                    "download_url": null,
+                    "media_type": "text/html"
+                }),
+                metadata: json!({}),
+            })
+            .await
+            .expect("conversation item");
+
+        let item = web_conversation_item_from_record(record)
+            .expect("convert record")
+            .expect("visible item");
+
+        assert_eq!(
+            item.item,
+            TurnTranscriptItem::ArtifactReference {
+                artifact_id: artifact.artifact.artifact_id,
+                artifact_version_id: Some(artifact.current_version.artifact_version_id),
+                title: "Noema notes".to_string(),
+                artifact_kind: "document".to_string(),
+                storage_kind: "external_url".to_string(),
+                external_url: Some("https://notion.so/noema-notes".to_string()),
+                download_url: None,
+                media_type: Some("text/html".to_string()),
+            }
+        );
+    }
 }
