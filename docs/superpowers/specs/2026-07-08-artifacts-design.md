@@ -292,6 +292,7 @@ type ArtifactVersion {
   title: String
   localRelativePath: String
   externalUrl: String
+  downloadUrl: String
   mediaType: String
   byteSize: Int
   contentSha256: String
@@ -330,6 +331,18 @@ non-empty, artifact kind is non-empty, and URL is HTTP or HTTPS.
 Local-file creation is initially a backend command path, not a browser upload
 mutation. This gives agents and internal tools a safe persistence primitive
 without adding user upload policy and streaming concerns.
+
+Local file versions expose a read-only `downloadUrl`:
+
+```text
+/artifacts/<artifact_version_id>/download
+```
+
+The route resolves the version through SQLite, verifies the version belongs to a
+non-deleted artifact, resolves the stored relative path under `NoemaPaths`, and
+streams the file bytes with `Content-Type` from `media_type` or
+`application/octet-stream`. External URL versions return `null` for
+`downloadUrl`; clients should use `externalUrl`.
 
 ## Transcript Integration
 
@@ -418,7 +431,7 @@ adds substantial artifact UI behavior beyond a simple transcript row.
 ## Open Follow-Ups
 
 - Project, task, workspace, human, and agent-run artifact creation surfaces.
-- Browser upload and download routes with permission checks.
+- Browser upload routes with permission checks.
 - Artifact promotion or copy between owners.
 - External resource snapshot/import versions.
 - Derived previews, search indexing, and vector indexing.

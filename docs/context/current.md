@@ -90,6 +90,13 @@ The next storage slice should stay small and concrete:
   WebSocket and `agent_status` are live coordination state for current turns.
 - Filesystem storage is for durable object-owned documents, attachments, and artifacts.
 - `system/` state is derived and rebuildable.
+- Governed artifacts should be durable, versioned outputs owned by the same
+  concrete contexts as memory governance. SQLite owns artifact metadata and
+  immutable version records; local bytes live under the owner filesystem area,
+  while external resources are represented as URL versions. The first product
+  slice creates conversation-owned artifacts, exposes generic artifact reads
+  through GraphQL, serves local file versions through read-only download URLs,
+  and renders typed artifact references in the transcript.
 - Memory is governed context, not hidden model state. Durable memory truth now
   belongs to local Mnemosyne, while Noema owns service lifecycle, configuration,
   live readiness proxying, provenance, UI, model routing, ingest diagnostics,
