@@ -1,4 +1,5 @@
 import * as React from "react";
+import type { ChatDetailTarget } from "@/components/chatDetail/chatDetailTypes";
 import type { TranscriptEntry } from "@/shared/types";
 import { ActivityRow } from "./ActivityRow";
 import { ArtifactReferenceCard } from "./ArtifactReferenceCard";
@@ -50,7 +51,8 @@ export function Transcript({
   sentMessageScrollRequest,
   onToggleActivity,
   onSubmitMultipleChoiceSelection,
-  onLoadOlderTranscript
+  onLoadOlderTranscript,
+  onOpenDetail
 }: {
   entries: TranscriptEntry[];
   loadingOlderTranscript: boolean;
@@ -64,6 +66,7 @@ export function Transcript({
   onToggleActivity: (id: string) => void;
   onSubmitMultipleChoiceSelection: (promptItemId: string, selectedOptionIds: string[]) => void;
   onLoadOlderTranscript: () => void;
+  onOpenDetail?: (target: ChatDetailTarget) => void;
 }) {
   void awaitingAssistantTurn;
   const renderedEntries = renderableTranscriptEntries(entries, pending, agentStatus);
@@ -166,7 +169,8 @@ export function Transcript({
                   showAvatar,
                   bubbleGroup,
                   animateText,
-                  followBottomRef
+                  followBottomRef,
+                  onOpenDetail
                 )}
               </RenderedTranscriptEntryFrame>
             </TranscriptScrollerItem>
@@ -198,7 +202,8 @@ function renderTranscriptRenderEntry(
   showAvatar: boolean,
   bubbleGroup: ChatBubbleGroup | undefined,
   animateText: boolean,
-  followBottomRef: React.MutableRefObject<boolean>
+  followBottomRef: React.MutableRefObject<boolean>,
+  onOpenDetail: ((target: ChatDetailTarget) => void) | undefined
 ) {
   if (entry.kind === "tool_marker") {
     const open = expandedActivities.has(entry.id);
@@ -231,7 +236,8 @@ function renderTranscriptRenderEntry(
     onSubmitMultipleChoiceSelection,
     showAvatar,
     bubbleGroup,
-    animateText
+    animateText,
+    onOpenDetail
   );
 }
 
@@ -243,7 +249,8 @@ function renderTranscriptEntry(
   onSubmitMultipleChoiceSelection: (promptItemId: string, selectedOptionIds: string[]) => void,
   showAvatar: boolean,
   bubbleGroup: ChatBubbleGroup | undefined,
-  animateText: boolean
+  animateText: boolean,
+  onOpenDetail: ((target: ChatDetailTarget) => void) | undefined
 ) {
   if (entry.type === "user") {
     return (
@@ -288,7 +295,7 @@ function renderTranscriptEntry(
   if (entry.type === "artifact") {
     return (
       <TranscriptRow lane="assistant" showAvatar={showAvatar}>
-        <ArtifactReferenceCard item={entry.item} />
+        <ArtifactReferenceCard item={entry.item} onOpenDetail={onOpenDetail} />
       </TranscriptRow>
     );
   }

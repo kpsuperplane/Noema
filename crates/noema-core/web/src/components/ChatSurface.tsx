@@ -1,5 +1,7 @@
 import React from "react";
 import * as stylex from "@stylexjs/stylex";
+import { ChatDetailRail } from "./chatDetail/ChatDetailRail";
+import type { ChatDetailTarget } from "./chatDetail/chatDetailTypes";
 import { Composer } from "./Composer";
 import { Transcript } from "./Transcript";
 import { TranscriptLoadingSkeleton } from "./transcript/TranscriptLoadingSkeleton";
@@ -79,6 +81,7 @@ export function ChatSurface({
   const composerRef = React.useRef<HTMLTextAreaElement>(null);
   const composerDockRef = React.useRef<HTMLDivElement>(null);
   const [composerDockHeight, setComposerDockHeight] = React.useState(96);
+  const [detailTarget, setDetailTarget] = React.useState<ChatDetailTarget | null>(null);
 
   React.useLayoutEffect(() => {
     const dock = composerDockRef.current;
@@ -117,45 +120,51 @@ export function ChatSurface({
   return (
     <section
       data-slot="chat-surface"
-      {...stylex.props(styles.root)}
+      data-detail-open={detailTarget ? "true" : undefined}
+      {...stylex.props(styles.root, detailTarget && styles.rootWithDetail)}
       style={rootStyle}
       aria-label="Noema chat"
     >
-      <div {...stylex.props(styles.contentLayer)}>
-        {loadingInitialTranscript || transcript.length === 0 ? (
-          <TranscriptLoadingSkeleton />
-        ) : (
-          <Transcript
-            entries={transcript}
-            loadingOlderTranscript={loadingOlderTranscript}
-            hasMoreTranscriptBefore={hasMoreTranscriptBefore}
-            olderTranscriptPageError={olderTranscriptPageError}
-            pending={pending}
-            agentStatus={agentStatus}
-            awaitingAssistantTurn={awaitingAssistantTurn}
-            expandedActivities={expandedActivities}
-            sentMessageScrollRequest={sentMessageScrollRequest}
-            onToggleActivity={onToggleActivity}
-            onSubmitMultipleChoiceSelection={onSubmitMultipleChoiceSelection}
-            onLoadOlderTranscript={onLoadOlderTranscript}
-          />
-        )}
-      </div>
+      <div data-slot="chat-main-pane" {...stylex.props(styles.mainPane)}>
+        <div {...stylex.props(styles.contentLayer)}>
+          {loadingInitialTranscript || transcript.length === 0 ? (
+            <TranscriptLoadingSkeleton />
+          ) : (
+            <Transcript
+              entries={transcript}
+              loadingOlderTranscript={loadingOlderTranscript}
+              hasMoreTranscriptBefore={hasMoreTranscriptBefore}
+              olderTranscriptPageError={olderTranscriptPageError}
+              pending={pending}
+              agentStatus={agentStatus}
+              awaitingAssistantTurn={awaitingAssistantTurn}
+              expandedActivities={expandedActivities}
+              sentMessageScrollRequest={sentMessageScrollRequest}
+              onToggleActivity={onToggleActivity}
+              onSubmitMultipleChoiceSelection={onSubmitMultipleChoiceSelection}
+              onLoadOlderTranscript={onLoadOlderTranscript}
+              onOpenDetail={setDetailTarget}
+            />
+          )}
+        </div>
 
-      <div ref={composerDockRef} data-slot="chat-composer-dock" {...stylex.props(styles.composerDock)}>
-        <div aria-hidden="true" data-slot="chat-composer-scrim" {...stylex.props(styles.composerScrim)} />
-        <div {...stylex.props(styles.composerLayer)}>
-          <Composer
-            ref={composerRef}
-            value={draft}
-            ready={ready}
-            pending={pending}
-            placeholder={composerPlaceholder({ ready, agentName })}
-            onChange={onDraftChange}
-            onSubmit={onSubmit}
-          />
+        <div ref={composerDockRef} data-slot="chat-composer-dock" {...stylex.props(styles.composerDock)}>
+          <div aria-hidden="true" data-slot="chat-composer-scrim" {...stylex.props(styles.composerScrim)} />
+          <div {...stylex.props(styles.composerLayer)}>
+            <Composer
+              ref={composerRef}
+              value={draft}
+              ready={ready}
+              pending={pending}
+              placeholder={composerPlaceholder({ ready, agentName })}
+              onChange={onDraftChange}
+              onSubmit={onSubmit}
+            />
+          </div>
         </div>
       </div>
+
+      {detailTarget ? <ChatDetailRail target={detailTarget} onClose={() => setDetailTarget(null)} /> : null}
     </section>
   );
 }
@@ -167,11 +176,26 @@ const styles = stylex.create({
       "@media (max-width: 760px)": "calc(100% - 40px)"
     },
     display: "grid",
+    position: "relative",
+    gridTemplateColumns: "minmax(0, 1fr)",
     gridTemplateRows: "minmax(0, 1fr)",
     minHeight: 0,
     height: "calc(100% + var(--shell-deck-header-height, 44px))",
     marginTop: "calc(var(--shell-deck-header-height, 44px) * -1)",
     width: "100%",
+    overflow: "hidden"
+  },
+  rootWithDetail: {
+    gridTemplateColumns: {
+      default: "minmax(0, 1fr)",
+      "@media (min-width: 980px)": "minmax(0, 1fr) minmax(320px, 380px)"
+    }
+  },
+  mainPane: {
+    display: "grid",
+    gridTemplateRows: "minmax(0, 1fr)",
+    minWidth: 0,
+    minHeight: 0,
     overflow: "hidden"
   },
   contentLayer: {

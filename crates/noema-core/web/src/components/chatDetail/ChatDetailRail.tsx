@@ -65,6 +65,15 @@ export function ChatDetailRail({
 
 const styles = stylex.create({
   rail: {
+    position: {
+      default: "absolute",
+      "@media (min-width: 980px)": "relative"
+    },
+    inset: {
+      default: 0,
+      "@media (min-width: 980px)": "auto"
+    },
+    zIndex: 4,
     display: "grid",
     gridTemplateRows: "auto minmax(0, 1fr)",
     minWidth: 0,

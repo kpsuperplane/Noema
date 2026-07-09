@@ -1,4 +1,5 @@
 import type { TurnTranscriptItem } from "@/shared/types";
+import { artifactDetailTarget, type ChatDetailTarget } from "@/components/chatDetail/chatDetailTypes";
 import { Item, type ItemProps } from "@astryxdesign/core/Item";
 import * as stylex from "@stylexjs/stylex";
 import {
@@ -64,15 +65,20 @@ const styles = stylex.create({
 });
 
 export function ArtifactReferenceCard({
-  item
+  item,
+  onOpenDetail
 }: {
   item: ArtifactReferenceItem;
+  onOpenDetail?: (target: ChatDetailTarget) => void;
 }) {
   const link = resolveArtifactLink(item.download_url, item.external_url);
+  const detailTarget =
+    item.storage_kind === "local_file" ? artifactDetailTarget(item.artifact_version_id) : null;
+  const opensDetail = Boolean(detailTarget && onOpenDetail);
   const description = artifactDescription(item);
   const icon = artifactIcon(item);
-  const actionIcon = link ? artifactActionIcon(link) : null;
-  const actionLabel = link ? (link.external ? "Open" : "Download") : "Unavailable";
+  const actionIcon = opensDetail ? null : link ? artifactActionIcon(link) : null;
+  const actionLabel = opensDetail ? "Open" : link ? (link.external ? "Open" : "Download") : "Unavailable";
 
   return (
     <Item
@@ -87,18 +93,25 @@ export function ArtifactReferenceCard({
           {actionIcon}
         </span>
       }
-      href={link?.href}
-      isDisabled={!link}
+      href={opensDetail ? undefined : link?.href}
+      isDisabled={!link && !opensDetail}
       label={item.title}
       labelLines={2}
-      rel={link?.external ? "noreferrer" : undefined}
+      onClick={
+        opensDetail && detailTarget
+          ? () => {
+              onOpenDetail?.(detailTarget);
+            }
+          : undefined
+      }
+      rel={!opensDetail && link?.external ? "noreferrer" : undefined}
       startContent={
         <span {...stylex.props(styles.iconFrame)} aria-hidden="true">
           {icon}
         </span>
       }
-      target={link?.external ? "_blank" : undefined}
-      xstyle={itemXStyle(styles.item, !link && styles.disabledItem)}
+      target={!opensDetail && link?.external ? "_blank" : undefined}
+      xstyle={itemXStyle(styles.item, !link && !opensDetail && styles.disabledItem)}
     />
   );
 }
