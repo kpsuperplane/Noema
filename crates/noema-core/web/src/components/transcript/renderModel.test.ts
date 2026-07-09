@@ -1,6 +1,10 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { renderedEntryMessageId, renderableTranscriptEntries } from "./renderModel";
+import {
+  renderedChatBubbleGroup,
+  renderedEntryMessageId,
+  renderableTranscriptEntries
+} from "./renderModel";
 import type { TranscriptEntry } from "@/shared/types";
 
 describe("renderableTranscriptEntries", () => {
@@ -121,6 +125,85 @@ describe("renderableTranscriptEntries", () => {
     assert.deepEqual(
       rendered.map((entry) => entry.kind),
       ["entry", "entry"]
+    );
+  });
+});
+
+describe("renderedChatBubbleGroup", () => {
+  test("groups adjacent assistant text bubbles from the same turn", () => {
+    const rendered = renderableTranscriptEntries(
+      [
+        {
+          id: "assistant:item:1",
+          turnId: "turn:1",
+          type: "assistant",
+          text: "first"
+        },
+        {
+          id: "assistant:item:2",
+          turnId: "turn:1",
+          type: "assistant",
+          text: "second"
+        },
+        {
+          id: "assistant:item:3",
+          turnId: "turn:1",
+          type: "assistant",
+          text: "third"
+        }
+      ],
+      false,
+      "IDLE"
+    );
+
+    assert.deepEqual(
+      rendered.map((entry, index) =>
+        renderedChatBubbleGroup(entry, rendered[index - 1], rendered[index + 1])
+      ),
+      ["first", "middle", "last"]
+    );
+  });
+
+  test("does not group text bubbles across non-text transcript entries", () => {
+    const rendered = renderableTranscriptEntries(
+      [
+        {
+          id: "assistant:item:1",
+          turnId: "turn:1",
+          type: "assistant",
+          text: "first"
+        },
+        {
+          id: "tool-call-entry",
+          turnId: "turn:1",
+          type: "activity",
+          item: {
+            kind: "activity",
+            id: "tool_call:1",
+            activity_kind: "tool_call",
+            status: "COMPLETED",
+            title: "Tool call: search_memory",
+            metadata: {
+              action: { id: "call_memory_1", name: "search_memory" }
+            }
+          }
+        },
+        {
+          id: "assistant:item:2",
+          turnId: "turn:1",
+          type: "assistant",
+          text: "second"
+        }
+      ],
+      false,
+      "IDLE"
+    );
+
+    assert.deepEqual(
+      rendered.map((entry, index) =>
+        renderedChatBubbleGroup(entry, rendered[index - 1], rendered[index + 1])
+      ),
+      [undefined, undefined, undefined]
     );
   });
 });

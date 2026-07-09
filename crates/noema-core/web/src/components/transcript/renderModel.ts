@@ -20,6 +20,7 @@ export type RenderTranscriptEntry =
     };
 
 export type TranscriptLane = "human" | "assistant";
+export type ChatBubbleGroup = "first" | "middle" | "last";
 
 type TranscriptEntryAnchorCandidate =
   | { kind: "entry"; entryType: TranscriptEntry["type"] }
@@ -123,6 +124,28 @@ export function shouldCompactMarkerClusterSpacing(
   );
 }
 
+export function renderedChatBubbleGroup(
+  entry: RenderTranscriptEntry,
+  previousEntry: RenderTranscriptEntry | undefined,
+  nextEntry: RenderTranscriptEntry | undefined
+): ChatBubbleGroup | undefined {
+  if (!isGroupableTextMessageRenderEntry(entry)) {
+    return undefined;
+  }
+  const hasPrevious = isAdjacentTextBubble(previousEntry, entry);
+  const hasNext = isAdjacentTextBubble(nextEntry, entry);
+  if (hasPrevious && hasNext) {
+    return "middle";
+  }
+  if (hasNext) {
+    return "first";
+  }
+  if (hasPrevious) {
+    return "last";
+  }
+  return undefined;
+}
+
 export function shouldShowTypingIndicator(
   entries: TranscriptEntry[],
   pending: boolean,
@@ -222,6 +245,29 @@ function isTextMessageRenderEntry(entry: RenderTranscriptEntry): boolean {
     entry.kind === "entry" &&
     (entry.entry.type === "user" || entry.entry.type === "assistant" || entry.entry.type === "assistant_stream")
   );
+}
+
+function isGroupableTextMessageRenderEntry(
+  entry: RenderTranscriptEntry | undefined
+): entry is Extract<RenderTranscriptEntry, { kind: "entry" }> {
+  return !!entry && isTextMessageRenderEntry(entry);
+}
+
+function isAdjacentTextBubble(
+  candidate: RenderTranscriptEntry | undefined,
+  entry: Extract<RenderTranscriptEntry, { kind: "entry" }>
+): boolean {
+  if (!isGroupableTextMessageRenderEntry(candidate)) {
+    return false;
+  }
+  if (transcriptEntryLane(candidate.entry.type) !== transcriptEntryLane(entry.entry.type)) {
+    return false;
+  }
+  return sameConcreteTurn(candidate.entry, entry.entry);
+}
+
+function sameConcreteTurn(left: TranscriptEntry, right: TranscriptEntry): boolean {
+  return !!left.turnId && left.turnId === right.turnId;
 }
 
 function latestUserEntryIndex(entries: TranscriptEntry[]): number {

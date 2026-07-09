@@ -8,6 +8,7 @@ import { MultipleChoicePrompt } from "./MultipleChoicePrompt";
 import { RenderedTranscriptEntryFrame } from "./RenderedTranscriptEntryFrame";
 import {
   renderableTranscriptEntries,
+  renderedChatBubbleGroup,
   renderedEntryMessageId,
   renderedTranscriptLane,
   shouldAnchorRenderedEntry,
@@ -15,6 +16,7 @@ import {
   shouldContinueRenderedEntryTextAnimation,
   shouldAnimateRenderedEntryTextForSeen,
   shouldCompactMarkerClusterSpacing,
+  type ChatBubbleGroup,
   type RenderTranscriptEntry
 } from "./renderModel";
 import {
@@ -128,8 +130,10 @@ export function Transcript({
         renderEntry={(entry, index) => {
           const lane = transcriptLane(entry);
           const previousEntry = renderedEntries[index - 1];
+          const nextEntry = renderedEntries[index + 1];
           const previousLane = previousEntry ? transcriptLane(previousEntry) : null;
           const showAvatar = previousLane !== lane;
+          const bubbleGroup = renderedChatBubbleGroup(entry, previousEntry, nextEntry);
           const messageId = renderedEntryMessageId(entry);
           const animateArrival = shouldAnimateRenderedEntryArrivalForSeen(entry, messageId, seenArrivalMessageIds);
           const animateText = shouldAnimateRenderedEntryTextForSeen(
@@ -143,7 +147,11 @@ export function Transcript({
             <TranscriptScrollerItem
               key={messageId}
               align={lane === "human" ? "end" : "start"}
-              compact={shouldCompactMarkerClusterSpacing(entry, previousEntry)}
+              compact={
+                shouldCompactMarkerClusterSpacing(entry, previousEntry) ||
+                bubbleGroup === "middle" ||
+                bubbleGroup === "last"
+              }
               data-arrival={animateArrival ? "true" : undefined}
               messageId={messageId}
               scrollAnchor={shouldAnchorRenderedEntry(entry)}
@@ -156,6 +164,7 @@ export function Transcript({
                   onToggleActivity,
                   onSubmitMultipleChoiceSelection,
                   showAvatar,
+                  bubbleGroup,
                   animateText,
                   followBottomRef
                 )}
@@ -187,6 +196,7 @@ function renderTranscriptRenderEntry(
   onToggleActivity: (id: string) => void,
   onSubmitMultipleChoiceSelection: (promptItemId: string, selectedOptionIds: string[]) => void,
   showAvatar: boolean,
+  bubbleGroup: ChatBubbleGroup | undefined,
   animateText: boolean,
   followBottomRef: React.MutableRefObject<boolean>
 ) {
@@ -220,6 +230,7 @@ function renderTranscriptRenderEntry(
     onToggleActivity,
     onSubmitMultipleChoiceSelection,
     showAvatar,
+    bubbleGroup,
     animateText
   );
 }
@@ -231,15 +242,19 @@ function renderTranscriptEntry(
   onToggleActivity: (id: string) => void,
   onSubmitMultipleChoiceSelection: (promptItemId: string, selectedOptionIds: string[]) => void,
   showAvatar: boolean,
+  bubbleGroup: ChatBubbleGroup | undefined,
   animateText: boolean
 ) {
   if (entry.type === "user") {
-    return <Message animate={animateText} role="user" text={entry.text} showAvatar={showAvatar} />;
+    return (
+      <Message animate={animateText} group={bubbleGroup} role="user" text={entry.text} showAvatar={showAvatar} />
+    );
   }
   if (entry.type === "assistant") {
     return (
       <Message
         animate={animateText}
+        group={bubbleGroup}
         role="assistant"
         text={entry.text}
         showAvatar={showAvatar}
@@ -248,7 +263,15 @@ function renderTranscriptEntry(
     );
   }
   if (entry.type === "assistant_stream") {
-    return <Message animate={animateText} role="assistant" text={entry.text} showAvatar={showAvatar} />;
+    return (
+      <Message
+        animate={animateText}
+        group={bubbleGroup}
+        role="assistant"
+        text={entry.text}
+        showAvatar={showAvatar}
+      />
+    );
   }
   if (entry.type === "activity") {
     return (

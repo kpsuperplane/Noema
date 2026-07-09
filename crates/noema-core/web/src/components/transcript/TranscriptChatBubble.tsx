@@ -1,6 +1,7 @@
 import { ChatMessage, ChatMessageBubble, type ChatMessageBubbleProps, type ChatMessageProps } from "@astryxdesign/core/Chat";
 import * as stylex from "@stylexjs/stylex";
 import { TranscriptActorAvatar } from "./TranscriptActorAvatar";
+import type { ChatBubbleGroup } from "./renderModel";
 
 type TranscriptChatBubbleRole = "user" | "assistant";
 type TranscriptChatBubbleVariant = "message" | "typing";
@@ -46,11 +47,13 @@ const styles = stylex.create({
 
 export function TranscriptChatBubble({
   children,
+  group,
   role,
   showAvatar,
   variant = "message"
 }: {
   children: React.ReactNode;
+  group?: ChatBubbleGroup;
   role: TranscriptChatBubbleRole;
   showAvatar: boolean;
   variant?: TranscriptChatBubbleVariant;
@@ -65,6 +68,7 @@ export function TranscriptChatBubble({
       xstyle={chatMessageXStyle(styles.message)}
     >
       <ChatMessageBubble
+        group={variant === "message" ? group : undefined}
         xstyle={chatMessageBubbleXStyle(
           styles.bubble,
           variant === "message" && styles.textBubble,

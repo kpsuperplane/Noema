@@ -6,6 +6,7 @@ import type { ReactNode } from "react";
 import type { ProviderUsageDebug } from "./debugUsage";
 import { ProviderUsageDebugDialog } from "./ProviderUsageDebugDialog";
 import { TranscriptChatBubble } from "./TranscriptChatBubble";
+import type { ChatBubbleGroup } from "./renderModel";
 
 type MarkdownXStyle = MarkdownProps["xstyle"];
 type MarkdownComponents = NonNullable<MarkdownProps["components"]>;
@@ -59,12 +60,14 @@ const userMarkdownComponents: MarkdownComponents = {
 
 export function Message({
   animate,
+  group,
   role,
   text,
   showAvatar,
   debugUsage = null
 }: {
   animate: boolean;
+  group?: ChatBubbleGroup;
   role: "user" | "assistant";
   text: string;
   showAvatar: boolean;
@@ -72,7 +75,7 @@ export function Message({
 }) {
   const [debugOpen, setDebugOpen] = React.useState(false);
   const bubble = (
-    <TranscriptChatBubble role={role} showAvatar={showAvatar}>
+    <TranscriptChatBubble group={group} role={role} showAvatar={showAvatar}>
       <Markdown
         autolink="gfm"
         components={role === "user" ? userMarkdownComponents : undefined}
