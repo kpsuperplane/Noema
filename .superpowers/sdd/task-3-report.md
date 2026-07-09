@@ -130,3 +130,25 @@
 ### Commit created
 
 - `fix: harden local artifact downloads`
+
+---
+
+## Second Review Fix: Header-Safe Download Content Type
+
+### What changed
+
+- Hardened `write_response` and `write_binary_response` so invalid `Content-Type` values are rejected at emission time and fall back to `application/octet-stream`.
+- Added a focused unit test for invalid header values in `crates/noema-core/src/daemon/web/http.rs`.
+- Added a route-level regression test that forges a stored artifact version `media_type` containing CR/LF and verifies the download response still emits `Content-Type: application/octet-stream`.
+
+### Tests run and results
+
+- `cargo fmt --all --check` — passed
+- `cargo test -p noema-core --lib invalid_content_type_falls_back_to_octet_stream` — passed
+- `cargo test -p noema-core --lib artifact_download_route_falls_back_to_octet_stream_for_unsafe_media_type` — passed
+
+### Files changed
+
+- `crates/noema-core/src/daemon/web/http.rs`
+- `crates/noema-core/src/daemon/web/mod.rs`
+- `.superpowers/sdd/task-3-report.md`

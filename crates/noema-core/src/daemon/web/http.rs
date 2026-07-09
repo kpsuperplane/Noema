@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use serde::Serialize;
+use std::borrow::Cow;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpStream,
@@ -169,6 +170,7 @@ pub(super) async fn write_response(
     content_type: &str,
     body: &[u8],
 ) -> Result<(), DaemonError> {
+    let content_type = safe_header_value_or_default(content_type);
     let headers = format!(
         "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n",
         body.len()
@@ -186,6 +188,7 @@ pub(super) async fn write_binary_response(
     content_disposition: Option<&str>,
     body: &[u8],
 ) -> Result<(), DaemonError> {
+    let content_type = safe_header_value_or_default(content_type);
     let mut headers = format!(
         "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nCache-Control: no-store\r\nConnection: close\r\n",
         body.len()
@@ -200,6 +203,17 @@ pub(super) async fn write_binary_response(
     stream.write_all(body).await?;
     stream.flush().await?;
     Ok(())
+}
+
+fn safe_header_value_or_default(value: &str) -> Cow<'_, str> {
+    if value.is_empty() {
+        return Cow::Borrowed("application/octet-stream");
+    }
+    if http::HeaderValue::from_str(value).is_ok() {
+        Cow::Borrowed(value)
+    } else {
+        Cow::Borrowed("application/octet-stream")
+    }
 }
 
 pub(super) fn attachment_content_disposition(filename: &str) -> String {
@@ -235,13 +249,25 @@ pub(super) async fn write_json_error(
 
 #[cfg(test)]
 mod tests {
-    use super::attachment_content_disposition;
+    use super::{attachment_content_disposition, safe_header_value_or_default};
 
     #[test]
     fn attachment_content_disposition_escapes_quotes_and_controls() {
         assert_eq!(
             attachment_content_disposition("report\"\r\nv1.md"),
             "attachment; filename=\"report\\\"__v1.md\""
+        );
+    }
+
+    #[test]
+    fn invalid_content_type_falls_back_to_octet_stream() {
+        assert_eq!(
+            safe_header_value_or_default("text/plain\r\nX-Evil: yes"),
+            "application/octet-stream"
+        );
+        assert_eq!(
+            safe_header_value_or_default("text/markdown"),
+            "text/markdown"
         );
     }
 }
