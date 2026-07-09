@@ -206,4 +206,73 @@ describe("renderedChatBubbleGroup", () => {
       [undefined, undefined, undefined]
     );
   });
+
+  test("groups multiple choice prompts with adjacent assistant text bubbles", () => {
+    const rendered = renderableTranscriptEntries(
+      [
+        {
+          id: "assistant:item:1",
+          turnId: "turn:choice",
+          type: "assistant",
+          text: "Pick one."
+        },
+        {
+          id: "choice:item:1",
+          turnId: "turn:choice",
+          type: "multiple_choice_prompt",
+          item: {
+            kind: "multiple_choice_prompt",
+            prompt: "Which approach?",
+            selection_mode: "PICK_ONE",
+            options: [
+              { id: "a", label: "A" },
+              { id: "b", label: "B" }
+            ]
+          }
+        }
+      ],
+      false,
+      "IDLE"
+    );
+
+    assert.deepEqual(
+      rendered.map((entry, index) =>
+        renderedChatBubbleGroup(entry, rendered[index - 1], rendered[index + 1])
+      ),
+      ["first", "last"]
+    );
+  });
+
+  test("groups multiple choice selections with adjacent human text bubbles", () => {
+    const rendered = renderableTranscriptEntries(
+      [
+        {
+          id: "user:item:1",
+          turnId: "turn:selection",
+          type: "user",
+          text: "I like this one"
+        },
+        {
+          id: "choice:selection:1",
+          turnId: "turn:selection",
+          type: "multiple_choice_selection",
+          item: {
+            kind: "multiple_choice_selection",
+            prompt_item_id: "choice:item:1",
+            selection_mode: "PICK_ONE",
+            selected_options: [{ id: "a", label: "A" }]
+          }
+        }
+      ],
+      false,
+      "IDLE"
+    );
+
+    assert.deepEqual(
+      rendered.map((entry, index) =>
+        renderedChatBubbleGroup(entry, rendered[index - 1], rendered[index + 1])
+      ),
+      ["first", "last"]
+    );
+  });
 });

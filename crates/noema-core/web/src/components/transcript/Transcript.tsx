@@ -298,6 +298,7 @@ function renderTranscriptEntry(
     return (
       <MultipleChoicePrompt
         disabled={submittedSelectedOptionIds.size > 0}
+        group={bubbleGroup}
         item={entry.item}
         promptItemId={promptItemId}
         submittedSelectedOptionIds={submittedSelectedOptionIds}

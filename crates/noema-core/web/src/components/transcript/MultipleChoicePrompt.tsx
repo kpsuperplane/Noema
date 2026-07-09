@@ -4,6 +4,7 @@ import { CheckboxInput, type CheckboxInputProps } from "@astryxdesign/core/Check
 import * as stylex from "@stylexjs/stylex";
 import type { MultipleChoiceOption, TurnTranscriptItem } from "@/shared/types";
 import { TranscriptChatBubble } from "./TranscriptChatBubble";
+import type { ChatBubbleGroup } from "./renderModel";
 
 type MultipleChoicePromptItem = Extract<TurnTranscriptItem, { kind: "multiple_choice_prompt" }>;
 type CheckboxXStyle = CheckboxInputProps["xstyle"];
@@ -130,6 +131,7 @@ const styles = stylex.create({
 
 export function MultipleChoicePrompt({
   disabled,
+  group,
   item,
   promptItemId,
   submittedSelectedOptionIds,
@@ -137,6 +139,7 @@ export function MultipleChoicePrompt({
   onSubmit
 }: {
   disabled: boolean;
+  group?: ChatBubbleGroup;
   item: MultipleChoicePromptItem;
   promptItemId: string;
   submittedSelectedOptionIds: ReadonlySet<string>;
@@ -175,7 +178,7 @@ export function MultipleChoicePrompt({
   }, [item.options, onSubmit, promptItemId, selectedIds]);
 
   return (
-    <TranscriptChatBubble role="assistant" showAvatar={showAvatar}>
+    <TranscriptChatBubble group={group} role="assistant" showAvatar={showAvatar}>
       <div {...stylex.props(styles.root)}>
         <p {...stylex.props(styles.prompt)}>{item.prompt}</p>
         {pickMany ? (

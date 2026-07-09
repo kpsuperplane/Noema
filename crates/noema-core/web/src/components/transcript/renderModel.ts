@@ -129,11 +129,11 @@ export function renderedChatBubbleGroup(
   previousEntry: RenderTranscriptEntry | undefined,
   nextEntry: RenderTranscriptEntry | undefined
 ): ChatBubbleGroup | undefined {
-  if (!isGroupableTextMessageRenderEntry(entry)) {
+  if (!isGroupableChatBubbleRenderEntry(entry)) {
     return undefined;
   }
-  const hasPrevious = isAdjacentTextBubble(previousEntry, entry);
-  const hasNext = isAdjacentTextBubble(nextEntry, entry);
+  const hasPrevious = isAdjacentChatBubble(previousEntry, entry);
+  const hasNext = isAdjacentChatBubble(nextEntry, entry);
   if (hasPrevious && hasNext) {
     return "middle";
   }
@@ -247,17 +247,25 @@ function isTextMessageRenderEntry(entry: RenderTranscriptEntry): boolean {
   );
 }
 
-function isGroupableTextMessageRenderEntry(
-  entry: RenderTranscriptEntry | undefined
-): entry is Extract<RenderTranscriptEntry, { kind: "entry" }> {
-  return !!entry && isTextMessageRenderEntry(entry);
+function isChatBubbleRenderEntry(entry: RenderTranscriptEntry): boolean {
+  return (
+    isTextMessageRenderEntry(entry) ||
+    (entry.kind === "entry" &&
+      (entry.entry.type === "multiple_choice_prompt" || entry.entry.type === "multiple_choice_selection"))
+  );
 }
 
-function isAdjacentTextBubble(
+function isGroupableChatBubbleRenderEntry(
+  entry: RenderTranscriptEntry | undefined
+): entry is Extract<RenderTranscriptEntry, { kind: "entry" }> {
+  return !!entry && isChatBubbleRenderEntry(entry);
+}
+
+function isAdjacentChatBubble(
   candidate: RenderTranscriptEntry | undefined,
   entry: Extract<RenderTranscriptEntry, { kind: "entry" }>
 ): boolean {
-  if (!isGroupableTextMessageRenderEntry(candidate)) {
+  if (!isGroupableChatBubbleRenderEntry(candidate)) {
     return false;
   }
   if (transcriptEntryLane(candidate.entry.type) !== transcriptEntryLane(entry.entry.type)) {
