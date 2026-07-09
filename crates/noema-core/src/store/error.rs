@@ -78,6 +78,29 @@ pub enum StoreError {
         /// Expected conversation id.
         conversation_id: String,
     },
+    /// An artifact expected to exist was not found.
+    #[error("artifact not found: {artifact_id}")]
+    ArtifactNotFound {
+        /// Missing artifact id.
+        artifact_id: String,
+    },
+    /// Artifact title input was empty after trimming whitespace.
+    #[error("artifact title cannot be empty")]
+    ArtifactTitleEmpty,
+    /// Artifact kind input was empty after trimming whitespace.
+    #[error("artifact kind cannot be empty")]
+    ArtifactKindEmpty,
+    /// Artifact ownership points at an unsupported concrete object type.
+    #[error("unsupported artifact owner: {owner_object_type}:{owner_object_id}")]
+    UnsupportedArtifactOwner {
+        /// Unsupported owner object type.
+        owner_object_type: String,
+        /// Unsupported owner object id.
+        owner_object_id: String,
+    },
+    /// Artifact version storage does not match the artifact storage kind.
+    #[error("artifact version storage kind does not match artifact storage kind")]
+    ArtifactStorageKindMismatch,
 }
 
 impl StoreError {

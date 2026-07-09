@@ -122,7 +122,7 @@ CREATE TABLE IF NOT EXISTS conversation_items (
   turn_id TEXT,
   parent_item_id TEXT,
   sequence_index INTEGER NOT NULL,
-  kind TEXT NOT NULL CHECK (kind IN ('user_text', 'assistant_text', 'activity', 'a2ui_card', 'multiple_choice_prompt', 'multiple_choice_selection', 'tool_call', 'tool_result', 'reasoning', 'approval_request', 'approval_result', 'error_notice')),
+  kind TEXT NOT NULL CHECK (kind IN ('user_text', 'assistant_text', 'activity', 'a2ui_card', 'multiple_choice_prompt', 'multiple_choice_selection', 'tool_call', 'tool_result', 'reasoning', 'approval_request', 'approval_result', 'error_notice', 'artifact_reference')),
   status TEXT NOT NULL CHECK (status IN ('pending', 'running', 'completed', 'failed', 'cancelled', 'interrupted')),
   author_actor_id TEXT NOT NULL,
   content_text TEXT,
@@ -159,6 +159,54 @@ CREATE TABLE IF NOT EXISTS conversation_context_summaries (
 
 CREATE INDEX IF NOT EXISTS conversation_context_summaries_profile
 ON conversation_context_summaries(conversation_id, provider_kind, model_profile, status, covered_item_end_sequence);
+
+CREATE TABLE IF NOT EXISTS artifacts (
+  artifact_id TEXT PRIMARY KEY NOT NULL,
+  owner_object_type TEXT NOT NULL CHECK (owner_object_type IN ('human', 'agent', 'conversation', 'workspace', 'project', 'task', 'tool')),
+  owner_object_id TEXT NOT NULL,
+  title TEXT NOT NULL CHECK (title <> ''),
+  description TEXT,
+  artifact_kind TEXT NOT NULL CHECK (artifact_kind <> ''),
+  storage_kind TEXT NOT NULL CHECK (storage_kind IN ('local_file', 'external_url')),
+  current_version_id TEXT,
+  created_by_actor_id TEXT NOT NULL,
+  source_conversation_id TEXT,
+  source_turn_id TEXT,
+  source_item_id TEXT,
+  metadata_json TEXT NOT NULL DEFAULT '{}',
+  deleted_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+CREATE TABLE IF NOT EXISTS artifact_versions (
+  artifact_version_id TEXT PRIMARY KEY NOT NULL,
+  artifact_id TEXT NOT NULL,
+  version_index INTEGER NOT NULL CHECK (version_index >= 1),
+  title TEXT,
+  local_relative_path TEXT,
+  external_url TEXT,
+  media_type TEXT,
+  byte_size INTEGER CHECK (byte_size IS NULL OR byte_size >= 0),
+  content_sha256 TEXT,
+  created_by_actor_id TEXT NOT NULL,
+  source_conversation_id TEXT,
+  source_turn_id TEXT,
+  source_item_id TEXT,
+  metadata_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  UNIQUE(artifact_id, version_index),
+  CHECK (
+    (local_relative_path IS NOT NULL AND external_url IS NULL)
+    OR (local_relative_path IS NULL AND external_url IS NOT NULL)
+  )
+);
+
+CREATE INDEX IF NOT EXISTS artifacts_owner
+ON artifacts(owner_object_type, owner_object_id, deleted_at, updated_at);
+
+CREATE INDEX IF NOT EXISTS artifact_versions_artifact
+ON artifact_versions(artifact_id, version_index);
 
 CREATE TABLE IF NOT EXISTS mcp_servers (
   mcp_server_id TEXT PRIMARY KEY NOT NULL,

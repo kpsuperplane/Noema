@@ -37,6 +37,25 @@ async fn sqlite_schema_does_not_create_memory_ingest_jobs() {
 }
 
 #[tokio::test]
+async fn sqlite_schema_creates_artifact_tables() {
+    let store = test_store().await;
+
+    let tables = store
+        .with_connection(|conn| {
+            let mut statement = conn.prepare(
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('artifacts', 'artifact_versions') ORDER BY name",
+            )?;
+            let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
+            rows.collect::<Result<Vec<_>, _>>()
+                .map_err(crate::StoreError::Sqlite)
+        })
+        .await
+        .expect("table lookup");
+
+    assert_eq!(tables, vec!["artifact_versions", "artifacts"]);
+}
+
+#[tokio::test]
 async fn sqlite_store_config_is_stable_for_reopen() {
     let home = TempDir::new().expect("temp noema home");
     let paths = crate::NoemaPaths::from_noema_home(home.path()).expect("paths");

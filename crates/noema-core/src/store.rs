@@ -2,6 +2,7 @@
 
 mod agent_runtime_preferences;
 mod agents;
+mod artifacts;
 mod auxiliary_model_preferences;
 mod context_summaries;
 mod conversations;
@@ -20,6 +21,10 @@ pub(crate) mod tests;
 
 pub use agent_runtime_preferences::{AgentRuntimePreferenceRecord, NewAgentRuntimePreference};
 pub use agents::{AgentRecord, HumanRecord, NewAgent};
+pub use artifacts::{
+    ArtifactOwnerRef, ArtifactRecord, ArtifactSource, ArtifactStorageKind, ArtifactVersionRecord,
+    ArtifactVersionStorage, NewArtifact, NewArtifactVersion,
+};
 pub use auxiliary_model_preferences::{
     AuxiliaryModelPreferenceRecord, NewAuxiliaryModelPreference, TOOL_PROGRESS_AUDIT_TASK_ID,
     WEB_FETCH_SUMMARIZER_TASK_ID,

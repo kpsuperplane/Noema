@@ -96,15 +96,16 @@ pub use provider::{
 };
 pub use runtime_host::{NoemaRuntimeHost, RuntimeHostError};
 pub use store::{
-    AgentRecord, AgentRuntimePreferenceRecord, AuxiliaryModelPreferenceRecord,
-    ConversationContextSummaryRecord, McpApprovalRequestRecord, McpServerAuthStatus,
-    McpServerHealthStatus, McpServerRecord, McpToolRecord, MemoryArticleCacheRecord,
-    MemoryServiceMode, MemoryServiceSettingsRecord, NewAgent, NewAgentRuntimePreference,
-    NewAuxiliaryModelPreference, NewConversationContextSummary, NewMcpApprovalRequest,
-    NewMcpServer, NewMcpTool, NewToolCalibration, NewTrustedIdentitySelector, NoemaStore,
-    SaveMemoryArticleCache, SaveMemoryServiceSettings, StoreConfig, StoreError,
-    ToolCalibrationRecord, TrustedIdentitySelectorEffect, TrustedIdentitySelectorRecord,
-    WEB_FETCH_SUMMARIZER_TASK_ID,
+    AgentRecord, AgentRuntimePreferenceRecord, ArtifactOwnerRef, ArtifactRecord, ArtifactSource,
+    ArtifactStorageKind, ArtifactVersionRecord, ArtifactVersionStorage,
+    AuxiliaryModelPreferenceRecord, ConversationContextSummaryRecord, McpApprovalRequestRecord,
+    McpServerAuthStatus, McpServerHealthStatus, McpServerRecord, McpToolRecord,
+    MemoryArticleCacheRecord, MemoryServiceMode, MemoryServiceSettingsRecord, NewAgent,
+    NewAgentRuntimePreference, NewArtifact, NewArtifactVersion, NewAuxiliaryModelPreference,
+    NewConversationContextSummary, NewMcpApprovalRequest, NewMcpServer, NewMcpTool,
+    NewToolCalibration, NewTrustedIdentitySelector, NoemaStore, SaveMemoryArticleCache,
+    SaveMemoryServiceSettings, StoreConfig, StoreError, ToolCalibrationRecord,
+    TrustedIdentitySelectorEffect, TrustedIdentitySelectorRecord, WEB_FETCH_SUMMARIZER_TASK_ID,
 };
 pub use system_errors::{
     SYSTEM_ERROR_MCP_MALFORMED_RESPONSE, SYSTEM_ERROR_MCP_TOOL_CALL_FAILURE,
