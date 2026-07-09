@@ -237,7 +237,11 @@ pub(crate) fn sanitize_path_segment(value: &str) -> String {
 }
 
 pub(crate) fn safe_artifact_filename(value: &str) -> Result<&str, NoemaPathError> {
-    if value.is_empty() || value.contains('\\') {
+    if value.is_empty()
+        || value.contains('\\')
+        || value.contains('"')
+        || value.chars().any(char::is_control)
+    {
         return Err(NoemaPathError::UnsafeArtifactFilename {
             value: value.to_string(),
         });
@@ -317,6 +321,13 @@ mod tests {
         assert!(safe_artifact_filename("../report.md").is_err());
         assert!(safe_artifact_filename("nested/report.md").is_err());
         assert!(safe_artifact_filename("").is_err());
+    }
+
+    #[test]
+    fn safe_artifact_filename_rejects_header_unsafe_characters() {
+        assert!(safe_artifact_filename("report\".md").is_err());
+        assert!(safe_artifact_filename("report\r.md").is_err());
+        assert!(safe_artifact_filename("report\n.md").is_err());
     }
 
     #[test]

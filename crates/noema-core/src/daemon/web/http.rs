@@ -202,6 +202,19 @@ pub(super) async fn write_binary_response(
     Ok(())
 }
 
+pub(super) fn attachment_content_disposition(filename: &str) -> String {
+    let escaped = filename
+        .chars()
+        .map(|character| match character {
+            '"' => "\\\"".to_string(),
+            '\\' => "\\\\".to_string(),
+            _ if character.is_control() => "_".to_string(),
+            _ => character.to_string(),
+        })
+        .collect::<String>();
+    format!("attachment; filename=\"{escaped}\"")
+}
+
 pub(super) async fn write_json<T: Serialize>(
     stream: &mut TcpStream,
     status: &str,
@@ -218,4 +231,17 @@ pub(super) async fn write_json_error(
     message: &str,
 ) -> Result<(), DaemonError> {
     write_json(stream, status, &serde_json::json!({ "error": message })).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::attachment_content_disposition;
+
+    #[test]
+    fn attachment_content_disposition_escapes_quotes_and_controls() {
+        assert_eq!(
+            attachment_content_disposition("report\"\r\nv1.md"),
+            "attachment; filename=\"report\\\"__v1.md\""
+        );
+    }
 }

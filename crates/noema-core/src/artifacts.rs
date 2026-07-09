@@ -162,6 +162,47 @@ pub(crate) fn local_artifact_absolute_path(
     Ok(paths.root().join(relative_path))
 }
 
+pub(crate) fn validated_local_artifact_absolute_path(
+    paths: &crate::NoemaPaths,
+    artifact: &crate::ArtifactRecord,
+    version: &crate::ArtifactVersionRecord,
+) -> Result<PathBuf, crate::NoemaPathError> {
+    let crate::ArtifactVersionStorage::LocalFile { relative_path } = &version.storage else {
+        return Err(crate::NoemaPathError::UnsafeArtifactFilename {
+            value: version.artifact_version_id.clone(),
+        });
+    };
+
+    if artifact.owner.object_type != "conversation" {
+        return Err(crate::NoemaPathError::UnsafeArtifactFilename {
+            value: artifact.owner.object_type.clone(),
+        });
+    }
+
+    let absolute_path = local_artifact_absolute_path(paths, relative_path)?;
+    let filename = absolute_path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .ok_or_else(|| crate::NoemaPathError::UnsafeArtifactFilename {
+            value: relative_path.clone(),
+        })?;
+    let filename = crate::paths::safe_artifact_filename(filename)?;
+    let expected_path = paths
+        .conversation_artifact_version_dir(
+            &artifact.owner.object_id,
+            &artifact.artifact_id,
+            version.version_index,
+        )
+        .join(filename);
+    if absolute_path != expected_path {
+        return Err(crate::NoemaPathError::UnsafeArtifactFilename {
+            value: relative_path.clone(),
+        });
+    }
+
+    Ok(absolute_path)
+}
+
 fn artifact_relative_path(
     root: &Path,
     artifact_path: &Path,

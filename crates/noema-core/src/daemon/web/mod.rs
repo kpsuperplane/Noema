@@ -14,7 +14,10 @@ use crate::WebConfig;
 use self::{
     assets::embedded_asset,
     graphql_ws::upgrade_graphql_websocket,
-    http::{HttpRequest, write_binary_response, write_json, write_json_error, write_response},
+    http::{
+        HttpRequest, attachment_content_disposition, write_binary_response, write_json,
+        write_json_error, write_response,
+    },
     origin::validate_json_post_request,
 };
 
@@ -325,7 +328,7 @@ async fn handle_artifact_download(
         return Ok(());
     };
 
-    let Some(_artifact) = store
+    let Some(artifact) = store
         .get_artifact(&version.artifact_id)
         .await
         .map_err(|error| DaemonError::Protocol(error.to_string()))?
@@ -340,7 +343,7 @@ async fn handle_artifact_download(
         return Ok(());
     };
 
-    let crate::ArtifactVersionStorage::LocalFile { relative_path } = &version.storage else {
+    let crate::ArtifactVersionStorage::LocalFile { .. } = &version.storage else {
         write_response(
             stream,
             "404 Not Found",
@@ -351,7 +354,11 @@ async fn handle_artifact_download(
         return Ok(());
     };
 
-    let absolute_path = match crate::artifacts::local_artifact_absolute_path(paths, relative_path) {
+    let absolute_path = match crate::artifacts::validated_local_artifact_absolute_path(
+        paths,
+        &artifact.artifact,
+        &version,
+    ) {
         Ok(path) => path,
         Err(_) => {
             write_response(
@@ -382,7 +389,7 @@ async fn handle_artifact_download(
         .file_name()
         .and_then(|value| value.to_str())
         .ok_or_else(|| DaemonError::Protocol("artifact path is missing a filename".to_string()))?;
-    let content_disposition = format!("attachment; filename=\"{filename}\"");
+    let content_disposition = attachment_content_disposition(filename);
     let content_type = version
         .media_type
         .as_deref()
@@ -833,7 +840,7 @@ mod tests {
                 media_type: Some("text/markdown".to_string()),
                 created_by_actor_id: "agent:primary".to_string(),
                 source: crate::ArtifactSource {
-                    conversation_id: Some(conversation.conversation_id),
+                    conversation_id: Some(conversation.conversation_id.clone()),
                     turn_id: None,
                     item_id: None,
                 },
@@ -880,6 +887,191 @@ mod tests {
         assert!(response.contains("Content-Type: text/markdown\r\n"));
         assert!(response.contains("Content-Disposition: attachment; filename=\"report.md\"\r\n"));
         assert!(response.ends_with("\r\n\r\nhello download"));
+    }
+
+    #[tokio::test]
+    async fn artifact_download_route_rejects_local_path_outside_artifact_version_subtree() {
+        let home = tempfile::tempdir().expect("temp dir");
+        let paths = crate::NoemaPaths::from_noema_home(home.path()).expect("paths");
+        let store = crate::NoemaStore::open(&crate::StoreConfig::from_paths(&paths))
+            .await
+            .expect("open store");
+        let conversation = store
+            .create_conversation(crate::NewConversation::local_chat(None, None))
+            .await
+            .expect("conversation");
+        let artifact = crate::create_conversation_local_file_artifact(
+            &store,
+            &paths,
+            crate::NewConversationLocalFileArtifact {
+                conversation_id: conversation.conversation_id.clone(),
+                title: "Downloadable report".to_string(),
+                description: None,
+                artifact_kind: "document".to_string(),
+                filename: "report.md".to_string(),
+                bytes: b"hello download".to_vec(),
+                media_type: Some("text/markdown".to_string()),
+                created_by_actor_id: "agent:primary".to_string(),
+                source: crate::ArtifactSource {
+                    conversation_id: Some(conversation.conversation_id.clone()),
+                    turn_id: None,
+                    item_id: None,
+                },
+                metadata: json!({}),
+            },
+        )
+        .await
+        .expect("local artifact");
+        let forged_relative_path = "providers/secret.txt";
+        tokio::fs::create_dir_all(paths.providers_dir())
+            .await
+            .expect("create providers dir");
+        tokio::fs::write(paths.root().join(forged_relative_path), b"top secret")
+            .await
+            .expect("write forged file");
+        store
+            .with_connection(|conn| {
+                conn.execute(
+                    "UPDATE artifact_versions SET local_relative_path = ?1 WHERE artifact_version_id = ?2",
+                    rusqlite::params![
+                        forged_relative_path,
+                        artifact.current_version.artifact_version_id
+                    ],
+                )
+                .map(|_| ())
+                .map_err(crate::StoreError::Sqlite)
+            })
+            .await
+            .expect("forge path");
+        let state = WebState::new(
+            crate::graphql::GraphqlState::for_tests_with_store_and_paths(store, paths),
+        );
+        let listener = TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .expect("bind listener");
+        let address = listener.local_addr().expect("listener address");
+
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.expect("accept");
+            handle_connection(stream, state)
+                .await
+                .expect("handle connection");
+        });
+
+        let mut client = TcpStream::connect(address).await.expect("connect client");
+        let request = format!(
+            "GET {} HTTP/1.1\r\nHost: localhost\r\n\r\n",
+            crate::artifact_download_url(&artifact.current_version.artifact_version_id)
+        );
+        client
+            .write_all(request.as_bytes())
+            .await
+            .expect("write request");
+        client.flush().await.expect("flush request");
+        let mut response = Vec::new();
+        client
+            .read_to_end(&mut response)
+            .await
+            .expect("read response");
+
+        server.await.expect("server task");
+
+        let response = String::from_utf8(response).expect("utf-8 response");
+        assert!(response.starts_with("HTTP/1.1 404 Not Found\r\n"));
+    }
+
+    #[tokio::test]
+    async fn artifact_download_route_sanitizes_attachment_filename() {
+        let home = tempfile::tempdir().expect("temp dir");
+        let paths = crate::NoemaPaths::from_noema_home(home.path()).expect("paths");
+        let store = crate::NoemaStore::open(&crate::StoreConfig::from_paths(&paths))
+            .await
+            .expect("open store");
+        let conversation = store
+            .create_conversation(crate::NewConversation::local_chat(None, None))
+            .await
+            .expect("conversation");
+        let artifact = crate::create_conversation_local_file_artifact(
+            &store,
+            &paths,
+            crate::NewConversationLocalFileArtifact {
+                conversation_id: conversation.conversation_id.clone(),
+                title: "Quoted report".to_string(),
+                description: None,
+                artifact_kind: "document".to_string(),
+                filename: "report.md".to_string(),
+                bytes: b"hello download".to_vec(),
+                media_type: Some("text/markdown".to_string()),
+                created_by_actor_id: "agent:primary".to_string(),
+                source: crate::ArtifactSource {
+                    conversation_id: Some(conversation.conversation_id.clone()),
+                    turn_id: None,
+                    item_id: None,
+                },
+                metadata: json!({}),
+            },
+        )
+        .await
+        .expect("local artifact");
+        let forged_relative_path = format!(
+            "conversations/{}/artifacts/{}/versions/1/report\"\r\nx-injected: yes.md",
+            crate::paths::sanitize_path_segment(&conversation.conversation_id),
+            crate::paths::sanitize_path_segment(&artifact.artifact.artifact_id),
+        );
+        let forged_absolute_path = paths.root().join(&forged_relative_path);
+        tokio::fs::write(&forged_absolute_path, b"hello download")
+            .await
+            .expect("write forged file");
+        store
+            .with_connection(|conn| {
+                conn.execute(
+                    "UPDATE artifact_versions SET local_relative_path = ?1 WHERE artifact_version_id = ?2",
+                    rusqlite::params![
+                        forged_relative_path,
+                        artifact.current_version.artifact_version_id
+                    ],
+                )
+                .map(|_| ())
+                .map_err(crate::StoreError::Sqlite)
+            })
+            .await
+            .expect("forge path");
+        let state = WebState::new(
+            crate::graphql::GraphqlState::for_tests_with_store_and_paths(store, paths),
+        );
+        let listener = TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .expect("bind listener");
+        let address = listener.local_addr().expect("listener address");
+
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.expect("accept");
+            handle_connection(stream, state)
+                .await
+                .expect("handle connection");
+        });
+
+        let mut client = TcpStream::connect(address).await.expect("connect client");
+        let request = format!(
+            "GET {} HTTP/1.1\r\nHost: localhost\r\n\r\n",
+            crate::artifact_download_url(&artifact.current_version.artifact_version_id)
+        );
+        client
+            .write_all(request.as_bytes())
+            .await
+            .expect("write request");
+        client.flush().await.expect("flush request");
+        let mut response = Vec::new();
+        client
+            .read_to_end(&mut response)
+            .await
+            .expect("read response");
+
+        server.await.expect("server task");
+
+        let response = String::from_utf8(response).expect("utf-8 response");
+        assert!(response.starts_with("HTTP/1.1 404 Not Found\r\n"));
+        assert!(!response.contains("\r\nx-injected: yes.md"));
     }
 
     #[tokio::test]
