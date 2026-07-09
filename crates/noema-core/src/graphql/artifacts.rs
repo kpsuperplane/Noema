@@ -220,7 +220,9 @@ pub async fn artifact_version_detail(
             )
             .map_err(graphql_error)?;
             let markdown = String::from_utf8(bytes).map_err(|error| {
-                graphql_error(format!("artifact Markdown content is not valid UTF-8: {error}"))
+                graphql_error(format!(
+                    "artifact Markdown content is not valid UTF-8: {error}"
+                ))
             })?;
 
             Ok(Some(GraphqlArtifactVersionDetail {
