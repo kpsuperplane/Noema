@@ -885,6 +885,32 @@ mod tests {
     }
 
     async fn spawn_memory_graph_mnemosyne_server_with_limit(limit: u16) -> String {
+        let results = json!([
+            {
+                "id": "mem_1",
+                "memory": "Kevin prefers local-first tools",
+                "metadata": {"sourceKind": "user_message"},
+                "created_at": "2026-07-08T00:00:30.000Z",
+                "updated_at": "2026-07-08T00:01:00.000Z"
+            },
+            {
+                "id": "mem_2",
+                "memory": "Kevin likes tools that keep data local",
+                "metadata": {
+                    "noemaConversationId": "abc",
+                    "sourceObservation": "I prefer local-first tools."
+                },
+                "created_at": "2026-07-08T00:00:40.000Z",
+                "updated_at": "2026-07-08T00:01:10.000Z"
+            }
+        ]);
+        spawn_memory_graph_mnemosyne_server_with_results(limit, results).await
+    }
+
+    async fn spawn_memory_graph_mnemosyne_server_with_results(
+        limit: u16,
+        results: serde_json::Value,
+    ) -> String {
         use tokio::{
             io::{AsyncReadExt, AsyncWriteExt},
             net::TcpListener,
@@ -908,27 +934,7 @@ mod tests {
                 format!("GET /v1/memories?user_id=human%3Alocal&limit={limit} HTTP/1.1")
             );
 
-            let response = json!({
-                "results": [
-                    {
-                        "id": "mem_1",
-                        "memory": "Kevin prefers local-first tools",
-                        "metadata": {"sourceKind": "user_message"},
-                        "created_at": "2026-07-08T00:00:30.000Z",
-                        "updated_at": "2026-07-08T00:01:00.000Z"
-                    },
-                    {
-                        "id": "mem_2",
-                        "memory": "Kevin likes tools that keep data local",
-                        "metadata": {
-                            "noemaConversationId": "abc",
-                            "sourceObservation": "I prefer local-first tools."
-                        },
-                        "created_at": "2026-07-08T00:00:40.000Z",
-                        "updated_at": "2026-07-08T00:01:10.000Z"
-                    }
-                ]
-            });
+            let response = json!({ "results": results });
             let response_body = serde_json::to_vec(&response).expect("response JSON");
             let response_head = format!(
                 "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n",
@@ -1097,6 +1103,13 @@ mod tests {
                         id
                         documentId
                         content
+                        source {
+                          kind
+                          conversationId
+                          turnId
+                          itemId
+                          messageText
+                        }
                         metadata
                         spaceContainerTag
                         parentMemoryId
@@ -1153,12 +1166,122 @@ mod tests {
             "I prefer local-first tools."
         );
         assert_eq!(
+            data["memoryGraph"]["documents"][0]["memoryEntries"][0]["source"]["conversationId"],
+            "abc"
+        );
+        assert_eq!(
+            data["memoryGraph"]["documents"][0]["memoryEntries"][0]["source"]["messageText"],
+            "I prefer local-first tools."
+        );
+        assert_eq!(
             data["memoryGraph"]["documents"][1]["id"],
             "mnemosyne:human:local"
         );
         assert_eq!(data["memoryGraph"]["documents"][1]["title"], "Human memory");
         assert_eq!(data["memoryGraph"]["pageInfo"]["hasMore"], false);
         assert_eq!(data["memoryGraph"]["pageInfo"]["total"], 2);
+    }
+
+    #[tokio::test]
+    async fn memory_graph_source_resolves_exact_persisted_user_message() {
+        let store = crate::store::tests::test_store().await;
+        store.ensure_default_actors().await.expect("actors");
+        let conversation = store
+            .get_or_create_primary_conversation_for_provider(
+                "human:local",
+                "codex",
+                Some("gpt-test".to_string()),
+                None,
+            )
+            .await
+            .expect("conversation");
+        let turn = store
+            .create_conversation_turn(crate::NewConversationTurn {
+                conversation_id: conversation.conversation_id.clone(),
+                trigger_item_id: None,
+                metadata: json!({}),
+            })
+            .await
+            .expect("turn");
+        let user_item = store
+            .append_conversation_item(crate::NewConversationItem {
+                conversation_id: conversation.conversation_id.clone(),
+                turn_id: Some(turn.turn_id.clone()),
+                parent_item_id: None,
+                kind: crate::ConversationItemKind::UserText,
+                status: crate::ConversationItemStatus::Completed,
+                author: crate::ActorRef::human("human:local"),
+                content_text: Some("I like airplanes and local-first tools.".to_string()),
+                payload_json: json!({}),
+                metadata: json!({}),
+            })
+            .await
+            .expect("user item");
+        let server_base_url = spawn_memory_graph_mnemosyne_server_with_results(
+            25,
+            json!([
+                {
+                    "id": "mem_exact",
+                    "memory": "Kevin likes airplanes and local-first tools",
+                    "metadata": {
+                        "noemaConversationId": conversation.conversation_id,
+                        "turnId": turn.turn_id,
+                        "userItemId": user_item.item_id,
+                        "sourceKind": "user_message",
+                        "sourceObservation": "stale copied text"
+                    },
+                    "created_at": "2026-07-08T00:00:40.000Z",
+                    "updated_at": "2026-07-08T00:01:10.000Z"
+                }
+            ]),
+        )
+        .await;
+        store
+            .save_memory_service_settings(crate::SaveMemoryServiceSettings {
+                mode: crate::MemoryServiceMode::External,
+                base_url: Some(server_base_url),
+                port: None,
+                provider_account_id: None,
+                provider_kind: None,
+                model_profile: None,
+                reasoning_effort: None,
+            })
+            .await
+            .expect("settings");
+        let schema = build_schema(GraphqlState::for_tests_with_store(store));
+
+        let response = schema
+            .execute(async_graphql::Request::new(
+                r#"
+                {
+                  memoryGraph(input: { page: 1, limit: 25 }) {
+                    documents {
+                      memoryEntries {
+                        source {
+                          kind
+                          conversationId
+                          turnId
+                          itemId
+                          messageText
+                        }
+                      }
+                    }
+                  }
+                }
+                "#,
+            ))
+            .await
+            .into_result()
+            .expect("query");
+        let data = response.data.into_json().expect("json");
+        let source = &data["memoryGraph"]["documents"][0]["memoryEntries"][0]["source"];
+
+        assert_eq!(source["kind"], "user_message");
+        assert_eq!(
+            source["messageText"],
+            "I like airplanes and local-first tools."
+        );
+        assert_ne!(source["messageText"], "stale copied text");
     }
 
     #[tokio::test]
@@ -1218,7 +1341,7 @@ mod tests {
         {
             let requests = requests.lock().expect("requests");
             assert_eq!(requests.len(), 1);
-            assert_eq!(requests[0].model.as_deref(), Some("test-memory-writer"));
+            assert_eq!(requests[0].model.as_deref(), None);
             match &requests[0].input {
                 crate::provider::GenerateInput::Text(prompt) => {
                     assert!(prompt.contains("Kevin prefers local-first tools"));
@@ -1237,6 +1360,50 @@ mod tests {
         assert_eq!(
             cached.article_markdown,
             "# Kevin\n\nKevin prefers local-first tools and tools that keep data local."
+        );
+    }
+
+    #[tokio::test]
+    async fn memory_article_uses_configured_memory_model_preference() {
+        let server_base_url = spawn_memory_graph_mnemosyne_server().await;
+        let store = crate::store::tests::test_store().await;
+        store
+            .save_memory_service_settings(crate::SaveMemoryServiceSettings {
+                mode: crate::MemoryServiceMode::External,
+                base_url: Some(server_base_url),
+                port: None,
+                provider_account_id: Some("provider_account:codex:memory".to_string()),
+                provider_kind: Some("codex".to_string()),
+                model_profile: Some("memory-writer".to_string()),
+                reasoning_effort: Some(crate::provider::ReasoningEffort::High),
+            })
+            .await
+            .expect("settings");
+        let (requests, runtime) = test_autofill_runtime_with_requests(
+            store.clone(),
+            "# Kevin\n\nKevin prefers local-first tools and tools that keep data local.",
+            Some("wrong-tool-classifier"),
+        )
+        .await;
+        let schema = build_schema(GraphqlState::for_tests_with_store_and_runtime(
+            store.clone(),
+            runtime,
+        ));
+
+        schema
+            .execute(async_graphql::Request::new(
+                "{ memoryGraph(input: { page: 1, limit: 25 }) { article { title } } }",
+            ))
+            .await
+            .into_result()
+            .expect("query");
+
+        let requests = requests.lock().expect("requests");
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].model.as_deref(), Some("memory-writer"));
+        assert_eq!(
+            requests[0].options.reasoning_effort,
+            Some(crate::provider::ReasoningEffort::High)
         );
     }
 

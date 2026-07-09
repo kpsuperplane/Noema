@@ -374,6 +374,13 @@ export const MemoryGraphDocument = gql`
           summary
           title
           type
+          source {
+            kind
+            conversationId
+            turnId
+            itemId
+            messageText
+          }
           metadata
           createdAt
           updatedAt

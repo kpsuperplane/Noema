@@ -11,7 +11,8 @@ import {
 } from "@/generated/graphql";
 import {
   buildMemoryArticleModel,
-  type MemoryArticleModel
+  type MemoryArticleModel,
+  type MemoryArticleReference
 } from "@/pages/memoryPageModel";
 import { styles } from "@/pages/memoryPageStyles";
 
@@ -156,7 +157,7 @@ export function MemoryPage() {
               <h2 {...stylex.props(styles.sectionTitle)}>References</h2>
               <ol {...stylex.props(styles.references)}>
                 {article.references.map((reference) => (
-                  <li key={reference}>{reference}</li>
+                  <ReferenceItem key={reference.id} reference={reference} />
                 ))}
               </ol>
             </section>
@@ -235,5 +236,26 @@ function InfoRow({ label, value }: { label: string; value: string }) {
       <th {...stylex.props(styles.boxKey)}>{label}</th>
       <td {...stylex.props(styles.boxValue)}>{value}</td>
     </tr>
+  );
+}
+
+function ReferenceItem({ reference }: { reference: MemoryArticleReference }) {
+  return (
+    <li {...stylex.props(styles.referenceItem)}>
+      <div {...stylex.props(styles.referenceLabel)}>{reference.label}</div>
+      {reference.sourceMessage ? (
+        <blockquote {...stylex.props(styles.referenceQuote)}>{reference.sourceMessage}</blockquote>
+      ) : null}
+      {reference.sourceMeta.length > 0 ? (
+        <div {...stylex.props(styles.referenceMeta)}>{reference.sourceMeta.join(" · ")}</div>
+      ) : null}
+      {reference.citedFacts.length > 0 ? (
+        <ul {...stylex.props(styles.citedFacts)}>
+          {reference.citedFacts.map((fact) => (
+            <li key={fact.id}>{fact.displayText}</li>
+          ))}
+        </ul>
+      ) : null}
+    </li>
   );
 }

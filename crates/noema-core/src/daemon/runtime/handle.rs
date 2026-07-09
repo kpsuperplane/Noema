@@ -399,9 +399,21 @@ impl CodexRuntimeHandle {
         &self,
         request: GenerateRequest,
     ) -> Result<GenerateResponse, DaemonError> {
+        self.generate_once_with_provider_kind(None, request).await
+    }
+
+    pub(crate) async fn generate_once_with_provider_kind(
+        &self,
+        provider_kind: Option<String>,
+        request: GenerateRequest,
+    ) -> Result<GenerateResponse, DaemonError> {
         let (reply, reply_rx) = oneshot::channel();
         self.sender
-            .send(CodexRuntimeCommand::GenerateOnce { request, reply })
+            .send(CodexRuntimeCommand::GenerateOnce {
+                provider_kind,
+                request,
+                reply,
+            })
             .await
             .map_err(|_| DaemonError::Protocol("daemon runtime stopped".to_string()))?;
         reply_rx
@@ -518,6 +530,7 @@ pub(super) enum CodexRuntimeCommand {
         reply: oneshot::Sender<Result<(), DaemonError>>,
     },
     GenerateOnce {
+        provider_kind: Option<String>,
         request: GenerateRequest,
         reply: oneshot::Sender<Result<GenerateResponse, DaemonError>>,
     },

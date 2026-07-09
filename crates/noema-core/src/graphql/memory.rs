@@ -203,6 +203,8 @@ pub struct GraphqlMemoryGraphMemoryEntry {
     pub title: Option<String>,
     /// Memory type.
     pub r#type: Option<String>,
+    /// Noema source observation that produced this memory, when known.
+    pub source: Option<GraphqlMemoryGraphMemorySource>,
     /// Memory metadata.
     pub metadata: Option<Json<serde_json::Value>>,
     /// Creation timestamp.
@@ -223,6 +225,22 @@ pub struct GraphqlMemoryGraphMemoryEntry {
     pub is_latest: Option<bool>,
     /// Memory space id.
     pub space_id: Option<String>,
+}
+
+/// Noema provenance for a memory entry.
+#[derive(Clone, Debug, SimpleObject)]
+#[graphql(name = "MemoryGraphMemorySource")]
+pub struct GraphqlMemoryGraphMemorySource {
+    /// Source kind recorded by Noema.
+    pub kind: Option<String>,
+    /// Durable Noema conversation id, when known.
+    pub conversation_id: Option<String>,
+    /// Durable Noema turn id, when known.
+    pub turn_id: Option<String>,
+    /// Durable Noema conversation item id, when known.
+    pub item_id: Option<String>,
+    /// Exact persisted user message text when available, otherwise the stored source observation.
+    pub message_text: Option<String>,
 }
 
 /// Input for saving memory service settings.
@@ -320,7 +338,7 @@ pub(super) async fn memory_graph(
             last_error_code: None,
             last_error_message: None,
         },
-        documents: mnemosyne_memories_to_graph_documents(response.results),
+        documents: mnemosyne_memories_to_graph_documents(state, response.results).await?,
         article,
         page_info,
     })
@@ -468,9 +486,10 @@ fn memory_graph_error_status(
     })
 }
 
-fn mnemosyne_memories_to_graph_documents(
+async fn mnemosyne_memories_to_graph_documents(
+    state: &GraphqlState,
     memories: Vec<crate::MnemosyneMemory>,
-) -> Vec<GraphqlMemoryGraphDocument> {
+) -> Result<Vec<GraphqlMemoryGraphDocument>> {
     let mut groups = BTreeMap::<String, Vec<crate::MnemosyneMemory>>::new();
     for memory in memories {
         let document_id = memory
@@ -483,68 +502,125 @@ fn mnemosyne_memories_to_graph_documents(
         groups.entry(document_id).or_default().push(memory);
     }
 
-    groups
-        .into_iter()
-        .map(|(document_id, memories)| {
-            let title = if document_id == format!("mnemosyne:{HUMAN_MEMORY_SCOPE_ID}") {
-                "Human memory".to_string()
-            } else {
-                "Conversation memory".to_string()
-            };
-            let created_at = memories
-                .iter()
-                .filter_map(|memory| memory.created_at.as_deref())
-                .min()
-                .unwrap_or("")
-                .to_string();
-            let updated_at = memories
-                .iter()
-                .filter_map(|memory| memory.updated_at.as_deref())
-                .max()
-                .unwrap_or("")
-                .to_string();
-            let memory_entries = memories
-                .into_iter()
-                .map(|memory| {
-                    let metadata = memory.metadata.map(Json);
-                    GraphqlMemoryGraphMemoryEntry {
-                        id: memory.id,
-                        document_id: document_id.clone(),
-                        content: memory.memory,
-                        summary: None,
-                        title: None,
-                        r#type: Some("memory".to_string()),
-                        metadata,
-                        created_at: memory.created_at.unwrap_or_default(),
-                        updated_at: memory.updated_at.unwrap_or_default(),
-                        space_container_tag: Some(HUMAN_MEMORY_SCOPE_ID.to_string()),
-                        relation: None,
-                        parent_memory_id: None,
-                        root_memory_id: None,
-                        memory_relations: None,
-                        is_latest: None,
-                        space_id: None,
-                    }
-                })
-                .collect();
-
-            GraphqlMemoryGraphDocument {
-                id: document_id,
-                custom_id: None,
-                title: Some(title),
-                content: None,
+    let mut documents = Vec::new();
+    for (document_id, memories) in groups {
+        let title = if document_id == format!("mnemosyne:{HUMAN_MEMORY_SCOPE_ID}") {
+            "Human memory".to_string()
+        } else {
+            "Conversation memory".to_string()
+        };
+        let created_at = memories
+            .iter()
+            .filter_map(|memory| memory.created_at.as_deref())
+            .min()
+            .unwrap_or("")
+            .to_string();
+        let updated_at = memories
+            .iter()
+            .filter_map(|memory| memory.updated_at.as_deref())
+            .max()
+            .unwrap_or("")
+            .to_string();
+        let mut memory_entries = Vec::new();
+        for memory in memories {
+            let source = memory_source_from_metadata(state, memory.metadata.as_ref()).await;
+            let metadata = memory.metadata.map(Json);
+            memory_entries.push(GraphqlMemoryGraphMemoryEntry {
+                id: memory.id,
+                document_id: document_id.clone(),
+                content: memory.memory,
                 summary: None,
-                url: None,
-                source: Some("mnemosyne".to_string()),
-                r#type: Some("memory_group".to_string()),
-                status: "ready".to_string(),
-                metadata: None,
-                created_at,
-                updated_at,
-                memory_entries,
-            }
-        })
-        .collect()
+                title: None,
+                r#type: Some("memory".to_string()),
+                source,
+                metadata,
+                created_at: memory.created_at.unwrap_or_default(),
+                updated_at: memory.updated_at.unwrap_or_default(),
+                space_container_tag: Some(HUMAN_MEMORY_SCOPE_ID.to_string()),
+                relation: None,
+                parent_memory_id: None,
+                root_memory_id: None,
+                memory_relations: None,
+                is_latest: None,
+                space_id: None,
+            });
+        }
+
+        documents.push(GraphqlMemoryGraphDocument {
+            id: document_id,
+            custom_id: None,
+            title: Some(title),
+            content: None,
+            summary: None,
+            url: None,
+            source: Some("mnemosyne".to_string()),
+            r#type: Some("memory_group".to_string()),
+            status: "ready".to_string(),
+            metadata: None,
+            created_at,
+            updated_at,
+            memory_entries,
+        });
+    }
+    Ok(documents)
+}
+
+async fn memory_source_from_metadata(
+    state: &GraphqlState,
+    metadata: Option<&serde_json::Value>,
+) -> Option<GraphqlMemoryGraphMemorySource> {
+    let metadata = metadata?;
+    let kind = metadata_string(metadata, &["sourceKind", "source_kind"]);
+    let conversation_id = metadata_string(metadata, &["noemaConversationId", "conversation_id"]);
+    let turn_id = metadata_string(metadata, &["turnId", "turn_id"]);
+    let item_id = metadata_string(metadata, &["userItemId", "source_item_id", "item_id"]);
+    let source_observation =
+        metadata_string(metadata, &["sourceObservation", "source_observation"]);
+
+    let item = match (state.optional_store(), item_id.as_deref()) {
+        (Some(store), Some(item_id)) => store
+            .get_visible_conversation_item(item_id)
+            .await
+            .ok()
+            .flatten(),
+        _ => None,
+    };
+    let message_text = item
+        .as_ref()
+        .and_then(|item| item.content_text.clone())
+        .filter(|text| !text.trim().is_empty())
+        .or(source_observation);
+
+    if kind.is_none()
+        && conversation_id.is_none()
+        && turn_id.is_none()
+        && item_id.is_none()
+        && message_text.is_none()
+    {
+        return None;
+    }
+
+    Some(GraphqlMemoryGraphMemorySource {
+        kind,
+        conversation_id: item
+            .as_ref()
+            .map(|item| item.conversation_id.clone())
+            .or(conversation_id),
+        turn_id: item
+            .as_ref()
+            .and_then(|item| item.turn_id.clone())
+            .or(turn_id),
+        item_id: item.as_ref().map(|item| item.item_id.clone()).or(item_id),
+        message_text,
+    })
+}
+
+fn metadata_string(metadata: &serde_json::Value, keys: &[&str]) -> Option<String> {
+    keys.iter()
+        .find_map(|key| metadata.get(*key).and_then(serde_json::Value::as_str))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
 }
 
 async fn memory_article_for_facts(
@@ -591,17 +667,21 @@ async fn generate_memory_article(
     generated_at: &str,
 ) -> Result<GraphqlMemoryArticle> {
     let runtime = state.runtime()?;
+    let settings = state
+        .store()?
+        .memory_service_settings()
+        .await
+        .map_err(graphql_error)?;
     let mut request = crate::GenerateRequest::text(memory_article_prompt(memories));
-    if let Some(model) = runtime.tool_classification_model() {
-        request.model = Some(model.to_string());
-    }
+    request.model = settings.model_profile.clone();
+    request.options.reasoning_effort = settings.reasoning_effort;
     request.instructions = Some(
         "Return Markdown only. Write a compact Wikipedia-style biographical article from the supplied memory facts. Do not invent facts."
             .to_string(),
     );
 
     let response = runtime
-        .generate_once(request)
+        .generate_once_with_provider_kind(settings.provider_kind.clone(), request)
         .await
         .map_err(graphql_error)?;
     Ok(markdown_to_memory_article(

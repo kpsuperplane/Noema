@@ -283,10 +283,39 @@ export const styles = stylex.create({
     lineHeight: 1.62
   },
   references: {
+    display: "grid",
+    gap: 12,
+    paddingLeft: 20,
     color: "#202122",
     fontFamily: wikiSans,
     fontSize: 12,
     lineHeight: 1.55
+  },
+  referenceItem: {
+    paddingLeft: 2
+  },
+  referenceLabel: {
+    color: "#202122"
+  },
+  referenceQuote: {
+    margin: "7px 0 0",
+    borderLeftWidth: 3,
+    borderLeftStyle: "solid",
+    borderLeftColor: "#c8ccd1",
+    padding: "3px 0 3px 9px",
+    color: "#202122",
+    fontFamily: wikiSerif,
+    fontSize: 14,
+    lineHeight: 1.45
+  },
+  referenceMeta: {
+    marginTop: 5,
+    color: "#54595d"
+  },
+  citedFacts: {
+    margin: "6px 0 0",
+    paddingLeft: 18,
+    color: "#54595d"
   },
   loadMore: {
     clear: "both",

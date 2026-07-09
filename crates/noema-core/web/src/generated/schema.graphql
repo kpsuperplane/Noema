@@ -954,6 +954,10 @@ type MemoryGraphMemoryEntry {
 	"""
 	type: String
 	"""
+	Noema source observation that produced this memory, when known.
+	"""
+	source: MemoryGraphMemorySource
+	"""
 	Memory metadata.
 	"""
 	metadata: JSON
@@ -993,6 +997,32 @@ type MemoryGraphMemoryEntry {
 	Memory space id.
 	"""
 	spaceId: String
+}
+
+"""
+Noema provenance for a memory entry.
+"""
+type MemoryGraphMemorySource {
+	"""
+	Source kind recorded by Noema.
+	"""
+	kind: String
+	"""
+	Durable Noema conversation id, when known.
+	"""
+	conversationId: String
+	"""
+	Durable Noema turn id, when known.
+	"""
+	turnId: String
+	"""
+	Durable Noema conversation item id, when known.
+	"""
+	itemId: String
+	"""
+	Exact persisted user message text when available, otherwise the stored source observation.
+	"""
+	messageText: String
 }
 
 """

@@ -12,6 +12,11 @@ export type MemoryArticleEntry = {
   createdAt: string | null;
   updatedAt: string | null;
   sourceTitle: string;
+  sourceKind: string | null;
+  sourceConversationId: string | null;
+  sourceTurnId: string | null;
+  sourceItemId: string | null;
+  sourceMessageText: string | null;
   sourceObservation: string | null;
   scoreLabel: string | null;
 };
@@ -25,6 +30,14 @@ export type MemoryArticleSection = {
 export type MemoryInfoboxRow = {
   label: string;
   value: string;
+};
+
+export type MemoryArticleReference = {
+  id: string;
+  label: string;
+  sourceMessage: string | null;
+  sourceMeta: string[];
+  citedFacts: MemoryArticleEntry[];
 };
 
 export type MemoryArticleModel = {
@@ -43,7 +56,7 @@ export type MemoryArticleModel = {
   sections: MemoryArticleSection[];
   sourceObservations: MemoryArticleEntry[];
   recallSample: MemoryArticleEntry | null;
-  references: string[];
+  references: MemoryArticleReference[];
 };
 
 const FALLBACK_TITLE = "Local human";
@@ -112,7 +125,19 @@ function memoryEntryFromGraph(
     createdAt: entry.createdAt || null,
     updatedAt: entry.updatedAt || null,
     sourceTitle: document.title ?? "Memory source",
-    sourceObservation: sourceObservationFromMetadata(entry.metadata),
+    sourceKind: entry.source?.kind ?? sourceStringFromMetadata(entry.metadata, [
+      "sourceKind",
+      "source_kind"
+    ]),
+    sourceConversationId:
+      entry.source?.conversationId ??
+      sourceStringFromMetadata(entry.metadata, ["noemaConversationId", "conversation_id"]),
+    sourceTurnId: entry.source?.turnId ?? sourceStringFromMetadata(entry.metadata, ["turnId", "turn_id"]),
+    sourceItemId:
+      entry.source?.itemId ??
+      sourceStringFromMetadata(entry.metadata, ["userItemId", "source_item_id", "item_id"]),
+    sourceMessageText: entry.source?.messageText ?? null,
+    sourceObservation: sourceObservationFromEntry(entry),
     scoreLabel: null
   };
 }
@@ -175,19 +200,47 @@ function truncateInfoboxValue(value: string): string {
 function buildReferences(
   entries: MemoryArticleEntry[],
   sourceObservations: MemoryArticleEntry[]
-): string[] {
+): MemoryArticleReference[] {
   if (entries.length === 0) {
-    return ["No local memory citations are available yet."];
+    return [
+      {
+        id: "empty",
+        label: "No local memory citations are available yet.",
+        sourceMessage: null,
+        sourceMeta: [],
+        citedFacts: []
+      }
+    ];
   }
   if (sourceObservations.length > 0) {
-    return sourceObservations.map((entry) => {
-      const timestamp = entry.updatedAt ?? entry.createdAt;
-      const timestampLabel = timestamp ? `, ${formatDateTime(timestamp)}` : "";
-      return `Local memory citation${timestampLabel}.`;
+    const groups = new Map<string, MemoryArticleEntry[]>();
+    for (const entry of entries) {
+      const key = citationSourceKey(entry);
+      const group = groups.get(key) ?? [];
+      group.push(entry);
+      groups.set(key, group);
+    }
+    return [...groups.values()].map((citedFacts, index) => {
+      const first = citedFacts[0];
+      const timestamp = first?.updatedAt ?? first?.createdAt;
+      const sourceMessage = first?.sourceMessageText ?? first?.sourceObservation ?? null;
+      return {
+        id: first?.sourceItemId ?? first?.sourceObservation ?? first?.id ?? `citation-${index + 1}`,
+        label: `Local memory citation${timestamp ? `, ${formatDateTime(timestamp)}` : ""}.`,
+        sourceMessage,
+        sourceMeta: sourceMetaLabels(first),
+        citedFacts
+      };
     });
   }
   const sourceTitles = [...new Set(entries.map((entry) => entry.sourceTitle))];
-  return sourceTitles.map((title) => `Local memory source: ${title}.`);
+  return sourceTitles.map((title) => ({
+    id: title,
+    label: `Local memory source: ${title}.`,
+    sourceMessage: null,
+    sourceMeta: [],
+    citedFacts: entries.filter((entry) => entry.sourceTitle === title)
+  }));
 }
 
 function parseArticleMarkdown(
@@ -339,12 +392,64 @@ function uniqueSourceObservations(entries: MemoryArticleEntry[]): MemoryArticleE
   return observations;
 }
 
-function sourceObservationFromMetadata(metadata: unknown): string | null {
-  if (!metadata || typeof metadata !== "object" || !("sourceObservation" in metadata)) {
+function sourceObservationFromEntry(entry: MemoryGraphEntry): string | null {
+  return (
+    entry.source?.messageText ??
+    sourceStringFromMetadata(entry.metadata, ["sourceObservation", "source_observation"])
+  );
+}
+
+function sourceStringFromMetadata(metadata: unknown, keys: string[]): string | null {
+  if (!metadata || typeof metadata !== "object") {
     return null;
   }
-  const value = (metadata as { sourceObservation?: unknown }).sourceObservation;
-  return typeof value === "string" && value.trim() ? value.trim() : null;
+  for (const key of keys) {
+    const value = (metadata as Record<string, unknown>)[key];
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+  return null;
+}
+
+function citationSourceKey(entry: MemoryArticleEntry): string {
+  return (
+    entry.sourceItemId ??
+    entry.sourceMessageText ??
+    entry.sourceObservation ??
+    entry.sourceTitle ??
+    entry.id
+  );
+}
+
+function sourceMetaLabels(entry: MemoryArticleEntry | undefined): string[] {
+  if (!entry) {
+    return [];
+  }
+  return [
+    sourceKindLabel(entry.sourceKind),
+    entry.sourceConversationId ? `Conversation ${shortId(entry.sourceConversationId)}` : null,
+    entry.sourceTurnId ? `Turn ${shortId(entry.sourceTurnId)}` : null,
+    entry.sourceItemId ? `Message ${shortId(entry.sourceItemId)}` : null
+  ].filter((label): label is string => Boolean(label));
+}
+
+function sourceKindLabel(kind: string | null): string | null {
+  if (!kind) {
+    return null;
+  }
+  return kind
+    .split(/[_-]+/u)
+    .filter(Boolean)
+    .map((part) => `${part[0]?.toUpperCase() ?? ""}${part.slice(1)}`)
+    .join(" ");
+}
+
+function shortId(id: string): string {
+  if (id.length <= 14) {
+    return id;
+  }
+  return `${id.slice(0, 7)}...${id.slice(-4)}`;
 }
 
 function inferSubjectName(entries: MemoryArticleEntry[]): string | null {

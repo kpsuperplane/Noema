@@ -300,6 +300,35 @@ impl NoemaStore {
         rows.into_iter().map(conversation_item_from_row).collect()
     }
 
+    /// Return one visible conversation item by durable item id.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when the embedded store read fails or stored enums
+    /// are invalid.
+    pub async fn get_visible_conversation_item(
+        &self,
+        item_id: &str,
+    ) -> Result<Option<ConversationItemRecord>, StoreError> {
+        let rows = self
+            .with_connection(|conn| {
+                collect_conversation_item_rows(
+                    conn,
+                    r#"
+                    WHERE item_id = ?1
+                      AND deleted_at IS NULL
+                    LIMIT 1
+                    "#,
+                    params![item_id],
+                )
+            })
+            .await?;
+        rows.into_iter()
+            .next()
+            .map(conversation_item_from_row)
+            .transpose()
+    }
+
     /// Return a bounded page of visible conversation items in transcript order.
     ///
     /// # Errors

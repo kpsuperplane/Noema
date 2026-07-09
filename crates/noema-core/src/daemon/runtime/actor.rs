@@ -161,8 +161,16 @@ impl CodexRuntimeActor {
                         .await,
                     );
                 }
-                CodexRuntimeCommand::GenerateOnce { request, reply } => {
-                    let provider = match self.default_provider() {
+                CodexRuntimeCommand::GenerateOnce {
+                    provider_kind,
+                    request,
+                    reply,
+                } => {
+                    let provider = match provider_kind {
+                        Some(provider_kind) => self.provider_for_kind(&provider_kind),
+                        None => self.default_provider(),
+                    };
+                    let provider = match provider {
                         Ok(provider) => provider,
                         Err(error) => {
                             let _ = reply.send(Err(error));
