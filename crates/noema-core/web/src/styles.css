@@ -162,7 +162,7 @@ html[data-tauri-runtime="true"] #root {
   animation: tool-detail-row-exit 400ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
-[data-slot="chat-detail-rail-surface"] {
+[data-slot="chat-detail-rail"] {
   opacity: 1;
   transform: translateX(0);
   transition-property: transform, opacity;
@@ -171,20 +171,20 @@ html[data-tauri-runtime="true"] #root {
   will-change: transform, opacity;
 }
 
-[data-slot="chat-detail-rail-surface"][data-state="opening"] {
+[data-slot="chat-detail-rail"][data-state="opening"] {
   opacity: 0.72;
   transform: translateX(100%);
   transition: none;
 }
 
-[data-slot="chat-detail-rail-surface"][data-state="exiting"] {
+[data-slot="chat-detail-rail"][data-state="exiting"] {
   opacity: 0.72;
   transform: translateX(100%);
   transition-duration: 220ms;
   transition-timing-function: cubic-bezier(0.4, 0, 1, 1);
 }
 
-[data-slot="chat-detail-rail-surface"][data-state="open"] {
+[data-slot="chat-detail-rail"][data-state="open"] {
   transition: none;
 }
 
@@ -446,7 +446,7 @@ html[data-tauri-runtime="true"] #root {
     animation-duration: 1ms;
   }
 
-  [data-slot="chat-detail-rail-surface"] {
+  [data-slot="chat-detail-rail"] {
     transition-duration: 1ms;
   }
 

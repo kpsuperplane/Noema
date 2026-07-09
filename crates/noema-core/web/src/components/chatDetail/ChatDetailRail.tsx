@@ -34,8 +34,10 @@ export function ChatDetailRail({
   const title = artifactDetail?.title ?? latestArtifactDetail?.title ?? (target.type === "artifact" ? "Artifact" : "Details");
 
   React.useEffect(() => {
-    closeButtonRef.current?.focus();
-  }, [target]);
+    if (motionState === "open") {
+      closeButtonRef.current?.focus();
+    }
+  }, [motionState, target]);
 
   const handleTransitionEnd = React.useCallback(
     (event: React.TransitionEvent<HTMLElement>) => {
@@ -63,12 +65,12 @@ export function ChatDetailRail({
       data-state={motionState}
       aria-label="Chat detail"
       {...stylex.props(styles.rail)}
+      onTransitionEnd={handleTransitionEnd}
     >
       <div
         data-slot="chat-detail-rail-surface"
         data-state={motionState}
         {...stylex.props(styles.surface)}
-        onTransitionEnd={handleTransitionEnd}
       >
         <header {...stylex.props(styles.header)}>
           <div {...stylex.props(styles.actionRow)}>
