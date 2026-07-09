@@ -41,6 +41,44 @@ pub struct GraphqlArtifactVersion {
     pub media_type: Option<String>,
 }
 
+/// Preview renderer selected for an artifact version detail panel.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Enum)]
+#[graphql(name = "ArtifactVersionPreviewKind")]
+pub enum GraphqlArtifactVersionPreviewKind {
+    /// Local Markdown bytes are available as UTF-8 text.
+    Markdown,
+    /// The version exists but this first slice cannot render it inline.
+    Unsupported,
+    /// The version points at an external URL.
+    External,
+}
+
+/// Artifact version detail payload for the chat detail rail.
+#[derive(Clone, Debug, SimpleObject)]
+#[graphql(name = "ArtifactVersionDetail")]
+pub struct GraphqlArtifactVersionDetail {
+    /// Stable artifact version id.
+    pub artifact_version_id: String,
+    /// Parent artifact id.
+    pub artifact_id: String,
+    /// Display title inherited from version title or artifact title.
+    pub title: String,
+    /// Product-defined artifact kind label.
+    pub artifact_kind: String,
+    /// Durable storage family shared by the artifact.
+    pub storage_kind: GraphqlArtifactStorageKind,
+    /// Optional media type for the version payload.
+    pub media_type: Option<String>,
+    /// Preview renderer selected by the server.
+    pub preview_kind: GraphqlArtifactVersionPreviewKind,
+    /// Markdown content when previewKind is MARKDOWN.
+    pub markdown: Option<String>,
+    /// Local download route when the version is stored in Noema.
+    pub download_url: Option<String>,
+    /// External durable URL when the version is externally hosted.
+    pub external_url: Option<String>,
+}
+
 /// Artifact metadata safe to expose to GraphQL clients.
 #[derive(Clone, Debug, SimpleObject)]
 #[graphql(name = "Artifact")]
@@ -114,6 +152,91 @@ pub async fn artifact(
         .await
         .map_err(graphql_error)?;
     artifact.map(graphql_artifact_from_store).transpose()
+}
+
+pub async fn artifact_version_detail(
+    state: &GraphqlState,
+    artifact_version_id: String,
+) -> Result<Option<GraphqlArtifactVersionDetail>> {
+    let store = state.store()?;
+    let Some(version) = store
+        .get_artifact_version(&artifact_version_id)
+        .await
+        .map_err(graphql_error)?
+    else {
+        return Ok(None);
+    };
+
+    let Some(artifact) = store
+        .get_artifact(&version.artifact_id)
+        .await
+        .map_err(graphql_error)?
+    else {
+        return Ok(None);
+    };
+
+    let title = version
+        .title
+        .clone()
+        .unwrap_or_else(|| artifact.artifact.title.clone());
+    let media_type = version.media_type.clone();
+
+    match &version.storage {
+        crate::ArtifactVersionStorage::ExternalUrl { url } => {
+            Ok(Some(GraphqlArtifactVersionDetail {
+                artifact_version_id: version.artifact_version_id,
+                artifact_id: version.artifact_id,
+                title,
+                artifact_kind: artifact.artifact.artifact_kind,
+                storage_kind: artifact.artifact.storage_kind.into(),
+                media_type,
+                preview_kind: GraphqlArtifactVersionPreviewKind::External,
+                markdown: None,
+                download_url: None,
+                external_url: Some(url.clone()),
+            }))
+        }
+        crate::ArtifactVersionStorage::LocalFile { .. } => {
+            let download_url = Some(crate::artifact_download_url(&version.artifact_version_id));
+            if !is_markdown_media_type(media_type.as_deref()) {
+                return Ok(Some(GraphqlArtifactVersionDetail {
+                    artifact_version_id: version.artifact_version_id,
+                    artifact_id: version.artifact_id,
+                    title,
+                    artifact_kind: artifact.artifact.artifact_kind,
+                    storage_kind: artifact.artifact.storage_kind.into(),
+                    media_type,
+                    preview_kind: GraphqlArtifactVersionPreviewKind::Unsupported,
+                    markdown: None,
+                    download_url,
+                    external_url: None,
+                }));
+            }
+
+            let (_, bytes) = crate::artifacts::read_validated_local_artifact_file(
+                state.paths()?,
+                &artifact.artifact,
+                &version,
+            )
+            .map_err(graphql_error)?;
+            let markdown = String::from_utf8(bytes).map_err(|error| {
+                graphql_error(format!("artifact Markdown content is not valid UTF-8: {error}"))
+            })?;
+
+            Ok(Some(GraphqlArtifactVersionDetail {
+                artifact_version_id: version.artifact_version_id,
+                artifact_id: version.artifact_id,
+                title,
+                artifact_kind: artifact.artifact.artifact_kind,
+                storage_kind: artifact.artifact.storage_kind.into(),
+                media_type,
+                preview_kind: GraphqlArtifactVersionPreviewKind::Markdown,
+                markdown: Some(markdown),
+                download_url,
+                external_url: None,
+            }))
+        }
+    }
 }
 
 pub async fn create_conversation_external_artifact(
@@ -190,4 +313,18 @@ fn graphql_artifact_version_from_store(
         download_url,
         media_type: version.media_type,
     })
+}
+
+fn is_markdown_media_type(media_type: Option<&str>) -> bool {
+    media_type
+        .map(|value| {
+            let normalized = value
+                .split(';')
+                .next()
+                .unwrap_or(value)
+                .trim()
+                .to_ascii_lowercase();
+            normalized == "text/markdown" || normalized == "text/x-markdown"
+        })
+        .unwrap_or(false)
 }

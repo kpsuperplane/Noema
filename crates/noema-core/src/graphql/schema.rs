@@ -537,6 +537,16 @@ impl QueryRoot {
         let state = ctx.data_unchecked::<GraphqlState>();
         artifacts::artifact(state, artifact_id).await
     }
+
+    /// Load one artifact version detail payload for the chat detail rail.
+    async fn artifact_version_detail(
+        &self,
+        ctx: &Context<'_>,
+        artifact_version_id: String,
+    ) -> Result<Option<artifacts::GraphqlArtifactVersionDetail>> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        artifacts::artifact_version_detail(state, artifact_version_id).await
+    }
 }
 
 /// Root GraphQL mutation object.
@@ -5276,6 +5286,143 @@ mod tests {
         );
         assert_eq!(
             queried_artifact["currentVersion"]["downloadUrl"],
+            crate::artifact_download_url(&artifact.current_version.artifact_version_id)
+        );
+    }
+
+    #[tokio::test]
+    async fn artifact_version_detail_reads_markdown_content() {
+        let home = tempfile::TempDir::new().expect("home");
+        let paths = crate::NoemaPaths::from_noema_home(home.path()).expect("paths");
+        let store = crate::NoemaStore::open(&crate::StoreConfig::from_paths(&paths))
+            .await
+            .expect("store");
+        let conversation = store
+            .create_conversation(crate::NewConversation::local_chat(None, None))
+            .await
+            .expect("conversation");
+        let artifact = crate::create_conversation_local_file_artifact(
+            &store,
+            &paths,
+            crate::NewConversationLocalFileArtifact {
+                conversation_id: conversation.conversation_id,
+                title: "Session report".to_string(),
+                description: Some("Local markdown artifact".to_string()),
+                artifact_kind: "document".to_string(),
+                filename: "report.md".to_string(),
+                bytes: b"# Report\n\nA useful note.\n".to_vec(),
+                media_type: Some("text/markdown".to_string()),
+                created_by_actor_id: "agent:primary".to_string(),
+                source: crate::ArtifactSource::default(),
+                metadata: serde_json::json!({}),
+            },
+        )
+        .await
+        .expect("artifact");
+        let schema = build_schema(GraphqlState::for_tests_with_store_and_paths(store, paths));
+
+        let response = schema
+            .execute(async_graphql::Request::new(format!(
+                r#"
+                {{
+                  artifactVersionDetail(artifactVersionId: "{}") {{
+                    artifactVersionId
+                    artifactId
+                    title
+                    artifactKind
+                    storageKind
+                    mediaType
+                    previewKind
+                    markdown
+                    downloadUrl
+                    externalUrl
+                  }}
+                }}
+                "#,
+                artifact.current_version.artifact_version_id
+            )))
+            .await;
+
+        assert!(response.errors.is_empty(), "{:?}", response.errors);
+        let data = response.data.into_json().expect("json");
+        let detail = data["artifactVersionDetail"]
+            .as_object()
+            .expect("detail object");
+        assert_eq!(
+            detail["artifactVersionId"],
+            artifact.current_version.artifact_version_id
+        );
+        assert_eq!(detail["artifactId"], artifact.artifact.artifact_id);
+        assert_eq!(detail["title"], "Session report");
+        assert_eq!(detail["artifactKind"], "document");
+        assert_eq!(detail["storageKind"], "LOCAL_FILE");
+        assert_eq!(detail["mediaType"], "text/markdown");
+        assert_eq!(detail["previewKind"], "MARKDOWN");
+        assert_eq!(detail["markdown"], "# Report\n\nA useful note.\n");
+        assert_eq!(
+            detail["downloadUrl"],
+            crate::artifact_download_url(&artifact.current_version.artifact_version_id)
+        );
+        assert!(detail["externalUrl"].is_null());
+    }
+
+    #[tokio::test]
+    async fn artifact_version_detail_marks_non_markdown_local_file_unsupported() {
+        let home = tempfile::TempDir::new().expect("home");
+        let paths = crate::NoemaPaths::from_noema_home(home.path()).expect("paths");
+        let store = crate::NoemaStore::open(&crate::StoreConfig::from_paths(&paths))
+            .await
+            .expect("store");
+        let conversation = store
+            .create_conversation(crate::NewConversation::local_chat(None, None))
+            .await
+            .expect("conversation");
+        let artifact = crate::create_conversation_local_file_artifact(
+            &store,
+            &paths,
+            crate::NewConversationLocalFileArtifact {
+                conversation_id: conversation.conversation_id,
+                title: "Data export".to_string(),
+                description: None,
+                artifact_kind: "table".to_string(),
+                filename: "data.csv".to_string(),
+                bytes: b"a,b\n1,2\n".to_vec(),
+                media_type: Some("text/csv".to_string()),
+                created_by_actor_id: "agent:primary".to_string(),
+                source: crate::ArtifactSource::default(),
+                metadata: serde_json::json!({}),
+            },
+        )
+        .await
+        .expect("artifact");
+        let schema = build_schema(GraphqlState::for_tests_with_store_and_paths(store, paths));
+
+        let response = schema
+            .execute(async_graphql::Request::new(format!(
+                r#"
+                {{
+                  artifactVersionDetail(artifactVersionId: "{}") {{
+                    previewKind
+                    markdown
+                    downloadUrl
+                    mediaType
+                  }}
+                }}
+                "#,
+                artifact.current_version.artifact_version_id
+            )))
+            .await;
+
+        assert!(response.errors.is_empty(), "{:?}", response.errors);
+        let data = response.data.into_json().expect("json");
+        let detail = data["artifactVersionDetail"]
+            .as_object()
+            .expect("detail object");
+        assert_eq!(detail["previewKind"], "UNSUPPORTED");
+        assert!(detail["markdown"].is_null());
+        assert_eq!(detail["mediaType"], "text/csv");
+        assert_eq!(
+            detail["downloadUrl"],
             crate::artifact_download_url(&artifact.current_version.artifact_version_id)
         );
     }
