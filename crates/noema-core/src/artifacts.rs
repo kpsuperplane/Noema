@@ -11,6 +11,8 @@ use cap_std::{
 };
 use thiserror::Error;
 
+const ARTIFACT_VERSION_ID_PREFIX: &str = "artifact_version:";
+
 /// Input for creating a conversation-owned local file artifact and first version.
 #[derive(Debug, Clone, PartialEq)]
 pub struct NewConversationLocalFileArtifact {
@@ -104,7 +106,24 @@ pub enum ArtifactWriteError {
 /// Build the local download route for an artifact version.
 #[must_use]
 pub fn artifact_download_url(artifact_version_id: &str) -> String {
-    format!("/artifacts/{artifact_version_id}/download")
+    let artifact_version_slug = artifact_version_download_slug(artifact_version_id);
+    format!("/artifacts/versions/{artifact_version_slug}/download")
+}
+
+/// Convert a public artifact-version download slug back into a canonical id.
+#[must_use]
+pub fn artifact_version_id_from_download_slug(slug: &str) -> Option<String> {
+    if slug.is_empty() || slug.contains('/') || slug.contains(':') {
+        return None;
+    }
+
+    Some(format!("{ARTIFACT_VERSION_ID_PREFIX}{slug}"))
+}
+
+fn artifact_version_download_slug(artifact_version_id: &str) -> &str {
+    artifact_version_id
+        .strip_prefix(ARTIFACT_VERSION_ID_PREFIX)
+        .unwrap_or(artifact_version_id)
 }
 
 /// Create a conversation-owned local file artifact, writing bytes first and metadata second.
@@ -552,4 +571,31 @@ fn sha256_hex(bytes: &[u8]) -> String {
         .iter()
         .map(|byte| format!("{byte:02x}"))
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{artifact_download_url, artifact_version_id_from_download_slug};
+
+    #[test]
+    fn artifact_download_url_uses_public_version_slug() {
+        assert_eq!(
+            artifact_download_url("artifact_version:18c0aa78b3e7c5e86"),
+            "/artifacts/versions/18c0aa78b3e7c5e86/download"
+        );
+    }
+
+    #[test]
+    fn artifact_version_slug_resolves_to_canonical_id() {
+        assert_eq!(
+            artifact_version_id_from_download_slug("18c0aa78b3e7c5e86"),
+            Some("artifact_version:18c0aa78b3e7c5e86".to_string())
+        );
+        assert_eq!(artifact_version_id_from_download_slug(""), None);
+        assert_eq!(
+            artifact_version_id_from_download_slug("artifact_version:18c0aa78b3e7c5e86"),
+            None
+        );
+        assert_eq!(artifact_version_id_from_download_slug("nested/path"), None);
+    }
 }

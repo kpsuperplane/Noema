@@ -49,7 +49,7 @@ pub mod web_fetch;
 
 pub use artifacts::{
     ArtifactWriteError, NewConversationLocalFileArtifact, artifact_download_url,
-    create_conversation_local_file_artifact,
+    artifact_version_id_from_download_slug, create_conversation_local_file_artifact,
 };
 pub use capability::{CapabilityGateway, GatewayToolProposal, GatewayToolResult};
 pub use config::{

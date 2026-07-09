@@ -127,7 +127,7 @@ function trustedLocalDownloadHref(href: string | null): string | null {
     return null;
   }
 
-  if (!/^\/artifacts\/[^/]+\/download(?:[?#].*)?$/.test(href)) {
+  if (!/^\/artifacts\/(?:versions\/[^/:]+|[^/]+)\/download(?:[?#].*)?$/.test(href)) {
     return null;
   }
 

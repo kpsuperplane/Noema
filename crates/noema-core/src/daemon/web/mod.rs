@@ -114,7 +114,7 @@ pub(super) async fn handle_connection(
 
     if let Some(artifact_version_id) = artifact_download_version_id(&request.method, &request.path)
     {
-        handle_artifact_download(&mut stream, state, artifact_version_id).await?;
+        handle_artifact_download(&mut stream, state, &artifact_version_id).await?;
         return Ok(());
     }
 
@@ -166,16 +166,22 @@ fn is_mcp_oauth_callback_route(method: &str, path: &str) -> bool {
     method == "GET" && path == "/mcp/oauth/callback"
 }
 
-fn artifact_download_version_id<'a>(method: &str, path: &'a str) -> Option<&'a str> {
+fn artifact_download_version_id(method: &str, path: &str) -> Option<String> {
     if method != "GET" {
         return None;
     }
+
+    if let Some(rest) = path.strip_prefix("/artifacts/versions/") {
+        let artifact_version_slug = rest.strip_suffix("/download")?;
+        return crate::artifact_version_id_from_download_slug(artifact_version_slug);
+    }
+
     let rest = path.strip_prefix("/artifacts/")?;
     let artifact_version_id = rest.strip_suffix("/download")?;
     if artifact_version_id.is_empty() || artifact_version_id.contains('/') {
         return None;
     }
-    Some(artifact_version_id)
+    Some(artifact_version_id.to_string())
 }
 
 #[cfg(test)]
@@ -445,8 +451,12 @@ mod tests {
     #[test]
     fn artifact_download_route_accepts_get_path() {
         assert_eq!(
-            artifact_download_version_id("GET", "/artifacts/artifact_version_123/download"),
-            Some("artifact_version_123")
+            artifact_download_version_id("GET", "/artifacts/versions/123/download"),
+            Some("artifact_version:123".to_string())
+        );
+        assert_eq!(
+            artifact_download_version_id("GET", "/artifacts/artifact_version:123/download"),
+            Some("artifact_version:123".to_string())
         );
         assert_eq!(
             artifact_download_version_id("POST", "/artifacts/x/download"),
