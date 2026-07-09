@@ -16,7 +16,7 @@ export const styles = stylex.create({
     borderStyle: "none",
     borderWidth: 1,
     borderTopStyle: "solid",
-    borderColor: "#a2a9b1",
+    borderColor: "#e7e7e7",
     backgroundColor: "white",
     display: "flex",
     flexDirection: "column",
