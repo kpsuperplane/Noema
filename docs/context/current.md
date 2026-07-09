@@ -107,6 +107,11 @@ The next storage slice should stay small and concrete:
   for the current version. GraphQL may verify/read the resulting artifact, but
   agent-created local artifacts should go through this runtime tool path rather
   than direct artifact mutations.
+- Local transcript artifact cards open a chat-owned generic detail rail with
+  `type=artifact&version=<artifact_version_id>` state held inside the chat root.
+  Markdown local file versions render inline through GraphQL
+  `artifactVersionDetail`; download is a secondary action in the rail, and there
+  is intentionally no artifact URL route in this slice.
 - Memory is governed context, not hidden model state. Durable memory truth now
   belongs to local Mnemosyne, while Noema owns service lifecycle, configuration,
   live readiness proxying, provenance, UI, model routing, ingest diagnostics,
