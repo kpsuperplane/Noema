@@ -22,8 +22,10 @@ type ItemXStyle = ItemProps["xstyle"];
 
 const styles = stylex.create({
   item: {
-    maxWidth: 520,
-    minWidth: 220,
+    display: "inline-flex",
+    width: "fit-content",
+    maxWidth: "min(100%, 520px)",
+    minWidth: "min(220px, 100%)",
     borderWidth: 1,
     borderStyle: "solid",
     borderColor: "var(--noema-border-subtle)",
