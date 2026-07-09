@@ -71,27 +71,31 @@ export function ChatDetailRail({
         onAnimationEnd={handleAnimationEnd}
       >
         <header {...stylex.props(styles.header)}>
-          <div {...stylex.props(styles.titleBlock)}>
-            <h2 {...stylex.props(styles.title)}>{title}</h2>
+          <div {...stylex.props(styles.actionRow)}>
+            <div {...stylex.props(styles.versionSlot)}>
+              {target.type === "artifact" ? (
+                <ArtifactVersionSelector
+                  detail={artifactDetail ?? latestArtifactDetail}
+                  selectedVersion={target.version}
+                  onChangeVersion={onChangeVersion}
+                />
+              ) : null}
+            </div>
+            <div {...stylex.props(styles.actions)}>
+              {target.type === "artifact" ? <ArtifactDownloadAction detail={artifactDetail} /> : null}
+              <Button
+                ref={closeButtonRef}
+                type="button"
+                variant="ghost"
+                size="sm"
+                label="Close detail"
+                icon={<X aria-hidden="true" size={16} />}
+                isIconOnly
+                onClick={onClose}
+              />
+            </div>
           </div>
-          {target.type === "artifact" ? (
-            <ArtifactVersionSelector
-              detail={artifactDetail ?? latestArtifactDetail}
-              selectedVersion={target.version}
-              onChangeVersion={onChangeVersion}
-            />
-          ) : null}
-          {target.type === "artifact" ? <ArtifactDownloadAction detail={artifactDetail} /> : null}
-          <Button
-            ref={closeButtonRef}
-            type="button"
-            variant="ghost"
-            size="sm"
-            label="Close detail"
-            icon={<X aria-hidden="true" size={16} />}
-            isIconOnly
-            onClick={onClose}
-          />
+          <h2 {...stylex.props(styles.title)}>{title}</h2>
         </header>
         <div {...stylex.props(styles.body)}>
           {target.type === "artifact" ? (
@@ -163,19 +167,27 @@ const styles = stylex.create({
   header: {
     minWidth: 0,
     display: "grid",
-    gridTemplateColumns: "minmax(0, 1fr) auto auto auto",
-    alignItems: "start",
-    gap: 12,
+    gap: 10,
     paddingBlock: 14,
     paddingInline: 16,
     borderBottomWidth: 1,
     borderBottomStyle: "solid",
     borderBottomColor: "var(--noema-border-subtle)"
   },
-  titleBlock: {
+  actionRow: {
     minWidth: 0,
     display: "grid",
-    alignSelf: "center"
+    gridTemplateColumns: "minmax(0, 1fr) auto",
+    alignItems: "start",
+    gap: 12
+  },
+  versionSlot: {
+    minWidth: 0
+  },
+  actions: {
+    display: "flex",
+    alignItems: "start",
+    gap: 8
   },
   title: {
     margin: 0,

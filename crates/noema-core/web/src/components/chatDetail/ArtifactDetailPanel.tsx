@@ -74,6 +74,7 @@ export function ArtifactDownloadAction({ detail }: { detail: ArtifactDetail | nu
     <Button
       href={detail.downloadUrl}
       icon={<Download aria-hidden="true" size={15} />}
+      isIconOnly
       label="Download"
       size="sm"
       variant="secondary"
