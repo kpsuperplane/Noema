@@ -1,12 +1,5 @@
 import * as stylex from "@stylexjs/stylex";
-import { composerBubbleStyle } from "@/components/Composer";
 import { TranscriptLoadingSkeleton } from "@/components/transcript/TranscriptLoadingSkeleton";
-
-const bootComposerPlaceholder = "Send a message";
-const bootComposerBubbleStyle = composerBubbleStyle({
-  value: "",
-  placeholder: bootComposerPlaceholder
-});
 
 export function AppBootSkeleton() {
   return (
@@ -34,11 +27,7 @@ export function AppBootSkeleton() {
           <TranscriptLoadingSkeleton />
           <div {...stylex.props(styles.composerDock)}>
             <div {...stylex.props(styles.composerShell)}>
-              <div
-                data-slot="skeleton-glimmer"
-                {...stylex.props(styles.composerBubble)}
-                style={bootComposerBubbleStyle}
-              >
+              <div data-slot="skeleton-glimmer" {...stylex.props(styles.composerBubble)}>
                 <span {...stylex.props(styles.composerTextLine)} />
                 <span {...stylex.props(styles.composerSubmit)} />
               </div>
@@ -191,6 +180,7 @@ const styles = stylex.create({
     position: "relative",
     display: "flex",
     alignItems: "center",
+    width: "min(13rem, 100%)",
     maxWidth: "100%",
     height: 56,
     borderRadius: "calc(var(--radius) * 2.6)",
