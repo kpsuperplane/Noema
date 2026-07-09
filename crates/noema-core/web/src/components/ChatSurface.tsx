@@ -165,7 +165,7 @@ export function ChatSurface({
       style={rootStyle}
       aria-label="Noema chat"
     >
-      <div data-slot="chat-main-pane" {...stylex.props(styles.mainPane)}>
+      <div data-slot="chat-main-pane" {...stylex.props(styles.mainPane, detailTarget && styles.mainPaneWithDetail)}>
         <div {...stylex.props(styles.contentLayer)}>
           {loadingInitialTranscript || transcript.length === 0 ? (
             <TranscriptLoadingSkeleton />
@@ -248,7 +248,7 @@ const styles = stylex.create({
   rootWithDetail: {
     gridTemplateColumns: {
       default: "minmax(0, 1fr)",
-      "@media (min-width: 980px)": "minmax(0, 1fr) 1px var(--chat-detail-rail-width)"
+      "@media (min-width: 980px)": "minmax(0, 1fr)"
     }
   },
   mainPane: {
@@ -256,7 +256,17 @@ const styles = stylex.create({
     gridTemplateRows: "minmax(0, 1fr)",
     minWidth: 0,
     minHeight: 0,
-    overflow: "hidden"
+    overflow: "hidden",
+    paddingInlineEnd: {
+      default: 0,
+      "@media (min-width: 980px)": 0
+    }
+  },
+  mainPaneWithDetail: {
+    paddingInlineEnd: {
+      default: 0,
+      "@media (min-width: 980px)": "calc(var(--chat-detail-rail-width) + 1px)"
+    }
   },
   contentLayer: {
     gridArea: "1 / 1",
@@ -295,6 +305,22 @@ const styles = stylex.create({
     display: {
       default: "none",
       "@media (min-width: 980px)": "block"
+    },
+    position: {
+      default: "relative",
+      "@media (min-width: 980px)": "absolute"
+    },
+    top: {
+      default: "auto",
+      "@media (min-width: 980px)": 0
+    },
+    right: {
+      default: "auto",
+      "@media (min-width: 980px)": "var(--chat-detail-rail-width)"
+    },
+    bottom: {
+      default: "auto",
+      "@media (min-width: 980px)": 0
     },
     minHeight: 0,
     height: "100%",
