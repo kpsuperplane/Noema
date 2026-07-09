@@ -228,6 +228,7 @@ pub(super) fn input_item_from_transcript_item(
         | ConversationItemKind::A2uiCard
         | ConversationItemKind::ApprovalRequest
         | ConversationItemKind::ApprovalResult
+        | ConversationItemKind::ArtifactReference
         | ConversationItemKind::ErrorNotice => None,
     }
 }

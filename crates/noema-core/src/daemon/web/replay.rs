@@ -105,6 +105,7 @@ fn turn_transcript_item_from_record(
             }))
         }
         ConversationItemKind::Reasoning => Ok(None),
+        ConversationItemKind::ArtifactReference => Ok(None),
         ConversationItemKind::ToolCall
         | ConversationItemKind::ToolResult
         | ConversationItemKind::ApprovalRequest

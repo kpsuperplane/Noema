@@ -138,6 +138,8 @@ pub enum ConversationItemKind {
     ApprovalRequest,
     /// A recorded approval decision.
     ApprovalResult,
+    /// A reference to a persisted artifact.
+    ArtifactReference,
     /// An error visible in conversation history.
     ErrorNotice,
 }
@@ -158,6 +160,7 @@ impl ConversationItemKind {
             Self::Reasoning => "reasoning",
             Self::ApprovalRequest => "approval_request",
             Self::ApprovalResult => "approval_result",
+            Self::ArtifactReference => "artifact_reference",
             Self::ErrorNotice => "error_notice",
         }
     }
@@ -180,6 +183,7 @@ impl ConversationItemKind {
             "reasoning" => Ok(Self::Reasoning),
             "approval_request" => Ok(Self::ApprovalRequest),
             "approval_result" => Ok(Self::ApprovalResult),
+            "artifact_reference" => Ok(Self::ArtifactReference),
             "error_notice" => Ok(Self::ErrorNotice),
             _ => invalid_enum("conversation_item_kind", value),
         }
@@ -273,5 +277,18 @@ impl ConversationContextSummaryStatus {
             "superseded" => Ok(Self::Superseded),
             _ => invalid_enum("conversation_context_summary_status", value),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ConversationItemKind;
+
+    #[test]
+    fn conversation_item_kind_parse_round_trips_artifact_reference() {
+        let kind = ConversationItemKind::parse("artifact_reference").expect("valid kind");
+
+        assert_eq!(kind, ConversationItemKind::ArtifactReference);
+        assert_eq!(kind.as_str(), "artifact_reference");
     }
 }

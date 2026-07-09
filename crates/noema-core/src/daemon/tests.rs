@@ -4084,6 +4084,7 @@ async fn append_test_text_item_with_kind(
         | ConversationItemKind::Reasoning
         | ConversationItemKind::ApprovalRequest
         | ConversationItemKind::ApprovalResult
+        | ConversationItemKind::ArtifactReference
         | ConversationItemKind::ErrorNotice => ActorRef::agent("agent:primary"),
     };
     store
