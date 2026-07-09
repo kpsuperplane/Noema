@@ -89,6 +89,20 @@ Artifact rows should behave as follows:
 The artifact card should not expose a primary download affordance. Download belongs
 in the viewer header.
 
+The card's action affordance sits in its bottom-right corner and uses an icon rather
+than text:
+
+- `PanelRightOpen` for opening the chat detail rail.
+- `Download` for a direct local download when no detail target is available.
+- `ExternalLink` for an external artifact.
+- No action icon for an unavailable artifact.
+
+On devices with hover, the icon is hidden at rest and fades in when the card is
+hovered or contains keyboard focus. On devices without hover, the icon remains
+visible. The card reserves enough inline space for the icon so it cannot cover the
+title or description. Each icon has a concise tooltip or equivalent accessible
+label, while the whole card remains the interaction target.
+
 ## Data Flow
 
 The frontend should fetch artifact-version detail data when the rail opens. The
@@ -144,6 +158,8 @@ convert, or create a new artifact.
   practical.
 - On mobile/full-screen presentation, the rail should be announced as a dialog-like
   contextual panel.
+- The transcript action icon must also become visible when its card receives
+  keyboard focus, and its action must be available without hover.
 
 ## Validation
 
