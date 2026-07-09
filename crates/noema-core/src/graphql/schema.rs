@@ -4843,6 +4843,323 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn artifacts_query_resolves_owner_scoped_artifacts_and_field_names() {
+        let home = tempfile::TempDir::new().expect("home");
+        let paths = crate::NoemaPaths::from_noema_home(home.path()).expect("paths");
+        let store = crate::NoemaStore::open(&crate::StoreConfig::from_paths(&paths))
+            .await
+            .expect("store");
+        let conversation = store
+            .create_conversation(crate::NewConversation::local_chat(None, None))
+            .await
+            .expect("conversation");
+        let other_conversation = store
+            .create_conversation(crate::NewConversation::local_chat(None, None))
+            .await
+            .expect("other conversation");
+
+        let expected = store
+            .create_artifact_with_initial_version(
+                crate::NewArtifact {
+                    artifact_id: None,
+                    owner: crate::ArtifactOwnerRef::conversation(&conversation.conversation_id),
+                    title: "Sprint brief".to_string(),
+                    description: Some("Planning notes".to_string()),
+                    artifact_kind: "document".to_string(),
+                    storage_kind: crate::ArtifactStorageKind::ExternalUrl,
+                    created_by_actor_id: "agent:primary".to_string(),
+                    source: crate::ArtifactSource {
+                        conversation_id: Some(conversation.conversation_id.clone()),
+                        turn_id: None,
+                        item_id: None,
+                    },
+                    metadata: serde_json::json!({"provider": "notion"}),
+                },
+                crate::NewArtifactVersion {
+                    artifact_version_id: None,
+                    title: Some("Initial".to_string()),
+                    storage: crate::ArtifactVersionStorage::ExternalUrl {
+                        url: "https://notion.so/noema-brief".to_string(),
+                    },
+                    media_type: Some("text/html".to_string()),
+                    byte_size: None,
+                    content_sha256: None,
+                    created_by_actor_id: "agent:primary".to_string(),
+                    source: crate::ArtifactSource {
+                        conversation_id: Some(conversation.conversation_id.clone()),
+                        turn_id: None,
+                        item_id: None,
+                    },
+                    metadata: serde_json::json!({}),
+                },
+            )
+            .await
+            .expect("artifact");
+        let other_artifact = store
+            .create_artifact_with_initial_version(
+                crate::NewArtifact {
+                    artifact_id: None,
+                    owner: crate::ArtifactOwnerRef::conversation(
+                        &other_conversation.conversation_id,
+                    ),
+                    title: "Other brief".to_string(),
+                    description: None,
+                    artifact_kind: "document".to_string(),
+                    storage_kind: crate::ArtifactStorageKind::ExternalUrl,
+                    created_by_actor_id: "agent:primary".to_string(),
+                    source: crate::ArtifactSource {
+                        conversation_id: Some(other_conversation.conversation_id.clone()),
+                        turn_id: None,
+                        item_id: None,
+                    },
+                    metadata: serde_json::json!({}),
+                },
+                crate::NewArtifactVersion {
+                    artifact_version_id: None,
+                    title: Some("Initial".to_string()),
+                    storage: crate::ArtifactVersionStorage::ExternalUrl {
+                        url: "https://example.com/other".to_string(),
+                    },
+                    media_type: Some("text/html".to_string()),
+                    byte_size: None,
+                    content_sha256: None,
+                    created_by_actor_id: "agent:primary".to_string(),
+                    source: crate::ArtifactSource {
+                        conversation_id: Some(other_conversation.conversation_id.clone()),
+                        turn_id: None,
+                        item_id: None,
+                    },
+                    metadata: serde_json::json!({}),
+                },
+            )
+            .await
+            .expect("other artifact");
+        let schema = build_schema(GraphqlState::for_tests_with_store_and_paths(store, paths));
+
+        let response = schema
+            .execute(async_graphql::Request::new(format!(
+                r#"
+                {{
+                  artifacts(ownerObjectType: "conversation", ownerObjectId: "{}", limit: 10) {{
+                    artifactId
+                    ownerObjectType
+                    ownerObjectId
+                    title
+                    description
+                    artifactKind
+                    storageKind
+                    currentVersion {{
+                      artifactVersionId
+                      versionIndex
+                      externalUrl
+                      downloadUrl
+                      mediaType
+                    }}
+                  }}
+                }}
+                "#,
+                conversation.conversation_id
+            )))
+            .await;
+
+        assert!(response.errors.is_empty(), "{:?}", response.errors);
+        let data = response.data.into_json().expect("json");
+        let artifacts = data["artifacts"].as_array().expect("artifacts array");
+        assert_eq!(artifacts.len(), 1);
+
+        let artifact = &artifacts[0];
+        assert_eq!(artifact["artifactId"], expected.artifact.artifact_id);
+        assert_eq!(artifact["ownerObjectType"], "conversation");
+        assert_eq!(artifact["ownerObjectId"], conversation.conversation_id);
+        assert_eq!(artifact["title"], "Sprint brief");
+        assert_eq!(artifact["description"], "Planning notes");
+        assert_eq!(artifact["artifactKind"], "document");
+        assert_eq!(artifact["storageKind"], "EXTERNAL_URL");
+        assert_eq!(
+            artifact["currentVersion"]["artifactVersionId"],
+            expected.current_version.artifact_version_id
+        );
+        assert_eq!(artifact["currentVersion"]["versionIndex"], 1);
+        assert_eq!(
+            artifact["currentVersion"]["externalUrl"],
+            "https://notion.so/noema-brief"
+        );
+        assert_eq!(
+            artifact["currentVersion"]["downloadUrl"],
+            serde_json::Value::Null
+        );
+        assert_eq!(artifact["currentVersion"]["mediaType"], "text/html");
+        assert_ne!(artifact["artifactId"], other_artifact.artifact.artifact_id);
+    }
+
+    #[tokio::test]
+    async fn artifact_query_resolves_one_artifact() {
+        let store = crate::store::tests::test_store().await;
+        let conversation = store
+            .create_conversation(crate::NewConversation::local_chat(None, None))
+            .await
+            .expect("conversation");
+        let expected = store
+            .create_artifact_with_initial_version(
+                crate::NewArtifact {
+                    artifact_id: None,
+                    owner: crate::ArtifactOwnerRef::conversation(&conversation.conversation_id),
+                    title: "Sprint brief".to_string(),
+                    description: Some("Planning notes".to_string()),
+                    artifact_kind: "document".to_string(),
+                    storage_kind: crate::ArtifactStorageKind::ExternalUrl,
+                    created_by_actor_id: "agent:primary".to_string(),
+                    source: crate::ArtifactSource {
+                        conversation_id: Some(conversation.conversation_id.clone()),
+                        turn_id: None,
+                        item_id: None,
+                    },
+                    metadata: serde_json::json!({"provider": "notion"}),
+                },
+                crate::NewArtifactVersion {
+                    artifact_version_id: None,
+                    title: Some("Initial".to_string()),
+                    storage: crate::ArtifactVersionStorage::ExternalUrl {
+                        url: "https://notion.so/noema-brief".to_string(),
+                    },
+                    media_type: Some("text/html".to_string()),
+                    byte_size: None,
+                    content_sha256: None,
+                    created_by_actor_id: "agent:primary".to_string(),
+                    source: crate::ArtifactSource {
+                        conversation_id: Some(conversation.conversation_id.clone()),
+                        turn_id: None,
+                        item_id: None,
+                    },
+                    metadata: serde_json::json!({}),
+                },
+            )
+            .await
+            .expect("artifact");
+        let schema = build_schema(GraphqlState::for_tests_with_store(store));
+
+        let response = schema
+            .execute(async_graphql::Request::new(format!(
+                r#"
+                {{
+                  artifact(artifactId: "{}") {{
+                    artifactId
+                    ownerObjectType
+                    ownerObjectId
+                    title
+                    description
+                    artifactKind
+                    storageKind
+                    currentVersion {{
+                      artifactVersionId
+                      versionIndex
+                      externalUrl
+                      downloadUrl
+                      mediaType
+                    }}
+                  }}
+                }}
+                "#,
+                expected.artifact.artifact_id
+            )))
+            .await;
+
+        assert!(response.errors.is_empty(), "{:?}", response.errors);
+        let data = response.data.into_json().expect("json");
+        let artifact = data["artifact"].as_object().expect("artifact object");
+        assert_eq!(artifact["artifactId"], expected.artifact.artifact_id);
+        assert_eq!(artifact["ownerObjectType"], "conversation");
+        assert_eq!(artifact["ownerObjectId"], conversation.conversation_id);
+        assert_eq!(artifact["title"], "Sprint brief");
+        assert_eq!(artifact["description"], "Planning notes");
+        assert_eq!(artifact["artifactKind"], "document");
+        assert_eq!(artifact["storageKind"], "EXTERNAL_URL");
+        assert_eq!(
+            artifact["currentVersion"]["artifactVersionId"],
+            expected.current_version.artifact_version_id
+        );
+        assert_eq!(artifact["currentVersion"]["versionIndex"], 1);
+        assert_eq!(
+            artifact["currentVersion"]["externalUrl"],
+            "https://notion.so/noema-brief"
+        );
+        assert_eq!(
+            artifact["currentVersion"]["downloadUrl"],
+            serde_json::Value::Null
+        );
+        assert_eq!(artifact["currentVersion"]["mediaType"], "text/html");
+    }
+
+    #[tokio::test]
+    async fn artifact_query_exposes_local_file_download_url() {
+        let home = tempfile::TempDir::new().expect("home");
+        let paths = crate::NoemaPaths::from_noema_home(home.path()).expect("paths");
+        let store = crate::NoemaStore::open(&crate::StoreConfig::from_paths(&paths))
+            .await
+            .expect("store");
+        let conversation = store
+            .create_conversation(crate::NewConversation::local_chat(None, None))
+            .await
+            .expect("conversation");
+        let artifact = crate::create_conversation_local_file_artifact(
+            &store,
+            &paths,
+            crate::NewConversationLocalFileArtifact {
+                conversation_id: conversation.conversation_id.clone(),
+                title: "Session report".to_string(),
+                description: Some("Local markdown artifact".to_string()),
+                artifact_kind: "document".to_string(),
+                filename: "report.md".to_string(),
+                bytes: b"# report\n".to_vec(),
+                media_type: Some("text/markdown".to_string()),
+                created_by_actor_id: "agent:primary".to_string(),
+                source: crate::ArtifactSource {
+                    conversation_id: Some(conversation.conversation_id.clone()),
+                    turn_id: None,
+                    item_id: None,
+                },
+                metadata: serde_json::json!({"origin": "unit-test"}),
+            },
+        )
+        .await
+        .expect("artifact");
+        let schema = build_schema(GraphqlState::for_tests_with_store_and_paths(store, paths));
+
+        let response = schema
+            .execute(async_graphql::Request::new(format!(
+                r#"
+                {{
+                  artifact(artifactId: "{}") {{
+                    artifactId
+                    currentVersion {{
+                      artifactVersionId
+                      downloadUrl
+                    }}
+                  }}
+                }}
+                "#,
+                artifact.artifact.artifact_id
+            )))
+            .await;
+
+        assert!(response.errors.is_empty(), "{:?}", response.errors);
+        let data = response.data.into_json().expect("json");
+        let queried_artifact = data["artifact"].as_object().expect("artifact object");
+        assert_eq!(
+            queried_artifact["artifactId"],
+            artifact.artifact.artifact_id
+        );
+        assert_eq!(
+            queried_artifact["currentVersion"]["artifactVersionId"],
+            artifact.current_version.artifact_version_id
+        );
+        assert_eq!(
+            queried_artifact["currentVersion"]["downloadUrl"],
+            crate::artifact_download_url(&artifact.current_version.artifact_version_id)
+        );
+    }
+
+    #[tokio::test]
     async fn conversation_events_emits_ready_before_live_events() {
         let state = GraphqlState::for_tests();
         let subscriptions = state.subscriptions().clone();
