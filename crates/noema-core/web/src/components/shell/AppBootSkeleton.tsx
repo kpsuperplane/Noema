@@ -1,5 +1,12 @@
 import * as stylex from "@stylexjs/stylex";
+import { composerBubbleStyle } from "@/components/Composer";
 import { TranscriptLoadingSkeleton } from "@/components/transcript/TranscriptLoadingSkeleton";
+
+const bootComposerPlaceholder = "Send a message";
+const bootComposerBubbleStyle = composerBubbleStyle({
+  value: "",
+  placeholder: bootComposerPlaceholder
+});
 
 export function AppBootSkeleton() {
   return (
@@ -27,7 +34,11 @@ export function AppBootSkeleton() {
           <TranscriptLoadingSkeleton />
           <div {...stylex.props(styles.composerDock)}>
             <div {...stylex.props(styles.composerShell)}>
-              <div data-slot="skeleton-glimmer" {...stylex.props(styles.composerBubble)}>
+              <div
+                data-slot="skeleton-glimmer"
+                {...stylex.props(styles.composerBubble)}
+                style={bootComposerBubbleStyle}
+              >
                 <span {...stylex.props(styles.composerTextLine)} />
                 <span {...stylex.props(styles.composerSubmit)} />
               </div>
@@ -180,8 +191,7 @@ const styles = stylex.create({
     position: "relative",
     display: "flex",
     alignItems: "center",
-    width: "min(324px, 100%)",
-    minWidth: "min(13rem, 100%)",
+    maxWidth: "100%",
     height: 56,
     borderRadius: "calc(var(--radius) * 2.6)",
     padding: 6,
@@ -189,10 +199,7 @@ const styles = stylex.create({
       default: 48,
       "@media (hover: none) and (pointer: coarse)": 56
     },
-    backgroundColor: "var(--skeleton-glimmer-base)",
-    "@media (max-width: 760px)": {
-      width: "min(304px, 100%)"
-    }
+    backgroundColor: "var(--skeleton-glimmer-base)"
   },
   composerTextLine: {
     display: "block",
