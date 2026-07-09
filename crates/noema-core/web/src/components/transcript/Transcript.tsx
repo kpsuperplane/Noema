@@ -264,14 +264,13 @@ function renderTranscriptEntry(
   if (entry.type === "multiple_choice_prompt") {
     const promptItemId = entry.itemId ?? entry.id;
     return (
-      <TranscriptRow lane="assistant" showAvatar={showAvatar}>
-        <MultipleChoicePrompt
-          disabled={multipleChoicePromptHasSelection(entries, promptItemId)}
-          item={entry.item}
-          promptItemId={promptItemId}
-          onSubmit={onSubmitMultipleChoiceSelection}
-        />
-      </TranscriptRow>
+      <MultipleChoicePrompt
+        disabled={multipleChoicePromptHasSelection(entries, promptItemId)}
+        item={entry.item}
+        promptItemId={promptItemId}
+        showAvatar={showAvatar}
+        onSubmit={onSubmitMultipleChoiceSelection}
+      />
     );
   }
   if (entry.type === "multiple_choice_selection") {

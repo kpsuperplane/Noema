@@ -1,86 +1,104 @@
 import * as React from "react";
+import { Button } from "@astryxdesign/core/Button";
+import { CheckboxInput, type CheckboxInputProps } from "@astryxdesign/core/CheckboxInput";
+import { RadioList, RadioListItem, type RadioListItemProps, type RadioListProps } from "@astryxdesign/core/RadioList";
 import * as stylex from "@stylexjs/stylex";
 import type { MultipleChoiceOption, TurnTranscriptItem } from "@/shared/types";
+import { TranscriptChatBubble } from "./TranscriptChatBubble";
 
 type MultipleChoicePromptItem = Extract<TurnTranscriptItem, { kind: "multiple_choice_prompt" }>;
+type CheckboxXStyle = CheckboxInputProps["xstyle"];
+type RadioListXStyle = RadioListProps["xstyle"];
+type RadioListItemXStyle = RadioListItemProps["xstyle"];
+
+const emptySelectedIds: ReadonlySet<string> = new Set();
 
 const styles = stylex.create({
   root: {
     display: "grid",
-    gap: 10,
-    maxWidth: 520,
-    minWidth: 0,
-    paddingBlock: 10,
-    paddingInline: 12,
-    borderWidth: 1,
-    borderStyle: "solid",
-    borderColor: "var(--border)",
-    borderRadius: 8,
-    backgroundColor: "var(--card)",
-    boxShadow: "0 8px 28px rgb(15 23 42 / 0.06)"
+    gap: 8,
+    minWidth: 220,
+    maxWidth: 520
   },
   prompt: {
     margin: 0,
-    color: "var(--foreground)",
-    fontSize: 14,
-    lineHeight: 1.45
+    color: "inherit",
+    font: "inherit",
+    lineHeight: "inherit"
   },
   options: {
-    display: "flex",
-    flexWrap: "wrap",
-    gap: 8
+    display: "grid",
+    gap: 4
   },
   option: {
-    minHeight: 34,
+    display: "flex",
+    width: "100%",
+    minWidth: 0,
+    minHeight: 36,
+    alignItems: "center",
     borderWidth: 1,
     borderStyle: "solid",
-    borderColor: "var(--border)",
+    borderColor: "color-mix(in srgb, currentColor 18%, transparent)",
     borderRadius: 8,
-    paddingBlock: 7,
-    paddingInline: 11,
-    backgroundColor: "var(--background)",
-    color: "var(--foreground)",
+    paddingBlock: 5,
+    paddingInline: 8,
+    backgroundColor: "color-mix(in srgb, currentColor 6%, transparent)",
+    color: "inherit",
     font: "inherit",
     fontSize: 13,
-    lineHeight: 1.2,
+    lineHeight: 1.3,
     cursor: "pointer",
-    transition: "background-color 140ms ease, border-color 140ms ease, color 140ms ease",
+    transition: "background-color 140ms ease, border-color 140ms ease",
     ":hover": {
-      backgroundColor: "var(--muted)"
+      backgroundColor: "color-mix(in srgb, currentColor 10%, transparent)"
     },
-    ":disabled": {
+    ":has(input:disabled)": {
       cursor: "default",
-      opacity: 0.66
+      opacity: 0.64
+    },
+    ":has(input:focus-visible)": {
+      outlineWidth: 2,
+      outlineStyle: "solid",
+      outlineColor: "color-mix(in srgb, currentColor 44%, transparent)",
+      outlineOffset: 2
     }
   },
   selected: {
-    borderColor: "var(--primary)",
-    backgroundColor: "var(--primary)",
-    color: "var(--primary-foreground)",
+    borderColor: "color-mix(in srgb, currentColor 42%, transparent)",
+    backgroundColor: "color-mix(in srgb, currentColor 14%, transparent)",
     ":hover": {
-      backgroundColor: "var(--primary)"
+      backgroundColor: "color-mix(in srgb, currentColor 14%, transparent)"
+    }
+  },
+  checkbox: {
+    width: "100%",
+    color: "inherit"
+  },
+  radioList: {
+    color: "inherit"
+  },
+  radioItem: {
+    width: "100%",
+    color: "inherit",
+    borderWidth: 1,
+    borderStyle: "solid",
+    borderColor: "color-mix(in srgb, currentColor 18%, transparent)",
+    borderRadius: 8,
+    backgroundColor: "color-mix(in srgb, currentColor 6%, transparent)",
+    ":hover": {
+      backgroundColor: "color-mix(in srgb, currentColor 10%, transparent)"
+    }
+  },
+  radioItemSelected: {
+    borderColor: "color-mix(in srgb, currentColor 42%, transparent)",
+    backgroundColor: "color-mix(in srgb, currentColor 14%, transparent)",
+    ":hover": {
+      backgroundColor: "color-mix(in srgb, currentColor 14%, transparent)"
     }
   },
   footer: {
     display: "flex",
     justifyContent: "flex-end"
-  },
-  done: {
-    minHeight: 34,
-    borderWidth: 0,
-    borderRadius: 8,
-    paddingBlock: 7,
-    paddingInline: 12,
-    backgroundColor: "var(--primary)",
-    color: "var(--primary-foreground)",
-    font: "inherit",
-    fontSize: 13,
-    lineHeight: 1.2,
-    cursor: "pointer",
-    ":disabled": {
-      cursor: "default",
-      opacity: 0.5
-    }
   }
 });
 
@@ -88,24 +106,22 @@ export function MultipleChoicePrompt({
   disabled,
   item,
   promptItemId,
+  showAvatar,
   onSubmit
 }: {
   disabled: boolean;
   item: MultipleChoicePromptItem;
   promptItemId: string;
+  showAvatar: boolean;
   onSubmit: (promptItemId: string, selectedOptionIds: string[]) => void;
 }) {
   const [selectedIds, setSelectedIds] = React.useState<ReadonlySet<string>>(() => new Set());
   const pickMany = item.selection_mode === "PICK_MANY";
-
-  React.useEffect(() => {
-    if (disabled) {
-      setSelectedIds(new Set());
-    }
-  }, [disabled]);
+  const displayedSelectedIds = disabled ? emptySelectedIds : selectedIds;
 
   const toggle = React.useCallback((option: MultipleChoiceOption) => {
     if (!pickMany) {
+      setSelectedIds(new Set([option.id]));
       onSubmit(promptItemId, [option.id]);
       return;
     }
@@ -127,38 +143,83 @@ export function MultipleChoicePrompt({
     }
   }, [item.options, onSubmit, promptItemId, selectedIds]);
 
+  const selectedRadioId = pickMany ? "" : [...displayedSelectedIds][0] ?? "";
+
   return (
-    <div {...stylex.props(styles.root)}>
-      <p {...stylex.props(styles.prompt)}>{item.prompt}</p>
-      <div {...stylex.props(styles.options)}>
-        {item.options.map((option) => {
-          const selected = selectedIds.has(option.id);
-          return (
-            <button
-              key={option.id}
-              type="button"
-              disabled={disabled}
-              aria-pressed={pickMany ? selected : undefined}
-              {...stylex.props(styles.option, selected && styles.selected)}
-              onClick={() => toggle(option)}
-            >
-              {option.label}
-            </button>
-          );
-        })}
-      </div>
-      {pickMany ? (
-        <div {...stylex.props(styles.footer)}>
-          <button
-            type="button"
-            disabled={disabled || selectedIds.size === 0}
-            {...stylex.props(styles.done)}
-            onClick={submitMany}
+    <TranscriptChatBubble role="assistant" showAvatar={showAvatar}>
+      <div {...stylex.props(styles.root)}>
+        <p {...stylex.props(styles.prompt)}>{item.prompt}</p>
+        {pickMany ? (
+          <div {...stylex.props(styles.options)}>
+            {item.options.map((option) => {
+              const selected = displayedSelectedIds.has(option.id);
+              return (
+                <CheckboxInput
+                  key={option.id}
+                  label={option.label}
+                  value={selected}
+                  isDisabled={disabled}
+                  onChange={() => toggle(option)}
+                  size="sm"
+                  width="100%"
+                  xstyle={checkboxXStyle(styles.option, selected && styles.selected, styles.checkbox)}
+                />
+              );
+            })}
+          </div>
+        ) : (
+          <RadioList
+            label={item.prompt}
+            isLabelHidden
+            value={selectedRadioId}
+            onChange={(value) => {
+              const option = item.options.find((candidate) => candidate.id === value);
+              if (option) {
+                toggle(option);
+              }
+            }}
+            isDisabled={disabled}
+            size="sm"
+            width="100%"
+            xstyle={radioListXStyle(styles.radioList)}
           >
-            Done
-          </button>
-        </div>
-      ) : null}
-    </div>
+            {item.options.map((option) => {
+              const selected = displayedSelectedIds.has(option.id);
+              return (
+                <RadioListItem
+                  key={option.id}
+                  label={option.label}
+                  value={option.id}
+                  xstyle={radioListItemXStyle(styles.radioItem, selected && styles.radioItemSelected)}
+                />
+              );
+            })}
+          </RadioList>
+        )}
+        {pickMany ? (
+          <div {...stylex.props(styles.footer)}>
+            <Button
+              label="Done"
+              size="sm"
+              variant="secondary"
+              isDisabled={disabled || selectedIds.size === 0}
+              onClick={submitMany}
+            />
+          </div>
+        ) : null}
+      </div>
+    </TranscriptChatBubble>
   );
+}
+
+function checkboxXStyle(...xstyle: unknown[]): CheckboxXStyle {
+  return xstyle as CheckboxXStyle;
+}
+
+function radioListXStyle(...xstyle: unknown[]): RadioListXStyle {
+  return xstyle as RadioListXStyle;
+}
+
+function radioListItemXStyle(...xstyle: unknown[]): RadioListItemXStyle {
+  return xstyle as RadioListItemXStyle;
 }

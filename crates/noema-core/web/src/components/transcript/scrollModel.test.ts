@@ -1,12 +1,15 @@
-import { describe, expect, test } from "bun:test";
+import { describe, test } from "node:test";
+import assert from "node:assert/strict";
 import type { TranscriptEntry } from "@/shared/types";
+import type { RenderTranscriptEntry } from "./renderModel";
 import { transcriptScrollKey } from "./scrollModel";
 
 describe("transcriptScrollKey", () => {
   test("fingerprints multiple-choice prompt entries", () => {
-    const entries = [
+    const entries: RenderTranscriptEntry[] = [
       {
         kind: "entry",
+        id: "prompt-1",
         entry: {
           id: "prompt-1",
           itemId: "prompt-1",
@@ -24,13 +27,14 @@ describe("transcriptScrollKey", () => {
       }
     ];
 
-    expect(transcriptScrollKey(entries)).toContain("prompt-1");
+    assert.equal(transcriptScrollKey(entries).includes("prompt-1"), true);
   });
 
   test("fingerprints multiple-choice selection entries", () => {
-    const entries = [
+    const entries: RenderTranscriptEntry[] = [
       {
         kind: "entry",
+        id: "selection-1",
         entry: {
           id: "selection-1",
           itemId: "selection-1",
@@ -48,6 +52,6 @@ describe("transcriptScrollKey", () => {
       }
     ];
 
-    expect(transcriptScrollKey(entries)).toContain("selection-1");
+    assert.equal(transcriptScrollKey(entries).includes("selection-1"), true);
   });
 });
