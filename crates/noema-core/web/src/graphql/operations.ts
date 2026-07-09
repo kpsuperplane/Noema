@@ -934,6 +934,23 @@ export const ArtifactsDocument = gql`
   }
 `;
 
+export const ArtifactVersionDetailDocument = gql`
+  query ArtifactVersionDetail($artifactVersionId: String!) {
+    artifactVersionDetail(artifactVersionId: $artifactVersionId) {
+      artifactVersionId
+      artifactId
+      title
+      artifactKind
+      storageKind
+      mediaType
+      previewKind
+      markdown
+      downloadUrl
+      externalUrl
+    }
+  }
+`;
+
 export const CreateConversationExternalArtifactDocument = gql`
   mutation CreateConversationExternalArtifact($input: CreateConversationExternalArtifactInput!) {
     createConversationExternalArtifact(input: $input) {

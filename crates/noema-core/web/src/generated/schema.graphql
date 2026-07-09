@@ -323,6 +323,70 @@ type ArtifactVersion {
 }
 
 """
+Artifact version detail payload for the chat detail rail.
+"""
+type ArtifactVersionDetail {
+	"""
+	Stable artifact version id.
+	"""
+	artifactVersionId: String!
+	"""
+	Parent artifact id.
+	"""
+	artifactId: String!
+	"""
+	Display title inherited from version title or artifact title.
+	"""
+	title: String!
+	"""
+	Product-defined artifact kind label.
+	"""
+	artifactKind: String!
+	"""
+	Durable storage family shared by the artifact.
+	"""
+	storageKind: ArtifactStorageKind!
+	"""
+	Optional media type for the version payload.
+	"""
+	mediaType: String
+	"""
+	Preview renderer selected by the server.
+	"""
+	previewKind: ArtifactVersionPreviewKind!
+	"""
+	Markdown content when previewKind is MARKDOWN.
+	"""
+	markdown: String
+	"""
+	Local download route when the version is stored in Noema.
+	"""
+	downloadUrl: String
+	"""
+	External durable URL when the version is externally hosted.
+	"""
+	externalUrl: String
+}
+
+"""
+Preview renderer selected for an artifact version detail panel.
+"""
+enum ArtifactVersionPreviewKind {
+	"""
+	Local Markdown bytes are available as UTF-8 text.
+	"""
+	MARKDOWN
+	"""
+	The version exists but this first slice cannot render it inline.
+	"""
+	UNSUPPORTED
+	"""
+	The version points at an external URL.
+	"""
+	EXTERNAL
+}
+
+"""
 Assistant connection exposed to clients.
 """
 enum AssistantConnection {
@@ -1882,6 +1946,10 @@ type QueryRoot {
 	Load one artifact by id.
 	"""
 	artifact(artifactId: String!): Artifact
+	"""
+	Load one artifact version detail payload for the chat detail rail.
+	"""
+	artifactVersionDetail(artifactVersionId: String!): ArtifactVersionDetail
 }
 
 enum ReasoningEffort {
