@@ -26,7 +26,12 @@ export function AppBootSkeleton() {
         <div {...stylex.props(styles.chatSurface)}>
           <TranscriptLoadingSkeleton />
           <div {...stylex.props(styles.composerDock)}>
-            <div data-slot="skeleton-glimmer" {...stylex.props(styles.composer)} />
+            <div {...stylex.props(styles.composerShell)}>
+              <div data-slot="skeleton-glimmer" {...stylex.props(styles.composerBubble)}>
+                <span {...stylex.props(styles.composerTextLine)} />
+                <span {...stylex.props(styles.composerSubmit)} />
+              </div>
+            </div>
           </div>
         </div>
       </section>
@@ -159,18 +164,65 @@ const styles = stylex.create({
     display: "grid",
     height: "var(--chat-composer-dock-height)",
     alignItems: "end",
-    justifyItems: "center",
     padding: "18px 24px 22px",
     background:
       "linear-gradient(to bottom, rgb(255 255 255 / 0), rgb(255 255 255 / 0.74) 42px, var(--background) 96px)"
   },
-  composer: {
-    width: "min(860px, calc(100% - 48px))",
+  composerShell: {
+    display: "flex",
+    justifyContent: "flex-end",
+    width: "var(--chat-column-width)",
+    maxWidth: "100%",
+    marginInline: "auto",
+    paddingTop: 14
+  },
+  composerBubble: {
+    position: "relative",
+    display: "flex",
+    alignItems: "center",
+    width: "min(324px, 100%)",
+    minWidth: "min(13rem, 100%)",
     height: 56,
-    borderRadius: 18,
+    borderRadius: "calc(var(--radius) * 2.6)",
+    padding: 6,
+    paddingRight: {
+      default: 48,
+      "@media (hover: none) and (pointer: coarse)": 56
+    },
     backgroundColor: "var(--skeleton-glimmer-base)",
     "@media (max-width: 760px)": {
-      width: "calc(100% - 40px)"
+      width: "min(304px, 100%)"
     }
+  },
+  composerTextLine: {
+    display: "block",
+    width: "min(176px, calc(100% - 12px))",
+    height: 10,
+    marginInline: 10,
+    borderRadius: 6,
+    backgroundColor: "var(--skeleton-glimmer-line)",
+    opacity: 0.78
+  },
+  composerSubmit: {
+    position: "absolute",
+    right: {
+      default: 6,
+      "@media (hover: none) and (pointer: coarse)": 4
+    },
+    bottom: {
+      default: 6,
+      "@media (hover: none) and (pointer: coarse)": 4
+    },
+    width: {
+      default: 36,
+      "@media (hover: none) and (pointer: coarse)": 44
+    },
+    height: {
+      default: 36,
+      "@media (hover: none) and (pointer: coarse)": 44
+    },
+    borderRadius: 999,
+    backgroundColor: "color-mix(in srgb, var(--background) 74%, var(--skeleton-glimmer-base))",
+    opacity: 0.86
   }
 });
