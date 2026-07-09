@@ -13,7 +13,8 @@ const styles = stylex.create({
     display: "grid",
     gap: 8,
     minWidth: 220,
-    maxWidth: 520
+    maxWidth: 520,
+    paddingBlock: 4,
   },
   prompt: {
     margin: 0,
@@ -98,9 +99,9 @@ const styles = stylex.create({
     placeItems: "center",
     borderWidth: 1,
     borderStyle: "solid",
-    borderColor: "color-mix(in srgb, currentColor 22%, transparent)",
+    borderColor: "color-mix(in srgb, currentColor 36%, transparent)",
     borderRadius: 999,
-    backgroundColor: "color-mix(in srgb, currentColor 3%, transparent)",
+    backgroundColor: "color-mix(in srgb, currentColor 5%, transparent)",
     color: "transparent"
   },
   optionIndicatorSelected: {
@@ -214,16 +215,18 @@ export function MultipleChoicePrompt({
                   onClick={() => toggle(option)}
                 >
                   <span {...stylex.props(styles.optionIndicator, selected && styles.optionIndicatorSelected)} aria-hidden="true">
-                    <svg viewBox="0 0 10 10" {...stylex.props(styles.optionCheck)}>
-                      <path
-                        d="M8.5 2.5L4 7.5L1.5 5"
-                        stroke="currentColor"
-                        strokeWidth="1.5"
-                        fill="none"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
+                    {selected ? (
+                      <svg viewBox="0 0 10 10" {...stylex.props(styles.optionCheck)}>
+                        <path
+                          d="M8.5 2.5L4 7.5L1.5 5"
+                          stroke="currentColor"
+                          strokeWidth="1.5"
+                          fill="none"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+                    ) : null}
                   </span>
                   <span {...stylex.props(styles.optionLabel)}>{option.label}</span>
                 </button>
