@@ -335,6 +335,10 @@ type ArtifactVersionDetail {
 	"""
 	artifactId: String!
 	"""
+	Monotonic version index within the artifact.
+	"""
+	versionIndex: Int!
+	"""
 	Display title inherited from version title or artifact title.
 	"""
 	title: String!
@@ -366,6 +370,10 @@ type ArtifactVersionDetail {
 	External durable URL when the version is externally hosted.
 	"""
 	externalUrl: String
+	"""
+	Full immutable version history in ascending version order.
+	"""
+	versions: [ArtifactVersion!]!
 }
 
 """

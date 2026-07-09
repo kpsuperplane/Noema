@@ -5319,6 +5319,22 @@ mod tests {
         )
         .await
         .expect("artifact");
+        let second_version = crate::artifacts::append_conversation_local_file_artifact_version(
+            &store,
+            &paths,
+            crate::artifacts::NewConversationLocalFileArtifactVersion {
+                artifact_id: artifact.artifact.artifact_id.clone(),
+                title: Some("Second draft".to_string()),
+                filename: "report-v2.md".to_string(),
+                bytes: b"# Report\n\nA sharper note.\n".to_vec(),
+                media_type: Some("text/markdown".to_string()),
+                created_by_actor_id: "agent:primary".to_string(),
+                source: crate::ArtifactSource::default(),
+                metadata: serde_json::json!({}),
+            },
+        )
+        .await
+        .expect("second version");
         let schema = build_schema(GraphqlState::for_tests_with_store_and_paths(store, paths));
 
         let response = schema
@@ -5328,6 +5344,7 @@ mod tests {
                   artifactVersionDetail(artifactVersionId: "{}") {{
                     artifactVersionId
                     artifactId
+                    versionIndex
                     title
                     artifactKind
                     storageKind
@@ -5336,10 +5353,16 @@ mod tests {
                     markdown
                     downloadUrl
                     externalUrl
+                    versions {{
+                      artifactVersionId
+                      versionIndex
+                      downloadUrl
+                      mediaType
+                    }}
                   }}
                 }}
                 "#,
-                artifact.current_version.artifact_version_id
+                second_version.artifact_version_id
             )))
             .await;
 
@@ -5350,20 +5373,33 @@ mod tests {
             .expect("detail object");
         assert_eq!(
             detail["artifactVersionId"],
-            artifact.current_version.artifact_version_id
+            second_version.artifact_version_id
         );
         assert_eq!(detail["artifactId"], artifact.artifact.artifact_id);
-        assert_eq!(detail["title"], "Session report");
+        assert_eq!(detail["versionIndex"], 2);
+        assert_eq!(detail["title"], "Second draft");
         assert_eq!(detail["artifactKind"], "document");
         assert_eq!(detail["storageKind"], "LOCAL_FILE");
         assert_eq!(detail["mediaType"], "text/markdown");
         assert_eq!(detail["previewKind"], "MARKDOWN");
-        assert_eq!(detail["markdown"], "# Report\n\nA useful note.\n");
+        assert_eq!(detail["markdown"], "# Report\n\nA sharper note.\n");
         assert_eq!(
             detail["downloadUrl"],
-            crate::artifact_download_url(&artifact.current_version.artifact_version_id)
+            crate::artifact_download_url(&second_version.artifact_version_id)
         );
         assert!(detail["externalUrl"].is_null());
+        let versions = detail["versions"].as_array().expect("versions");
+        assert_eq!(versions.len(), 2);
+        assert_eq!(versions[0]["versionIndex"], 1);
+        assert_eq!(versions[1]["versionIndex"], 2);
+        assert_eq!(
+            versions[0]["artifactVersionId"],
+            artifact.current_version.artifact_version_id
+        );
+        assert_eq!(
+            versions[1]["artifactVersionId"],
+            second_version.artifact_version_id
+        );
     }
 
     #[tokio::test]

@@ -1,5 +1,6 @@
 import React from "react";
 import { Button } from "@astryxdesign/core/Button";
+import { Selector } from "@astryxdesign/core/Selector";
 import * as stylex from "@stylexjs/stylex";
 import { X } from "lucide-react";
 import {
@@ -12,11 +13,13 @@ import type { ChatDetailTarget } from "./chatDetailTypes";
 export function ChatDetailRail({
   target,
   motionState,
+  onChangeVersion,
   onClose,
   onMotionEnd
 }: {
   target: ChatDetailTarget;
   motionState: "entering" | "open" | "exiting";
+  onChangeVersion: (version: string) => void;
   onClose: () => void;
   onMotionEnd: () => void;
 }) {
@@ -24,9 +27,11 @@ export function ChatDetailRail({
   const [artifactDetailState, setArtifactDetailState] = React.useState<{
     version: string;
     detail: ArtifactDetail | null;
+    latestDetail: ArtifactDetail | null;
   } | null>(null);
   const artifactDetail = artifactDetailState?.version === target.version ? artifactDetailState.detail : null;
-  const title = artifactDetail?.title ?? (target.type === "artifact" ? "Artifact" : "Details");
+  const latestArtifactDetail = artifactDetailState?.latestDetail ?? null;
+  const title = artifactDetail?.title ?? latestArtifactDetail?.title ?? (target.type === "artifact" ? "Artifact" : "Details");
 
   React.useEffect(() => {
     closeButtonRef.current?.focus();
@@ -43,7 +48,11 @@ export function ChatDetailRail({
 
   const updateArtifactDetail = React.useCallback(
     (detail: ArtifactDetail | null) => {
-      setArtifactDetailState({ version: target.version, detail });
+      setArtifactDetailState((previous) => ({
+        version: target.version,
+        detail,
+        latestDetail: detail ?? previous?.latestDetail ?? null
+      }));
     },
     [target.version]
   );
@@ -63,9 +72,15 @@ export function ChatDetailRail({
       >
         <header {...stylex.props(styles.header)}>
           <div {...stylex.props(styles.titleBlock)}>
-            <div {...stylex.props(styles.kicker)}>Detail</div>
             <h2 {...stylex.props(styles.title)}>{title}</h2>
           </div>
+          {target.type === "artifact" ? (
+            <ArtifactVersionSelector
+              detail={artifactDetail ?? latestArtifactDetail}
+              selectedVersion={target.version}
+              onChangeVersion={onChangeVersion}
+            />
+          ) : null}
           {target.type === "artifact" ? <ArtifactDownloadAction detail={artifactDetail} /> : null}
           <Button
             ref={closeButtonRef}
@@ -85,6 +100,41 @@ export function ChatDetailRail({
         </div>
       </div>
     </aside>
+  );
+}
+
+function ArtifactVersionSelector({
+  detail,
+  selectedVersion,
+  onChangeVersion
+}: {
+  detail: ArtifactDetail | null;
+  selectedVersion: string;
+  onChangeVersion: (version: string) => void;
+}) {
+  if (!detail || detail.versions.length === 0) {
+    return null;
+  }
+
+  const options = detail.versions.map((version) => ({
+    value: version.artifactVersionId,
+    label: `Version ${version.versionIndex}`
+  }));
+
+  return (
+    <div {...stylex.props(styles.versionSelector)}>
+      <Selector
+        isDisabled={detail.versions.length <= 1}
+        isLabelHidden
+        label="Artifact version"
+        onChange={onChangeVersion}
+        options={options}
+        placement="below"
+        size="sm"
+        value={selectedVersion}
+        width={128}
+      />
+    </div>
   );
 }
 
@@ -113,7 +163,7 @@ const styles = stylex.create({
   header: {
     minWidth: 0,
     display: "grid",
-    gridTemplateColumns: "minmax(0, 1fr) auto auto",
+    gridTemplateColumns: "minmax(0, 1fr) auto auto auto",
     alignItems: "start",
     gap: 12,
     paddingBlock: 14,
@@ -125,13 +175,7 @@ const styles = stylex.create({
   titleBlock: {
     minWidth: 0,
     display: "grid",
-    gap: 2
-  },
-  kicker: {
-    color: "var(--noema-text-muted)",
-    fontSize: 11,
-    fontWeight: 600,
-    textTransform: "uppercase"
+    alignSelf: "center"
   },
   title: {
     margin: 0,
@@ -140,6 +184,10 @@ const styles = stylex.create({
     fontWeight: 650,
     lineHeight: 1.25,
     overflowWrap: "anywhere"
+  },
+  versionSelector: {
+    alignSelf: "start",
+    width: 128
   },
   body: {
     minHeight: 0,

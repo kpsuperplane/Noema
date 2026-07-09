@@ -939,6 +939,7 @@ export const ArtifactVersionDetailDocument = gql`
     artifactVersionDetail(artifactVersionId: $artifactVersionId) {
       artifactVersionId
       artifactId
+      versionIndex
       title
       artifactKind
       storageKind
@@ -947,6 +948,13 @@ export const ArtifactVersionDetailDocument = gql`
       markdown
       downloadUrl
       externalUrl
+      versions {
+        artifactVersionId
+        versionIndex
+        downloadUrl
+        externalUrl
+        mediaType
+      }
     }
   }
 `;

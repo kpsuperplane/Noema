@@ -140,6 +140,11 @@ export function ChatSurface({
     setDetailMotionState((state) => (state === "exiting" ? state : "exiting"));
   }, []);
 
+  const selectDetailVersion = React.useCallback((version: string) => {
+    setDetailTarget({ type: "artifact", version });
+    setDetailMotionState("open");
+  }, []);
+
   const handleDetailAnimationEnd = React.useCallback(() => {
     if (detailMotionState === "entering") {
       setDetailMotionState("open");
@@ -214,6 +219,7 @@ export function ChatSurface({
           <ChatDetailRail
             target={detailTarget}
             motionState={detailMotionState}
+            onChangeVersion={selectDetailVersion}
             onClose={closeDetail}
             onMotionEnd={handleDetailAnimationEnd}
           />

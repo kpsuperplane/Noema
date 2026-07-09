@@ -61,6 +61,8 @@ pub struct GraphqlArtifactVersionDetail {
     pub artifact_version_id: String,
     /// Parent artifact id.
     pub artifact_id: String,
+    /// Monotonic version index within the artifact.
+    pub version_index: i32,
     /// Display title inherited from version title or artifact title.
     pub title: String,
     /// Product-defined artifact kind label.
@@ -77,6 +79,8 @@ pub struct GraphqlArtifactVersionDetail {
     pub download_url: Option<String>,
     /// External durable URL when the version is externally hosted.
     pub external_url: Option<String>,
+    /// Full immutable version history in ascending version order.
+    pub versions: Vec<GraphqlArtifactVersion>,
 }
 
 /// Artifact metadata safe to expose to GraphQL clients.
@@ -180,12 +184,21 @@ pub async fn artifact_version_detail(
         .clone()
         .unwrap_or_else(|| artifact.artifact.title.clone());
     let media_type = version.media_type.clone();
+    let version_index = i32::try_from(version.version_index)
+        .map_err(|_| graphql_error("artifact version index exceeds GraphQL Int range"))?;
+    let versions = artifact
+        .versions
+        .clone()
+        .into_iter()
+        .map(graphql_artifact_version_from_store)
+        .collect::<Result<Vec<_>>>()?;
 
     match &version.storage {
         crate::ArtifactVersionStorage::ExternalUrl { url } => {
             Ok(Some(GraphqlArtifactVersionDetail {
                 artifact_version_id: version.artifact_version_id,
                 artifact_id: version.artifact_id,
+                version_index,
                 title,
                 artifact_kind: artifact.artifact.artifact_kind,
                 storage_kind: artifact.artifact.storage_kind.into(),
@@ -194,6 +207,7 @@ pub async fn artifact_version_detail(
                 markdown: None,
                 download_url: None,
                 external_url: Some(url.clone()),
+                versions,
             }))
         }
         crate::ArtifactVersionStorage::LocalFile { .. } => {
@@ -202,6 +216,7 @@ pub async fn artifact_version_detail(
                 return Ok(Some(GraphqlArtifactVersionDetail {
                     artifact_version_id: version.artifact_version_id,
                     artifact_id: version.artifact_id,
+                    version_index,
                     title,
                     artifact_kind: artifact.artifact.artifact_kind,
                     storage_kind: artifact.artifact.storage_kind.into(),
@@ -210,6 +225,7 @@ pub async fn artifact_version_detail(
                     markdown: None,
                     download_url,
                     external_url: None,
+                    versions,
                 }));
             }
 
@@ -228,6 +244,7 @@ pub async fn artifact_version_detail(
             Ok(Some(GraphqlArtifactVersionDetail {
                 artifact_version_id: version.artifact_version_id,
                 artifact_id: version.artifact_id,
+                version_index,
                 title,
                 artifact_kind: artifact.artifact.artifact_kind,
                 storage_kind: artifact.artifact.storage_kind.into(),
@@ -236,6 +253,7 @@ pub async fn artifact_version_detail(
                 markdown: Some(markdown),
                 download_url,
                 external_url: None,
+                versions,
             }))
         }
     }
