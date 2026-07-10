@@ -1,10 +1,8 @@
 //! Provider adapter for the OpenAI Responses API.
 
 use super::responses::{
-    ResponsesDiagnosticContext, ResponsesInput, ResponsesInputShape, ResponsesReasoning,
-    ResponsesRequest, ResponsesToolNameMap, ResponsesTransport, header_value,
-    noema_response_text_format, normalize_base_url, prompt_cache_key_from_conversation_id,
-    responses_tool_choice,
+    OPENAI_RESPONSES_PROFILE, ResponsesDiagnosticContext, ResponsesRequest, ResponsesTransport,
+    header_value, normalize_base_url,
 };
 use crate::{
     SystemErrorLogger,
@@ -179,14 +177,9 @@ impl ModelProvider for OpenAiProvider {
     }
 
     async fn generate(&self, request: GenerateRequest) -> Result<GenerateResponse, ProviderError> {
-        if request.input.is_empty() {
-            return Err(ProviderError::InvalidRequest {
-                message: "input cannot be empty".to_string(),
-            });
-        }
-
         let request_model = request
             .model
+            .as_deref()
             .filter(|model| !model.trim().is_empty())
             .map(|model| model.trim().to_string());
         let using_config_default_model = request_model.is_none();
@@ -198,44 +191,15 @@ impl ModelProvider for OpenAiProvider {
             });
         }
 
-        let tool_names = ResponsesToolNameMap::from_tools(&request.tools)?;
-        let has_tools = !tool_names.tools.is_empty();
-        let body = ResponsesRequest {
-            model: model.clone(),
-            input: ResponsesInput::from_generate(&request.input, ResponsesInputShape::String),
-            instructions: request
-                .instructions
-                .filter(|instructions| !instructions.trim().is_empty()),
-            max_output_tokens: request.options.max_output_tokens,
-            temperature: request.options.temperature,
-            text: request
-                .options
-                .require_noema_response
-                .then(noema_response_text_format),
-            reasoning: request
-                .options
-                .reasoning_effort
-                .or_else(|| {
-                    using_config_default_model
-                        .then_some(self.config.reasoning_effort)
-                        .flatten()
-                })
-                .map(|effort| ResponsesReasoning { effort }),
-            tools: tool_names.tools.clone(),
-            tool_choice: responses_tool_choice(request.tool_choice, has_tools),
-            parallel_tool_calls: has_tools.then_some(request.parallel_tool_calls),
-            include: if self.tool_capabilities(Some(&model)).encrypted_reasoning {
-                vec!["reasoning.encrypted_content"]
-            } else {
-                Vec::new()
-            },
-            prompt_cache_key: prompt_cache_key_from_conversation_id(
-                request.conversation_id.as_deref(),
-            ),
-            store: false,
-            prompt_cache_retention: request.options.prompt_cache_retention,
-            stream: None,
-        };
+        let default_reasoning_effort = using_config_default_model
+            .then_some(self.config.reasoning_effort)
+            .flatten();
+        let (body, tool_names) = ResponsesRequest::from_generate(
+            &request,
+            model.clone(),
+            default_reasoning_effort,
+            OPENAI_RESPONSES_PROFILE,
+        )?;
 
         let diagnostics = ResponsesDiagnosticContext::new(
             self.system_errors.clone(),
@@ -376,79 +340,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn required_noema_response_requests_json_schema_text_format() {
-        let (base_url, request_rx) = spawn_server(
-            200,
-            r#"{
-              "id": "resp_test",
-              "model": "gpt-test",
-              "output": [{
-                "type": "message",
-                "content": [
-                  {"type": "output_text", "text": "{\"response_status\":\"final\",\"responses\":[{\"kind\":\"text\",\"phase\":\"final_answer\",\"text\":\"Hello\"}],\"tool_calls\":[]}"}
-                ]
-              }]
-            }"#,
-        )
-        .await;
-
-        let provider = test_provider(base_url);
-        let response = provider
-            .generate(GenerateRequest {
-                options: crate::provider::GenerateOptions {
-                    require_noema_response: true,
-                    ..crate::provider::GenerateOptions::default()
-                },
-                ..GenerateRequest::text("Hello?")
-            })
-            .await
-            .expect("response");
-
-        let captured = request_rx.await.expect("captured request");
-        let body: Value = serde_json::from_str(&captured.body).expect("json body");
-        assert_eq!(body["text"]["format"]["type"], "json_schema");
-        assert_eq!(body["text"]["format"]["name"], "noema_response");
-        assert_eq!(
-            body["text"]["format"]["schema"]["properties"]["response_status"]["enum"][1],
-            "final"
-        );
-        assert_eq!(response.assistant_text(), "Hello");
-    }
-
-    #[tokio::test]
-    async fn sends_openai_prompt_cache_key_for_conversation_requests() {
-        let (base_url, request_rx) = spawn_server(
-            200,
-            r#"{
-              "id": "resp_test",
-              "model": "gpt-test",
-              "output": [{
-                "type": "message",
-                "content": [
-                  {"type": "output_text", "text": "Hello"}
-                ]
-              }]
-            }"#,
-        )
-        .await;
-
-        let provider = test_provider(base_url);
-        let response = provider
-            .generate(GenerateRequest {
-                conversation_id: Some("conversation:cacheable".to_string()),
-                ..GenerateRequest::text("Hello?")
-            })
-            .await
-            .expect("response");
-
-        let captured = request_rx.await.expect("captured request");
-        let body: Value = serde_json::from_str(&captured.body).expect("json body");
-        assert_eq!(body["prompt_cache_key"], "conversation:cacheable");
-        assert_eq!(body["store"], false);
-        assert_eq!(response.assistant_text(), "Hello");
-    }
-
-    #[tokio::test]
     async fn openai_requests_and_parses_encrypted_reasoning_items() {
         let (base_url, request_rx) = spawn_server(
             200,
@@ -490,194 +381,6 @@ mod tests {
             response.reasoning_items[0].encrypted_content.as_deref(),
             Some("opaque-openai-reasoning")
         );
-    }
-
-    #[tokio::test]
-    async fn sends_reasoning_effort_when_configured() {
-        let (base_url, request_rx) = spawn_server(
-            200,
-            r#"{
-              "id": "resp_reasoning",
-              "model": "gpt-test",
-              "output": [{
-                "type": "message",
-                "content": [{"type": "output_text", "text": "ok"}]
-              }],
-              "usage": {"input_tokens": 1, "output_tokens": 1, "total_tokens": 2}
-            }"#,
-        )
-        .await;
-
-        let provider = OpenAiProvider::new(OpenAiProviderConfig {
-            api_key: "secret".to_string(),
-            base_url,
-            organization_id: None,
-            project_id: None,
-            default_model: "default-model".to_string(),
-            tool_classification_model: None,
-            timeout_seconds: DEFAULT_OPENAI_TIMEOUT_SECONDS,
-            system_errors: None,
-            reasoning_effort: None,
-        })
-        .expect("provider");
-
-        let response = provider
-            .generate(GenerateRequest {
-                conversation_id: None,
-                model: Some("gpt-test".to_string()),
-                input: GenerateInput::Text("Hello?".to_string()),
-                instructions: None,
-                options: crate::provider::GenerateOptions {
-                    reasoning_effort: Some(crate::provider::ReasoningEffort::High),
-                    ..crate::provider::GenerateOptions::default()
-                },
-                tools: Vec::new(),
-                tool_choice: Default::default(),
-                parallel_tool_calls: false,
-            })
-            .await
-            .expect("response");
-
-        assert_eq!(response.responses.len(), 1);
-        let captured = request_rx.await.expect("captured request");
-        let request: Value = serde_json::from_str(&captured.body).expect("json body");
-        assert_eq!(request["reasoning"]["effort"], "high");
-    }
-
-    #[tokio::test]
-    async fn config_default_model_sends_config_reasoning_effort() {
-        let (base_url, request_rx) = spawn_server(
-            200,
-            r#"{
-              "id": "resp_reasoning",
-              "model": "default-model",
-              "output": [{
-                "type": "message",
-                "content": [{"type": "output_text", "text": "ok"}]
-              }]
-            }"#,
-        )
-        .await;
-
-        let provider = OpenAiProvider::new(OpenAiProviderConfig {
-            api_key: "secret".to_string(),
-            base_url,
-            organization_id: None,
-            project_id: None,
-            default_model: "default-model".to_string(),
-            tool_classification_model: None,
-            reasoning_effort: Some(crate::provider::ReasoningEffort::Medium),
-            timeout_seconds: DEFAULT_OPENAI_TIMEOUT_SECONDS,
-            system_errors: None,
-        })
-        .expect("provider");
-
-        provider
-            .generate(GenerateRequest {
-                conversation_id: None,
-                model: None,
-                input: GenerateInput::Text("Hello?".to_string()),
-                ..GenerateRequest::text("ignored")
-            })
-            .await
-            .expect("response");
-
-        let captured = request_rx.await.expect("captured request");
-        let request: Value = serde_json::from_str(&captured.body).expect("json body");
-        assert_eq!(request["model"], "default-model");
-        assert_eq!(request["reasoning"]["effort"], "medium");
-    }
-
-    #[tokio::test]
-    async fn request_model_without_request_reasoning_does_not_send_config_reasoning_effort() {
-        let (base_url, request_rx) = spawn_server(
-            200,
-            r#"{
-              "id": "resp_reasoning",
-              "model": "request-model",
-              "output": [{
-                "type": "message",
-                "content": [{"type": "output_text", "text": "ok"}]
-              }]
-            }"#,
-        )
-        .await;
-
-        let provider = OpenAiProvider::new(OpenAiProviderConfig {
-            api_key: "secret".to_string(),
-            base_url,
-            organization_id: None,
-            project_id: None,
-            default_model: "default-model".to_string(),
-            tool_classification_model: None,
-            reasoning_effort: Some(crate::provider::ReasoningEffort::High),
-            timeout_seconds: DEFAULT_OPENAI_TIMEOUT_SECONDS,
-            system_errors: None,
-        })
-        .expect("provider");
-
-        provider
-            .generate(GenerateRequest {
-                conversation_id: None,
-                model: Some("request-model".to_string()),
-                input: GenerateInput::Text("Hello?".to_string()),
-                ..GenerateRequest::text("ignored")
-            })
-            .await
-            .expect("response");
-
-        let captured = request_rx.await.expect("captured request");
-        let request: Value = serde_json::from_str(&captured.body).expect("json body");
-        assert_eq!(request["model"], "request-model");
-        assert!(request.get("reasoning").is_none());
-    }
-
-    #[tokio::test]
-    async fn request_model_with_request_reasoning_sends_request_reasoning_effort() {
-        let (base_url, request_rx) = spawn_server(
-            200,
-            r#"{
-              "id": "resp_reasoning",
-              "model": "request-model",
-              "output": [{
-                "type": "message",
-                "content": [{"type": "output_text", "text": "ok"}]
-              }]
-            }"#,
-        )
-        .await;
-
-        let provider = OpenAiProvider::new(OpenAiProviderConfig {
-            api_key: "secret".to_string(),
-            base_url,
-            organization_id: None,
-            project_id: None,
-            default_model: "default-model".to_string(),
-            tool_classification_model: None,
-            reasoning_effort: Some(crate::provider::ReasoningEffort::Medium),
-            timeout_seconds: DEFAULT_OPENAI_TIMEOUT_SECONDS,
-            system_errors: None,
-        })
-        .expect("provider");
-
-        provider
-            .generate(GenerateRequest {
-                conversation_id: None,
-                model: Some("request-model".to_string()),
-                input: GenerateInput::Text("Hello?".to_string()),
-                options: crate::provider::GenerateOptions {
-                    reasoning_effort: Some(crate::provider::ReasoningEffort::Low),
-                    ..crate::provider::GenerateOptions::default()
-                },
-                ..GenerateRequest::text("ignored")
-            })
-            .await
-            .expect("response");
-
-        let captured = request_rx.await.expect("captured request");
-        let request: Value = serde_json::from_str(&captured.body).expect("json body");
-        assert_eq!(request["model"], "request-model");
-        assert_eq!(request["reasoning"]["effort"], "low");
     }
 
     #[tokio::test]
@@ -738,205 +441,6 @@ mod tests {
         );
         assert_eq!(response.tool_calls[0].name, "mcp.docs:read");
         assert_eq!(response.tool_calls[0].payload["document_id"], "doc_1");
-    }
-
-    #[tokio::test]
-    async fn native_tool_only_required_response_returns_needs_tools() {
-        let (base_url, _request_rx) = spawn_server(
-            200,
-            r#"{
-              "id": "resp_test",
-              "model": "gpt-test",
-              "output": [
-                {
-                  "type": "function_call",
-                  "id": "item_1",
-                  "call_id": "call_1",
-                  "name": "search_memory",
-                  "arguments": "{\"query\":\"trains\"}"
-                }
-              ]
-            }"#,
-        )
-        .await;
-
-        let provider = test_provider(base_url);
-        let response = provider
-            .generate(GenerateRequest {
-                options: crate::provider::GenerateOptions {
-                    require_noema_response: true,
-                    ..crate::provider::GenerateOptions::default()
-                },
-                tools: vec![search_memory_tool()],
-                tool_choice: NoemaToolChoice::Auto,
-                parallel_tool_calls: false,
-                ..GenerateRequest::text("Search memory")
-            })
-            .await
-            .expect("native tool response");
-
-        assert_eq!(response.response_status, GenerateResponseStatus::NeedsTools);
-        assert!(response.assistant_text().is_empty());
-        assert_eq!(response.tool_calls.len(), 1);
-        assert_eq!(response.tool_calls[0].name, "search_memory");
-    }
-
-    #[tokio::test]
-    async fn native_required_needs_tools_text_with_empty_envelope_tool_calls_succeeds() {
-        let (base_url, _request_rx) = spawn_server(
-            200,
-            r#"{
-              "id": "resp_test",
-              "model": "gpt-test",
-              "output": [
-                {
-                  "type": "message",
-                  "content": [
-                    {"type": "output_text", "text": "{\"response_status\":\"needs_tools\",\"responses\":[{\"kind\":\"text\",\"phase\":\"commentary\",\"text\":\"Checking memory.\"}],\"tool_calls\":[]}"}
-                  ]
-                },
-                {
-                  "type": "function_call",
-                  "id": "item_1",
-                  "call_id": "call_1",
-                  "name": "search_memory",
-                  "arguments": "{\"query\":\"trains\"}"
-                }
-              ]
-            }"#,
-        )
-        .await;
-
-        let provider = test_provider(base_url);
-        let response = provider
-            .generate(GenerateRequest {
-                options: crate::provider::GenerateOptions {
-                    require_noema_response: true,
-                    ..crate::provider::GenerateOptions::default()
-                },
-                tools: vec![search_memory_tool()],
-                ..GenerateRequest::text("Search memory")
-            })
-            .await
-            .expect("native tool response");
-
-        assert_eq!(response.response_status, GenerateResponseStatus::NeedsTools);
-        assert_eq!(response.assistant_text(), "Checking memory.");
-        assert_eq!(response.tool_calls.len(), 1);
-        assert_eq!(response.tool_calls[0].name, "search_memory");
-    }
-
-    #[tokio::test]
-    async fn native_required_response_rejects_final_answer_text() {
-        let (base_url, _request_rx) = spawn_server(
-            200,
-            r#"{
-              "id": "resp_test",
-              "model": "gpt-test",
-              "output": [
-                {
-                  "type": "message",
-                  "content": [
-                    {"type": "output_text", "text": "{\"response_status\":\"final\",\"responses\":[{\"kind\":\"text\",\"phase\":\"final_answer\",\"text\":\"Done.\"}],\"tool_calls\":[]}"}
-                  ]
-                },
-                {
-                  "type": "function_call",
-                  "id": "item_1",
-                  "call_id": "call_1",
-                  "name": "search_memory",
-                  "arguments": "{\"query\":\"trains\"}"
-                }
-              ]
-            }"#,
-        )
-        .await;
-
-        let provider = test_provider(base_url);
-        let error = provider
-            .generate(GenerateRequest {
-                options: crate::provider::GenerateOptions {
-                    require_noema_response: true,
-                    ..crate::provider::GenerateOptions::default()
-                },
-                tools: vec![search_memory_tool()],
-                ..GenerateRequest::text("Search memory")
-            })
-            .await
-            .expect_err("final answer rejected");
-
-        assert!(matches!(error, ProviderError::MalformedResponse { .. }));
-        assert!(
-            error
-                .to_string()
-                .contains("native tool response cannot include final_answer text")
-        );
-    }
-
-    #[tokio::test]
-    async fn native_required_response_rejects_legacy_json_tool_calls() {
-        let (base_url, _request_rx) = spawn_server(
-            200,
-            r#"{
-              "id": "resp_test",
-              "model": "gpt-test",
-              "output": [
-                {
-                  "type": "message",
-                  "content": [
-                    {"type": "output_text", "text": "{\"response_status\":\"needs_tools\",\"responses\":[{\"kind\":\"text\",\"phase\":\"commentary\",\"text\":\"Checking.\"}],\"tool_calls\":[{\"id\":\"legacy_1\",\"name\":\"search_memory\",\"payload\":{\"query\":\"legacy\"}}]}"}
-                  ]
-                },
-                {
-                  "type": "function_call",
-                  "id": "item_1",
-                  "call_id": "call_1",
-                  "name": "search_memory",
-                  "arguments": "{\"query\":\"trains\"}"
-                }
-              ]
-            }"#,
-        )
-        .await;
-
-        let provider = test_provider(base_url);
-        let error = provider
-            .generate(GenerateRequest {
-                options: crate::provider::GenerateOptions {
-                    require_noema_response: true,
-                    ..crate::provider::GenerateOptions::default()
-                },
-                tools: vec![search_memory_tool()],
-                ..GenerateRequest::text("Search memory")
-            })
-            .await
-            .expect_err("legacy tool calls rejected");
-
-        assert!(matches!(error, ProviderError::MalformedResponse { .. }));
-        assert!(
-            error
-                .to_string()
-                .contains("native tool response cannot include legacy JSON tool_calls")
-        );
-    }
-
-    #[tokio::test]
-    async fn rejects_provider_safe_tool_name_collisions_before_http_call() {
-        let provider = test_provider("http://127.0.0.1:1".to_string());
-        let error = provider
-            .generate(GenerateRequest {
-                tools: vec![collision_source_tool(), collision_target_tool()],
-                ..GenerateRequest::text("hello")
-            })
-            .await
-            .expect_err("collision rejected");
-
-        assert!(matches!(error, ProviderError::InvalidRequest { .. }));
-        assert!(
-            error
-                .to_string()
-                .contains("provider-safe tool name collision")
-        );
     }
 
     #[tokio::test]
@@ -1130,21 +634,6 @@ mod tests {
         .expect("provider")
     }
 
-    fn search_memory_tool() -> NoemaToolSpec {
-        NoemaToolSpec::new(
-            "search_memory",
-            "Search memory.",
-            serde_json::json!({
-                "type": "object",
-                "properties": {"query": {"type": "string"}},
-                "required": ["query"],
-                "additionalProperties": false
-            }),
-            NoemaToolExecution::LocalBuiltin,
-        )
-        .expect("tool")
-    }
-
     fn mcp_docs_read_tool() -> NoemaToolSpec {
         NoemaToolSpec::new(
             "mcp.docs:read",
@@ -1153,34 +642,6 @@ mod tests {
                 "type": "object",
                 "properties": {"document_id": {"type": "string"}},
                 "required": ["document_id"],
-                "additionalProperties": false
-            }),
-            NoemaToolExecution::LocalBuiltin,
-        )
-        .expect("tool")
-    }
-
-    fn collision_source_tool() -> NoemaToolSpec {
-        NoemaToolSpec::new(
-            "mcp.docs",
-            "Read docs.",
-            serde_json::json!({
-                "type": "object",
-                "properties": {},
-                "additionalProperties": false
-            }),
-            NoemaToolExecution::LocalBuiltin,
-        )
-        .expect("tool")
-    }
-
-    fn collision_target_tool() -> NoemaToolSpec {
-        NoemaToolSpec::new(
-            "mcp_x2e_docs",
-            "Read docs.",
-            serde_json::json!({
-                "type": "object",
-                "properties": {},
                 "additionalProperties": false
             }),
             NoemaToolExecution::LocalBuiltin,

@@ -5,9 +5,9 @@ use crate::{
     SYSTEM_ERROR_PROVIDER_MALFORMED_RESPONSE, SystemErrorEvent, SystemErrorLogger,
     provider::{
         GenerateInput, GenerateInputItem, GenerateMessageRole, GenerateReasoningInput,
-        GenerateReasoningItem, GenerateResponse, GenerateResponseStatus, GenerateStreamEvent,
-        GenerateToolCallInput, GenerateToolResultInput, ParsedNoemaResponse, PromptCacheRetention,
-        ProviderError, ReasoningEffort, TokenUsage, output_items_from_text,
+        GenerateReasoningItem, GenerateRequest, GenerateResponse, GenerateResponseStatus,
+        GenerateStreamEvent, GenerateToolCallInput, GenerateToolResultInput, ParsedNoemaResponse,
+        PromptCacheRetention, ProviderError, ReasoningEffort, TokenUsage, output_items_from_text,
         required_noema_response_from_text_with_native_tool_calls,
     },
 };
@@ -65,6 +65,92 @@ pub struct ResponsesRequest {
     /// Whether the provider should return an SSE stream.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stream: Option<bool>,
+}
+
+/// Provider-specific wire capabilities for a shared Responses request.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ResponsesRequestProfile {
+    input_shape: ResponsesInputShape,
+    forward_max_output_tokens: bool,
+    forward_prompt_cache_retention: bool,
+    include_encrypted_reasoning: bool,
+    stream: bool,
+}
+
+pub(crate) const OPENAI_RESPONSES_PROFILE: ResponsesRequestProfile = ResponsesRequestProfile {
+    input_shape: ResponsesInputShape::String,
+    forward_max_output_tokens: true,
+    forward_prompt_cache_retention: true,
+    include_encrypted_reasoning: true,
+    stream: false,
+};
+
+pub(crate) const CODEX_RESPONSES_PROFILE: ResponsesRequestProfile = ResponsesRequestProfile {
+    input_shape: ResponsesInputShape::MessageArray,
+    forward_max_output_tokens: false,
+    forward_prompt_cache_retention: false,
+    include_encrypted_reasoning: false,
+    stream: true,
+};
+
+impl ResponsesRequest {
+    /// Lower one provider-neutral request according to a Responses wire profile.
+    pub(crate) fn from_generate(
+        request: &GenerateRequest,
+        model: String,
+        default_reasoning_effort: Option<ReasoningEffort>,
+        profile: ResponsesRequestProfile,
+    ) -> Result<(Self, ResponsesToolNameMap), ProviderError> {
+        if request.input.is_empty() {
+            return Err(ProviderError::InvalidRequest {
+                message: "input cannot be empty".to_string(),
+            });
+        }
+
+        let tool_names = ResponsesToolNameMap::from_tools(&request.tools)?;
+        let has_tools = !tool_names.tools.is_empty();
+        let body = Self {
+            model,
+            input: ResponsesInput::from_generate(&request.input, profile.input_shape),
+            instructions: request
+                .instructions
+                .as_deref()
+                .filter(|instructions| !instructions.trim().is_empty())
+                .map(ToString::to_string),
+            max_output_tokens: profile
+                .forward_max_output_tokens
+                .then_some(request.options.max_output_tokens)
+                .flatten(),
+            temperature: request.options.temperature,
+            text: request
+                .options
+                .require_noema_response
+                .then(noema_response_text_format),
+            reasoning: request
+                .options
+                .reasoning_effort
+                .or(default_reasoning_effort)
+                .map(|effort| ResponsesReasoning { effort }),
+            tools: tool_names.tools.clone(),
+            tool_choice: responses_tool_choice(request.tool_choice, has_tools),
+            parallel_tool_calls: has_tools.then_some(request.parallel_tool_calls),
+            include: if profile.include_encrypted_reasoning {
+                vec!["reasoning.encrypted_content"]
+            } else {
+                Vec::new()
+            },
+            prompt_cache_key: prompt_cache_key_from_conversation_id(
+                request.conversation_id.as_deref(),
+            ),
+            store: false,
+            prompt_cache_retention: profile
+                .forward_prompt_cache_retention
+                .then_some(request.options.prompt_cache_retention)
+                .flatten(),
+            stream: profile.stream.then_some(true),
+        };
+        Ok((body, tool_names))
+    }
 }
 
 /// Responses API reasoning controls.
@@ -1168,44 +1254,106 @@ mod tests {
     use super::*;
 
     #[test]
-    fn responses_request_serializes_native_tools() {
-        let body = ResponsesRequest {
-            model: "gpt-test".to_string(),
-            input: ResponsesInput::Text("hi".to_string()),
-            instructions: None,
-            max_output_tokens: None,
-            temperature: None,
-            text: None,
-            reasoning: None,
-            tools: vec![ResponsesTool::function(
-                "search_memory",
-                "Search governed Noema memory.",
-                serde_json::json!({
-                    "type": "object",
-                    "properties": {"query": {"type": "string"}},
-                    "required": ["query"],
-                    "additionalProperties": false
-                }),
-            )],
-            tool_choice: Some("auto"),
-            parallel_tool_calls: Some(false),
-            include: Vec::new(),
-            prompt_cache_key: None,
-            store: false,
-            prompt_cache_retention: None,
-            stream: None,
+    fn responses_request_profiles_preserve_provider_wire_differences() {
+        let request = GenerateRequest {
+            conversation_id: Some(" conversation:cacheable ".to_string()),
+            instructions: Some("Be brief.".to_string()),
+            options: crate::provider::GenerateOptions {
+                max_output_tokens: Some(32),
+                prompt_cache_retention: Some(PromptCacheRetention::TwentyFourHours),
+                require_noema_response: true,
+                ..crate::provider::GenerateOptions::default()
+            },
+            tools: vec![test_tool()],
+            tool_choice: crate::provider::NoemaToolChoice::Required,
+            parallel_tool_calls: true,
+            ..GenerateRequest::text("hi")
         };
 
-        let value = serde_json::to_value(body).expect("serialize");
+        let (openai, _) = ResponsesRequest::from_generate(
+            &request,
+            "gpt-openai".to_string(),
+            Some(ReasoningEffort::Low),
+            OPENAI_RESPONSES_PROFILE,
+        )
+        .expect("OpenAI request");
+        let (codex, _) = ResponsesRequest::from_generate(
+            &request,
+            "gpt-codex".to_string(),
+            Some(ReasoningEffort::High),
+            CODEX_RESPONSES_PROFILE,
+        )
+        .expect("Codex request");
+        let openai = serde_json::to_value(openai).expect("OpenAI JSON");
+        let codex = serde_json::to_value(codex).expect("Codex JSON");
 
-        assert_eq!(value["tools"][0]["type"], "function");
-        assert_eq!(value["tools"][0]["name"], "search_memory");
-        assert_eq!(
-            value["tools"][0]["parameters"]["required"],
-            serde_json::json!(["query"])
-        );
-        assert_eq!(value["tool_choice"], "auto");
-        assert_eq!(value["parallel_tool_calls"], false);
+        assert_eq!(openai["input"], "hi");
+        assert_eq!(openai["max_output_tokens"], 32);
+        assert_eq!(openai["prompt_cache_retention"], "24h");
+        assert_eq!(openai["include"][0], "reasoning.encrypted_content");
+        assert!(openai.get("stream").is_none());
+        assert_eq!(openai["reasoning"]["effort"], "low");
+
+        assert_eq!(codex["input"][0]["role"], "user");
+        assert_eq!(codex["input"][0]["content"], "hi");
+        assert!(codex.get("max_output_tokens").is_none());
+        assert!(codex.get("prompt_cache_retention").is_none());
+        assert!(codex.get("include").is_none());
+        assert_eq!(codex["stream"], true);
+        assert_eq!(codex["reasoning"]["effort"], "high");
+
+        for value in [&openai, &codex] {
+            assert_eq!(value["instructions"], "Be brief.");
+            assert_eq!(value["text"]["format"]["name"], "noema_response");
+            assert_eq!(value["tools"][0]["name"], "search_memory");
+            assert_eq!(value["tool_choice"], "required");
+            assert_eq!(value["parallel_tool_calls"], true);
+            assert_eq!(value["prompt_cache_key"], "conversation:cacheable");
+            assert_eq!(value["store"], false);
+        }
+    }
+
+    #[test]
+    fn responses_request_reasoning_precedence_and_input_validation_are_shared() {
+        let mut request = GenerateRequest::text("hi");
+        request.options.reasoning_effort = Some(ReasoningEffort::Medium);
+        let (body, _) = ResponsesRequest::from_generate(
+            &request,
+            "gpt-test".to_string(),
+            Some(ReasoningEffort::Low),
+            OPENAI_RESPONSES_PROFILE,
+        )
+        .expect("request reasoning wins");
+        assert!(matches!(
+            body.reasoning,
+            Some(ResponsesReasoning {
+                effort: ReasoningEffort::Medium
+            })
+        ));
+
+        let error = ResponsesRequest::from_generate(
+            &GenerateRequest::text(""),
+            "gpt-test".to_string(),
+            None,
+            OPENAI_RESPONSES_PROFILE,
+        )
+        .expect_err("empty input rejected");
+        assert!(matches!(error, ProviderError::InvalidRequest { .. }));
+    }
+
+    fn test_tool() -> crate::provider::NoemaToolSpec {
+        crate::provider::NoemaToolSpec::new(
+            "search_memory",
+            "Search governed Noema memory.",
+            serde_json::json!({
+                "type": "object",
+                "properties": {"query": {"type": "string"}},
+                "required": ["query"],
+                "additionalProperties": false
+            }),
+            crate::provider::NoemaToolExecution::LocalBuiltin,
+        )
+        .expect("tool")
     }
 
     #[test]

@@ -9,9 +9,8 @@ use super::{
     },
     noema_response_stream::NoemaAssistantTextDeltaExtractor,
     responses::{
-        ResponsesDiagnosticContext, ResponsesInput, ResponsesInputShape, ResponsesReasoning,
-        ResponsesRequest, ResponsesToolNameMap, ResponsesTransport, noema_response_text_format,
-        normalize_base_url, prompt_cache_key_from_conversation_id, responses_tool_choice,
+        CODEX_RESPONSES_PROFILE, ResponsesDiagnosticContext, ResponsesRequest, ResponsesTransport,
+        normalize_base_url,
     },
 };
 use crate::{
@@ -170,12 +169,6 @@ impl CodexResponsesProvider {
         on_event: &mut (dyn FnMut(GenerateStreamEvent) + Send),
     ) -> Result<GenerateResponse, ProviderError> {
         let require_noema_response = request.options.require_noema_response;
-        if request.input.is_empty() {
-            return Err(ProviderError::InvalidRequest {
-                message: "input cannot be empty".to_string(),
-            });
-        }
-
         let request_model = request
             .model
             .as_ref()
@@ -183,38 +176,15 @@ impl CodexResponsesProvider {
             .map(|model| model.trim().to_string());
         let using_config_default_model = request_model.is_none();
         let model = self.model_for_request(request_model)?;
-        let reasoning_effort = request.options.reasoning_effort.or_else(|| {
-            using_config_default_model
-                .then_some(self.config.reasoning_effort)
-                .flatten()
-        });
-        let tool_names = ResponsesToolNameMap::from_tools(&request.tools)?;
-        let has_tools = !tool_names.tools.is_empty();
-        let body = ResponsesRequest {
-            model: model.clone(),
-            input: ResponsesInput::from_generate(&request.input, ResponsesInputShape::MessageArray),
-            instructions: request
-                .instructions
-                .clone()
-                .filter(|instructions| !instructions.trim().is_empty()),
-            max_output_tokens: None,
-            temperature: request.options.temperature,
-            text: request
-                .options
-                .require_noema_response
-                .then(noema_response_text_format),
-            reasoning: reasoning_effort.map(|effort| ResponsesReasoning { effort }),
-            tools: tool_names.tools.clone(),
-            tool_choice: responses_tool_choice(request.tool_choice, has_tools),
-            parallel_tool_calls: has_tools.then_some(request.parallel_tool_calls),
-            include: Vec::new(),
-            prompt_cache_key: prompt_cache_key_from_conversation_id(
-                request.conversation_id.as_deref(),
-            ),
-            store: false,
-            prompt_cache_retention: None,
-            stream: Some(true),
-        };
+        let default_reasoning_effort = using_config_default_model
+            .then_some(self.config.reasoning_effort)
+            .flatten();
+        let (body, tool_names) = ResponsesRequest::from_generate(
+            &request,
+            model.clone(),
+            default_reasoning_effort,
+            CODEX_RESPONSES_PROFILE,
+        )?;
         let diagnostics = ResponsesDiagnosticContext::new(
             self.system_errors.clone(),
             "codex",
@@ -315,9 +285,8 @@ mod tests {
     use crate::provider::adapters::codex_oauth::CodexOAuthTokens;
     use crate::provider::adapters::test_support::spawn_server;
     use crate::provider::{
-        GenerateInput, GenerateMessage, GenerateMessageRole, GenerateOptions,
-        GenerateResponseStatus, NoemaToolChoice, NoemaToolExecution, NoemaToolSpec,
-        PromptCacheRetention, ProviderToolFallbackMode, ProviderToolSchemaDialect,
+        GenerateInput, GenerateOptions, GenerateResponseStatus, NoemaToolChoice,
+        NoemaToolExecution, NoemaToolSpec, ProviderToolFallbackMode, ProviderToolSchemaDialect,
     };
     use serde_json::Value;
     use tempfile::TempDir;
@@ -463,150 +432,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn sends_codex_native_tool_result_input_with_call_context() {
-        let (base_url, request_rx) = spawn_server(
-            200,
-            "event: response.output_text.delta\n\
-             data: {\"type\":\"response.output_text.delta\",\"delta\":\"Done\"}\n\
-             \n\
-             event: response.completed\n\
-             data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_test\",\"model\":\"gpt-test\",\"status\":\"completed\",\"usage\":{\"input_tokens\":2,\"output_tokens\":1,\"total_tokens\":3}}}\n\
-             \n",
-        )
-        .await;
-        let (provider, _dir) = provider_with_tokens(base_url);
-
-        let response = provider
-            .generate(GenerateRequest {
-                input: GenerateInput::NativeToolResults(vec![
-                    crate::provider::GenerateToolResultInput {
-                        id: Some("item_1".to_string()),
-                        call_id: "call_1".to_string(),
-                        name: "mcp.docs:read".to_string(),
-                        provider_name: Some("mcp_x2e_docs_x3a_read".to_string()),
-                        arguments: serde_json::json!({"document_id": "doc_1"}),
-                        success: true,
-                        payload: serde_json::json!({"title": "Docs"}),
-                    },
-                ]),
-                ..GenerateRequest::text("ignored")
-            })
-            .await
-            .expect("response");
-
-        let captured = request_rx.await.expect("captured request");
-        let body: Value = serde_json::from_str(&captured.body).expect("json body");
-        assert_eq!(body["input"][0]["type"], "function_call");
-        assert_eq!(body["input"][0]["id"], "item_1");
-        assert_eq!(body["input"][0]["call_id"], "call_1");
-        assert_eq!(body["input"][0]["name"], "mcp_x2e_docs_x3a_read");
-        assert_eq!(body["input"][1]["type"], "function_call_output");
-        assert_eq!(body["input"][1]["call_id"], "call_1");
-        assert_eq!(response.assistant_text(), "Done");
-    }
-
-    #[tokio::test]
-    async fn sends_codex_typed_history_items_as_native_response_items() {
-        let (base_url, request_rx) = spawn_server(
-            200,
-            "event: response.output_text.delta\n\
-             data: {\"type\":\"response.output_text.delta\",\"delta\":\"Done\"}\n\
-             \n\
-             event: response.completed\n\
-             data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_test\",\"model\":\"gpt-test\",\"status\":\"completed\"}}\n\
-             \n",
-        )
-        .await;
-        let (provider, _dir) = provider_with_tokens(base_url);
-
-        provider
-            .generate(GenerateRequest {
-                input: GenerateInput::Items(vec![
-                    crate::provider::GenerateInputItem::Message(crate::GenerateMessage {
-                        role: crate::GenerateMessageRole::User,
-                        content: "Rename yourself to Momo".to_string(),
-                    }),
-                    crate::provider::GenerateInputItem::ToolCall(
-                        crate::provider::GenerateToolCallInput {
-                            id: Some("item_1".to_string()),
-                            call_id: "call_1".to_string(),
-                            name: "update_own_name".to_string(),
-                            provider_name: None,
-                            arguments: serde_json::json!({"name": "Momo"}),
-                        },
-                    ),
-                    crate::provider::GenerateInputItem::ToolResult(
-                        crate::provider::GenerateToolResultInput {
-                            id: Some("item_1".to_string()),
-                            call_id: "call_1".to_string(),
-                            name: "update_own_name".to_string(),
-                            provider_name: None,
-                            arguments: Value::Null,
-                            success: true,
-                            payload: serde_json::json!({"display_name": "Momo"}),
-                        },
-                    ),
-                ]),
-                ..GenerateRequest::text("ignored")
-            })
-            .await
-            .expect("response");
-
-        let captured = request_rx.await.expect("captured request");
-        let body: Value = serde_json::from_str(&captured.body).expect("json body");
-        assert_eq!(body["input"][0]["role"], "user");
-        assert_eq!(body["input"][1]["type"], "function_call");
-        assert_eq!(body["input"][1]["call_id"], "call_1");
-        assert_eq!(body["input"][1]["name"], "update_own_name");
-        assert_eq!(body["input"][2]["type"], "function_call_output");
-        assert_eq!(body["input"][2]["call_id"], "call_1");
-        assert!(
-            body["input"][2]["output"]
-                .as_str()
-                .is_some_and(|output| output.contains("Momo"))
-        );
-    }
-
-    #[tokio::test]
-    async fn sends_codex_typed_history_with_provider_safe_fallback_names() {
-        let (base_url, request_rx) = spawn_server(
-            200,
-            "event: response.output_text.delta\n\
-             data: {\"type\":\"response.output_text.delta\",\"delta\":\"Done\"}\n\
-             \n\
-             event: response.completed\n\
-             data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_test\",\"model\":\"gpt-test\",\"status\":\"completed\"}}\n\
-             \n",
-        )
-        .await;
-        let (provider, _dir) = provider_with_tokens(base_url);
-
-        provider
-            .generate(GenerateRequest {
-                input: GenerateInput::Items(vec![crate::provider::GenerateInputItem::ToolCall(
-                    crate::provider::GenerateToolCallInput {
-                        id: None,
-                        call_id: "call_1".to_string(),
-                        name: "mcp.dex:search contacts".to_string(),
-                        provider_name: None,
-                        arguments: serde_json::json!({"query": "Gautam"}),
-                    },
-                )]),
-                ..GenerateRequest::text("ignored")
-            })
-            .await
-            .expect("response");
-
-        let captured = request_rx.await.expect("captured request");
-        let body: Value = serde_json::from_str(&captured.body).expect("json body");
-        assert_eq!(body["input"][0]["type"], "function_call");
-        assert_eq!(
-            body["input"][0]["name"],
-            "mcp_x2e_dex_x3a_search_x20_contacts"
-        );
-    }
-
-    #[tokio::test]
     async fn codex_request_sends_native_tool_specs_with_provider_safe_names() {
         let response_body = "event: response.completed\n\
              data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_test\",\"model\":\"gpt-test\",\"status\":\"completed\",\"output\":[{\"type\":\"function_call\",\"id\":\"item_1\",\"call_id\":\"call_1\",\"name\":\"mcp_x2e_docs_x3a_read\",\"arguments\":\"{\\\"document_id\\\":\\\"doc_1\\\"}\"}]}}\n\
@@ -676,177 +501,6 @@ mod tests {
         );
         assert_eq!(response.tool_calls[0].name, "search_memory");
         assert_eq!(response.tool_calls[0].payload["query"], "trains");
-    }
-
-    #[tokio::test]
-    async fn omits_codex_prompt_cache_retention_even_when_requested() {
-        let (base_url, request_rx) = spawn_server(
-            200,
-            "event: response.output_text.delta\n\
-             data: {\"type\":\"response.output_text.delta\",\"delta\":\"Hello again\"}\n\
-             \n\
-             event: response.completed\n\
-             data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_test\",\"model\":\"gpt-test\",\"status\":\"completed\"}}\n\
-             \n",
-        )
-        .await;
-        let (provider, _dir) = provider_with_tokens(base_url);
-
-        let response = provider
-            .generate(GenerateRequest {
-                input: GenerateInput::Messages(vec![
-                    GenerateMessage {
-                        role: GenerateMessageRole::User,
-                        content: "first durable question".to_string(),
-                    },
-                    GenerateMessage {
-                        role: GenerateMessageRole::Assistant,
-                        content: "first durable answer".to_string(),
-                    },
-                    GenerateMessage {
-                        role: GenerateMessageRole::User,
-                        content: "second durable question".to_string(),
-                    },
-                ]),
-                options: GenerateOptions {
-                    prompt_cache_retention: Some(PromptCacheRetention::TwentyFourHours),
-                    ..GenerateOptions::default()
-                },
-                ..GenerateRequest::text("unused")
-            })
-            .await
-            .expect("response");
-
-        let captured = request_rx.await.expect("captured request");
-        let body: Value = serde_json::from_str(&captured.body).expect("json body");
-        assert_eq!(body["input"][0]["role"], "user");
-        assert_eq!(body["input"][0]["content"], "first durable question");
-        assert_eq!(body["input"][1]["role"], "assistant");
-        assert_eq!(body["input"][1]["content"], "first durable answer");
-        assert_eq!(body["input"][2]["role"], "user");
-        assert_eq!(body["input"][2]["content"], "second durable question");
-        assert!(body.get("prompt_cache_retention").is_none());
-
-        assert_eq!(response.assistant_text(), "Hello again");
-    }
-
-    #[tokio::test]
-    async fn sends_codex_prompt_cache_key_for_conversation_requests() {
-        let (base_url, request_rx) = spawn_server(
-            200,
-            "event: response.output_text.delta\n\
-             data: {\"type\":\"response.output_text.delta\",\"delta\":\"Hello\"}\n\
-             \n\
-             event: response.completed\n\
-             data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_test\",\"model\":\"gpt-test\",\"status\":\"completed\"}}\n\
-             \n",
-        )
-        .await;
-        let (provider, _dir) = provider_with_tokens(base_url);
-
-        let response = provider
-            .generate(GenerateRequest {
-                conversation_id: Some("conversation:cacheable".to_string()),
-                ..GenerateRequest::text("Hello?")
-            })
-            .await
-            .expect("response");
-
-        let captured = request_rx.await.expect("captured request");
-        let body: Value = serde_json::from_str(&captured.body).expect("json body");
-        assert_eq!(body["prompt_cache_key"], "conversation:cacheable");
-        assert_eq!(response.assistant_text(), "Hello");
-    }
-
-    #[tokio::test]
-    async fn codex_omits_max_output_tokens_until_supported() {
-        let (base_url, request_rx) = spawn_server(
-            200,
-            "event: response.output_text.delta\n\
-             data: {\"type\":\"response.output_text.delta\",\"delta\":\"Hello\"}\n\
-             \n\
-             event: response.completed\n\
-             data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_test\",\"model\":\"gpt-test\",\"status\":\"completed\"}}\n\
-             \n",
-        )
-        .await;
-        let (provider, _dir) = provider_with_tokens(base_url);
-
-        provider
-            .generate(GenerateRequest {
-                options: GenerateOptions {
-                    max_output_tokens: Some(123),
-                    ..GenerateOptions::default()
-                },
-                ..GenerateRequest::text("Hello?")
-            })
-            .await
-            .expect("response");
-
-        let captured = request_rx.await.expect("captured request");
-        let body: Value = serde_json::from_str(&captured.body).expect("json body");
-        assert!(body.get("max_output_tokens").is_none());
-    }
-
-    #[tokio::test]
-    async fn codex_omits_encrypted_reasoning_include_until_verified() {
-        let (base_url, request_rx) = spawn_server(
-            200,
-            "event: response.output_text.delta\n\
-             data: {\"type\":\"response.output_text.delta\",\"delta\":\"Hello\"}\n\
-             \n\
-             event: response.completed\n\
-             data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_test\",\"model\":\"gpt-test\",\"status\":\"completed\"}}\n\
-             \n",
-        )
-        .await;
-        let (provider, _dir) = provider_with_tokens(base_url);
-
-        provider
-            .generate(GenerateRequest {
-                conversation_id: Some("conversation:codex-reasoning".to_string()),
-                ..GenerateRequest::text("Hello?")
-            })
-            .await
-            .expect("response");
-
-        let captured = request_rx.await.expect("captured request");
-        let body: Value = serde_json::from_str(&captured.body).expect("json body");
-        assert!(body.get("include").is_none());
-    }
-
-    #[tokio::test]
-    async fn codex_sends_reasoning_effort_when_configured() {
-        let (base_url, request_rx) = spawn_server(
-            200,
-            "event: response.completed\n\
-             data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_test\",\"model\":\"gpt-test\",\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"content\":[{\"type\":\"output_text\",\"text\":\"{\\\"response_status\\\":\\\"final\\\",\\\"responses\\\":[{\\\"kind\\\":\\\"text\\\",\\\"phase\\\":\\\"final_answer\\\",\\\"text\\\":\\\"Hello\\\"}],\\\"tool_calls\\\":[]}\"}]}]}}\n\
-             \n",
-        )
-        .await;
-        let (provider, _dir) = provider_with_tokens(base_url);
-
-        provider
-            .generate(GenerateRequest {
-                conversation_id: Some("conversation:test".to_string()),
-                model: Some("gpt-test".to_string()),
-                input: GenerateInput::Text("Hello?".to_string()),
-                instructions: Some("Reply in contract.".to_string()),
-                options: GenerateOptions {
-                    require_noema_response: true,
-                    reasoning_effort: Some(crate::provider::ReasoningEffort::High),
-                    ..GenerateOptions::default()
-                },
-                tools: Vec::new(),
-                tool_choice: Default::default(),
-                parallel_tool_calls: false,
-            })
-            .await
-            .expect("response");
-
-        let captured = request_rx.await.expect("captured request");
-        let body: Value = serde_json::from_str(&captured.body).expect("json body");
-        assert_eq!(body["reasoning"]["effort"], "high");
     }
 
     #[tokio::test]
