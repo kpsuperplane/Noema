@@ -118,6 +118,23 @@ impl GraphqlState {
         }
     }
 
+    /// Build test state backed by a store, runtime handle, and path root.
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) fn for_tests_with_store_runtime_and_paths(
+        store: crate::NoemaStore,
+        runtime: crate::daemon::CodexRuntimeHandle,
+        paths: crate::NoemaPaths,
+    ) -> Self {
+        Self {
+            runtime_state: GraphqlRuntimeState::for_tests_with_store_runtime_and_paths(
+                store, runtime, paths,
+            ),
+            mcp_setup_outcomes: None,
+            mcp_browser_oauth_supported: false,
+        }
+    }
+
     /// Build test state with store, paths, and fake MCP setup outcomes.
     #[cfg(test)]
     #[must_use]

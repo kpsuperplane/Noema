@@ -3,6 +3,8 @@
 mod agent_name_tool;
 mod agent_onboarding;
 mod artifact_tool;
+#[cfg(test)]
+mod browser_acceptance;
 mod memory;
 mod prompts;
 mod protocol;

@@ -42,7 +42,7 @@ import {
   validateHttpStatus,
   validateNetworkMethod,
   validateNetworkOutcome
-} from "./model";
+} from "./model.ts";
 
 const TRACE_FILENAME = "failure-trace.json";
 const SCREENSHOT_FILENAME = "screenshot.png";

@@ -2,6 +2,9 @@
   "name": "@noema/core-web",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": "26.3.0"
+  },
   "scripts": {
     "gen:schema": "cargo run --manifest-path ../Cargo.toml --bin export_frontend_types",
     "gen:operations": "graphql-codegen --config codegen.ts",
@@ -11,6 +14,8 @@
     "test": "bun run test:ci",
     "test:ci": "bun test --timeout 10000 $(find src -type f \\( -name '*.test.ts' -o -name '*.test.tsx' \\) | sort) $(find browser -type f -name '*.test.ts' | sort)",
     "test:browser-artifacts": "bun test browser/artifacts/artifacts.test.ts",
+    "browser:acceptance": "node --experimental-strip-types browser/acceptance/run.ts",
+    "browser:proof": "node --experimental-strip-types browser/acceptance/proofs.ts",
     "dev": "bun run gen:all && vite build --watch",
     "dev:assets": "bun run gen:operations && bun run gen:routes && vite build --watch",
     "dev:tauri": "bun run gen:all && vite --host 127.0.0.1 --port 5173 --strictPort",
@@ -54,6 +59,7 @@
     "eslint": "^9.39.2",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.4.24",
+    "playwright": "1.61.1",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.50.0",
     "vite": "^7.3.0"
