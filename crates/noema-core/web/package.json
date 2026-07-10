@@ -7,6 +7,8 @@
     "gen:operations": "graphql-codegen --config codegen.ts",
     "gen:types": "bun run gen:schema && bun run gen:operations",
     "gen:routes": "tsr generate",
+    "test": "bun test",
+    "test:ci": "bun test --timeout 10000",
     "dev": "bun run gen:types && bun run gen:routes && vite build --watch",
     "dev:assets": "bun run gen:operations && bun run gen:routes && vite build --watch",
     "dev:tauri": "bun run gen:types && bun run gen:routes && vite --host 127.0.0.1 --port 5173 --strictPort",

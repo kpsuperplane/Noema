@@ -12,10 +12,12 @@ describe("settings shell navigation", () => {
       shellSettingsEntries.map((entry) => entry.kind === "group" ? entry.label : entry.item.label),
       [
         "Agents",
+        "Memory",
         "Tools",
         "Web",
         "MCPs",
         "Safety",
+        "Usage",
         "Approvals",
         "Identities",
         "System",
@@ -62,6 +64,14 @@ describe("settings shell navigation", () => {
             route: { kind: "settings", section: "agents" }
           }
         },
+        {
+          kind: "item",
+          item: {
+            itemId: "settings.memory",
+            label: "Memory",
+            route: { kind: "settings", section: "memory" }
+          }
+        },
         { kind: "group", label: "Tools" },
         {
           kind: "item",
@@ -80,6 +90,14 @@ describe("settings shell navigation", () => {
           }
         },
         { kind: "group", label: "Safety" },
+        {
+          kind: "item",
+          item: {
+            itemId: "settings.safety.usage",
+            label: "Usage",
+            route: { kind: "settings", section: "safety-usage" }
+          }
+        },
         {
           kind: "item",
           item: {
