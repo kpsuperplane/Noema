@@ -6,6 +6,8 @@
 
 /// Governed artifact filesystem helpers and local artifact writers.
 pub mod artifacts;
+/// Server-derived request authority, trust, scope, and policy contracts.
+pub mod authority;
 /// Capability Gateway runtime entrypoint.
 pub mod capability;
 /// Configuration loading and provider selection.
@@ -50,6 +52,13 @@ pub mod web_fetch;
 pub use artifacts::{
     ArtifactWriteError, NewConversationLocalFileArtifact, artifact_download_url,
     artifact_version_id_from_download_slug, create_conversation_local_file_artifact,
+};
+pub use authority::{
+    ApiErrorCode, Authorizer, CallbackAuthority, ContentTrust, CorrelationId, GovernedScope,
+    InternalErrorDiagnostic, InternalErrorEventKind, InternalErrorReporter, PolicyDecision,
+    PolicyReason, PrincipalId, PrincipalSubject, RequestContext, RequestPrincipal, RunAuthority,
+    RunPurpose, SafeApiError, ScopeId, SystemPrincipal, TransportKind, TrustedEnvelope,
+    UnsupportedScope, canonicalize_scopes, governed_scope_fingerprint, report_internal,
 };
 pub use capability::{CapabilityGateway, GatewayToolProposal, GatewayToolResult};
 pub use config::{
