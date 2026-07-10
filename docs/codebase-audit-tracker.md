@@ -19,12 +19,12 @@ Priority labels:
 
 ## Security And Privacy
 
-- [ ] **P0** Authenticate GraphQL HTTP requests with a request-scoped principal.
-- [ ] **P0** Authenticate GraphQL WebSocket connections and subscriptions.
-- [ ] **P0** Authorize artifact downloads instead of exposing bearerless local URLs.
-- [ ] **P0** Reject DNS-rebinding-shaped `Origin` and `Host` combinations.
-- [ ] **P0** Refuse non-loopback web binding until transport authentication is configured.
-- [ ] **P0** Add authorization guards to sensitive provider, MCP, memory, and settings resolvers.
+- [x] **P0** Authenticate GraphQL HTTP requests with a request-scoped principal.
+- [x] **P0** Authenticate GraphQL WebSocket connections and subscriptions.
+- [x] **P0** Authorize artifact downloads instead of exposing bearerless local URLs.
+- [x] **P0** Reject DNS-rebinding-shaped `Origin` and `Host` combinations.
+- [x] **P0** Refuse non-loopback web binding until transport authentication is configured.
+- [x] **P0** Add authorization guards to sensitive provider, MCP, memory, and settings resolvers.
 - [ ] **P0** Enforce `0700` permissions on the Noema root and private state directories.
 - [ ] **P0** Enforce `0600` permissions on SQLite, WAL/SHM, configuration, artifacts, and diagnostic files where appropriate.
 - [ ] **P0** Repair unsafe permissions on existing Noema installations during startup.
@@ -33,7 +33,7 @@ Priority labels:
 - [ ] **P0** Prevent request metadata from overriding trusted memory `user_id`, `agent_id`, or `run_id` fields.
 - [ ] **P1** Bound, redact, permission, and rotate `errors.log`.
 - [ ] **P1** Stop storing complete provider responses and MCP payloads in unredacted diagnostics.
-- [ ] **P1** Derive MCP OAuth callback URLs from trusted web/desktop transport state.
+- [x] **P1** Derive MCP OAuth callback URLs from trusted web/desktop transport state.
 - [ ] **P1** Add expiration, one-shot state, bounded storage, and cleanup to OAuth and authentication attempts.
 - [ ] **P1** Add a restrictive production Content Security Policy to the Tauri webview.
 - [ ] **P1** Validate MCP tool arguments and structured results against reviewed schemas.
@@ -108,7 +108,7 @@ Priority labels:
 
 - [ ] **P1** Move synchronous `rusqlite` work off Tokio executor threads.
 - [ ] **P1** Replace the global transcript append lock with database-backed or per-conversation sequencing.
-- [ ] **P2** Build and cache one GraphQL schema per runtime host.
+- [x] **P2** Build and cache one GraphQL schema per runtime host.
 - [ ] **P2** Establish a frontend bundle-size budget.
 - [ ] **P2** Profile and reduce the approximately 926 kB minified initial JavaScript bundle.
 - [ ] **P2** Lazy-load heavy onboarding, dialog, and infrequent settings code where practical.
@@ -244,7 +244,7 @@ Boundary guardrails:
 - [ ] **P1** Add two-user memory isolation tests against the real Mnemosyne adapter.
 - [ ] **P1** Add Unix permission tests for the Noema root, SQLite/WAL/SHM, artifacts, and logs.
 - [ ] **P1** Add fault-injection tests at every filesystem/database workflow boundary.
-- [ ] **P1** Add GraphQL authentication, DNS-rebinding, WebSocket, and artifact authorization tests.
+- [x] **P1** Add GraphQL authentication, DNS-rebinding, WebSocket, and artifact authorization tests.
 - [ ] **P1** Add MCP policy matrices covering ownership, scopes, approval, revocation, and execution-time revalidation.
 - [ ] **P2** Add stale-tool reconciliation, tool-ID collision, schema violation, and cursor-cycle tests.
 - [ ] **P2** Add concurrent primary-conversation and active-summary creation tests.

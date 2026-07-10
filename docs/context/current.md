@@ -226,6 +226,20 @@ The next storage slice should stay small and concrete:
   runtime, repository, policy, provenance, audit, and event interfaces directly.
 - The current web UI consumes GraphQL over `/graphql` plus
   `graphql-transport-ws` subscriptions over `/graphql/ws`.
+- The standalone web daemon binds only a numeric loopback address and derives
+  its exact authority from the bound listener. Axum owns HTTP and WebSocket
+  transport; every request must present the exact Host, GraphQL POST/WS also
+  require the exact Origin, and the handwritten parser/framer no longer exists.
+- Web startup prints one random one-shot bootstrap URL. Consuming it creates a
+  private, HttpOnly, SameSite=Strict in-memory `tower-sessions` session. GraphQL,
+  subscriptions, schema/GraphiQL, and artifact downloads require that session;
+  assets and the state/PKCE-authenticated MCP OAuth callback remain public after
+  Host validation. OAuth callback URLs come from listener authority, never Host.
+- Authenticated web and desktop GraphQL operations receive the server-derived
+  `human:local` request principal. Desktop commands additionally require the
+  Tauri `main` window. Artifact downloads authorize the version's live
+  conversation ownership to that human before opening local bytes.
+- Each runtime host builds one GraphQL schema and reuses it across operations.
 - The first macOS desktop app direction is a Tauri app in
   `crates/noema-desktop` that starts a Noema runtime host inside the app
   process, loads the existing React UI from bundled assets, and uses Tauri
@@ -565,9 +579,7 @@ cargo test --workspace --no-fail-fast
 For frontend or UI work:
 
 - Run `bun run gen:types`, `bun run lint`, and `bun run build` in `crates/noema-core/web`.
-- Run the local app/server.
-- Capture desktop and mobile screenshots.
-- Inspect overflow, spacing, safe areas, and visual regressions.
+- Do not add frontend unit tests or browser automation unless explicitly requested.
 
 Before commit/push:
 
