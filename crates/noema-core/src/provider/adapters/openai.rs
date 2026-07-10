@@ -1,21 +1,20 @@
 //! Provider adapter for the OpenAI Responses API.
 
 use super::responses::{
-    ResponsesDiagnosticContext, ResponsesInput, ResponsesReasoning, ResponsesRequest,
-    ResponsesToolNameMap, ResponsesTransport, header_value, noema_response_text_format,
-    normalize_base_url, prompt_cache_key_from_conversation_id, responses_tool_choice,
+    ResponsesDiagnosticContext, ResponsesInput, ResponsesInputShape, ResponsesReasoning,
+    ResponsesRequest, ResponsesToolNameMap, ResponsesTransport, header_value,
+    noema_response_text_format, normalize_base_url, prompt_cache_key_from_conversation_id,
+    responses_tool_choice,
 };
 use crate::{
-    SYSTEM_ERROR_PROVIDER_MALFORMED_RESPONSE, SystemErrorEvent, SystemErrorLogger,
+    SystemErrorLogger,
     provider::{
-        DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateRequest, GenerateResponse,
-        GenerateResponseStatus, ModelProvider, ParsedNoemaResponse, ProviderError,
-        ProviderToolCapabilities, ProviderToolFallbackMode, ProviderToolSchemaDialect,
-        output_items_from_text, required_noema_response_from_text_with_native_tool_calls,
+        DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateRequest, GenerateResponse, ModelProvider,
+        ProviderError, ProviderToolCapabilities, ProviderToolFallbackMode,
+        ProviderToolSchemaDialect,
     },
 };
 use reqwest::header::{HeaderMap, HeaderName};
-use serde_json::Value;
 use std::time::Duration;
 
 /// Default request timeout for `OpenAI` calls.
@@ -203,7 +202,7 @@ impl ModelProvider for OpenAiProvider {
         let has_tools = !tool_names.tools.is_empty();
         let body = ResponsesRequest {
             model: model.clone(),
-            input: ResponsesInput::from(&request.input),
+            input: ResponsesInput::from_generate(&request.input, ResponsesInputShape::String),
             instructions: request
                 .instructions
                 .filter(|instructions| !instructions.trim().is_empty()),
@@ -235,6 +234,7 @@ impl ModelProvider for OpenAiProvider {
             ),
             store: false,
             prompt_cache_retention: request.options.prompt_cache_retention,
+            stream: None,
         };
 
         let diagnostics = ResponsesDiagnosticContext::new(
@@ -249,123 +249,14 @@ impl ModelProvider for OpenAiProvider {
                 &self.config.api_key,
                 body,
                 self.extra_headers()?,
-                diagnostics,
+                diagnostics.clone(),
             )
             .await?;
-        let native_tool_calls = response.native_tool_calls_with_names(&tool_names)?;
-        let text = match response.output_text() {
-            Ok(text) => text,
-            Err(error @ ProviderError::MalformedResponse { .. }) => {
-                if !native_tool_calls.is_empty() {
-                    let parsed = ParsedNoemaResponse {
-                        responses: Vec::new(),
-                        tool_calls: native_tool_calls,
-                        response_status: GenerateResponseStatus::NeedsTools,
-                    };
-                    return Ok(GenerateResponse::from_parsed(
-                        parsed,
-                        "openai",
-                        response.model.clone().unwrap_or(model),
-                        response.id.clone(),
-                        response.usage.clone().map(Into::into),
-                    )
-                    .with_reasoning_items(response.reasoning_items()));
-                }
-                self.log_malformed_response_raw(
-                    &error,
-                    &model,
-                    request.conversation_id.as_deref(),
-                    response.id.as_deref(),
-                    response.raw_payload(),
-                );
-                return Err(error);
-            }
-            Err(error) => return Err(error),
-        };
-        let raw_text = text.clone();
-
-        let parsed = if request.options.require_noema_response {
-            match required_noema_response_from_text_with_native_tool_calls(
-                text,
-                native_tool_calls.clone(),
-            ) {
-                Ok(parsed) => parsed,
-                Err(error) => {
-                    self.log_malformed_response(
-                        &error,
-                        &model,
-                        request.conversation_id.as_deref(),
-                        response.id.as_deref(),
-                        raw_text,
-                    );
-                    return Err(error);
-                }
-            }
-        } else {
-            ParsedNoemaResponse {
-                responses: output_items_from_text(text)?,
-                tool_calls: native_tool_calls.clone(),
-                response_status: if native_tool_calls.is_empty() {
-                    GenerateResponseStatus::Final
-                } else {
-                    GenerateResponseStatus::NeedsTools
-                },
-            }
-        };
-
-        Ok(GenerateResponse::from_parsed(
-            parsed,
-            "openai",
-            response.model.clone().unwrap_or(model),
-            response.id.clone(),
-            response.usage.clone().map(Into::into),
+        response.finalize(
+            &tool_names,
+            request.options.require_noema_response,
+            &diagnostics,
         )
-        .with_reasoning_items(response.reasoning_items()))
-    }
-}
-
-impl OpenAiProvider {
-    fn log_malformed_response(
-        &self,
-        error: &ProviderError,
-        model: &str,
-        conversation_id: Option<&str>,
-        request_id: Option<&str>,
-        provider_text: String,
-    ) {
-        self.log_malformed_response_raw(
-            error,
-            model,
-            conversation_id,
-            request_id,
-            serde_json::json!({
-                "provider_text": provider_text,
-            }),
-        );
-    }
-
-    fn log_malformed_response_raw(
-        &self,
-        error: &ProviderError,
-        model: &str,
-        conversation_id: Option<&str>,
-        request_id: Option<&str>,
-        raw: Value,
-    ) {
-        let Some(logger) = &self.system_errors else {
-            return;
-        };
-        logger.try_append(
-            SystemErrorEvent::new(SYSTEM_ERROR_PROVIDER_MALFORMED_RESPONSE, error.to_string())
-                .with_context(serde_json::json!({
-                    "provider_kind": "openai",
-                    "model": model,
-                    "conversation_id": conversation_id,
-                    "request_id": request_id,
-                }))
-                .with_error_chain([error.to_string()])
-                .with_raw(raw),
-        );
     }
 }
 
@@ -374,8 +265,8 @@ mod tests {
     use super::*;
     use crate::provider::adapters::test_support::spawn_server;
     use crate::provider::{
-        NoemaToolChoice, NoemaToolExecution, NoemaToolSpec, ProviderToolFallbackMode,
-        ProviderToolSchemaDialect, TokenUsage,
+        GenerateResponseStatus, NoemaToolChoice, NoemaToolExecution, NoemaToolSpec,
+        ProviderToolFallbackMode, ProviderToolSchemaDialect, TokenUsage,
     };
     use crate::{GenerateInput, PromptCacheRetention};
     use serde_json::Value;

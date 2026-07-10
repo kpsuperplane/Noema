@@ -5,8 +5,10 @@ use crate::{
     SYSTEM_ERROR_PROVIDER_MALFORMED_RESPONSE, SystemErrorEvent, SystemErrorLogger,
     provider::{
         GenerateInput, GenerateInputItem, GenerateMessageRole, GenerateReasoningInput,
-        GenerateReasoningItem, GenerateStreamEvent, GenerateToolCallInput, GenerateToolResultInput,
-        PromptCacheRetention, ProviderError, ReasoningEffort, TokenUsage,
+        GenerateReasoningItem, GenerateResponse, GenerateResponseStatus, GenerateStreamEvent,
+        GenerateToolCallInput, GenerateToolResultInput, ParsedNoemaResponse, PromptCacheRetention,
+        ProviderError, ReasoningEffort, TokenUsage, output_items_from_text,
+        required_noema_response_from_text_with_native_tool_calls,
     },
 };
 use futures_util::StreamExt;
@@ -19,7 +21,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 
 /// JSON request body sent to a Responses-compatible endpoint.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct ResponsesRequest {
     /// Model identifier to use for the response.
     pub model: String,
@@ -60,6 +62,9 @@ pub struct ResponsesRequest {
     /// Provider prompt-cache retention request when supported.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prompt_cache_retention: Option<PromptCacheRetention>,
+    /// Whether the provider should return an SSE stream.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stream: Option<bool>,
 }
 
 /// Responses API reasoning controls.
@@ -341,13 +346,36 @@ pub(super) fn noema_response_text_format() -> Value {
 }
 
 /// Responses API input shape.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(untagged)]
 pub enum ResponsesInput {
     /// Plain text input.
     Text(String),
     /// Structured Responses input items.
     Items(Vec<ResponsesInputItem>),
+}
+
+/// Provider-specific wire shape for otherwise shared Responses input items.
+#[derive(Debug, Clone, Copy)]
+pub enum ResponsesInputShape {
+    /// Keep plain text as the Responses API string shorthand.
+    String,
+    /// Lower plain text to a user message in the structured item array.
+    MessageArray,
+}
+
+impl ResponsesInput {
+    /// Lower provider-neutral input to the requested Responses wire shape.
+    #[must_use]
+    pub fn from_generate(value: &GenerateInput, shape: ResponsesInputShape) -> Self {
+        if let (GenerateInput::Text(text), ResponsesInputShape::MessageArray) = (value, shape) {
+            return Self::Items(vec![ResponsesInputItem::Message(ResponsesInputMessage {
+                role: "user",
+                content: text.clone(),
+            })]);
+        }
+        Self::from(value)
+    }
 }
 
 impl From<&GenerateInput> for ResponsesInput {
@@ -393,7 +421,7 @@ impl From<&GenerateInput> for ResponsesInput {
 }
 
 /// One Responses API input item.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(untagged)]
 pub enum ResponsesInputItem {
     /// Provider role message.
@@ -436,7 +464,7 @@ impl From<&GenerateInputItem> for ResponsesInputItem {
 }
 
 /// One Responses API encrypted reasoning input item.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct ResponsesReasoningItem {
     #[serde(rename = "type")]
     kind: &'static str,
@@ -456,7 +484,7 @@ impl From<&GenerateReasoningInput> for ResponsesReasoningItem {
 }
 
 /// One Responses API input message.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct ResponsesInputMessage {
     /// Provider role.
     pub role: &'static str,
@@ -465,7 +493,7 @@ pub struct ResponsesInputMessage {
 }
 
 /// One Responses API native function-call context input item.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct ResponsesFunctionCall {
     #[serde(rename = "type")]
     kind: &'static str,
@@ -507,7 +535,7 @@ impl From<&GenerateToolCallInput> for ResponsesFunctionCall {
 }
 
 /// One Responses API native function-call output input item.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct ResponsesFunctionCallOutput {
     #[serde(rename = "type")]
     kind: &'static str,
@@ -547,6 +575,79 @@ pub struct ResponsesResponse {
 }
 
 impl ResponsesResponse {
+    /// Finalize one shared Responses result into Noema's provider-neutral response.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ProviderError`] when native tool calls or assistant output are malformed.
+    pub(crate) fn finalize(
+        self,
+        tool_names: &ResponsesToolNameMap,
+        require_noema_response: bool,
+        diagnostics: &ResponsesDiagnosticContext,
+    ) -> Result<GenerateResponse, ProviderError> {
+        let native_tool_calls = self.native_tool_calls_with_names(tool_names)?;
+        let text = match self.output_text() {
+            Ok(text) => text,
+            Err(ProviderError::MalformedResponse { .. }) if !native_tool_calls.is_empty() => {
+                let parsed = ParsedNoemaResponse {
+                    responses: Vec::new(),
+                    tool_calls: native_tool_calls,
+                    response_status: GenerateResponseStatus::NeedsTools,
+                };
+                return Ok(self.generate_response(parsed, diagnostics));
+            }
+            Err(error @ ProviderError::MalformedResponse { .. }) => {
+                diagnostics.log_malformed_error(&error, self.id.as_deref(), self.raw_payload());
+                return Err(error);
+            }
+            Err(error) => return Err(error),
+        };
+
+        let parsed = if require_noema_response {
+            required_noema_response_from_text_with_native_tool_calls(
+                text.clone(),
+                native_tool_calls,
+            )
+            .inspect_err(|error| {
+                diagnostics.log_malformed_error(
+                    error,
+                    self.id.as_deref(),
+                    serde_json::json!({ "provider_text": text }),
+                );
+            })?
+        } else {
+            let response_status = if native_tool_calls.is_empty() {
+                GenerateResponseStatus::Final
+            } else {
+                GenerateResponseStatus::NeedsTools
+            };
+            ParsedNoemaResponse {
+                responses: output_items_from_text(text)?,
+                tool_calls: native_tool_calls,
+                response_status,
+            }
+        };
+
+        Ok(self.generate_response(parsed, diagnostics))
+    }
+
+    fn generate_response(
+        self,
+        parsed: ParsedNoemaResponse,
+        diagnostics: &ResponsesDiagnosticContext,
+    ) -> GenerateResponse {
+        let reasoning_items = self.reasoning_items();
+        GenerateResponse::from_parsed(
+            parsed,
+            diagnostics.provider_kind.clone(),
+            self.model.unwrap_or_else(|| diagnostics.model.clone()),
+            self.id,
+            self.usage.map(Into::into),
+        )
+        .with_reasoning_items(reasoning_items)
+    }
+
     /// Return the raw provider payload preserved for developer diagnostics.
     #[must_use]
     pub fn raw_payload(&self) -> Value {
@@ -828,6 +929,22 @@ impl ResponsesDiagnosticContext {
             );
         }
     }
+
+    pub(crate) fn log_malformed_error(
+        &self,
+        error: &ProviderError,
+        request_id: Option<&str>,
+        raw: Value,
+    ) {
+        if let Some(logger) = &self.logger {
+            logger.try_append(
+                SystemErrorEvent::new(SYSTEM_ERROR_PROVIDER_MALFORMED_RESPONSE, error.to_string())
+                    .with_context(self.context_json(request_id))
+                    .with_error_chain([error.to_string()])
+                    .with_raw(raw),
+            );
+        }
+    }
 }
 
 impl ResponsesTransport {
@@ -1105,6 +1222,7 @@ mod tests {
             prompt_cache_key: None,
             store: false,
             prompt_cache_retention: None,
+            stream: None,
         };
 
         let value = serde_json::to_value(body).expect("serialize");

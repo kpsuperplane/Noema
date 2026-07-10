@@ -2,10 +2,6 @@
 
 use std::{path::PathBuf, time::Duration};
 
-use reqwest::header::HeaderMap;
-use serde::Serialize;
-use serde_json::Value;
-
 use super::{
     codex_oauth::{
         CODEX_ACCESS_TOKEN_REFRESH_SKEW_SECONDS, CodexOAuthClient, CodexOAuthConfig,
@@ -13,22 +9,20 @@ use super::{
     },
     noema_response_stream::NoemaAssistantTextDeltaExtractor,
     responses::{
-        ResponsesDiagnosticContext, ResponsesReasoning, ResponsesTool, ResponsesToolNameMap,
-        ResponsesTransport, noema_response_text_format, normalize_base_url,
-        prompt_cache_key_from_conversation_id, provider_safe_tool_name, responses_tool_choice,
+        ResponsesDiagnosticContext, ResponsesInput, ResponsesInputShape, ResponsesReasoning,
+        ResponsesRequest, ResponsesToolNameMap, ResponsesTransport, noema_response_text_format,
+        normalize_base_url, prompt_cache_key_from_conversation_id, responses_tool_choice,
     },
 };
 use crate::{
-    SYSTEM_ERROR_PROVIDER_MALFORMED_RESPONSE, SystemErrorEvent, SystemErrorLogger,
+    SystemErrorLogger,
     provider::{
-        DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateInput, GenerateInputItem, GenerateMessageRole,
-        GenerateOptions, GenerateReasoningInput, GenerateRequest, GenerateResponse,
-        GenerateResponseStatus, GenerateStreamEvent, GenerateToolCallInput,
-        GenerateToolResultInput, ModelProvider, ParsedNoemaResponse, ProviderError,
-        ProviderToolCapabilities, ProviderToolFallbackMode, ProviderToolSchemaDialect,
-        output_items_from_text, required_noema_response_from_text_with_native_tool_calls,
+        DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateRequest, GenerateResponse, GenerateStreamEvent,
+        ModelProvider, ProviderError, ProviderToolCapabilities, ProviderToolFallbackMode,
+        ProviderToolSchemaDialect,
     },
 };
+use reqwest::header::HeaderMap;
 
 /// Default Codex Responses model used when no override is supplied.
 pub const DEFAULT_CODEX_MODEL: &str = "gpt-5.5";
@@ -169,186 +163,6 @@ fn codex_encrypted_reasoning_supported() -> bool {
     false
 }
 
-#[derive(Debug, Serialize)]
-struct CodexResponsesRequest {
-    model: String,
-    input: Vec<CodexInputItem>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    instructions: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    temperature: Option<f32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    text: Option<serde_json::Value>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    tools: Vec<ResponsesTool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    tool_choice: Option<&'static str>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    parallel_tool_calls: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    reasoning: Option<ResponsesReasoning>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    prompt_cache_key: Option<String>,
-    store: bool,
-    stream: bool,
-}
-
-#[derive(Debug, Clone, Default)]
-struct CodexResponsesToolFields {
-    tools: Vec<ResponsesTool>,
-    tool_choice: Option<&'static str>,
-    parallel_tool_calls: Option<bool>,
-}
-
-impl CodexResponsesRequest {
-    fn new(
-        model: String,
-        input: &GenerateInput,
-        instructions: Option<String>,
-        options: &GenerateOptions,
-        reasoning: Option<crate::provider::ReasoningEffort>,
-        prompt_cache_key: Option<String>,
-        tool_fields: CodexResponsesToolFields,
-    ) -> Self {
-        Self {
-            model,
-            input: codex_input_items(input),
-            instructions,
-            temperature: options.temperature,
-            text: options
-                .require_noema_response
-                .then(noema_response_text_format),
-            tools: tool_fields.tools,
-            tool_choice: tool_fields.tool_choice,
-            parallel_tool_calls: tool_fields.parallel_tool_calls,
-            reasoning: reasoning.map(|effort| ResponsesReasoning { effort }),
-            prompt_cache_key,
-            store: false,
-            stream: true,
-        }
-    }
-}
-
-#[derive(Debug, Serialize)]
-#[serde(untagged)]
-enum CodexInputItem {
-    Message(CodexInputMessage),
-    Reasoning(CodexReasoningItem),
-    FunctionCall(CodexFunctionCall),
-    FunctionCallOutput(CodexFunctionCallOutput),
-}
-
-impl From<&GenerateToolResultInput> for CodexInputItem {
-    fn from(value: &GenerateToolResultInput) -> Self {
-        Self::FunctionCallOutput(CodexFunctionCallOutput::from(value))
-    }
-}
-
-impl From<&GenerateInputItem> for CodexInputItem {
-    fn from(value: &GenerateInputItem) -> Self {
-        match value {
-            GenerateInputItem::Message(message) => Self::Message(CodexInputMessage {
-                role: match message.role {
-                    GenerateMessageRole::User => "user",
-                    GenerateMessageRole::Assistant => "assistant",
-                },
-                content: message.content.clone(),
-            }),
-            GenerateInputItem::Reasoning(reasoning) => {
-                Self::Reasoning(CodexReasoningItem::from(reasoning))
-            }
-            GenerateInputItem::ToolCall(call) => Self::FunctionCall(CodexFunctionCall::from(call)),
-            GenerateInputItem::ToolResult(result) => {
-                Self::FunctionCallOutput(CodexFunctionCallOutput::from(result))
-            }
-        }
-    }
-}
-
-#[derive(Debug, Serialize)]
-struct CodexReasoningItem {
-    #[serde(rename = "type")]
-    kind: &'static str,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    id: Option<String>,
-    encrypted_content: String,
-}
-
-impl From<&GenerateReasoningInput> for CodexReasoningItem {
-    fn from(value: &GenerateReasoningInput) -> Self {
-        Self {
-            kind: "reasoning",
-            id: value.id.clone(),
-            encrypted_content: value.encrypted_content.clone(),
-        }
-    }
-}
-
-#[derive(Debug, Serialize)]
-struct CodexInputMessage {
-    role: &'static str,
-    content: String,
-}
-
-#[derive(Debug, Serialize)]
-struct CodexFunctionCall {
-    #[serde(rename = "type")]
-    kind: &'static str,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    id: Option<String>,
-    call_id: String,
-    name: String,
-    arguments: String,
-}
-
-impl From<&GenerateToolResultInput> for CodexFunctionCall {
-    fn from(value: &GenerateToolResultInput) -> Self {
-        Self {
-            kind: "function_call",
-            id: value.id.clone(),
-            call_id: value.call_id.clone(),
-            name: value
-                .provider_name
-                .clone()
-                .unwrap_or_else(|| provider_safe_tool_name(&value.name)),
-            arguments: value.arguments.to_string(),
-        }
-    }
-}
-
-impl From<&GenerateToolCallInput> for CodexFunctionCall {
-    fn from(value: &GenerateToolCallInput) -> Self {
-        Self {
-            kind: "function_call",
-            id: value.id.clone(),
-            call_id: value.call_id.clone(),
-            name: value
-                .provider_name
-                .clone()
-                .unwrap_or_else(|| provider_safe_tool_name(&value.name)),
-            arguments: value.arguments.to_string(),
-        }
-    }
-}
-
-#[derive(Debug, Serialize)]
-struct CodexFunctionCallOutput {
-    #[serde(rename = "type")]
-    kind: &'static str,
-    call_id: String,
-    output: String,
-}
-
-impl From<&GenerateToolResultInput> for CodexFunctionCallOutput {
-    fn from(value: &GenerateToolResultInput) -> Self {
-        Self {
-            kind: "function_call_output",
-            call_id: value.call_id.clone(),
-            output: value.output_json_string(),
-        }
-    }
-}
-
 impl CodexResponsesProvider {
     async fn generate_with_events(
         &self,
@@ -374,28 +188,33 @@ impl CodexResponsesProvider {
                 .then_some(self.config.reasoning_effort)
                 .flatten()
         });
-        let instructions = request
-            .instructions
-            .clone()
-            .filter(|instructions| !instructions.trim().is_empty());
         let tool_names = ResponsesToolNameMap::from_tools(&request.tools)?;
         let has_tools = !tool_names.tools.is_empty();
-        let tool_fields = CodexResponsesToolFields {
+        let body = ResponsesRequest {
+            model: model.clone(),
+            input: ResponsesInput::from_generate(&request.input, ResponsesInputShape::MessageArray),
+            instructions: request
+                .instructions
+                .clone()
+                .filter(|instructions| !instructions.trim().is_empty()),
+            max_output_tokens: None,
+            temperature: request.options.temperature,
+            text: request
+                .options
+                .require_noema_response
+                .then(noema_response_text_format),
+            reasoning: reasoning_effort.map(|effort| ResponsesReasoning { effort }),
             tools: tool_names.tools.clone(),
             tool_choice: responses_tool_choice(request.tool_choice, has_tools),
             parallel_tool_calls: has_tools.then_some(request.parallel_tool_calls),
+            include: Vec::new(),
+            prompt_cache_key: prompt_cache_key_from_conversation_id(
+                request.conversation_id.as_deref(),
+            ),
+            store: false,
+            prompt_cache_retention: None,
+            stream: Some(true),
         };
-        let prompt_cache_key =
-            prompt_cache_key_from_conversation_id(request.conversation_id.as_deref());
-        let body = CodexResponsesRequest::new(
-            model.clone(),
-            &request.input,
-            instructions.clone(),
-            &request.options,
-            reasoning_effort,
-            prompt_cache_key.clone(),
-            tool_fields.clone(),
-        );
         let diagnostics = ResponsesDiagnosticContext::new(
             self.system_errors.clone(),
             "codex",
@@ -421,7 +240,7 @@ impl CodexResponsesProvider {
             .transport
             .send_streaming(
                 &access_token,
-                body,
+                body.clone(),
                 HeaderMap::new(),
                 diagnostics.clone(),
                 &mut forward_event,
@@ -434,178 +253,19 @@ impl CodexResponsesProvider {
                     .token_store
                     .refresh_access_token(&self.oauth_client)
                     .await?;
-                let retry_body = CodexResponsesRequest::new(
-                    model.clone(),
-                    &request.input,
-                    instructions,
-                    &request.options,
-                    reasoning_effort,
-                    prompt_cache_key,
-                    tool_fields,
-                );
                 self.transport
                     .send_streaming(
                         &refreshed,
-                        retry_body,
+                        body,
                         HeaderMap::new(),
-                        diagnostics,
+                        diagnostics.clone(),
                         &mut forward_event,
                     )
                     .await?
             }
             Err(error) => return Err(error),
         };
-        let native_tool_calls = response.native_tool_calls_with_names(&tool_names)?;
-        let text = match response.output_text() {
-            Ok(text) => text,
-            Err(error @ ProviderError::MalformedResponse { .. }) => {
-                if !native_tool_calls.is_empty() {
-                    let parsed = ParsedNoemaResponse {
-                        responses: Vec::new(),
-                        tool_calls: native_tool_calls,
-                        response_status: GenerateResponseStatus::NeedsTools,
-                    };
-                    return Ok(GenerateResponse::from_parsed(
-                        parsed,
-                        "codex",
-                        response.model.clone().unwrap_or(model),
-                        response.id.clone(),
-                        response.usage.clone().map(Into::into),
-                    )
-                    .with_reasoning_items(response.reasoning_items()));
-                }
-                self.log_malformed_response_raw(
-                    &error,
-                    &model,
-                    request.conversation_id.as_deref(),
-                    response.id.as_deref(),
-                    response.raw_payload(),
-                );
-                return Err(error);
-            }
-            Err(error) => return Err(error),
-        };
-        let raw_text = text.clone();
-
-        let parsed = if require_noema_response {
-            match required_noema_response_from_text_with_native_tool_calls(
-                text,
-                native_tool_calls.clone(),
-            ) {
-                Ok(parsed) => parsed,
-                Err(error) => {
-                    self.log_malformed_response(
-                        &error,
-                        &model,
-                        request.conversation_id.as_deref(),
-                        response.id.as_deref(),
-                        raw_text,
-                    );
-                    return Err(error);
-                }
-            }
-        } else {
-            ParsedNoemaResponse {
-                responses: output_items_from_text(text)?,
-                tool_calls: native_tool_calls.clone(),
-                response_status: if native_tool_calls.is_empty() {
-                    GenerateResponseStatus::Final
-                } else {
-                    GenerateResponseStatus::NeedsTools
-                },
-            }
-        };
-
-        Ok(GenerateResponse::from_parsed(
-            parsed,
-            "codex",
-            response.model.clone().unwrap_or(model),
-            response.id.clone(),
-            response.usage.clone().map(Into::into),
-        )
-        .with_reasoning_items(response.reasoning_items()))
-    }
-
-    fn log_malformed_response(
-        &self,
-        error: &ProviderError,
-        model: &str,
-        conversation_id: Option<&str>,
-        request_id: Option<&str>,
-        provider_text: String,
-    ) {
-        self.log_malformed_response_raw(
-            error,
-            model,
-            conversation_id,
-            request_id,
-            serde_json::json!({
-                "provider_text": provider_text,
-            }),
-        );
-    }
-
-    fn log_malformed_response_raw(
-        &self,
-        error: &ProviderError,
-        model: &str,
-        conversation_id: Option<&str>,
-        request_id: Option<&str>,
-        raw: Value,
-    ) {
-        let Some(logger) = &self.system_errors else {
-            return;
-        };
-        logger.try_append(
-            SystemErrorEvent::new(SYSTEM_ERROR_PROVIDER_MALFORMED_RESPONSE, error.to_string())
-                .with_context(serde_json::json!({
-                    "provider_kind": "codex",
-                    "model": model,
-                    "conversation_id": conversation_id,
-                    "request_id": request_id,
-                }))
-                .with_error_chain([error.to_string()])
-                .with_raw(raw),
-        );
-    }
-}
-
-fn codex_input_items(input: &GenerateInput) -> Vec<CodexInputItem> {
-    match input {
-        GenerateInput::Text(text) => vec![CodexInputItem::Message(CodexInputMessage {
-            role: "user",
-            content: text.clone(),
-        })],
-        GenerateInput::Messages(messages) => messages
-            .iter()
-            .filter(|message| !message.content.trim().is_empty())
-            .map(|message| {
-                CodexInputItem::Message(CodexInputMessage {
-                    role: match message.role {
-                        GenerateMessageRole::User => "user",
-                        GenerateMessageRole::Assistant => "assistant",
-                    },
-                    content: message.content.clone(),
-                })
-            })
-            .collect(),
-        GenerateInput::Items(items) => items
-            .iter()
-            .filter(|item| !item.is_empty())
-            .map(CodexInputItem::from)
-            .collect(),
-        GenerateInput::NativeToolResults(results) => {
-            let mut items = Vec::with_capacity(results.len().saturating_mul(2));
-            for result in results {
-                items.push(CodexInputItem::FunctionCall(CodexFunctionCall::from(
-                    result,
-                )));
-                items.push(CodexInputItem::FunctionCallOutput(
-                    CodexFunctionCallOutput::from(result),
-                ));
-            }
-            items
-        }
+        response.finalize(&tool_names, require_noema_response, &diagnostics)
     }
 }
 
@@ -651,11 +311,13 @@ impl ModelProvider for CodexResponsesProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::SYSTEM_ERROR_PROVIDER_MALFORMED_RESPONSE;
     use crate::provider::adapters::codex_oauth::CodexOAuthTokens;
     use crate::provider::adapters::test_support::spawn_server;
     use crate::provider::{
-        GenerateMessage, GenerateMessageRole, GenerateOptions, NoemaToolChoice, NoemaToolExecution,
-        NoemaToolSpec, PromptCacheRetention, ProviderToolFallbackMode, ProviderToolSchemaDialect,
+        GenerateInput, GenerateMessage, GenerateMessageRole, GenerateOptions,
+        GenerateResponseStatus, NoemaToolChoice, NoemaToolExecution, NoemaToolSpec,
+        PromptCacheRetention, ProviderToolFallbackMode, ProviderToolSchemaDialect,
     };
     use serde_json::Value;
     use tempfile::TempDir;
