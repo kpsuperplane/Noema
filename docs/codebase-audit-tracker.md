@@ -4,6 +4,12 @@ This checklist tracks the cleanup and refactor work identified by the July 2026
 whole-codebase adversarial audit. Keep tasks unchecked until implementation and
 relevant validation are complete.
 
+The bounded deletion-first execution program is tracked in
+[`docs/superpowers/plans/2026-07-10-noema-remediation/`](superpowers/plans/2026-07-10-noema-remediation/README.md).
+It targets 12 aggregate active agent-hours, stops at 16, and requires maintained
+source LOC to fall from 93,924 to 89,000 or fewer. Unselected audit work remains
+in this tracker and is classified in the program's deferred backlog.
+
 Priority labels:
 
 - **P0**: trust boundary or data exposure; address before production exposure.
