@@ -156,7 +156,7 @@ Priority labels:
 - [ ] **P1** Split `daemon/runtime/turn.rs` into orchestration, provider phases, tool-loop execution, and finalization.
 - [ ] **P1** Split `daemon/runtime/transcript_persistence.rs` into persistence, event projection, display metadata, and failure lifecycle.
 - [ ] **P1** Split `provider/contract.rs` into generation types, response parsing, and provider errors.
-- [ ] **P1** Extract a shared Responses dialect core used by OpenAI and Codex adapters.
+- [x] **P1** Extract a shared Responses dialect core used by OpenAI and Codex adapters.
 - [ ] **P1** Split `daemon/runtime/local_tools.rs` into provider resolution, credential loading, execution, and result adaptation.
 - [ ] **P2** Move GraphQL integration tests out of `graphql/schema.rs` and beside domain resolvers.
 - [ ] **P2** Split `daemon/tests.rs` by turn lifecycle, tools, memory, compaction, and providers.

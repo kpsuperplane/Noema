@@ -518,6 +518,14 @@ The next storage slice should stay small and concrete:
 
 ## Open Loops
 
+- The bounded remediation program completed Phase 2 at `92,157` maintained
+  source lines (`-1,767` from its baseline). Axum/tower-sessions now own the
+  local web boundary; OpenAI and Codex share a Responses dialect; MCP supports
+  stdio and `rmcp` Streamable HTTP only; the deprecated HTTP+SSE transport and
+  unreachable OpenAI-hosted search path are gone. The full workspace gate is
+  green. Phase 3 is runtime lifecycle and persistence; do not reopen Phase 2
+  library adoption unless a proposed crate replaces more code than it adds.
+
 - Decide whether richer Mnemosyne memory browsing should include entity, provenance,
   and history drill-ins.
 - Decide how Mnemosyne extraction/ingest visibility should surface without bringing

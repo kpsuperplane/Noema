@@ -43,10 +43,10 @@ Memory sidecar:
 
 ### Checkpoint 2A — Shared Responses dialect (50 minutes)
 
-- [ ] Identify exact OpenAI/Codex duplication in request assembly, native tool
+- [x] Identify exact OpenAI/Codex duplication in request assembly, native tool
   input/output conversion, stream event normalization, required-response
   parsing, usage, and error mapping.
-- [ ] Keep one provider-neutral Responses dialect module with small explicit
+- [x] Keep one provider-neutral Responses dialect module with small explicit
   adapter hooks for Codex-only encrypted reasoning, prompt-cache behavior, and
   authentication headers.
 - [ ] Move shared data types out of the 1,700-line provider contract into
@@ -56,7 +56,7 @@ Memory sidecar:
   deleting distinct behavior coverage.
 - [ ] Remove obsolete legacy JSON-tool and response compatibility paths that
   current context explicitly says are rejected.
-- [ ] Run provider adapter and response-stream tests; commit before moving to
+- [x] Run provider adapter and response-stream tests; commit before moving to
   integration auth.
 
 Checkpoint target: at least 900 net lines deleted.
@@ -81,7 +81,7 @@ Checkpoint target: at least 900 net lines deleted.
 
 ### Checkpoint 2C — MCP and Mnemosyne boundaries (35 minutes)
 
-- [ ] Prefer `rmcp` streamable HTTP/SSE, auth, pagination, and protocol types
+- [x] Prefer `rmcp` streamable HTTP/SSE, auth, pagination, and protocol types
   over `mcp/http.rs`. Delete the custom transport only if current `rmcp` covers
   all required operations without a compatibility wrapper.
 - [ ] Add `jsonschema 0.47` with all default features disabled for reviewed MCP
@@ -128,13 +128,33 @@ git diff --check
 
 ## Exit Evidence
 
-- [ ] At least 1,500 net source lines deleted.
+- [x] At least 1,500 net source lines deleted.
 - [ ] No duplicate provider request/stream dialect remains.
-- [ ] No new duplicate reqwest/TLS stack.
+- [x] No new duplicate reqwest/TLS stack.
 - [ ] Standard OAuth and schema-validation types are used where claimed.
-- [ ] MCP/Mnemosyne negative cases have focused unit coverage.
-- [ ] Relevant security, governance, integration, and performance tracker rows
+- [x] MCP/Mnemosyne negative cases have focused unit coverage.
+- [x] Relevant security, governance, integration, and performance tracker rows
   updated.
+
+## Completion Record
+
+Completed at `92,157` maintained source lines, down `1,581` lines during this
+phase and `1,767` lines from the program baseline. Commits: `675401cc`,
+`f1c741e2`, `9b84e674`, and `49913c64`.
+
+The phase reused `rmcp` for the supported MCP transports, removed the legacy
+HTTP+SSE implementation, consolidated the OpenAI/Codex Responses dialect, and
+deleted an unreachable hosted-search implementation plus its false capability
+advertisement. Full workspace formatting, check, clippy, and 684 unit tests
+passed.
+
+Direct `oauth2`/`secrecy` adoption, a second SSE crate, generic HTTP middleware,
+schema validation, refresh single-flight, and Mnemosyne bearer authentication
+were not forced into this phase: the evaluated libraries would not replace
+enough current code within the timebox, or the work is a focused reliability
+addition assigned to a later phase/backlog. Remaining Responses request-builder
+duplication and the unenforced MCP ownership UI are assigned to later
+architecture/frontend simplification rather than extending this phase.
 
 ## Stop Conditions
 
