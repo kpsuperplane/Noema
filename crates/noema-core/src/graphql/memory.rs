@@ -1024,7 +1024,9 @@ fn parse_memory_service_port(port: i32) -> Result<u16> {
 }
 
 fn now_rfc3339() -> Result<String> {
-    Ok(crate::store::store_now_rfc3339())
+    OffsetDateTime::now_utc()
+        .format(&Rfc3339)
+        .map_err(|error| async_graphql::Error::new(error.to_string()))
 }
 
 fn sanitize_error_message(message: &str) -> String {

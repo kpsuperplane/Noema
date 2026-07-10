@@ -20,7 +20,6 @@ impl NoemaStore {
         &self,
         selector: NewTrustedIdentitySelector,
     ) -> Result<TrustedIdentitySelectorRecord, StoreError> {
-        self.ensure_default_actors().await?;
         let normalized_value =
             normalize_trusted_identity_value(selector.selector_kind, &selector.raw_value)
                 .ok_or_else(|| {
@@ -34,23 +33,21 @@ impl NoemaStore {
                 format!(
                     r#"
                     INSERT INTO trusted_identity_selectors (
-                      selector_id, owner_human_id, owner_agent_id, selector_kind, normalized_value,
-                      effect, issuer_human_id, issuer_agent_id, revoked_at, updated_at
+                      selector_id, owner_scope_id, selector_kind, normalized_value,
+                      effect, issuer_actor_id, revoked_at, updated_at
                     )
-                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, NULL, {})
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, {})
                     "#,
                     now_timestamp_sql()
                 )
                 .as_str(),
                 params![
                     selector.selector_id,
-                    concrete_human(&selector.owner_scope_id),
-                    concrete_agent(&selector.owner_scope_id),
+                    selector.owner_scope_id,
                     selector.selector_kind.as_str(),
                     normalized_value,
                     selector.effect.as_str(),
-                    concrete_human(&selector.issuer_actor_id),
-                    concrete_agent(&selector.issuer_actor_id),
+                    selector.issuer_actor_id,
                 ],
             )?;
             Ok(())
@@ -101,10 +98,10 @@ impl NoemaStore {
         self.with_connection(|conn| {
             let mut statement = conn.prepare(
                 r#"
-                SELECT selector_id, COALESCE(owner_human_id, owner_agent_id), selector_kind,
-                  normalized_value, effect, COALESCE(issuer_human_id, issuer_agent_id), revoked_at
+                SELECT selector_id, owner_scope_id, selector_kind, normalized_value,
+                  effect, issuer_actor_id, revoked_at
                 FROM trusted_identity_selectors
-                WHERE owner_human_id = ?1 OR owner_agent_id = ?1
+                WHERE owner_scope_id = ?1
                 ORDER BY selector_kind, normalized_value
                 "#,
             )?;
@@ -118,17 +115,9 @@ impl NoemaStore {
 }
 
 const TRUSTED_IDENTITY_SELECTOR_SELECT_BY_ID: &str = r#"
-SELECT selector_id, COALESCE(owner_human_id, owner_agent_id), selector_kind, normalized_value,
-  effect, COALESCE(issuer_human_id, issuer_agent_id), revoked_at
+SELECT selector_id, owner_scope_id, selector_kind, normalized_value,
+  effect, issuer_actor_id, revoked_at
 FROM trusted_identity_selectors
 WHERE selector_id = ?1
 LIMIT 1
 "#;
-
-fn concrete_human(value: &str) -> Option<&str> {
-    value.starts_with("human:").then_some(value)
-}
-
-fn concrete_agent(value: &str) -> Option<&str> {
-    (!value.starts_with("human:")).then_some(value)
-}

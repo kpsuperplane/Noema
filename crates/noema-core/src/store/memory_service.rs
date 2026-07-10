@@ -1,6 +1,6 @@
 //! Memory service store records and SQLite repository methods.
 
-use rusqlite::{OptionalExtension, TransactionBehavior, params};
+use rusqlite::{OptionalExtension, params};
 
 use crate::provider::ReasoningEffort;
 
@@ -145,27 +145,7 @@ impl NoemaStore {
         input: SaveMemoryServiceSettings,
     ) -> Result<MemoryServiceSettingsRecord, StoreError> {
         self.with_connection(|conn| {
-            let transaction =
-                conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
-            if let Some(provider_account_id) = input.provider_account_id.as_deref() {
-                let stored_kind = transaction
-                    .query_row(
-                        "SELECT provider_kind FROM provider_accounts WHERE provider_account_id = ?1",
-                        [provider_account_id],
-                        |row| row.get::<_, String>(0),
-                    )
-                    .optional()?
-                    .ok_or_else(|| StoreError::ProviderAccountNotFound {
-                        provider_account_id: provider_account_id.to_string(),
-                    })?;
-                if input.provider_kind.as_deref() != Some(stored_kind.as_str()) {
-                    return Err(StoreError::InvalidEnum {
-                        kind: "memory_service_provider_kind",
-                        value: input.provider_kind.clone().unwrap_or_default(),
-                    });
-                }
-            }
-            transaction.execute(
+            conn.execute(
                 r#"
                 INSERT INTO memory_service_settings
                   (settings_id, mode, base_url, port, provider_account_id, provider_kind,
@@ -191,7 +171,6 @@ impl NoemaStore {
                     input.reasoning_effort.map(reasoning_effort_as_str),
                 ],
             )?;
-            transaction.commit()?;
             Ok(())
         })
         .await?;
@@ -207,32 +186,27 @@ impl NoemaStore {
         &self,
         scope_id: &str,
     ) -> Result<Option<MemoryArticleCacheRecord>, StoreError> {
-        let row = self
-            .with_connection(|conn| {
-                sqlite::optional_row(
-                    conn,
-                    r#"
+        self.with_connection(|conn| {
+            sqlite::optional_row(
+                conn,
+                r#"
                 SELECT scope_id, fact_fingerprint, article_markdown, generated_at
                 FROM memory_article_cache
                 WHERE scope_id = ?1
                 LIMIT 1
                 "#,
-                    [scope_id],
-                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
-                )
-            })
-            .await?;
-        row.map(
-            |(scope_id, fact_fingerprint, article_markdown, generated_at)| {
-                Ok(MemoryArticleCacheRecord {
-                    scope_id,
-                    fact_fingerprint,
-                    article_markdown,
-                    generated_at: super::ids::validate_timestamp(generated_at)?,
-                })
-            },
-        )
-        .transpose()
+                [scope_id],
+                |row| {
+                    Ok(MemoryArticleCacheRecord {
+                        scope_id: row.get(0)?,
+                        fact_fingerprint: row.get(1)?,
+                        article_markdown: row.get(2)?,
+                        generated_at: row.get(3)?,
+                    })
+                },
+            )
+        })
+        .await
     }
 
     /// Save the cached AI-written memory article for a scope.
@@ -244,7 +218,6 @@ impl NoemaStore {
         &self,
         input: SaveMemoryArticleCache,
     ) -> Result<(), StoreError> {
-        super::ids::Timestamp::parse(&input.generated_at)?;
         self.with_connection(|conn| {
             conn.execute(
                 r#"

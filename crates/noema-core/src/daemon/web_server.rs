@@ -1,5 +1,4 @@
 use crate::{DaemonError, NoemaRuntimeHost, ProviderConfig, WebConfig};
-use tokio::task::JoinSet;
 
 use super::web::{self, WebState};
 
@@ -35,30 +34,22 @@ pub async fn run_daemon_web(config: DaemonWebServerConfig) -> Result<(), DaemonE
     let graphql_state = crate::graphql::GraphqlState::from_runtime_host(&host);
     let web_state = WebState::new(graphql_state);
 
-    let mut connections = JoinSet::new();
-    let result = loop {
+    loop {
         tokio::select! {
             signal = tokio::signal::ctrl_c() => {
-                break signal.map_err(DaemonError::from);
+                signal?;
+                break;
             }
             accepted = web_listener.accept() => {
-                let (stream, _) = match accepted {
-                    Ok(accepted) => accepted,
-                    Err(source) => break Err(source.into()),
-                };
+                let (stream, _) = accepted?;
                 let web_state = web_state.clone();
-                connections.spawn(async move {
+                tokio::spawn(async move {
                     let _ = web::handle_connection(stream, web_state).await;
                 });
             }
-            completed = connections.join_next(), if !connections.is_empty() => {
-                let _ = completed;
-            }
         }
-    };
+    }
 
-    connections.abort_all();
-    while connections.join_next().await.is_some() {}
     host.shutdown().await;
-    result
+    Ok(())
 }

@@ -1411,13 +1411,6 @@ mod tests {
         let server_base_url = spawn_memory_graph_mnemosyne_server().await;
         let store = crate::store::tests::test_store().await;
         store
-            .with_connection(|conn| {
-                conn.execute("INSERT INTO provider_accounts (provider_account_id, provider_kind, account_key, display_name, auth_method, is_active, is_default, status) VALUES ('provider_account:codex:memory', 'codex', 'memory', 'Memory', 'none', 1, 0, 'authenticated')", [])?;
-                Ok(())
-            })
-            .await
-            .expect("memory provider account");
-        store
             .save_memory_service_settings(crate::SaveMemoryServiceSettings {
                 mode: crate::MemoryServiceMode::External,
                 base_url: Some(server_base_url),
@@ -4247,11 +4240,6 @@ mod tests {
 
         let store = test_store().await;
         store
-            .ensure_default_actors()
-            .await
-            .expect("default approval actors");
-        seed_google_mcp_tools(&store, &[("share_doc", "fingerprint")]).await;
-        store
             .create_mcp_approval_request(NewMcpApprovalRequest {
                 approval_id: "approval:mcp:pending".to_string(),
                 action_summary: "Share Google Doc".to_string(),
@@ -4277,8 +4265,8 @@ mod tests {
                 approval_id: "approval:mcp:denied".to_string(),
                 action_summary: "Publish note".to_string(),
                 tool_invocation_id: "tool_invocation:mcp:denied".to_string(),
-                mcp_server_id: Some("mcp_server:google".to_string()),
-                mcp_tool_id: Some("mcp_tool:google:share_doc".to_string()),
+                mcp_server_id: Some("mcp_server:publish".to_string()),
+                mcp_tool_id: Some("mcp_tool:publish:post".to_string()),
                 requester_actor_id: "agent:primary".to_string(),
                 owner_scope_id: "human:local".to_string(),
                 active_scope_id: "human:local".to_string(),
@@ -4299,9 +4287,9 @@ mod tests {
                     r#"
                     UPDATE approval_requests
                     SET status = 'denied',
-                        decision_human_id = 'human:local',
+                        decision_actor_id = 'human:local',
                         decision_comment = 'No',
-                        decided_at = '2026-06-30T00:00:00.000Z',
+                        decided_at = '2026-06-30T00:00:00Z',
                         updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
                     WHERE approval_id = 'approval:mcp:denied'
                     "#,
@@ -4362,7 +4350,10 @@ mod tests {
             approval["exportSummary"],
             "Document title and share permission"
         );
-        assert_eq!(approval["payloadPreview"], json!({}));
+        assert_eq!(
+            approval["payloadPreview"]["recipient"],
+            "person@example.com"
+        );
         assert_eq!(approval["status"], "pending");
     }
 
@@ -4371,7 +4362,6 @@ mod tests {
         use crate::{McpCalibrationStatus, store::tests::test_store};
 
         let store = test_store().await;
-        store.ensure_default_actors().await.expect("actors");
         seed_google_mcp_tools(&store, &[("read_doc", "fingerprint_1")]).await;
 
         let schema = build_schema(GraphqlState::for_tests_with_store(store.clone()));
@@ -4433,7 +4423,6 @@ mod tests {
         use crate::{McpCalibrationStatus, McpTrustClassification, store::tests::test_store};
 
         let store = test_store().await;
-        store.ensure_default_actors().await.expect("actors");
         seed_google_mcp_tools(
             &store,
             &[

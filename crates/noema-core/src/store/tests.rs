@@ -3,7 +3,6 @@ use tempfile::TempDir;
 use super::{NoemaStore, StoreConfig};
 
 mod mcp;
-mod schema_v2;
 
 #[tokio::test]
 async fn opens_sqlite_store_under_noema_db_dir() {
@@ -15,7 +14,7 @@ async fn opens_sqlite_store_under_noema_db_dir() {
 
     assert!(paths.db_dir().exists());
     assert!(paths.sqlite_db_path().exists());
-    assert_eq!(store.schema_version().await.expect("schema version"), 2);
+    assert_eq!(store.schema_version().await.expect("schema version"), 1);
 }
 
 #[tokio::test]
@@ -665,13 +664,6 @@ async fn sqlite_memory_service_defaults_to_managed() {
 #[tokio::test]
 async fn sqlite_memory_service_settings_round_trip_external() {
     let store = test_store().await;
-    store
-        .with_connection(|conn| {
-            conn.execute("INSERT INTO provider_accounts (provider_account_id, provider_kind, account_key, display_name, auth_method, is_active, is_default, status) VALUES ('provider_account:openai:default', 'openai', 'default', 'OpenAI', 'none', 1, 1, 'authenticated')", [])?;
-            Ok(())
-        })
-        .await
-        .expect("provider account");
 
     store
         .save_memory_service_settings(crate::SaveMemoryServiceSettings {
@@ -696,59 +688,6 @@ async fn sqlite_memory_service_settings_round_trip_external() {
 }
 
 #[tokio::test]
-async fn sqlite_memory_service_settings_validate_provider_and_clear_deleted_account() {
-    let store = test_store().await;
-    store
-        .with_connection(|conn| {
-            conn.execute("INSERT INTO provider_accounts (provider_account_id, provider_kind, account_key, display_name, auth_method, is_active, is_default, status) VALUES ('provider_account:memory', 'openai', 'memory', 'Memory', 'none', 1, 0, 'authenticated')", [])?;
-            Ok(())
-        })
-        .await
-        .expect("provider account");
-    let settings = crate::SaveMemoryServiceSettings {
-        mode: crate::MemoryServiceMode::External,
-        base_url: Some("http://127.0.0.1:7777".to_string()),
-        port: None,
-        provider_account_id: Some("provider_account:memory".to_string()),
-        provider_kind: Some("codex".to_string()),
-        model_profile: Some("model".to_string()),
-        reasoning_effort: None,
-    };
-    assert!(
-        store
-            .save_memory_service_settings(settings.clone())
-            .await
-            .is_err()
-    );
-    let saved = store
-        .save_memory_service_settings(crate::SaveMemoryServiceSettings {
-            provider_kind: Some("openai".to_string()),
-            ..settings
-        })
-        .await
-        .expect("matching provider");
-    assert_eq!(
-        saved.provider_account_id.as_deref(),
-        Some("provider_account:memory")
-    );
-    store
-        .with_connection(|conn| {
-            conn.execute("DELETE FROM provider_accounts WHERE provider_account_id = 'provider_account:memory'", [])?;
-            Ok(())
-        })
-        .await
-        .expect("delete provider");
-    assert_eq!(
-        store
-            .memory_service_settings()
-            .await
-            .expect("settings")
-            .provider_account_id,
-        None
-    );
-}
-
-#[tokio::test]
 async fn sqlite_memory_article_cache_round_trip() {
     let store = test_store().await;
 
@@ -757,7 +696,7 @@ async fn sqlite_memory_article_cache_round_trip() {
             scope_id: "human:local".to_string(),
             fact_fingerprint: "facts-v1".to_string(),
             article_markdown: "# Kevin\n\nLittle is currently known about Kevin.".to_string(),
-            generated_at: "2026-07-08T20:00:00.000Z".to_string(),
+            generated_at: "2026-07-08T20:00:00Z".to_string(),
         })
         .await
         .expect("save article cache");

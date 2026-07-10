@@ -21,12 +21,6 @@ The next storage slice should stay small and concrete:
 - Frontend IA that keeps memory configuration in Settings > Memory and exposes
   human memories through the top-level `/memory` page.
 
-The codebase remediation Foundation milestone is complete: control artifacts,
-build/bundle baselines, generated-state checks, minimal CI, existing frontend
-test scripts, the root MIT license, and a provisional redistribution inventory
-are in place. Browser automation was explicitly removed. The active remediation
-phase is the combined Trust and Integrity milestone (M1+M2).
-
 ## Settled Decisions
 
 - SQLite is the target canonical structured store for the always-on personal
@@ -401,10 +395,8 @@ phase is the combined Trust and Integrity milestone (M1+M2).
   account metadata, and auth support live under `provider`, while concrete
   adapters and response stream helpers live under `provider::adapters`; the old
   top-level `providers` module has been retired.
-- `crates/noema-core/web/tests` has been removed. Frontend validation uses
-  generated-source checks, `bun run lint`, and `bun run build`. Do not add
-  Playwright, browser automation, screenshot/trace harnesses, or UI/frontend
-  tests unless the user explicitly requests them.
+- `crates/noema-core/web/tests` has been removed; web validation should use
+  `bun run lint`, `bun run build`, and local browser smoke checks.
 - Agent memory reads are explicit `search_memory` tool-only calls. Noema
   validates arguments, maps trusted active scopes to Mnemosyne user/run filters
   where available, returns Mnemosyne search results as a normal tool result, and
@@ -573,9 +565,9 @@ cargo test --workspace --no-fail-fast
 For frontend or UI work:
 
 - Run `bun run gen:types`, `bun run lint`, and `bun run build` in `crates/noema-core/web`.
-- Do not add or run browser automation. Keep validation to generated sources,
-  type-checking, linting, and production builds unless the user explicitly asks
-  for additional frontend testing.
+- Run the local app/server.
+- Capture desktop and mobile screenshots.
+- Inspect overflow, spacing, safe areas, and visual regressions.
 
 Before commit/push:
 
