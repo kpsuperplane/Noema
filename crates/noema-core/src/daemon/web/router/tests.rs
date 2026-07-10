@@ -737,7 +737,7 @@ async fn artifact_download_refuses_injected_filename_header() {
     let (_home, paths, store, artifact, router, cookie) = artifact_fixture().await;
     let version_id = &artifact.current_version.artifact_version_id;
     let forged_path =
-        format!("conversations/x/artifacts/x/versions/1/report\"\r\nx-injected: yes.md");
+        "conversations/x/artifacts/x/versions/1/report\"\r\nx-injected: yes.md".to_string();
     std::fs::create_dir_all(paths.root().join("conversations/x/artifacts/x/versions/1"))
         .expect("artifact dirs");
     std::fs::write(paths.root().join(&forged_path), b"hello download").expect("forged file");
