@@ -36,7 +36,15 @@ required before security and schema implementation begins.
   generated route tree.
 - Require generation, tests, lint, build, and a clean generated diff twice.
 
-### F4 — Minimal CI and generated state
+### F4a — Generated state and built-asset verification
+
+- Add a test-first repository verifier for generated GraphQL schema/types,
+  route-tree cleanliness, required web entry assets, and every asset reference
+  reachable from `index.html`.
+- Expose focused frontend package scripts that CI and developers run without
+  duplicating generation logic.
+
+### F4b — Minimal CI
 
 - Add least-privilege CI with bounded concurrency for Rust, frontend, Python
   validation available today, and generated-state cleanliness.
