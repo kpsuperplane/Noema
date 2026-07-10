@@ -14,7 +14,7 @@ mechanics while M6 renders recovery. M4 owns memory supervisor state while M6
 renders it. M7 owns fail-closed asset mechanics while M5 consumes them in
 packaging.
 
-| ID | Primary milestone | Known consumers | Automated coverage | Browser scenario | Acceptance evidence | Completion commit |
+| ID | Primary milestone | Known consumers | Automated coverage | Operational verification | Acceptance evidence | Completion commit |
 | --- | --- | --- | --- | --- | --- | --- |
 | SEC-001 | M1+M2 | API; daemon; desktop | Pending | Pending | Pending | Pending |
 | SEC-002 | M1+M2 | API; daemon; desktop | Pending | Pending | Pending | Pending |

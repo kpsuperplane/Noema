@@ -4,17 +4,16 @@
 
 **Goal:** Close every item in `docs/codebase-audit-tracker.md` through a
 rolling, evidence-gated program with explicit architecture planning, focused
-implementation, adversarial review, automated validation, and daemon-backed
-browser acceptance.
+implementation, proportionate adversarial review, and automated validation.
 
 ## Operating Model
 
-- The root agent owns orchestration, integration, live `~/.noema` access,
-  browser QA, commits, and milestone gates.
+- The root agent owns orchestration, integration, commits, and milestone gates.
 - A fresh Sol-high planner creates the decision-complete plan immediately
   before each milestone from the current repository state.
-- A separate Sol-high agent reviews each milestone plan and completed unit
-  read-only.
+- A separate Sol-high agent reviews each milestone plan and the completed
+  milestone read-only. Unit-level Sol review is reserved for security-critical
+  or architecturally risky changes instead of being automatic.
 - One fresh Terra-medium implementer works at a time in the shared main
   worktree. Implementers edit and validate but do not commit.
 - Root commits only after focused validation and task review pass. Root never
@@ -28,7 +27,7 @@ rather than verified.
 
 ## Execution Order
 
-1. Foundation guardrails, validation, browser harness, and baselines.
+1. Foundation guardrails, validation, and baselines.
 2. Milestones 1 and 2 as one trust/integrity macro-phase with a single schema
    rewrite.
 3. Milestone 3 runtime concurrency, cancellation, and lifecycle.
@@ -47,8 +46,8 @@ than deferring feature tests from their owning milestones.
 
 - `docs/codebase-audit-tracker.md` is the canonical checkbox list.
 - `docs/codebase-audit-ledger.md` maps every canonical checkbox ID to exactly
-  one primary milestone, known consumers, automated coverage, browser
-  scenario, acceptance evidence, and completion commit.
+  one primary milestone, known consumers, automated coverage, operational
+  verification, acceptance evidence, and completion commit.
 - `docs/superpowers/plans/` contains this program and the just-in-time
   milestone plans.
 - `docs/context/current.md` records concise implemented state, decisions, and
@@ -60,40 +59,24 @@ No tracker item is checked merely because it is assigned. Completion requires
 implementation or an explicitly permitted evidence-based no-split decision,
 fresh validation evidence, review approval, and a completion commit.
 
-## Browser And Runtime Guardrails
+## Validation And Runtime Guardrails
 
-### Authenticated product environment
-
-Root may start the exact modified daemon with `NOEMA_HOME="$HOME/.noema"` and
-use the existing Codex credentials for narrow positive-path acceptance checks.
-Root must not inspect or capture credential contents, browser storage, cookies,
-authorization headers, provider payloads, transcript text, memory content, or
-account identifiers. Credential state under `~/.noema/providers/**` is
-protected from deletion, copying into the repository, screenshots, traces, and
-CI artifacts.
-
-Foundation live QA is limited to state-safe navigation plus one minimal Codex
-chat. It accepts valid ready, unavailable, and empty states without mutating
-provider, MCP, memory, or settings configuration. Live database recreation is
-reserved for the schema milestone, where the daemon is stopped first and the
-SQLite database, WAL, and SHM are moved together to a private rollback
-location. Whole-home deletion is never allowed.
-
-### Ephemeral environment
-
-Destructive, adversarial, cross-user, malformed-data, fault-injection, and
-simulated-side-effect scenarios run against a temporary `NOEMA_HOME`, random
-loopback port, deterministic provider, and local test integrations. The test
-harness owns and joins every daemon, browser, and child process.
-
-### Per-task evidence
-
-Every observable change defines routes, preconditions, actions, expected
-visible and accessible state, expected network behavior, recovery state, and
-console-error expectations. Root starts the exact daemon, waits for explicit
-readiness, uses the in-app browser, captures sanitized evidence when useful,
-and shuts the daemon down cleanly. Pure documentation, licensing, CI metadata,
-and proven behavior-neutral moves may skip browser QA with a recorded reason.
+- Do not add Playwright, browser automation, browser acceptance harnesses,
+  screenshot/trace recorders, or browser-driven CI gates.
+- Frontend changes use type-checking, linting, generated-source checks, and
+  production builds. Do not add UI/frontend tests unless the user explicitly
+  requests them; existing focused non-UI tests may continue to run.
+- Backend behavior is validated at the narrowest stable boundary: domain and
+  store unit tests, GraphQL/transport integration tests, provider contract
+  tests, and owned process-lifecycle tests.
+- Destructive, cross-user, malformed-data, fault-injection, and simulated
+  side-effect checks use temporary state and deterministic local fakes. Tests
+  must own and join every daemon and child process they start.
+- Credential state under `~/.noema/providers/**` remains protected from
+  deletion, copying, fixtures, logs, and CI artifacts. Automated validation
+  does not use the live `~/.noema` installation.
+- Validation effort is proportional to risk. Focused checks run per unit; the
+  full workspace matrix and adversarial review run once at the milestone gate.
 
 ## Milestone Outcomes
 
@@ -102,8 +85,6 @@ and proven behavior-neutral moves may skip browser QA with a recorded reason.
 - Persist this program and a complete one-owner coverage ledger.
 - Establish minimal CI and generated-artifact cleanliness.
 - Repair the stale frontend navigation tests and add normal test scripts.
-- Add an isolated deterministic daemon/browser acceptance harness.
-- Capture a credential-safe live `~/.noema` browser baseline.
 - Capture reproducible toolchain, Rust build, and frontend bundle baselines
   without changing or bypassing `sccache`.
 - Add the root MIT license and a provisional redistribution inventory.
@@ -176,8 +157,8 @@ and proven behavior-neutral moves may skip browser QA with a recorded reason.
   installed-app CI matrix.
 - Reconcile authoritative documentation, terminology, routes, licenses,
   ignored artifacts, unused dependencies, and generated files.
-- Run a final Sol-high audit and complete live browser regression. Every
-  checkbox must have concrete evidence before closure.
+- Run a final Sol-high audit. Every checkbox must have concrete evidence before
+  closure.
 
 ## Standard Validation
 
@@ -191,10 +172,9 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace --no-fail-fast
 ```
 
-Relevant milestones additionally run Python, frontend, generated-artifact,
-daemon/browser, packaging, and installed-application suites. Observable
-functionality cannot be declared complete from compilation and unit tests
-alone; the task's daemon-backed browser matrix must pass.
+Relevant milestones additionally run Python, frontend static/build,
+generated-artifact, packaging, and installed-application suites. No browser
+automation or browser-driven acceptance gate is part of this program.
 
 ## Locked Decisions
 

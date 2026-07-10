@@ -1,8 +1,8 @@
 # Noema Remediation Foundation Milestone
 
-**Goal:** Establish the program control plane, green validation, deterministic
-browser testing, live baseline, reproducibility evidence, and licensing inputs
-required before security and schema implementation begins.
+**Goal:** Establish the program control plane, proportionate green validation,
+reproducibility evidence, and licensing inputs required before security and
+schema implementation begins.
 
 ## Ordered Units
 
@@ -12,8 +12,8 @@ required before security and schema implementation begins.
   `docs/codebase-audit-tracker.md`, including leaf work, boundary guardrails,
   and milestone rollups.
 - Create `docs/codebase-audit-ledger.md` with exactly one primary milestone,
-  known consumers, automated coverage, browser scenario, acceptance evidence,
-  and completion commit for every ID.
+  known consumers, automated coverage, operational verification, acceptance
+  evidence, and completion commit for every ID.
 - Add a lightweight repository check rejecting missing, duplicate, unknown, or
   multiply owned IDs. Deferred ownership never marks an item complete.
 
@@ -53,50 +53,11 @@ required before security and schema implementation begins.
 - Do not check the broad final CI or release tracker items until their complete
   later matrices pass.
 
-### F5a — Injectable daemon/browser seam
-
-- Refactor listener/runtime construction just enough for an ephemeral test
-  launcher to receive a resolved random loopback address and deterministic
-  provider/runtime dependencies.
-- Add characterization tests first and prove test-provider code is absent from
-  production binaries/configurations.
-
-### F5b — Browser artifact sanitization
-
-- Add failure-only screenshot/trace capture with sanitized headers, variables,
-  bodies, paths, and storage state.
-- Add tests proving secret canaries never enter retained artifacts.
-
-### F5c — Deterministic browser scenarios
-
-- Run against a temporary `NOEMA_HOME`, random port, seeded non-secret state,
-  and deterministic provider.
-- Cover onboarding, empty conversation, submission/streaming/replay, Memory and
-  Usage routes, console errors, unhandled requests, and GraphQL errors.
-- Prove database recreation preserves sentinel provider files in the temporary
-  home without reading live credentials.
-- Own and join daemon/browser processes and temporary state with bounded
-  shutdown; require three consecutive local passes plus CI.
-
-### F6 — Live `~/.noema` browser baseline
-
-- Root builds the exact assets, starts the exact daemon on loopback, waits for
-  readiness, and uses the in-app browser.
-- Inspect shell boot, existing chat rendering, navigation, route chunks,
-  Providers, Memory, MCP, Usage, artifacts, WebSocket stability, failed
-  requests, and console errors while accepting valid ready/unavailable/empty
-  states.
-- Send one minimal Codex chat and observe streaming and a durable terminal
-  state. Do not mutate provider, MCP, memory, settings, or database state.
-- Store raw evidence only in ignored private artifacts and commit a sanitized
-  summary without transcript, memory, account, token, request-body, cookie,
-  storage, or credential content.
-
-### F7a — Root license
+### F5a — Root license
 
 - Add the standard MIT license with `Copyright (c) 2026 Noema contributors`.
 
-### F7b — Provisional redistribution inventory
+### F5b — Provisional redistribution inventory
 
 - Inventory locked transitive Rust, Bun, current Python, Swift/Foundation,
   Tauri, asset, font, icon, installer, and updater inputs by shipped artifact.
@@ -110,9 +71,6 @@ required before security and schema implementation begins.
 
 - Full Rust and frontend validation passes.
 - Minimal CI and generated-state checks pass from a clean checkout.
-- The deterministic browser harness passes three consecutive local runs.
-- The sanitized live browser baseline completes without credential exposure or
-  unintended mutations.
 - Every canonical tracker checkbox has one ledger owner.
 - Root verifies the diff, runs the ship checklist, commissions a Sol-high
   whole-milestone review, commits, and updates `docs/context/current.md`.

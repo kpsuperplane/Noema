@@ -395,8 +395,10 @@ The next storage slice should stay small and concrete:
   account metadata, and auth support live under `provider`, while concrete
   adapters and response stream helpers live under `provider::adapters`; the old
   top-level `providers` module has been retired.
-- `crates/noema-core/web/tests` has been removed; web validation should use
-  `bun run lint`, `bun run build`, and local browser smoke checks.
+- `crates/noema-core/web/tests` has been removed. Frontend validation uses
+  generated-source checks, `bun run lint`, and `bun run build`. Do not add
+  Playwright, browser automation, screenshot/trace harnesses, or UI/frontend
+  tests unless the user explicitly requests them.
 - Agent memory reads are explicit `search_memory` tool-only calls. Noema
   validates arguments, maps trusted active scopes to Mnemosyne user/run filters
   where available, returns Mnemosyne search results as a normal tool result, and
@@ -565,9 +567,9 @@ cargo test --workspace --no-fail-fast
 For frontend or UI work:
 
 - Run `bun run gen:types`, `bun run lint`, and `bun run build` in `crates/noema-core/web`.
-- Run the local app/server.
-- Capture desktop and mobile screenshots.
-- Inspect overflow, spacing, safe areas, and visual regressions.
+- Do not add or run browser automation. Keep validation to generated sources,
+  type-checking, linting, and production builds unless the user explicitly asks
+  for additional frontend testing.
 
 Before commit/push:
 

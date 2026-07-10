@@ -87,22 +87,6 @@ impl GraphqlRuntimeState {
         }
     }
 
-    /// Build state for resolver tests with a store, runtime, and path root.
-    #[cfg(test)]
-    #[must_use]
-    pub(crate) fn for_tests_with_store_runtime_and_paths(
-        store: NoemaStore,
-        runtime: CodexRuntimeHandle,
-        paths: NoemaPaths,
-    ) -> Self {
-        Self {
-            runtime: Some(runtime),
-            store: Some(store),
-            paths: Some(paths),
-            ..Self::for_tests()
-        }
-    }
-
     pub(crate) fn runtime(&self) -> async_graphql::Result<&CodexRuntimeHandle> {
         self.runtime
             .as_ref()
