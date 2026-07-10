@@ -19,7 +19,6 @@ import { Route as SettingsToolsWebRouteImport } from './routes/settings/tools/we
 import { Route as SettingsToolsMcpsRouteImport } from './routes/settings/tools/mcps'
 import { Route as SettingsSystemProvidersRouteImport } from './routes/settings/system/providers'
 import { Route as SettingsSafetyUsageRouteImport } from './routes/settings/safety/usage'
-import { Route as SettingsSafetyApprovalsRouteImport } from './routes/settings/safety/approvals'
 
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
@@ -71,11 +70,6 @@ const SettingsSafetyUsageRoute = SettingsSafetyUsageRouteImport.update({
   path: '/safety/usage',
   getParentRoute: () => SettingsRoute,
 } as any)
-const SettingsSafetyApprovalsRoute = SettingsSafetyApprovalsRouteImport.update({
-  id: '/safety/approvals',
-  path: '/safety/approvals',
-  getParentRoute: () => SettingsRoute,
-} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -84,7 +78,6 @@ export interface FileRoutesByFullPath {
   '/settings/agents': typeof SettingsAgentsRoute
   '/settings/memory': typeof SettingsMemoryRoute
   '/settings/': typeof SettingsIndexRoute
-  '/settings/safety/approvals': typeof SettingsSafetyApprovalsRoute
   '/settings/safety/usage': typeof SettingsSafetyUsageRoute
   '/settings/system/providers': typeof SettingsSystemProvidersRoute
   '/settings/tools/mcps': typeof SettingsToolsMcpsRoute
@@ -96,7 +89,6 @@ export interface FileRoutesByTo {
   '/settings/agents': typeof SettingsAgentsRoute
   '/settings/memory': typeof SettingsMemoryRoute
   '/settings': typeof SettingsIndexRoute
-  '/settings/safety/approvals': typeof SettingsSafetyApprovalsRoute
   '/settings/safety/usage': typeof SettingsSafetyUsageRoute
   '/settings/system/providers': typeof SettingsSystemProvidersRoute
   '/settings/tools/mcps': typeof SettingsToolsMcpsRoute
@@ -110,7 +102,6 @@ export interface FileRoutesById {
   '/settings/agents': typeof SettingsAgentsRoute
   '/settings/memory': typeof SettingsMemoryRoute
   '/settings/': typeof SettingsIndexRoute
-  '/settings/safety/approvals': typeof SettingsSafetyApprovalsRoute
   '/settings/safety/usage': typeof SettingsSafetyUsageRoute
   '/settings/system/providers': typeof SettingsSystemProvidersRoute
   '/settings/tools/mcps': typeof SettingsToolsMcpsRoute
@@ -125,7 +116,6 @@ export interface FileRouteTypes {
     | '/settings/agents'
     | '/settings/memory'
     | '/settings/'
-    | '/settings/safety/approvals'
     | '/settings/safety/usage'
     | '/settings/system/providers'
     | '/settings/tools/mcps'
@@ -137,7 +127,6 @@ export interface FileRouteTypes {
     | '/settings/agents'
     | '/settings/memory'
     | '/settings'
-    | '/settings/safety/approvals'
     | '/settings/safety/usage'
     | '/settings/system/providers'
     | '/settings/tools/mcps'
@@ -150,7 +139,6 @@ export interface FileRouteTypes {
     | '/settings/agents'
     | '/settings/memory'
     | '/settings/'
-    | '/settings/safety/approvals'
     | '/settings/safety/usage'
     | '/settings/system/providers'
     | '/settings/tools/mcps'
@@ -235,13 +223,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsSafetyUsageRouteImport
       parentRoute: typeof SettingsRoute
     }
-    '/settings/safety/approvals': {
-      id: '/settings/safety/approvals'
-      path: '/safety/approvals'
-      fullPath: '/settings/safety/approvals'
-      preLoaderRoute: typeof SettingsSafetyApprovalsRouteImport
-      parentRoute: typeof SettingsRoute
-    }
   }
 }
 
@@ -249,7 +230,6 @@ interface SettingsRouteChildren {
   SettingsAgentsRoute: typeof SettingsAgentsRoute
   SettingsMemoryRoute: typeof SettingsMemoryRoute
   SettingsIndexRoute: typeof SettingsIndexRoute
-  SettingsSafetyApprovalsRoute: typeof SettingsSafetyApprovalsRoute
   SettingsSafetyUsageRoute: typeof SettingsSafetyUsageRoute
   SettingsSystemProvidersRoute: typeof SettingsSystemProvidersRoute
   SettingsToolsMcpsRoute: typeof SettingsToolsMcpsRoute
@@ -260,7 +240,6 @@ const SettingsRouteChildren: SettingsRouteChildren = {
   SettingsAgentsRoute: SettingsAgentsRoute,
   SettingsMemoryRoute: SettingsMemoryRoute,
   SettingsIndexRoute: SettingsIndexRoute,
-  SettingsSafetyApprovalsRoute: SettingsSafetyApprovalsRoute,
   SettingsSafetyUsageRoute: SettingsSafetyUsageRoute,
   SettingsSystemProvidersRoute: SettingsSystemProvidersRoute,
   SettingsToolsMcpsRoute: SettingsToolsMcpsRoute,

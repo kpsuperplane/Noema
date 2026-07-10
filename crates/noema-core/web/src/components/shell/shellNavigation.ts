@@ -2,7 +2,6 @@ import {
   ArrowLeft,
   Bot,
   Brain,
-  CheckSquare,
   Gauge,
   Globe,
   House,
@@ -24,7 +23,6 @@ export type ShellMenuItemId =
   | "settings.tools.web"
   | "settings.tools.mcps"
   | "settings.safety.usage"
-  | "settings.safety.approvals"
   | "settings.system.providers"
   | "settings.go-back";
 
@@ -101,15 +99,6 @@ export const shellSettingsEntries: ShellSettingsEntry[] = [
       itemId: "settings.safety.usage",
       label: "Usage",
       icon: Gauge
-    }
-  },
-  {
-    kind: "section",
-    item: {
-      section: "safety-approvals",
-      itemId: "settings.safety.approvals",
-      label: "Approvals",
-      icon: CheckSquare
     }
   },
   { kind: "group", label: "System" },

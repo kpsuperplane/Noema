@@ -482,30 +482,6 @@ export const McpToolsDocument = gql`
   }
 `;
 
-export const McpApprovalSettingsDocument = gql`
-  query McpApprovalSettings($status: String) {
-    mcpApprovalRequests(status: $status) {
-      approvalId
-      actionSummary
-      toolInvocationId
-      mcpServerId
-      mcpToolId
-      requesterActorId
-      ownerScopeId
-      activeScopeId
-      destinationSummary
-      dataSourceSummary
-      sourceOwnerIdentity
-      sourceOwnerTrust
-      destinationOwnerIdentity
-      destinationOwnerTrust
-      exportSummary
-      payloadPreview
-      status
-    }
-  }
-`;
-
 export const SaveToolCalibrationsDocument = gql`
   mutation SaveToolCalibrations($inputs: [SaveToolCalibrationInput!]!) {
     saveToolCalibrations(inputs: $inputs) {

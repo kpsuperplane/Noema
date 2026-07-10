@@ -102,14 +102,13 @@ pub use runtime_host::{NoemaRuntimeHost, RuntimeHostError};
 pub use store::{
     AgentRecord, AgentRuntimePreferenceRecord, ArtifactOwnerRef, ArtifactRecord, ArtifactSource,
     ArtifactStorageKind, ArtifactVersionRecord, ArtifactVersionStorage, ArtifactWithVersions,
-    AuxiliaryModelPreferenceRecord, ConversationContextSummaryRecord, McpApprovalRequestRecord,
-    McpServerAuthStatus, McpServerHealthStatus, McpServerRecord, McpToolRecord,
-    MemoryArticleCacheRecord, MemoryServiceMode, MemoryServiceSettingsRecord, NewAgent,
-    NewAgentRuntimePreference, NewArtifact, NewArtifactVersion, NewAuxiliaryModelPreference,
-    NewConversationContextSummary, NewMcpApprovalRequest, NewMcpServer, NewMcpTool,
-    NewToolCalibration, NoemaStore, SaveMemoryArticleCache, SaveMemoryServiceSettings, StoreConfig,
-    StoreError, ToolCalibrationRecord, WEB_FETCH_SUMMARIZER_TASK_ID,
-    validate_external_artifact_url,
+    AuxiliaryModelPreferenceRecord, ConversationContextSummaryRecord, McpServerAuthStatus,
+    McpServerHealthStatus, McpServerRecord, McpToolRecord, MemoryArticleCacheRecord,
+    MemoryServiceMode, MemoryServiceSettingsRecord, NewAgent, NewAgentRuntimePreference,
+    NewArtifact, NewArtifactVersion, NewAuxiliaryModelPreference, NewConversationContextSummary,
+    NewMcpServer, NewMcpTool, NewToolCalibration, NoemaStore, SaveMemoryArticleCache,
+    SaveMemoryServiceSettings, StoreConfig, StoreError, ToolCalibrationRecord,
+    WEB_FETCH_SUMMARIZER_TASK_ID, validate_external_artifact_url,
 };
 pub use system_errors::{
     SYSTEM_ERROR_MCP_MALFORMED_RESPONSE, SYSTEM_ERROR_MCP_TOOL_CALL_FAILURE,

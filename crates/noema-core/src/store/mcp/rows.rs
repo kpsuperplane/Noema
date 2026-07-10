@@ -1,8 +1,8 @@
 use rusqlite::Row;
 
 use super::{
-    McpApprovalRequestRecord, McpServerAuthStatus, McpServerHealthStatus, McpServerRecord,
-    McpToolRecord, ToolCalibrationRecord,
+    McpServerAuthStatus, McpServerHealthStatus, McpServerRecord, McpToolRecord,
+    ToolCalibrationRecord,
 };
 use crate::{
     McpCalibrationStatus, McpTransportKind, McpTrustClassification,
@@ -84,34 +84,6 @@ pub(super) fn tool_calibration_from_row(row: &Row<'_>) -> rusqlite::Result<ToolC
         status,
         reviewed_by: row.get(6)?,
         reviewed_metadata_fingerprint: row.get(7)?,
-    })
-}
-
-pub(super) fn mcp_approval_request_from_row(
-    row: &Row<'_>,
-) -> rusqlite::Result<McpApprovalRequestRecord> {
-    let payload_preview_json: String = row.get(15)?;
-    Ok(McpApprovalRequestRecord {
-        approval_id: row.get(0)?,
-        action_summary: row.get(1)?,
-        tool_invocation_id: row.get(2)?,
-        mcp_server_id: row.get(3)?,
-        mcp_tool_id: row.get(4)?,
-        requester_actor_id: row.get(5)?,
-        owner_scope_id: row.get(6)?,
-        active_scope_id: row.get(7)?,
-        destination_summary: row.get(8)?,
-        data_source_summary: row.get(9)?,
-        source_owner_identity: row.get(10)?,
-        source_owner_trust: row.get(11)?,
-        destination_owner_identity: row.get(12)?,
-        destination_owner_trust: row.get(13)?,
-        export_summary: row.get(14)?,
-        payload_preview: serde_json::from_str(&payload_preview_json).map_err(to_sql_error)?,
-        status: row.get(16)?,
-        decision_actor_id: row.get(17)?,
-        decision_comment: row.get(18)?,
-        decided_at: row.get(19)?,
     })
 }
 

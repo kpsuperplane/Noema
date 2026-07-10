@@ -3,7 +3,7 @@ use serde_json::json;
 use super::test_store;
 use crate::{
     McpCalibrationStatus, McpServerAuthStatus, McpServerHealthStatus, McpTransportKind,
-    McpTrustClassification, NewMcpApprovalRequest, NewMcpServer, NewMcpTool, NewToolCalibration,
+    McpTrustClassification, NewMcpServer, NewMcpTool, NewToolCalibration,
     mcp::{McpToolIneligibility, mcp_tool_ineligibility},
 };
 
@@ -44,21 +44,6 @@ async fn mcp_control_plane_tables_bootstrap() {
               'trusted', 'none', 'none', 'needs_review'
             );
 
-            INSERT INTO approval_requests (
-              approval_id, action_summary, tool_invocation_id, mcp_server_id,
-              mcp_tool_id, requester_actor_id, owner_scope_id, active_scope_id,
-              destination_summary, data_source_summary, source_owner_identity,
-              source_owner_trust, destination_owner_identity, destination_owner_trust,
-              export_summary, payload_preview_json, status
-            )
-            VALUES (
-              'approval:local-test', 'Approve local test MCP call',
-              'tool_invocation:local-test', 'mcp_server:local-test',
-              'mcp_tool:local-test:read', 'agent:primary', 'human:local',
-              'human:local', 'Local test recipient', 'Local test MCP result',
-              'kevin@example.com', 'trusted', 'person@example.com', 'untrusted',
-              'Local test data leaves the MCP boundary', '{}', 'pending'
-            );
             "#,
             )?;
             Ok(())
@@ -91,80 +76,6 @@ async fn mcp_server_transport_constraint_rejects_removed_sse_kind() {
         .expect_err("removed SSE transport should violate the schema constraint");
 
     assert!(error.to_string().contains("transport_kind"));
-}
-
-#[tokio::test]
-async fn export_decision_creates_manual_approval_request() {
-    let store = test_store().await;
-
-    let approval = store
-        .create_mcp_approval_request(NewMcpApprovalRequest {
-            approval_id: "approval:mcp:1".to_string(),
-            action_summary: "Share Google Doc".to_string(),
-            tool_invocation_id: "tool_invocation:mcp:1".to_string(),
-            mcp_server_id: Some("mcp_server:google".to_string()),
-            mcp_tool_id: Some("mcp_tool:google:share_doc".to_string()),
-            requester_actor_id: "agent:primary".to_string(),
-            owner_scope_id: "human:local".to_string(),
-            active_scope_id: "human:local".to_string(),
-            destination_summary: "person@example.com".to_string(),
-            data_source_summary: "Google Doc: Project plan".to_string(),
-            source_owner_identity: "kevin@example.com".to_string(),
-            source_owner_trust: "trusted".to_string(),
-            destination_owner_identity: "person@example.com".to_string(),
-            destination_owner_trust: "untrusted".to_string(),
-            export_summary: "Document title and share permission".to_string(),
-            payload_preview: json!({
-                "recipient": "person@example.com",
-                "api_token": "secret-token",
-                "headers": {
-                    "Authorization": "Bearer secret",
-                    "cookie": "session=secret"
-                }
-            }),
-        })
-        .await
-        .expect("approval");
-
-    assert_eq!(approval.approval_id, "approval:mcp:1");
-    assert_eq!(approval.action_summary, "Share Google Doc");
-    assert_eq!(approval.tool_invocation_id, "tool_invocation:mcp:1");
-    assert_eq!(approval.mcp_server_id.as_deref(), Some("mcp_server:google"));
-    assert_eq!(
-        approval.mcp_tool_id.as_deref(),
-        Some("mcp_tool:google:share_doc")
-    );
-    assert_eq!(approval.requester_actor_id, "agent:primary");
-    assert_eq!(approval.owner_scope_id, "human:local");
-    assert_eq!(approval.active_scope_id, "human:local");
-    assert_eq!(approval.destination_summary, "person@example.com");
-    assert_eq!(approval.data_source_summary, "Google Doc: Project plan");
-    assert_eq!(approval.source_owner_identity, "kevin@example.com");
-    assert_eq!(approval.source_owner_trust, "trusted");
-    assert_eq!(approval.destination_owner_identity, "person@example.com");
-    assert_eq!(approval.destination_owner_trust, "untrusted");
-    assert_eq!(
-        approval.export_summary,
-        "Document title and share permission"
-    );
-    assert_eq!(
-        approval.payload_preview,
-        json!({
-            "recipient": "person@example.com",
-            "api_token": "[redacted]",
-            "headers": {
-                "Authorization": "[redacted]",
-                "cookie": "[redacted]"
-            }
-        })
-    );
-    assert_eq!(approval.status, "pending");
-
-    let pending = store
-        .list_mcp_approval_requests(Some("pending"))
-        .await
-        .expect("pending approvals");
-    assert_eq!(pending, vec![approval]);
 }
 
 #[tokio::test]
@@ -859,80 +770,6 @@ async fn mcp_control_plane_schema_rejects_invalid_enum_values() {
 
     assert!(
         error.to_string().contains("transport_kind") || error.to_string().contains("websocket"),
-        "unexpected error: {error}"
-    );
-}
-
-#[tokio::test]
-async fn approval_request_schema_rejects_invalid_status() {
-    let store = test_store().await;
-
-    let error = store
-        .with_connection(|conn| {
-            conn.execute(
-                r#"
-            INSERT INTO approval_requests (
-              approval_id, action_summary, tool_invocation_id, requester_actor_id,
-              owner_scope_id, active_scope_id, destination_summary, data_source_summary,
-              source_owner_identity, source_owner_trust, destination_owner_identity,
-              destination_owner_trust, export_summary, payload_preview_json, status
-            )
-            VALUES (
-              'approval:invalid-status', 'Invalid approval status test',
-              'tool_invocation:invalid-status', 'agent:primary', 'human:local',
-              'human:local', 'Destination', 'Data source', 'kevin@example.com',
-              'trusted', 'person@example.com', 'untrusted', 'Exported data',
-              '{}', 'deferred'
-            )
-            "#,
-                [],
-            )?;
-            Ok(())
-        })
-        .await
-        .expect_err("invalid approval status should be rejected");
-
-    assert!(
-        error.to_string().contains("status") || error.to_string().contains("deferred"),
-        "unexpected error: {error}"
-    );
-}
-
-#[tokio::test]
-async fn terminal_approval_request_requires_decision_evidence() {
-    let store = test_store().await;
-
-    let error = store
-        .with_connection(|conn| {
-            conn.execute(
-                r#"
-            INSERT INTO approval_requests (
-              approval_id, action_summary, tool_invocation_id, requester_actor_id,
-              owner_scope_id, active_scope_id, destination_summary, data_source_summary,
-              source_owner_identity, source_owner_trust, destination_owner_identity,
-              destination_owner_trust, export_summary, payload_preview_json, status,
-              decision_actor_id, decided_at
-            )
-            VALUES (
-              'approval:approved-without-decision',
-              'Approved approval decision evidence test',
-              'tool_invocation:approved-without-decision', 'agent:primary',
-              'human:local', 'human:local', 'Destination', 'Data source',
-              'kevin@example.com', 'trusted', 'person@example.com', 'untrusted',
-              'Exported data', '{}', 'approved', NULL, NULL
-            )
-            "#,
-                [],
-            )?;
-            Ok(())
-        })
-        .await
-        .expect_err("terminal approval without decision evidence should be rejected");
-
-    assert!(
-        error.to_string().contains("decision_actor_id")
-            || error.to_string().contains("decided_at")
-            || error.to_string().contains("approved"),
         "unexpected error: {error}"
     );
 }

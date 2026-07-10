@@ -250,35 +250,6 @@ CREATE TABLE IF NOT EXISTS tool_calibrations (
   updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 
-CREATE TABLE IF NOT EXISTS approval_requests (
-  approval_id TEXT PRIMARY KEY NOT NULL,
-  action_summary TEXT NOT NULL,
-  tool_invocation_id TEXT NOT NULL,
-  mcp_server_id TEXT,
-  mcp_tool_id TEXT,
-  requester_actor_id TEXT NOT NULL,
-  owner_scope_id TEXT NOT NULL,
-  active_scope_id TEXT NOT NULL,
-  destination_summary TEXT NOT NULL,
-  data_source_summary TEXT NOT NULL,
-  source_owner_identity TEXT NOT NULL,
-  source_owner_trust TEXT NOT NULL CHECK (source_owner_trust IN ('trusted', 'untrusted', 'mixed', 'unresolved')),
-  destination_owner_identity TEXT NOT NULL,
-  destination_owner_trust TEXT NOT NULL CHECK (destination_owner_trust IN ('trusted', 'untrusted', 'mixed', 'unresolved')),
-  export_summary TEXT NOT NULL,
-  payload_preview_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(payload_preview_json)),
-  status TEXT NOT NULL CHECK (status IN ('pending', 'approved', 'denied', 'cancelled')),
-  decision_actor_id TEXT,
-  decision_comment TEXT,
-  decided_at TEXT,
-  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-  CHECK (
-    status = 'pending'
-    OR (decision_actor_id IS NOT NULL AND decided_at IS NOT NULL)
-  )
-);
-
 CREATE TABLE IF NOT EXISTS memory_service_settings (
   settings_id TEXT PRIMARY KEY NOT NULL CHECK (settings_id = 'default'),
   mode TEXT NOT NULL CHECK (mode IN ('managed', 'external')),

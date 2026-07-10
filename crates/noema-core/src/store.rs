@@ -33,9 +33,8 @@ pub use auxiliary_model_preferences::{
 pub use context_summaries::{ConversationContextSummaryRecord, NewConversationContextSummary};
 pub use error::StoreError;
 pub use mcp::{
-    McpApprovalRequestRecord, McpServerAuthStatus, McpServerHealthStatus, McpServerRecord,
-    McpToolRecord, NewMcpApprovalRequest, NewMcpServer, NewMcpTool, NewToolCalibration,
-    ToolCalibrationRecord,
+    McpServerAuthStatus, McpServerHealthStatus, McpServerRecord, McpToolRecord, NewMcpServer,
+    NewMcpTool, NewToolCalibration, ToolCalibrationRecord,
 };
 pub use memory_service::{
     MemoryArticleCacheRecord, MemoryServiceMode, MemoryServiceSettingsRecord,

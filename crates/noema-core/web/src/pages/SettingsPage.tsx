@@ -1,5 +1,4 @@
 import { AgentsSettingsPane } from "@/components/settings/AgentsSettingsPane";
-import { ApprovalsSettingsPane } from "@/components/settings/ApprovalsSettingsPane";
 import { MemorySettingsPane } from "@/components/settings/MemorySettingsPane";
 import { McpSettingsPane } from "@/components/settings/McpSettingsPane";
 import { ProvidersSettingsPane } from "@/components/settings/ProvidersSettingsPane";
@@ -32,10 +31,6 @@ const settingsSectionCopy: Record<SettingsSection, { title: string; description:
   "safety-usage": {
     title: "Usage",
     description: "Review runtime usage limits and model-assisted progress checks."
-  },
-  "safety-approvals": {
-    title: "Approvals",
-    description: "Review pending MCP approval checkpoints."
   },
   "system-providers": {
     title: "Providers",
@@ -80,8 +75,6 @@ function SettingsSectionPane({ section }: { section: SettingsSection }) {
       return <McpSettingsPane />;
     case "safety-usage":
       return <UsageSettingsPane />;
-    case "safety-approvals":
-      return <ApprovalsSettingsPane />;
     case "system-providers":
       return <ProvidersSettingsPane />;
   }
